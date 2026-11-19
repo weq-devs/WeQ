@@ -67,12 +67,18 @@ describe('Electron 下载传输', () => {
     expect(request.abort).toHaveBeenCalledOnce();
   });
 
-  it('重定向中的中文响应头同样兼容，跨域后移除凭据并保留下载范围', async () => {
+  it('重定向中的中文响应头同样兼容，跨域后移除凭据和完整来源地址并保留下载范围', async () => {
     const first = clientRequest();
     const second = clientRequest();
     net.request.mockReturnValueOnce(first).mockReturnValueOnce(second);
     const work = electronNetworkFetch('https://synthetic.invalid/file', {
-      headers: { authorization: 'Bearer fixture', cookie: 'fixture=1', range: 'bytes=4-' },
+      referrerPolicy: 'no-referrer-when-downgrade',
+      headers: {
+        authorization: 'Bearer fixture',
+        cookie: 'fixture=1',
+        range: 'bytes=4-',
+        referer: 'https://source.invalid/space/profile',
+      },
     });
     expect(() =>
       first.emit('redirect', 302, 'GET', 'https://cdn.invalid/file', {
@@ -87,6 +93,7 @@ describe('Electron 下载传输', () => {
     });
     expect(net.request.mock.calls[1][0].headers).not.toHaveProperty('authorization');
     expect(net.request.mock.calls[1][0].headers).not.toHaveProperty('cookie');
+    expect(net.request.mock.calls[1][0].headers).not.toHaveProperty('referer');
     second.emit('response', incoming({ 'content-range': 'bytes 4-17/18' }, 206));
     const result = await work;
     expect(result.url).toBe('https://cdn.invalid/file');

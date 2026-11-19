@@ -48,6 +48,28 @@ function fixture(resolve?: (ref: AgentLabModelSelection) => AgentLabEndpoint) {
 const usageEvent =
   'data: {"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}\n\n';
 
+it('助手的服务商时限覆盖流式正文，超时记失败且不重发', async () => {
+  const f = fixture();
+  const fetch = vi.fn(
+    async (_url: unknown, init?: RequestInit) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason), {
+              once: true,
+            });
+          },
+        }),
+      ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  await expect(
+    f.api.callApiStream({ ...f.endpoint, timeoutMs: 25 }, [], [], () => {}),
+  ).rejects.toMatchObject({ name: 'TimeoutError' });
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(f.usage.getStats()).toMatchObject({ totalCalls: 1, failedCalls: 1 });
+});
+
 it('输出参数的400错误不被误判为思考参数不兼容，也不污染后续请求', async () => {
   const f = fixture();
   const calls = vi
@@ -264,7 +286,7 @@ const temperatureError = {
   usage: { total_tokens: 1 },
 };
 it.each(['http', 'sse', 'json', 'json-no-header'] as const)(
-  '助手 %s 温度拒绝只回退一次，消息、工具及 reasoning 设置不变',
+  '助手不发送旧温度参数，%s 错误不重发且只记一次费用',
   async (kind) => {
     const f = fixture();
     const first =
@@ -274,34 +296,17 @@ it.each(['http', 'sse', 'json', 'json-no-header'] as const)(
             status: kind === 'http' ? 400 : 200,
             headers: kind === 'json' ? { 'content-type': 'application/json' } : undefined,
           });
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(first)
-      .mockResolvedValueOnce(
-        new Response(
-          'data: {"choices":[{"delta":{"content":"合成恢复"}}]}\n\n' +
-            usageEvent +
-            'data: [DONE]\n\n',
-        ),
-      );
+    const fetch = vi.fn(async (_url: unknown, _init: RequestInit) => first);
     vi.stubGlobal('fetch', fetch);
-    const events: unknown[] = [];
-    await expect(
-      f.api.callApiStream(f.endpoint, [], [], (step) => {
-        events.push(step);
-      }),
-    ).resolves.toMatchObject({ content: '合成恢复' });
-    expect(fetch).toHaveBeenCalledTimes(2);
-    const initial = JSON.parse(String((fetch.mock.calls[0]![1] as RequestInit).body));
-    const retry = JSON.parse(String((fetch.mock.calls[1]![1] as RequestInit).body));
-    const { temperature: _temperature, ...expected } = initial;
-    expect(retry).toEqual(expected);
-    expect(retry.reasoning_effort).toBe('medium');
-    expect(events).toEqual([{ kind: 'text_delta', text: '合成恢复' }]);
+    await expect(f.api.callApiStream(f.endpoint, [], [], () => {})).rejects.toThrow('temperature');
+    expect(fetch).toHaveBeenCalledOnce();
+    const body = JSON.parse(String(fetch.mock.calls[0]?.[1].body));
+    expect(body).not.toHaveProperty('temperature');
+    expect(body.reasoning_effort).toBe('medium');
     expect(f.usage.getStats()).toMatchObject({
-      totalCalls: 2,
+      totalCalls: 1,
       failedCalls: 1,
-      totalTokens: 13,
+      totalTokens: 1,
       pendingCalls: 0,
     });
   },
@@ -325,66 +330,17 @@ it.each([
   expect(f.usage.getStats()).toMatchObject({ totalCalls: 1, failedCalls: 1 });
 });
 
-it('SSE 连续拒绝不重复回退，也不把失败记成成功', async () => {
+it('助手标题未请求固定输出预算时不补上限，且保留功能归属', async () => {
   const f = fixture();
-  const fetch = vi.fn(async () => new Response(`data: ${JSON.stringify(temperatureError)}\n\n`));
-  vi.stubGlobal('fetch', fetch);
-  await expect(f.api.callApiStream(f.endpoint, [], [], () => {})).rejects.toThrow('temperature');
-  expect(fetch).toHaveBeenCalledTimes(2);
-  expect(f.usage.getStats()).toMatchObject({ totalCalls: 2, failedCalls: 2, totalTokens: 2 });
-});
-
-it('温度与 reasoning 连续不兼容时各自有界回退，不在后续请求重新附上温度', async () => {
-  const f = fixture();
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(new Response(JSON.stringify(temperatureError), { status: 400 }))
-    .mockResolvedValueOnce(
-      new Response(
-        '{"error":{"param":"reasoning_effort","message":"unsupported reasoning_effort"}}',
-        { status: 400 },
-      ),
-    )
-    .mockResolvedValueOnce(new Response('data: [DONE]\n\n'));
-  vi.stubGlobal('fetch', fetch);
-  await f.api.callApiStream(f.endpoint, [], [], () => {});
-  const bodies = fetch.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
-  expect(bodies.map((body) => Object.hasOwn(body, 'temperature'))).toEqual([true, false, false]);
-  expect(bodies.map((body) => Object.hasOwn(body, 'reasoning_effort'))).toEqual([
-    true,
-    true,
-    false,
-  ]);
-  expect(f.usage.getStats()).toMatchObject({ totalCalls: 3, failedCalls: 2 });
-});
-
-it('助手标题的 JSON 业务错误回退仍按实际请求数记账并保留功能归属', async () => {
-  const f = fixture();
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(new Response(JSON.stringify(temperatureError)))
-    .mockResolvedValueOnce(new Response('{"choices":[{"message":{"content":"合成标题"}}]}'));
+  f.endpoint.requestProperties = { maxOutputTokens: 7 };
+  const fetch = vi.fn(
+    async (_url: unknown, _init: RequestInit) =>
+      new Response('{"choices":[{"message":{"content":"合成标题"}}]}'),
+  );
   vi.stubGlobal('fetch', fetch);
   await expect(f.api.generateTitle('synthetic', 'synthetic')).resolves.toBe('合成标题');
-  expect(fetch).toHaveBeenCalledTimes(2);
-  expect(f.usage.getStats()).toMatchObject({ totalCalls: 2, failedCalls: 1 });
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(JSON.parse(String(fetch.mock.calls[0]?.[1].body))).not.toHaveProperty('max_tokens');
+  expect(f.usage.getStats()).toMatchObject({ totalCalls: 1, failedCalls: 0 });
   expect(f.usage.getStats().byFeature[0]?.feature).toBe('assistant-title');
-});
-
-it('SSE 温度回退保留原有有界限流退避，不会重新带回温度', async () => {
-  const f = fixture();
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(new Response(`data: ${JSON.stringify(temperatureError)}\n\n`))
-    .mockResolvedValueOnce(new Response('{"usage":{"total_tokens":0}}', { status: 429 }))
-    .mockResolvedValueOnce(new Response(usageEvent + 'data: [DONE]\n\n'));
-  vi.stubGlobal('fetch', fetch);
-  await f.api.callApiStream(f.endpoint, [], [], () => {});
-  expect(fetch).toHaveBeenCalledTimes(3);
-  expect(
-    fetch.mock.calls.map((call) =>
-      Object.hasOwn(JSON.parse(String((call[1] as RequestInit).body)), 'temperature'),
-    ),
-  ).toEqual([true, false, false]);
-  expect(f.usage.getStats()).toMatchObject({ totalCalls: 3, failedCalls: 2, totalTokens: 13 });
 });

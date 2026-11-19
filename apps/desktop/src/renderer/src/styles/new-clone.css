@@ -34,13 +34,13 @@
 .weq-clone-dialog .weq-exp-search input {
   min-width: 0;
 }
-.weq-clone-dialog :is(.weq-clone-config, .weq-clone-progress) {
+.weq-clone-dialog .weq-clone-config {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
 }
-.weq-clone-dialog :is(.weq-clone-config, .weq-clone-progress) > * {
+.weq-clone-dialog .weq-clone-config > * {
   flex-shrink: 0;
   min-width: 0;
   max-width: 100%;

@@ -11,12 +11,18 @@ export function SearchResultsPanel({
   navigation,
   onJumpMessage,
   renderers,
+  user,
+  groupMembers,
+  resolveGroupMembers,
   renderDetail,
   ...props
 }: Omit<ComponentProps<typeof SearchDropdown>, 'onMore' | 'onNavigate' | 'initialPosition'> & {
   navigation: ReturnType<typeof useSearchReturn>;
   onJumpMessage: ComponentProps<typeof ChatRecordsModal>['onJumpMessage'];
   renderers?: ComponentProps<typeof ChatRecordsModal>['renderers'];
+  user?: ComponentProps<typeof ChatRecordsModal>['user'];
+  groupMembers?: ComponentProps<typeof ChatRecordsModal>['groupMembers'];
+  resolveGroupMembers?: ComponentProps<typeof ChatRecordsModal>['resolveGroupMembers'];
   renderDetail: (hit: SearchHit, onBack: () => void) => ReactNode;
 }) {
   const select = (hit: SearchHit) => {
@@ -73,6 +79,9 @@ export function SearchResultsPanel({
                 onClose={navigation.backDetail}
                 onJumpMessage={onJumpMessage}
                 renderers={renderers}
+                user={user}
+                groupMembers={groupMembers}
+                resolveGroupMembers={resolveGroupMembers}
               />
             ) : (
               renderDetail(hit, navigation.backDetail)

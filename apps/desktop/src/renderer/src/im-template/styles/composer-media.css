@@ -925,7 +925,7 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   font-size: 12px;
 }
 
-.voice-tts-voice select,
+.voice-tts-voice .weq-select-trigger,
 .voice-tts-voice input {
   min-width: 0;
   flex: 1 1 auto;
@@ -941,10 +941,6 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 .voice-tts-voice input:focus {
   border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
   outline: none;
-}
-
-.voice-tts-voice input::placeholder {
-  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 74%, transparent);
 }
 
 .voice-tts-count {
@@ -1092,11 +1088,6 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 
 .link-card-input input:focus {
   outline: none;
-}
-
-.link-card-input input::placeholder,
-.link-card-field textarea::placeholder {
-  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 74%, transparent);
 }
 
 .link-card-count {
@@ -1613,10 +1604,6 @@ html[data-theme='dark'] .link-card-preview-card {
   outline: none;
 }
 
-.ai-voice-textarea::placeholder {
-  color: var(--weq-fg-muted, #858585);
-}
-
 .ai-voice-voices {
   display: grid;
   gap: 7px;
@@ -1860,9 +1847,10 @@ html[data-theme='dark'] .ai-voice-chip {
   left: 12px;
   z-index: 30;
   display: grid;
+  height: 100%;
   width: min(452px, calc(100% - 28px));
   max-height: min(496px, calc(100dvh - 190px));
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
   border-radius: 12px;
@@ -1878,102 +1866,35 @@ html[data-theme='dark'] .ai-voice-chip {
   }
 }
 
-.bounce-head {
-  display: flex;
-  align-items: center;
+.bounce-config {
+  display: grid;
   gap: 8px;
-  padding: 9px 10px 9px 12px;
+  padding: 8px 12px 10px;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 
-.bounce-head-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--weq-fg-primary, #111111);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.bounce-head-title svg {
-  color: var(--weq-accent-effective, #0099ff);
-}
-
-/* 「单独发送」这个约束写在标题旁边，一眼能看到。 */
-.bounce-head-tag {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
-  color: color-mix(
-    in srgb,
-    var(--weq-accent-effective, #0099ff) 88%,
-    var(--weq-fg-primary, #111111)
-  );
-  font-size: 10.5px;
-  font-weight: 500;
-  line-height: 1.6;
-  white-space: nowrap;
-}
-
-.bounce-close {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  margin-left: auto;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--weq-fg-muted, #858585);
-  cursor: pointer;
-  transition:
-    background 130ms ease,
-    color 130ms ease;
-}
-
-.bounce-close:hover {
-  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
-  color: var(--media-danger, #f0483e);
-}
-
-.bounce-body {
-  display: grid;
-  gap: 10px;
-  min-height: 0;
-  padding: 11px 12px;
-  overflow: auto;
-  scrollbar-width: thin;
-}
-
-/* ── 预览（左） + 数量（右） ─────────────────────────────────────────────── */
+/* 预览和快捷数量共享上排，数量编辑下排铺满。 */
 
 .bounce-stage {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 12px;
-  align-items: stretch;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
 }
 
 .bounce-preview {
   display: grid;
   position: relative;
-  min-height: 96px;
+  height: 44px;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
-  border-radius: 12px;
-  background:
-    radial-gradient(
-      circle at 50% 34%,
-      color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent),
-      transparent 68%
-    ),
-    color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
 }
 
 .bounce-preview-face {
-  width: 72px;
-  height: 72px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
@@ -1985,15 +1906,13 @@ html[data-theme='dark'] .ai-voice-chip {
   color: var(--weq-fg-muted, #9a9aa2);
 }
 
-/* ×N —— 与聊天窗口里 `QqEmojiBounce` 同一套字形（黄字蓝边）与「闪变」。
-   预览里的表情是居中的 72px 图、舞台 96px，四边正好各留 12px，所以 12px 就是
-   表情的右下角（小屏 52px / 76px 同理）。 */
+/* ×N 沿用聊天中的角标，缩放到面板预览的大小。 */
 .bounce-preview-count {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
+  right: 3px;
+  bottom: 4px;
   color: #ffd21e;
-  font-size: 16px;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -2016,34 +1935,18 @@ html[data-theme='dark'] .ai-voice-chip {
   }
 }
 
-.bounce-controls {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-}
-
 .bounce-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   color: var(--weq-fg-secondary, #666666);
   font-size: 12px;
   font-weight: 500;
-}
-
-.bounce-range {
-  margin-left: auto;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 10.5px;
-  font-style: normal;
-  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .bounce-count-row {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  grid-template-columns: max-content 26px minmax(0, 1fr) 26px max-content;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .bounce-step {
@@ -2076,9 +1979,10 @@ html[data-theme='dark'] .ai-voice-chip {
 }
 
 .bounce-input {
+  min-width: 0;
   width: 100%;
   height: 30px;
-  padding: 0 9px;
+  padding: 0 4px;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
@@ -2100,20 +2004,23 @@ html[data-theme='dark'] .ai-voice-chip {
 }
 
 .bounce-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(max-content, 2fr);
+  gap: 4px;
 }
 
 .bounce-preset {
-  padding: 3px 9px;
+  min-height: 27px;
+  padding: 2px 2px;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 78%, transparent);
   border-radius: 999px;
   background: transparent;
   color: var(--weq-fg-secondary, #666666);
   font-family: inherit;
   font-size: 11.5px;
-  line-height: 1.5;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     border-color 130ms ease,
@@ -2133,88 +2040,21 @@ html[data-theme='dark'] .ai-voice-chip {
   font-weight: 600;
 }
 
-.bounce-summary,
 .bounce-error {
-  overflow: hidden;
   font-size: 11.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bounce-summary {
-  color: var(--weq-fg-muted, #858585);
-}
-
-.bounce-error {
   color: var(--media-danger, #f0483e);
-}
-
-/* ── 搜索 ────────────────────────────────────────────────────────────────── */
-
-.bounce-search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
-}
-
-.bounce-search:focus-within {
-  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
-}
-
-.bounce-search > svg {
-  flex: 0 0 auto;
-  color: var(--weq-fg-muted, #858585);
-}
-
-.bounce-search input {
-  width: 100%;
-  padding: 6px 0;
-  border: 0;
-  background: transparent;
-  color: var(--weq-fg-primary, #111111);
-  font-family: inherit;
-  font-size: 12.5px;
-}
-
-.bounce-search input:focus {
-  outline: none;
-}
-
-.bounce-search input::placeholder {
-  color: var(--weq-fg-muted, #858585);
-}
-
-.bounce-search-clear {
-  display: grid;
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 18%, transparent);
-  color: var(--weq-fg-secondary, #666666);
-  cursor: pointer;
-}
-
-.bounce-search-clear:hover {
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 30%, transparent);
 }
 
 /* ── 表情网格 ────────────────────────────────────────────────────────────── */
 
 .bounce-picker {
   display: grid;
+  align-content: start;
   gap: 9px;
-  min-height: 108px;
-  max-height: 208px;
-  padding-right: 2px;
+  min-height: 0;
+  padding: 8px 12px;
   overflow: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 
@@ -2233,13 +2073,12 @@ html[data-theme='dark'] .ai-voice-chip {
 
 .bounce-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 34px);
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
   gap: 3px 4px;
 }
 
 .bounce-cell {
   display: grid;
-  width: 34px;
   height: 34px;
   place-items: center;
   padding: 0;
@@ -2283,40 +2122,14 @@ html[data-theme='dark'] .ai-voice-chip {
   text-align: center;
 }
 
-/* ── 底部 ────────────────────────────────────────────────────────────────── */
-
-.bounce-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.bounce-hint {
-  display: inline-flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bounce-hint svg {
-  flex: 0 0 auto;
-  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 82%, transparent);
-}
-
-.bounce-btn {
+:is(.bounce-btn, .poke-btn) {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 5px;
-  padding: 6px 12px;
+  height: 30px;
+  justify-content: center;
+  padding: 0 10px;
   border: 0;
   border-radius: 8px;
   font-family: inherit;
@@ -2328,19 +2141,19 @@ html[data-theme='dark'] .ai-voice-chip {
     transform 130ms ease;
 }
 
-.bounce-btn.primary {
+:is(.bounce-btn, .poke-btn).primary {
   background: var(--weq-accent-solid, #0099ff);
   color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   font-weight: 500;
   box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
 }
 
-.bounce-btn.primary:hover:not(:disabled) {
+:is(.bounce-btn, .poke-btn).primary:hover:not(:disabled) {
   filter: brightness(1.06);
   transform: translateY(-1px);
 }
 
-.bounce-btn.primary:disabled {
+:is(.bounce-btn, .poke-btn).primary:disabled {
   cursor: not-allowed;
   opacity: 0.46;
   box-shadow: none;
@@ -2354,8 +2167,7 @@ html[data-theme='dark'] .bounce-panel {
 
 html[data-theme='dark'] .bounce-preview,
 html[data-theme='dark'] .bounce-input,
-html[data-theme='dark'] .bounce-step,
-html[data-theme='dark'] .bounce-search {
+html[data-theme='dark'] .bounce-step {
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
 }
 
@@ -2367,53 +2179,19 @@ html[data-theme='dark'] .bounce-search {
   max-height: min(452px, calc(100dvh - 150px));
 }
 
-:where(html[data-weq-layout='single']) .bounce-stage {
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 9px;
-}
-
-:where(html[data-weq-layout='single']) .bounce-preview {
-  min-height: 76px;
-}
-
-:where(html[data-weq-layout='single']) .bounce-preview-face {
-  width: 52px;
-  height: 52px;
-}
-
-:where(html[data-weq-layout='single']) .bounce-preview-count {
-  font-size: 12px;
-}
-
-:where(html[data-weq-layout='single']) .bounce-picker {
-  max-height: 168px;
-}
-
 /* ── 戳一戳互动表情（pokeEmoji）────────────────────────────────────────────
  *
- * 形态与弹射表情 / 链接卡片一致：从输入框上沿弹出来的浮层，不挤占正文那一行。
- * 三块：预览 + 连击（左右并排） / 表情网格；底部是「单独发送」。
- * 连击只有 0..3，所以控制件是**四枚按档位逐渐变大的按钮**（不是输入框 / 滑块）——
- * 点一下预览区立刻跟着变大，所见即所发。
- *
- * 颜色全部走主题 token，主题色与深浅模式自动跟随。
+ * 标题、发送和预览常驻；空间不足时只滚动图标网格。
  */
 
 .poke-panel {
-  position: absolute;
-  bottom: calc(100% - 1px);
-  left: 12px;
-  z-index: 30;
+  --poke-inline-inset: 14px;
+  --poke-preview-edge: 92px;
   display: grid;
-  width: min(420px, calc(100% - 28px));
-  max-height: min(496px, calc(100dvh - 190px));
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
-  border-radius: 12px;
-  background: var(--popover, #ffffff);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
-  animation: poke-in 150ms ease-out;
+  height: 100%;
+  min-width: 0;
+  --poke-option-edge: 34px;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 @keyframes poke-in {
@@ -2423,97 +2201,31 @@ html[data-theme='dark'] .bounce-search {
   }
 }
 
-.poke-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px 9px 12px;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-
-.poke-head-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--weq-fg-primary, #111111);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.poke-head-title svg {
-  color: var(--weq-accent-effective, #0099ff);
-}
-
-/* 「单独发送」这个约束写在标题旁边，一眼能看到。 */
-.poke-head-tag {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
-  color: color-mix(
-    in srgb,
-    var(--weq-accent-effective, #0099ff) 88%,
-    var(--weq-fg-primary, #111111)
-  );
-  font-size: 10.5px;
-  font-weight: 500;
-  line-height: 1.6;
-  white-space: nowrap;
-}
-
-.poke-close {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  margin-left: auto;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--weq-fg-muted, #858585);
-  cursor: pointer;
-  transition:
-    background 130ms ease,
-    color 130ms ease;
-}
-
-.poke-close:hover {
-  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
-  color: var(--media-danger, #f0483e);
-}
-
 .poke-body {
   display: grid;
-  gap: 10px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
   min-height: 0;
-  padding: 11px 12px;
-  overflow: auto;
-  scrollbar-width: thin;
+  padding: 6px var(--poke-inline-inset);
+  overflow: hidden;
 }
 
 /* ── 预览（左） + 连击（右） ─────────────────────────────────────────────── */
 
 .poke-stage {
   display: grid;
-  grid-template-columns: 176px minmax(0, 1fr);
+  grid-template-columns: var(--poke-preview-edge) minmax(0, 1fr);
   gap: 12px;
-  align-items: stretch;
+  align-items: center;
 }
 
 .poke-preview {
   display: grid;
-  min-height: 176px;
+  height: var(--poke-preview-edge);
   place-items: center;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 74%, transparent);
-  border-radius: 12px;
-  background:
-    radial-gradient(
-      circle at 50% 36%,
-      color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent),
-      transparent 68%
-    ),
-    color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  border-radius: 8px;
 }
 
 .poke-preview-face {
@@ -2525,8 +2237,18 @@ html[data-theme='dark'] .bounce-search {
 }
 
 .poke-controls {
-  display: grid;
-  align-content: center;
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.poke-choice-row {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
   gap: 8px;
 }
 
@@ -2534,37 +2256,39 @@ html[data-theme='dark'] .bounce-search {
   color: var(--weq-fg-secondary, #666666);
   font-size: 12px;
   font-weight: 500;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* 连击 0..3：四枚按钮，图按档位逐渐变大。 */
 .poke-combo {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-}
-
-/* 随机表情的结果编号（1..n）：同一排按钮，但换成一排数字，个数不定。 */
-.poke-combo.is-random {
-  grid-template-columns: repeat(auto-fit, minmax(38px, 1fr));
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: thin;
 }
 
 .poke-combo-btn {
   display: grid;
-  height: 58px;
+  flex: 0 0 var(--poke-option-edge);
+  height: var(--poke-option-edge);
   place-items: center;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
-  border-radius: 10px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
   cursor: pointer;
   transition:
     border-color 130ms ease,
-    background 130ms ease,
-    transform 130ms ease;
+    background 130ms ease;
 }
 
 .poke-combo-btn img {
   display: block;
+  max-width: 100%;
+  max-height: 24px;
   object-fit: contain;
   pointer-events: none;
   user-select: none;
@@ -2574,7 +2298,6 @@ html[data-theme='dark'] .bounce-search {
 .poke-combo-btn:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 46%, transparent);
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
-  transform: translateY(-1px);
 }
 
 .poke-combo-btn.is-active {
@@ -2584,12 +2307,11 @@ html[data-theme='dark'] .bounce-search {
     color-mix(in srgb, var(--weq-accent-effective, #0099ff) 34%, transparent);
 }
 
-/* 结果编号按钮：文字（不是图），矮一点。 */
+/* 两种选项等高，切换表情时保持控制行的高度。 */
 .poke-combo-btn.is-number {
-  height: 44px;
   color: var(--weq-fg-primary, #111111);
   font-family: inherit;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -2605,30 +2327,33 @@ html[data-theme='dark'] .bounce-search {
 
 .poke-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 48px);
-  gap: 6px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-rows: minmax(40px, 1fr);
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  gap: 4px;
 }
 
 .poke-cell {
   display: grid;
-  width: 48px;
-  height: 48px;
+  min-width: 0;
   place-items: center;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   cursor: pointer;
   transition:
     background 120ms ease,
-    border-color 120ms ease,
-    transform 120ms ease;
+    border-color 120ms ease;
 }
 
 .poke-cell img {
   display: block;
-  max-width: 40px;
-  max-height: 40px;
+  width: min(34px, 100%);
+  height: 34px;
   object-fit: contain;
   pointer-events: none;
   user-select: none;
@@ -2637,7 +2362,6 @@ html[data-theme='dark'] .bounce-search {
 
 .poke-cell:hover {
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
-  transform: translateY(-1px);
 }
 
 .poke-cell.is-active {
@@ -2645,170 +2369,30 @@ html[data-theme='dark'] .bounce-search {
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
 }
 
-/* ── 随机表情（带结果的内置表情，骰子 / 包剪锤 / 活动表情）──────────────────
- *
- * 列在 6 个戳脸下方：上面一排是可指定结果的表情，选中后展开结果编号
- * （innerId 1..n）+ 一枚「发送」。列表与结果都来自本地资源，不硬编码。
- */
-
-.poke-random {
-  display: grid;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.poke-random-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.poke-random-tip {
-  color: var(--weq-fg-muted, #858585);
-  font-size: 10.5px;
-}
-
-.poke-random-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
-  gap: 6px;
-}
-
-.poke-random-cell {
-  display: grid;
-  grid-template-rows: 40px auto;
-  gap: 2px;
-  place-items: center;
-  padding: 5px 4px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease,
-    transform 120ms ease;
-}
-
-.poke-random-cell img {
-  display: block;
-  max-width: 40px;
-  max-height: 40px;
-  object-fit: contain;
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-
-.poke-random-name {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--weq-fg-secondary, #666666);
-  font-size: 10.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.poke-random-cell:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
-  transform: translateY(-1px);
-}
-
-.poke-random-cell.is-active {
-  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 66%, transparent);
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
-}
-
-/* ── 底部 ────────────────────────────────────────────────────────────────── */
-
-.poke-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.poke-hint {
-  display: inline-flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.poke-hint svg {
-  flex: 0 0 auto;
-  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 82%, transparent);
-}
-
 .poke-btn {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
-  border: 0;
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition:
-    background 130ms ease,
-    color 130ms ease,
-    transform 130ms ease;
+  margin-inline-start: auto;
 }
 
-.poke-btn.primary {
-  background: var(--weq-accent-solid, #0099ff);
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-  font-weight: 500;
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 32%, transparent);
-}
-
-.poke-btn.primary:hover:not(:disabled) {
-  filter: brightness(1.06);
-  transform: translateY(-1px);
-}
-
-.poke-btn.primary:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
-  box-shadow: none;
-}
-
-/* ── 深色：阴影加一档，输入底压暗 ────────────────────────────────────────── */
-
-html[data-theme='dark'] .poke-panel {
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
-}
-
-html[data-theme='dark'] .poke-preview,
-html[data-theme='dark'] .poke-combo-btn {
+/* 深色下略微抬亮按钮底色，保留选中态的主题色。 */
+html[data-theme='dark'] .poke-combo-btn:not(:where(.is-active, :hover)) {
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
 }
 
-/* ── 小屏：面板收窄，预览缩一点 ──────────────────────────────────────────── */
-
 :where(html[data-weq-layout='single']) .poke-panel {
-  left: 8px;
-  width: calc(100% - 16px);
-  max-height: min(452px, calc(100dvh - 150px));
+  --poke-preview-edge: 76px;
+  --poke-option-edge: 30px;
 }
 
 :where(html[data-weq-layout='single']) .poke-stage {
-  grid-template-columns: 128px minmax(0, 1fr);
-  gap: 9px;
+  gap: 8px;
 }
 
-:where(html[data-weq-layout='single']) .poke-preview {
-  min-height: 128px;
+:where(html[data-weq-layout='single']) .poke-choice-row {
+  gap: 6px;
+}
+
+:where(html[data-weq-layout='single']) .poke-combo {
+  gap: 3px;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -3021,10 +2605,6 @@ html[data-theme='dark'] .poke-combo-btn {
   font-family: inherit;
   font-size: 15px;
   font-variant-numeric: tabular-nums;
-}
-
-.redpacket-input::placeholder {
-  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 70%, transparent);
 }
 
 /* 金额只留一个「¥」前缀（后缀再来一个「元」就啰嗦了）。 */

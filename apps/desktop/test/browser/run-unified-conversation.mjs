@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -73,6 +74,18 @@ try {
     : process.env.WEQ_UNIFIED_KIND
       ? [process.env.WEQ_UNIFIED_KIND]
       : ['direct', 'group', 'dataline', 'official', 'service', 'guild', 'assistant'];
+  if (kinds.includes('assistant')) {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto(`${base}/unified-conversation.html?kind=assistant&empty`);
+    const prompts = page.getByRole('region', { name: '推荐提示词' });
+    await prompts.getByRole('button').first().waitFor();
+    if ((await prompts.getByRole('button').count()) !== 4) throw new Error('推荐提示词未完整显示');
+    await page.getByRole('button', { name: /^本会话模型/ }).click();
+    await page.getByRole('menuitemradio', { name: /跟随默认/ }).waitFor();
+    if (output) await page.screenshot({ path: resolve(output, 'assistant-empty-menu.png') });
+    await page.keyboard.press('Escape');
+    if (output) await page.screenshot({ path: resolve(output, 'assistant-empty.png') });
+  }
   for (const kind of kinds)
     for (const width of [1440, 390])
       for (const theme of ['light', 'dark']) {
@@ -81,7 +94,7 @@ try {
         await page.locator('.chat-pane .chat-header').waitFor();
         if (kind === 'assistant') {
           const fonts = await page
-            .locator('.weq-assistant-parameter select')
+            .locator('.weq-assistant-parameter-trigger')
             .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fontSize));
           if (fonts.length !== 2 || fonts[0] !== fonts[1])
             throw new Error(`助手模型与思考强度菜单字号不一致：${fonts.join(', ')}`);
@@ -99,7 +112,7 @@ try {
             const emoji = rect('[title="表情"]');
             const image = rect('[aria-label="添加图片"]');
             const parameters = rect('.weq-assistant-parameters');
-            const model = rect('.weq-api-model-field select');
+            const model = rect('.weq-assistant-parameter-trigger');
             const toolbar = node.getBoundingClientRect();
             return {
               ordered: emoji.right <= image.left && image.right <= parameters.left,
@@ -140,14 +153,7 @@ try {
           throw new Error(JSON.stringify({ kind, width, theme, layout }));
         if (kind === 'assistant') {
           await openAssistantSettings();
-          for (const label of [
-            '模型与生成',
-            '任务执行',
-            '上下文管理',
-            '提示与工具',
-            '图片处理',
-            '运行中发送',
-          ]) {
+          for (const label of ['模型设置', '提示与工具']) {
             await page.locator('.weq-cvs-nav-item').filter({ hasText: label }).click();
             const fit = await page.locator('.weq-cvs-dialog').evaluate((node) => {
               const rect = node.getBoundingClientRect();
@@ -161,23 +167,49 @@ try {
             if (!fit) throw new Error(`设置分类溢出：${label}/${width}/${theme}`);
           }
           await page.locator('.weq-cvs-close').click();
-          await page.locator('.composer-editor').fill('合成新任务');
-          await page.locator('.composer-editor').press('Enter');
-          await page.getByRole('button', { name: '停止当前任务', exact: true }).waitFor();
+          const send = async (text) => {
+            const editor = page.locator('.composer-editor');
+            await editor.fill(text);
+            if (width < 620) await editor.press('Enter');
+            else
+              await page
+                .getByRole('button', { name: '发送', exact: true })
+                .filter({ visible: true })
+                .click();
+          };
+          await send('合成新任务');
+          const stop = page.getByRole('button', { name: '停止输出', exact: true });
+          await stop.waitFor();
+          if (
+            !(await stop.evaluate((node) => {
+              const bubble = node.previousElementSibling;
+              if (!bubble?.classList.contains('message-bubble')) return false;
+              const stopRect = node.getBoundingClientRect();
+              const bubbleRect = bubble.querySelector('.message-content')?.getBoundingClientRect();
+              return (
+                bubbleRect &&
+                stopRect.left >= bubbleRect.right - 1 &&
+                Math.abs(stopRect.bottom - bubbleRect.bottom) < 3
+              );
+            }))
+          )
+            throw new Error('停止按钮没有与气泡外侧右下角对齐');
+          if (output)
+            await page.screenshot({
+              path: resolve(output, `assistant-running-${theme}-${width}.png`),
+            });
           if (await page.getByLabel('运行中发送方式', { exact: true }).count())
             throw new Error('输入区不应提供逐条发送模式切换');
           await openAssistantSettings();
-          await page.locator('.weq-cvs-nav-item').filter({ hasText: '运行中发送' }).click();
-          await page
-            .getByRole('radiogroup', { name: '运行中默认发送方式', exact: true })
-            .getByRole('radio', { name: '排队发送', exact: true })
-            .click();
+          await chooseFormOption(
+            page.getByRole('combobox', { name: '运行中默认发送方式', exact: true }),
+            'queue',
+          );
           await page.locator('.weq-cvs-close').click();
-          await page.locator('.composer-editor').fill('排队的问题');
-          await page.locator('.composer-editor').press('Enter');
+          await send('排队的问题');
           await page.getByLabel('待处理消息', { exact: true }).waitFor();
-          await page.getByRole('button', { name: '停止当前任务', exact: true }).click();
-          await page.getByRole('button', { name: '继续当前任务并恢复队列', exact: true }).waitFor();
+          await page.getByRole('button', { name: '停止输出', exact: true }).click();
+          await page.getByRole('button', { name: '恢复输出', exact: true }).waitFor();
         }
         if (output)
           await page.screenshot({ path: resolve(output, `${kind}-${theme}-${width}.png`) });

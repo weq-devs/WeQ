@@ -26,6 +26,8 @@ type DecorationIds =
       bubbleId: number;
       fontId: number;
       widgetId: number;
+      fontId1Raw?: number;
+      fontId2Raw?: number;
       cachedBubble?: MessageBubbleSkin;
     }
   | undefined;
@@ -52,6 +54,7 @@ export function useMsgDecoration(
   widget: ResolvedWidget | null;
   bubbleId: number;
   fontId: number;
+  systemFont: boolean;
   /** 这款字体的炫彩帧素材（没字体 / 没有 `eimg` 时 null）——气泡按尺寸决定挂不挂。 */
   fontFx: FontFxSkin | null;
 } {
@@ -160,10 +163,13 @@ export function useMsgDecoration(
       (reusableFont || (preparedFont?.font === font && preparedFont?.id === fontId)) &&
       (!bubbleId || bubbleReady),
   );
+  // 仅确认是 packed 字体槽生效时读 Android 的高位类型，不按 TTF 文件后缀猜测。
+  const packedFontType = ((decoration?.fontId2Raw ?? 0) >>> 16) & 0xf;
   return {
     widget,
     bubbleId: bubbleReady ? bubbleId : 0,
     fontId: fontReady ? fontId : 0,
+    systemFont: fontReady && !decoration?.fontId1Raw && packedFontType === 2,
     fontFx: fontReady ? toFontFxSkin(font) : null,
   };
 }

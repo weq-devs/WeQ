@@ -7,9 +7,10 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
+  vi.useRealTimers();
 });
 
-async function fixture(hidden = false, pending = false) {
+async function fixture(hidden = false, pending = false, failure?: () => unknown) {
   const visibility = vi
     .spyOn(document, 'visibilityState', 'get')
     .mockReturnValue(hidden ? 'hidden' : 'visible');
@@ -18,9 +19,11 @@ async function fixture(hidden = false, pending = false) {
   Object.defineProperty(media, 'matches', { get: () => reduced });
   vi.stubGlobal('matchMedia', () => media);
   const finish: (() => void)[] = [];
-  const decode = vi.fn(() =>
-    pending ? new Promise<void>((resolve) => finish.push(resolve)) : Promise.resolve(),
-  );
+  const decode = vi.fn(() => {
+    const error = failure?.();
+    if (error) return Promise.reject(error);
+    return pending ? new Promise<void>((resolve) => finish.push(resolve)) : Promise.resolve();
+  });
   vi.stubGlobal(
     'Image',
     class {
@@ -153,4 +156,66 @@ it('生效装扮同样随文档隐藏释放帧，恢复不累加规则', async (
   await f.flush();
   expect(document.getElementById('weq-dress-skin')?.textContent).toBe(css);
   expect(f.decorationImageCache.stats().pinnedImages).toBe(4);
+});
+
+it.each(['timer', 'online'])('临时帧失败后通过 %s 有界恢复，静态外观不消失', async (trigger) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  let available = false;
+  const f = await fixture(false, false, () => !available && new TypeError('网络暂不可达'));
+  await f.flush();
+  expect(f.style()).not.toContain('animation: weq-widgetframe-95002');
+  expect(f.style()).toContain('background-image:');
+  available = true;
+  if (trigger === 'online') window.dispatchEvent(new Event('online'));
+  else await vi.advanceTimersByTimeAsync(1000);
+  await f.flush();
+  expect(f.style()).toContain('animation: weq-widgetframe-95002');
+  expect(f.decorationImageCache.stats().pinnedImages).toBe(4);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('持续失败最多重试两次，隐藏和卸载取消等待，不在后台恢复动画', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const f = await fixture(false, false, () => new TypeError('网络暂不可达'));
+  await f.flush();
+  const firstAttempts = f.decode.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(10_000);
+  await f.flush();
+  expect(f.decode).toHaveBeenCalledTimes(firstAttempts * 3);
+  window.dispatchEvent(new Event('online'));
+  await f.flush();
+  expect(f.decode).toHaveBeenCalledTimes(firstAttempts * 3);
+  f.hidden(true);
+  f.hidden(false);
+  await f.flush();
+  expect(vi.getTimerCount()).toBe(1);
+  f.hidden(true);
+  expect(vi.getTimerCount()).toBe(0);
+  f.hidden(false);
+  await f.flush();
+  f.release();
+  await f.flush();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each(['missing', 'invalid', 'capacity'])('确定失败 %s 不做网络重试', async (kind) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const { DecorationFrameFetchError } = await import('../src/renderer/src/lib/frameImageSize');
+  const { InvalidDecorationFrameError } = await import('../src/shared/decoration_image');
+  const { DecodeCapacityError } = await import('../src/renderer/src/lib/decodedImageCache');
+  const error =
+    kind === 'missing'
+      ? new DecorationFrameFetchError(404)
+      : kind === 'invalid'
+        ? new InvalidDecorationFrameError('损坏图片')
+        : new DecodeCapacityError('预算已满');
+  const f = await fixture(false, false, () => error);
+  await f.flush();
+  const attempts = f.decode.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(10_000);
+  window.dispatchEvent(new Event('online'));
+  await f.flush();
+  expect(f.decode).toHaveBeenCalledTimes(attempts);
+  expect(f.style()).not.toContain('animation: weq-widgetframe-95002');
+  expect(vi.getTimerCount()).toBe(0);
 });

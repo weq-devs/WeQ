@@ -68,7 +68,10 @@ try {
           .getAttribute('aria-checked'),
         'false',
       );
-      assert.equal(await dialog.getByRole('combobox', { name: '导出目录' }).inputValue(), 'keep');
+      assert.equal(
+        await dialog.getByRole('combobox', { name: '导出目录' }).getAttribute('data-value'),
+        'keep',
+      );
       assert.equal(
         await dialog
           .getByRole('button', { name: '取消', exact: true })

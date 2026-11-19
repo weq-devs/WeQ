@@ -141,6 +141,7 @@ export type ConversationHighlight = {
   rawKind: number;
   senderUid: string;
   msgSeq: string;
+  sendTime?: string;
   /** 命中关键词（群提醒词）或预览文本；可能为空。 */
   text?: string;
 };
@@ -151,6 +152,7 @@ export type UnreadDockStop = {
   kind: ConversationHighlightKind | 'unread';
   /** 要跳转到的会话内 seq。 */
   seq: string;
+  identity?: import('../../lib/unreadNavigation').UnreadMessageIdentity;
   /** 高亮附带的文本（群提醒词为命中的关键词）；兜底未读没有。 */
   text?: string;
 };
@@ -158,20 +160,21 @@ export type UnreadDockStop = {
 /**
  * 打开会话时从 msg_unread_info_table 读进内存的未读快照 —— 数据库随即被标记
  * 为已读、高亮组清空，之后跳转坞完全靠这份内存副本驱动。
- * `stops` 已经过滤掉「第一页里就能看到」的目标；空数组表示无需跳转。
+ * `stops` 是候选队列；进入聊天视口的目标不再提醒。
  */
 export type UnreadDock = {
   stops: UnreadDockStop[];
-  /** 该会话打开时的未读总数（用于最后那条「新的 N 条未读消息」）。 */
-  unread: number;
 };
 
 type ConversationBase = {
   id: string;
   /** 本地生成会话的实际存储身份；QQ 专属能力不得使用此身份发包。 */
   generated?: GeneratedContentIdentity;
+  /** 生成会话的已保存草稿摘要；正文仍单独读取。 */
+  draftPreview?: string;
   /** 目录来源与 QQ 归档状态用于视图和能力判定，不改变实际消息身份。 */
   directoryKind?: 'qq' | 'official' | 'service' | 'guild' | 'persona' | 'cloneGroup' | 'assistant';
+  directoryRead?: { key: string; position: string };
   deleted?: boolean;
   updatedAt: string;
   /** 仅用于会话列表排序：已落库草稿等活动的毫秒时间，不改写消息时间。 */
@@ -359,8 +362,12 @@ export type Message = {
   generatedPending?: boolean;
   /** 原始消息 ID；展示 ID 可能带漫游来源前缀，用于可靠身份对账。 */
   msgId?: string;
+  /** 转发内部的展示快照，不是可用 getRawElements 回读的会话消息。 */
+  forwardSnapshot?: { carrierId: string; kind: 'c2c' | 'group'; conv: string };
   conversationId: string;
   senderId: string;
+  senderUid?: string;
+  sendTime?: string;
   body: string;
   /** QQ 渲染视图元素，逐条重发与只读预览共用，不能用 body 标签替代。 */
   qqElements?: RepeatElement[];
@@ -385,11 +392,14 @@ export type Message = {
     bubbleId: number;
     fontId: number;
     widgetId: number;
+    fontId1Raw?: number;
+    fontId2Raw?: number;
     cachedBubble?: import('@weq/service').MessageBubbleSkin;
   };
   optimistic?: 'queued' | 'sending' | 'sent' | 'failed';
   /** 发送请求尚未收到宿主回执；仅远程端显示对应阶段。 */
   outgoingToHost?: boolean;
+  transferId?: string;
   optimisticError?: string;
   optimisticRejected?: boolean;
   /** 发起前的已知序号水位，仅用于失败占位定位，不是本条序号或发送确认。 */

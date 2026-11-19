@@ -13,6 +13,9 @@ import { CircleDot, Loader2, Pause, Play, VideoOff, Images, RefreshCw } from 'lu
 import { MediaPreview, type PreviewMedia } from '../components/MediaPreview';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from '../components/ShimmerImage';
+import { MediaLoadingRing, MediaTransferBadge } from '../components/TransferRing';
+import { useVideoBuffering } from '../hooks/useVideoBuffering';
+import { mediaTransferTarget } from '../../../shared/transfer_progress';
 import { qzoneMediaSource } from '../lib/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { client } from '../trpc/client';
@@ -100,6 +103,11 @@ export function QzoneVideo({
   const player = useRef<HTMLVideoElement>(null);
   const src = qzoneMediaSource(video.videoUrl);
   const cover = qzoneMediaSource(video.coverUrl);
+  const previewSrc = src || cover;
+  const progressTarget = previewSrc
+    ? mediaTransferTarget({ kind: 'url', url: albumMediaUrl(previewSrc) })
+    : undefined;
+  const buffering = useVideoBuffering(src ?? '', active && playing);
   const live = video.isLivePhoto === true;
   useEffect(() => {
     if (!active) setPlaying(false);
@@ -150,6 +158,7 @@ export function QzoneVideo({
             src={albumMediaUrl(cover)}
             alt={`${live ? '实况照片' : typePending ? '媒体封面' : '视频封面'} ${index + 1}`}
             loading="lazy"
+            mediaLoading
           />
         ) : (
           <span className="weq-qzn-video-placeholder">
@@ -158,17 +167,25 @@ export function QzoneVideo({
         )}
         {playing ? (
           <video
+            key={src}
             ref={player}
             src={src ? albumMediaUrl(src) : undefined}
             muted
             playsInline
-            onEnded={() => setPlaying(false)}
+            {...buffering.events}
+            onEnded={() => {
+              buffering.events.onEnded();
+              setPlaying(false);
+            }}
             onError={() => {
+              buffering.events.onError();
               setPlaying(false);
               setPlayError(true);
             }}
           />
         ) : null}
+        {buffering.waiting && <MediaLoadingRing label="正在缓冲视频" />}
+        <MediaTransferBadge target={progressTarget} />
         {!live && !typePending ? (
           <span className="weq-qzn-video-play">
             {src ? <Play size={20} /> : <VideoOff size={20} />}
@@ -197,6 +214,7 @@ export function QzoneVideo({
 }
 
 function Picture({ url, index, onOpen }: { url: string; index: number; onOpen: () => void }) {
+  const src = albumMediaUrl(url);
   return (
     <button
       type="button"
@@ -204,7 +222,8 @@ function Picture({ url, index, onOpen }: { url: string; index: number; onOpen: (
       aria-label={`查看空间图片 ${index + 1}`}
       onClick={onOpen}
     >
-      <ShimmerImage src={albumMediaUrl(url)} alt={`空间图片 ${index + 1}`} loading="lazy" />
+      <ShimmerImage src={src} alt={`空间图片 ${index + 1}`} loading="lazy" mediaLoading />
+      <MediaTransferBadge target={mediaTransferTarget({ kind: 'url', url: src })} />
     </button>
   );
 }

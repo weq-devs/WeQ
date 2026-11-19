@@ -14,11 +14,13 @@ import { networkFetch } from '@weq/network';
  * 落过盘，或者 rkey / 直链还活着）。取不到就如实报错，不假装能离线识别一切。
  */
 
+import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { OcrBlock } from '@weqbot/protocol';
+import { ImageRecognitionRequests } from '@weq/agentlab';
 import {
   getOcrModel,
   localOcrBlocker,
@@ -140,6 +142,9 @@ function localPathOf(src: string): string | null {
 
 /** 灯箱里那张图的字节：`data:` / 本机路径 / `weq-media://` / `http(s)://` 四条来源。 */
 const IMAGE_MAX_BYTES = 32 * 1024 * 1024;
+const localRequests = new ImageRecognitionRequests<LocalOcrOutcome>();
+const filterRequests = new ImageRecognitionRequests<OcrFilterOutcome>();
+const imageHash = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 async function readImageSource(src: string, signal: AbortSignal): Promise<Buffer> {
   signal.throwIfAborted();
   if (src.startsWith('data:')) {
@@ -227,6 +232,7 @@ export async function runLocalOcr(
   src: string,
   model: LocalOcrModel,
   signal?: AbortSignal,
+  refresh?: boolean,
 ): Promise<LocalOcrOutcome> {
   const controller = new AbortController();
   const abort = () => controller.abort(signal?.reason);
@@ -241,9 +247,16 @@ export async function runLocalOcr(
     signal?.removeEventListener('abort', abort);
   }
   signal?.throwIfAborted();
-  const image = src.startsWith('data:') ? decodeImageDataUrl(src) : decodeImageBytes(bytes);
-  if (!image) throw new Error('这张图的格式解不开，本地模型识别不了。');
-  return recognizeImage(image, model, signal);
+  const { det, rec, cls, dict } = model.paths;
+  return localRequests.run(
+    JSON.stringify([imageHash(bytes), model.modelId, det, rec, cls, dict]),
+    (requestSignal) => {
+      const image = src.startsWith('data:') ? decodeImageDataUrl(src) : decodeImageBytes(bytes);
+      if (!image) throw new Error('这张图的格式解不开，本地模型识别不了。');
+      return recognizeImage(image, model, requestSignal);
+    },
+    { signal, refresh },
+  );
 }
 
 // ── 导出阶段（批量）用的两个入口 ─────────────────────────────────────────────
@@ -290,24 +303,29 @@ export async function runLocalOcrFilterFile(imagePath: string): Promise<OcrFilte
   }
   try {
     const bytes = await readFile(imagePath);
-    const image = decodeImageBytes(bytes);
-    if (!image) return { ok: false, error: '这张图的格式解不开' };
-    // 筛图一次并发好几个进程，每个少开点线程（见 engine 的 threads）。
-    const r = await runOcrEngine({
-      image,
-      paths: { det: model.det },
-      mode: 'detect',
-      threads: 2,
-    });
-    if (!r.ok) return { ok: false, error: r.error ?? '筛图失败' };
-    const decision = judgeTextBoxes(r.blocks, r.imageWidth, r.imageHeight);
-    return {
-      ok: true,
-      hasText: decision.hasText,
-      boxes: decision.boxes,
-      elapsedMs: r.elapsedMs,
-      modelId: model.modelId,
-    };
+    return await filterRequests.run(
+      JSON.stringify([imageHash(bytes), model.modelId, model.det]),
+      async (signal) => {
+        const image = decodeImageBytes(bytes);
+        if (!image) return { ok: false, error: '这张图的格式解不开' };
+        const r = await runOcrEngine({
+          image,
+          paths: { det: model.det },
+          mode: 'detect',
+          threads: 2,
+          signal,
+        });
+        if (!r.ok) return { ok: false, error: r.error ?? '筛图失败' };
+        const decision = judgeTextBoxes(r.blocks, r.imageWidth, r.imageHeight);
+        return {
+          ok: true,
+          hasText: decision.hasText,
+          boxes: decision.boxes,
+          elapsedMs: r.elapsedMs,
+          modelId: model.modelId,
+        };
+      },
+    );
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

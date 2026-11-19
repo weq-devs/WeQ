@@ -151,6 +151,7 @@ export function optimisticMessageToTemplate(
     optimisticRejected: item.seqRejected && outgoingSequenceRejected(item),
     optimistic: item.state,
     outgoingToHost: !item.hostReceived,
+    transferId: item.transferId,
     optimisticAfterSeq: item.afterSeq,
     optimisticError: item.error,
     composerDraft: item.composerDraft,
@@ -207,6 +208,8 @@ export function messageToTemplate(
     localSent: message.localSent,
     conversationId: conversation.id,
     senderId: sender.id,
+    senderUid: message.senderUid,
+    sendTime: message.sendTime,
     sender,
     body: messageBody(message.elements) || (message.sourceFormat ? '[漫游空消息或未解析]' : ''),
     // 闪照：本地库只剩一句兜底文案（元素本体从没落库）。打上标记，让聊天窗按需走
@@ -280,7 +283,7 @@ export function enrichReplyElements(
   elements: unknown[],
   conversation: Conversation,
   user: User,
-  memberMap?: Map<string, GroupMember>,
+  memberMap?: ReadonlyMap<string, GroupMember>,
   replySources: MessageWire[] | ReplyPreviewIndex = [],
 ): unknown[] {
   if (!Array.isArray(elements) || elements.length === 0) return elements;
@@ -317,7 +320,7 @@ export function resolveOrigSenderNick(
   data: Record<string, unknown>,
   conversation: Conversation,
   user: User,
-  memberMap?: Map<string, GroupMember>,
+  memberMap?: ReadonlyMap<string, GroupMember>,
 ): string | null {
   const uid = typeof data.origSenderUid === 'string' ? data.origSenderUid : '';
   const uinRaw = data.origSenderUin;
@@ -448,6 +451,17 @@ export function isRenderableMessage(message: MessageWire): boolean {
     elementTypes: elements.map((el) => (el as RenderElementWire | null)?.type ?? null),
   });
   return false;
+}
+
+export function findTimelineMessageById(
+  messages: readonly MessageWire[],
+  id: string,
+  seq?: string,
+): MessageWire | undefined {
+  return (
+    messages.find((row) => timelineRowKey(row) === id) ??
+    messages.find((row) => row.msgId === id && (!seq || row.msgSeq === seq))
+  );
 }
 
 /**

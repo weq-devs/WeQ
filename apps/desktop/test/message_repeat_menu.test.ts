@@ -89,7 +89,7 @@ describe('消息菜单 +1', () => {
     }));
     const forward = vi.fn();
     const menuAction = (label: string) =>
-      host.querySelector<HTMLButtonElement>(`.message-context-menu [aria-label="${label}"]`)!;
+      document.querySelector<HTMLButtonElement>(`.message-context-menu [aria-label="${label}"]`)!;
     const open = async (id: string) =>
       act(async () =>
         host
@@ -177,7 +177,9 @@ describe('消息菜单 +1', () => {
             ),
         );
         await act(async () =>
-          host.querySelector<HTMLButtonElement>('.message-context-menu [aria-label="+1"]')!.click(),
+          document
+            .querySelector<HTMLButtonElement>('.message-context-menu [aria-label="+1"]')!
+            .click(),
         );
         expect(repeat).toHaveBeenCalledWith(row, conversation);
       } finally {
@@ -208,7 +210,7 @@ describe('消息菜单 +1', () => {
           }),
         );
       });
-      return [...host.querySelectorAll('button')].find(
+      return [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
         (button) => button.getAttribute('aria-label') === '+1',
       );
     }
@@ -280,7 +282,7 @@ describe('消息菜单 +1', () => {
         sendAvailable: true,
       };
       const menuButton = () =>
-        [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
+        [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
           (button) => button.getAttribute('aria-label') === '+1',
         );
       const openMenu = async () => {
@@ -303,7 +305,7 @@ describe('消息菜单 +1', () => {
         expect(menuButton()?.disabled).toBe(false);
         await act(async () => menuButton()!.click());
         expect(onRepeatMessage).toHaveBeenCalledWith(history, conversation);
-        expect(host.querySelector('.message-context-menu')).toBeNull();
+        expect(document.querySelector('.message-context-menu')).toBeNull();
         await openMenu();
         expect(menuButton()?.getAttribute('aria-disabled')).toBe('true');
         expect(host.querySelector<HTMLButtonElement>('.weq-message-repeat')?.disabled).toBe(true);

@@ -32,11 +32,19 @@ export interface ContactMetricsSnapshot {
   revision: number;
   rows: ContactMetricRows;
 }
+type EnqueueContactField = <T>(read: () => Promise<T>) => Promise<T>;
 export interface ContactMetricJob {
   key: string;
   label?: string;
   online?: boolean;
-  run: () => Promise<unknown>;
+  queueFields?: boolean;
+  run: (enqueue?: EnqueueContactField) => Promise<unknown>;
+}
+export type ContactMetricsLaneKey = 'friends' | 'groups';
+export interface ContactMetricJobFailure {
+  lane: ContactMetricsLaneKey;
+  label: string;
+  error: string;
 }
 export class ContactMetricsOfflineError extends Error {}
 export interface ContactMetricsLane {
@@ -70,9 +78,10 @@ export class ContactMetricsService extends EventEmitter {
   private pumpTimer?: ReturnType<typeof setTimeout>;
   private sequences = new Map<string, number>();
   private jobs: ContactMetricJob[] = [];
-  private failedJobs: ContactMetricJob[] = [];
+  private failedJobs: Array<{ job: ContactMetricJob; failure: ContactMetricJobFailure }> = [];
   private jobRunning = false;
   private cancelled = false;
+  private pauseRequested = false;
   private afterRun?: () => Promise<void>;
   progress: ContactMetricsProgress = {
     status: 'completed',
@@ -445,15 +454,28 @@ export class ContactMetricsService extends EventEmitter {
     );
   }
 
-  start(jobs: ContactMetricJob[], phase = '好友在线指标', afterRun?: () => Promise<void>) {
-    if (this.jobRunning || this.progress.status === 'paused') return false;
+  start(
+    jobs: ContactMetricJob[],
+    phase = '好友在线指标',
+    afterRun?: () => Promise<void>,
+    completed: string[] = [],
+  ) {
+    if (this.jobRunning || !this.active || this.progress.status === 'paused') return false;
     this.jobs = [...jobs];
     this.failedJobs = [];
     this.cancelled = false;
+    this.pauseRequested = false;
     this.afterRun = afterRun;
     this.progress = { status: 'running', done: 0, total: jobs.length, failed: 0, phase };
     this.emit('log', `已准备 ${jobs.length} 项查询`);
     this.resetLanes();
+    for (const key of completed) {
+      const lane = this.progress.lanes![key.startsWith('group:') ? 'groups' : 'friends'];
+      lane.done++;
+      lane.total++;
+      this.progress.done++;
+      this.progress.total++;
+    }
     this.launch();
     return true;
   }
@@ -461,14 +483,28 @@ export class ContactMetricsService extends EventEmitter {
   cancel() {
     this.emit('log', '收到取消请求，等待在途查询结束后停止');
     this.cancelled = true;
+    this.pauseRequested = false;
     if (!this.jobRunning) this.updateProgress('cancelled');
+  }
+  get pausing() {
+    return this.pauseRequested;
+  }
+  pause() {
+    if (!this.jobRunning || this.cancelled || this.pauseRequested) return;
+    this.pauseRequested = true;
+    this.emit('log', '收到暂停请求，等待在途查询结束');
+    this.updateProgress('running');
+  }
+  failedItems(): ContactMetricJobFailure[] {
+    return this.failedJobs.map(({ failure }) => failure);
   }
   resume() {
     if (this.jobRunning || !this.active) return;
     this.cancelled = false;
+    this.pauseRequested = false;
     this.emit('log', this.jobs.length ? '继续剩余查询' : '仅重试上次失败的查询');
     if (!this.jobs.length) {
-      this.jobs = this.failedJobs.splice(0);
+      this.jobs = this.failedJobs.splice(0).map(({ job }) => job);
       this.progress.failed = 0;
       this.progress.done = 0;
       this.progress.total = this.jobs.length;
@@ -500,10 +536,59 @@ export class ContactMetricsService extends EventEmitter {
     this.updateProgress('running');
     try {
       const blocked = new Set<ContactMetricJob>();
+      const runJob = async (
+        job: ContactMetricJob,
+        laneKey: ContactMetricsLaneKey,
+        enqueue?: EnqueueContactField,
+      ) => {
+        const lane = this.progress.lanes?.[laneKey];
+        const label = job.label ?? job.key;
+        let started = false;
+        const begin = () => {
+          if (started) return;
+          started = true;
+          this.emit('log', `开始：${label}`, laneKey);
+        };
+        try {
+          if (enqueue) {
+            await job.run((read) =>
+              enqueue(() => {
+                begin();
+                return read();
+              }),
+            );
+          } else {
+            begin();
+            await job.run();
+          }
+          this.emit('log', `完成：${label}`, laneKey);
+        } catch (error) {
+          if (error instanceof ContactMetricsOfflineError) {
+            blocked.add(job);
+            this.jobs.push(job);
+            return;
+          }
+          const reason = error instanceof Error ? error.message : String(error);
+          this.emit('log', `失败：${label}；${reason}`, laneKey);
+          this.failedJobs.push({ job, failure: { lane: laneKey, label, error: reason } });
+          this.progress.failed++;
+          if (lane) lane.failed++;
+        }
+        this.progress.done++;
+        if (lane) lane.done++;
+        this.progress.phase = this.progress.lanes?.friends.total
+          ? this.progress.lanes.groups.total
+            ? '好友与群聊并行读取'
+            : '好友在线指标'
+          : '群聊读取';
+        this.updateProgress('running');
+      };
       const worker = async (group: boolean) => {
-        while (this.active && !this.cancelled) {
+        const laneKey = group ? 'groups' : 'friends';
+        while (this.active && !this.cancelled && !this.pauseRequested) {
           const index = this.jobs.findIndex(
-            (job) => job.key.startsWith('group:') === group && !blocked.has(job),
+            (job) =>
+              !job.queueFields && job.key.startsWith('group:') === group && !blocked.has(job),
           );
           if (index < 0) return;
           const job = this.jobs.splice(index, 1)[0]!;
@@ -512,50 +597,70 @@ export class ContactMetricsService extends EventEmitter {
             this.jobs.push(job);
             continue;
           }
-          const lane = this.progress.lanes?.[group ? 'groups' : 'friends'];
-          this.emit('log', `开始：${job.label ?? job.key}`, group ? 'groups' : 'friends');
-          try {
-            await job.run();
-            this.emit('log', `完成：${job.label ?? job.key}`, group ? 'groups' : 'friends');
-          } catch (error) {
-            if (error instanceof ContactMetricsOfflineError) {
-              blocked.add(job);
-              this.jobs.push(job);
-              continue;
-            }
-            this.emit(
-              'log',
-              `失败：${job.label ?? job.key}；${error instanceof Error ? error.message : String(error)}`,
-              group ? 'groups' : 'friends',
-            );
-            this.failedJobs.push(job);
-            this.progress.failed++;
-            if (lane) lane.failed++;
-          }
-          this.progress.done++;
-          if (lane) lane.done++;
-          this.progress.phase = this.progress.lanes?.friends.total
-            ? this.progress.lanes.groups.total
-              ? '好友与群聊并行读取'
-              : '好友在线指标'
-            : '群聊读取';
-          this.updateProgress('running');
+          await runJob(job, laneKey);
         }
       };
-      await Promise.all([worker(false), worker(true)]);
-      if (!this.jobs.length && !this.cancelled && this.active && this.afterRun) {
+      const queuedFriends = async () => {
+        if (!this.active || this.cancelled || this.pauseRequested || !this.isOnline()) return;
+        const fields: Array<(() => Promise<void>) | undefined> = [];
+        let cursor = 0;
+        let feeding = 0;
+        // 字段按提交顺序接入现有在线队列；不等某位好友的所有字段收尾。
+        const feed = () => {
+          while (feeding < this.options.concurrency && cursor < fields.length) {
+            const read = fields[cursor]!;
+            fields[cursor++] = undefined;
+            feeding++;
+            void read().finally(() => {
+              feeding--;
+              feed();
+            });
+          }
+        };
+        const enqueue: EnqueueContactField = (read) =>
+          new Promise((resolve, reject) => {
+            fields.push(async () => {
+              try {
+                if (!this.active || this.cancelled || this.pauseRequested || !this.isOnline())
+                  throw new ContactMetricsOfflineError('好友资料读取已停止');
+                resolve(await read());
+              } catch (error) {
+                reject(error);
+              }
+            });
+            feed();
+          });
+        const jobs = this.jobs.filter((job) => job.queueFields);
+        this.jobs = this.jobs.filter((job) => !job.queueFields);
+        await Promise.all(jobs.map((job) => runJob(job, 'friends', enqueue)));
+      };
+      await Promise.all([queuedFriends(), worker(false), worker(true)]);
+      let finalStepPending = Boolean(this.afterRun);
+      if (
+        !this.jobs.length &&
+        !this.cancelled &&
+        !this.pauseRequested &&
+        this.active &&
+        this.afterRun
+      ) {
         this.progress.phase = '整理结果';
         this.updateProgress('running');
         await this.afterRun();
+        finalStepPending = false;
       }
       if (this.jobs.length && !this.cancelled && this.active)
-        this.emit('log', 'QQ 当前不可在线查询，未完成部分已暂停，可在任务列表继续');
+        this.emit(
+          'log',
+          this.pauseRequested
+            ? '已暂停，未完成部分可在任务列表继续'
+            : 'QQ 当前不可在线查询，未完成部分已暂停，可在任务列表继续',
+        );
       await this.flush();
       this.jobRunning = false;
       const status =
         this.cancelled || !this.active
           ? 'cancelled'
-          : this.jobs.length
+          : this.jobs.length || (this.pauseRequested && finalStepPending)
             ? 'paused'
             : this.progress.failed
               ? 'failed'

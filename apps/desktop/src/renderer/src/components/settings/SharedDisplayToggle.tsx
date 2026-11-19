@@ -4,6 +4,7 @@ import {
   useClientPreferences,
 } from '../../lib/clientPreferences';
 import { Toggle } from './controls';
+import type { PreferenceKey } from '@weq/service/client-preferences';
 
 export function SharedDisplayToggle({
   name,
@@ -11,24 +12,11 @@ export function SharedDisplayToggle({
   fallback,
   disabled,
 }: {
-  name:
-    | 'showMessageBubble'
-    | 'showMessageFont'
-    | 'showAvatarPendant'
-    | 'showChatQqShow'
-    | 'showMessageTime'
-    | 'showMessageDate'
-    | 'showMessageSeq'
-    | 'showGroupMemberName'
-    | 'showGroupMemberLevel'
-    | 'showGroupMemberTitle'
-    | 'autoMentionOnQuote'
-    | 'backspaceRemovesQuote'
-    | 'slashEmojiEnabled'
-    | 'slashEmojiAutoReplace'
-    | 'keepConversationPositionOnHover'
-    | 'allConversationsIncludeHidden'
-    | 'allConversationsIncludeDeleted';
+  name: {
+    [K in PreferenceKey]: import('@weq/service/client-preferences').PreferenceValues[K] extends boolean
+      ? K
+      : never;
+  }[PreferenceKey];
   label: string;
   fallback: boolean;
   disabled?: boolean;

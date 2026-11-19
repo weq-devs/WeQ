@@ -1,10 +1,7 @@
 /**
  * 日志保留清理（设置 → 日志 → 日志保留时长）。
  *
- * 覆盖两处日志目录：WeQ 自身的 `logs/`（`YYYY-MM-DD.log`，JSONL）和原生组件的
- * 日志目录（`nt_helper_<date>.log` / `native_loader_<date>.log`）。两者都是**按天
- * 拆文件**，所以「过期」直接看文件名里的日期（`pruneExpiredLogs` 兜底没有日期的
- * 文件，退回修改时间）。
+ * 清理 WeQ 的明文分段、压缩归档和原生组件日志，过期日期以文件名为准。
  *
  * 触发点三处：
  *   1. 应用启动 —— 上次退出到今天之间攒下的旧日志一次清掉；
@@ -14,7 +11,13 @@
  * 清理失败永远不抛给调用方：日志清理是家务，不能影响启动或设置保存。
  */
 
-import { getLogDir, getLogger, logErrorContext, pruneExpiredLogs } from '@weq/service';
+import {
+  archiveHistoricalLogs,
+  getLogDir,
+  getLogger,
+  logErrorContext,
+  pruneExpiredLogs,
+} from '@weq/service';
 import { getNativeLogRoot } from '@weq/native';
 
 const logger = getLogger().child({ scope: 'log-retention' });
@@ -38,15 +41,15 @@ function logDirs(): string[] {
 }
 
 /**
- * 立刻按 `retentionDays` 清一轮过期日志。`retentionDays <= 0` = 永久保留，直接跳过。
+ * 先清过期文件，再归档仍需保留的历史 WeQ 日志。永久保留时只归档。
  * 返回被删掉的文件名（跨目录合并，仅供日志记录）。
  */
 export function runLogRetentionSweep(retentionDays: number): string[] {
-  if (!Number.isFinite(retentionDays) || retentionDays <= 0) return [];
   const removed: string[] = [];
-  for (const dir of logDirs()) {
-    removed.push(...pruneExpiredLogs(dir, retentionDays));
+  if (Number.isFinite(retentionDays) && retentionDays > 0) {
+    for (const dir of logDirs()) removed.push(...pruneExpiredLogs(dir, retentionDays));
   }
+  archiveHistoricalLogs();
   if (removed.length > 0) {
     logger.info('pruned expired log files', {
       event: 'log-prune',

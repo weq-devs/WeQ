@@ -11,6 +11,7 @@ import { InteractionProfileSection } from '../src/renderer/src/components/settin
 import { ReplySuggestionsSection } from '../src/renderer/src/components/settings/ReplySuggestionsSection';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { findSettingElement } from '../src/renderer/src/components/settings/searchTarget';
+import { chooseFormOption, formOptions } from './support/form-controls';
 
 const state = vi.hoisted(() => ({
   data: {} as Record<string, unknown>,
@@ -192,7 +193,7 @@ function mount(component: ComponentType, active = true) {
     toggle: (title: string) =>
       host.querySelector<HTMLButtonElement>(`[aria-label="启用${title}"]`)!,
     model: (title: string) =>
-      host.querySelector<HTMLSelectElement>(`[aria-label="${title} API 模型"]`)!,
+      host.querySelector<HTMLButtonElement>(`[aria-label="${title} API 模型"]`)!,
   };
 }
 
@@ -213,13 +214,12 @@ describe.each(pages)('$title 独立设置页', ({ title, component, enabled, mod
     );
     expect(f.toggle(title).getAttribute('aria-checked')).toBe('false');
     expect(f.model(title).disabled).toBe(false);
-    expect(f.model(title).value).toBe('default');
-    expect(f.model(title).querySelector('option[value=""]')).toBeNull();
+    expect(f.model(title).dataset.value).toBe('default');
+    expect(formOptions(f.model(title)).some((option) => option.value === '')).toBe(false);
     for (const other of pages.filter((page) => page.title !== title))
       expect(f.toggle(other.title)).toBeNull();
     await act(async () => {
-      f.model(title).value = JSON.stringify(['synthetic', 'model']);
-      f.model(title).dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(f.model(title), JSON.stringify(['synthetic', 'model']));
     });
     expect(state.save).toHaveBeenLastCalledWith({
       [model]: { providerId: 'synthetic', model: 'model' },
@@ -431,11 +431,14 @@ it('保存失败就地保留内容，关闭重开后可以重试', async () => {
     fallbackDialog().querySelector<HTMLButtonElement>('[aria-label="重试保存"]')!.click(),
   );
   expect(state.save).toHaveBeenCalledTimes(2);
-  expect(fallbackDialog().textContent).toContain('已保存');
+  expect(state.save.mock.calls[1]).toEqual(state.save.mock.calls[0]);
+  expect(fallbackDialog().querySelector('[aria-label="重试保存"]')).toBeNull();
+  expect(fallbackDialog().querySelector('input')!.value).toBe('待重试内容');
 });
 
 it('回退对话框保留增删、去空白与重复校验，开关不清空内容', async () => {
   Object.assign(state.data['settings.intent.getStatus'] as object, {
+    suggestionFallbackEnabled: true,
     suggestionFallbackTexts: ['A', 'B'],
   });
   const f = mount(ReplySuggestionsSection);

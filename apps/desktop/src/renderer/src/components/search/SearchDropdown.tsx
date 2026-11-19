@@ -19,6 +19,7 @@ import {
 } from '@weq/service/search-policy';
 import { AppSearchResults } from './AppSearchResults';
 import { appSearchEntryRank, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
+import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { restoreSearchPosition } from './searchPosition.shared';
 import type { SearchPosition } from './searchPosition';
 import { SEARCH_CATEGORY_ICONS, SEARCH_SOURCE_ICONS } from './searchIcons';
@@ -104,6 +105,7 @@ export function SearchDropdown({
   onSourcesChange?: (sources: SearchSource[]) => void;
 }): ReactElement {
   const hasKeyword = keyword.trim().length > 0;
+  const developmentDressTools = useDevelopmentDressTools();
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [localSources, setLocalSources] = useState<SearchSource[]>(['qq', 'clone', 'assistant']);
   const activeSources = useMemo(
@@ -136,8 +138,8 @@ export function SearchDropdown({
   );
   const appResultsExpanded = expandedAppKeyword === keyword;
   const appEntries = useMemo(
-    () => (appEnabled ? searchAppEntries(keyword) : []),
-    [keyword, appEnabled],
+    () => (appEnabled ? searchAppEntries(keyword, developmentDressTools) : []),
+    [keyword, appEnabled, developmentDressTools],
   );
   const rememberPosition = (focusKey: string) =>
     onNavigate?.({

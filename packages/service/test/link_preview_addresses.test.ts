@@ -59,7 +59,9 @@ afterEach(() => {
 function service() {
   const root = mkdtempSync(join(tmpdir(), 'weq-link-address-'));
   roots.push(root);
-  return new LinkPreviewService(new UserConfigService({ appDataRoot: () => root } as Platform));
+  const config = new UserConfigService({ appDataRoot: () => root } as Platform);
+  config.setSettings({ linkPreview: { autoFetch: true } });
+  return new LinkPreviewService(config);
 }
 
 it.each([

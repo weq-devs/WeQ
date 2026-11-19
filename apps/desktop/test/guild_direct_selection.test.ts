@@ -173,7 +173,11 @@ it('频道会话多选支持范围、全选、导出，消息选区独立且只�
           new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
         ),
     );
-    await click('.message-context-menu [aria-label="多选"]');
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>('.message-context-menu [aria-label="多选"]')!
+        .click(),
+    );
     expect(host.querySelector('.composer.selection-mode')).not.toBeNull();
     expect(host.querySelectorAll('.message-line.is-selected')).toHaveLength(1);
     await click('[aria-label="导出所选消息"]');

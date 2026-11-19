@@ -45,7 +45,10 @@ try {
   const output = process.env.WEQ_NOTIFICATION_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   let cases = 0;
-  for (const width of [320, 390, 1280]) {
+  const widths = process.env.WEQ_NOTIFICATION_VIEWPORT
+    ? [Number(process.env.WEQ_NOTIFICATION_VIEWPORT)]
+    : [320, 390, 1280];
+  for (const width of widths) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
@@ -57,7 +60,8 @@ try {
       if ((await page.locator('.weq-toast-open').count()) !== 2)
         throw Error('普通复制提示不应出现来源动作');
       const box = await page.locator('.weq-toast').first().boundingBox();
-      if (!box || box.x < 0 || box.x + box.width > width + 1) throw Error('横幅超出屏幕');
+      if (!box || box.x < 0 || box.x + box.width > width + 1)
+        throw Error(`横幅超出屏幕（${width}px / ${theme}）：${JSON.stringify(box)}`);
       await page.getByRole('button', { name: '展开详情' }).click();
       if (await page.evaluate(() => window.notificationQa.routes.length))
         throw Error('展开详情触发了跳转');
@@ -86,7 +90,7 @@ try {
         throw Error('独立播放动作未执行');
       if ((await page.evaluate(() => window.notificationQa.routes.length)) !== 1)
         throw Error('播放触发了导航');
-      const keyboard = page.locator('.weq-toast-open').nth(1);
+      const keyboard = page.getByRole('button', { name: '定位通知来源' });
       await keyboard.focus();
       await keyboard.press('Enter');
       if ((await page.evaluate(() => window.notificationQa.routes.at(-1)?.id)) !== 'export:fixture')
@@ -95,9 +99,27 @@ try {
       cases++;
     }
   }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => window.notificationQa.reset(true));
+  await page.getByRole('button', { name: '打开这封邮件' }).click();
+  const mail = await page.evaluate(() => ({
+    arrived: !document.querySelector('.weq-mail-retained').hidden,
+    bannerVisible: Boolean(document.querySelector('[aria-label="打开这封邮件"]')),
+    stackBottom: getComputedStyle(document.querySelector('.weq-toast-host')).bottom,
+  }));
+  if (!mail.arrived || mail.stackBottom !== '76px' || mail.bannerVisible)
+    throw Error(`打开邮箱时应立即收起已点的通知：${JSON.stringify(mail)}`);
   if (errors.length) throw Error(errors.join('\n'));
   console.log(
-    JSON.stringify({ cases, selection: true, keyboard: true, independentActions: true, errors }),
+    JSON.stringify({
+      cases,
+      selection: true,
+      keyboard: true,
+      independentActions: true,
+      mail,
+      errors,
+    }),
   );
 } finally {
   await browser?.close();

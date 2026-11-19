@@ -110,8 +110,8 @@ export function HomeSettingsSection() {
           }}
         >
           {home?.showHitokoto ? (
-            <div className="weq-home-words" data-setting-id="home-blocked-words">
-              <label className="weq-set-card-title" htmlFor="weq-home-blocked-words">
+            <div className="weq-set-text-field weq-home-words" data-setting-id="home-blocked-words">
+              <label className="weq-set-row-label" htmlFor="weq-home-blocked-words">
                 一言屏蔽词
               </label>
               <textarea

@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -103,7 +104,7 @@ try {
       const form = page.locator('.weq-contact-identity .weq-member-inline-field');
       const geometry = await form.evaluate((node) => {
         const bounds = node.closest('.weq-contact-card').getBoundingClientRect();
-        return [...node.querySelectorAll('select,button')].map((control) => {
+        return [...node.querySelectorAll('button')].map((control) => {
           const rect = control.getBoundingClientRect();
           return rect.width > 0 && rect.left >= bounds.left && rect.right <= bounds.right + 1;
         });
@@ -130,11 +131,11 @@ try {
       if (output)
         await page.screenshot({ path: resolve(output, `category-${width}-${theme}.png`) });
     }
-  await page.getByRole('combobox', { name: '好友分组' }).selectOption('2');
+  await chooseFormOption(page.getByRole('combobox', { name: '好友分组' }), '2');
   await button('保存好友分组').click();
   assert.equal(await button('编辑好友分组').textContent(), '同学');
   await button('编辑好友分组').click();
-  await page.getByRole('combobox', { name: '好友分组' }).selectOption('1');
+  await chooseFormOption(page.getByRole('combobox', { name: '好友分组' }), '1');
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(), 1);
   assert.equal(await button('编辑好友分组').textContent(), '同学');

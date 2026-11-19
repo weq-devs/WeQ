@@ -95,7 +95,7 @@ afterEach(() => {
   Reflect.deleteProperty(document, 'fonts');
 });
 
-function probe(observe = false) {
+function probe(observe = false, fontSlots?: { fontId1Raw?: number; fontId2Raw?: number }) {
   const host = document.createElement('div');
   const root = createRoot(host);
   let closed = false;
@@ -103,7 +103,7 @@ function probe(observe = false) {
   function Message({ bubbleId, fontId }: { bubbleId: number; fontId: number }) {
     const ref = useRef<HTMLDivElement | null>(null);
     const decoration = useMsgDecoration(
-      { bubbleId, fontId, widgetId: 0 },
+      { bubbleId, fontId, widgetId: 0, ...fontSlots },
       observe ? ref : undefined,
     );
     useLayoutEffect(() => {
@@ -113,6 +113,7 @@ function probe(observe = false) {
       ref,
       'data-bubble': decoration.bubbleId,
       'data-font': decoration.fontId,
+      'data-weq-system-font': decoration.systemFont || undefined,
       'data-fontfx': decoration.fontFx ? 'active' : '',
     });
   }
@@ -136,6 +137,9 @@ function probe(observe = false) {
       expect(host.firstElementChild?.getAttribute('data-bubble')).toBe(String(bubble));
       expect(host.firstElementChild?.getAttribute('data-font')).toBe(String(font));
     },
+    hasSystemFont() {
+      return host.firstElementChild?.hasAttribute('data-weq-system-font') ?? false;
+    },
     close: () =>
       act(async () => {
         if (closed) return;
@@ -144,6 +148,27 @@ function probe(observe = false) {
       }),
   };
 }
+
+it('同款字体只为已生效的 type 2 记录取消位图首行补偿', async () => {
+  const fontId = fixture.font.itemId;
+  const packedId = ((fontId & 0xff) << 8) | (fontId >>> 8);
+  const bitmap = probe(false, { fontId2Raw: (1 << 16) | packedId });
+  const system = probe(false, { fontId2Raw: (2 << 16) | packedId });
+  const firstSlot = probe(false, { fontId1Raw: fontId, fontId2Raw: (2 << 16) | packedId });
+  try {
+    for (const view of [bitmap, system, firstSlot]) await view.render(0, fontId);
+    expect(system.hasSystemFont()).toBe(false);
+    expect(fontLoads).toBe(1);
+    await act(async () => fontReady());
+    expect(bitmap.hasSystemFont()).toBe(false);
+    expect(system.hasSystemFont()).toBe(true);
+    expect(firstSlot.hasSystemFont()).toBe(false);
+    await system.render(0, fontId, { bubble: true, font: false, widget: true });
+    expect(system.hasSystemFont()).toBe(false);
+  } finally {
+    for (const view of [bitmap, system, firstSlot]) await view.close();
+  }
+});
 
 it.each(['font-first', 'bubble-first'])('本地气泡同步应用，字体注册独立完成：%s', async (order) => {
   const view = probe();

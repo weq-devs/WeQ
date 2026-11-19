@@ -86,7 +86,7 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
   }, [active]);
 
   const appLock = settings.data?.appLock;
-  const enabled = appLock?.enabled ?? true;
+  const enabled = appLock?.enabled ?? false;
   const method = appLock?.method ?? 'totp';
   const autoLockMinutes = settings.data?.autoLockMinutes ?? 0;
   const systemAvailable = systemAuthQuery.data?.available === true;

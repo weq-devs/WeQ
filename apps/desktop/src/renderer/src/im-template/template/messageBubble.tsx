@@ -4,7 +4,6 @@ import { preferenceValue, useClientPreferences } from '../../lib/clientPreferenc
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import {
   Bot,
-  Check,
   Clock,
   LoaderCircle,
   Monitor,
@@ -14,8 +13,16 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
+import { MessageSelectionMark } from '../../components/MessageSelectionMark';
+import { TransferRing } from '../../components/TransferRing';
+import { transferLabel } from '../../lib/transferPresentation';
+import { useTransferProgress } from '../../lib/transferActivity';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
-import { renderMessageWithRegistry, type MessageRenderer } from './messageRenderers';
+import {
+  defaultMessageRenderers,
+  renderDefaultMessageContent,
+  type MessageRenderer,
+} from './messageRenderers';
 import { Avatar } from './primitives';
 import { ChatQqShowEnabledContext, useChatQqShow } from '../../lib/chatQqShow';
 import { qqShowUrl } from '../../lib/resourceUrl';
@@ -51,6 +58,28 @@ function hideBrokenImg(event: { currentTarget: HTMLImageElement }) {
   event.currentTarget.style.display = 'none';
 }
 
+function QqShowAvatar({ src }: { src: string }) {
+  const [ready, setReady] = useState(false);
+  return (
+    <img
+      className={cn('weq-qqshow-avatar')}
+      src={src}
+      alt=""
+      hidden={!ready}
+      draggable={false}
+      onLoad={async ({ currentTarget: image }) => {
+        // URL 已返回不代表图片可绘制。解码失败时继续显示原头像。
+        try {
+          await image.decode();
+          if (image.isConnected) setReady(true);
+        } catch {
+          // QQ 秀保持隐藏。
+        }
+      }}
+    />
+  );
+}
+
 /**
  * 头像挂件叠加层。`widget.animated` 时渲染一个空 `<span>`，真正的画面由
  * `data-widget` 属性选中后注入的 CSS `@keyframes`（见 msgDecorationStyle.ts 的
@@ -73,47 +102,64 @@ function PendantOverlay({
   widget: { animated: boolean; url?: string } | null;
   fallbackUrl?: string | null;
 }) {
-  // QQ 秀替换头像时不显示头像和挂件；图片裂了自动回退到普通头像。
   const qqShowEnabled = useContext(ChatQqShowEnabledContext);
   const avatarRef = useRef<HTMLSpanElement>(null);
   const qqShowInfo = useChatQqShow(uin, qqShowEnabled, avatarRef);
-  const qqShow = qqShowInfo?.url ?? '';
-  const [qqShowBroken, setQqShowBroken] = useState(false);
-  useEffect(() => setQqShowBroken(false), [qqShow, qqShowInfo?.expiresAt]);
-  if (qqShow && !qqShowBroken) {
-    return (
-      <span ref={avatarRef} className={cn('weq-qqshow-avatar')} title={name}>
-        <img
-          src={qqShowUrl(qqShow, qqShowInfo?.expiresAt)}
-          alt=""
-          draggable={false}
-          onError={() => setQqShowBroken(true)}
-        />
-      </span>
-    );
-  }
+  const qqShowSrc = qqShowInfo?.url ? qqShowUrl(qqShowInfo.url, qqShowInfo.expiresAt) : '';
   const staticUrl = widget ? (widget.animated ? undefined : widget.url) : fallbackUrl;
-  if (!widget?.animated && !staticUrl) {
-    return (
-      <span ref={avatarRef} style={{ display: 'inline-flex', flexShrink: 0 }}>
-        <Avatar name={name} avatarUrl={avatarUrl} seed={seed} resolution="small" />
-      </span>
-    );
-  }
   return (
-    <span ref={avatarRef} className={cn('weq-avatar-pendant')}>
+    <span ref={avatarRef} className={cn('weq-avatar-pendant')} title={qqShowSrc ? name : undefined}>
       <Avatar name={name} avatarUrl={avatarUrl} seed={seed} resolution="small" />
       {widget?.animated ? (
         <span className={cn('weq-avatar-pendant-img')} aria-hidden />
-      ) : (
+      ) : staticUrl ? (
         <img
           className={cn('weq-avatar-pendant-img')}
-          src={staticUrl ?? undefined}
+          src={staticUrl}
           alt=""
           aria-hidden
           draggable={false}
           onError={hideBrokenImg}
         />
+      ) : null}
+      {qqShowSrc ? <QqShowAvatar key={qqShowSrc} src={qqShowSrc} /> : null}
+    </span>
+  );
+}
+
+function OutgoingSendProgress({
+  transferId,
+  outgoingToHost,
+}: Pick<Message, 'transferId' | 'outgoingToHost'>) {
+  const transfer = useTransferProgress(transferId);
+  const toHost = IS_WEB && outgoingToHost && (!transfer || transfer.phase === 'to-host');
+  const progress = toHost
+    ? (transfer ?? { phase: 'to-host' as const })
+    : transfer?.phase === 'to-host'
+      ? undefined
+      : transfer;
+  const label = progress ? transferLabel(progress) : '发送中';
+  const monitor = toHost ? (
+    <Monitor className="weq-message-send-host" size={10} aria-hidden />
+  ) : undefined;
+  return (
+    <span
+      className={cn('weq-message-sending', toHost && 'is-to-host')}
+      role="status"
+      aria-label={label}
+      title={label}
+    >
+      {transferId ? (
+        <TransferRing
+          progress={progress ?? { phase: 'preparing' }}
+          label={label}
+          center={monitor}
+        />
+      ) : (
+        <>
+          <LoaderCircle className="weq-message-send-spinner" size={toHost ? 22 : 16} aria-hidden />
+          {monitor}
+        </>
       )}
     </span>
   );
@@ -125,15 +171,15 @@ export function MessageBubble(props: Parameters<typeof MessageBubbleBody>[0]) {
   const configId = inherited?.binding?.expectedAccountConfigId;
   const conv = props.conversation.id;
   const kind = props.conversation.type === 'group' ? 'group' : 'c2c';
-  const { id, msgId, msgSeq, sourceFormat, ntSeqVerified } = props.message;
+  const { id, msgSeq, sourceFormat, ntSeqVerified } = props.message;
   const source = useMemo(
     () =>
       messageNotificationSource(
         { id: conv, type: kind },
-        { id, msgId, msgSeq, sourceFormat, ntSeqVerified },
+        { id, msgSeq, sourceFormat, ntSeqVerified },
         uin && configId ? { expectedAccountUin: uin, expectedAccountConfigId: configId } : null,
       ),
-    [uin, configId, kind, conv, id, msgId, msgSeq, sourceFormat, ntSeqVerified],
+    [uin, configId, kind, conv, id, msgSeq, sourceFormat, ntSeqVerified],
   );
   return (
     <NotificationSourceProvider source={source}>
@@ -305,9 +351,7 @@ function MessageBubbleBody({
   const isQqDeleted = resolvedKind === 'qq';
 
   // Recall marker — the anti-recall trigger caught a QQ recall of this message;
-  // its content is intact, so we DON'T veil it (unlike delete). We just show a
-  // small "撤回" tag below the bubble naming who recalled it. `sameSender` = the
-  // author recalled their own message; otherwise an admin recalled someone else's.
+  // 原文保持可读、可交互，轻微淡化气泡内容，由独立标签说明是谁撤回。
   // 未同步入库的发送消息：发送中仅显示旁侧圈圈，正常回执后隐藏，失败才显示下方提示。
   const optimistic = message.optimistic;
   const optimisticRejected = message.optimisticRejected;
@@ -471,11 +515,16 @@ function MessageBubbleBody({
   }
 
   const SelfAvatar = onAvatarClick ? 'button' : 'span';
+  const renderContext = { message, conversation, sender, mine };
+  const renderer = (renderers ?? defaultMessageRenderers).find((item) => item.match(renderContext));
+  const content = renderer?.render(renderContext) ?? renderDefaultMessageContent(message);
   return (
     <div
       className={cn(
         'message-line',
+        'weq-message-selectable',
         mine ? 'mine' : 'theirs',
+        recall && 'is-recalled',
         isDeleted && 'is-deleted',
         isQqDeleted && 'is-qq-deleted',
         selectionMode && 'selection-mode',
@@ -499,17 +548,14 @@ function MessageBubbleBody({
       }
       data-bubble={msgBubbleId || undefined}
       data-font={msgFontId || undefined}
+      data-weq-system-font={msgDec.systemFont || undefined}
       data-record-bubble={decoration?.bubbleId || undefined}
       data-record-font={decoration?.fontId || undefined}
       data-record-widget={recordWidget || undefined}
       data-fontfx={fontFxAttr}
       data-widget={lineWidget?.animated ? lineWidget.itemId : undefined}
     >
-      {selectionMode ? (
-        <span className={cn('message-select-mark')} aria-hidden>
-          {selected ? <Check size={13} strokeWidth={3.2} /> : null}
-        </span>
-      ) : null}
+      {selectionMode ? <MessageSelectionMark selected={selected ?? false} /> : null}
       {!mine ? (
         onAvatarClick ? (
           <button
@@ -606,32 +652,18 @@ function MessageBubbleBody({
         </div>
         {repeatAction || optimistic === 'sending' ? (
           <div className="weq-repeat-content">
-            {renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)}
+            {content}
             {optimistic === 'sending' ? (
-              <span
-                className={cn(
-                  'weq-message-sending',
-                  IS_WEB && message.outgoingToHost && 'is-to-host',
-                )}
-                role="status"
-                aria-label={IS_WEB && message.outgoingToHost ? '正在传给电脑' : '发送中'}
-                title={IS_WEB && message.outgoingToHost ? '正在传给电脑' : '发送中'}
-              >
-                <LoaderCircle
-                  className="weq-message-send-spinner"
-                  size={IS_WEB && message.outgoingToHost ? 22 : 16}
-                  aria-hidden
-                />
-                {IS_WEB && message.outgoingToHost ? (
-                  <Monitor className="weq-message-send-host" size={10} aria-hidden />
-                ) : null}
-              </span>
+              <OutgoingSendProgress
+                transferId={message.transferId}
+                outgoingToHost={message.outgoingToHost}
+              />
             ) : (
               repeatAction
             )}
           </div>
         ) : (
-          renderMessageWithRegistry({ message, conversation, sender, mine }, renderers)
+          content
         )}
         {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
             只有群聊 + 有会话内序号时才可查。 */}
@@ -804,6 +836,7 @@ function MessageBubbleBody({
           </div>
         ) : null}
       </div>
+      {selectionMode ? null : renderer?.renderTrailing?.(renderContext)}
       {mine ? (
         <SelfAvatar
           className={cn(onAvatarClick ? 'message-avatar-button' : 'message-avatar-wrap', 'is-self')}

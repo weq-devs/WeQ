@@ -10,6 +10,12 @@ export function isConversationPagingVisible(scroll: HTMLElement): boolean {
   );
 }
 
+const pagingChecks = new WeakMap<HTMLElement, () => void>();
+
+export function scheduleConversationPagingCheck(scroll: HTMLElement): void {
+  pagingChecks.get(scroll)?.();
+}
+
 export function observeConversationPaging(
   scroll: HTMLElement,
   older: (scroll: HTMLElement) => void,
@@ -28,6 +34,7 @@ export function observeConversationPaging(
   function schedule(): void {
     if (!stopped && frame === null) frame = window.requestAnimationFrame(check);
   }
+  pagingChecks.set(scroll, schedule);
   scroll.addEventListener('scroll', schedule, { passive: true });
   scroll.ownerDocument.addEventListener('visibilitychange', schedule);
   // 工作区返回不改变 shell.view；尺寸恢复时重新检查，而非在隐藏期间轮询。
@@ -36,6 +43,7 @@ export function observeConversationPaging(
   schedule();
   return () => {
     stopped = true;
+    if (pagingChecks.get(scroll) === schedule) pagingChecks.delete(scroll);
     scroll.removeEventListener('scroll', schedule);
     scroll.ownerDocument.removeEventListener('visibilitychange', schedule);
     resize.disconnect();

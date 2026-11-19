@@ -125,8 +125,6 @@ async function routeResourceRequest(request: Request): Promise<Response> {
  */
 async function handleEmojiRequest(request: Request, url: URL): Promise<Response> {
   const roots = resolveEmojiRoots();
-  if (roots.length === 0) return new Response('resource root not found', { status: 404 });
-
   const relative = decodeURIComponent(url.pathname);
   for (const root of roots) {
     const target = containedPath(root, relative);
@@ -136,6 +134,14 @@ async function handleEmojiRequest(request: Request, url: URL): Promise<Response>
   }
 
   const faceId = faceIdOf(url.pathname);
+  if (faceId && /^\d+$/.test(faceId) && relative === `/${faceId}/apng/${faceId}.png`) {
+    const root = resolveResourceRoot();
+    if (root) {
+      const classic = join(root, 'emoji', 'classic', `${faceId}.png`);
+      const response = await fileResponse(classic, request, { revalidate: true });
+      if (response.status !== 404) return response;
+    }
+  }
   const download = getAppContext().services?.sysEmojiDownload;
   if (!faceId || !download) return new Response('not found', { status: 404 });
 

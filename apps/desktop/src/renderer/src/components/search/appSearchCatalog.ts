@@ -32,6 +32,7 @@ export type AppSearchTarget =
   | { kind: 'tool'; tool: SearchableTool; exportMode?: ExportMode }
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
+  | { kind: 'announcements' }
   | { kind: 'dressup'; dressKind?: DressKind }
   | { kind: 'self-profile'; tab?: ContactWorkspaceTab }
   | { kind: 'clone-create'; group?: boolean };
@@ -82,6 +83,8 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
       return target.dressKind ? DRESS_KIND_ICONS[target.dressKind] : APP_NAVIGATION.dressup.icon;
     case 'composition':
       return APP_NAVIGATION.composition.icon;
+    case 'announcements':
+      return APP_NAVIGATION.announcements.icon;
     case 'self-profile':
       return target.tab === 'giftwall' ? Gift : ContactRound;
     case 'clone-create':
@@ -110,7 +113,7 @@ function uniqueEntries(entries: AppSearchEntry[]): AppSearchEntry[] {
 }
 
 const appSearchEntries: readonly AppSearchEntry[] = uniqueEntries([
-  ...navigationEntries('search').flatMap(({ label, target, keywords }) =>
+  ...navigationEntries('search', true).flatMap(({ label, target, keywords }) =>
     target.kind === 'contact-notice' || target.kind === 'contact-overview'
       ? []
       : [feature(label, target, ...keywords)],
@@ -177,10 +180,11 @@ export function appSearchEntryRank(keyword: string, entry: AppSearchEntry): numb
   );
 }
 
-export function searchAppEntries(keyword: string): AppSearchEntry[] {
+export function searchAppEntries(keyword: string, developmentDressTools = false): AppSearchEntry[] {
   const query = keyword.trim();
   if (!query) return [];
   return appSearchEntries
+    .filter((entry) => entry.target.kind !== 'dressup' || developmentDressTools)
     .filter((entry) => {
       if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
       const target = resolveSettingsTarget(entry.target);

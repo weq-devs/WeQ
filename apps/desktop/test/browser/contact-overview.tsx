@@ -22,7 +22,6 @@ function Fixture() {
     initialActiveConversationId: null,
     contacts: demo.contacts,
     conversations: demo.conversations,
-    conversationPrefs: {},
     sidebarWidthStorageKey: 'contact-overview-qa',
     history: noopChatShellHistoryAdapter,
   });

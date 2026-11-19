@@ -1,0 +1,54 @@
+.weq-notification-method {
+  display: grid;
+  gap: 6px;
+  width: 224px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+html[data-theme] .weq-notification-method-select {
+  width: 100%;
+  min-height: 32px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  border-color: var(--weq-border-strong);
+  color-scheme: light;
+}
+
+html[data-theme='dark'] .weq-notification-method-select {
+  color-scheme: dark;
+}
+
+.weq-notification-method-select:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+.weq-notification-method-select:disabled {
+  opacity: 0.65;
+}
+
+.weq-notification-method > p {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.weq-db-damaged-notification {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.weq-db-damaged-foot {
+  flex-wrap: wrap;
+}
+
+@media (pointer: coarse) {
+  html[data-theme] .weq-notification-method-select {
+    min-height: 44px;
+  }
+}

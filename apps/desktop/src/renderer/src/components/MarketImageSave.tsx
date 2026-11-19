@@ -7,7 +7,7 @@ import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { IS_WEB } from '../lib/target.shared';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast.shared';
-import { taskNotificationSource } from '../lib/notificationNavigation.shared';
+import { notifyTaskCreated } from '../lib/taskNotifications';
 import '../styles/market-image-save.css';
 
 export function MarketImageSave({
@@ -38,13 +38,7 @@ export function MarketImageSave({
         ...selected,
         savePolicy: policy,
       });
-      if (save.isCurrent())
-        pushToast({
-          tone: 'info',
-          title: '单张表情保存任务已创建',
-          source: taskNotificationSource(taskId),
-          message: '可在导出任务列表查看结果与保存位置',
-        });
+      if (save.isCurrent()) notifyTaskCreated(taskId, '正在保存表情');
     } catch (error) {
       if (save.isCurrent())
         pushToast({

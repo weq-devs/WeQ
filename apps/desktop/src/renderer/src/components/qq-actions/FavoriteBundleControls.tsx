@@ -1,10 +1,8 @@
 import { useState } from 'react';
-import { ImagePlus } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog.shared';
 import { FavoriteBundleExport } from './FavoriteBundleExport';
 import { FavoriteBundleImport } from './FavoriteBundleImport';
-import { ActionIcon } from './shared';
 import { useQQAction, withQQAccountScope } from './shared.shared';
 import '../../styles/emoji-pack-formats.css';
 
@@ -18,13 +16,14 @@ function FavoriteBundleControlsBody({ onChanged }: { onChanged: () => Promise<vo
   };
   return (
     <div className="weq-favorite-bundle-controls" role="toolbar" aria-label="收藏表情导入导出">
-      <strong>收藏表情</strong>
-      <ActionIcon
-        text="图片"
-        label="导入图片到收藏表情"
-        disabled={action.disabled || busy}
-        onClick={() => {
-          void (async () => {
+      <FavoriteBundleImport
+        binding={action.binding}
+        available={action.available && !action.pending && !action.busy}
+        onBusyChange={setBusy}
+        onChanged={refresh}
+        showLabel
+        onImportImage={async () => {
+          try {
             const file = await action.pickImage();
             if (!file) return;
             let addedEmojiId: string | undefined;
@@ -47,21 +46,12 @@ function FavoriteBundleControlsBody({ onChanged }: { onChanged: () => Promise<vo
                 },
               },
             );
-          })().catch((error: unknown) => {
+          } catch (error) {
             useDialog
               .getState()
               .showError('导入图片失败', error instanceof Error ? error.message : String(error));
-          });
+          }
         }}
-      >
-        <ImagePlus size={16} />
-      </ActionIcon>
-      <FavoriteBundleImport
-        binding={action.binding}
-        available={action.available && !action.pending && !action.busy}
-        onBusyChange={setBusy}
-        onChanged={refresh}
-        showLabel
       />
       <FavoriteBundleExport binding={action.binding} disabled={action.disabled || busy} showLabel />
     </div>

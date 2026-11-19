@@ -19,17 +19,20 @@ export function useOverlayAnchor(
   ref: RefObject<HTMLElement | null>,
   active: boolean,
   enabled: boolean,
-  explicit?: HTMLElement | null,
+  explicit?: HTMLElement | OverlayAnchor | null,
   preferred: 'above' | 'below' | 'side' = 'below',
 ) {
   const document = useRenderDocument();
   const parent = useContext(OverlayAnchorContext);
   const trigger = useRef<OverlayAnchor | null>(null);
   const source = useRef<OverlayAnchor | null | undefined>(undefined);
+  const element = explicit && 'element' in explicit ? explicit.element : explicit;
   if (!active) source.current = undefined;
-  else if (source.current === undefined || (explicit && source.current?.element !== explicit))
+  else if (source.current === undefined || (element && source.current?.element !== element))
     source.current = explicit
-      ? { element: explicit, rect: explicit.getBoundingClientRect() }
+      ? 'element' in explicit
+        ? explicit
+        : { element: explicit, rect: explicit.getBoundingClientRect() }
       : (parent?.current ?? null);
   if (source.current && source.current.element.ownerDocument !== document) source.current = null;
   const anchor = source.current;

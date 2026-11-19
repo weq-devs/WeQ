@@ -16,6 +16,7 @@
 }
 
 .weq-set-row-ctrl:has(.weq-segmented) {
+  margin-inline-start: auto;
   min-width: 0;
   max-width: 100%;
 }

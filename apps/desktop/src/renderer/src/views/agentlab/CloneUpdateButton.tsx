@@ -2,7 +2,6 @@ import { useState, useSyncExternalStore } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { useViewState } from '../../state/view';
-import { CloneProgressModal } from './CloneProgressModal';
 import { getCloneTasks, startCloneUpdate, subscribeCloneTasks } from './cloneTaskStore';
 
 export function CloneUpdateButton({
@@ -17,12 +16,15 @@ export function CloneUpdateButton({
 }) {
   const dialog = useAppDialog();
   const accountId = useViewState((state) => state.openedUin);
-  const tasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
-  const task = tasks.find((item) => item.accountId === accountId && item.personaId === persona.id);
+  const running = useSyncExternalStore(subscribeCloneTasks, () =>
+    getCloneTasks().some(
+      (item) =>
+        item.accountId === accountId && item.personaId === persona.id && item.status === 'running',
+    ),
+  );
   const [confirming, setConfirming] = useState(false);
-  const [progressOpen, setProgressOpen] = useState(false);
   async function refresh() {
-    if (confirming || task?.status === 'running' || !accountId) return;
+    if (confirming || running || !accountId) return;
     setConfirming(true);
     try {
       const confirmed = await dialog.confirm(
@@ -31,7 +33,6 @@ export function CloneUpdateButton({
         { okLabel: '更新画像' },
       );
       if (!confirmed || useViewState.getState().openedUin !== accountId) return;
-      setProgressOpen(true);
       void startCloneUpdate({
         personaId: persona.id,
         name: persona.name,
@@ -43,24 +44,14 @@ export function CloneUpdateButton({
     }
   }
   return (
-    <>
-      <button
-        type="button"
-        className="weq-set-btn"
-        disabled={confirming || !accountId || task?.status === 'running'}
-        onClick={() => void refresh()}
-      >
-        <RefreshCw size={14} aria-hidden="true" />
-        更新画像
-      </button>
-      {progressOpen && task ? (
-        <CloneProgressModal
-          task={task}
-          onHide={() => setProgressOpen(false)}
-          onOpenPersona={() => setProgressOpen(false)}
-          onDismiss={() => setProgressOpen(false)}
-        />
-      ) : null}
-    </>
+    <button
+      type="button"
+      className="weq-set-btn"
+      disabled={confirming || !accountId || running}
+      onClick={() => void refresh()}
+    >
+      <RefreshCw size={14} aria-hidden="true" />
+      更新画像
+    </button>
   );
 }

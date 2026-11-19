@@ -46,6 +46,7 @@ function receive(...seqs: number[]) {
       (seq) =>
         ({
           msgSeq: BigInt(seq),
+          msgId: 9007199254740993n + BigInt(seq),
           senderUid: 'u_fixture',
           senderUin: 20001n,
           sendTime: 1n,
@@ -94,6 +95,7 @@ it('真实通知失败交回消息 hook 重试，成功行去重且失败行可�
   fixture(onHit);
   await expect(receive(1, 2, 3)).rejects.toThrow('合成通知失败');
   expect(onHit.mock.calls.map(([hit]) => hit.msgSeq)).toEqual([1n, 2n]);
+  expect(onHit.mock.calls[1]?.[0].msgId).toBe(9007199254740995n);
   await receive(1, 2, 3);
   expect(onHit.mock.calls.map(([hit]) => hit.msgSeq)).toEqual([1n, 2n, 2n, 3n]);
 });

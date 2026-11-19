@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -140,11 +141,16 @@ try {
   assert.equal(await statusDialog.count(), 0, '拖选状态文字不打开编辑器');
   await page.evaluate(() => document.getSelection().removeAllRanges());
   await statusTrigger.click();
-  await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).selectOption('30');
+  await chooseFormOption(
+    statusDialog.getByRole('combobox', { name: '在线状态', exact: true }),
+    '30',
+  );
   await page.evaluate(() => window.selfProfileQa.failSave(true));
   await statusDialog.getByRole('button', { name: '保存在线状态', exact: true }).click();
   assert.equal(
-    await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).inputValue(),
+    await statusDialog
+      .getByRole('combobox', { name: '在线状态', exact: true })
+      .getAttribute('data-value'),
     '30',
     '保存失败保留选择',
   );
@@ -153,10 +159,14 @@ try {
   await statusDialog.waitFor({ state: 'detached' });
   assert.ok((await statusTrigger.textContent()).includes('离开'));
   await statusTrigger.click();
-  await statusDialog.getByRole('combobox', { name: '在线状态', exact: true }).selectOption('10');
-  await statusDialog
-    .getByRole('combobox', { name: '扩展在线状态', exact: true })
-    .selectOption('1018');
+  await chooseFormOption(
+    statusDialog.getByRole('combobox', { name: '在线状态', exact: true }),
+    '10',
+  );
+  await chooseFormOption(
+    statusDialog.getByRole('combobox', { name: '扩展在线状态', exact: true }),
+    '1018',
+  );
   assert.equal(
     await statusDialog.getByRole('button', { name: /^保存/ }).count(),
     1,
@@ -336,9 +346,10 @@ try {
         true,
         `${width}/${theme}: 状态浮层不溢出`,
       );
-      await statusDialog
-        .getByRole('combobox', { name: '扩展在线状态', exact: true })
-        .selectOption('2000');
+      await chooseFormOption(
+        statusDialog.getByRole('combobox', { name: '扩展在线状态', exact: true }),
+        '2000',
+      );
       await statusDialog
         .getByRole('textbox', { name: '自定义状态文字', exact: true })
         .fill('尚未保存的状态');

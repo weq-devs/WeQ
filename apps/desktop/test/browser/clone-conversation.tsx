@@ -8,9 +8,9 @@ import { ConversationDirectoryContext } from '../../src/renderer/src/lib/convers
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { contrastRatio } from '../../src/shared/theme_colors';
 import { PersonaSettingsModal } from '../../src/renderer/src/views/agentlab/PersonaSettingsModal';
-import { CloneGenerationPanel } from '../../src/renderer/src/components/settings/CloneGenerationPanel';
 import { OverlayAnchorProvider } from '../../src/renderer/src/lib/overlayAnchor';
 import { cloneRequests } from './clone-conversation.stub';
+import { bindAccountState } from '../../src/renderer/src/lib/clientPreferences';
 import {
   useThemeStore,
   type ThemePreference,
@@ -18,6 +18,7 @@ import {
 } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/agentlab-workspace.css';
+import '../../src/renderer/src/styles/mobile-web.css';
 
 declare global {
   interface Window {
@@ -28,6 +29,7 @@ declare global {
 }
 window.cloneContrast = contrastRatio;
 window.cloneRequests = () => cloneRequests;
+bindAccountState({ expectedAccountUin: '10000', expectedAccountConfigId: 'fixture' });
 window.cloneTheme = (theme, accent, background) => {
   const store = useThemeStore.getState();
   store.setPreference(theme);
@@ -94,7 +96,6 @@ function Fixture() {
           <PersonaSettingsModal
             persona={persona}
             fromGroup={group}
-            replyContent={<CloneGenerationPanel persona={persona} onSaved={noop} />}
             onClose={() => setSettings(false)}
             onSaved={noop}
           />

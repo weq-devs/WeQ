@@ -122,6 +122,19 @@ export function migrateSharedPreferences(
   }
   merged.dress = dress;
   const normalized = normalizedSharedPreferences(merged, legacyLocalModelId);
+  // 旧通知字段只迁移真实保存过的值，不把旧版缺省关闭写成新事件表的显式关闭。
+  if (!Object.hasOwn(existing.client ?? {}, 'messageNotifications'))
+    delete normalized.client.messageNotifications;
+  if (
+    !Object.hasOwn(existing.mail ?? {}, 'mailNotifications') &&
+    !Object.hasOwn(snapshots[configId]?.mail ?? {}, 'mailNotifications')
+  )
+    delete normalized.mail.mailNotifications;
+  if (
+    !Object.hasOwn(existing.antiRecall ?? {}, 'notifyEnabled') &&
+    !Object.hasOwn(snapshots[configId]?.antiRecall ?? {}, 'notifyEnabled')
+  )
+    delete normalized.antiRecall.notifyEnabled;
   // 全局显式参数固定；仅调整从旧账号继承的关联范围，保持最少样本 <= 采样 <= 消息范围。
   const profileKeys = ['profileMinSamples', 'profileSamples', 'profileMessages'] as const;
   const profileValues = profileKeys.map(

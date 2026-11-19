@@ -8,7 +8,7 @@ import {
   clockFormatter,
   preciseClockFormatter,
 } from '@weq/time';
-import { ArrowDown, ArrowRight, ArrowUp, History } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUp, ChevronRight, History } from 'lucide-react';
 import {
   fieldHistoryItems,
   fieldHistoryMode,
@@ -282,8 +282,11 @@ function CollectionRecord({
         <span>条目内容未变</span>
       ) : null}
       <details>
-        <summary>
-          本次完整记录（{<span className="weq-number weq-number-inherit">{items.length}</span>}）
+        <summary className="weq-disclosure-summary">
+          <ChevronRight className="weq-disclosure-chevron" size={14} aria-hidden />
+          <span>
+            本次完整记录（<span className="weq-number weq-number-inherit">{items.length}</span>）
+          </span>
         </summary>
         {items.length ? <ItemList items={items} /> : <span>无条目</span>}
       </details>

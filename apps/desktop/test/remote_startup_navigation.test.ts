@@ -74,7 +74,6 @@ function Workspace({
   shell = useChatShellController({
     conversations: available ? [conversation] : [],
     contacts: [],
-    conversationPrefs: {},
     initialActiveConversationId: null,
     initialView: 'messages',
     startupView,

@@ -13,6 +13,10 @@
 .weq-conversation-settings-pane .weq-cvs-body-head {
   flex-wrap: wrap;
 }
+.weq-conversation-settings-pane .weq-cvs-body-desc {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
 /* 会话偏好 / 群管理页的密度对齐「设置 → 防撤回」（`.weq-ar-dialog`）：
    两边都是会话头部按钮开出来的兄弟面板，标签字号、开关尺寸、按钮高度必须一致，
@@ -22,18 +26,7 @@
   padding: 14px 8px;
 }
 .weq-conversation-settings-pane .weq-cvs-nav-head {
-  position: relative;
   margin: 0 6px 10px;
-}
-.weq-conversation-settings-pane .weq-cvs-nav-head:has(.weq-cvs-profile-link) {
-  padding-right: 28px;
-}
-.weq-conversation-settings-pane .weq-cvs-profile-link {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 26px;
-  height: 26px;
 }
 .weq-conversation-settings-pane .weq-cvs-nav-item {
   padding: 6px 8px;

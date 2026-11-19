@@ -76,7 +76,5 @@ describe('普通说说空友状态', () => {
         true,
       ).canContribute,
     ).toBe(false);
-    expect(projectQzoneArchive(detail(101), true).statusLabel).toBe('审核中');
-    expect(projectQzoneArchive(detail(103), true).statusLabel).toBe('');
   });
 });

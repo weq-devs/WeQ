@@ -7,6 +7,11 @@ const ESCAPE_SURFACE = '[data-weq-escape-surface]';
 const SURFACES =
   '[aria-modal="true"], [role="dialog"], [role="menu"], [role="listbox"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window, [data-weq-surface], .weq-lightbox-layer, .weq-redbag-detail-layer, .weq-redbag-qr-layer';
 const SHELLS = '.weq-dialog-layer, .weq-overlay-layer, .weq-window-layer';
+const CONFIRM_BUTTON = 'button[data-weq-dialog-confirm]';
+
+export function containingSurface(element: HTMLElement): HTMLElement | null {
+  return element.closest<HTMLElement>(`${ESCAPE_SURFACE}, ${SURFACES}`);
+}
 
 export function surfaceRoot(element: HTMLElement, includeEscapeSurfaces = true): HTMLElement {
   return (
@@ -42,12 +47,59 @@ export function topSurface(
   return top;
 }
 
+/** 仅最上层显式指定的确认动作接管 Enter，其他控件保留自身键盘语义。 */
+function useSurfaceConfirm(ref: RefObject<HTMLElement | null>, active: boolean) {
+  useEffect(() => {
+    const element = ref.current;
+    if (!active || !element) return;
+    const document = element.ownerDocument;
+    const confirm = (event: KeyboardEvent) => {
+      if (
+        event.key !== 'Enter' ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey
+      )
+        return;
+      const button = element.querySelector<HTMLButtonElement>(CONFIRM_BUTTON);
+      if (
+        !button ||
+        button.closest('[hidden], [inert]') ||
+        topSurface(document) !== surfaceRoot(element)
+      )
+        return;
+      const target = event.target as Element | null;
+      if (
+        target?.closest &&
+        ((!element.contains(target) && target !== document.body) ||
+          target.closest('textarea, select, [contenteditable]:not([contenteditable="false"])') ||
+          (target.closest(
+            'button, a[href], [role="button"], [role="checkbox"], [role="switch"], [role="combobox"], [role="listbox"]',
+          ) &&
+            !button.contains(target)))
+      )
+        return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat && !button.disabled && button.getAttribute('aria-disabled') !== 'true')
+        button.click();
+    };
+    document.addEventListener('keydown', confirm, true);
+    return () => document.removeEventListener('keydown', confirm, true);
+  }, [ref, active]);
+}
+
 /** 轻量子浮层只消费最上层 Esc，不抢焦点或限制 Tab；标记节点与父外壳分别参与层级判定。 */
 export function useSurfaceEscapeDismissal(
   ref: RefObject<HTMLElement | null>,
   onClose: () => void,
   active: boolean,
 ) {
+  useSurfaceConfirm(ref, active);
   useMobileBack(active, onClose, 100, () => ref.current);
   useLayoutEffect(() => {
     const element = ref.current;
@@ -94,7 +146,9 @@ export function useSurfaceEscape(
   modal: boolean,
   mobilePriority: number | false = 100,
   layerScope?: symbol,
+  focusContainerOnOpen = false,
 ) {
+  useSurfaceConfirm(ref, active);
   const returnFocus = useRef<Element | null>(null);
   useMobileBack(
     active && Boolean(onClose) && mobilePriority !== false,
@@ -112,7 +166,8 @@ export function useSurfaceEscape(
     // 同次挂载时子层已领号但 DOM 层号尚未提交，父窗不能夺走子窗刚取得的焦点。
     const focusedAbove =
       (layerScope !== undefined && hasOverlayDescendant(layerScope)) ||
-      (previous instanceof HTMLElement &&
+      ((layerScope === undefined || element.style.zIndex !== '') &&
+        previous instanceof HTMLElement &&
         Boolean(
           previous.closest(
             '[aria-modal="true"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window',
@@ -120,9 +175,11 @@ export function useSurfaceEscape(
         ) &&
         compareSurfaceLayers(previous, element) > 0);
     if (!focusedAbove && !element.contains(previous) && !previous?.closest('[role="tablist"]')) {
-      const focusable = element.querySelector<HTMLElement>(
-        'input:not([disabled]), button:not([disabled]), [tabindex="0"]',
-      );
+      const focusable =
+        element.querySelector<HTMLElement>(`${CONFIRM_BUTTON}:not(:disabled)`) ??
+        element.querySelector<HTMLElement>(
+          'input:not([disabled]), button:not([disabled]), [tabindex="0"]',
+        );
       // 非模态页面：首个可聚焦项在标题栏/导航里时，焦点交给面板容器本身而不是那个按钮。
       // 否则进入页面会给「返回」「关闭」画上焦点框；而完全不聚焦会让 ESC（要求焦点在面板内）失效。
       const chrome =
@@ -130,8 +187,10 @@ export function useSurfaceEscape(
         focusable?.closest(
           'header, nav, [role="navigation"], .weq-mobile-settings-header, .weq-app-title-bar',
         );
-      const target = chrome ? element : (focusable ?? element);
-      if (chrome && !element.hasAttribute('tabindex')) element.setAttribute('tabindex', '-1');
+      const focusContainer = focusContainerOnOpen || chrome;
+      const target = focusContainer ? element : (focusable ?? element);
+      if (focusContainer && !element.hasAttribute('tabindex'))
+        element.setAttribute('tabindex', '-1');
       target.focus({ preventScroll: true });
     }
     return () => {
@@ -143,7 +202,7 @@ export function useSurfaceEscape(
       )
         (previous as HTMLElement).focus({ preventScroll: true });
     };
-  }, [active, modal, ref, layerScope]);
+  }, [active, modal, ref, layerScope, focusContainerOnOpen]);
 
   useEffect(() => {
     const element = ref.current;
@@ -173,6 +232,7 @@ export function useSurfaceEscape(
         if (
           !first ||
           !last ||
+          focused === element ||
           !element.contains(focused) ||
           (event.shiftKey ? focused === first : focused === last)
         ) {

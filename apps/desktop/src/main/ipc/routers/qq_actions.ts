@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { z } from 'zod';
+import { observeUpload, transferIdInput } from './transfer_progress';
 import {
   parseCustomFaceId,
   PROFILE_LIKE_MAX_PER_REQUEST,
@@ -15,6 +16,7 @@ import type { QQWriteBinding } from './qq_write';
 import { exportSavePolicyInput } from './export_save';
 import { AlbumVideoStaging } from './album_video_staging';
 import { backgroundTasks, taskError } from '../../background_tasks';
+import { recordAccountTask } from '../../account_task_receipts';
 import { updateFavoriteImportTask } from '../../favorite_import_task';
 import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 import { runResumableExport } from '../../resumable_exports';
@@ -755,12 +757,16 @@ export function createQQActionsRouter(
       .mutation(({ input: i }) => {
         const s = resolve(i);
         if (busy.has(s)) throw new Error('请等待当前 QQ 操作完成');
+        const scope = { uin: i.expectedAccountUin, configId: i.expectedAccountConfigId };
         const id = backgroundTasks.start({
           kind: 'favorite-import',
           name: '收藏表情导入',
-          scope: { uin: i.expectedAccountUin, configId: i.expectedAccountConfigId },
+          display: { action: '导入收藏表情', subject: `${i.keys.length} 张` },
+          scope,
         });
+        const save = recordAccountTask(id, scope);
         try {
+          save();
           const view = s.favoriteEmojiImport.start(
             i.token,
             i.keys,
@@ -772,7 +778,16 @@ export function createQQActionsRouter(
                 busy.delete(s);
               }
             },
-            (view) => updateFavoriteImportTask(id, view),
+            (view) => {
+              updateFavoriteImportTask(id, view);
+              save(
+                view.result?.items.flatMap((item, index) =>
+                  item.md5 && (item.state !== 'not-run' || item.key === view.result?.inFlightKey)
+                    ? [{ index: index + 1, md5: item.md5 }]
+                    : [],
+                ),
+              );
+            },
           );
           backgroundTasks.setActions(id, [
             {
@@ -787,6 +802,11 @@ export function createQQActionsRouter(
           return view;
         } catch (error) {
           backgroundTasks.finish(id, 'failed', { note: taskError(error) });
+          try {
+            save();
+          } catch {
+            /* 保留原保存或启动错误。 */
+          }
           throw error;
         }
       }),
@@ -828,6 +848,7 @@ export function createQQActionsRouter(
       .input(binding.extend({ url: z.string().min(1).max(16_384) }))
       .mutation(async ({ input: i }) => {
         let emojiId = '';
+        let local: Awaited<ReturnType<QQActionServices['emoji']['rememberFavorite']>> = null;
         await write(i, async (s, current) => {
           const bytes = await readFavoriteEmojiMedia(i.url, current);
           current();
@@ -838,8 +859,10 @@ export function createQQActionsRouter(
           if (!emojiId) emojiId = await s.emoji.addFavorite(bytes, undefined, current);
           current();
           if (!emojiId) throw new Error('未取得表情标识，请刷新表情列表核对结果');
+          local = await s.emoji.rememberFavorite(bytes);
+          current();
         });
-        return { ...accepted, emojiId };
+        return { ...accepted, emojiId, local };
       }),
     favorite: procedure
       .input(
@@ -1067,6 +1090,7 @@ export function createQQActionsRouter(
           content: text.optional(),
           time: z.number().int().nonnegative().safe().default(0),
           imagePath: id.optional(),
+          transferId: transferIdInput,
         }),
       )
       .mutation(({ input: i }) =>
@@ -1075,36 +1099,38 @@ export function createQQActionsRouter(
             return s.webQuery.setQzoneLike(i.hostUin, i.tid, i.action === 'like', i.time, current);
           if (!i.content) throw new Error('评论不能为空');
           if (i.action === 'comment' && i.replyTarget) throw new Error('回复不能作为一级评论提交');
-          if (i.action === 'reply') {
-            const target = i.replyTarget;
-            if (!target) throw new Error('请选择回复目标');
-            let imageUrl: string | undefined;
-            if (i.imagePath) {
+          const content = i.content;
+          return observeUpload(s, i.imagePath ? i.transferId : undefined, async (update) => {
+            const upload = async (path: string) => {
+              const data = await image(s, path, current);
+              update({ phase: 'upload' });
               const picture = await s.webQuery.uploadQzoneImage(
-                Buffer.from(await image(s, i.imagePath, current)).toString('base64'),
+                Buffer.from(data).toString('base64'),
                 current,
               );
               current();
-              imageUrl = picture.url;
+              update({ phase: 'confirming' });
+              return picture.url;
+            };
+            if (i.action === 'reply') {
+              const target = i.replyTarget;
+              if (!target) throw new Error('请选择回复目标');
+              const imageUrl = i.imagePath ? await upload(i.imagePath) : undefined;
+              return s.webQuery.replyQzone(i.hostUin, i.tid, target, content, imageUrl, current);
             }
-            return s.webQuery.replyQzone(i.hostUin, i.tid, target, i.content, imageUrl, current);
-          }
-          if (!i.imagePath)
-            return s.webQuery.commentQzone(
-              i.hostUin,
-              i.tid,
-              i.content,
-              undefined,
-              undefined,
-              current,
-            );
-          const picture = await s.webQuery.uploadQzoneImage(
-            Buffer.from(await image(s, i.imagePath, current)).toString('base64'),
-            current,
-          );
-          current();
-          // 评论 richval 接受图片直链，不是发表说说的逗号分隔图片元数据。
-          return s.webQuery.commentQzone(i.hostUin, i.tid, i.content, 1, picture.url, current);
+            if (!i.imagePath)
+              return s.webQuery.commentQzone(
+                i.hostUin,
+                i.tid,
+                content,
+                undefined,
+                undefined,
+                current,
+              );
+            const imageUrl = await upload(i.imagePath);
+            // 评论 richval 接受图片直链，不是发表说说的逗号分隔图片元数据。
+            return s.webQuery.commentQzone(i.hostUin, i.tid, content, 1, imageUrl, current);
+          });
         }),
       ),
     qzoneForward: procedure

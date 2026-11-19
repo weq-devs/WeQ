@@ -7,7 +7,7 @@
  *
  * v2.0.0 起这个框还承担一个职责：**征询是否扫描 QQ 内存**。以前
  * `autoAttachQq` 默认开启，用户根本不知道可以关；现在默认关闭，由本框
- * 把「扫描内存能解锁什么」讲清楚后交由用户自己勾选（默认预勾选 = 推荐）。
+ * 把「扫描内存能解锁什么」讲清楚后交由用户自己勾选。
  * 开关状态随「开始使用」一起经 `acknowledgeWelcome` 落盘。
  *
  * 版本门：`bootstrap.getWelcomeAcknowledged` 会把「确认过的策略版本低于当前版本」
@@ -48,8 +48,7 @@ export function WelcomeDialog(): ReactElement | null {
   // Hide immediately on confirm even before the persist round-trips, so the
   // button never feels laggy. The query result gates the *first* show.
   const [dismissed, setDismissed] = useState(false);
-  // 默认勾选（推荐）：告知用户可以关闭，但大多数人的目标就是 QQ 在线能力。
-  const [allowMemoryScan, setAllowMemoryScan] = useState(true);
+  const [allowMemoryScan, setAllowMemoryScan] = useState(false);
 
   // Wait for a definitive `false` before showing — while loading (`undefined`)
   // or once acknowledged (`true`) we render nothing.
@@ -168,6 +167,7 @@ export function WelcomeDialog(): ReactElement | null {
           <button
             type="button"
             className="weq-action-primary weq-welcome-cta"
+            data-weq-dialog-confirm
             onClick={() => void onConfirm()}
             disabled={acknowledge.isLoading}
           >

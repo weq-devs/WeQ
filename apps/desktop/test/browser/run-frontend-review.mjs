@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -108,7 +109,7 @@ try {
       await page.screenshot({ path: resolve(output, `assistant-${width}-${theme}.png`) });
       cases.push({ surface: 'assistant', width, theme });
     }
-  for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+  for (const style of ['qqnt', 'classic', 'retro']) {
     await page.evaluate((style) => {
       document.documentElement.dataset.componentStyle = style;
     }, style);
@@ -141,7 +142,7 @@ try {
   }
   for (const width of [320, 390, 768, 1440])
     for (const theme of ['light', 'dark'])
-      for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+      for (const style of ['qqnt', 'classic', 'retro']) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${base}/frontend-review.html`);
         await page.getByRole('button', { name: '打开会话', exact: true }).waitFor();
@@ -154,7 +155,7 @@ try {
           (await page.evaluate(() => window.reviewQa.contrast())) >= 4.5,
           `${width}/${theme}/${style} 主按钮对比度`,
         );
-        await page.getByRole('combobox', { name: '时间范围', exact: true }).selectOption('7d');
+        await chooseFormOption(page.getByRole('combobox', { name: '时间范围', exact: true }), '7d');
         await page.getByRole('radio', { name: '精确选择', exact: true }).click();
         await page.getByRole('radio', { name: '按条件', exact: true }).click();
         await assertFits(`导出控件 ${width}/${theme}/${style}`);

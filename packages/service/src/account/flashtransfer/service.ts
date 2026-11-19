@@ -7,6 +7,9 @@
 import { FlashTransferClient } from './client';
 import { FlashTransferDownloadManager } from './manager';
 import type { FlashListResult } from './types';
+import { resolve } from 'node:path';
+
+const managers = new Map<string, WeakRef<FlashTransferDownloadManager>>();
 
 export class FlashTransferFilesService {
   readonly client: FlashTransferClient;
@@ -14,7 +17,11 @@ export class FlashTransferFilesService {
 
   constructor(baseDir: string) {
     this.client = new FlashTransferClient();
-    this.downloads = new FlashTransferDownloadManager(baseDir, this.client);
+    const key = resolve(baseDir);
+    for (const [path, manager] of managers) if (!manager.deref()) managers.delete(path);
+    const existing = managers.get(key)?.deref();
+    this.downloads = existing ?? new FlashTransferDownloadManager(key, this.client);
+    if (!existing) managers.set(key, new WeakRef(this.downloads));
   }
 
   /** 拉一个目录（普通或压缩包内部）的完整列表。 */

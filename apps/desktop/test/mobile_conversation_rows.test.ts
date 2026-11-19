@@ -7,6 +7,7 @@ import { createTemplateDemoData } from './support/templateDemoData';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import type { MergedConversation } from '../src/renderer/src/im-template/template/types';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -41,8 +42,18 @@ it('群助手默认及关闭总数时不显示灰点或数字，开启总数不�
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  let revision = 0;
   const render = (enabled?: boolean, count = 8) =>
-    act(() =>
+    act(() => {
+      acceptPreferences(
+        {
+          epoch: 'group-assistant-badge',
+          revision: ++revision,
+          values: enabled === undefined ? {} : { showGroupAssistantMessageCount: enabled },
+          records: {},
+        },
+        false,
+      );
       root.render(
         createElement(
           ContentSelectionProvider,
@@ -54,7 +65,6 @@ it('群助手默认及关闭总数时不显示灰点或数字，开启总数不�
                 virtual: [],
                 onVirtual: () => {},
                 onCreate: () => {},
-                showGroupAssistantMessageCount: enabled,
               },
             },
             createElement(ConversationList, {
@@ -69,8 +79,8 @@ it('群助手默认及关闭总数时不显示灰点或数字，开启总数不�
             }),
           ),
         ),
-      ),
-    );
+      );
+    });
   try {
     render();
     expect(host.querySelector('.row-unread-dot')).toBeNull();

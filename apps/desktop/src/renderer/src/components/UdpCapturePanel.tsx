@@ -1,3 +1,4 @@
+import { FormSelect } from './FormSelect';
 import { NumericText } from './NumericText';
 import { TimeLabel } from './TimeLabel';
 import * as timeFormat from '@weq/time';
@@ -614,7 +615,7 @@ export function UdpCapturePanel(): ReactElement {
                 </button>
               ))}
             </div>
-            <select
+            <FormSelect
               className="weq-udp-select"
               value={kindFilter}
               onChange={(e) => setKindFilter(e.target.value)}
@@ -624,7 +625,7 @@ export function UdpCapturePanel(): ReactElement {
               <option value="gcs">gcs (0x28)</option>
               <option value="media">media (0x5b)</option>
               <option value="relay">relay (0x02)</option>
-            </select>
+            </FormSelect>
             <input
               className="weq-udp-search"
               placeholder="端口 / 地址"

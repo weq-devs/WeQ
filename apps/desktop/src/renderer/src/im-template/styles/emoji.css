@@ -6,12 +6,12 @@
   display: grid;
   width: min(420px, calc(100% - 28px));
   height: min(
-    344px,
+    360px,
     calc(100dvh - var(--chat-header-height, 74px) - var(--composer-height, 190px) - 28px)
   );
   min-height: 260px;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) 46px;
+  grid-template-rows: auto minmax(0, 1fr) 46px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
   border-radius: 12px;
@@ -19,17 +19,41 @@
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
 }
 
+.emoji-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.emoji-panel-header h3 {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.emoji-header-actions {
+  display: flex;
+  align-items: center;
+  margin-inline-start: auto;
+}
+
 .emoji-panel-body {
   min-width: 0;
   min-height: 0;
   padding: 14px 14px 12px;
   overflow: auto;
+  scrollbar-gutter: stable both-edges;
   scrollbar-color: color-mix(in srgb, var(--weq-fg-muted, #858585) 34%, transparent) transparent;
   scrollbar-width: thin;
 }
 
-/* 特殊表情复用原有内容，布局和滚动统一交给表情面板。 */
-.emoji-panel .emoji-panel-body > :is(.bounce-panel, .poke-panel) {
+.emoji-panel .emoji-panel-body > .bounce-panel {
   position: static;
   width: 100%;
   min-width: 0;
@@ -39,25 +63,12 @@
   background: transparent;
   box-shadow: none;
   animation: none;
-  overflow: visible;
 }
 
 .emoji-panel-body:has(> :is(.bounce-panel, .poke-panel)) {
   padding: 0;
-}
-
-.emoji-panel .emoji-panel-body :is(.bounce-body, .poke-body) {
-  overflow: visible;
-}
-
-.emoji-panel .poke-combo-btn {
-  min-width: 0;
   overflow: hidden;
-}
-
-.emoji-panel .poke-combo-btn img {
-  max-width: 100%;
-  object-fit: contain;
+  scrollbar-gutter: auto;
 }
 
 .emoji-panel-body::-webkit-scrollbar {
@@ -115,19 +126,37 @@
   white-space: nowrap;
 }
 
+.emoji-heading-note {
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
 .emoji-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, 36px);
   gap: 3px 4px;
 }
 
+.emoji-standard-grid,
+.emoji-char-grid {
+  grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+}
+.emoji-standard-grid .emoji-cell,
+.emoji-char-grid .emoji-cell {
+  width: 100%;
+}
+
+.emoji-standard-grid .emoji-cell {
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+}
+
 .emoji-grid button,
 .kaomoji-grid button,
 .emoji-tabs button,
-.emoji-chip,
 .emoji-pack-card,
-.emoji-back-btn,
-.emoji-add-btn {
+.emoji-back-btn {
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -170,16 +199,6 @@
   display: grid;
   place-items: center;
   color: var(--weq-fg-muted, #9a9aa2);
-}
-
-.emoji-char-grid {
-  grid-template-columns: repeat(auto-fill, 40px);
-  gap: 4px;
-}
-
-.emoji-char-grid .emoji-cell {
-  width: 40px;
-  height: 40px;
 }
 
 .emoji-char-grid .emoji-glyph {
@@ -254,83 +273,6 @@
   line-height: 1.2;
 }
 
-.emoji-subgroup {
-  display: grid;
-  gap: 6px;
-}
-
-.emoji-subgroup h4 {
-  margin: 0;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-  line-height: 1.2;
-}
-
-/* 「超级表情只能单独发送」的说明条 —— 贴在超级表情栏顶部，点之前就讲清楚它跟普通
-   表情的区别。 */
-.emoji-super-hint {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 9px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 8%, transparent);
-  color: color-mix(
-    in srgb,
-    var(--weq-accent-effective, #12a8ff) 82%,
-    var(--weq-fg-secondary, #666666)
-  );
-  font-size: 11.5px;
-  line-height: 1.4;
-}
-
-/* 分类 / 标签横滑片。 */
-.emoji-chip-row {
-  display: flex;
-  min-width: 0;
-  gap: 6px;
-  padding-bottom: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.emoji-chip-row::-webkit-scrollbar {
-  display: none;
-}
-
-.emoji-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
-  color: var(--weq-fg-secondary, #666666);
-  font-size: 12px;
-  white-space: nowrap;
-  transition:
-    background 120ms ease,
-    color 120ms ease;
-}
-
-.emoji-chip:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 12%, transparent);
-}
-
-.emoji-chip.active {
-  background: var(--weq-accent-solid, #12a8ff);
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-}
-
-.emoji-chip em {
-  font-size: 10px;
-  font-style: normal;
-  opacity: 0.7;
-}
-
 .emoji-back-btn {
   display: inline-flex;
   align-items: center;
@@ -347,24 +289,48 @@
   color: var(--weq-accent-effective, #12a8ff);
 }
 
-.emoji-add-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex: 0 0 auto;
-  margin-left: auto;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--weq-accent-solid, #12a8ff);
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-  font-size: 12px;
-  font-weight: 500;
+.custom-emoji-tab {
+  display: flex;
+  min-width: 0;
+  min-height: 100%;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.emoji-add-btn:hover {
-  filter: brightness(1.06);
+.custom-emoji-upload {
+  display: grid;
+  flex: 1;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 110px;
+  padding: 12px;
+  border: 1px dashed var(--weq-border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
 }
 
+.custom-emoji-upload:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
+}
+
+.custom-emoji-upload:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.custom-emoji-hint {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
 .emoji-count {
   flex: 0 0 auto;
   margin-left: auto;
@@ -554,17 +520,22 @@ html[data-theme='dark'] .emoji-lb {
 
 .emoji-tabs button {
   display: grid;
-  width: 34px;
+  min-width: 32px;
   height: 34px;
-  flex: 0 0 auto;
+  flex: 1 0 0;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 8px;
   color: var(--weq-fg-secondary, #666666);
 }
 
-.emoji-tabs button:hover {
+.emoji-tabs button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 10%, transparent);
   color: var(--weq-accent-effective, #12a8ff);
+}
+
+.emoji-tabs button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .emoji-tabs button.active {
@@ -1231,26 +1202,6 @@ html[data-theme='dark'] .qq-flash-cover {
 .qq-media-video-player {
   object-fit: contain;
   background: #000000;
-}
-
-/* Centered download spinner shown while the original video loads. */
-.qq-media-spinner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 34px;
-  height: 34px;
-  margin: -17px 0 0 -17px;
-  border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #ffffff;
-  animation: qq-media-spin 0.9s linear infinite;
-}
-
-@keyframes qq-media-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .qq-media-video-noposter {

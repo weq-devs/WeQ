@@ -1,7 +1,7 @@
 import { networkFetch } from '@weq/network';
 import { z } from 'zod';
 import { basename, extname, join } from 'node:path';
-import { stat, open, unlink } from 'node:fs/promises';
+import { open, unlink } from 'node:fs/promises';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
@@ -26,20 +26,32 @@ import {
   prepareExportDestination,
 } from './export_save';
 import type { MediaSaveSource } from '../../../shared/media_save';
-import { savedMediaSourceKey } from '../../message_media_local';
+import { mediaTransferTarget } from '../../../shared/transfer_progress';
+import type { ResumableResourceRequest, ResourceExportRunContext } from '@weq/service';
+import { resolveRecordedChatFile, savedMediaSourceKey } from '../../message_media_local';
 
 const messageId = z.string().regex(/^\d{1,20}$/);
+const chatFileInput = z.object({
+  kind: z.literal('chat-file'),
+  msgId: messageId,
+  name: z.string().optional(),
+  token: z.string().optional(),
+  conv: z.string().optional(),
+  fwdMsgId: messageId.optional(),
+  fwdKind: z.enum(['c2c', 'group']).optional(),
+  fwdResId: z.string().max(4096).optional(),
+});
 const sourceInput = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('url'), url: z.string().min(1), name: z.string().optional() }),
   z.object({
-    kind: z.literal('chat-file'),
-    msgId: messageId,
+    kind: z.literal('url'),
+    url: z.string().min(1),
     name: z.string().optional(),
-    token: z.string().optional(),
-    conv: z.string().optional(),
-    fwdMsgId: messageId.optional(),
-    fwdKind: z.enum(['c2c', 'group']).optional(),
+    progressTarget: z
+      .string()
+      .regex(/^[a-f0-9]{16}$/)
+      .optional(),
   }),
+  chatFileInput,
   z.object({
     kind: z.literal('group-file'),
     groupCode: z
@@ -103,7 +115,8 @@ async function openUrl(raw: string, signal?: AbortSignal, check?: () => void): P
   const url = new URL(local ?? raw);
   if (url.username || url.password) throw new Error('媒体地址无效');
   const request = new Request(url, { signal });
-  if (url.protocol === 'weq-media:') return handleMediaRequest(request, check);
+  if (url.protocol === 'weq-media:')
+    return handleMediaRequest(request, check, { cacheVideo: false });
   if (url.protocol === 'weq-asset:') return handleResourceRequest(request);
   if (url.protocol !== 'https:' && url.protocol !== 'http:')
     throw new Error('这份媒体尚未落盘，暂时无法保存');
@@ -166,20 +179,6 @@ async function probeMedia(
   }
 }
 
-async function localChatFile(
-  services: AccountServices,
-  source: Extract<MediaSaveSource, { kind: 'chat-file' }>,
-) {
-  const file = await services.fileAssistant
-    .getFileInfoByMsgId(BigInt(source.fwdMsgId || source.msgId))
-    .catch(() => null);
-  if (!file || (source.name && source.name !== file.fileName)) return null;
-  const path = file.localPath.startsWith('::NTOSFull::')
-    ? file.localPath.slice('::NTOSFull::'.length)
-    : file.localPath;
-  return (await stat(path).catch(() => null))?.isFile() ? { path, name: file.fileName } : null;
-}
-
 async function planSource(services: AccountServices, source: MediaSaveSource, check: () => void) {
   if (source.kind === 'url') {
     const fileName = await probeMedia(source.url, source.name, check);
@@ -203,15 +202,16 @@ async function planSource(services: AccountServices, source: MediaSaveSource, ch
         return openUrl(url, signal, check);
       },
     };
-  const local = await localChatFile(services, source);
-  check();
   const selected = await findMediaElement(
     source.msgId,
     'file',
     source.token ?? '',
     source.fwdMsgId,
     source.fwdKind,
+    source.fwdResId,
   );
+  check();
+  const local = await resolveRecordedChatFile(services, source, selected);
   check();
   if (
     (selected && source.token && selected.element.fileToken !== source.token) ||
@@ -226,6 +226,7 @@ async function planSource(services: AccountServices, source: MediaSaveSource, ch
   const fileName = local?.name || source.name || selected?.element.fileName || '文件';
   return {
     fileName,
+    fileSize: selected?.element.fileSize,
     open: async (signal: AbortSignal) => {
       check();
       signal.throwIfAborted();
@@ -235,6 +236,7 @@ async function planSource(services: AccountServices, source: MediaSaveSource, ch
         source.token ?? '',
         source.fwdMsgId,
         source.fwdKind,
+        source.fwdResId,
       );
       check();
       signal.throwIfAborted();
@@ -248,7 +250,7 @@ async function planSource(services: AccountServices, source: MediaSaveSource, ch
         found.element.fileName !== source.name
       )
         throw new Error('未找到所选文件');
-      const cached = await localChatFile(services, source);
+      const cached = await resolveRecordedChatFile(services, source, found);
       check();
       if (cached) return fileResponse(cached.path);
       if (!found) throw new Error('未找到所选文件');
@@ -271,10 +273,19 @@ async function copyResponse(
   path: string,
   signal: AbortSignal,
   expectedExtension?: string,
+  transfer?: { size?: number; report: NonNullable<ResourceExportRunContext['transferProgress']> },
 ) {
   assertCompleteResponse(response);
   const handle = await open(path, 'wx', 0o600);
   try {
+    const encoding = response.headers.get('content-encoding');
+    const length =
+      !encoding || encoding === 'identity' ? Number(response.headers.get('content-length')) : 0;
+    const knownTotal = Number.isSafeInteger(length) && length > 0 ? length : transfer?.size;
+    const total =
+      knownTotal && Number.isSafeInteger(knownTotal) && knownTotal > 0 ? knownTotal : undefined;
+    let received = 0;
+    transfer?.report(received, total);
     const mime = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? '';
     const chunks: Buffer[] = [];
     let size = 0,
@@ -295,6 +306,10 @@ async function copyResponse(
     };
     const verify = new Transform({
       transform(chunk: Buffer, _encoding, done) {
+        if (transfer) {
+          received += chunk.length;
+          transfer.report(received, total && received <= total ? total : undefined);
+        }
         if (checked) {
           done(null, chunk);
           return;
@@ -340,6 +355,69 @@ async function copyResponse(
   }
 }
 
+type MediaResumeRequest = Extract<ResumableResourceRequest, { type: 'media-file' }>;
+
+export async function runResumableMediaFile(
+  services: AccountServices,
+  request: MediaResumeRequest,
+  context: ResourceExportRunContext,
+  check: () => void,
+) {
+  if (basename(request.fileName) !== request.fileName || ['.', '..', ''].includes(request.fileName))
+    throw new Error('原文件输出名称无效。');
+  const source = sourceInput.parse(request.source);
+  if (
+    source.kind === 'url' ||
+    (source.kind === 'chat-file' &&
+      (source.token || source.fwdKind || source.fwdMsgId || source.fwdResId))
+  )
+    throw new Error('原文件没有可复用的来源身份，请重新选择。');
+  return savePlannedMedia(
+    await planSource(services, source, check),
+    request.fileName,
+    context,
+    check,
+  );
+}
+
+async function savePlannedMedia(
+  plan: Awaited<ReturnType<typeof planSource>>,
+  fileName: string,
+  context: ResourceExportRunContext,
+  check: () => void,
+  expectedExtension?: string,
+) {
+  const { directory, signal, progress, checkpoint } = context;
+  const path = join(directory, fileName);
+  const download = async () => {
+    check();
+    signal.throwIfAborted();
+    progress(0, 1);
+    const response = await plan.open(signal);
+    try {
+      check();
+      signal.throwIfAborted();
+      await copyResponse(
+        response,
+        path,
+        signal,
+        expectedExtension,
+        context.transferProgress
+          ? { size: plan.fileSize, report: context.transferProgress }
+          : undefined,
+      );
+      check();
+      signal.throwIfAborted();
+    } finally {
+      await closeResponse(response);
+    }
+    return true;
+  };
+  if (checkpoint) await checkpoint.file('selected-file', path, download);
+  else await download();
+  return { total: 1, ok: 1, failed: [], fileName };
+}
+
 export const mediaSaveRouter = router({
   save: procedure.input(saveInput).mutation(async ({ input }) => {
     const context = getAppContext(),
@@ -379,33 +457,51 @@ export const mediaSaveRouter = router({
     );
     if (!policy) return null;
     const fileName = exportOutputFileName(output);
+    const source = selected.source;
+    const recoverable =
+      source.kind === 'group-file'
+        ? source
+        : source.kind === 'chat-file' &&
+            source.name &&
+            !source.token &&
+            !source.fwdKind &&
+            !source.fwdMsgId &&
+            !source.fwdResId
+          ? { kind: source.kind, msgId: source.msgId, name: source.name, conv: source.conv }
+          : undefined;
+    const resume: MediaResumeRequest | undefined = recoverable
+      ? { type: 'media-file', source: recoverable, fileName }
+      : undefined;
     return services.exportManager.startResourceExport({
       kind: 'media',
+      resume,
       sourceKey: savedMediaSourceKey(selected.source),
+      transferTarget: mediaTransferTarget(selected.source),
       name: output.name,
+      display: {
+        action:
+          selected.source.kind === 'group-file'
+            ? '保存群文件'
+            : /^(png|jpe?g|gif|webp|bmp|svg|apng|avif|heic)$/i.test(output.extension)
+              ? '保存图片'
+              : /^(mp4|mov|webm|mkv|avi)$/i.test(output.extension)
+                ? '保存视频'
+                : /^(wav|mp3|ogg|m4a|flac|silk|amr|aac)$/i.test(output.extension)
+                  ? '保存语音'
+                  : '保存文件',
+        subject: plan.fileName,
+        fileName: true,
+      },
       output,
       savePolicy: policy,
-      run: async ({ directory, signal, progress }) => {
-        check();
-        signal.throwIfAborted();
-        progress(0, 1);
-        const response = await plan.open(signal);
-        try {
-          check();
-          signal.throwIfAborted();
-          await copyResponse(
-            response,
-            join(directory, fileName),
-            signal,
-            selected.source.kind === 'url' ? output.extension : undefined,
-          );
-          check();
-          signal.throwIfAborted();
-        } finally {
-          await closeResponse(response);
-        }
-        return { total: 1, ok: 1, failed: [], fileName };
-      },
+      run: (context) =>
+        savePlannedMedia(
+          plan,
+          fileName,
+          context,
+          check,
+          source.kind === 'url' ? output.extension : undefined,
+        ),
     });
   }),
   cancel: procedure

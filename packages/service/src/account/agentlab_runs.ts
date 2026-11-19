@@ -1,3 +1,5 @@
+import { setTimeout as wait } from 'node:timers/promises';
+
 export interface CloneConversationTarget {
   kind: 'persona' | 'group';
   id: string;
@@ -12,6 +14,12 @@ interface ConversationRun {
 export class CloneConversationRuns {
   private readonly runs = new Map<string, Set<ConversationRun>>();
   private readonly deleting = new Set<string>();
+  private closed = false;
+
+  assertOpen(target: CloneConversationTarget) {
+    if (this.closed) throw new Error('账号已关闭');
+    if (this.deleting.has(this.key(target))) throw new Error('克隆对话正在永久删除');
+  }
 
   private key(target: CloneConversationTarget): string {
     return `${target.kind}:${target.id}`;
@@ -30,8 +38,11 @@ export class CloneConversationRuns {
     parentSignal?: AbortSignal,
   ): Promise<T> {
     const keys = targets.map((target) => this.key(target));
-    if (keys.some((key) => this.deleting.has(key)))
-      return Promise.reject(new Error('克隆对话正在永久删除'));
+    try {
+      for (const target of targets) this.assertOpen(target);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     const controller = new AbortController();
     const signal = parentSignal
       ? AbortSignal.any([controller.signal, parentSignal])
@@ -94,8 +105,87 @@ export class CloneConversationRuns {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     const pending = new Set([...this.runs.values()].flatMap((bucket) => [...bucket]));
     for (const run of pending) run.controller.abort(new DOMException('账号已关闭', 'AbortError'));
     await Promise.allSettled([...pending].map((run) => run.done));
+  }
+}
+
+/** 合并连续输入，只让仍有效的回复写入；消息本身在调用前已经保存。 */
+export class CloneReplyWindow {
+  private readonly active = new Map<
+    string,
+    {
+      controller: AbortController;
+      burstStart: number;
+      started: boolean;
+      typing: boolean;
+    }
+  >();
+
+  constructor(private readonly runs: CloneConversationRuns) {}
+
+  isTyping(target: CloneConversationTarget): boolean {
+    return this.active.get(`${target.kind}:${target.id}`)?.typing ?? false;
+  }
+
+  interrupt(target: CloneConversationTarget) {
+    this.active.get(`${target.kind}:${target.id}`)?.controller.abort();
+  }
+
+  respond(
+    target: CloneConversationTarget,
+    operation: (signal: AbortSignal, typing: (value: boolean) => void) => Promise<void>,
+    onTyping: (value: boolean) => void,
+    onError: (error: unknown) => void,
+    onSettled: () => void,
+  ): void {
+    const key = `${target.kind}:${target.id}`;
+    const previous = this.active.get(key);
+    const now = Date.now();
+    const current = {
+      controller: new AbortController(),
+      burstStart: previous && !previous.started ? previous.burstStart : now,
+      started: false,
+      typing: false,
+    };
+    this.active.set(key, current);
+    previous?.controller.abort();
+    if (previous?.typing) onTyping(false);
+    const typing = (value: boolean) => {
+      if (this.active.get(key) !== current || current.typing === value) return;
+      if (value && current.controller.signal.aborted) return;
+      current.typing = value;
+      onTyping(value);
+    };
+    void this.runs
+      .start(
+        [target],
+        async (signal) => {
+          await wait(
+            Math.max(0, Math.min(550, current.burstStart + 1300 - Date.now())),
+            undefined,
+            { signal },
+          );
+          signal.throwIfAborted();
+          current.started = true;
+          await operation(signal, typing);
+        },
+        current.controller.signal,
+      )
+      .catch((error: unknown) => {
+        if (
+          !current.controller.signal.aborted &&
+          !(error instanceof Error && error.name === 'AbortError')
+        )
+          onError(error);
+      })
+      .finally(() => {
+        if (this.active.get(key) !== current) return;
+        typing(false);
+        this.active.delete(key);
+        onSettled();
+      });
   }
 }

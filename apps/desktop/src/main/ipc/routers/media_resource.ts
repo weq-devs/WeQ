@@ -5,23 +5,25 @@
  * listings. Thin tRPC skin over `MediaResourceService` (see `@weq/service`); all
  * scanning / merging lives there. Bytes are NOT returned here — the renderer
  * points `<img>`/`<video>` at `weq-media://localmedia`, resolved via the same
- * service. Read-only apart from `transcribeVoice`, which runs the recognition
- * engine on a cached clip (it writes nothing).
+ * service. Opening a chat download can also acknowledge its task result.
  */
-import { OperationError } from '@weq/service';
+import { getHost, getLogger, OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { TranscribeResult } from '../../transcribe/engine';
 import { procedure, router } from '../trpc';
-import { getHost } from '@weq/service';
 import { messageMediaLocations } from '../../message_media_local';
 import { messageMediaLocationMissing } from '../../../shared/message_media';
+import { exportTaskResult } from '../../../shared/export_task_result';
+import { boundClientState } from './client_state';
 import {
   resourceSourceInput,
   requireResourceSource,
   assertResourceSource,
 } from './resource_source';
+
+const logger = getLogger().child({ scope: 'media-resource' });
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -52,29 +54,72 @@ const messageMediaInput = resourceSourceInput.extend({
     md5: z.string(),
     msgId: z.string(),
     conv: z.string(),
+    fwdMsgId: z.string().optional(),
+    fwdKind: z.enum(['c2c', 'group']).optional(),
+    fwdResId: z.string().max(4096).optional(),
     pack: z.string(),
     hash: z.string(),
     label: z.string(),
     url: z.string().optional(),
   }),
 });
+const locationInput = z.object({
+  kind: z.enum(['saved', 'local', 'cache', 'thumbnail', 'cover', 'transcoded']),
+  key: z.string().min(1),
+});
 
 export const mediaResourceRouter = router({
-  messageLocations: procedure.input(messageMediaInput).query(async ({ input }) => {
-    const services = requireResourceSource(input);
-    const locations = await messageMediaLocations(services, input.target);
-    assertResourceSource(services, input);
-    return locations.map(({ kind, key, available }) => ({ kind, key, available }));
-  }),
+  messageLocations: procedure
+    .input(messageMediaInput.extend({ exactFile: z.boolean().optional() }))
+    .query(async ({ input }) => {
+      const services = requireResourceSource(input);
+      const locations = await messageMediaLocations(services, input.target, input.exactFile);
+      assertResourceSource(services, input);
+      return locations.map(({ kind, key, available }) => ({ kind, key, available }));
+    }),
+  openMessageFile: procedure
+    .input(messageMediaInput.extend({ location: locationInput.optional() }))
+    .mutation(async ({ input }) => {
+      const host = getHost();
+      if (!host.canReveal || host.remoteClient) throw new Error('当前环境不支持打开本机文件');
+      if (input.target.kind !== 'file') throw new Error('不是文件消息');
+      const services = requireResourceSource(input);
+      const locations = await messageMediaLocations(services, input.target, true);
+      assertResourceSource(services, input);
+      const { location } = input;
+      const selected = location
+        ? locations.find(({ kind, key }) => kind === location.kind && key === location.key)
+        : (locations.find((item) => item.kind === 'local' && item.available) ??
+          locations.find((item) => item.available));
+      if (!selected?.available) {
+        if (location) throw new Error('本地文件已移动或删除，请重新保存');
+        return false;
+      }
+      await host.revealPath(selected.path);
+      const context = getAppContext();
+      const { download } = selected;
+      if (!download || context.services !== services) return true;
+      const task = services.exportManager.getTask(download.taskId);
+      const expectedAccountUin = context.account?.context.uin;
+      const expectedAccountConfigId = services.accountConfig.getRecord()?.configId;
+      if (!task || !expectedAccountUin || !expectedAccountConfigId) return true;
+      const { id, result } = exportTaskResult(task);
+      if (
+        result !== download.result ||
+        (task.save?.path !== selected.path && task.filePath !== selected.path)
+      )
+        return true;
+      try {
+        const state = boundClientState({ expectedAccountUin, expectedAccountConfigId });
+        if (state.snapshot().records.tasks?.[id] !== result)
+          state.records('tasks', { [id]: result });
+      } catch (error) {
+        logger.warn('文件已打开，下载任务已读状态保存失败', { error });
+      }
+      return true;
+    }),
   revealMessageMedia: procedure
-    .input(
-      messageMediaInput.extend({
-        location: z.object({
-          kind: z.enum(['saved', 'local', 'cache', 'thumbnail', 'cover', 'transcoded']),
-          key: z.string().min(1),
-        }),
-      }),
-    )
+    .input(messageMediaInput.extend({ location: locationInput }))
     .mutation(async ({ input }) => {
       const host = getHost();
       if (!host.canReveal) throw new Error('当前环境不支持在文件夹中显示');

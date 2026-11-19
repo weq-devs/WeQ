@@ -1,3 +1,4 @@
+import './support/development-features.stub';
 import { act, createElement as h, createRef, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -40,6 +41,7 @@ import { QqInlineKeyboard } from '../src/renderer/src/components/QqInlineKeyboar
 import { useViewState } from '../src/renderer/src/state/view';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 import type { TypingStatusSettings } from '@weq/service';
+import { chooseFormOption } from './support/form-controls';
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -289,20 +291,18 @@ function fixture(render: () => ReactNode) {
   return { host, update, button };
 }
 function value(host: HTMLElement, label: string, next: string) {
-  const node = host.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+  const node = host.querySelector<HTMLInputElement | HTMLButtonElement | HTMLTextAreaElement>(
     `[aria-label="${label}"]`,
   )!;
   act(() => {
+    if (node instanceof HTMLButtonElement) {
+      chooseFormOption(node, next);
+      return;
+    }
     const proto =
-      node.tagName === 'TEXTAREA'
-        ? HTMLTextAreaElement.prototype
-        : node.tagName === 'SELECT'
-          ? HTMLSelectElement.prototype
-          : HTMLInputElement.prototype;
+      node.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(node, next);
-    node.dispatchEvent(
-      new Event(node.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }),
-    );
+    node.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
 const menuButton = (label: string) =>
@@ -1890,7 +1890,7 @@ describe('QQ 主动操作的实际界面', () => {
   it('群分类从真实群资料选择，未返回分类不默认为 0 或允许写入', async () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector('input[aria-label="群分类编号"]')).toBeNull();
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="群分类"]')!.disabled).toBe(true);
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="群分类"]')!.disabled).toBe(true);
     expect(f.button('添加分类标签').disabled).toBe(true);
     state.data.groupJoinSettings = {
       groupId: 123,
@@ -1898,9 +1898,9 @@ describe('QQ 主动操作的实际界面', () => {
       categoryName: '服务端分类名称',
     };
     f.update();
-    const category = f.host.querySelector<HTMLSelectElement>('[aria-label="群分类"]')!;
-    expect(category.value).toBe('0');
-    expect(category.options[0]!.textContent).toBe('服务端分类名称');
+    const category = f.host.querySelector<HTMLButtonElement>('[aria-label="群分类"]')!;
+    expect(category.dataset.value).toBe('0');
+    expect(category.textContent).toBe('服务端分类名称');
     captureManagement(f.host, 'group-category');
     value(f.host, '分类标签名称', '合成标签');
     await act(async () => f.button('添加分类标签').click());
@@ -1960,7 +1960,7 @@ describe('QQ 主动操作的实际界面', () => {
   it('加群方式与问题来自读回，55 按审核问答显示，原值仍可保存且答案不伪造', async () => {
     state.data.groupJoinSettings = { groupId: 123, option: 55, question: '原问题' };
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="加群方式"]')!.value).toBe('5');
+    expect(f.host.querySelector<HTMLElement>('[aria-label="加群方式"]')!.dataset.value).toBe('5');
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]')!.value).toBe('原问题');
     expect(f.host.querySelector('[aria-label="加群答案"]')).toBeNull();
     expect(f.button('保存加群方式').disabled).toBe(false);
@@ -1984,7 +1984,7 @@ describe('QQ 主动操作的实际界面', () => {
     });
     await act(async () => f.button('保存加群方式').click());
     expect(state.refreshJoin).toHaveBeenCalledOnce();
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="加群方式"]')!.value).toBe('1');
+    expect(f.host.querySelector<HTMLElement>('[aria-label="加群方式"]')!.dataset.value).toBe('1');
     expect(f.button('保存加群方式').disabled).toBe(false);
     await act(async () => f.button('保存加群方式').click());
     expect(state.mutate).toHaveBeenCalledTimes(2);

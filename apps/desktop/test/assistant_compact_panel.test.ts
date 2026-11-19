@@ -27,7 +27,20 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => fixture.utils,
     bootstrap: {
       getSettings: { useQuery: () => ({ data: undefined }) },
-      listAgentLabProviders: { useQuery: () => ({ data: [] }) },
+      listAgentLabProviders: {
+        useQuery: () => ({
+          data: [
+            {
+              id: 'synthetic',
+              name: '合成提供方',
+              models: [
+                { id: 'model-a', capabilities: ['chat'] },
+                { id: 'model-b', capabilities: ['chat'] },
+              ],
+            },
+          ],
+        }),
+      },
       synthesizeSpeech: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
       getAgentLabDefaultModel: {
         useQuery: () => ({
@@ -159,31 +172,29 @@ it('无界面控制器释放聊天 DOM 与 ResizeObserver，保留后台订阅�
   expect(targets.size).toBe(0);
 });
 
-it('助手模型菜单显式保存默认标记，紧凑模式显示当前具体默认模型', async () => {
+it('未发送的新助手会话可覆盖模型并恢复继承，不写应用设置', async () => {
   const host = document.createElement('div');
   const root = createRoot(host);
   const props = { sessionId: null, chatModels: [], onBack: vi.fn(), onSessionCreated: vi.fn() };
   try {
     act(() => root.render(h(AssistantPanel, props)));
-    const model = host.querySelector<HTMLSelectElement>('[aria-label="聊天模型"]')!;
-    const option = [...model.options].find((item) =>
-      item.textContent?.startsWith('默认（当前：model-b'),
-    )!;
-    expect(option).toBeDefined();
-    await act(async () => {
-      model.value = option.value;
-      model.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    expect(fixture.save).toHaveBeenCalledWith({
-      model: { useDefault: true },
-      confirmUnrestricted: false,
-    });
-    fixture.config.model = { useDefault: true };
+    const model = host.querySelector<HTMLButtonElement>('[aria-label^="本会话模型"]')!;
+    expect(model.textContent).toBe('model-a');
+    const choose = (label: string) => {
+      act(() => model.click());
+      act(() =>
+        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+          .find((item) => item.textContent?.startsWith(label))!
+          .click(),
+      );
+    };
+    choose('model-b');
+    expect(model.textContent).toBe('model-b');
     act(() => root.render(h(AssistantPanel, { ...props, compact: true })));
-    expect(
-      host.querySelector<HTMLSelectElement>('[aria-label="聊天模型"]')?.selectedOptions[0]
-        ?.textContent,
-    ).toContain('默认（当前：model-b');
+    expect(model.textContent).toBe('model-b');
+    choose('跟随默认');
+    expect(model.textContent).toBe('model-a');
+    expect(fixture.save).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
   }
@@ -204,9 +215,8 @@ it('助手没有单独指定模型时直接选中默认，没有未选择项', (
         }),
       ),
     );
-    const model = host.querySelector<HTMLSelectElement>('[aria-label="聊天模型"]')!;
-    expect(model.selectedOptions[0]?.textContent).toContain('默认（当前：model-b');
-    expect([...model.options].some((option) => option.textContent?.includes('未选择'))).toBe(false);
+    const model = host.querySelector<HTMLButtonElement>('[aria-label^="本会话模型"]')!;
+    expect(model.textContent).toBe('model-b');
   } finally {
     act(() => root.unmount());
   }
@@ -234,15 +244,15 @@ it('紧凑与完整助手共用聊天工具和草稿，切换不重建编辑器'
   try {
     act(() => root.render(h(AssistantPanel, { ...props, compact: true })));
     expect(host.querySelector('.chat-header')?.textContent).toContain('合成会话');
-    expect(host.querySelector('[aria-label="聊天模型"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label="思考等级"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="本会话模型"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="本会话思考强度"]')).not.toBeNull();
     const input = host.querySelector('.composer-editor')!;
     expect(input.textContent).toBe('保留的草稿');
     act(() => root.render(h(AssistantPanel, { ...props, compact: false })));
     expect(host.querySelector('.composer-editor')).toBe(input);
     expect(input.textContent).toBe('保留的草稿');
-    expect(host.querySelector('[aria-label="聊天模型"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label="思考等级"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="本会话模型"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label^="本会话思考强度"]')).not.toBeNull();
   } finally {
     act(() => root.unmount());
   }

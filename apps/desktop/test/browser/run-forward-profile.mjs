@@ -72,12 +72,15 @@ try {
         }, theme);
         const scroll = forward.locator('.weq-forward-body');
         const scrollTop = await scroll.evaluate((element) => element.scrollTop);
+        const divider = scroll.locator('time.message-time-divider');
         const author = forward.locator('.weq-forward-author').first();
         const layout = await author.evaluate((element) => {
           const avatar = element.querySelector('.weq-forward-avatar').getBoundingClientRect();
           const name = element.querySelector('.weq-forward-row-name').getBoundingClientRect();
-          const time = element.querySelector('time').getBoundingClientRect();
-          const meta = element.querySelector('.weq-forward-row-meta').getBoundingClientRect();
+          const meta = element.querySelector('.weq-message-heading').getBoundingClientRect();
+          const time = element.parentElement.previousElementSibling.getBoundingClientRect();
+          const scroller = element.closest('.weq-forward-body');
+          const scrollLeft = scroller.getBoundingClientRect().left;
           const body = element.nextElementSibling.getBoundingClientRect();
           const nameElement = element.querySelector('.weq-forward-row-name');
           const nameStyle = getComputedStyle(nameElement);
@@ -95,9 +98,11 @@ try {
           return {
             centerOffset: Math.abs(avatar.y + avatar.height / 2 - meta.y - meta.height / 2),
             nameLeft: name.x,
-            timeLeft: time.x,
-            nameBottom: name.bottom,
-            timeTop: time.y,
+            timeCenterOffset: Math.abs(
+              time.x + time.width / 2 - scrollLeft - scroller.clientWidth / 2,
+            ),
+            timeBottom: time.bottom,
+            authorTop: element.getBoundingClientRect().top,
             metaBottom: meta.bottom,
             bodyTop: body.y,
             bodyLeft: body.x,
@@ -106,20 +111,20 @@ try {
             nameAppearance: [nameStyle.color, nameStyle.fontSize, nameStyle.fontWeight],
             regularAppearance,
             nameIsInteractive: Boolean(nameElement.closest('button, a, [role="button"]')),
-            timeIsInteractive: Boolean(element.querySelector('time').closest('button')),
           };
         });
-        assert(layout.centerOffset < 1, '头像应与昵称和时间整体居中');
-        assert.equal(layout.nameLeft, layout.timeLeft, '昵称与时间必须左对齐');
-        assert.equal(layout.nameLeft, layout.bodyLeft, '正文应与昵称和时间左对齐');
-        assert(layout.timeTop >= layout.nameBottom, '时间必须单独显示在昵称下方');
+        assert(layout.centerOffset < 1, '头像应与消息标题整体居中');
+        assert.equal(layout.nameLeft, layout.bodyLeft, '正文应与昵称左对齐');
+        assert(layout.timeCenterOffset < 1, '时间分隔应在转发窗口中居中');
+        assert(layout.timeBottom <= layout.authorTop, '时间分隔应在对应消息上方');
         assert(layout.bodyTop > layout.metaBottom, '正文不能挤占身份区');
         assert(layout.right <= width, '长昵称不能撑出窗口');
         assert.equal(layout.nameAlignment, 'left', '长昵称换行后仍须保持左对齐');
         assert.deepEqual(layout.nameAppearance, layout.regularAppearance, '昵称应复用常规消息样式');
         assert.equal(layout.nameIsInteractive, false);
-        assert.equal(layout.timeIsInteractive, false);
-        await author.locator('time').click();
+        assert.equal(await author.locator('time').textContent(), '2023-11-15 06:13:20');
+        assert((await author.textContent()).includes('seq 42'));
+        await divider.click();
         assert.equal(await page.getByRole('dialog', { name: '用户资料', exact: true }).count(), 0);
         await author.locator('.weq-forward-row-name').click();
         assert.equal(await page.getByRole('dialog', { name: '用户资料', exact: true }).count(), 0);
@@ -159,6 +164,7 @@ try {
         await forward.getByTitle('查看合并转发', { exact: true }).click();
         const child = page.getByRole('dialog', { name: '嵌套聊天记录', exact: true });
         await child.locator('.weq-forward-row-name').click();
+        assert((await child.locator('.weq-forward-author').textContent()).includes('seq 121'));
         assert.equal(await card.count(), 0);
         await child.locator('.weq-forward-avatar').click();
         await card.waitFor();

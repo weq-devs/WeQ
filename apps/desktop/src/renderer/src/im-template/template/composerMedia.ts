@@ -30,6 +30,7 @@ export type ComposerAttachment = {
   height?: number;
   /** 秒；视频才有。 */
   duration?: number;
+  subType?: 1;
   /** 原始文件，留在内存里等接线的发送逻辑取用。 */
   file: File;
   /** 本机草稿素材的稳定标识；不能用跨进程失效的 object URL 代替。 */
@@ -171,8 +172,11 @@ export function readVideoMeta(
 }
 
 /** 把一个本地文件包装成附件（图片 / 视频顺带读出尺寸、时长）。 */
-export async function createAttachment(file: File, sendAs?: 'file'): Promise<ComposerAttachment> {
-  const kind = sendAs ?? attachmentKindOf(file);
+export async function createAttachment(
+  file: File,
+  sendAs?: 'file' | 'emoji',
+): Promise<ComposerAttachment> {
+  const kind = sendAs === 'emoji' ? 'image' : (sendAs ?? attachmentKindOf(file));
   const url = kind === 'file' ? null : URL.createObjectURL(file);
   const attachment: ComposerAttachment = {
     id: createMediaId('att'),
@@ -182,6 +186,7 @@ export async function createAttachment(file: File, sendAs?: 'file'): Promise<Com
     mime: file.type || 'application/octet-stream',
     url,
     file,
+    ...(sendAs === 'emoji' ? { subType: 1 as const } : {}),
   };
 
   if (url && kind === 'image') {
@@ -234,6 +239,7 @@ export function attachmentToElement(attachment: ComposerAttachment): Record<stri
     return {
       ...base,
       kind: 'pic',
+      ...(attachment.subType ? { subType: attachment.subType } : {}),
       width: attachment.width ?? 0,
       height: attachment.height ?? 0,
       localPreviewUrl: attachment.url,

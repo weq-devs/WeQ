@@ -96,15 +96,15 @@ function mount(pureFace = false, override?: RepeatElement[]) {
     },
   };
 }
-async function copyMenu(host: HTMLElement, target: Element) {
+async function copyMenu(target: Element) {
   act(() =>
     target.dispatchEvent(
       new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
     ),
   );
-  const copy = [...host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
-    (button) => button.textContent?.trim() === '复制',
-  );
+  const copy = [
+    ...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
+  ].find((button) => button.textContent?.trim() === '复制');
   expect(copy).toBeDefined();
   await act(async () => copy!.click());
 }
@@ -128,7 +128,7 @@ describe('聊天内容复制交互', () => {
       },
     ]);
     try {
-      await copyMenu(f.host, f.host.querySelector('.message-bubble')!);
+      await copyMenu(f.host.querySelector('.message-bubble')!);
       expect(copied).toHaveBeenCalledWith(
         expect.objectContaining({ text: expect.stringContaining('[链接卡片]') }),
       );
@@ -148,7 +148,7 @@ describe('聊天内容复制交互', () => {
     const f = mount();
     copied.mockResolvedValueOnce(false);
     try {
-      await copyMenu(f.host, f.host.querySelector('.message-bubble')!);
+      await copyMenu(f.host.querySelector('.message-bubble')!);
       expect(useToast.getState().toasts.at(-1)).toMatchObject({ tone: 'error', title: '复制失败' });
       expect(useToast.getState().toasts.some((toast) => toast.title === '已复制')).toBe(false);
     } finally {
@@ -165,7 +165,7 @@ describe('聊天内容复制交互', () => {
       // Selection 只保留单条 range，不清空的话 addRange 会被静默丢弃（真实浏览器不会）。
       window.getSelection()!.removeAllRanges();
       window.getSelection()!.addRange(range);
-      await copyMenu(f.host, body);
+      await copyMenu(body);
       expect(copied).toHaveBeenCalledWith(expect.objectContaining({ text: '前[微笑]后' }));
     } finally {
       f.close();
@@ -174,7 +174,7 @@ describe('聊天内容复制交互', () => {
   it('右键引用只复制引用，复制事件也保留块与表情内容', async () => {
     const f = mount();
     try {
-      await copyMenu(f.host, f.host.querySelector('.qq-reply-quote')!);
+      await copyMenu(f.host.querySelector('.qq-reply-quote')!);
       expect(copied).toHaveBeenCalledWith(expect.objectContaining({ text: '> 原作者\n> 原话' }));
       const content = f.host.querySelector('.qq-has-reply')!;
       const range = document.createRange();

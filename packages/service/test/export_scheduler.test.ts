@@ -83,6 +83,27 @@ function fixture() {
   };
 }
 
+it('重启后按子任务回填历史，继续并完成不会再次触发同一批', async () => {
+  const f = fixture();
+  const [id] = await f.scheduler.runNow(f.schedule.id);
+  const child = f.tasks.get(id!)!;
+  f.scheduler.stop();
+  child.status = 'paused';
+  const reopened = new ExportScheduler(f.root, {
+    taskManager: f.manager as unknown as ExportTaskManager,
+    isOnline: () => true,
+  });
+  try {
+    expect(reopened.get(f.schedule.id)?.history[0]?.outcome).toBe('interrupted');
+    child.status = 'completed';
+    f.manager.emit('progress', { taskId: id, status: 'completed' });
+    expect(reopened.get(f.schedule.id)?.history[0]?.outcome).toBe('completed');
+    expect(f.manager.startTask).toHaveBeenCalledOnce();
+  } finally {
+    reopened.stop();
+  }
+});
+
 it.each(['[{"id":"original"', '[{"id":"valid"},{"id":42}]', 'null', ''])(
   '损坏任务文件保留且拒绝覆盖：%s',
   (original) => {

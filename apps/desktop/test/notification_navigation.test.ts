@@ -22,18 +22,23 @@ it.each([
   ['protocol', false, undefined],
   ['protocol', true, '17'],
 ] as const)(
-  '消息来源 %s／已核验=%s 只使用可信 NT 序号，保留原始消息身份',
+  '消息来源 %s／已核验=%s 只使用可信 NT 序号，保留完整时间线身份',
   (sourceFormat, ntSeqVerified, seq) => {
     const source = messageNotificationSource(
       { type: 'direct', id: 'peer' },
-      { id: 'render-id', msgId: 'original-id', msgSeq: '17', sourceFormat, ntSeqVerified },
+      {
+        id: `roaming:${sourceFormat}:17:9007199254740993`,
+        msgSeq: '17',
+        sourceFormat,
+        ntSeqVerified,
+      },
       null,
     );
     expect(source.target).toEqual({
       kind: 'conversation',
       conversationKind: 'c2c',
       conv: 'peer',
-      msgId: 'original-id',
+      msgId: `roaming:${sourceFormat}:17:9007199254740993`,
       seq,
     });
   },
@@ -43,7 +48,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it('来源随操作闭包保留，不因页面切换而指向另一个对象；普通成功不添加主操作', () => {
+it('来源随操作闭包保留，定位后只收起被打开的横幅', async () => {
   const host = document.createElement('div');
   const root = createRoot(host);
   const pushers: Array<ReturnType<typeof useToast.getState>['push']> = [];
@@ -75,8 +80,9 @@ it('来源随操作闭包保留，不因页面切换而指向另一个对象；�
   const off = onNotificationNavigation(receive);
   act(() => root.render(createElement(ToastHost)));
   expect(host.querySelectorAll('.weq-toast-open')).toHaveLength(1);
-  act(() => host.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
   expect(receive).toHaveBeenCalledWith(expect.objectContaining({ conv: 'first' }));
+  expect(useToast.getState().toasts.map((toast) => toast.title)).toEqual(['已复制']);
   off();
   act(() => root.unmount());
 });

@@ -55,6 +55,15 @@ it('识别结果返回并写回原消息，保留原有调用兼容性', async (
   expect(result).toMatchObject({ success: true, text: '合成识别结果' });
   expect(state.write).toHaveBeenCalledWith(42n, 'voice.silk', '合成识别结果');
 });
+it('包内语音有相同消息 ID 时也只返回转写，不写 QQ 消息', async () => {
+  const result = await accountRouter.createCaller({}).transcribeVoice({
+    ...input,
+    forward: { carrierId: '512', kind: 'group', conv: '12345', resId: 'sample-record' },
+  });
+  expect(result).toMatchObject({ success: true, text: '合成识别结果' });
+  expect(state.infer).toHaveBeenCalledOnce();
+  expect(state.write).not.toHaveBeenCalled();
+});
 it('排队期间切换账号或数据源后拒绝旧请求，不启动识别', async () => {
   for (const binding of [
     { expectedAccountUin: '20002' },

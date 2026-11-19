@@ -380,12 +380,6 @@ export function GroupAnalyticsDialog({
                 位成员
               </span>
             ) : null}
-            {overview ? (
-              <span className="ga-ov-chip">
-                <CalendarDays size={11} />
-                活跃 <span className="weq-number weq-number-inherit">{overview.activeDays}</span> 天
-              </span>
-            ) : null}
             {overview && overview.speakers > 0 ? (
               <span className="ga-ov-chip">
                 <MessageSquare size={11} />

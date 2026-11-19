@@ -15,7 +15,28 @@ import { OperationError } from '@weq/service';
 import { z } from 'zod';
 import { plainContentText } from '@weq/service/message-plain-text';
 import { setReactionWithRecent } from '../../recent_reactions';
-import { deduplicateAlbumResources } from '../../album_resource_dedup';
+import {
+  albumAccessState,
+  albumSelectionInput,
+  collectAlbumMedia,
+  exportGroupAlbums,
+  exportGroupAlbumsInput,
+  exportGroupFiles,
+  exportGroupFilesInput,
+  exportQzoneAlbumMedia,
+  exportQzoneAlbumMediaInput,
+  groupAlbumInput,
+  requireFreshClientKeyForAlbum,
+  requireOnlineQqForWeb,
+  requireQqOnlineForAlbum as assertQqOnlineForAlbum,
+  resolveQzoneAlbumDownload,
+  runResumableAlbumResource,
+  sanitizePathSegment,
+  uniqueFilename,
+} from '../../account_resource_exports';
+import { recordAccountTask } from '../../account_task_receipts';
+import { backgroundTasks, taskError } from '../../background_tasks';
+import type { BackgroundTaskScope } from '../../../shared/background_task';
 import {
   resourceSourceInput,
   requireResourceSource,
@@ -35,7 +56,11 @@ import {
   BROWSER_FILE_CHUNK_BYTES,
   BROWSER_FILE_MAX_BYTES,
 } from '../../../shared/browser_file_upload';
-import { assertEmbeddingModelIdentity, AGENTLAB_PERSONA_ID_PATTERN } from '@weq/agentlab';
+import {
+  assertEmbeddingModelIdentity,
+  AGENTLAB_PERSONA_ID_PATTERN,
+  resolveEndpoint as resolveProviderEndpoint,
+} from '@weq/agentlab';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import { SEARCH_SOURCES } from '@weq/service/search-policy';
 import {
@@ -54,7 +79,6 @@ import {
   prepareExportDestination,
 } from './export_save';
 import { mergeRoamingTimeline, timelineRowKey } from '../../../shared/roaming_timeline';
-import { QZONE_ALBUM_PAGE_SIZE } from '../../../shared/qzone_album_export';
 import {
   PROJECT_GROUP_CODE,
   PROJECT_GROUP_NAME,
@@ -93,25 +117,38 @@ const walletFlag48417Wire = new ProtoMsg(WalletFlag48417Wire);
 const agentLabPersonaId = z.string().regex(AGENTLAB_PERSONA_ID_PATTERN, '克隆 ID 无效');
 import { sampleHitokoto } from '../../hitokoto';
 import type { TranscribeResult } from '../../transcribe/engine';
-import {
-  resolveLocalOcrModel,
-  resolveLocalOcrFilterModel,
-  runLocalOcr,
-  type LocalOcrModel,
-} from '../../ocr/local';
+import { resolveLocalOcrModel, runLocalOcr, type LocalOcrModel } from '../../ocr/local';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { outgoingProcedure, outgoingRouter } from '../outgoing_receipts';
+import {
+  observeUpload,
+  transferIdInput,
+  transferProgressRouter,
+  updateFlashUpload,
+} from './transfer_progress';
+import {
+  groupBatchTransferTarget,
+  qzoneBatchTransferTarget,
+} from '../../../shared/transfer_progress';
 import { createQQWriteRouter } from './qq_write';
 import { createProfileExtrasRouter } from './profile_extras';
 import { createAnalysisReportsRouter } from './analysis_reports';
 import { createSearchTargetsRouter } from './search_targets';
 import { createMessageNotificationsRouter } from './message_notifications';
-import { groupAlbumMediaKey, qzoneAlbumMediaKey } from '../../../shared/album_media_identity';
 import { groupAlbumReferences } from '../../../shared/content_selection';
 import { createContactMetricsRouter } from './contact_metrics';
 import { createNoticeReadRouter } from './notice_read';
+import { readMessageHistoryPage } from './message_history_page';
 import { mergeNoticeSeen } from '../../../shared/notice_seen';
+import {
+  directoryUnreadKey,
+  isDirectoryReadKey,
+  messageReadPosition,
+  newerReadPosition,
+  validReadPosition,
+  type DirectoryReadChange,
+} from '@weq/service/client-preferences';
 import { createQQActionsRouter } from './qq_actions';
 import { dbExplorerRouter } from './db_explorer';
 import { annualReportRouter } from './annual_report';
@@ -145,32 +182,34 @@ import {
 } from '../../mcp/assistant_bus';
 import { assistantSettingsProcedures } from './shared_settings';
 import { groupChatBus, type GroupChatStreamEvent } from '../../mcp/agentlab_group_bus';
+import { generatedReplyBus, publishGeneratedReply } from '../../mcp/generated_reply_bus';
 import {
-  clientKeyExpiryMs,
+  generatedDraftSummary,
+  generatedMessageSummary,
+  latestGeneratedActivity,
+  type GeneratedReply,
+} from '../../../shared/generated_reply';
+import {
   captureGeneratedContent,
   listGeneratedConversations,
   GENERATED_EXPORT_FORMATS,
   buildGroupWpaDeepLink,
   resolveGroupShareAuthKey,
   toRenderElements,
-  PRIVATE_PTT_RKEY_TYPE,
-  GROUP_PTT_RKEY_TYPE,
   COMPOSE_IMAGE_EXTENSIONS,
   getHost,
   assertDestinationCapacity,
   getVoiceModel,
   buildBotExport,
   probeBotWebUi,
-  downloadUrlToFile,
   prepareFavoriteEmojiElements,
   checkAccountDatabaseHealth,
   collectDbDamageFeedback,
+  flushFileLogger,
   findLatestDbHealthReport,
   writeDbHealthReport,
   ocrCacheFor,
   localOcrBlocker,
-  type AlbumMedia,
-  type AlbumMediaPage,
   type NewMessages,
   type DbChange,
   type OcrResultCache,
@@ -230,6 +269,10 @@ function requireServices(): AccountServices {
     );
   }
   return ctx.services;
+}
+
+function requireQqOnlineForAlbum(services = requireServices()): void {
+  assertQqOnlineForAlbum(services);
 }
 function currentDraftState() {
   const context = getAppContext();
@@ -434,8 +477,6 @@ async function sampleHomeChatLines(
 }
 
 const agentLabModelRef = agentLabModelSelectionSchema;
-const cloneQuantity = (key: CloneGenerationKey) =>
-  z.number().int().min(CLONE_GENERATION[key].min).max(CLONE_GENERATION[key].max).optional();
 const agentLabModels = z.object({
   chat: agentLabModelRef,
   embedding: agentLabModelRef.optional(),
@@ -469,6 +510,12 @@ const generatedAccountInput = z.object({
   expectedAccountUin: z.string().min(1),
   expectedAccountConfigId: z.string().min(1),
 });
+const assistantSessionGenerationInput = z.object({
+  model: agentLabModelSelectionSchema.nullish(),
+  reasoningEffort: z.string().min(1).max(64).nullish(),
+});
+const assistantSessionInput = generatedAccountInput.extend({ sessionId: z.string().min(1) });
+const liveCloneTarget = z.object({ kind: z.enum(['persona', 'group']), id: z.string().min(1) });
 
 function assistantRuntime(binding: {
   expectedAccountUin: string;
@@ -571,10 +618,6 @@ const decryptDbInput = z.object({
   expectedAccountUin: z.string().min(1).optional(),
 });
 
-const groupAlbumInput = z.object({
-  groupCode: z.string().min(1),
-});
-
 /** 个人空间相册列表入参：hostUin = 该空间的 QQ 号（自己或好友）。 */
 const qzoneAlbumListInput = z.object({
   hostUin: z.string().min(1),
@@ -595,24 +638,6 @@ const qzoneAlbumVideoUrlInput = z.object({
   picKey: z.string().min(1),
 });
 
-/** 待导出的相册媒体条目（多选下载用，对齐 QzoneAlbumPhoto wire）。 */
-const qzoneAlbumMediaItemInput = z.object({
-  id: z.string().min(1),
-  name: z.string().optional(),
-  url: z.string().min(1),
-  isVideo: z.boolean().optional(),
-  picKey: z.string().optional(),
-});
-
-const exportQzoneAlbumMediaInput = z
-  .object({
-    hostUin: z.string().min(1),
-    topicId: z.string().min(1),
-    outputDir: z.string().min(1),
-    items: z.array(qzoneAlbumMediaItemInput).min(1),
-    concurrency: z.number().int().min(1).max(8).optional(),
-  })
-  .merge(exportAccountBindingInput);
 /** 导出装扮资源（气泡 / 字体 / 挂件），缺省不导出。 */
 const structuredExportInput = {
   extra: exportExtraInput.optional(),
@@ -650,11 +675,6 @@ const groupAlbumFeedInput = z.object({
   expectedAccountConfigId: z.string().min(1),
 });
 
-const albumSelectionInput = z.object({
-  id: z.string().min(1),
-  title: z.string().optional(),
-  mediaKeys: z.array(z.string().min(1)).optional(),
-});
 const albumReferenceInput = z
   .union([
     z.object({
@@ -673,12 +693,6 @@ const albumReferenceInput = z
     }),
   ])
   .refine((item) => item.kind.endsWith('-album') || Boolean(item.mediaKey), '照片身份不能为空');
-
-const exportGroupAlbumsInput = groupAlbumInput.extend({
-  outputDir: z.string().min(1),
-  albums: z.array(albumSelectionInput).min(1),
-  concurrency: z.number().int().min(1).max(8).optional(),
-});
 
 /** 加群引导弹窗的推荐动作（见 `getGroupJoinState`）。 */
 export type GroupJoinMode = 'inject' | 'deeplink' | 'browser';
@@ -712,93 +726,6 @@ export interface GroupJoinResult {
   link?: string;
 }
 
-export interface GroupAlbumAccessState {
-  source?: { expectedAccountUin: string; expectedAccountConfigId: string };
-  qqOnline: boolean;
-  qqPid: number | null;
-  /** 宿主内有效的自动策略或本来源手动请求，不表示凭据已经就绪。 */
-  attachEnabled: boolean;
-  /**
-   * 本地账号配置里的会话物料是否齐全（a2 / d2 / d2key）。发包要拿它做 TEA 加密，
-   * 缺任一项都发不出去，所以发送按钮按它前置置灰。
-   */
-  hasA2: boolean;
-  hasD2: boolean;
-  hasD2Key: boolean;
-  /** 本地是否已解析出设备 guid（服务端认设备的依据，缺了会被拒绝）。 */
-  hasGuid: boolean;
-  /**
-   * 原生侧是否已经登记了这个 QQ 进程的 SSO 会话。
-   *
-   * **和 `qqOnline` 不是一回事**：Linux 上要先提权读进程内存拿到 a2 / d2 / d2key
-   * 才能登记，QQ 刚上线时中间有几十秒空窗。这段时间里发包只会回
-   * 「还没有登记 SSO 会话」，所以任何走原始 SSO 通道的功能（漫游补拉、闪照补拉）
-   * 都必须等它为真。`getGroupAlbumAccessState` 才会返回它。
-   */
-  ssoReady?: boolean;
-  /** 会话物料需要重新读一次进程内存（pid 变了或物料不全）。 */
-  needsMemoryRead?: boolean;
-  clientKeyValid: boolean;
-  clientKeyExpiresAt: number | null;
-  clientKeySecondsLeft: number;
-  /**
-   * 本地 OCR 识别模型的 id —— 已选且已下载时非空。在线那条腿不可用（QQ 离线 /
-   * 物料不全）时，灯箱的 OCR 按钮就靠它活着；两条腿都没有才置灰。
-   */
-  ocrLocalModelId: string | null;
-  /**
-   * 本地筛图模型（只判断「图里有没有文字」）的 id —— 已选且已下载时非空。
-   * 导出面板据此显示「预筛选已就绪 / 去下载」，并决定要不要带 `ocrPrefilter`。
-   */
-  ocrFilterModelId: string | null;
-  ocrPrefilterEnabled: boolean;
-  /**
-   * **本机能不能跑本地识别引擎**：能跑为 null，跑不了是给人看的原因（如 macOS Intel
-   * 上游没发 onnxruntime 二进制）。与那两个 id 的区别：这是平台能力，跟模型下没下好无关。
-   * 灯箱的置灰提示据此说人话（否则 Intel Mac 上会一直劝用户「去下个本地模型」）。
-   */
-  ocrLocalBlocker: string | null;
-}
-
-export interface AlbumMediaWire extends AlbumMedia {
-  kind: 'image' | 'video';
-  previewUrl: string;
-  originalUrl: string;
-  fileName: string;
-}
-
-interface AlbumDownloadWork {
-  albumId: string;
-  albumTitle: string;
-  url: string;
-  targetPath: string;
-  fileName: string;
-}
-
-export interface AlbumExportResult {
-  outputDir: string;
-  total: number;
-  ok: number;
-  failed: Array<{
-    albumId: string;
-    albumTitle: string;
-    fileName: string;
-    url: string;
-    error: string;
-  }>;
-}
-
-export interface QzoneAlbumMediaExportResult {
-  outputDir: string;
-  total: number;
-  ok: number;
-  failed: Array<{
-    name: string;
-    fileName: string;
-    error: string;
-  }>;
-}
-
 // ---- 群文件 (OIDB 0x6D8_1 列表 / 0x6D6_2 下载直链) ----
 
 const groupFileInput = z
@@ -814,24 +741,6 @@ const groupFileDownloadInput = z.object({
   fileId: z.string().min(1),
   fileName: z.string().optional(),
   busId: z.number().int().optional(),
-});
-
-const exportGroupFilesInput = z.object({
-  groupCode: z.string().min(1),
-  outputDir: z.string().min(1),
-  /** 省略则递归导出全群文件(含子文件夹,保留目录结构)。 */
-  files: z
-    .array(
-      z.object({
-        fileId: z.string().min(1),
-        fileName: z.string().min(1),
-        busId: z.number().int().optional(),
-        /** 相对根目录的文件夹路径段,用于在输出目录里重建目录树。 */
-        path: z.array(z.string()).optional(),
-      }),
-    )
-    .optional(),
-  concurrency: z.number().int().min(1).max(8).optional(),
 });
 
 const flashListFilesInput = z.object({
@@ -851,20 +760,6 @@ const flashSelectionSchema = z.object({
   isZipContent: z.boolean().optional().default(false),
   zipFileId: z.string().optional().default(''),
 });
-
-interface GroupFileDownloadWork {
-  fileId: string;
-  fileName: string;
-  busId: number;
-  targetPath: string;
-}
-
-export interface GroupFileExportResult {
-  outputDir: string;
-  total: number;
-  ok: number;
-  failed: Array<{ fileId: string; fileName: string; error: string }>;
-}
 
 /** Merge an offline cache page using the same cursor and ordering as the local page. */
 async function withRoamingHistory(
@@ -969,50 +864,6 @@ async function fetchFrom(
   return withRoamingHistory(services, kind, conv, rows, limit, sinceSeq);
 }
 
-function albumAccessState(services = requireServices()): GroupAlbumAccessState {
-  const record = services.accountConfig.getRecord();
-  const session = record?.session;
-  const expiresAt = record?.clientKey ? clientKeyExpiryMs(record.clientKey) : null;
-  const secondsLeft = expiresAt ? Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)) : 0;
-  return {
-    source: record?.configId
-      ? { expectedAccountUin: String(record.uin), expectedAccountConfigId: record.configId }
-      : undefined,
-    qqOnline: Boolean(record?.qqOnline && record.qqPid),
-    qqPid: record?.qqPid ?? null,
-    attachEnabled: fullModeAllowed(getAppContext()),
-    hasA2: Boolean(session?.a2),
-    hasD2: Boolean(session?.d2),
-    hasD2Key: Boolean(session?.d2Key),
-    hasGuid: Boolean(record?.guid),
-    clientKeyValid: Boolean(expiresAt && expiresAt > Date.now()),
-    clientKeyExpiresAt: expiresAt,
-    clientKeySecondsLeft: secondsLeft,
-    // 本地 OCR 那条腿的可用性：设置里选了识别模型且文件下好了才有值。渲染层拿它决定
-    // OCR 按钮能不能点（在线那条腿不可用时，本地模型就是唯一的出路）。
-    ocrLocalModelId: resolveLocalOcrModel()?.modelId ?? null,
-    // 筛图模型只看检测网络（1.7 MB 那份），与识别模型是两个独立的设置项。
-    ocrFilterModelId: resolveLocalOcrFilterModel()?.modelId ?? null,
-    ocrPrefilterEnabled: requireBootstrap().userConfig.getSettings().ocr.prefilterEnabled,
-    // 平台能力（与模型状态无关）：本机没有可用的推理引擎时两个 id 必然是 null，
-    // 渲染层用这句话代替「去下个本地模型」的提示。
-    ocrLocalBlocker: localOcrBlocker(),
-  };
-}
-
-function requireQqOnlineForAlbum(services = requireServices()): void {
-  const state = albumAccessState(services);
-  if (!state.qqOnline) {
-    throw new Error('需要先登录该账号的 QQ 客户端。');
-  }
-  if (!state.attachEnabled) {
-    throw new OperationError(
-      '已开启完全离线模式（自动读取 QQ 内存 已关闭），该功能需要在线 QQ 实例。',
-      'expected',
-    );
-  }
-}
-
 /**
  * 聊天图片文字识别的**在线那条腿**（OIDB 0xe07_0）能不能走，口径与渲染层的「发送键」
  * 完全一致：QQ 在线 + 未开完全离线模式 + 发包凭据（a2 / d2 / d2key / guid）齐全 ——
@@ -1114,11 +965,11 @@ export interface ChatOcrLightboxResult {
  * （见 `main/ocr/local.ts`）；结果整成与在线版同构的 blocks，前端不用区分来源。
  */
 async function recognizeOcrLocally(
-  input: { src?: string },
+  input: { src?: string; refresh?: boolean },
   model: LocalOcrModel,
 ): Promise<ChatOcrLightboxResult & { source: 'local'; modelId: string }> {
   if (!input.src) throw new Error('本地识别需要图片地址，这张图取不到本体。');
-  const result = await runLocalOcr(input.src, model);
+  const result = await runLocalOcr(input.src, model, undefined, input.refresh);
   return {
     status: 'succ',
     srcLang: 'local',
@@ -1130,33 +981,6 @@ async function recognizeOcrLocally(
     modelId: result.modelId,
     elapsedMs: result.elapsedMs,
   };
-}
-
-function requireFreshClientKeyForAlbum(services = requireServices()): void {
-  const state = albumAccessState(services);
-  if (!state.qqOnline) {
-    throw new Error('需要先登录该账号的 QQ 客户端。');
-  }
-  if (!state.attachEnabled) {
-    throw new OperationError(
-      '已开启完全离线模式（自动读取 QQ 内存 已关闭），群相册等在线功能不可用。',
-      'expected',
-    );
-  }
-  if (!state.clientKeyValid) {
-    throw new Error('ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动启用 QQ 在线能力」。');
-  }
-}
-
-/**
- * 仅要求在线 QQ 实例（不要求注入 / ClientKey）—— 走 Web CGI 的接口用：
- * qzone.qq.com / qun.qq.com 的 p_skey 可经 ptlogin2 本地快速登录兜底获取。
- */
-function requireOnlineQqForWeb(services = requireServices()): void {
-  const state = albumAccessState(services);
-  if (!state.qqOnline) {
-    throw new Error('需要先登录该账号的 QQ 客户端。');
-  }
 }
 
 /** detail / grab 共用的定位入参。 */
@@ -1266,584 +1090,6 @@ function toSafeBigint(value: string | undefined): bigint {
   }
 }
 
-function bestUrls(
-  entries: Array<{ url: { url: string; width: number; height: number } | null }>,
-): Array<{ url: string; width: number; height: number }> {
-  return entries
-    .map((entry) => entry.url)
-    .filter((entry): entry is NonNullable<typeof entry> => {
-      if (!entry?.url) return false;
-      return !isAlbumPlaceholderUrl(entry.url);
-    })
-    .slice()
-    .sort((a, b) => (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0));
-}
-
-function imageUrls(image: NonNullable<AlbumMedia['image']>): {
-  previewUrl: string;
-  originalUrl: string;
-} {
-  const sorted = bestUrls(image.photoUrls);
-  const defaultUrl =
-    image.defaultUrl && !isAlbumPlaceholderUrl(image.defaultUrl.url) ? image.defaultUrl.url : '';
-  return {
-    previewUrl: defaultUrl || sorted[sorted.length - 1]?.url || sorted[0]?.url || '',
-    originalUrl: sorted[0]?.url || defaultUrl || '',
-  };
-}
-
-function mediaUrls(media: AlbumMedia): Omit<AlbumMediaWire, keyof AlbumMedia> {
-  const video = media.video;
-  if (video) {
-    // 视频卡片显示封面图,下载/播放取最高码率的那路;videoUrl 为空时回退到顶层 url。
-    const cover = video.cover ? imageUrls(video.cover) : { previewUrl: '', originalUrl: '' };
-    const streams = bestUrls(video.videoUrls);
-    const src =
-      streams[0]?.url || (video.url && !isAlbumPlaceholderUrl(video.url) ? video.url : '');
-    return {
-      kind: 'video',
-      previewUrl: cover.previewUrl || cover.originalUrl,
-      originalUrl: src,
-      fileName: video.id || '',
-    };
-  }
-
-  const image = media.image;
-  if (!image) return { kind: 'image', previewUrl: '', originalUrl: '', fileName: '' };
-  return { kind: 'image', ...imageUrls(image), fileName: image.name || '' };
-}
-
-function mediaToWire(media: AlbumMedia): AlbumMediaWire {
-  return { ...media, ...mediaUrls(media) };
-}
-
-function albumMediaKey(media: AlbumMediaWire): string {
-  return groupAlbumMediaKey(media);
-}
-
-/**
- * 群相册末页的 nextAttachInfo 依然是非空游标（指向本页最后一条的
- * batch_id/lloc），拿它翻页服务端会原样重发本页。解析游标确认已到结尾。
- */
-interface AlbumNextAttachInfo {
-  Loc?: { batch_id?: number | string; lloc?: string };
-  Lloc?: string;
-}
-
-function attachInfoAtEnd(page: AlbumMediaPage, nextAttachInfo: string): boolean {
-  const last = page.mediaList[page.mediaList.length - 1];
-  if (!last) return false;
-  let info: AlbumNextAttachInfo | null = null;
-  try {
-    info = JSON.parse(nextAttachInfo) as AlbumNextAttachInfo | null;
-  } catch {
-    return false;
-  }
-  const loc = info?.Loc;
-  if (loc?.batch_id != null && last.batchId && String(loc.batch_id) === last.batchId) {
-    return true;
-  }
-  const lastLloc = last.image?.lloc || last.video?.cover?.lloc || '';
-  if (lastLloc && (loc?.lloc === lastLloc || info?.Lloc === lastLloc)) {
-    return true;
-  }
-  return false;
-}
-
-function isAlbumPlaceholderUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    const path = parsed.pathname.toLowerCase();
-    return parsed.hostname.toLowerCase() === 'imgcache.qq.com' && path.endsWith('/no.gif');
-  } catch {
-    return /imgcache\.qq\.com\/.*\/no\.gif/i.test(url);
-  }
-}
-
-async function collectAlbumMedia(
-  services: AccountServices,
-  groupCode: string,
-  albumId: string,
-  signal?: AbortSignal,
-  beforeRequest?: () => void,
-): Promise<AlbumMediaWire[]> {
-  const out: AlbumMediaWire[] = [];
-  const seenKeys = new Set<string>();
-  const seenAttachInfo = new Set<string>();
-  let attachInfo = '';
-  for (let guard = 0; guard < 100; guard += 1) {
-    signal?.throwIfAborted();
-    beforeRequest?.();
-    const page = await services.groupAlbumMedia.getMediaList(groupCode, albumId, attachInfo);
-    beforeRequest?.();
-    signal?.throwIfAborted();
-    for (const wire of page.mediaList
-      .map(mediaToWire)
-      .filter((media) => media.originalUrl || media.previewUrl)) {
-      const key = albumMediaKey(wire);
-      if (seenKeys.has(key)) continue;
-      seenKeys.add(key);
-      out.push(wire);
-    }
-    const next = page.nextAttachInfo || '';
-    if (!next || seenAttachInfo.has(next) || attachInfoAtEnd(page, next)) break;
-    seenAttachInfo.add(next);
-    attachInfo = next;
-  }
-  return out;
-}
-
-function pickAlbumDownloadUrl(media: AlbumMediaWire): string {
-  return media.originalUrl || media.previewUrl;
-}
-
-function sanitizePathSegment(value: string | undefined, fallback: string): string {
-  const raw = (value || fallback).trim();
-  const cleaned = raw
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: 有意剔除文件名中的控制字符
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
-    .replace(/\s+/g, ' ')
-    .replace(/[. ]+$/g, '')
-    .slice(0, 120)
-    .trim();
-  const name = cleaned || fallback;
-  return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name) ? `_${name}` : name;
-}
-
-function filenameFromUrl(url: string, fallback: string, index: number, defaultExt: string): string {
-  let name = fallback;
-  if (!name) {
-    try {
-      name = decodeURIComponent(basename(new URL(url).pathname));
-    } catch {
-      name = '';
-    }
-  }
-  const safe = sanitizePathSegment(
-    name,
-    `photo-${String(index + 1).padStart(4, '0')}${defaultExt}`,
-  );
-  return extname(safe) ? safe : `${safe}${defaultExt}`;
-}
-
-function uniqueFilename(name: string, used: Set<string>): string {
-  if (!used.has(name.toLowerCase())) {
-    used.add(name.toLowerCase());
-    return name;
-  }
-  const ext = extname(name);
-  const base = ext ? name.slice(0, -ext.length) : name;
-  for (let i = 2; ; i += 1) {
-    const next = `${base}-${i}${ext}`;
-    const key = next.toLowerCase();
-    if (!used.has(key)) {
-      used.add(key);
-      return next;
-    }
-  }
-}
-
-async function downloadAlbumUrl(
-  url: string,
-  targetPath: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  const outcome = await downloadUrlToFile(url, targetPath, { signal });
-  if (!outcome.ok) throw new Error(outcome.reason);
-}
-
-async function runWithConcurrency<T>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>,
-  signal?: AbortSignal,
-): Promise<void> {
-  let next = 0;
-  async function run(): Promise<void> {
-    for (;;) {
-      signal?.throwIfAborted();
-      const index = next;
-      next += 1;
-      if (index >= items.length) return;
-      await worker(items[index]!);
-    }
-  }
-  const results = await Promise.allSettled(
-    Array.from({ length: Math.min(concurrency, items.length) }, run),
-  );
-  const failure = results.find((result) => result.status === 'rejected');
-  if (failure?.status === 'rejected') throw failure.reason;
-}
-
-async function exportGroupAlbums(
-  services: AccountServices,
-  input: z.infer<typeof exportGroupAlbumsInput>,
-  context?: { signal: AbortSignal; progress(current: number, total: number): void },
-): Promise<AlbumExportResult> {
-  requireFreshClientKeyForAlbum(services);
-  const work: AlbumDownloadWork[] = [];
-  const failed: AlbumExportResult['failed'] = [];
-  const albumNames = new Set<string>();
-  for (const album of input.albums) {
-    context?.signal.throwIfAborted();
-    const albumTitle = uniqueFilename(sanitizePathSegment(album.title, album.id), albumNames);
-    const albumDir = join(input.outputDir, albumTitle);
-    const used = new Set<string>();
-    const media = await collectAlbumMedia(services, input.groupCode, album.id, context?.signal);
-    const selected = album.mediaKeys === undefined ? null : new Set(album.mediaKeys);
-    const found = new Set(media.map(albumMediaKey));
-    for (const key of selected ?? [])
-      if (!found.has(key))
-        failed.push({
-          albumId: album.id,
-          albumTitle,
-          fileName: key,
-          url: '',
-          error: '未找到选中的媒体，未扩大为整本相册',
-        });
-    media.forEach((item, index) => {
-      if (selected && !selected.has(albumMediaKey(item))) return;
-      const url = pickAlbumDownloadUrl(item);
-      if (!url) return;
-      const fileName = uniqueFilename(
-        filenameFromUrl(url, item.fileName, index, item.kind === 'video' ? '.mp4' : '.jpg'),
-        used,
-      );
-      work.push({
-        albumId: album.id,
-        albumTitle,
-        url,
-        fileName,
-        targetPath: join(albumDir, fileName),
-      });
-    });
-  }
-
-  const missing = failed.length;
-  let ok = 0;
-  await mkdir(input.outputDir, { recursive: true });
-  await runWithConcurrency(
-    work,
-    input.concurrency ?? 4,
-    async (item) => {
-      try {
-        await mkdir(dirname(item.targetPath), { recursive: true });
-        await downloadAlbumUrl(item.url, item.targetPath, context?.signal);
-        ok += 1;
-      } catch (e) {
-        context?.signal.throwIfAborted();
-        failed.push({
-          albumId: item.albumId,
-          albumTitle: item.albumTitle,
-          fileName: item.fileName,
-          url: item.url,
-          error: e instanceof Error ? e.message : String(e),
-        });
-      }
-      context?.progress(ok + failed.length, work.length + missing);
-    },
-    context?.signal,
-  );
-
-  return { outputDir: input.outputDir, total: work.length + missing, ok, failed };
-}
-
-/**
- * 并发下载选中的个人空间相册媒体到 `outputDir`。与 {@link exportGroupAlbums}
- * 共用同一套下载工具函数；区别是个人相册列表只给视频封面，下载视频前按
- * picKey 现取 mp4 本体（签名会过期），取不到则回退封面图。
- */
-async function exportQzoneAlbumMedia(
-  services: AccountServices,
-  input: z.infer<typeof exportQzoneAlbumMediaInput>,
-  context?: {
-    signal: AbortSignal;
-    check(): void;
-    progress(current: number, total: number): void;
-    resolved?: { url: string; fileName: string };
-  },
-): Promise<QzoneAlbumMediaExportResult> {
-  requireOnlineQqForWeb(services);
-  const used = new Set<string>();
-  const failed: QzoneAlbumMediaExportResult['failed'] = [];
-  let ok = 0;
-  await mkdir(input.outputDir, { recursive: true });
-  await runWithConcurrency(
-    input.items.map((item, index) => ({ item, index })),
-    input.concurrency ?? 4,
-    async ({ item, index }) => {
-      let fileName = item.name || item.id;
-      try {
-        context?.check();
-        context?.signal.throwIfAborted();
-        const source =
-          context?.resolved ?? (await resolveQzoneAlbumDownload(services, input, item, index));
-        context?.check();
-        context?.signal.throwIfAborted();
-        fileName = uniqueFilename(source.fileName, used);
-        await downloadAlbumUrl(source.url, join(input.outputDir, fileName), context?.signal);
-        context?.check();
-        ok += 1;
-      } catch (e) {
-        context?.signal.throwIfAborted();
-        context?.check();
-        failed.push({
-          name: item.url,
-          fileName,
-          error: e instanceof Error ? e.message : String(e),
-        });
-      }
-      context?.progress(ok + failed.length, input.items.length);
-    },
-    context?.signal,
-  );
-
-  return { outputDir: input.outputDir, total: input.items.length, ok, failed };
-}
-
-/** 继续沿用视频本体／封面回退，仅根据实际选中的资源修正保存后缀。 */
-async function resolveQzoneAlbumDownload(
-  services: AccountServices,
-  input: { hostUin: string; topicId: string },
-  item: z.infer<typeof qzoneAlbumMediaItemInput>,
-  index: number,
-): Promise<{ url: string; fileName: string }> {
-  let url = item.url,
-    video = false;
-  if (item.isVideo && item.picKey) {
-    try {
-      const mp4 = await services.webQuery.getQzoneAlbumVideoUrl(
-        input.hostUin,
-        input.topicId,
-        item.picKey,
-      );
-      if (mp4) {
-        url = mp4;
-        video = true;
-      }
-    } catch {
-      /* 本体不可用时仍保存既有封面，不新增媒体获取链路。 */
-    }
-  }
-  let fileName = filenameFromUrl(url, item.name ?? '', index, video ? '.mp4' : '.jpg');
-  if (item.isVideo) {
-    let extension = '.jpg';
-    if (video) extension = '.mp4';
-    else {
-      try {
-        const ext = extname(new URL(url).pathname);
-        if (/^\.(?:jpg|jpeg|png|gif|webp)$/i.test(ext)) extension = ext;
-      } catch {
-        /* 无可用后缀时沿用封面默认格式。 */
-      }
-    }
-    const old = extname(fileName);
-    fileName = `${old ? fileName.slice(0, -old.length) : fileName}${extension}`;
-  }
-  return { url, fileName };
-}
-
-/** 迁移既有整本相册分页导出，选择范围仍是用户明确勾选的相册。 */
-export async function exportSelectedQzoneAlbums(
-  services: AccountServices,
-  input: {
-    hostUin: string;
-    albums: Array<{ id: string; title?: string; mediaKeys?: string[] }>;
-    outputDir: string;
-  },
-  context: { signal: AbortSignal; check(): void; progress(current: number, total: number): void },
-) {
-  const failed: Array<{ fileName: string; error: string }> = [];
-  const folders = new Set<string>();
-  let total = 0,
-    ok = 0;
-  for (const album of input.albums) {
-    const selected = album.mediaKeys === undefined ? null : new Set(album.mediaKeys);
-    const matched = new Set<string>();
-    let readError = '';
-    context.signal.throwIfAborted();
-    context.check();
-    const folder = uniqueFilename(
-      sanitizePathSegment(`${album.title || '相册'}_${album.id}`, '相册'),
-      folders,
-    );
-    let start = 0,
-      pageIndex = 0,
-      sequence = 0;
-    const seen = new Set<string>();
-    try {
-      for (;;) {
-        context.signal.throwIfAborted();
-        context.check();
-        if (++pageIndex > 10000) throw new Error('相册分页未结束，请分批重试。');
-        const page = await services.webQuery.getQzoneAlbumPhotos(
-          input.hostUin,
-          album.id,
-          start,
-          QZONE_ALBUM_PAGE_SIZE,
-        );
-        context.signal.throwIfAborted();
-        context.check();
-        const photos = page?.photos ?? [];
-        if (!photos.length) {
-          if (start < Number(page?.totalInAlbum ?? 0))
-            throw new Error('相册分页提前返回空页，未导出全部媒体。');
-          break;
-        }
-        const fresh = photos.filter((photo) => {
-          const key = `${photo.isVideo}:${photo.picKey || photo.url || photo.thumbUrl}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-        if (!fresh.length) throw new Error('相册分页重复，已停止，避免重复下载。');
-        const items = fresh
-          .filter((photo) => {
-            const key = qzoneAlbumMediaKey(photo);
-            if (selected && !selected.has(key)) return false;
-            matched.add(key);
-            return true;
-          })
-          .flatMap((photo) => {
-            sequence++;
-            if (!photo.url && !photo.thumbUrl) {
-              total++;
-              failed.push({ fileName: `${folder}/媒体-${sequence}`, error: '媒体缺少下载地址。' });
-              return [];
-            }
-            return [
-              {
-                id: photo.id || String(sequence),
-                name: `${String(sequence).padStart(6, '0')}_${photo.name || '媒体'}`,
-                url: photo.url || photo.thumbUrl,
-                isVideo: photo.isVideo,
-                picKey: photo.picKey,
-              },
-            ];
-          });
-        if (items.length) {
-          const result = await exportQzoneAlbumMedia(
-            services,
-            {
-              hostUin: input.hostUin,
-              topicId: album.id,
-              outputDir: join(input.outputDir, folder),
-              concurrency: 4,
-              items,
-            },
-            { ...context, progress: () => {} },
-          );
-          total += result.total;
-          ok += result.ok;
-          failed.push(
-            ...result.failed.map((failure) => ({
-              fileName: `${folder}/${failure.fileName}`,
-              error: failure.error,
-            })),
-          );
-        }
-        context.progress(ok + failed.length, total);
-        start += photos.length;
-        if (selected && matched.size === selected.size) break;
-        const size = Number(page?.totalInAlbum ?? 0);
-        if (size > 0 ? start >= size : photos.length < QZONE_ALBUM_PAGE_SIZE) break;
-      }
-    } catch (error) {
-      context.signal.throwIfAborted();
-      context.check();
-      readError = error instanceof Error ? error.message : String(error);
-      if (!selected) {
-        total++;
-        failed.push({
-          fileName: `${folder}/相册读取`,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    for (const key of selected ?? [])
-      if (!matched.has(key)) {
-        total++;
-        failed.push({
-          fileName: `${folder}/${key}`,
-          error: readError || '未找到选中的媒体，未扩大为整本相册',
-        });
-      }
-  }
-  return { total, ok, failed };
-}
-
-async function exportGroupFiles(
-  services: AccountServices,
-  input: z.infer<typeof exportGroupFilesInput>,
-  context?: { signal: AbortSignal; progress(current: number, total: number): void },
-): Promise<GroupFileExportResult> {
-  requireQqOnlineForAlbum(services);
-
-  // 没给具体文件就递归整个群,path 用来在输出目录里重建文件夹结构。
-  const targets =
-    input.files ??
-    (await services.groupFile.listRecursive(Number(input.groupCode))).map((f) => ({
-      fileId: f.fileId,
-      fileName: f.fileName,
-      busId: f.busId,
-      path: f.path,
-    }));
-
-  const work: GroupFileDownloadWork[] = [];
-  // 同名去重按目录分桶 —— 不同子文件夹下的同名文件本来就不冲突。
-  const usedByDir = new Map<string, Set<string>>();
-  targets.forEach((file, index) => {
-    const segments = (file.path ?? []).map((seg, i) => sanitizePathSegment(seg, `folder-${i + 1}`));
-    const dir = join(input.outputDir, ...segments);
-    const used = usedByDir.get(dir) ?? new Set<string>();
-    usedByDir.set(dir, used);
-    const fileName = uniqueFilename(
-      sanitizePathSegment(file.fileName, `file-${String(index + 1).padStart(4, '0')}`),
-      used,
-    );
-    work.push({
-      fileId: file.fileId,
-      fileName,
-      busId: file.busId ?? 102,
-      targetPath: join(dir, fileName),
-    });
-  });
-
-  const failed: GroupFileExportResult['failed'] = [];
-  let ok = 0;
-  await mkdir(input.outputDir, { recursive: true });
-  await runWithConcurrency(
-    work,
-    input.concurrency ?? 4,
-    async (item) => {
-      try {
-        // 直链有时效,逐个文件在下载前才换取。
-        const url = await services.mediaUrl.getGroupFileUrl(
-          Number(input.groupCode),
-          item.fileId,
-          item.busId,
-          item.fileName,
-        );
-        context?.signal.throwIfAborted();
-        const outcome = await downloadUrlToFile(url, item.targetPath, { signal: context?.signal });
-        if (!outcome.ok) throw new Error(outcome.reason);
-        ok += 1;
-      } catch (e) {
-        context?.signal.throwIfAborted();
-        failed.push({
-          fileId: item.fileId,
-          fileName: item.fileName,
-          error: e instanceof Error ? e.message : String(e),
-        });
-      }
-      context?.progress(ok, work.length);
-    },
-    context?.signal,
-  );
-
-  return { outputDir: input.outputDir, total: work.length, ok, failed };
-}
-
 /**
  * 合并转发媒体段选本机文件时的文件框配置。
  *
@@ -1897,8 +1143,191 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
   fileName: 'attachment',
 });
 
+async function importantGroupPreviews(
+  account: NonNullable<ReturnType<typeof getAppContext>['account']>,
+  groupCode: string,
+  seqs: string[],
+) {
+  let contentUnavailable = false;
+  const bySeq = new Map<
+    string,
+    Awaited<ReturnType<typeof account.groupMsgs.listBySeqsInPartition>>[number]
+  >();
+  try {
+    if (seqs.length) {
+      for (const message of await account.groupMsgs.listBySeqsInPartition(
+        groupCode,
+        seqs.map(BigInt),
+      )) {
+        const key = String(message.msgSeq);
+        const prior = bySeq.get(key);
+        if (!prior || (prior.msgType === 1n && message.msgType !== 1n)) bySeq.set(key, message);
+      }
+    }
+  } catch {
+    contentUnavailable = true;
+  }
+  const items = [...bySeq].map(([msgSeq, message]) => {
+    const elements = toRenderElements(message.elements);
+    const picture = elements.find((element) => element.type === 'pic' && !element.data.isFlash);
+    return {
+      msgSeq,
+      msgId: String(message.msgId),
+      senderUid: message.senderUid,
+      sendTime: String(message.sendTime),
+      preview: plainContentText(elements).slice(0, 512),
+      thumbnail:
+        picture?.type === 'pic'
+          ? {
+              name: picture.data.fileName,
+              token: picture.data.fileToken,
+              orig: picture.data.originalUrl,
+              md5: picture.data.md5,
+              recv: picture.data.subType === 1 ? 1 : 0,
+            }
+          : undefined,
+    };
+  });
+  return { items, contentUnavailable };
+}
+
+const directoryReadUndo = new WeakMap<
+  ReturnType<typeof requireServices>,
+  {
+    token: string;
+    qqToken?: string;
+    changes: DirectoryReadChange[];
+  }
+>();
+
+const cloneBuildInput = z.object({
+  personaId: agentLabPersonaId,
+  name: z.string().optional(),
+  models: agentLabModels,
+  customPrompt: z.string().optional(),
+  targetUid: z.string().min(1),
+  title: z.string().optional(),
+  limit: z.number().int().min(20).max(20000).optional(),
+  mode: z.enum(['private', 'group']).optional(),
+  autoName: z.boolean().optional(),
+});
+const cloneRequest = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('create'), params: cloneBuildInput }),
+  z.object({ type: z.literal('update'), personaId: agentLabPersonaId }),
+]);
+
+async function executeRecordedClone(
+  services: AccountServices,
+  request: z.infer<typeof cloneRequest>,
+  existingId?: string,
+) {
+  const { agentLab } = services;
+  const account = services.accountConfig.getRecord();
+  const scope = { uin: account!.uin, configId: account?.configId };
+  const personaId = request.type === 'create' ? request.params.personaId : request.personaId;
+  const previous = agentLab.getPersona(personaId);
+  if (
+    backgroundTasks
+      .snapshot()
+      .some(
+        (task) =>
+          task.kind === 'clone' &&
+          task.clonePersonaId === personaId &&
+          task.scope?.configId === scope.configId &&
+          task.status === 'running',
+      )
+  )
+    throw new Error('该克隆体正在创建或更新中');
+  const action = request.type === 'create' ? '创建好友克隆' : '更新好友克隆';
+  const name =
+    request.type === 'create'
+      ? request.params.name || request.params.title || '好友克隆'
+      : previous?.name || '好友克隆';
+  const id =
+    existingId ??
+    backgroundTasks.start({
+      kind: 'clone',
+      scope,
+      name,
+      clonePersonaId: personaId,
+      display: { action, subject: name },
+    });
+  const save = recordAccountTask(id, scope, request);
+  let stopped = false;
+  const onProgress = (progress: import('@weq/service').AgentLabBuildProgress) => {
+    if (progress.personaId === personaId && !progress.output && !progress.error)
+      backgroundTasks.update(id, { progress: progress.percent, statusLabel: progress.phase });
+  };
+  const retry = {
+    id: 'retry',
+    label: '重新执行',
+    run: () => {
+      if (getAppContext().services !== services) throw new Error('请回到原账号和数据源继续');
+      return retryRecordedClone(id, scope, request);
+    },
+  };
+  backgroundTasks.resume(id);
+  backgroundTasks.update(id, { progress: 0, note: undefined });
+  backgroundTasks.setActions(id, [
+    {
+      id: 'stop',
+      label: '停止构建',
+      run: () => {
+        if (requireExpectedAccount(scope.uin, scope.configId) !== services)
+          throw new Error('账号已切换');
+        if (agentLab.stopBuild(personaId)) {
+          stopped = true;
+          backgroundTasks.update(id, { statusLabel: '停止收尾中' });
+          backgroundTasks.setActions(id, []);
+        }
+      },
+    },
+  ]);
+  agentLab.on('build-progress', onProgress);
+  try {
+    save();
+    const result = await (request.type === 'create'
+      ? agentLab.buildFromC2c(request.params)
+      : agentLab.refreshFromC2c(personaId));
+    backgroundTasks.finish(id, 'completed', { note: '克隆体已保存' });
+    backgroundTasks.setActions(id, [
+      { id: 'view-clone', label: '查看克隆体', run: () => undefined },
+    ]);
+    return result;
+  } catch (error) {
+    backgroundTasks.finish(id, stopped ? 'cancelled' : 'failed', {
+      note: stopped ? '构建已停止，原克隆体保留' : taskError(error),
+    });
+    backgroundTasks.setActions(id, [retry]);
+    throw error;
+  } finally {
+    agentLab.off('build-progress', onProgress);
+    try {
+      save();
+    } catch (error) {
+      console.warn('[克隆] 任务回执保存失败', error);
+    }
+  }
+}
+
+export async function retryRecordedClone(id: string, scope: BackgroundTaskScope, raw: unknown) {
+  const services = requireExpectedAccount(scope.uin, scope.configId);
+  const request = cloneRequest.parse(raw);
+  const task = backgroundTasks
+    .snapshot()
+    .find((entry) => entry.id === id && entry.kind === 'clone' && entry.status !== 'running');
+  if (!task) throw new Error('克隆任务已失效');
+  if (request.type === 'create' && services.agentLab.getPersona(request.params.personaId))
+    throw new Error('该克隆体已存在，不能用旧任务覆盖');
+  void executeRecordedClone(services, request, id).catch((error: unknown) => {
+    if (backgroundTasks.snapshot().find((entry) => entry.id === id)?.status !== 'cancelled')
+      console.warn('[克隆] 重新执行未完成', error);
+  });
+}
+
 export const accountRouter = router({
   outgoing: outgoingRouter,
+  transfers: transferProgressRouter,
   noticeRead: createNoticeReadRouter((input) => {
     const config = requireExpectedAccount(
       input.expectedAccountUin,
@@ -2147,6 +1576,7 @@ export const accountRouter = router({
    */
   listAgentLabPersonas: procedure.query(async () => {
     const services = requireServices();
+    const readState = currentDraftState();
     const personas = services.agentLab.listPersonas();
     const uids = [
       ...new Set(
@@ -2163,12 +1593,24 @@ export const accountRouter = router({
         console.error('[agentlab] resolve sourceUin failed', error);
       }
     }
+    const histories = new Map(
+      personas.map((persona) => [persona.id, services.agentLab.getConversation(persona.id)]),
+    );
+    const drafts = readState.draftTexts(personas.map(({ id }) => `virtual:clone:persona:${id}`));
+    const receipt = generatedDirectoryReadState(
+      readState,
+      'persona',
+      histories,
+      (turn) => turn.role === 'assistant' && turn.status !== 'running',
+    );
     return personas.map((persona) => ({
       ...persona,
       sourceUin: uinByUid.get(persona.sourceId) ?? '',
       // 会话列表要显示「最近一句」并把虚拟会话按时间插回列表：
       // persona.updatedAt 只在编辑画像时变，聊天本身另有会话时间与末条消息。
-      ...latestGeneratedActivity(services.agentLab, 'persona', persona.id),
+      ...latestGeneratedActivity(histories.get(persona.id)!),
+      draftPreview: generatedDraftSummary(drafts.get(`virtual:clone:persona:${persona.id}`)),
+      ...receipt(persona.id),
     }));
   }),
 
@@ -2186,39 +1628,43 @@ export const accountRouter = router({
 
   buildAgentLabFromC2c: procedure
     .input(
-      z.object({
-        personaId: agentLabPersonaId,
-        name: z.string().optional(),
-        models: agentLabModels,
-        customPrompt: z.string().optional(),
-        targetUid: z.string().min(1),
-        title: z.string().optional(),
-        // 总消息上限（默认 C2C_CORPUS_CAP）；一般不由前端指定。
-        limit: z.number().int().min(20).max(20000).optional(),
-        // 语料模式：private 纯私聊不回退；group 私聊不足时群补采。默认 group。
-        mode: z.enum(['private', 'group']).optional(),
-        // 让克隆体自己起名（仅训练使用，不改前端展示名）。默认关闭。
-        autoName: z.boolean().optional(),
-      }),
+      z
+        .object({
+          personaId: agentLabPersonaId,
+          name: z.string().optional(),
+          models: agentLabModels,
+          customPrompt: z.string().optional(),
+          targetUid: z.string().min(1),
+          title: z.string().optional(),
+          // 总消息上限（默认 C2C_CORPUS_CAP）；一般不由前端指定。
+          limit: z.number().int().min(20).max(20000).optional(),
+          // 语料模式：private 纯私聊不回退；group 私聊不足时群补采。默认 group。
+          mode: z.enum(['private', 'group']).optional(),
+          // 让克隆体自己起名（仅训练使用，不改前端展示名）。默认关闭。
+          autoName: z.boolean().optional(),
+        })
+        .merge(exportAccountBindingInput),
     )
     .mutation(async ({ input }) => {
-      return requireServices().agentLab.buildFromC2c({
-        personaId: input.personaId,
-        name: input.name,
-        models: input.models,
-        customPrompt: input.customPrompt,
-        targetUid: input.targetUid,
-        title: input.title,
-        limit: input.limit,
-        mode: input.mode,
-        autoName: input.autoName,
-      });
+      const { expectedAccountUin, expectedAccountConfigId, ...params } = input;
+      return executeRecordedClone(
+        requireExpectedAccount(expectedAccountUin, expectedAccountConfigId),
+        { type: 'create', params },
+      );
     }),
 
   refreshAgentLabFromC2c: procedure
-    .input(z.object({ personaId: agentLabPersonaId, expectedAccountUin: z.string().min(1) }))
+    .input(
+      exportAccountBindingInput.extend({
+        personaId: agentLabPersonaId,
+        expectedAccountUin: z.string().min(1),
+      }),
+    )
     .mutation(({ input }) =>
-      requireExpectedAccount(input.expectedAccountUin).agentLab.refreshFromC2c(input.personaId),
+      executeRecordedClone(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        { type: 'update', personaId: input.personaId },
+      ),
     ),
 
   /** Subscribe to AgentLab clone-build progress (drives the build progress bar). */
@@ -2263,13 +1709,87 @@ export const accountRouter = router({
     )
     .mutation(async ({ input }) => {
       if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
-      return requireServices().agentLab.chat({
+      const services = requireServices();
+      const configId = services.accountConfig.getRecord()?.configId;
+      const result = await services.agentLab.chat({
         personaId: input.personaId,
         text: input.text,
         history: input.history,
         sessionId: input.sessionId,
         images: input.images,
       });
+      if (!result.silent && getAppContext().services === services) {
+        const reply = services.agentLab.getConversation(input.personaId).at(-1);
+        if (reply?.role === 'assistant') {
+          publishGeneratedReply(configId, {
+            kind: 'persona',
+            conversationId: input.personaId,
+            id: reply.id ?? randomUUID(),
+            title: services.agentLab.getPersonaRecord(input.personaId)?.persona.name ?? '克隆会话',
+            preview: generatedMessageSummary(reply),
+            messageId: reply.id,
+          });
+        }
+      }
+      return result;
+    }),
+
+  submitCloneMessage: procedure
+    .input(
+      generatedAccountInput.merge(liveCloneTarget).extend({
+        requestId: z.string().uuid(),
+        text: z.string(),
+        images: z
+          .array(
+            z.object({
+              id: z.string().min(1),
+              path: z.string().min(1),
+              name: z.string().optional(),
+            }),
+          )
+          .max(32)
+          .optional(),
+        mentions: z.array(z.string().min(1)).optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return services.agentLab.submitCloneMessage(input, (reply) => {
+        if (getAppContext().services !== services) return;
+        const group =
+          input.kind === 'group' ? services.agentLab.getGroupDetail(input.id) : undefined;
+        const sender = group?.members.find((member) => member.memberId === reply.senderId);
+        const preview = generatedMessageSummary(reply);
+        publishGeneratedReply(input.expectedAccountConfigId, {
+          kind: input.kind,
+          conversationId: input.id,
+          id: reply.id,
+          messageId: reply.id,
+          preview: sender && preview ? `${sender.displayName}：${preview}` : preview,
+          title:
+            group?.group.name ??
+            services.agentLab.getPersonaRecord(input.id)?.persona.name ??
+            '克隆会话',
+        });
+      });
+    }),
+
+  onCloneConversation: procedure
+    .input(generatedAccountInput.merge(liveCloneTarget))
+    .subscription(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return observable<import('@weq/service').CloneConversationEvent>((emit) =>
+        services.agentLab.subscribeCloneConversation(input, (event) => {
+          if (getAppContext().services === services) emit.next(event);
+        }),
+      );
     }),
 
   /** 克隆体会话（好友克隆多会话）列表，最近活跃倒序。 */
@@ -2390,7 +1910,7 @@ export const accountRouter = router({
 
       // 抽 persona 用到的 LLM providers（chat/embedding/vision，去重）。
       // 导出弹窗显式指定的图像模型也并进来（即使克隆时没用 vision，也能让 bot 具备解析新表情的能力）。
-      const llmIds = new Set<string>();
+      const llmModels = new Map<string, Set<string>>();
       for (const m of [
         models.chat,
         models.embedding,
@@ -2399,16 +1919,34 @@ export const accountRouter = router({
         visionModel,
         requireBootstrap().userConfig.getSettings().agentLab.defaultVisionModel,
       ]) {
-        if (m?.providerId) llmIds.add(m.providerId);
+        if (!m?.providerId) continue;
+        const ids = llmModels.get(m.providerId) ?? new Set<string>();
+        ids.add(m.model);
+        llmModels.set(m.providerId, ids);
       }
       const llmProviders: import('@weq/service').BotExportInput['llmProviders'] = [];
-      for (const id of llmIds) {
+      const tokenDefaults = cfg.getModelTokenDefaults();
+      for (const [id, modelIds] of llmModels) {
         const p = cfg.getProvider(id);
         if (!p) throw new Error(`缺少 LLM provider 配置：${id}（请先在设置里配置该厂商）`);
+        const modelProperties = [...modelIds].flatMap((model) => {
+          const { requestProperties, reasoningEfforts } = resolveProviderEndpoint(
+            p,
+            {
+              providerId: id,
+              model,
+            },
+            tokenDefaults,
+          );
+          return requestProperties || reasoningEfforts
+            ? [{ id: model, requestProperties, reasoningEfforts }]
+            : [];
+        });
         llmProviders.push({
           id: p.id,
           baseUrl: p.baseUrl,
           apiKey: p.apiKey,
+          ...(modelProperties.length ? { modelProperties } : {}),
           ...(p.timeoutMs === undefined ? {} : { timeoutMs: p.timeoutMs }),
         });
       }
@@ -2473,6 +2011,7 @@ export const accountRouter = router({
       const taskId = await services.exportManager.startResourceExport({
         kind: 'persona-bot',
         name: `${safeName}-bot`,
+        display: { action: '导出克隆机器人', subject: safeName },
         savePolicy: policy,
         includeIntegrityReport: input.includeIntegrityReport,
         run: async ({ directory, signal }) => {
@@ -2556,6 +2095,7 @@ export const accountRouter = router({
 
   listAgentLabGroups: procedure.query(async () => {
     const services = requireServices();
+    const readState = currentDraftState();
     const personas = services.agentLab.listPersonas();
     const personasById = new Map(personas.map((persona) => [persona.id, persona]));
     const sourceUids = [
@@ -2576,7 +2116,18 @@ export const accountRouter = router({
         console.error('[agentlab] resolve group member uin failed', error);
       }
     }
-    return services.agentLab.listGroups().map((group) => {
+    const groups = services.agentLab.listGroups();
+    const histories = new Map(
+      groups.map((group) => [group.id, services.agentLab.getGroupMessages(group.id)]),
+    );
+    const drafts = readState.draftTexts(groups.map(({ id }) => `virtual:clone:group:${id}`));
+    const receipt = generatedDirectoryReadState(
+      readState,
+      'clone-group',
+      histories,
+      (turn) => turn.senderKind !== 'user',
+    );
+    return groups.map((group) => {
       const members = services.agentLab
         .getGroupDetail(group.id)
         ?.members.filter((member) => member.kind === 'persona');
@@ -2589,8 +2140,15 @@ export const accountRouter = router({
         .filter(Boolean);
       return {
         ...group,
-        ...latestGeneratedActivity(services.agentLab, 'group', group.id),
+        ...latestGeneratedActivity(
+          histories.get(group.id)!,
+          (senderId) =>
+            personasById.get(senderId)?.name ??
+            members?.find((member) => member.memberId === senderId)?.displayName,
+        ),
+        draftPreview: generatedDraftSummary(drafts.get(`virtual:clone:group:${group.id}`)),
         memberUins,
+        ...receipt(group.id),
       };
     });
   }),
@@ -2630,9 +2188,17 @@ export const accountRouter = router({
     }),
 
   getAgentLabGroupConversation: procedure
-    .input(z.object({ groupId: z.string().min(1), sessionId: z.string().optional() }))
+    .input(
+      exportAccountBindingInput.extend({
+        groupId: z.string().min(1),
+        sessionId: z.string().optional(),
+      }),
+    )
     .query(({ input }) => {
-      return requireServices().agentLab.getGroupMessages(input.groupId, undefined, input.sessionId);
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).agentLab.getGroupMessages(input.groupId, undefined, input.sessionId);
     }),
 
   clearAgentLabGroupConversation: procedure
@@ -2669,9 +2235,12 @@ export const accountRouter = router({
     )
     .mutation(({ input }) => {
       if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
-      const svc = requireServices().agentLab;
+      const services = requireServices();
+      const svc = services.agentLab;
+      const configId = services.accountConfig.getRecord()?.configId;
       const groupRunId = randomUUID();
       const groupId = input.groupId;
+      let reply: import('@weq/agentlab').AgentLabGroupMessage | undefined;
       void svc
         .sendGroupMessage(
           {
@@ -2681,13 +2250,15 @@ export const accountRouter = router({
             mentions: input.mentions,
             sessionId: input.sessionId,
           },
-          (message) =>
+          (message) => {
+            if (message.senderKind !== 'user') reply = message;
             groupChatBus.emit('event', {
               groupRunId,
               groupId,
               kind: 'message',
               message,
-            } satisfies GroupChatStreamEvent),
+            } satisfies GroupChatStreamEvent);
+          },
         )
         .then(() =>
           groupChatBus.emit('event', {
@@ -2703,7 +2274,22 @@ export const accountRouter = router({
             kind: 'error',
             message: err instanceof Error ? err.message : String(err),
           } satisfies GroupChatStreamEvent),
-        );
+        )
+        .finally(() => {
+          if (!reply || getAppContext().services !== services) return;
+          const detail = svc.getGroupDetail(groupId);
+          if (!detail) return;
+          const sender = detail.members.find((member) => member.memberId === reply?.senderId);
+          const preview = generatedMessageSummary(reply);
+          publishGeneratedReply(configId, {
+            kind: 'group',
+            conversationId: groupId,
+            id: groupRunId,
+            title: detail.group.name,
+            preview: sender && preview ? `${sender.displayName}：${preview}` : preview,
+            messageId: reply.id,
+          });
+        });
       return { groupRunId };
     }),
 
@@ -2718,6 +2304,44 @@ export const accountRouter = router({
     });
   }),
 
+  /** 只推实时回复，不用历史未读或界面的运行状态猜测是否完成。 */
+  onGeneratedReply: procedure.input(generatedAccountInput).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    return observable<GeneratedReply>((emit) => {
+      const active = (configId?: string) =>
+        configId === input.expectedAccountConfigId && getAppContext().services === services;
+      const clone = (configId: string, reply: GeneratedReply) => {
+        if (active(configId)) emit.next(reply);
+      };
+      const assistant = (event: AssistantStreamEvent) => {
+        if (!active(event.accountConfigId) || !event.sessionId || event.step.kind !== 'final')
+          return;
+        const session = services.assistant
+          .listSessions()
+          .find((item) => item.id === event.sessionId);
+        if (!session) return;
+        const turn = services.assistant.getConversation(session.id).at(-1);
+        emit.next({
+          kind: 'assistant',
+          conversationId: session.id,
+          id: event.runId,
+          title: session.title,
+          preview: generatedMessageSummary({ text: event.step.text, steps: turn?.steps }),
+          messageId: event.messageId ?? (turn?.role === 'assistant' ? turn.id : undefined),
+        });
+      };
+      generatedReplyBus.on('reply', clone);
+      assistantBus.on('step', assistant);
+      return () => {
+        generatedReplyBus.off('reply', clone);
+        assistantBus.off('step', assistant);
+      };
+    });
+  }),
+
   updateAgentLabPersona: procedure
     .input(
       z.object({
@@ -2725,12 +2349,9 @@ export const accountRouter = router({
         chatModel: agentLabModelRef.optional(),
         generation: z
           .object({
-            historyMessages: cloneQuantity('historyMessages'),
-            pairExamples: cloneQuantity('pairExamples'),
-            memoryItems: cloneQuantity('memoryItems'),
-            expressionItems: cloneQuantity('expressionItems'),
-            maxOutputTokens: cloneQuantity('maxOutputTokens'),
-            temperature: z.number().min(0).max(2).nullable().optional(),
+            useTrainingSamples: z.boolean().optional(),
+            useLongTermMemory: z.boolean().optional(),
+            reasoningEffort: z.string().trim().min(1).max(64).optional(),
           })
           .optional(),
         name: z.string().optional(),
@@ -2791,9 +2412,12 @@ export const accountRouter = router({
 
   /** 与某克隆体的持久化对话历史。 */
   getAgentLabConversation: procedure
-    .input(z.object({ personaId: agentLabPersonaId }))
+    .input(exportAccountBindingInput.extend({ personaId: agentLabPersonaId }))
     .query(({ input }) => {
-      return requireServices().agentLab.getConversation(input.personaId);
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).agentLab.getConversation(input.personaId);
     }),
 
   clearAgentLabConversation: procedure
@@ -2830,20 +2454,60 @@ export const accountRouter = router({
 
   /** WeQ 助手的会话列表（最近活跃倒序）。 */
   listAssistantSessions: procedure.query(() => {
-    return requireServices().assistant.listSessions();
+    const assistant = requireServices().assistant;
+    const sessions = assistant.listSessions();
+    const state = currentDraftState();
+    const drafts = state.draftTexts(sessions.map(({ id }) => `assistant:${id}`));
+    const histories = new Map(
+      sessions.map((session) => [session.id, assistant.getConversation(session.id)]),
+    );
+    const receipt = generatedDirectoryReadState(
+      state,
+      'assistant',
+      histories,
+      (turn) => turn.role === 'assistant' && turn.status !== 'running',
+    );
+    return sessions.map((session) => ({
+      ...session,
+      ...latestGeneratedActivity(histories.get(session.id)!),
+      draftPreview: generatedDraftSummary(drafts.get(`assistant:${session.id}`)),
+      ...receipt(session.id),
+    }));
   }),
 
-  /** 新建一个空会话，返回会话元数据（标题首轮对话后自动总结）。 */
+  /** 新建一个空会话，返回会话元数据。 */
   createAssistantSession: procedure
-    .input(exportAccountBindingInput.optional())
+    .input(
+      exportAccountBindingInput
+        .extend({ generation: assistantSessionGenerationInput.optional() })
+        .optional(),
+    )
     .mutation(({ input }) => {
       const result = requireExpectedAccount(
         input?.expectedAccountUin,
         input?.expectedAccountConfigId,
-      ).assistant.createSession();
+      ).assistant.createSession(input?.generation);
       currentDraftState().announceDrafts();
       return result;
     }),
+
+  getAssistantSessionGeneration: procedure
+    .input(assistantSessionInput)
+    .query(({ input }) =>
+      requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).assistant.getSessionGeneration(input.sessionId),
+    ),
+
+  setAssistantSessionGeneration: procedure
+    .input(assistantSessionInput.extend({ generation: assistantSessionGenerationInput }))
+    .mutation(({ input }) =>
+      requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).assistant.setSessionGeneration(input.sessionId, input.generation),
+    ),
 
   /** 删除一个会话（含其对话内容）。 */
   deleteAssistantSession: procedure
@@ -3002,7 +2666,9 @@ export const accountRouter = router({
     )
     .mutation(({ input }) => {
       if (!input.text.trim() && !input.images?.length) throw new Error('请输入消息或选择图片');
-      const assistant = requireServices().assistant;
+      const services = requireServices();
+      const assistant = services.assistant;
+      const accountConfigId = services.accountConfig.getRecord()?.configId;
       const state = currentDraftState();
       const runId = randomUUID();
       // 每轮任务挂一个 AbortController，供 abortAssistantRun 按 runId 掐断（用户点「停止」）。
@@ -3014,6 +2680,7 @@ export const accountRouter = router({
           input.text,
           (step) =>
             assistantBus.emit('step', {
+              accountConfigId,
               runId,
               sessionId: input.sessionId,
               step,
@@ -3057,7 +2724,9 @@ export const accountRouter = router({
   resumeAssistantRun: procedure
     .input(z.object({ sessionId: z.string().min(1) }))
     .mutation(({ input }) => {
-      const assistant = requireServices().assistant;
+      const services = requireServices();
+      const assistant = services.assistant;
+      const accountConfigId = services.accountConfig.getRecord()?.configId;
       const runId = randomUUID();
       const ac = new AbortController();
       activeAssistantRuns.set(runId, ac);
@@ -3066,6 +2735,7 @@ export const accountRouter = router({
           input.sessionId,
           (step) =>
             assistantBus.emit('step', {
+              accountConfigId,
               runId,
               sessionId: input.sessionId,
               step,
@@ -3182,7 +2852,9 @@ export const accountRouter = router({
   /** 助手任务的过程流（thinking / tool_call / tool_result / artifact / final / error）。 */
   onAssistantEvent: procedure.subscription(() => {
     return observable<AssistantStreamEvent>((emit) => {
-      const handler = (e: AssistantStreamEvent): void => emit.next(e);
+      const handler = (e: AssistantStreamEvent): void => {
+        if (e.step.kind !== 'session_title') emit.next(e);
+      };
       assistantBus.on('step', handler);
       return () => {
         assistantBus.off('step', handler);
@@ -3274,8 +2946,20 @@ export const accountRouter = router({
    * 供前端并入会话列表统一渲染、排序。
    */
   listHiddenSessions: directoryProcedure.query(async () => {
-    const hidden = await requireServices().hiddenSessions.listHiddenSessions();
-    return hidden.map(hiddenSessionToWire);
+    const services = requireServices();
+    const hidden = await services.hiddenSessions.listHiddenSessions();
+    return Promise.all(
+      hidden.map(async (row) => ({
+        ...hiddenSessionToWire(row),
+        unreadCount: row.resolvable
+          ? await services.unreadInfo.directoryUnreadCount(
+              classifyChatType(row.chatType) === 'group' ? 2 : 1,
+              row.targetUid,
+              row.latestSeq,
+            )
+          : 0,
+      })),
+    );
   }),
 
   /**
@@ -3389,16 +3073,47 @@ export const accountRouter = router({
    * 供前端在删除会话合并入口中显示。
    */
   listDeletedSessions: directoryProcedure.query(async () => {
-    const deleted = await requireServices().deletedSessions.listDeletedSessions();
-    return deleted.map(deletedSessionToWire);
+    const services = requireServices();
+    const deleted = await services.deletedSessions.listDeletedSessions();
+    return Promise.all(
+      deleted.map(async (row) => ({
+        ...deletedSessionToWire(row),
+        unreadCount: row.resolvable
+          ? await services.unreadInfo.directoryUnreadCount(
+              row.chatType,
+              row.targetUid,
+              row.latestSeq,
+            )
+          : 0,
+      })),
+    );
   }),
 
   /**
    * 官方号会话列表（chatType=103），保留全部消息类型的预览。
    */
   listOfficialAccounts: procedure.query(async () => {
-    const summaries = await requireServices().officialAccount.listAccounts();
-    return summaries.map(officialAccountSummaryToWire);
+    const service = requireServices().officialAccount;
+    const readState = currentDraftState();
+    const summaries = await service.listAccounts();
+    const reads = directoryReadPositions(
+      readState,
+      'official',
+      Object.fromEntries(
+        summaries.map((row) => [`official:${row.peerUid}`, row.latestReadPosition]),
+      ),
+    );
+    return Promise.all(
+      summaries.map(async (row) => ({
+        ...officialAccountSummaryToWire(row),
+        ...(await directoryUnread(
+          reads,
+          `official:${row.peerUid}`,
+          row.latestReadPosition,
+          (after) => service.countUnread(row.peerUid, after),
+        )),
+      })),
+    );
   }),
 
   /**
@@ -3406,8 +3121,22 @@ export const accountRouter = router({
    * 按最新消息时间排序。
    */
   listServiceAccounts: procedure.query(async () => {
-    const summaries = await requireServices().serviceAccount.listAccounts();
-    return summaries.map(serviceAccountSummaryToWire);
+    const service = requireServices().serviceAccount;
+    const readState = currentDraftState();
+    const summaries = await service.listAccounts();
+    const reads = directoryReadPositions(
+      readState,
+      'service',
+      Object.fromEntries(summaries.map((row) => [`service:${row.appId}`, row.latestReadPosition])),
+    );
+    return Promise.all(
+      summaries.map(async (row) => ({
+        ...serviceAccountSummaryToWire(row),
+        ...(await directoryUnread(reads, `service:${row.appId}`, row.latestReadPosition, (after) =>
+          service.countUnread(row.appId, after),
+        )),
+      })),
+    );
   }),
 
   readonlyConversationPage: procedure
@@ -3677,6 +3406,7 @@ export const accountRouter = router({
           .regex(/^[1-9]\d{0,19}$/)
           .optional(),
         limit: z.number().int().min(1).max(100).default(50),
+        deferPreviews: z.boolean().optional(),
       }),
     )
     .query(async ({ input }) => {
@@ -3686,92 +3416,161 @@ export const accountRouter = router({
       );
       const account = getAppContext().account;
       if (!account) throw new Error('账号已关闭');
+      const { deferPreviews, ...filter } = input;
       const page = await services.unreadInfo.listImportantMessages({
-        ...input,
+        ...filter,
         chatType: 2,
         uid: input.groupCode,
       });
-      // 只为当前页批量补摘要与缩图索引；不加载消息上下文或媒体本体。
-      let messages: Awaited<ReturnType<typeof account.groupMsgs.listBySeqsInPartition>> = [];
-      let contentUnavailable = false;
-      try {
-        if (page.items.length)
-          messages = await account.groupMsgs.listBySeqsInPartition(
+      const previews = deferPreviews
+        ? { items: [], contentUnavailable: false }
+        : await importantGroupPreviews(
+            account,
             input.groupCode,
-            page.items.map((row) => BigInt(row.msgSeq)),
+            page.items.map((row) => row.msgSeq),
           );
-      } catch {
-        contentUnavailable = true;
-      }
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
           services ||
         getAppContext().account !== account
       )
         throw new Error('账号数据源已切换');
+      const bySeq = new Map(previews.items.map((row) => [row.msgSeq, row]));
       return {
         ...page,
-        contentUnavailable,
+        contentUnavailable: previews.contentUnavailable,
         items: page.items.map((row) => {
-          const candidates = messages.filter((message) => String(message.msgSeq) === row.msgSeq);
-          const message = candidates.find((candidate) => candidate.msgType !== 1n) ?? candidates[0];
-          const elements = message ? toRenderElements(message.elements) : [];
-          const picture = elements.find(
-            (element) => element.type === 'pic' && !element.data.isFlash,
-          );
+          const preview = bySeq.get(row.msgSeq);
           return {
             ...row,
-            msgId: message ? String(message.msgId) : undefined,
-            senderUid: message?.senderUid || row.senderUid,
-            sendTime: message ? String(message.sendTime) : row.sendTime,
-            preview: plainContentText(elements).slice(0, 512),
-            thumbnail:
-              picture?.type === 'pic'
-                ? {
-                    name: picture.data.fileName,
-                    token: picture.data.fileToken,
-                    orig: picture.data.originalUrl,
-                    md5: picture.data.md5,
-                    recv: picture.data.subType === 1 ? 1 : 0,
-                  }
-                : undefined,
+            msgId: preview?.msgId,
+            senderUid: preview?.senderUid || row.senderUid,
+            sendTime: preview?.sendTime ?? row.sendTime,
+            preview: preview?.preview ?? '',
+            thumbnail: preview?.thumbnail,
           };
         }),
       };
     }),
 
-  setConversationReadState: procedure
+  importantGroupPreviews: procedure
     .input(
-      z.object({
-        expectedAccountUin: z.string().min(1),
-        expectedAccountConfigId: z.string().min(1).optional(),
-        targets: z
-          .array(
-            z.object({
-              chatType: z.union([z.literal(1), z.literal(2), z.literal(8), z.literal(134)]),
-              uid: z.string().min(1),
-            }),
-          )
+      exportAccountBindingInput.required().extend({
+        groupCode: z.string().regex(/^\d+$/),
+        seqs: z
+          .array(z.string().regex(/^[1-9]\d{0,19}$/))
           .min(1)
-          .max(4096),
-        unread: z.boolean(),
+          .max(100),
       }),
     )
+    .query(({ input }) =>
+      readMessageScope(
+        input,
+        () => {
+          const account = getAppContext().account;
+          if (!account) throw new Error('账号已关闭');
+          return importantGroupPreviews(account, input.groupCode, input.seqs);
+        },
+        'background',
+      ),
+    ),
+
+  setConversationReadState: procedure
+    .input(
+      z
+        .object({
+          expectedAccountUin: z.string().min(1),
+          expectedAccountConfigId: z.string().min(1).optional(),
+          targets: z
+            .array(
+              z.object({
+                chatType: z.union([z.literal(1), z.literal(2), z.literal(8), z.literal(134)]),
+                uid: z.string().min(1),
+              }),
+            )
+            .max(4096),
+          directoryTargets: z
+            .array(
+              z.object({
+                key: z.string().refine(isDirectoryReadKey),
+                position: z.string().refine(validReadPosition),
+              }),
+            )
+            .max(4096)
+            .default([]),
+          unread: z.boolean(),
+        })
+        .refine(
+          ({ targets, directoryTargets }) =>
+            targets.length + directoryTargets.length > 0 &&
+            targets.length + directoryTargets.length <= 4096,
+        ),
+    )
     .mutation(async ({ input }) => {
-      const result = await requireExpectedAccount(
+      const services = requireExpectedAccount(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
-      ).unreadInfo.setReadState(input.targets, input.unread);
-      return { undoToken: result.undoToken, rows: result.rows.map(unreadInfoToWire) };
+      );
+      if (input.directoryTargets.length) {
+        const state = currentDraftState();
+        let changes: DirectoryReadChange[] = [];
+        let failed = 0;
+        try {
+          changes = state.setDirectoryReadState(input.directoryTargets, input.unread);
+        } catch (error) {
+          if (!input.targets.length) throw error;
+          failed += input.directoryTargets.length;
+        }
+        const qq = input.targets.length
+          ? await services.unreadInfo
+              .setReadState(input.targets, input.unread)
+              .catch((error: unknown) => {
+                if (failed) throw error;
+                failed += input.targets.length;
+                return undefined;
+              })
+          : undefined;
+        const token = randomUUID();
+        directoryReadUndo.set(services, { token, qqToken: qq?.undoToken, changes });
+        return {
+          undoToken: token,
+          failed: failed + (qq?.failed ?? 0),
+          rows: qq?.rows.map(unreadInfoToWire) ?? [],
+        };
+      }
+      const result = await services.unreadInfo.setReadState(input.targets, input.unread);
+      directoryReadUndo.delete(services);
+      return {
+        undoToken: result.undoToken,
+        failed: result.failed,
+        rows: result.rows.map(unreadInfoToWire),
+      };
     }),
 
   undoConversationReadState: procedure
     .input(z.object({ expectedAccountUin: z.string().min(1), undoToken: z.string().uuid() }))
     .mutation(async ({ input }) => {
-      const result = await requireExpectedAccount(
-        input.expectedAccountUin,
-      ).unreadInfo.undoReadState(input.undoToken);
-      return { restored: result.restored, rows: result.rows.map(unreadInfoToWire) };
+      const services = requireExpectedAccount(input.expectedAccountUin);
+      const local = directoryReadUndo.get(services);
+      if (local?.token === input.undoToken) {
+        const restored = currentDraftState().undoDirectoryReadState(local.changes);
+        local.changes = [];
+        const qq = local.qqToken
+          ? await services.unreadInfo.undoReadState(local.qqToken)
+          : undefined;
+        if (!qq?.pending) directoryReadUndo.delete(services);
+        return {
+          restored: restored + (qq?.restored ?? 0),
+          pending: qq?.pending ?? 0,
+          rows: qq?.rows.map(unreadInfoToWire) ?? [],
+        };
+      }
+      const result = await services.unreadInfo.undoReadState(input.undoToken);
+      return {
+        restored: result.restored,
+        pending: result.pending,
+        rows: result.rows.map(unreadInfoToWire),
+      };
     }),
 
   /** Get unread message count for a conversation. */
@@ -3798,7 +3597,7 @@ export const accountRouter = router({
   /**
    * 把一个会话标记为已读（抬高 msg_unread_info_table 的已读 seq，并清掉
    * 提醒高亮组）。会话打开时调用，让红点消失、也避免下次进入重复弹跳转。
-   * 同时持久化 WeQ 本地阅读位置；离线目录只更新本地位置。
+   * 静态只读目录只更新 WeQ 本地阅读位置。
    */
   markConversationRead: procedure
     .input(
@@ -4236,30 +4035,58 @@ export const accountRouter = router({
     ),
 
   /**
-   * QQ 频道私聊会话列表（direct_node_list_table）。只读会话表，绝不回扫
-   * guild_msg_table 补全；40051 最新消息预览一并返回。
+   * 目录只来自 direct_node_list_table；按 node 索引读取最新水位和未读，不回扫消息补目录。
    */
   guildDirectListSessions: procedure.query(async () => {
-    const sessions = await requireServices().guildDirect.listSessions();
-    return sessions.map(guildDirectSessionToWire);
+    const service = requireServices().guildDirect;
+    const readState = currentDraftState();
+    const sessions = await service.listSessions();
+    const positions = new Map(
+      await Promise.all(
+        sessions.map(async (row) => {
+          const [latest] = await service.getStableLatest(row.nodeId, 1);
+          return [row.nodeId, latest ? messageReadPosition(latest) : '0:0:0'] as const;
+        }),
+      ),
+    );
+    const reads = directoryReadPositions(
+      readState,
+      'guild',
+      Object.fromEntries(
+        sessions.map((row) => [`guild:${row.nodeId}`, positions.get(row.nodeId)!]),
+      ),
+    );
+    return Promise.all(
+      sessions.map(async (row) => ({
+        ...guildDirectSessionToWire(row),
+        ...(await directoryUnread(
+          reads,
+          `guild:${row.nodeId}`,
+          positions.get(row.nodeId)!,
+          (after) => service.countUnread(row.nodeId, after),
+        )),
+      })),
+    );
   }),
 
   /** 频道私聊最新 N 条消息（seq 大到小）。nodeId = 会话 40027。 */
   guildDirectLatest: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         nodeId: z.string().min(1),
         stablePaging: z.boolean().optional(),
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
-    .query(async ({ input }) => {
-      const guild = requireServices().guildDirect;
-      const msgs = await (input.stablePaging
-        ? guild.getStableLatest(input.nodeId, input.limit)
-        : guild.getLatest(input.nodeId, input.limit));
-      return withMessageBubbles(msgs.map(guildDirectMsgToWire), requireServices().dressInstall);
-    }),
+    .query(({ input }) =>
+      readMessageScope(input, async () => {
+        const { guildDirect: guild, dressInstall } = requireServices();
+        const msgs = await (input.stablePaging
+          ? guild.getStableLatest(input.nodeId, input.limit)
+          : guild.getLatest(input.nodeId, input.limit));
+        return withMessageBubbles(msgs.map(guildDirectMsgToWire), dressInstall);
+      }),
+    ),
 
   guildDirectAround: procedure
     .input(
@@ -4284,7 +4111,7 @@ export const accountRouter = router({
   /** 比 beforeSeq 更旧的一页频道私聊消息（向上滚动），返回仍为 seq 大到小。 */
   guildDirectBefore: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         nodeId: z.string().min(1),
         beforeSeq: z.string().min(1),
         beforeMsgId: z
@@ -4294,13 +4121,15 @@ export const accountRouter = router({
         limit: z.number().int().min(1).max(200).default(50),
       }),
     )
-    .query(async ({ input }) => {
-      const guild = requireServices().guildDirect;
-      const msgs = await (input.beforeMsgId !== undefined
-        ? guild.getBeforeMessage(input.nodeId, input.beforeMsgId, input.limit)
-        : guild.getBefore(input.nodeId, BigInt(input.beforeSeq), input.limit));
-      return withMessageBubbles(msgs.map(guildDirectMsgToWire), requireServices().dressInstall);
-    }),
+    .query(({ input }) =>
+      readMessageScope(input, async () => {
+        const { guildDirect: guild, dressInstall } = requireServices();
+        const msgs = await (input.beforeMsgId !== undefined
+          ? guild.getBeforeMessage(input.nodeId, input.beforeMsgId, input.limit)
+          : guild.getBefore(input.nodeId, BigInt(input.beforeSeq), input.limit));
+        return withMessageBubbles(msgs.map(guildDirectMsgToWire), dressInstall);
+      }),
+    ),
 
   guildDirectAfter: procedure
     .input(
@@ -4918,7 +4747,7 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
-      const access = albumAccessState();
+      const access = albumAccessState(requireServices());
       const result = await services.groupInfo.getMemberPreview(
         input.groupCode,
         Boolean(access.qqOnline && access.attachEnabled),
@@ -5420,7 +5249,7 @@ export const accountRouter = router({
             : await service.getC2cForward(msgId);
       if (records.length === 0 && input.resId) {
         // 40900 缓存为空 -> 走协议在线拉取。要求 QQ 在线且未开「完全离线模式」。
-        const state = albumAccessState();
+        const state = albumAccessState(requireServices());
         if (!state.qqOnline || !state.attachEnabled) {
           throw new Error('QQ 未在线或处于完全离线模式，无法拉取合并转发');
         }
@@ -5542,6 +5371,20 @@ export const accountRouter = router({
     .input(z.object({ kind: z.enum(['c2c', 'group']), conv: z.string().min(1) }))
     .query(({ input }): string[] =>
       requireServices().msgs.getHiddenDeletedMsgIds(input.kind, input.conv),
+    ),
+
+  messageHistoryPage: procedure
+    .input(
+      convInput.merge(exportAccountBindingInput.required()).extend({
+        record: z.enum(['recalled', 'deleted']),
+        limit: z.number().int().min(1).max(80).default(24),
+        before: z
+          .object({ time: z.number().int(), id: z.string().min(1).max(120), roaming: z.boolean() })
+          .optional(),
+      }),
+    )
+    .query(({ input }) =>
+      readMessageScope(input, () => readMessageHistoryPage(requireServices(), input)),
     ),
 
   /**
@@ -6334,16 +6177,16 @@ export const accountRouter = router({
         fileSize: z.number().int().nonnegative().optional(),
         /** 灯箱正在显示的图片地址（本地模型那条腿取图用）。 */
         src: z.string().optional(),
+        refresh: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }): Promise<ChatOcrLightboxResult> => {
       const services = requireServices();
       const local = resolveLocalOcrModel();
       const online = canOcrOnline(services);
-      // 缓存命中就一步都不用跑：灯箱连点、导出刚跑过、甚至过期图（服务端取不到、
-      // 本机也没本体）都能立刻出结果。键是图片 md5，和导出 / MCP 完全同一套。
+      // 第一次识别可直接复用导出或 MCP 的结果；「重新识别」明确跳过旧结果。
       const cacheKey = input.md5 ? ocrResultCache().keyFor(input.md5) : null;
-      if (cacheKey) {
+      if (cacheKey && !input.refresh) {
         const hit = await ocrResultCache()
           .getText(cacheKey)
           .catch(() => null);
@@ -6461,7 +6304,7 @@ export const accountRouter = router({
    * 注意 `inGroup`：为真时渲染层**整个弹窗都不显示**，`mode` 只是照常在算（不消费）。
    */
   getGroupJoinState: procedure.query(async (): Promise<GroupJoinState> => {
-    const state = albumAccessState();
+    const state = albumAccessState(requireServices());
     let inGroup = false;
     try {
       const directory = await requireServices().groupInfo.listGroupDirectory();
@@ -6504,7 +6347,7 @@ export const accountRouter = router({
    * authKey 每次重新换（与分享者绑定、有实效），**不缓存**。
    */
   joinProjectGroup: procedure.mutation(async (): Promise<GroupJoinResult> => {
-    const state = albumAccessState();
+    const state = albumAccessState(requireServices());
     if (state.qqOnline && state.attachEnabled) {
       const target = await resolveGroupShareAuthKey(PROJECT_GROUP_SHARE_URL);
       const canInject = state.hasA2 && state.hasD2 && state.hasD2Key && state.hasGuid;
@@ -6544,7 +6387,7 @@ export const accountRouter = router({
   onlineTranscribeArm: procedure
     .input(z.object({ uin: z.string().min(1).optional() }).optional())
     .mutation(async ({ input }) => {
-      const state = albumAccessState();
+      const state = albumAccessState(requireServices());
       if (!state.qqOnline) throw new Error('需要先登录该账号的 QQ 客户端。');
       if (!state.attachEnabled) {
         throw new Error('已开启完全离线模式（自动读取 QQ 内存 已关闭），无法开启在线转写。');
@@ -6629,6 +6472,7 @@ export const accountRouter = router({
         targetId: z.string().min(1),
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
+        transferId: transferIdInput,
         tempGroupCode: z.string().min(1).optional(),
         elements: z.array(z.any()).min(1),
         dress: z.any().optional(),
@@ -6666,20 +6510,34 @@ export const accountRouter = router({
         {
           listRows: () => services.emoji.listFavEmojiRows(),
           resolveFile: (...args) => services.customEmoji.resolveFile(...args),
+          resolveCachedFavorite: (file) => services.emoji.resolveCachedFavorite(file),
           checkCurrent,
         },
       );
       checkCurrent();
-      return services.messageSend.sendElements({
-        peerType: input.peerType,
-        targetId: input.targetId,
-        ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
-        elements: elements as never,
-        ...(input.preparedChatFont !== undefined
-          ? { preparedChatFont: input.preparedChatFont }
-          : {}),
-        ...(input.dress ? { dress: input.dress as never } : {}),
-      });
+      return observeUpload(services, input.transferId, (update) =>
+        services.messageSend.sendElements({
+          peerType: input.peerType,
+          targetId: input.targetId,
+          ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
+          elements: elements as never,
+          ...(input.preparedChatFont !== undefined
+            ? { preparedChatFont: input.preparedChatFont }
+            : {}),
+          ...(input.dress ? { dress: input.dress as never } : {}),
+          ...(input.transferId
+            ? {
+                beforeSend: checkCurrent,
+                onUploadProgress: ({ index, count, received, total }) =>
+                  update({
+                    phase: 'upload',
+                    ...(count === 1 ? { received, total } : { processed: index, items: count }),
+                  }),
+                onUploaded: () => update({ phase: 'confirming' }),
+              }
+            : {}),
+        }),
+      );
     }),
 
   browserFileStart: procedure
@@ -6730,6 +6588,7 @@ export const accountRouter = router({
           targetId: z.string().min(1),
           expectedAccountUin: z.string().min(1).optional(),
           expectedAccountConfigId: z.string().min(1).optional(),
+          transferId: transferIdInput,
           path: z.string().min(1).optional(),
           uploadId: z.string().uuid().optional(),
           fileName: z.string().min(1).optional(),
@@ -6752,23 +6611,42 @@ export const accountRouter = router({
       const sourcePid = services.accountConfig.getRecord()?.qqPid;
       const path = input.uploadId ? browserFiles.acquire(services, input.uploadId) : input.path!;
       try {
-        return await services.messageSend.sendFile({
-          peerType: input.peerType,
-          targetId: input.targetId,
-          path,
-          ...(input.fileName ? { fileName: input.fileName } : {}),
-          ...(input.folderId ? { folderId: input.folderId } : {}),
-          beforeSend: () => {
-            if (
-              requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
-                services ||
-              services.accountConfig.getRecord()?.configId !== sourceConfigId ||
-              services.accountConfig.getRecord()?.qqPid !== sourcePid
-            )
-              throw new Error('账号数据源已切换，已停止发送文件');
-            requireQqOnlineForAlbum(services);
-          },
-        });
+        const host = input.uploadId ? null : getHost();
+        const keepSource =
+          host?.canReveal && !host.remoteClient && !pickedBrowserFiles.hasPath(path.trim());
+        const outcome = await observeUpload(services, input.transferId, (update) =>
+          services.messageSend.sendFile({
+            peerType: input.peerType,
+            targetId: input.targetId,
+            path,
+            ...(input.fileName ? { fileName: input.fileName } : {}),
+            ...(input.folderId ? { folderId: input.folderId } : {}),
+            ...(input.transferId
+              ? {
+                  onProgress: (received, total) => update({ phase: 'upload', received, total }),
+                  onUploaded: () => update({ phase: 'confirming' }),
+                }
+              : {}),
+            beforeSend: () => {
+              if (
+                requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+                  services ||
+                services.accountConfig.getRecord()?.configId !== sourceConfigId ||
+                services.accountConfig.getRecord()?.qqPid !== sourcePid
+              )
+                throw new Error('账号数据源已切换，已停止发送文件');
+              requireQqOnlineForAlbum(services);
+            },
+          }),
+        );
+        if (outcome.ok && keepSource)
+          services.fileResource.rememberSentFile(
+            outcome.fileId,
+            outcome.fileName,
+            outcome.fileSize,
+            path.trim(),
+          );
+        return outcome;
       } finally {
         if (input.uploadId) await browserFiles.discard(services, input.uploadId, true);
       }
@@ -6915,6 +6793,10 @@ export const accountRouter = router({
         targetId: input.targetId,
         ...(input.name?.trim() ? { name: input.name.trim() } : {}),
         ...(coverPath ? { thumbPath: coverPath } : {}),
+        onUpload: (fileset, phase, received, total, shareUrl) => {
+          const shortCode = shareUrl.match(/^https?:\/\/qfile\.qq\.com\/q\/([\w-]+)/i)?.[1];
+          updateFlashUpload(services, fileset, phase, received, total, shortCode);
+        },
         uploader: {
           uin: record?.uin ?? '',
           nickname: record?.displayName ?? '',
@@ -7334,6 +7216,12 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         name,
         kind: 'database',
+        display: {
+          action: '导出明文数据库',
+          subject: single ? items[0]!.name : `${items.length} 个库`,
+          context: input.mode === 'safe' ? '安全保存' : '快速解密',
+          fileName: single,
+        },
         includeIntegrityReport: input.includeIntegrityReport,
         savePolicy: input.savePolicy,
         ...(single ? { output: { kind: 'file' as const, name, extension: 'db' } } : {}),
@@ -7496,14 +7384,16 @@ export const accountRouter = router({
     }),
 
   /** 全部下载任务（含历史，新在前）。 */
-  flashListDownloadTasks: procedure.query(() => {
-    return requireServices()
-      .flashTransferFiles.downloads.list()
-      .map(({ logs: _logs, files, ...task }) => ({
-        ...task,
-        logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
-        files: files.map(({ logs: _fileLogs, ...file }) => file),
-      }));
+  flashListDownloadTasks: procedure.query(async () => {
+    const services = requireServices();
+    const downloads = services.flashTransferFiles.downloads;
+    await downloads.load();
+    if (requireServices() !== services) throw new Error('账号已切换');
+    return downloads.list().map(({ logs: _logs, files, ...task }) => ({
+      ...task,
+      logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
+      files: files.map(({ logs: _fileLogs, ...file }) => file),
+    }));
   }),
 
   flashDownloadTaskLogs: procedure
@@ -7522,6 +7412,15 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       return requireServices().flashTransferFiles.downloads.cancel(input.taskId);
     }),
+
+  flashPauseDownloadTask: procedure
+    .input(generatedAccountInput.extend({ taskId: z.string().min(1) }))
+    .mutation(({ input }) =>
+      requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).flashTransferFiles.downloads.pause(input.taskId),
+    ),
 
   flashRetryDownloadTask: procedure
     .input(exportAccountBindingInput.required().extend({ taskId: z.string().min(1) }))
@@ -7839,6 +7738,13 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         name: selected.name,
+        transferTarget: qzoneBatchTransferTarget(selected.hostUin),
+        display: {
+          action: '保存相册媒体',
+          subject: resolved ? resolved.fileName : `${selected.items.length} 项`,
+          context: 'QQ 空间相册',
+          fileName: Boolean(resolved),
+        },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: policy,
         ...(output.kind === 'file' ? { output } : {}),
@@ -7892,81 +7798,39 @@ export const accountRouter = router({
       );
       if (!policy) return null;
       check();
+      const resume = { type: 'album-references' as const, items: frozen.items };
       return services.exportManager.startResourceExport({
         kind: selected.every((item) => item.provider === 'qzone') ? 'qzone-albums' : 'group-albums',
+        resume,
+        transferTarget: [
+          ...new Set(
+            selected
+              .filter((item) => item.provider === 'qzone')
+              .map((item) => qzoneBatchTransferTarget(item.owner)),
+          ),
+        ],
         name: frozen.name,
+        display: {
+          action: selected.every((item) => item.provider === 'qzone')
+            ? '导出 QQ 空间相册'
+            : selected.every((item) => item.provider === 'group')
+              ? '导出群相册'
+              : '导出相册',
+          subject: `${selected.length} 个相册`,
+          context: [
+            ...new Set(
+              selected.map((item) => (item.provider === 'qzone' ? 'QQ 空间相册' : '群相册')),
+            ),
+          ].join('、'),
+          category:
+            selected.some((item) => item.provider === 'qzone') &&
+            selected.some((item) => item.provider === 'group')
+              ? '混合来源相册'
+              : undefined,
+        },
         savePolicy: policy,
         includeIntegrityReport: frozen.includeIntegrityReport,
-        run: async (context) => {
-          const failed: Array<{ fileName: string; error: string }> = [];
-          let total = 0,
-            ok = 0;
-          for (const album of selected) {
-            context.signal.throwIfAborted();
-            check();
-            const outputDir = join(
-              context.directory,
-              `${album.provider}-${album.owner}`,
-              sanitizePathSegment(album.albumId, 'album'),
-            );
-            try {
-              const progress = (current: number, size: number) =>
-                context.progress(ok + failed.length + current, total + size);
-              const result =
-                album.provider === 'group'
-                  ? await exportGroupAlbums(
-                      services,
-                      {
-                        groupCode: album.owner,
-                        outputDir,
-                        albums: [
-                          { id: album.albumId, title: album.title, mediaKeys: album.mediaKeys },
-                        ],
-                      },
-                      { signal: context.signal, progress },
-                    )
-                  : await exportSelectedQzoneAlbums(
-                      services,
-                      {
-                        hostUin: album.owner,
-                        outputDir,
-                        albums: [
-                          { id: album.albumId, title: album.title, mediaKeys: album.mediaKeys },
-                        ],
-                      },
-                      { signal: context.signal, check, progress },
-                    );
-              total += result.total;
-              ok += result.ok;
-              failed.push(
-                ...result.failed.map((item) => ({
-                  fileName: `${album.owner}/${album.albumId}/${item.fileName}`,
-                  error: item.error,
-                })),
-              );
-            } catch (error) {
-              context.signal.throwIfAborted();
-              check();
-              const keys = album.mediaKeys ?? [album.albumId];
-              total += keys.length;
-              failed.push(
-                ...keys.map((key) => ({
-                  fileName: `${album.owner}/${album.albumId}/${key}`,
-                  error: error instanceof Error ? error.message : '相册读取失败',
-                })),
-              );
-            }
-            context.progress(ok + failed.length, total);
-          }
-          context.signal.throwIfAborted();
-          check();
-          await deduplicateAlbumResources(context.directory, context.signal);
-          await writeFile(
-            join(context.directory, 'selected-items.json'),
-            JSON.stringify({ items: frozen.items, total, ok, failed }, null, 2),
-          );
-          return { total, ok, failed };
-        },
+        run: (context) => runResumableAlbumResource(services, resume, context, check),
       });
     }),
 
@@ -8002,20 +7866,27 @@ export const accountRouter = router({
         check,
       );
       if (!policy) return null;
+      const resume = {
+        type: 'qzone-albums' as const,
+        hostUin: selected.hostUin,
+        albums: selected.albums,
+      };
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
+        resume,
+        transferTarget: qzoneBatchTransferTarget(selected.hostUin),
         name: selected.name,
+        display: {
+          action: '导出 QQ 空间相册',
+          subject:
+            selected.albums.length === 1
+              ? selected.albums[0]!.title
+              : `${selected.albums.length} 个相册`,
+          context: selected.name,
+        },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: policy,
-        run: async (context) => {
-          const result = await exportSelectedQzoneAlbums(
-            services,
-            { ...selected, outputDir: context.directory },
-            { ...context, check },
-          );
-          check();
-          return result;
-        },
+        run: (context) => runResumableAlbumResource(services, resume, context, check),
       });
     }),
 
@@ -8048,8 +7919,15 @@ export const accountRouter = router({
       );
       requireFreshClientKeyForAlbum(services);
       const selected = structuredClone(input);
+      const resume = {
+        type: 'group-albums' as const,
+        groupCode: selected.groupCode,
+        albums: selected.albums,
+        concurrency: selected.concurrency,
+      };
       return services.exportManager.startResourceExport({
         kind: 'group-albums',
+        resume,
         archive: {
           extra: selected.extra,
           profile: selected.profile,
@@ -8061,22 +7939,26 @@ export const accountRouter = router({
           },
         },
         name: selected.name,
+        display: {
+          action: '导出群相册',
+          subject:
+            selected.albums.length === 1
+              ? selected.albums[0]!.title
+              : `${selected.albums.length} 个相册`,
+          context: selected.name,
+        },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
-        run: async (context) => {
-          if (
-            requireExpectedAccount(
-              selected.expectedAccountUin,
-              selected.expectedAccountConfigId,
-            ) !== services
-          )
-            throw new Error('账号或数据源已切换，请重新选择资源。');
-          return exportGroupAlbums(
-            services,
-            { ...selected, outputDir: context.directory },
-            context,
-          );
-        },
+        run: (context) =>
+          runResumableAlbumResource(services, resume, context, () => {
+            if (
+              requireExpectedAccount(
+                selected.expectedAccountUin,
+                selected.expectedAccountConfigId,
+              ) !== services
+            )
+              throw new Error('账号或数据源已切换，请重新选择资源。');
+          }),
       });
     }),
 
@@ -8217,8 +8099,16 @@ export const accountRouter = router({
       );
       requireQqOnlineForAlbum(services);
       const selected = structuredClone(input);
+      const resume = {
+        type: 'group-files' as const,
+        groupCode: selected.groupCode,
+        files: selected.files,
+        concurrency: selected.concurrency,
+      };
       return services.exportManager.startResourceExport({
         kind: 'group-files',
+        resume,
+        transferTarget: groupBatchTransferTarget(selected.groupCode),
         archive: {
           extra: selected.extra,
           profile: selected.profile,
@@ -8234,16 +8124,16 @@ export const accountRouter = router({
         name: selected.name,
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
-        run: async (context) => {
-          if (
-            requireExpectedAccount(
-              selected.expectedAccountUin,
-              selected.expectedAccountConfigId,
-            ) !== services
-          )
-            throw new Error('账号或数据源已切换，请重新选择资源。');
-          return exportGroupFiles(services, { ...selected, outputDir: context.directory }, context);
-        },
+        run: (context) =>
+          runResumableAlbumResource(services, resume, context, () => {
+            if (
+              requireExpectedAccount(
+                selected.expectedAccountUin,
+                selected.expectedAccountConfigId,
+              ) !== services
+            )
+              throw new Error('账号或数据源已切换，请重新选择资源。');
+          }),
       });
     }),
 
@@ -8542,7 +8432,30 @@ export const accountRouter = router({
           .object({
             messageIds: exactMessageIdsInput,
             forwardTarget: z
-              .object({ elementIndex: z.number().int().min(0), resId: z.string().max(4096) })
+              .object({
+                elementIndex: z.number().int().nonnegative(),
+                resId: z.string().max(4096),
+                path: z
+                  .array(
+                    z.object({
+                      elementIndex: z.number().int().nonnegative(),
+                      resId: z.string().max(4096),
+                      record: z.object({
+                        index: z.number().int().nonnegative(),
+                        msgId: z.string().max(64),
+                      }),
+                    }),
+                  )
+                  .max(16)
+                  .optional(),
+                records: z
+                  .array(
+                    z.object({ index: z.number().int().nonnegative(), msgId: z.string().max(64) }),
+                  )
+                  .min(1)
+                  .max(10000)
+                  .optional(),
+              })
               .optional(),
             sender: z.string().max(128).optional(),
             keyword: z.string().max(512).optional(),
@@ -8637,6 +8550,7 @@ export const accountRouter = router({
         savePolicy: exportSavePolicyInput.optional(),
         includeIntegrityReport: z.boolean().optional(),
         scope: z.enum(['friends', 'group', 'groups']),
+        groupName: z.string().max(512).optional(),
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
         groupIds: z
@@ -8677,6 +8591,7 @@ export const accountRouter = router({
       ).exportManager.startTask({
         contacts: {
           scope: input.scope,
+          groupName: input.scope === 'group' ? input.groupName : undefined,
           ...(input.categoryIds ? { categoryIds: input.categoryIds } : {}),
           ...(input.uids ? { uids: input.uids } : {}),
           ...(input.groupIds ? { groupIds: input.groupIds } : {}),
@@ -9362,6 +9277,14 @@ export const accountRouter = router({
         name: z.string(),
         token: z.string().default(''),
         msgId: z.string().default(''),
+        forward: z
+          .object({
+            carrierId: z.string(),
+            kind: z.enum(['c2c', 'group']),
+            conv: z.string(),
+            resId: z.string().max(4096).optional(),
+          })
+          .optional(),
         expectedAccountUin: z.string().optional(),
         expectedAccountConfigId: z.string().optional(),
       }),
@@ -9384,14 +9307,23 @@ export const accountRouter = router({
 
       // Locate the silk on disk; fall back to an rkey-backed CDN download (same
       // path the ptt media protocol uses).
-      const { source } = await services.fileSearch.findFile(input.t, input.name, 'ptt');
-      let silk = source;
-      if (!silk && input.token) {
-        silk = await services.mediaDownload.download(input.token, {
-          ext: '.silk',
-          rkeyTypes: [PRIVATE_PTT_RKEY_TYPE, GROUP_PTT_RKEY_TYPE],
-        });
-      }
+      const { resolveVoiceSilk } = await import('../../media_protocol');
+      const checkSource = () => {
+        if (ctx.services !== services) throw new Error('账号已切换，已停止语音转写。');
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      };
+      const silk = await resolveVoiceSilk(
+        services,
+        {
+          ...input,
+          msgId: input.forward?.carrierId ?? input.msgId,
+          conv: input.forward?.conv ?? '',
+          ...(input.forward
+            ? { fwdMsgId: input.msgId, fwdKind: input.forward.kind, fwdResId: input.forward.resId }
+            : {}),
+        },
+        checkSource,
+      );
       if (!silk) return { success: false, error: '未找到语音文件' };
 
       const { decodeSilkToWav16kBuffer } = await import('../../voice');
@@ -9409,9 +9341,9 @@ export const accountRouter = router({
       );
       if (!result.success) return { success: false, error: result.error ?? '识别失败' };
       const text = result.text ?? '';
-      if (input.msgId) {
-        if (ctx.services !== services)
-          return { success: false, error: '账号已切换，已停止保存转写' };
+      if (ctx.services !== services) return { success: false, error: '账号已切换，已停止保存转写' };
+      checkSource();
+      if (input.msgId && !input.forward) {
         // Best-effort: a failed back-write must not lose the text we just got.
         // Only the TEXT goes back to the DB — `pttTranscript` (45923) is the
         // field QQ itself reads, so it must stay a plain string. Emotion and
@@ -9467,6 +9399,7 @@ export const accountRouter = router({
           }
         }
 
+        await flushFileLogger();
         const result = collectDbDamageFeedback({
           uin,
           dbKey: session.context.dbKey,
@@ -9518,39 +9451,59 @@ export const accountRouter = router({
  * 这些数据不在 QQ 数据库里，只在 AgentLab 的 JSON 会话库里；不在这里投影出去，
  * 列表就只能显示画像更新时间、预览永远是空的。
  */
-function latestGeneratedActivity(
-  agentLab: import('@weq/service').AgentLabService,
-  kind: 'persona' | 'group',
-  ownerId: string,
-): { lastMessageTime: number; preview: string; previewMine: boolean } {
-  const sessions =
-    kind === 'persona'
-      ? agentLab.listPersonaSessions(ownerId)
-      : agentLab.listGroupSessions(ownerId);
-  const latest = sessions[0];
-  if (!latest) return { lastMessageTime: 0, preview: '', previewMine: false };
-  // 会话时间是毫秒（Date.now()），列表要的是秒；忘了除会让空会话跑到列表最前面。
-  const sessionTime = Math.round(latest.updatedAt / 1000);
-  const rows =
-    kind === 'persona'
-      ? agentLab.getPersonaSessionConversation(ownerId, latest.id)
-      : agentLab.getGroupSessionConversation(ownerId, latest.id);
-  const last = rows.at(-1);
-  // 还没有消息时（刚建的空会话）用会话的创建/更新时间，别落到 0。
-  if (!last) return { lastMessageTime: sessionTime, preview: '', previewMine: false };
-  const text =
-    ('text' in last ? last.text : ((last as { text?: string }).text ?? '')) ||
-    ('images' in last && Array.isArray(last.images) && last.images.length ? '[图片]' : '');
-  const mine = 'role' in last ? last.role === 'user' : last.senderKind === 'user';
+function directoryReadPositions(
+  state: ReturnType<typeof currentDraftState>,
+  kind: string,
+  latest: Record<string, string>,
+): Record<string, string> {
+  const reads = state.snapshot().records.reads ?? {};
+  // 首次启用只建立当前历史基线；以后新增的消息按独立阅读水位计数。
+  if (!reads[`initialized:${kind}`]) {
+    state.records('reads', { ...latest, [`initialized:${kind}`]: '1' }, true);
+    return state.snapshot().records.reads as Record<string, string>;
+  }
+  return reads as Record<string, string>;
+}
+
+async function directoryUnread(
+  reads: Record<string, string>,
+  key: string,
+  position: string,
+  countAfter: (after: string) => number | Promise<number>,
+) {
+  const after = reads[key] ?? '0';
+  const count = newerReadPosition(position, after) ? await countAfter(after) : 0;
   return {
-    lastMessageTime: Math.round(last.ts / 1000),
-    preview: text
-      .replace(/\[\[(sticker|voice):[^\]]+\]\]/g, (_, tag) =>
-        tag === 'voice' ? '[语音]' : '[表情]',
-      )
-      .slice(0, 80),
-    previewMine: mine,
+    directoryRead: { key, position },
+    unreadCount: Math.max(count, reads[directoryUnreadKey(key)] ? 1 : 0),
   };
 }
-import { CLONE_GENERATION, type CloneGenerationKey } from '@weq/agentlab';
+
+function generatedDirectoryReadState<T extends { ts: number }>(
+  state: ReturnType<typeof currentDraftState>,
+  kind: string,
+  histories: ReadonlyMap<string, T[]>,
+  isReply: (turn: T) => boolean,
+) {
+  const latest = Object.fromEntries(
+    [...histories].map(([id, turns]) => [
+      `${kind}:${id}`,
+      String(turns.reduce((max, turn) => (isReply(turn) ? Math.max(max, turn.ts) : max), 0)),
+    ]),
+  );
+  const reads = directoryReadPositions(state, kind, latest);
+  return (id: string) => {
+    const key = `${kind}:${id}`;
+    const after = Number(reads[key] ?? 0);
+    const count =
+      histories
+        .get(id)
+        ?.reduce((total, turn) => total + Number(isReply(turn) && turn.ts > after), 0) ?? 0;
+    return {
+      directoryRead: { key, position: latest[key]! },
+      unreadCount: Math.max(count, reads[directoryUnreadKey(key)] ? 1 : 0),
+    };
+  };
+}
+
 import { retainAiImage } from '../../ai_images';

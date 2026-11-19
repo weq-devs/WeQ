@@ -29,7 +29,7 @@ import {
   type EnhancementUpdateNotice,
 } from '../../shared/enhancement_release';
 import { createEnhancementCatalog, createRelease, releaseContentVersion } from './release_catalog';
-import { startEnhancementDownloads } from './tasks';
+import { enhancementTaskNeedsInput, startEnhancementDownloads } from './tasks';
 import type { EnhancementPacks } from './packs';
 
 export interface EnhancementCheckState {
@@ -293,6 +293,10 @@ export class EnhancementUpdateController {
       updatePolicy();
     };
     const unwatch = watchTransferPolicy(updatePolicy);
+    const stopWatching = () => {
+      this.continueCheck = undefined;
+      unwatch();
+    };
     try {
       updatePolicy();
       await gate.wait(this.abort.signal);
@@ -306,6 +310,8 @@ export class EnhancementUpdateController {
           ? this.fetchCatalog('weq-devs/dress-resources', 'enhancement-pack.json')
           : Promise.resolve(null),
       ]);
+      // 清单已取回，网络策略不再参与结果保存和通知。
+      stopWatching();
       const errors: string[] = [];
       for (const packId of ids) {
         const result = results[packId === 'dress' ? 1 : 0]!;
@@ -335,6 +341,7 @@ export class EnhancementUpdateController {
       await this.refreshNotifications();
       if (errors.length) throw new Error([...new Set(errors)].join('；'));
     } catch (error) {
+      stopWatching();
       for (const id of ids)
         if (this.state(id).phase === 'checking' || this.state(id).phase === 'waiting-network')
           this.states.set(id, {
@@ -344,8 +351,6 @@ export class EnhancementUpdateController {
           });
       if (!this.abort.signal.aborted) await this.save().catch(() => {});
       throw error;
-    } finally {
-      unwatch();
     }
   }
   private async fetchJson(url: string) {
@@ -408,6 +413,7 @@ export class EnhancementUpdateController {
           pack.installed &&
           pack.updateAvailable &&
           !pack.busy &&
+          !enhancementTaskNeedsInput(this.packs, pack.id) &&
           !pack.blocker &&
           pack.operation?.phase !== 'failed' &&
           this.state(pack.id).phase === 'checked',

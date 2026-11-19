@@ -50,10 +50,8 @@ function mount(
     onAnalyze,
     onRoaming,
     render,
-    open: () =>
-      act(() =>
-        host.querySelector<HTMLButtonElement>('.weq-conversation-message-actions')!.click(),
-      ),
+    open: (label = '工具') =>
+      act(() => host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click()),
     click: (label: string) =>
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
@@ -68,31 +66,29 @@ function mount(
   };
 }
 
-describe('会话消息管理菜单', () => {
+describe('会话消息与工具菜单', () => {
   const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
   const group = { ...base, id: '10001', group: { ...base.group, id: '10001' } };
 
-  it('按顺序提供分析、消息导出、名单导出和漫游，操作绑定当前群聊', () => {
+  it('工具操作绑定当前群聊，保留消息与成员名单的不同导出目标', () => {
     const f = mount(group);
     try {
-      expect(
-        f.host.querySelector('[aria-label="消息管理"] .lucide-message-square-text'),
-      ).not.toBeNull();
+      expect(f.host.querySelector('[aria-label="工具"] .lucide-wrench')).not.toBeNull();
       f.open();
       expect(
         [...f.host.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent),
-      ).toEqual(['分析', '导出', '导出名单', '拉取漫游消息']);
-      f.click('分析');
+      ).toEqual(['拉取漫游消息', '会话分析', '导出聊天记录', '导出群成员名单']);
+      f.click('会话分析');
       expect(f.onAnalyze).toHaveBeenCalledWith(group);
       expect(f.host.querySelector('[role="menu"]')).toBeNull();
       f.open();
-      f.click('导出');
+      f.click('导出聊天记录');
       expect(f.selection()).toEqual({
         owner: { kind: 'messages', container: 'group:10001' },
         scope: { type: 'all' },
       });
       f.open();
-      f.click('导出名单');
+      f.click('导出群成员名单');
       expect(f.selection()).toEqual({
         owner: { kind: 'contacts', container: 'group:10001' },
         scope: { type: 'all' },
@@ -116,8 +112,8 @@ describe('会话消息管理菜单', () => {
       f.open();
       expect(
         [...f.host.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent),
-      ).toEqual(['分析', '导出', '拉取漫游消息']);
-      f.click('导出');
+      ).toEqual(['拉取漫游消息', '会话分析', '导出聊天记录']);
+      f.click('导出聊天记录');
       expect(f.selection().owner).toEqual({ kind: 'messages', container: 'direct:u_friend' });
     } finally {
       f.close();
@@ -127,33 +123,54 @@ describe('会话消息管理菜单', () => {
   it('虚拟会话不暴露不支持的分析和导出入口', () => {
     const f = mount({ ...group, id: 'virtual:group' });
     try {
-      expect(f.host.querySelector('[aria-label="消息管理"]')).toBeNull();
+      expect(f.host.querySelector('[aria-label="工具"]')).toBeNull();
     } finally {
       f.close();
     }
   });
-  it('手机更多直接合并会话操作，执行后关闭且切换桌面布局不残留菜单', () => {
+  it('手机按一级功能展开，切换分组、执行和切换布局时不残留旧菜单', () => {
     const settings = vi.fn();
+    const recalled = vi.fn();
+    const important = vi.fn();
     const f = mount(group, {
       compact: true,
-      additionalActions: [{ label: '会话设置', icon: null, action: settings }],
+      onSearch: vi.fn(),
+      onSettings: settings,
+      onImportant: important,
+      onRecalled: recalled,
+      onDeleted: vi.fn(),
+      onAdd: vi.fn(),
+      onBug: vi.fn(),
+      bugOnline: true,
     });
     try {
       expect(f.host.querySelector('[aria-label="更多会话操作"] .lucide-ellipsis')).not.toBeNull();
-      f.open();
+      f.open('更多会话操作');
       expect(f.host.querySelector('[role="menu"]')?.classList.contains('is-header-dropdown')).toBe(
         true,
       );
       expect(
         [...f.host.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent),
-      ).toEqual(['分析', '导出', '导出名单', '拉取漫游消息', '会话设置']);
+      ).toEqual(['反馈 Bug', '搜索', '消息', '工具', '会话设置']);
+      f.click('消息');
+      expect(f.host.querySelector('[role="group"][aria-label="消息"]')).not.toBeNull();
+      f.click('已撤回消息');
+      expect(recalled).toHaveBeenCalledWith(group);
+      expect(f.host.querySelector('[role="menu"]')).toBeNull();
+      f.open('更多会话操作');
+      f.click('消息');
+      f.click('工具');
+      expect(f.host.querySelector('[role="group"][aria-label="消息"]')).toBeNull();
+      f.click('导出聊天记录');
+      expect(f.selection().owner).toEqual({ kind: 'messages', container: 'group:10001' });
+      f.open('更多会话操作');
       f.click('会话设置');
       expect(settings).toHaveBeenCalledOnce();
       expect(f.host.querySelector('[role="menu"]')).toBeNull();
-      f.open();
+      f.open('更多会话操作');
       f.render(group, { compact: false });
       expect(f.host.querySelector('[role="menu"]')).toBeNull();
-      expect(f.host.querySelector('[aria-label="消息管理"]')).not.toBeNull();
+      expect(f.host.querySelector('[aria-label="工具"]')).not.toBeNull();
     } finally {
       f.close();
     }

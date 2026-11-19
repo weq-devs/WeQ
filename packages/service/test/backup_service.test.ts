@@ -20,6 +20,7 @@ import {
 } from '../src/bootstrap/backup_restore';
 import { weqAccountSettingPath } from '../src/bootstrap/backup_accounts';
 import { DEFAULT_INTENT_SENSE_CONFIG } from '../src/account/intent_sense';
+import { DEFAULT_ASSISTANT_SEND_MODE } from '../src/account/assistant_config';
 import { snapshotWeqApiSettings } from '../src/bootstrap/backup_settings';
 
 const roots: string[] = [];
@@ -209,11 +210,23 @@ it('不同文件与已关闭预览的迟到确认不能使用别人的新源包'
   expect(f.service.inventory().restore.pending).toBeNull();
 });
 
-it('恢复默认暂存后经事务应用，保留 API、账号与本机锁密钥，界面偏好有单独回执', () => {
+it.each([false, true])('全局复位的助手外部 MCP 服从清除 API 选项=%s', (clearApi) => {
   const f = fixture();
+  f.config.setSettings({ agentLab: DEFAULT_APP_SETTINGS.agentLab, mcp: DEFAULT_APP_SETTINGS.mcp });
+  expect(f.service.defaultsInfo().hasApi).toBe(false);
+  const mcpServers = 'synthetic=https://example.invalid/synthetic-mcp-secret';
+  f.config.patchSharedPreference('assistant', {
+    customPrompt: '合成助手提示词',
+    mcpServers,
+    model: { providerId: 'synthetic', model: 'other' },
+    sendMode: 'queue',
+  });
+  f.config.setSettings({ aiImages: { assistant: 'ocr' } });
   const before = f.config.getSettings();
   const upload = f.service.beginUpload('abandoned.zip', 1);
-  const result = f.service.stageDefaults();
+  expect(f.service.defaultsInfo().hasApi).toBe(true);
+  expect(JSON.stringify(f.service.defaultsInfo())).not.toContain('synthetic-mcp-secret');
+  const result = f.service.stageDefaults(undefined, { clearApi });
   expect(() => f.service.finishUpload(upload)).toThrow('失效');
   expect(f.config.getSettings().renderTextMarkdown).toBe(false);
   expect(applyPendingWeqBackupRestore(f.root, f.cache)).toMatchObject({
@@ -223,6 +236,13 @@ it('恢复默认暂存后经事务应用，保留 API、账号与本机锁密钥
   const reopened = new UserConfigService(f.platform);
   expect(reopened.getSettings().renderTextMarkdown).toBe(DEFAULT_APP_SETTINGS.renderTextMarkdown);
   expect(reopened.getSettings().agentLab).toEqual(before.agentLab);
+  expect(reopened.getSharedPreference('assistant')).toMatchObject({
+    model: { useDefault: true },
+    customPrompt: '',
+    mcpServers: clearApi ? '' : mcpServers,
+    sendMode: DEFAULT_ASSISTANT_SEND_MODE,
+  });
+  expect(reopened.getSettings().aiImages.assistant).toBe(DEFAULT_APP_SETTINGS.aiImages.assistant);
   expect(reopened.getSettings().mcp).toEqual(before.mcp);
   expect(reopened.listAccountConfigs()[0]?.dbKey).toBe('synthetic-db-key');
   expect(reopened.getTotpSecret()).toBe('synthetic-totp-secret');
@@ -299,6 +319,18 @@ it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据�
       enabled: true,
       targets: [{ id: 'peer', kind: 'c2c' }],
     });
+    write(weqAccountSettingPath(f.root, f.cache, id, 'client-state.json'), {
+      records: {
+        notifications: {
+          mentionMe: { mode: 'selected', targets: [] },
+          mentionAll: { mode: 'selected', targets: ['group:20001'] },
+          replyMe: { mode: 'selected', targets: [] },
+          redPacket: { mode: 'all', targets: [] },
+          'mute:assistant:synthetic': true,
+        },
+        reads: { 'assistant:synthetic': '42' },
+      },
+    });
     write(weqAccountSettingPath(f.root, f.cache, id, 'intent.json'), {
       enabled: true,
       providerRef: { providerId: 'synthetic-provider', model: 'synthetic-model' },
@@ -344,6 +376,13 @@ it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据�
         readFileSync(weqAccountSettingPath(f.root, f.cache, account.configId, name), 'utf8'),
       );
     expect(read('anti-recall.json')).toEqual({});
+    expect(read('client-state.json').records).toMatchObject({
+      notifications: { 'mute:assistant:synthetic': true },
+      reads: { 'assistant:synthetic': '42' },
+    });
+    expect(read('client-state.json').records.notifications).toEqual({
+      'mute:assistant:synthetic': true,
+    });
     expect(read('intent.json')).toEqual(DEFAULT_INTENT_SENSE_CONFIG);
     expect(read('tolerance.json')).toEqual({});
     expect(read('dress.json')).toMatchObject({
@@ -358,6 +397,7 @@ it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据�
     clearApi ? DEFAULT_APP_SETTINGS.mcp.token : 'synthetic-local-token',
   );
   expect(reopened.getTotpSecret()).toBe('synthetic-totp-secret');
+  expect(reopened.read().performanceRecordingResetRevision).toBe(reopened.read().settingsRevision);
   expect(snapshotWeqApiSettings(reopened.getSettings())).toEqual(
     clearApi ? snapshotWeqApiSettings(DEFAULT_APP_SETTINGS) : beforeApi,
   );

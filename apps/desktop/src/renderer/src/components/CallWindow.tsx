@@ -613,7 +613,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
           应用已锁定
         </div>
       ) : null}
-      <HoverTooltip />
+      {!inline && <HoverTooltip />}
     </RenderDocumentContext.Provider>
   );
   return inline ? (

@@ -46,7 +46,11 @@ export class ProfileExtrasService {
     } = readers,
   ) {}
 
-  private async query<T>(key: string, fetch: (pid: number) => Promise<T>): Promise<T> {
+  private async query<T>(
+    key: string,
+    fetch: (pid: number) => Promise<T>,
+    priority = 0,
+  ): Promise<T> {
     const pid = this.resolvePid();
     const current = () => {
       if (this.resolvePid() !== pid) throw new Error('账号或 QQ 进程已切换，请重新读取资料');
@@ -60,7 +64,7 @@ export class ProfileExtrasService {
     let task = this.inflight.get(key) as Promise<T> | undefined;
     if (!task) {
       task = this.contactMetrics
-        ? this.contactMetrics.schedule(`profile-extras:${key}`, run)
+        ? this.contactMetrics.schedule(`profile-extras:${key}`, run, priority)
         : run();
       this.inflight.set(key, task);
       void task
@@ -74,10 +78,12 @@ export class ProfileExtrasService {
     return value;
   }
 
-  async energy(uin: string) {
+  async energy(uin: string, priority = 0) {
     try {
-      const result = await this.query(`energy:${uin}`, (pid) =>
-        this.read.getProfileEnergy(this.nt, pid, uin),
+      const result = await this.query(
+        `energy:${uin}`,
+        (pid) => this.read.getProfileEnergy(this.nt, pid, uin),
+        priority,
       );
       await this.contactMetrics?.project(`friend:${uin}`, { energy: result.score });
       return result;
@@ -113,10 +119,12 @@ export class ProfileExtrasService {
       targetUin: this.selfUin,
     }));
   }
-  async educationHistory(uin: string) {
+  async educationHistory(uin: string, priority = 0) {
     try {
-      const result = await this.query(`education:${uin}`, (pid) =>
-        this.read.getEducationHistory(this.nt, pid, uin),
+      const result = await this.query(
+        `education:${uin}`,
+        (pid) => this.read.getEducationHistory(this.nt, pid, uin),
+        priority,
       );
       const schools = [
         ...new Set(

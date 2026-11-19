@@ -387,18 +387,13 @@ describe('新增消息交互', () => {
       expect(create).not.toHaveBeenCalled();
       expect(button(fixture.host, '添加会话').getAttribute('aria-expanded')).toBe('true');
       const createItem = fixture.host.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
-      const createItems = [
-        ...fixture.host.querySelectorAll<HTMLButtonElement>(
-          '[aria-label="添加会话菜单"] [role="menuitem"]',
-        ),
-      ].map((item) => item.textContent?.trim());
-      expect(createItems).toEqual([
-        '新建好友克隆',
-        '新建克隆体群聊',
-        'QQ 号搜索',
-        '群号搜索',
-        '新建 WeQ 助手会话',
-      ]);
+      const createItems = () =>
+        [
+          ...fixture.host.querySelectorAll<HTMLButtonElement>(
+            '[aria-label="添加会话菜单"] [role="menuitem"]',
+          ),
+        ].map((item) => item.textContent?.trim());
+      expect(createItems()).toEqual(['新建好友克隆', '新建克隆体群聊']);
       expect(createItem.textContent).toContain('新建好友克隆');
       act(() => createItem.click());
       expect(create).toHaveBeenCalledOnce();
@@ -419,11 +414,18 @@ describe('新增消息交互', () => {
       act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
       expect(add.getAttribute('aria-expanded')).toBe('false');
       expect(create).toHaveBeenCalledOnce();
-      act(() => add.click());
+      act(() => button(fixture.host, '返回常规视图').click());
+      act(() => button(fixture.host, '添加会话').click());
+      expect(createItems()).toEqual([
+        '新建好友克隆',
+        '新建克隆体群聊',
+        'QQ 号搜索',
+        '群号搜索',
+        '新建 WeQ 助手会话',
+      ]);
       act(() => button(fixture.host, '新建 WeQ 助手会话').click());
       expect(createAssistant).toHaveBeenCalledOnce();
       expect(fixture.host.querySelector('[aria-label="添加会话菜单"]')).toBeNull();
-      act(() => button(fixture.host, '返回常规视图').click());
       act(() => button(fixture.host, '会话视图').click());
       expect(fixture.host.querySelector('select')).toBeNull();
       const option = [
@@ -697,13 +699,13 @@ describe('新增消息交互', () => {
             ),
         );
       openMenu();
-      act(() => button(fixture.host, '添加到素材库').click());
+      act(() => button(document, '添加到素材库').click());
       expect(composition).toHaveBeenCalledWith([message]);
       openMenu();
-      act(() => button(fixture.host, '转发').click());
+      act(() => button(document, '转发').click());
       expect(forward).toHaveBeenCalledWith([message], conversation);
       openMenu();
-      act(() => button(fixture.host, '多选').click());
+      act(() => button(document, '多选').click());
       const actions = [
         ...fixture.host.querySelectorAll<HTMLButtonElement>('.selection-bar-actions button'),
       ];

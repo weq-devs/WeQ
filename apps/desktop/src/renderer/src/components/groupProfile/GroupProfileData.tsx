@@ -2,6 +2,7 @@ import type { useGroupProfile } from '../../hooks/useGroupProfile';
 import { ContactInlineError, ContactRow, ContactSection } from '../contactProfile/ContactRow';
 import { GroupCardContent } from './GroupCardContent';
 import type { GroupMember } from '../../im-template/template/types';
+import { NumericText } from '../NumericText';
 
 export function GroupProfileData({
   data,
@@ -36,16 +37,21 @@ export function GroupProfileData({
           <ContactRow
             label="群等级"
             historyField="grade"
+            number
             value={
               typeof grade === 'number' && Number.isFinite(grade) && grade >= 0
                 ? String(grade)
                 : null
             }
           />
-          <ContactRow label="活跃度" value={activityValue} />
+          <ContactRow label="活跃度" value={activityValue} number />
           <ContactRow
             label="活跃成员"
-            value={profile?.activeMemberCount != null ? `${profile.activeMemberCount} 人` : null}
+            value={
+              profile?.activeMemberCount != null ? (
+                <NumericText>{`${profile.activeMemberCount} 人`}</NumericText>
+              ) : null
+            }
           />
           {data.extendedError ? (
             <ContactInlineError

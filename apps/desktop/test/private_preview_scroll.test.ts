@@ -95,7 +95,7 @@ it.each(['direct', 'group'])('%s 会话预览右键精确定位原消息，关�
   const conversation = demo.conversations.find((item) => item.type === kind)!;
   const message = {
     ...demo.messages[0]!,
-    id: 'preview-target',
+    id: '9007199254740999',
     msgId: '9007199254740999',
     msgSeq: '123',
   };
@@ -127,7 +127,7 @@ it.each(['direct', 'group'])('%s 会话预览右键精确定位原消息，关�
     const open = () =>
       act(() =>
         host
-          .querySelector('[data-message-id="preview-target"] .message-bubble')!
+          .querySelector(`[data-message-id="${message.id}"] .message-bubble`)!
           .dispatchEvent(
             new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 50 }),
           ),
@@ -136,7 +136,7 @@ it.each(['direct', 'group'])('%s 会话预览右键精确定位原消息，关�
     expect(document.querySelector('[role="menuitem"]')?.textContent).toBe('定位到原消息');
     await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
     expect(locate).toHaveBeenCalledOnce();
-    expect(locate).toHaveBeenCalledWith({ seq: '123', msgId: '9007199254740999' });
+    expect(locate).toHaveBeenCalledWith({ seq: '123', msgId: message.msgId });
     open();
     await act(async () =>
       document.activeElement?.dispatchEvent(

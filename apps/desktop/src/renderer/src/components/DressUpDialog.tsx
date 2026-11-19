@@ -40,6 +40,7 @@ import {
 import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
+import { FormRange } from './FormRange';
 import {
   dressBackgroundUrl,
   dressFontUrl,
@@ -982,8 +983,7 @@ export function DressUpDialog({
           {source !== 'none' ? (
             <label className="weq-dress-opacity">
               <span>清晰度</span>
-              <input
-                type="range"
+              <FormRange
                 min={0.05}
                 max={1}
                 step={0.05}

@@ -523,20 +523,17 @@ describe('群助手', () => {
         }
         const before = host.querySelector('output')!.textContent;
         const actions = open();
-        expect(actions.map((node) => node.textContent)).toEqual(['进入群助手', '置顶']);
-        act(() => actions[1]!.click());
+        expect(actions.map((node) => node.textContent)).toEqual(['置顶']);
+        act(() => actions[0]!.click());
         expect(pin).toHaveBeenLastCalledWith(entry, true);
         expect(host.querySelector('output')!.textContent).toBe(before);
         render(true);
         const pinnedActions = open();
-        expect(pinnedActions.map((node) => node.textContent)).toEqual(['进入群助手', '取消置顶']);
-        act(() => pinnedActions[1]!.click());
+        expect(pinnedActions.map((node) => node.textContent)).toEqual(['取消置顶']);
+        act(() => pinnedActions[0]!.click());
         expect(pin).toHaveBeenLastCalledWith(entry, false);
         expect(host.querySelector('output')!.textContent).toBe(before);
-        const navigationActions = open();
-        act(() => navigationActions[0]!.click());
-        expect(navigate).toHaveBeenCalledWith('groupAssistant', true);
-        expect(host.querySelector('output')!.textContent).toBe(before);
+        expect(navigate).not.toHaveBeenCalled();
         expect(readState).not.toHaveBeenCalled();
         expect(roaming).not.toHaveBeenCalled();
       } finally {

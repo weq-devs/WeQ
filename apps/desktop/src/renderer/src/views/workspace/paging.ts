@@ -20,8 +20,6 @@ export function prefetchTarget(conversation: Conversation): FirstPageTarget | un
   return undefined;
 }
 
-export const GROUP_MEMBER_PAGE_SIZE = 120;
-
 /**
  * 后台刷新只重读有界尾页；已加载但不在这次查询范围内的历史保留原位。
  */

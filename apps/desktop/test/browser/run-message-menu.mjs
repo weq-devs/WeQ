@@ -97,7 +97,11 @@ try {
       await forward.focus();
       await page.keyboard.press('Enter');
       assert(!(await page.evaluate(() => window.menuActions.includes('转发'))));
-      assert.equal(await forward.getAttribute('title'), 'QQ 在线能力暂不可用');
+      await page.mouse.move(0, 0);
+      await forward.hover();
+      const restriction = page.getByRole('tooltip');
+      await restriction.waitFor({ timeout: 3000 });
+      assert.equal(await restriction.textContent(), 'QQ 在线能力暂不可用');
       await page.keyboard.press('Escape');
     }
   }

@@ -1,7 +1,12 @@
-import type { Conversation, MergedKind } from '../im-template/template/types';
+import type {
+  Conversation,
+  ConversationPreferences,
+  MergedKind,
+} from '../im-template/template/types';
 import { conversationListSearchText } from './conversationListSearchText';
 import { conversationRoamingTarget } from './conversationActions';
 import { displayGroupName, displayUserName } from '../im-template/template/user';
+import { defaultConversationPreference } from '../im-template/template/preferences';
 
 export const CONVERSATION_VIEWS = [
   'regular',
@@ -28,8 +33,28 @@ export const CONVERSATION_VIEW_LABELS: Record<ConversationView, string> = {
   clone: '克隆会话',
   assistant: 'WeQ 助手会话',
 };
-export const aggregateView = (kind: MergedKind): ConversationView =>
-  kind === 'guildDirect' ? 'guild' : kind;
+export const aggregateView = (kind: MergedKind) => (kind === 'guildDirect' ? 'guild' : kind);
+
+export function aggregatePinPreferences(
+  rows: readonly Conversation[],
+  preferences: ConversationPreferences,
+  pins: Readonly<Record<string, unknown>>,
+): ConversationPreferences {
+  let result = preferences;
+  for (const row of rows) {
+    if (row.type !== 'merged') continue;
+    const pinned = pins[row.id];
+    if (typeof pinned !== 'boolean') continue;
+    if (result === preferences) result = { ...preferences };
+    result[row.id] = {
+      ...defaultConversationPreference,
+      ...row.preference,
+      ...preferences[row.id],
+      pinned,
+    };
+  }
+  return result;
+}
 
 export interface ConversationViewDirectory {
   regular: readonly Conversation[];
@@ -45,6 +70,10 @@ export interface ConversationViewDirectory {
 export interface AllConversationOptions {
   includeHidden: boolean;
   includeDeleted: boolean;
+}
+export interface ActiveDirectoryConversation {
+  id: string;
+  category?: 'official' | 'service' | 'guild' | 'clone' | 'assistant';
 }
 
 export function conversationViewForTarget(
@@ -65,6 +94,27 @@ export function conversationViewForTarget(
       ] as const
     ).find((kind) => directory?.[kind].some((row) => row.id === id)) ?? 'regular'
   );
+}
+
+function excludedAllConversationIds(
+  directory: ConversationViewDirectory,
+  options: AllConversationOptions,
+): Set<string> {
+  return new Set([
+    ...(!options.includeHidden ? directory.hidden.map((row) => row.id) : []),
+    ...(!options.includeDeleted ? directory.deleted.map((row) => row.id) : []),
+  ]);
+}
+
+export function activeConversationBelongsToView(
+  directory: ConversationViewDirectory,
+  view: ConversationView,
+  options: AllConversationOptions,
+  { id, category }: ActiveDirectoryConversation,
+): boolean {
+  if (view === 'all') return !excludedAllConversationIds(directory, options).has(id);
+  // 新打开的专类会话可能先显示，列表尚未刷新到对应行。
+  return category === view || directory[view].some((row) => row.id === id && row.type !== 'merged');
 }
 
 /** 搜索和日历共用同一平铺集合，聚合入口始终只是导航。 */
@@ -88,14 +138,11 @@ export function conversationViewRows(
           ...(options.includeDeleted ? directory.deleted : []),
         ]
       : directory[view];
-  const excluded = new Set([
-    ...(!options.includeHidden && view === 'all' ? directory.hidden.map((row) => row.id) : []),
-    ...(!options.includeDeleted && view === 'all' ? directory.deleted.map((row) => row.id) : []),
-  ]);
+  const excluded = view === 'all' ? excludedAllConversationIds(directory, options) : null;
   const needle = query.trim().toLocaleLowerCase();
   const unique = new Map<string, Conversation>();
   for (const row of rows) {
-    if (excluded.has(row.id)) continue;
+    if (excluded?.has(row.id)) continue;
     if (needle && !conversationListSearchText(row).includes(needle)) continue;
     unique.set(row.id, row);
   }
@@ -109,9 +156,9 @@ export function conversationViewActions(
 ): readonly ConversationBatchAction[] {
   if (view === 'regular' || view === 'groupAssistant') return QQ_ACTIONS;
   if (view === 'hidden' || view === 'deleted') return ['export', 'roaming', 'roster'];
-  if (view === 'clone' || view === 'assistant') return ['export', 'delete'];
+  if (view === 'clone' || view === 'assistant') return ['export', 'read', 'delete'];
   if (view === 'all') return [...QQ_ACTIONS, 'delete'];
-  return ['export'];
+  return ['export', 'read'];
 }
 export function isGeneratedConversation(row: Conversation): boolean {
   return Boolean(row.generated) || row.id.startsWith('virtual:') || row.id.startsWith('assistant:');
@@ -124,6 +171,7 @@ export function conversationSupportsAction(
   const generated = isGeneratedConversation(row);
   if (action === 'delete') return generated;
   if (action === 'export') return true;
+  if (action === 'read' && row.directoryRead) return !row.hidden && !row.deleted;
   if (generated) return false;
   const special =
     row.directoryKind === 'official' ||

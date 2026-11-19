@@ -90,7 +90,9 @@ export function ContentSelectionProvider({ children }: { children: ReactNode }) 
         selection: {
           owner: {
             ...next.owner,
-            ...(next.owner.forwardTarget ? { forwardTarget: { ...next.owner.forwardTarget } } : {}),
+            ...(next.owner.forwardTarget
+              ? { forwardTarget: structuredClone(next.owner.forwardTarget) }
+              : {}),
           },
           scope: copyContentScope(next.scope),
         },

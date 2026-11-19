@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AutoSave } from '../src/renderer/src/components/settings/AutoSave';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { useNumericSettingDraft } from '../src/renderer/src/components/settings/useNumericSettingDraft';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import { pageSnapshots } from '../src/renderer/src/lib/pageSnapshots';
@@ -22,6 +23,7 @@ afterEach(() => {
   cleanups.splice(0).forEach((close) => {
     close();
   });
+  useToast.setState({ toasts: [], leaving: [] });
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -120,6 +122,28 @@ it('真实草稿在自动保存后确认，前导零等值编辑不重复提交�
   await act(async () => vi.advanceTimersByTimeAsync(1000));
   expect(f.writes).toHaveLength(1);
   expect(pageSnapshots.hasDrafts('a')).toBe(false);
+  expect(useToast.getState().toasts).toHaveLength(0);
+});
+it('并行的慢保存合用一个横幅，最后一笔完成后收起', async () => {
+  let finishA!: () => void;
+  let finishB!: () => void;
+  const a = fixture(() => new Promise<void>((resolve) => (finishA = resolve)));
+  const b = fixture(() => new Promise<void>((resolve) => (finishB = resolve)));
+  b.render('b');
+  a.edit('2');
+  b.edit('4');
+  await act(async () => vi.advanceTimersByTimeAsync(600));
+  expect(a.writes).toEqual([['a', 2]]);
+  expect(b.writes).toEqual([['b', 4]]);
+  await act(async () => vi.advanceTimersByTimeAsync(299));
+  expect(useToast.getState().toasts).toHaveLength(0);
+  await act(async () => vi.advanceTimersByTimeAsync(1));
+  expect(useToast.getState().toasts).toHaveLength(1);
+  const id = useToast.getState().toasts[0]!.id;
+  await act(async () => finishA());
+  expect(useToast.getState().leaving).not.toContain(id);
+  await act(async () => finishB());
+  expect(useToast.getState().leaving).toContain(id);
 });
 it('输入法组合期间与回车确认候选时不写入，组合结束后才保存', async () => {
   const f = fixture();

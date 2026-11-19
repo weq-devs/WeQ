@@ -17,13 +17,23 @@ import { existsSync } from 'node:fs';
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { basename, join } from 'node:path';
-import type { AgentLabPersona, AgentLabStoredPair, TtsProviderConfig } from '@weq/agentlab';
+import type {
+  AgentLabPersona,
+  AgentLabStoredPair,
+  ModelRequestProperties,
+  TtsProviderConfig,
+} from '@weq/agentlab';
 
 export interface BotExportLlmProvider {
   id: string;
   baseUrl: string;
   apiKey: string;
   timeoutMs?: number;
+  modelProperties?: Array<{
+    id: string;
+    requestProperties?: ModelRequestProperties;
+    reasoningEfforts?: string[];
+  }>;
 }
 
 export interface BotExportInput {

@@ -14,7 +14,10 @@ vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({ bootstrap: null, clearAccount: f.closing }),
   blockRuntimeForBackupRecovery: f.blocked,
 }));
-vi.mock('../src/main/context/backup_context', () => ({ applyLiveBackupContext: f.apply }));
+vi.mock('../src/main/context/backup_context', () => ({
+  getBackupContext: () => ({ ok: false }),
+  applyLiveBackupContext: f.apply,
+}));
 vi.mock('../src/main/ipc/routers/db_repair', () => ({ isDbRepairBusy: () => f.repairBusy }));
 vi.mock('../src/main/ipc/routers/intent_sense', () => ({ isIntentModelDownloading: () => false }));
 vi.mock('../src/main/weq_assistant/server', () => ({ assistantResourceServer: { stop: f.stop } }));

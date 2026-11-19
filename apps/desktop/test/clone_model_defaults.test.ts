@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { NewCloneModal } from '../src/renderer/src/views/agentlab/NewCloneModal';
 import { DEFAULT_MODEL_SELECTION_KEY } from '@weq/agentlab/model-selection';
+import { chooseFormOption, formOptions } from './support/form-controls';
 
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }: { children: ReactNode }) => children,
@@ -76,9 +77,8 @@ it.each([false, true])('新建克隆预选默认聊天模型，不受模型列�
     )!;
   const choose = (label: string) =>
     act(() => {
-      const select = host.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)!;
-      select.value = DEFAULT_MODEL_SELECTION_KEY;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      const select = host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+      chooseFormOption(select, DEFAULT_MODEL_SELECTION_KEY);
     });
   try {
     act(() =>
@@ -106,16 +106,19 @@ it.each([false, true])('新建克隆预选默认聊天模型，不受模型列�
       ),
     );
     act(() => button('下一步').click());
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="克隆聊天模型"]')!.value).toBe(
-      DEFAULT_MODEL_SELECTION_KEY,
-    );
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="克隆向量模型"]')!.value).toBe('');
+    expect(
+      host.querySelector<HTMLButtonElement>('[aria-label="克隆聊天模型"]')!.dataset.value,
+    ).toBe(DEFAULT_MODEL_SELECTION_KEY);
+    expect(
+      host.querySelector<HTMLButtonElement>('[aria-label="克隆向量模型"]')!.dataset.value,
+    ).toBe('');
     expect(host.querySelector('[aria-label="克隆视觉模型"]')).toBeNull();
     expect(button('开始克隆').disabled).toBe(false);
     act(() => button('开始克隆').click());
     expect(start.mock.calls[0]![0].params.models).toEqual({ chat: { useDefault: true } });
     expect(
-      host.querySelector<HTMLSelectElement>('[aria-label="克隆向量模型"]')!.options[1]!.textContent,
+      formOptions(host.querySelector<HTMLButtonElement>('[aria-label="克隆向量模型"]')!)[1]!
+        .textContent,
     ).toBe('默认（当前：embedding）');
     choose('克隆向量模型');
     expect(host.querySelector('[aria-label="克隆视觉模型"]')).toBeNull();

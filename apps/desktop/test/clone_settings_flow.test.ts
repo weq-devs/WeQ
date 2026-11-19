@@ -2,8 +2,7 @@ import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { PersonaSettingsModal } from '../src/renderer/src/views/agentlab/PersonaSettingsModal';
-import { CloneGenerationPanel } from '../src/renderer/src/components/settings/CloneGenerationPanel';
-import { CLONE_GENERATION_KEYS, CLONE_GENERATION } from '@weq/agentlab/generation';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const f = vi.hoisted(() => ({
   update: vi.fn(async (_input: unknown): Promise<unknown> => ({ id: 'p' })),
@@ -63,6 +62,7 @@ beforeEach(() => {
   f.update.mockResolvedValue({ id: 'p' });
 });
 afterEach(() => {
+  useToast.setState({ toasts: [], leaving: [] });
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -72,6 +72,7 @@ const persona = {
   name: '合成克隆',
   customPrompt: '原提示',
   models: { chat: { providerId: 'fixture', model: 'chat' } },
+  generation: { useTrainingSamples: false, historyMessages: 13, temperature: 0.4 },
   voiceProfile: { ratio: 0.1 },
 };
 function fixture() {
@@ -90,7 +91,6 @@ function fixture() {
         onSaved: saved,
         onDelete: remove,
         profileContent: h('div', null, '合成画像与样本'),
-        replyContent: h(CloneGenerationPanel, { persona, onSaved: saved }),
       }),
     ),
   );
@@ -128,16 +128,12 @@ it('分类保留草稿，跨页补交配置，语音切换自动保存而不显�
     expect(t.pane().textContent).toContain('所有私聊和群聊');
     expect(t.pane().querySelector('.weq-cvs-nav')?.textContent).not.toContain('训练参数');
     expect(t.button('删除克隆体')).toBeUndefined();
+    expect(t.button('模型设置').getAttribute('aria-current')).toBe('true');
+    act(() => t.pane().querySelector<HTMLButtonElement>('[aria-label="检索训练样本"]')!.click());
+    act(() => t.pane().querySelector<HTMLButtonElement>('[aria-label="引用长期记忆"]')!.click());
+    act(() => t.button('人格与画像').click());
     t.change(t.pane().querySelector('textarea')!, '新提示');
     act(() => t.button('回复设置').click());
-    expect(t.pane().querySelector('.weq-clone-generation details')).toBeNull();
-    expect(t.pane().querySelector('.weq-clone-generation')?.textContent).toContain('上下文与参考');
-    expect(t.pane().querySelector('.weq-clone-generation')?.textContent).toContain('生成参数');
-    const key = CLONE_GENERATION_KEYS[0]!;
-    const input = t
-      .pane()
-      .querySelector<HTMLInputElement>(`[aria-label="${CLONE_GENERATION[key].label}"]`)!;
-    t.change(input, String(CLONE_GENERATION[key].default + 1));
     const willing = t.pane().querySelector<HTMLInputElement>('input[type="range"]')!;
     t.change(willing, '75');
     act(() => t.button('语音').click());
@@ -148,16 +144,18 @@ it('分类保留草稿，跨页补交配置，语音切换自动保存而不显�
     await act(async () => vi.advanceTimersByTimeAsync(500));
     act(() => t.button('人格与画像').click());
     expect(t.pane().querySelector('textarea')!.value).toBe('新提示');
-    expect(Object.assign({}, ...f.update.mock.calls.map(([patch]) => patch))).toEqual(
+    const saved = Object.assign({}, ...f.update.mock.calls.map(([patch]) => patch));
+    expect(saved).toEqual(
       expect.objectContaining({
         personaId: 'p',
         customPrompt: '新提示',
         voiceCloneEnabled: true,
         voice: { providerId: 'tts', mode: 'preset', voice: undefined },
-        generation: expect.objectContaining({ [key]: CLONE_GENERATION[key].default + 1 }),
+        generation: { useTrainingSamples: true, useLongTermMemory: false },
         willing: expect.objectContaining({ level: 75 }),
       }),
     );
+    expect(saved).not.toHaveProperty('chatModel');
     expect(t.saved).toHaveBeenCalled();
     expect(t.button('保存更改')).toBeUndefined();
     await act(async () => t.pane().querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
@@ -168,19 +166,9 @@ it('分类保留草稿，跨页补交配置，语音切换自动保存而不显�
   }
 });
 
-it('无效参数阻止关闭；失败保留跨页草稿，重试成功后只发送修改过的配置', async () => {
+it('失败保留跨页草稿，重试成功后只发送修改过的配置', async () => {
   const t = fixture();
   try {
-    act(() => t.button('回复设置').click());
-    const key = CLONE_GENERATION_KEYS[0]!;
-    const input = t
-      .pane()
-      .querySelector<HTMLInputElement>(`[aria-label="${CLONE_GENERATION[key].label}"]`)!;
-    t.change(input, '');
-    await act(async () => t.pane().querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
-    expect(t.close).not.toHaveBeenCalled();
-    expect(f.update).not.toHaveBeenCalled();
-    t.change(input, String(CLONE_GENERATION[key].default));
     act(() => t.button('人格与画像').click());
     t.change(t.pane().querySelector('textarea')!, '重试提示');
     f.update.mockRejectedValueOnce(new Error('合成失败'));
@@ -191,7 +179,9 @@ it('无效参数阻止关闭；失败保留跨页草稿，重试成功后只发�
     expect(t.pane().querySelector('textarea')!.value).toBe('重试提示');
     await act(async () => t.button('重试保存').click());
     expect(f.update).toHaveBeenLastCalledWith({ personaId: 'p', customPrompt: '重试提示' });
-    expect(t.pane().textContent).toContain('已保存');
+    expect(t.button('重试保存')).toBeUndefined();
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    expect(useToast.getState().toasts).toHaveLength(0);
     act(() => t.button('克隆体管理').click());
     await act(async () => t.button('删除克隆体').click());
     expect(t.remove).toHaveBeenCalledOnce();
@@ -203,6 +193,7 @@ it('无效参数阻止关闭；失败保留跨页草稿，重试成功后只发�
 it('保存期间允许继续编辑，关闭等候回执；对象不存在时不误报成功或清掉草稿', async () => {
   const t = fixture();
   try {
+    act(() => t.button('人格与画像').click());
     t.change(t.pane().querySelector('textarea')!, '在途修改');
     let finish: (value: unknown) => void = () => {};
     f.update.mockImplementationOnce(
@@ -212,12 +203,17 @@ it('保存期间允许继续编辑，关闭等候回执；对象不存在时不�
         }),
     );
     await act(async () => t.pane().querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
-    expect(t.pane().textContent).toContain('保存中');
+    expect(t.pane().textContent).not.toContain('保存中');
+    expect(useToast.getState().toasts).toHaveLength(0);
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    const [banner] = useToast.getState().toasts;
+    expect(banner).toMatchObject({ loading: true, event: 'progress' });
     expect(t.pane().querySelector('fieldset')!.disabled).toBe(false);
     t.change(t.pane().querySelector('textarea')!, '在途的新修改');
     expect(t.close).not.toHaveBeenCalled();
     expect(f.confirm).not.toHaveBeenCalled();
     await act(async () => finish(null));
+    expect(useToast.getState().leaving).toContain(banner!.id);
     expect(t.saved).not.toHaveBeenCalled();
     expect(f.success).not.toHaveBeenCalled();
     expect(t.pane().textContent).toContain('克隆体已不存在');

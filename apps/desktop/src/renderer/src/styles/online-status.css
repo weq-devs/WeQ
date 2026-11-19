@@ -34,11 +34,20 @@
 }
 
 :is(.weq-title-online-status, .weq-mobile-online-status),
-:is(.weq-title-online-status, .weq-mobile-online-status) > .weq-online-status {
+:is(.weq-title-online-status, .weq-mobile-online-status) > .weq-online-status,
+.chat-status-desktop .weq-online-status {
   display: inline-flex;
   align-items: center;
   overflow: hidden;
   white-space: nowrap;
+}
+
+.chat-status-desktop .weq-online-status {
+  line-height: 1.25;
+}
+
+.chat-status-desktop > .weq-self-online-status {
+  min-width: 0;
 }
 
 .weq-online-status-base,
@@ -46,7 +55,8 @@
   flex: none;
 }
 
-:is(.weq-title-online-status, .weq-mobile-online-status) .weq-online-status-text {
+:is(.weq-title-online-status, .weq-mobile-online-status, .chat-status-desktop)
+  .weq-online-status-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -26,10 +26,11 @@ import '../../styles/group-profile.css';
 import { DraftCloseContext, useDraftClose } from '../../lib/draftClose';
 import { useSurfaceEscape } from '../../lib/surfaceEscape';
 import { TabActivity } from '../RetainedTabs';
+import type { OverlayAnchor } from '../../lib/overlayAnchor.shared';
 
 export interface GroupProfileSurfaceProps {
   conversation: GroupConversation | undefined;
-  anchor?: HTMLElement | null;
+  anchor?: HTMLElement | OverlayAnchor | null;
   onClose: () => void;
   detailsKnown?: boolean;
   memberCountKnown?: boolean;

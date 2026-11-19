@@ -14,21 +14,19 @@ import {
   dressFontFrameUrl,
 } from './resourceUrl';
 import {
+  BUBBLE_CONTENT,
+  BUBBLE_FRAME_Z_INDEX,
+  FONT_FX_LAYER_CLASS,
   bubbleContentAlignmentCss,
+  bubbleFrameAnimationCss,
   bubbleLinkMentionRules,
   bubbleRestrictsTextColor,
   fontFxRules,
   toFontFxSkin,
   fxClipMaskCss,
+  bubbleMetrics,
+  fontTextRules,
 } from './dressSkin';
-
-const BUBBLE_SCALE = 0.5;
-/** 内边距 ÷ 切片，纵横共用（与 lib/dressSkin.ts 的 PAD_RATIO 同源，理由见那里）。 */
-const PAD_RATIO = 0.6;
-
-function px(v: number): string {
-  return `${Math.round(v * 100) / 100}px`;
-}
 
 /**
  * 展开成完整选择器列表。CSS 的 `a, b c` 只给最后一项加后缀，所以 `LINE_ATTR` 的两份
@@ -39,12 +37,9 @@ function px(v: number): string {
  * `position:absolute; inset:0` 而拉满整个消息列表，见 git blame 2066029 修复）。
  */
 function lineContentSel(attr: 'bubble' | 'font', id: number, suffix = ''): string {
-  const content =
-    '.message-content' +
-    ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)';
   return (
-    `.message-line[data-${attr}="${id}"] ${content}${suffix}, ` +
-    `.weq-forward-row[data-${attr}="${id}"] ${content}${suffix}`
+    `.message-line[data-${attr}="${id}"] ${BUBBLE_CONTENT}${suffix}, ` +
+    `.weq-forward-row[data-${attr}="${id}"] ${BUBBLE_CONTENT}${suffix}`
   );
 }
 
@@ -64,12 +59,9 @@ function bubbleSel(bubbleId: number): string {
  * 否则只加到逗号列表最后一项（见 {@link lineContentSel} 的同款说明）。
  */
 function theirsBubbleSel(bubbleId: number, suffix = ''): string {
-  const content =
-    '.message-content' +
-    ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)';
   return (
-    `.message-line.theirs[data-bubble="${bubbleId}"] ${content}${suffix}, ` +
-    `.weq-forward-row[data-bubble="${bubbleId}"] ${content}${suffix}`
+    `.message-line.theirs[data-bubble="${bubbleId}"] ${BUBBLE_CONTENT}${suffix}, ` +
+    `.weq-forward-row[data-bubble="${bubbleId}"] ${BUBBLE_CONTENT}${suffix}`
   );
 }
 
@@ -80,9 +72,7 @@ function fontSel(fontId: number): string {
 /**
  * 逐条消息字体的**我方 / 对方行**选择器（行级，不带 `.message-content`）。
  *
- * 炫彩帧（`eimg`）要按行分侧挂到不同的伪元素上：我方行用 `::before`（`::after` 留给
- * 气泡自己的动效叠加层），对方行 / 转发行用 `::after`（`::before` 被镜像底图占着）。
- * 详见 lib/dressSkin 的 fontFxRules。
+ * 对方行的字体绘制层需要镜像匹配气泡的裁形；两种方向使用同一个独立绘制层。
  */
 function fontMineLineSel(fontId: number): string {
   return `.message-line[data-font="${fontId}"]:not(.theirs)`;
@@ -92,65 +82,6 @@ function fontTheirsLineSel(fontId: number): string {
   return (
     `.message-line[data-font="${fontId}"].theirs, ` + `.weq-forward-row[data-font="${fontId}"]`
   );
-}
-
-/**
- * 炫彩帧裁形的行级选择器 —— 只要「这一行真的挂了帧」（`[data-fontfx]`）。
- *
- * 与 {@link fontMineLineSel} / {@link fontTheirsLineSel} 同构，只是触发条件换成属性：
- * 帧可能来自逐条消息字体（40801），也可能来自生效字体，两者都会在行上留下
- * `data-fontfx`（见 hooks/useBubbleFontFx）。
- */
-function fxClipMineSel(bubbleId: number): string {
-  return `.message-line[data-bubble="${bubbleId}"][data-fontfx]:not(.theirs)`;
-}
-
-function fxClipTheirsSel(bubbleId: number): string {
-  return (
-    `.message-line.theirs[data-bubble="${bubbleId}"][data-fontfx], ` +
-    `.weq-forward-row[data-bubble="${bubbleId}"][data-fontfx]`
-  );
-}
-
-/** 行级选择器 + 行内部的 `.message-content` + 伪元素（逗号列表逐项展开）。 */
-function fxClipTarget(lineSel: string, pseudo: '::before' | '::after'): string {
-  const content =
-    '.message-content' +
-    ':not(.sticker-only):not(.markdown-image-only):not(.qq-card-only):not(.qq-voice-only)';
-  return lineSel
-    .split(',')
-    .map((s) => `${s.trim()} ${content}${pseudo}`)
-    .join(',\n');
-}
-
-/**
- * Build the `@keyframes` block + `animation` shorthand for a bubbleframe
- * sequence (each frame its own nine-patch PNG — see BubbleSkin.animationFrameCount).
- *
- * `steps(1)` on the shorthand makes each keyframe's `border-image-source` hold
- * for its whole segment instead of the default discrete-property "flip at the
- * midpoint" behavior — otherwise every frame would only show for half its
- * intended duration, offset from the next.
- *
- * The keyframes drive the **animation overlay layer** (`::after`), never the
- * static bubble base — see {@link layerRule}.
- */
-function frameAnimationCss(
-  itemId: number,
-  frameCount: number,
-  frameTimeMs: number,
-  repeat: number,
-): { keyframes: string; animation: string } {
-  const name = `weq-bubbleframe-${itemId}`;
-  const step = 100 / frameCount;
-  const stops = Array.from({ length: frameCount }, (_, i) => {
-    const pct = Math.round(Math.min(i * step, 100) * 100) / 100;
-    return `  ${pct}% { border-image-source: url("${dressBubbleFrameUrl(itemId, i + 1)}"); }`;
-  });
-  const keyframes = [`@keyframes ${name} {`, ...stops, `}`].join('\n');
-  const duration = frameCount * frameTimeMs;
-  const iterations = repeat > 0 ? repeat : 'infinite';
-  return { keyframes, animation: `${name} ${duration}ms steps(1) ${iterations}` };
 }
 
 /**
@@ -165,9 +96,8 @@ function frameAnimationCss(
  * leaves the bubble body completely transparent, which is why the base layer is
  * always the plain `aio_user_bg_nor.9.png`.
  *
- * `z-index` stays negative: the bubble element opens a stacking context
- * (`isolation: isolate`), so negative layers paint above the element's own
- * background/border but below its text — exactly the slot between base and text.
+ * `isolation: isolate` keeps the animated foreground above its own text,
+ * without overlapping other messages or toolbars.
  */
 function layerRule(
   sel: string,
@@ -203,25 +133,12 @@ function layerRule(
  */
 export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
   return acquireDecorationStyle(`bubble:${skin.itemId}${staticOnly ? ':base' : ''}`, (resource) => {
-    const { left, top, right, bottom } = skin.slice;
-    const wTop = top * BUBBLE_SCALE;
-    const wRight = right * BUBBLE_SCALE;
-    const wBottom = bottom * BUBBLE_SCALE;
-    const wLeft = left * BUBBLE_SCALE;
-    const slice = `${top} ${right} ${bottom} ${left} fill`;
-    const width = `${px(wTop)} ${px(wRight)} ${px(wBottom)} ${px(wLeft)}`;
+    const { slice, width, topPad, rightPad, bottomPad, minWidth, minHeight } = bubbleMetrics(skin);
     const sel = bubbleSel(skin.itemId);
     const theirsSel = theirsBubbleSel(skin.itemId);
     // `sel` 是逗号选择器列表,`::after` 不能直接往上拼 —— 那样只会加到最后一项目上,
     // 前面那项会命中真实元素(见 lineContentSel 的历史坑)。用带 suffix 的版本展开。
     const overlaySel = lineContentSel('bubble', skin.itemId, '::after');
-
-    // 纵向 padding:基础按 0.6 比例,不对称时用差值补偿。
-    const avgSlice = (top + bottom) / 2;
-    const topDiff = avgSlice - top;
-    const bottomDiff = avgSlice - bottom;
-    const topPad = wTop * PAD_RATIO + topDiff * BUBBLE_SCALE * 0.6;
-    const bottomPad = wBottom * PAD_RATIO + bottomDiff * BUBBLE_SCALE * 0.6;
 
     // 动效叠加层:帧图中间镂空,只能叠在静态底图之上(见 layerRule 的说明)。
     const frameCount = skin.animationFrameCount ?? 0;
@@ -229,7 +146,7 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
     const hasFrameAnim = validDecorationFrames(frameCount) && frameTimeMs;
     const frameAnim =
       !staticOnly && hasFrameAnim
-        ? frameAnimationCss(skin.itemId, frameCount, frameTimeMs, skin.animationRepeat ?? 0)
+        ? bubbleFrameAnimationCss(skin.itemId, frameCount, frameTimeMs, skin.animationRepeat ?? 0)
         : null;
 
     // local-only:气泡永远是本地九宫格(zip 链下载),没有 CDN 直链分支。
@@ -251,35 +168,21 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
       `  border-image-width: ${width};`,
       `  border-image-repeat: stretch;`,
       `  border-radius: 0;`,
-      `  padding: ${px(topPad)} ${px(Math.max(wLeft, wRight) * PAD_RATIO)} ${px(bottomPad)};`,
-      `  min-width: ${px((left + right) * BUBBLE_SCALE)};`,
-      `  min-height: ${px((top + bottom) * BUBBLE_SCALE)};`,
+      `  padding: ${topPad} ${rightPad} ${bottomPad};`,
+      `  min-width: ${minWidth};`,
+      `  min-height: ${minHeight};`,
       `}`,
       bubbleContentAlignmentCss(sel),
     ];
 
-    // 炫彩帧的裁形：帧画在伪元素上（我方 `::before`、对方 `::after`），这里把同一张
-    // 九宫格当遮罩贴上去，把帧超出气泡形状的部分裁掉 —— 与 lib/dressSkin 的
-    // fxClipMaskCss 同构（slice/width 与底图完全一致，遮罩形状因此与气泡一模一样）。
-    // 选择器带 `[data-fontfx]`，所以没挂帧的消息一个字节也不多注入。
+    // 遮罩只作用于独立的字体绘制层，不裁掉气泡前景装饰。
     rules.push(
-      fxClipMaskCss(fxClipTarget(fxClipMineSel(skin.itemId), '::before'), {
+      fxClipMaskCss(lineContentSel('bubble', skin.itemId, ` > .${FONT_FX_LAYER_CLASS}`), {
         imageUrl,
         slice,
         width,
       }),
     );
-    // 对方的帧与气泡动效叠加层共用 `::after`；叠加层是气泡外面的装饰，遮罩会连它
-    // 一起裁掉（`data-fontfx` 一直挂在行上，裁掉就是永久的），所以有动效时跳过。
-    if (!hasFrameAnim) {
-      rules.push(
-        fxClipMaskCss(fxClipTarget(fxClipTheirsSel(skin.itemId), '::after'), {
-          imageUrl,
-          slice,
-          width,
-        }),
-      );
-    }
 
     // 我方/非镜像侧的动效叠加层(先于镜像规则注入,对方的同名选择器靠后覆盖)。
     // 这里先不挂 animation —— 等所有帧图片预加载完再开播,避免第一圈逐帧闪烁。
@@ -287,14 +190,14 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
       rules.push(
         layerRule(overlaySel, slice, width, {
           imageUrl: dressBubbleFrameUrl(skin.itemId, 1),
-          zIndex: -1,
+          zIndex: BUBBLE_FRAME_Z_INDEX,
         }),
       );
     }
 
     // 对方消息镜像：不能对整个 .message-content 做 scaleX(-1)（文字会跟着镜像），
     // 所以两层贴图都挪到伪元素上翻转，文字留在元素自身不动：底图 ::before
-    // (z-index -2)、动效层 ::after(z-index -1)。与 dressSkin.ts bubbleRules()
+    // (z-index -2)、前景动效 ::after。与 dressSkin.ts bubbleRules()
     // 里 scope=all 的那组镜像规则同构。
     rules.push(
       `${theirsSel} {`,
@@ -311,7 +214,7 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
       rules.push(
         layerRule(theirsBubbleSel(skin.itemId, '::after'), slice, width, {
           imageUrl: dressBubbleFrameUrl(skin.itemId, 1),
-          zIndex: -1,
+          zIndex: BUBBLE_FRAME_Z_INDEX,
           mirror: true,
         }),
       );
@@ -327,8 +230,8 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
     );
 
     // 文字色受限的气泡：链接 / @提及不再标蓝（会和气泡文字色冲突），改为继承气泡色 + 下划线。
-    if (bubbleRestrictsTextColor(skin.textColor)) {
-      rules.push(bubbleLinkMentionRules(sel));
+    if (bubbleRestrictsTextColor(skin.textColor) || skin.linkColor) {
+      rules.push(bubbleLinkMentionRules(sel, skin.linkColor));
     }
 
     resource.append(rules.join('\n'));
@@ -375,9 +278,7 @@ export function injectFontCss(fontId: number, font: FontDerived | null, staticOn
 
     const fxSkin = toFontFxSkin(font);
     const rules = [
-      `${fontSel(fontId)} {` +
-        `  font-family: "${family}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;` +
-        `}`,
+      fontTextRules(fontSel(fontId), family),
       // 炫彩：规则一直都在，挂不挂属性由渲染侧量完气泡尺寸决定。
     ];
     resource.append(rules.filter(Boolean).join('\n'));

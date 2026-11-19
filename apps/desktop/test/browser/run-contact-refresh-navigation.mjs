@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -59,13 +60,13 @@ try {
             () => window.contactOrderQa.tasks.getState().taskOpenRequest,
           );
           const friends = page.locator('[data-kind="friends"]');
-          await friends.getByLabel('排序依据').selectOption('age');
-          await friends.getByLabel('排序依据').selectOption('level');
-          await friends.getByLabel('分组依据').selectOption('direction');
-          await page
-            .locator('[data-kind="groups"]')
-            .getByLabel('排序依据')
-            .selectOption('friendCount');
+          await chooseFormOption(friends.getByLabel('排序依据'), 'age');
+          await chooseFormOption(friends.getByLabel('排序依据'), 'level');
+          await chooseFormOption(friends.getByLabel('分组依据'), 'direction');
+          await chooseFormOption(
+            page.locator('[data-kind="groups"]').getByLabel('排序依据'),
+            'friendCount',
+          );
           assert.equal(await page.getByRole('dialog').count(), 0);
           assert.equal(
             await page.evaluate(() => window.contactOrderQa.tasks.getState().taskOpenRequest),

@@ -32,7 +32,7 @@ import { createModelComponent } from './model_component';
 import { releaseContentVersion } from './release_catalog';
 import { EnhancementUpdateController } from './updates';
 import { configureReleaseFeeds } from '../update/release_feed';
-import { trackEnhancementPreparation } from './tasks';
+import { restoreEnhancementTasks, trackEnhancementPreparation } from './tasks';
 import type { EnhancementEngineKind } from '../../shared/enhancement_manifest';
 
 function fileIdentity(paths: string[]): string {
@@ -694,6 +694,7 @@ export function createEnhancementResources(
   packs.observePreparations((id, name) => {
     void trackEnhancementPreparation(packs, id, name).catch(() => {});
   });
+  restoreEnhancementTasks(packs, join(root, 'enhancements'));
   const updates = new EnhancementUpdateController(packs, userConfig, target, {
     legacyModels,
     currentVersion: () => getHost().appVersion(),

@@ -41,6 +41,7 @@ export type RecentContactTopWire = {
 
 /** 隐藏会话一行（hidden_session_storage_table_v1），最后消息时间/预览已由后端解析。 */
 export type HiddenSessionWire = {
+  unreadCount?: number;
   storageKey: string;
   chatType: string | number;
   targetUid: string;
@@ -53,6 +54,7 @@ export type HiddenSessionWire = {
 
 /** 删除会话一行（recent_contact_delete_storage），最后消息时间/预览已由后端解析。 */
 export type DeletedSessionWire = {
+  unreadCount?: number;
   sessionKey: string;
   chatType: number;
   targetUid: string;
@@ -65,6 +67,7 @@ export type DeletedSessionWire = {
 
 /** 公众号摘要（listOfficialAccounts）—— wire 格式。 */
 export type OfficialAccountWire = {
+  unreadCount?: number;
   peerUid: string;
   displayName: string;
   targetUin: string;
@@ -74,6 +77,7 @@ export type OfficialAccountWire = {
 
 /** 服务号摘要（listServiceAccounts）—— wire 格式。 */
 export type ServiceAccountWire = {
+  unreadCount?: number;
   appId: string;
   displayName: string;
   avatarUrl: string | null;
@@ -410,6 +414,7 @@ export type PendingScrollRestore = {
  */
 export type OptimisticMessage = {
   hostReceived?: boolean;
+  transferId?: string;
   id: string;
   /** 目标会话 id（模板层 Conversation.id）。 */
   convId: string;

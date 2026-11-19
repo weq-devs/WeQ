@@ -2757,20 +2757,22 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'analyze_chat_image',
     description:
-      '读取指定聊天消息的真实图片并分析内容。遵循 WeQ 助手的图片处理偏好及默认视觉模型；视觉不可用时回退 OCR，最终失败会明确返回未能读取。imageIndex 从 0 开始；question 可指定需要查看的细节。',
+      '读取指定聊天消息的真实图片并分析内容。遵循 WeQ 助手的图片处理偏好及默认视觉模型；视觉不可用时回退 OCR，最终失败会明确返回未能读取。imageIndex 从 0 开始；question 可指定需要查看的细节。同图同问题复用结果；仅在用户明确要求重新分析时设置 refresh。',
     input: z.object({
       kind: z.enum(['c2c', 'group']),
       conv: z.string().min(1),
       msgId: z.string().regex(/^[0-9]+$/),
       imageIndex: z.number().int().nonnegative().default(0),
       question: z.string().max(4000).optional(),
+      refresh: z.boolean().optional(),
     }),
-    run: async ({ kind, conv, msgId, imageIndex, question }) => {
+    run: async ({ kind, conv, msgId, imageIndex, question, refresh }) => {
       const svc = services();
       const result = await accountImagePort.prepare({
         feature: 'assistant',
         text: question ?? '',
         question,
+        refresh,
         images: [{ id: `${msgId}:${imageIndex}`, chat: { kind, conv, msgId, index: imageIndex } }],
       });
       if (services() !== svc) throw new Error('账号已切换');
@@ -2828,6 +2830,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '识别【图片里的文字】，**返回值明确标出这次走的是在线接口还是本地离线模型**。' +
       '\n遵循全局「OCR 前先筛图」设置：开启时先筛图，无文字则返回 source=filter / skipped=true；筛图不可用或失败时继续 OCR，命中识别缓存则直接复用。' +
+      '\n仅在用户明确要求重新识别时设置 refresh=true，跳过旧结果与预筛图，实际执行 OCR。' +
       '\n【两条腿】① 在线：把图片的 CDN 地址交给 QQ 的图片文字识别接口（OIDB 0xe07_0），精度更好，但需要该账号 QQ 在线、未开完全离线且物料齐全；服务端链接可能失效或临时下载失败。' +
       '② 本地：用 WeQ 里已下载的 PP-OCR 离线模型在本机推理（设置 → 模型与识别 → 图片识别），不把图片发到任何服务，但精度略低一档、CPU 推理较慢。' +
       '\n【怎么选】engine 默认 auto = 在线可用就先走在线，在线失败或不可用再回退本地；也可以指定 online / local 只走那一条（不可用时直接报错，不会偷偷换腿）。先调 get_ocr_status 看两条腿的可用性。' +
@@ -2857,8 +2860,9 @@ export const AI_TOOLS: AiTool[] = [
         .boolean()
         .default(false)
         .describe('是否附带每段文字的像素坐标框（text / x / y / width / height / confidence）'),
+      refresh: z.boolean().optional(),
     }),
-    run: async ({ kind, conv, msgId, imageIndex, path, engine, includeBoxes }) => {
+    run: async ({ kind, conv, msgId, imageIndex, path, engine, includeBoxes, refresh }) => {
       const svc = services();
       const local = resolveLocalOcrModel();
 
@@ -2958,7 +2962,7 @@ export const AI_TOOLS: AiTool[] = [
       const notes: string[] = [];
       const cache = ocrResultCache();
       const cacheKey = cache ? ocrCacheKeyOf(picMd5, fileName || (path ?? '')) : null;
-      if (cache && cacheKey) {
+      if (cache && cacheKey && !refresh) {
         // 同一张图在本机识别过就直接给（灯箱 / 导出 / 之前的 MCP 调用写下的都算）。
         // 明确要求某条腿（engine=online / local）时不拿另一条腿的缓存顶替。
         const prefer = engine === 'online' ? 'oidb' : engine === 'local' ? 'local' : 'auto';
@@ -3062,7 +3066,9 @@ export const AI_TOOLS: AiTool[] = [
 
       // ── 3) 依次尝试，第一个成功的就是本次用的腿 ─────────────────────────
       const prefilter = await prefilterAutomaticOcr({
-        enabled: toolContext().bootstrap?.userConfig.getSettings().ocr.prefilterEnabled !== false,
+        enabled:
+          !refresh &&
+          toolContext().bootstrap?.userConfig.getSettings().ocr.prefilterEnabled !== false,
         path: localPath,
         cache,
         cacheKey,
@@ -3091,6 +3097,8 @@ export const AI_TOOLS: AiTool[] = [
               fileToken: online!.fileToken,
               width: online!.width,
               height: online!.height,
+              ...(picMd5 ? { md5: picMd5 } : {}),
+              ...(refresh ? { refresh } : {}),
             });
             const text = ocrBlocksToText(result.blocks);
             await putCached('oidb', {
@@ -3136,7 +3144,9 @@ export const AI_TOOLS: AiTool[] = [
           continue;
         }
         try {
-          const result = await runLocalOcr(localPath, local);
+          const result = refresh
+            ? await runLocalOcr(localPath, local, undefined, true)
+            : await runLocalOcr(localPath, local);
           const text = ocrBlocksToText(result.blocks);
           await putCached(`local:${result.modelId}`, {
             text,

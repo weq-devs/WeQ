@@ -60,6 +60,7 @@ export interface RoamingJob {
   createdAt: number;
   updatedAt: number;
   status: RoamingJobStatus;
+  planning?: { startImmediately: boolean };
   targets: RoamingTargetPlan[];
   requests: number;
   checkedWindows: number;
@@ -261,6 +262,7 @@ export class RoamingBackfillManager {
   private control: AbortController | null = null;
   private active: string | null = null;
   private planning = false;
+  private planningId?: string;
   private disposed = false;
   private loadError: string | null = null;
 
@@ -306,7 +308,10 @@ export class RoamingBackfillManager {
           (job.note !== undefined && typeof job.note !== 'string') ||
           job.optionsHash !== digest(job.options) ||
           !Array.isArray(job.targets) ||
-          job.targets.length !== job.options.targets.length ||
+          (job.planning !== undefined && typeof job.planning?.startImmediately !== 'boolean') ||
+          (job.planning
+            ? job.targets.length > job.options.targets.length
+            : job.targets.length !== job.options.targets.length) ||
           !Array.isArray(job.attempts) ||
           job.attempts.length > 200 ||
           [
@@ -367,7 +372,9 @@ export class RoamingBackfillManager {
         }
         if (job.status === 'running' || job.status === 'pausing') {
           job.status = 'paused';
-          job.note = '上次运行中断；继续前会复核本地记录和漫游缓存。';
+          job.note = job.planning
+            ? '上次扫描已中断；可继续检查尚未扫描的会话。'
+            : '上次运行中断；继续前会复核本地记录和漫游缓存。';
         }
       }
       this.jobs = saved.jobs;
@@ -406,61 +413,86 @@ export class RoamingBackfillManager {
       throw Error('历史通道已统一为 SSO，请新建 SSO 任务。');
     validateOptions(options);
     options = { ...options, transport: 'sso' };
-    this.planning = true;
+    const now = Date.now();
+    const job: RoamingJob = {
+      id: randomUUID(),
+      source: this.deps.source,
+      optionsHash: digest(options),
+      options: copy(options),
+      createdAt: now,
+      updatedAt: now,
+      status: 'running',
+      planning: { startImmediately },
+      targets: [],
+      requests: 0,
+      checkedWindows: 0,
+      cacheWindows: 0,
+      observed: 0,
+      errors: 0,
+      unparsedOrEmpty: 0,
+      attempts: [],
+      note: '正在检查本地记录与候选缺口。',
+    };
+    if (this.jobs.length >= 10) throw new Error('最多保留 10 个任务，请先移除已结束的任务。');
+    this.jobs.push(job);
     try {
-      const targets: RoamingTargetPlan[] = [];
-      for (const target of options.targets) {
+      this.save();
+    } catch (error) {
+      this.jobs.pop();
+      throw error;
+    }
+    return this.scanPlan(job);
+  }
+
+  private async scanPlan(job: RoamingJob): Promise<ReturnType<typeof roamingJobSummary>> {
+    const { options } = job;
+    const startImmediately = job.planning?.startImmediately;
+    this.planning = true;
+    this.planningId = job.id;
+    try {
+      for (const target of options.targets.slice(job.targets.length)) {
+        if (this.disposed) throw new Error('账号已关闭。');
+        if (job.status !== 'running') return roamingJobSummary(job);
         const plan = sequencePlan(
           await this.deps.listSeqWindow(target, options.range),
           options.beforeOldest,
         );
         if (this.disposed) throw new Error('账号已关闭。');
-        targets.push({
+        if (job.status !== 'running') return roamingJobSummary(job);
+        job.targets.push({
           ...target,
           snapshot: plan.snapshot,
           ranges: plan.ranges,
           remaining: copy(plan.ranges),
           pending: copy(plan.ranges),
         });
+        if (job.targets.length % 16 === 0) this.save();
       }
-      const now = Date.now();
-      const noGaps = startImmediately && targets.every((target) => target.ranges.length === 0);
-      const job: RoamingJob = {
-        id: randomUUID(),
-        source: this.deps.source,
-        optionsHash: digest(options),
-        options: copy(options),
-        createdAt: now,
-        updatedAt: now,
-        status: noGaps ? 'completed' : 'planned',
-        targets,
-        requests: 0,
-        checkedWindows: 0,
-        cacheWindows: 0,
-        observed: 0,
-        errors: 0,
-        unparsedOrEmpty: 0,
-        attempts: [],
-        note: noGaps
-          ? '所选范围未发现可补全的候选缺口；无本地锚点的历史覆盖未知，不代表全部历史完整。'
-          : '仅扫描本地锚点，未发起在线拉取。',
-      };
-      if (this.jobs.length >= 10) throw new Error('最多保留 10 个任务，请先移除已结束的任务。');
-      this.jobs.push(job);
-      try {
-        this.save();
-      } catch (e) {
-        this.jobs.pop();
-        throw e;
-      }
+      const noGaps = startImmediately && job.targets.every((target) => target.ranges.length === 0);
+      job.status = noGaps ? 'completed' : 'planned';
+      job.updatedAt = Date.now();
+      job.note = noGaps
+        ? '所选范围未发现可补全的候选缺口；无本地锚点的历史覆盖未知，不代表全部历史完整。'
+        : '仅扫描本地锚点，未发起在线拉取。';
+      delete job.planning;
+      this.save();
       if (startImmediately && !noGaps) {
-        // 同一次提交内交接运行锁，不依赖配置窗口继续存活。
         this.planning = false;
+        this.planningId = undefined;
         return this.start(job.id);
       }
       return roamingJobSummary(job);
+    } catch (error) {
+      if (this.disposed) throw error;
+      if (job.status === 'cancelled' || job.status === 'paused') return roamingJobSummary(job);
+      job.status = 'failed';
+      job.note = error instanceof Error ? error.message : String(error);
+      job.updatedAt = Date.now();
+      this.save();
+      throw error;
     } finally {
       this.planning = false;
+      this.planningId = undefined;
     }
   }
 
@@ -469,6 +501,20 @@ export class RoamingBackfillManager {
     const job = this.job(id);
     this.assertSupportedTransport(job);
     if (job.status === 'completed') throw new Error('已结束的任务不能继续。');
+    if (job.planning) {
+      const previous = { status: job.status, updatedAt: job.updatedAt, note: job.note };
+      job.status = 'running';
+      job.updatedAt = Date.now();
+      job.note = '正在继续检查本地记录与候选缺口。';
+      try {
+        this.save();
+      } catch (error) {
+        Object.assign(job, previous);
+        throw error;
+      }
+      void this.scanPlan(job).catch((error: unknown) => console.warn('[漫游] 继续扫描失败', error));
+      return roamingJobSummary(job);
+    }
     const previous = {
       status: job.status,
       note: job.note,
@@ -504,10 +550,12 @@ export class RoamingBackfillManager {
 
   pause(id: string, cancel = false) {
     const job = this.job(id);
-    if (job.status === 'completed' || job.status === 'cancelled') return roamingJobSummary(job);
+    if (job.status === 'completed' || job.status === 'partial' || job.status === 'cancelled')
+      return roamingJobSummary(job);
     job.status = this.active === id && !cancel ? 'pausing' : cancel ? 'cancelled' : 'paused';
-    job.note =
-      this.active === id
+    job.note = job.planning
+      ? '扫描已停止，已扫描的会话保留。'
+      : this.active === id
         ? '停止派发新请求，等待在途请求落盘。'
         : '任务已停止，可查看已取得的记录。';
     job.updatedAt = Date.now();
@@ -532,6 +580,7 @@ export class RoamingBackfillManager {
   dispose(): void {
     this.disposed = true;
     if (this.active) this.pause(this.active);
+    if (this.planningId) this.pause(this.planningId);
   }
 
   async close(): Promise<void> {
@@ -544,6 +593,7 @@ export class RoamingBackfillManager {
     try {
       for (const target of job.targets) {
         if (signal.aborted) break;
+        if (!target.pending.length) continue;
         const local = sequencePlan(await this.deps.listSeqWindow(target, job.options.range), false);
         if (target.snapshot.count > 0 && local.seqs.length === 0)
           throw new Error('原计划的本地锚点已不可读，请重新扫描创建任务。');
@@ -723,10 +773,11 @@ export class RoamingBackfillManager {
         job.note = signal.aborted
           ? '任务已暂停，在途结果已保存。'
           : job.status === 'partial'
-            ? '本轮检查结束，仍有未取得或失败的候选区间；不代表服务器不存在这些消息。'
+            ? '本轮检查已结束，仍有候选区间未取得记录；不代表服务器不存在这些消息。'
             : '计划中的候选缺口已由实际记录覆盖；不代表全部历史完整。';
         if (job.unparsedOrEmpty) job.note += ` 内容为空或未解析的记录 ${job.unparsedOrEmpty} 条。`;
       } else job.note = '任务已取消；已取得的记录保留，未完成区间未视为补齐。';
+      job.updatedAt = Date.now();
       this.save();
     } catch (error) {
       if (runRequests > 0 && job.inFlight) {

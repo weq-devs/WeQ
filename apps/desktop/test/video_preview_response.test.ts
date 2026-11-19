@@ -63,6 +63,15 @@ it('首段立即交给播放器，不等待原片结束；完整收取后才发�
   expect(await readdir(root)).toEqual(['cached.mp4']);
 });
 
+it('显式保存视频仅返回数据流，不再生成预览缓存', async () => {
+  const out = await withNetworkTransport(
+    async () => response(),
+    () => videoPreviewResponse(url, path, request(), undefined, false),
+  );
+  expect(Buffer.from(await out.arrayBuffer())).toEqual(video);
+  expect(await readdir(root)).toEqual([]);
+});
+
 it.each(['bytes=16-23', 'bytes=-8'])(
   '转发拖动或尾部范围 %s，局部响应不写完整缓存',
   async (range) => {

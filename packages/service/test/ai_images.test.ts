@@ -103,23 +103,31 @@ function assistantFixture() {
   );
   service.setConfig({ model: { providerId: 'fixture', model: 'visual' } });
   const api = service as unknown as {
-    callApiStream: (...args: unknown[]) => Promise<{ content: string; toolCalls?: [] }>;
+    callApiStream: (...args: unknown[]) => Promise<{
+      content: string;
+      toolCalls?: Array<{
+        id: string;
+        type: string;
+        function: { name: string; arguments: string };
+      }>;
+    }>;
     generateTitle: () => Promise<string>;
   };
   vi.spyOn(api, 'generateTitle').mockResolvedValue('合成看图');
   const calls = vi.spyOn(api, 'callApiStream').mockResolvedValue({ content: '已看图' });
   return { root, service, calls, ocr };
 }
-it('助手直接看图失败时只在未输出前回退 OCR，历史只保存引用并保留真实处理方式', async () => {
+it('助手独立视觉解读失败时回退 OCR，历史只保存引用和实际结果', async () => {
   const f = assistantFixture();
-  f.calls.mockRejectedValueOnce(new Error('图片参数不支持'));
+  const fetch = vi.fn(async () => new Response('图片参数不支持', { status: 400 }));
+  vi.stubGlobal('fetch', fetch);
   const session = f.service.createSession();
   await f.service.chat(session.id, '', undefined, undefined, [image]);
-  expect(f.calls).toHaveBeenCalledTimes(2);
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(f.calls).toHaveBeenCalledOnce();
   expect(f.ocr).toHaveBeenCalledOnce();
-  expect(JSON.stringify(f.calls.mock.calls[0]?.[1])).toContain('image_url');
-  expect(JSON.stringify(f.calls.mock.calls[1]?.[1])).not.toContain('image_url');
-  expect(JSON.stringify(f.calls.mock.calls[1]?.[1])).toContain('合成截图文字');
+  expect(JSON.stringify(f.calls.mock.calls[0]?.[1])).not.toContain('image_url');
+  expect(JSON.stringify(f.calls.mock.calls[0]?.[1])).toContain('合成截图文字');
   expect(f.service.getConversation(session.id)[0]).toMatchObject({
     images: [image],
     imageOutcomes: [{ mode: 'ocr', status: 'read' }],
@@ -127,6 +135,10 @@ it('助手直接看图失败时只在未输出前回退 OCR，历史只保存引
   expect(readFileSync(join(f.root, 'conversation.json'), 'utf8')).not.toContain('base64');
 });
 it('助手已有流式文字后不重放请求、不回退 OCR', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ choices: [{ message: { content: '合成图片' } }] })),
+  );
   const f = assistantFixture();
   const session = f.service.createSession();
   f.calls.mockImplementationOnce(async (...args) => {
@@ -138,6 +150,48 @@ it('助手已有流式文字后不重放请求、不回退 OCR', async () => {
   );
   expect(f.calls).toHaveBeenCalledOnce();
   expect(f.ocr).not.toHaveBeenCalled();
+});
+it('助手工具循环和纯文字追问复用解读，按问题查看附件时才再读取原图', async () => {
+  const f = assistantFixture();
+  const fetch = vi.fn(async () =>
+    Response.json({ choices: [{ message: { content: '图中有表格' } }] }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const session = f.service.createSession();
+  const call = (name: string, args: object) => ({
+    content: '',
+    toolCalls: [
+      { id: 'tool', type: 'function', function: { name, arguments: JSON.stringify(args) } },
+    ],
+  });
+  f.calls
+    .mockResolvedValueOnce(call('update_work_notes', { notes: [] }))
+    .mockResolvedValueOnce(call('update_work_notes', { notes: [] }));
+  await f.service.chat(session.id, '看看附件', undefined, undefined, [image]);
+  expect(f.calls).toHaveBeenCalledTimes(3);
+  await f.service.chat(session.id, '继续');
+  expect(fetch).toHaveBeenCalledOnce();
+  const question = { imageId: 'attachment-1', question: '左上角的数字是什么？' };
+  f.calls.mockResolvedValueOnce(call('analyze_attached_image', question));
+  await f.service.chat(session.id, question.question);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(f.calls.mock.calls.every((args) => !JSON.stringify(args[1]).includes('image_url'))).toBe(
+    true,
+  );
+  expect(JSON.stringify(f.calls.mock.calls[3]?.[1])).toContain('图中有表格');
+  f.calls
+    .mockResolvedValueOnce(
+      call('analyze_attached_image', { imageId: 'attachment-1', refresh: true }),
+    )
+    .mockResolvedValueOnce(
+      call('analyze_attached_image', { imageId: 'attachment-1', refresh: true }),
+    );
+  fetch.mockResolvedValueOnce(
+    Response.json({ choices: [{ message: { content: '重新读到的描述' } }] }),
+  );
+  await f.service.chat(session.id, '重新分析那张附件');
+  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(f.service.getConversation(session.id)[0]?.imageOutcomes?.[0]?.text).toBe('重新读到的描述');
 });
 it('商城表情与图片引用保留独立定位，并兼容漫游的十六进制标识', () => {
   const refs = messageImageRefs(
@@ -217,6 +271,7 @@ it.each(['pic', 'mface'])('%s 消息进入意图分析；更换图片策略后�
   expect(analyze.mock.calls[0]?.[0]).toContain('OCR 合成文字');
   expect(await service.analyzeMessage('c2c', 'peer', '1', { manual: true })).not.toBeNull();
   expect(analyze).toHaveBeenCalledTimes(2);
+  expect(prepared).not.toHaveBeenLastCalledWith(expect.objectContaining({ refresh: true }));
   revision = 'second';
   service.getStatus();
   expect((await service.ensureAnalysis('c2c', 'peer', 1)).analyzed).toBe(1);
@@ -269,7 +324,7 @@ it.each([
     } as unknown as AccountSession;
     const root = directory();
     const service = new IntentSenseService(session, root, { images: processor });
-    await service.setConfig({ suggestionsEnabled: true });
+    await service.setConfig({ suggestionsEnabled: true, suggestionFallbackEnabled: true });
     const pending = service.getSuggestions('c2c', 'peer');
     try {
       await vi.waitFor(() => {

@@ -1,6 +1,9 @@
 import { Worker } from 'node:worker_threads';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
+import { analysisPeriod } from '../common/analysis_report';
+
+const PAUSE_REQUEST = new Error('已暂停分析');
 
 export interface SavedAnalysisRequest {
   id: string;
@@ -29,6 +32,7 @@ export interface SavedAnalysisReport {
   logs: Array<{ ts: number; text: string }>;
   revision: number;
   resultRevision: number;
+  resultRequest?: SavedAnalysisRequest;
   position: number;
   updatedAt: number;
   error?: string;
@@ -45,6 +49,18 @@ export type AnalysisStageRunner = (
   signal: AbortSignal,
 ) => Promise<unknown>;
 
+function normalizedReport<
+  T extends { request: SavedAnalysisRequest; resultRequest?: SavedAnalysisRequest },
+>(report: T): T {
+  return {
+    ...report,
+    request: { ...report.request, period: analysisPeriod(report.request) },
+    ...(report.resultRequest
+      ? { resultRequest: { ...report.resultRequest, period: analysisPeriod(report.resultRequest) } }
+      : {}),
+  };
+}
+
 export class AnalysisReportsService extends EventEmitter {
   private worker: Worker;
   private sequence = 0;
@@ -59,7 +75,7 @@ export class AnalysisReportsService extends EventEmitter {
   constructor(
     root: string,
     private readonly runStage: AnalysisStageRunner,
-    workerPath: string | URL = new URL('./analysis_reports_worker.mjs', import.meta.url),
+    workerPath: string | URL,
   ) {
     super();
     this.worker = new Worker(workerPath, {
@@ -99,18 +115,24 @@ export class AnalysisReportsService extends EventEmitter {
     });
   }
   list() {
-    return this.call<AnalysisReportSummary[]>('list');
+    return this.call<AnalysisReportSummary[]>('list').then((reports) =>
+      reports.map(normalizedReport),
+    );
   }
   versions(id: string) {
-    return this.call<Omit<AnalysisResultVersion, 'results'>[]>('versions', { id });
+    return this.call<Omit<AnalysisResultVersion, 'results'>[]>('versions', { id }).then(
+      (versions) => versions.map(normalizedReport),
+    );
   }
   version(id: string, version: number) {
-    return this.call<AnalysisResultVersion | null>('version', { id, version });
+    return this.call<AnalysisResultVersion | null>('version', { id, version }).then((report) =>
+      report ? normalizedReport(report) : null,
+    );
   }
   async get(id: string) {
     const report = await this.call<SavedAnalysisReport | null>('get', { id });
     if (!report) throw new Error('报告已不存在');
-    return report;
+    return normalizedReport(report);
   }
   private async save(report: SavedAnalysisReport) {
     report.updatedAt = Math.max(Date.now(), report.updatedAt + 1);
@@ -137,7 +159,7 @@ export class AnalysisReportsService extends EventEmitter {
       return existing;
     }
     const report: SavedAnalysisReport = {
-      request: structuredClone(request),
+      request: { ...structuredClone(request), period: analysisPeriod(request) },
       status: 'paused',
       results: {},
       pending: {},
@@ -194,18 +216,34 @@ export class AnalysisReportsService extends EventEmitter {
       }
       report.results = report.pending;
       report.resultRevision = report.revision;
+      report.resultRequest = structuredClone(report.request);
       report.pending = {};
       report.status = 'completed';
       report.logs.push({ ts: Date.now(), text: '报告已保存' });
     } catch (error) {
-      report.status = signal.aborted ? (this.closing ? 'paused' : 'cancelled') : 'failed';
-      report.error = error instanceof Error ? error.message : String(error);
+      report.status = signal.aborted
+        ? this.closing || signal.reason === PAUSE_REQUEST
+          ? 'paused'
+          : 'cancelled'
+        : 'failed';
+      if (report.status !== 'paused')
+        report.error = error instanceof Error ? error.message : String(error);
       report.logs.push({
         ts: Date.now(),
-        text: signal.aborted ? '分析已停止，可继续未完成阶段' : report.error,
+        text: signal.aborted
+          ? report.status === 'paused'
+            ? '已暂停分析，保留完成的阶段'
+            : '分析已停止，可继续未完成阶段'
+          : report.error!,
       });
     }
     await this.save(report);
+  }
+  async pause(id: string) {
+    const run = this.runs.get(id);
+    if (!run) return;
+    run.controller.abort(PAUSE_REQUEST);
+    await run.done;
   }
   async cancel(id: string) {
     const run = this.runs.get(id);
@@ -233,6 +271,7 @@ export class AnalysisReportsService extends EventEmitter {
     if (this.runs.has(id)) await this.cancel(id);
     const report = await this.get(id);
     report.request.scope = { ...report.request.scope, ...range };
+    report.request.period = analysisPeriod(report.request);
     await this.save(report);
     await this.resume(id, true);
   }

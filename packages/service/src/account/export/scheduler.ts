@@ -96,6 +96,7 @@ export interface ScheduleConversation {
 
 export type ScheduleOutcome =
   | 'running'
+  | 'interrupted'
   | 'completed'
   | 'partial'
   | 'failed'
@@ -202,9 +203,15 @@ function normalizeSchedules(raw: unknown): ScheduledTask[] {
           !Array.isArray(row.taskIds) ||
           row.taskIds.some((id) => typeof id !== 'string') ||
           typeof row.outcome !== 'string' ||
-          !['running', 'completed', 'partial', 'failed', 'skipped', 'cancelled'].includes(
-            row.outcome,
-          ),
+          ![
+            'running',
+            'interrupted',
+            'completed',
+            'partial',
+            'failed',
+            'skipped',
+            'cancelled',
+          ].includes(row.outcome),
       )
     )
       invalid();
@@ -303,7 +310,15 @@ export class ExportScheduler extends EventEmitter {
       normalize: normalizeSchedules,
     });
     this.load();
+    this.restoreOutcomes();
     this.scheduleNextWake();
+  }
+
+  private restoreOutcomes(): void {
+    for (const task of [...this.tasks.values()])
+      for (const trigger of task.history)
+        if (trigger.outcome === 'running' || trigger.outcome === 'interrupted')
+          this.watchOutcome(task, trigger, trigger.note ?? null, false);
   }
 
   // ---- persistence ----
@@ -614,6 +629,7 @@ export class ExportScheduler extends EventEmitter {
           kind: c.kind,
           conv: c.id,
           name: c.name,
+          scheduleName: t.name,
           format: formats[0] ?? t.format,
           formats,
           total: c.total,
@@ -670,7 +686,12 @@ export class ExportScheduler extends EventEmitter {
 
     // Persist the running batch and book the next cadence before yielding to the wake loop.
     this.activeBatches.set(t.id, taskIds);
-    const trigger: ScheduleTrigger = { at, taskIds, outcome: 'running' };
+    const trigger: ScheduleTrigger = {
+      at,
+      taskIds,
+      outcome: 'running',
+      ...(firstError ? { note: firstError } : {}),
+    };
     try {
       return this.recordOutcome(t, trigger, reason === 'scheduled');
     } finally {
@@ -689,6 +710,9 @@ export class ExportScheduler extends EventEmitter {
     const taskIds = trigger.taskIds;
     const expected = new Set(taskIds);
     const states = new Map<string, 'completed' | 'failed' | 'cancelled'>();
+    const paused = new Set<string>();
+    const matches = (entry: ScheduleTrigger) =>
+      entry.at === trigger.at && entry.taskIds.join(',') === taskIds.join(',');
     const archives: Record<string, string> = {};
     let retry: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = (): void => {
@@ -712,8 +736,6 @@ export class ExportScheduler extends EventEmitter {
         outcome,
         ...(firstError && outcome !== 'completed' ? { note: firstError } : {}),
       };
-      const matches = (entry: ScheduleTrigger) =>
-        entry.at === trigger.at && entry.taskIds.join(',') === taskIds.join(',');
       const history = current.history.some(matches)
         ? current.history.map((entry) => (matches(entry) ? completed : entry))
         : [completed, ...current.history].slice(0, MAX_HISTORY);
@@ -743,6 +765,8 @@ export class ExportScheduler extends EventEmitter {
     };
     const onProgress = (p: TaskProgress): void => {
       if (!expected.has(p.taskId)) return;
+      if (p.status === 'paused') paused.add(p.taskId);
+      else paused.delete(p.taskId);
       if (p.status === 'completed' || p.status === 'failed' || p.status === 'cancelled') {
         const task = this.deps.taskManager.getTask(p.taskId);
         if (
@@ -760,7 +784,33 @@ export class ExportScheduler extends EventEmitter {
         if (!states.has(p.taskId)) {
           states.set(p.taskId, saveFailed ? 'failed' : p.status);
         }
-        if (states.size === expected.size) finalize();
+      }
+      if (states.size === expected.size) finalize();
+      else {
+        const current = this.tasks.get(t.id);
+        const entry = current?.history.find(matches);
+        const outcome = paused.size ? 'interrupted' : 'running';
+        if (current && entry && entry.outcome !== outcome) {
+          try {
+            this.replaceTasks(
+              [...this.tasks.values()].map((task) =>
+                task.id === t.id
+                  ? {
+                      ...current,
+                      history: current.history.map((item) =>
+                        matches(item) ? { ...item, outcome, note: firstError ?? undefined } : item,
+                      ),
+                    }
+                  : task,
+              ),
+            );
+            this.notify();
+          } catch (error) {
+            getLogger()
+              .child({ scope: 'export-scheduler' })
+              .warn('任务中断回执保存失败', { error });
+          }
+        }
       }
     };
     this.deps.taskManager.on('progress', onProgress);
@@ -768,14 +818,14 @@ export class ExportScheduler extends EventEmitter {
     // A very small export may finish before its startup promise resolves.
     for (const taskId of taskIds) {
       const task = this.deps.taskManager.getTask(taskId);
-      if (task)
-        onProgress({
-          taskId,
-          status: task.status,
-          progress: task.progress,
-          current: task.current,
-          message: '',
-        });
+      if (!task) firstError ??= '部分导出任务记录已移除';
+      onProgress({
+        taskId,
+        status: task?.status ?? 'failed',
+        progress: task?.progress ?? 0,
+        current: task?.current ?? 0,
+        message: '',
+      });
     }
   }
 

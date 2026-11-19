@@ -23,7 +23,14 @@ import type { MsgService, RenderC2cMsg, RenderGroupMsg } from '../msg';
 import { toExportedMessage } from './message_source';
 import { toRenderElements, type ForwardMessage, type RenderElement } from '../msg_view';
 import type { ConvKind, ExportedMessage } from './types';
-import { compileMessageFilter } from '../message_filter';
+import {
+  compileMessageFilter,
+  type ForwardCardTarget,
+  type ForwardExportTarget,
+  type ForwardRecordTarget,
+} from '../message_filter';
+
+type ForwardCard = Extract<RenderElement, { type: 'multiMsg' }>;
 
 /** A raw 40900 record's fields we read (all optional on the wire). */
 interface CacheRecordLike {
@@ -120,19 +127,24 @@ export async function expandForwards(
     (originalCards.every((element) => element.data.resId) &&
       new Set(originalCards.map((element) => element.data.resId)).size === 1);
   if (target) {
-    const element =
+    const candidate =
       exported.elements[target.elementIndex] ??
       (exported.elements.length === 1 &&
       exported.elements[0]?.type === 'multiMsg' &&
       exported.elements[0].data.forwardMessages
         ? exported.elements[0]
         : undefined);
-    if (element?.type !== 'multiMsg')
-      throw new Error('聊天记录卡片已变化，请重新打开消息菜单后重试导出。');
-    if (element.data.resId && element.data.resId !== target.resId)
-      throw new Error('聊天记录资源已变化，请重新打开消息菜单后重试导出。');
-    if (target.resId) element.data.resId = target.resId;
+    const element = matchCard(candidate, target);
     exported.elements.splice(0, exported.elements.length, element);
+    if (target.path?.length || target.records) {
+      if (!element.data.forwardMessages?.length && localUnambiguous) {
+        const records =
+          localRecords ?? (await msgs.listForward(kind, BigInt(exported.msgId)).catch(() => []));
+        element.data.forwardMessages = liftForwardRecords(records);
+      }
+      await prepareSelectedForwards(msgs, element, target);
+      return;
+    }
   }
   const hasForward = exported.elements.some(
     (el) => el.type === 'multiMsg' && !el.data.forwardMessages?.length,
@@ -158,6 +170,63 @@ export async function expandForwards(
     await expandRemote(msgs, el, new Set(), 0);
   }
   if (target) assertForwardComplete(exported.elements);
+}
+
+function matchCard(element: RenderElement | undefined, target: ForwardCardTarget): ForwardCard {
+  if (element?.type !== 'multiMsg')
+    throw new Error('聊天记录卡片已变化，请重新打开消息菜单后重试导出。');
+  if (element.data.resId && element.data.resId !== target.resId)
+    throw new Error('聊天记录资源已变化，请重新打开消息菜单后重试导出。');
+  if (target.resId) element.data.resId = target.resId;
+  return element;
+}
+
+function contents(card: ForwardCard): ForwardMessage[] {
+  const rows = card.data.forwardMessages;
+  if (!rows?.length) throw new Error('聊天记录内容尚未完整获取，请检查连接后重试导出。');
+  return rows;
+}
+
+function matchRecord(card: ForwardCard, target: ForwardRecordTarget): ForwardMessage {
+  const row = contents(card)[target.index];
+  if (!row || (row.msgId ?? '') !== target.msgId)
+    throw new Error('所选消息已变化，请重新打开聊天记录并选择。');
+  return row;
+}
+
+function selectedRecords(card: ForwardCard, target: ForwardExportTarget) {
+  if (!target.records) return contents(card).map((record, index) => ({ index, record }));
+  if (!target.records.length) throw new Error('未选择聊天记录内的消息。');
+  const records = new Map<number, ForwardMessage>();
+  for (const item of target.records) records.set(item.index, matchRecord(card, item));
+  return [...records].sort(([a], [b]) => a - b).map(([index, record]) => ({ index, record }));
+}
+
+async function prepareSelectedForwards(
+  msgs: MsgService,
+  root: ForwardCard,
+  target: ForwardExportTarget,
+) {
+  const visited = new Set<string>();
+  let card = root;
+  for (const child of target.path ?? []) {
+    msgs.exportSignal?.throwIfAborted();
+    await loadRemoteForward(msgs, card);
+    if (card.data.resId) visited.add(card.data.resId);
+    const row = matchRecord(card, child.record);
+    normalizeNestedForwards(row.elements);
+    card = matchCard(row.elements[child.elementIndex], child);
+    if (card.data.resId && visited.has(card.data.resId)) throw new Error('聊天记录包含循环引用。');
+  }
+  await loadRemoteForward(msgs, card);
+  if (card.data.resId) visited.add(card.data.resId);
+  for (const { record } of selectedRecords(card, target)) {
+    normalizeNestedForwards(record.elements);
+    for (const element of record.elements)
+      if (element.type === 'multiMsg')
+        await expandRemote(msgs, element, visited, (target.path?.length ?? 0) + 1);
+    assertForwardComplete(record.elements, (target.path?.length ?? 0) + 1);
+  }
 }
 
 /** 专属导出不能把缺失的根记录、嵌套记录或循环截断冒充完整聊天记录。 */
@@ -202,6 +271,7 @@ async function expandRemote(
   if (depth > 16 || (resId && visited.has(resId))) return;
   if (resId) visited.add(resId);
   try {
+    await loadRemoteForward(msgs, element);
     if (element.data.forwardMessages?.length) {
       for (const record of element.data.forwardMessages) {
         normalizeNestedForwards(record.elements);
@@ -209,31 +279,29 @@ async function expandRemote(
           if (child.type === 'multiMsg') await expandRemote(msgs, child, visited, depth + 1);
         }
       }
-      return;
     }
-    if (!resId || !msgs.exportFetchForward) return;
+  } finally {
+    visited.delete(resId);
+  }
+}
+
+async function loadRemoteForward(msgs: MsgService, element: ForwardCard): Promise<void> {
+  const resId = element.data.resId;
+  if (element.data.forwardMessages?.length || !resId || !msgs.exportFetchForward) return;
+  try {
     const records = await msgs.exportFetchForward(resId);
-    const lifted: ForwardMessage[] = [];
-    for (const record of records) {
-      msgs.exportSignal?.throwIfAborted();
-      normalizeNestedForwards(record.elements);
-      for (const child of record.elements) {
-        if (child.type === 'multiMsg') await expandRemote(msgs, child, visited, depth + 1);
-      }
-      lifted.push({
+    if (records.length) {
+      element.data.forwardMessages = records.map((record) => ({
         msgId: record.msgId,
         senderUid: record.senderUid,
         senderName: record.sendNick || record.senderUin || record.senderUid || '匿名',
         senderUin: record.senderUin ?? '',
         sendTime: Number(record.sendTime ?? 0),
         elements: record.elements,
-      });
+      }));
     }
-    if (lifted.length) element.data.forwardMessages = lifted;
   } catch {
     msgs.exportSignal?.throwIfAborted();
-  } finally {
-    visited.delete(resId);
   }
 }
 
@@ -252,9 +320,11 @@ export async function* exportForwardContents(
     }
     if (!matches(row)) continue;
     await expandForwards(msgs, kind, toExportedMessage(row));
-    const element = row.elements[0];
+    let element = row.elements[0];
     if (element?.type !== 'multiMsg') throw new Error('聊天记录卡片已变化，请重试导出。');
-    for (const [index, record] of (element.data.forwardMessages ?? []).entries()) {
+    for (const child of target.path ?? [])
+      element = matchCard(matchRecord(element, child.record).elements[child.elementIndex], child);
+    for (const { index, record } of selectedRecords(element, target)) {
       msgs.exportSignal?.throwIfAborted();
       yield {
         ...('targetGroupCode' in row
@@ -269,7 +339,12 @@ export async function* exportForwardContents(
         senderName: record.senderName,
         sendTime: BigInt(record.sendTime),
         elements: record.elements,
-        forwardSource: { carrierMsgId: String(row.msgId), resId: target.resId, recordIndex: index },
+        forwardSource: {
+          carrierMsgId: String(row.msgId),
+          resId: element.data.resId,
+          recordIndex: index,
+          ...(target.path?.length ? { path: target.path } : {}),
+        },
       };
     }
   }

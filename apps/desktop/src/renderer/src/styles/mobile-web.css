@@ -133,7 +133,7 @@
 :where(html[data-weq-layout='single'])
   .weq-web-shell
   .weq-qq-action-form
-  :is(input, select, textarea) {
+  :is(input, .weq-select-trigger, textarea) {
   font-size: 16px;
   min-height: 44px;
 }

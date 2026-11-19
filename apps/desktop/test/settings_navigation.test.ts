@@ -40,6 +40,13 @@ describe('设置的两级导航', () => {
     const entry = searchAppEntries(keyword)[0];
     expect(entry?.target).toMatchObject({ kind: 'setting', section: 'agentlab', settingId });
   });
+  it('助手默认模型与 API 默认聊天模型可以分别搜索', () => {
+    expect(searchAppEntries('助手默认聊天模型')[0]?.target).toMatchObject({
+      kind: 'setting',
+      section: 'weq-assistant',
+      settingId: 'weq-assistant-default-model',
+    });
+  });
   it('常规在启动后展示在线能力与授权，旧主页入口仍能定位', () => {
     expect(settingsGroupFor('startup').sections).toEqual([
       'startup',
@@ -114,6 +121,7 @@ describe('设置的两级导航', () => {
       'reply-suggestions',
       'intent-sense',
       'interaction-profile',
+      'weq-assistant',
     ]);
     expect(settingsSectionFor('voice')).toBe('recognition');
     expect(settingsSectionFor('ocr')).toBe('recognition');

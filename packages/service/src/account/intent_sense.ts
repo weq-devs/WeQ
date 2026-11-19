@@ -211,9 +211,9 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   persistentDisplay: true,
   hoverDisplay: true,
   loadingAnimation: true,
-  suggestionFallbackEnabled: true,
+  suggestionFallbackEnabled: false,
   suggestionFallbackTexts: [...DEFAULT_SUGGESTION_FALLBACK_TEXTS],
-  suggestAfterSelf: true,
+  suggestAfterSelf: false,
   analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
   hfMirror: true,
@@ -628,7 +628,7 @@ export function normalizeIntentSenseConfig(
     persistentDisplay: p.persistentDisplay !== false,
     hoverDisplay: p.hoverDisplay !== false,
     loadingAnimation: p.loadingAnimation !== false,
-    suggestionFallbackEnabled: p.suggestionFallbackEnabled !== false,
+    suggestionFallbackEnabled: p.suggestionFallbackEnabled === true,
     suggestionFallbackTexts: (() => {
       try {
         return validateSuggestionFallbackTexts(
@@ -638,7 +638,7 @@ export function normalizeIntentSenseConfig(
         return [...DEFAULT_SUGGESTION_FALLBACK_TEXTS];
       }
     })(),
-    suggestAfterSelf: p.suggestAfterSelf !== false,
+    suggestAfterSelf: p.suggestAfterSelf === true,
     analysisContextMessages: isIntentContextCount(p.analysisContextMessages)
       ? p.analysisContextMessages
       : DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
@@ -1188,6 +1188,64 @@ export class IntentSenseService {
     this.syncDefaultModels();
     if (revision !== this.analysisRevision) return null;
 
+    const result = await this.analyzePrepared(row, context, revision);
+    if (result) {
+      this.storeResults(kind, conv, [result]);
+      this.emitAnalyzed({ kind, conv, results: [result] });
+    }
+    return result;
+  }
+
+  /** 转发是独立的发言快照：不从会话查库，也不把结果合并进会话意图或画像。 */
+  async analyzeForwardMessage(
+    msgId: string,
+    rows: readonly {
+      sender: string;
+      sendTime: number;
+      text: string;
+      images?: SuggestionElement[];
+    }[],
+    source?: { kind: IntentConversationKind; conv: string },
+  ): Promise<IntentSenseResult | null> {
+    const status = this.getStatus();
+    if (!status.enabled || !(status.engine === 'local' ? status.localReady : status.apiConfigured))
+      return null;
+    const target = rows.at(-1);
+    if (!target) return null;
+    const revision = this.analysisRevision;
+    const turns = rows.map((row, index): SenseRow => {
+      const elementsRaw = [{ kind: 'text', textContent: row.text }, ...(row.images ?? [])];
+      return {
+        msgId: `${msgId}:${index}`,
+        mine: row.sender === target.sender,
+        senderUid: '',
+        senderUin: '',
+        sendTime: row.sendTime,
+        text: elementsToSenseText(elementsRaw),
+        elementsRaw,
+      };
+    });
+    const prepared =
+      source && rows.some((row) => row.images?.length)
+        ? await this.prepareImageRows(turns, source.kind, source.conv, 'intent')
+        : turns;
+    const selected = prepared.at(-1);
+    this.syncDefaultModels();
+    if (revision !== this.analysisRevision || !selected?.text) return null;
+    const context = extractContextBefore(
+      prepared,
+      prepared.length - 1,
+      this.config.analysisContextMessages,
+      this.config,
+    );
+    return this.analyzePrepared({ ...selected, msgId }, context, revision);
+  }
+
+  private async analyzePrepared(
+    row: Pick<SenseRow, 'msgId' | 'mine' | 'sendTime' | 'text'>,
+    context: IntentContextTurn[],
+    revision: number,
+  ): Promise<IntentSenseResult | null> {
     let result: IntentSenseResult | null = null;
     if (this.config.engine === 'local') {
       result = await this.analyzeOne(row.mine, row.sendTime, row.msgId, row.text, context);
@@ -1219,12 +1277,7 @@ export class IntentSenseService {
     }
     if (revision !== this.analysisRevision) return null;
     this.syncDefaultModels();
-    if (revision !== this.analysisRevision) return null;
-    if (result) {
-      this.storeResults(kind, conv, [result]);
-      this.emitAnalyzed({ kind, conv, results: [result] });
-    }
-    return result;
+    return revision === this.analysisRevision ? result : null;
   }
 
   /** 渲染层批量取（一次读缓存，不做分析）。 */
@@ -2074,7 +2127,7 @@ export class IntentSenseService {
             }),
             signal: AbortSignal.any([
               controller.signal,
-              AbortSignal.timeout(this.config.apiTimeoutSeconds * 1000),
+              AbortSignal.timeout(this.config.suggestionApiTimeoutSeconds * 1000),
             ]),
           },
         );

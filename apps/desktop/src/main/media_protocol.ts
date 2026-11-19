@@ -63,7 +63,7 @@ import {
   type AvatarLocalFile,
   type MediaElement,
 } from '@weq/service';
-import { getAppContext } from './context/app_context';
+import { getAppContext, type AccountServices } from './context/app_context';
 import { fullModeAllowed } from './context/full_mode';
 import { resolveResource } from './resource';
 import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
@@ -83,6 +83,64 @@ function oidbCachePath(cacheDir: string, token: string, ext: string): string {
   return join(cacheDir, `${hash}${ext}`);
 }
 
+/** 共用语音播放和转写的本地缓存、rkey 与在线补全。 */
+export async function resolveVoiceSilk(
+  services: AccountServices,
+  input: {
+    t: number;
+    name: string;
+    token: string;
+    msgId: string;
+    conv: string;
+    fwdMsgId?: string;
+    fwdKind?: 'c2c' | 'group';
+    fwdResId?: string;
+  },
+  check = () => mediaBinding.getStore()?.(),
+): Promise<string | null> {
+  check();
+  const { source } = await services.fileSearch.findFile(input.t, input.name, 'ptt');
+  check();
+  if (source) return source;
+  if (!input.token) return null;
+  const downloaded = await services.mediaDownload.download(input.token, {
+    ext: '.silk',
+    rkeyTypes: PTT_RKEY_TYPES,
+  });
+  check();
+  if (downloaded) return downloaded;
+  const boot = getAppContext().bootstrap;
+  if (!boot) return null;
+  const path = oidbCachePath(join(boot.userConfig.cacheDir('media'), 'ptt'), input.token, '.silk');
+  if (existsSync(path)) return path;
+  const found = await findMediaElement(
+    input.msgId,
+    'ptt',
+    input.token,
+    input.fwdMsgId,
+    input.fwdKind,
+    input.fwdResId,
+  );
+  check();
+  if (!found || found.element.fileToken !== input.token) return null;
+  const groupId = Number(input.conv) || 0;
+  let url: string;
+  try {
+    url =
+      found.conv === null
+        ? await services.mediaUrl.resolvePttUrlUnknownScene(groupId, found.element)
+        : await services.mediaUrl.resolvePttUrl(found.conv, groupId, found.element);
+  } catch (error) {
+    console.error('[media] ptt OIDB resolve failed:', error);
+    return null;
+  }
+  check();
+  if (!url) return null;
+  const outcome = await downloadUrlToFile(url, path, { reportActivity: false });
+  check();
+  return outcome.ok ? path : null;
+}
+
 /**
  * Find the video / file / ptt element a chat media URL refers to by re-reading
  * its raw message. Returns the element plus the conversation kind so callers
@@ -100,25 +158,33 @@ export async function findMediaElement(
   kind: 'video' | 'file' | 'ptt',
   token: string,
   fwdMsgId = '',
-  fwdKind: 'group' | 'c2c' = 'c2c',
+  fwdKind?: 'group' | 'c2c',
+  fwdResId?: string,
 ): Promise<{ element: MediaElement; conv: 'group' | 'c2c' | null } | null> {
   mediaBinding.getStore()?.();
   const services = getAppContext().services;
-  if (!services || !msgId) return null;
-  if (fwdMsgId) {
-    try {
-      const el = await services.msgs.findForwardedMediaElement(
-        fwdKind,
-        BigInt(msgId),
-        BigInt(fwdMsgId),
-        kind,
-        token,
-      );
-      return el ? { element: el as unknown as MediaElement, conv: null } : null;
-    } catch {
-      return null;
+  if (!services) return null;
+  if (fwdMsgId || fwdKind || fwdResId) {
+    if (/^[1-9]\d{0,19}$/.test(msgId) && (token || /^\d{1,20}$/.test(fwdMsgId))) {
+      const el = (await services.msgs
+        .findForwardedMediaElement(
+          fwdKind ?? 'c2c',
+          BigInt(msgId),
+          /^\d{1,20}$/.test(fwdMsgId) ? BigInt(fwdMsgId) : 0n,
+          kind,
+          token,
+        )
+        .catch(() => null)) as MediaElement | null;
+      mediaBinding.getStore()?.();
+      if (el && (!token || token === el.fileToken)) return { element: el, conv: null };
     }
+    const cached =
+      fwdResId && token
+        ? services.forwardMsgs.getFetchedMedia(fwdResId, fwdMsgId, kind, token)
+        : undefined;
+    return cached ? { element: cached, conv: null } : null;
   }
+  if (!msgId) return null;
   let raw: Awaited<ReturnType<typeof services.msgs.getRawElements>>;
   try {
     raw = await services.msgs.getRawElements(BigInt(msgId));
@@ -171,7 +237,7 @@ export const MEDIA_PRIVILEGED_SCHEME = {
 } as const;
 
 function notFound(reason: string): Response {
-  return new Response(reason, { status: 404 });
+  return new Response(reason, { status: 404, headers: { 'Cache-Control': 'no-store' } });
 }
 
 /**
@@ -184,12 +250,7 @@ function fileResponse(path: string): Promise<Response> {
   return streamFile(path, currentRequest.getStore());
 }
 
-/**
- * Like {@link fileResponse} but asking the renderer to revalidate (304 on an
- * unchanged mtime). For the local avatar cache: the file NAME is a uid hash, so
- * QQ overwrites it in place when someone changes their picture — caching by
- * max-age would keep showing the old one.
- */
+/** 媒体在原路径被覆盖时要求重新校验，不让浏览器按原 URL 保留旧内容。 */
 function revalidatingFileResponse(path: string): Promise<Response> {
   return streamFile(path, currentRequest.getStore(), { revalidate: true });
 }
@@ -569,7 +630,11 @@ export async function resolveChatImageFile(
   return { path: downloaded, variant: 'downloaded' as const };
 }
 
-export async function handleMediaRequest(request: Request, check?: () => void): Promise<Response> {
+export async function handleMediaRequest(
+  request: Request,
+  check?: () => void,
+  options?: { cacheVideo?: boolean },
+): Promise<Response> {
   try {
     const query = new URL(request.url).searchParams;
     const kind = new URL(request.url).hostname;
@@ -603,7 +668,7 @@ export async function handleMediaRequest(request: Request, check?: () => void): 
         },
         () =>
           currentRequest.run(request, async () => {
-            const response = await routeMediaRequest(request);
+            const response = await routeMediaRequest(request, options?.cacheVideo);
             return withCors(
               request.headers.get('x-weq-web') === '1'
                 ? new ManagedDownload().response(response)
@@ -620,7 +685,7 @@ export async function handleMediaRequest(request: Request, check?: () => void): 
   }
 }
 
-async function routeMediaRequest(request: Request): Promise<Response> {
+async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promise<Response> {
   {
     const url = new URL(request.url);
     const kind = url.hostname;
@@ -876,8 +941,19 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           const msgId = q.get('msgId') ?? '';
           const conv = q.get('conv') ?? '';
           const fwdMsgId = q.get('fwdMsgId') ?? '';
-          const fwdKind = q.get('fwdKind') === 'group' ? 'group' : 'c2c';
-          const found = await findMediaElement(msgId, 'video', token, fwdMsgId, fwdKind);
+          const fwdKind = q.has('fwdKind')
+            ? q.get('fwdKind') === 'group'
+              ? 'group'
+              : 'c2c'
+            : undefined;
+          const found = await findMediaElement(
+            msgId,
+            'video',
+            token,
+            fwdMsgId,
+            fwdKind,
+            q.get('fwdResId') ?? undefined,
+          );
           if (!found) return notFound('video element not found');
           const groupId = Number(conv) || 0;
           let url: string;
@@ -892,57 +968,29 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           }
           if (!url) return notFound('video OIDB returned empty url');
           mediaBinding.getStore()?.();
-          return await videoPreviewResponse(url, cachePath, request, mediaBinding.getStore());
+          return await videoPreviewResponse(
+            url,
+            cachePath,
+            request,
+            mediaBinding.getStore(),
+            cacheVideo,
+          );
         }
         case 'ptt': {
-          const { source } = await services.fileSearch.findFile(tMs, name, 'ptt');
-          mediaBinding.getStore()?.();
-          let silk = source;
-          if (!silk) {
-            // Missing on disk → try rkey first, then OIDB completion. The OIDB
-            // fallback matters most for missing-history roam messages (no local
-            // Ptt file at all); it needs an online QQ.
-            silk = await services.mediaDownload.download(token, {
-              ext: '.silk',
-              rkeyTypes: PTT_RKEY_TYPES,
-            });
-            mediaBinding.getStore()?.();
-          }
-          if (!silk) {
-            const boot = getAppContext().bootstrap;
-            if (boot && token) {
-              const cacheDir = join(boot.userConfig.cacheDir('media'), 'ptt');
-              const cachePath = oidbCachePath(cacheDir, token, '.silk');
-              if (existsSync(cachePath)) {
-                silk = cachePath;
-              } else {
-                const msgId = q.get('msgId') ?? '';
-                const conv = q.get('conv') ?? '';
-                const fwdMsgId = q.get('fwdMsgId') ?? '';
-                const fwdKind = q.get('fwdKind') === 'group' ? 'group' : 'c2c';
-                const found = await findMediaElement(msgId, 'ptt', token, fwdMsgId, fwdKind);
-                if (found) {
-                  const groupId = Number(conv) || 0;
-                  let url: string | undefined;
-                  try {
-                    url =
-                      found.conv === null
-                        ? await services.mediaUrl.resolvePttUrlUnknownScene(groupId, found.element)
-                        : await services.mediaUrl.resolvePttUrl(found.conv, groupId, found.element);
-                  } catch (e) {
-                    console.error('[media] ptt OIDB resolve failed:', e);
-                  }
-                  if (url) {
-                    mediaBinding.getStore()?.();
-                    const outcome = await downloadUrlToFile(url, cachePath, {
-                      reportActivity: false,
-                    });
-                    if (outcome.ok) silk = cachePath;
-                  }
-                }
-              }
-            }
-          }
+          const silk = await resolveVoiceSilk(services, {
+            t: tMs,
+            name,
+            token,
+            msgId: q.get('msgId') ?? '',
+            conv: q.get('conv') ?? '',
+            fwdMsgId: q.get('fwdMsgId') ?? undefined,
+            fwdResId: q.get('fwdResId') ?? undefined,
+            fwdKind: q.has('fwdKind')
+              ? q.get('fwdKind') === 'group'
+                ? 'group'
+                : 'c2c'
+              : undefined,
+          });
           if (!silk) return notFound('ptt not found');
           const { decodeSilkToWav } = await import('./voice');
           mediaBinding.getStore()?.();
@@ -1009,6 +1057,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
             const fresh = await avatarFallbackResponse(fb, true);
             if (fresh.ok || fresh.status === 304) return fresh;
           }
+          // QQ 本地头像没有扩展名，Web 头像缓存仍需真实的图片 Content-Type。
+          const serveLocalAvatar = (path: string) =>
+            streamFile(path, request, { revalidate: true, sniffImageType: true });
           let local: AvatarLocalFile | null = null;
           if (hash) {
             // 本地资源浏览器按 hash 直取，没有「哪个更新」的语义。
@@ -1028,7 +1079,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
                   .catch(() => null)
               : null;
           if (local && !local.stale && (cachedAt == null || cachedAt <= local.mtimeMs))
-            return revalidatingFileResponse(local.path);
+            return serveLocalAvatar(local.path);
 
           // 本地大图过期（只有缩略图是新的）或本地干脆没有 → 回源 CDN：它既比旧大图
           // 新，又比缩略图清晰。缓存比本地文件旧时强制重拉，否则直接用缓存字节。
@@ -1040,7 +1091,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
             if (fresh.ok || fresh.status === 304) return fresh;
           }
           // CDN 拿不到（离线 / 无网）→ 至少显示当前头像的缩略图，别退回旧大图。
-          if (local) return revalidatingFileResponse(local.path);
+          if (local) return serveLocalAvatar(local.path);
           return notFound('avatar not found');
         }
         case 'cemoji': {
@@ -1051,6 +1102,13 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           const bucket = q.get('bucket') ?? '';
           const file = q.get('file') ?? '';
           const variant = q.get('v') === 'ori' ? 'ori' : 'thumb';
+          if (scope === 'favorite') {
+            const path =
+              bucket === '' && variant === 'ori'
+                ? services.emoji.resolveCachedFavorite(file)
+                : null;
+            return path ? fileResponse(path) : notFound('favorite emoji not found');
+          }
           if (scope !== 'recv' && scope !== 'personal') {
             return notFound('cemoji needs scope=recv|personal');
           }

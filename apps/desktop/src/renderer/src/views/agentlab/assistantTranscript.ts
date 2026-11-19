@@ -67,6 +67,7 @@ export function applyAssistantStep(turn: AssistantTurn, step: AssistantStep): As
     case 'queue':
     case 'reset':
     case 'remove_turn':
+    case 'session_title':
       break;
     default:
       if (

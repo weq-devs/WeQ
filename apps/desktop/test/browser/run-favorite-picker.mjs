@@ -130,6 +130,7 @@ try {
   await page.getByRole('button', { name: '微笑', exact: true }).waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '新的备注', exact: true }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: '保存', exact: true }).click();
+  await page.getByRole('button', { name: '导入收藏表情', exact: true }).click();
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: '导入图片到收藏表情' }).click();
   await (await chooser).setFiles({
@@ -137,6 +138,7 @@ try {
     mimeType: 'image/png',
     buffer: image,
   });
+  await page.getByRole('button', { name: '关闭收藏导入' }).click();
   await page.getByRole('button', { name: '导入的图片', exact: true }).waitFor();
   const calls = await page.evaluate(() => window.favoritePickerCalls);
   assert(

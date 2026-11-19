@@ -2,20 +2,17 @@
  * 会话设置窗格 —— 在会话头部设置按钮附近原位打开。
  *
  * 紧凑窗格保留左侧分类导航与右侧内容。
- *   • 防撤回：把「这个会话」加/移出启用集，以及是否对它弹撤回通知。写操作是乐观的
+ *   • 防撤回：把「这个会话」加/移出启用集；通知方式就地修改统一设置，名单单独编辑。写操作是乐观的
  *     （服务层落配置后立刻返回期望状态），点击即生效，不需要 QQ 在线。防撤回处于
  *     「关闭」时，打开这里的「保护此会话」会自动把启用范围切到「按会话勾选」。
  *   • 群关键词（仅群聊）：把 GroupKeywordEditor 那套关键词 + 成员范围编辑器**内嵌**
  *     在这一页里直接编辑，不再另开灯箱。编辑器自己防抖落盘，关窗即保存。
  *
- * 启用范围 / 通知总开关仍在「更多 → 防撤回」面板里，这里只做单会话的粒度。
+ * 保护范围在防撤回设置，通知方式各入口共用，提醒名单在「常规 → 通知与提醒」。
  */
 
-import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import type { Contact, GroupConversation } from '../im-template/template/types';
-import { sharedGroupConversation } from './ark/groupShareCard';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { accountBinding } from '../lib/clientPreferences';
-import { ContactWorkspaceNavigationContext, profileTargetUser } from '../lib/profileNavigation';
 import { BellRing, BrainCircuit, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog.shared';
@@ -23,12 +20,9 @@ import { Card, Row, Toggle } from './settings/controls';
 import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
 import { ConversationSettingsFrame } from './ConversationSettingsFrame';
 import { QQConversationControls } from './QQConversationControls';
+import { NotificationSettingsLink } from './settings/NotificationSettingsLink';
+import { NotificationMethodSelect } from './settings/NotificationMethodSelect';
 import '../styles/conversation-settings.css';
-
-/** 通知开关的会话 key（与后端 `notifyKey` 一致）。 */
-function notifyKeyOf(kind: string, id: string): string {
-  return `${kind}:${id}`;
-}
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -45,9 +39,6 @@ export function ConversationSettingsDialog({
   onClose,
   anchor,
   initialSection,
-  groupConversation,
-  contact,
-  onOpenProfile,
 }: {
   /** 与后端 AntiRecallKind 对齐（数据线单独一张表，不能并到私聊）。 */
   kind: 'c2c' | 'group' | 'dataline';
@@ -60,20 +51,14 @@ export function ConversationSettingsDialog({
   onClose: () => void;
   anchor?: HTMLElement;
   initialSection?: 'qq' | 'group-management';
-  groupConversation?: GroupConversation;
-  contact?: Contact;
-  onOpenProfile?: () => void;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
-  const openWorkspace = useContext(ContactWorkspaceNavigationContext);
-  const profileUser = kind === 'c2c' ? profileTargetUser({ identity: conv, name: title }) : null;
   const utils = trpc.useUtils();
   const source = useRef(accountBinding());
   const [section, setSection] = useState<SectionId>(
     kind === 'dataline' ? 'antirecall' : (initialSection ?? 'qq'),
   );
   /** 关键词编辑器的保存状态 —— 由内嵌的 editor 外抛（灯箱那套同一份实现）。 */
-  const [keywordSave, setKeywordSave] = useState({ saving: false, savedAt: 0, error: '' });
   const [checkingProtection, setCheckingProtection] = useState(false);
   const verification = useRef(0);
   const mounted = useRef(true);
@@ -95,8 +80,7 @@ export function ConversationSettingsDialog({
 
   const setScope = trpc.account.antiRecall.setScope.useMutation();
   const setTargets = trpc.account.antiRecall.setTargets.useMutation();
-  const setNotify = trpc.account.antiRecall.setNotify.useMutation();
-  const busy = setScope.isLoading || setTargets.isLoading || setNotify.isLoading;
+  const busy = setScope.isLoading || setTargets.isLoading;
 
   // 意图感知：全局状态（同 key 共享缓存）+ 单会话覆盖写。
   const intentStatus = trpc.account.intentSense.getStatus.useQuery(undefined, {
@@ -116,8 +100,6 @@ export function ConversationSettingsDialog({
   const allProtected = scope === 'all';
   const targets = useMemo(() => status.data?.targets ?? [], [status.data?.targets]);
   const protectedHere = allProtected || targets.some((t) => t.id === conv && t.kind === kind);
-  const notifyHere = (status.data?.notifyTargets ?? []).includes(notifyKeyOf(kind, conv));
-  const notifyEnabled = status.data?.notifyEnabled ?? false;
 
   const groupKeywords = kind === 'group';
 
@@ -176,52 +158,27 @@ export function ConversationSettingsDialog({
     }
   }
 
-  async function onToggleNotify(next: boolean): Promise<void> {
-    const key = notifyKeyOf(kind, conv);
-    const current = status.data?.notifyTargets ?? [];
-    const updated = next ? [...new Set([...current, key])] : current.filter((k) => k !== key);
-    try {
-      applyStatus(await setNotify.mutateAsync({ targets: updated, ...source.current }));
-    } catch (e) {
-      void status.refetch();
-      showError('通知设置失败', errMsg(e));
-    }
-  }
-
   return (
     <ConversationSettingsFrame<SectionId>
       title="会话设置"
       subtitle={title}
-      profileKind={kind === 'group' ? 'group' : 'person'}
       anchor={anchor}
       onClose={onClose}
-      onOpenProfile={
-        kind !== 'dataline' &&
-        (onOpenProfile || (openWorkspace && (profileUser || kind === 'group')))
-          ? () => {
-              onClose();
-              if (onOpenProfile) {
-                onOpenProfile();
-                return;
-              }
-              if (kind === 'group') {
-                openWorkspace?.({
-                  kind: 'group',
-                  conversation:
-                    groupConversation ??
-                    sharedGroupConversation({ code: conv, name: title, avatar: '' }),
-                });
-              } else if (profileUser)
-                openWorkspace?.({
-                  kind: 'person',
-                  contact: contact ?? { ...profileUser, createdAt: '' },
-                  tab: 'profile',
-                });
-            }
-          : undefined
-      }
       value={section}
       onValueChange={setSection}
+      sectionDescription={
+        section === 'group-management'
+          ? '加群方式与分类标签'
+          : section === 'qq'
+            ? kind === 'group'
+              ? '置顶、消息接收与本群身份'
+              : '置顶、免打扰与特别关心'
+            : section === 'intentsense'
+              ? '本会话的消息意图与互动画像'
+              : section === 'keyword'
+                ? '命中即提醒；每个词可单独限定发言人'
+                : '保留对方撤回的消息'
+      }
       sections={[
         ...(kind !== 'dataline'
           ? [{ id: 'qq' as const, label: '会话偏好', icon: <Settings2 size={16} /> }]
@@ -239,192 +196,120 @@ export function ConversationSettingsDialog({
       ]}
     >
       {(section === 'qq' || section === 'group-management') && kind !== 'dataline' ? (
-        <>
-          <div className="weq-cvs-body-head">
-            {section === 'group-management' ? (
-              <span className="weq-cvs-body-icon" aria-hidden>
-                <UsersRound size={16} strokeWidth={1.8} />
-              </span>
-            ) : (
-              <span className="weq-cvs-body-icon" aria-hidden>
-                <Settings2 size={16} strokeWidth={1.8} />
-              </span>
-            )}
-            <strong>{section === 'group-management' ? '群管理' : '会话偏好'}</strong>
-            <span>
-              {section === 'group-management'
-                ? '加群方式与分类标签'
-                : kind === 'group'
-                  ? '置顶、消息接收与本群身份'
-                  : '置顶、免打扰与特别关心'}
-            </span>
-          </div>
-          <div className="weq-cvs-body-scroll">
-            <QQConversationControls
-              key={`${kind}:${conv}:${section}`}
-              kind={kind}
-              conv={conv}
-              section={section === 'group-management' ? 'group-management' : 'conversation'}
-            />
-          </div>
-        </>
+        <div className="weq-cvs-body-scroll">
+          <QQConversationControls
+            key={`${kind}:${conv}:${section}`}
+            kind={kind}
+            conv={conv}
+            section={section === 'group-management' ? 'group-management' : 'conversation'}
+          />
+        </div>
       ) : section === 'intentsense' ? (
-        <>
-          <div className="weq-cvs-body-head">
-            <span className="weq-cvs-body-icon" aria-hidden>
-              <BrainCircuit size={16} strokeWidth={1.8} />
-            </span>
-            <strong>意图感知</strong>
-            <span>在本会话显示消息意图/情绪胶囊与对方画像</span>
-          </div>
-          <div className="weq-cvs-body-scroll">
-            <Card title="本会话" icon={<BrainCircuit size={15} strokeWidth={1.9} />}>
-              <Row
-                label={
-                  <span className="weq-set-row-icon">
-                    <BrainCircuit size={14} strokeWidth={1.8} aria-hidden />
-                    跟随应用设置
-                  </span>
-                }
-                desc={'本会话的启用选择'}
-                control={
-                  <Toggle
-                    checked={intentOverride !== false}
-                    disabled={
-                      intentStatus.isLoading ||
-                      !intentData ||
-                      Boolean(intentStatus.error) ||
-                      setIntentOverride.isLoading
-                    }
-                    onChange={(next) => void onToggleIntent(next)}
-                    label="本会话意图感知跟随应用设置"
-                  />
-                }
-              />
-              <Row
-                label="实际生效状态"
-                control={
-                  <span role="status">
-                    {intentStatus.error
-                      ? '读取失败，重新打开此窗格可重试。'
-                      : !intentData
-                        ? '正在读取…'
-                        : intentOverride === false
-                          ? '已在此会话关闭'
-                          : !intentData.enabled
-                            ? '未生效：应用意图感知已关闭'
-                            : !intentEngineOk
-                              ? '未生效：引擎未就绪'
-                              : '已在此会话生效'}
-                  </span>
-                }
-              />
-            </Card>
-          </div>
-        </>
+        <div className="weq-cvs-body-scroll">
+          <Card title="本会话" icon={<BrainCircuit size={15} strokeWidth={1.9} />}>
+            <Row
+              label="跟随应用设置"
+              desc={'本会话的启用选择'}
+              control={
+                <Toggle
+                  checked={intentOverride !== false}
+                  disabled={
+                    intentStatus.isLoading ||
+                    !intentData ||
+                    Boolean(intentStatus.error) ||
+                    setIntentOverride.isLoading
+                  }
+                  onChange={(next) => void onToggleIntent(next)}
+                  label="本会话意图感知跟随应用设置"
+                />
+              }
+            />
+            <Row
+              label="实际生效状态"
+              control={
+                <span className="weq-set-row-status" role="status">
+                  {intentStatus.error
+                    ? '读取失败，重新打开此窗格可重试。'
+                    : !intentData
+                      ? '正在读取…'
+                      : intentOverride === false
+                        ? '已在此会话关闭'
+                        : !intentData.enabled
+                          ? '未生效：应用意图感知已关闭'
+                          : !intentEngineOk
+                            ? '未生效：引擎未就绪'
+                            : '已在此会话生效'}
+                </span>
+              }
+            />
+          </Card>
+        </div>
       ) : groupKeywords && section === 'keyword' ? (
-        <>
-          <div className="weq-cvs-body-head">
-            <span className="weq-cvs-body-icon" aria-hidden>
-              <BellRing size={16} strokeWidth={1.8} />
-            </span>
-            <strong>群关键词</strong>
-            <span>命中即提醒；每个词可单独限定发言人</span>
-            <span className="weq-cvs-body-state">
-              {keywordSave.saving
-                ? '保存中…'
-                : keywordSave.error
-                  ? '保存失败'
-                  : keywordSave.savedAt
-                    ? '已保存'
-                    : ''}
-            </span>
-          </div>
-          <div className="weq-cvs-body-scroll">
-            <GroupKeywordEditor groupId={conv} members={members} onSaveState={setKeywordSave} />
-          </div>
-        </>
+        <div className="weq-cvs-body-scroll">
+          <GroupKeywordEditor groupId={conv} members={members} />
+        </div>
       ) : (
-        <>
-          <div className="weq-cvs-body-head">
-            <span className="weq-cvs-body-icon" aria-hidden>
-              <ShieldCheck size={16} strokeWidth={1.8} />
-            </span>
-            <strong>防撤回</strong>
-            <span>对方撤回时，把消息原样留在你的本地记录里</span>
-          </div>
-          <div className="weq-cvs-body-scroll">
-            <Card title="保护此会话" icon={<ShieldCheck size={15} strokeWidth={1.9} />}>
-              {!enabled ? (
-                <p className="weq-set-note">
-                  防撤回当前为「关闭」。打开下面的开关会自动切到「按会话勾选」并保护此会话。
-                </p>
-              ) : null}
-              <Row
-                label={
-                  <span className="weq-set-row-icon">
-                    <ShieldCheck size={14} strokeWidth={1.8} aria-hidden />
-                    保护此会话
-                  </span>
-                }
-                desc={
-                  allProtected
-                    ? '当前是「永久全选」——所有会话都已受保护。'
-                    : '对方撤回时，消息会原样保留在你的本地记录里。'
-                }
-                control={
-                  <Toggle
-                    checked={protectedHere}
-                    disabled={busy || status.isLoading || Boolean(status.error) || allProtected}
-                    onChange={(next) => void onToggleProtect(next)}
-                    label="保护此会话"
-                  />
-                }
-              />
-              <Row
-                label={
-                  <span className="weq-set-row-icon">
-                    <BellRing size={14} strokeWidth={1.8} aria-hidden />
-                    撤回时通知我
-                  </span>
-                }
-                desc={
-                  notifyEnabled
-                    ? '被拦下的撤回会弹系统通知。'
-                    : '通知总开关在「更多 → 防撤回」里打开。'
-                }
-                control={
-                  <Toggle
-                    checked={notifyHere}
-                    disabled={busy || status.isLoading || Boolean(status.error) || !notifyEnabled}
-                    onChange={(next) => void onToggleNotify(next)}
-                    label="撤回时通知我"
-                  />
-                }
-              />
-              <Row
-                label="实际保护状态"
-                control={
-                  <span role="status">
-                    {checkingProtection || status.isFetching
-                      ? '正在核实安装状态…'
-                      : status.error || !actualStatus
-                        ? '尚未核实保护状态'
-                        : !enabled || !protectedHere
-                          ? '此会话未启用保护'
-                          : !actualStatus.installed?.some(
-                                (trigger) => trigger.name === `weq_anti_recall_${kind}`,
-                              )
-                            ? '触发器尚未安装'
-                            : actualStatus.qqRunning
-                              ? '触发器已安装；QQ 运行中，可能需要重启 QQ 后生效'
-                              : '触发器已安装'}
-                  </span>
-                }
-              />
-            </Card>
-          </div>
-        </>
+        <div className="weq-cvs-body-scroll">
+          <Card title="保护此会话" icon={<ShieldCheck size={15} strokeWidth={1.9} />}>
+            {!enabled ? (
+              <p className="weq-set-note">
+                防撤回当前为「关闭」。打开下面的开关会自动切到「按会话勾选」并保护此会话。
+              </p>
+            ) : null}
+            <Row
+              label="保护此会话"
+              desc={
+                allProtected
+                  ? '当前是「永久全选」——所有会话都已受保护。'
+                  : '对方撤回时，消息会原样保留在你的本地记录里。'
+              }
+              control={
+                <Toggle
+                  checked={protectedHere}
+                  disabled={busy || status.isLoading || Boolean(status.error) || allProtected}
+                  onChange={(next) => void onToggleProtect(next)}
+                  label="保护此会话"
+                />
+              }
+            />
+            <Row
+              label="撤回通知方式（全局）"
+              control={<NotificationMethodSelect event="recall" />}
+            />
+            <Row
+              label="提醒范围"
+              control={
+                <NotificationSettingsLink
+                  settingId="recall-notifications"
+                  conversation={{ kind, conv, title }}
+                  onNavigate={onClose}
+                >
+                  本会话撤回提醒
+                </NotificationSettingsLink>
+              }
+            />
+            <Row
+              label="实际保护状态"
+              control={
+                <span className="weq-set-row-status" role="status">
+                  {checkingProtection || status.isFetching
+                    ? '正在核实安装状态…'
+                    : status.error || !actualStatus
+                      ? '尚未核实保护状态'
+                      : !enabled || !protectedHere
+                        ? '此会话未启用保护'
+                        : !actualStatus.installed?.some(
+                              (trigger) => trigger.name === `weq_anti_recall_${kind}`,
+                            )
+                          ? '触发器尚未安装'
+                          : actualStatus.qqRunning
+                            ? '触发器已安装；QQ 运行中，可能需要重启 QQ 后生效'
+                            : '触发器已安装'}
+                </span>
+              }
+            />
+          </Card>
+        </div>
       )}
     </ConversationSettingsFrame>
   );

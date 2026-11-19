@@ -1,23 +1,23 @@
 {
   "schemaVersion": 1,
-  "tag": "dress-bf7882d",
-  "nativeCommit": "bf7882d36a635a04b2e64bc5eac6686a3214db77",
+  "tag": "dress-12d3248",
+  "nativeCommit": "12d3248b00a3dc0e78b7a320f640e976c73ce746",
   "format": "ntdr-v1",
-  "baseUrl": "https://github.com/weq-devs/dress-resources/releases/download/dress-bf7882d",
+  "baseUrl": "https://github.com/weq-devs/dress-resources/releases/download/dress-12d3248",
   "parts": {
     "bubble": {
       "asset": "dress-bubble.dat",
-      "sha256": "56ab3d3cfa4662404c6826edbf3a905e76564b1dbb88e471226d1bf6a7c540d6",
+      "sha256": "f220a35c75dcb8eecf82338458d9d30953bcc23f328b1b861b07ceae4f5cc0ad",
       "size": 25782309
     },
     "widget": {
       "asset": "dress-widget.dat",
-      "sha256": "e3aa0cefe3f21d8c5314f58d9d96e57011be9379be79ef53aa9225c8cd74880d",
+      "sha256": "bf81ecdbc3dc3e113339b7d9e47ab13e4b7dd82374cdf096e8ff406d05396be6",
       "size": 13376725
     },
     "font": {
       "asset": "dress-font.dat",
-      "sha256": "939dd1d2b13a89b5e0d2d0a64a167af66d165db6a6036db52cc3bc8ca71ccff4",
+      "sha256": "09aaa6db77bd809476747d62a6cde34d8adcf5c45a319f5be8ab925cfc23f3a6",
       "size": 2231669
     }
   }

@@ -36,7 +36,7 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-function fixture() {
+function fixture(notificationsEnabled?: () => boolean) {
   const root = mkdtempSync(join(tmpdir(), 'weq-recall-monitor-'));
   roots.push(root);
   const path = join(root, 'msg.db');
@@ -50,8 +50,8 @@ function fixture() {
       enabled: true,
       mode: 'all',
       targets: [],
-      notifyEnabled: true,
-      notifyTargets: ['group:123456'],
+      notifyEnabled: !notificationsEnabled,
+      notifyTargets: notificationsEnabled ? [] : ['group:123456'],
     }),
   );
   const nt = createSqliteStub();
@@ -67,7 +67,7 @@ function fixture() {
       isQqLoggedIn: () => false,
     } as unknown as Platform,
     config,
-    { onRecall: notify },
+    { onRecall: notify, notificationsEnabled },
   );
   services.push(service);
   return { service, nt, path, close, notify };
@@ -92,6 +92,28 @@ afterEach(() => {
   state.tasks.length = 0;
 });
 
+it('统一渠道开启但名单为空不通知；选择后以渠道为准而非旧总开关', async () => {
+  let enabled = true;
+  const f = fixture(() => enabled);
+  f.service.startMonitor();
+  await turn();
+  const insert = fixtureDb(f.path).prepare(
+    "INSERT INTO weq_recall_log VALUES (?, '123456', 'group', 'u_sender', 'u_revoker', ?, 1)",
+  );
+  expect((await f.service.getStatus()).notifyEnabled).toBe(true);
+  insert.run(1, 1);
+  await poll();
+  expect(f.notify).not.toHaveBeenCalled();
+  await f.service.setNotify({ targets: ['group:123456'] });
+  insert.run(2, 2);
+  await poll();
+  expect(f.notify.mock.calls.map(([event]) => event.msgId)).toEqual(['2']);
+  enabled = false;
+  insert.run(3, 3);
+  await poll();
+  expect(f.notify).toHaveBeenCalledOnce();
+});
+
 it('撤回监听只读查询复用账号连接，历史不通知且大整数游标不会重复交付', async () => {
   const f = fixture();
   const old = 9007199254740993n;
@@ -106,7 +128,11 @@ it('撤回监听只读查询复用账号连接，历史不通知且大整数游�
   await poll();
   await poll();
   expect(f.notify).toHaveBeenCalledOnce();
-  expect(f.notify.mock.calls[0]![0]).toMatchObject({ kind: 'group', origSeq: '2' });
+  expect(f.notify.mock.calls[0]![0]).toMatchObject({
+    kind: 'group',
+    msgId: String(old + 1n),
+    origSeq: '2',
+  });
   expect(f.close).not.toHaveBeenCalled();
 });
 

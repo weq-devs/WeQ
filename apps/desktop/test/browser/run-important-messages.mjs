@@ -229,7 +229,7 @@ try {
   );
   await page.getByTitle('下一条：有人@我', { exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.unread-dock-count'));
-  assert.equal(await page.locator('.unread-dock-label').textContent(), '新的 14 条未读消息');
+  assert.equal(await page.locator('.unread-dock-label').textContent(), '跳到首条未读');
   await page.locator('[data-important-seq="1024"]').click({ button: 'right' });
   await page.getByRole('menuitem', { name: '定位到原消息', exact: true }).click();
   assert.equal(await page.locator('.weq-important-row').count(), 20);

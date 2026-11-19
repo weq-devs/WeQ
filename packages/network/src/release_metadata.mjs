@@ -2,6 +2,7 @@ import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'nod
 
 export const FEED_TAG = 'weq-update-feed';
 export const FEED_ASSET = 'update-index.json';
+export const RELEASE_SUMMARY_MAX_CHARS = 300;
 const DOMAIN = Buffer.from('WeQ release metadata v1\0');
 export function releaseKeyId(key) {
   return createHash('sha256')
@@ -31,6 +32,11 @@ export function validateReleaseIndex(value, repository) {
       typeof release.prerelease !== 'boolean' ||
       channels.has(release.prerelease) ||
       !Number.isFinite(Date.parse(release.publishedAt)) ||
+      (release.summary !== undefined &&
+        (typeof release.summary !== 'string' ||
+          !release.summary.trim() ||
+          release.summary.length > RELEASE_SUMMARY_MAX_CHARS ||
+          /[\r\n]/.test(release.summary))) ||
       !Array.isArray(release.assets) ||
       !release.assets.length ||
       release.assets.length > 128 ||

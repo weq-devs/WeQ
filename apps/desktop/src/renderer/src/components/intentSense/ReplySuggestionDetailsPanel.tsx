@@ -211,25 +211,19 @@ export function ReplySuggestionDetailsPanel({
                   <div>
                     <dt>输入 Token</dt>
                     <dd>
-                      <span className="weq-number weq-number-inherit">
-                        {generation.usage.promptTokens ?? '未记录'}
-                      </span>
+                      <NumericText>{generation.usage.promptTokens ?? '未记录'}</NumericText>
                     </dd>
                   </div>
                   <div>
                     <dt>输出 Token</dt>
                     <dd>
-                      <span className="weq-number weq-number-inherit">
-                        {generation.usage.completionTokens ?? '未记录'}
-                      </span>
+                      <NumericText>{generation.usage.completionTokens ?? '未记录'}</NumericText>
                     </dd>
                   </div>
                   <div>
                     <dt>总 Token</dt>
                     <dd>
-                      <span className="weq-number weq-number-inherit">
-                        {generation.usage.totalTokens ?? '未记录'}
-                      </span>
+                      <NumericText>{generation.usage.totalTokens ?? '未记录'}</NumericText>
                     </dd>
                   </div>
                 </>

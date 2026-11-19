@@ -8,11 +8,13 @@ import {
   PerformanceMonitor,
   normalizeMonitorSettings,
   DEFAULT_MONITOR_SETTINGS,
+  finishPerformanceRecordingReset,
   sqliteWorkerExecArgv,
   type MonitorCollector,
   type MonitorRecord,
   type MonitorPrunePreview,
 } from '../src/performance';
+import { UserConfigService } from '../src/bootstrap/user_config';
 import { performanceWorker } from '../src/performance/worker';
 import { createNodeCollector } from '../src/performance/node';
 import {
@@ -208,6 +210,35 @@ describe('宿主性能监视', () => {
       await new Promise<void>((resolve) => setImmediate(resolve));
     await restored.status();
     expect(restored.settings.mode).toBe('light');
+  });
+  it('接续全局恢复时只恢复记录档位，保留保存策略和已有采样', async () => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    const { service } = await monitor();
+    const from = Date.now() - 60_000;
+    await vi.advanceTimersByTimeAsync(1);
+    await service.flush();
+    const range = { from, to: Date.now() + 1, buckets: 100 };
+    const before = (await service.history(range)).points;
+    expect(before).toHaveLength(1);
+    await service.configure({
+      ...DEFAULT_MONITOR_SETTINGS,
+      mode: 'full',
+      fullUntil: Date.now() + 60_000,
+      retentionDays: 30,
+      capacityMiB: 256,
+    });
+    const config = new UserConfigService({ appDataRoot: () => service.root });
+    config.write({ performanceRecordingResetRevision: 42 });
+    await finishPerformanceRecordingReset(config, service);
+    expect(config.read().performanceRecordingResetRevision).toBeUndefined();
+    expect(service.settings).toEqual({
+      ...DEFAULT_MONITOR_SETTINGS,
+      retentionDays: 30,
+      capacityMiB: 256,
+    });
+    expect((await service.history(range)).points).toEqual(before);
   });
   it('采样未完成时切档不保留旧结果，清空不会被在途采样补回', async () => {
     vi.useFakeTimers({

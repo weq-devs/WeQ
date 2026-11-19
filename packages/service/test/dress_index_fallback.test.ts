@@ -7,6 +7,7 @@ import type { NtHelperBinding } from '@weq/native';
 import type { TrpcNative } from '@weqbot/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DressSharedCache } from '../src/account/dress_shared_cache';
+import { ninePatch } from './support/nine_patch';
 import {
   configureDressIndexResources,
   subscribeDressIndexResources,
@@ -64,7 +65,11 @@ describe('索引与装扮素材缓存分开处理', () => {
   it('已经缓存的气泡立即返回，不触发索引下载或在线换链', async () => {
     const { root, cache } = await fixture();
     await mkdir(join(root, 'bubbles'), { recursive: true });
-    await writeFile(join(root, 'bubbles', '7.png'), Buffer.from('cached asset'));
+    await writeFile(join(root, 'bubbles', '7.png'), ninePatch(10, 10, [4, 6], [4, 6]));
+    await writeFile(
+      join(root, 'bubbles', '7-config.json'),
+      JSON.stringify({ link_color: '0xFF445566' }),
+    );
     await writeFile(
       join(root, 'bubbles', '7.json'),
       JSON.stringify({
@@ -77,7 +82,11 @@ describe('索引与装扮素材缓存分开处理', () => {
       throw new Error('不应联网');
     });
     vi.stubGlobal('fetch', fetch);
-    expect(await cache.installBubble(7)).toMatchObject({ itemId: 7 });
+    expect(await cache.installBubble(7)).toMatchObject({
+      itemId: 7,
+      slice: { left: 4, right: 4, top: 4, bottom: 4 },
+      linkColor: 'rgb(68 85 102)',
+    });
     expect(fetch).not.toHaveBeenCalled();
     expect(protocol.bubble).not.toHaveBeenCalled();
   });

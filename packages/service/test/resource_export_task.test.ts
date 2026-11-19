@@ -1,5 +1,13 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExportTaskManager } from '../src/account/export/task_manager';
@@ -36,6 +44,122 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('独立资源沿用导出任务生命周期', () => {
+  it('群文件批量下载只有全部大小已知才汇总字节，部分失败不当作已下载', async () => {
+    const f = fixture();
+    let report!: () => void;
+    let continueRun!: () => void;
+    const snapshots: ReturnType<ExportTaskManager['activeResourceTransfers']>[] = [];
+    const entered = new Promise<void>((resolve) => {
+      report = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      continueRun = resolve;
+    });
+    const id = await f.manager.startResourceExport({
+      kind: 'group-files',
+      name: '群文件',
+      transferTarget: 'group-activity',
+      savePolicy: { mode: 'before', directory: f.root },
+      run: async ({ directory, progress, transferProgress, transferItemFinished }) => {
+        progress(0, 2);
+        transferProgress?.(3, 8, 'a');
+        snapshots.push(f.manager.activeResourceTransfers());
+        transferProgress?.(1, 2, 'b');
+        report();
+        await gate;
+        transferItemFinished?.('a', false);
+        progress(1, 2);
+        snapshots.push(f.manager.activeResourceTransfers());
+        transferProgress?.(2, 2, 'b');
+        transferItemFinished?.('b', true);
+        writeFileSync(join(directory, 'b'), 'ok');
+        return { total: 2, ok: 1, failed: [{ fileName: 'a', error: '不可用' }] };
+      },
+    });
+    try {
+      await entered;
+      expect(f.manager.activeResourceTransfers()).toEqual([
+        expect.objectContaining({
+          id,
+          received: 4,
+          total: 10,
+          targets: ['group-activity'],
+          files: expect.arrayContaining([
+            { target: 'a', received: 3, total: 8 },
+            { target: 'b', received: 1, total: 2 },
+          ]),
+        }),
+      ]);
+    } finally {
+      continueRun();
+    }
+    await f.done();
+    expect(snapshots[0]?.[0]?.total).toBeUndefined();
+    expect(snapshots[1]?.[0]).toMatchObject({ processed: 1, items: 2 });
+    expect(snapshots[1]?.[0]?.total).toBeUndefined();
+    expect(f.manager.getTask(id)?.resource?.failed).toBe(1);
+    expect(f.manager.activeResourceTransfers()).toEqual([]);
+  });
+  it('单文件下载只保留目标文件，重启后删除任务也不影响下载文件', async () => {
+    const f = fixture();
+    mkdirSync(join(f.root, 'downloads'));
+    const destination = realpathSync(join(f.root, 'downloads'));
+    const target = join(destination, 'attachment.bin');
+    writeFileSync(target, 'existing');
+    const id = await f.manager.startResourceExport({
+      name: '附件',
+      kind: 'media',
+      output: { kind: 'file', name: 'attachment', extension: 'bin' },
+      savePolicy: { mode: 'preset', filePath: target, uniqueFileName: true },
+      run: async ({ directory }) => {
+        expect(dirname(dirname(directory))).toBe(destination);
+        writeFileSync(join(directory, 'original.bin'), 'downloaded');
+        expect(readdirSync(destination)).not.toContain('attachment-2.bin');
+        return { total: 1, ok: 1, failed: [], fileName: 'original.bin' };
+      },
+    });
+    await f.done();
+    const saved = join(destination, 'attachment-2.bin');
+    expect(f.manager.getTask(id)).toMatchObject({
+      status: 'completed',
+      filePath: saved,
+      save: { status: 'saved', path: saved },
+    });
+    expect(readdirSync(f.cache)).toEqual(['export_tasks.json']);
+    expect(readdirSync(destination).sort()).toEqual(['attachment-2.bin', 'attachment.bin']);
+    const restored = new ExportTaskManager({} as MsgService, f.cache);
+    expect(restored.deleteTask(id)).toBe(true);
+    expect(readFileSync(target, 'utf8')).toBe('existing');
+    expect(readFileSync(saved, 'utf8')).toBe('downloaded');
+  });
+  it('单文件下载取消时丢弃暂存文件，不发布目标', async () => {
+    const f = fixture();
+    const target = join(f.root, 'attachment.bin');
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const id = await f.manager.startResourceExport({
+      name: '附件',
+      kind: 'mail-attachment',
+      output: { kind: 'file', name: 'attachment', extension: 'bin' },
+      savePolicy: { mode: 'before', filePath: target },
+      run: async ({ directory, signal }) => {
+        writeFileSync(join(directory, 'attachment.bin'), 'partial');
+        started();
+        await new Promise<void>((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+        );
+        return { total: 1, ok: 1, failed: [], fileName: 'attachment.bin' };
+      },
+    });
+    await entered;
+    expect(f.manager.cancelTask(id)).toBe(true);
+    await f.done();
+    expect(f.manager.getTask(id)?.status).toBe('cancelled');
+    expect(readdirSync(f.root)).toEqual(['cache']);
+    expect(readdirSync(f.cache)).toEqual(['export_tasks.json']);
+  });
   it('继续一个策略暂停任务只放行其执行上下文，小附件不按批量下载暂停', async () => {
     const f = fixture();
     updateClientNetwork('manual-phone', networkCost(true, true, 'phone'));

@@ -101,9 +101,8 @@ function rowTone(row: DatabaseMaintenanceRow): Tone {
 }
 function rowSummary(row: DatabaseMaintenanceRow): string {
   if (row.repair?.status === 'running') return '正在重建这个数据库，期间不要打开这个账号的 QQ。';
-  if (row.repair?.status === 'failed') return row.repair.error ?? '修复没有完成。';
-  if (row.repair?.status === 'waiting')
-    return row.repair.error ?? '已保留扫描结果，等待处理后重试。';
+  if (row.repair?.status === 'failed') return '修复没有完成，原因见问题明细。';
+  if (row.repair?.status === 'waiting') return '已保留扫描结果，处理问题后可重试。';
   if (row.repair?.status === 'cancelled') return '本轮修复已停止，这个库没有提交替换。';
   if (row.repair?.status === 'completed')
     return row.repair.record?.verification?.healthy === false
@@ -114,7 +113,7 @@ function rowSummary(row: DatabaseMaintenanceRow): string {
     const current = row.progress?.current;
     return current?.message ? `${current.message}…` : '正在检查页签名。';
   }
-  if (row.scanStatus === 'failed') return row.scanError ?? '扫描没有跑完，暂时没有可用结论。';
+  if (row.scanStatus === 'failed') return '扫描没有完成，暂时没有可用结论。';
   if (row.scan?.plaintext) return '明文数据库，当前重建工具不支持处理它。';
   if (row.deepStatus === 'running') return '正在做结构体检，页扫描结果已经保留。';
   if (row.deepStatus === 'partial')
@@ -125,7 +124,7 @@ function rowSummary(row: DatabaseMaintenanceRow): string {
   if (row.integrity?.ran && row.integrity.complete === false)
     return '已检查的结构部分没有发现异常，但仍有未核验项，不能认定整库正常。';
   const diagnostic = row.issues.filter((issue) => issue.diagnostic !== false);
-  if (diagnostic.length) return diagnostic[0]!.message;
+  if (diagnostic.length) return `发现 ${diagnostic.length} 项需要查看的问题。`;
   if (row.scan) {
     if (row.scan.badPages.length)
       return `扫出 ${row.scan.badPages.length.toLocaleString('zh-CN')} 个坏页，重建会把它们排除在外。`;
@@ -298,6 +297,14 @@ export function DbRepairPanel({
   const deleteRecord = trpc.dbRepair.deleteRecord.useMutation();
 
   useEffect(() => {
+    const dismissOptions = (event: PointerEvent) => {
+      const options = optionsRef.current;
+      if (options?.open && !event.composedPath().includes(options)) options.open = false;
+    };
+    ownerDocument.addEventListener('pointerdown', dismissOptions, true);
+    return () => ownerDocument.removeEventListener('pointerdown', dismissOptions, true);
+  }, [ownerDocument]);
+  useEffect(() => {
     if (maintenance.data !== undefined) setLive(maintenance.data);
   }, [maintenance.data]);
   useEffect(() => {
@@ -379,6 +386,17 @@ export function DbRepairPanel({
   };
   const startScan = (kind: 'scan' | 'checkup') =>
     act(async () => {
+      if (
+        rescanning &&
+        !(await useDialog
+          .getState()
+          .confirm(
+            '重新扫描数据库？',
+            '将重新检查全部目标数据库，替换当前页内结果。已有历史报告会保留，扫描不会执行修复。',
+            { okLabel: '重新扫描', cancelLabel: '继续查看', ownerDocument },
+          ))
+      )
+        return;
       window.electron?.ipcRenderer.send('db-repair:scope', scope);
       setReportId(undefined);
       setReportScope(scope);
@@ -386,6 +404,7 @@ export function DbRepairPanel({
       setStarting(kind);
       setAllowLowSpace(false);
       try {
+        if (rescanning) await end.mutateAsync(scope);
         setLive(await scan.mutateAsync({ ...scope, kind }));
         await refresh();
       } finally {
@@ -418,7 +437,7 @@ export function DbRepairPanel({
           .getState()
           .confirm(
             '修复所选数据库？',
-            `${names.join('、')} 将使用当前维护中已有的扫描结果重建并替换。${backup ? '修复前保留备份。' : '本次不保留备份。'}${allowLowSpace ? '本次明确接受建议余量不足；后续写入空间不足时会返回查看结果。' : ''}修复过程中可以停止，已成功的库不会回退。`,
+            `${names.join('、')} 将使用当前维护中已有的扫描结果重建并替换。${backup ? '修复前保留备份，本次维护中已成功的备份会直接复用。' : '本次不保留备份。'}${allowLowSpace ? '本次允许在预留空间不足时尝试修复；实际空间不足时会返回查看结果。' : ''}修复过程中可以停止，已成功的库不会回退。`,
             { okLabel: '开始修复', cancelLabel: '继续查看', ownerDocument },
           ))
       ) {
@@ -459,7 +478,7 @@ export function DbRepairPanel({
           .getState()
           .confirm(
             '恢复修复前的数据库？',
-            `${preview.record.dbName} 将恢复为这份备份。${preview.matchesAfter ? '' : '当前数据库在修复后发生过变化，恢复会覆盖这些变化。'}`,
+            `${preview.record.dbName} 将恢复为这份备份。${preview.matchesAfter ? '' : '当前数据库已变化或仍有未合并的日志，恢复会覆盖修复之后的数据。'}`,
             { okLabel: '恢复备份', cancelLabel: '取消', ownerDocument },
           ))
       )
@@ -498,6 +517,7 @@ export function DbRepairPanel({
   const waiting = live?.state === 'waiting' && !ending;
   const paused =
     waiting && live?.operation?.kind !== 'repair' && live?.operation?.status === 'cancelled';
+  const rescanning = !!live?.operation && !paused;
   const databases =
     view?.databases ??
     status.data?.databases
@@ -647,12 +667,12 @@ export function DbRepairPanel({
       ) : (
         <button
           type="button"
-          className="weq-set-btn weq-set-btn-primary"
+          className={`weq-set-btn${rescanning ? '' : ' weq-set-btn-primary'}`}
           disabled={!canScan}
           onClick={() => void startScan(scanKind)}
         >
-          <Play size={14} />
-          {paused ? '继续扫描' : '开始扫描'}
+          {rescanning ? <RefreshCw size={14} /> : <Play size={14} />}
+          {paused ? '继续扫描' : rescanning ? '重新扫描' : '开始扫描'}
         </button>
       )}
     </div>
@@ -915,7 +935,7 @@ export function DbRepairPanel({
             </button>
           </p>
         ))}
-        {connectionError && running ? (
+        {connectionError && running && !activeProgress ? (
           <p className="weq-dbm-alert" role="alert">
             <AlertTriangle size={15} aria-hidden />
             <span>进度连接中断，正在重新连接；任务结果尚未确认。</span>
@@ -1029,13 +1049,11 @@ export function DbRepairPanel({
                 {running ? <Loader2 size={14} className="weq-spin" /> : <History size={14} />}
                 {running ? '执行进度' : '本次执行过程'}
               </span>
-              <span className="weq-dbm-process-hint">
-                {running
-                  ? '阶段、当前步骤与处理数量'
-                  : operation
-                    ? `${operationLabels[operation.kind]} · ${operationStates[operation.status]} · ${operation.completedDatabases} / ${operation.totalDatabases} 个数据库`
-                    : '查看阶段与步骤'}
-              </span>
+              {!running && operation ? (
+                <span className="weq-dbm-process-hint">
+                  {`${operationLabels[operation.kind]} · ${operationStates[operation.status]} · ${operation.completedDatabases} / ${operation.totalDatabases} 个数据库`}
+                </span>
+              ) : null}
               <ChevronDown size={14} className="weq-dbm-chevron" aria-hidden />
             </summary>
             <div className="weq-dbm-process-body">
@@ -1093,7 +1111,7 @@ export function DbRepairPanel({
                 }
               }}
             >
-              <summary className="weq-set-btn weq-set-btn-sm">
+              <summary className="weq-set-btn">
                 修复选项
                 <ChevronDown size={13} aria-hidden />
               </summary>
@@ -1118,8 +1136,8 @@ export function DbRepairPanel({
                     onChange={(event) => setStrictPages(event.target.checked)}
                   />
                   <span>
-                    <strong>严格页模式</strong>
-                    <em>丢弃坏页里的内容，只在需要尽量缩小产物时使用。</em>
+                    <strong>丢弃损坏部分的数据</strong>
+                    <em>不尝试恢复损坏页中仍可读取的内容，可能丢失更多记录；默认关闭。</em>
                   </span>
                 </label>
                 <label className="weq-dbm-option">
@@ -1130,8 +1148,8 @@ export function DbRepairPanel({
                     onChange={(event) => setAllowLowSpace(event.target.checked)}
                   />
                   <span>
-                    <strong>接受磁盘建议余量不足</strong>
-                    <em>后续写入空间不足时返回查看结果，保留锁和已有扫描结果。</em>
+                    <strong>预留空间不足时仍尝试修复</strong>
+                    <em>仍需满足预计写入空间；后续空间不足时保留扫描结果，腾出空间后可重试。</em>
                   </span>
                 </label>
                 {selectedReady.length ? (
@@ -1194,7 +1212,7 @@ export function DbRepairPanel({
               ) : null}
               {surface === 'settings' ? (
                 <section className="weq-dbm-cache">
-                  <h3>重建缓存位置</h3>
+                  <h3>备份与修复工作区位置</h3>
                   <p>{cache.data?.override ?? '默认 WeQ 缓存目录'}</p>
                   {cache.error ? (
                     <p className="weq-dbm-alert" role="alert">
@@ -1434,20 +1452,6 @@ function DatabaseCard({
           )}
         </span>
         <Chip tone={tone}>{rowLabel(row)}</Chip>
-        {selectable ? (
-          <input
-            type="checkbox"
-            className="weq-dbm-db-input"
-            aria-label={`修复 ${row.dbName}`}
-            checked={selected}
-            disabled={disabled}
-            onChange={(event) => {
-              onFocus();
-              onSelect(event.target.checked);
-            }}
-            onFocus={onFocus}
-          />
-        ) : null}
       </span>
       <span className="weq-dbm-db-name">{row.dbName}</span>
       <span className="weq-dbm-db-note">{rowSummary(row)}</span>
@@ -1464,26 +1468,30 @@ function DatabaseCard({
       </span>
     </>
   );
-  if (!selectable) {
-    return (
+  return (
+    <div className="weq-dbm-db-wrap">
       <button
         type="button"
-        className={`weq-dbm-db${current ? ' is-current' : ''}`}
+        className={`weq-dbm-db${selectable ? ' is-selectable' : ''}${current ? ' is-current' : ''}${selectable && selected ? ' is-selected' : ''}`}
         data-tone={tone}
+        aria-label={`查看 ${row.dbName} 检查详情`}
         aria-pressed={current}
         onClick={onFocus}
       >
         {content}
       </button>
-    );
-  }
-  return (
-    <label
-      className={`weq-dbm-db is-selectable${current ? ' is-current' : ''}${selected ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}`}
-      data-tone={tone}
-    >
-      {content}
-    </label>
+      {selectable ? (
+        <input
+          type="checkbox"
+          className="weq-dbm-db-input"
+          aria-label={`修复 ${row.dbName}`}
+          checked={selected}
+          disabled={disabled}
+          onChange={(event) => onSelect(event.target.checked)}
+          onFocus={onFocus}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -1495,6 +1503,22 @@ function DatabaseDetail({
   bytes: number | null | undefined;
 }) {
   const tone = rowTone(row);
+  const issues = new Map(row.issues.map((issue) => [issue.message, issue]));
+  if (row.scan?.plaintext) {
+    const original = row.issues.find(
+      (issue) => issue.message === '此数据库为明文库，当前重建工具仅支持加密库。',
+    );
+    if (original) issues.delete(original.message);
+    const message = '明文数据库，没有加密页签名可校验；当前重建工具不支持处理它。';
+    issues.set(message, { message, support: 'unsupported', diagnostic: false });
+  }
+  for (const message of [
+    row.integrity && !row.integrity.ran ? row.integrity.error : undefined,
+    row.scanError,
+    row.repair?.error,
+  ]) {
+    if (message && !issues.has(message)) issues.set(message, { message, support: row.support });
+  }
   const integrityText = row.integrity
     ? row.integrity.ran
       ? row.integrity.healthy
@@ -1523,7 +1547,7 @@ function DatabaseDetail({
         <Chip tone={tone}>{rowLabel(row)}</Chip>
         <span className="weq-dbm-detail-support">{databaseRepairSupportLabel[row.support]}</span>
       </header>
-      <p className="weq-dbm-verdict">{rowSummary(row)}</p>
+      {!row.scan?.plaintext ? <p className="weq-dbm-verdict">{rowSummary(row)}</p> : null}
       <dl className="weq-dbm-metrics">
         <div>
           <dt>文件大小</dt>
@@ -1556,27 +1580,15 @@ function DatabaseDetail({
           </dd>
         </div>
       </dl>
-      {row.scan?.plaintext ? (
-        <p className="weq-dbm-note">
-          <Info size={14} aria-hidden />
-          明文数据库，没有加密页签名可校验；当前重建工具也不支持这个库。
-        </p>
-      ) : null}
       {row.integrity?.ran && row.integrity.unverifiedTables?.length ? (
         <p className="weq-dbm-note">
           <Info size={14} aria-hidden />
           未核验结构：{row.integrity.unverifiedTables.join('、')}
         </p>
       ) : null}
-      {row.integrity && !row.integrity.ran && row.integrity.error ? (
-        <p className="weq-dbm-note is-warn">
-          <AlertTriangle size={14} aria-hidden />
-          {row.integrity.error}
-        </p>
-      ) : null}
-      {row.issues.length ? (
+      {issues.size ? (
         <ul className="weq-dbm-issues">
-          {row.issues.map((issue) => (
+          {[...issues.values()].map((issue) => (
             <li key={`${issue.stage ?? 'scan'}:${issue.message}`}>
               <span
                 className="weq-dbm-issue-icon"
@@ -1590,18 +1602,6 @@ function DatabaseDetail({
             </li>
           ))}
         </ul>
-      ) : null}
-      {row.scanError ? (
-        <p className="weq-dbm-note is-warn">
-          <AlertTriangle size={14} aria-hidden />
-          扫描没有完成：{row.scanError}
-        </p>
-      ) : null}
-      {row.repair?.error ? (
-        <p className="weq-dbm-note is-warn">
-          <AlertTriangle size={14} aria-hidden />
-          {row.repair.error}
-        </p>
       ) : null}
       {row.repair?.record?.verification ? (
         <div className="weq-dbm-verify">
@@ -1693,7 +1693,7 @@ function RepairStorageWarning({
   if (!tight.length && !previousWarning)
     return budget.error && enabled ? (
       <p className="weq-dbm-alert" role="alert">
-        无法检查缓存空间：{budget.error.message}
+        无法检查备份与修复工作区空间：{budget.error.message}
       </p>
     ) : null;
   const grouped = new Map<string, (typeof tight)[number]>();
@@ -1720,15 +1720,17 @@ function RepairStorageWarning({
               : '磁盘可用空间偏低'}
         </strong>
       </div>
-      <p>请清理磁盘或更改重建缓存位置。空间不足时会保留维护锁和扫描结果，返回查看结果后可重试。</p>
+      <p>
+        请清理磁盘或更改备份与修复工作区位置。空间不足时会保留维护锁和扫描结果，返回查看结果后可重试。
+      </p>
       <dl>
         <div>
-          <dt>当前缓存位置</dt>
+          <dt>备份与修复工作区位置</dt>
           <dd>{estimates[0]?.cachePath}</dd>
         </div>
         {volumes.map((volume) => (
           <div key={volume.paths.join(':')}>
-            <dt>{volume.paths.includes(volume.cachePath) ? '缓存卷' : '原数据库卷'}</dt>
+            <dt>{volume.paths.includes(volume.cachePath) ? '工作区所在卷' : '原数据库卷'}</dt>
             <dd>
               <span className="weq-dbm-path">{volume.paths.join('、')}</span>
               <span>
@@ -1748,7 +1750,7 @@ function RepairStorageWarning({
           title={cacheDisabled ? '当前重建结束并返回查看结果后可更改位置' : undefined}
         >
           <FolderOpen size={14} />
-          更改缓存位置
+          更改位置
         </button>
         <button
           type="button"
@@ -1905,6 +1907,7 @@ function ReportView({
               progress={progress}
               batch={{ ...operation, locked: view.locked }}
               showBatch={false}
+              showBatchError={false}
               showMaintained={false}
             />
           </div>

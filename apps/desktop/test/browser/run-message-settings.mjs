@@ -115,6 +115,7 @@ try {
             'true',
           );
           const child = body.locator('[data-setting-id="link-screenshot"]');
+          await body.getByRole('switch', { name: '自动联网补全链接预览', exact: true }).click();
           assert.equal(await child.evaluate((node) => node.classList.contains('is-indent')), true);
           const parentX = await body
             .locator('[data-setting-id="link-preview"] .weq-set-row-label')

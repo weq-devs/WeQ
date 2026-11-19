@@ -1,5 +1,6 @@
 export const FEED_TAG: string;
 export const FEED_ASSET: string;
+export const RELEASE_SUMMARY_MAX_CHARS: number;
 export interface ReleaseAsset {
   name: string;
   size: number;
@@ -10,6 +11,7 @@ export interface ReleaseDescriptor {
   version: string | null;
   prerelease: boolean;
   publishedAt: string;
+  summary?: string;
   assets: ReleaseAsset[];
   catalogs: Record<string, string>;
 }

@@ -111,7 +111,7 @@ it('精确会话标识关联，打开会话与定位消息复用已有跳转总�
   expect(f.push).toHaveBeenLastCalledWith({ kind: 'group', conv: '777', seq: '' });
   await caller.jump({ id, ...binding, msgId: '9001' });
   expect(f.group).toHaveBeenCalledWith('777', 9001n);
-  expect(f.push).toHaveBeenLastCalledWith({ kind: 'group', conv: '777', seq: '12' });
+  expect(f.push).toHaveBeenLastCalledWith({ kind: 'group', conv: '777', seq: '12', msgId: '9001' });
 });
 it('相同标识但不同会话类型不关联，账号不可用时仍不触发跳转', async () => {
   const id = opened();

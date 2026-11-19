@@ -2,6 +2,7 @@ import { EmptyState } from '../EmptyState';
 import { SearchX } from 'lucide-react';
 import { highlightText } from './SearchResultCard.shared';
 import { appSearchIcon, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
+import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import '../../styles/app-search.css';
 
 export function AppSearchResults({
@@ -9,7 +10,7 @@ export function AppSearchResults({
   onSelect,
   expanded = false,
   onExpand,
-  entries = searchAppEntries(keyword),
+  entries: providedEntries,
 }: {
   keyword: string;
   onSelect: (entry: AppSearchEntry) => void;
@@ -17,6 +18,10 @@ export function AppSearchResults({
   onExpand: () => void;
   entries?: AppSearchEntry[];
 }) {
+  const developmentDressTools = useDevelopmentDressTools();
+  const entries = (providedEntries ?? searchAppEntries(keyword, developmentDressTools)).filter(
+    (entry) => entry.target.kind !== 'dressup' || developmentDressTools,
+  );
   return (
     <div className="weq-search-section weq-app-search">
       <div className="weq-search-section-header">

@@ -77,6 +77,15 @@ it('摘要读取失败保留重要消息，空页不读消息表', async () => {
   expect(rpc.read).not.toHaveBeenCalled();
 });
 
+it('索引请求不读正文，独立摘要请求只查传入的序号', async () => {
+  const api = accountRouter.createCaller({});
+  const page = await api.listImportantGroupMessages({ ...input, deferPreviews: true });
+  expect(page.items[0]).toMatchObject({ ...item, preview: '' });
+  expect(rpc.read).not.toHaveBeenCalled();
+  await api.importantGroupPreviews({ ...input, seqs: ['102'] });
+  expect(rpc.read.mock.calls).toEqual([['777', [102n]]]);
+});
+
 it('多选类别交给索引分页，图片只返回被动缩略图索引，文件摘要保留文件名', async () => {
   rpc.read.mockResolvedValueOnce([
     {

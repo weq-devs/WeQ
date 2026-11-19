@@ -1,3 +1,5 @@
+import type { ForwardExportTarget } from '@weq/service';
+
 export type ContentKind =
   | 'conversations'
   | 'conversation-batch'
@@ -22,7 +24,7 @@ export interface ContentOwner {
   /** 内容层级的稳定身份，如会话、相册或收藏集合；不能只用内容种类区分。 */
   container: string;
   /** 右键聊天记录专属导出；scope 仍锁定承载该卡片的一条消息。 */
-  forwardTarget?: { elementIndex: number; resId: string };
+  forwardTarget?: ForwardExportTarget;
 }
 
 export interface GeneratedContentIdentity {
@@ -33,7 +35,7 @@ export interface GeneratedContentIdentity {
 
 export interface ConversationBatchTarget {
   messageIds?: string[];
-  forwardTarget?: { elementIndex: number; resId: string };
+  forwardTarget?: ForwardExportTarget;
   /** 统一目录中的行身份，与同批其他来源不能冲突。 */
   id: string;
   name: string;
@@ -110,7 +112,7 @@ export function conversationBatchTargets(selection: ContentSelection): Conversat
               ? { messageIds: [...new Set(selection.scope.ids)] }
               : {}),
             ...(selection.owner.forwardTarget
-              ? { forwardTarget: { ...selection.owner.forwardTarget } }
+              ? { forwardTarget: structuredClone(selection.owner.forwardTarget) }
               : {}),
           },
         ]
@@ -269,7 +271,7 @@ export function createToolDraft(accountId: string, selection: ContentSelection):
       owner: {
         ...selection.owner,
         ...(selection.owner.forwardTarget
-          ? { forwardTarget: { ...selection.owner.forwardTarget } }
+          ? { forwardTarget: structuredClone(selection.owner.forwardTarget) }
           : {}),
       },
       scope: copyContentScope(selection.scope),

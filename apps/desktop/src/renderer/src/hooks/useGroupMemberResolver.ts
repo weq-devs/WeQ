@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { client } from '../trpc/client';
 import { reconcileResolvedRows } from '../lib/resolvedRows';
+import type { GroupMemberLookup } from '../lib/groupMemberRefresh';
 
 /** getGroupMembersByUids 的单次 uid 上限（与 IPC 层一致）。 */
 const CHUNK = 200;
@@ -51,6 +52,7 @@ export interface GroupMemberResolver<T> {
 
 export function useGroupMemberResolver<T extends { uid: string }>(
   minRefreshIntervalMs = 0,
+  lookup?: GroupMemberLookup<T>,
 ): GroupMemberResolver<T> {
   const [missingMembers, setMissingMembers] = useState<Record<string, Record<string, T>>>({});
   // 每个群已发起过 getGroupMembersByUids 的 uid（含查无结果的，例如已退群的戳一戳
@@ -136,10 +138,13 @@ export function useGroupMemberResolver<T extends { uid: string }>(
     running.current = true;
     void (async () => {
       try {
-        const members = await client.account.getGroupMembersByUids.query({
+        const input = {
           groupCode: job.groupCode,
           uids: job.uids,
-        });
+        };
+        const members = await (lookup
+          ? lookup(input)
+          : client.account.getGroupMembersByUids.query(input));
         if (!mounted.current || job.generation !== generation.current) return;
         if (!job.isCurrent()) {
           for (const uid of job.uids) job.attempted.delete(uid);
@@ -170,7 +175,7 @@ export function useGroupMemberResolver<T extends { uid: string }>(
         drainRef.current();
       }
     })();
-  }, [cancelTimer, minRefreshIntervalMs]);
+  }, [cancelTimer, minRefreshIntervalMs, lookup]);
   drainRef.current = drain;
 
   const resolveMembers = useCallback(

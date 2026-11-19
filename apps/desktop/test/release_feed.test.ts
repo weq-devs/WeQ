@@ -46,12 +46,14 @@ function index(version = '2.7.2'): ReleaseIndex {
     ],
   };
 }
-it('GitHub API 不可达仍可通过镜像选择更新及取得安装哈希', async () => {
+it('GitHub API 不可达仍可通过镜像选择更新及取得目标版本的摘要和安装哈希', async () => {
   const feed = new ReleaseFeed('weq-devs/WeQ', undefined, keys);
+  const next = index();
+  next.releases[0]!.summary = '增设重要消息索引。';
   const fetcher = vi.fn<typeof fetch>(async (url) =>
     String(url).startsWith('https://github.com/')
       ? new Response('', { status: 503 })
-      : Response.json(signReleaseIndex(index(), privatePem)),
+      : Response.json(signReleaseIndex(next, privatePem)),
   );
   const result = await feed.read(true, undefined, fetcher);
   const release = feed.latest(false, result!);
@@ -70,6 +72,8 @@ it('GitHub API 不可达仍可通过镜像选择更新及取得安装哈希', as
       'latest-mac.yml',
     ).version,
   ).toBe('2.7.2');
+  expect(feed.summary('2.7.2')).toBe('增设重要消息索引。');
+  expect(feed.summary('2.7.1')).toBeUndefined();
   expect(await feed.archive('2.7.2', 'weQ-2.7.2-mac-arm64.zip')).toMatchObject({ size: 4 });
   expect(fetcher.mock.calls.every(([url]) => !String(url).includes('api.github.com'))).toBe(true);
 });

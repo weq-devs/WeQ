@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SettingsDialog } from '../src/renderer/src/components/SettingsDialog';
+import { normalizeNotificationEvents } from '@weq/service/notification-settings';
 import {
   acceptPreferences,
   preferenceValue,
@@ -11,7 +12,7 @@ import {
 } from '../src/renderer/src/lib/clientPreferences';
 
 const fixture = vi.hoisted(() => ({
-  settings: {} as Record<string, boolean>,
+  settings: {} as Record<string, unknown>,
   settingKey: 'showMessageUnreadBadge',
   save: vi.fn(),
   invalidate: vi.fn(),
@@ -78,7 +79,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
-  fixture.settings = {};
+  fixture.settings = { notificationEvents: normalizeNotificationEvents(undefined) };
   fixture.loading = false;
   fixture.failed = false;
   fixture.shared = {};
@@ -146,14 +147,27 @@ function mount() {
               '显示群成员头衔与身份',
             ].includes(label)
           ? '消息阅读'
-          : [
-                '鼠标停留时保持会话位置',
-                '在消息图标上显示红点',
-                '在联系人界面显示未读消息数',
-                '群助手显示总消息数',
-              ].includes(label)
-            ? '会话列表'
-            : '消息阅读';
+          : ['在消息图标上显示红点', '在联系人界面显示未读消息数', '群助手显示总消息数'].includes(
+                label,
+              )
+            ? '通知与提醒'
+            : ['显示会话预览', '鼠标停留时保持会话位置'].includes(label)
+              ? '会话列表'
+              : '消息阅读';
+      if (page === '通知与提醒')
+        act(() =>
+          [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
+            .find((button) => button.textContent === '常规')!
+            .click(),
+        );
+      else if (
+        !host.querySelector('.weq-settings-subnav-item')?.parentElement?.textContent?.includes(page)
+      )
+        act(() =>
+          [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
+            .find((button) => button.textContent === '基础功能')!
+            .click(),
+        );
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
           .find((button) => button.textContent === page)!
@@ -167,6 +181,9 @@ function mount() {
             显示群消息发送者名称: '昵称或备注',
             显示群成员等级: '等级',
             显示群成员头衔与身份: '头衔或身份',
+            在消息图标上显示红点: '消息导航未读角标',
+            在联系人界面显示未读消息数: '好友与群聊未读消息数',
+            群助手显示总消息数: '群助手',
           } as Record<string, string>
         )[label] ?? label;
       return (
@@ -189,6 +206,10 @@ function mount() {
  * 不再走 AppSettings 的 per-setting mutation。下面两组分别断言各自的通道。
  */
 const sharedToggles = [
+  ['在消息图标上显示红点', 'showMessageUnreadBadge', true],
+  ['在联系人界面显示未读消息数', 'showContactUnreadCount', false],
+  ['群助手显示总消息数', 'showGroupAssistantMessageCount', false],
+  ['显示会话预览', 'showConversationPreview', true],
   ['鼠标停留时保持会话位置', 'keepConversationPositionOnHover', false],
   ['消息气泡', 'showMessageBubble', true],
   ['消息字体', 'showMessageFont', true],
@@ -202,15 +223,45 @@ const sharedToggles = [
 ] as const;
 
 const toggles = [
-  ['在消息图标上显示红点', 'showMessageUnreadBadge', true],
-  ['在联系人界面显示未读消息数', 'showContactUnreadCount', false],
   ['从第一条新消息开始阅读', 'readFromFirstUnread', false],
   ['自动跟随最新消息', 'autoFollowLatestMessages', true],
   ['发送消息后定位到最新消息', 'jumpToLatestAfterSend', true],
   ['向下滚动时显示定位到底部按钮', 'showScrollToBottomButton', true],
   ['使用 QQ 账号设置的个性字体发送消息', 'sendWithQqFont', true],
-  ['群助手显示总消息数', 'showGroupAssistantMessageCount', false],
 ] as const;
+
+it('未读角标按系统图标、主导航、常规视图、联系人和菜单排列', () => {
+  const f = mount();
+  try {
+    f.toggle('在消息图标上显示红点');
+    const card = f.host.querySelector('[data-setting-id="notification-badges"]');
+    expect(
+      [...card!.querySelectorAll('[role="switch"]')].map((toggle) =>
+        toggle.getAttribute('aria-label'),
+      ),
+    ).toEqual([
+      '应用图标未读角标',
+      '消息导航未读角标',
+      '邮箱导航未读角标',
+      '群助手',
+      '公众号',
+      '服务号',
+      '频道私聊',
+      '已隐藏会话',
+      '已删除会话',
+      '克隆会话',
+      'WeQ 助手会话',
+      '好友与群通知未读角标',
+      '好友与群聊未读消息数',
+      '进行中任务',
+      '已完成任务',
+      '增强包更新',
+      '官方公告',
+    ]);
+  } finally {
+    f.close();
+  }
+});
 
 it('消息开关分别按默认值展示、保存、刷新共享设置，重开后可恢复与再次开启', () => {
   let f = mount();

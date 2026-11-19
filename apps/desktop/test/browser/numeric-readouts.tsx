@@ -42,7 +42,7 @@ function Fixture() {
           12,345.67
         </span>
         <div data-label>数字输入框</div>
-        <input className="weq-set-input" type="number" defaultValue="12345" data-readout />
+        <input className="weq-set-input" type="number" placeholder="未声明" data-numeric-input />
       </section>
       <section>
         <div data-label>私聊统计</div>
@@ -110,7 +110,9 @@ function Fixture() {
         </span>
         <div data-label>任务进度</div>
         <div className="weq-task-progress-metric">
-          <strong data-readout>42%</strong>
+          <strong>
+            <NumericText>42%</NumericText>
+          </strong>
         </div>
         <div data-label>修复进度</div>
         <span className="weq-rp-progress-pct" data-readout>

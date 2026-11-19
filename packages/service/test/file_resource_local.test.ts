@@ -27,13 +27,13 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function service(): FileResourceService {
+function service(storePath?: string): FileResourceService {
   const session = { context: { uin: '10001' } } as unknown as AccountSession;
   const platform = {
     ntDataDir: () => ntData,
     fileDir: () => join(ntData, 'File'),
   } as unknown as Platform;
-  return new FileResourceService(session, platform);
+  return new FileResourceService(session, platform, storePath);
 }
 
 /** 造一个真实文件，返回它的绝对路径。 */
@@ -83,4 +83,20 @@ describe('FileResourceService.resolveLocalFile', () => {
     await expect(svc.resolveLocalFile(join(ntData, 'Pic', 'nope.png'))).resolves.toBeNull();
     await expect(svc.resolveLocalFile('')).resolves.toBeNull();
   });
+});
+
+it('发送原路径按附件标识持久化，重开后可用，不匹配同名附件或失效文件', async () => {
+  const file = makeFile('outside/report.txt');
+  const index = join(dir, 'config', 'sent_files.json');
+  service(index).rememberSentFile('sent-token', 'report.txt', 1, file);
+  const reopened = service(index);
+  await expect(reopened.resolveSentFile('sent-token', 'report.txt')).resolves.toBe(file);
+  await expect(reopened.resolveSentFile('other-token', 'report.txt')).resolves.toBeNull();
+  await expect(
+    service(join(dir, 'other-source.json')).resolveSentFile('sent-token', 'report.txt'),
+  ).resolves.toBeNull();
+  writeFileSync(file, 'changed');
+  await expect(reopened.resolveSentFile('sent-token', 'report.txt')).resolves.toBeNull();
+  rmSync(file);
+  await expect(reopened.resolveSentFile('sent-token', 'report.txt')).resolves.toBeNull();
 });

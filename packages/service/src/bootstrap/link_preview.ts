@@ -561,8 +561,13 @@ export class LinkPreviewService {
     return createHash('sha1').update(url).digest('hex');
   }
 
+  private canFetch(cacheOnly: boolean): boolean {
+    const config = this.userConfig.getSettings().linkPreview;
+    return !cacheOnly && config.enabled && config.autoFetch && scopedNetworkAllowed('link-preview');
+  }
+
   /** 取一条链接的预览。命中缓存不出网；不可预览 / 抓取失败返回 null。 */
-  async get(rawUrl: string): Promise<LinkPreview | null> {
+  async get(rawUrl: string, cacheOnly = false): Promise<LinkPreview | null> {
     const url = rawUrl.trim();
     if (!url) return null;
 
@@ -575,6 +580,7 @@ export class LinkPreviewService {
     }
     this.forget(url);
 
+    if (!this.canFetch(cacheOnly)) return this.loadPreview(url, true);
     const running = this.inFlight.get(url);
     if (running) return running.then((value) => structuredClone(value));
 
@@ -583,13 +589,13 @@ export class LinkPreviewService {
     return promise.then((value) => structuredClone(value));
   }
 
-  private async loadPreview(url: string): Promise<LinkPreview | null> {
+  private async loadPreview(url: string, cacheOnly = false): Promise<LinkPreview | null> {
     const cached = await this.readDisk(url);
-    if (!scopedNetworkAllowed('link-preview')) return cached?.preview ?? null;
     if (cached && this.fresh(cached)) {
       this.remember(url, cached);
       return cached.preview;
     }
+    if (!this.canFetch(cacheOnly)) return cached?.preview ?? null;
 
     return this.fetchPreview(url)
       .catch((error) => {
@@ -630,7 +636,7 @@ export class LinkPreviewService {
    * 一个都不少 —— 这个 URL 来自聊天消息，跟远端页面给的一样不可信。返回缓存 id，
    * 任何一步不达标返回空串。
    */
-  async cacheCover(rawUrl: string): Promise<string> {
+  async cacheCover(rawUrl: string, cacheOnly = false): Promise<string> {
     const url = rawUrl.trim();
     if (!url) return '';
     const name = `${this.key(url)}`;
@@ -642,7 +648,7 @@ export class LinkPreviewService {
         // 没这个扩展名，试下一个。
       }
     }
-    return this.cacheImage(url);
+    return this.canFetch(cacheOnly) ? this.cacheImage(url) : '';
   }
 
   private async readDisk(url: string): Promise<CacheEntry | null> {

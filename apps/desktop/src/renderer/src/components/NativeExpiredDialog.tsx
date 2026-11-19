@@ -87,9 +87,17 @@ export function NativeExpiredDialog({
             已打开过的账号与数据不受影响。
           </p>
           {built || expiredAt ? (
-            <p className="weq-native-expired-times weq-number">
-              {built ? <span>构建于 {built}</span> : null}
-              {expiredAt ? <span>有效期至 {expiredAt}（已过期）</span> : null}
+            <p className="weq-native-expired-times">
+              {built ? (
+                <span>
+                  <NumericText>{`构建于 ${built}`}</NumericText>
+                </span>
+              ) : null}
+              {expiredAt ? (
+                <span>
+                  <NumericText>{`有效期至 ${expiredAt}（已过期）`}</NumericText>
+                </span>
+              ) : null}
             </p>
           ) : null}
 
@@ -98,12 +106,10 @@ export function NativeExpiredDialog({
             <div className="weq-set-row">
               <div className="weq-set-row-main">
                 <span className="weq-set-row-label">
-                  {phase === 'available' ? `发现新版本 v${latest}` : '软件更新'}
+                  {phase === 'available' ? '有可用更新' : '软件更新'}
                 </span>
-                <span className="weq-set-row-desc weq-number">
-                  当前 v{current || '—'}
-                  {isDev ? '（开发版）' : ''}
-                  {phase === 'available' && latest ? ` → v${latest}` : ''}
+                <span className="weq-set-row-desc">
+                  <NumericText>{`当前 v${current || '—'}${isDev ? '（开发版）' : ''}${phase === 'available' && latest ? ` → v${latest}` : ''}`}</NumericText>
                 </span>
               </div>
               <div className="weq-set-row-ctrl">
@@ -129,7 +135,7 @@ export function NativeExpiredDialog({
                 ) : phase === 'downloading' ? (
                   <button type="button" className="weq-set-btn weq-set-btn-primary" disabled>
                     <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
-                    下载中 <span className="weq-number weq-number-inherit">{pct}</span>%
+                    下载中…
                   </button>
                 ) : phase === 'available' ? (
                   <button
@@ -199,20 +205,20 @@ export function NativeExpiredDialog({
                 )}
                 <span>
                   已自动选择加速站 <b>{mirrorName}</b>
-                  {phase === 'downloading' ? ' · 正在下载' : '（已测速）'}
+                  {phase !== 'downloading' ? '（已测速）' : null}
                 </span>
               </div>
             ) : null}
           </div>
 
           {isDev ? (
-            <p className="weq-set-note weq-number">
+            <p className="weq-set-note">
               <Terminal size={12} strokeWidth={1.9} aria-hidden /> 开发构建不能自更新：请在本仓库跑{' '}
               <code>pnpm native:fetch</code> 取一份新构建后重启。
             </p>
           ) : null}
           {isManaged ? (
-            <p className="weq-set-note weq-number">
+            <p className="weq-set-note">
               <Terminal size={12} strokeWidth={1.9} aria-hidden /> 当前版本由系统包管理器安装：
               请在终端运行 <code>paru -Syu</code> 更新后重新打开 WeQ。
             </p>

@@ -6,6 +6,11 @@ import { expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { forwardRecordToWire } from '../src/main/ipc/serde';
 import { ForwardWindowHost } from '../src/renderer/src/components/ForwardWindow';
+import {
+  ShowMessageDateContext,
+  ShowMessageSeqContext,
+  ShowMessageTimeContext,
+} from '../src/renderer/src/components/MessageProvenance.shared';
 import { openForwardWindow } from '../src/renderer/src/state/forwardWindow';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { useForwardStore, type ForwardRecordWire } from '../src/renderer/src/state/forwardWindow';
@@ -61,12 +66,14 @@ it('实际应用只在名片导航上下文内挂载转发宿主', () => {
   expect(hosts[0]).toContain('ContactWorkspaceNavigationContext.Provider');
 });
 
-it('真实缓存序列化后 QQ 号为字符串，仅头像打开名片，昵称与时间保持普通文本', async () => {
+it('转发记录沿用时间分隔与元数据设置，仍仅头像打开名片', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
+  const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2023-11-16T00:00:00+08:00'));
   useForwardStore.setState({ windows: [], seq: 0, zTop: 1000 });
   const record = forwardRecordToWire({
     msgId: 1n,
+    msgSeq: 42,
     senderUin: 10002,
     sendNick: '本地昵称',
     sendTime: 1700000000,
@@ -78,17 +85,36 @@ it('真实缓存序列化后 QQ 号为字符串，仅头像打开名片，昵称
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  try {
-    await act(async () =>
-      root.render(h(ProfileNavigationContext.Provider, { value: open }, h(ForwardWindowHost))),
+  const render = (showMetadata: boolean) =>
+    root.render(
+      h(
+        ProfileNavigationContext.Provider,
+        { value: open },
+        h(
+          ShowMessageSeqContext.Provider,
+          { value: showMetadata },
+          h(
+            ShowMessageDateContext.Provider,
+            { value: showMetadata },
+            h(ShowMessageTimeContext.Provider, { value: showMetadata }, h(ForwardWindowHost)),
+          ),
+        ),
+      ),
     );
+  try {
+    await act(async () => render(false));
     await act(async () =>
       openForwardWindow({
         title: '合成转发',
         kind: 'c2c',
         conv: '',
         msgId: '1',
-        records: [record],
+        records: [
+          record,
+          { ...record, msgId: '2', msgSeq: '0', sendTime: '0' },
+          { ...record, msgId: '3', msgSeq: undefined, sendTime: '1700000299' },
+          { ...record, msgId: '4', msgSeq: undefined, sendTime: '1700000599' },
+        ],
       }),
     );
     await act(async () => vi.dynamicImportSettled());
@@ -98,13 +124,20 @@ it('真实缓存序列化后 QQ 号为字符串，仅头像打开名片，昵称
     const name = author.querySelector<HTMLElement>('.weq-forward-row-name')!;
     expect(name.classList.contains('message-name')).toBe(true);
     expect(name.closest('button')).toBeNull();
-    const time = author.querySelector('time')!;
-    expect(time).not.toBeNull();
-    expect(time.closest('button')).toBeNull();
-    expect(time.parentElement).toBe(name.parentElement);
+    const dialog = author.closest('[role="dialog"]')!;
+    const times = Array.from(dialog.querySelectorAll('time'));
+    expect(times.map((time) => time.textContent)).toEqual(['昨天 06:13:20', '昨天 06:23:19']);
+    expect(times[0]?.title).toBe('2023-11-15 06:13:20（北京时间）');
+    expect(author.parentElement?.previousElementSibling).toBe(times[0]);
+    expect(dialog.textContent).not.toContain('seq 42');
+    await act(async () => render(true));
+    expect(author.textContent).toContain('seq 42');
+    expect(author.querySelector('time')?.textContent).toBe('2023-11-15 06:13:20');
+    expect(dialog.querySelectorAll('.weq-message-seq')).toHaveLength(1);
+    expect(dialog.textContent).not.toContain('1970-01-01');
     act(() => {
       name.click();
-      time.click();
+      times[0]!.click();
     });
     expect(open).not.toHaveBeenCalled();
     act(() =>
@@ -125,6 +158,7 @@ it('真实缓存序列化后 QQ 号为字符串，仅头像打开名片，昵称
     act(() => root.unmount());
     expect(useForwardStore.getState().windows).toHaveLength(0);
     host.remove();
+    now.mockRestore();
     vi.unstubAllGlobals();
   }
 });

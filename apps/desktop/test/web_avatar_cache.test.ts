@@ -86,6 +86,22 @@ it('本地头像允许五分钟浏览器复用，过期后未修改仅返回 304
   expect(mock.get).not.toHaveBeenCalled();
 });
 
+it('无扩展名的 QQ 本地头像可作为 Web 图片读取和缓存', async () => {
+  const path = join(dir, 's_0123456789abcdef0123456789abcdef');
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMQ6d4FAAIQAVpr3peTAAAAAElFTkSuQmCC',
+    'base64',
+  );
+  await writeFile(path, png);
+  mock.localFile.mockResolvedValue({ path, stale: false, mtimeMs: 1 });
+  const response = await fetch(base + avatar);
+  expect(response.status).toBe(200);
+  const blob = await response.blob();
+  expect(blob.type).toBe('image/png');
+  expect(Buffer.from(await blob.arrayBuffer())).toEqual(png);
+  expect(mock.get).not.toHaveBeenCalled();
+});
+
 it('本地头像同秒同大小更新仍可识别，ETag 优先于秒级修改时间', async () => {
   const path = join(dir, 's_avatar.png');
   await utimes(path, 1_700_000_000.1, 1_700_000_000.1);

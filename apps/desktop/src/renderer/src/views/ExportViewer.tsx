@@ -21,6 +21,7 @@ import { openMediaPreview } from '../components/mediaPreviewStore.shared';
 import { mediaUrl } from '../lib/resourceUrl';
 import { useDialog } from '../components/Dialog.shared';
 import { FolderScanStatus } from '../components/FolderScanStatus';
+import { CalendarDateField } from '../components/CalendarDateField';
 import '../styles/export-viewer.css';
 import type { ViewerScanEvent } from '../../../main/ipc/routers/export_viewer';
 import { IS_WEB } from '../lib/target.shared';
@@ -525,13 +526,11 @@ export function ExportViewer({
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </label>
-              <input
-                type="date"
-                aria-label="消息日期（北京时间）"
-                title="消息日期（北京时间）"
+              <CalendarDateField
+                label="消息日期（北京时间）"
                 value={date}
-                onChange={(e) => {
-                  setDate(e.target.value);
+                onChange={(day) => {
+                  setDate(day);
                   setOffset(0);
                 }}
               />

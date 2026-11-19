@@ -39,19 +39,15 @@ export function GroupMessageBadge({
       title={text}
       data-privacy-title={(showTitle && Boolean(customTitle)) || undefined}
     >
-      {level && title && level !== title ? (
+      {level ? <span className="weq-number weq-number-inherit">{level}</span> : null}
+      {title && title !== level ? (
         <>
-          {level}
-          {' · '}
+          {level ? ' · ' : null}
           <span data-privacy-sensitive={(showTitle && Boolean(customTitle)) || undefined}>
             {title}
           </span>
         </>
-      ) : (
-        <span data-privacy-sensitive={(showTitle && Boolean(customTitle)) || undefined}>
-          {text}
-        </span>
-      )}
+      ) : null}
     </small>
   );
 }

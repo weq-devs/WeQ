@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  ShowMessageDateContext,
+  ShowMessageSeqContext,
+  ShowMessageTimeContext,
+} from '../../src/renderer/src/components/MessageProvenance.shared';
 import { ForwardWindowHost } from '../../src/renderer/src/components/ForwardWindow';
 import { openForwardWindow } from '../../src/renderer/src/state/forwardWindow';
 import { MemberProfileCard } from '../../src/renderer/src/components/MemberProfileCard';
@@ -40,6 +45,7 @@ function Fixture() {
           senderUin: '10002',
           sendNick: name,
           sendTime: '1700000000',
+          msgSeq: 42,
           elements: text,
         },
         { msgId: '3', senderUin: '10002', sendNick: '只有 QQ 号的好友', elements: text },
@@ -56,6 +62,7 @@ function Fixture() {
               senderUin: '10002',
               sendNick: '嵌套好友',
               sendTime: '1700000000',
+              msgSeq: 121,
               elements: text,
             },
           ],
@@ -68,7 +75,13 @@ function Fixture() {
     <ProfileNavigationContext.Provider
       value={(user, anchor, group) => setCard({ user, anchor, group })}
     >
-      <ForwardWindowHost />
+      <ShowMessageSeqContext.Provider value>
+        <ShowMessageDateContext.Provider value>
+          <ShowMessageTimeContext.Provider value>
+            <ForwardWindowHost />
+          </ShowMessageTimeContext.Provider>
+        </ShowMessageDateContext.Provider>
+      </ShowMessageSeqContext.Provider>
       {card ? (
         <MemberProfileCard
           member={card.user}

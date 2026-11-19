@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -138,7 +139,7 @@ try {
     ['microphone', '麦克风'],
     ['camera', '摄像头'],
   ]) {
-    await permissions.getByRole('combobox', { name: '按需设置' }).selectOption(value);
+    await chooseFormOption(permissions.getByRole('combobox', { name: '按需设置' }), value);
     await permissions.getByRole('button', { name: `打开${label}设置`, exact: true }).click();
     await permissions
       .getByText('已请求打开系统设置，副本权限仍待确认。', { exact: true })

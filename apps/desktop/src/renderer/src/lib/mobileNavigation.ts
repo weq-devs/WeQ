@@ -6,6 +6,11 @@ export type MobileBackEntry = {
   retained?: boolean;
 };
 
+export type MobileNavigationChange = {
+  direction: 'forward' | 'back' | 'root';
+  source?: HTMLElement | null;
+};
+
 /** 页面只登记现有的返回操作；不保存业务数据，也不重建页面。 */
 export class MobileBackStack {
   private entries: MobileBackEntry[] = [];

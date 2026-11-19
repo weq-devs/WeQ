@@ -16,6 +16,27 @@ html[data-theme] :is(.weq-set-btn, .weq-dialog-actions button) > svg {
   flex-shrink: 0;
 }
 
+html[data-theme] .weq-qq-inline-keyboard-button {
+  border-color: var(--weq-border-strong);
+  background: var(--weq-skin-surface);
+  color: var(--weq-fg-primary);
+}
+
+html[data-theme] .weq-qq-inline-keyboard-link {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  color: var(--weq-accent-ink);
+}
+
+html[data-theme] .weq-qq-inline-keyboard-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+html[data-theme] .weq-qq-inline-keyboard-button:disabled {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
 html[data-theme] :is(.weq-set-row-main, .weq-set-row-ctrl, .weq-set-btn-group) {
   min-width: 0;
 }

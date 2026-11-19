@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { trpc } from '../../trpc/client';
 import { SegmentedControl } from '../SegmentedControl';
 import { Row, Toggle, QueryError } from './controls';
@@ -104,7 +105,7 @@ export function InteractionProfileSection() {
               label="本地模型资源"
               desc={local.data?.available === false ? '当前宿主不支持本地画像模型。' : undefined}
               control={
-                <select
+                <FormSelect
                   className="weq-set-input"
                   aria-label="互动画像本地模型资源"
                   value={status.data.profileLocalModelId ?? 'auto'}
@@ -131,7 +132,7 @@ export function InteractionProfileSection() {
                       {model.downloaded ? ' · 已下载' : ' · 未下载'}
                     </option>
                   ))}
-                </select>
+                </FormSelect>
               }
             />
           ) : null}

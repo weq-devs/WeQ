@@ -5,6 +5,14 @@ import type { ConversationScope } from '@weq/service/search-policy';
 import { previewNodes, previewNodesToText } from './conversationPreview';
 import type { ConversationView, ConversationViewDirectory } from './conversationViews';
 
+export type ConcreteConversation = Exclude<Conversation, { type: 'merged' }>;
+
+export interface ConversationLocateRequest {
+  id: string;
+  revision: number;
+  align?: 'start';
+}
+
 export interface VirtualConversation {
   id: string;
   kind: 'persona' | 'group';
@@ -19,8 +27,12 @@ export interface VirtualConversation {
   lastMessageTime?: number;
   /** 最近一条消息是不是自己发的（决定预览要不要加昵称前缀）。 */
   previewMine?: boolean;
+  previewSender?: string;
+  draftPreview?: string;
   /** 克隆群成员的 QQ 号：用来拼九宫格合成头像。 */
   memberUins?: string[];
+  unreadCount?: number;
+  directoryRead?: Conversation['directoryRead'];
 }
 export const ConversationDirectoryContext = createContext<{
   virtual: VirtualConversation[];
@@ -44,16 +56,19 @@ export const ConversationDirectoryContext = createContext<{
   preferences?: ConversationPreferences;
   /** 主会话列表始终排除这些群，完整目录搜索也不能绕过归属。 */
   groupAssistantIds?: ReadonlySet<string>;
-  showGroupAssistantMessageCount?: boolean;
   showContactUnreadCount?: boolean;
-  locate?: { id: string; revision: number } | null;
+  locate?: ConversationLocateRequest | null;
+  onListInteraction?: () => void;
   onVirtual: (item: VirtualConversation) => void;
   /** 新建好友克隆（支持批量：一次性把多个好友交给 AgentLab）。 */
   onCreate: (friendUids?: string[]) => void;
   /** 新建克隆体群聊：直接打开多选克隆体的建群弹窗。 */
   onCreateGroup?: () => void;
   onAnalyze?: (conversation: Conversation) => void;
+  onOpenProfile?: (conversation: ConcreteConversation, anchor: HTMLElement) => void;
+  onPreview?: (conversation: ConcreteConversation) => void;
   onPin?: (conversation: Conversation, pinned: boolean) => void;
+  onMuteGenerated?: (conversation: Conversation, muted: boolean) => void;
   onEditRemark?: (conversation: Conversation) => void;
   loadingError?: string;
   onAnalyzeMember?: (conversation: Extract<Conversation, { type: 'group' }>, member: User) => void;
@@ -72,6 +87,8 @@ export const ContactDirectoryContext = createContext<{
 } | null>(null);
 
 export interface GuildConversationSession {
+  unreadCount?: number;
+  directoryRead?: Conversation['directoryRead'];
   nodeId: string;
   lastTime: string;
   lastSeq: string;
@@ -100,7 +117,8 @@ export function guildConversationRow(session: GuildConversationSession): Convers
     members: [],
     updatedAt,
     preference: { pinned: false, muted: false, blocked: false },
-    unreadCount: 0,
+    unreadCount: session.unreadCount ?? 0,
+    directoryRead: session.directoryRead,
     lastMessage: {
       id: `${id}:${session.lastSeq}`,
       senderId: null,
@@ -128,6 +146,7 @@ export function virtualConversationRow(item: VirtualConversation): Conversation 
     id: item.id,
     directoryKind: item.kind === 'persona' ? 'persona' : 'cloneGroup',
     generated: { kind: item.kind, ownerId: item.ownerId, sessionId: null },
+    draftPreview: item.draftPreview,
     type: 'direct',
     otherUser: {
       id: item.id,
@@ -143,14 +162,15 @@ export function virtualConversationRow(item: VirtualConversation): Conversation 
     members: [],
     updatedAt,
     preference: { pinned: false, muted: false, blocked: false },
-    unreadCount: 0,
+    unreadCount: item.unreadCount ?? 0,
+    directoryRead: item.directoryRead,
     // 让列表行直接显示最近一句；没有记录时才留空。
     lastMessage: item.preview
       ? {
           id: `${item.id}:preview`,
           senderId: item.previewMine ? null : item.ownerId,
-          senderDisplayName: item.previewMine ? '我' : item.name,
-          body: item.preview,
+          senderDisplayName: item.previewSender ?? (item.previewMine ? '我' : item.name),
+          body: item.previewSender ? `${item.previewSender}：${item.preview}` : item.preview,
           kind: 'text',
           createdAt: updatedAt || undefined,
         }

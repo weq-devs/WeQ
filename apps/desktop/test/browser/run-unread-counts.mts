@@ -16,16 +16,20 @@ let latest = '100',
 function createService() {
   latest = '100';
   readSeq = 90;
-  return new UnreadInfoService({
-    context: { uin: '10001' },
-    msgDbPath: '/synthetic/unread.db',
-    unreadInfo: {
-      getAllUnreadInfos: async () => [
-        { ...target, peer: '1_u_fixture', latestSeq: latest, msgSeq: readSeq },
-        { ...other, peer: '2_70001', latestSeq: '110', msgSeq: 90 },
-      ],
-    },
-  } as unknown as AccountSession);
+  return new UnreadInfoService(
+    {
+      context: { uin: '10001' },
+      msgDbPath: '/synthetic/unread.db',
+      unreadInfo: {
+        getAllUnreadInfos: async () => [
+          { ...target, peer: '1_u_fixture', latestSeq: latest, msgSeq: readSeq },
+          { ...other, peer: '2_70001', latestSeq: '110', msgSeq: 90 },
+        ],
+      },
+    } as unknown as AccountSession,
+    undefined,
+    { statePath: '', readOnly: true },
+  );
 }
 let service = createService();
 const output = process.env.WEQ_UNREAD_ARTIFACTS;

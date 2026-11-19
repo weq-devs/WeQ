@@ -26,10 +26,21 @@ export interface ModelMetadata {
   error?: string;
 }
 
+export interface ModelRequestProperties {
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
+  temperatureSupported?: boolean;
+  outputTokenParameter?: 'max_tokens' | 'max_completion_tokens';
+}
+
 export interface AgentLabProviderModel {
   reasoningEfforts?: string[];
   metadata?: ModelMetadata;
-  overrides?: { capabilities?: AgentLabModelCapability[]; reasoning?: boolean };
+  overrides?: {
+    capabilities?: AgentLabModelCapability[];
+    reasoning?: boolean;
+    request?: ModelRequestProperties;
+  };
   /** 发给 API 的模型 id */
   id: string;
   /** 展示名（可选，默认用 id） */
@@ -46,7 +57,7 @@ export interface AgentLabProviderConfig {
   vendor: string;
   baseUrl: string;
   apiKey: string;
-  /** 模型请求总期限，毫秒；缺省 3600 秒。 */
+  /** 模型请求总期限（毫秒）；缺省使用各功能的默认时限。 */
   timeoutMs?: number;
   models: AgentLabProviderModel[];
   createdAt: number;
@@ -117,6 +128,7 @@ export interface AgentLabModelOutput {
 
 export interface AgentLabEndpoint {
   reasoningEfforts?: string[];
+  requestProperties?: ModelRequestProperties;
   baseUrl: string;
   apiKey: string;
   model: string;

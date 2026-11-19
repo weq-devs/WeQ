@@ -3,6 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentLabUsage } from '@weq/agentlab';
+import {
+  DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+} from '@weq/agentlab/model-metadata';
 import type { Platform } from '@weq/platform';
 import { AgentLabConfigService } from '../src/bootstrap/agentlab_config';
 import { UserConfigService } from '../src/bootstrap/user_config';
@@ -24,11 +28,53 @@ function fixture() {
   };
 }
 describe('多 provider 持久化与调用隔离', () => {
+  it('API 缺省值独立补充未声明字段，不覆盖模型值，清空输出只移除该兜底', () => {
+    const f = fixture();
+    f.service.saveProvider({
+      id: 'p',
+      name: '合成',
+      vendor: 'openai-compatible',
+      baseUrl: 'https://synthetic.invalid',
+      apiKey: '',
+      models: [
+        { id: 'missing', capabilities: ['chat'] },
+        {
+          id: 'known-window',
+          capabilities: ['chat'],
+          overrides: { request: { contextWindowTokens: 1_000_000 } },
+        },
+        {
+          id: 'known-output',
+          capabilities: ['chat'],
+          overrides: { request: { maxOutputTokens: 64_000 } },
+        },
+      ],
+    });
+    const props = (model: string) =>
+      f.reload().resolveEndpoint({ providerId: 'p', model }).requestProperties;
+    expect(props('missing')).toEqual({
+      contextWindowTokens: DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+      maxOutputTokens: DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+    });
+    f.config.setSettings({
+      agentLab: { defaultContextWindowTokens: 98_000, defaultMaxOutputTokens: 24_000 },
+    });
+    expect(props('known-window')).toEqual({
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 24_000,
+    });
+    expect(props('known-output')).toEqual({ contextWindowTokens: 98_000, maxOutputTokens: 64_000 });
+    f.config.setSettings({ agentLab: { defaultMaxOutputTokens: null } });
+    expect(props('missing')).toEqual({ contextWindowTokens: 98_000 });
+    expect(props('known-output')?.maxOutputTokens).toBe(64_000);
+  });
   it('元数据读取不发推理，原始控制、默认值与手改标记跨重启保留', async () => {
     const f = fixture();
     const raw = {
       id: 'alias',
       kind: 'chat',
+      context_length: 32768,
+      max_output_tokens: 512,
       chat: {
         modalities: { input: ['text', 'image'] },
         reasoning: { effort: { supported: ['low', 'custom'], default: 'custom' } },
@@ -54,7 +100,7 @@ describe('多 provider 持久化与调用隔离', () => {
       models: models.map((model) => ({
         ...model,
         reasoningEfforts: ['manual'],
-        overrides: { reasoning: true },
+        overrides: { reasoning: true, request: { contextWindowTokens: 8192 } },
       })),
     });
     const saved = f.reload().getProvider('p')!.models[0]!;
@@ -69,6 +115,33 @@ describe('多 provider 持久化与调用隔离', () => {
     expect(
       f.reload().resolveEndpoint({ providerId: 'p', model: 'alias' }).reasoningEfforts,
     ).toEqual(['manual']);
+    expect(
+      f.reload().resolveEndpoint({ providerId: 'p', model: 'alias' }).requestProperties,
+    ).toEqual({
+      contextWindowTokens: 8192,
+      maxOutputTokens: 512,
+    });
+  });
+
+  it('清除服务商时限恢复功能默认，旧调用省略字段则保留', () => {
+    const f = fixture();
+    const spec = {
+      id: 'p',
+      name: 'Local',
+      vendor: 'ollama',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      apiKey: '',
+      models: [{ id: 'test', capabilities: ['chat'] as Array<'chat'> }],
+    };
+    f.service.saveProvider({ ...spec, timeoutMs: 42_000 });
+    expect(f.service.saveProvider(spec).timeoutMs).toBe(42_000);
+    f.service.saveProvider({ ...spec, timeoutMs: null });
+    expect(
+      f.reload().resolveEndpoint({ providerId: 'p', model: 'test' }).timeoutMs,
+    ).toBeUndefined();
+    expect(() => f.reload().resolveEndpoint({ providerId: 'p', model: 'test' }, 'vision')).toThrow(
+      '不支持',
+    );
   });
 
   it('缺失能力和思考按调用清单探测，空能力清单不触发额外请求', async () => {
@@ -96,6 +169,18 @@ describe('多 provider 持久化与调用隔离', () => {
       reasoning: { status: 'supported', reasoning: { controls: [{ values: ['low', 'custom'] }] } },
     });
     expect(f.service.listProviders()).toEqual([]);
+  });
+
+  it('只有向量模型的服务商使用向量端点测试连通性', async () => {
+    const f = fixture();
+    const fetch = vi.fn(async () => new Response('{"data":[{"embedding":[1,0]}]}'));
+    vi.stubGlobal('fetch', fetch);
+    const baseUrl = 'http://127.0.0.1:1234/v1';
+    await expect(
+      f.service.testEndpoint({ baseUrl, apiKey: '', model: 'embed', capability: 'embedding' }),
+    ).resolves.toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith(`${baseUrl}/embeddings`, expect.anything());
   });
 
   it('连接测试和能力检测保留草稿的配置身份，未保存配置也可记账', async () => {

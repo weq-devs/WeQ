@@ -166,7 +166,7 @@ function historyRoot(scope: DatabaseMaintenanceScope) {
       throw new Error('此数据源配置已经不存在，不能退回其他来源。');
     return boot.userConfig.cacheDir(join('db_repair', scope.configId));
   }
-  // 历史报告不依赖源库仍存在，也不跟随重建缓存位置移动或清理。
+  // 历史报告不依赖源库仍存在，也不跟随备份与修复工作区位置移动或清理。
   return dbRepairRoot(
     (...parts) => boot.userConfig.cacheDir(join(...parts)),
     scope.uin,
@@ -177,7 +177,7 @@ function reports(scope: DatabaseMaintenanceScope) {
   return new DatabaseMaintenanceReports(join(historyRoot(scope), 'maintenance-reports'));
 }
 function historicalRecords(scope: DatabaseMaintenanceScope) {
-  return new DbRepairHistory(dbRepairPaths(historyRoot(scope))).list();
+  return new DbRepairHistory(dbRepairPaths(historyRoot(scope)));
 }
 
 export const databaseMaintenance = new DatabaseMaintenance({
@@ -219,6 +219,7 @@ export const databaseMaintenance = new DatabaseMaintenance({
           nt.setDatabaseMaintenanceWriteBarrier!(id, [], false);
           releaseWrites();
           maintenanceLocks.delete(id);
+          service.endMaintenance(id);
         },
       };
     } catch (error) {
@@ -318,7 +319,7 @@ function assertCacheIdle() {
     service.isBusy() ||
     databaseMaintenance.active().some((snapshot) => snapshot.state === 'repairing')
   )
-    throw new Error('修复或备份正在使用重建缓存，暂不能更改位置。');
+    throw new Error('备份与修复工作区正在使用中，暂不能更改位置。');
 }
 function savedReport(scope: DatabaseMaintenanceScope, id: string) {
   const current = databaseMaintenance.current(scope);
@@ -433,14 +434,24 @@ export const dbRepairRouter = router({
   preflight: procedure
     .input(targetRef.extend({ backup: z.boolean().optional() }))
     .query(({ input }) => {
-      const { key: _key, ...budget } = service.preflight(input.uin, input.dbName, input.backup);
+      const { key: _key, ...budget } = service.preflight(
+        input.uin,
+        input.dbName,
+        input.backup,
+        databaseMaintenance.leaseId(input),
+      );
       return budget;
     }),
   repairStorage: procedure
     .input(accountRef.extend({ dbNames: z.array(z.string()), backup: z.boolean() }))
     .query(({ input }) =>
       input.dbNames.map((name) => {
-        const { cachePath, space } = service.preflight(input.uin, name, input.backup);
+        const { cachePath, space } = service.preflight(
+          input.uin,
+          name,
+          input.backup,
+          databaseMaintenance.leaseId(input),
+        );
         return { dbName: name, cachePath, space, phase: 'preparing' };
       }),
     ),
@@ -452,7 +463,7 @@ export const dbRepairRouter = router({
   })),
   pickCacheLocation: procedure.mutation(async () => {
     assertCacheIdle();
-    const picked = await getHost().pickDirectory({ title: '选择数据库修复缓存位置' });
+    const picked = await getHost().pickDirectory({ title: '选择备份与修复工作区位置' });
     assertCacheIdle();
     if (picked) requireBootstrap().userConfig.setDbRepairCacheDir(picked);
     return { override: requireBootstrap().userConfig.getDbRepairCacheDir() };
@@ -464,13 +475,10 @@ export const dbRepairRouter = router({
   }),
   history: procedure
     .input(accountRef)
-    .query(({ input }) => historicalRecords(input).map(summarize)),
+    .query(({ input }) => historicalRecords(input).list().map(summarize)),
   legacyReport: procedure
     .input(recordRef)
-    .query(
-      ({ input }) =>
-        historicalRecords(input).find((record) => record.id === input.recordId) ?? null,
-    ),
+    .query(({ input }) => historicalRecords(input).find(input.recordId) ?? null),
   restorePreview: procedure
     .input(recordRef)
     .query(({ input }) => service.restorePreview(input.uin, input.recordId)),
@@ -509,22 +517,23 @@ export const dbRepairRouter = router({
     return service.deleteRecord(input.uin, input.recordId);
   }),
   revealReport: procedure.input(recordRef).mutation(async ({ input }) => {
-    const record = historicalRecords(input).find((item) => item.id === input.recordId);
+    const record = historicalRecords(input).find(input.recordId);
     if (!record?.reportPath) throw new Error('这条记录没有报告文件。');
     await getHost().revealInFolder(record.reportPath);
     return true;
   }),
   revealBackup: procedure.input(recordRef).mutation(async ({ input }) => {
-    const preview = service.restorePreview(input.uin, input.recordId);
-    if (!preview.backupExists || !preview.record.backupPath)
+    const history = historicalRecords(input);
+    const record = history.find(input.recordId);
+    if (!record?.backupPath || !history.backupExists(record))
       throw new Error('这条记录的备份已经不在了。');
-    await getHost().revealInFolder(preview.record.backupPath);
+    await getHost().revealInFolder(record.backupPath);
     return true;
   }),
   exportLegacyReport: procedure
     .input(recordRef.extend({ format: z.enum(['html', 'md', 'json']) }))
     .mutation(async ({ input }) => {
-      const record = historicalRecords(input).find((item) => item.id === input.recordId);
+      const record = historicalRecords(input).find(input.recordId);
       if (!record) throw new Error('找不到这份历史修复报告。');
       const target = await getHost().pickSaveTarget({
         defaultName: `repair-${record.id}.${input.format}`,

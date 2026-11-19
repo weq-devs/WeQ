@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
 import {
+  activeConversationBelongsToView,
   conversationViewRows,
   conversationViewForTarget,
   conversationSupportsAction,
@@ -16,6 +17,43 @@ import {
   generatedAggregateRow,
 } from '../src/renderer/src/lib/conversationDirectoryRows';
 import { virtualConversationRow } from '../src/renderer/src/lib/conversationDirectory';
+import { generatedDraftSummary, latestGeneratedActivity } from '../src/shared/generated_reply';
+
+it('生成会话沿用实际消息时间，跳过空占位，汇总摘要不被更新的空会话覆盖', () => {
+  const summary = latestGeneratedActivity([
+    { role: 'assistant', text: '已生成\n报告', ts: 12000 },
+    { role: 'assistant', text: '', ts: 13500, status: 'running' },
+  ]);
+  expect(summary).toMatchObject({ preview: '已生成 报告', lastMessageTime: 13 });
+  const row = assistantConversationRow({ id: 'hit', title: '会议', updatedAt: 13500, ...summary });
+  const empty = assistantConversationRow({ id: 'new', title: '新会话', updatedAt: 16000 });
+  expect(generatedAggregateRow('assistant', [row, empty]).lastMessage?.body).toBe(
+    '会议 · 已生成 报告',
+  );
+  const active = assistantConversationRow({
+    id: 'active',
+    title: '会议纪要',
+    updatedAt: 18000,
+    running: true,
+    ...latestGeneratedActivity([
+      { role: 'user', text: '会议纪要\n请按发言人分组', ts: 18000 },
+      { role: 'assistant', text: '', ts: 18001, status: 'running' },
+    ]),
+  });
+  expect(active.lastMessage?.body).toBe('会议纪要 请按发言人分组');
+  expect(generatedAggregateRow('assistant', [row, active]).lastMessage?.body).toBe(
+    '会议纪要 · 会议纪要 请按发言人分组',
+  );
+  const group = latestGeneratedActivity(
+    [{ senderKind: 'persona', senderId: 'clone-a', text: '[[voice:asset]]', ts: 22000 }],
+    () => '成员甲',
+  );
+  expect(
+    virtualConversationRow({ id: 'group', kind: 'group', ownerId: 'g', name: '合成群', ...group })
+      .lastMessage?.body,
+  ).toBe('成员甲：[语音]');
+  expect(generatedDraftSummary('[[ai-image:encoded]]\n草稿')).toBe('[图片] 草稿');
+});
 import {
   conversationAnalysisTarget,
   conversationRoamingTarget,
@@ -73,14 +111,32 @@ const clone = virtualConversationRow({
   kind: 'persona',
   ownerId: 'p1',
   name: '克隆同学',
+  directoryRead: { key: 'persona:p1', position: '10' },
 });
-const assistant = assistantConversationRow({ id: 's1', title: '会议整理', updatedAt: 12345 });
+const assistant = assistantConversationRow({
+  id: 's1',
+  title: '会议整理',
+  updatedAt: 12345,
+  directoryRead: { key: 'assistant:s1', position: '12' },
+});
 const official = feedConversationRow(
-  { id: 'u_official', name: '公众号甲', sendTime: '1000', prompt: '推文' },
+  {
+    id: 'u_official',
+    name: '公众号甲',
+    sendTime: '1000',
+    prompt: '推文',
+    directoryRead: { key: 'official:u_official', position: '1:2:3' },
+  },
   'official',
 );
 const service = feedConversationRow(
-  { id: '1000', name: '服务号甲', sendTime: '1000', prompt: '通知' },
+  {
+    id: '1000',
+    name: '服务号甲',
+    sendTime: '1000',
+    prompt: '通知',
+    directoryRead: { key: 'service:1000', position: '1:2:3' },
+  },
   'service',
 );
 const hidden = { ...direct('u_hidden', '隐藏同学'), hidden: true };
@@ -95,7 +151,13 @@ const directory: ConversationViewDirectory = {
   groupAssistant: [group],
   official: [official],
   service: [service],
-  guild: [{ ...direct('guild:n1'), directoryKind: 'guild' }],
+  guild: [
+    {
+      ...direct('guild:n1'),
+      directoryKind: 'guild',
+      directoryRead: { key: 'guild:n1', position: '1:2:3' },
+    },
+  ],
   hidden: [hidden],
   deleted: [deleted],
   clone: [clone],
@@ -124,6 +186,15 @@ describe('会话视图的平铺集合', () => {
       conversationViewRows(directory, 'regular', options).some((row) => row.id === clone.id),
     ).toBe(false);
   });
+  it('已打开的聊天按实际归属保留，聚合入口不代表当前聊天在常规视图', () => {
+    expect(activeConversationBelongsToView(directory, 'regular', options, group)).toBe(false);
+    expect(activeConversationBelongsToView(directory, 'groupAssistant', options, group)).toBe(true);
+    expect(activeConversationBelongsToView(directory, 'all', options, group)).toBe(true);
+    const newSession = { id: 'assistant:new', category: 'assistant' } as const;
+    expect(activeConversationBelongsToView(directory, 'assistant', options, newSession)).toBe(true);
+    expect(activeConversationBelongsToView(directory, 'all', options, newSession)).toBe(true);
+    expect(activeConversationBelongsToView(directory, 'clone', options, newSession)).toBe(false);
+  });
   it.each([
     [false, false],
     [true, false],
@@ -148,12 +219,21 @@ describe('会话视图的平铺集合', () => {
     expect(conversationViewRows(polluted, 'all', options).map((row) => row.id)).not.toContain(
       deleted.id,
     );
+    for (const [row, range] of [
+      [hidden, 'includeHidden'],
+      [deleted, 'includeDeleted'],
+    ] as const) {
+      expect(activeConversationBelongsToView(polluted, 'all', options, row)).toBe(false);
+      expect(
+        activeConversationBelongsToView(polluted, 'all', { ...options, [range]: true }, row),
+      ).toBe(true);
+    }
   });
 });
 describe('会话操作能力', () => {
   it('分类不支持的项目不展示，空选区不改变视图的项目集合', () => {
-    expect(conversationViewActions('official')).toEqual(['export']);
-    expect(conversationViewActions('assistant')).toEqual(['export', 'delete']);
+    expect(conversationViewActions('official')).toEqual(['export', 'read']);
+    expect(conversationViewActions('assistant')).toEqual(['export', 'read', 'delete']);
     expect(conversationViewActions('hidden')).not.toContain('read');
     expect(conversationViewActions('deleted')).not.toContain('read');
   });
@@ -163,7 +243,7 @@ describe('会话操作能力', () => {
     for (const row of [official, service, directory.guild[0]!]) {
       expect(conversationSupportsAction(row, 'export')).toBe(true);
       expect(conversationSupportsAction(row, 'roaming')).toBe(false);
-      expect(conversationSupportsAction(row, 'read')).toBe(false);
+      expect(conversationSupportsAction(row, 'read')).toBe(true);
       expect(conversationAnalysisTarget(row)).toBeNull();
       expect(conversationRoamingTarget(row)).toBeNull();
     }
@@ -179,7 +259,12 @@ describe('会话操作能力', () => {
       unsupported: [group, hidden, deleted, official],
     });
     expect(splitConversationAction(selection, 'roster').supported).toEqual([group]);
-    expect(splitConversationAction(selection, 'read').supported).toEqual([group]);
+    expect(splitConversationAction(selection, 'read').supported).toEqual([
+      group,
+      clone,
+      assistant,
+      official,
+    ]);
     expect(splitConversationAction(selection, 'export').supported).toHaveLength(selection.length);
   });
 });
@@ -204,13 +289,15 @@ it('未加载最近会话页也能从真实隐藏记录重建群聊和私聊，�
   expect(peer.type === 'direct' && peer.otherUser.displayName).toBe('本地备注');
   expect(peer.type === 'direct' && peer.otherUser.identityValue).toBe('10002');
 });
-it('全部会话两个范围开关是独立的应用共享布尔偏好，默认都关闭', () => {
+it('会话视图的范围与关闭行为是独立的应用共享偏好，默认都关闭', () => {
   expect(preferenceDefaults.allConversationsIncludeHidden).toBe(false);
   expect(preferenceDefaults.allConversationsIncludeDeleted).toBe(false);
+  expect(preferenceDefaults.closeConversationOutsideView).toBe(false);
   expect(() =>
     validatePreferencePatch({
       allConversationsIncludeHidden: true,
       allConversationsIncludeDeleted: false,
+      closeConversationOutsideView: true,
     }),
   ).not.toThrow();
   expect(() => validatePreferencePatch({ allConversationsIncludeHidden: 'true' })).toThrow();

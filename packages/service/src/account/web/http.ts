@@ -206,9 +206,14 @@ async function requestOnce(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const target = targetLabel(url);
   try {
+    const hasReferer = Object.keys(init.headers ?? {}).some(
+      (name) => name.toLowerCase() === 'referer',
+    );
     const fetched = networkFetch(url, {
       method,
       redirect: init.redirect,
+      // 部分 QQ CGI 的来源页在另一个子域，Chromium 默认会拒绝带路径的跨源 Referer。
+      referrerPolicy: hasReferer ? 'no-referrer-when-downgrade' : undefined,
       headers: {
         Cookie: init.cookie,
         ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),

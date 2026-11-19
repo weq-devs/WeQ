@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 /** 群聊天侧栏渲染用桩：与 group-audit 同源，默认返回可用数据。 */
 const calls: string[] = [];
+let clueRead = false;
 const preferences = { epoch: 'fixture', revision: 0, values: {}, records: {} };
 const todos = [
   {
@@ -36,6 +37,18 @@ async function reply(path: string, input: Record<string, unknown>) {
     return structuredClone(preferences);
   }
   if (path === 'account.getAccountConfig') return { uin: '99999', configId: 'fixture' };
+  if (path === 'account.contactMetrics.groupFriendSources')
+    return {
+      friendUids: ['u_member1', 'u_member2'],
+      addedUids: ['u_member1'],
+      pendingUids: clueRead ? [] : ['u_member2'],
+      rosterComplete: true,
+      unknown: clueRead ? 1 : 0,
+    };
+  if (path === 'account.qqWrite.friendClue') {
+    clueRead = true;
+    return { uid: input.uid, source: '通过群聊', sourceGroupCode: null };
+  }
   if (path === 'account.qqActions.groupPermissions')
     return { canManage: true, isOwner: false, isMember: true, selfUin: '99999' };
   if (path === 'account.qqActions.todoList' || path === 'account.qqActions.todoLocalList') {

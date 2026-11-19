@@ -18,3 +18,13 @@
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
+
+.weq-graytip-message-link.weq-graytip-reedit {
+  min-height: 24px;
+  margin-inline-start: 0.5em;
+  white-space: nowrap;
+}
+
+.weq-graytip-reedit:disabled {
+  cursor: wait;
+}

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { setTimeout as deadlineTimer, clearTimeout as clearDeadlineTimer } from 'node:timers';
 import { performanceWorker } from './worker';
+import type { UserConfigService } from '../bootstrap/user_config';
 import {
   DEFAULT_MONITOR_SETTINGS,
   type MonitorSettings,
@@ -357,7 +358,17 @@ export class PerformanceMonitor {
   async configure(settings: MonitorSettings, confirmPrune = true) {
     return this.mutate(() => this.configureNow(settings, confirmPrune));
   }
-  private async configureNow(settings: MonitorSettings, confirmPrune: boolean) {
+  async resetRecordingMode() {
+    await this.ready;
+    return this.mutate(async () => {
+      if (!this.initialized) throw new Error(this.error ?? '性能历史尚未就绪');
+      const { mode, fullUntil } = DEFAULT_MONITOR_SETTINGS;
+      if (this.settings.mode === mode && this.settings.fullUntil === fullUntil)
+        return this.settings;
+      return this.configureNow({ ...this.settings, mode, fullUntil }, 'keep-policy');
+    });
+  }
+  private async configureNow(settings: MonitorSettings, confirmPrune: boolean | 'keep-policy') {
     const next = normalizeMonitorSettings(settings);
     if (next.mode === 'full' && next.fullUntil !== null && next.fullUntil <= Date.now()) {
       next.mode = 'light';
@@ -367,7 +378,10 @@ export class PerformanceMonitor {
     this.epoch++;
     await this.collecting;
     try {
-      await this.request('configure', { settings: next, confirmPrune });
+      await this.request(confirmPrune === 'keep-policy' ? 'configure-mode' : 'configure', {
+        settings: next,
+        confirmPrune,
+      });
     } catch (error) {
       this.reschedule();
       throw error;
@@ -518,4 +532,16 @@ export function installPerformanceMonitor(root: string, collector: MonitorCollec
 export function getPerformanceMonitor() {
   if (!current) throw new Error('当前宿主尚未启动性能监视');
   return current;
+}
+
+/** 配置事务先落盘，宿主启动或在线恢复后再应用，不使用会清理历史的策略更新。 */
+export async function finishPerformanceRecordingReset(
+  config: Pick<UserConfigService, 'read' | 'write'>,
+  monitor = current,
+): Promise<void> {
+  const revision = config.read().performanceRecordingResetRevision;
+  if (revision === undefined || !monitor) return;
+  await monitor.resetRecordingMode();
+  if (config.read().performanceRecordingResetRevision === revision)
+    config.write({ performanceRecordingResetRevision: undefined });
 }

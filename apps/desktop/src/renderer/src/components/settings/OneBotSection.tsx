@@ -364,7 +364,7 @@ export function OneBotSection(): ReactElement {
               : '实时监听来自 weqbot daemon；「未在监听」表示端口没起来。'
           }
           control={
-            <span>
+            <span className="weq-set-row-status">
               {data?.daemonCheck
                 ? 'daemon 未就绪'
                 : (data?.listeners.length ?? 0) > 0

@@ -85,6 +85,9 @@ export function createContactMetricsRouter(
       .query(({ input }) => resolve(input).localTimes(input.kind)),
     cachedProfiles: procedure.input(binding).query(({ input }) => resolve(input).cachedProfiles()),
     localJoins: procedure.input(binding).query(({ input }) => resolve(input).localJoins()),
+    groupFriendSources: procedure
+      .input(binding.extend({ groupCode: z.string().regex(/^[1-9]\d{0,9}$/) }))
+      .query(({ input }) => resolve(input).groupFriendSources(input.groupCode)),
     rebuild: procedure
       .input(
         binding.extend({

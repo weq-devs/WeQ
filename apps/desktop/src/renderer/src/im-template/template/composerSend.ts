@@ -22,7 +22,8 @@
  */
 
 import { parseMessageParts, type EmojiItem } from './emojiPacks';
-import { tokenToElement } from './draftElements';
+import { elementPreviewSrc, tokenToElement } from './draftElements';
+import { MAX_ATTACHMENT_BYTES } from './composerMedia';
 import { repeatNeedsStickerCatalog, repeatSendPlan } from '../../lib/messageRepeat';
 import { plainElementText } from '@weq/service/message-plain-text';
 
@@ -56,19 +57,37 @@ export async function resolveComposerMedia(
   locals: LocalMediaRef[] = [],
 ): Promise<LocalMediaRef[]> {
   const mediaKeys = new Set<string>();
+  const knownKeys = new Set(locals.map((local) => local.key));
+  const savedPictures = new Map<string, Record<string, unknown>>();
   for (const part of parseMessageParts(body)) {
     if (part.type !== 'element') continue;
     const element = tokenToElement(part.raw) as Record<string, unknown> | null;
     if (!element || !['pic', 'video', 'ptt'].includes(String(element.kind))) continue;
     const key = localKeyOf(element);
-    if (key) mediaKeys.add(key);
+    if (!key) continue;
+    mediaKeys.add(key);
+    if (element.kind === 'pic' && key === element.localPath && !knownKeys.has(key)) {
+      savedPictures.set(key, element);
+    }
   }
-  return Promise.all(
-    locals.map(async (local) => {
+  return Promise.all([
+    ...locals.map(async (local) => {
       if (local.path || local.bytes || !local.file || !mediaKeys.has(local.key)) return local;
       return { ...local, bytes: new Uint8Array(await local.file.arrayBuffer()) };
     }),
-  );
+    ...[...savedPictures].map(async ([key, element]) => {
+      const name = String(element.fileName || '[图片]');
+      const previewUrl = elementPreviewSrc(element)!;
+      // 只通过已有资源代理读宿主草稿，不把草稿中的路径字符串直接交给上传器。
+      const response = await fetch(previewUrl);
+      const unavailable = () => new Error(`草稿图片「${name}」不可用，请检查原图或重新添加。`);
+      if (!response.ok || Number(response.headers.get('content-length')) > MAX_ATTACHMENT_BYTES)
+        throw unavailable();
+      const blob = await response.blob();
+      if (!blob.size || blob.size > MAX_ATTACHMENT_BYTES) throw unavailable();
+      return { key, name, bytes: new Uint8Array(await blob.arrayBuffer()), previewUrl };
+    }),
+  ]);
 }
 
 /** 超级表情目录项（来自 `emojiPanel.overview` 的 `sticker/packId/stickerId`）。 */
@@ -76,6 +95,7 @@ export type SuperStickerEntry = {
   packId: string;
   stickerId: string;
   stickerType?: number;
+  desc?: string;
 };
 
 export type ComposerSendPlan =
@@ -126,7 +146,7 @@ export function composerNeedsStickerCatalog(body: string): boolean {
 
 /**
  * 从元素 token 复算它的本地媒体 key。与 `composerMedia` 生成 token 时的字段一致：
- *   - 图片 / 视频：`localPreviewUrl`（blob 地址，唯一）；
+ *   - 图片 / 视频：`localPreviewUrl`（blob 地址，唯一），共享图片回落到宿主的 `localPath`；
  *   - 语音：`fileName`（`voice-<clip.id>.silk`）；
  *   - 文件：`localAttachmentId`；兼容旧草稿的 `fileName:fileSize`。
  */
@@ -135,7 +155,8 @@ export function localKeyOf(element: Record<string, unknown>): string | null {
   const kind = element.kind;
   if (kind === 'pic' || kind === 'video') {
     const url = typeof element.localPreviewUrl === 'string' ? element.localPreviewUrl : '';
-    return url || null;
+    if (url) return url;
+    return kind === 'pic' && typeof element.localPath === 'string' ? element.localPath : null;
   }
   if (kind === 'ptt') {
     const name = typeof element.fileName === 'string' ? element.fileName : '';
@@ -179,16 +200,17 @@ function mapEmoji(item: EmojiItem, superStickers: Map<string, SuperStickerEntry>
           `找不到表情 ${item.id} 的贴纸目录信息，无法按超级表情发送（目录里这枚表情没有 packId/stickerId）。`,
         );
       }
+      const name = entry.desc || item.name;
       return {
         kind: 'face',
         faceId,
-        faceText: item.name,
+        faceText: name,
         superSticker: {
           packId: entry.packId,
           stickerId: entry.stickerId,
           ...(entry.stickerType !== undefined ? { stickerType: entry.stickerType } : {}),
           // QFaceExtra.text（抓包 324 → "/吃糖"）：收端靠它显示贴纸文字。
-          ...(item.name ? { text: item.name } : {}),
+          ...(name ? { text: name } : {}),
         },
       };
     }
@@ -271,8 +293,12 @@ function mapWireElement(
           source,
           ...(typeof element.fileName === 'string' ? { fileName: element.fileName } : {}),
           ...(element.subType !== undefined ? { subType: Number(element.subType) } : {}),
-          ...(element.width !== undefined ? { width: Number(element.width) } : {}),
-          ...(element.height !== undefined ? { height: Number(element.height) } : {}),
+          ...(element.width !== undefined || element.imgWidth !== undefined
+            ? { width: Number(element.width ?? element.imgWidth) }
+            : {}),
+          ...(element.height !== undefined || element.imgHeight !== undefined
+            ? { height: Number(element.height ?? element.imgHeight) }
+            : {}),
         };
       }
       return {
@@ -693,17 +719,18 @@ function renderElementOf(
       };
     case 'pic': {
       const local = previewOf(element, localByKey);
+      const preview = local?.previewUrl ?? elementPreviewSrc(element);
       return {
         type: 'pic',
         data: {
           fileName: element.fileName,
           fileSize: element.fileSize,
-          imgWidth: element.width,
-          imgHeight: element.height,
+          imgWidth: element.width ?? element.imgWidth,
+          imgHeight: element.height ?? element.imgHeight,
           ...(element.subType !== undefined ? { subType: Number(element.subType) } : {}),
           ...(element.summary !== undefined ? { summary: element.summary } : {}),
           ...(local?.path ? { localPath: local.path } : {}),
-          ...(local?.previewUrl ? { localPreviewUrl: local.previewUrl } : {}),
+          ...(preview ? { localPreviewUrl: preview } : {}),
         },
         text: Number(element.subType) === 1 ? '[表情]' : '[图片]',
       };

@@ -125,6 +125,7 @@ export default function LogPerformanceSettings() {
         title="性能记录"
         icon={<Activity size={15} />}
         settingId="performance-monitor"
+        resetId="performance-recording"
         action={
           <button
             type="button"
@@ -149,6 +150,7 @@ export default function LogPerformanceSettings() {
           ready={!!settings}
           valid={valid}
           save={save}
+          resetKeys={['mode']}
           reset={() => setDraft(null)}
         >
           <Row

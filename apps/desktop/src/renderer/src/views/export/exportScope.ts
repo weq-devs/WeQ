@@ -16,6 +16,8 @@ export function fixedScopeSummary(selection: ContentSelection): string {
   if (selection.scope.type === 'references') return `精确选中 ${count} 项内容`;
   switch (owner.kind) {
     case 'messages': {
+      if (owner.forwardTarget?.records)
+        return `聊天记录 · 精确选中 ${owner.forwardTarget.records.length} 条消息`;
       if (owner.forwardTarget) return '聊天记录 · 卡片内完整消息（含嵌套记录）';
       const conv = owner.container.slice(owner.container.indexOf(':') + 1);
       return count === null ? `会话 ${conv} · 全部消息` : `会话 ${conv} · 精确选中 ${count} 条消息`;

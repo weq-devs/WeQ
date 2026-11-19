@@ -7,6 +7,12 @@ import { SegmentedControl } from '../../src/renderer/src/components/SegmentedCon
 import { ConversationList } from '../../src/renderer/src/im-template/template/conversationLists';
 import { createTemplateDemoData } from '../support/templateDemoData';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
+import { CalendarDateField } from '../../src/renderer/src/components/CalendarDateField';
+import { DialogHost, Modal } from '../../src/renderer/src/components/Dialog';
+import { useDialog } from '../../src/renderer/src/components/Dialog.shared';
+import { FormSelect, FormSuggestions } from '../../src/renderer/src/components/FormSelect';
+import { FormRange } from '../../src/renderer/src/components/FormRange';
+import { TaskProgressBar } from '../../src/renderer/src/components/tasks/TaskProgressBar';
 import {
   componentStyles,
   ensureThemeInitialized,
@@ -29,6 +35,98 @@ const conversations = Array.from({ length: 200 }, (_, index) => ({
   ...seed,
   id: `fixture-${index}`,
 }));
+
+function FormControlsFixture() {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState('');
+  const [sender, setSender] = useState('');
+  const [date, setDate] = useState('2026-02-01');
+  const [range, setRange] = useState(30);
+  const [changes, setChanges] = useState(0);
+  const [submit, setSubmit] = useState('');
+  const [confirmation, setConfirmation] = useState(false);
+  return (
+    <section aria-label="共用表单控件">
+      <DialogHost />
+      <button type="button" className="weq-set-btn" onClick={() => setOpen(true)}>
+        打开控件验证
+      </button>
+      <Modal open={open} onClose={() => setOpen(false)} labelledBy="fixture-form-title" width={310}>
+        <h2 id="fixture-form-title">表单控件验证</h2>
+        <form
+          onChangeCapture={(event) => {
+            if (event.target instanceof HTMLSelectElement) setChanges((count) => count + 1);
+          }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            setSubmit(String(new FormData(event.currentTarget).get('choice')));
+          }}
+        >
+          <label>
+            选一个分组
+            <FormSelect
+              required
+              name="choice"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+            >
+              <option value="" data-placeholder disabled>
+                请选择
+              </option>
+              <optgroup label="常用分组">
+                <option value="first">甲组</option>
+                <option value="disabled" disabled>
+                  禁用分组
+                </option>
+                <option value="last">乙组</option>
+              </optgroup>
+            </FormSelect>
+          </label>
+          <button type="submit" className="weq-set-btn">
+            提交分组
+          </button>
+          <output aria-label="提交结果">{submit}</output>
+          <output aria-label="变更次数">{changes}</output>
+        </form>
+        <FormSuggestions
+          aria-label="发送者"
+          value={sender}
+          onValueChange={setSender}
+          options={[{ value: '10001', label: '小明' }]}
+        />
+        <CalendarDateField
+          label="筛选日期"
+          value={date}
+          min="2026-02-01"
+          max="2026-02-28"
+          onChange={setDate}
+        />
+        <div>
+          <label>
+            <input type="checkbox" defaultChecked /> 我
+          </label>
+          <FormRange
+            aria-label="清晰度"
+            value={range}
+            onChange={(event) => setRange(event.target.valueAsNumber)}
+          />
+          <TaskProgressBar label="已知进度" value={30} />
+          <TaskProgressBar label="未知进度" />
+        </div>
+        <button
+          type="button"
+          className="weq-set-btn"
+          onClick={() =>
+            void useDialog.getState().confirm('验证确认框', '继续执行？').then(setConfirmation)
+          }
+        >
+          打开确认
+        </button>
+        {confirmation && <span role="status">已确认</span>}
+      </Modal>
+    </section>
+  );
+}
 
 function MixedToggleFixture() {
   const [values, setValues] = useState([true, false]);
@@ -111,7 +209,7 @@ function Fixture() {
           <section>
             <h2>控件与会话</h2>
             <div className="appearance-controls">
-              <button type="button" className="weq-set-btn">
+              <button type="button" className="weq-set-btn weq-set-btn-primary">
                 保存
               </button>
               <button type="button" className="weq-set-btn weq-set-btn-soft">
@@ -174,6 +272,7 @@ function Fixture() {
           </section>
         </div>
         <section className="appearance-extended">
+          <FormControlsFixture />
           <SegmentedControl
             label="内容范围"
             value={scope}
@@ -190,14 +289,24 @@ function Fixture() {
                 <header className="weq-collection-head">
                   <h2>收藏</h2>
                 </header>
-                <nav className="weq-collection-filters" aria-label="收藏分类">
-                  <button type="button" className="weq-collection-chip is-active">
+                <div className="weq-collection-filters" role="tablist" aria-label="收藏分类">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    className="weq-collection-chip is-active"
+                  >
                     全部
                   </button>
-                  <button type="button" className="weq-collection-chip">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    className="weq-collection-chip"
+                  >
                     图片
                   </button>
-                </nav>
+                </div>
                 <label className="weq-collection-search">
                   <input aria-label="搜索收藏" placeholder="搜索收藏" />
                 </label>

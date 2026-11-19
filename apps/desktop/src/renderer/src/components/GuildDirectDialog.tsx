@@ -3,7 +3,7 @@ import { formatConversationTime as formatChannelTime } from '@weq/time';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, CheckSquare, Download, X } from 'lucide-react';
 import { client } from '../trpc/client';
-import type { Conversation, User } from '../im-template/template/types';
+import type { DirectConversation, User } from '../im-template/template/types';
 import type { MessageRenderer } from '../im-template/template/messageRenderers';
 import { Avatar } from '../im-template/template/primitives';
 import { Modal } from './Dialog';
@@ -100,7 +100,7 @@ export function GuildDirectDialog({
     onExit: () => selection.setSelectionMode(false),
   });
   const requestExport = useRequestContentExport();
-  const conversation = useMemo<Conversation | undefined>(
+  const conversation = useMemo<DirectConversation | undefined>(
     () =>
       selected
         ? {

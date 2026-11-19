@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 import { localFileUrl, mediaUrl } from '../lib/resourceUrl';
 import { timelineRowKey } from '../../../shared/roaming_timeline';
 import type { PreviewMedia } from './mediaPreviewTypes';
+import { messageTransferTarget } from '../../../shared/transfer_progress';
 
 export interface GalleryMessage {
   msgId: string;
@@ -29,7 +30,7 @@ export function galleryMedia(
   messages: GalleryMessage[],
   conv = '',
   kind: 'c2c' | 'group' = 'c2c',
-  carrier?: { msgId: string; kind: 'c2c' | 'group' },
+  carrier?: import('../state/messageContext').ForwardCarrier,
 ): PreviewMedia[] {
   return messages.flatMap((message) => {
     const identity =
@@ -61,7 +62,8 @@ export function galleryMedia(
           : {
               msgId: carrier?.msgId ?? message.msgId,
               conv,
-              ...(carrier ? { fwdMsgId: message.msgId, fwdKind: carrier.kind } : {}),
+              ...(carrier ? { fwdMsgId: message.msgId || '', fwdKind: carrier.kind } : {}),
+              ...(carrier?.resId ? { fwdResId: carrier.resId } : {}),
             }),
       };
       const proxy = mediaUrl(image ? 'pic' : 'video', params);
@@ -84,6 +86,13 @@ export function galleryMedia(
             element: mediaIndex - 1,
           },
           kind: image ? 'image' : 'video',
+          progressTarget: messageTransferTarget(
+            image ? 'pic' : 'video',
+            carrier?.msgId ?? message.msgId,
+            token,
+            name,
+            carrier ? { fwdMsgId: message.msgId, fwdResId: carrier.resId } : undefined,
+          ),
           src,
           saveSource: src.startsWith('blob:')
             ? data.localPath

@@ -19,6 +19,7 @@ import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
   ChevronDown,
+  CheckCheck,
   Copy,
   Database,
   Eye,
@@ -38,6 +39,7 @@ import { Card, Row, SectionHeader, Toggle } from './controls';
 import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { FullFunctionSetup } from './FullFunctionSetup';
+import { NotificationMethodSelect } from './NotificationMethodSelect';
 import { CopyButton } from '../CopyButton';
 import { formatExpiry } from './AccountBasicsSection.shared';
 
@@ -120,7 +122,7 @@ export function AccountBasicsSection({
   page = 'account',
   heading = true,
 }: {
-  page?: 'account' | 'credentials' | 'media' | 'read' | 'listening';
+  page?: 'account' | 'credentials' | 'media' | 'listening';
   heading?: boolean;
 }): ReactElement {
   const active = useTabActive();
@@ -150,7 +152,6 @@ export function AccountBasicsSection({
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
-  const setRestrictedModeBanner = trpc.bootstrap.setRestrictedModeBannerEnabled.useMutation();
   const setRestrictedIndicator = trpc.bootstrap.setRestrictedModeIndicatorEnabled.useMutation();
   const setReadSyncEnabled = trpc.bootstrap.setReadSyncEnabled.useMutation();
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
@@ -165,10 +166,7 @@ export function AccountBasicsSection({
 
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
-  const [autoAttach, setAutoAttach] = useState(true);
-  const [restrictedBanner, setRestrictedBanner] = useState(true);
-  const [savingBanner, setSavingBanner] = useState(false);
-  const bannerPending = useRef(false);
+  const [autoAttach, setAutoAttach] = useState(false);
   const [restrictedIndicator, setRestrictedIndicatorLocal] = useState(true);
   const [savingIndicator, setSavingIndicator] = useState(false);
   const indicatorPending = useRef(false);
@@ -194,7 +192,6 @@ export function AccountBasicsSection({
     if (!d) return;
     setRealtimeLocal(d.realtimeEnabled);
     setAutoAttach(d.autoAttachQq);
-    setRestrictedBanner(d.restrictedModeBannerEnabled);
     setRestrictedIndicatorLocal(d.restrictedModeIndicatorEnabled !== false);
     setReportRead(d.reportReadEnabled);
     setManualReadReport(d.manualReadReportEnabled);
@@ -267,24 +264,6 @@ export function AccountBasicsSection({
     }
   }
 
-  async function toggleRestrictedBanner(enabled: boolean): Promise<void> {
-    if (bannerPending.current) return;
-    bannerPending.current = true;
-    setSavingBanner(true);
-    const previous = restrictedBanner;
-    setRestrictedBanner(enabled);
-    try {
-      await setRestrictedModeBanner.mutateAsync({ enabled });
-      await settings.refetch();
-    } catch (error) {
-      setRestrictedBanner(previous);
-      showError('保存失败', errMsg(error));
-    } finally {
-      bannerPending.current = false;
-      setSavingBanner(false);
-    }
-  }
-
   async function toggleRestrictedIndicator(enabled: boolean): Promise<void> {
     if (indicatorPending.current) return;
     indicatorPending.current = true;
@@ -331,36 +310,6 @@ export function AccountBasicsSection({
     } catch (e) {
       showError('移除失败', errMsg(e));
     }
-  }
-
-  if (page === 'read') {
-    return (
-      <>
-        <Row
-          settingId="read-sync"
-          desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。默认开启，仅在 QQ 在线能力已启用且账号在线时生效；标为未读不能恢复其他端已清除的提醒。"
-          control={
-            <Toggle
-              checked={reportRead || manualReadReport}
-              disabled={
-                settingsLoading ||
-                !settings.data ||
-                Boolean(settings.error) ||
-                savingReadSync ||
-                setReadSyncEnabled.isPending
-              }
-              onChange={(v) => void toggleReportRead(v)}
-              label="向 QQ 服务器上报已读位置"
-            />
-          }
-        />
-        {reportRead !== manualReadReport ? (
-          <p className="weq-set-note">
-            {reportRead ? '仅自动阅读上报，沿用原设置' : '仅手动标记上报，沿用原设置'}
-          </p>
-        ) : null}
-      </>
-    );
   }
 
   return (
@@ -639,21 +588,36 @@ export function AccountBasicsSection({
               }
             />
             <Row
-              settingId="restricted-mode-banner"
               label="在线能力受限时通知"
               desc="QQ 在线能力就绪后再次受限时，按通知设置提醒。授权请求、主动操作错误和启用进度不受影响。"
+              control={<NotificationMethodSelect event="runtime" />}
+            />
+          </FullFunctionSetup>
+          <Card title="已读同步" icon={<CheckCheck size={15} />} resetId="read-sync">
+            <Row
+              settingId="read-sync"
+              desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。仅在 QQ 在线能力已启用且账号在线时生效。"
               control={
                 <Toggle
-                  checked={restrictedBanner}
+                  checked={reportRead || manualReadReport}
                   disabled={
-                    settingsLoading || !settings.data || Boolean(settings.error) || savingBanner
+                    settingsLoading ||
+                    !settings.data ||
+                    Boolean(settings.error) ||
+                    savingReadSync ||
+                    setReadSyncEnabled.isPending
                   }
-                  onChange={(value) => void toggleRestrictedBanner(value)}
-                  label="在线能力受限时通知"
+                  onChange={(v) => void toggleReportRead(v)}
+                  label="向 QQ 服务器上报已读位置"
                 />
               }
             />
-          </FullFunctionSetup>
+            {reportRead !== manualReadReport ? (
+              <p className="weq-set-note">
+                {reportRead ? '仅自动阅读上报，沿用原设置' : '仅手动标记上报，沿用原设置'}
+              </p>
+            ) : null}
+          </Card>
           <LongTermAuthorizationSection />
         </>
       )}

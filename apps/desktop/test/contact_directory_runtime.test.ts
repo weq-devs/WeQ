@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ContactDirectoryRuntime } from '../src/main/context/contact_metrics';
 import { backgroundTasks } from '../src/main/background_tasks';
+import { backgroundTasksRouter } from '../src/main/ipc/routers/background_tasks';
 import type { AccountServices } from '../src/main/context/app_context';
 import type { AccountSession } from '@weq/account';
 import type { DbWatchService } from '@weq/service';
@@ -139,6 +140,9 @@ async function setup(online = true) {
     buddies,
     profiles,
     session,
+    setOnline: (value: boolean) => {
+      online = value;
+    },
     switchAccount: () => {
       current = false;
     },
@@ -148,6 +152,39 @@ async function setup(online = true) {
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 // 每个用例都会新建指标缓存与历史存储 worker，CI 分片并行时首次读取可能超过默认 1s。
 const waitFor = (assertion: () => unknown) => vi.waitFor(assertion, { timeout: 4_000 });
+it('群来源统计只读已缓存线索，区分未知来源、缺项与离群', async () => {
+  const { runtime, services, buddies } = await setup(false);
+  buddies.push({ uid: 'u_other', uin: 12346n });
+  await runtime.cache.record('friend:12345', { source: '通过群聊', sourceGroup: '10001' });
+  await expect(runtime.groupFriendSources('10001')).resolves.toEqual({
+    friendUids: ['u_friend', 'u_other'],
+    addedUids: ['u_friend'],
+    pendingUids: ['u_other'],
+    unknown: 0,
+    rosterComplete: true,
+  });
+  await runtime.cache.record('friend:12346', { source: '通过群聊', sourceGroup: '' });
+  await expect(runtime.groupFriendSources('10001')).resolves.toMatchObject({
+    addedUids: ['u_friend'],
+    pendingUids: [],
+    unknown: 1,
+  });
+  await runtime.cache.project('friend:12345', { addedAt: 123 }, Date.now() + 1000);
+  await expect(runtime.groupFriendSources('10001')).resolves.toMatchObject({
+    addedUids: [],
+    pendingUids: ['u_friend'],
+    unknown: 1,
+  });
+  services.groupInfo.listExportMembers.mockResolvedValue([{ uid: 'u_friend' }]);
+  services.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '10001', memberCount: 1 }]);
+  await expect(runtime.groupFriendSources('10001')).resolves.toMatchObject({
+    friendUids: ['u_friend'],
+    unknown: 0,
+    rosterComplete: true,
+  });
+  expect(services.accountWrite.friendClue).not.toHaveBeenCalled();
+});
+
 it('新增好友字段复用现有范围，来源单独刷新不会被添加时间缺省误判失败', async () => {
   const { runtime, services } = await setup();
   await runtime.rebuild(false, ['energy', 'schools', 'source']);
@@ -155,8 +192,8 @@ it('新增好友字段复用现有范围，来源单独刷新不会被添加时�
     expect(runtime.cache.progress.done).toBe(1);
     expect(runtime.cache.progress.status).toBe('completed');
   });
-  expect(services.profileExtras.energy).toHaveBeenCalledWith('12345');
-  expect(services.profileExtras.educationHistory).toHaveBeenCalledWith('12345');
+  expect(services.profileExtras.energy).toHaveBeenCalledWith('12345', 1);
+  expect(services.profileExtras.educationHistory).toHaveBeenCalledWith('12345', 1);
   expect(services.accountWrite.friendClue).toHaveBeenCalledWith('u_friend', 1);
   expect(services.groupInfo.getExtendedProfile).not.toHaveBeenCalled();
 });
@@ -179,7 +216,7 @@ it('只刷新本人入群时间也查询直接群资料，不为此拉全群成�
   const { runtime, services } = await setup();
   await runtime.rebuild(false, ['joinedAt'], 'all');
   await waitFor(() =>
-    expect(services.groupInfo.getExtendedProfile).toHaveBeenCalledWith(10001, true, true),
+    expect(services.groupInfo.getExtendedProfile).toHaveBeenCalledWith(10001, true, true, 1),
   );
   await waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
   expect(services.groupInfo.fetchOnlineMembers).not.toHaveBeenCalled();
@@ -349,19 +386,29 @@ it('手动准备整页读取途中关闭账号，不续页或恢复旧重试动�
   expect(f.services.groupInfo.listAllGroupsExt).not.toHaveBeenCalled();
 });
 
-it('好友在途字段返回后账号已关闭，不再继续同一好友的后续在线字段', async () => {
+it('账号关闭后，同一好友已入队但未发出的在线字段不再执行', async () => {
   const f = await setup();
   await settled(f);
   const gate = deferred<number>();
-  f.services.peerStats.getQqLevel.mockImplementationOnce(() => gate.promise);
-  f.services.peerStats.getLikeCount.mockClear();
+  const started = Promise.withResolvers<void>();
+  const fetchLikes = vi.fn(async () => 0);
+  f.services.peerStats.getQqLevel.mockImplementationOnce(() =>
+    f.runtime.cache.schedule('friend:12345:level', () => {
+      started.resolve();
+      return gate.promise;
+    }),
+  );
+  f.services.peerStats.getLikeCount.mockImplementationOnce(() =>
+    f.runtime.cache.schedule('friend:u_friend:likes', fetchLikes),
+  );
   await f.runtime.rebuild(false, ['level', 'likeCount']);
-  await waitFor(() => expect(f.services.peerStats.getQqLevel).toHaveBeenCalled());
+  await started.promise;
+  expect(f.services.peerStats.getLikeCount).toHaveBeenCalled();
   await f.runtime.dispose();
   gate.resolve(1);
   await turn();
   await turn();
-  expect(f.services.peerStats.getLikeCount).not.toHaveBeenCalled();
+  expect(fetchLikes).not.toHaveBeenCalled();
 });
 it('缓存更新覆盖非好友和临时会话但不查线索，群聊只更新当前群目录', async () => {
   const { runtime, services, profiles } = await setup();
@@ -450,9 +497,10 @@ it('当前群目录为空时不获取历史群，保留已有本地指标供分�
   expect((await runtime.cache.row('group:30003')).friendCount).toBeUndefined();
 });
 
-it('单个字段失败仍尝试其余指标，部分成功不判整个对象失败', async () => {
+it('慢字段不阻塞同一好友的其余指标，部分成功不判整个对象失败', async () => {
   const { runtime, services } = await setup();
-  services.peerStats.getQqLevel.mockRejectedValue(new Error('合成等级获取失败'));
+  const level = Promise.withResolvers<number>();
+  services.peerStats.getQqLevel.mockReturnValue(level.promise);
   services.accountWrite.friendClue.mockResolvedValue({ addedAt: 123, direction: null });
   services.accountWrite.commonRelationships.mockResolvedValue({
     friendCount: 0,
@@ -461,15 +509,62 @@ it('单个字段失败仍尝试其余指标，部分成功不判整个对象失�
     groupError: '合成共同群失败',
   });
   const id = await runtime.rebuild();
+  await waitFor(() =>
+    expect(services.accountWrite.commonRelationships).toHaveBeenCalledWith('12345', 1),
+  );
+  expect(runtime.cache.progress.lanes?.friends.done).toBe(0);
+  level.reject(new Error('合成等级获取失败'));
   await waitFor(() => expect(runtime.cache.progress.done).toBe(3));
   await waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
   expect(services.peerStats.getLikeCount).toHaveBeenCalledWith('u_friend', 1);
-  expect(services.accountWrite.commonRelationships).toHaveBeenCalledWith('12345', 1);
   expect(backgroundTasks.snapshot().find((task) => task.id === id)?.logs).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ text: expect.stringContaining('部分字段未取得') }),
     ]),
   );
+});
+
+it('多个好友卡在慢字段时，队列继续刷新后面的好友', async () => {
+  const f = await setup();
+  await settled(f);
+  f.buddies.push(
+    { uid: 'u_second', uin: 23456n },
+    { uid: 'u_third', uin: 34567n },
+    { uid: 'u_fourth', uin: 45678n },
+    { uid: 'u_fifth', uin: 56789n },
+  );
+  const slow = deferred<number>();
+  for (let index = 0; index < 3; index++)
+    f.services.peerStats.getQqLevel.mockReturnValueOnce(slow.promise);
+  await f.runtime.rebuild(false, ['level']);
+  await waitFor(() => expect(f.runtime.cache.progress.lanes?.friends.done).toBe(2));
+  expect(f.services.peerStats.getQqLevel.mock.calls.map(([uin]) => uin)).toEqual([
+    '12345',
+    '23456',
+    '34567',
+    '45678',
+    '56789',
+  ]);
+  expect(f.runtime.cache.progress.status).toBe('running');
+  slow.resolve(1);
+  await waitFor(() => expect(f.runtime.cache.progress.status).toBe('completed'));
+  expect(f.runtime.cache.progress.lanes?.friends).toEqual({ done: 5, total: 5, failed: 0 });
+});
+
+it('好友并行刷新中断线，继续时保留同批已成功的字段', async () => {
+  const { runtime, services, setOnline } = await setup();
+  const level = Promise.withResolvers<number>();
+  services.peerStats.getQqLevel.mockReturnValueOnce(level.promise);
+  await runtime.rebuild(false, ['level', 'likeCount']);
+  await waitFor(() => expect(services.peerStats.getLikeCount).toHaveBeenCalledTimes(1));
+  setOnline(false);
+  level.reject(new Error('连接中断'));
+  await waitFor(() => expect(runtime.cache.progress.status).toBe('paused'));
+  setOnline(true);
+  runtime.cache.resume();
+  await waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(services.peerStats.getQqLevel).toHaveBeenCalledTimes(2);
+  expect(services.peerStats.getLikeCount).toHaveBeenCalledTimes(1);
 });
 
 it('全部请求均失败时仍如实标记失败，保留旧值', async () => {
@@ -621,11 +716,13 @@ it('账号切换后旧任务的继续动作不能操作新账号', async () => {
   const task = await runtime.rebuild();
   await waitFor(() => expect(runtime.cache.progress.status).toBe('paused'));
   switchAccount();
-  await expect(backgroundTasks.act(task!, 'retry')).rejects.toThrow('原账号');
+  await expect(backgroundTasks.act(task!, 'resume')).rejects.toThrow('原账号');
 });
 
-it('任务有真实进度与完整阶段日志，日志仅保留最近 200 条', async () => {
+it('群聊失败明细独立于最近 200 条过程日志，重试成功后清除', async () => {
   const { runtime, services } = await setup();
+  const group = Promise.withResolvers<{ error: null }>();
+  services.groupInfo.getExtendedProfile.mockReturnValueOnce(group.promise);
   let release!: (value: {
     friendCount: number;
     groups: never[];
@@ -638,26 +735,41 @@ it('任务有真实进度与完整阶段日志，日志仅保留最近 200 条',
         release = resolve;
       }),
   );
-  const id = await runtime.rebuild(false, ['commonGroups']);
+  const id = (await runtime.rebuild(false, ['commonGroups', 'grade']))!;
   await waitFor(() => expect(release).toBeDefined());
   const running = backgroundTasks.snapshot().find((task) => task.id === id)!;
   expect(running.status).toBe('running');
   expect(running.progress).toBe(0);
   expect(running.logs?.some((line) => line.text.includes('开始'))).toBe(true);
+  group.reject(new Error('合成扩展资料读取失败'));
+  await waitFor(() => expect(runtime.cache.progress.lanes?.groups.failed).toBe(1));
   for (let index = 0; index < 250; index++) runtime.cache.emit('log', `合成任务日志 ${index}`);
-  expect(backgroundTasks.snapshot().find((task) => task.id === id)?.logs).toHaveLength(200);
+  const task = backgroundTasks.snapshot().find((item) => item.id === id)!;
+  expect(task.logs).toHaveLength(200);
+  expect(task.logs?.some((line) => line.level === 'error')).toBe(false);
+  const caller = backgroundTasksRouter.createCaller({});
+  const input = { id, scope: task.scope!, lane: 'groups' as const };
+  expect(await caller.contactFailures(input)).toEqual([
+    { lane: 'groups', label: '合成群（10001） · 群扩展资料', error: '合成扩展资料读取失败' },
+  ]);
+  expect(await caller.contactFailures({ ...input, lane: 'friends' })).toEqual([]);
+  await expect(caller.contactFailures({ ...input, scope: null })).rejects.toThrow('失效');
   release({ friendCount: 0, groups: [], friendError: null, groupError: null });
-  await waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
-  const completed = backgroundTasks.snapshot().find((task) => task.id === id)!;
-  expect(completed.progress).toBe(100);
-  expect(completed.logs?.at(-1)?.text).toContain('本轮结束');
+  await waitFor(() => expect(runtime.cache.progress.status).toBe('failed'));
+  const failed = backgroundTasks.snapshot().find((item) => item.id === id)!;
+  expect(failed.progress).toBe(100);
+  expect(failed.logs?.at(-1)?.text).toContain('本轮结束');
   expect(
-    completed.details?.some((line) => line.startsWith('好友获取结果：') && line.includes('12345')),
+    failed.details?.some((line) => line.startsWith('好友获取结果：') && line.includes('12345')),
   ).toBe(true);
-  expect(completed.subtasks?.find((lane) => lane.label === '好友')).toMatchObject({
+  expect(failed.subtasks?.find((lane) => lane.label === '好友')).toMatchObject({
     done: 1,
     total: 1,
   });
+  await backgroundTasks.act(id, 'retry');
+  await waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(await caller.contactFailures(input)).toEqual([]);
+  expect(services.accountWrite.commonRelationships).toHaveBeenCalledOnce();
 });
 
 it('超 24h 范围逐个好友判断，只更新超时对象，不由全局最近刷新时间决定', async () => {

@@ -72,11 +72,9 @@ test('macOS 发布说明与固定自签证书构建一致并保留未公证状�
   const notes = workflow.jobs.notes.steps.find(
     (step) => step.name === '生成并写入中文 Release 说明',
   ).run;
-  for (const arch of ['x64', 'arm64']) {
-    const download = notes.split('\n').find((line) => line.includes(`-mac-${arch}.dmg`));
-    assert.match(download, /固定自签证书签名，未公证/);
-    assert.doesNotMatch(download, /ad-hoc/);
-  }
+  const installNote = notes.split('\n').find((line) => line.startsWith('- **macOS**：'));
+  assert.match(installNote, /固定自签证书签名，未公证/);
+  assert.doesNotMatch(installNote, /ad-hoc/);
 });
 
 test('安装说明固定到发布标签引用的独立文档提交，不链接主仓子模块内文件', async () => {

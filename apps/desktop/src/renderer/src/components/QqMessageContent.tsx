@@ -64,7 +64,6 @@ import {
   ForwardKindContext,
   ConvContext,
   ForwardCarrierContext,
-  ForwardSubRecordsContext,
 } from '../state/messageContext';
 import type { RenderElement } from './QqMessageContent.shared';
 
@@ -195,11 +194,15 @@ function MediaBody({
   const carrier = useContext(ForwardCarrierContext);
   // Inside a forward window `msgId` is the sub-message; the download path needs
   // the carrier's id to reach the 40900 cache, and the sub-id to pick the row.
-  const fwd = carrier ? { fwdMsgId: msgId, fwdKind: carrier.kind } : undefined;
+  const fwd = carrier
+    ? { fwdMsgId: msgId, fwdKind: carrier.kind, fwdResId: carrier.resId }
+    : undefined;
   const ownerMsgId = carrier ? carrier.msgId : msgId;
   switch (element.type) {
     case 'pic':
-      return <QqImage data={data} sendTimeMs={sendTimeMs} conv={conv} />;
+      return (
+        <QqImage data={data} sendTimeMs={sendTimeMs} conv={conv} msgId={ownerMsgId} fwd={fwd} />
+      );
     case 'video':
       return (
         <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />
@@ -746,6 +749,8 @@ function QqMessageContentBody({
   msgSeq,
   isSender = true,
   conversation,
+  forwardSource,
+  forwardRecord,
 }: {
   elements: RenderElement[];
   sendTimeMs: number;
@@ -754,6 +759,14 @@ function QqMessageContentBody({
   galleryKey?: string;
   isSender?: boolean;
   textMarkdownDisplayKey?: string;
+  forwardSource?: Pick<
+    NonNullable<import('../state/forwardWindow').ForwardWindowState['exportSource']>,
+    'owner' | 'carrierId'
+  >;
+  forwardRecord?: {
+    target: import('@weq/service').ForwardRecordTarget;
+    children?: import('../state/forwardWindow').ForwardRecordWire[];
+  };
   /**
    * 当前会话（渲染器注册表带进来的）—— 红包明细要拿 conv / 会话类型。
    * 不传时退回 `ConvContext`（转发窗口只有群号那一路）。
@@ -774,10 +787,9 @@ function QqMessageContentBody({
   // takes over the whole bubble, rendering as its own self-contained card.
   const arkElement = elements.find((element) => element.type === 'ark');
   const forwardKind = useContext(ForwardKindContext);
-  const forwardSubRecords = useContext(ForwardSubRecordsContext);
   const groupCode = useContext(ConvContext);
   const textMarkdownOn = useContext(TextMarkdownContext);
-  const linkPreviewOn = useContext(LinkPreviewContext);
+  const { enabled: linkPreviewOn } = useContext(LinkPreviewContext);
   /**
    * 通话气泡查录音要用的会话身份。`conversation` 没传时（转发窗口 / 导出预览）
    * 退回 `ConvContext`（那里只有群号），再拿不到就干脆不查 —— 宁可没有播放按钮，
@@ -790,15 +802,16 @@ function QqMessageContentBody({
     return conv ? { kind, conv } : null;
   })();
   if (arkElement && isArkMultiMsg(arkElement.data?.arkData)) {
-    // 与下面 multiMsg 分支同一套内联子记录规则（Ark 形态的合并转发同样可嵌套）。
-    const inlineSubs = forwardSubRecords?.get(msgId);
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
         <ForwardMultiMsgPreview
           data={{ arkData: arkElement.data?.arkData }}
           msgId={msgId}
           kind={forwardKind}
-          {...(inlineSubs && inlineSubs.length > 0 ? { nestedRecords: inlineSubs as never } : {})}
+          elementIndex={elements.indexOf(arkElement)}
+          source={forwardSource}
+          parentRecord={forwardRecord?.target}
+          nestedRecords={forwardRecord?.children}
         />
       </div>
     );
@@ -971,16 +984,16 @@ function QqMessageContentBody({
 
   const multiMsgElement = elements.find((element) => element.type === 'multiMsg');
   if (multiMsgElement) {
-    // 嵌套转发：如果宿主已经内联了这层子记录（转发窗口直接来自 40900），就把它交给
-    // 预览卡片 —— 点开时不必再查一次库。主时间线 / 合成转发预览没有这张表，退回现查。
-    const inlineSubs = forwardSubRecords?.get(msgId);
     return (
       <div className={cn('message-content', 'qq-card-only', 'qq-has-forward')}>
         <ForwardMultiMsgPreview
           data={(multiMsgElement.data ?? {}) as Record<string, unknown>}
           msgId={msgId}
           kind={forwardKind}
-          {...(inlineSubs && inlineSubs.length > 0 ? { nestedRecords: inlineSubs as never } : {})}
+          elementIndex={elements.indexOf(multiMsgElement)}
+          source={forwardSource}
+          parentRecord={forwardRecord?.target}
+          nestedRecords={forwardRecord?.children}
         />
       </div>
     );

@@ -1,8 +1,8 @@
-import type { GroupChatStreamEvent } from '../../src/main/mcp/agentlab_group_bus';
+import type { CloneConversationEvent } from '@weq/service';
 
 export const cloneRequests: Array<{ name: string; input: unknown }> = [];
 export const cloneQueries: Array<{ name: string; input: unknown }> = [];
-const listeners = new Set<(event: GroupChatStreamEvent) => void>();
+const listeners = new Set<(event: CloneConversationEvent) => void>();
 let messageSerial = 2;
 const ts = new Date('2026-10-27T12:00:00+08:00').getTime();
 const turns = [
@@ -10,6 +10,25 @@ const turns = [
   { id: 'm2', role: 'user', text: '已经完成了，晚点一起讨论。', ts: ts + 1000 },
 ];
 const data: Record<string, unknown> = {
+  getSettings: { aiImages: { cloneChat: 'vision' } },
+  getAgentLabDefaultModel: {
+    ref: { providerId: 'fixture', model: 'fixture-model' },
+    available: true,
+  },
+  listAgentLabProviders: [
+    {
+      id: 'fixture',
+      name: '合成服务商',
+      models: [
+        {
+          id: 'fixture-model',
+          label: '合成模型',
+          capabilities: ['chat'],
+          reasoningEfforts: ['low', 'high'],
+        },
+      ],
+    },
+  ],
   overview: {
     faces: [
       {
@@ -56,6 +75,50 @@ const proxy = (path: string[] = []): unknown =>
           cloneQueries.push({ name: path.at(-1)!, input });
           return null;
         };
+      if (key === 'mutate' && path.at(-1) === 'submitCloneMessage')
+        return async (input: {
+          kind: 'persona' | 'group';
+          id: string;
+          requestId: string;
+          text: string;
+        }) => {
+          cloneRequests.push({ name: 'submitCloneMessage', input });
+          const mine = { id: input.requestId, text: input.text, ts: ts + ++messageSerial * 1000 };
+          const reply = {
+            id: `m${++messageSerial}`,
+            text: '合成回复',
+            ts: ts + messageSerial * 1000,
+          };
+          const [event, answer] =
+            input.kind === 'group'
+              ? ([
+                  {
+                    kind: 'group-message',
+                    message: { ...mine, groupId: input.id, senderId: 'self', senderKind: 'user' },
+                  },
+                  {
+                    kind: 'group-message',
+                    message: { ...reply, groupId: input.id, senderId: 'p', senderKind: 'persona' },
+                  },
+                ] as const)
+              : ([
+                  { kind: 'persona-message', message: { ...mine, role: 'user' } },
+                  { kind: 'persona-message', message: { ...reply, role: 'assistant' } },
+                ] as const);
+          const key =
+            input.kind === 'group' ? 'getAgentLabGroupConversation' : 'getAgentLabConversation';
+          data[key] = [...(data[key] as unknown[]), event.message];
+          for (const listener of listeners) listener({ kind: 'typing', typing: true });
+          setTimeout(() => {
+            data[key] = [...(data[key] as unknown[]), answer.message];
+            for (const listener of listeners) {
+              listener(answer);
+              listener({ kind: 'typing', typing: false });
+              listener({ kind: 'settled' });
+            }
+          }, 500);
+          return event;
+        };
       if (key === 'useMutation')
         return () => ({
           mutate: (input: unknown) => cloneRequests.push({ name: path.at(-1)!, input }),
@@ -78,62 +141,13 @@ const proxy = (path: string[] = []): unknown =>
                     : detail.members.filter((member) => member.memberId !== input.memberId),
               };
             }
-            if (name === 'chatWithAgentLabPersona') {
-              data.getAgentLabPersonaSessionConversation = [
-                ...(data.getAgentLabPersonaSessionConversation as typeof turns),
-                {
-                  id: `m${++messageSerial}`,
-                  role: 'user',
-                  text: input.text ?? '',
-                  ts: ts + messageSerial * 1000,
-                },
-                {
-                  id: `m${++messageSerial}`,
-                  role: 'assistant',
-                  text: '合成回复',
-                  ts: ts + messageSerial * 1000,
-                },
-              ];
-              data.getAgentLabConversation = data.getAgentLabPersonaSessionConversation;
-            }
-            if (name === 'sendAgentLabGroupMessage') {
-              const rows = [
-                {
-                  id: `m${++messageSerial}`,
-                  groupId: 'g',
-                  senderId: 'self',
-                  senderKind: 'user' as const,
-                  text: input.text ?? '',
-                  ts: ts + messageSerial * 1000,
-                },
-                {
-                  id: `m${++messageSerial}`,
-                  groupId: 'g',
-                  senderId: 'p',
-                  senderKind: 'persona' as const,
-                  text: '合成回复',
-                  ts: ts + messageSerial * 1000,
-                },
-              ];
-              data.getAgentLabGroupConversation = [
-                ...(data.getAgentLabGroupConversation as typeof rows),
-                ...rows,
-              ];
-              queueMicrotask(() => {
-                for (const listener of listeners) {
-                  for (const message of rows)
-                    listener({ groupId: 'g', groupRunId: 'fixture-run', kind: 'message', message });
-                  listener({ groupId: 'g', groupRunId: 'fixture-run', kind: 'done' });
-                }
-              });
-            }
             return { id: 's', sessionId: 's', text: '合成回复', replyDelayMs: 0 };
           },
           isLoading: false,
         });
       if (key === 'subscribe')
-        return (_input: unknown, handler: { onData: (event: GroupChatStreamEvent) => void }) => {
-          if (path.at(-1) === 'onGroupChatEvent') listeners.add(handler.onData);
+        return (_input: unknown, handler: { onData: (event: CloneConversationEvent) => void }) => {
+          if (path.at(-1) === 'onCloneConversation') listeners.add(handler.onData);
           return {
             unsubscribe() {
               listeners.delete(handler.onData);

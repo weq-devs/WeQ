@@ -14,8 +14,8 @@ afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
 });
 
-async function setup() {
-  const root = await mkdtemp(join(tmpdir(), 'weq-member-refresh-'));
+async function setup(existingRoot?: string) {
+  const root = existingRoot ?? (await mkdtemp(join(tmpdir(), 'weq-member-refresh-')));
   let online = true;
   const services = {
     profile: { listBuddies: vi.fn(async () => []), profilesByUids: vi.fn() },
@@ -54,9 +54,9 @@ async function setup() {
   services.profile.listBuddies.mockClear();
   cleanup.push(async () => {
     await runtime.dispose();
-    await rm(root, { recursive: true, force: true });
+    if (!existingRoot) await rm(root, { recursive: true, force: true });
   });
-  return { runtime, services, setOnline: (value: boolean) => (online = value) };
+  return { root, runtime, services, setOnline: (value: boolean) => (online = value) };
 }
 
 it('群成员刷新通过联系人路由启动同一任务，只更新全部群名单，结束后重算一次', async () => {
@@ -119,9 +119,44 @@ it('离线沿用任务暂停和继续，不以本地名单假冒在线更新，�
   expect(await runtime.rebuild(false, undefined, 'all', 'groupMembers')).toBe(id);
   await expect(runtime.rebuild()).rejects.toThrow('另一范围');
   setOnline(true);
-  await backgroundTasks.act(id!, 'retry');
+  await backgroundTasks.act(id!, 'resume');
   await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
   expect(services.groupInfo.refreshGroupMembers).toHaveBeenCalledTimes(2);
+});
+
+it('手动暂停收尾后重开，从原名单的剩余群继续，不重复查询或纳入新群', async () => {
+  const { root, runtime, services } = await setup();
+  const first = Promise.withResolvers<number>();
+  services.groupInfo.refreshGroupMembers.mockReturnValueOnce(first.promise);
+  const id = (await runtime.rebuild(false, undefined, 'all', 'groupMembers'))!;
+  await vi.waitFor(() => expect(services.groupInfo.refreshGroupMembers).toHaveBeenCalledOnce());
+  await backgroundTasks.act(id, 'pause');
+  expect(backgroundTasks.snapshot().find((task) => task.id === id)?.statusLabel).toBe('暂停收尾中');
+  first.resolve(2);
+  await vi.waitFor(() => expect(runtime.cache.progress.status).toBe('paused'));
+  expect(services.groupInfo.refreshGroupMembers.mock.calls).toEqual([['10001']]);
+  expect(services.groupInfo.getRelationGraph).not.toHaveBeenCalled();
+  await runtime.dispose();
+
+  const reopened = await setup(root);
+  try {
+    reopened.services.groupInfo.listGroupDirectory.mockResolvedValue([
+      { groupCode: '10001', memberCount: 2 },
+      { groupCode: '20002', memberCount: 2 },
+      { groupCode: '30003', memberCount: 2 },
+    ]);
+    expect(reopened.runtime.status()).toMatchObject({
+      taskId: id,
+      progress: { status: 'paused', done: 1, total: 2 },
+    });
+    expect(reopened.services.groupInfo.refreshGroupMembers).not.toHaveBeenCalled();
+    await backgroundTasks.act(id, 'resume');
+    await vi.waitFor(() => expect(reopened.runtime.cache.progress.status).toBe('completed'));
+    expect(reopened.services.groupInfo.refreshGroupMembers.mock.calls).toEqual([['20002']]);
+    expect(reopened.services.groupInfo.getRelationGraph).toHaveBeenCalledOnce();
+  } finally {
+    await reopened.runtime.dispose();
+  }
 });
 
 it('取消后不再启动下一个群，继续仍复用原任务并在最后重算', async () => {

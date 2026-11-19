@@ -22,7 +22,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { getLogger, logErrorContext } from '@weq/service';
+import { getLogger, logErrorContext, withAssistantToolDeadline } from '@weq/service';
 import type { OpenAiToolSpec } from './openai_tools';
 import { externalMcpHttpOptions } from './external_http';
 
@@ -55,6 +55,7 @@ interface Conn {
   error?: string;
   /** In-flight connect, so concurrent ensure() calls don't double-connect. */
   connecting?: Promise<void>;
+  connectController?: AbortController;
 }
 
 /** Per-server connection status, for the settings UI. */
@@ -67,6 +68,7 @@ export interface McpServerStatus {
 }
 
 const NS = '__'; // namespace separator: mcp__<server>__<tool>
+const DISCOVERY_TIMEOUT_MS = 15_000;
 
 function sanitizeSegment(value: string): string {
   return (
@@ -314,23 +316,37 @@ export class ExternalMcpHub {
     const { spec } = conn;
     const url = new URL(spec.url);
     const transportOptions = externalMcpHttpOptions(url, spec.headers);
+    const client = new Client({ name: 'weq-assistant', version: '0.1.0' }, { capabilities: {} });
+    const controller = new AbortController();
+    conn.connectController = controller;
     try {
-      const client = new Client({ name: 'weq-assistant', version: '0.1.0' }, { capabilities: {} });
-      // Streamable HTTP first; fall back to legacy SSE on connect failure.
-      try {
-        await client.connect(new StreamableHTTPClientTransport(url, transportOptions));
-      } catch (httpErr) {
-        try {
-          await client.connect(new SSEClientTransport(url, transportOptions));
-        } catch {
-          throw httpErr; // surface the primary (HTTP) error
-        }
-      }
-      const list = (await client.listTools()) as {
-        tools?: Array<{ name: string; description?: string; inputSchema?: unknown }>;
-      };
+      const list = await withAssistantToolDeadline(
+        async (signal) => {
+          // SDK 的 SSE 启动可能一直等 endpoint；连接和 tools/list 共用期限。
+          try {
+            await client.connect(new StreamableHTTPClientTransport(url, transportOptions), {
+              signal,
+            });
+          } catch (httpErr) {
+            signal.throwIfAborted();
+            await client.close();
+            signal.throwIfAborted();
+            try {
+              await client.connect(new SSEClientTransport(url, transportOptions), { signal });
+            } catch {
+              throw httpErr;
+            }
+          }
+          signal.throwIfAborted();
+          return client.listTools(undefined, { signal });
+        },
+        DISCOVERY_TIMEOUT_MS,
+        '载入外部 MCP 工具',
+        controller.signal,
+      );
+      controller.signal.throwIfAborted();
       conn.client = client;
-      conn.tools = (list.tools ?? []).map((t) => this.toRemoteTool(spec.name, t));
+      conn.tools = list.tools.map((t) => this.toRemoteTool(spec.name, t));
       conn.error = undefined;
       logger.info('external mcp connected', {
         event: 'mcp-ext-connect',
@@ -338,8 +354,10 @@ export class ExternalMcpHub {
         tools: conn.tools.length,
       });
     } catch (error) {
+      await client.close().catch(() => {});
       conn.client = undefined;
       conn.tools = [];
+      if (controller.signal.aborted) return;
       conn.error = error instanceof Error ? error.message : String(error);
       logger.warn('external mcp connect failed', {
         event: 'mcp-ext-connect-error',
@@ -347,6 +365,7 @@ export class ExternalMcpHub {
         ...logErrorContext(error),
       });
     } finally {
+      conn.connectController = undefined;
       conn.connecting = undefined;
     }
   }
@@ -381,7 +400,9 @@ export class ExternalMcpHub {
   }
 
   private async closeConn(conn: Conn): Promise<void> {
+    conn.connectController?.abort();
     try {
+      await conn.connecting;
       await conn.client?.close();
     } catch {
       /* ignore close errors */

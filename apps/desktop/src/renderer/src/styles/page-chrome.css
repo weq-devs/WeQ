@@ -10,6 +10,10 @@
   color: var(--weq-fg-primary);
 }
 
+.weq-tool-window :is(.weq-workspace-content, .weq-workspace-page-fallback) {
+  background: var(--background);
+}
+
 html[data-theme='dark'] :is(.weq-workspace-content, .weq-workspace-page-fallback) {
   --weq-page-bar: color-mix(in srgb, var(--weq-bg-surface) 88%, transparent);
   --weq-page-item: color-mix(in srgb, var(--weq-bg-surface) 78%, transparent);
@@ -348,9 +352,6 @@ html[data-theme]
 html[data-theme] .weq-workspace-page :is(.weq-wtools-rv-empty, .weq-wtools-odev-placeholder) {
   border-color: var(--weq-border-subtle);
   color: var(--weq-fg-secondary);
-}
-html[data-theme] .weq-workspace-page .weq-wtools-rv-textarea::placeholder {
-  color: var(--weq-fg-muted);
 }
 html[data-theme] .weq-workspace-page .weq-wtools-rv-seg {
   background: var(--weq-page-hover);

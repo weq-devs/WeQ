@@ -4,6 +4,20 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { DatabaseRecoveryPanel } from '../src/renderer/src/components/tasks/DatabaseRecoveryPanel';
 import { DatabaseRepairSection } from '../src/renderer/src/components/settings/DatabaseRepairSection';
 
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    useUtils: () => ({}),
+    bootstrap: {
+      getSettings: {
+        useQuery: () => ({
+          data: { notificationEvents: { databaseDamage: { banner: true, system: false } } },
+        }),
+      },
+      setNotificationEvents: { useMutation: () => ({}) },
+    },
+  },
+}));
+
 vi.mock('../src/renderer/src/components/settings/controls', () => ({
   Card: ({
     title,
@@ -54,8 +68,9 @@ it('数据库设置只提供检查修复和通知入口，不再呈现原容错�
   const f = mount(createElement(DatabaseRepairSection, { onOpen }));
   try {
     expect(f.host.textContent).toContain('数据库检查与修复');
-    expect(f.host.textContent).toContain('通知设置');
-    expect(f.host.querySelector('select')).toBeNull();
+    expect(
+      f.host.querySelector('button[role="combobox"][aria-label="数据库异常提醒通知方式"]'),
+    ).not.toBeNull();
     expect(f.host.textContent).not.toMatch(/容错级别|容错记录|降级账本|实验性/);
     act(() =>
       [...f.host.querySelectorAll('button')]

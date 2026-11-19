@@ -36,10 +36,12 @@ export function VoiceTranscribeMenuAction({
   message,
   onClose,
   target,
+  forward,
 }: {
   message: Message;
   onClose?: () => void;
   target?: Pick<MessageMediaTarget, 'name' | 'token'>;
+  forward?: VoiceTranscriptionInput['forward'];
 }) {
   const data = message.qqElements?.find(
     (element) =>
@@ -64,6 +66,7 @@ export function VoiceTranscribeMenuAction({
         name: data.fileName,
         token: typeof data.fileToken === 'string' ? data.fileToken : '',
         msgId: message.msgId ?? '',
+        ...(forward ? { forward } : {}),
       }}
       onClose={onClose}
     />

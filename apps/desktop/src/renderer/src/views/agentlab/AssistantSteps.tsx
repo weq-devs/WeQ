@@ -77,28 +77,36 @@ export const AssistantSteps = memo(function AssistantSteps({
       (s.kind === 'tool_result' && !calls.has(s.id)),
   );
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
-  const open = manualOpen ?? running;
+  const hasDetails = shown.length > 0 || Boolean(reasoning?.trim());
+  const open = hasDetails && (manualOpen ?? running);
   // running 切换时不强制改 open（让用户的手动展开/收起优先），但首次有内容且运行中默认展开。
   const toolCount = steps.filter((s) => s.kind === 'tool_call').length;
   const reasoningText = reasoning?.trim() ?? '';
 
-  if (shown.length === 0 && !reasoningText && !running) return null;
+  if (!hasDetails && !running) return null;
 
   return (
     <div className={`weq-asst-steps${running ? ' is-running' : ''}`}>
-      <button
-        type="button"
-        className="weq-asst-steps-head"
-        aria-expanded={open}
-        onClick={() => setManualOpen(!open)}
-      >
-        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        {running ? <Loader2 size={13} className="weq-asst-spin" /> : <Brain size={13} />}
-        <span>
-          {running ? '思考中…' : '思考过程'}
-          {toolCount > 0 ? <NumericText>{` · 调用工具 ${toolCount} 次`}</NumericText> : ''}
-        </span>
-      </button>
+      {hasDetails ? (
+        <button
+          type="button"
+          className="weq-asst-steps-head"
+          aria-expanded={open}
+          onClick={() => setManualOpen(!open)}
+        >
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          {running ? <Loader2 size={13} className="weq-asst-spin" /> : <Brain size={13} />}
+          <span>
+            {running ? '思考中…' : '思考过程'}
+            {toolCount > 0 ? <NumericText>{` · 调用工具 ${toolCount} 次`}</NumericText> : ''}
+          </span>
+        </button>
+      ) : (
+        <div className="weq-asst-steps-head" role="status">
+          <Loader2 size={13} className="weq-asst-spin" aria-hidden />
+          <span>思考中…</span>
+        </div>
+      )}
 
       {open ? (
         <div className="weq-asst-steps-body">
@@ -154,9 +162,6 @@ export const AssistantSteps = memo(function AssistantSteps({
               </div>
             );
           })}
-          {running && shown.length === 0 ? (
-            <div className="weq-asst-step-hint">正在规划…</div>
-          ) : null}
         </div>
       ) : null}
     </div>

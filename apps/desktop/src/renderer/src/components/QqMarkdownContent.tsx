@@ -81,7 +81,7 @@ function MarkdownLink({ children, href }: JSX.IntrinsicElements['a']): ReactElem
       title={href}
       onClick={(e) => {
         e.stopPropagation();
-        if (href) openLink(href);
+        if (href) void openLink(href, e.currentTarget.ownerDocument);
       }}
     >
       {children}

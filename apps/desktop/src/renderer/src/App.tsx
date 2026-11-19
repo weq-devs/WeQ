@@ -29,6 +29,7 @@ import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost'
 import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost } from './components/Toast';
+import { AnnouncementCenter } from './components/AnnouncementCenter';
 import { useToast } from './components/Toast.shared';
 import { NotificationClickBridge } from './components/NotificationClickBridge';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
@@ -51,6 +52,7 @@ import { AppLockOverlay } from './components/AppLockOverlay';
 import {
   TextMarkdownContext,
   LinkPreviewContext,
+  DEFAULT_LINK_PREVIEW_DISPLAY,
   MsgDecorationEnabledContext,
 } from './state/messageAppearance';
 import { SelfBubbleContext, SelfPendantContext } from './hooks/useSelfPendant';
@@ -85,8 +87,7 @@ const MainView = lazy(loadMainWorkspace);
  *
  * 查询只在这一层做一次——QqMessageContent 每条消息一个实例，让它们各自 useQuery 会挂
  * 几百个订阅。必须包住 ForwardWindowHost（转发窗口里的气泡同样
- * 复用 QqMessageContent）。`?? true` 与 DEFAULT_APP_SETTINGS 一致，settings 还在加载时
- * 不会先闪成关再跳开。
+ * 复用 QqMessageContent）。加载偏好期间先按默认值显示原文。
  */
 function TextMarkdownProvider({
   children,
@@ -113,8 +114,10 @@ function TextMarkdownProvider({
       useToast.getState().setDurations(settings.data.toastDurations);
   }, [settings.data?.toastDurations]);
   return (
-    <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? true}>
-      <LinkPreviewContext.Provider value={settings.data?.linkPreview?.enabled ?? true}>
+    <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? false}>
+      <LinkPreviewContext.Provider
+        value={settings.data?.linkPreview ?? DEFAULT_LINK_PREVIEW_DISPLAY}
+      >
         <ChatQqShowEnabledContext.Provider value={settings.data?.showChatQqShow ?? true}>
           <MsgDecorationEnabledContext.Provider value={messageDecoration}>
             <ShowMessageSeqContext.Provider value={settings.data?.showMessageSeq ?? false}>
@@ -234,7 +237,7 @@ export default function App(): ReactElement {
   // 切号过渡期间整棵 MainView 都不挂载，换成载入页：既盖住「空白头像 + 默认
   // 昵称」的粗糙首屏，也避免 openedUin 短暂变 null 时白挂载一次（那次的查询
   // 全打在已关闭的账号上）。
-  return (
+  const workspace = (
     <CdnProvider accountOpen={view === 'main' && !switching}>
       <ClientStateSync />
       <TextMarkdownProvider cacheScope={view === 'main' && !switching ? (openedUin ?? '') : ''}>
@@ -269,7 +272,7 @@ export default function App(): ReactElement {
             <NotificationClickBridge />
             <RendererRecoveryNotice ready={view === 'bootstrap' && homeStage !== 'booting'} />
             {IS_WEB && <WebConnectionStatus />}
-            {IS_WEB && view === 'main' && <WebNotifications />}
+            {view === 'main' && <WebNotifications />}
             <HoverTooltip />
             <DbRepairWindowHost />
             <CaptureWindowHost />
@@ -290,5 +293,13 @@ export default function App(): ReactElement {
         </SelfPendantProvider>
       </TextMarkdownProvider>
     </CdnProvider>
+  );
+  return (
+    <AnnouncementCenter
+      active={!switching && (view === 'main' || homeStage !== 'booting')}
+      canOpenUpdateSettings={!IS_WEB && !switching && view === 'main'}
+    >
+      {workspace}
+    </AnnouncementCenter>
   );
 }

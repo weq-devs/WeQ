@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { ExportSavePolicy } from '@weq/service';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { client } from '../trpc/client';
+import { mediaTransferTarget } from '../../../shared/transfer_progress';
+import { useTransferActivity } from '../lib/transferActivity';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { IS_WEB } from '../lib/target.shared';
 import { useRemoteClient } from '../lib/remoteClient';
@@ -9,6 +11,7 @@ import { useRenderDocument } from '../lib/renderDocument';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast.shared';
 import { taskNotificationSource } from '../lib/notificationNavigation.shared';
+import { notifyTaskCreated } from '../lib/taskNotifications';
 import '../styles/media-save.css';
 
 function sourceKey(source: MediaSaveSource): string {
@@ -41,8 +44,9 @@ async function pause(signal: AbortSignal) {
   });
 }
 
-export function useMediaSave() {
+export function useMediaSave({ waitForCompletion = false }: { waitForCompletion?: boolean } = {}) {
   const remote = useRemoteClient();
+  const transfers = useTransferActivity();
   const save = useExportSavePolicy(),
     document = useRenderDocument();
   const push = useToast((state) => state.push);
@@ -103,6 +107,7 @@ export function useMediaSave() {
     };
     pending.current = op;
     setOperation({ identity, key: sourceKey(source), browser });
+    let target: string | undefined;
     const current = () =>
       pending.current === op && save.isCurrent() && !op.controller.signal.aborted;
     try {
@@ -113,6 +118,8 @@ export function useMediaSave() {
           ? await save.prepareSave(intent, { kind: 'bundle', name: sourceName(source) })
           : save.policy;
       if (!policy || !current()) return { taskId: null, cancelled: true };
+      target = mediaTransferTarget(selected);
+      transfers?.setLocal(target, { phase: 'preparing' });
       op.taskId = await client.account.mediaSave.save.mutate({
         ...op.expected,
         source: selected,
@@ -120,19 +127,8 @@ export function useMediaSave() {
       });
       if (op.cancelled && op.taskId) await stopTask(op);
       if (!op.taskId || !current()) return { taskId: op.taskId, cancelled: true };
-      if (!browser) {
-        push({
-          tone: 'info',
-          title: '媒体保存任务已创建',
-          source: taskNotificationSource(op.taskId),
-        });
-        return { taskId: op.taskId };
-      }
-      push({
-        tone: 'info',
-        title: '媒体下载任务已创建',
-        source: taskNotificationSource(op.taskId),
-      });
+      notifyTaskCreated(op.taskId, browser ? '正在准备媒体下载' : '正在保存媒体');
+      if (!browser && !waitForCompletion) return { taskId: op.taskId };
       const deadline = Date.now() + 15 * 60_000;
       while (current() && Date.now() < deadline) {
         const receipt = await client.account.getExportOutputReceipt.query({
@@ -145,6 +141,7 @@ export function useMediaSave() {
         if (receipt.status === 'cancelled' || receipt.status === 'paused')
           return { taskId: op.taskId, cancelled: true };
         if (receipt.status === 'completed') {
+          if (!browser) return { taskId: op.taskId };
           const result = await client.account.exportTaskDownload.mutate({
             ...op.expected,
             taskId: op.taskId,
@@ -181,6 +178,7 @@ export function useMediaSave() {
       }
       return { taskId: op.taskId, cancelled: true };
     } finally {
+      if (target) transfers?.setLocal(target);
       if (pending.current === op) pending.current = null;
       setOperation((previous) => (previous?.identity === identity ? null : previous));
     }
@@ -189,6 +187,7 @@ export function useMediaSave() {
     run,
     cancel,
     busy,
+    binding: save.binding,
     disabled: busy || !save.binding || save.settings.isLoading,
     isBusy: (source: MediaSaveSource) => busy && operation?.key === sourceKey(source),
     downloading: busy && operation?.browser,

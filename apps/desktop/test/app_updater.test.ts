@@ -1,5 +1,8 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
 const fixture = vi.hoisted(() => ({
@@ -199,20 +202,18 @@ describe.each(['win32', 'linux'])('更新安装动作（%s）', (platform) => {
       dataSaverLargeMiB: 1,
       dataSaverAutoResume: false,
     });
-    fixture.downloadUpdate.mockImplementationOnce(
-      () =>
-        new Promise((_resolve, reject) => {
-          fixture.cancelDownload.mockImplementation(() => reject(new Error('fixture cancelled')));
-          queueMicrotask(() =>
-            autoUpdater.emit('download-progress', {
-              percent: 1,
-              transferred: 1,
-              total: 2 * 1024 * 1024,
-              bytesPerSecond: 1,
-            }),
-          );
+    const interrupted = Promise.withResolvers<never>();
+    fixture.downloadUpdate.mockImplementationOnce(() => {
+      queueMicrotask(() =>
+        autoUpdater.emit('download-progress', {
+          percent: 1,
+          transferred: 1,
+          total: 2 * 1024 * 1024,
+          bytesPerSecond: 1,
         }),
-    );
+      );
+      return interrupted.promise;
+    });
     const work = updater.startDownload();
     await vi.waitFor(() => expect(fixture.cancelDownload).toHaveBeenCalled());
     updateTransferPolicy('never', UNKNOWN_NETWORK, { dataSaverAutoResume: false });
@@ -221,6 +222,7 @@ describe.each(['win32', 'linux'])('更新安装动作（%s）', (platform) => {
     const task = backgroundTasks.snapshot().find((task) => task.name === '下载 WeQ 更新');
     expect(task?.status).toBe('paused');
     await backgroundTasks.act(task!.id, 'continue');
+    interrupted.reject(new Error('旧下载在继续请求之后确认取消'));
     await work;
     expect(fixture.downloadUpdate).toHaveBeenCalledTimes(2);
   });
@@ -371,6 +373,8 @@ describe.each(['win32', 'linux'])('更新安装动作（%s）', (platform) => {
     fixture.macVerifiedArchive = true;
     const { updater, autoUpdater } = await ready();
     await updater.startDownload();
+    const state = await import('../src/main/update/state');
+    state.setUpdateState({ ...state.getUpdateState()!, latest: '1.2.0' });
     fixture.downloadUpdate.mockImplementationOnce(async () => {
       autoUpdater.emit('update-downloaded', {
         version: '1.2.0',
@@ -426,6 +430,69 @@ describe.each(['win32', 'linux'])('更新安装动作（%s）', (platform) => {
     fixture.app.isPackaged = false;
     expect(() => updater.quitAndInstall()).toThrow('开发模式');
   });
+});
+
+it('设置入口只建一个任务；重启后需核验同一版本才能再次提供安装', async () => {
+  Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+  const root = await mkdtemp(join(tmpdir(), 'weq-update-task-'));
+  const options = { dataRoot: root, get: () => false, set: () => {} };
+  try {
+    const { updater } = await ready();
+    updater.installUpdateActions(options);
+    const { updateRouter } = await import('../src/main/ipc/routers/update');
+    let registry = (await import('../src/main/background_tasks')).backgroundTasks;
+    const finish = fixture.downloadUpdate.getMockImplementation()!;
+    const release = Promise.withResolvers<void>();
+    fixture.downloadUpdate.mockImplementationOnce(async () => {
+      await release.promise;
+      return finish();
+    });
+    const caller = updateRouter.createCaller({});
+    await caller.download();
+    await caller.download();
+    await vi.waitFor(() => expect(fixture.downloadUpdate).toHaveBeenCalledOnce());
+    expect(registry.snapshot()).toHaveLength(1);
+    const id = registry.snapshot()[0]!.id;
+    expect(registry.snapshot()[0]?.actions).toContainEqual({ id: 'pause', label: '暂停' });
+    release.resolve();
+    await vi.waitFor(() => expect(registry.snapshot()[0]?.status).toBe('completed'));
+
+    vi.resetModules();
+    fixture.downloadUpdate.mockClear();
+    const restarted = await ready();
+    restarted.updater.installUpdateActions(options);
+    registry = (await import('../src/main/background_tasks')).backgroundTasks;
+    const state = await import('../src/main/update/state');
+    expect(registry.snapshot()).toHaveLength(1);
+    expect(registry.snapshot()[0]).toMatchObject({
+      id,
+      status: 'paused',
+      actions: [{ id: 'continue' }],
+    });
+    expect(fixture.downloadUpdate).not.toHaveBeenCalled();
+    expect(() => restarted.updater.quitAndInstall()).toThrow('下载');
+
+    const check = state.getUpdateState()!;
+    state.setUpdateState({ ...check, latest: '1.2.0' });
+    await registry.act(id, 'continue');
+    await vi.waitFor(() => expect(registry.snapshot()[0]?.status).toBe('failed'));
+    expect(fixture.downloadUpdate).not.toHaveBeenCalled();
+    expect(registry.snapshot()[0]?.note).toContain('1.2.0');
+
+    state.setUpdateState({ ...check, channel: 'beta' });
+    await registry.act(id, 'retry');
+    await vi.waitFor(() => expect(registry.snapshot()[0]?.note).toContain('渠道已变更'));
+    expect(fixture.downloadUpdate).not.toHaveBeenCalled();
+
+    state.setUpdateState(check);
+    await registry.act(id, 'retry');
+    await vi.waitFor(() => expect(registry.snapshot()[0]?.status).toBe('completed'));
+    expect(fixture.downloadUpdate).toHaveBeenCalledOnce();
+    expect(registry.snapshot()).toHaveLength(1);
+    expect(registry.snapshot()[0]?.actions).toContainEqual({ id: 'install', label: '重启并安装' });
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
 
 describe('AUR 托管的副本', () => {

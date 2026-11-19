@@ -10,7 +10,8 @@
 import { z } from 'zod';
 import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { runBackgroundTask } from '../../background_tasks';
+import { backgroundTasks, taskError } from '../../background_tasks';
+import { recordAccountTask } from '../../account_task_receipts';
 import {
   resourceSourceInput,
   requireResourceSource,
@@ -52,27 +53,83 @@ export const resourceCleanupRouter = router({
         throw new Error('静态账号不提供本地资源清理：这些资源不属于导入的数据库快照。');
       }
       const services = requireResourceSource(input);
-      return runBackgroundTask(
+      const scope = {
+        uin: services.accountConfig.getRecord()!.uin,
+        configId: services.accountConfig.getRecord()?.configId,
+      };
+      const id = backgroundTasks.start({
+        kind: 'resource',
+        name: '清理本地资源',
+        display: { action: '清理本地资源' },
+        scope,
+      });
+      const save = recordAccountTask(id, scope);
+      const stop = new AbortController();
+      const details: string[] = [];
+      const selected = [
+        ...new Set(input.instructions.map((item) => `${item.id} · ${item.variant}`)),
+      ];
+      const completed = new Set<string>();
+      const report = (working?: string) => [
+        ...details,
+        ...(working ? [`${working} · 清理已开始，未取得完整结果`] : []),
+        ...selected
+          .filter((item) => item !== working && !completed.has(item))
+          .map((item) => `${item} · 未开始或没有匹配资源`),
+      ];
+      backgroundTasks.update(id, { details: report() });
+      backgroundTasks.setActions(id, [
         {
-          kind: 'resource',
-          name: '清理本地资源',
-          scope: {
-            uin: services.accountConfig.getRecord()!.uin,
-            configId: services.accountConfig.getRecord()?.configId,
+          id: 'stop',
+          label: '停止后续清理',
+          run: () => {
+            stop.abort();
+            backgroundTasks.update(id, { statusLabel: '正在收尾当前类别' });
+            backgroundTasks.setActions(id, []);
           },
         },
-        async () => {
-          const result = await services.resourceCleanup.cleanup(input.instructions);
-          assertResourceSource(services, input);
-          return result;
-        },
-        (result) => ({
-          status: result.perTarget.some((row) => row.failed > 0) ? 'failed' : 'completed',
-          note: `已删除 ${result.perTarget.reduce((sum, row) => sum + row.removed, 0)} 个文件 · 失败 ${result.perTarget.reduce((sum, row) => sum + row.failed, 0)} 个 · 文件大小合计 ${(result.freedBytes / 1024 / 1024).toFixed(1)} MiB`,
-          details: result.perTarget.map(
-            (row) => `${row.id} · 删除 ${row.removed} · 失败 ${row.failed}`,
-          ),
-        }),
-      );
+      ]);
+      try {
+        save();
+        const result = await services.resourceCleanup.cleanup(input.instructions, {
+          signal: stop.signal,
+          before: (item) => {
+            assertResourceSource(services, input);
+            backgroundTasks.update(id, { details: report(`${item.id} · ${item.variant}`) });
+            save();
+          },
+          after: (row) => {
+            const key = `${row.id} · ${row.variant}`;
+            completed.add(key);
+            details.push(`${key} · 删除 ${row.removed} · 失败 ${row.failed}`);
+            backgroundTasks.update(id, { details: report() });
+            save();
+          },
+        });
+        assertResourceSource(services, input);
+        backgroundTasks.finish(
+          id,
+          stop.signal.aborted
+            ? 'cancelled'
+            : result.perTarget.some((row) => row.failed > 0)
+              ? 'failed'
+              : 'completed',
+          {
+            note: `已删除 ${result.perTarget.reduce((sum, row) => sum + row.removed, 0)} 个文件 · 失败 ${result.perTarget.reduce((sum, row) => sum + row.failed, 0)} 个 · 文件大小合计 ${(result.freedBytes / 1048576).toFixed(1)} MiB`,
+            details: stop.signal.aborted ? report() : details,
+          },
+        );
+        return result;
+      } catch (error) {
+        backgroundTasks.finish(id, 'failed', { note: taskError(error) });
+        throw error;
+      } finally {
+        backgroundTasks.setActions(id, []);
+        try {
+          save();
+        } catch (error) {
+          console.warn('[资源清理] 回执保存失败', error);
+        }
+      }
     }),
 });

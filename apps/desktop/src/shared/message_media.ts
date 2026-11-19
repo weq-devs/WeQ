@@ -6,6 +6,9 @@ export type MessageMediaTarget = {
   md5: string;
   msgId: string;
   conv: string;
+  fwdMsgId?: string;
+  fwdKind?: 'c2c' | 'group';
+  fwdResId?: string;
   pack: string;
   hash: string;
   url?: string;
@@ -39,6 +42,6 @@ export const MESSAGE_MEDIA_LOCATION_LABELS: Record<MessageMediaLocationKind, str
 
 export function messageMediaLocationMissing(kind: MessageMediaLocationKind): string {
   if (kind === 'saved') return '另存的文件已被移动或删除，请使用“另存为”重新保存';
-  if (kind === 'local') return '下载的文件已被移动或删除，请使用“另存为”重新保存';
+  if (kind === 'local') return '本地文件已被移动或删除，请使用“另存为”重新保存';
   return '这份缓存文件已不存在，请重新打开消息后再试';
 }

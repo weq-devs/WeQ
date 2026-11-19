@@ -39,18 +39,31 @@ const labels: Record<string, string> = {
   wash: '淡洗染',
   telegram: '电报墙',
   qqnt: 'QQ NT',
-  classic: '经典',
+  classic: '简约',
   minimal: '简约',
-  retro: '复古',
+  retro: '立体',
+  ocr: 'OCR',
+  placeholder: '文字占位',
+  vision: '视觉模型',
+  sandbox: '沙箱模式',
+  unrestricted: '任意权限',
+  interrupt: '立即补充',
+  boundary: '下一步补充',
+  queue: '排队发送',
 };
 const selections = new Set([
   'typing:selection',
   'recall-scope:targets',
   'recall-scope:notify-targets',
+  'recall-notifications:notify-targets',
 ]);
 
 /** 只显示产品用语，不把未知配置序列化后交给用户阅读。 */
 export function formatResetValue(value: unknown, id = ''): string {
+  if (id === 'performance-recording:mode') {
+    if (value === 'light') return '轻量记录';
+    if (value === 'full') return '完整记录';
+  }
   if (selections.has(id) && Array.isArray(value))
     return value.length ? `已选择 ${value.length} 个会话` : '未选择会话';
   if (value === undefined) return '当前状态未知';
@@ -83,7 +96,7 @@ export function formatResetValue(value: unknown, id = ''): string {
     if ('showTags' in data)
       return `标签：${formatResetValue(data.showTags)}；问候语：${formatResetValue(data.showGreeting)}；一言：${formatResetValue(data.showHitokoto)}；屏蔽词：${formatResetValue(data.blockedWords)}`;
     if ('enabled' in data && 'screenshot' in data)
-      return `链接预览：${formatResetValue(data.enabled)}；网页截图：${formatResetValue(data.screenshot)}`;
+      return `链接预览：${formatResetValue(data.enabled)}；联网补全：${formatResetValue(data.autoFetch)}；网页截图：${formatResetValue(data.screenshot)}`;
     if (data.useDefault) return '使用默认聊天模型';
     if (typeof data.model === 'string') return data.model || '使用默认聊天模型';
     if (typeof data.name === 'string') return data.name;
@@ -116,6 +129,29 @@ export interface ResetPreviewLine {
   text: string;
 }
 export function describeSettingsReset(item: SettingsResetItem): ResetPreviewLine[] {
+  if (item.id === 'assistant-config:config') {
+    const current = item.current as Record<string, unknown>;
+    const defaults = item.defaultValue as Record<string, unknown>;
+    const fields = {
+      model: '默认聊天模型',
+      reasoningEffort: '默认思考强度',
+      permissionMode: '运行模式',
+      customPrompt: '额外提示词',
+      mcpServers: '外部 MCP 服务器',
+      sendMode: '运行中默认发送方式',
+    };
+    const format = (key: string, value: unknown) => {
+      if (key === 'customPrompt' || key === 'mcpServers') return value ? '已配置' : '未设置';
+      return formatResetValue(value);
+    };
+    const lines = Object.entries(fields)
+      .filter(([key]) => JSON.stringify(current[key]) !== JSON.stringify(defaults[key]))
+      .map(([key, label]) => ({
+        label,
+        text: `${format(key, current[key])} → ${format(key, defaults[key])}`,
+      }));
+    return lines.length ? lines : [{ label: '已是默认', text: '助手生成与执行设置均为默认值' }];
+  }
   if (item.id === 'data-saver:preferences') {
     const current = item.current as Record<string, unknown>;
     const next = item.defaultValue as Record<string, unknown>;

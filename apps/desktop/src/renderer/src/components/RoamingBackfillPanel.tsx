@@ -41,6 +41,7 @@ import { MessageCalendar } from './MessageCalendar';
 import { Avatar } from '../views/export/widgets';
 import { convAvatarUrl } from '../views/export/types';
 import { beijingDay, daySeconds, pickCalendarRange } from '../lib/messageCalendar';
+import { isRoamingJobComplete, roamingJobProgress } from '../../../shared/roaming_task_status';
 import '../styles/roaming-backfill.css';
 
 const targetKey = (target: RoamingTarget) => `${target.kind}:${target.conv}`;
@@ -54,7 +55,7 @@ const labels = {
   running: '运行中',
   pausing: '暂停收尾中',
   paused: '已暂停',
-  partial: '本轮结束，仍有缺口',
+  partial: '已完成 · 仍有缺口',
   completed: '候选缺口已覆盖',
   cancelled: '已取消',
   failed: '遇到错误',
@@ -64,7 +65,7 @@ const jobGlyph = {
   running: Loader2,
   pausing: Loader2,
   paused: CirclePause,
-  partial: CircleAlert,
+  partial: CircleCheck,
   completed: CircleCheck,
   cancelled: CircleSlash,
   failed: CircleAlert,
@@ -579,9 +580,13 @@ export function RoamingBackfillPanel({
                   </div>
                   <div className="weq-roaming-range-summary">
                     <CalendarRange size={14} aria-hidden />
-                    <span>{start || '不限起始'}</span>
+                    <span>
+                      <NumericText>{start || '不限起始'}</NumericText>
+                    </span>
                     <ChevronRight size={13} className="weq-roaming-range-arrow" aria-hidden />
-                    <span>{end || '不限结束'}</span>
+                    <span>
+                      <NumericText>{end || '不限结束'}</NumericText>
+                    </span>
                     {start || end ? (
                       <button
                         type="button"
@@ -684,13 +689,13 @@ export function RoamingBackfillPanel({
             {jobs.length ? (
               jobs.map((job) => {
                 const covered = job.plannedSeqs - job.remainingSeqs;
-                const pct =
-                  job.plannedSeqs > 0
-                    ? Math.min(100, Math.max(0, (covered / job.plannedSeqs) * 100))
-                    : 0;
+                const complete = isRoamingJobComplete(job.status);
                 const JobGlyph = jobGlyph[job.status];
                 return (
-                  <article key={job.id} className={`weq-roaming-job is-${job.status}`}>
+                  <article
+                    key={job.id}
+                    className={`weq-roaming-job is-${complete ? 'completed' : job.status}`}
+                  >
                     <header className="weq-roaming-job-head">
                       <span className="weq-roaming-job-icon" aria-hidden>
                         <JobGlyph
@@ -723,6 +728,7 @@ export function RoamingBackfillPanel({
                         </small>
                       </span>
                       <span className="weq-roaming-job-ratio" title="已覆盖候选 / 候选总数">
+                        <small>已覆盖</small>
                         <span className="weq-number weq-number-inherit">{format(covered)}</span>
                         <small>
                           /{' '}
@@ -733,9 +739,9 @@ export function RoamingBackfillPanel({
                       </span>
                     </header>
                     <TaskProgressBar
-                      value={pct}
-                      label="候选缺口覆盖进度"
-                      status={job.status === 'partial' ? 'paused' : job.status}
+                      value={roamingJobProgress(job)}
+                      label="漫游任务进度"
+                      status={complete ? 'completed' : job.status}
                     />
                     <div className="weq-roaming-job-targets">
                       {job.targets.map((target) => (
@@ -748,14 +754,12 @@ export function RoamingBackfillPanel({
                     <dl className="weq-roaming-stats">
                       {(
                         [
-                          ['候选 seq', job.plannedSeqs],
-                          ['已覆盖', covered],
                           ['仍未确认', job.remainingSeqs],
                           ['尚待检查', job.pendingSeqs],
                           ['在线请求', job.requests],
                           ['缓存窗口', job.cacheWindows],
                           ['失败', job.errors],
-                          ['空响应', job.unparsedOrEmpty],
+                          ['空内容或未解析', job.unparsedOrEmpty],
                         ] as const
                       ).map(([label, value]) => (
                         <div key={label}>
@@ -882,7 +886,7 @@ export function RoamingBackfillPanel({
                           重试未补区间
                         </button>
                       ) : null}
-                      {!['completed', 'cancelled'].includes(job.status) ? (
+                      {!complete && job.status !== 'cancelled' ? (
                         <button
                           type="button"
                           className="weq-roaming-actionbtn"

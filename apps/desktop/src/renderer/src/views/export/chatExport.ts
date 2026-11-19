@@ -4,6 +4,7 @@
  * 漂移。
  */
 
+import type { ForwardExportTarget } from '@weq/service';
 import type { AppDialogApi } from '../../lib/dialogUtils';
 import { client } from '../../trpc/client';
 import {
@@ -25,7 +26,7 @@ export interface ChatExportTarget {
   kind?: 'group' | 'c2c';
   total?: number;
   messageIds?: string[];
-  forwardTarget?: { elementIndex: number; resId: string };
+  forwardTarget?: ForwardExportTarget;
 }
 
 /** 灯箱选项 → `account.startExport` 的 media 入参（媒体子选项只在导出媒体时生效）。 */
@@ -57,7 +58,7 @@ export function buildChatExportMedia(
         normalizeExportContent(options.content, options, opts.messageCompletion === false),
       ),
     };
-  // 频道私聊（guild）没有漫游缓存可拉，补全消息恒关闭。
+  // 频道私聊和精确消息选区不补全会话历史。
   const messageCompletion = opts.messageCompletion ?? true;
   return {
     exportMedia: options.exportMedia,
@@ -150,7 +151,7 @@ export async function startChatExportTasks(
   const frozenTargets = targets.map((target) => ({
     ...target,
     ...(target.messageIds ? { messageIds: [...target.messageIds] } : {}),
-    ...(target.forwardTarget ? { forwardTarget: { ...target.forwardTarget } } : {}),
+    ...(target.forwardTarget ? { forwardTarget: structuredClone(target.forwardTarget) } : {}),
   }));
   const frozenOptions = structuredClone(options);
   const frozenFormats = [...formats];
@@ -162,11 +163,10 @@ export async function startChatExportTasks(
     : undefined;
   const current = opts.isCurrent;
   const onTaskCreated = opts.onTaskCreated;
-  const messageCompletion = opts.messageCompletion;
+  const allowMessageCompletion = opts.messageCompletion !== false;
   const fmt0 = frozenFormats[0] ?? defaultFormat;
   // 筛图模型的状态是**实时**的（不进持久化预设）：导出那一刻下好了就筛，没下好就跳过。
   const ocrPrefilter = frozenOptions.ocrImages ? (await ocrReadiness()).filterReady : false;
-  const media = buildChatExportMedia(frozenOptions, { messageCompletion, ocrPrefilter });
   const range = { start: frozenOptions.range.start, end: frozenOptions.range.end };
   const ids: string[] = [];
   for (const t of frozenTargets) {
@@ -174,12 +174,17 @@ export async function startChatExportTasks(
       throw new Error('聊天记录导出必须锁定一条承载消息，请重新选择卡片。');
     if (current && !current())
       throw new Error(`已创建 ${ids.length} 个任务；账号数据源已切换，已停止后续任务。`);
+    const messageCompletion = allowMessageCompletion && t.messageIds === undefined;
+    const { content } = frozenOptions;
     const id = await client.account.startExport.mutate({
       ...binding,
       savePolicy,
       includeIntegrityReport: frozenOptions.includeIntegrityReport ?? false,
       profile: 'full',
-      content: frozenOptions.content,
+      content:
+        !messageCompletion && content?.messages === 'cloud'
+          ? { ...content, messages: 'local' }
+          : content,
       completeAvatar: frozenOptions.completeAvatar,
       incrementalSupport:
         !t.forwardTarget &&
@@ -204,7 +209,7 @@ export async function startChatExportTasks(
         ? { dress: frozenOptions.dress }
         : {}),
       ...(frozenOptions.chatlab ? { chatlab: true } : {}),
-      media,
+      media: buildChatExportMedia(frozenOptions, { messageCompletion, ocrPrefilter }),
       ...(t.messageIds
         ? {
             filter: {

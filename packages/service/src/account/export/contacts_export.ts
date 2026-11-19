@@ -94,6 +94,7 @@ export interface ContactsExportDeps {
 
 export interface ContactsExportSelection {
   scope: 'friends' | 'group' | 'groups';
+  groupName?: string;
   categoryIds?: number[];
   uids?: string[];
   groupIds?: string[];

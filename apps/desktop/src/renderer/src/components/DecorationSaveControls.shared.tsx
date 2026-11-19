@@ -6,7 +6,7 @@ import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { IS_WEB } from '../lib/target.shared';
 import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast.shared';
-import { taskNotificationSource } from '../lib/notificationNavigation.shared';
+import { notifyTaskCreated } from '../lib/taskNotifications';
 import '../styles/decoration-save.css';
 
 interface DecorationSaveInput {
@@ -55,13 +55,7 @@ export function useDecorationSave() {
         link.href = `/_download/${encodeURIComponent(result.downloadId)}`;
         link.download = result.name;
         link.click();
-      } else
-        pushToast({
-          tone: 'info',
-          title: '装扮保存任务已创建',
-          source: taskNotificationSource(result.taskId),
-          message: '可在导出任务列表查看结果与保存位置',
-        });
+      } else notifyTaskCreated(result.taskId, '正在保存装扮');
     } catch (error) {
       if (save.isCurrent())
         pushToast({

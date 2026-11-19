@@ -63,7 +63,7 @@ try {
     await page.getByRole('button', { name: '会话日历', exact: true }).waitFor();
     for (const layout of ['split', 'single'])
       for (const theme of ['light', 'dark'])
-        for (const skin of ['classic', 'minimal', 'retro', 'qqnt']) {
+        for (const skin of ['classic', 'retro', 'qqnt']) {
           await page.evaluate(
             ({ layout, theme, skin }) => {
               const store = window.sidebarToolbarQa.theme.getState();

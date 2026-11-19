@@ -249,6 +249,19 @@ html[data-component-style='qqnt'][data-theme] body :is(.app-rail, .sidebar, .sid
   box-shadow: none;
 }
 
+html[data-component-style='qqnt'][data-theme]
+  body
+  :is(.weq-page-head, .weq-mobile-header, .weq-mobile-tabs, .mobile-settings-header) {
+  background: var(--weq-qqnt-canvas);
+  border-color: var(--weq-qqnt-line);
+}
+
+html[data-component-style='qqnt'][data-theme] body .weq-segmented {
+  border-color: var(--weq-qqnt-line);
+  border-radius: var(--weq-skin-input-radius);
+  background: var(--weq-qqnt-input);
+}
+
 html[data-component-style='qqnt'][data-theme] body :is(.chat-header, .composer) {
   background: var(--weq-bar-surface);
   border-color: var(--weq-border-subtle);
@@ -263,7 +276,7 @@ html[data-component-style='qqnt'][data-theme] .chat-pane:has(> .weq-chat-backdro
 }
 
 html[data-component-style='qqnt'][data-theme] body .chat-pane {
-  --chat-header-height: 52px;
+  --chat-header-height: var(--weq-pane-toolbar-height, 52px);
 }
 
 html[data-component-style='qqnt'][data-theme] body .chat-title strong {
@@ -284,7 +297,13 @@ html[data-component-style='qqnt'][data-theme] body :is(.search-box, .weq-input):
 
 html[data-component-style='qqnt'][data-theme]
   body
-  :is(.weq-input, .weq-set-input, .weq-set-select, .form-field input, .form-field select) {
+  :is(
+    .weq-input,
+    .weq-set-input,
+    .weq-set-select,
+    .form-field input,
+    .form-field .weq-select-trigger
+  ) {
   border-radius: 8px;
 }
 

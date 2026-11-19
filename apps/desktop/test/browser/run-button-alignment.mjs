@@ -55,7 +55,7 @@ try {
     for (const width of [320, 390, 768, 1180]) {
       await page.setViewportSize({ width, height: 1000 });
       for (const theme of ['light', 'dark']) {
-        for (const skin of ['classic', 'minimal', 'retro', 'qqnt']) {
+        for (const skin of ['classic', 'retro', 'qqnt']) {
           await page.evaluate(
             ({ theme, skin }) => {
               const store = window.buttonAlignmentTheme.getState();

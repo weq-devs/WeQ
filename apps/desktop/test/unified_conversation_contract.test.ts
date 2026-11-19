@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import { OfficialConversationPane } from '../src/renderer/src/components/OfficialConversationPane';
 import { AssistantPanel } from '../src/renderer/src/views/agentlab/AssistantPanel';
 import { applyAssistantStep } from '../src/renderer/src/views/agentlab/assistantTranscript';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
@@ -11,11 +12,14 @@ import { requests } from './browser/unified-conversation.stub';
 import { conversationExportSelection } from '../src/renderer/src/lib/conversationActions';
 import { conversationBatchTargets } from '../src/shared/content_selection';
 import { feedConversationRow } from '../src/renderer/src/lib/conversationDirectoryRows';
+import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
+import { createTemplateDemoData } from './support/templateDemoData';
+import { chooseFormOption } from './support/form-controls';
 
 vi.mock('../src/renderer/src/trpc/client', () => import('./browser/unified-conversation.stub'));
 afterEach(() => vi.unstubAllGlobals());
 
-it('助手实际控制器直接渲染共用页、编辑器和六组自动保存设置', async () => {
+it('助手控制器复用会话页，默认模型设置及会话覆盖独立保存', async () => {
   vi.stubGlobal('localStorage', new Storage());
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -49,39 +53,40 @@ it('助手实际控制器直接渲染共用页、编辑器和六组自动保存�
     expect(host.querySelector('.weq-agentlab-transcript')).toBeNull();
     expect(host.querySelector('.weq-asst-composer')).toBeNull();
     expect(host.querySelector('[aria-label="运行中发送方式"]')).toBeNull();
-    const effort = host.querySelector<HTMLSelectElement>('select[aria-label="思考等级"]')!;
-    expect(effort.classList.contains('weq-set-input')).toBe(true);
-    expect([...effort.options].map((option) => option.value)).toEqual(['off', 'minimal', 'high']);
-    expect([...effort.options].map((option) => option.textContent)).toEqual([
-      '不指定',
-      'minimal',
-      'high',
-    ]);
+    const effort = host.querySelector<HTMLButtonElement>('button[aria-label^="本会话思考强度"]')!;
+    act(() => effort.click());
+    const high = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(
+      (option) => option.textContent === 'high',
+    )!;
+    await act(async () => high.click());
+    expect(
+      requests.findLast((call) => call.name === 'setAssistantSessionGeneration')?.input,
+    ).toEqual({
+      expectedAccountUin: '10000',
+      expectedAccountConfigId: 'synthetic',
+      sessionId: 'session',
+      generation: { reasoningEffort: 'high' },
+    });
+    expect(requests.some((call) => call.name === 'setAssistantConfig')).toBe(false);
+    expect(effort.textContent).toBe('high');
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="助手设置"]')!.click(),
     );
-    expect(document.querySelectorAll('.weq-cvs-nav-item')).toHaveLength(6);
-    await act(async () =>
-      [...document.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]
-        .find((item) => item.textContent?.includes('任务执行'))!
-        .click(),
+    expect(document.querySelector('.weq-cvs-nav-item[aria-current="true"]')?.textContent).toBe(
+      '模型设置',
     );
-    const limit = document.querySelector<HTMLInputElement>('[aria-label="任务最大轮数"]')!;
-    expect(limit.value).toBe('24');
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>('[aria-label="任务最大轮数模式"] [role="radio"]')!
-        .click(),
-    );
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    const sending = document.querySelector<HTMLButtonElement>('[aria-label="运行中默认发送方式"]')!;
+    expect(sending.dataset.value).toBe('boundary');
+    await act(async () => {
+      chooseFormOption(sending, 'queue');
+    });
     expect(
       requests.some(
         (call) =>
           call.name === 'setAssistantConfig' &&
-          (call.input as { maxRounds?: number | null }).maxRounds === null,
+          (call.input as { sendMode?: string }).sendMode === 'queue',
       ),
     ).toBe(true);
-    expect(document.querySelector('[aria-label="任务最大轮数"]')).toBeNull();
     await act(async () => document.querySelector<HTMLButtonElement>('.weq-cvs-close')!.click());
     const editor = host.querySelector<HTMLDivElement>('.composer-editor')!;
     await act(async () => {
@@ -121,6 +126,82 @@ it('流式正文不复制历史步骤数组，也不修改原回合对象', () =
   expect(result.steps).not.toBe(turn.steps);
   expect(turn.steps).toHaveLength(1);
 });
+it.each(['official', 'service'] as const)(
+  '切回常规视图后仍显示 %s 会话的消息头像',
+  async (kind) => {
+    vi.stubGlobal('localStorage', new Storage());
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const { user } = createTemplateDemoData();
+    const avatarUrl = '/fixture/mail-avatar.png';
+    const row = feedConversationRow(
+      {
+        id: kind === 'service' ? '77' : 'u_official',
+        name: '邮件提醒',
+        avatarUrl,
+        sendTime: '1',
+        prompt: null,
+      },
+      kind,
+    );
+    const views = {
+      regular: [],
+      groupAssistant: [],
+      official: [],
+      service: [],
+      guild: [],
+      hidden: [],
+      deleted: [],
+      clone: [],
+      assistant: [],
+      [kind]: [row],
+    };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const noop = () => {};
+    const render = (view: 'regular' | typeof kind) =>
+      act(async () =>
+        root.render(
+          h(
+            PageSnapshots,
+            { scope: 'feed-avatar-test' },
+            h(
+              ContentSelectionProvider,
+              null,
+              h(
+                ConversationDirectoryContext.Provider,
+                {
+                  value: {
+                    view,
+                    views,
+                    rows: views[view],
+                    virtual: [],
+                    onVirtual: noop,
+                    onCreate: noop,
+                  },
+                },
+                h(OfficialConversationPane, {
+                  user,
+                  conversationId: row.id,
+                  title: '邮件提醒',
+                  onBack: noop,
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+    try {
+      await render(kind);
+      expect(host.querySelector(`img[src="${avatarUrl}"]`)).not.toBeNull();
+      await render('regular');
+      expect(host.querySelector(`img[src="${avatarUrl}"]`)).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  },
+);
 it.each(['official', 'service'] as const)('特殊来源 %s 的精确导出不退化为普通私聊目标', (kind) => {
   const conversation = feedConversationRow(
     { id: kind === 'service' ? '77' : 'u_official', name: '合成来源', sendTime: '1', prompt: null },

@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -95,7 +96,7 @@ try {
         console.warn('跳过 profile-face：夹具为只读资料，缺少「扩展在线状态」入口');
         continue;
       }
-      await statusSelect.selectOption('2000');
+      await chooseFormOption(statusSelect, '2000');
       await page.getByRole('button', { name: '状态表情', exact: true }).click();
     }
     if (surface === 'mail-compose')

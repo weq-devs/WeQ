@@ -1,3 +1,4 @@
+import { FormSelect } from '../components/FormSelect';
 import { NumericText } from '../components/NumericText';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
 import * as timeFormat from '@weq/time';
@@ -984,6 +985,8 @@ function ExportToolBody({
       id: t.id,
       kind: t.kind,
       name: t.name,
+      display: t.display,
+      createdAt: t.createdAt,
       format: t.format,
       formats: (t as { formats?: string[] }).formats,
       status: t.status,
@@ -1384,6 +1387,7 @@ function ExportToolBody({
             scope: 'group',
             groupCode: g.id,
             name: `${g.name}_群成员`,
+            groupName: g.name,
             format: cfmts[0] === 'vcard' ? 'csv' : (cfmts[0] ?? 'csv'),
             formats: cfmts.map((f) => (f === 'vcard' ? 'csv' : f)) as typeof cfmts,
             exportAvatar: options.exportAvatar,
@@ -1449,36 +1453,40 @@ function ExportToolBody({
     const binding = saveBinding;
     const targets = convItems
       .filter((it) => convSelection.has(it.id))
-      .map((item) => ({
-        ...item,
-        ...(initialSelection?.owner.kind === 'messages' &&
-        initialSelection.owner.forwardTarget &&
-        initialSelection.scope.type === 'items' &&
-        messageSelections[item.id]?.length === 1 &&
-        messageSelections[item.id]?.[0] === initialSelection.scope.ids[0] &&
-        initialConversationIds(initialSelection)[0] === item.id
-          ? { forwardTarget: { ...initialSelection.owner.forwardTarget } }
-          : {}),
-        ...(messageSelections[item.id] !== undefined
-          ? {
-              messageIds: [...messageSelections[item.id]!],
-              total: messageSelections[item.id]!.length,
-            }
-          : {}),
-      }));
+      .map((item) => {
+        const forwardTarget =
+          initialSelection?.owner.kind === 'messages' &&
+          initialSelection.owner.forwardTarget &&
+          initialSelection.scope.type === 'items' &&
+          messageSelections[item.id]?.length === 1 &&
+          messageSelections[item.id]?.[0] === initialSelection.scope.ids[0] &&
+          initialConversationIds(initialSelection)[0] === item.id
+            ? structuredClone(initialSelection.owner.forwardTarget)
+            : undefined;
+        return {
+          ...item,
+          ...(forwardTarget ? { forwardTarget } : {}),
+          ...(messageSelections[item.id] !== undefined
+            ? {
+                messageIds: [...messageSelections[item.id]!],
+                total: forwardTarget?.records?.length ?? messageSelections[item.id]!.length,
+              }
+            : {}),
+        };
+      });
     const formats = opts.formats && opts.formats.length > 0 ? opts.formats : [format];
     if (!targets.length || targets.some((target) => target.messageIds?.length === 0)) return;
     const precise = targets.some((target) => target.messageIds !== undefined);
+    const messageCompletion = targets.some((target) => target.messageIds === undefined);
     const effectiveOptions: ExportOptions = precise
       ? {
           ...options,
-          completeMessages: false,
           range: { preset: 'all', start: null, end: null },
         }
       : options;
     // 前置检查（补全消息 / 媒体补全确认 / 语音模型）与任务创建都走共用逻辑，
     // 聊天页顶栏的快捷导出灯箱用的是同一套。
-    const ok = await preflightChatExport(dialog, effectiveOptions);
+    const ok = await preflightChatExport(dialog, effectiveOptions, { messageCompletion });
     if (!ok) return;
     if (
       !(await preflightExportEstimate(
@@ -1503,7 +1511,7 @@ function ExportToolBody({
         targetCount: targets.length,
         exportAvatar: effectiveOptions.exportAvatar,
         dress: effectiveOptions.dress,
-        media: buildChatExportMedia(effectiveOptions),
+        media: buildChatExportMedia(effectiveOptions, { messageCompletion }),
       });
       if (!savePolicy) return;
       await startChatExportTasks(targets, effectiveOptions, formats, format, {
@@ -1777,7 +1785,7 @@ function ExportToolBody({
       if (!savePolicy) return;
       await client.account.createSchedule.mutate({
         ...binding,
-        name: `定时 · ${targets[0]!.name}${targets.length > 1 ? ` 等 ${targets.length} 个` : ''}`,
+        name: `定时导出聊天记录 · ${targets.length === 1 ? targets[0]!.name : `${targets.length} 个会话`}`,
         // 主格式 = 第一份；多选的全部格式存进 formats，触发时媒体只带一份。
         format: (result.formats[0] ?? format) as Exclude<ExportFormat, 'vcard'>,
         formats: result.formats as Exclude<ExportFormat, 'vcard'>[],
@@ -1854,7 +1862,6 @@ function ExportToolBody({
       await client.account.runScheduleNow.mutate({ id: s.id });
       void utils.account.listExportTasks.invalidate();
       void utils.account.listSchedules.invalidate();
-      dialog.success('已触发', '本次导出任务已加入队列，可在「当前任务」查看。');
     } catch (e) {
       dialog.error('立即运行失败', e instanceof Error ? e.message : String(e));
     }
@@ -2062,11 +2069,10 @@ function ExportToolBody({
             </header>
 
             {!modeLocked ? (
-              <div className="weq-exp-kinds" role="tablist" aria-label="内容种类">
-                {/* 隐藏的原生 select 只保留无障碍 / 自动化语义（沿用原来的 id 与标签）。 */}
-                <select
+              <div className="weq-exp-kinds">
+                <FormSelect
                   id="weq-export-content-kind"
-                  className="weq-exp-kind-native"
+                  className="weq-exp-kind-select"
                   aria-label="内容种类"
                   value={mode}
                   disabled={submitting || editingList}
@@ -2080,24 +2086,26 @@ function ExportToolBody({
                       {item.label}
                     </option>
                   ))}
-                </select>
-                {MODES.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={item.id === mode}
-                    className={item.id === mode ? 'is-active' : ''}
-                    disabled={submitting || editingList}
-                    title={`${item.label} · ${item.desc}`}
-                    onClick={() => setMode(item.id)}
-                  >
-                    <span className="weq-exp-kind-icon" aria-hidden>
-                      {item.icon}
-                    </span>
-                    {item.short}
-                  </button>
-                ))}
+                </FormSelect>
+                <div className="weq-exp-kind-tabs" role="tablist" aria-label="内容种类">
+                  {MODES.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={item.id === mode}
+                      className={item.id === mode ? 'is-active' : ''}
+                      disabled={submitting || editingList}
+                      title={`${item.label} · ${item.desc}`}
+                      onClick={() => setMode(item.id)}
+                    >
+                      <span className="weq-exp-kind-icon" aria-hidden>
+                        {item.icon}
+                      </span>
+                      {item.short}
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : null}
 
@@ -2496,7 +2504,7 @@ function ExportToolBody({
                 ) : showFormatChips ? (
                   <div className="weq-exp-foot-format">
                     <span className="weq-exp-foot-label">格式</span>
-                    <select
+                    <FormSelect
                       className="weq-set-input"
                       aria-label="导出格式"
                       value={format}
@@ -2507,7 +2515,7 @@ function ExportToolBody({
                           {option.label}
                         </option>
                       ))}
-                    </select>
+                    </FormSelect>
                     <small>
                       {format === 'csv' || format === 'xlsx'
                         ? '适合表格查看和筛选。'
@@ -2798,6 +2806,11 @@ function ExportToolBody({
       {lightbox ? (
         <ExportLightbox
           allowContinuation={!initialSelection?.owner.forwardTarget}
+          localMessagesOnly={
+            lightbox === 'full' &&
+            convSelection.size > 0 &&
+            [...convSelection].every((id) => messageSelections[id] !== undefined)
+          }
           onAuthorizationChange={onAuthorizationChange}
           embedded
           hidden={editingList}
@@ -3224,6 +3237,8 @@ function fmtRel(sec: number | null): string {
 
 function outcomeLabel(t: { outcome: string; skipReason?: string }): string {
   switch (t.outcome) {
+    case 'interrupted':
+      return '已暂停 · 可继续子任务';
     case 'running':
       return '运行中';
     case 'completed':

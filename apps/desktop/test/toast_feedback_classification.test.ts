@@ -11,7 +11,7 @@ const cases = [
   ['components/settings/McpServerSection.tsx', '没有可安装的客户端'],
   ['components/settings/GlobalSettingsSection.tsx', '已安排清除剩余项目'],
   ['components/settings/AgentLabSection.tsx', '请先填写 Base URL。'],
-  ['components/settings/AgentLabSection.tsx', '请先添加并填写一个带「聊天」能力的模型。'],
+  ['components/settings/AgentLabSection.tsx', '请先填写模型 ID，并选择至少一种能力。'],
   ['components/settings/VoiceTranscribeSection.tsx', '请先填写服务地址（Base URL）。'],
   ['components/settings/SsePushSection.tsx', '请先填写推送地址。'],
   ['components/settings/ExternalRkeySection.tsx', '请先填写服务器地址与 access_token。'],
@@ -28,7 +28,7 @@ const cases = [
   ['views/MainView.tsx', '没有选中的会话'],
   ['views/MainView.tsx', 'AI 声聊只支持群聊'],
   ['views/MainView.tsx', '群临时会话暂不支持发文件'],
-  ['views/MainView.tsx', '请选择不超过 4096 个真实聊天会话'],
+  ['views/MainView.tsx', '请选择不超过 4096 个具体会话'],
   ['views/MainView.tsx', '请先切回转发时的账号再打开对话'],
 ] as const;
 

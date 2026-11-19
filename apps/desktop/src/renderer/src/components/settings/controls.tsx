@@ -15,7 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { Minus, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import '../../styles/settings-query.css';
 import '../../styles/settings-controls.css';
 import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
@@ -151,7 +151,7 @@ export function Card({
   const statusSlotTaken = useRef(false);
   const statusSlotApi = useMemo(
     () => ({
-      // 一张卡只把一个状态文字放进 head，其余仍在行内显示，避免重复「已保存」。
+      // 一张卡只把一个字段的反馈放进 head，其余仍在行内显示。
       take: () => {
         if (!statusSlot || statusSlotTaken.current) return null;
         statusSlotTaken.current = true;
@@ -275,9 +275,7 @@ export function Toggle({
       onClick={() => onChange(mixed || !checked)}
     >
       <span className="weq-set-toggle-track" aria-hidden="true">
-        <span className="weq-set-toggle-knob">
-          {mixed ? <Minus size={10} strokeWidth={2.5} /> : null}
-        </span>
+        <span className="weq-set-toggle-knob" />
       </span>
     </button>
   );

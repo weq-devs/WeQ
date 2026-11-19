@@ -1,11 +1,16 @@
 export interface ToastDurations {
   successSeconds: number;
   failureSeconds: number;
+  messageSeconds: number;
 }
+
+export const TOAST_TIMED_KINDS = ['success', 'failure', 'message'] as const;
+export type ToastTimedKind = (typeof TOAST_TIMED_KINDS)[number];
 
 export const DEFAULT_TOAST_DURATIONS: Readonly<ToastDurations> = {
   successSeconds: 3,
   failureSeconds: -1,
+  messageSeconds: -1,
 };
 
 export const MAX_TOAST_DURATION_SECONDS = 86400;
@@ -30,5 +35,8 @@ export function normalizeToastDurations(
     failureSeconds: isToastDuration(input.failureSeconds)
       ? input.failureSeconds
       : fallback.failureSeconds,
+    messageSeconds: isToastDuration(input.messageSeconds)
+      ? input.messageSeconds
+      : fallback.messageSeconds,
   };
 }

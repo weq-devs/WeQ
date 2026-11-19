@@ -5,6 +5,7 @@ import { join } from 'node:path';
 /** 描述缓存只存文字；内容与模型由调用方共同组成 key。 */
 export function imageDescriptionCache(root: string) {
   let writes = 0;
+  const pendingWrites = new Map<string, Promise<void>>();
   const file = (key: string) => join(root, `${createHash('sha256').update(key).digest('hex')}.txt`);
   return {
     async cached(key: string): Promise<string | null> {
@@ -17,8 +18,18 @@ export function imageDescriptionCache(root: string) {
       }
     },
     async cache(key: string, text: string) {
-      await mkdir(root, { recursive: true });
-      await writeFile(file(key), text);
+      const previous = pendingWrites.get(key);
+      const write = (async () => {
+        await previous?.catch(() => undefined);
+        await mkdir(root, { recursive: true });
+        await writeFile(file(key), text);
+      })();
+      pendingWrites.set(key, write);
+      try {
+        await write;
+      } finally {
+        if (pendingWrites.get(key) === write) pendingWrites.delete(key);
+      }
       if (writes++ % 32 !== 0) return;
       const entries = (await readdir(root)).filter((name) => /^[a-f0-9]{64}\.txt$/.test(name));
       if (entries.length <= 512) return;

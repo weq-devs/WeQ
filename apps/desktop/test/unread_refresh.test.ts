@@ -37,7 +37,7 @@ describe('未读刷新调度', () => {
       'utf8',
     );
     const effect = source.slice(
-      source.indexOf('const unreadContactsRef'),
+      source.indexOf('const unreadDirectoryContactsRef'),
       source.indexOf('const unreadDirectoryKey'),
     );
     expect(reads).toMatch(/Promise\.all\(\s*batches\.map\(/);

@@ -1,5 +1,6 @@
-import { EventEmitter } from 'node:events';
 import { createHash, randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import { setTimeout as wait } from 'node:timers/promises';
 import {
   copyFileSync,
   existsSync,
@@ -95,9 +96,26 @@ import { NotesStore } from './agentlab_notes';
 import { JsonGroupStore } from './agentlab_group_store';
 import { JsonRelationStore } from './agentlab_relation_store';
 import { getLogger } from '../common/logger';
-import { CloneConversationRuns, type CloneConversationTarget } from './agentlab_runs';
+import {
+  CloneConversationRuns,
+  CloneReplyWindow,
+  type CloneConversationTarget,
+} from './agentlab_runs';
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+export type CloneConversationEvent =
+  | { kind: 'typing'; typing: boolean }
+  | { kind: 'persona-message'; message: ConversationTurn & { id: string } }
+  | { kind: 'group-message'; message: AgentLabGroupMessage }
+  | { kind: 'cleared' }
+  | { kind: 'settled' }
+  | { kind: 'error'; message: string };
+
+type CloneMessageInput = CloneConversationTarget & {
+  requestId: string;
+  text: string;
+  images?: AiImageRef[];
+  mentions?: string[];
+};
 
 /** 把 (providerId, model) 解析成可调用端点；由 bootstrap 的 AgentLabConfigService 提供。 */
 export type EndpointResolver = (
@@ -320,6 +338,141 @@ export class AgentLabService extends EventEmitter {
   private readonly buildPromises = new Set<Promise<AgentLabPersona>>();
   private readonly buildsByPersona = new Map<string, Promise<AgentLabPersona>>();
   private readonly conversationRuns = new CloneConversationRuns();
+  private readonly replyWindow = new CloneReplyWindow(this.conversationRuns);
+  private readonly cloneEvents = new EventEmitter().setMaxListeners(50);
+
+  subscribeCloneConversation(
+    target: CloneConversationTarget,
+    listener: (event: CloneConversationEvent) => void,
+  ) {
+    const key = `${target.kind}:${target.id}`;
+    this.cloneEvents.on(key, listener);
+    listener({ kind: 'typing', typing: this.replyWindow.isTyping(target) });
+    return () => this.cloneEvents.off(key, listener);
+  }
+
+  /** 保存每条原始输入，只有尚未发出的回复能被后续输入替换。 */
+  submitCloneMessage(
+    input: CloneMessageInput,
+    onReply: (reply: { id: string; text: string; senderId?: string }) => void,
+  ) {
+    this.conversationRuns.assertOpen(input);
+    const key = `${input.kind}:${input.id}`;
+    const emit = (event: CloneConversationEvent) => this.cloneEvents.emit(key, event);
+    const respond = (operation: Parameters<CloneReplyWindow['respond']>[1]) =>
+      this.replyWindow.respond(
+        input,
+        operation,
+        (typing) => emit({ kind: 'typing', typing }),
+        (error) =>
+          emit({ kind: 'error', message: error instanceof Error ? error.message : String(error) }),
+        () => emit({ kind: 'settled' }),
+      );
+
+    if (input.kind === 'group') {
+      if (!this.getGroupDetail(input.id)) throw new Error('找不到群聊');
+      const history = this.getGroupMessages(input.id);
+      const existing = history.find((message) => message.id === input.requestId);
+      if (existing) return { kind: 'group-message' as const, message: existing };
+      const message: AgentLabGroupMessage = {
+        id: input.requestId,
+        groupId: input.id,
+        senderId: this.selfMemberId(),
+        senderKind: 'user',
+        text: input.text,
+        images: input.images,
+        mentions: input.mentions,
+        ts: Math.max(Date.now(), (history.at(-1)?.ts ?? 0) + 1),
+      };
+      this.groups.appendMessage(message, true);
+      emit({ kind: 'group-message', message });
+      respond(async (signal, typing) => {
+        let last: AgentLabGroupMessage | undefined;
+        let writers = 0;
+        try {
+          await this.runGroupMessage(
+            { groupId: input.id, text: message.text },
+            (reply) => {
+              last = reply;
+              emit({ kind: 'group-message', message: reply });
+            },
+            signal,
+            {
+              message,
+              typing: (started) => {
+                writers += started ? 1 : -1;
+                typing(writers > 0);
+              },
+            },
+          );
+        } finally {
+          if (last) onReply({ id: last.id, text: last.text, senderId: last.senderId });
+        }
+      });
+      return { kind: 'group-message' as const, message };
+    }
+
+    const persona = this.store.getPersona(input.id)?.persona;
+    if (!persona?.models?.chat) throw new Error('找不到可聊天的克隆体');
+    this.mergePersonaConversations(input.id);
+    const history = this.conversations.get(input.id);
+    const existing = history.find((message) => message.id === input.requestId);
+    if (existing) return { kind: 'persona-message' as const, message: existing };
+    const message = {
+      id: input.requestId,
+      role: 'user' as const,
+      text: input.text,
+      images: input.images,
+      ts: Math.max(Date.now(), (history.at(-1)?.ts ?? 0) + 1),
+    };
+    this.conversations.upsert(input.id, message, true);
+    emit({ kind: 'persona-message', message });
+    respond(async (signal, typing) => {
+      let last: (ConversationTurn & { id: string }) | undefined;
+      const tail = history.slice(-8);
+      const burst = tail.slice(tail.findLastIndex((turn) => turn.role !== 'user') + 1);
+      try {
+        await this.runtime.chat({
+          personaId: input.id,
+          text: message.text,
+          images: message.images,
+          history,
+          signal,
+          live: {
+            gateText: [...burst.filter((turn) => turn.ts >= message.ts - 12_000), message]
+              .map((turn) => turn.text)
+              .join('\n'),
+            onTyping: () => typing(true),
+            onImageOutcomes: (outcomes) => {
+              signal.throwIfAborted();
+              this.conversations.patchTurnImageOutcomes(input.id, message.id, outcomes);
+              emit({ kind: 'persona-message', message: { ...message, imageOutcomes: outcomes } });
+            },
+            deliver: async (segments, delayMs) => {
+              let pause = Math.min(1800, delayMs);
+              for (const segment of segments) {
+                await wait(pause, undefined, { signal });
+                signal.throwIfAborted();
+                const delivered = {
+                  ...segment,
+                  id: randomUUID(),
+                  ts: Math.max(Date.now(), (last?.ts ?? message.ts) + 1),
+                };
+                this.conversations.upsert(input.id, delivered, true);
+                last = delivered;
+                emit({ kind: 'persona-message', message: last });
+                pause = Math.min(1600, 320 + segment.text.length * 55);
+              }
+              typing(false);
+            },
+          },
+        });
+      } finally {
+        if (last) onReply(last);
+      }
+    });
+    return { kind: 'persona-message' as const, message };
+  }
   private closed = false;
 
   constructor(
@@ -521,8 +674,10 @@ export class AgentLabService extends EventEmitter {
   }
 
   clearGroupMessages(groupId: string, _sessionId?: string): void {
+    this.replyWindow.interrupt({ kind: 'group', id: groupId });
     this.mergeGroupConversations(groupId);
     this.groups.clearMessages(groupId);
+    this.cloneEvents.emit(`group:${groupId}`, { kind: 'cleared' } satisfies CloneConversationEvent);
   }
 
   // ── 克隆体会话（好友克隆 / 群聊多会话）──────────────────────────────────────
@@ -669,13 +824,17 @@ export class AgentLabService extends EventEmitter {
     personaId: string,
     members: AgentLabGroupMember[],
     messages: AgentLabGroupMessage[],
-    limit = 16,
   ): AgentLabChatTurn[] {
     const nameById = new Map(members.map((m) => [m.memberId, m.displayName]));
-    return messages.slice(-limit).map((m) => {
+    return messages.map((m) => {
       if (m.senderId === personaId) return { role: 'assistant', text: m.text };
       const name = nameById.get(m.senderId) ?? '某人';
-      return { role: 'user', text: `「${name}」：${m.text}`, images: m.images };
+      return {
+        role: 'user',
+        text: `「${name}」：${m.text}`,
+        images: m.images,
+        imageOutcomes: m.imageOutcomes,
+      };
     });
   }
 
@@ -710,6 +869,7 @@ export class AgentLabService extends EventEmitter {
     input: { groupId: string; text: string; images?: AiImageRef[]; mentions?: string[] },
     onMessage: (message: AgentLabGroupMessage) => void,
     signal: AbortSignal,
+    live?: { message: AgentLabGroupMessage; typing: (started: boolean) => void },
   ): Promise<{ messages: AgentLabGroupMessage[] }> {
     const detail = this.getGroupDetail(input.groupId);
     if (!detail) throw new Error('找不到群聊');
@@ -717,9 +877,14 @@ export class AgentLabService extends EventEmitter {
     const selfId = this.selfMemberId();
     this.mergeGroupConversations(input.groupId);
     const emitted: AgentLabGroupMessage[] = [];
+    let deliveryTime = live?.message.ts ?? 0;
     const record = (msg: AgentLabGroupMessage): void => {
       signal.throwIfAborted();
-      this.groups.appendMessage(msg);
+      if (live) {
+        deliveryTime = Math.max(msg.ts, deliveryTime + 1);
+        msg = { ...msg, ts: deliveryTime };
+      }
+      this.groups.appendMessage(msg, Boolean(live));
       emitted.push(msg);
       onMessage(msg);
     };
@@ -727,7 +892,7 @@ export class AgentLabService extends EventEmitter {
     // 1) 记录并推送用户这条消息。
     const now = Date.now();
     const mentions = input.mentions && input.mentions.length > 0 ? input.mentions : undefined;
-    const userMsg: AgentLabGroupMessage = {
+    const userMsg: AgentLabGroupMessage = live?.message ?? {
       id: this.groupMsgId(input.groupId, selfId, now, input.text),
       groupId: input.groupId,
       senderId: selfId,
@@ -737,10 +902,18 @@ export class AgentLabService extends EventEmitter {
       ts: now,
       mentions,
     };
-    record(userMsg);
+    if (!live) record(userMsg);
 
     const personaMembers = members.filter((m) => m.kind === 'persona');
-    const mentionSet = new Set(mentions ?? []);
+    const recent = live ? this.groups.listMessages(input.groupId, 8) : [];
+    const mentionSet = new Set(
+      live
+        ? recent
+            .slice(recent.findLastIndex((entry) => entry.senderKind !== 'user') + 1)
+            .filter((entry) => entry.ts >= userMsg.ts - 12_000)
+            .flatMap((entry) => entry.mentions ?? [])
+        : (mentions ?? []),
+    );
     const directed = mentionSet.size > 0;
 
     // 2) 逐轮连锁。每个候选克隆体各自用 LLM 决策「要不要开口」（带上下文/关系/记忆/性格），
@@ -808,7 +981,10 @@ export class AgentLabService extends EventEmitter {
 
                 const willing = rec.persona.willing;
                 const mustReply = willing?.mustReplyOnMention !== false;
-                const mentioned = (trigger.mentions ?? []).includes(member.memberId);
+                const mentioned =
+                  round === 0
+                    ? mentionSet.has(member.memberId)
+                    : (trigger.mentions ?? []).includes(member.memberId);
                 const ctx = {
                   personaId: member.memberId,
                   scope: 'chat' as const,
@@ -843,26 +1019,32 @@ export class AgentLabService extends EventEmitter {
                 }
 
                 const delayMs = 300 + Math.round(Math.random() * 500);
-                const count = await this.respondInGroup(
-                  input.groupId,
-                  members,
-                  rec.persona,
-                  rec.pairs,
-                  member,
-                  trigger,
-                  roundBase,
-                  delayMs,
-                  record,
-                  replyReason,
-                  memberSignal,
-                );
-                return { memberId: member.memberId, count };
+                live?.typing(true);
+                try {
+                  const count = await this.respondInGroup(
+                    input.groupId,
+                    members,
+                    rec.persona,
+                    rec.pairs,
+                    member,
+                    trigger,
+                    roundBase,
+                    delayMs,
+                    record,
+                    replyReason,
+                    memberSignal,
+                  );
+                  return { memberId: member.memberId, count };
+                } finally {
+                  live?.typing(false);
+                }
               },
               signal,
             )
             .catch(() => ({ memberId: member.memberId, count: 0 })),
         ),
       );
+      signal.throwIfAborted();
       const roundSpeakers = new Set(results.filter((r) => r.count > 0).map((r) => r.memberId));
       totalReplies += results.reduce((sum, r) => sum + r.count, 0);
       if (roundSpeakers.size === 0) break; // 没人接话 / 都被相似度拦下 → 收摊
@@ -950,12 +1132,13 @@ export class AgentLabService extends EventEmitter {
           ? (trigger.imageContext ?? trigger.text)
           : `「${triggerName}」：${trigger.text}`;
 
-      await sleep(delayMs); // 越想回越快开口
+      await wait(delayMs, undefined, { signal }); // 越想回越快开口
       signal.throwIfAborted();
       const { renderedTurns } = await this.runtime.generatePersonaTurns(persona, pairs, {
         chatEndpoint,
         embeddingEndpoint,
         history,
+        historyScope: JSON.stringify(['group', groupId, member.memberId]),
         input: inputText,
         now: Date.now(),
         relationNote,
@@ -969,7 +1152,7 @@ export class AgentLabService extends EventEmitter {
       let recorded = 0;
       for (const text of renderedTurns) {
         if (this.tooSimilar(text, recentTexts)) continue;
-        if (recorded > 0) await sleep(Math.min(1400, 300 + text.length * 45));
+        if (recorded > 0) await wait(Math.min(1400, 300 + text.length * 45), undefined, { signal });
         signal.throwIfAborted();
         record({
           id: this.groupMsgId(groupId, member.memberId, Date.now(), text),
@@ -1100,8 +1283,12 @@ export class AgentLabService extends EventEmitter {
   }
 
   clearConversation(personaId: string): void {
+    this.replyWindow.interrupt({ kind: 'persona', id: personaId });
     this.mergePersonaConversations(personaId);
     this.conversations.clear(personaId);
+    this.cloneEvents.emit(`persona:${personaId}`, {
+      kind: 'cleared',
+    } satisfies CloneConversationEvent);
   }
 
   /** 共用图片请求仍计入当前账号，并保留场景与克隆体归属。 */
@@ -1922,6 +2109,13 @@ export class AgentLabService extends EventEmitter {
   /** Public entry: runs the build, emitting build-progress events throughout. */
   runningBuildCount(): number {
     return this.buildingPersonas.size;
+  }
+
+  stopBuild(personaId: string): boolean {
+    const controller = this.buildControllers.get(personaId);
+    if (!controller || controller.signal.aborted) return false;
+    controller.abort();
+    return true;
   }
 
   async buildFromC2c(input: BuildFromC2cInput): Promise<AgentLabPersona> {

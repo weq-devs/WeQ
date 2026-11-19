@@ -2,9 +2,8 @@
   margin: 0;
   height: 100vh;
   overflow: hidden;
-  background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
-  font-family: var(--weq-font-family, system-ui, sans-serif);
+  font-family: var(--font-sans);
 }
 .weq-group-resource-surface {
   display: flex;
@@ -13,7 +12,6 @@
   min-height: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--weq-bg-surface);
 }
 .weq-group-resource-surface[hidden] {
   display: none;
@@ -33,7 +31,7 @@
   grid-template-rows: auto minmax(0, 1fr);
   border: 0;
   border-radius: 0;
-  background: var(--weq-bg-surface);
+  background: transparent;
   box-shadow: none;
   backdrop-filter: none;
 }

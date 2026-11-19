@@ -23,7 +23,6 @@ import {
 } from './agentlab/NewCloneModal';
 import { getCloneTasks, startCloneTask } from './agentlab/cloneTaskStore';
 import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
-import { CloneGenerationPanel } from '../components/settings/CloneGenerationPanel';
 import { personaUpdatedAt } from './agentlab/personaUpdatedAt';
 import { AssistantPanel } from './agentlab/AssistantPanel';
 import { buildFaceMap } from './agentlab/ChatBubble.shared';
@@ -420,6 +419,7 @@ export function AgentLabView({
   }, [openTarget, openTargetKey, appliedOpenTarget, setAppliedOpenTarget, searchTarget, setSel]);
   const [groupOpen, setGroupOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement>();
   const [memberSettingsId, setMemberSettingsId] = useState<string | null>(null);
   const [mobileListOpen, setMobileListOpen] = useState(false);
   useEffect(() => setMobileListOpen(false), [sel]);
@@ -805,6 +805,7 @@ export function AgentLabView({
               if (embedded) onBackToDirectory?.();
             }}
             onOpenPersonaSettings={(personaId) => {
+              setSettingsAnchor(undefined);
               setMemberSettingsId(personaId);
               setSettingsOpen(true);
             }}
@@ -825,7 +826,8 @@ export function AgentLabView({
               setSel({ kind: 'home' });
               if (embedded) onBackToDirectory?.();
             }}
-            onOpenSettings={() => {
+            onOpenSettings={(anchor) => {
+              setSettingsAnchor(anchor);
               setMemberSettingsId(null);
               setSettingsOpen(true);
             }}
@@ -862,19 +864,10 @@ export function AgentLabView({
         <PersonaSettingsModal
           key={settingsPersona.id}
           persona={settingsPersona}
+          anchor={settingsAnchor}
           fromGroup={!!memberSettingsId}
           onDelete={() => void onDeletePersona()}
           deleting={deletePersona.isLoading}
-          replyContent={
-            <CloneGenerationPanel
-              key={settingsPersona.id}
-              persona={settingsPersona}
-              onSaved={() => {
-                void utils.account.listAgentLabPersonas.invalidate();
-                void utils.account.getAgentLabPersonaDetail.invalidate();
-              }}
-            />
-          }
           profileContent={
             <>
               <Row label="训练视觉模型">

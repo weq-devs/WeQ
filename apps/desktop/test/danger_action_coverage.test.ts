@@ -98,7 +98,7 @@ it.each([
   ['views/agentlab/AssistantMenuWorkspace.tsx', '删除会话', 'outline'],
   ['views/agentlab/PersonaSettingsModal.tsx', '删除克隆体', 'solid'],
   ['views/agentlab/GroupChatPanel.tsx', '删除整个群聊', 'solid'],
-  ['views/analysis/AnalysisHistory.tsx', '删除报告', 'outline'],
+  ['views/analysis/AnalysisReportsTool.tsx', '删除报告', 'outline'],
   ['components/GroupFileManager.tsx', '删除所选项目', 'outline'],
   ['components/qq-actions/GroupAlbumManagement.tsx', '删除相册', 'solid'],
   ['components/qq-actions/MediaActions.tsx', '删除相册媒体', 'outline'],

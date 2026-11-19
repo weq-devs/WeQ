@@ -19,6 +19,7 @@ import '../../styles/long-tasks.css';
 export const BACKGROUND_TASK_LABELS = {
   analysis: '分析报告',
   calendar: '会话日历',
+  clone: '好友克隆',
   contacts: '好友/群信息缓存',
   model: '模型下载',
   update: '软件更新',
@@ -33,6 +34,7 @@ export const BACKGROUND_TASK_LABELS = {
 export const BACKGROUND_TASK_ICONS = {
   analysis: BarChart3,
   calendar: CalendarDays,
+  clone: Users,
   contacts: Users,
   model: Download,
   update: RotateCw,

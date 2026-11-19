@@ -176,8 +176,10 @@ try {
     if ((await page.locator('output').textContent()) !== '2026-11-12')
       throw new Error('统计中日期未选中');
     if (
-      (await page.getByRole('combobox', { name: '年份', exact: true }).first().inputValue()) !==
-      '2026'
+      (await page
+        .getByRole('combobox', { name: '年份', exact: true })
+        .first()
+        .getAttribute('data-value')) !== '2026'
     )
       throw new Error('完成统计后抢走用户月份');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);

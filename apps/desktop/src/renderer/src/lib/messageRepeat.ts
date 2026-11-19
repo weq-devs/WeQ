@@ -2,6 +2,7 @@ import type { SendElement } from '@weqbot/protocol';
 import { FaceSubType } from '@weq/codec';
 import { cleanNtPath, codecElementToSeg, segToSendElement } from '../components/mergeForward/model';
 import type { ComposerSendPlan, SuperStickerEntry } from '../im-template/template/composerSend';
+import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { localFileUrl, mediaUrl } from './resourceUrl';
 import { flashPicUrl } from './cdn';
 
@@ -151,21 +152,39 @@ export function canRepeatMessage(message: RepeatMessage): boolean {
   );
 }
 
-/** 自动提示只判断最新两条，不越过灰条、撤回、删除和失败，也不把历史窗口当作最新。 */
+/** 自动提示只在最新窗口显示，灰条、撤回、删除和发送失败不计入连续消息。 */
 export function repeatTarget<T extends RepeatMessage>(
   messages: readonly T[],
   atLatest: boolean,
+  isDeleted?: (message: T) => boolean,
 ): T | null {
   if (!atLatest || messages.length < 2) return null;
-  const pair = messages.slice(-2);
-  if (pair.some((message) => message.deletedKind || message.recall || !canRepeatMessage(message)))
-    return null;
-  const identities = pair.map((message) => contentIdentity(message.qqElements ?? []));
-  return identities[0] &&
-    identities[1] &&
-    JSON.stringify(identities[0]) === JSON.stringify(identities[1])
-    ? pair[1]!
-    : null;
+  let latest: T | undefined;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (
+      message.deletedKind ||
+      message.recall ||
+      message.optimistic === 'failed' ||
+      message.optimisticRejected ||
+      isDeleted?.(message) ||
+      grayTipOf(message)
+    )
+      continue;
+    if (!canRepeatMessage(message)) return null;
+    if (!latest) {
+      latest = message;
+      continue;
+    }
+    const previousIdentity = contentIdentity(message.qqElements ?? []);
+    const latestIdentity = contentIdentity(latest.qqElements ?? []);
+    return previousIdentity &&
+      latestIdentity &&
+      JSON.stringify(previousIdentity) === JSON.stringify(latestIdentity)
+      ? latest
+      : null;
+  }
+  return null;
 }
 
 function repeatElementSegment(element: RepeatElement) {

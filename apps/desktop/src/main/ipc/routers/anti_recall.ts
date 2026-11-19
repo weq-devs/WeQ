@@ -59,12 +59,14 @@ const target = z.object({
 export async function sharedAntiRecallStatus(): Promise<AntiRecallStatus> {
   const service = getAppContext().services?.antiRecall;
   if (service) return service.getStatus();
-  const value = requireBootstrap().userConfig.getSharedPreference('antiRecall');
+  const config = requireBootstrap().userConfig;
+  const value = config.getSharedPreference('antiRecall');
+  const { banner, system } = config.getSettings().notificationEvents.recall;
   return {
-    settingsRevision: requireBootstrap().userConfig.sharedPreferenceRevision(),
+    settingsRevision: config.sharedPreferenceRevision(),
     enabled: value.enabled ?? false,
     mode: value.mode ?? 'selected',
-    notifyEnabled: value.notifyEnabled ?? false,
+    notifyEnabled: banner || system,
     targets: [],
     notifyTargets: [],
     installed: [],
@@ -136,6 +138,13 @@ export const antiRecallSettingsProcedures = {
     )
     .mutation(({ input }) => {
       if (input.targets) assertAccountBinding(input);
+      if (input.enabled !== undefined) {
+        const owner = requireBootstrap().userConfig;
+        const policy = owner.setSettings({
+          notificationEvents: { recall: { system: input.enabled } },
+        }).notificationEvents.recall;
+        input.enabled = policy.banner || policy.system;
+      }
       if (getAppContext().services) return requireServices().antiRecall.setNotify(input);
       if (input.targets) throw new Error('请先打开账号再选择通知会话');
       if (input.enabled !== undefined)

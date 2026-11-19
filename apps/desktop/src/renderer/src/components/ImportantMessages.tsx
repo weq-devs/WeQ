@@ -10,26 +10,23 @@ import {
   Megaphone,
   Reply,
   Users,
-  X,
   RefreshCw,
 } from 'lucide-react';
 import { eventTimeFormatter } from '@weq/time';
 import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
-import { OverlayLayer } from './OverlayLayer';
+import { MessageHistorySurface } from './MessageHistorySurface';
 import {
   highlightLabel,
   IMPORTANT_MESSAGE_KINDS,
   type ImportantMessageKind,
 } from '../im-template/template/unreadDock';
-import type { ReplyJumpTarget } from '../state/messageContext';
+import type { ReplyJump, ReplyJumpTarget } from '../state/messageContext';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { useMessageLocateMenu } from '../hooks/useMessageLocateMenu';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
-import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 import '../styles/search-scope.css';
-import '../styles/important-messages.css';
 
 type Page = Awaited<ReturnType<typeof client.account.listImportantGroupMessages.query>>;
 const icons = {
@@ -47,7 +44,7 @@ type PanelProps = {
   open: boolean;
   onClose: () => void;
   senderName: (uid: string) => string;
-  onLocate: (target: ReplyJumpTarget) => void | Promise<void>;
+  onLocate: ReplyJump;
   activeSeq?: string | null;
   locatePending?: boolean;
   navigationAnchor?: HTMLElement | null;
@@ -86,7 +83,9 @@ export function ImportantMessagesPanel({ groupCode, open, onClose, ...props }: P
       binding={{ expectedAccountUin: uin, expectedAccountConfigId: source.configId }}
     />
   ) : (
-    <ImportantMessageSurface
+    <MessageHistorySurface
+      id="weq-important-messages"
+      title="重要消息"
       open={open}
       onClose={onClose}
       navigationAnchor={props.navigationAnchor}
@@ -100,65 +99,7 @@ export function ImportantMessagesPanel({ groupCode, open, onClose, ...props }: P
           重试
         </button>
       ) : null}
-    </ImportantMessageSurface>
-  );
-}
-
-function ImportantMessageSurface({
-  open,
-  onClose,
-  children,
-  navigationAnchor,
-}: {
-  open: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-  navigationAnchor?: HTMLElement | null;
-}) {
-  const mobile = useMobileWebLayout();
-  const ref = useRef<HTMLElement>(null);
-  useSurfaceEscapeDismissal(ref, onClose, open && !mobile);
-  useEffect(() => {
-    if (open && !mobile) ref.current?.focus({ preventScroll: true });
-  }, [open, mobile]);
-  const content = (
-    <aside
-      ref={ref}
-      tabIndex={-1}
-      data-weq-escape-surface={open && !mobile ? '' : undefined}
-      id="weq-important-messages"
-      className="weq-important-messages"
-      aria-label="重要消息"
-      hidden={!mobile && !open}
-    >
-      <header>
-        <strong>重要消息</strong>
-        <button
-          type="button"
-          className="icon-button"
-          title="关闭重要消息"
-          aria-label="关闭重要消息"
-          onClick={onClose}
-        >
-          <X size={16} />
-        </button>
-      </header>
-      {children}
-    </aside>
-  );
-  return mobile ? (
-    <OverlayLayer
-      open={open}
-      presentation="panel"
-      title="重要消息"
-      className="weq-important-drawer"
-      onClose={onClose}
-      anchor={navigationAnchor}
-    >
-      {content}
-    </OverlayLayer>
-  ) : (
-    content
+    </MessageHistorySurface>
   );
 }
 
@@ -201,6 +142,16 @@ export function ImportantMessagesList({
   const source = `${binding.expectedAccountUin}:${binding.expectedAccountConfigId}:${groupCode}`;
   const scope = useRef(source);
   scope.current = source;
+  const previewScope = useRef({ source, kinds, open });
+  const previewRequests = useRef(new Map<string, Promise<string | undefined>>());
+  if (
+    previewScope.current.source !== source ||
+    previewScope.current.kinds !== kinds ||
+    previewScope.current.open !== open
+  ) {
+    previewScope.current = { source, kinds, open };
+    previewRequests.current.clear();
+  }
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -224,6 +175,7 @@ export function ImportantMessagesList({
   useEffect(() => {
     if (!open) return;
     let active = true;
+    const previewOwner = previewScope.current;
     const key = JSON.stringify([source, [...kinds], request]);
     const refresh = lastRequest.current === key;
     lastRequest.current = key;
@@ -242,6 +194,8 @@ export function ImportantMessagesList({
         groupCode,
         kinds: [...kinds],
         before: refresh ? undefined : request.before,
+        limit: 24,
+        deferPreviews: true,
       })
       .then((result) => {
         if (!active) return;
@@ -250,7 +204,16 @@ export function ImportantMessagesList({
             refresh &&
             result.items.some((row) => old.items.some((prior) => prior.msgSeq === row.msgSeq))
           ) {
-            const rows = new Map([...old.items, ...result.items].map((row) => [row.msgSeq, row]));
+            const rows = new Map(old.items.map((row) => [row.msgSeq, row]));
+            for (const row of result.items) {
+              const prior = rows.get(row.msgSeq);
+              rows.set(
+                row.msgSeq,
+                prior?.msgId && !row.msgId
+                  ? { ...prior, reasons: row.reasons, unread: row.unread }
+                  : row,
+              );
+            }
             return {
               ...result,
               nextBefore: old.nextBefore,
@@ -265,6 +228,38 @@ export function ImportantMessagesList({
           };
         });
         setPending(false);
+        const seqs = result.items.filter((row) => !row.msgId).map((row) => row.msgSeq);
+        if (!seqs.length) return;
+        const previews = client.account.importantGroupPreviews
+          .query({ expectedAccountUin, expectedAccountConfigId, groupCode, seqs })
+          .then(({ items, contentUnavailable }) => {
+            const bySeq = new Map(items.map((row) => [row.msgSeq, row]));
+            if (alive.current && previewScope.current === previewOwner) {
+              setPage((old) => ({
+                ...old,
+                contentUnavailable,
+                items: old.items.map((row) => {
+                  const patch = bySeq.get(row.msgSeq);
+                  return patch
+                    ? { ...row, ...patch, senderUid: patch.senderUid || row.senderUid }
+                    : row;
+                }),
+              }));
+            }
+            return bySeq;
+          })
+          .catch(() => {
+            if (alive.current && previewScope.current === previewOwner)
+              setPage((old) => ({ ...old, contentUnavailable: true }));
+            return undefined;
+          });
+        for (const seq of seqs) {
+          const request = previews.then((refs) => refs?.get(seq)?.msgId);
+          previewRequests.current.set(seq, request);
+          void request.then(() => {
+            if (previewRequests.current.get(seq) === request) previewRequests.current.delete(seq);
+          });
+        }
       })
       .catch((reason: unknown) => {
         if (!active) return;
@@ -313,7 +308,16 @@ export function ImportantMessagesList({
     setLocating(String(target.seq));
     setLocateError('');
     try {
-      await onLocate(target);
+      const owner = previewScope.current;
+      const msgId = target.msgId ?? (await previewRequests.current.get(String(target.seq)));
+      if (
+        !alive.current ||
+        scope.current !== started ||
+        previewScope.current !== owner ||
+        !owner.open
+      )
+        return;
+      if ((await onLocate(msgId ? { ...target, msgId } : target)) === false) return;
       if (!alive.current || scope.current !== started) return;
       setSelected(String(target.seq));
       if (mobile) onClose();
@@ -327,44 +331,55 @@ export function ImportantMessagesList({
   }
   const locateMenu = useMessageLocateMenu(locate, `${source}:${open}`);
   return (
-    <ImportantMessageSurface open={open} onClose={onClose} navigationAnchor={navigationAnchor}>
-      <div
-        className="weq-search-scope weq-important-filters"
-        role="group"
-        aria-label="重要消息类型"
-        {...selection.rootProps}
-      >
-        <button
-          type="button"
-          aria-label="全部类型"
-          aria-pressed={
-            kinds.size === IMPORTANT_MESSAGE_KINDS.length ? true : kinds.size ? 'mixed' : false
-          }
-          onClick={() =>
-            changeKinds(
-              new Set(kinds.size === IMPORTANT_MESSAGE_KINDS.length ? [] : IMPORTANT_MESSAGE_KINDS),
-            )
-          }
+    <MessageHistorySurface
+      id="weq-important-messages"
+      title="重要消息"
+      open={open}
+      onClose={onClose}
+      filtered={kinds.size !== IMPORTANT_MESSAGE_KINDS.length}
+      navigationAnchor={navigationAnchor}
+      filters={
+        <div
+          className="weq-search-scope weq-important-filters"
+          role="group"
+          aria-label="重要消息类型"
+          {...selection.rootProps}
         >
-          <Layers size={14} />
-          {kinds.size === IMPORTANT_MESSAGE_KINDS.length ? '清空' : '全部'}
-        </button>
-        {IMPORTANT_MESSAGE_KINDS.map((kind) => {
-          const Icon = icons[kind];
-          return (
-            <button
-              key={kind}
-              data-important-kind={kind}
-              type="button"
-              aria-pressed={kinds.has(kind)}
-              {...selection.itemProps(kind)}
-            >
-              <Icon size={14} />
-              {highlightLabel(kind)}
-            </button>
-          );
-        })}
-      </div>
+          <button
+            type="button"
+            aria-label="全部类型"
+            aria-pressed={
+              kinds.size === IMPORTANT_MESSAGE_KINDS.length ? true : kinds.size ? 'mixed' : false
+            }
+            onClick={() =>
+              changeKinds(
+                new Set(
+                  kinds.size === IMPORTANT_MESSAGE_KINDS.length ? [] : IMPORTANT_MESSAGE_KINDS,
+                ),
+              )
+            }
+          >
+            <Layers size={14} />
+            {kinds.size === IMPORTANT_MESSAGE_KINDS.length ? '清空' : '清除筛选'}
+          </button>
+          {IMPORTANT_MESSAGE_KINDS.map((kind) => {
+            const Icon = icons[kind];
+            return (
+              <button
+                key={kind}
+                data-important-kind={kind}
+                type="button"
+                aria-pressed={kinds.has(kind)}
+                {...selection.itemProps(kind)}
+              >
+                <Icon size={14} />
+                {highlightLabel(kind)}
+              </button>
+            );
+          })}
+        </div>
+      }
+    >
       {error ? (
         <p role="alert">
           {error}
@@ -489,6 +504,6 @@ export function ImportantMessagesList({
         <p role="status">{kinds.size ? '暂无已记录的重要消息' : '未选择消息类型'}</p>
       ) : null}
       {locateMenu.menu}
-    </ImportantMessageSurface>
+    </MessageHistorySurface>
   );
 }

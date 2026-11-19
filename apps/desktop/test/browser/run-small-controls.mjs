@@ -107,7 +107,7 @@ try {
   for (const width of [320, 390, 1180]) {
     await page.setViewportSize({ width, height: 850 });
     for (const theme of ['light', 'dark']) {
-      for (const style of ['classic', 'minimal', 'retro', 'qqnt']) {
+      for (const style of ['classic', 'retro', 'qqnt']) {
         const label = `${width}-${theme}-${style}`;
         await page.goto(url);
         await page.getByRole('button', { name: '历史头像', exact: true }).waitFor();
@@ -155,7 +155,7 @@ try {
         });
         assert.equal(appearance.size, '13px', label);
         assert.ok(Number.parseFloat(appearance.border) >= 1, label);
-        if (style !== 'minimal') assert.notEqual(appearance.background, 'rgba(0, 0, 0, 0)', label);
+        assert.notEqual(appearance.background, 'rgba(0, 0, 0, 0)', label);
         assert.equal(appearance.weight, '600', label);
         await checkContrast(change, label);
         await change.focus();

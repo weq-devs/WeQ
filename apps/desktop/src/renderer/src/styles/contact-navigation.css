@@ -26,6 +26,14 @@ html[data-theme] body .sidebar-header-contacts .weq-directory-toolbar {
   background: transparent;
 }
 
+:where(html:not([data-weq-layout='single']))
+  .app-shell
+  > .chat-main
+  :is(.weq-notice-panel > .weq-page-head, .weq-profile-page-toolbar) {
+  min-height: var(--weq-pane-toolbar-height);
+  padding-block: 0;
+}
+
 html[data-theme] body .sidebar-header-contacts :is(.contact-notice-row, .contact-list-controls) {
   padding-inline: var(--weq-contact-directory-gutter);
 }

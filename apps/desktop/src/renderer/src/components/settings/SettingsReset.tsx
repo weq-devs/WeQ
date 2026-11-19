@@ -59,12 +59,13 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
   const [error, setError] = useState('');
   const [directories, setDirectories] = useState<string[]>([]);
   const [results, setResults] = useState<SettingsResetResult[]>([]);
-  const cancelButton = useRef<HTMLButtonElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    const button = cancelButton.current;
+    const button = confirmButton.current;
     if (
       !busy &&
       button &&
+      !button.disabled &&
       button.ownerDocument.activeElement === button.closest('.weq-dialog-layer')
     )
       button.focus();
@@ -130,6 +131,10 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
         refresh.push(utils.bootstrap.getSettings.invalidate());
       if (cards.has('mcp')) refresh.push(utils.bootstrap.getMcpStatus.invalidate());
       if (cards.has('assistant')) refresh.push(utils.bootstrap.getWeqAssistantStatus.invalidate());
+      if (cards.has('assistant-config'))
+        refresh.push(utils.account.getAssistantConfig.invalidate());
+      if (cards.has('performance-recording'))
+        refresh.push(utils.performanceMonitor.status.invalidate());
       if (cards.has('onebot')) refresh.push(utils.bootstrap.getOneBotStatus.invalidate());
       if (cards.has('sse-targets') || cards.has('sse-tuning'))
         refresh.push(utils.bootstrap.getSsePushStatus.invalidate());
@@ -245,10 +250,12 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                 {dialog.items
                   .filter((item) => item.directory && differs(item))
                   .map((item) => (
-                    <label key={item.id} className="weq-defaults-row">
-                      <span>
-                        {item.label}
-                        <small>{formatResetValue(item.current, item.id)}</small>
+                    <div key={item.id} className="weq-set-row weq-defaults-row">
+                      <span className="weq-set-row-main">
+                        <span className="weq-set-row-label">{item.label}</span>
+                        <small className="weq-set-row-desc">
+                          {formatResetValue(item.current, item.id)}
+                        </small>
                       </span>
                       <SegmentedControl<'keep' | 'reset'>
                         label={item.label}
@@ -266,7 +273,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                           { value: 'reset', label: '恢复默认' },
                         ]}
                       />
-                    </label>
+                    </div>
                   ))}
               </div>
               {changed.some((item) => item.stopsService) ? (
@@ -330,7 +337,6 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
             </div>
             <div className="weq-modal-actions weq-dialog-foot">
               <button
-                ref={cancelButton}
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
                 disabled={busy}
@@ -352,6 +358,8 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                 type="button"
                 className="weq-set-btn"
                 data-danger="outline"
+                data-weq-dialog-confirm
+                ref={confirmButton}
                 disabled={
                   busy ||
                   (!changed.length && !results.some((item) => !item.ok)) ||

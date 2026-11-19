@@ -9,7 +9,7 @@
 .chat-pane {
   width: 100%;
   min-width: 0;
-  --chat-header-height: 40px;
+  --chat-header-height: var(--weq-pane-toolbar-height, 40px);
   --group-info-panel-width: clamp(220px, 17vw, 248px);
   display: grid;
   grid-template-rows: var(--chat-header-height) minmax(0, 1fr) var(--composer-height, 190px);
@@ -451,7 +451,7 @@ html[data-theme='dark'] .weq-chat-backdrop {
   height: 100%;
   flex-direction: column;
   gap: 18px;
-  padding: 26px 10px 20px 24px;
+  padding: 26px 18px 20px 20px;
   /* 头像挂件等装饰可伸出消息行，但不应让整个消息区横向滚动。 */
   overflow-x: hidden;
   overflow-y: auto;
@@ -730,17 +730,16 @@ html[data-theme='dark'] .weq-chat-backdrop {
  * 更接近 QQ 里的存在感，高度按原图比例自然向上伸展（绝对定位，不撑高消息行）。透明底，
  * 深浅模式都不需要额外底色；阴影只为让浅底上的白色服饰有轮廓。
  */
-.weq-qqshow-avatar {
-  position: relative;
-  display: inline-block;
-  flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  overflow: visible;
+.weq-avatar-pendant:has(> .weq-qqshow-avatar:not([hidden])) {
   z-index: 1;
 }
 
-.weq-qqshow-avatar img {
+.weq-avatar-pendant:has(> .weq-qqshow-avatar:not([hidden]))
+  > :is(.avatar, .weq-avatar-pendant-img) {
+  display: none;
+}
+
+.weq-qqshow-avatar {
   position: absolute;
   bottom: 0;
   left: 50%;
@@ -757,7 +756,7 @@ html[data-theme='dark'] .weq-chat-backdrop {
   filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--weq-fg-primary) 16%, transparent));
 }
 
-html[data-theme='dark'] .weq-qqshow-avatar img {
+html[data-theme='dark'] .weq-qqshow-avatar {
   filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.55));
 }
 
@@ -860,6 +859,10 @@ html[data-theme='dark'] .weq-qqshow-avatar img {
 
 .message-content.code-only {
   padding: 4px 4px 2px;
+}
+
+.message-line.is-recalled .message-bubble .message-content {
+  opacity: 0.8;
 }
 
 .message-content.has-code {
@@ -1809,10 +1812,6 @@ button.group-info-heading {
   font-size: 12px;
 }
 
-.group-info-member-search input::placeholder {
-  color: var(--weq-fg-muted);
-}
-
 .group-info-member-search-clear {
   display: grid;
   flex: 0 0 auto;
@@ -2362,6 +2361,7 @@ html[data-theme='dark'] .member-role-badge.admin {
 }
 
 .composer {
+  --composer-side-inset: 22px;
   position: relative;
   grid-column: 1;
   display: grid;
@@ -2369,7 +2369,7 @@ html[data-theme='dark'] .member-role-badge.admin {
   overflow: visible;
   grid-template-rows: 42px minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr);
-  padding: 12px 0 16px 22px;
+  padding: 12px 0 16px var(--composer-side-inset);
   border-top: 1px solid var(--weq-bar-border, #dedede);
   /* Frosted glass — same single-gradient trick as .chat-header. */
   background: var(--weq-bar-surface, rgba(255, 255, 255, 0.58));
@@ -2436,7 +2436,7 @@ html[data-theme='dark'] .member-role-badge.admin {
 .composer-send {
   position: absolute;
   z-index: 4;
-  right: 22px;
+  right: var(--composer-side-inset);
   bottom: 20px;
   display: inline-flex;
   width: auto;
@@ -4081,46 +4081,8 @@ html[data-theme='dark'] .chat-empty-logo {
    ══════════════════════════════════════════════════════════════════════════
    主题色 / 深浅模式全部走 --weq-accent-effective + --weq-bg-*，不另写一份。 */
 
-.message-line.selection-mode {
-  cursor: pointer;
-}
-
-/* 选中行：整个矩形区域铺主题色底 + 虚线边框。用负 margin 抵消 padding/border，
- * 避免选中时整行高度变化、列表跳一下。 */
-.message-line.is-selected {
-  margin: -5px -12px;
-  padding: 4px 11px;
-  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective, #0099f7) 55%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099f7) 13%, transparent);
-}
-
 .message-line.is-selected .message-bubble {
   background: transparent;
-}
-
-/* 行首的圆形勾选标。 */
-.message-select-mark {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  min-width: 20px;
-  margin-top: 6px;
-  border: 1.5px solid color-mix(in srgb, var(--weq-accent-effective, #0099f7) 55%, transparent);
-  border-radius: 50%;
-  color: #ffffff;
-  background: transparent;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease;
-}
-
-.message-line.is-selected .message-select-mark {
-  border-color: var(--weq-accent-effective, #0099f7);
-  background: var(--weq-accent-effective, #0099f7);
 }
 
 /* ── 输入区让位给操作条 ───────────────────────────────────────────────── */

@@ -2,7 +2,7 @@ import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationSettingsDialog } from '../src/renderer/src/components/ConversationSettingsDialog';
-import { ContactWorkspaceNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+import { normalizeNotificationEvents } from '@weq/service/notification-settings';
 
 const intent = vi.hoisted(() => ({
   data: {
@@ -45,6 +45,12 @@ vi.mock('../src/renderer/src/components/QQConversationControls', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    bootstrap: {
+      getSettings: {
+        useQuery: () => ({ data: { notificationEvents: normalizeNotificationEvents(undefined) } }),
+      },
+      setNotificationEvents: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+    },
     useUtils: () => ({
       account: {
         intentSense: { getStatus: { setData: vi.fn() } },
@@ -139,60 +145,6 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.unstubAllGlobals();
 });
-
-it.each(['c2c', 'group', 'dataline'] as const)(
-  '%s 提供对应完整资料跳转，关闭设置后导航',
-  (kind) => {
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
-    const calls: string[] = [];
-    const navigate = vi.fn(() => {
-      calls.push('navigate');
-    });
-    cleanups.push(() => {
-      act(() => root.unmount());
-      host.remove();
-    });
-    act(() =>
-      root.render(
-        h(
-          ContactWorkspaceNavigationContext.Provider,
-          { value: navigate },
-          h(ConversationSettingsDialog, {
-            kind,
-            conv: kind === 'group' ? '12345' : 'u_friend',
-            title: '联系人',
-            onClose: () => calls.push('close'),
-          }),
-        ),
-      ),
-    );
-    const button = host.querySelector<HTMLButtonElement>(
-      `[aria-label="${kind === 'group' ? '查看群资料' : '查看联系人资料'}"]`,
-    );
-    expect(Boolean(button)).toBe(kind !== 'dataline');
-    if (button) {
-      act(() => button.click());
-      expect(calls).toEqual(['close', 'navigate']);
-      if (kind === 'group')
-        expect(navigate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            kind: 'group',
-            conversation: expect.objectContaining({ id: '12345' }),
-          }),
-        );
-      else
-        expect(navigate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            kind: 'person',
-            tab: 'profile',
-            contact: expect.objectContaining({ id: 'u_friend' }),
-          }),
-        );
-    }
-  },
-);
 
 it.each([
   { enabled: false, ready: true, override: undefined, checked: 'true', text: '应用意图感知已关闭' },

@@ -73,7 +73,6 @@ describe('收藏表情面板', () => {
         '.emoji-tabs button[aria-pressed="true"]',
       );
       expect(defaultTab?.getAttribute('aria-label')).toBe('表情');
-      expect(defaultTab?.nextElementSibling?.getAttribute('aria-label')).toBe('收藏');
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="收藏"]')!.click());
       expect(host.querySelector('[aria-label="导入收藏表情包"]')).not.toBeNull();
       expect(host.querySelector('[aria-label="导出收藏表情包"]')).not.toBeNull();

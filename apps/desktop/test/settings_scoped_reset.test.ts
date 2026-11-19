@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_APP_SETTINGS, DEFAULT_INTENT_SENSE_CONFIG } from '@weq/service';
+import {
+  DEFAULT_APP_SETTINGS,
+  DEFAULT_INTENT_SENSE_CONFIG,
+  mergeAssistantConfig,
+} from '@weq/service';
 import type { AppSettings } from '@weq/service';
 import { SETTINGS_RESET_CARDS, resetCards } from '../src/shared/settings_reset';
 import { settingsResetRouter } from '../src/main/ipc/routers/settings_reset';
 import { SETTINGS_FIELDS } from '@weq/service/settings-catalog';
 import { preferenceDefaults } from '@weq/service/client-preferences';
+import { DEFAULT_MONITOR_SETTINGS, type MonitorSettings } from '@weq/service/performance';
 
 const state = vi.hoisted(() => ({
   settings: {} as AppSettings,
@@ -12,8 +17,23 @@ const state = vi.hoisted(() => ({
   fail: '',
   account: false,
   source: 'synthetic-source',
+  monitor: {} as MonitorSettings,
   intent: {} as Record<string, unknown>,
 }));
+vi.mock('@weq/service/performance', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@weq/service/performance')>();
+  return {
+    ...real,
+    getPerformanceMonitor: () => ({
+      ready: Promise.resolve(),
+      settings: state.monitor,
+      resetRecordingMode: async () => {
+        state.calls.push(['resetRecordingMode', null]);
+        state.monitor.mode = real.DEFAULT_MONITOR_SETTINGS.mode;
+      },
+    }),
+  };
+});
 vi.mock('../src/main/context/app_context', () => ({
   getActiveIntentSenseLocalEngine: () => null,
   requireBootstrap: () => ({
@@ -26,6 +46,8 @@ vi.mock('../src/main/context/app_context', () => ({
         Object.assign(state.settings.sharedPreferences, {
           [key]: { ...state.settings.sharedPreferences[key], ...patch },
         }),
+      replaceSharedPreference: (key: keyof AppSettings['sharedPreferences'], value: object) =>
+        Object.assign(state.settings.sharedPreferences, { [key]: value }),
     },
   }),
   closeSalvageConnections: vi.fn(),
@@ -80,6 +102,13 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
               state.settings.qzonePagination = input as AppSettings['qzonePagination'];
             if (name === 'setCallRecording') Object.assign(state.settings.callRecording, input);
             if (name === 'setSsePushTuning') Object.assign(state.settings.ssePush, input);
+            if (name === 'setAiImagePreference') {
+              const { feature, mode } = input as {
+                feature: keyof AppSettings['aiImages'];
+                mode: AppSettings['aiImages']['assistant'];
+              };
+              state.settings.aiImages[feature] = mode;
+            }
             return { enabled: false };
           },
         },
@@ -106,10 +135,50 @@ beforeEach(() => {
   state.fail = '';
   state.account = false;
   state.source = 'synthetic-source';
+  state.monitor = { ...DEFAULT_MONITOR_SETTINGS };
   state.intent = structuredClone(DEFAULT_INTENT_SENSE_CONFIG);
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('各 AI 页只恢复本功能的图片偏好，日志页复位性能记录档位', async () => {
+    Object.assign(state.settings.aiImages, {
+      intent: 'ocr',
+      suggestions: 'vision',
+      profile: 'ocr',
+    });
+    for (const [page, feature, previous] of [
+      ['intent-sense', 'intent', 'ocr'],
+      ['reply-suggestions', 'suggestions', 'vision'],
+      ['interaction-profile', 'profile', 'ocr'],
+    ] as const) {
+      expect(state.settings.aiImages[feature]).toBe(previous);
+      await caller().restore({ page, source: null });
+      expect(state.settings.aiImages[feature]).toBe(DEFAULT_APP_SETTINGS.aiImages[feature]);
+    }
+    state.monitor.mode = 'off';
+    await caller().restore({ page: 'logs', source: null });
+    expect(state.monitor.mode).toBe(DEFAULT_MONITOR_SETTINGS.mode);
+    expect(state.calls).toContainEqual(['resetRecordingMode', null]);
+  });
+  it('助手页面成组恢复联动参数与图片偏好，预览不返回原始提示词和 MCP 配置', async () => {
+    const defaults = mergeAssistantConfig({}, {});
+    state.settings.sharedPreferences.assistant = {
+      sendMode: 'queue',
+      customPrompt: 'synthetic-prompt',
+      mcpServers: 'synthetic= https://example.invalid/synthetic-mcp-secret',
+      model: { providerId: 'synthetic', model: 'synthetic-model' },
+    };
+    state.settings.aiImages.assistant = 'ocr';
+    const input = { page: 'weq-assistant' } as const;
+    const preview = await caller().preview(input);
+    expect(JSON.stringify(preview)).not.toMatch(/synthetic-prompt|synthetic-mcp-secret/);
+    expect(await caller().restore({ ...input, source: preview.source })).toEqual([
+      { id: 'assistant-config:config', ok: true },
+      { id: 'assistant-images:mode', ok: true },
+    ]);
+    expect(state.settings.sharedPreferences.assistant).toEqual(defaults);
+    expect(state.settings.aiImages.assistant).toBe(DEFAULT_APP_SETTINGS.aiImages.assistant);
+  });
   it('QQ 在线能力卡片恢复右上角标记，不改变独立通知偏好', async () => {
     state.settings.restrictedModeIndicatorEnabled = false;
     state.settings.restrictedModeBannerEnabled = false;
@@ -167,7 +236,6 @@ describe('分级恢复默认', () => {
       { enabled: DEFAULT_APP_SETTINGS.ocr.prefilterEnabled },
     ]);
   });
-
   it('窗口外观和关闭行为随各自页面恢复，不再互相影响', async () => {
     state.settings.windowsStyleControls = true;
     state.settings.windowCloseBehavior = 'quit';
@@ -226,21 +294,33 @@ describe('分级恢复默认', () => {
     }
     expect(state.settings.sharedPreferences.client.mailListWidth).toBe(400);
   });
-  it('API 默认模型预览与重置按聊天、视觉、向量排列，分别清空而不改服务商', async () => {
+  it('API 默认模型与容量缺省值独立恢复，不改服务商', async () => {
     state.settings.agentLab.defaultModel = { providerId: 'p', model: 'chat' };
     state.settings.agentLab.defaultVisionModel = { providerId: 'p', model: 'vision' };
     state.settings.agentLab.defaultEmbeddingModel = { providerId: 'p', model: 'embedding' };
+    state.settings.agentLab.defaultContextWindowTokens = 240_000;
+    state.settings.agentLab.defaultMaxOutputTokens = null;
     const preview = await caller().preview({ page: 'agentlab', card: 'api-default' });
     expect(preview.items.map((item) => item.label)).toEqual([
       '默认聊天模型',
       '默认视觉模型',
       '默认向量模型',
+      '默认上下文窗口',
+      '默认最大输出',
     ]);
     await caller().restore({ page: 'agentlab', card: 'api-default', source: null });
     expect(state.calls).toEqual([
       ['setAgentLabDefaultModel', { ref: null }],
       ['setDefaultVisionModel', { ref: null }],
       ['setDefaultEmbeddingModel', { ref: null }],
+      [
+        'setAgentLabModelTokenDefaults',
+        { defaultContextWindowTokens: DEFAULT_APP_SETTINGS.agentLab.defaultContextWindowTokens },
+      ],
+      [
+        'setAgentLabModelTokenDefaults',
+        { defaultMaxOutputTokens: DEFAULT_APP_SETTINGS.agentLab.defaultMaxOutputTokens },
+      ],
     ]);
   });
   it('阅读定位恢复预览包含条件隐藏的上下文配置', async () => {
@@ -266,32 +346,22 @@ describe('分级恢复默认', () => {
       ]),
     );
   });
-  it('已读上报随未读提醒卡片恢复，不影响阅读定位配置', async () => {
+  it('会话列表恢复默认不改写已移除的已读上报设置', async () => {
     state.settings.reportReadEnabled = false;
     state.settings.manualReadReportEnabled = false;
-    const preview = await caller().preview({ page: 'chat-messages', card: 'unread' });
-    expect(preview.items).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'unread:reportReadEnabled', current: false }),
-        expect.objectContaining({ id: 'unread:manualReadReportEnabled', current: false }),
-      ]),
-    );
-    expect(preview.items.every((item) => item.id.startsWith('unread:'))).toBe(true);
-    await caller().restore({ page: 'chat-messages', card: 'unread', source: null });
-    expect(state.calls).toContainEqual([
-      'setReportReadEnabled',
-      { enabled: DEFAULT_APP_SETTINGS.reportReadEnabled },
-    ]);
-    expect(state.calls).toContainEqual([
-      'setManualReadReportEnabled',
-      { enabled: DEFAULT_APP_SETTINGS.manualReadReportEnabled },
-    ]);
+    const preview = await caller().preview({ page: 'chat-messages' });
+    expect(preview.items.some((item) => item.id.startsWith('unread:'))).toBe(false);
+    await caller().restore({ page: 'chat-messages', source: null });
+    expect(state.calls.some(([method]) => method === 'setReportReadEnabled')).toBe(false);
+    expect(state.calls.some(([method]) => method === 'setManualReadReportEnabled')).toBe(false);
+    expect(state.settings.reportReadEnabled).toBe(false);
+    expect(state.settings.manualReadReportEnabled).toBe(false);
     expect(state.calls.some(([method]) => method === 'setReadFromFirstUnread')).toBe(false);
   });
   it('稳定卡片 ID 唯一，跨页面卡片与任意配置键拒绝', async () => {
-    expect(resetCards({ page: 'global' }).map(([, id]) => id)).toContain('message-notifications');
+    expect(resetCards({ page: 'global' }).map(([, id]) => id)).toContain('notification-events');
     expect(resetCards({ page: 'chat-messages' }).map(([, id]) => id)).not.toContain(
-      'message-notifications',
+      'notification-events',
     );
     expect(new Set(SETTINGS_RESET_CARDS.map(([, id]) => id)).size).toBe(
       SETTINGS_RESET_CARDS.length,
@@ -302,6 +372,37 @@ describe('分级恢复默认', () => {
       caller().restore({ page: 'qzone', source: null, directories: ['mcp:token'] }),
     ).rejects.toThrow('不属于当前范围');
     expect(state.calls).toEqual([]);
+  });
+  it('通知与红点迁移后，旧功能页恢复不再修改通知偏好', async () => {
+    const global = await caller().preview({ page: 'global' });
+    expect(global.items.map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        'notification-badges:showMessageUnreadBadge',
+        'notification-badges:showContactUnreadCount',
+        'notification-events:notificationEvents',
+        'notification-badges:unread',
+      ]),
+    );
+    expect(global.items.some((item) => item.id.startsWith('damage-reminder:'))).toBe(false);
+    for (const page of [
+      'mail',
+      'account',
+      'database-management',
+      'chat-messages',
+      'chat-interaction',
+      'privacy',
+    ] as const) {
+      const old = await caller().preview({ page });
+      expect(
+        old.items.some((item) =>
+          /^(notification-events|notification-badges|damage-reminder|recall-notifications|web-notifications):/.test(
+            item.id,
+          ),
+        ),
+      ).toBe(false);
+    }
+    const badges = await caller().preview({ page: 'global', card: 'notification-badges' });
+    expect(badges.items.some((item) => item.id.includes('reportRead'))).toBe(false);
   });
   it('只读预览不写入，卡片恢复不影响同页其他配置或连接凭据', async () => {
     state.settings.qzonePagination = { windowSeconds: 30, maxPages: 12 };

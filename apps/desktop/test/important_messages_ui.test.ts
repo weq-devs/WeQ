@@ -2,9 +2,14 @@ import { act, createElement as h } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ImportantMessagesList } from '../src/renderer/src/components/ImportantMessages';
-const rpc = vi.hoisted(() => ({ query: vi.fn() }));
+const rpc = vi.hoisted(() => ({ query: vi.fn(), previews: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: { account: { listImportantGroupMessages: { query: rpc.query } } },
+  client: {
+    account: {
+      listImportantGroupMessages: { query: rpc.query },
+      importantGroupPreviews: { query: rpc.previews },
+    },
+  },
 }));
 const row = (msgSeq: string) => ({
   msgSeq,
@@ -46,6 +51,26 @@ afterEach(() => {
 const render = () => act(async () => root.render(h(ImportantMessagesList, props)));
 const hit = () => host.querySelector<HTMLButtonElement>('.weq-important-row')!;
 
+it('先显示索引，摘要未完成时点击仍使用随后查到的精确消息 ID', async () => {
+  let release!: (result: { items: ReturnType<typeof row>[]; contentUnavailable: boolean }) => void;
+  rpc.query.mockResolvedValue({
+    ...page([]),
+    items: [{ ...row('102'), msgId: undefined, preview: '' }],
+  });
+  rpc.previews.mockReturnValue(
+    new Promise((resolve) => {
+      release = resolve;
+    }),
+  );
+  await render();
+  expect(hit().textContent).toContain('消息 102');
+  await act(async () => hit().click());
+  expect(props.onLocate).not.toHaveBeenCalled();
+  await act(async () => release({ items: [row('102')], contentUnavailable: false }));
+  expect(hit().textContent).toContain('正文 102');
+  expect(props.onLocate).toHaveBeenCalledWith({ seq: '102', msgId: '900102' });
+});
+
 it('已读条目用多个类型图标定位，不重复类型名称；连续定位与失败重试均保留', async () => {
   rpc.query.mockResolvedValue(page(['102', '101']));
   await render();
@@ -86,6 +111,11 @@ it('定位进行中防止重复请求，结束后可以再定位', async () => {
 it('八类多选与全选清空沿用搜索选择方式，分页重置游标，失败可重试', async () => {
   rpc.query.mockResolvedValueOnce(page(['102'], '102'));
   await render();
+  const filterToggle = host.querySelector<HTMLButtonElement>('[aria-label="筛选重要消息"]')!;
+  const filters = document.getElementById(filterToggle.getAttribute('aria-controls')!)!;
+  expect(filters.hidden).toBe(true);
+  await act(async () => filterToggle.click());
+  expect(filters.hidden).toBe(false);
   expect(
     host.querySelector('.weq-important-more')?.compareDocumentPosition(host.querySelector('ul')!) &
       Node.DOCUMENT_POSITION_FOLLOWING,
@@ -128,6 +158,15 @@ it('八类多选与全选清空沿用搜索选择方式，分页重置游标，�
     expect.arrayContaining(['replyMe', 'atMe']),
   );
   expect(rpc.query.mock.calls.at(-1)?.[0].unreadOnly).toBeUndefined();
+  const calls = rpc.query.mock.calls.length;
+  await act(async () => filterToggle.click());
+  expect(filters.hidden).toBe(true);
+  await act(async () => filterToggle.click());
+  expect(filters.hidden).toBe(false);
+  expect(rpc.query).toHaveBeenCalledTimes(calls);
+  expect(host.querySelector('[data-weq-select-id="replyMe"]')?.getAttribute('aria-pressed')).toBe(
+    'true',
+  );
 });
 
 it('定位后保留列表并选中原条目，右键与单击共用精确定位', async () => {

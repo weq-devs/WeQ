@@ -85,6 +85,19 @@ function click(label: string): void {
 }
 
 describe('关闭确认框', () => {
+  it.each([true, false])('Enter 执行默认关闭动作，托盘可用：%s', (canMinimizeToTray) => {
+    ask({ canMinimizeToTray });
+    act(() =>
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true })),
+    );
+    expect(ipc.sent).toEqual([
+      {
+        channel: 'window:respond-close',
+        payload: canMinimizeToTray ? 'tray' : 'quit',
+      },
+    ]);
+  });
+
   it('列出完全退出会停止的后台服务', () => {
     ask({ canMinimizeToTray: true, services: ['MCP 服务器', 'WeQ Web 服务'] });
     expect(document.querySelector('.weq-close-services-title')?.textContent).toContain(

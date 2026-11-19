@@ -1,4 +1,4 @@
-/* 经典保留原有样式；组件预设共用形态 token，界面密度独立控制。 */
+/* 简约（classic）沿用基础控件样式；界面密度独立控制。 */
 :root,
 [data-component-preview] {
   --weq-skin-radius: 2px;
@@ -10,22 +10,17 @@
   --weq-skin-selection: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
   --weq-skin-toggle-radius: 999px;
   --weq-skin-border-width: 0px;
+  --weq-skin-input-radius: 6px;
   --weq-skin-input-border-width: 0px 0px 1px;
   --weq-skin-primary-border-width: 0px 0px 2px;
+  --weq-skin-popup-radius: 6px;
+  --weq-skin-popup-border-width: 1px;
   --weq-skin-popup-surface: var(--weq-bg-surface);
   --weq-skin-primary-bg: transparent;
   --weq-skin-primary-fg: var(--weq-accent-ink);
   --weq-skin-primary-border: var(--weq-accent-ink);
   --weq-skin-selection-fg: var(--weq-fg-primary);
   --weq-skin-selection-shadow: inset 3px 0 var(--weq-accent-ink);
-}
-
-:is(html[data-component-style='minimal'], [data-component-preview='minimal']) {
-  --weq-skin-radius: 2px;
-  --weq-skin-border: var(--weq-border-subtle);
-  --weq-skin-surface: transparent;
-  --weq-skin-popup-shadow: 0 3px 12px color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
-  --weq-skin-selection: transparent;
 }
 
 [data-component-preview='classic'] {
@@ -43,8 +38,11 @@
 :is(html[data-component-style='retro'], [data-component-preview='retro']) {
   --weq-skin-radius: 0px;
   --weq-skin-border-width: 2px;
+  --weq-skin-input-radius: 0px;
   --weq-skin-input-border-width: 2px;
   --weq-skin-primary-border-width: 2px;
+  --weq-skin-popup-radius: 0px;
+  --weq-skin-popup-border-width: 2px;
   --weq-skin-popup-surface: var(--weq-bg-elevated);
   --weq-skin-border: color-mix(in srgb, var(--weq-fg-primary) 55%, var(--weq-bg-surface));
   --weq-skin-surface: var(--weq-bg-elevated);
@@ -62,10 +60,6 @@
   --weq-skin-selection-shadow: inset 0 0 0 2px var(--weq-skin-border);
 }
 
-html[data-theme='dark'][data-component-style='minimal'],
-html[data-theme='dark'] [data-component-preview='minimal'] {
-  --weq-skin-border: var(--weq-border-strong);
-}
 html[data-theme='dark'][data-component-style='retro'],
 html[data-theme='dark'] [data-component-preview='retro'] {
   --weq-skin-shadow:
@@ -73,13 +67,12 @@ html[data-theme='dark'] [data-component-preview='retro'] {
     2px 2px 0 var(--weq-bg-app);
 }
 
-/* QQ NT 的按钮复用经典基础样式，其余控件仍使用当前预设。 */
+/* QQ NT 按钮复用经典基础样式；资料里的文字动作保留行内外观。 */
 html[data-component-style][data-theme]:not([data-component-style='classic']) body
   :is(
     .weq-action-primary,
     .weq-action-soft,
     .weq-danger-button,
-    [data-danger],
     .weq-icon-button,
     .primary-button,
     .composer-send,
@@ -88,42 +81,83 @@ html[data-component-style][data-theme]:not([data-component-style='classic']) bod
     .icon-button,
     .weq-set-btn,
     .weq-set-chk,
-    .weq-input,
-    .weq-set-input,
-    .weq-set-select,
-    .search-box,
-    .form-field input:not([type='checkbox']):not([type='range']):not([type='color']),
-    .form-field select,
-    .form-field textarea,
-    .weq-set-row-ctrl input:not([type='checkbox']):not([type='range']):not([type='color']),
-    .weq-set-row-ctrl select,
-    .weq-set-row-ctrl textarea,
-    .weq-directory-toolbar input,
     .weq-directory-toolbar button,
     .weq-settings-theme-option,
-    .weq-density-options button
-  ):not(:where(html[data-component-style='qqnt'] button)) {
+    .weq-density-options button,
+    .weq-set-iconbtn,
+    .weq-set-seg,
+    .weq-set-seg-item,
+    .weq-segmented,
+    .weq-segmented > button,
+    .weq-picker-option,
+    .composer-send-expanded,
+    .weq-qq-inline-keyboard-button,
+    .weq-clean-go,
+    .weq-clean-cancel,
+    .weq-workspace-control,
+    button:is(
+      [class*='-btn'],
+      [class*='-button'],
+      [class*='-action'],
+      [class*='-primary'],
+      [class*='-secondary'],
+      [class*='-tool'],
+      [class*='-cancel'],
+      [class*='-retry'],
+      [class*='-save'],
+      [class*='-seg'],
+      [class*='-chip'],
+      [class*='-pill']
+    ),
+    .selection-action
+  ):not(
+    :where(
+      html[data-component-style='qqnt'] button,
+      .weq-profile-data-action,
+      .weq-profile-section-action,
+      .weq-group-text-action
+    )
+  ) {
   border-radius: var(--weq-control-radius, var(--weq-skin-radius));
   box-shadow: var(--weq-control-shadow, var(--weq-skin-shadow));
 }
 
-html[data-component-style][data-theme]:not([data-component-style='classic'])
-  body
+/* 普通、危险和禁用状态共用几何；配色规则仍单独区分状态。 */
+html[data-component-style][data-theme]:not([data-component-style='classic']) body
   :is(
-    .weq-input,
-    .weq-set-input,
-    .weq-set-select,
-    .form-field input,
-    .form-field select,
-    .form-field textarea,
-    .weq-set-row-ctrl input,
-    .weq-set-row-ctrl select,
-    .weq-set-row-ctrl textarea,
-    .weq-directory-toolbar input
+    .weq-action-soft,
+    .secondary-button,
+    .mode-button:not(.active),
+    .weq-set-btn:not(.weq-set-btn-primary),
+    .weq-set-seg,
+    .weq-set-seg-item,
+    .weq-segmented,
+    .weq-segmented > button,
+    .weq-set-iconbtn,
+    .weq-clean-cancel,
+    button:is(
+      [class*='-btn']:not(.is-primary),
+      [class*='-button']:not(.is-primary),
+      [class*='-action']:not(.is-primary),
+      [class*='-secondary'],
+      [class*='-tool'],
+      [class*='-cancel'],
+      [class*='-retry'],
+      [class*='-save'],
+      [class*='-seg'],
+      [class*='-chip'],
+      [class*='-pill']
+    )
+  ):not(
+    :where(
+      html[data-component-style='qqnt'] button,
+      .weq-profile-data-action,
+      .weq-profile-section-action,
+      .weq-group-text-action
+    )
   ) {
-  --weq-control-shadow: var(--weq-skin-input-shadow);
-  --weq-control-border-width: var(--weq-skin-input-border-width);
-  --weq-control-radius: var(--weq-skin-input-radius, var(--weq-skin-radius));
+  border-style: solid;
+  border-width: var(--weq-control-border-width, var(--weq-skin-border-width));
 }
 
 html[data-component-style][data-theme]:not([data-component-style='classic'])
@@ -132,24 +166,52 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-action-soft,
     .secondary-button,
     .mode-button:not(.active),
-    .weq-set-btn:not(.weq-set-btn-primary):not(.weq-set-btn-danger):not(.weq-set-btn-del)
-  ):not(:disabled):not([data-danger]):not(:where(html[data-component-style='qqnt'] button)) {
-  border: solid var(--weq-skin-border);
-  border-width: var(--weq-control-border-width, var(--weq-skin-border-width));
-  background: var(--weq-skin-surface);
-  color: var(--weq-fg-primary);
+    .weq-set-btn:not(.weq-set-btn-primary):not(.weq-set-btn-danger):not(.weq-set-btn-del),
+    .weq-clean-cancel,
+    button:is(
+      [class*='-btn']:not(.is-primary, [class*='-primary']),
+      [class*='-button']:not(.is-primary, [class*='-primary']),
+      [class*='-secondary'],
+      [class*='-cancel'],
+      [class*='-retry'],
+      [class*='-save']
+    )
+  ):not(:disabled, [aria-disabled='true'], [data-danger]):not(
+    :where(
+      html[data-component-style='qqnt'] button,
+      .weq-rail-button,
+      .primary,
+      .danger,
+      .weq-set-btn-danger,
+      .weq-set-btn-del,
+      .weq-set-iconbtn-danger,
+      .weq-qq-inline-keyboard-link
+    )
+  ) {
+  border-color: var(--weq-skin-border);
+  background: var(--weq-control-bg, var(--weq-skin-surface));
+  color: var(--weq-control-fg, var(--weq-fg-primary));
 }
 
-html[data-component-style][data-theme]:not([data-component-style='classic'])
+/* 只给真实浮层加外框。内嵌页面及页面内的结果列表不属于浮层。 */
+html[data-component-style][data-theme] body .weq-nonmodal-layer[tabindex] > :first-child,
+html[data-component-style][data-theme] body .weq-dialog-layer > .weq-modal,
+html[data-component-style][data-theme]
+  body
+  :is(.weq-overlay-layer, .weq-editor-overlay)
+  > [role='dialog'],
+html[data-component-style][data-theme] body .weq-window-layer > .weq-window-surface,
+html[data-component-style][data-theme]
   body
   :is(
     .modal-card,
-    .weq-dialog,
     .weq-qr-dialog,
     .weq-confirm-dialog,
+    .confirm-dialog,
     .message-context-menu,
     .profile-popover,
     .weq-directory-scope-menu,
+    .weq-conversation-actions-menu,
     .weq-merged-popover,
     .conversation-details,
     /* 群聊右侧资料栏是聊天画布的一部分，不是弹层：保持透明，让 --chat-surface
@@ -162,12 +224,120 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
       )
     ),
     .weq-select,
-    .weq-provider-modal
+    .weq-provider-modal,
+    .weq-picker-menu,
+    .weq-asst-select-pop,
+    .weq-search-dropdown,
+    .weq-titlebar-search-results,
+    .weq-data-saver-panel,
+    .weq-restricted-panel,
+    .weq-rail-account-popover,
+    .weq-rail-account-ctx-menu,
+    .weq-workspace-menu,
+    .weq-dbm-options-panel,
+    .weq-intent-popover,
+    .weq-session-switcher-menu,
+    .sidebar-add-menu,
+    .avatar-context-submenu,
+    .reaction-picker,
+    .mention-menu,
+    .ark-contact-list,
+    .contact-history-filter-menu,
+    .weq-cache-dbpick-menu,
+    .weq-slash-emoji-menu,
+    .weq-mf-at-menu,
+    .weq-hover-tooltip,
+    .weq-toast,
+    [role='menu'],
+    .weq-tool-modal
+  ):not(
+    :where(
+      .weq-workspace-page > *,
+      .weq-workspace-page > [data-page-snapshot] > *,
+      .weq-tool-modal > *,
+      .weq-window-content > *
+    )
   ) {
-  border: var(--weq-skin-border-width) solid var(--weq-skin-border);
-  border-radius: var(--weq-skin-popup-radius, var(--weq-skin-radius));
+  border: var(--weq-skin-popup-border-width) solid var(--weq-skin-border);
+  border-radius: var(--weq-skin-popup-radius);
   background: var(--weq-skin-popup-surface);
   box-shadow: var(--weq-skin-popup-shadow);
+}
+
+html[data-weq-layout='single'][data-component-style][data-theme]
+  :is(
+    .emoji-panel,
+    .emoji-panel-body,
+    .emoji-tabs,
+    .composer-plus-panel,
+    .mobile-composer-expanded-sheet,
+    .mobile-composer-expanded-tools,
+    .mobile-composer-expanded .bounce-panel
+  ) {
+  background: var(--weq-skin-popup-surface);
+}
+
+html[data-weq-layout='single'][data-component-style][data-theme] .mobile-composer-expanded-sheet {
+  border-radius: var(--weq-skin-popup-radius) var(--weq-skin-popup-radius) 0 0;
+}
+
+html[data-weq-layout='single'][data-component-style][data-theme] .composer-plus-grid button span {
+  border-radius: var(--weq-skin-input-radius);
+  background: var(--weq-bg-elevated);
+  color: var(--weq-fg-secondary);
+}
+
+/* 桌面工具浮到聊天画布上；单栏贴边和表情面板中的嵌入内容保留原布局。 */
+html[data-component-style][data-theme]:where(:not([data-weq-layout='single'])) body
+  :is(
+    .emoji-panel,
+    .voice-panel,
+    .ai-voice-panel,
+    .redpacket-panel,
+    .ark-panel,
+    .lbs-panel,
+    .bounce-panel,
+    .poke-panel
+  ):not(:where(.emoji-panel-body > *)) {
+  border: var(--weq-skin-popup-border-width) solid var(--weq-skin-border);
+  border-radius: var(--weq-skin-popup-radius);
+  background: var(--weq-skin-popup-surface);
+  box-shadow: var(--weq-skin-popup-shadow);
+}
+
+@media (max-width: 650px) {
+  html[data-component-style][data-theme] body .weq-tool-scrim > .weq-tool-modal {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+/* 菜单项跟随同一套转角，但保留自身的选中、禁用和危险状态。 */
+html[data-component-style][data-theme] body
+  :is(
+    .message-context-menu,
+    .weq-conversation-actions-menu,
+    .weq-directory-scope-menu,
+    .weq-picker-menu,
+    .weq-asst-select-pop,
+    .weq-cache-dbpick-menu,
+    .mention-menu,
+    .weq-slash-emoji-menu,
+    [role='menu']
+  )
+  :is(button, [role='option'], [role='menuitem']):not(:where(.weq-conversation-copy-number)) {
+  border-radius: var(--weq-skin-radius);
+}
+
+html[data-component-style='retro'][data-theme]
+  body
+  :is(.message-context-menu, .weq-conversation-actions-menu, [role='menu'])
+  button[data-danger] {
+  --weq-control-border-width: 0px;
+  --weq-control-shadow: none;
+  border-width: 0;
+  box-shadow: none;
 }
 
 html[data-component-style][data-theme]:not(
@@ -175,11 +345,31 @@ html[data-component-style][data-theme]:not(
     [data-component-style='qqnt']
   )
   body
-  :is(.weq-action-primary, .primary-button, .composer-send, .weq-set-btn-primary):not(
-    :disabled
-  ):not([data-danger]) {
+  :is(
+    .weq-action-primary,
+    .primary-button,
+    .composer-send,
+    .weq-set-btn-primary,
+    .weq-clean-go:not(.is-danger),
+    button:is([class*='-primary']:not([data-danger]), .is-primary)
+  ) {
   border-style: solid;
   border-width: var(--weq-skin-primary-border-width);
+}
+
+html[data-component-style][data-theme]:not(
+    [data-component-style='classic'],
+    [data-component-style='qqnt']
+  )
+  body
+  :is(
+    .weq-action-primary,
+    .primary-button,
+    .composer-send,
+    .weq-set-btn-primary,
+    .weq-clean-go:not(.is-danger),
+    button:is([class*='-primary']:not([data-danger]), .is-primary)
+  ):not(:disabled):not([data-danger]) {
   border-color: var(--weq-skin-primary-border);
   background: var(--weq-skin-primary-bg);
   color: var(--weq-skin-primary-fg);
@@ -203,9 +393,12 @@ html[data-component-style='retro'] body :is(.conversation-row, .contact-row) .av
   border-radius: 0;
 }
 
-html[data-component-style='minimal'][data-theme]
+html[data-component-style='classic'][data-theme] body :is(.sidebar-header, .weq-directory-toolbar),
+html[data-component-style='classic'][data-theme] body .weq-page-head,
+html[data-component-style='classic'][data-theme]
   body
-  :is(.chat-header, .sidebar-header, .weq-directory-toolbar, .composer) {
+  :where(.chat-pane:not(:has(> .weq-chat-backdrop)))
+  > :is(.chat-header, .composer) {
   background: transparent;
   box-shadow: none;
 }
@@ -222,7 +415,7 @@ html[data-component-style='retro'][data-theme] body .modal-titlebar {
   color: var(--weq-accent-solid-foreground);
 }
 
-html[data-component-style='minimal'][data-theme]
+html[data-component-style='classic'][data-theme]
   body
   .weq-settings-dialog
   :is(.weq-set-card, .weq-settings-appearance-card) {
@@ -294,38 +487,6 @@ html[data-component-style='retro']
   box-shadow: inset 1px 1px 0 var(--weq-border-strong);
   transform: translateY(1px);
 }
-html[data-component-style][data-theme]:not([data-component-style='classic'])
-  body
-  :is(
-    .weq-input,
-    .weq-set-input,
-    .weq-set-select,
-    .search-box,
-    .form-field input:not([type='checkbox']):not([type='range']):not([type='color']),
-    .form-field select,
-    .form-field textarea,
-    .weq-set-row-ctrl input:not([type='checkbox']):not([type='range']):not([type='color']),
-    .weq-set-row-ctrl select,
-    .weq-set-row-ctrl textarea,
-    .weq-directory-toolbar input
-  ):not(:disabled):where(
-    :not(
-      .is-error,
-      [aria-invalid='true'],
-      [type='checkbox'],
-      [type='radio'],
-      [type='range'],
-      [type='color'],
-      [type='file'],
-      [type='button'],
-      [type='submit'],
-      [type='reset'],
-      [type='image']
-    )
-  ):focus-within {
-  border-color: var(--weq-accent-effective);
-}
-
 html[data-component-style][data-theme]:not([data-component-style='classic'])
   body
   :is(.weq-action-soft, .secondary-button, .weq-set-btn):focus-visible:not(
@@ -434,12 +595,14 @@ html:where([data-weq-layout='single'])[data-density='compact']
 }
 
 .weq-style-options {
+  container-type: inline-size;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 .weq-style-option {
   display: grid;
+  grid-template-rows: max-content 1fr;
   min-width: 0;
   gap: 8px;
   padding: 8px;
@@ -462,11 +625,16 @@ html:where([data-weq-layout='single'])[data-density='compact']
   outline-offset: 3px;
 }
 .weq-style-option-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px;
+  align-items: start;
+  gap: 3px;
+  min-width: 0;
   min-height: 20px;
   font-size: 13px;
+}
+.weq-style-option-default {
+  white-space: nowrap;
 }
 .weq-style-preview {
   display: grid;
@@ -615,10 +783,29 @@ html:where([data-weq-layout='single'])[data-density='compact']
   background: var(--weq-accent-solid);
   color: var(--weq-accent-solid-foreground);
 }
-@media (max-width: 520px) {
-  .weq-style-options {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+@container (max-width: 360px) {
+  .weq-style-option,
+  .weq-style-preview {
+    padding: 4px;
+  }
+  .weq-style-preview-bar,
+  .weq-style-preview-footer {
+    gap: 3px;
+  }
+  .weq-style-preview-input {
+    padding: 2px;
+  }
+  .weq-style-preview-input > span {
+    display: none;
+  }
+  .weq-style-preview-toggle {
+    width: 18px;
+  }
+  .weq-style-preview-button {
+    width: 22px;
+  }
+  .weq-style-option-default {
+    font-size: 11px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -12,7 +12,7 @@ html .weq-set-btn.weq-set-btn-sm {
 }
 
 /* 包装控件也参与拉伸，避免保存组件、分段选择器成为独立的高度来源。
-   保留 checkbox / radio / switch 的固有尺寸，以及多行编辑器的独立高度。 */
+   保留固定比例图标键、checkbox / radio / switch 的固有尺寸，以及多行编辑器的独立高度。 */
 html :is(
     .weq-set-actions,
     .weq-set-btn-group,
@@ -33,7 +33,6 @@ html :is(
     .weq-exp-dialog-foot,
     .weq-exp-default-actions,
     .weq-exp-file-toolbar,
-    .weq-exp-detail-actions,
     .weq-exp-fail-filters,
     .weq-epk-actions,
     .weq-compose-foot,
@@ -101,9 +100,9 @@ html :is(
     .weq-qzn-navigation nav
   )
   > :is(
-    button:not([role='switch'], [role='checkbox'], [role='radio']),
+    button:not([role='switch'], [role='checkbox'], [role='radio'], .icon-button),
     input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='hidden']),
-    select,
+    .weq-select-trigger,
     .weq-segmented,
     .weq-save-action-group
   ) {
@@ -119,7 +118,7 @@ html
     .weq-content-toolbar > div,
     .weq-conversation-notice:has(> input)
   )
-  > :is(button, input, select) {
+  > :is(button, input, .weq-select-trigger):where(:not(.icon-button)) {
   align-self: stretch;
   height: auto;
 }

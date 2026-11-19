@@ -112,22 +112,28 @@ describe('通知偏好', () => {
 
   describe('通知停留时长配置', () => {
     it('旧配置默认成功三秒、失败不自动关闭', () => {
-      expect(DEFAULT_TOAST_DURATIONS).toEqual({ successSeconds: 3, failureSeconds: -1 });
+      expect(DEFAULT_TOAST_DURATIONS).toEqual({
+        successSeconds: 3,
+        failureSeconds: -1,
+        messageSeconds: -1,
+      });
       expect(fixture().service.getSettings().toastDurations).toEqual(DEFAULT_TOAST_DURATIONS);
     });
-    it('两类设置独立保存，重启与修改其他偏好后仍然保留', () => {
+    it('三类设置独立保存，重启与修改其他偏好后仍然保留', () => {
       const f = fixture();
       f.service.setSettings({ toastDurations: { successSeconds: 6 } });
       f.service.setSettings({ toastDurations: { failureSeconds: 10 } });
+      f.service.setSettings({ toastDurations: { messageSeconds: 12 } });
       f.service.setSettings({ showMessageTime: true });
       expect(f.reopen().getSettings()).toMatchObject({
-        toastDurations: { successSeconds: 6, failureSeconds: 10 },
+        toastDurations: { successSeconds: 6, failureSeconds: 10, messageSeconds: 12 },
         showMessageTime: true,
       });
       f.service.setSettings({ toastDurations: { successSeconds: -1 } });
       expect(f.reopen().getSettings().toastDurations).toEqual({
         successSeconds: -1,
         failureSeconds: 10,
+        messageSeconds: 12,
       });
     });
     it.each([0, -2, 1.5, NaN, Infinity, MAX_TOAST_DURATION_SECONDS + 1, '3', null])(
@@ -135,7 +141,7 @@ describe('通知偏好', () => {
       (value) => {
         expect(isToastDuration(value)).toBe(false);
         const f = fixture({ toastDurations: { successSeconds: value, failureSeconds: 8 } });
-        expect(f.service.getSettings().toastDurations).toEqual({
+        expect(f.service.getSettings().toastDurations).toMatchObject({
           successSeconds: 3,
           failureSeconds: 8,
         });
@@ -143,7 +149,7 @@ describe('通知偏好', () => {
         f.service.setSettings(
           JSON.parse(JSON.stringify({ toastDurations: { successSeconds: value } })),
         );
-        expect(f.reopen().getSettings().toastDurations).toEqual({
+        expect(f.reopen().getSettings().toastDurations).toMatchObject({
           successSeconds: 7,
           failureSeconds: 8,
         });

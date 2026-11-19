@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -148,7 +149,7 @@ try {
   await popover('共同群 1');
   await page.locator('.weq-common-groups-close').click();
   await select('群内资料');
-  await page.getByLabel('群聊', { exact: true }).selectOption('10004');
+  await chooseFormOption(page.getByLabel('群聊', { exact: true }), '10004');
   await page.getByText('第二群昵称', { exact: true }).waitFor();
   assert.equal(
     await page

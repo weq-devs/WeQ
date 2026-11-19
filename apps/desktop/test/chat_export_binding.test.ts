@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
+import { normalizeExportContent } from '@weq/service/export-content';
 import { startChatExportTasks } from '../src/renderer/src/views/export/chatExport';
 import { DEFAULT_OPTIONS, type ExportFormat } from '../src/renderer/src/views/export/types';
 const state = vi.hoisted(() => ({ start: vi.fn(async (_input: unknown) => 'task-a') }));
@@ -11,8 +12,15 @@ beforeEach(() => state.start.mockReset().mockResolvedValue('task-a'));
 it('聊天记录导出携带独立的卡片目标，不退回整条消息或整个会话', async () => {
   const forwardTarget = { elementIndex: 2, resId: 'selected-record' };
   const pending = startChatExportTasks(
-    [{ id: 'group', name: '聊天记录', kind: 'group', messageIds: ['123'], forwardTarget }],
-    { ...DEFAULT_OPTIONS, ocrImages: false },
+    [
+      { id: 'group', name: '聊天记录', kind: 'group', messageIds: ['123'], forwardTarget },
+      { id: 'whole-group', name: '整群', kind: 'group' },
+    ],
+    {
+      ...DEFAULT_OPTIONS,
+      content: normalizeExportContent({ messages: 'cloud', images: 'cloud' }),
+      ocrImages: false,
+    },
     ['txt', 'html'],
     'txt',
     { baselineDirectory: '/other-conversation-archive' },
@@ -26,9 +34,16 @@ it('聊天记录导出携带独立的卡片目标，不退回整条消息或整�
       formats: ['txt', 'html'],
       baselineDirectory: undefined,
       incrementalSupport: false,
+      content: expect.objectContaining({ messages: 'local', images: 'cloud' }),
+      media: expect.objectContaining({ completeMessages: false, completeMedia: true }),
       filter: { messageIds: ['123'], forwardTarget: { elementIndex: 2, resId: 'selected-record' } },
     }),
   );
+  expect(state.start.mock.calls[1]?.[0]).toMatchObject({
+    conv: 'whole-group',
+    content: { messages: 'cloud' },
+    media: { completeMessages: true },
+  });
 });
 it.each([false, true])(
   '批量导出将本次完整性报告选择 %s 传给每个任务',

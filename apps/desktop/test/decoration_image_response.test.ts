@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { makeSolidPng } from '@weqbot/protocol';
 import { decorationImageResponse } from '../src/main/decoration_image_response';
+import { DECORATION_IMAGE_CACHE_SECONDS } from '../src/shared/decoration_image';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -24,6 +25,9 @@ it('正常首帧继续流式响应并支持预检 Range', async () => {
     new Request('https://fixture.invalid', { headers: { Range: 'bytes=0-23' } }),
   );
   expect(response.status).toBe(206);
+  expect(response.headers.get('Cache-Control')).toBe(
+    `private, max-age=${DECORATION_IMAGE_CACHE_SECONDS}`,
+  );
   expect((await response.arrayBuffer()).byteLength).toBe(24);
 });
 it('异常大帧和损坏文件在 CSS 或 Image 取得字节前拒绝', async () => {
@@ -34,12 +38,14 @@ it('异常大帧和损坏文件在 CSS 或 Image 取得字节前拒绝', async (
   for (const data of [head, new Uint8Array(24), new Uint8Array(2)]) {
     const response = await decorationImageResponse(fixture(data));
     expect(response.status).toBe(413);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
   }
 });
 it('字体帧保留重新验证行为，文件缺失仍返回 404', async () => {
   const path = fixture(makeSolidPng(4, 4, [32, 140, 100]));
   const first = await decorationImageResponse(path, undefined, true);
   const modified = first.headers.get('Last-Modified')!;
+  expect(first.headers.get('Cache-Control')).toBe('private, no-cache');
   await first.body?.cancel();
   expect(
     (
@@ -51,4 +57,22 @@ it('字体帧保留重新验证行为，文件缺失仍返回 404', async () => 
     ).status,
   ).toBe(304);
   expect((await decorationImageResponse(`${path}.missing`)).status).toBe(404);
+});
+
+it('普通气泡保留 ETag 条件读取，内容更新后返回新字节而不是旧的 304', async () => {
+  const path = fixture(makeSolidPng(4, 4, [32, 140, 100]));
+  const first = await decorationImageResponse(path);
+  const tag = first.headers.get('ETag')!;
+  await first.body?.cancel();
+  const request = new Request('https://fixture.invalid', { headers: { 'If-None-Match': tag } });
+  const cached = await decorationImageResponse(path, request);
+  expect(cached.status).toBe(304);
+  expect(cached.headers.get('Cache-Control')).toBe(
+    `private, max-age=${DECORATION_IMAGE_CACHE_SECONDS}`,
+  );
+  const updated = makeSolidPng(8, 8, [230, 40, 100]);
+  writeFileSync(path, updated);
+  const changed = await decorationImageResponse(path, request);
+  expect(changed.status).toBe(200);
+  expect(new Uint8Array(await changed.arrayBuffer())).toEqual(updated);
 });

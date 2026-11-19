@@ -2,11 +2,25 @@
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaElement, type MsgService } from '@weq/service';
 import { makeSolidPng } from '@weqbot/protocol';
 import { mediaSaveRouter } from '../src/main/ipc/routers/media_save';
+import { mediaResourceRouter } from '../src/main/ipc/routers/media_resource';
+import { boundClientState } from '../src/main/ipc/routers/client_state';
+import {
+  observeUpload,
+  transferProgressRouter,
+  updateFlashUpload,
+} from '../src/main/ipc/routers/transfer_progress';
+import {
+  flashFilesetTransferTarget,
+  mediaTransferTarget,
+  type ActiveTransfer,
+} from '../src/shared/transfer_progress';
 import { messageMediaLocations } from '../src/main/message_media_local';
+import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
 import type { AccountServices } from '../src/main/context/app_context';
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -21,6 +35,7 @@ const state = vi.hoisted(() => ({
     async (_url: string, _opts?: { signal?: AbortSignal }): Promise<Response> => state.response(),
   ),
   fileInfo: vi.fn(async (_id: bigint) => state.local),
+  open: vi.fn(async (_path: string) => {}),
   find: vi.fn(
     async (
       _id: string,
@@ -44,7 +59,9 @@ const state = vi.hoisted(() => ({
   ),
 }));
 vi.mock('../src/main/context/app_context', () => ({
+  accountEventBus: new EventEmitter(),
   getAppContext: () => ({ account: { context: { uin: '10001' } }, services: state.services }),
+  requirePlatform: () => ({ appDataRoot: () => root }),
 }));
 vi.mock('../src/main/media_protocol', () => ({
   handleMediaRequest: state.media,
@@ -54,6 +71,8 @@ vi.mock('../src/main/resource_protocol', () => ({ handleResourceRequest: state.a
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
   getHost: () => ({
+    canReveal: true,
+    revealPath: state.open,
     fetchMedia: state.fetch,
     pickSaveTarget: async () => {
       state.afterPick?.();
@@ -77,6 +96,7 @@ beforeEach(() => {
   state.asset.mockClear();
   state.fetch.mockClear();
   state.fileInfo.mockClear();
+  state.open.mockReset();
   state.groupUrl.mockClear();
   state.fileUrl.mockClear();
   state.unknownUrl.mockClear();
@@ -85,7 +105,11 @@ beforeEach(() => {
   state.services = {
     accountConfig: { getRecord: () => ({ configId: state.configId }) },
     exportManager: manager,
+    flashTransferFiles: {
+      downloads: Object.assign(new EventEmitter(), { activeDownloadBatches: () => [] }),
+    },
     fileAssistant: { getFileInfoByMsgId: state.fileInfo },
+    fileResource: { resolveSentFile: async () => null },
     mediaUrl: {
       getGroupFileUrl: state.groupUrl,
       resolveFileUrl: state.fileUrl,
@@ -95,6 +119,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 const api = () => mediaSaveRouter.createCaller({});
+const transferApi = () => transferProgressRouter.createCaller({});
 const image = {
   kind: 'url' as const,
   url: 'weq-media://pic?t=1&name=original.jpg',
@@ -204,26 +229,130 @@ it('本地文件只复制既有缓存，保留无后缀文件和原件，不要�
   expect(state.fileUrl).not.toHaveBeenCalled();
   expect(state.fetch).not.toHaveBeenCalled();
 });
-it('WeQ 下载后的文件可按消息定位，重建任务管理器仍有效，不误认同名文件', async () => {
+it.each([
+  { headers: { 'content-length': '8' }, size: undefined, total: 8 },
+  { headers: undefined, size: 8, total: 8 },
+  { headers: undefined, size: undefined, total: undefined },
+])('聊天文件下载从实际分块报告字节（总大小 $total）', async ({ headers, size, total }) => {
+  const source = { kind: 'chat-file' as const, msgId: '42', token: 'token-a', name: 'report.txt' };
+  const input = { ...binding, source };
+  state.find.mockResolvedValue({
+    element: { kind: 'file', fileToken: source.token, fileName: source.name, fileSize: size },
+    conv: 'c2c',
+  });
+  let stream!: ReadableStreamDefaultController<Uint8Array>;
+  state.response = () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          stream = controller;
+        },
+      }),
+      { headers },
+    );
+  const caller = api();
+  let latest: ActiveTransfer[] = [];
+  const sub = (await transferApi().watch(binding)).subscribe({
+    next: (snapshot) => {
+      latest = snapshot;
+    },
+  });
+  const id = await caller.save({ ...input, savePolicy: { mode: 'before', directory: root } });
+  await vi.waitFor(() => expect(stream).toBeDefined());
+  try {
+    stream.enqueue(new Uint8Array(3));
+    await vi.waitFor(async () =>
+      expect(latest).toEqual([
+        expect.objectContaining({ id, target: mediaTransferTarget(source), received: 3, total }),
+      ]),
+    );
+    await expect(
+      transferApi().watch({ ...binding, expectedAccountConfigId: 'source-b' }),
+    ).rejects.toThrow('数据源已切换');
+  } finally {
+    stream.enqueue(new Uint8Array(5));
+    stream.close();
+    await completed(id);
+    try {
+      await vi.waitFor(() => expect(latest).toEqual([]));
+    } finally {
+      sub.unsubscribe();
+    }
+  }
+});
+it('发送进度不创建任务；闪传卡片发出后仍按文件集更新，切来源后不继续投递', async () => {
+  const services = state.services as unknown as AccountServices;
+  let latest: ActiveTransfer[] = [];
+  let closed = false;
+  const sub = (await transferApi().watch(binding)).subscribe({
+    next: (snapshot) => {
+      latest = snapshot;
+    },
+    complete: () => {
+      closed = true;
+    },
+  });
+  try {
+    await observeUpload(services, 'message-1', async (report) => {
+      report({ phase: 'upload', received: 17, total: 40 });
+      await vi.waitFor(() =>
+        expect(latest).toEqual([
+          expect.objectContaining({
+            id: 'message-1',
+            direction: 'upload',
+            received: 17,
+            total: 40,
+          }),
+        ]),
+      );
+    });
+    updateFlashUpload(services, 'fileset', 'upload', 10, 30);
+    await vi.waitFor(() =>
+      expect(latest).toEqual([
+        expect.objectContaining({
+          target: flashFilesetTransferTarget('fileset', 'upload'),
+          received: 10,
+          total: 30,
+        }),
+      ]),
+    );
+    expect(manager.listTasks()).toEqual([]);
+    state.configId = 'source-b';
+    updateFlashUpload(services, 'fileset', 'done');
+    await vi.waitFor(() => expect(closed).toBe(true));
+    expect(latest[0]?.received).toBe(10);
+  } finally {
+    sub.unsubscribe();
+  }
+});
+it('重启后按原消息打开下载文件，只将成功打开的任务标为已读', async () => {
   state.find.mockResolvedValue({
     element: { kind: 'file', fileToken: 'token-a', fileName: 'report.txt' },
     conv: 'group',
   });
   state.response = () => new Response('downloaded-file');
+  const source = { kind: 'chat-file' as const, msgId: '42', token: 'token-a', name: 'report.txt' };
   const task = await completed(
     await api().save({
       ...binding,
-      source: { kind: 'chat-file', msgId: '42', token: 'token-a', name: 'report.txt', conv: '123' },
+      source: { ...source, conv: '123' },
       savePolicy: { mode: 'before', directory: root },
     }),
   );
-  await vi.waitFor(() => expect(task.save?.status).toBe('saved'));
+  const other = await completed(
+    await api().save({
+      ...binding,
+      source: { ...source, msgId: '43', conv: '124' },
+      savePolicy: { mode: 'before', filePath: join(root, 'same-name-other-conversation.txt') },
+    }),
+  );
   const services = {
     ...state.services,
     exportManager: new ExportTaskManager({} as MsgService, join(root, 'tasks')),
     fileSearch: { findFile: vi.fn(async () => ({ source: null, thumb: null })) },
     mediaDownload: { cachedFile: vi.fn(() => null) },
   } as AccountServices;
+  state.services = services;
   const target = {
     kind: 'file' as const,
     t: 1,
@@ -240,21 +369,33 @@ it('WeQ 下载后的文件可按消息定位，重建任务管理器仍有效，
   const locations = await messageMediaLocations(services, target);
   expect(locations).toEqual([
     expect.objectContaining({ kind: 'saved', path: task.save?.path, available: true }),
-    expect.objectContaining({ kind: 'cache', path: task.filePath, available: true }),
   ]);
   expect(await messageMediaLocations(services, { ...target, token: 'another-token' })).toEqual([]);
   expect(await messageMediaLocations(services, { ...target, msgId: '43' })).toEqual([]);
-  rmSync(task.save!.path!);
-  expect(await messageMediaLocations(services, target)).toEqual([
-    { ...locations[0], available: false },
-    locations[1],
+  const media = mediaResourceRouter.createCaller({});
+  const fileInput = { ...binding, target, location: locations[0]! };
+  const account = boundClientState(binding);
+  expect(account.snapshot().records.tasks ?? {}).toEqual({});
+  state.open.mockRejectedValueOnce(new Error('no handler'));
+  await expect(media.openMessageFile(fileInput)).rejects.toThrow('no handler');
+  expect(account.snapshot().records.tasks ?? {}).toEqual({});
+  const exports = services.exportManager.listTasks();
+  const taskItems = summarizeWorkspaceTasks({ exports }).items;
+  await expect(media.openMessageFile(fileInput)).resolves.toBe(true);
+  expect(state.open).toHaveBeenLastCalledWith(task.save?.path);
+  const read = account.snapshot().records.tasks;
+  expect(taskItems.filter(({ id, result }) => read?.[id] !== result).map(({ id }) => id)).toEqual([
+    `export:${other.id}`,
   ]);
-  rmSync(task.filePath!, { force: true });
+  rmSync(task.save!.path!);
   expect(await messageMediaLocations(services, target)).toEqual([
     { ...locations[0], available: false },
   ]);
 });
 it('转发文件沿用携带消息／子消息与未知场景换链，不误用外层消息', async () => {
+  const unrelated = join(root, 'report.txt');
+  writeFileSync(unrelated, 'same-id file from a different conversation');
+  state.local = { fileName: 'report.txt', localPath: unrelated };
   const element = { kind: 'file', fileToken: 'token-a', fileName: 'report.txt' };
   state.find.mockResolvedValue({ element, conv: null });
   state.response = () => new Response('forward-file');
@@ -266,6 +407,7 @@ it('转发文件沿用携带消息／子消息与未知场景换链，不误用�
         msgId: '41',
         fwdMsgId: '42',
         fwdKind: 'group',
+        fwdResId: 'sample-record',
         token: 'token-a',
         conv: '123',
         name: 'report.txt',
@@ -273,8 +415,8 @@ it('转发文件沿用携带消息／子消息与未知场景换链，不误用�
       savePolicy: { mode: 'before', directory: root },
     }),
   );
-  expect(state.fileInfo).toHaveBeenCalledWith(42n);
-  expect(state.find).toHaveBeenCalledWith('41', 'file', 'token-a', '42', 'group');
+  expect(state.fileInfo).not.toHaveBeenCalled();
+  expect(state.find).toHaveBeenCalledWith('41', 'file', 'token-a', '42', 'group', 'sample-record');
   expect(state.unknownUrl).toHaveBeenCalledWith(123, element, 'report.txt');
   expect(state.fileUrl).not.toHaveBeenCalled();
   expect(readFileSync(task.filePath!, 'utf8')).toBe('forward-file');
@@ -304,9 +446,9 @@ it('选择器取消及来源变化不启动保存，已有文件不覆盖', asyn
   state.picked = join(root, 'existing.png');
   writeFileSync(state.picked, 'personal');
   const id = await api().save({ ...binding, source: image, savePolicy: { mode: 'before' } });
-  await vi.waitFor(() => expect(manager.getTask(id!)?.save?.status).toBe('failed'));
+  await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('failed'));
   expect(readFileSync(state.picked, 'utf8')).toBe('personal');
-  expect(manager.getTask(id!)?.status).toBe('completed');
+  expect(manager.getTask(id!)?.filePath).toBeUndefined();
   state.afterPick = () => {
     state.configId = 'source-b';
   };

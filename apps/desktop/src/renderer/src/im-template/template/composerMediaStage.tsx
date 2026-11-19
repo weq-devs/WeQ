@@ -4,10 +4,10 @@
  * 图片不走这里 —— 图片像表情一样内联进输入框（见 chatPane 的 insertInlineImage）。
  */
 
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { FolderOpen, X } from 'lucide-react';
-import type { ReactNode, RefObject } from 'react';
+import type { ReactNode } from 'react';
 import { MediaPreview } from '../../components/lazyMainPanels';
 import { cn } from './classNames';
 import {
@@ -106,14 +106,39 @@ function ComposerMediaItem({
 export function ComposerSuperEmojiStage({
   item,
   onRemove,
-  panelRef,
+  onSend,
 }: {
   item: EmojiItem;
   onRemove: () => void;
-  panelRef?: RefObject<HTMLDivElement | null>;
+  onSend: () => void;
 }) {
+  const stage = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => stage.current?.focus({ preventScroll: true }), [item]);
   return (
-    <div className={cn('composer-single-stage')} ref={panelRef} aria-label="待发送的超级表情">
+    <div
+      className="composer-single-stage"
+      ref={stage}
+      tabIndex={-1}
+      aria-label="待发送的超级表情"
+      onKeyDown={(event) => {
+        if (
+          event.target !== event.currentTarget ||
+          event.defaultPrevented ||
+          event.key !== 'Enter' ||
+          event.repeat ||
+          event.shiftKey ||
+          event.altKey ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.nativeEvent.isComposing ||
+          event.nativeEvent.keyCode === 229
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        onSend();
+      }}
+    >
       <ComposerSingleCard
         kind="super-emoji"
         name={item.name}

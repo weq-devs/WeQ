@@ -7,8 +7,8 @@ import {
   mobileBackTarget,
 } from '../hooks/useMobileNavigation';
 import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsiveLayout';
-import { shouldCompleteMobileSwipe } from '../lib/mobileNavigation';
-import { topSurface } from '../lib/surfaceEscape';
+import { shouldCompleteMobileSwipe, type MobileNavigationChange } from '../lib/mobileNavigation';
+import { containingSurface, topSurface } from '../lib/surfaceEscape';
 import { setMobileNavigationBusy } from '../lib/mobilePageLoading';
 import { createMobileRootTransition, mobileRootTab } from '../lib/mobileRootTransition';
 import { createMobileBackPreview } from '../lib/mobileBackPreview';
@@ -148,13 +148,20 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
         return;
       }
       cancelAnimation();
+      cancelAnimationFrame(frame);
       completing = false;
       clearSwipe();
-      if (topSurface(document)) return;
-      const direction = (event as CustomEvent<string>).detail;
+      const { direction, source } = (event as CustomEvent<MobileNavigationChange>).detail;
+      // 浮层或已卸载页面的退栈不应让背后的会话重播进入动画。
+      const canAnimate = () =>
+        !topSurface(document) && !(source && (!source.isConnected || containingSurface(source)));
+      if (!canAnimate()) return;
       setMobileNavigationBusy(true);
-      cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
+        if (!canAnimate()) {
+          setMobileNavigationBusy(false);
+          return;
+        }
         const target =
           direction === 'root' ? contentTarget() : (mobileBackTarget() ?? contentTarget());
         if (!target) {

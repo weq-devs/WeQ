@@ -60,7 +60,7 @@ try {
     const button = search.getByRole('button', { name: '全局搜索', exact: true });
     for (const width of [320, 600, 760]) {
       await page.setViewportSize({ width, height: 1000 });
-      for (const preset of ['classic', 'minimal', 'retro', 'qqnt']) {
+      for (const preset of ['classic', 'retro', 'qqnt']) {
         for (const theme of ['light', 'dark']) {
           for (const reducedMotion of ['no-preference', 'reduce']) {
             // 先完成主题切换，再单独测搜索动画，避免主题快照接管鼠标命中。

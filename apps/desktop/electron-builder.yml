@@ -63,8 +63,8 @@ extraResources:
       - weq-remote-network
       - weq-remote-network.exe
   # Shared static assets (brand/logo, …). Copied whole so the main process can
-  # read them at runtime via process.resourcesPath/resources. QQ emoji are NOT
-  # bundled — they stream from the account's QQ NT dir at runtime.
+  # read them at runtime via process.resourcesPath/resources. QQ emoji stream
+  # from the account's QQ NT dir, apart from the small classic fallback set.
   #
   # 例外：**Windows 不带打包的 CJK 字体**。`assistant/fonts/cover.otf` 是
   # 16MB 的 Noto Sans CJK SC（satori 出 WeQ 助手推文封面用），而 Win10/11 自带

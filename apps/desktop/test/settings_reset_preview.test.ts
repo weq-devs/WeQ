@@ -69,8 +69,8 @@ describe('恢复默认设置的可读预览', () => {
     ).toEqual([{ label: '群内资料顺序', text: '群等级 → 入群时间 → 最后群发言时间' }]);
   });
   it('复杂值不泄露 JSON 或内部会话标识', () => {
-    expect(formatResetValue({ enabled: true, screenshot: false })).toBe(
-      '链接预览：开启；网页截图：关闭',
+    expect(formatResetValue({ enabled: true, autoFetch: false, screenshot: false })).toBe(
+      '链接预览：开启；联网补全：关闭；网页截图：关闭',
     );
     expect(formatResetValue([{ kind: 'c2c', conv: 'synthetic-id' }], 'typing:selection')).toBe(
       '已选择 1 个会话',

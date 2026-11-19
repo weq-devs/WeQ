@@ -413,8 +413,8 @@ export class GroupInfoService {
     if (this.memberRosterCache) this.memberRosterCache.history = history;
   }
 
-  async getExtendedProfile(groupId: number, refresh = false, force = false) {
-    const result = await this.groupProfiles.read(groupId, refresh, force);
+  async getExtendedProfile(groupId: number, refresh = false, force = false, priority = 0) {
+    const result = await this.groupProfiles.read(groupId, refresh, force, priority);
     let joinedAt = result.profile?.joinedAt ?? null;
     if (joinedAt === null) {
       try {

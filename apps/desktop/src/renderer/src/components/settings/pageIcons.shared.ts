@@ -64,6 +64,7 @@ export const SETTINGS_PAGE_ICONS = {
   recognition: ScanText,
   agentlab: Boxes,
   'interaction-profile': ChartPie,
+  'weq-assistant': FEATURE_ICONS.assistant,
   'reply-suggestions': MessageSquareReply,
   'intent-sense': BrainCircuit,
   mcp: Plug,

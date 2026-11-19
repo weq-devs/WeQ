@@ -11,28 +11,33 @@ import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';
 import { previewMemberView, useGroupReadScope } from '../../hooks/useGroupProfile';
 import { client } from '../../trpc/client';
 import { Modal } from '../Dialog';
+import { NumericText } from '../NumericText';
 import { ContactInlineError } from '../contactProfile/ContactRow';
 
 export function GroupCardMemberList({
   conversation,
   ownerUid,
   kind,
+  includedUids,
   anchor,
   onClose,
   onOpenMember,
 }: {
   conversation: GroupConversation;
   ownerUid?: string;
-  kind: 'members' | 'friends';
+  kind: 'members' | 'friends' | 'addedFriends';
+  includedUids?: ReadonlySet<string>;
   anchor: HTMLElement;
   onClose: () => void;
-  onOpenMember: (member: GroupMember, anchor: { x: number; y: number }) => void;
+  onOpenMember?: (member: GroupMember, anchor: { x: number; y: number }) => void;
 }) {
   const titleId = useId();
-  const title = kind === 'friends' ? '群内好友' : '群成员';
+  const title =
+    kind === 'addedFriends' ? '在本群添加的好友' : kind === 'friends' ? '群内好友' : '群成员';
   const { active, binding, key } = useGroupReadScope();
   const directory = useContext(RelationshipDirectoryContext);
-  const friendsReady = kind !== 'friends' || directory?.friendsComplete === true;
+  const friendsReady =
+    kind === 'members' || Boolean(includedUids) || directory?.friendsComplete === true;
   const [keyword, setKeyword] = useState('');
   const [needle, setNeedle] = useState('');
   const pendingSearch = keyword.trim() !== needle;
@@ -50,7 +55,13 @@ export function GroupCardMemberList({
   const query = useInfiniteQuery({
     queryKey: ['group-card-member-list', key, conversation.id, needle],
     ...PROFILE_QUERY_OPTIONS,
-    enabled: active && Boolean(binding) && !generated && friendsReady && !pendingSearch,
+    enabled:
+      active &&
+      Boolean(binding) &&
+      !generated &&
+      friendsReady &&
+      !pendingSearch &&
+      includedUids?.size !== 0,
     queryFn: async ({ pageParam = 0 }) => {
       const page = needle
         ? await client.account.searchGroupMembers.query({
@@ -102,11 +113,12 @@ export function GroupCardMemberList({
       (member) =>
         member.id && member.memberFlag !== 1 && (generated || member.identityValue !== '0'),
     )
-    .filter(
-      (member) =>
-        kind !== 'friends' ||
-        directory?.friends.has(member.id) ||
-        directory?.friends.has(member.identityValue),
+    .filter((member) =>
+      includedUids
+        ? includedUids.has(member.id)
+        : kind === 'members' ||
+          directory?.friends.has(member.id) ||
+          directory?.friends.has(member.identityValue),
     )
     .filter(
       (member) =>
@@ -116,15 +128,16 @@ export function GroupCardMemberList({
           .includes(keyword.trim().toLocaleLowerCase()),
     );
   const loading = !generated && (pendingSearch || query.isFetching);
+  const hasMore = query.hasNextPage && (!includedUids || rows.length < includedUids.size);
   // 好友可能不在第一批成员中，先渐进查到一屏或读完，不能把空的候选页当成空名单。
   useEffect(() => {
     if (
-      kind === 'friends' &&
+      kind !== 'members' &&
       active &&
       friendsReady &&
       !pendingSearch &&
       rows.length < 30 &&
-      query.hasNextPage &&
+      hasMore &&
       !query.isFetching &&
       !query.isError
     )
@@ -135,7 +148,7 @@ export function GroupCardMemberList({
     friendsReady,
     pendingSearch,
     rows.length,
-    query.hasNextPage,
+    hasMore,
     query.isFetching,
     query.isError,
     query.fetchNextPage,
@@ -181,7 +194,7 @@ export function GroupCardMemberList({
           const element = event.currentTarget;
           if (
             element.scrollHeight - element.scrollTop - element.clientHeight < 64 &&
-            query.hasNextPage &&
+            hasMore &&
             !query.isFetching &&
             !pendingSearch &&
             !query.isError
@@ -195,9 +208,10 @@ export function GroupCardMemberList({
               type="button"
               title={`查看 ${displayUserName(member)} 的资料`}
               aria-label={`查看 ${displayUserName(member)} 的资料`}
+              disabled={!onOpenMember}
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
-                onOpenMember(member, { x: rect.right, y: rect.bottom });
+                onOpenMember?.(member, { x: rect.right, y: rect.bottom });
               }}
             >
               <Avatar
@@ -208,7 +222,7 @@ export function GroupCardMemberList({
               <span>
                 <strong>{displayUserName(member)}</strong>
                 <small>
-                  {member.identityValue}
+                  <NumericText>{member.identityValue}</NumericText>
                   {member.role === 'owner' ? ' · 群主' : member.role === 'admin' ? ' · 管理员' : ''}
                 </small>
               </span>
@@ -227,9 +241,9 @@ export function GroupCardMemberList({
       {!loading &&
       !query.error &&
       friendsReady &&
-      (generated || query.isSuccess) &&
+      (generated || query.isSuccess || includedUids?.size === 0) &&
       !visible.length &&
-      !query.hasNextPage ? (
+      !hasMore ? (
         <EmptyState
           compact
           role="status"
@@ -237,7 +251,7 @@ export function GroupCardMemberList({
           title={keyword.trim() ? '没有匹配的成员' : `暂无本地${title}记录`}
         />
       ) : null}
-      {!pendingSearch && query.hasNextPage ? (
+      {!pendingSearch && hasMore ? (
         <button
           type="button"
           className="weq-group-member-list-more"

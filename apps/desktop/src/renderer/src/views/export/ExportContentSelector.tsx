@@ -42,17 +42,17 @@ const items = {
 export function ExportContentSelector({
   value,
   onChange,
-  guild = false,
+  localMessagesOnly = false,
   disabled = false,
 }: {
   value: ExportContentPolicy;
   onChange: (value: ExportContentPolicy) => void;
-  guild?: boolean;
+  localMessagesOnly?: boolean;
   disabled?: boolean;
 }) {
   const id = useId();
   const [expanded, setExpanded] = useState<Partial<Record<ExportContentKey, boolean>>>({});
-  const policy = normalizeExportContent(value, {}, guild);
+  const policy = normalizeExportContent(value, {}, localMessagesOnly);
   const detailButtons = (details: readonly (typeof EXPORT_CONTENT_DETAILS)[number][]) => {
     const groups = new Map<string, ExportContentDetailKey[]>();
     for (const detail of details) {
@@ -93,7 +93,8 @@ export function ExportContentSelector({
   const row = (key: ExportContentKey | 'all') => {
     const item = key === 'all' ? { label: '全部', icon: ListChecks } : items[key];
     const Icon = item.icon;
-    const noCloud = key === 'qqFaces' || key === 'profiles' || (guild && key === 'messages');
+    const noCloud =
+      key === 'qqFaces' || key === 'profiles' || (localMessagesOnly && key === 'messages');
     const children =
       key === 'all' ? [] : EXPORT_CONTENT_DETAILS.filter((detail) => detail.parent === key);
     return (
@@ -120,13 +121,17 @@ export function ExportContentSelector({
           </span>
           <SegmentedControl
             label={`${item.label}导出方式`}
-            value={key === 'all' ? exportContentAllTier(policy, guild) : (policy[key] ?? 'none')}
+            value={
+              key === 'all'
+                ? exportContentAllTier(policy, localMessagesOnly)
+                : (policy[key] ?? 'none')
+            }
             disabled={disabled}
             onChange={(tier) =>
               onChange(
                 key === 'all'
-                  ? selectAllExportContent(tier, guild)
-                  : selectExportContentGroup(policy, key, tier, guild),
+                  ? selectAllExportContent(tier, localMessagesOnly)
+                  : selectExportContentGroup(policy, key, tier, localMessagesOnly),
               )
             }
             options={[

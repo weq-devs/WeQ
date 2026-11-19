@@ -9,11 +9,13 @@
  */
 
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import {
   RESOURCE_PRIVILEGED_SCHEME,
   handleResourceRequest,
 } from '../src/main/resource_protocol.ts';
+
+vi.mock('../src/main/context/app_context', () => ({ getAppContext: () => ({}) }));
 
 test('资源协议被注册为支持 CORS 的特权协议', () => {
   assert.equal(RESOURCE_PRIVILEGED_SCHEME.privileges.corsEnabled, true);
@@ -35,4 +37,10 @@ test('资源 404 同样带跨源头', async () => {
 
   assert.equal(response.status, 404);
   assert.equal(response.headers.get('access-control-allow-origin'), '*');
+});
+
+test('缺少按账号资源时，补回的经典表情仍返回 PNG', async () => {
+  const response = await handleResourceRequest(new Request('weq-asset://emoji/54/apng/54.png'));
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') ?? '', /^image\/png/);
 });

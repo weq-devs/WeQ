@@ -153,7 +153,7 @@ it('机器人复用原配置表单，公共保存带上账号来源，不把排�
       includeIntegrityReport: false,
     }),
   );
-  expect(state.success).toHaveBeenCalledWith('机器人导出任务已创建', expect.any(String));
+  expect(state.success).not.toHaveBeenCalled();
 });
 it('取消机器人保存选择，配置仍在且不创建任务', async () => {
   const host = await botForm();

@@ -51,7 +51,7 @@ function service() {
   const root = mkdtempSync(join(tmpdir(), 'weq-link-shot-'));
   roots.push(root);
   const settings = new UserConfigService({ appDataRoot: () => root } as Platform);
-  settings.setSettings({ linkPreview: { screenshot: true } });
+  settings.setSettings({ linkPreview: { autoFetch: true, screenshot: true } });
   return new LinkPreviewService(settings);
 }
 

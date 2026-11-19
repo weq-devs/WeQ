@@ -23,12 +23,7 @@ afterEach(() => {
 
 describe('组件风格与独立密度', () => {
   it('默认采用纯净背景与首位的 QQ NT 风格，并保留其他预设', () => {
-    expect(componentStyles.map((style) => style.value)).toEqual([
-      'qqnt',
-      'classic',
-      'minimal',
-      'retro',
-    ]);
+    expect(componentStyles.map((style) => style.value)).toEqual(['qqnt', 'classic', 'retro']);
     expect(useThemeStore.getState().componentStyle).toBe('qqnt');
     expect(useThemeStore.getState().background).toBe('plain');
     expect(document.documentElement.dataset.componentStyle).toBe('qqnt');
@@ -77,6 +72,21 @@ describe('组件风格与独立密度', () => {
     store.setDensity('comfortable');
     expect(document.documentElement.dataset.density).toBe('comfortable');
     expect(useThemeStore.getState().componentStyle).toBe('retro');
+  });
+
+  it('旧简约从本机配置以及共享设置恢复时都应用合并后的风格', async () => {
+    const key = 'weq.theme-component-style';
+    localStorage.setItem(key, 'minimal');
+    useThemeStore.getState().hydrate();
+    expect(document.documentElement.dataset.componentStyle).toBe('classic');
+    expect(localStorage.getItem(key)).toBe('classic');
+
+    localStorage.setItem(key, 'qqnt');
+    const { acceptPreferences } = await import('../src/renderer/src/lib/clientPreferences');
+    acceptPreferences({ revision: 1, values: { componentStyle: 'minimal' }, records: {} }, false);
+    useThemeStore.getState().hydrate();
+    expect(useThemeStore.getState().componentStyle).toBe('classic');
+    expect(document.documentElement.dataset.componentStyle).toBe('classic');
   });
 
   it('缺失配置、收起的旧风格或未知值回落到 QQ NT，不改写其他有效偏好', () => {

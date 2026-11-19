@@ -56,7 +56,7 @@ try {
     await page.setViewportSize({ width, height: 920 });
     for (const theme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
-      for (const style of ['classic', 'minimal', 'retro', 'qqnt']) {
+      for (const style of ['classic', 'retro', 'qqnt']) {
         for (const accent of ['#075c30', '#ffffff', '#000000']) {
           const label = `${width}-${theme}-${style}-${accent}`;
           await page.evaluate(
@@ -76,26 +76,6 @@ try {
             const knob = node.querySelector('.weq-set-toggle-knob');
             const box = track.getBoundingClientRect();
             const thumb = knob.getBoundingClientRect();
-            const marker = knob.querySelector('.lucide-minus path');
-            const paint = document.createElement('canvas').getContext('2d');
-            const luminance = (color) => {
-              paint.clearRect(0, 0, 1, 1);
-              paint.fillStyle = color;
-              paint.fillRect(0, 0, 1, 1);
-              return [...paint.getImageData(0, 0, 1, 1).data]
-                .slice(0, 3)
-                .reduce((sum, value, i) => {
-                  const channel = value / 255;
-                  return (
-                    sum +
-                    (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4) *
-                      [0.2126, 0.7152, 0.0722][i]
-                  );
-                }, 0);
-            };
-            const foreground = marker ? getComputedStyle(marker).stroke : 'transparent';
-            const background = getComputedStyle(knob).backgroundColor;
-            const levels = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
             return {
               width: box.width,
               height: box.height,
@@ -103,9 +83,6 @@ try {
               centerY: thumb.y + thumb.height / 2 - (box.y + box.height / 2),
               reducedMotion: getComputedStyle(knob).transitionDuration,
               marker: Boolean(knob.querySelector('.lucide-minus')),
-              markerContrast: (levels[0] + 0.05) / (levels[1] + 0.05),
-              foreground,
-              background,
               overflow: node.scrollWidth > node.clientWidth + 1,
             };
           });
@@ -113,8 +90,7 @@ try {
           assert.equal(metrics.height, 22, label);
           assert.ok(Math.abs(metrics.centerX) < 0.6 && Math.abs(metrics.centerY) < 0.6, label);
           assert.equal(metrics.reducedMotion, '0s', label);
-          assert.equal(metrics.marker, true, label);
-          assert.ok(metrics.markerContrast >= 3, `${label}: ${JSON.stringify(metrics)}`);
+          assert.equal(metrics.marker, false, label);
           assert.equal(metrics.overflow, false, label);
           const disabled = page.getByRole('checkbox', { name: '禁用的部分开启', exact: true });
           assert.equal(await disabled.isDisabled(), true, label);

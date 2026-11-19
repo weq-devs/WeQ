@@ -34,7 +34,10 @@ import {
   buildOptimisticRender,
   type LocalMediaRef,
 } from '../src/renderer/src/im-template/template/composerSend';
-import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
+import {
+  composerTextToElements,
+  elementsToComposerText,
+} from '../src/renderer/src/im-template/template/draftElements';
 import { buildSendElems, type SendElement } from '@weqbot/protocol';
 
 it('设备文件计划保留 File 句柄，不要求整个文件预读成字节', () => {
@@ -45,6 +48,28 @@ it('设备文件计划保留 File 句柄，不要求整个文件预读成字节'
     kind: 'file',
     fileName: file.name,
     file,
+  });
+});
+
+it('独立大号表情使用当前目录中的贴纸字段和外显文字', () => {
+  expect(
+    buildComposerSendPlan({
+      body: '[[chat:face:324:big]]',
+      locals: [],
+      superStickers: new Map([
+        ['324', { packId: '1', stickerId: '12', stickerType: 1, desc: '/吃糖' }],
+      ]),
+    }),
+  ).toEqual({
+    kind: 'elements',
+    elements: [
+      {
+        kind: 'face',
+        faceId: 324,
+        faceText: '/吃糖',
+        superSticker: { packId: '1', stickerId: '12', stickerType: 1, text: '/吃糖' },
+      },
+    ],
   });
 });
 
@@ -237,7 +262,7 @@ describe('输入区发送交接', () => {
               new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
             ),
         );
-        act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="引用"]')!.click());
+        act(() => document.querySelector<HTMLButtonElement>('[aria-label="引用"]')!.click());
         expect(serializeComposer(f.editor())).toBe(body);
         act(() => {
           if (trigger === 'click')
@@ -591,7 +616,7 @@ describe('输入区发送交接', () => {
           ),
       );
       const button = [
-        ...f.host.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
+        ...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
       ].find((button) => button.textContent === '移除失败消息');
       expect(button).toBeDefined();
       await act(async () => button!.click());
@@ -666,9 +691,11 @@ describe('输入区发送交接', () => {
             ),
         );
         expect(
-          f.host.querySelector('.message-context-menu button[aria-label="移除失败消息"]'),
+          document.querySelector('.message-context-menu button[aria-label="移除失败消息"]'),
         ).toBeNull();
-        expect(f.host.querySelector('.message-context-menu button[aria-label="删除"]')).toBeNull();
+        expect(
+          document.querySelector('.message-context-menu button[aria-label="删除"]'),
+        ).toBeNull();
         expect(remove).not.toHaveBeenCalled();
         expect(f.onSend).not.toHaveBeenCalled();
       } finally {
@@ -704,7 +731,7 @@ describe('输入区发送交接', () => {
           ),
       );
       act(() =>
-        [...f.host.querySelectorAll<HTMLButtonElement>('.message-context-menu button')]
+        [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')]
           .find((button) => button.textContent === '多选')!
           .click(),
       );
@@ -821,6 +848,67 @@ describe('输入区发送交接', () => {
       }
     },
   );
+
+  it('普通自撤灰条只在有原稿时提供重新编辑，并按原顺序恢复图文，不发送', async () => {
+    const f = mount();
+    try {
+      const { user, conversation } = f.props;
+      const draftElements = [
+        { type: 'text', data: { textContent: '原稿开头' } },
+        { type: 'pic', data: { fileName: 'fixture.png', filePath: '/fixture.png' } },
+        { type: 'text', data: { textContent: '原稿结尾' } },
+      ];
+      function tip(id: string, sender: string, revoker: string, draft = draftElements) {
+        return {
+          id,
+          conversationId: conversation.id,
+          senderId: '',
+          body: '撤回提示不是原文',
+          createdAt: '2026-10-18T12:00:00Z',
+          qqElements: [
+            {
+              type: 'grayTipRevoke',
+              data: {
+                recallSenderUid: sender,
+                recallRevokeUid: revoker,
+                recallDraftElements: draft,
+              },
+            },
+          ],
+        };
+      }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
+      );
+      type(f.editor(), '现有草稿');
+      f.render({
+        messages: [
+          tip('mine', user.id, user.id),
+          tip('empty', user.id, user.id, []),
+          tip('admin-removed', user.id, 'u_admin'),
+          tip('peer', 'u_peer', 'u_peer'),
+        ],
+      });
+      const buttons = [...f.host.querySelectorAll('button')].filter(
+        (button) => button.textContent === '重新编辑',
+      );
+      expect(buttons).toHaveLength(1);
+      const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValueOnce(false);
+      await act(async () => buttons[0]!.click());
+      expect(serializeComposer(f.editor())).toBe('现有草稿');
+      confirm.mockResolvedValueOnce(true);
+      await act(async () => buttons[0]!.click());
+      expect(composerTextToElements(serializeComposer(f.editor()))).toMatchObject([
+        { kind: 'text', textContent: '原稿开头' },
+        { kind: 'pic', fileName: 'fixture.png' },
+        { kind: 'text', textContent: '原稿结尾' },
+      ]);
+      expect(f.onSend).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
 
   it('已有非空草稿时确认替换，取消保留；确认期间切会话不会覆盖新草稿', async () => {
     const f = mount();

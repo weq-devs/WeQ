@@ -2,6 +2,7 @@ import { act, createElement as h, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AntiRecallDialog } from '../src/renderer/src/components/AntiRecallDialog';
+import { normalizeNotificationEvents } from '@weq/service/notification-settings';
 import { DialogHost } from '../src/renderer/src/components/Dialog';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { useAppLock } from '../src/renderer/src/state/lock';
@@ -51,25 +52,27 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                         notifyTargets: [...status.notifyTargets],
                       }
                     : status
-                  : name === 'getAccountConfig'
-                    ? { static: fixture.staticPc, mobile: false }
-                    : name === 'listConversationsWithCount'
-                      ? fixture.emptyConversations
-                        ? []
-                        : [
-                            {
-                              chatType: 'GROUP',
-                              targetUid: '20001',
-                              targetUin: '20001',
-                              targetDisplayName: '合成群',
-                              messageCount: 3,
-                            },
-                          ]
-                      : name === 'listRecallConversations'
-                        ? fixture.recordsError
-                          ? undefined
-                          : [{ kind: 'group', conv: '20001', count: 2, lastTs: 1 }]
-                        : undefined,
+                  : name === 'getSettings'
+                    ? { notificationEvents: normalizeNotificationEvents(undefined) }
+                    : name === 'getAccountConfig'
+                      ? { static: fixture.staticPc, mobile: false }
+                      : name === 'listConversationsWithCount'
+                        ? fixture.emptyConversations
+                          ? []
+                          : [
+                              {
+                                chatType: 'KCHATTYPEGROUP',
+                                targetUid: '20001',
+                                targetUin: '20001',
+                                targetDisplayName: '合成群',
+                                messageCount: 3,
+                              },
+                            ]
+                        : name === 'listRecallConversations'
+                          ? fixture.recordsError
+                            ? undefined
+                            : [{ kind: 'group', conv: '20001', count: 2, lastTs: 1 }]
+                          : undefined,
               error:
                 name === 'listRecallConversations' && fixture.recordsError
                   ? new Error('合成目录读取失败')
@@ -135,7 +138,7 @@ afterEach(() => {
   useDialog.setState({ current: null });
   vi.unstubAllGlobals();
 });
-function mount() {
+function mount(section: 'protection' | 'notifications' = 'protection', focusConversation = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -148,6 +151,11 @@ function mount() {
       h('input', { 'aria-label': '底层设置草稿', defaultValue: '保留' }),
       h(AntiRecallDialog, {
         embedded: true,
+        section,
+        notificationConversation: focusConversation
+          ? { kind: 'group', conv: '20001', title: '合成群' }
+          : undefined,
+        notificationRevision: focusConversation ? 1 : undefined,
         onClose: close,
         onOpenRecalls: () => setDetails(true),
         onCloseRecalls: () => setDetails(false),
@@ -211,7 +219,11 @@ describe('页内防撤回摘要与按需工具', () => {
     try {
       expect(f.host.querySelector('[role="tablist"]')).toBeNull();
       expect(f.host.querySelector('[aria-label="防撤回启用范围"]')).not.toBeNull();
-      expect(f.host.querySelector('[aria-label="撤回时通知我"]')).not.toBeNull();
+      expect(f.host.querySelector('[aria-label="撤回时通知我"]')).toBeNull();
+      expect(
+        f.host.querySelector('button[role="combobox"][aria-label="撤回提醒通知方式"]'),
+      ).not.toBeNull();
+      expect(f.host.textContent).toContain('选择提醒会话');
       expect(f.host.querySelector('.weq-set-picker')).toBeNull();
       expect(fixture.queryOptions.get('listConversationsWithCount')?.enabled).toBe(false);
       expect(fixture.queryOptions.get('listRecallConversations')?.enabled).toBe(false);
@@ -259,7 +271,7 @@ describe('页内防撤回摘要与按需工具', () => {
       f.dispose();
     }
   });
-  it('保护和通知选择均可搜索、多选并保存，未保存关闭必须确认', async () => {
+  it('页内选择保护会话后，未保存关闭必须确认', async () => {
     const f = mount();
     try {
       click('编辑启用防撤回的会话');
@@ -272,14 +284,48 @@ describe('页内防撤回摘要与按需工具', () => {
       expect(document.querySelector('.weq-tool-modal')).not.toBeNull();
       await act(async () => click('保存选择'));
       expect(fixture.saves).toHaveBeenCalledWith('setTargets', { targets: [] });
-      click('关闭');
-      click('编辑通知会话');
+    } finally {
+      f.dispose();
+    }
+  });
+  it('互动与防撤回页就地打开提醒会话选择，保存只修改名单', async () => {
+    const f = mount();
+    try {
+      click('选择提醒会话');
+      expect(document.querySelector('.weq-tool-modal')).not.toBeNull();
+      expect(f.close).not.toHaveBeenCalled();
       click('清空');
       await act(async () => click('保存选择'));
-      expect(fixture.saves).toHaveBeenCalledWith(
-        'setNotify',
-        expect.objectContaining({ targets: expect.any(Array) }),
+      expect(fixture.saves.mock.calls).toEqual([['setNotify', { targets: [] }]]);
+      expect(fixture.status.notifyEnabled).toBe(true);
+    } finally {
+      f.dispose();
+    }
+  });
+  it('通知页独立编辑原名单，不提供保护开关，也不清空已有选择', async () => {
+    const f = mount('notifications');
+    try {
+      expect(f.host.querySelector('[aria-label="防撤回启用范围"]')).toBeNull();
+      expect(
+        f.host.querySelector('[aria-label="撤回时通知我"]')?.getAttribute('aria-checked'),
+      ).toBeUndefined();
+      expect(fixture.saves).not.toHaveBeenCalled();
+      click('撤回提醒：选择提醒会话');
+      await act(async () => click('保存选择'));
+      expect(fixture.saves).toHaveBeenCalledWith('setNotify', { targets: ['group:20001'] });
+      expect(fixture.saves).not.toHaveBeenCalledWith('setScope', expect.anything());
+    } finally {
+      f.dispose();
+    }
+  });
+  it('单会话直达只打开并筛选名单，不自动选择、保存或启用保护', () => {
+    const f = mount('notifications', true);
+    try {
+      expect(document.querySelector<HTMLInputElement>('.weq-tool-modal input')?.value).toBe(
+        '20001',
       );
+      expect(fixture.saves).not.toHaveBeenCalled();
+      expect(fixture.status.notifyTargets).toEqual(['group:20001']);
     } finally {
       f.dispose();
     }

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import superjson from 'superjson';
 import {
   dataSaverEnabled,
   networkCost,
@@ -15,6 +16,7 @@ import { localBackgroundTasks } from '../state/backgroundTasks';
 import { unfinishedDataSaverTasks } from '../../../shared/data_saver_tasks';
 import { useToast } from '../components/Toast.shared';
 import { requestOpenSettings } from './callSettingsBridge';
+import { networkClientId } from './networkClientId';
 
 export const DATA_SAVER_MENU_EVENT = 'weq:open-data-saver';
 export const dataSaverModeOptions = [
@@ -40,17 +42,6 @@ export const useDataSaver = create(() => ({
   behavior: { ...dataSaverBehaviorDefaults },
   status: null as DataSaverStatus | null,
 }));
-export const networkClientId = (() => {
-  try {
-    const saved = localStorage.getItem('weq.network-client-id');
-    if (saved && /^[\w-]{1,80}$/.test(saved)) return saved;
-    const id = globalThis.crypto.randomUUID();
-    localStorage.setItem('weq.network-client-id', id);
-    return id;
-  } catch {
-    return globalThis.crypto.randomUUID();
-  }
-})();
 // 同源弹窗会复制 sessionStorage；每份文档必须有独立的任务来源。
 const taskWindowId = globalThis.crypto.randomUUID();
 function localNetwork(): NetworkCost {
@@ -141,6 +132,7 @@ export function applyDataSaverStatus(status: DataSaverStatus) {
           : '系统网络状态变化';
     useToast.getState().push({
       key: 'data-saver-mode',
+      event: 'dataSaver',
       tone: 'info',
       title: status.enabled ? '已自动进入省流量模式' : '已自动退出省流量模式',
       detail: reason,
@@ -225,6 +217,7 @@ export function installDataSaver() {
     background: [...localBackgroundTasks.snapshot()],
   });
   const stopTasks = localBackgroundTasks.subscribe(() => {
+    if (closed) return;
     const count = unfinishedDataSaverTasks({ background: [...localBackgroundTasks.snapshot()] });
     if (count === lastTaskCount) return;
     lastTaskCount = count;
@@ -232,8 +225,19 @@ export function installDataSaver() {
   });
   const timer = setInterval(() => void poll(), 15000);
   const pageClosed = (event: PageTransitionEvent) => {
-    if (event.persisted) return;
+    if (closed || event.persisted) return;
+    closed = true;
     // 明确结束页面生命周期才撤销本地任务来源；网络断开不会发送此回执。
+    if (IS_WEB) {
+      // 卸载时不能等动态导入或普通 RPC 请求；由浏览器继续发送同一个已认证 RPC。
+      void fetch('/trpc/settings.dataSaver.windowClosed', {
+        method: 'POST',
+        keepalive: true,
+        headers: { 'content-type': 'application/json', 'x-weq-client-id': networkClientId },
+        body: JSON.stringify(superjson.serialize({ windowId: taskWindowId })),
+      }).catch(() => undefined);
+      return;
+    }
     void import('../trpc/client')
       .then(({ client }) =>
         client.settings.dataSaver.windowClosed.mutate({ windowId: taskWindowId }),

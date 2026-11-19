@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Bell } from 'lucide-react';
 import { useWebNotices } from '../../state/webNotices';
-import { Card, Row, Toggle } from './controls';
+import { Card, Row } from './controls';
 
 export function WebNotificationsSection() {
   const enabled = useWebNotices((state) => state.enabled);
@@ -9,11 +9,6 @@ export function WebNotificationsSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const available = typeof Notification !== 'undefined';
-  async function change(next: boolean) {
-    set(next);
-    if (!next) return;
-    await authorize();
-  }
   async function authorize() {
     if (!available || busy) return;
     setBusy(true);
@@ -21,6 +16,7 @@ export function WebNotificationsSection() {
     try {
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') setError('浏览器未允许通知。');
+      else set(true);
     } catch {
       setError('无法取得当前浏览器通知授权。');
     } finally {
@@ -28,19 +24,25 @@ export function WebNotificationsSection() {
     }
   }
   return (
-    <Card title="网页通知" icon={<Bell size={15} strokeWidth={1.8} />}>
+    <Card
+      title="浏览器通知授权"
+      resetId="web-notifications"
+      settingId="web-notifications"
+      icon={<Bell size={15} strokeWidth={1.8} />}
+    >
       <Row
-        label="撤回、群关键词与邮件提醒"
+        label="当前浏览器"
         control={
-          <Toggle
-            label="网页通知"
-            checked={enabled}
-            disabled={busy}
-            onChange={(next) => void change(next)}
-          />
+          <span className="weq-set-row-status">
+            {!available
+              ? '不支持系统通知'
+              : enabled && Notification.permission === 'granted'
+                ? '已授权'
+                : '待授权'}
+          </span>
         }
       />
-      {enabled && available && Notification.permission !== 'granted' && (
+      {available && (!enabled || Notification.permission !== 'granted') && (
         <button
           type="button"
           className="weq-set-btn weq-set-btn-primary"

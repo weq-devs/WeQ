@@ -20,27 +20,25 @@ import {
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import {
-  ASSISTANT_PARAMETER_DEFAULTS,
-  validateAssistantParameters,
-  type AssistantParameters,
-} from './assistant_config';
+import { DEFAULT_ASSISTANT_SEND_MODE, type AssistantSendMode } from './assistant_config';
 import {
   AssistantQueue,
   type AssistantQueueItem,
   type AssistantSubmission,
 } from './assistant_queue';
-export { ASSISTANT_PARAMETER_DEFAULTS } from './assistant_config';
 export type { AssistantSendMode } from './assistant_config';
 import { basename, extname, join, resolve, sep } from 'node:path';
 import {
   fetchApi,
   requestApiJson,
+  withApiDeadline,
   ApiHttpError,
-  isUnsupportedTemperature,
   isApiCancellation,
   apiErrorMessage,
   pickMessageText,
+  imageOutcomeAnnotation,
+  ConversationContextCompactor,
+  estimateContextTokens,
   type AgentLabEndpoint,
   type AgentLabModelSelection,
   normalizeModelSelection,
@@ -48,9 +46,11 @@ import {
 } from '@weq/agentlab';
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
+import { sessionTitleFromText } from './agentlab_session';
 import { JsonStore } from '../common/json_store';
 import type { PreferencePersistence } from '../common/shared_preferences';
 import { assistantCapabilityGuidance } from './assistant_capabilities';
+import { AssistantToolTimeoutError, withAssistantToolDeadline } from './assistant_tool_deadline';
 
 export type EndpointResolver = (
   ref: AgentLabModelSelection,
@@ -94,6 +94,8 @@ export interface AssistantTools {
     args: Record<string, unknown>,
     options?: { permissionMode?: 'sandbox' | 'unrestricted'; signal?: AbortSignal },
   ) => Promise<unknown>;
+  /** 由宿主确认不会改变业务状态的工具；不可按模型给出的信息或工具名前缀推断。 */
+  isReadOnly?: (name: string, permissionMode: 'sandbox' | 'unrestricted') => boolean;
   /** 配置变更时把外部 MCP 服务器原始配置同步给应用层的 Hub（可选）。 */
   syncExternalMcp?: (raw: string | undefined) => void;
   /**
@@ -107,7 +109,9 @@ export interface AssistantTools {
 /** 思考等级（reasoning effort）。映射为 OpenAI 兼容请求的 `reasoning_effort` 参数（`off` = 不带）。 */
 export type AssistantReasoningEffort = string;
 
-export interface AssistantConfig extends Partial<AssistantParameters> {
+export interface AssistantConfig {
+  modelSettingsVersion?: 2;
+  sendMode?: AssistantSendMode;
   permissionMode?: 'sandbox' | 'unrestricted';
   model?: AgentLabModelSelection;
   customPrompt?: string;
@@ -118,7 +122,8 @@ export interface AssistantConfig extends Partial<AssistantParameters> {
 }
 
 export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
-  ...ASSISTANT_PARAMETER_DEFAULTS,
+  modelSettingsVersion: 2,
+  sendMode: DEFAULT_ASSISTANT_SEND_MODE,
   model: { useDefault: true },
   permissionMode: 'sandbox',
   customPrompt: '',
@@ -131,8 +136,6 @@ export function mergeAssistantConfig(
   patch: AssistantConfig & { confirmUnrestricted?: boolean },
 ): AssistantConfig {
   const current = { ...DEFAULT_ASSISTANT_CONFIG, ...config };
-  const parameters = { ...ASSISTANT_PARAMETER_DEFAULTS, ...current, ...patch };
-  validateAssistantParameters(parameters);
   if (
     patch.permissionMode === 'unrestricted' &&
     current.permissionMode !== 'unrestricted' &&
@@ -142,12 +145,14 @@ export function mergeAssistantConfig(
       '开启任意权限前必须确认风险：助手可执行任意操作，包括删除 WeQ 目录之外的文件。',
     );
   return {
-    ...Object.fromEntries(
-      Object.keys(ASSISTANT_PARAMETER_DEFAULTS).map((key) => [
-        key,
-        parameters[key as keyof AssistantParameters],
-      ]),
-    ),
+    modelSettingsVersion: 2,
+    // 旧默认会落盘为 interrupt；首次读取升级，之后显式选回「立即补充」仍有效。
+    sendMode:
+      patch.sendMode ??
+      (config.modelSettingsVersion !== 2 && config.sendMode === 'interrupt'
+        ? DEFAULT_ASSISTANT_SEND_MODE
+        : current.sendMode) ??
+      DEFAULT_ASSISTANT_SEND_MODE,
     permissionMode: patch.permissionMode ?? current.permissionMode ?? 'sandbox',
     model:
       patch.model === undefined
@@ -161,13 +166,31 @@ export function mergeAssistantConfig(
 
 /**
  * 与 WeQ 助手的一次「会话」。一个会话 = 一段独立的对话历史（独立上下文、独立持久化桶）。
- * 标题在首轮对话后由模型自动总结生成（见 {@link AssistantService.generateTitle}）。
+ * 首条消息提供临时标题，自动总结完成后再替换。
  */
 export interface AssistantSession {
   id: string;
   title: string;
+  /** 临时标题可由模型替换；显式命名后即使与占位标题同名也不替换。 */
+  titlePending?: boolean;
   createdAt: number;
   updatedAt: number;
+  generation?: AssistantSessionGeneration;
+}
+
+export type AssistantSessionGeneration = {
+  model?: AgentLabModelSelection | null;
+  reasoningEffort?: AssistantReasoningEffort | null;
+};
+
+function mergeSessionGeneration(
+  current: AssistantSessionGeneration | undefined,
+  patch: AssistantSessionGeneration,
+): AssistantSessionGeneration {
+  const model = normalizeModelSelection(patch.model === undefined ? current?.model : patch.model);
+  const reasoningEffort =
+    patch.reasoningEffort === undefined ? current?.reasoningEffort : patch.reasoningEffort;
+  return { ...(model ? { model } : {}), ...(reasoningEffort ? { reasoningEffort } : {}) };
 }
 
 /**
@@ -255,6 +278,7 @@ export type AssistantStep =
   | { kind: 'remove_turn'; id: string }
   | { kind: 'turn'; turn: ConversationTurn }
   | { kind: 'queue' }
+  | { kind: 'session_title' }
   | AssistantProcessStep;
 
 export type AssistantProcessStep =
@@ -278,6 +302,7 @@ const transientAssistantSteps = new Set<AssistantStep['kind']>([
   'queue',
   'reset',
   'remove_turn',
+  'session_title',
 ]);
 function isPersistedAssistantStep(step: AssistantStep): step is AssistantProcessStep {
   return !transientAssistantSteps.has(step.kind);
@@ -322,6 +347,24 @@ const WRITE_REPORT_SPEC: AssistantToolSpec = {
         filename: { type: 'string', description: '可选：期望文件名（不含路径，扩展名可省略）' },
       },
       required: ['title', 'kind', 'content'],
+    },
+  },
+};
+
+const ANALYZE_ATTACHED_IMAGE_SPEC: AssistantToolSpec = {
+  type: 'function',
+  function: {
+    name: 'analyze_attached_image',
+    description:
+      '查看用户附件原图中现有图片解读没有覆盖的细节。复用已有描述，只有确实缺少细节或用户要求重新分析时才调用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        imageId: { type: 'string', description: '上下文中 [图片 …] 标明的附件 ID' },
+        question: { type: 'string', maxLength: 4000, description: '需要查看的具体细节' },
+        refresh: { type: 'boolean', description: '仅在用户明确要求重新分析同一附件时为 true' },
+      },
+      required: ['imageId'],
     },
   },
 };
@@ -426,13 +469,13 @@ interface AssistantRunSnapshot extends AssistantRunState {
  */
 export const ASSISTANT_AGENT_ID = 'assistant';
 
-/** 新建会话的占位标题；首轮对话后会被模型总结的标题替换。 */
+/** 还没有发出第一条消息的会话标题。 */
 const DEFAULT_SESSION_TITLE = '新对话';
 
 /** 单轮任务最多调用工具的轮数。任务型 agent 要敢多试，故给得宽一些。 */
 const TOOL_LOOP_LIMIT = 24;
 
-/** 单个工具执行的超时上限：到点算失败回灌模型继续，避免某个工具挂住拖死整轮。 */
+/** 单个工具执行的超时上限；只读工具超时不影响同批的其他调用。 */
 const TOOL_TIMEOUT_MS = 60_000;
 /** 整轮任务（多轮工具调用 + LLM）总时限：超时自动中止并给出可读错误，防前端永久转圈。 */
 const RUN_TIMEOUT_MS = 600_000;
@@ -441,24 +484,6 @@ const RUN_TIMEOUT_MS = 600_000;
 // 借鉴 WeFlow agentContextManager：估算 token → 超阈值触发 → 早期历史折叠成摘要 →
 // 摘要随每轮注入 + 落一条 compaction step 供前端展示。只折叠「本轮提问之前的历史」，
 // 本轮内的工具过程永远保留（避免破坏 tool_calls/tool 配对）。
-
-/** 默认上下文窗口估算（模型窗口通常 32k~128k，取保守值避免压坏普通模型）。 */
-const CONTEXT_WINDOW_DEFAULT = 32_768;
-/** 消息 token 估算（中文约 1.5~2 字符/token，英文约 4；取 1.8 折中 + 每条消息开销）。 */
-const CHARS_PER_TOKEN = 1.8;
-const MESSAGE_OVERHEAD_TOKENS = 6;
-/** 达到窗口比例触发压缩。 */
-const COMPRESS_TRIGGER_RATIO = 0.7;
-/** 压缩目标：折叠后历史+本轮降到窗口比例。 */
-const COMPRESS_TARGET_RATIO = 0.5;
-/** 压缩后至少保留的「最近完整回合」数（历史侧）。 */
-const MIN_RETAINED_ROUNDS = 1;
-/** 摘要生成的最大 token（输入侧同样受限）。 */
-const MAX_SUMMARY_TOKENS = 1_500;
-/** 摘要输入单条消息的最大字符数。 */
-const SUMMARY_INPUT_MSG_CHARS = 1_200;
-/** 摘要失败时的本地兜底长度。 */
-const SUMMARY_FALLBACK_CHARS = 5_000;
 
 /**
  * 证据追问检测：用户是不是在质疑/追问上一条结论的依据（「真的假的 / 有证据吗 / 原话呢 / 为什么这么说」）。
@@ -487,10 +512,28 @@ interface ApiMessage {
   images?: AiImageRef[];
   imageOutcomes?: AiImageOutcome[];
   imageReport?: string;
+  imageTurnId?: string;
   role: string;
   content?: unknown;
   tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
   tool_call_id?: string;
+}
+
+interface AssistantAttachment {
+  image: AiImageRef;
+  message: ApiMessage;
+  ids: string[];
+}
+
+function assistantImageContent(text: string, outcomes: AiImageOutcome[], ids: string[]): string {
+  return [
+    text,
+    ...outcomes.map((outcome, index) =>
+      imageOutcomeAnnotation({ ...outcome, id: ids[index] ?? outcome.id }),
+    ),
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 /** OpenAI 兼容流式响应的一片（`data: {...}`）；只声明我们会读的字段。 */
@@ -511,8 +554,12 @@ interface StreamChunk {
 }
 
 export class AssistantService {
+  private readonly contextCompactor = new ConversationContextCompactor();
   private readonly taskConfig = new AsyncLocalStorage<AssistantConfig>();
-  private readonly taskEndpoint = new AsyncLocalStorage<{ endpoint?: AgentLabEndpoint }>();
+  private readonly taskEndpoint = new AsyncLocalStorage<{
+    endpoint?: AgentLabEndpoint;
+    inheritedEffort?: boolean;
+  }>();
   private readonly queue: AssistantQueue;
   private queueSink?: (event: AssistantTaskEvent) => void;
   private controllerSink?: (runId: string, controller: AbortController | null) => void;
@@ -536,13 +583,13 @@ export class AssistantService {
   }
   /** 按实际模型记住不支持 reasoning_effort 的端点，不影响切换后的其他模型。 */
   private readonly reasoningUnsupported = new Set<string>();
-  private readonly nonReplayErrors = new WeakSet<object>();
   private readonly permissionRuns = new Set<AbortController>();
   private readonly sessionRuns = new Map<
     string,
     { controller: AbortController; done: Promise<unknown> }
   >();
   private readonly deletingSessions = new Set<string>();
+  private readonly pendingTitles = new Map<string, AbortController>();
 
   constructor(
     private readonly rootDir: string,
@@ -565,15 +612,13 @@ export class AssistantService {
           if (!raw || typeof raw !== 'object' || Array.isArray(raw))
             throw new Error('助手配置必须是 JSON 对象');
           const config = raw as AssistantConfig;
-          return {
-            ...DEFAULT_ASSISTANT_CONFIG,
-            ...config,
-            permissionMode: config.permissionMode === 'unrestricted' ? 'unrestricted' : 'sandbox',
-            model:
-              config.model == null
-                ? { useDefault: true }
-                : (normalizeModelSelection(config.model) ?? undefined),
-          };
+          return mergeAssistantConfig(
+            {
+              ...config,
+              permissionMode: config.permissionMode === 'unrestricted' ? 'unrestricted' : 'sandbox',
+            },
+            config.model == null ? {} : { model: config.model },
+          );
         },
       },
     );
@@ -611,6 +656,19 @@ export class AssistantService {
   getExecutionConfig(): AssistantConfig {
     return { ...this.config };
   }
+  private sessionRunConfig(sessionId: string): AssistantConfig {
+    const config = this.getConfig();
+    const selection = this.sessions.find((item) => item.id === sessionId)?.generation;
+    return structuredClone({
+      ...config,
+      model: selection?.model ?? config.model,
+      reasoningEffort: selection?.reasoningEffort ?? config.reasoningEffort,
+    });
+  }
+  private usesInheritedEffort(sessionId: string): boolean {
+    const selection = this.sessions.find((item) => item.id === sessionId)?.generation;
+    return !selection?.reasoningEffort;
+  }
   private resolveTaskEndpoint(): AgentLabEndpoint {
     const task = this.taskEndpoint.getStore();
     if (task?.endpoint) return task.endpoint;
@@ -643,24 +701,52 @@ export class AssistantService {
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  /** 新建一个空会话并返回（标题待首轮对话后自动总结）。 */
-  createSession(): AssistantSession {
+  /** 新建一个空会话并返回。 */
+  createSession(generation: AssistantSessionGeneration = {}): AssistantSession {
     const now = Date.now();
+    const selection = mergeSessionGeneration(undefined, generation);
     const session: AssistantSession = {
       id: randomUUID(),
       title: DEFAULT_SESSION_TITLE,
       createdAt: now,
       updatedAt: now,
+      ...(Object.keys(selection).length ? { generation: selection } : {}),
     };
-    this.sessions.push(session);
-    this.persistSessions();
+    this.sessionsStore.replace([...this.sessions, session], true);
     return session;
+  }
+
+  getSessionGeneration(sessionId: string): AssistantSessionGeneration {
+    const session = this.sessions.find((item) => item.id === sessionId);
+    if (!session || this.deletingSessions.has(sessionId)) throw new Error('对话不存在。');
+    return session.generation ?? {};
+  }
+
+  setSessionGeneration(
+    sessionId: string,
+    patch: AssistantSessionGeneration,
+  ): AssistantSessionGeneration {
+    const generation = mergeSessionGeneration(this.getSessionGeneration(sessionId), patch);
+    // 保持正在生成的会话对象不变：任务结束时还要更新它的标题和活跃时间。
+    const session = this.sessions.find((item) => item.id === sessionId)!;
+    const previous = session.generation;
+    session.generation = Object.keys(generation).length ? generation : undefined;
+    try {
+      this.sessionsStore.replace(this.sessions, true);
+    } catch (error) {
+      session.generation = previous;
+      throw error;
+    }
+    return generation;
   }
 
   /** 仅停止所选会话，待全部写入收尾后再永久移除元数据、历史和断点。 */
   async deleteSessions(sessionIds: readonly string[]): Promise<void> {
     const selected = new Set(sessionIds);
-    for (const id of selected) this.deletingSessions.add(id);
+    for (const id of selected) {
+      this.deletingSessions.add(id);
+      this.cancelPendingTitle(id);
+    }
     try {
       const runs = [...selected]
         .map((id) => this.sessionRuns.get(id))
@@ -709,13 +795,17 @@ export class AssistantService {
   renameSession(sessionId: string, title: string): void {
     const session = this.sessions.find((s) => s.id === sessionId);
     if (!session) return;
-    session.title = title.trim().slice(0, 40) || DEFAULT_SESSION_TITLE;
+    this.cancelPendingTitle(sessionId);
+    const trimmed = title.trim().slice(0, 40);
+    session.title = trimmed || DEFAULT_SESSION_TITLE;
+    session.titlePending = trimmed ? false : undefined;
     session.updatedAt = Date.now();
     this.persistSessions();
   }
 
   /** 清空某会话的对话内容（保留会话本身，标题复位待重新总结），并作废未完成的断点任务。 */
   async clearConversation(sessionId: string): Promise<void> {
+    this.cancelPendingTitle(sessionId);
     const active = this.sessionRuns.get(sessionId);
     active?.controller.abort();
     await this.queue.clear(sessionId);
@@ -725,6 +815,7 @@ export class AssistantService {
     const session = this.sessions.find((s) => s.id === sessionId);
     if (session) {
       session.title = DEFAULT_SESSION_TITLE;
+      session.titlePending = undefined;
       session.updatedAt = Date.now();
       this.persistSessions();
     }
@@ -763,7 +854,7 @@ export class AssistantService {
       this.queue.submissionMode(input.sessionId, input.requestId) ??
       previous?.sendMode ??
       this.getConfig().sendMode ??
-      'interrupt';
+      DEFAULT_ASSISTANT_SEND_MODE;
     if (previous) {
       if (
         previous.text !== input.text ||
@@ -950,6 +1041,7 @@ export class AssistantService {
     this.conversations.upsert(this.bucketId(item.sessionId), turn);
     const session = this.sessions.find((row) => row.id === item.sessionId);
     if (session) {
+      this.setProvisionalTitle(session, turn.text, !!turn.images?.length);
       session.updatedAt = turn.ts;
       this.persistSessions();
     }
@@ -1086,13 +1178,13 @@ export class AssistantService {
     signal?: AbortSignal,
     images?: AiImageRef[],
   ): Promise<{ text: string; steps: AssistantStep[] }> {
-    const config = structuredClone(this.getConfig());
+    const config = this.sessionRunConfig(sessionId);
     const run = () =>
       this.runForSession(sessionId, signal, (runSignal) =>
         this.chatRun(sessionId, text, onStep, runSignal, images),
       );
     return this.taskConfig.run(config, () =>
-      this.taskEndpoint.run({}, () =>
+      this.taskEndpoint.run({ inheritedEffort: this.usesInheritedEffort(sessionId) }, () =>
         this.tools?.withConfig ? this.tools.withConfig(config, run) : run(),
       ),
     );
@@ -1139,17 +1231,16 @@ export class AssistantService {
       ),
     ];
 
+    if (!mailbox && this.setProvisionalTitle(session, text, !!images?.length)) {
+      this.persistSessions();
+      emit({ kind: 'session_title' });
+    }
+
     // 新问题取代旧任务：丢弃该会话任何未完成的 run 快照（resume 只针对「同一任务」）。
     this.clearRun(sessionId);
-    // 只取最近若干条历史（过长的历史由上下文压缩在 runLoop 内折叠，而不是硬切）。
-    const historyCount =
-      this.config.historyMessages ?? ASSISTANT_PARAMETER_DEFAULTS.historyMessages;
-    const prior = historyCount
-      ? this.conversations
-          .get(this.bucketId(sessionId))
-          .filter((turn) => !mailbox || turn.taskId !== mailbox.taskId)
-          .slice(-historyCount)
-      : [];
+    const prior = this.conversations
+      .get(this.bucketId(sessionId))
+      .filter((turn) => !mailbox || turn.taskId !== mailbox.taskId);
     // 证据追问：本轮像在质疑上一结论，且上一条助手回复确实用过工具时，才强制重新查证。
     // （像开场就问「真的假的」这种没有可查证对象，强制反而诱导模型编造，故要求 prior 用过工具。）
     const lastAssistant = [...prior].reverse().find((t) => t.role === 'assistant');
@@ -1163,7 +1254,13 @@ export class AssistantService {
       basePrompt,
       messages: [
         { role: 'system', content: basePrompt },
-        ...prior.map((t) => ({ role: t.role, content: t.text, images: t.images })),
+        ...prior.map((t) => ({
+          role: t.role,
+          content: t.text,
+          images: t.images,
+          imageOutcomes: t.imageOutcomes,
+          imageTurnId: t.images?.length ? t.id : undefined,
+        })),
         { role: 'user', content: text, images },
       ],
       workspace: { notes: [] },
@@ -1202,19 +1299,10 @@ export class AssistantService {
             ...(toolsUsed.length ? { toolsUsed } : {}),
           },
         ]);
-      // 标题：仍是占位标题（即本会话首轮）时，让模型简单总结对话内容生成标题。
-      // 放在 emit(final) 之前完成，前端收到 final 后刷新会话列表即可拿到新标题（无竞态）。
-      if (session.title === DEFAULT_SESSION_TITLE) {
-        try {
-          const title = await this.generateTitle(text, reply, signal);
-          if (title) session.title = title;
-        } catch {
-          /* 标题总结失败不影响对话本身 */
-        }
-      }
       session.updatedAt = now;
       this.persistSessions();
       emit({ kind: 'final', text: reply });
+      this.startSessionTitle(session, text, reply, signal, onStep);
       return { text: reply, steps };
     } catch (error) {
       // 用户取消：把已流出的半截正文当作本轮答复持久化（保持 user/assistant 成对、不留悬空 user），
@@ -1274,13 +1362,13 @@ export class AssistantService {
     onStep?: (step: AssistantStep) => void,
     signal?: AbortSignal,
   ): Promise<{ text: string; steps: AssistantStep[] }> {
-    const config = structuredClone(this.getConfig());
+    const config = this.sessionRunConfig(sessionId);
     const run = () =>
       this.runForSession(sessionId, signal, (runSignal) =>
         this.resumeRun(sessionId, onStep, runSignal),
       );
     return this.taskConfig.run(config, () =>
-      this.taskEndpoint.run({}, () =>
+      this.taskEndpoint.run({ inheritedEffort: this.usesInheritedEffort(sessionId) }, () =>
         this.tools?.withConfig ? this.tools.withConfig(config, run) : run(),
       ),
     );
@@ -1369,6 +1457,7 @@ export class AssistantService {
       session.updatedAt = now;
       this.persistSessions();
       emit({ kind: 'final', text: reply });
+      this.startSessionTitle(session, snapshot.question, reply, signal, onStep);
       return { text: reply, steps };
     } catch (error) {
       const aborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError');
@@ -1413,10 +1502,58 @@ export class AssistantService {
     };
   }
 
-  /**
-   * 让模型用一句短语概括对话主题，作为会话标题。轻量调用（无工具），
-   * 失败/为空时返回 ''（上层保留占位标题）。
-   */
+  private setProvisionalTitle(session: AssistantSession, text: string, hasImages: boolean) {
+    if (session.titlePending !== undefined || session.title !== DEFAULT_SESSION_TITLE) return false;
+    const source = text.trim() || (hasImages ? '图片提问' : '');
+    if (!source) return false;
+    session.title = sessionTitleFromText(source);
+    session.titlePending = true;
+    return true;
+  }
+
+  private cancelPendingTitle(sessionId: string) {
+    this.pendingTitles.get(sessionId)?.abort();
+    this.pendingTitles.delete(sessionId);
+  }
+
+  cancelPendingTitles(): void {
+    for (const id of this.pendingTitles.keys()) this.cancelPendingTitle(id);
+  }
+
+  private startSessionTitle(
+    session: AssistantSession,
+    text: string,
+    reply: string,
+    signal?: AbortSignal,
+    onStep?: (step: AssistantStep) => void,
+  ): void {
+    const { id } = session;
+    if (
+      !(session.titlePending ?? session.title === DEFAULT_SESSION_TITLE) ||
+      signal?.aborted ||
+      this.deletingSessions.has(id) ||
+      this.pendingTitles.has(id)
+    )
+      return;
+    const controller = new AbortController();
+    this.pendingTitles.set(id, controller);
+    void this.generateTitle(text, reply, controller.signal)
+      .then((title) => {
+        if (!title || controller.signal.aborted) return;
+        session.title = title;
+        session.titlePending = false;
+        this.persistSessions();
+        onStep?.({ kind: 'session_title' });
+      })
+      .catch(() => {
+        /* 标题失败时保留临时标题，不影响回答。 */
+      })
+      .finally(() => {
+        if (this.pendingTitles.get(id) === controller) this.pendingTitles.delete(id);
+      });
+  }
+
+  /** 让模型用一句短语概括对话主题，作为会话标题。 */
   private async generateTitle(
     userText: string,
     reply: string,
@@ -1441,8 +1578,7 @@ export class AssistantService {
         },
         { role: 'user', content: `用户：${userText.slice(0, 600)}\n助手：${reply.slice(0, 600)}` },
       ],
-      [],
-      { signal },
+      signal,
     );
     const raw = pickMessageText(data.choices?.[0]?.message);
     return cleanTitle(raw);
@@ -1491,20 +1627,15 @@ export class AssistantService {
       if (signal.aborted) ac.abort();
       else signal.addEventListener('abort', onExternalAbort);
     }
-    const taskTimeout =
-      this.config.taskTimeoutMs === undefined ? RUN_TIMEOUT_MS : this.config.taskTimeoutMs;
-    const runTimer =
-      taskTimeout === null
-        ? undefined
-        : setTimeout(() => {
-            timedOut = true;
-            ac.abort();
-          }, taskTimeout);
+    const runTimer = setTimeout(() => {
+      timedOut = true;
+      ac.abort();
+    }, RUN_TIMEOUT_MS);
 
     try {
-      const available = await withTimeout(
-        Promise.resolve(this.tools?.specs({ permissionMode, signal: ac.signal })),
-        this.config.toolTimeoutMs === undefined ? TOOL_TIMEOUT_MS : this.config.toolTimeoutMs,
+      const available = await withAssistantToolDeadline(
+        (signal) => this.tools?.specs({ permissionMode, signal }),
+        TOOL_TIMEOUT_MS,
         '工具列表载入',
         ac.signal,
       );
@@ -1519,13 +1650,26 @@ export class AssistantService {
         specs.map((spec) => spec.function.name),
         permissionMode,
       );
-      const maxRounds =
-        this.config.maxRounds === undefined ? TOOL_LOOP_LIMIT : this.config.maxRounds;
-      for (let loop = 0; maxRounds === null || loop < maxRounds; loop += 1) {
+      const toolTokens = estimateContextTokens(JSON.stringify(specs));
+      const preparedImages = new WeakMap<ApiMessage, string>();
+      const attachmentIds = new WeakMap<ApiMessage, string[]>();
+      const imageToolResults = new Map<
+        string,
+        Awaited<ReturnType<AssistantService['analyzeAttachedImage']>>
+      >();
+      let nextImageId = 0;
+      for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
         throwIfAborted(ac.signal);
         this.consumeSupplements(sessionId, state);
         // 每轮发送前先做上下文压缩（长会话/多工具循环的 token 预算管理）。
-        await this.compressIfNeeded(state, endpoint, emit, ac.signal);
+        await this.compressIfNeeded(
+          sessionId,
+          state,
+          { ...endpoint, signal: ac.signal },
+          toolTokens,
+          capabilityGuidance,
+          emit,
+        );
         const prefix = state.partialText ?? '';
         const sourceMessages = this.buildRoundMessages(state, capabilityGuidance);
         if (prefix) {
@@ -1538,91 +1682,82 @@ export class AssistantService {
             },
           );
         }
-        const prepareMessages = async (forceOcr = false): Promise<ApiMessage[]> => {
-          const result: ApiMessage[] = [];
-          for (const message of sourceMessages) {
-            const {
-              images: refs,
-              imageOutcomes: _outcomes,
-              imageReport: _report,
-              ...plain
-            } = message;
-            if (!refs?.length || !this.tools?.images) {
-              result.push(plain);
-              continue;
-            }
-            const prepared = await this.tools.images.prepare({
-              feature: 'assistant',
-              text: String(message.content ?? ''),
-              images: refs,
-              endpoint,
-              direct: !forceOcr,
-              signal: ac.signal,
-              forceOcr,
-            });
-            if (forceOcr)
-              for (const outcome of prepared.outcomes)
-                outcome.notes.unshift('视觉请求失败，本次已回退 OCR。');
-            message.imageOutcomes = prepared.outcomes;
-            if ('taskId' in state && typeof state.taskId === 'string')
-              this.conversations.patchImageOutcomes(
-                this.bucketId(sessionId),
-                state.taskId,
-                String(message.content ?? ''),
-                refs,
-                prepared.outcomes,
-              );
-            result.push({ ...plain, content: prepared.content });
-            const notes = prepared.outcomes.flatMap((outcome) => outcome.notes);
-            const report = notes.join('\n');
-            if (report && message.imageReport !== report)
-              record({ kind: 'thinking', text: report });
-            message.imageReport = report;
+        const roundMessages: ApiMessage[] = [];
+        const attachments = new Map<string, AssistantAttachment>();
+        for (const message of sourceMessages) {
+          const {
+            images: refs,
+            imageOutcomes: outcomes,
+            imageReport: _report,
+            imageTurnId: _turnId,
+            ...plain
+          } = message;
+          if (!refs?.length || !this.tools?.images) {
+            roundMessages.push(plain);
+            continue;
           }
-          return result;
-        };
-        let roundMessages = await prepareMessages();
+          const text = String(message.content ?? '');
+          let ids = attachmentIds.get(message);
+          if (!ids) {
+            ids = refs.map(() => `attachment-${++nextImageId}`);
+            attachmentIds.set(message, ids);
+          }
+          let content = preparedImages.get(message);
+          if (content === undefined) {
+            if (
+              outcomes?.length === refs.length &&
+              outcomes.every(
+                (outcome, index) =>
+                  outcome.id === refs[index]?.id &&
+                  (outcome.status === 'read' || outcome.status === 'skipped'),
+              )
+            ) {
+              content = assistantImageContent(text, outcomes, ids);
+            } else {
+              const prepared = await this.tools.images.prepare({
+                feature: 'assistant',
+                text,
+                images: refs,
+                signal: ac.signal,
+              });
+              content = assistantImageContent(text, prepared.outcomes, ids);
+              this.rememberImageOutcomes(sessionId, state.taskId, message, prepared.outcomes);
+              const report = prepared.outcomes.flatMap((outcome) => outcome.notes).join('\n');
+              if (report && message.imageReport !== report)
+                record({ kind: 'thinking', text: report });
+              message.imageReport = report;
+            }
+            preparedImages.set(message, content);
+          }
+          for (const [index, image] of refs.entries())
+            attachments.set(ids[index]!, { image, message, ids });
+          roundMessages.push({ ...plain, content });
+        }
         // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
-        const allowTools = specs.length > 0 && (maxRounds === null || loop < maxRounds - 1);
-        let emitted = false;
+        const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
+        const roundSpecs = attachments.size ? [...specs, ANALYZE_ATTACHED_IMAGE_SPEC] : specs;
         const mailbox = this.mailboxes.get(sessionId);
         const requestController = new AbortController();
         if (mailbox) mailbox.request = requestController;
         const requestSignal = AbortSignal.any([ac.signal, requestController.signal]);
-        const stream = () =>
-          this.callApiStream(
+        let response: Awaited<ReturnType<AssistantService['callApiStream']>>;
+        try {
+          response = await this.callApiStream(
             endpoint,
             roundMessages,
-            allowTools ? specs : [],
+            allowTools ? roundSpecs : [],
             (step) => {
-              if (requestSignal.aborted) return;
-              if (step.kind === 'text_delta' || step.kind === 'reasoning_delta') emitted = true;
-              emit(step);
+              if (!requestSignal.aborted) emit(step);
             },
             requestSignal,
           );
-        let response: Awaited<ReturnType<typeof stream>>;
-        try {
-          response = await stream();
         } catch (error) {
           ac.signal.throwIfAborted();
           if (requestController.signal.aborted && this.consumeSupplements(sessionId, state)) {
             loop--;
             continue;
           }
-          const direct = roundMessages.some(
-            (message) =>
-              Array.isArray(message.content) &&
-              message.content.some((part: { type?: string }) => part.type === 'image_url'),
-          );
-          if (
-            emitted ||
-            !direct ||
-            (error !== null && typeof error === 'object' && this.nonReplayErrors.has(error))
-          )
-            throw error;
-          roundMessages = await prepareMessages(true);
-          response = await stream();
+          throw error;
         }
         if (mailbox) mailbox.request = undefined;
         const content = prefix + response.content;
@@ -1708,25 +1843,49 @@ export class AssistantService {
             let result: unknown;
             let ok = true;
             let outcomeUnknown = false;
+            const name = call.function.name;
+            const attachmentTool = name === ANALYZE_ATTACHED_IMAGE_SPEC.function.name;
             try {
-              if (!this.tools) throw new Error(`未知工具：${call.function.name}`);
-              // 单工具超时不能证明未执行；标明未知终态并停止本轮，不自动重复副作用。
-              result = await withTimeout(
-                this.tools.run(call.function.name, args, { permissionMode, signal: ac.signal }),
-                this.config.toolTimeoutMs === undefined
-                  ? TOOL_TIMEOUT_MS
-                  : this.config.toolTimeoutMs,
-                `工具 ${call.function.name} 执行`,
+              const tools = this.tools;
+              if (!tools) throw new Error(`未知工具：${name}`);
+              result = await withAssistantToolDeadline(
+                (signal) =>
+                  attachmentTool
+                    ? this.analyzeAttachedImage(
+                        sessionId,
+                        state,
+                        attachments,
+                        preparedImages,
+                        imageToolResults,
+                        args,
+                        signal,
+                      )
+                    : tools.run(name, args, { permissionMode, signal }),
+                TOOL_TIMEOUT_MS,
+                `工具 ${name} 执行`,
                 ac.signal,
               );
               outcomeUnknown = hasUnknownToolOutcome(result);
-              if (outcomeUnknown) ok = false;
+              ok =
+                !outcomeUnknown &&
+                !(result && typeof result === 'object' && 'ok' in result && result.ok === false);
             } catch (error) {
+              // 用户停止或总时限由任务层处理，保留仍在执行的工具检查点。
+              ac.signal.throwIfAborted();
               ok = false;
-              outcomeUnknown = error instanceof ToolOutcomeUnknownError;
+              const timedOut = error instanceof AssistantToolTimeoutError;
+              const readOnly = attachmentTool || this.tools?.isReadOnly?.(name, permissionMode);
+              outcomeUnknown = timedOut && !readOnly;
               result = {
                 error: error instanceof Error ? error.message : String(error),
-                ...(outcomeUnknown ? { status: 'unknown', operationId: call.id } : {}),
+                ...(outcomeUnknown
+                  ? { status: 'unknown', operationId: call.id }
+                  : timedOut
+                    ? {
+                        status: 'timeout',
+                        hint: '本次查询未返回结果。可缩小范围、改用其他工具，或依据已有结果回答。',
+                      }
+                    : {}),
               };
             }
             const serialized = safeStringify(result);
@@ -1787,9 +1946,7 @@ export class AssistantService {
       // 总超时：外部 signal 未被用户 abort，但内部 ac 因 runTimer 触发。转成普通 Error（name≠AbortError）
       // 让 chat() 走 error 分支给出清晰提示；用户主动停止则原样抛（AbortError）走 aborted 分支。
       if (timedOut && !signal?.aborted) {
-        throw new Error(
-          `任务运行超过 ${Math.round((taskTimeout ?? 0) / 1000)} 秒总时限，已自动中止。`,
-        );
+        throw new Error(`任务运行超过 ${Math.round(RUN_TIMEOUT_MS / 1000)} 秒总时限，已自动中止。`);
       }
       throw error;
     } finally {
@@ -1797,6 +1954,78 @@ export class AssistantService {
       clearTimeout(runTimer);
       signal?.removeEventListener('abort', onExternalAbort);
     }
+  }
+
+  private async analyzeAttachedImage(
+    sessionId: string,
+    state: AssistantRunState,
+    attachments: ReadonlyMap<string, AssistantAttachment>,
+    preparedImages: WeakMap<ApiMessage, string>,
+    results: Map<string, { text: string; image: AiImageOutcome }>,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<{ text: string; image: AiImageOutcome }> {
+    const attachment = typeof args.imageId === 'string' ? attachments.get(args.imageId) : undefined;
+    if (!attachment || !this.tools?.images) throw new Error('当前会话上下文没有这张附件图片');
+    const { image, message, ids } = attachment;
+    const question = typeof args.question === 'string' ? args.question.trim().slice(0, 4000) : '';
+    const refresh = args.refresh === true;
+    const key = JSON.stringify([args.imageId, question, refresh]);
+    const existing = results.get(key);
+    if (existing) return existing;
+    const prepared = await this.tools.images.prepare({
+      feature: 'assistant',
+      text: '',
+      images: [image],
+      question,
+      refresh,
+      signal,
+    });
+    signal.throwIfAborted();
+    const outcome = prepared.outcomes[0];
+    if (!outcome || outcome.status === 'failed')
+      throw new Error(outcome?.notes.join('；') || '未能重新读取图片');
+    const result = {
+      text: imageOutcomeAnnotation({ ...outcome, id: String(args.imageId) }),
+      image: outcome,
+    };
+    results.set(key, result);
+    const index = ids.indexOf(String(args.imageId));
+    const previous = message.imageOutcomes?.[index];
+    if (
+      refresh &&
+      !question &&
+      previous &&
+      (previous.status !== 'read' || previous.mode === outcome.mode)
+    ) {
+      const outcomes = message.imageOutcomes!.map((item, offset) =>
+        offset === index ? outcome : item,
+      );
+      const text = String(message.content ?? '');
+      preparedImages.set(message, assistantImageContent(text, outcomes, ids));
+      this.rememberImageOutcomes(sessionId, state.taskId, message, outcomes);
+    }
+    return result;
+  }
+
+  private rememberImageOutcomes(
+    sessionId: string,
+    taskId: string | undefined,
+    message: ApiMessage,
+    outcomes: AiImageOutcome[],
+  ): void {
+    message.imageOutcomes = outcomes;
+    const bucket = this.bucketId(sessionId);
+    if (message.imageTurnId)
+      this.conversations.patchTurnImageOutcomes(bucket, message.imageTurnId, outcomes);
+    else if (taskId && message.images)
+      this.conversations.patchImageOutcomes(
+        bucket,
+        taskId,
+        String(message.content ?? ''),
+        message.images,
+        outcomes,
+      );
   }
 
   /** 每轮发送前的消息组装：把动态注入段（摘要 + 调查计划/工作笔记）拼进 system。 */
@@ -1814,76 +2043,43 @@ export class AssistantService {
     ];
   }
 
-  /**
-   * 上下文压缩（借鉴 WeFlow agentContextManager）：估算 token 超阈值时，把本轮提问之前
-   * 的早期历史折叠成摘要（LLM 生成，失败本地兜底），随每轮注入 + 落一条 compaction step。
-   * 只折叠完整回合（不切断 tool_calls/tool 配对），且保留最近至少 1 轮历史与全部本轮内容。
-   */
   private async compressIfNeeded(
+    sessionId: string,
     state: AssistantRunState,
     endpoint: AgentLabEndpoint,
+    toolTokens: number,
+    capabilityGuidance: string,
     emit: (step: AssistantStep) => void,
-    signal?: AbortSignal,
   ): Promise<void> {
     const messages = state.messages;
-    const totalTokens = estimateMessagesTokens(messages);
-    const contextTokens = this.config.contextTokens ?? CONTEXT_WINDOW_DEFAULT;
-    const triggerTokens = Math.floor(
-      contextTokens * (this.config.compressionTrigger ?? COMPRESS_TRIGGER_RATIO),
-    );
-    if (totalTokens <= triggerTokens) return;
-
-    const rounds = foldableRounds(messages);
-    if (rounds.length <= MIN_RETAINED_ROUNDS) return; // 没有可折叠的历史（只剩最近一轮/本轮）。
-    const foldableCount = rounds.length - MIN_RETAINED_ROUNDS;
-    const targetTokens = Math.floor(
-      contextTokens * (this.config.compressionTarget ?? COMPRESS_TARGET_RATIO),
-    );
-    const foldedRanges: Array<[number, number]> = [];
-    let foldedTokens = 0;
-    for (let i = 0; i < foldableCount; i += 1) {
-      const [s, e] = rounds[i]!;
-      foldedRanges.push([s, e]);
-      foldedTokens += estimateMessagesTokens(messages.slice(s, e));
-      if (totalTokens - foldedTokens <= targetTokens) break;
-    }
-    if (foldedRanges.length === 0) return;
-
-    const foldedText = renderFoldableMessages(
-      messages,
-      foldedRanges,
-      Math.min(120_000, Math.floor(contextTokens * 1.5)),
-    );
-    // 旧摘要一并喂给模型，让它综合（旧摘要 + 新折叠内容 → 一份新摘要）。
-    const userContent = [
-      state.summary ? `较早的摘要（保留要点，可合并）：\n${state.summary.slice(0, 4_000)}` : '',
-      `需要折叠的对话记录：\n${foldedText}`,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-    let summary = '';
-    try {
-      const data = await this.callApi(
-        { ...endpoint, feature: 'assistant-summary' },
-        [
-          { role: 'system', content: summarySystemPrompt() },
-          { role: 'user', content: userContent },
-        ],
-        [],
-        { maxTokens: this.config.summaryTokens ?? MAX_SUMMARY_TOKENS, signal },
+    const currentTurn = messages.findLastIndex((message) => message.role === 'user');
+    if (currentTurn <= 1) return;
+    const history = messages.slice(1, currentTurn).map(contextLine);
+    const fixedTokens = messages
+      .slice(currentTurn)
+      .reduce(
+        (total, message) => total + estimateContextTokens(contextLine(message).text),
+        toolTokens +
+          estimateContextTokens(
+            [
+              state.basePrompt,
+              capabilityGuidance,
+              workspaceBlock(state.workspace),
+              state.partialText,
+            ].join('\n'),
+          ),
       );
-      summary = pickMessageText(data.choices?.[0]?.message).trim().slice(0, 5_000);
-    } catch {
-      /* 摘要失败走本地兜底 */
-    }
-    if (!summary) summary = fallbackSummary(state.summary, foldedText);
-
-    // 折叠区间是连续前缀 [1, lastFoldedEnd)：替换为新摘要，保留最近的历史轮 + 本轮。
-    const lastFoldedEnd = foldedRanges[foldedRanges.length - 1]![1];
-    state.messages = [messages[0]!, ...messages.slice(lastFoldedEnd)];
+    const { folded, summary } = await this.contextCompactor.compact(endpoint, history, {
+      fixedTokens,
+      summary: state.summary,
+      scope: sessionId,
+      feature: 'assistant-summary',
+    });
+    if (!folded) return;
+    state.messages = [messages[0]!, ...messages.slice(1 + folded)];
     state.summary = summary;
-    emit({ kind: 'compaction', summary, foldedTurns: foldedRanges.length });
-    throwIfAborted(signal); // 摘要生成期间用户可能已停止。
+    const foldedTurns = history.slice(0, folded).filter((line) => line.role === 'user').length;
+    emit({ kind: 'compaction', summary, foldedTurns: Math.max(1, foldedTurns) });
   }
 
   /** 处理调查过程记忆工具：更新 workspace + emit 专用 step。返回回灌给模型的简短结果。 */
@@ -2139,27 +2335,28 @@ export class AssistantService {
   private async callApi(
     endpoint: AgentLabEndpoint,
     messages: ApiMessage[],
-    specs: AssistantToolSpec[],
-    options: { maxTokens?: number; signal?: AbortSignal } = {},
+    signal?: AbortSignal,
   ): Promise<{ choices?: Array<{ message?: ApiMessage }>; usage?: unknown }> {
-    const maxTokens = this.config.maxOutputTokens
-      ? Math.min(options.maxTokens ?? this.config.maxOutputTokens, this.config.maxOutputTokens)
-      : options.maxTokens;
     try {
-      return await requestApiJson(endpoint, '/chat/completions', {
-        method: 'POST',
-        signal: options.signal,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${endpoint.apiKey}` },
-        body: JSON.stringify({
-          model: endpoint.model,
-          ...(this.config.temperature === null
-            ? {}
-            : { temperature: this.config.temperature ?? 0.3 }),
-          messages,
-          ...(maxTokens ? { max_tokens: maxTokens } : {}),
-          ...(specs.length ? { tools: specs, tool_choice: 'auto' } : {}),
-        }),
-      });
+      return await requestApiJson(
+        {
+          ...endpoint,
+          timeoutMs: endpoint.timeoutMs ?? 30_000,
+        },
+        '/chat/completions',
+        {
+          method: 'POST',
+          signal,
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${endpoint.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: endpoint.model,
+            messages,
+          }),
+        },
+      );
     } catch (error) {
       if (error instanceof ApiHttpError)
         throw new Error(httpErrorMessage(error.status, error.detail));
@@ -2175,37 +2372,48 @@ export class AssistantService {
    * - reasoning：`reasoningEffort` 非 off 时带 `reasoning_effort`；若 provider 不认（400），
    *   去掉该参数重试一次，并回填 `this.reasoningUnsupported` 让本进程后续不再带（防基础聊天回归）。
    * - tool_calls：流式下每片是 `delta.tool_calls[]`，需按 `index` 分槽把 name/arguments 碎片拼全。
-   * - 温度：明确拒绝时只去参重试一次；SSE 必须尚无正文、推理或工具片段，避免重复生成。
    */
-  private async callApiStream(
+  private callApiStream(
     endpoint: AgentLabEndpoint,
     messages: ApiMessage[],
     specs: AssistantToolSpec[],
     emit: (step: AssistantStep) => void,
     signal?: AbortSignal,
+  ): ReturnType<AssistantService['callApiStreamWithinDeadline']> {
+    return withApiDeadline(
+      { ...endpoint, timeoutMs: endpoint.timeoutMs ?? 180_000 },
+      { signal },
+      (request) =>
+        this.callApiStreamWithinDeadline(endpoint, messages, specs, emit, request.signal),
+    );
+  }
+
+  private async callApiStreamWithinDeadline(
+    endpoint: AgentLabEndpoint,
+    messages: ApiMessage[],
+    specs: AssistantToolSpec[],
+    emit: (step: AssistantStep) => void,
+    signal: AbortSignal,
   ): Promise<{ content: string; reasoning: string; toolCalls: ApiMessage['tool_calls'] }> {
-    const effort = this.config.reasoningEffort;
+    let effort = this.config.reasoningEffort;
     if (
       effort &&
       effort !== 'off' &&
       endpoint.reasoningEfforts &&
       !endpoint.reasoningEfforts.includes(effort)
-    )
-      throw new Error(`当前模型未声明思考档位 ${effort}，请在助手设置中重新选择`);
+    ) {
+      if (this.taskEndpoint.getStore()?.inheritedEffort) effort = 'off';
+      else throw new Error(`当前模型未声明思考档位 ${effort}，请重新选择思考强度`);
+    }
     const modelIdentity =
       endpoint.modelIdentity ?? JSON.stringify([endpoint.baseUrl, endpoint.model]);
     const withReasoning =
       !!effort && effort !== 'off' && !this.reasoningUnsupported.has(modelIdentity);
-    let temperatureOmitted = false;
     let lastReasoning = withReasoning;
 
     const buildBody = (reasoning: boolean): string =>
       JSON.stringify({
         model: endpoint.model,
-        ...(temperatureOmitted || this.config.temperature === null
-          ? {}
-          : { temperature: this.config.temperature ?? 0.3 }),
-        ...(this.config.maxOutputTokens ? { max_tokens: this.config.maxOutputTokens } : {}),
         stream: true,
         stream_options: { include_usage: true },
         messages,
@@ -2232,7 +2440,6 @@ export class AssistantService {
         true,
       );
       accounting = result.usage;
-      temperatureOmitted ||= result.temperatureOmitted;
       return result.response;
     };
     const rejectResponse = async (response: Response) => {
@@ -2273,13 +2480,14 @@ export class AssistantService {
       } catch (error) {
         // 用户取消（AbortError）原样放行，交给上层 aborted 分支；其余多为网络层失败（fetch 抛 TypeError）。
         accounting?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
+        signal.throwIfAborted();
         if (error instanceof Error && error.name === 'AbortError') throw error;
         throw new Error(
           `网络连接失败：无法连接到模型服务（${hostOf(endpoint.baseUrl)}），请检查网络或服务地址是否正确。`,
         );
       }
     };
-    let res = await requestResponse(withReasoning);
+    const res = await requestResponse(withReasoning);
     if (!res.ok || !res.body) {
       const detail = await rejectResponse(res);
       throw new Error(httpErrorMessage(res.status, detail));
@@ -2289,7 +2497,6 @@ export class AssistantService {
     let reasoning = '';
     // 按 index 累积的工具调用槽（流式下 arguments 是逐片拼接的）。
     const toolSlots = new Map<number, { id: string; name: string; args: string }>();
-    let temperatureRejected = false;
 
     // 消费 SSE data 行，也识别兼容端点在拒绝请求时返回的普通 JSON。
     const consumeEvent = (rawEvent: string): void => {
@@ -2309,14 +2516,8 @@ export class AssistantService {
           continue; // 半个 JSON（理论上被事件切分保护，兜底跳过）
         }
         if (chunk.usage) accounting?.report({ usage: chunk.usage });
-        const rejectedTemperature = isUnsupportedTemperature(chunk, 200);
-        const error =
-          apiErrorMessage(chunk) ??
-          (rejectedTemperature ? apiErrorMessage({ error: chunk }) : null);
-        if (error || rejectedTemperature) {
-          temperatureRejected = rejectedTemperature;
-          throw new Error(`模型服务错误：${error ?? '模型不支持温度参数'}`);
-        }
+        const error = apiErrorMessage(chunk);
+        if (error) throw new Error(`模型服务错误：${error}`);
         const delta = chunk.choices?.[0]?.delta;
         if (!delta) continue;
         if (typeof delta.content === 'string' && delta.content) {
@@ -2338,7 +2539,7 @@ export class AssistantService {
       }
     };
 
-    const readResponse = async (response: Response): Promise<boolean> => {
+    const readResponse = async (response: Response): Promise<void> => {
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -2356,41 +2557,18 @@ export class AssistantService {
           }
         }
         // 流结束后残留的最后一个事件（provider 未补尾部空行时）。
+        signal.throwIfAborted();
         if (buffer.trim()) consumeEvent(buffer);
         accounting?.finish('success');
       } catch (error) {
         accounting?.finish(isApiCancellation(error, signal) ? 'cancelled' : 'failed');
-        if (
-          temperatureRejected &&
-          !temperatureOmitted &&
-          !content &&
-          !reasoning &&
-          toolSlots.size === 0 &&
-          !isApiCancellation(error, signal)
-        ) {
-          await reader.cancel().catch(() => {});
-          return true;
-        }
-        if (
-          (content || reasoning || toolSlots.size > 0) &&
-          error !== null &&
-          typeof error === 'object'
-        )
-          this.nonReplayErrors.add(error);
+        await reader.cancel().catch(() => {});
         throw error;
       } finally {
         reader.releaseLock();
       }
-      return false;
     };
-
-    if (await readResponse(res)) {
-      temperatureOmitted = true;
-      res = await requestResponse(lastReasoning);
-      if (!res.ok || !res.body)
-        throw new Error(httpErrorMessage(res.status, await rejectResponse(res)));
-      await readResponse(res);
-    }
+    await readResponse(res);
 
     const toolCalls = [...toolSlots.entries()]
       .sort((a, b) => a[0] - b[0])
@@ -2456,7 +2634,7 @@ function slug(text: string): string {
 
 /**
  * 清洗模型生成的标题：去掉首尾空白、换行、包裹的引号/书名号与结尾标点，截断到 20 字。
- * 结果为空时返回 ''（上层保留占位标题）。
+ * 结果为空时返回 ''（上层保留临时标题）。
  */
 function cleanTitle(raw: string): string {
   let t = raw.trim().replace(/\s+/g, ' ');
@@ -2541,12 +2719,6 @@ function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
-/**
- * 给一个 promise 套超时：到点抛可读的普通 Error（name≠AbortError，故不会被 chat() 误判为用户取消）。
- * 可取消下游由调用者传递 signal；无法确认终态的操作停止本轮，不能当普通失败继续重试。
- */
-class ToolOutcomeUnknownError extends Error {}
-
 /** 检查点补齐未完成的工具批次；恢复时保留已确认结果，不重发已开始的调用。 */
 function checkpointMessages(messages: ApiMessage[], activeToolId?: string): ApiMessage[] {
   const result: ApiMessage[] = [];
@@ -2585,50 +2757,6 @@ function hasUnknownToolOutcome(result: unknown): boolean {
   );
 }
 
-function withTimeout<T>(
-  p: Promise<T>,
-  ms: number | null,
-  label: string,
-  signal?: AbortSignal,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
-      reject(
-        new ToolOutcomeUnknownError(
-          `${label}已停止；已发出的操作可能仍会完成，请先核对实际结果，不要自动重试。`,
-        ),
-      );
-    };
-    const timer =
-      ms === null
-        ? undefined
-        : setTimeout(() => {
-            signal?.removeEventListener('abort', onAbort);
-            reject(
-              new ToolOutcomeUnknownError(
-                `${label}超时（${Math.round(ms / 1000)}s），终态未知；已发出的操作可能仍会完成，不要自动重试。`,
-              ),
-            );
-          }, ms);
-    signal?.addEventListener('abort', onAbort, { once: true });
-    if (signal?.aborted) onAbort();
-    p.then(
-      (v) => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        reject(e);
-      },
-    );
-  });
-}
-
 /** 可被 signal 打断的 sleep（用于 429 退避重试；用户点停止时立即抛 AbortError）。 */
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -2663,117 +2791,20 @@ function hostOf(url: string): string {
 
 // ── 上下文压缩 / 运行时注入的工具函数 ────────────────────────────────────────
 
-/** 粗略 token 估算：中文 ~1.8 字符/token。只用于压缩触发判断，无需精确。 */
-function estimateTokens(text: string): number {
-  return Math.max(
-    1,
-    Math.ceil(String(text || '').length / CHARS_PER_TOKEN) + MESSAGE_OVERHEAD_TOKENS,
-  );
-}
-
-function estimateMessagesTokens(messages: ApiMessage[]): number {
-  let total = 0;
-  for (const m of messages) {
-    total += estimateTokens(typeof m.content === 'string' ? m.content : '');
-    if (m.tool_calls?.length) {
-      for (const c of m.tool_calls) total += estimateTokens(c.function.name + c.function.arguments);
-    }
-  }
-  return total;
-}
-
-/** 裁剪文本：保留头尾，中间插入提示（优先保留尾部，因为结论/最新信息通常在后面）。 */
-function clipText(value: string, maxChars: number, notice = '\n…[较早内容已裁剪]…\n'): string {
-  if (value.length <= maxChars) return value;
-  const available = Math.max(80, maxChars - notice.length);
-  const head = Math.ceil(available * 0.62);
-  const tail = Math.max(0, available - head);
-  return `${value.slice(0, head)}${notice}${tail > 0 ? value.slice(-tail) : ''}`;
-}
-
-/** 把一条 API 消息渲染成压缩输入/兜底摘要用的可读文本。 */
-function messageToCompactText(message: ApiMessage, maxChars: number): string {
-  if (message.role === 'system')
-    return `[系统] ${clipText(String(message.content ?? ''), maxChars)}`;
-  if (message.role === 'user') {
-    return `用户：${clipText(String(message.content ?? ''), maxChars)}`;
-  }
-  if (message.role === 'tool') {
-    return `  [工具结果] ${clipText(String(message.content ?? ''), maxChars)}`;
-  }
-  // assistant
-  const content = String(message.content ?? '');
-  const calls = (message.tool_calls ?? []).map((c) => c.function.name).join('、');
-  const head = content ? `助手：${clipText(content, maxChars)}` : '';
-  const toolHead = calls ? `[调用工具：${calls}]` : '';
-  return [head, toolHead].filter(Boolean).join(' ');
-}
-
-/**
- * 把 messages 中「本轮提问之前的可折叠历史」按完整回合分组。
- * 一组 = 一条 user 消息 + 其后到下一个 user 之前的全部消息（assistant/tool 序列天然
- * 成对），保证折叠不破坏 tool_calls 与 tool 结果的配对。返回组区间 [start, end)。
- */
-function foldableRounds(messages: ApiMessage[]): Array<[number, number]> {
-  // messages[0] 恒为 system，不参与折叠。
-  const rounds: Array<[number, number]> = [];
-  let start = 1;
-  for (let i = start; i < messages.length; i += 1) {
-    if (messages[i]?.role === 'user') {
-      if (i > start) rounds.push([start, i]);
-      start = i;
-    }
-  }
-  // 最后一个 user 是「本轮提问」，其后的本轮内容永不折叠。
-  if (start < messages.length && messages[start]?.role === 'user') {
-    // 前面的历史轮次已经收集；最后一组（本轮）不加入。
-  } else if (start < messages.length && start > 1) {
-    rounds.push([start, messages.length]);
-  }
-  return rounds;
-}
-
-/** 渲染要被折叠的区间为摘要输入（限量）。 */
-function renderFoldableMessages(
-  messages: ApiMessage[],
-  ranges: Array<[number, number]>,
-  maxChars: number,
-): string {
-  const blocks: string[] = [];
-  let used = 0;
-  for (const [s, e] of ranges) {
-    for (let i = s; i < e; i += 1) {
-      const block = messageToCompactText(messages[i]!, SUMMARY_INPUT_MSG_CHARS);
-      if (used + block.length > maxChars) {
-        const remaining = maxChars - used;
-        if (remaining > 240) blocks.push(clipText(block, remaining));
-        return blocks.join('\n');
-      }
-      blocks.push(block);
-      used += block.length + 2;
-    }
-  }
-  return blocks.join('\n');
-}
-
-/** 摘要生成失败时的本地兜底：旧摘要 + 折叠内容的开头（不丢信息优先）。 */
-function fallbackSummary(previousSummary: string, foldedText: string): string {
-  const sections: string[] = [];
-  if (previousSummary) sections.push(`此前摘要：\n${clipText(previousSummary, 2_500)}`);
-  if (foldedText)
-    sections.push(`较早已折叠的记录：\n${clipText(foldedText, SUMMARY_FALLBACK_CHARS)}`);
-  return clipText(sections.join('\n\n') || '较早的对话已被折叠。', 6_000);
-}
-
-/** 摘要生成调用的 system 提示。 */
-function summarySystemPrompt(): string {
-  return [
-    '你是一个会话压缩器。下面是一段较长的对话记录（用户与 AI 助手的多轮问答与工具调用）。',
-    '把它压缩成一份结构化摘要，保留：用户的核心目标与问题、已确认的事实与结论（谁、何时、说了什么）、' +
-      '关键约束、已做的调查与结论、**未完成的事项与待办**（后续要继续查的）。',
-    '丢弃客套话、重复与琐碎过程。用中文，分点列出，控制在 500 字以内。',
-    '只输出摘要正文，不要解释。',
-  ].join('\n');
+function contextLine(message: ApiMessage) {
+  return {
+    role: message.role,
+    text: [
+      typeof message.content === 'string' ? message.content : '',
+      ...(message.imageOutcomes?.map(imageOutcomeAnnotation) ??
+        (message.images?.length ? ['[图片]'] : [])),
+      ...(message.tool_calls?.map(
+        (call) => `[调用 ${call.function.name}] ${call.function.arguments}`,
+      ) ?? []),
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  };
 }
 
 /** 把「会话摘要」渲染成运行时注入段（压缩折叠后的早期历史）。 */

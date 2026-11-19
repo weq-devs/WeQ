@@ -327,28 +327,88 @@ it('空间正文不显示重复按钮，修饰键多选仍可通过顶部导出�
     f.close();
   }
 });
-it('跳转说说详情和普通动态共用一列阅读布局，不嵌套两层时间线边距', async () => {
-  const f = mount(
-    createElement(QzoneView, {
-      selfUin: '10001',
-      nickname: '合成自己',
-      active: true,
-      spaceRequest: {
-        accountUin: '10001',
-        uin: '10002',
-        revision: 'fixture-linked',
-        target: { kind: 'post', tid: 'linked' },
-      },
-    }),
-  );
+it('说说标签只读取指定说说，离开后回来仍是同一条', async () => {
+  vi.stubGlobal('localStorage', new Storage());
+  const page = (show: boolean) =>
+    createElement(
+      PageSnapshots,
+      { scope: 'qzone-linked-post' },
+      show
+        ? createElement(QzoneView, {
+            selfUin: '10001',
+            nickname: '合成自己',
+            active: true,
+            spaceRequest: {
+              accountUin: '10001',
+              uin: '10002',
+              nickname: '合成空间',
+              revision: 'fixture-linked',
+              target: { kind: 'post', uin: '10002', tid: 'linked' },
+            },
+          })
+        : null,
+    );
+  const f = mount(page(true));
   try {
     await act(async () => {});
-    const linked = f.host.querySelector('.weq-qzn-linked-post');
-    expect(linked?.textContent).toContain('fixture-linked');
-    const timeline = linked?.closest('.weq-qzn-timeline');
-    expect(timeline).not.toBeNull();
-    expect(timeline?.querySelector('[data-qzone-tid="a"]')).not.toBeNull();
-    expect(timeline?.querySelector('.weq-qzn-timeline')).toBeNull();
+    expect(f.host.querySelector('[aria-current="page"]')?.textContent).toBe('合成空间 的说说');
+    expect(f.host.querySelector('[data-qzone-tid="linked"]')?.textContent).toContain(
+      'fixture-linked',
+    );
+    expect(f.host.querySelectorAll('[data-qzone-tid]')).toHaveLength(1);
+    expect(fixture.posts).not.toHaveBeenCalled();
+    f.render(page(false));
+    f.render(page(true));
+    await act(async () => {});
+    expect(f.host.querySelector('[data-qzone-tid="linked"]')).not.toBeNull();
+    expect(fixture.posts).not.toHaveBeenCalled();
+    act(() =>
+      f.host.querySelector<HTMLButtonElement>('[aria-label="关闭 合成空间 的说说"]')!.click(),
+    );
+    expect(f.host.querySelector('[aria-current="page"]')?.textContent).toBe('好友动态');
+    expect(f.host.querySelector('.weq-qzn-linked-post')).toBeNull();
+  } finally {
+    f.close();
+  }
+});
+it('单条说说的作者头像和昵称按设置打开空间或名片', async () => {
+  const profile = vi.fn();
+  const page = (personClickAction: 'space' | 'profile') =>
+    createElement(
+      QzoneProfileContext.Provider,
+      { value: profile },
+      createElement(QzoneView, {
+        selfUin: '10001',
+        nickname: '合成自己',
+        personClickAction,
+        spaceRequest: {
+          accountUin: '10001',
+          uin: '10002',
+          nickname: '合成作者',
+          revision: 'linked-author',
+          target: { kind: 'post', uin: '10002', tid: 'linked' },
+        },
+      }),
+    );
+  const f = mount(page('profile'));
+  const authorButtons = () =>
+    f.host.querySelectorAll<HTMLButtonElement>(
+      '[data-qzone-tid="linked"] .weq-qzn-post-head button',
+    );
+  try {
+    await act(async () => {});
+    act(() => authorButtons()[0]!.click());
+    act(() => authorButtons()[1]!.click());
+    expect(profile.mock.calls.map(([uin, name]) => [uin, name])).toEqual([
+      ['10002', '合成作者'],
+      ['10002', '合成作者'],
+    ]);
+    f.render(page('space'));
+    await act(async () => authorButtons()[0]!.click());
+    expect(f.host.querySelector('[aria-label="空间栏目"] [aria-current="page"]')?.textContent).toBe(
+      '合成作者 的空间',
+    );
+    expect(profile).toHaveBeenCalledTimes(2);
   } finally {
     f.close();
   }

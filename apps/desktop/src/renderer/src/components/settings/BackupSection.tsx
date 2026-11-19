@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { NumericText } from '../NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -122,10 +123,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const generation = useRef(0);
   const alive = useRef(true);
   const input = useRef<HTMLInputElement>(null);
-  const cancelButton = useRef<HTMLButtonElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
   const defaultsFailed = useRef(false);
   useEffect(() => {
-    if (confirm && !busy) cancelButton.current?.focus();
+    if (confirm && !busy && !confirmButton.current?.disabled) confirmButton.current?.focus();
   }, [confirm, busy]);
   const toast = useToast((s) => s.push);
   const refresh = useCallback(
@@ -604,7 +605,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                 .map((id) => (
                   <div key={id} className="weq-backup-map">
                     <label htmlFor={`backup-scope-${id}`}>数据域 {id}</label>
-                    <select
+                    <FormSelect
                       id={`backup-scope-${id}`}
                       value={choice.scopeMap?.[id] ?? id}
                       onChange={(e) =>
@@ -619,7 +620,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                             {a.displayName} · {a.configId}
                           </option>
                         ))}
-                    </select>
+                    </FormSelect>
                   </div>
                 ))}
               <legend>同名数据处理</legend>
@@ -796,7 +797,6 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                   disabled={Boolean(busy)}
                 />
               ) : null}
-              {confirm === 'defaults' && busy ? <p role="status">{busy}</p> : null}
               <p>{confirmation.message}</p>
               {error ? (
                 <p role="alert" className="weq-backup-error">
@@ -817,7 +817,6 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               <button
                 type="button"
                 className="weq-action-soft"
-                ref={cancelButton}
                 disabled={Boolean(busy)}
                 onClick={closeConfirmation}
               >
@@ -826,6 +825,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               <button
                 type="button"
                 className="weq-action-primary"
+                data-weq-dialog-confirm
+                ref={confirmButton}
                 data-danger={confirm === 'defaults' || confirm === 'apply' ? 'solid' : undefined}
                 disabled={Boolean(busy) || (confirm === 'defaults' && !defaultsInfo)}
                 onClick={() =>

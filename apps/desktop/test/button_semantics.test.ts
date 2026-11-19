@@ -45,8 +45,8 @@ it.each([
 });
 
 it.each([
-  ['components/settings/VoiceTranscribeSection.tsx', 'onSave()'],
-  ['components/settings/AgentLabSection.tsx', 'onSave()'],
+  ['components/settings/VoiceTranscribeSection.tsx', 'type="submit"'],
+  ['components/settings/AgentLabSection.tsx', 'type="submit"'],
   ['components/settings/OneBotSection.tsx', 'saveServer.isLoading'],
   ['components/settings/ExternalRkeySection.tsx', '<Save size={13}'],
   ['components/settings/SsePushSection.tsx', '<Save size={13}'],

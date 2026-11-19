@@ -12,12 +12,13 @@ import { networkFetch } from '@weq/network';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, constants } from 'node:fs';
-import { readFile, writeFile, mkdir, lstat, readdir, copyFile, rm } from 'node:fs/promises';
+import { readFile, mkdir, lstat, readdir, copyFile, rm } from 'node:fs/promises';
 import { join, dirname, isAbsolute, resolve } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { getLogger, logErrorContext } from '../../common/logger';
 import { safeRelSegments, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
+import { writeFileAtomic } from '../../common/atomic_write';
 import { FlashTransferClient } from './client';
 import { FlashTransferResolver } from './resolver';
 import { groupFlashDownloads } from './batches';
@@ -113,8 +114,10 @@ export class FlashTransferDownloadManager extends EventEmitter {
   private tasks: FlashDownloadTask[] = [];
   private readonly aborts = new Map<string, AbortController>();
   private readonly running = new Set<string>();
+  private readonly publishing = new Set<string>();
   private pumping = false;
   private loading: Promise<void> | undefined;
+  private writes = Promise.resolve();
   private readonly client: FlashTransferClient;
   private readonly resolver: FlashTransferResolver;
   private startQueue: Promise<unknown> = Promise.resolve();
@@ -141,19 +144,29 @@ export class FlashTransferDownloadManager extends EventEmitter {
   }
 
   load(): Promise<void> {
-    if (this.loading) return this.loading;
-    const loading = this.readTasks().finally(() => {
-      if (this.loading === loading) this.loading = undefined;
-    });
-    this.loading = loading;
-    return loading;
+    this.loading ??= this.readTasks();
+    return this.loading;
   }
 
   private async readTasks(): Promise<void> {
     try {
       const raw = await readFile(this.tasksPath, 'utf8');
       const parsed = JSON.parse(raw) as FlashDownloadTask[];
-      if (Array.isArray(parsed)) this.tasks = parsed;
+      if (Array.isArray(parsed)) {
+        const now = Date.now();
+        this.tasks = parsed.map((task) =>
+          task.status === 'pending' || task.status === 'resolving' || task.status === 'downloading'
+            ? {
+                ...task,
+                status: 'failed',
+                interrupted: true,
+                finishedAt: now,
+                downloadedBytes: 0,
+                error: '上次下载已中断，可重试未完成文件。',
+              }
+            : task,
+        );
+      }
     } catch {
       // 首次运行 / 文件损坏：从空列表开始。
     }
@@ -161,8 +174,10 @@ export class FlashTransferDownloadManager extends EventEmitter {
 
   private async persist(strict = false): Promise<void> {
     try {
-      await mkdir(this.baseDir, { recursive: true });
-      await writeFile(this.tasksPath, JSON.stringify(this.tasks, null, 2), 'utf8');
+      const data = JSON.stringify(this.tasks, null, 2);
+      const write = this.writes.catch(() => {}).then(() => writeFileAtomic(this.tasksPath, data));
+      this.writes = write;
+      await write;
     } catch (error) {
       logger.error('failed to persist flash tasks', {
         event: 'flash-tasks-write',
@@ -221,6 +236,20 @@ export class FlashTransferDownloadManager extends EventEmitter {
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  activeDownloadBatches(): FlashDownloadBatch[] {
+    const active = new Set(
+      this.tasks
+        .filter((task) => !FINISHED_FLASH_STATUSES.has(task.status))
+        .map((task) => task.batchId ?? task.id),
+    );
+    // 快照仅取在途批次，避免一个分块更新去重组全部历史日志。
+    return groupFlashDownloads(
+      this.tasks
+        .filter((task) => active.has(task.batchId ?? task.id))
+        .map((task) => ({ ...task, logs: undefined })),
+    );
+  }
+
   /** 只重试失败或取消的文件；旧下载完全退出后才复用任务身份与路径。 */
   retry(taskId: string): Promise<boolean> {
     const request = this.startQueue.then(async () => {
@@ -233,6 +262,8 @@ export class FlashTransferDownloadManager extends EventEmitter {
       const previous = files.map((file) => ({ ...file }));
       for (const file of files) {
         file.status = 'pending';
+        delete file.interrupted;
+        delete file.pausedByUser;
         file.error = undefined;
         file.finishedAt = undefined;
         file.downloadedBytes = 0;
@@ -337,15 +368,49 @@ export class FlashTransferDownloadManager extends EventEmitter {
   }
 
   /** 取消整次下载操作，已完成的文件保留。 */
+  async pause(taskId: string): Promise<boolean> {
+    await this.loading;
+    const files = this.tasks.filter(
+      (task) =>
+        (task.batchId ?? task.id) === taskId &&
+        !this.publishing.has(task.id) &&
+        ['pending', 'resolving', 'downloading'].includes(task.status),
+    );
+    if (!files.length) return false;
+    for (const task of files) {
+      task.status = 'failed';
+      task.interrupted = true;
+      task.pausedByUser = true;
+      task.downloadedBytes = 0;
+      task.finishedAt = Date.now();
+      task.error = '已手动暂停；继续时只重试未完成文件。';
+      this.aborts.get(task.id)?.abort();
+      this.emitTask(task);
+    }
+    await this.persist(true);
+    return true;
+  }
+
   async cancel(taskId: string): Promise<boolean> {
     await this.loading;
     const tasks = this.tasks.filter((t) => (t.batchId ?? t.id) === taskId);
     if (!tasks.length) return false;
     for (const task of tasks) {
-      if (task.status !== 'pending' && task.status !== 'resolving' && task.status !== 'downloading')
+      if (this.publishing.has(task.id)) continue;
+      if (
+        !task.interrupted &&
+        task.status !== 'pending' &&
+        task.status !== 'resolving' &&
+        task.status !== 'downloading'
+      )
         continue;
       this.aborts.get(task.id)?.abort();
       task.status = 'cancelled';
+      if (task.interrupted) {
+        delete task.interrupted;
+        delete task.pausedByUser;
+        delete task.error;
+      }
       task.finishedAt = Date.now();
       this.emitTask(task);
     }
@@ -380,7 +445,9 @@ export class FlashTransferDownloadManager extends EventEmitter {
     await this.loading;
     const matched = new Set(
       this.list()
-        .filter((task) => (!ids || ids.has(task.id)) && statuses.has(task.status))
+        .filter(
+          (task) => (!ids || ids.has(task.id)) && !task.interrupted && statuses.has(task.status),
+        )
         .map((task) => task.id),
     );
     if (!matched.size) return 0;
@@ -423,7 +490,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
     this.aborts.set(task.id, abort);
     try {
       // 取消竞态：cancel() 可能在 pump 调度后才生效，这里每次推进前复查。
-      if ((task.status as FlashTaskStatus) === 'cancelled') return;
+      if (abort.signal.aborted || (task.status as FlashTaskStatus) === 'cancelled') return;
 
       // 1) 换直链
       task.status = 'resolving';
@@ -431,7 +498,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       task.downloadedBytes = 0;
       this.emitTask(task);
       const url = await this.client.getDownloadUrl(task.physicalId);
-      if ((task.status as FlashTaskStatus) === 'cancelled') return;
+      if (abort.signal.aborted || (task.status as FlashTaskStatus) === 'cancelled') return;
 
       // 2) 流式下载
       task.status = 'downloading';
@@ -442,6 +509,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       });
       if (abort.signal.aborted) return;
       // 成品仅排他创建；重试写自己的临时文件，不覆盖用户已有文件。
+      this.publishing.add(task.id);
       await copyFile(partialPath, task.targetPath, constants.COPYFILE_EXCL);
       if (abort.signal.aborted) return;
 
@@ -451,7 +519,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       this.emitTask(task);
     } catch (error) {
       if (abort.signal.aborted) {
-        task.status = 'cancelled';
+        task.status = task.interrupted ? 'failed' : 'cancelled';
       } else {
         task.status = 'failed';
         task.error = error instanceof Error ? error.message : String(error);
@@ -459,6 +527,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       task.finishedAt = Date.now();
       this.emitTask(task);
     } finally {
+      this.publishing.delete(task.id);
       await rm(partialPath, { force: true }).catch((error: unknown) =>
         logger.warn('清理闪传临时文件失败', { error: String(error) }),
       );

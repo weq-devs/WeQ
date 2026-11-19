@@ -9,10 +9,10 @@
 import type { AccountSession } from '@weq/account';
 import type { RenderC2cMsg } from './msg';
 import type { C2cMsg } from '@weq/db';
-import { filterArkOnly } from './ark_feed';
+import { feedConversationPreview, filterArkOnly } from './ark_feed';
 import { toRenderElements } from './msg_view';
 import { readonlyConversationPage, type ReadonlyPageRequest } from './readonly_conversation';
-import { plainContentText } from '../common/message_plain_text';
+import { messageReadPosition, messageReadCursor } from '../common/client_preferences';
 
 export interface ServiceAccountSummary {
   appId: string;
@@ -20,6 +20,7 @@ export interface ServiceAccountSummary {
   avatarUrl: string | null;
   sendTime: bigint;
   prompt: string;
+  latestReadPosition: string;
 }
 
 export interface ArkFeedMessage extends RenderC2cMsg {
@@ -39,7 +40,16 @@ export class ServiceAccountService {
     for (const c of contacts) {
       // Pull the real latest message (appId partition).
       const appId = c.appId;
-      const latest = await this.session.serviceAssistantMsgs.listLatest({ appId }, 1);
+      const latest = await this.session.serviceAssistantMsgs.listHistory(
+        { appId },
+        {
+          min: -(1n << 63n),
+          max: (1n << 63n) - 1n,
+          descending: true,
+          limit: 1,
+          includeSeqless: true,
+        },
+      );
       const rendered = latest.map((msg: C2cMsg) => this.renderC2c(msg));
       const first = rendered[0];
 
@@ -48,7 +58,8 @@ export class ServiceAccountService {
         displayName: c.displayName,
         avatarUrl: c.avatarUrl || null,
         sendTime: first?.sendTime ?? 0n,
-        prompt: first ? plainContentText(first.elements) : '',
+        prompt: first ? feedConversationPreview(first.elements) : '',
+        latestReadPosition: first ? messageReadPosition(first) : '0:0:0',
       });
     }
 
@@ -68,6 +79,12 @@ export class ServiceAccountService {
 
   listMessages(appId: string, request: ReadonlyPageRequest) {
     return readonlyConversationPage(this.session, { kind: 'service', appId }, request);
+  }
+  countUnread(appId: string, readSeq: string) {
+    return this.session.serviceAssistantMsgs.countIncomingAfter(
+      { appId: BigInt(appId) },
+      messageReadCursor(readSeq),
+    );
   }
 
   private renderC2c(m: C2cMsg): RenderC2cMsg {

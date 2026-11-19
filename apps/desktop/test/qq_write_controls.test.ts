@@ -16,6 +16,7 @@ import { useViewState } from '../src/renderer/src/state/view';
 import { subscribeQQPeerUpdates, type QQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
+import { chooseFormOption, formSelectSelector } from './support/form-controls';
 
 const mocked = vi.hoisted(() => ({
   config: { uin: '10001', configId: 'source-a' },
@@ -181,6 +182,39 @@ describe('QQ 写控件', () => {
     expect(input.value).toBe('新备注');
   });
 
+  it('单行 Enter 保存一次，选字和多行换行不提交', async () => {
+    const f = fixture();
+    const save = vi.fn(async () => true);
+    const render = (multiline: boolean, disabled = false) =>
+      act(() =>
+        f.root.render(
+          h(QQWriteTextRow, { label: '资料', initial: '内容', disabled, multiline, onSave: save }),
+        ),
+      );
+    const press = (field: string, init?: KeyboardEventInit) =>
+      f.host
+        .querySelector(field)!
+        .dispatchEvent(
+          new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', ...init }),
+        );
+    render(false);
+    act(() => {
+      expect(press('input', { isComposing: true })).toBe(true);
+      press('input', { repeat: true });
+    });
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => {
+      expect(press('input')).toBe(false);
+      press('input');
+    });
+    expect(save).toHaveBeenCalledWith('内容');
+    render(true);
+    act(() => expect(press('textarea')).toBe(true));
+    render(false, true);
+    act(() => press('input'));
+    expect(save).toHaveBeenCalledOnce();
+  });
+
   it('原值和清空字符串都可主动提交，不编辑不会自动提交', async () => {
     const f = fixture();
     const save = vi.fn(async () => true);
@@ -220,7 +254,7 @@ describe('QQ 写控件', () => {
             }),
       ),
     );
-    const button = f.host.querySelector<HTMLButtonElement>('button')!;
+    const button = f.host.querySelector<HTMLButtonElement>('button:not([role="combobox"])')!;
     expect(button.disabled).toBe(false);
     act(() => {
       button.click();
@@ -267,12 +301,9 @@ describe('QQ 写控件', () => {
           }),
         ),
       );
-      const select = f.host.querySelector('select')!;
-      const change = (value: string) => {
-        select.value = value;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      };
-      expect(f.host.querySelector('button')).toBeNull();
+      const select = f.host.querySelector<HTMLButtonElement>(formSelectSelector)!;
+      const change = (value: string) => chooseFormOption(select, value);
+      expect(f.host.querySelector('button:not([role="combobox"])')).toBeNull();
       act(() => change('2000'));
       expect(f.host.querySelector('[aria-label="自定义文字"]')).not.toBeNull();
       expect(save).not.toHaveBeenCalled();
@@ -287,11 +318,11 @@ describe('QQ 写控件', () => {
         if (failure === 'failure') finish(false);
         else reject(new Error('合成失败'));
       });
-      expect(select.value).toBe('10');
+      expect(select.dataset.value).toBe('10');
       expect(select.disabled).toBe(false);
       act(() => change('20'));
       await act(async () => finish(true));
-      expect(select.value).toBe('20');
+      expect(select.dataset.value).toBe('20');
       expect(save).toHaveBeenCalledTimes(2);
     },
   );
@@ -322,7 +353,9 @@ describe('QQ 写控件', () => {
         }),
       ),
     );
-    expect(f.host.querySelector<HTMLButtonElement>('button')!.disabled).toBe(true);
+    expect(f.host.querySelector<HTMLButtonElement>('button:not([role="combobox"])')!.disabled).toBe(
+      true,
+    );
     act(() =>
       f.root.render(
         h(QQWriteTextRow, { label: '备注', initial: '原备注', disabled: true, onSave: save }),
@@ -342,6 +375,14 @@ describe('QQ 写控件', () => {
     );
     const button = f.host.querySelector<HTMLButtonElement>('[aria-label="清空好友备注"]')!;
     expect(button.disabled).toBe(false);
+    act(() =>
+      f.host
+        .querySelector('input')!
+        .dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        ),
+    );
+    expect(save).not.toHaveBeenCalled();
     await act(async () => button.click());
     expect(save).toHaveBeenCalledWith('');
   });
@@ -365,13 +406,12 @@ describe('QQ 写控件', () => {
         }),
       ),
     );
-    const select = f.host.querySelector('select')!;
-    expect(select.value).toBe('8');
-    act(() => {
-      select.value = '3';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await act(async () => f.host.querySelector<HTMLButtonElement>('button')!.click());
+    const select = f.host.querySelector<HTMLButtonElement>(formSelectSelector)!;
+    expect(select.dataset.value).toBe('8');
+    act(() => chooseFormOption(select, '3'));
+    await act(async () =>
+      f.host.querySelector<HTMLButtonElement>('button:not([role="combobox"])')!.click(),
+    );
     expect(save).toHaveBeenCalledWith(3);
   });
 

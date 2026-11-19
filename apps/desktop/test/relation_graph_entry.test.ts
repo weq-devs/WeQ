@@ -149,7 +149,7 @@ it.each([false, true])('首页和图谱共用群成员刷新，更新时保留�
   }
 });
 
-it('群交集保留统计首页，加载完成后可进入图谱并主动返回', () => {
+it('扫描时可先更新成员，扫描完成后可进入图谱并主动返回', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   query.data = undefined;
   query.isLoading = true;
@@ -167,6 +167,8 @@ it('群交集保留统计首页，加载完成后可进入图谱并主动返回'
     );
     expect(host.querySelector('.weq-relhome-cta')?.textContent).toBe('正在扫描群成员……');
     expect(host.querySelector<HTMLButtonElement>('.weq-relhome-cta')?.disabled).toBe(true);
+    act(() => host.querySelector<HTMLButtonElement>('.weq-relhome-refresh')!.click());
+    expect(memberRefresh.refresh).toHaveBeenCalledTimes(1);
     query.data = {
       selfUin: '10001',
       nodes: [

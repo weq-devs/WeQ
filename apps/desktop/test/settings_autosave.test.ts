@@ -17,7 +17,7 @@ function fixture(save = vi.fn(async (_patch: { text?: string; count?: number }) 
   const root = createRoot(host);
   function Harness() {
     form = useSettingsAutosave(save);
-    return h('span', null, form.status);
+    return null;
   }
   act(() => root.render(h(Harness)));
   const edit = (text: string, valid = true) =>
@@ -37,13 +37,13 @@ it('输入立即变为未保存，500ms 合并输入，成功后才确认当前�
   try {
     f.edit('a');
     f.edit('ab');
-    expect(f.form.status).toBe('未保存');
+    expect(f.form.dirty).toBe(true);
     await act(async () => vi.advanceTimersByTimeAsync(499));
     expect(f.save).not.toHaveBeenCalled();
     await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(f.save).toHaveBeenCalledOnce();
     expect(f.save).toHaveBeenCalledWith({ text: 'ab' });
-    expect(f.form.status).toBe('已保存');
+    expect(f.form.dirty).toBe(false);
   } finally {
     f.close();
   }
@@ -85,7 +85,34 @@ it('无效输入不提交且阻止关闭，失败保留草稿，显式重试补�
     await act(async () => vi.advanceTimersByTimeAsync(1000));
     expect(f.save).toHaveBeenCalledTimes(1);
     await act(async () => expect(await f.form.flush()).toBe(true));
-    expect(f.form.status).toBe('已保存');
+    expect(f.form.dirty).toBe(false);
+  } finally {
+    f.close();
+  }
+});
+
+it('恢复设置前等在途保存结束，暂停期间不提交后续草稿', async () => {
+  let finish!: () => void;
+  const f = fixture(
+    vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    ),
+  );
+  try {
+    f.edit('first');
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    f.edit('second');
+    const suspended = f.form.suspend();
+    await act(async () => {
+      finish();
+      await suspended;
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(await f.form.flush()).toBe(false);
+    expect(f.save.mock.calls).toEqual([[{ text: 'first' }]]);
   } finally {
     f.close();
   }

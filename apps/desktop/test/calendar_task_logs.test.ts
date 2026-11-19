@@ -1,9 +1,19 @@
-import { afterEach, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { backgroundTasks } from '../src/main/background_tasks';
 import { backgroundTasksRouter } from '../src/main/ipc/routers/background_tasks';
 import { TaskLogConsole } from '../src/renderer/src/components/TaskLogConsole';
+
+vi.mock('../src/main/context/app_context', () => ({
+  accountEventBus: new EventEmitter(),
+  getAppContext: () => ({}),
+}));
+vi.mock(import('../src/main/ipc/routers/analysis_reports'), async (original) => ({
+  ...(await original()),
+  restoreAnalysisReportTasks: vi.fn(),
+}));
 
 afterEach(() => {
   for (const task of backgroundTasks.snapshot()) {

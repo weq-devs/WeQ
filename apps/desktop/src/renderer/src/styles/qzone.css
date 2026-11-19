@@ -36,9 +36,9 @@
 .weq-qzn button:focus-visible,
 .weq-qzn-composer button:focus-visible,
 .weq-qzn input:focus-visible,
-.weq-qzn select:focus-visible,
+.weq-qzn .weq-select-trigger:focus-visible,
 .weq-qzn-composer textarea:focus-visible,
-.weq-qzn-composer select:focus-visible {
+.weq-qzn-composer .weq-select-trigger:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
@@ -115,8 +115,8 @@
   font-size: 12px;
   color: var(--muted-foreground);
 }
-.weq-qzn select,
-.weq-qzn-composer select {
+.weq-qzn .weq-select-trigger,
+.weq-qzn-composer .weq-select-trigger {
   padding: 6px 8px;
   background: var(--muted);
   border-radius: 5px;
@@ -126,7 +126,7 @@
   padding: 22px 0;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
-.weq-qzn-post:first-of-type {
+.weq-qzn-post:first-of-type:not(:where(.weq-reference-item + .weq-reference-item > *)) {
   padding-top: 4px;
 }
 .weq-qzn-post-head {
@@ -134,8 +134,22 @@
   align-items: center;
   gap: 10px;
 }
-.weq-qzn-post-head > .weq-qzn-person-header {
+.weq-qzn-post-head > .weq-qzn-person-header,
+.weq-qzn-repost-author > .weq-qzn-person-header {
   min-width: 0;
+}
+.weq-qzn-post-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  min-width: 0;
+}
+.weq-qzn-post-tools {
+  display: flex;
+  flex: none;
+  align-self: flex-start;
+  margin-inline-start: auto;
 }
 .weq-qzn-post-head strong {
   font-size: 14px;
@@ -154,6 +168,9 @@
   margin-left: auto;
   color: var(--muted-foreground);
   font-size: 12px;
+}
+.weq-qzn-feed-kind + .weq-qzn-post-tools {
+  margin-inline-start: 0;
 }
 .weq-qzn-content {
   white-space: pre-wrap;
@@ -354,8 +371,8 @@
   font-size: 14px;
 }
 .weq-qzn-primary {
-  background: var(--primary) !important;
-  color: var(--primary-foreground) !important;
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 .weq-qzn-draft-images {
   display: flex;
@@ -461,7 +478,7 @@
   .weq-web-dialog-layer .weq-qzn-composer footer {
     flex-wrap: wrap;
   }
-  .weq-web-dialog-layer .weq-qzn-composer :is(textarea, select) {
+  .weq-web-dialog-layer .weq-qzn-composer :is(textarea, .weq-select-trigger) {
     font-size: 16px;
   }
 }
@@ -474,15 +491,12 @@
   padding: 12px;
   margin: 14px 0;
 }
-.weq-qzn-composer textarea::placeholder {
-  color: var(--muted-foreground);
-}
-.weq-qzn-composer select {
+.weq-qzn-composer .weq-select-trigger {
   background: var(--weq-bg-elevated);
   color: var(--weq-fg-primary);
   border: 1px solid var(--weq-border-strong);
 }
-.weq-qzn-composer select option {
+.weq-qzn-composer .weq-select-trigger option {
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
 }
@@ -646,6 +660,10 @@
   padding: 7px 10px;
   border-radius: 6px;
   font-size: 13px;
+}
+.weq-qzn-actions > .weq-qzn-views {
+  margin-inline-start: auto;
+  white-space: nowrap;
 }
 
 .weq-qzn-owner-space {

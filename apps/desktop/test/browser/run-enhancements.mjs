@@ -48,7 +48,7 @@ try {
   let cases = 0;
   for (const width of [1024, 640, 390, 320])
     for (const theme of ['light', 'dark'])
-      for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+      for (const style of ['qqnt', 'classic', 'retro']) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(url);
         await page.locator('.weq-set-card').first().waitFor();

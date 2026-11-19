@@ -32,24 +32,31 @@ export function useSurfaceOutside(
     scrim = false,
     anchor,
     consume = true,
-  }: { scrim?: boolean; anchor?: HTMLElement | null; consume?: boolean } = {},
+    secondaryPress = false,
+  }: {
+    scrim?: boolean;
+    anchor?: HTMLElement | null;
+    consume?: boolean;
+    secondaryPress?: boolean;
+  } = {},
 ) {
   useEffect(() => {
     const element = ref.current;
     if (!active || !element || !onClose) return;
     const document = element.ownerDocument;
     const outside = (event: PointerEvent) => {
-      if (event.button > 0 || event.defaultPrevented) return;
+      const switchingMenu = secondaryPress && event.button === 2;
+      if ((event.button > 0 && !switchingMenu) || event.defaultPrevented) return;
       // 仅声明 Esc 优先级的子菜单不改变原有指针关闭归属。
       if (!eventSurfaces.has(event)) eventSurfaces.set(event, topSurface(document, false));
       if (eventSurfaces.get(event) !== surfaceRoot(element, false)) return;
       const target = event.target as Node | null;
       if (!target || anchor?.contains(target)) return;
       if (element.contains(target) && (!scrim || target !== element)) return;
-      if (consume) consumeOutsidePress(document, event);
+      if (consume && !switchingMenu) consumeOutsidePress(document, event);
       onClose();
     };
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
-  }, [ref, onClose, active, scrim, anchor, consume]);
+  }, [ref, onClose, active, scrim, anchor, consume, secondaryPress]);
 }

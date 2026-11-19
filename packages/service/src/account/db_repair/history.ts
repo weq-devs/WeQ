@@ -13,7 +13,7 @@
  * 无上限增长迟早吃掉用户磁盘。
  */
 
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { JsonStore } from '../../common/json_store';
 import { fileBytes, removeDirQuietly } from './files';
@@ -100,17 +100,25 @@ export class DbRepairHistory {
   }
 
   /**
-   * 彻底删掉一条记录（带它自己的备份目录，由调用方清）。
-   *
-   * 与 `pruneBackups` 的区别：那边只清备份、记录留着（打 `purgedAt`），因为"上次修了
-   * 什么"本身有价值；这里是用户主动不要这条历史了 —— 记录与备份一起消失。备份目录的
-   * 删除交给 service（这里只碰 JSON 状态，方便离线单测）。
+   * 最后一条引用先清除备份再删除记录；失败时仍能从同一条记录重试。
    */
   remove(id: string): boolean {
-    const before = this.store.data.records.length;
-    this.store.data.records = this.store.data.records.filter((record) => record.id !== id);
-    if (this.store.data.records.length === before) return false;
-    this.store.save();
+    this.store.assertReadable();
+    const record = this.find(id);
+    if (!record) return false;
+    const records = this.store.data.records.filter((item) => item.id !== id);
+    const path = record.backupPath;
+    if (path && !records.some((item) => item.backupPath === path)) {
+      try {
+        rmSync(dirname(path), { recursive: true, force: true });
+        if (lstatSync(path, { throwIfNoEntry: false })) throw new Error('数据库备份仍存在');
+      } catch (error) {
+        throw new Error('无法清理数据库备份，修复记录已保留。请检查备份位置后重试。', {
+          cause: error,
+        });
+      }
+    }
+    this.store.replace({ ...this.store.data, records }, true);
     return true;
   }
 
@@ -125,20 +133,21 @@ export class DbRepairHistory {
     const withBackup = this.list().filter(
       (record) => record.backupPath !== null && record.purgedAt === undefined,
     );
+    // 同一次维护的重试记录可以共用备份；保留份数按文件而不是报告数计算。
+    const backupPaths = [...new Set(withBackup.map((record) => record.backupPath!))];
 
     const purged: string[] = [];
-    for (const record of withBackup.slice(keep)) {
-      const backupPath = record.backupPath;
-      if (backupPath) removeDirQuietly(dirname(backupPath));
-      if (backupPath && existsSync(backupPath)) continue;
-      const index = this.store.data.records.findIndex((item) => item.id === record.id);
-      if (index >= 0) {
+    for (const backupPath of backupPaths.slice(keep)) {
+      removeDirQuietly(dirname(backupPath));
+      if (existsSync(backupPath)) continue;
+      for (const record of withBackup.filter((item) => item.backupPath === backupPath)) {
+        const index = this.store.data.records.findIndex((item) => item.id === record.id);
         this.store.data.records[index] = {
-          ...this.store.data.records[index]!,
+          ...record,
           purgedAt: new Date().toISOString(),
         };
+        purged.push(record.id);
       }
-      purged.push(record.id);
     }
     if (purged.length > 0) this.store.save();
     return purged;
@@ -169,7 +178,7 @@ export class DbRepairHistory {
     store.replace({
       ...store.data,
       records: store.data.records.map((item) =>
-        item.id === id ? { ...item, purgedAt: at } : item,
+        item.backupPath === record.backupPath ? { ...item, purgedAt: at } : item,
       ),
     });
     this.store = store;

@@ -1,5 +1,5 @@
-import { useContext, useEffect, useRef, useState } from 'react';
-import { Heart, Loader2, RefreshCw, MoreHorizontal } from 'lucide-react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArchiveX, Heart, Loader2, MoreHorizontal, RefreshCw, Send, Undo2 } from 'lucide-react';
 import type { QzoneUpvotePreview } from '@weqbot/protocol';
 import { client } from '../trpc/client';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
@@ -12,7 +12,8 @@ import { useQQAction } from './qq-actions/shared.shared';
 import { useToast } from './Toast.shared';
 import { qzoneMediaSource } from '../lib/qzone';
 import { ShimmerImage } from './ShimmerImage';
-import { HoverPopover } from './HoverPopover';
+import { ConversationActionsMenu } from './ConversationActionsMenu';
+import { visibleViewport } from '../lib/visibleViewport';
 import '../styles/qzone-archive.css';
 import {
   qzoneCardTarget,
@@ -22,10 +23,15 @@ import {
 
 type ArchiveView = inferRouterOutputs<AppRouter>['account']['qzone']['archiveState'];
 
+function hasUpvotePreview(value: QzoneUpvotePreview | null): boolean {
+  return value?.count != null || Boolean(value?.users.length);
+}
+
 export function QzoneUpvoteAction({
   value,
   onClick,
   pending = false,
+  disabled = false,
   loading = false,
   error = '',
   onRetry,
@@ -34,28 +40,39 @@ export function QzoneUpvoteAction({
   value: QzoneUpvotePreview | null;
   onClick?: () => void;
   pending?: boolean;
+  disabled?: boolean;
   loading?: boolean;
   error?: string;
   onRetry?: () => void;
   onSpace?: (uin: string, nickname?: string) => void;
 }) {
-  const label = onClick && value?.upvoted ? '取消推' : '推';
+  if (!onClick && !hasUpvotePreview(value)) return null;
+  const upvoted = value?.upvoted ?? false;
+  const label = onClick && upvoted ? '取消推' : '推';
   return (
     <QzoneLikesPopover
       label="推的人"
-      trigger={
+      trigger={(open) => (
         <button
           type="button"
           aria-label={label}
-          title={onClick ? label : '推过的人'}
-          aria-pressed={onClick ? (value?.upvoted ?? false) : undefined}
-          disabled={pending}
+          aria-description={onClick ? undefined : '点击查看推过的人'}
+          title={label}
+          data-qzone-upvoted={upvoted}
+          aria-pressed={onClick ? upvoted : undefined}
+          aria-expanded={onClick ? undefined : open}
+          aria-busy={pending || undefined}
+          disabled={Boolean(onClick) && (pending || disabled)}
           onClick={onClick}
         >
-          <Heart size={16} fill={value?.upvoted ? 'currentColor' : 'none'} />推{' '}
-          <span className="weq-number">{value?.count ?? '?'}</span>
+          {pending ? (
+            <Loader2 size={16} className="weq-spin" />
+          ) : (
+            <Heart size={16} fill={upvoted ? 'currentColor' : 'none'} />
+          )}
+          推 <span className="weq-number">{value?.count ?? '?'}</span>
         </button>
-      }
+      )}
     >
       <div className="weq-qzn-interaction">
         {loading ? <Loader2 size={14} className="weq-spin" aria-label="正在读取推预览" /> : null}
@@ -110,8 +127,10 @@ export function QzoneUpvoteAction({
   );
 }
 
-/** 普通说说复用原生详情缓存；只读取可见动态，不阻塞赞和正文。 */
-export function QzonePostUpvotes({
+export type QzonePostArchiveControls = { tag: ReactNode; menu: ReactNode; upvote: ReactNode };
+
+/** 作者区与互动栏共用原生详情缓存；只读取可见动态，不阻塞赞和正文。 */
+export function QzonePostArchive({
   selfUin,
   hostUin,
   tid,
@@ -119,6 +138,7 @@ export function QzonePostUpvotes({
   enabled,
   refresh,
   onSpace,
+  render,
 }: {
   selfUin: string;
   hostUin: string;
@@ -127,6 +147,7 @@ export function QzonePostUpvotes({
   enabled: boolean;
   refresh: number;
   onSpace?: (uin: string, nickname?: string) => void;
+  render: (controls: QzonePostArchiveControls) => ReactNode;
 }) {
   const requests = useQzoneRequests();
   const [value, setValue] = useState<QzoneUpvotePreview | null>(null);
@@ -134,6 +155,8 @@ export function QzonePostUpvotes({
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [archive, setArchive] = useState<ArchiveView | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; above: boolean } | null>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
   const write = useQQAction(`qzone-archive:${hostUin}:${tid}`, 'failure-only');
   const writeScope = `${selfUin}:${hostUin}:${tid}:${time}:${write.binding?.expectedAccountConfigId}`;
   const latestWriteScope = useRef(writeScope);
@@ -149,7 +172,7 @@ export function QzonePostUpvotes({
   const navigate = useContext(QzoneCardNavigationContext);
   const openPublic = useContext(QzonePublicNavigationContext);
   const completed = useRef<string | null>(null);
-  const revision = `${refresh}:${retry}`;
+  const revision = `${selfUin}:${hostUin}:${tid}:${time}:${refresh}:${retry}`;
   useEffect(() => {
     if (!enabled || time <= 0 || completed.current === revision) return;
     let active = true;
@@ -253,96 +276,116 @@ export function QzonePostUpvotes({
   const tagIcon = tag?.iconUrl ? qzoneMediaSource(tag.iconUrl) : null;
   const target = tag ? qzoneCardTarget(tag.targetUrl) : null;
   const publicTarget = tag?.targetUrl.startsWith('mqzone://arouse/publicrecommend/feeds?') === true;
-  return (
+  const openTag = target && navigate ? () => navigate(target) : publicTarget ? openPublic : null;
+  const tagContent = tag && (
     <>
-      {tag ? (
-        <button
-          type="button"
-          title={tag.text}
-          onClick={() => {
-            if (target) navigate?.(target);
-            else if (publicTarget) openPublic?.();
-          }}
-          disabled={target ? !navigate : !publicTarget || !openPublic}
-        >
-          {tagIcon ? <ShimmerImage src={tagIcon} alt="" width={16} height={16} /> : null}
-          {tag.text}
-        </button>
+      {tagIcon ? (
+        <span className="weq-qzn-post-status-icon" aria-hidden>
+          <ShimmerImage src={tagIcon} alt="" width={16} height={16} />
+        </span>
       ) : null}
-      {archive?.statusLabel ? <span>{archive.statusLabel}</span> : null}
-      {archive?.showUpvote ? (
-        <QzoneUpvoteAction
-          value={value}
-          loading={enabled && time > 0 && loading}
-          error={error}
-          onSpace={onSpace}
-          onRetry={
-            enabled && time > 0 && (error || !value)
-              ? () => setRetry((current) => current + 1)
-              : undefined
-          }
-        />
-      ) : null}
-      {selfUin === hostUin &&
-      (archive?.canContribute || archive?.canUncontribute || archive?.canUnarchive) ? (
-        <HoverPopover
-          label="空友爱看管理操作"
-          trigger={
-            <button
-              type="button"
-              title="空友爱看管理"
-              aria-label="空友爱看管理"
-              disabled={write.disabled}
-            >
-              {write.pending ? (
-                <Loader2 size={16} className="weq-spin" />
-              ) : (
-                <MoreHorizontal size={16} />
-              )}
-            </button>
-          }
-        >
-          <div className="weq-qzn-archive-operations">
-            {archive.canContribute ? (
-              <button
-                type="button"
-                disabled={write.disabled}
-                onClick={() => void perform('contribute')}
-              >
-                投稿至空友爱看
-              </button>
-            ) : null}
-            {archive.canUncontribute ? (
-              <button
-                type="button"
-                disabled={write.disabled}
-                onClick={() => void perform('uncontribute')}
-              >
-                取消投稿
-              </button>
-            ) : null}
-            {archive.canUnarchive ? (
-              <button
-                type="button"
-                disabled={write.disabled}
-                onClick={() => void perform('unarchive')}
-              >
-                取消收录
-              </button>
-            ) : null}
-          </div>
-        </HoverPopover>
-      ) : null}
-      {error && !archive?.showUpvote ? (
-        <button
-          type="button"
-          title={error}
-          aria-label="重试空友状态"
-          onClick={() => setRetry((current) => current + 1)}
-        >
-          <RefreshCw size={14} />
-        </button>
-      ) : null}
+      <span>{tag.text}</span>
     </>
   );
+  const canViewUpvotes = archive?.showUpvote && hasUpvotePreview(value);
+  const operations =
+    selfUin === hostUin && archive
+      ? (
+          [
+            ['contribute', archive.canContribute, '投稿至空友爱看', Send],
+            ['uncontribute', archive.canUncontribute, '取消投稿', Undo2],
+            ['unarchive', archive.canUnarchive, '取消收录', ArchiveX],
+          ] as const
+        ).filter(([, allowed]) => allowed)
+      : [];
+  const canManage = operations.length > 0;
+  const closeMenu = () => {
+    setMenu(null);
+    menuTrigger.current?.focus({ preventScroll: true });
+  };
+  const showRetry = error && !canViewUpvotes;
+  const retryRead = () => setRetry((current) => current + 1);
+  return render({
+    tag: tag ? (
+      openTag ? (
+        <button type="button" className="weq-qzn-post-status" title={tag.text} onClick={openTag}>
+          {tagContent}
+        </button>
+      ) : (
+        <span className="weq-qzn-post-status">{tagContent}</span>
+      )
+    ) : null,
+    menu:
+      canManage || showRetry ? (
+        <>
+          {canManage ? (
+            <>
+              <button
+                ref={menuTrigger}
+                type="button"
+                className="weq-qzn-archive-menu-button"
+                title="空友爱看管理"
+                aria-label="空友爱看管理"
+                aria-haspopup="menu"
+                aria-expanded={menu !== null}
+                aria-busy={write.pending}
+                onClick={(event) => {
+                  if (menu) {
+                    closeMenu();
+                    return;
+                  }
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const viewport = visibleViewport(event.currentTarget.ownerDocument.defaultView);
+                  const below = viewport.top + viewport.height - rect.bottom;
+                  const above =
+                    below < operations.length * 44 + 22 && rect.top - viewport.top > below;
+                  setMenu({ x: rect.right, y: above ? rect.top - 4 : rect.bottom + 4, above });
+                }}
+              >
+                {write.pending ? (
+                  <Loader2 size={16} className="weq-spin" />
+                ) : (
+                  <MoreHorizontal size={16} />
+                )}
+              </button>
+              {menu ? (
+                <ConversationActionsMenu
+                  x={menu.x}
+                  y={menu.y}
+                  dropdown={menu.above ? 'above' : true}
+                  label="空友爱看管理操作"
+                  onClose={closeMenu}
+                  actions={operations.map(([action, , label, Icon]) => ({
+                    label,
+                    icon: <Icon size={16} aria-hidden />,
+                    disabled: write.disabled,
+                    action: () => void perform(action),
+                  }))}
+                />
+              ) : null}
+            </>
+          ) : null}
+          {showRetry ? (
+            <button
+              type="button"
+              className="weq-qzn-archive-menu-button"
+              title={error}
+              aria-label="重试空友状态"
+              onClick={retryRead}
+            >
+              <RefreshCw size={14} />
+            </button>
+          ) : null}
+        </>
+      ) : null,
+    upvote: canViewUpvotes ? (
+      <QzoneUpvoteAction
+        value={value}
+        loading={enabled && time > 0 && loading}
+        error={error}
+        onSpace={onSpace}
+        onRetry={enabled && time > 0 && error ? retryRead : undefined}
+      />
+    ) : null,
+  });
 }

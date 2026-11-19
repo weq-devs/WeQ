@@ -241,11 +241,11 @@ function processor(): AiImageProcessor {
         key: createHash('sha256').update(bytes).digest('hex'),
       };
     },
-    ocr: async (image, signal) => {
+    ocr: async (image, signal, refresh) => {
       let file = await locate(image, signal, true);
       const snapshot = taskImages.getStore();
       const localModel = snapshot ? snapshot.localModel : resolveLocalOcrModel();
-      const hit = file.key ? await cache.getText(file.key) : null;
+      const hit = file.key && !refresh ? await cache.getText(file.key) : null;
       if (
         hit &&
         (hit.source === 'oidb' ||
@@ -264,8 +264,9 @@ function processor(): AiImageProcessor {
               .digest('hex')
           : file.key;
       const filter = await prefilterAutomaticOcr({
-        enabled: (taskImages.getStore()?.settings ?? boot.userConfig.getSettings()).ocr
-          .prefilterEnabled,
+        enabled:
+          !refresh &&
+          (taskImages.getStore()?.settings ?? boot.userConfig.getSettings()).ocr.prefilterEnabled,
         path: file.path,
         cache,
         cacheKey: filterKey,
@@ -275,7 +276,11 @@ function processor(): AiImageProcessor {
       const notes = [...filter.notes];
       if (file.online) {
         try {
-          const result = await svc.chatImageOcr.recognize(file.online);
+          const result = await svc.chatImageOcr.recognize(
+            { ...file.online, refresh },
+            undefined,
+            signal,
+          );
           check(signal);
           const text = result.blocks.map((b) => b.text).join('\n');
           if (file.key)
@@ -294,7 +299,7 @@ function processor(): AiImageProcessor {
       if (!model)
         throw new Error([...notes, localOcrBlocker() ?? '没有可用的本地识别模型'].join('；'));
       if (!file.path) throw new Error('本地图片不可用');
-      const result = await runLocalOcr(file.path, model, signal);
+      const result = await runLocalOcr(file.path, model, signal, refresh);
       check(signal);
       const text = result.blocks.map((b) => b.text).join('\n');
       if (file.key)

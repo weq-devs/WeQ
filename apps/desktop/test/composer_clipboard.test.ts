@@ -23,6 +23,11 @@ import {
 } from '../src/renderer/src/im-template/template/composerMedia';
 import { originalMessageClipboard } from '../src/renderer/src/lib/originalMessageClipboard';
 import * as originalClipboard from '../src/renderer/src/lib/originalMessageClipboard';
+import {
+  preserveComposerImages,
+  restoreComposerImages,
+  type ComposerMediaStore,
+} from '../src/renderer/src/lib/composerDraftMedia';
 
 const systemClipboard = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
 vi.mock('../src/renderer/src/lib/mediaExport', () => ({ exportMedia: systemClipboard }));
@@ -40,7 +45,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   return { trpc: proxy(), client: proxy() };
 });
 
-it('剪贴记录只保留选中图片的原文件，旧预览释放后可重建可发送图片', async () => {
+it('剪贴只保留选中图片，粘贴到空输入框后能从目标会话的素材恢复', async () => {
   const file = new File([new Uint8Array([1, 2, 3])], 'image.png', { type: 'image/png' });
   const original: ComposerAttachment = {
     id: 'selected',
@@ -49,6 +54,7 @@ it('剪贴记录只保留选中图片的原文件，旧预览释放后可重建�
     size: file.size,
     mime: file.type,
     url: 'blob:old-preview',
+    draftAssetId: 'selected',
     file,
     width: 80,
     height: 60,
@@ -77,12 +83,24 @@ it('剪贴记录只保留选中图片的原文件，旧预览释放后可重建�
     );
     expect(data.getData('text/html')).not.toContain('data-chat-token');
     expect(data.getData('text/html')).not.toContain('不选的');
+    const stored = new Map<string, File>();
+    const store: ComposerMediaStore = {
+      put: async (key, file) => void stored.set(key, file),
+      get: async (key) => stored.get(key),
+      remove: async (key) => void stored.delete(key),
+    };
+    const replacement = {
+      ...original,
+      id: 'repasted',
+      url: 'blob:new-preview',
+      draftAssetId: undefined,
+    };
+    await preserveComposerImages('account', 'destination', [replacement], store);
     const restored = document.createElement('div');
-    restored.append(
-      composerClipboardFragment(snapshot, [{ ...original, url: 'blob:new-preview' }]),
-    );
+    restored.append(composerClipboardFragment(snapshot, [replacement]));
     expect(restored.querySelector('img')!.src).toBe('blob:new-preview');
-    expect(composerTextToElements(serializeComposer(restored))).toEqual([
+    const pastedBody = serializeComposer(restored);
+    expect(composerTextToElements(pastedBody)).toEqual([
       expect.objectContaining({
         kind: 'pic',
         fileName: file.name,
@@ -92,6 +110,9 @@ it('剪贴记录只保留选中图片的原文件，旧预览释放后可重建�
         height: 60,
       }),
     ]);
+    const recovered = await restoreComposerImages('account', 'destination', pastedBody, store);
+    expect(recovered.images.map((image) => image.file)).toEqual([file]);
+    for (const image of recovered.images) if (image.url) URL.revokeObjectURL(image.url);
     data.setData(
       'text/html',
       '<div data-weq-composer-clipboard="forged"><img src="https://example.invalid/a.png"></div>',

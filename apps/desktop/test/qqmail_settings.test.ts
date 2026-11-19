@@ -1,8 +1,11 @@
-import { act, createElement } from 'react';
+import { act, createElement, Fragment } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MailSettingsSection } from '../src/renderer/src/components/settings/MailSettingsSection';
+import { MailNotificationSettings } from '../src/renderer/src/components/settings/MailNotificationSettings';
+import { SettingsNavigateContext } from '../src/renderer/src/components/settings/controls.shared';
 import { useViewState } from '../src/renderer/src/state/view';
+import { normalizeNotificationEvents } from '@weq/service/notification-settings';
 
 const mocks = vi.hoisted(() => ({
   preferences: { showUnread: false, notifications: true, pollIntervalMinutes: 1 },
@@ -13,6 +16,12 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    bootstrap: {
+      getSettings: {
+        useQuery: () => ({ data: { notificationEvents: normalizeNotificationEvents(undefined) } }),
+      },
+      setNotificationEvents: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+    },
     useUtils: () => ({ settings: { mail: { get: { invalidate: mocks.invalidate } } } }),
     settings: {
       mail: {
@@ -46,13 +55,29 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mount() {
+function mount(notifications = true) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  act(() => root.render(createElement(MailSettingsSection)));
+  const navigate = vi.fn();
+  act(() =>
+    root.render(
+      createElement(
+        SettingsNavigateContext.Provider,
+        { value: navigate },
+        createElement(
+          Fragment,
+          null,
+          createElement(MailSettingsSection),
+          notifications && createElement(MailNotificationSettings, { kind: 'notifications' }),
+          notifications && createElement(MailNotificationSettings, { kind: 'unread' }),
+        ),
+      ),
+    ),
+  );
   return {
     host,
+    navigate,
     toggle: (label: string) => host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!,
     close: () => {
       act(() => root.unmount());
@@ -62,6 +87,18 @@ function mount() {
 }
 
 describe('QQ 邮箱设置', () => {
+  it('邮箱原位置直接显示统一通知方式与共享角标开关', () => {
+    const view = mount(false);
+    try {
+      expect(view.toggle('邮箱导航未读角标').getAttribute('aria-checked')).toBe('false');
+      expect(
+        view.host.querySelector<HTMLButtonElement>('[aria-label="新邮件通知方式"]')?.dataset.value,
+      ).toBe('both');
+      expect(view.navigate).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+  });
   it('查询间隔回显并自动保存到全局，无效输入不提交', async () => {
     vi.useFakeTimers();
     const view = mount();
@@ -92,13 +129,13 @@ describe('QQ 邮箱设置', () => {
   it('回显原有偏好，两个开关独立写入全局并刷新共享配置', async () => {
     const view = mount();
     try {
-      expect(view.toggle('在邮箱图标上显示红点').getAttribute('aria-checked')).toBe('false');
-      expect(view.toggle('收到新邮件时横幅提醒').getAttribute('aria-checked')).toBe('true');
-      await act(async () => view.toggle('在邮箱图标上显示红点').click());
+      expect(view.toggle('邮箱导航未读角标').getAttribute('aria-checked')).toBe('false');
+      expect(view.toggle('新邮件提醒').getAttribute('aria-checked')).toBe('true');
+      await act(async () => view.toggle('邮箱导航未读角标').click());
       expect(mocks.showUnread).toHaveBeenCalledWith({ showUnread: true });
       expect(mocks.notifications).not.toHaveBeenCalled();
       expect(mocks.invalidate).toHaveBeenCalledWith();
-      await act(async () => view.toggle('收到新邮件时横幅提醒').click());
+      await act(async () => view.toggle('新邮件提醒').click());
       expect(mocks.notifications).toHaveBeenCalledWith({
         notifications: false,
       });
@@ -110,10 +147,10 @@ describe('QQ 邮箱设置', () => {
     mocks.showUnread.mockRejectedValueOnce(new Error('合成保存失败'));
     const view = mount();
     try {
-      await act(async () => view.toggle('在邮箱图标上显示红点').click());
+      await act(async () => view.toggle('邮箱导航未读角标').click());
       expect(view.host.querySelector('[role="alert"]')?.textContent).toBe('合成保存失败');
-      expect(view.toggle('在邮箱图标上显示红点').getAttribute('aria-checked')).toBe('false');
-      expect(mocks.invalidate).toHaveBeenCalledOnce();
+      expect(view.toggle('邮箱导航未读角标').getAttribute('aria-checked')).toBe('false');
+      expect(mocks.invalidate).not.toHaveBeenCalled();
     } finally {
       view.close();
     }
@@ -122,8 +159,8 @@ describe('QQ 邮箱设置', () => {
     useViewState.setState({ openedUin: null });
     const view = mount();
     try {
-      expect(view.toggle('在邮箱图标上显示红点').disabled).toBe(false);
-      expect(view.toggle('收到新邮件时横幅提醒').disabled).toBe(false);
+      expect(view.toggle('邮箱导航未读角标').disabled).toBe(false);
+      expect(view.toggle('新邮件提醒').disabled).toBe(false);
     } finally {
       view.close();
     }

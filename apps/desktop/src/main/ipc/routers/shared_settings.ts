@@ -41,16 +41,6 @@ export const assistantSettingsProcedures = {
         model: agentLabModelSelectionSchema.optional(),
         customPrompt: z.string().optional(),
         reasoningEffort: z.string().min(1).max(64).optional(),
-        temperature: z.number().min(0).max(2).nullable().optional(),
-        maxOutputTokens: z.number().int().positive().nullable().optional(),
-        maxRounds: z.number().int().positive().nullable().optional(),
-        toolTimeoutMs: z.number().int().positive().nullable().optional(),
-        taskTimeoutMs: z.number().int().positive().nullable().optional(),
-        historyMessages: z.number().int().min(0).optional(),
-        contextTokens: z.number().int().positive().optional(),
-        compressionTrigger: z.number().positive().lt(1).optional(),
-        compressionTarget: z.number().positive().lt(1).optional(),
-        summaryTokens: z.number().int().positive().optional(),
         sendMode: z.enum(['interrupt', 'boundary', 'queue']).optional(),
         mcpServers: z.string().optional(),
         permissionMode: z.enum(['sandbox', 'unrestricted']).optional(),
@@ -63,7 +53,7 @@ export const assistantSettingsProcedures = {
       if (service) return service.setConfig(input);
       const owner = requireBootstrap().userConfig;
       const next = mergeAssistantConfig(owner.getSharedPreference('assistant'), input);
-      owner.patchSharedPreference('assistant', next);
+      owner.replaceSharedPreference('assistant', next);
       return next;
     }),
 };
@@ -74,10 +64,12 @@ import {
 } from '@weq/service/mail-wire';
 
 export function sharedMailPreferences() {
-  const value = requireBootstrap().userConfig.getSharedPreference('mail');
+  const owner = requireBootstrap().userConfig;
+  const value = owner.getSharedPreference('mail');
+  const channels = owner.getSettings().notificationEvents.mail;
   return {
     showUnread: value.mailShowUnread ?? true,
-    notifications: value.mailNotifications ?? false,
+    notifications: channels.banner || channels.system,
     pollIntervalMinutes: mailPollIntervalMinutes(
       value.mailPollIntervalMinutes ?? DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
     ),
@@ -230,6 +222,12 @@ export const sharedSettingsRouter = router({
       )
       .mutation(({ input }) => {
         const owner = requireBootstrap().userConfig;
+        if (input.notifications !== undefined)
+          owner.setSettings({
+            notificationEvents: {
+              mail: { banner: input.notifications, system: input.notifications },
+            },
+          });
         owner.patchSharedPreference('mail', {
           ...(input.showUnread === undefined ? {} : { mailShowUnread: input.showUnread }),
           ...(input.notifications === undefined ? {} : { mailNotifications: input.notifications }),

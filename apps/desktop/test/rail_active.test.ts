@@ -3,9 +3,12 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { createTemplateDemoData } from './support/templateDemoData';
-import { countVisibleUnreadConversations } from '../src/renderer/src/im-template/template/shellController';
 import { readFileSync } from 'node:fs';
 import { WorkspacePage, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
+
+vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
+  useDevelopmentDressTools: () => true,
+}));
 
 it('从设置进入维护工具后仍指定设置高亮，不沿用其它页面状态', () => {
   const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
@@ -15,20 +18,7 @@ it('从设置进入维护工具后仍指定设置高亮，不沿用其它页面�
 it('主界面将实际未读汇总传入消息入口，不固定为零', () => {
   const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
   expect(source.includes('displaySettings.data?.showMessageUnreadBadge === false')).toBe(true);
-  expect(source.includes(': shell.messageUnreadCount')).toBe(true);
-});
-
-it('消息汇总按消息条数累加，免打扰可由本地偏好覆盖', () => {
-  const [first, second] = createTemplateDemoData().conversations;
-  const conversations = [
-    { ...first, unreadCount: 3, preference: { pinned: false, muted: false, blocked: false } },
-    { ...second, unreadCount: 7, preference: { pinned: false, muted: true, blocked: false } },
-  ];
-  expect(countVisibleUnreadConversations(conversations, {})).toBe(3);
-  expect(countVisibleUnreadConversations(conversations, { [second.id]: { muted: false } })).toBe(
-    10,
-  );
-  expect(countVisibleUnreadConversations(conversations, { [first.id]: { muted: true } })).toBe(0);
+  expect(source).toContain('? 0 : messageBadgeCount');
 });
 
 it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧高亮', () => {
@@ -147,6 +137,10 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
     act(() => host.querySelector<HTMLButtonElement>('.rail-tab-messages')!.click());
     expect(locate).toHaveBeenCalledTimes(3);
     expect(navigate).toHaveBeenCalledTimes(2);
+    act(() => root.render(h(AppRail, { ...props, view: 'contacts', onViewChange: navigate })));
+    act(() => host.querySelector<HTMLButtonElement>('.rail-tab-messages')!.click());
+    expect(navigate).toHaveBeenCalledTimes(3);
+    expect(navigate).toHaveBeenLastCalledWith('messages');
     for (const title of ['数据库管理', '存储占用', '清理缓存', '数据库修复', '抓包'] as const) {
       act(() =>
         root.render(

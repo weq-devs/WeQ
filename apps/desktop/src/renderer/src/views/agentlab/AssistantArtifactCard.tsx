@@ -21,8 +21,6 @@ import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
-import { useToast } from '../../components/Toast.shared';
-import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { IS_WEB } from '../../lib/target.shared';
 import { presentClientDocument } from '../../components/ClientDocumentPreview.shared';
 import '../../styles/assistant-artifact-save.css';
@@ -46,7 +44,6 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
   const isExport = artifact.kind === 'export';
   const { binding, prepareSave, isCurrent, serverLocation, chooseServerLocation } =
     useExportSavePolicy();
-  const pushToast = useToast((state) => state.push);
   const utils = trpc.useUtils();
   const identity = `${binding?.expectedAccountUin ?? ''}:${binding?.expectedAccountConfigId ?? ''}:${artifact.kind}:${artifact.id}`;
   const latest = useRef(identity);
@@ -173,12 +170,6 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
       if (!current()) return;
       setMonitor({ identity, taskId: id });
       await utils.account.getExportOutputReceipt.invalidate({ ...expected, taskId: id });
-      if (current() && !existing)
-        pushToast({
-          tone: 'info',
-          title: '报告保存任务已创建',
-          source: taskNotificationSource(id),
-        });
     } catch (e) {
       if (current()) setFailure({ identity, message: e instanceof Error ? e.message : String(e) });
     } finally {

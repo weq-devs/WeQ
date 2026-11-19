@@ -10,6 +10,7 @@ import {
   type HostBridge,
   type WeqFileStartup,
 } from '@weq/service';
+import { dataSaverSession } from '@weq/service/transfer-policy';
 import { backupProcedures } from '../src/main/ipc/routers/backup';
 import { backgroundTasks } from '../src/main/background_tasks';
 import { procedure, router } from '../src/main/ipc/trpc';
@@ -40,6 +41,7 @@ vi.mock('../src/main/weq_assistant/server', () => ({
 }));
 const roots: string[] = [];
 afterEach(() => {
+  dataSaverSession.clearTemporary();
   vi.useRealTimers();
   vi.clearAllMocks();
   context.current = null;
@@ -136,11 +138,15 @@ it('账号收尾失败时取消本次暂存，弹窗重试可重新提交而不�
   const f = fixture();
   const tasks = backgroundTasks.snapshot();
   const revision = runtimeMaintenance.status().revision;
+  dataSaverSession.update('auto', dataSaverSession.status().host, false);
+  dataSaverSession.setTemporary({ enabled: true, duration: 'exit' });
   context.closing.mockRejectedValueOnce(new Error('合成账号收尾失败'));
   await expect(f.caller.backupDefaults()).rejects.toThrow('合成账号收尾失败');
   expect(runtimeMaintenance.status().revision).toBe(revision);
+  expect(dataSaverSession.status().effectiveMode).toBe('always');
   expect((await f.caller.backupStatus()).pending).toBeNull();
   expect((await f.caller.backupDefaults()).status).toBe('applied');
+  expect(dataSaverSession.status()).toMatchObject({ effectiveMode: 'auto', temporary: null });
   expect(backgroundTasks.snapshot()).toEqual(tasks);
 });
 it('恢复默认等待旧请求超时后返回错误，不暂存、不关闭账号，旧请求结束后可重试', async () => {

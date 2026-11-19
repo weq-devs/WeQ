@@ -52,6 +52,7 @@ import { SegmentedControl } from './SegmentedControl';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
+import { WeqAssistantSettingsSection } from '../views/agentlab/AssistantSettingsPanel';
 import { ReplySuggestionsSection } from './settings/ReplySuggestionsSection';
 import { TtsProvidersCard } from './settings/VoiceTranscribeSection';
 import { RecognitionSettingsSection } from './settings/RecognitionSettingsSection';
@@ -72,7 +73,6 @@ import { MissingMessageSettings } from './settings/MissingMessageSettings';
 import { SlashEmojiSettings } from './settings/SlashEmojiSettings';
 import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
-import { ClearReadRecordsSetting } from './settings/ClearReadRecordsSetting';
 import { MessageDisplayOptions } from './settings/MessageDisplayOptions';
 import { Card, Row, SectionHeader, Toggle } from './settings/controls';
 import { SettingsNavigateContext, SettingsScopeContext } from './settings/controls.shared';
@@ -113,7 +113,8 @@ import {
 export type { SectionId } from './settings/navigation';
 import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
 import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
-import { useUpdateStore } from '../state/update';
+import { useEnhancementUpdateBadge } from '../lib/unreadMarkers';
+import { AggregateBadgeRows, BadgeSettingRow } from './settings/UnreadBadgeSettings';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
@@ -276,6 +277,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
         </div>
       </>
     ),
+  },
+  {
+    id: 'weq-assistant',
+    label: 'WeQ 助手',
+    render: () => <WeqAssistantSettingsSection />,
   },
   {
     id: 'interaction-profile',
@@ -441,6 +447,8 @@ function SettingsContent({
     () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
     [initialSection, searchTarget],
   );
+  const [linkedTarget, setLinkedTarget] = useState<SettingsSearchTarget | null>(null);
+  useEffect(() => setLinkedTarget(null), [initialSection, searchTarget]);
   const [activeId, setActiveId] = usePageState<SettingsPageId>(
     'settings:active',
     () => target.section,
@@ -450,7 +458,7 @@ function SettingsContent({
         SETTINGS_GROUPS.some((group) => group.sections.some((section) => section === value)),
     ),
   );
-  const updateAvailable = useUpdateStore((state) => state.available);
+  const packUpdate = useEnhancementUpdateBadge();
   const locked = useAppLock((state) => state.locked);
   const navRef = useRef<HTMLElement | null>(null);
   const [mobileCategoryOpen, setMobileCategoryOpen] = useState(
@@ -651,10 +659,10 @@ function SettingsContent({
                     </span>
                     <span className="weq-settings-nav-label">
                       {s.label}
-                      {updateAvailable && s.sections.includes('version') ? (
+                      {packUpdate && s.sections.includes('enhancement-packs') ? (
                         <ReminderDot
                           className="weq-settings-update-mark"
-                          aria-label="有新版本可更新"
+                          aria-label="有增强包更新"
                         />
                       ) : null}
                     </span>
@@ -678,8 +686,8 @@ function SettingsContent({
                     <SettingsPageIcon page={section.id} />
                   </span>
                   <span className="weq-settings-subnav-label">{section.label}</span>
-                  {updateAvailable && section.id === 'version' ? (
-                    <ReminderDot className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                  {packUpdate && section.id === 'enhancement-packs' ? (
+                    <ReminderDot className="weq-settings-update-mark" aria-label="有增强包更新" />
                   ) : null}
                 </button>
               ))}
@@ -690,14 +698,24 @@ function SettingsContent({
                   <RetainedTabs snapshotKey="settings" activeKey={active.id}>
                     <RetainedSettingsPage
                       pageId={active.id}
-                      target={target}
-                      revision={searchTarget?.revision}
-                      recordId={searchTarget?.recordId}
+                      target={linkedTarget ? resolveSettingsTarget(linkedTarget) : target}
+                      revision={linkedTarget?.revision ?? searchTarget?.revision}
+                      recordId={linkedTarget?.recordId ?? searchTarget?.recordId}
                     >
                       <SettingsNotificationSource section={active.id}>
                         <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
                           <SettingsNavigateContext.Provider
-                            value={(section) => switchSection(section as SettingsPageId)}
+                            value={(section, settingId) => {
+                              const next = resolveSettingsTarget({
+                                section: section as SectionId,
+                                settingId,
+                              });
+                              requestNavigation(() => {
+                                setLinkedTarget({ ...next, revision: Date.now() });
+                                setActiveId(next.section);
+                                setMobileCategoryOpen(true);
+                              });
+                            }}
                           >
                             {active.id === 'chat-interaction' ? (
                               <>
@@ -713,6 +731,21 @@ function SettingsContent({
                                   />
                                 </SettingsScopeContext.Provider>
                               </>
+                            ) : active.id === 'global' ? (
+                              <GlobalSettingsSection
+                                notificationTarget={linkedTarget ?? searchTarget}
+                                recallNotifications={
+                                  <AntiRecallDialog
+                                    embedded
+                                    section="notifications"
+                                    onClose={() => {}}
+                                    onOpenRecalls={onOpenRecalls}
+                                    isCurrentSource={isCurrentSource}
+                                    notificationConversation={searchTarget?.conversation}
+                                    notificationRevision={searchTarget?.revision}
+                                  />
+                                }
+                              />
                             ) : (
                               active.render(onOpenMaintenance)
                             )}
@@ -825,21 +858,17 @@ function AppearanceSection({
   });
   const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
-  const setShowMessageUnreadBadge = trpc.bootstrap.setShowMessageUnreadBadge.useMutation();
-  const setShowContactUnreadCount = trpc.bootstrap.setShowContactUnreadCount.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
   const setAutoFollowLatestMessages = trpc.bootstrap.setAutoFollowLatestMessages.useMutation();
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
   const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
   const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
-  const setShowGroupAssistantMessageCount =
-    trpc.bootstrap.setShowGroupAssistantMessageCount.useMutation();
   const utils = trpc.useUtils();
-  const [badgeError, setBadgeError] = useState<string | null>(null);
   const [readingError, setReadingError] = useState<string | null>(null);
-  const [textMarkdown, setTextMarkdown] = useState(true);
-  const [linkCard, setLinkCard] = useState(true);
-  const [linkShot, setLinkShot] = useState(false);
+  const [textMarkdown, setTextMarkdown] = useState(false);
+  const [linkPreview, setLinkPreviewDraft] = useState(
+    () => settings.data?.linkPreview ?? { enabled: true, autoFetch: false, screenshot: false },
+  );
 
   useEffect(() => {
     const enabled = settings.data?.renderTextMarkdown;
@@ -848,8 +877,7 @@ function AppearanceSection({
 
   useEffect(() => {
     const cfg = settings.data?.linkPreview;
-    if (typeof cfg?.enabled === 'boolean') setLinkCard(cfg.enabled);
-    if (typeof cfg?.screenshot === 'boolean') setLinkShot(cfg.screenshot);
+    if (cfg) setLinkPreviewDraft(cfg);
   }, [settings.data?.linkPreview]);
 
   // 本地先翻转求手感，失败回滚 + 重新拉服务端值。
@@ -864,24 +892,13 @@ function AppearanceSection({
     await settings.refetch();
   }
 
-  async function onSetLinkCard(next: boolean): Promise<void> {
-    const prev = linkCard;
-    setLinkCard(next);
+  async function onSetLinkPreview(patch: Partial<typeof linkPreview>): Promise<void> {
+    const prev = linkPreview;
+    setLinkPreviewDraft({ ...prev, ...patch });
     try {
-      await setLinkPreview.mutateAsync({ enabled: next });
+      await setLinkPreview.mutateAsync(patch);
     } catch {
-      setLinkCard(prev);
-    }
-    await settings.refetch();
-  }
-
-  async function onSetLinkShot(next: boolean): Promise<void> {
-    const prev = linkShot;
-    setLinkShot(next);
-    try {
-      await setLinkPreview.mutateAsync({ screenshot: next });
-    } catch {
-      setLinkShot(prev);
+      setLinkPreviewDraft(prev);
     }
     await settings.refetch();
   }
@@ -950,6 +967,60 @@ function AppearanceSection({
         <>
           {category === 'reading' && (
             <Card
+              title="会话预览"
+              icon={<MessagesSquare size={15} />}
+              resetId="conversation-preview"
+            >
+              <Row
+                settingId="show-conversation-preview"
+                control={
+                  <SharedDisplayToggle
+                    name="showConversationPreview"
+                    label="显示会话预览"
+                    fallback={true}
+                  />
+                }
+              />
+              <BadgeSettingRow
+                name="showImportantMessageMarkers"
+                settingId="important-message-markers"
+                label="重要消息标记"
+                fallback={true}
+              />
+            </Card>
+          )}
+          {category === 'reading' && (
+            <Card title="列表行为" icon={<MessagesSquare size={15} />} resetId="conversation-order">
+              <Row
+                settingId="keep-conversation-position-on-hover"
+                desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
+                control={
+                  <SharedDisplayToggle
+                    name="keepConversationPositionOnHover"
+                    label="鼠标停留时保持会话位置"
+                    fallback={false}
+                  />
+                }
+              />
+              <Row
+                settingId="close-conversation-outside-view"
+                control={
+                  <SharedDisplayToggle
+                    name="closeConversationOutsideView"
+                    label="切换视图时关闭不在新视图中的会话"
+                    fallback={false}
+                  />
+                }
+              />
+            </Card>
+          )}
+          {category === 'reading' && (
+            <Card title="常规视图未读角标" icon={<Bell size={15} />} resetId="conversation-markers">
+              <AggregateBadgeRows />
+            </Card>
+          )}
+          {category === 'reading' && (
+            <Card
               title="全部会话视图"
               icon={<MessagesSquare size={15} />}
               resetId="conversation-scope"
@@ -974,86 +1045,6 @@ function AppearanceSection({
                   />
                 }
               />
-            </Card>
-          )}
-          {category === 'reading' && (
-            <Card title="列表排序" icon={<MessagesSquare size={15} />} resetId="conversation-order">
-              <Row
-                settingId="keep-conversation-position-on-hover"
-                desc="鼠标位于会话列表内时，新消息仍正常更新，但不调整会话顺序；移出并关闭菜单后恢复排序。"
-                control={
-                  <SharedDisplayToggle
-                    name="keepConversationPositionOnHover"
-                    label="鼠标停留时保持会话位置"
-                    fallback={false}
-                  />
-                }
-              />
-            </Card>
-          )}
-          {category === 'reading' && (
-            <Card title="未读标记" icon={<Bell size={15} strokeWidth={1.8} />} resetId="unread">
-              <Row
-                settingId="message-unread-badge"
-                label="在消息图标上显示红点"
-                control={
-                  <Toggle
-                    checked={settings.data?.showMessageUnreadBadge ?? true}
-                    disabled={!settings.data || setShowMessageUnreadBadge.isLoading}
-                    onChange={(enabled) => {
-                      setBadgeError(null);
-                      setShowMessageUnreadBadge.mutate(
-                        { enabled },
-                        {
-                          onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                          onError: (error) => setBadgeError(error.message),
-                        },
-                      );
-                    }}
-                    label="在消息图标上显示红点"
-                  />
-                }
-              />
-              {badgeError ? <p role="alert">{badgeError}</p> : null}
-              {[
-                {
-                  key: 'showContactUnreadCount' as const,
-                  settingId: 'contact-unread-count',
-                  label: '在联系人界面显示未读消息数',
-                  mutation: setShowContactUnreadCount,
-                },
-                {
-                  key: 'showGroupAssistantMessageCount' as const,
-                  settingId: 'group-assistant-count',
-                  label: '群助手显示总消息数',
-                  mutation: setShowGroupAssistantMessageCount,
-                },
-              ].map(({ key, settingId, label, mutation }) => (
-                <Row
-                  key={key}
-                  settingId={settingId}
-                  label={label}
-                  control={
-                    <Toggle
-                      checked={settings.data?.[key] ?? false}
-                      disabled={!settings.data || mutation.isLoading}
-                      onChange={(enabled) => {
-                        setReadingError(null);
-                        mutation.mutate(
-                          { enabled },
-                          {
-                            onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                            onError: (error) => setReadingError(error.message),
-                          },
-                        );
-                      }}
-                      label={label}
-                    />
-                  }
-                />
-              ))}
-              <AccountBasicsSection page="read" heading={false} />
-              <ClearReadRecordsSetting />
             </Card>
           )}
           {(category === 'display' || category === 'sending') && (
@@ -1194,38 +1185,51 @@ function AppearanceSection({
               />
               <Row
                 settingId="link-preview"
-                desc={
-                  <>
-                    一条消息只有一个链接时，抓取网页标题、简介和封面渲染成卡片。会按链接访问
-                    对应网页（结果本地缓存），关掉后链接仍标蓝可点，但完全不出网。
-                  </>
-                }
+                desc="一条消息只有一个链接时，显示 QQ 已提供或本地已缓存的预览。关闭后，链接仍可点击。"
                 control={
-                  <span data-setting-fallback={!linkCard ? 'link-screenshot' : undefined}>
+                  <span
+                    data-setting-fallback={
+                      !linkPreview.enabled ? 'link-preview-auto-fetch link-screenshot' : undefined
+                    }
+                  >
                     <Toggle
-                      checked={linkCard}
+                      checked={linkPreview.enabled}
                       disabled={settings.isLoading || setLinkPreview.isLoading}
-                      onChange={(next) => void onSetLinkCard(next)}
+                      onChange={(enabled) => void onSetLinkPreview({ enabled })}
                       label="链接预览卡片"
                     />
                   </span>
                 }
               />
-              {linkCard ? (
+              {linkPreview.enabled ? (
+                <Row
+                  settingId="link-preview-auto-fetch"
+                  indent
+                  desc="允许在浏览消息时访问链接或封面地址，补齐本地缺失的标题、简介和图片。"
+                  control={
+                    <span
+                      data-setting-fallback={!linkPreview.autoFetch ? 'link-screenshot' : undefined}
+                    >
+                      <Toggle
+                        checked={linkPreview.autoFetch}
+                        disabled={settings.isLoading || setLinkPreview.isLoading}
+                        onChange={(autoFetch) => void onSetLinkPreview({ autoFetch })}
+                        label="自动联网补全链接预览"
+                      />
+                    </span>
+                  }
+                />
+              ) : null}
+              {linkPreview.enabled && linkPreview.autoFetch ? (
                 <Row
                   settingId="link-screenshot"
                   indent
-                  desc={
-                    <>
-                      网页没提供封面图时，在一个隔离的后台窗口里把它打开并截取首屏当封面。这会
-                      真正运行对方页面的脚本（沙盒内、不落盘、退出即清），默认关闭。
-                    </>
-                  }
+                  desc="联网补全时，如果网页没有封面图，可在隔离窗口中打开网页并截取首屏。"
                   control={
                     <Toggle
-                      checked={linkShot}
-                      disabled={!linkCard || settings.isLoading || setLinkPreview.isLoading}
-                      onChange={(next) => void onSetLinkShot(next)}
+                      checked={linkPreview.screenshot}
+                      disabled={settings.isLoading || setLinkPreview.isLoading}
+                      onChange={(screenshot) => void onSetLinkPreview({ screenshot })}
                       label="无封面时网页截图"
                     />
                   }

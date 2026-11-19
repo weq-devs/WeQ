@@ -10,11 +10,10 @@
   align-items: center;
   gap: 8px;
 }
-.weq-message-load-actions progress {
+.weq-message-load-actions > .weq-task-progress-track {
   flex: 1;
   min-width: 0;
   height: 6px;
-  accent-color: var(--weq-accent-effective);
 }
 .weq-message-load-actions button {
   display: grid;

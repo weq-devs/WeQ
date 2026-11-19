@@ -17,7 +17,7 @@ it('返回列表时不沿用键盘退出前的小视口和偏移，重新编辑�
   const stop = observeMobileWebViewport(element);
   expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('320px');
   editor.blur();
-  window.dispatchEvent(new CustomEvent('weq-mobile-navigate', { detail: 'back' }));
+  window.dispatchEvent(new CustomEvent('weq-mobile-navigate', { detail: { direction: 'back' } }));
   expect(element.style.getPropertyValue('--weq-mobile-viewport-height')).toBe('844px');
   expect(element.style.getPropertyValue('--weq-mobile-viewport-top')).toBe('0px');
   editor.focus();

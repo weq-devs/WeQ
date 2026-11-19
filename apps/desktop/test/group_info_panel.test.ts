@@ -40,6 +40,26 @@ vi.mock('../src/renderer/src/im-template/template/primitives', async (importOrig
 vi.mock('../src/renderer/src/trpc/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/renderer/src/trpc/client')>()),
   client: { account: { listGroupMembersByLevel: { query: rankQuery } } },
+  trpc: {
+    account: {
+      contactMetrics: {
+        groupFriendSources: {
+          useQuery: () => ({
+            data: {
+              friendUids: [],
+              addedUids: [],
+              pendingUids: [],
+              rosterComplete: true,
+              unknown: 0,
+            },
+          }),
+        },
+      },
+    },
+  },
+}));
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({ binding: null, available: false }),
 }));
 
 declare global {
@@ -236,11 +256,9 @@ describe('群资料面板', () => {
     expect(buttons.every((button) => !button.textContent?.trim())).toBe(true);
     expect(rankQuery).not.toHaveBeenCalled();
     act(() => buttons[0].click());
-    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(2);
+    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(4);
     act(() =>
-      document
-        .querySelector<HTMLButtonElement>('[role="menuitem"][title="查看已退群的成员"]')!
-        .click(),
+      document.querySelector<HTMLButtonElement>('[role="menuitem"][title="已退群的成员"]')!.click(),
     );
     expect(open).toHaveBeenCalledOnce();
   });

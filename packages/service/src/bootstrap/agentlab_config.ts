@@ -17,6 +17,7 @@ import {
   type AgentLabProviderCatalogEntry,
   type AgentLabProviderConfig,
   type AgentLabProviderModel,
+  type ModelRequestProperties,
   type TtsProviderConfig,
 } from '@weq/agentlab';
 import type { UserConfigService } from './user_config';
@@ -54,6 +55,14 @@ export class AgentLabConfigService {
 
   getDefaultModel(capability: AgentLabModelCapability = 'chat'): AgentLabModelRef | null {
     return this.userConfig.getSettings().agentLab[DEFAULT_MODEL_FIELDS[capability]];
+  }
+
+  getModelTokenDefaults() {
+    const config = this.userConfig.getSettings().agentLab;
+    return {
+      contextWindowTokens: config.defaultContextWindowTokens,
+      maxOutputTokens: config.defaultMaxOutputTokens ?? undefined,
+    };
   }
 
   getDefaultVisionModelStatus() {
@@ -131,7 +140,10 @@ export class AgentLabConfigService {
     ref: AgentLabModelSelection,
     capability: AgentLabModelCapability = 'chat',
   ): AgentLabModelRef {
-    if (!isDefaultModelSelection(ref)) return { ...ref };
+    if (!isDefaultModelSelection(ref)) {
+      this.resolveEndpoint(ref, capability);
+      return { ...ref };
+    }
     const current = this.getDefaultModel(capability);
     this.resolveDefaultEndpoint(current, capability);
     if (!current) throw new Error(`未设置${DEFAULT_MODEL_LABELS[capability]}`);
@@ -157,10 +169,18 @@ export class AgentLabConfigService {
     const provider = this.getProvider(ref.providerId);
     if (!provider) throw new Error(`找不到 AgentLab provider: ${ref.providerId}`);
     if (!ref.model?.trim()) throw new Error('未选择模型');
-    if (!provider.models.some((model) => model.id === ref.model))
-      throw new Error(`已保存的模型不再可用：${ref.model}`);
+    const model = provider.models.find((item) => item.id === ref.model);
+    if (!model) throw new Error(`已保存的模型不再可用：${ref.model}`);
+    if (model.capabilities?.includes(capability) === false)
+      throw new Error(
+        `已保存的模型不支持${DEFAULT_MODEL_LABELS[capability].slice(2)}用途：${ref.model}`,
+      );
     return {
-      ...resolveEndpoint(provider, ref),
+      ...resolveEndpoint(
+        provider,
+        ref,
+        capability === 'embedding' ? undefined : this.getModelTokenDefaults(),
+      ),
       providerId: provider.id,
       providerName: provider.name,
       modelIdentity: modelEndpointIdentity(ref, provider.baseUrl),
@@ -187,7 +207,7 @@ export class AgentLabConfigService {
   }
 
   /**
-   * 设置页「测试连通性」：直接用表单里的 base_url / api_key / 某个 chat 模型探活，
+   * 设置页「测试连通性」：直接用表单里的服务地址、认证、模型和用途探活，
    * 不要求先保存。返回 { ok, error?, reply? }，错误里带 HTTP 状态码与响应体（模型/key 一目了然）。
    */
   async testEndpoint(input: {
@@ -196,6 +216,8 @@ export class AgentLabConfigService {
     model: string;
     providerId?: string;
     providerName?: string;
+    capability?: AgentLabModelCapability;
+    requestProperties?: ModelRequestProperties;
   }): Promise<{
     ok: boolean;
     error?: string;
@@ -203,7 +225,7 @@ export class AgentLabConfigService {
   }> {
     const baseUrl = input.baseUrl.trim().replace(/\/+$/, '');
     if (!baseUrl) return { ok: false, error: '请先填写 Base URL。' };
-    if (!input.model.trim()) return { ok: false, error: '请先添加并填写一个「聊天」能力的模型。' };
+    if (!input.model.trim()) return { ok: false, error: '请先填写模型 ID。' };
     const endpoint: AgentLabEndpoint = {
       baseUrl,
       apiKey: input.apiKey.trim(),
@@ -211,9 +233,15 @@ export class AgentLabConfigService {
       providerId: input.providerId,
       providerName: input.providerName,
       feature: 'connection-test',
+      requestProperties: input.requestProperties,
+      timeoutMs: 30_000,
       onUsage: this.onUsage,
     };
-    return testChatEndpoint(endpoint);
+    if (!input.capability || input.capability === 'chat') return testChatEndpoint(endpoint);
+    const [result] = await detectModelCapabilities(endpoint, [input.capability]);
+    return result?.status === 'supported'
+      ? { ok: true }
+      : { ok: false, error: result?.detail ?? '未确认模型可用' };
   }
 
   async detectCapabilities(input: {
@@ -224,6 +252,7 @@ export class AgentLabConfigService {
     providerName?: string;
     capabilities?: AgentLabModelCapability[];
     reasoning?: boolean;
+    requestProperties?: ModelRequestProperties;
   }) {
     const baseUrl = input.baseUrl
       .trim()
@@ -239,6 +268,7 @@ export class AgentLabConfigService {
       providerName: input.providerName,
       onUsage: this.onUsage,
       feature: 'capability-test',
+      requestProperties: input.requestProperties,
       timeoutMs: 30_000,
     };
     const capabilities = await detectModelCapabilities(endpoint, input.capabilities);
@@ -247,13 +277,15 @@ export class AgentLabConfigService {
   }
 
   saveProvider(
-    input: Omit<AgentLabProviderConfig, 'createdAt' | 'updatedAt'>,
+    input: Omit<AgentLabProviderConfig, 'createdAt' | 'updatedAt' | 'timeoutMs'> & {
+      timeoutMs?: number | null;
+    },
   ): AgentLabProviderConfig {
     const current = this.listProviders();
     const prev = current.find((item) => item.id === input.id);
     const next = normalizeProviderConfig({
       ...input,
-      timeoutMs: input.timeoutMs ?? prev?.timeoutMs,
+      timeoutMs: input.timeoutMs === undefined ? prev?.timeoutMs : (input.timeoutMs ?? undefined),
       createdAt: prev?.createdAt,
     });
     validateProviderConfig(next);

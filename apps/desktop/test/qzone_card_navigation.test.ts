@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { qzoneCardTarget } from '../src/renderer/src/lib/qzoneNavigation';
+import { qzoneCardTarget, qzoneDynamicTarget } from '../src/renderer/src/lib/qzoneNavigation';
 
 describe('空间分享链接身份', () => {
   it('精确识别说说、相册和纯主页，不把详情降成主页', () => {
@@ -45,5 +45,23 @@ describe('空间分享链接身份', () => {
       qzoneCardTarget('mqzone://arouse/detail?appid=4&uin=123456&cellid=unknown_photo'),
     ).toBeNull();
     expect(qzoneCardTarget('mqqapi://qzoneschema/?schema=invalid')).toBeNull();
+  });
+  it('说说卡片只带主页链接时标记为无法定位，精确链接优先', () => {
+    const jumpUrl = 'https://user.qzone.qq.com/123456';
+    expect(qzoneDynamicTarget(JSON.stringify({ jumpUrl }), 2)).toEqual({
+      kind: 'unlocated-post',
+      uin: '123456',
+    });
+    expect(qzoneDynamicTarget(JSON.stringify({ jumpUrl }), 17)).toEqual({
+      kind: 'space',
+      uin: '123456',
+    });
+    expect(
+      qzoneDynamicTarget(JSON.stringify({ jumpUrl, jump_h5: `${jumpUrl}/mood/abc` }), 2),
+    ).toEqual({
+      kind: 'post',
+      uin: '123456',
+      tid: 'abc',
+    });
   });
 });

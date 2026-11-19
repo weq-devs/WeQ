@@ -1,7 +1,8 @@
 import { dateFormatter, clockFormatter } from '@weq/time';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarCheck, Loader2, RefreshCw } from 'lucide-react';
+import { CalendarCheck, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import { CalendarDateField } from '../CalendarDateField';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { ContactEmptyState } from '../contactProfile/ContactRow';
@@ -103,12 +104,11 @@ export function GroupReadTools({
   const signedToday =
     day === today && signed.some((entry) => String(entry.userId) === a.binding?.expectedAccountUin);
   const dateInput = (
-    <input
-      aria-label="打卡日期"
-      type="date"
+    <CalendarDateField
+      label="打卡日期"
       value={day}
-      onChange={(event) => {
-        setDay(event.target.value);
+      onChange={(nextDay) => {
+        setDay(nextDay);
         if (listRef.current) listRef.current.scrollTop = 0;
       }}
     />
@@ -259,7 +259,10 @@ export function GroupReadTools({
     </section>
   ) : (
     <details className="weq-qq-actions" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>群打卡与 @全体额度</summary>
+      <summary className="weq-disclosure-summary">
+        <ChevronRight className="weq-disclosure-chevron" size={14} aria-hidden />
+        群打卡与 @全体额度
+      </summary>
       {content}
     </details>
   );

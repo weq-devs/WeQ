@@ -6,8 +6,12 @@ import {
   applyObservedContactPreview,
   observeContactPreview,
   latestContactPreviewMessage,
+  canPreviewContactMessage,
+  reconcileRecentContactPreviews,
 } from '../src/renderer/src/lib/recentContacts';
 import { previewNodes, previewNodesToText } from '../src/renderer/src/lib/conversationPreview';
+
+const textElements = [{ type: 'text', data: { textContent: '正文' } }];
 
 it('正文补齐摘要与发送者，沿用表情和媒体解析，不覆盖会话资料且同水位交还给 QQ', () => {
   const contact = {
@@ -58,7 +62,7 @@ it('正文摘要只保留有界的最近访问会话，不持有整页消息', (
       msgSeq: '1',
       sendTime: '1',
       senderUid: 'sender',
-      elements: [],
+      elements: textElements,
     },
   );
   for (let index = 1; index <= 500; index++)
@@ -69,7 +73,7 @@ it('正文摘要只保留有界的最近访问会话，不持有整页消息', (
         msgSeq: '1',
         sendTime: '1',
         senderUid: 'sender',
-        elements: [],
+        elements: textElements,
       },
     );
   expect(previews.size).toBe(500);
@@ -134,11 +138,102 @@ it('混合来源窗口按时间选择最新正文，不让大序号的旧漫游�
   const observed = observeContactPreview(new Map(), contact, {
     ...roaming,
     senderUid: 'u_peer',
-    elements: [],
+    elements: textElements,
   });
   expect(
-    observeContactPreview(observed, contact, { ...native, senderUid: 'u_peer', elements: [] }),
+    observeContactPreview(observed, contact, {
+      ...native,
+      senderUid: 'u_peer',
+      elements: textElements,
+    }),
   ).toBe(observed);
+});
+
+it('同序号的 QQ 空记录不抹掉已有灰条摘要，明确撤回提示优先', () => {
+  const poke = {
+    kind: 'grayTipPoke',
+    grayTipXmlContent: '<gtip><nor txt="揉了揉"/></gtip>',
+  };
+  const previous = {
+    chatType: 2,
+    targetUid: 'group',
+    msgSeq: '69317',
+    sendTime: '1794977906',
+    preview: poke as unknown,
+    senderUid: '',
+    senderDisplayName: '',
+    senderNick: '',
+    senderRemark: '',
+  };
+  const blank: typeof previous = {
+    ...previous,
+    sendTime: '1794980255',
+    preview: null,
+    senderUid: 'group',
+  };
+  const anchored = reconcileRecentContactPreviews(
+    [blank],
+    new Map([['group', previous]]),
+    new Map(),
+  );
+  expect(anchored.rows[0]).toEqual({ ...blank, preview: poke, senderUid: '' });
+  expect(reconcileRecentContactPreviews([blank], anchored.summaries, new Map()).rows).toEqual(
+    anchored.rows,
+  );
+
+  const revoke = { ...blank, preview: { kind: 'grayTipRevoke' as const } };
+  expect(reconcileRecentContactPreviews([revoke], anchored.summaries, new Map()).rows[0]).toBe(
+    revoke,
+  );
+  const original = { ...previous, preview: { kind: 'text', textContent: '原文' } };
+  expect(
+    reconcileRecentContactPreviews([blank], new Map([['group', original]]), new Map()).rows[0],
+  ).toBe(blank);
+});
+
+it('冷启动打开会话后从已经加载的最新页补摘要，不使用删除原文或改动小表水位', () => {
+  const blank = { chatType: 2, targetUid: 'group', msgSeq: '7', sendTime: '203', preview: null };
+  const poke = {
+    msgId: '111',
+    msgSeq: '7',
+    sendTime: '200',
+    senderUid: '',
+    elements: [
+      { type: 'grayTipPoke', data: { grayTipXmlContent: '<gtip><nor txt="揉了揉"/></gtip>' } },
+    ],
+  };
+  const deleted = {
+    ...poke,
+    msgId: '112',
+    sendTime: '201',
+    elements: textElements,
+    deletedKind: 'weq' as const,
+  };
+  const recalled = {
+    ...deleted,
+    msgId: '113',
+    sendTime: '202',
+    deletedKind: undefined,
+    recall: {},
+  };
+  const marker = {
+    ...deleted,
+    msgId: '114',
+    sendTime: '203',
+    elements: [],
+    deletedKind: 'qq' as const,
+  };
+  const window = [poke, deleted, recalled, marker];
+  const latest = latestContactPreviewMessage(blank, window, canPreviewContactMessage);
+  expect(latest).toBe(poke);
+  const observes = observeContactPreview(new Map(), blank, latest, window);
+  const result = applyObservedContactPreview(blank, observes);
+  expect(result).toMatchObject({ msgSeq: blank.msgSeq, sendTime: blank.sendTime });
+  expect(previewNodesToText(previewNodes(result.preview))).toBe('揉了揉');
+
+  const updatedWindow = [{ ...poke, deletedKind: 'weq' as const }, deleted, recalled, marker];
+  const updated = observeContactPreview(observes, blank, undefined, updatedWindow);
+  expect(applyObservedContactPreview(blank, updated)).toBe(blank);
 });
 
 it('分页重叠保留最新副本，64 位序号不丢精度，同水位优先最新页', () => {

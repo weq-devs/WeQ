@@ -36,6 +36,7 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: vi.fn(),
     account: {
       getAccountConfig: { useQuery: () => ({ data: undefined }) },
       listExportTasks: { useQuery: () => ({ data: [] }) },

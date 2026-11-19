@@ -473,6 +473,55 @@ export class AntiRecallDb {
     return rows.map(mapRecallRow);
   }
 
+  /** 先读取可定位的撤回元数据，正文只在选中当前页后读取。 */
+  async listRecallRefs(
+    kind: AntiRecallKind,
+    conv: string,
+    limit?: number,
+    before?: { time: number; id?: string },
+  ) {
+    if (!(await this.recallLogExists())) return [];
+    const table = TABLE_SPECS.find((spec) => spec.kind === kind)!.table;
+    const time = 'COALESCE(r.recall_ts, 0)';
+    const id = 'CAST(r.msgid AS TEXT)';
+    const rows = await this.qq.query(
+      `SELECT ${id}, m."40003", m."40002", m."40020", m."40050", ${time}, r.revoke_uid, r.sender_uid
+       FROM ${RECALL_LOG_TABLE} AS r JOIN ${table} AS m ON m."40001" = r.msgid
+       WHERE r.conv = ? AND r.table_kind = ?
+       ${before ? (before.id === undefined ? `AND ${time} < ?` : `AND (${time}, ${id}) < (?, ?)`) : ''}
+       ORDER BY ${time} DESC, ${id} DESC ${limit === undefined ? '' : 'LIMIT ?'}`,
+      [
+        conv,
+        kind,
+        ...(before ? [before.time, ...(before.id === undefined ? [] : [before.id])] : []),
+        ...(limit === undefined ? [] : [limit]),
+      ],
+    );
+    return rows.map(
+      ([
+        msgId,
+        msgSeq,
+        msgRandom,
+        senderUid,
+        sendTime,
+        recallTs,
+        revokeUid,
+        recalledSenderUid,
+      ]) => ({
+        msgId: String(msgId),
+        msgSeq: String(msgSeq ?? '0'),
+        msgRandom: String(msgRandom ?? '0'),
+        senderUid: String(senderUid ?? ''),
+        sendTime: String(sendTime ?? '0'),
+        recall: {
+          recallTs: Number(recallTs),
+          revokeUid: String(revokeUid ?? ''),
+          sameSender: Boolean(revokeUid) && revokeUid === recalledSenderUid,
+        },
+      }),
+    );
+  }
+
   /**
    * Which conversations have recorded recalls, most recently active first —
    * the directory behind the 「撤回记录」集成页. The table only exists once the

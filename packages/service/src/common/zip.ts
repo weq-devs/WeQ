@@ -292,6 +292,14 @@ export async function writeZipFile(
  * 时跳过该条目而不是整包失败。zip 本身不可解析（无 EOCD）时返回空数组。
  */
 export function readZipEntries(zip: Buffer, limits?: ZipReadLimits): ZipEntry[] {
+  return decodeZipEntries(zip, limits);
+}
+
+function decodeZipEntries(
+  zip: Buffer,
+  limits?: ZipReadLimits,
+  selection?: { match: (name: string) => boolean; maxEntryBytes?: number; first?: boolean },
+): ZipEntry[] {
   if (
     limits &&
     [limits.maxEntries, limits.maxEntryBytes, limits.maxTotalBytes].some(
@@ -365,6 +373,14 @@ export function readZipEntries(zip: Buffer, limits?: ZipReadLimits): ZipEntry[] 
       names.add(checked);
     }
     if (name.endsWith('/')) continue;
+    const normalizedName = name.replace(/\\/g, '/');
+    if (selection && !selection.match(normalizedName)) continue;
+    if (
+      selection?.maxEntryBytes !== undefined &&
+      (uncompressedSize > selection.maxEntryBytes ||
+        (method === METHOD_STORE && compressedSize > selection.maxEntryBytes))
+    )
+      continue;
     if (localOffset + 30 > zip.length) {
       if (limits) throw new Error('ZIP 本地头已截断');
       continue;
@@ -401,7 +417,9 @@ export function readZipEntries(zip: Buffer, limits?: ZipReadLimits): ZipEntry[] 
                   Math.min(limits.maxEntryBytes, limits.maxTotalBytes - total),
                 ),
               }
-            : undefined,
+            : selection?.maxEntryBytes === undefined
+              ? undefined
+              : { maxOutputLength: selection.maxEntryBytes },
         );
       } catch {
         if (limits) throw new Error('ZIP 条目无法在体积限制内解压');
@@ -418,7 +436,8 @@ export function readZipEntries(zip: Buffer, limits?: ZipReadLimits): ZipEntry[] 
     if (limits && crc32(data) !== crc) throw new Error('ZIP 条目校验失败');
     total += data.length;
 
-    entries.push({ name: name.replace(/\\/g, '/'), data });
+    entries.push({ name: normalizedName, data });
+    if (selection?.first) break;
   }
 
   if (limits && offset !== centralEnd) throw new Error('ZIP 中央目录条目数不匹配');
@@ -438,10 +457,14 @@ function findEocd(zip: Buffer): number {
 /**
  * 从 zip 里解出第一个满足 `match` 的文件。
  *
- * 委托给 {@link readZipEntries}。返回 null 表示包里没有满足条件的条目。
+ * 只解压匹配的条目。返回 null 表示包里没有可用的匹配条目。
  */
-export function extractFromZip(zip: Buffer, match: (name: string) => boolean): Buffer | null {
-  return readZipEntries(zip).find((e) => match(e.name))?.data ?? null;
+export function extractFromZip(
+  zip: Buffer,
+  match: (name: string) => boolean,
+  maxEntryBytes?: number,
+): Buffer | null {
+  return decodeZipEntries(zip, undefined, { match, maxEntryBytes, first: true })[0]?.data ?? null;
 }
 
 /**
@@ -449,7 +472,7 @@ export function extractFromZip(zip: Buffer, match: (name: string) => boolean): B
  * 返回 —— 气泡整泡帧动画是几十个独立 PNG，没法复用「只找一个」的那个函数。
  */
 export function extractAllFromZip(zip: Buffer, match: (name: string) => boolean): ZipEntry[] {
-  return readZipEntries(zip).filter((e) => match(e.name));
+  return decodeZipEntries(zip, undefined, { match });
 }
 
 /**

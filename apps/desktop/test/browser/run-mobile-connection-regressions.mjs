@@ -94,7 +94,7 @@ try {
   for (const width of [402, 1024]) {
     await page.setViewportSize({ width, height: 874 });
     for (const theme of ['light', 'dark']) {
-      for (const skin of ['qqnt', 'classic', 'minimal', 'retro']) {
+      for (const skin of ['qqnt', 'classic', 'retro']) {
         await page.evaluate(
           ({ theme, skin }) => {
             const store = window.listHeightQa.store.getState();

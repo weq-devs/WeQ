@@ -5,11 +5,9 @@
  * 由共享缓存的**唯一一条下载链**（本地离线 bundle zip → 在线 protocol zip）解出来
  * 落盘后，这里负责从磁盘 png 算出渲染参数：
  *
- *  - slice：九宫格拉伸点（npTc 的 zoomPoint）与整图尺寸的组合
- *    slice = { left: zx-1, top: zy-1, right: W-zx-1, bottom: H-zy-1 }
- *    恒等式 left + 2 + right === W，top + 2 + bottom === H —— 校验通过后再按
- *    {@link MIDDLE_GROW_PX} 把中央拉伸源单边加宽几像素（此时恒等式不再成立；
- *    渲染侧的 width 跟着变小，四条边条/四角仍是 0.5 倍自然缩放）
+ *  - slice：使用 npTc 成对端点，不假设拉伸区恒为 2px，也不扩大拉伸源。
+ *    Android QQ 9.3.85 的配置分支优先用 zoom_point 构造 1px 拉伸区。
+ *  - 正文留白独立于图像切片；渲染侧使用手机普通装扮分支，不拿 npTc padding 推比例。
  *  - 文字色：优先 config.json 的权威 color（`0xAARRGGBB`）；没有就用主题正文色
  *    （本地 png 没有 CDN 那套 2×2 填充图可判明暗，从简交给主题色）。
  *
@@ -32,28 +30,48 @@ export interface BubbleSlice {
   bottom: number;
 }
 
-/**
- * 中央拉伸源单边「多吃」的源图像素上限（见 {@link buildLocalBubbleSkin}）。
- *
- * npTc 给的拉伸源只有 **2px**（恒等式 `left + 2 + right === W`）。这 2px 要铺满整个
- * 气泡中段：一个字的消息里就是横拉 8~9 倍。浏览器对 border-image 的拉伸是**插值**的
- * ——2px 被抹成一条平滑的竖条，而左右两角是 0.5 倍缩放、纹理是清晰的 2×2 颗粒。两者
- * 在 x = 左切片 / 右切片 处交界：交界两侧的「颗粒」对不上，看上去就是**两条竖缝**
- * （气泡越窄、拉伸倍率越大，缝越显眼；多行/宽气泡里它就是气泡的「身子」，反而不容易
- * 注意到）。
- *
- * 把拉伸源单边多吃几个像素即可把倍率压下来（2px → 8px 就降 4 倍）。渲染侧的
- * `border-image-width` 是按 `slice * scale` 算的，所以切片变窄时四条边条/四角**仍是
- * 0.5 倍自然缩放**（贴图本身一个像素都不变，只是边条少画最后那几列/行），只有中段的
- * 拉伸倍率下降。
- *
- * 不能吃太多：拉伸源两端的像素是**按边条原尺寸画**的装饰，卷进中段就会被拉伸。
- * {@link buildLocalBubbleSkin} 里另外按切片大小做了上限（每次最多吃 1/8）。
- */
-const MIDDLE_GROW_PX = 3;
+/** 仅气泡几何派生号，不触发字体重解或修改产品版本。 */
+export const BUBBLE_GEOMETRY_VERSION = 3;
+
+export interface BubbleGeometry {
+  slice: BubbleSlice;
+  imageSize: { w: number; h: number };
+  /** 由 zoom_point 生成，区别于有固有尺寸的 Android NinePatchDrawable。 */
+  configuredPatch?: true;
+}
+
+export function bubbleConfigMetadata(json: unknown): {
+  color?: string;
+  linkColor?: string;
+  zoomPoint?: [number, number];
+} {
+  if (!json || typeof json !== 'object') return {};
+  const config = json as Record<string, unknown>;
+  const color = (value: unknown) =>
+    typeof value === 'string' && /^0x[0-9a-f]{8}$/i.test(value) ? value : undefined;
+  // 官方 JSON 可用十进制字符串；Android 用 JSONArray.getInt 读取。
+  const point = Array.isArray(config.zoom_point) ? config.zoom_point : [];
+  const coordinate = (value: unknown) =>
+    typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+  const x = coordinate(point[0]);
+  const y = coordinate(point[1]);
+  return {
+    color: color(config.color),
+    linkColor: color(config.link_color),
+    ...(point.length === 2 &&
+    typeof x === 'number' &&
+    Number.isSafeInteger(x) &&
+    x >= 0 &&
+    typeof y === 'number' &&
+    Number.isSafeInteger(y) &&
+    y >= 0
+      ? { zoomPoint: [x, y] }
+      : {}),
+  };
+}
 
 /** 一款气泡渲染所需的全部参数。 */
-export interface BubbleSkin {
+export interface BubbleSkin extends BubbleGeometry {
   itemId: number;
   /**
    * 商城里的款名(如「橘子汽水」)。装的时候由调用方从商城条目带进来 —— 商城只有
@@ -63,12 +81,10 @@ export interface BubbleSkin {
   name?: string;
   /** 商城的预览图外链。同 {@link name}，给「我的装扮」列表复用商城卡片。 */
   previewUrl?: string;
-  /** border-image-slice 的四个值。 */
-  slice: BubbleSlice;
-  /** 源图尺寸,渲染侧据此按 scale 换算 border-image-width。 */
-  imageSize: { w: number; h: number };
   /** 气泡内文字色(CSS 颜色串)。来源见 {@link buildLocalBubbleSkin}。 */
   textColor: string;
+  /** config.json 的 link_color；未声明时沿用正文色与现有下划线。 */
+  linkColor?: string;
   /**
    * 本地九宫格 PNG 的绝对路径。local-only 模型下恒有值 —— 渲染一律走
    * `weq-media://dressbubble?id=`（主进程按 itemId 从共享缓存取文件），不再有
@@ -97,6 +113,8 @@ export interface LocalBubbleInput {
   pngPath: string;
   /** 权威文字色(`0xAARRGGBB`)，来自 zip 侧 config.json。没给则主题正文色。 */
   color?: string;
+  linkColor?: string;
+  zoomPoint?: readonly [number, number];
   /** 整泡帧动画(由 config.json 的 animation_sets + other.zip 解出的帧数)。 */
   animation?: { frameCount: number; frameTimeMs: number; repeat: number };
 }
@@ -104,76 +122,30 @@ export interface LocalBubbleInput {
 /**
  * 从本地 .9.png + npTc 几何构建一款气泡的完整渲染参数。
  *
- * 纯本地文件操作,零网络零探测。九宫格不合法(无 npTc / 恒等式不成立)返回 null ——
+ * 纯本地文件操作,零网络零探测。九宫格不合法返回 null ——
  * 宁可不渲染,也别渲染出一个切错的气泡。
  */
 export function buildLocalBubbleSkin(input: LocalBubbleInput): BubbleSkin | null {
   const logger = getLogger().child({ scope: 'bubble-skin' });
   try {
     const png = readFileSync(input.pngPath);
-    const size = pngSize(png);
-    const zoom = readNinePatchZoom(png);
-    if (!size) {
-      logger.warn('bubble skin: not a png', {
-        event: 'bubble-skin-bad-png',
-        itemId: input.itemId,
-      });
-      return null;
-    }
-    if (!zoom) {
-      logger.warn('bubble skin: nine-patch without npTc zoom point', {
-        event: 'bubble-skin-no-nptc',
-        itemId: input.itemId,
-      });
-      return null;
-    }
-
-    const slice: BubbleSlice = {
-      left: zoom.x - 1,
-      top: zoom.y - 1,
-      right: size.w - zoom.x - 1,
-      bottom: size.h - zoom.y - 1,
-    };
-
-    // 恒等式校验 —— 中间恰好留 2px 拉伸源。不成立说明切片与整图对不上,放弃这款。
-    if (
-      slice.left + 2 + slice.right !== size.w ||
-      slice.top + 2 + slice.bottom !== size.h ||
-      slice.left < 1 ||
-      slice.top < 1 ||
-      slice.right < 1 ||
-      slice.bottom < 1
-    ) {
-      logger.warn('bubble skin: slice identity failed', {
+    const geometry = readBubbleGeometry(png, input.zoomPoint);
+    if (!geometry) {
+      logger.warn('bubble skin: invalid nine-patch geometry', {
         event: 'bubble-skin-bad-slice',
         itemId: input.itemId,
-        size,
-        zoom,
       });
       return null;
     }
-
-    // 中央拉伸源加宽（理由见 MIDDLE_GROW_PX）。单边最多吃 1/8 切片：边条的最后几列/
-    // 行是「按原尺寸画」的装饰，卷进中段就会被拉伸变形。
-    const grow = Math.min(
-      MIDDLE_GROW_PX,
-      Math.max(0, Math.floor(Math.min(slice.left, slice.top, slice.right, slice.bottom) / 8)),
-    );
-    const stretched: BubbleSlice = {
-      left: slice.left - grow,
-      top: slice.top - grow,
-      right: slice.right - grow,
-      bottom: slice.bottom - grow,
-    };
 
     // 文字色:config.json 的权威色优先;没有就从简交给主题正文色(理由见模块头)。
     const textColor = input.color ? argbToCss(input.color) : 'var(--weq-fg-primary, #111111)';
 
     return {
       itemId: input.itemId,
-      slice: stretched,
-      imageSize: size,
+      ...geometry,
       textColor,
+      ...(input.linkColor ? { linkColor: argbToCss(input.linkColor) } : {}),
       localFile: input.pngPath,
       ...(input.animation?.frameCount
         ? {
@@ -193,22 +165,46 @@ export function buildLocalBubbleSkin(input: LocalBubbleInput): BubbleSkin | null
   }
 }
 
-/** 读 Android .9.png 的 npTc chunk,取九宫格拉伸点。 */
-function readNinePatchZoom(png: Buffer): { x: number; y: number } | null {
+/** 磁盘 npTc 为大端；与 Android 在内存中自建 chunk 的 nativeOrder 不同。 */
+export function readBubbleGeometry(
+  png: Buffer,
+  zoomPoint?: readonly [number, number],
+): BubbleGeometry | null {
+  const imageSize = pngSize(png);
+  if (!imageSize) return null;
+  const fromDivs = (x0: number, x1: number, y0: number, y1: number): BubbleGeometry | null => {
+    if (
+      ![x0, x1, y0, y1].every(Number.isInteger) ||
+      x0 < 0 ||
+      y0 < 0 ||
+      x1 <= x0 ||
+      y1 <= y0 ||
+      x1 > imageSize.w ||
+      y1 > imageSize.h
+    )
+      return null;
+    return {
+      imageSize,
+      slice: { left: x0, right: imageSize.w - x1, top: y0, bottom: imageSize.h - y1 },
+    };
+  };
+  if (zoomPoint) {
+    const geometry = fromDivs(zoomPoint[0], zoomPoint[0] + 1, zoomPoint[1], zoomPoint[1] + 1);
+    if (geometry) return { ...geometry, configuredPatch: true };
+  }
   let i = 8;
-  while (i + 8 <= png.length) {
+  while (i + 12 <= png.length) {
     const len = png.readUInt32BE(i);
+    if (i + 12 + len > png.length) return null;
     const type = png.toString('latin1', i + 4, i + 8);
     if (type === 'npTc') {
       const b = png.subarray(i + 8, i + 8 + len);
+      if (b.length < 32) return null;
       const numXDivs = b.readUInt8(1);
       const numYDivs = b.readUInt8(2);
-      if (numXDivs < 1 || numYDivs < 1) return null;
-      const divs = 32;
-      if (b.length < divs + 4 * (numXDivs + 1)) return null;
-      const x = b.readInt32BE(divs);
-      const y = b.readInt32BE(divs + 4 * numXDivs);
-      return x > 0 && y > 0 ? { x: x + 1, y: y + 1 } : null;
+      // 当前 CSS border-image 仅表达单段拉伸；不能把多段端点静默压成一个点。
+      if (numXDivs !== 2 || numYDivs !== 2 || b.length < 48 + b[3]! * 4) return null;
+      return fromDivs(b.readInt32BE(32), b.readInt32BE(36), b.readInt32BE(40), b.readInt32BE(44));
     }
     if (type === 'IEND') break;
     i += 12 + len;
@@ -217,7 +213,7 @@ function readNinePatchZoom(png: Buffer): { x: number; y: number } | null {
 }
 
 /** QQ 的 `0xAARRGGBB` 色串 → CSS。解析不了时回退主题正文色。 */
-function argbToCss(argb: string): string {
+export function argbToCss(argb: string): string {
   const m = argb.trim().match(/^0x([0-9a-f]{8})$/i);
   if (!m) return 'var(--weq-fg-primary, #111111)';
   const n = Number.parseInt(m[1]!, 16);

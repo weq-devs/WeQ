@@ -349,17 +349,31 @@ describe('message_repeat', () => {
   });
 
   describe('最新连续消息 +1', () => {
-    it('最近两条相同才在最新一条出现，历史、灰条、失败和撤回不跳过', () => {
+    it('略过灰条、失败、撤回和删除，不越过不同正文或不可重发的正常消息', () => {
       const first = message('a', [plain('相同')]);
       const last = message('b', [plain('相同')]);
+      const tip = message('tip', [{ type: 'grayTipPoke' }]);
+      const different = message('different', [plain('不同')]);
       expect(repeatTarget([first, last], true)).toBe(last);
-      expect(repeatTarget([first, last], false)).toBeNull();
-      expect(repeatTarget([first, last, message('c', [plain('不同')])], true)).toBeNull();
-      expect(
-        repeatTarget([first, message('tip', [{ type: 'grayTipPoke' }]), last], true),
-      ).toBeNull();
-      expect(repeatTarget([first, { ...last, optimistic: 'failed' }], true)).toBeNull();
-      expect(repeatTarget([first, { ...last, recall: {} }], true)).toBeNull();
+      expect(repeatTarget([first, tip, last], false)).toBeNull();
+      for (const ignored of [
+        tip,
+        { ...different, optimistic: 'failed' },
+        { ...different, optimistic: 'sent', optimisticRejected: true },
+        { ...different, recall: {} },
+        { ...different, deletedKind: 'qq' },
+      ]) {
+        expect(repeatTarget([first, ignored, last], true)).toBe(last);
+        expect(repeatTarget([first, last, ignored], true)).toBe(last);
+        expect(repeatTarget([ignored, last], true)).toBeNull();
+      }
+      for (const blocker of [
+        different,
+        message('wallet', [{ type: 'wallet' }]),
+        { ...different, optimistic: 'sending' },
+      ]) {
+        expect(repeatTarget([first, blocker, tip, last], true)).toBeNull();
+      }
     });
     it('比较实际元素而不是预览标签，文本切段和缓存元信息不影响同一内容', () => {
       expect(

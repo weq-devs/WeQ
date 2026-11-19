@@ -133,6 +133,10 @@ textarea,
   background: var(--im-color-chat-surface, #f0f0f0);
 }
 
+:where(html:not([data-weq-layout='single'])) .app-shell {
+  --weq-pane-toolbar-height: 44px;
+}
+
 body.is-resizing-column,
 body.is-resizing-column * {
   cursor: col-resize !important;

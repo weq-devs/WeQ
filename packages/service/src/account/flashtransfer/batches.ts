@@ -32,6 +32,8 @@ export function groupFlashDownloads(tasks: FlashDownloadTask[]): FlashDownloadBa
       id,
       name: first.batchId ? first.filesetName : first.name,
       status,
+      interrupted: !active && files.some((file) => file.interrupted),
+      pausedByUser: !active && files.some((file) => file.pausedByUser),
       files,
       logs: files
         .flatMap((file, index) =>

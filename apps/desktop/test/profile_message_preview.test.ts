@@ -1,10 +1,14 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { readProfilePreviewPage } from '../src/renderer/src/lib/profileMessagePreview';
+import { readReadonlyOlderPage } from '../src/renderer/src/lib/readonlyConversation';
 
 const api = vi.hoisted(() => ({
   browseConversation: { query: vi.fn() },
   listLatest: { query: vi.fn() },
   listBefore: { query: vi.fn() },
+  guildDirectLatest: { query: vi.fn() },
+  guildDirectBefore: { query: vi.fn() },
+  readonlyConversationPage: { query: vi.fn() },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: { account: api } }));
 beforeEach(() => vi.clearAllMocks());
@@ -84,4 +88,55 @@ it('预览失败交给共用界面重试，不换成未筛选的群消息', asyn
     readProfilePreviewPage({ kind: 'group', conv: '10003', sender: 'u_fixture' }),
   ).rejects.toThrow('fixture failure');
   expect(api.listLatest.query).not.toHaveBeenCalled();
+});
+
+it('频道私聊使用会话节点和实际消息 ID 翻页，不跳过同序号的更早记录', async () => {
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' };
+  const target = { kind: 'guild', nodeId: '71' } as const;
+  const rows = Array.from({ length: 50 }, (_, index) => ({
+    msgId: String(100 - index),
+    msgSeq: '1',
+    sendTime: '42',
+  }));
+  api.guildDirectLatest.query.mockResolvedValueOnce(rows);
+  api.guildDirectBefore.query.mockResolvedValueOnce([{ ...rows[0], msgId: '50' }]);
+
+  const first = await readReadonlyOlderPage(target, binding);
+  expect(api.guildDirectLatest.query).toHaveBeenCalledWith({
+    ...binding,
+    nodeId: '71',
+    stablePaging: true,
+    limit: 50,
+  });
+  expect(first.nextCursor).toEqual(rows.at(-1));
+  expect(first.hasMore).toBe(true);
+  const older = await readReadonlyOlderPage(target, binding, first.nextCursor);
+  expect(api.guildDirectBefore.query).toHaveBeenCalledWith({
+    ...binding,
+    nodeId: '71',
+    beforeSeq: '1',
+    beforeMsgId: '51',
+    limit: 50,
+  });
+  expect(older.items[0]?.msgId).toBe('50');
+  expect(older.hasMore).toBe(false);
+  expect(api.listBefore.query).not.toHaveBeenCalled();
+});
+
+it.each([
+  { kind: 'official', peerUid: 'u_fixture' },
+  { kind: 'service', appId: '51' },
+] as const)('卡片流保留 $kind 来源和服务端三字段分页游标', async (target) => {
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' };
+  const cursor = { msgId: '21', msgSeq: '0', sendTime: '42' };
+  const result = { items: [cursor], found: true, hasMore: true, nextCursor: cursor };
+  api.readonlyConversationPage.query.mockResolvedValueOnce(result);
+  expect(await readReadonlyOlderPage(target, binding, cursor)).toEqual(result);
+  expect(api.readonlyConversationPage.query).toHaveBeenCalledWith({
+    ...binding,
+    target,
+    direction: 'older',
+    cursor,
+    limit: 50,
+  });
 });

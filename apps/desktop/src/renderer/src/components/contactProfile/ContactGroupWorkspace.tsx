@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { useContext, useEffect, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { DEFAULT_CONTACT_CARD } from '@weq/service/contact-card';
@@ -133,7 +134,7 @@ function GroupWorkspace({
           <div className="weq-profile-group-picker">
             <label htmlFor={`contact-group-${uid}`}>群聊</label>
             <div className="weq-profile-group-target">
-              <select
+              <FormSelect
                 className="weq-set-select"
                 id={`contact-group-${uid}`}
                 value={code ?? ''}
@@ -160,7 +161,7 @@ function GroupWorkspace({
                     </option>
                   ))
                 )}
-              </select>
+              </FormSelect>
               {code ? (
                 <button
                   type="button"

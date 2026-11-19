@@ -374,7 +374,7 @@ test('大包分片连续无缺口，其他包和 Web 仍完整运行，全部结
   assert.deepEqual(bootstrap.strategy.matrix.os, [
     'ubuntu-latest',
     'windows-latest',
-    'macos-latest',
+    `\${{ github.ref_type == 'tag' && 'macos-15' || 'macos-latest' }}`,
   ]);
   const bootstrapTest = bootstrap.steps.find(
     (step) => step.name === 'Test dependency-free development bootstrap',

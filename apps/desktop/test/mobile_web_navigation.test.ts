@@ -1,3 +1,4 @@
+import './support/development-features.stub';
 import { act, createElement, useLayoutEffect, useState, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -388,7 +389,7 @@ it.each(['self', 'peer'])('%s 状态变化后更新实际文案，缺失时不�
   );
 });
 
-it.each([0, 123])('消息汇总数为 %s 时再次点击消息入口仍可定位', async (messageBadgeCount) => {
+it.each([0, 123])('消息汇总数为 %s 时仅当前消息页点击可定位', async (messageBadgeCount) => {
   const locateUnread = vi.fn();
   await act(async () =>
     root.render(
@@ -400,8 +401,20 @@ it.each([0, 123])('消息汇总数为 %s 时再次点击消息入口仍可定位
     ),
   );
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[0]!.click());
+  await act(async () =>
+    root.render(
+      createElement(MobileWebNavigation, {
+        ...props,
+        view: 'contacts',
+        messageBadgeCount,
+        onMessageBadgeClick: locateUnread,
+      }),
+    ),
+  );
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[0]!.click());
   expect(locateUnread).toHaveBeenCalledOnce();
-  expect(props.onViewChange).not.toHaveBeenCalled();
+  expect(props.onViewChange).toHaveBeenCalledOnce();
+  expect(props.onViewChange).toHaveBeenCalledWith('messages');
 });
 
 it('外部导航更新根页面，进入详情后关闭详情仍回到更多且不闪回', async () => {

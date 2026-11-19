@@ -1,3 +1,4 @@
+import { FormSelect } from './FormSelect';
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { X, Save } from 'lucide-react';
@@ -203,7 +204,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                   <span className="weq-number weq-number-inherit">{activeEditor.uids.length}</span>{' '}
                   位好友移动到
                 </span>
-                <select
+                <FormSelect
                   className="weq-set-select"
                   autoFocus
                   required
@@ -211,7 +212,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                   disabled={busy}
                   onChange={(event) => setMergeInto(event.target.value)}
                 >
-                  <option value="" disabled>
+                  <option value="" data-placeholder disabled>
                     选择分组
                   </option>
                   {[...(categories ?? [])]
@@ -221,7 +222,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                         {row.name}
                       </option>
                     ))}
-                </select>
+                </FormSelect>
               </label>
             ) : activeEditor.type === 'delete' ? (
               <>
@@ -232,14 +233,14 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                       将 <span className="weq-number weq-number-inherit">{memberCount}</span>{' '}
                       位好友合并到
                     </span>
-                    <select
+                    <FormSelect
                       className="weq-set-select"
                       required
                       value={mergeInto}
                       disabled={busy}
                       onChange={(event) => setMergeInto(event.target.value)}
                     >
-                      <option value="" disabled>
+                      <option value="" data-placeholder disabled>
                         选择分组
                       </option>
                       {(categories ?? [])
@@ -249,7 +250,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
                             {row.name}
                           </option>
                         ))}
-                    </select>
+                    </FormSelect>
                   </label>
                 )}
               </>

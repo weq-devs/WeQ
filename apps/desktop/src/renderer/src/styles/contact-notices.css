@@ -11,7 +11,7 @@
   animation: weq-notice-enter 140ms ease;
 }
 
-.weq-notice-dialog.weq-notice-panel {
+html[data-theme] .weq-notice-dialog.weq-notice-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   flex: 1;
@@ -23,9 +23,13 @@
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: var(--weq-bg-surface);
+  background: transparent;
   box-shadow: none;
   animation: none;
+}
+
+.weq-notice-panel > .weq-page-head {
+  background: transparent;
 }
 
 .weq-notice-dialog .notice-card-request {

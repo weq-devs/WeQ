@@ -43,14 +43,13 @@ import { useDialog } from './Dialog.shared';
 import { useToast } from './Toast.shared';
 import { LoadingIndicator } from './LoadingIndicator';
 import { QqAvatar } from './QqAvatar';
-import { DesktopOnly } from '../lib/target';
-import { shellBridge } from '../lib/target.shared';
+import { IS_WEB, shellBridge } from '../lib/target.shared';
+import { useRemoteClient } from '../lib/remoteClient';
 import '../styles/rail-account.css';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMenuCapture } from '../hooks/useMenuCapture';
 import { captureMenuScreenshot } from '../lib/menuScreenshot';
 import { captureWebWindow } from '../lib/webScreenshot';
-import { IS_WEB } from '../lib/target.shared';
 import '../styles/menu-capture.css';
 
 function errMsg(e: unknown): string {
@@ -87,6 +86,7 @@ export function RailAccountFooter({
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const lock = useAppLock((s) => s.lock);
+  const remote = useRemoteClient();
   // 菜单与设置共用主题状态；快捷切换固定为浅/深色，跟随系统仍在设置里选择。
   const resolvedTheme = useThemeStore((s) => s.resolved);
   const setThemePreference = useThemeStore((s) => s.setPreference);
@@ -128,7 +128,9 @@ export function RailAccountFooter({
 
   /** 按钮禁用时的提示原因；null = 当前可上锁。 */
   function lockBlockReason(): string | null {
-    if (appLock?.enabled === false) return '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。';
+    if (IS_WEB) return '请在电脑端锁定 WeQ。';
+    if (!appLock) return '应用锁设置尚未就绪。';
+    if (!appLock.enabled) return '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。';
     if (lockMethod === 'system') {
       return systemAuthQuery.data?.available === false
         ? (systemAuthQuery.data?.error ?? '当前设备系统认证不可用。')
@@ -141,10 +143,12 @@ export function RailAccountFooter({
 
   // 上锁前拉一次最新配置，避免缓存陈旧导致上锁后无法解锁。
   async function lockNow(): Promise<void> {
+    if (IS_WEB) return;
     try {
       const fresh = await lockSettings.refetch();
       const cfg = fresh.data?.appLock;
-      if (cfg?.enabled === false) {
+      if (fresh.error || !cfg) throw new Error('应用锁设置尚未就绪。');
+      if (!cfg.enabled) {
         showError('无法上锁', '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。');
         return;
       }
@@ -164,8 +168,9 @@ export function RailAccountFooter({
           return;
         }
       }
-    } catch {
-      // 读取失败时照常上锁，解锁弹窗会自己校验当前配置。
+    } catch (reason) {
+      showError('无法上锁', reason instanceof Error ? reason.message : String(reason));
+      return;
     }
     setOpen(false);
     useWorkspaceMenu.getState().close();
@@ -306,7 +311,7 @@ export function RailAccountFooter({
     <div className="weq-workspace-controls" aria-label="应用控制">
       {settingsButton}
       {typeof children === 'function' ? null : children}
-      <DesktopOnly>
+      {!IS_WEB || remote ? (
         <button
           type="button"
           className="weq-workspace-control"
@@ -317,7 +322,7 @@ export function RailAccountFooter({
         >
           <LockKeyhole size={18} strokeWidth={1.8} aria-hidden />
         </button>
-      </DesktopOnly>
+      ) : null}
       <div ref={wrapRef} className="weq-rail-account-footer">
         <button
           type="button"

@@ -1,11 +1,11 @@
-import { OperationError } from '@weq/service';
+import { JsonStore, OperationError } from '@weq/service';
 import { z } from 'zod';
 import {
   createCalendarSources,
   generatedMessages,
 } from '@weq/service/conversation-calendar-sources';
-import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { join, resolve } from 'node:path';
 import { CalendarCheckpointStore } from '@weq/service/conversation-calendar-store';
 import type { AccountSession } from '@weq/account';
 import { type CalendarMetadataDb, withDatabasePriority, withDatabaseReadBudget } from '@weq/db';
@@ -31,6 +31,7 @@ import { c2cMsgToWire, groupMsgToWire, type ChatMsgWire } from '../serde';
 import { roamingMsgToWire } from '../roaming_message_wire';
 import { timelineRowKey } from '@weq/service/roaming-timeline';
 import { backgroundTasks } from '../../background_tasks';
+import type { BackgroundTask, BackgroundTaskScope } from '../../../shared/background_task';
 
 const targetInput = z.object({
   kind: z.enum([
@@ -57,6 +58,29 @@ const dayInput = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .optional();
+const kindsInput = z.array(targetInput.shape.kind).max(CALENDAR_SOURCE_ORDER.length).optional();
+const calendarStartInput = exportAccountBindingInput.extend({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  targets: z.array(targetInput).max(12000),
+  day: dayInput,
+  kinds: kindsInput,
+  refresh: z.boolean().default(false),
+});
+const calendarReceipt = z.object({
+  id: z.string().uuid(),
+  key: z.string(),
+  request: calendarStartInput,
+  startedAt: z.number(),
+  updatedAt: z.number(),
+  status: z.enum(['running', 'paused', 'completed', 'cancelled']),
+  progress: z.number().optional(),
+  note: z.string().optional(),
+});
+type CalendarReceipt = z.infer<typeof calendarReceipt>;
+type CalendarReceipts = JsonStore<CalendarReceipt[]>;
+const receipts = new WeakMap<AccountSession, CalendarReceipts>();
+const restoredSessions = new WeakSet<AccountSession>();
+const RECEIPT_LIMIT = 24;
 interface Entry {
   loaded: boolean;
   ready?: Promise<void>;
@@ -64,6 +88,8 @@ interface Entry {
   key: string;
   taskId?: string;
   day?: string;
+  retiring?: boolean;
+  receiptStore?: CalendarReceipts;
   job: ConversationCalendarJob;
   session: AccountSession;
   services: AccountServices;
@@ -75,7 +101,10 @@ export async function flushConversationCalendarResults(): Promise<void> {
   const session = getAppContext().account;
   if (!session) return;
   const values = [...(sessions.get(session)?.values() ?? [])];
-  for (const value of values) value.job.cancel();
+  for (const value of values) {
+    value.retiring = true;
+    value.job.cancel();
+  }
   await Promise.all(
     values.map(async (value) => {
       await value.ready;
@@ -85,11 +114,11 @@ export async function flushConversationCalendarResults(): Promise<void> {
 }
 function retire(value: Entry | undefined) {
   if (!value) return;
+  value.retiring = true;
   value.job.cancel();
   if (value.loaded) void value.store?.flush().catch(() => {});
   else void value.ready?.then(() => value.store?.flush()).catch(() => {});
 }
-const kindsInput = z.array(targetInput.shape.kind).max(CALENDAR_SOURCE_ORDER.length).optional();
 function runJob(value: Entry, day = value.day, retry = false) {
   withDatabasePriority(
     'background',
@@ -105,27 +134,30 @@ function runJob(value: Entry, day = value.day, retry = false) {
   );
 }
 accountEventBus.on('closing', (session: AccountSession | null) => {
-  if (session)
+  if (session) {
     for (const value of sessions.get(session)?.values() ?? []) {
       retire(value);
     }
+    for (const record of receipts.get(session)?.data ?? []) backgroundTasks.remove(record.id);
+  }
 });
 
 function syncTask(value: Entry) {
   if (!value.taskId) return;
-  const snapshot = value.job.snapshot(value.day, 0, true);
+  const snapshot = value.job.snapshot(value.day, 0, true, 0);
   const { completedSources: done, totalSources: total, failedSources: failed } = snapshot.progress;
   const complete = done === total && snapshot.complete && !snapshot.hasPending;
-  const status = complete
+  const status: CalendarReceipt['status'] = complete
     ? 'completed'
     : snapshot.cancelled
-      ? 'cancelled'
+      ? value.retiring && value.receiptStore
+        ? 'paused'
+        : 'cancelled'
       : !snapshot.canRun || snapshot.controls.month.state === 'empty'
         ? 'paused'
         : 'running';
   const previous = backgroundTasks.snapshot().find((task) => task.id === value.taskId);
   if (!previous) return;
-  if (previous.status !== 'running' && status === 'running') backgroundTasks.resume(value.taskId);
   const patch = {
     progress: total ? (done / total) * 100 : 0,
     note:
@@ -146,62 +178,116 @@ function syncTask(value: Entry) {
         : []),
     ],
   };
-  if (status === 'running') backgroundTasks.update(value.taskId, patch);
-  else backgroundTasks.finish(value.taskId, status, patch);
-  const actionId =
-    status === 'running'
-      ? 'stop'
-      : status === 'cancelled' || status === 'paused'
-        ? 'retry'
-        : undefined;
-  if (previous.actions[0]?.id !== actionId)
-    backgroundTasks.setActions(
-      value.taskId,
-      status === 'running'
-        ? [{ id: 'stop', label: '停止统计', run: () => value.job.cancel() }]
-        : actionId === 'retry'
-          ? [
-              {
-                id: 'retry',
-                label: '重试统计',
-                run: async () => {
-                  const assertCurrent = () => {
-                    if (
-                      getAppContext().account !== value.session ||
-                      ![...(sessions.get(value.session)?.values() ?? [])].includes(value)
-                    )
-                      throw new Error('日历任务已结束，请回到原账号重新打开日历');
-                  };
-                  assertCurrent();
-                  await value.job.settled();
-                  assertCurrent();
-                  if (value.job.controller.signal.aborted) {
-                    value.job.resume();
-                    value.job.controller.signal.addEventListener('abort', () => syncTask(value), {
-                      once: true,
-                    });
-                  }
-                  value.job.retryTimedOut();
-                  value.job.control('month', 'continue');
-                  withDatabasePriority(
-                    'background',
-                    () =>
-                      withDatabaseReadBudget(
-                        10,
-                        () => value.job.continueInBackground(),
-                        (ms) => value.job.observeRead(ms),
-                        () => value.job.noteWaiting(),
-                        (state) => value.job.observeState(state),
-                      ),
-                    value.job.controller.signal,
-                  );
-                  syncTask(value);
-                  void value.job.settled().then(() => syncTask(value));
-                },
-              },
-            ]
-          : [],
+  let updatedAt = previous.updatedAt;
+  if (
+    status !== previous.status ||
+    (status !== 'running' && patch.progress !== previous.progress)
+  ) {
+    updatedAt = Math.max(Date.now(), previous.updatedAt + 1);
+    const scope = {
+      uin: value.session.context.uin,
+      configId: value.services.accountConfig.getRecord()?.configId,
+    };
+    backgroundTasks.project(
+      {
+        ...previous,
+        ...patch,
+        status,
+        updatedAt,
+        statusLabel: status === 'paused' ? '已暂停' : undefined,
+      },
+      calendarActions(value.session, scope, value.taskId, status),
     );
+  } else if (status === 'running') {
+    backgroundTasks.update(value.taskId, patch);
+    if (!previous.actions.length && previous.scope)
+      backgroundTasks.setActions(
+        value.taskId,
+        calendarActions(value.session, previous.scope, value.taskId, status),
+      );
+  }
+  const record = value.receiptStore?.data.find((item) => item.id === value.taskId);
+  if (record && (record.status !== status || value.retiring)) {
+    const next = { ...record, status, updatedAt, progress: patch.progress, note: patch.note };
+    try {
+      value.receiptStore!.replace(
+        value.receiptStore!.data.map((item) => (item === record ? next : item)),
+        true,
+      );
+    } catch (error) {
+      console.warn('[日历] 后台任务记录保存失败', error);
+    }
+  }
+}
+
+function runInBackground(value: Entry) {
+  withDatabasePriority(
+    'background',
+    () =>
+      withDatabaseReadBudget(
+        10,
+        () => value.job.continueInBackground(),
+        (ms) => value.job.observeRead(ms),
+        () => value.job.noteWaiting(),
+        (state) => value.job.observeState(state),
+      ),
+    value.job.controller.signal,
+  );
+  syncTask(value);
+  void value.job.settled().then(() => syncTask(value));
+}
+
+function calendarActions(
+  session: AccountSession,
+  scope: BackgroundTaskScope,
+  taskId: string,
+  status: CalendarReceipt['status'],
+) {
+  const open = async () => {
+    if (getAppContext().account !== session) throw new Error('请回到原账号继续统计');
+    return (
+      await openCalendarTask(taskId, {
+        expectedAccountUin: scope.uin,
+        expectedAccountConfigId: scope.configId,
+      })
+    )[1];
+  };
+  if (status === 'running')
+    return [
+      {
+        id: 'pause',
+        label: '暂停',
+        run: async () => {
+          const value = await open();
+          value.job.suspend();
+          syncTask(value);
+          await value.job.settled();
+          await value.store?.flush();
+        },
+      },
+      { id: 'stop', label: '停止统计', run: async () => (await open()).job.cancel() },
+    ];
+  if (status === 'completed') return [];
+  return [
+    {
+      id: status === 'paused' ? 'resume' : 'retry',
+      label: status === 'paused' ? '继续' : '重试统计',
+      run: async () => {
+        const value = await open();
+        await value.job.settled();
+        if (getAppContext().account !== session) throw new Error('请回到原账号继续统计');
+        if (value.job.controller.signal.aborted) {
+          value.job.resume();
+          value.job.controller.signal.addEventListener('abort', () => syncTask(value), {
+            once: true,
+          });
+        }
+        value.job.retryTimedOut();
+        value.job.control('month', 'continue');
+        runInBackground(value);
+      },
+    },
+  ];
 }
 
 function current(input: { expectedAccountUin?: string; expectedAccountConfigId?: string }) {
@@ -215,6 +301,114 @@ function current(input: { expectedAccountUin?: string; expectedAccountConfigId?:
     throw new Error('账号或数据源已切换');
   return { session: ctx.account, services: ctx.services, native: ctx.platform.native.ntHelper };
 }
+function calendarReceipts(session: AccountSession, scope: BackgroundTaskScope) {
+  const cached = receipts.get(session);
+  if (cached) return cached;
+  const root = accountRuntimeCacheRoot(getAppContext());
+  if (!root || !scope.configId) return undefined;
+  const key = createHash('sha256')
+    .update(JSON.stringify([scope.uin, scope.configId, resolve(session.msgDbPath)]))
+    .digest('hex');
+  const store = new JsonStore<CalendarReceipt[]>(
+    join(root, 'conversation-calendar', `tasks-${key}.json`),
+    () => [],
+    {
+      normalize: (raw) => z.array(calendarReceipt).max(RECEIPT_LIMIT).parse(raw),
+    },
+  );
+  receipts.set(session, store);
+  return store;
+}
+
+export function restoreCalendarTasks(scope: BackgroundTaskScope) {
+  const ctx = getAppContext();
+  const { account: session, services } = ctx;
+  if (
+    !session ||
+    !services ||
+    session.context.uin !== scope.uin ||
+    !scope.configId ||
+    services.accountConfig.getRecord()?.configId !== scope.configId
+  )
+    return;
+  if (restoredSessions.has(session)) return;
+  const store = calendarReceipts(session, scope);
+  if (!store) return;
+  restoredSessions.add(session);
+  for (const record of store.data) {
+    if (backgroundTasks.snapshot().some((task) => task.id === record.id)) continue;
+    const status = record.status === 'running' ? 'paused' : record.status;
+    backgroundTasks.project(
+      {
+        id: record.id,
+        kind: 'calendar',
+        name: `会话日历 · ${record.request.month}`,
+        display: { action: '统计会话日历', subject: record.request.month },
+        scope,
+        status,
+        statusLabel: status === 'paused' ? '等待继续' : undefined,
+        progress: record.progress,
+        note: record.note,
+        startedAt: record.startedAt,
+        updatedAt: record.updatedAt,
+        actions: [],
+      },
+      calendarActions(session, scope, record.id, status),
+    );
+  }
+}
+
+export function removeCalendarTask(task: BackgroundTask) {
+  const ctx = getAppContext();
+  const scope = task.scope;
+  if (
+    !scope ||
+    ctx.account?.context.uin !== scope.uin ||
+    ctx.services?.accountConfig.getRecord()?.configId !== scope.configId
+  )
+    return false;
+  const store = calendarReceipts(ctx.account, scope);
+  if (store?.data.some((item) => item.id === task.id))
+    store.replace(
+      store.data.filter((item) => item.id !== task.id),
+      true,
+    );
+  return true;
+}
+
+async function openCalendarTask(
+  taskId: string,
+  input: { expectedAccountUin?: string; expectedAccountConfigId?: string },
+): Promise<[string, Entry]> {
+  const { session, services } = current(input);
+  const scope = {
+    uin: session.context.uin,
+    configId: services.accountConfig.getRecord()?.configId,
+  };
+  restoreCalendarTasks(scope);
+  if (
+    !backgroundTasks
+      .snapshot()
+      .some(
+        (task) =>
+          task.id === taskId &&
+          task.scope?.uin === scope.uin &&
+          task.scope.configId === scope.configId,
+      )
+  )
+    throw new Error('日历任务已结束');
+  const existing = [...(sessions.get(session) ?? [])].find(([, value]) => value.taskId === taskId);
+  if (existing) {
+    await existing[1].ready;
+    if (current(input).session !== session) throw new Error('账号或数据源已切换');
+    return existing;
+  }
+  const record = calendarReceipts(session, scope)?.data.find((item) => item.id === taskId);
+  if (!record) throw new Error('日历任务已结束');
+  const { id } = await startCalendar(record.request, true);
+  return [id, entry({ ...input, id })];
+}
+
 function entry(input: z.infer<typeof requestInput>): Entry {
   const { session } = current(input);
   const value = sessions.get(session)?.get(input.id);
@@ -233,185 +427,219 @@ function entry(input: z.infer<typeof requestInput>): Entry {
   return value;
 }
 
+async function startCalendar(input: z.infer<typeof calendarStartInput>, inspectOnly = false) {
+  const { session, services, native } = current(input);
+  const scope = {
+    uin: session.context.uin,
+    configId: services.accountConfig.getRecord()?.configId,
+  };
+  restoreCalendarTasks(scope);
+  const receiptStore = calendarReceipts(session, scope);
+  if (input.day && !calendarMonthDays(input.month).some((value) => value.day === input.day))
+    throw new OperationError('日期不属于当前月份', 'expected');
+  let cache = sessions.get(session);
+  if (!cache) {
+    cache = new Map();
+    sessions.set(session, cache);
+  }
+  const unique = [
+    ...new Map(input.targets.map((target) => [calendarTargetKey(target), target])).values(),
+  ];
+  const key = JSON.stringify([
+    input.month,
+    unique
+      .map((target) => [
+        calendarTargetKey(target),
+        Object.entries(target.hiddenIds ?? {})
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, ids]) => [key, [...ids].sort()]),
+      ])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  ]);
+  const receiptKey = createHash('sha256').update(key).digest('hex');
+  const receipt = receiptStore?.data.find((item) => item.key === receiptKey);
+  const existing = [...cache].find(([, value]) => value.key === key);
+  if (existing) {
+    const [id, value] = existing;
+    await value.ready;
+    if (current(input).session !== session) throw new Error('账号或数据源已切换');
+    const status = backgroundTasks.snapshot().find((task) => task.id === value.taskId)?.status;
+    if (inspectOnly || (!input.refresh && status === 'paused')) {
+      if (!inspectOnly && input.kinds) value.job.setKinds(input.kinds);
+      return { id, day: value.day, background: value.job.inBackground };
+    }
+    if (input.refresh) value.job.cancel();
+    if (value.job.controller.signal.aborted) {
+      await value.job.settled();
+      current(input);
+      value.job.resume();
+      value.job.controller.signal.addEventListener('abort', () => syncTask(value), {
+        once: true,
+      });
+    }
+    if (input.refresh) value.job.invalidate();
+    value.job.retryTimedOut();
+    value.job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
+    runJob(value, value.day);
+    syncTask(value);
+    return { id, day: value.day, background: value.job.inBackground };
+  }
+  if (
+    unique.some(
+      (target) =>
+        target.kind !== 'persona' && target.kind !== 'cloneGroup' && target.kind !== 'assistant',
+    ) &&
+    !native.executeSqlBudgeted
+  )
+    throw new OperationError(
+      '会话日历需要支持短预算读取的原生组件，请更新原生组件后重试',
+      'expected',
+    );
+  const value = {
+    session,
+    services,
+    targets: unique,
+    readers: new Map<CalendarKind, CalendarMetadataDb>(),
+  };
+  let tracked: Entry | undefined;
+  const sources = createCalendarSources(value, native, () => {
+    tracked?.job.controller.signal.throwIfAborted();
+    if (getAppContext().account !== value.session)
+      throw new DOMException('账号已切换', 'AbortError');
+  });
+  const id = randomUUID();
+  const pool = cache;
+  const reserve = (bytes: number) => {
+    while (
+      [...pool.values()].reduce((sum, item) => sum + item.job.memoryBytes, 0) + bytes >
+      CALENDAR_CACHE_BYTES
+    ) {
+      const victim = [...pool.keys()].find((key) => key !== id);
+      if (!victim) return false;
+      retire(pool.get(victim));
+      pool.delete(victim);
+    }
+    return true;
+  };
+  let lastSync = 0;
+  const job = new ConversationCalendarJob(input.month, unique, sources, reserve, () => {
+    if (!tracked?.loaded) return;
+    tracked.store?.schedule();
+    if (tracked?.taskId && Date.now() - lastSync >= 500) {
+      lastSync = Date.now();
+      syncTask(tracked);
+    }
+  });
+  tracked = { ...value, key, job, day: input.day, loaded: true, taskId: receipt?.id, receiptStore };
+  cache.set(id, tracked);
+  const entry = tracked;
+  const root = accountRuntimeCacheRoot(getAppContext());
+  if (root) {
+    entry.loaded = false;
+    const store = new CalendarCheckpointStore(
+      root,
+      JSON.stringify([
+        session.context.uin,
+        services.accountConfig.getRecord()?.configId,
+        resolve(session.msgDbPath),
+        key,
+      ]),
+      () => job.checkpoint(),
+      (message) => {
+        job.persistenceError = message;
+      },
+    );
+    entry.store = store;
+    entry.ready = (async () => {
+      const saved = await store.load();
+      if (saved !== undefined && !job.restore(saved)) store.block('统计结果格式无效，原文件已保留');
+      entry.day = job.day ?? input.day;
+      if (receipt && receipt.status !== 'completed') job.suspend();
+      entry.loaded = true;
+    })();
+    await entry.ready;
+    if (current(input).session !== session) throw new Error('账号或数据源已切换');
+    if (cache.get(id) !== entry) throw new Error('日历缓存已变更，请重新打开');
+  }
+  job.controller.signal.addEventListener(
+    'abort',
+    () => {
+      syncTask(entry);
+    },
+    { once: true },
+  );
+  while (cache.size > 12) {
+    const first = cache.keys().next().value!;
+    retire(cache.get(first));
+    cache.delete(first);
+  }
+  if (!inspectOnly && (!receipt || input.refresh || receipt.status === 'completed')) {
+    if (receipt && input.refresh) job.invalidate();
+    job.retryTimedOut();
+    job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
+    runJob(tracked);
+    entry.store?.schedule();
+  }
+  return { id, day: tracked.day, background: false };
+}
+
 export const conversationCalendarRouter = router({
-  start: procedure
-    .input(
-      exportAccountBindingInput.extend({
-        month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
-        targets: z.array(targetInput).max(12000),
-        day: dayInput,
-        kinds: kindsInput,
-        refresh: z.boolean().default(false),
-      }),
-    )
-    .mutation(async ({ input }) => {
-      const { session, services, native } = current(input);
-      if (input.day && !calendarMonthDays(input.month).some((value) => value.day === input.day))
-        throw new OperationError('日期不属于当前月份', 'expected');
-      let cache = sessions.get(session);
-      if (!cache) {
-        cache = new Map();
-        sessions.set(session, cache);
-      }
-      const unique = [
-        ...new Map(input.targets.map((target) => [calendarTargetKey(target), target])).values(),
-      ];
-      const key = JSON.stringify([
-        input.month,
-        unique
-          .map((target) => [
-            calendarTargetKey(target),
-            Object.entries(target.hiddenIds ?? {})
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([key, ids]) => [key, [...ids].sort()]),
-          ])
-          .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
-      ]);
-      const existing = [...cache].find(([, value]) => value.key === key);
-      if (existing) {
-        const [id, value] = existing;
-        await value.ready;
-        if (current(input).session !== session) throw new Error('账号或数据源已切换');
-        if (input.refresh) value.job.cancel();
-        if (value.job.controller.signal.aborted) {
-          await value.job.settled();
-          current(input);
-          value.job.resume();
-          value.job.controller.signal.addEventListener('abort', () => syncTask(value), {
-            once: true,
-          });
-        }
-        if (input.refresh) value.job.invalidate();
-        value.job.retryTimedOut();
-        value.job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
-        runJob(value, value.day);
-        syncTask(value);
-        return { id, day: value.day, background: value.job.inBackground };
-      }
-      if (
-        unique.some(
-          (target) =>
-            target.kind !== 'persona' &&
-            target.kind !== 'cloneGroup' &&
-            target.kind !== 'assistant',
-        ) &&
-        !native.executeSqlBudgeted
-      )
-        throw new OperationError(
-          '会话日历需要支持短预算读取的原生组件，请更新原生组件后重试',
-          'expected',
-        );
-      const value = {
-        session,
-        services,
-        targets: unique,
-        readers: new Map<CalendarKind, CalendarMetadataDb>(),
-      };
-      let tracked: Entry | undefined;
-      const sources = createCalendarSources(value, native, () => {
-        tracked?.job.controller.signal.throwIfAborted();
-        if (getAppContext().account !== value.session)
-          throw new DOMException('账号已切换', 'AbortError');
-      });
-      const id = randomUUID();
-      const pool = cache;
-      const reserve = (bytes: number) => {
-        while (
-          [...pool.values()].reduce((sum, item) => sum + item.job.memoryBytes, 0) + bytes >
-          CALENDAR_CACHE_BYTES
-        ) {
-          const victim = [...pool.keys()].find((key) => key !== id);
-          if (!victim) return false;
-          retire(pool.get(victim));
-          pool.delete(victim);
-        }
-        return true;
-      };
-      let lastSync = 0;
-      const job = new ConversationCalendarJob(input.month, unique, sources, reserve, () => {
-        if (tracked?.loaded) tracked.store?.schedule();
-        if (tracked?.taskId && Date.now() - lastSync >= 500) {
-          lastSync = Date.now();
-          syncTask(tracked);
-        }
-      });
-      tracked = { ...value, key, job, day: input.day, loaded: true };
-      cache.set(id, tracked);
-      const entry = tracked;
-      const root = accountRuntimeCacheRoot(getAppContext());
-      if (root) {
-        entry.loaded = false;
-        const store = new CalendarCheckpointStore(
-          root,
-          JSON.stringify([
-            session.context.uin,
-            services.accountConfig.getRecord()?.configId,
-            resolve(session.msgDbPath),
-            key,
-          ]),
-          () => job.checkpoint(),
-          (message) => {
-            job.persistenceError = message;
-          },
-        );
-        entry.store = store;
-        entry.ready = (async () => {
-          const saved = await store.load();
-          if (saved !== undefined && !job.restore(saved))
-            store.block('统计结果格式无效，原文件已保留');
-          entry.day = job.day ?? input.day;
-          entry.loaded = true;
-        })();
-        await entry.ready;
-        if (current(input).session !== session) throw new Error('账号或数据源已切换');
-        if (cache.get(id) !== entry) throw new Error('日历缓存已变更，请重新打开');
-      }
-      job.controller.signal.addEventListener(
-        'abort',
-        () => {
-          syncTask(entry);
-        },
-        { once: true },
-      );
-      while (cache.size > 12) {
-        const first = cache.keys().next().value!;
-        retire(cache.get(first));
-        cache.delete(first);
-      }
-      job.retryTimedOut();
-      job.setKinds(input.kinds ?? [...CALENDAR_SOURCE_ORDER]);
-      runJob(tracked);
-      entry.store?.schedule();
-      return { id, day: tracked.day, background: false };
-    }),
+  start: procedure.input(calendarStartInput).mutation(({ input }) => startCalendar(input)),
   background: procedure.input(requestInput).mutation(({ input }) => {
     const value = entry(input);
     if (value.job.controller.signal.aborted) throw new Error('日历任务已停止，请重新打开日历');
-    if (!value.taskId || !backgroundTasks.snapshot().some((task) => task.id === value.taskId))
+    if (!value.taskId || !backgroundTasks.snapshot().some((task) => task.id === value.taskId)) {
       value.taskId = backgroundTasks.start({
         name: `会话日历 · ${value.job.month}`,
+        display: { action: '统计会话日历', subject: value.job.month },
         kind: 'calendar',
         scope: {
           uin: value.session.context.uin,
           configId: value.services.accountConfig.getRecord()?.configId,
         },
       });
-    withDatabasePriority(
-      'background',
-      () =>
-        withDatabaseReadBudget(
-          10,
-          () => value.job.continueInBackground(),
-          (ms) => value.job.observeRead(ms),
-          () => value.job.noteWaiting(),
-          (state) => value.job.observeState(state),
-        ),
-      value.job.controller.signal,
-    );
-    syncTask(value);
-    void value.job.settled().then(() => {
-      syncTask(value);
-    });
+      const store = value.receiptStore;
+      if (store) {
+        const id = value.taskId;
+        const key = createHash('sha256').update(value.key).digest('hex');
+        const saved = store.data.filter((item) => item.key !== key);
+        const discard =
+          saved.length >= RECEIPT_LIMIT
+            ? saved.findIndex((item) => item.status === 'completed' || item.status === 'cancelled')
+            : -1;
+        const now = Date.now();
+        const record: CalendarReceipt = {
+          id,
+          key,
+          status: 'running',
+          startedAt: now,
+          updatedAt: now,
+          request: {
+            expectedAccountUin: value.session.context.uin,
+            expectedAccountConfigId: value.services.accountConfig.getRecord()?.configId,
+            month: value.job.month,
+            targets: value.targets,
+            day: value.day,
+            refresh: false,
+          },
+        };
+        try {
+          if (discard >= 0) saved.splice(discard, 1);
+          if (saved.length >= RECEIPT_LIMIT) throw new Error('请先移除不再需要的日历任务');
+          saved.push(record);
+          if (Buffer.byteLength(JSON.stringify(saved)) > 8 * 1024 * 1024)
+            throw new Error('日历任务记录超过保存上限，请缩小范围');
+          store.replace(saved, true);
+          value.store?.schedule();
+        } catch (error) {
+          backgroundTasks.finish(id, 'cancelled');
+          backgroundTasks.remove(id);
+          value.taskId = undefined;
+          throw error;
+        }
+      }
+    }
+    runInBackground(value);
     return { taskId: value.taskId };
   }),
   poll: procedure
@@ -447,14 +675,8 @@ export const conversationCalendarRouter = router({
         includeLogs: z.boolean().default(false),
       }),
     )
-    .query(({ input }) => {
-      const { session } = current(input);
-      const found = [...(sessions.get(session) ?? [])].find(
-        ([, value]) => value.taskId === input.taskId,
-      );
-      if (!found || !backgroundTasks.snapshot().some((task) => task.id === input.taskId))
-        throw new Error('日历任务已结束');
-      const [id, value] = found;
+    .query(async ({ input }) => {
+      const [id, value] = await openCalendarTask(input.taskId, input);
       if (input.day && !calendarMonthDays(value.job.month).some(({ day }) => day === input.day))
         throw new OperationError('日期不属于当前月份', 'expected');
       value.day =
@@ -463,9 +685,12 @@ export const conversationCalendarRouter = router({
         (value.job.month === calendarToday().slice(0, 7)
           ? calendarToday()
           : `${value.job.month}-01`);
-      if (input.kinds) value.job.setKinds(input.kinds);
-      runJob(value);
-      syncTask(value);
+      const status = backgroundTasks.snapshot().find((task) => task.id === input.taskId)?.status;
+      if (status === 'running' || (status === 'completed' && input.day)) {
+        if (input.kinds) value.job.setKinds(input.kinds);
+        runJob(value);
+        syncTask(value);
+      }
       return {
         id,
         month: value.job.month,

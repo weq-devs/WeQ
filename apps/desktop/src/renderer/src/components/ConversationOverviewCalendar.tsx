@@ -352,6 +352,7 @@ export function ConversationOverviewCalendar({
       if (live.current) setBusy(false);
     }
   }
+  const dayError = day > today ? '未来日期不统计' : !ready ? '正在读取会话目录…' : directoryError;
   return (
     <Modal
       onClose={onClose}
@@ -426,14 +427,18 @@ export function ConversationOverviewCalendar({
             day={day}
             id={id}
             busy={busy}
-            error={day > today ? '未来日期不统计' : !ready ? '正在读取会话目录…' : directoryError}
+            error={dayError}
             targets={selectedByKey}
             onLocate={locate}
             onLoadMore={loadMore}
           />
         </div>
         <div className="weq-overview-calendar-errors">
-          {[...new Set([directoryError, error].filter(Boolean))].map((message) => (
+          {[
+            ...new Set(
+              [directoryError, error].filter((message) => message && message !== dayError),
+            ),
+          ].map((message) => (
             <p role="alert" key={message}>
               {message}
             </p>

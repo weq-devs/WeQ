@@ -3,7 +3,7 @@ import { observable } from '@trpc/server/observable';
 import type { EnhancementUpdateNotice } from '../../../shared/enhancement_release';
 import { ENHANCEMENT_PACK_IDS } from '../../../shared/enhancement_manifest';
 import { requireBootstrap } from '../../context/app_context';
-import { startEnhancementDownloads } from '../../enhancements/tasks';
+import { forgetRemovedPackTask, startEnhancementDownloads } from '../../enhancements/tasks';
 import { procedure } from '../trpc';
 
 const packId = z.enum(ENHANCEMENT_PACK_IDS);
@@ -61,7 +61,9 @@ export const enhancementProcedures = {
     return true;
   }),
   deleteEnhancementPack: procedure.input(z.object({ id: packId })).mutation(async ({ input }) => {
-    await requireBootstrap().enhancements.packs.remove(input.id);
+    const packs = requireBootstrap().enhancements.packs;
+    await packs.remove(input.id);
+    forgetRemovedPackTask(packs, input.id);
     return true;
   }),
   pauseEnhancementPack: procedure.input(z.object({ id: packId })).mutation(({ input }) => {

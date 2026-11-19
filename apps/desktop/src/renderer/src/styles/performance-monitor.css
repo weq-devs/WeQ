@@ -26,7 +26,7 @@ html[data-theme='dark'] .weq-perf {
   font-weight: 600;
 }
 .weq-perf button,
-.weq-perf select,
+.weq-perf .weq-select-trigger,
 .weq-perf-menu input {
   min-width: 0;
   min-height: 30px;
@@ -62,12 +62,12 @@ html[data-theme='dark'] .weq-perf {
   flex: none;
   padding: 10px 16px 6px;
 }
-.weq-perf-toolbar > select {
+.weq-perf-toolbar > .weq-select-trigger {
   max-width: 168px;
   padding: 4px 26px 4px 8px;
   text-overflow: ellipsis;
 }
-.weq-perf-toolbar > select[aria-label='进程'] {
+.weq-perf-toolbar > .weq-select-trigger[aria-label='进程'] {
   width: 146px;
 }
 .weq-perf-tools {
@@ -318,7 +318,7 @@ html[data-theme='dark'] .weq-perf-band {
   background: transparent;
   width: 28px;
 }
-.weq-perf-inspector > select {
+.weq-perf-inspector > .weq-select-trigger {
   width: 100%;
   padding: 4px 8px;
 }
@@ -445,7 +445,7 @@ html[data-theme='dark'] .weq-perf-band {
   .weq-perf-timeline {
     padding-inline: 8px;
   }
-  .weq-perf-toolbar > select {
+  .weq-perf-toolbar > .weq-select-trigger {
     max-width: calc(50% - 4px);
   }
   .weq-perf-chart header h3 {

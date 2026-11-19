@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
@@ -36,7 +37,7 @@ export function IntentModelsSection() {
         indent
         label="本地模型资源"
         control={
-          <select
+          <FormSelect
             className="weq-set-input"
             aria-label="意图模型资源"
             value={selected}
@@ -59,7 +60,7 @@ export function IntentModelsSection() {
                 {model.downloaded ? ' · 已下载' : ''}
               </option>
             ))}
-          </select>
+          </FormSelect>
         }
       />
       <Row label="本地增强资源" indent control={<EnhancementPacksLink />} />

@@ -165,20 +165,25 @@ describe('未读 IPC', () => {
     const token = '00000000-0000-4000-8000-000000000001';
     fixture.setReadState.mockResolvedValue({
       undoToken: token,
+      failed: 1,
       rows: await fixture.getUnreadInfos(),
     });
-    fixture.undoReadState.mockResolvedValue({ restored: 1, rows: await fixture.getUnreadInfos() });
+    fixture.undoReadState.mockResolvedValue({
+      restored: 1,
+      pending: 0,
+      rows: await fixture.getUnreadInfos(),
+    });
     expect(
       await api.setConversationReadState({ expectedAccountUin: '10001', targets, unread: true }),
     ).toMatchObject({
       undoToken: token,
+      failed: 1,
       rows: [{ latestSeq: '11', highlights: [{ msgSeq: '11' }] }],
     });
     expect(fixture.setReadState).toHaveBeenCalledWith(targets, true);
-    expect(
-      (await api.undoConversationReadState({ expectedAccountUin: '10001', undoToken: token }))
-        .restored,
-    ).toBe(1);
+    await expect(
+      api.undoConversationReadState({ expectedAccountUin: '10001', undoToken: token }),
+    ).resolves.toMatchObject({ restored: 1, pending: 0 });
     fixture.uin = '10002';
     await expect(
       api.setConversationReadState({ expectedAccountUin: '10001', targets, unread: false }),

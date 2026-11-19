@@ -29,6 +29,7 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: vi.fn(),
     account: {
       listExportTasks: { useQuery: () => ({ data: [] }) },
       roamingBackfill: { list: { useQuery: () => ({ data: { jobs: [] } }) } },
@@ -46,6 +47,7 @@ vi.mock('../src/renderer/src/components/lazyWorkspaces', () => ({
     h('div', { 'data-search-tool': surface === 'tasks' ? 'tasks' : 'export' }),
   ExportViewer: () => h('div', { 'data-search-tool': 'viewer' }),
   AnalysisTool: () => h('div', { 'data-search-tool': 'analysis' }),
+  AnalysisReportsTool: () => h('div', { 'data-search-tool': 'analysis-reports' }),
 }));
 vi.mock('../src/renderer/src/components/lazyWorkspaces.shared', () => ({
   preloadWorkspace: vi.fn(),
@@ -53,6 +55,7 @@ vi.mock('../src/renderer/src/components/lazyWorkspaces.shared', () => ({
     h('div', { 'data-search-tool': surface === 'tasks' ? 'tasks' : 'export' }),
   ExportViewer: () => h('div', { 'data-search-tool': 'viewer' }),
   AnalysisTool: () => h('div', { 'data-search-tool': 'analysis' }),
+  AnalysisReportsTool: () => h('div', { 'data-search-tool': 'analysis-reports' }),
 }));
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -67,7 +70,7 @@ function visibleTool(tool: SearchableTool) {
 }
 
 describe('搜索直达现有工作工具', () => {
-  it.each(['export', 'viewer', 'analysis', 'tasks'] as const)(
+  it.each(['export', 'viewer', 'analysis', 'analysis-reports', 'tasks'] as const)(
     '%s 仅处理当前账号来源的请求，关闭后可再次打开',
     (tool: SearchableTool) => {
       const host = document.createElement('div');

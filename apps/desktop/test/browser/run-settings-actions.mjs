@@ -95,7 +95,7 @@ try {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ['light', 'dark', 'system']) {
       await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
-      for (const style of ['qqnt', 'classic', 'minimal', 'retro']) {
+      for (const style of ['qqnt', 'classic', 'retro']) {
         for (const density of ['compact', 'comfortable']) {
           await page.evaluate(
             ({ theme, style, density, width }) => {

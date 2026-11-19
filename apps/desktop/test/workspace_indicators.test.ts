@@ -27,17 +27,16 @@ describe('工作菜单状态汇总', () => {
     expect(summary.items.find((item) => item.id === 'backup')?.result).toBe('completed:2');
   });
   it.each([
-    [1, 0, 'running', '1'],
-    [3, 7, 'running', '3'],
-    [0, 5, 'finished', '5'],
-    [100, 3, 'running', '99+'],
-    [0, 120, 'finished', '99+'],
-  ] as const)('红蓝角标显示对应来源数（在途 %s，未读 %s）', (running, finished, status, text) => {
+    [1, 0, '1'],
+    [3, 7, '3'],
+    [0, 5, ''],
+    [100, 3, '99+'],
+    [0, 120, ''],
+  ] as const)('只为在途任务显示数字（在途 %s，未读 %s）', (running, finished, text) => {
     const markup = renderToStaticMarkup(createElement(WorkspaceStatusDot, { running, finished }));
-    expect(markup).toContain(`is-${status}`);
     expect(markup).toContain(`>${text}</span>`);
   });
-  it('各类在途与结束任务逐项计数，暂停和待执行漫游不贡献结束提醒', () => {
+  it('各类在途与结束任务逐项计数，部分完成的漫游计入结束，暂停和待执行不计入', () => {
     expect(
       summarizeWorkspaceTasks({
         exports: withIds([
@@ -73,7 +72,7 @@ describe('工作菜单状态汇总', () => {
           { status: 'cancelled' },
         ]),
       }),
-    ).toMatchObject({ running: 9, finished: 11, failed: 4 });
+    ).toMatchObject({ running: 9, finished: 12, failed: 4 });
   });
 
   it('已完成任务再次保存只贡献一个蓝点，保存失败只贡献一个红点', () => {

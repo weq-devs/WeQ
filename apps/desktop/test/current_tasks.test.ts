@@ -9,17 +9,74 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { dismissCloneTask, getCloneTasks } from '../src/renderer/src/views/agentlab/cloneTaskStore';
-import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
+import {
+  localBackgroundTasks,
+  restoreWindowTaskReceipts,
+} from '../src/renderer/src/state/backgroundTasks';
 import type { BackgroundTask } from '../src/shared/background_task';
 import { TaskQuickActions } from '../src/renderer/src/components/tasks/TaskQuickActions';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { backgroundTaskNavigation } from '../src/renderer/src/components/tasks/backgroundTaskNavigation';
 import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
+import {
+  exportTaskDisplay,
+  roamingTaskDisplay,
+  taskDisplayTitle,
+  taskNoticeTitle,
+} from '@weq/service/task-display';
+import { taskTypeLabel } from '../src/renderer/src/views/export/TaskList.shared';
+import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
+
+it('冷启只恢复转发及群相册回执，不提供再次提交；尚未提交 QQ 的上传不会标成未知', () => {
+  const scope = { uin: 'fixture-account', configId: 'fixture-source' };
+  const list = [
+    {
+      task: {
+        id: 'cold-forward',
+        kind: 'forward',
+        name: '合成转发',
+        scope,
+        status: 'running',
+        details: ['第 1 条：已开始发送，结果待核对'],
+        actions: [{ id: 'send' }],
+      },
+    },
+    {
+      task: {
+        id: 'cold-upload',
+        kind: 'album-upload',
+        name: '合成视频',
+        scope,
+        status: 'running',
+        actions: [{ id: 'upload' }],
+      },
+      upload: { submitted: false, groupCode: '1', albumId: 'album' },
+    },
+  ];
+  const keys = list.map((item) => `weq-window-task-v1:${item.task.id}`);
+  const storage = {
+    length: 2,
+    key: (index: number) => keys[index] ?? null,
+    getItem: (key: string) => JSON.stringify(list[keys.indexOf(key)]),
+    removeItem: vi.fn(),
+  };
+  try {
+    restoreWindowTaskReceipts(storage);
+    expect(
+      localBackgroundTasks.snapshot().find((task) => task.id === 'cold-forward'),
+    ).toMatchObject({ status: 'paused', actions: [], details: list[0]?.task.details });
+    expect(localBackgroundTasks.snapshot().find((task) => task.id === 'cold-upload')).toMatchObject(
+      { status: 'cancelled', actions: [] },
+    );
+  } finally {
+    for (const { task } of list) localBackgroundTasks.remove(task.id);
+  }
+});
 
 const fixture = vi.hoisted(() => ({
   accountId: 'fixture-account',
-  roamingStatus: 'partial',
+  roamingStatus: 'paused',
   plannedSeqs: 100,
   flashStatus: 'pending',
   flashCount: 1,
@@ -151,6 +208,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                   status: fixture.roamingStatus,
                   plannedSeqs: fixture.plannedSeqs,
                   remainingSeqs: fixture.plannedSeqs > 0 ? 75 : 0,
+                  pendingSeqs:
+                    fixture.plannedSeqs > 0 && fixture.roamingStatus !== 'partial' ? 50 : 0,
                   options: { transport: 'sso' },
                 },
               ],
@@ -201,7 +260,7 @@ afterEach(() => {
   }
   fixture.background = [];
   fixture.accountId = 'fixture-account';
-  fixture.roamingStatus = 'partial';
+  fixture.roamingStatus = 'paused';
   fixture.plannedSeqs = 100;
   fixture.flashStatus = 'pending';
   fixture.flashCount = 1;
@@ -233,6 +292,61 @@ async function clickQuick(row: Element, label: string) {
 }
 
 describe('统一当前任务', () => {
+  it('批量标题只读取选区数量，不拼接或读取完整名单', () => {
+    const target = {
+      get name(): string {
+        throw new Error('批量标题不应读取对象名');
+      },
+    };
+    const display = roamingTaskDisplay(Array.from({ length: 1330 }, () => target));
+    expect(display.subject).toContain('1,330');
+    expect(taskDisplayTitle(display).length).toBeLessThan(40);
+    const single = { name: '含 · 分隔符\n的原名' };
+    expect(roamingTaskDisplay([single]).subject).toBe(single.name);
+    expect(taskDisplayTitle(roamingTaskDisplay([single]))).not.toContain('\n');
+    expect(single.name).toContain('\n');
+    expect(taskNoticeTitle({ action: display.action, subject: '长'.repeat(1000) })).toBe(
+      display.action,
+    );
+  });
+  it('显示分类不采用存储占位类别，也不改写原名或输出定义', () => {
+    const task: UiTask = {
+      id: 'classification',
+      kind: 'c2c',
+      name: '原始文件名',
+      format: 'json',
+      status: 'running',
+      progress: 0,
+      current: 0,
+      total: 0,
+    };
+    expect(taskTypeLabel({ ...task, kind: 'official' })).not.toBe(taskTypeLabel(task));
+    expect(taskTypeLabel({ ...task, kind: 'service' })).not.toBe(taskTypeLabel(task));
+    expect(taskTypeLabel({ ...task, resource: { kind: 'composition' } })).not.toBe(
+      taskTypeLabel({ ...task, resource: { kind: 'group-files' } }),
+    );
+    const mixed = {
+      ...task,
+      resource: { kind: 'group-albums' as const },
+      display: { action: '导出相册', subject: '2 个相册', category: '混合来源相册' },
+    };
+    expect(taskTypeLabel(mixed)).toBe(mixed.display.category);
+    expect(exportTaskDisplay({ ...task, resourceOnly: true }).action).not.toBe(
+      exportTaskDisplay(task).action,
+    );
+    const mail = { ...task, resource: { kind: 'mail-messages' as const } };
+    expect(exportTaskDisplay(mail).subject).toBeUndefined();
+    const file = {
+      ...task,
+      resource: {
+        kind: 'mail-attachment' as const,
+        output: { kind: 'file' as const, name: '资料', extension: 'pdf' },
+      },
+    };
+    const before = JSON.stringify(file);
+    expect(exportTaskDisplay(file).subject).toBe('资料.pdf');
+    expect(JSON.stringify(file)).toBe(before);
+  });
   it('取消的导出、漫游和闪传在快捷列表中提供实际重试入口', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     fixture.flashStatus = 'cancelled';
@@ -517,8 +631,8 @@ describe('统一当前任务', () => {
       expect(clone).toHaveBeenCalledWith('same-id');
       fixture.flashCount = 2;
       render();
-      expect(row('合成闪传').querySelector('[aria-label="打开文件"]')).toBeNull();
-      await click('合成闪传', '打开下载目录');
+      expect(row('合成集合').querySelector('[aria-label="打开文件"]')).toBeNull();
+      await click('合成集合', '打开下载目录');
       expect(fixture.openFlash).toHaveBeenLastCalledWith({
         ...binding,
         taskId: 'same-id',
@@ -541,7 +655,7 @@ describe('统一当前任务', () => {
       await click(task.name, '保存现有进度');
       fixture.web = true;
       render();
-      expect(row('合成闪传').querySelector('[aria-label="打开下载目录"]')).toBeNull();
+      expect(row('合成集合').querySelector('[aria-label="打开下载目录"]')).toBeNull();
       await click(task.name, '下载到浏览器');
       expect(actions.browserDownload).toHaveBeenCalledWith(task);
       expect(expand).not.toHaveBeenCalled();
@@ -1220,7 +1334,9 @@ describe('统一当前任务', () => {
       );
       expect(expand).toHaveBeenCalledOnce();
       act(() => render('split'));
-      expect(host.querySelector('.weq-current-task-details')?.textContent).toBe('漫游详情 same-id');
+      expect(host.querySelector('.weq-current-task-details')?.textContent).toContain(
+        '漫游详情 same-id',
+      );
       expect(host.querySelector('.weq-long-task.is-selected')?.textContent).toContain('合成漫游');
     } finally {
       act(() => root.unmount());
@@ -1252,13 +1368,29 @@ describe('统一当前任务', () => {
       act(render);
       expect(
         [...host.querySelectorAll('.weq-long-task-name')].map((node) => node.textContent),
-      ).toEqual(['合成克隆', '合成闪传', '合成漫游', '合成导出']);
+      ).toEqual([
+        '创建好友克隆 · 合成克隆',
+        '下载闪传文件 · 合成闪传',
+        '拉取漫游消息 · 合成漫游',
+        '导出聊天记录 · 合成导出',
+      ]);
       expect(host.querySelector('.weq-long-task-detail')?.textContent).toContain('训练中');
       const rows = host.querySelectorAll<HTMLButtonElement>('.weq-long-task');
       act(() => rows[2]!.click());
-      expect(host.querySelector('.weq-long-task-detail')?.textContent).toBe('漫游详情 same-id');
-      expect(rows[2]!.textContent).toContain('仍有缺口');
-      expect(rows[2]!.querySelector('progress')?.value).toBe(25);
+      expect(host.querySelector('.weq-long-task-detail')?.textContent).toContain(
+        '漫游详情 same-id',
+      );
+      expect(rows[2]!.querySelector('progress')?.value).toBe(50);
+      fixture.roamingStatus = 'partial';
+      act(render);
+      const completed = [...host.querySelectorAll<HTMLButtonElement>('.weq-long-task')].find(
+        (row) => row.textContent?.includes('合成漫游'),
+      )!;
+      expect(completed.textContent).toContain('已完成 · 仍有缺口');
+      expect(completed.querySelector('progress')?.value).toBe(100);
+      expect(
+        summarizeWorkspaceTasks({ roaming: [{ id: 'same-id', status: 'partial' }] }),
+      ).toMatchObject({ finished: 1, running: 0, failed: 0 });
       act(() => rows[3]!.click());
       expect(host.querySelector('.weq-long-task-detail')?.textContent).toBe('导出详情 合成导出');
       fixture.accountId = 'other-account';

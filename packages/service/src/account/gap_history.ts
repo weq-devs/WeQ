@@ -271,6 +271,7 @@ export class GapHistoryService {
   }
 
   async cachedRecalls(kind?: 'c2c' | 'group', conv?: string): Promise<GapFetchedMessage[]> {
+    if (!existsSync(this.cache.dbPath)) return [];
     return (await this.cache.sentMessages(kind, conv, undefined, true)).filter(
       (row) => row.recall && !this.deleted?.isHiddenCached(row),
     );
@@ -288,6 +289,14 @@ export class GapHistoryService {
   ): Promise<GapFetchedMessage[]> {
     const rows = await this.cache.allForExport(kind, conv);
     return includeHidden ? rows : rows.filter((row) => !this.deleted?.isHiddenCached(row));
+  }
+
+  cachedDeleted(kind: 'c2c' | 'group', conv: string, ids: readonly string[]) {
+    const keys = ids.flatMap((id) => {
+      const match = /^roaming:(?:(?:native|protocol):)?([1-9]\d*):(-?\d+)$/.exec(id);
+      return match ? [[match[1]!, match[2]!] as const] : [];
+    });
+    return this.cache.allForExport(kind, conv, keys);
   }
 
   /** 仅枚举可见缓存会话，不联网；供即时分析目录发现缓存独有对象。 */

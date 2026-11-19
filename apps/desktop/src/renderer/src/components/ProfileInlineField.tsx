@@ -1,3 +1,4 @@
+import { FormSelect } from './FormSelect';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { ContactRow } from './contactProfile/ContactRow';
@@ -91,7 +92,7 @@ export function ProfileInlineField({
         }}
       >
         {options ? (
-          <select
+          <FormSelect
             className="weq-set-select"
             aria-label={label}
             value={draft}
@@ -100,7 +101,7 @@ export function ProfileInlineField({
             onChange={(event) => setDraft(event.target.value)}
           >
             {!options.some((option) => option.value === draft) ? (
-              <option value={draft} disabled>
+              <option value={draft} data-placeholder disabled>
                 选择分组
               </option>
             ) : null}
@@ -109,7 +110,7 @@ export function ProfileInlineField({
                 {option.label}
               </option>
             ))}
-          </select>
+          </FormSelect>
         ) : (
           <input
             aria-label={label}

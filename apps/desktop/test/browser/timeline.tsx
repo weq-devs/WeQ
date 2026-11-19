@@ -17,6 +17,7 @@ import {
   timelineViewport,
 } from '../../src/renderer/src/lib/timelineViewport';
 import type { Message } from '../../src/renderer/src/im-template/template/types';
+import { buildUnreadDock } from '../../src/renderer/src/im-template/template/unreadDock';
 import type { MessageBubbleSkin } from '@weq/service';
 import { useMobileWebViewport } from '../../src/renderer/src/hooks/useMobileWebViewport';
 import { TIMELINE_VIRTUAL_THRESHOLD } from '../../src/renderer/src/hooks/useVirtualTimeline';
@@ -28,6 +29,20 @@ const demo = createTemplateDemoData();
 const params = new URLSearchParams(location.search);
 const entryCount = Number(params.get('count') ?? 3000);
 const delayedEntry = params.has('delayed');
+const unreadFrom = Number(params.get('unread-from'));
+const unreadDock =
+  unreadFrom > 1000
+    ? buildUnreadDock({
+        readSeq: unreadFrom - 1,
+        unread: 1001 + entryCount - unreadFrom,
+        highlights: (params.get('important-seqs')?.split(',') ?? []).map((msgSeq, index) => ({
+          kind: index === 0 ? 'atMe' : 'replyMe',
+          msgSeq,
+          senderUid: Number(msgSeq) % 3 ? 'u_peer' : 'u_self',
+          rawKind: 1,
+        })),
+      })
+    : undefined;
 const cachedBubble: MessageBubbleSkin | undefined = params.has('cached-bubbles')
   ? (() => {
       const canvas = document.createElement('canvas');
@@ -75,6 +90,7 @@ const message = (seq: number): Message => ({
   id: `row-${seq}`,
   conversationId: conversation.id,
   senderId: seq % 3 ? 'u_peer' : user.id,
+  senderUid: seq % 3 ? 'u_peer' : 'u_self',
   body: `合成消息 ${seq}：${'用于检查长时间线和动态高度。'.repeat((Math.abs(seq) % 8) + 1)}`,
   createdAt: new Date(1792544400000 + seq * 1000).toISOString(),
   msgSeq: String(seq),
@@ -120,6 +136,7 @@ function Fixture() {
     Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) => message(i + 1001)),
   );
   const [loading, setLoading] = useState(delayedEntry);
+  const [jumpRequest, setJumpRequest] = useState<{ messageId: string; revision: number }>();
   useEffect(() => {
     if (!delayedEntry) return;
     const timer = setTimeout(() => {
@@ -159,6 +176,7 @@ function Fixture() {
     setCount: (count: number) =>
       setMessages(Array.from({ length: count }, (_, i) => message(i + 1001))),
     jump: (id: string) => revealTimelineMessage(scroll(), id, true),
+    requestJump: (messageId: string) => setJumpRequest({ messageId, revision: Date.now() }),
     capture: () => captureReadingPosition(scroll()),
     restore: (position: Parameters<typeof restoreReadingPosition>[1]) =>
       restoreReadingPosition(scroll(), position),
@@ -254,6 +272,8 @@ function Fixture() {
       user,
       conversation: { ...conversation, id: conversationId },
       messages,
+      unreadDock,
+      jumpRequest,
       messageRenderers: [qqMessageRenderer],
       atLatest,
       loading,

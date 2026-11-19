@@ -1,12 +1,14 @@
 import {
   BarChart3,
   FileStack,
+  FileText,
   FolderOpen,
   Grid2X2,
   Hash,
   House,
   LayoutGrid,
   ListTodo,
+  Megaphone,
   Settings,
   Waypoints,
 } from 'lucide-react';
@@ -14,13 +16,21 @@ import { FEATURE_ICONS } from './featureIcons.shared';
 import type { FeatureIcon } from './featureIcons';
 import type { MainView } from '../im-template/template/types';
 
-export type NavigationTool = 'export' | 'viewer' | 'analysis' | 'tasks' | 'assistant' | 'backfill';
+export type NavigationTool =
+  | 'export'
+  | 'viewer'
+  | 'analysis'
+  | 'analysis-reports'
+  | 'tasks'
+  | 'assistant'
+  | 'backfill';
 export type AppNavigationTarget =
   | { kind: 'view'; view: MainView }
   | { kind: 'tool'; tool: NavigationTool }
   | { kind: 'setting'; section: 'startup' }
   | { kind: 'dressup' }
   | { kind: 'composition' }
+  | { kind: 'announcements' }
   | { kind: 'contact-overview' }
   | { kind: 'contact-notice'; notice: 'friend' | 'group' };
 export type NavigationSurface = 'rail' | 'mobile-tabs' | 'mobile-more' | 'workspace' | 'search';
@@ -36,6 +46,13 @@ export interface AppNavigationEntry {
 
 // 布局只决定入口的位置；名称、图标、目标和预加载来源在这里统一维护。
 export const APP_NAVIGATION = {
+  announcements: {
+    label: '官方公告',
+    icon: Megaphone,
+    target: { kind: 'announcements' },
+    keywords: [],
+    placements: { 'mobile-more': -1, search: 18 },
+  },
   home: {
     label: '主页',
     icon: House,
@@ -127,12 +144,20 @@ export const APP_NAVIGATION = {
     placements: { search: 11 },
   },
   analysis: {
-    label: '分析与报告',
+    label: '分析',
     icon: BarChart3,
     target: { kind: 'tool', tool: 'analysis' },
     workspace: 'analysis',
     keywords: ['聊天分析', '统计'],
-    placements: { 'mobile-more': 9, workspace: 1, search: 12 },
+    placements: { 'mobile-more': 9, workspace: 0, search: 12 },
+  },
+  'analysis-reports': {
+    label: '分析报告',
+    icon: FileText,
+    target: { kind: 'tool', tool: 'analysis-reports' },
+    workspace: 'analysis-reports',
+    keywords: ['历史报告', '已保存报告', '查看分析结果'],
+    placements: { 'mobile-more': 10, workspace: 1, search: 13 },
   },
   export: {
     label: '导出',
@@ -140,7 +165,7 @@ export const APP_NAVIGATION = {
     target: { kind: 'tool', tool: 'export' },
     workspace: 'export',
     keywords: ['导出聊天记录', '备份聊天'],
-    placements: { 'mobile-more': 10, workspace: 0, search: 13 },
+    placements: { 'mobile-more': 11, workspace: 2, search: 14 },
   },
   viewer: {
     label: '导出查看器',
@@ -148,14 +173,14 @@ export const APP_NAVIGATION = {
     target: { kind: 'tool', tool: 'viewer' },
     workspace: 'viewer',
     keywords: ['打开导出', 'JSON', 'JSONL'],
-    placements: { 'mobile-more': 11, workspace: 2, search: 14 },
+    placements: { 'mobile-more': 12, workspace: 3, search: 15 },
   },
   composition: {
     label: '合成聊天记录',
     icon: FileStack,
     target: { kind: 'composition' },
     keywords: ['合并转发'],
-    placements: { 'mobile-more': 12, workspace: 3, search: 15 },
+    placements: { 'mobile-more': 13, workspace: 4, search: 16 },
   },
   backfill: {
     label: '拉取漫游消息',
@@ -163,7 +188,7 @@ export const APP_NAVIGATION = {
     target: { kind: 'tool', tool: 'backfill' },
     workspace: 'backfill',
     keywords: ['漫游消息', '补全聊天记录'],
-    placements: { search: 16 },
+    placements: { search: 17 },
   },
   settings: {
     label: '设置',
@@ -171,7 +196,7 @@ export const APP_NAVIGATION = {
     target: { kind: 'setting', section: 'startup' },
     workspace: 'settings',
     keywords: [],
-    placements: { rail: 8, 'mobile-more': 13 },
+    placements: { rail: 8, 'mobile-more': 14 },
   },
   tools: {
     label: '应用',
@@ -211,10 +236,14 @@ export const APP_NAVIGATION = {
 } satisfies Record<string, Omit<AppNavigationEntry, 'id'>>;
 
 export type AppNavigationId = keyof typeof APP_NAVIGATION;
-export function navigationEntries(surface: NavigationSurface): AppNavigationEntry[] {
+export function navigationEntries(
+  surface: NavigationSurface,
+  developmentDressTools = false,
+): AppNavigationEntry[] {
   return Object.entries(APP_NAVIGATION)
     .map(([id, entry]): AppNavigationEntry => ({ id, ...entry }))
     .filter((entry) => entry.placements[surface] !== undefined)
+    .filter((entry) => entry.target.kind !== 'dressup' || developmentDressTools)
     .sort((a, b) => a.placements[surface]! - b.placements[surface]!);
 }
 
@@ -226,6 +255,7 @@ export interface AppNavigationActions {
   onOpenTool: (tool: NavigationTool | 'composition') => void;
   onOpenNotice: (notice: 'friend' | 'group') => void;
   onOpenContactOverview?: () => void;
+  onOpenAnnouncements?: () => void;
 }
 
 export function activateNavigation(target: AppNavigationTarget, actions: AppNavigationActions) {
@@ -242,6 +272,8 @@ export function activateNavigation(target: AppNavigationTarget, actions: AppNavi
       return actions.onOpenTool(target.tool);
     case 'composition':
       return actions.onOpenTool('composition');
+    case 'announcements':
+      return actions.onOpenAnnouncements?.();
     case 'contact-notice':
       return actions.onOpenNotice(target.notice);
     case 'contact-overview':

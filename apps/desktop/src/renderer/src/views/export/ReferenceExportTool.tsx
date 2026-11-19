@@ -3,8 +3,6 @@ import { Download, CheckCheck, FlipHorizontal2, X, Check, Loader2 } from 'lucide
 import { client } from '../../trpc/client';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
-import { useToast } from '../../components/Toast.shared';
-import { taskNotificationSource } from '../../lib/notificationNavigation.shared';
 import { ExportReportControl } from './ExportReportControl';
 import { WindowedList } from '../../components/WindowedList';
 import { contentReferenceKey, type ContentReference } from '../../../../shared/content_selection';
@@ -27,7 +25,6 @@ export function ReferenceExportTool({
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const save = useExportSavePolicy();
-  const toast = useToast((state) => state.push);
   async function submit() {
     if (pending.current || !selected.size || !save.binding) return;
     pending.current = true;
@@ -50,11 +47,6 @@ export function ReferenceExportTool({
         includeIntegrityReport,
       });
       if (id && save.isCurrent()) {
-        toast({
-          tone: 'info',
-          title: '相册导出已加入任务列表',
-          source: taskNotificationSource(id),
-        });
         onClose?.();
       }
     } catch (reason) {

@@ -1,4 +1,5 @@
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
+import { NumericText } from '../NumericText';
 /**
  * 设置 → 全局设置.
  *
@@ -14,9 +15,8 @@ import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
  * everything fresh for 5 min and never refetches on mount).
  */
 
-import { useContext, useEffect, useState, type ReactElement } from 'react';
+import { useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import {
-  Bell,
   Cloud,
   ChevronRight,
   FolderOpen,
@@ -39,7 +39,11 @@ import { Card, CheckPill, Row, SectionHeader, Toggle } from './controls';
 import { SettingsNavigateContext } from './controls.shared';
 import { useTabActive } from '../RetainedTabs.shared';
 import { ToastSettingsCard } from './ToastSettingsCard';
-import { MessageNotificationRows } from './MessageNotificationRows';
+import { UnreadBadgeSettings } from './UnreadBadgeSettings';
+import { NotificationEventSettings } from './NotificationEventSettings';
+import type { SettingsSearchTarget } from './searchTarget';
+import { WebNotificationsSection } from './WebNotificationsSection';
+import { IS_WEB } from '../../lib/target.shared';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
 import '../../styles/storage-management.css';
 import { DataSaverSettings } from './DataSaverSettings';
@@ -62,9 +66,13 @@ function backupDescription(item: StorageUsageItem): string | null {
 export function GlobalSettingsSection({
   section = 'general',
   heading = true,
+  recallNotifications,
+  notificationTarget,
 }: {
   section?: 'general' | 'accounts' | 'storage' | 'logs' | 'network';
   heading?: boolean;
+  recallNotifications?: ReactNode;
+  notificationTarget?: SettingsSearchTarget | null;
 }): ReactElement {
   const navigate = useContext(SettingsNavigateContext);
   const active = useTabActive();
@@ -187,9 +195,9 @@ export function GlobalSettingsSection({
             <span>{item.label}</span>
           </span>
         )}
-        <span className="weq-set-cache-size weq-number">
+        <span className="weq-set-cache-size">
           {item.incomplete ? '至少 ' : ''}
-          {formatBytes(item.bytes)}
+          <NumericText>{formatBytes(item.bytes)}</NumericText>
         </span>
       </div>
       <div className="weq-storage-detail">
@@ -389,10 +397,13 @@ export function GlobalSettingsSection({
 
       {section === 'general' && (
         <>
-          <Card title="消息提醒" icon={<Bell size={15} strokeWidth={1.8} />}>
-            <MessageNotificationRows />
-          </Card>
+          <NotificationEventSettings
+            recallScope={recallNotifications}
+            target={notificationTarget}
+          />
           <ToastSettingsCard />
+          <UnreadBadgeSettings />
+          {IS_WEB && <WebNotificationsSection />}
         </>
       )}
 
@@ -592,9 +603,9 @@ export function GlobalSettingsSection({
                     <summary>
                       <ChevronRight size={14} className="weq-storage-chevron" aria-hidden />
                       <span className="weq-storage-detail">{group.label}</span>
-                      <span className="weq-set-cache-size weq-number">
+                      <span className="weq-set-cache-size">
                         {group.incomplete ? '至少 ' : ''}
-                        {formatBytes(group.bytes)}
+                        <NumericText>{formatBytes(group.bytes)}</NumericText>
                       </span>
                     </summary>
                     <div className="weq-storage-entries">

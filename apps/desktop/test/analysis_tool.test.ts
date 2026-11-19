@@ -5,6 +5,12 @@ import { AnalysisTool } from '../src/renderer/src/views/analysis/AnalysisTool';
 import { analysisDateRange } from '../src/renderer/src/views/analysis/model';
 import type { AnalysisTarget } from '../src/renderer/src/views/analysis/model';
 import { useViewState } from '../src/renderer/src/state/view';
+import {
+  changeInput,
+  chooseCalendarDate,
+  chooseFormOption,
+  formOptions,
+} from './support/form-controls';
 
 const fixture = vi.hoisted(() => ({
   config: vi.fn(),
@@ -124,16 +130,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function change(node: HTMLInputElement | HTMLSelectElement, value: string) {
-  act(() => {
-    const prototype =
-      node instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(node, value);
-    node.dispatchEvent(
-      new Event(node instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }),
-    );
-  });
-}
 function mount(initialTarget?: AnalysisTarget, messageIds?: string[], fixedTarget = true) {
   const host = document.createElement('div');
   document.body.append(host);
@@ -150,8 +146,16 @@ function mount(initialTarget?: AnalysisTarget, messageIds?: string[], fixedTarge
   return {
     host,
     generate,
-    select: (label: string, value: string) =>
-      change(host.querySelector(`[aria-label="${label}"]`)!, value),
+    select: (label: string, value: string) => {
+      const field = host.querySelector<HTMLInputElement | HTMLButtonElement>(
+        `[aria-label="${label}"], button[aria-haspopup="dialog"][aria-label^="${label}："]`,
+      )!;
+      act(() => {
+        if (field instanceof HTMLInputElement) changeInput(field, value);
+        else if (field.getAttribute('aria-haspopup') === 'dialog') chooseCalendarDate(field, value);
+        else chooseFormOption(field, value);
+      });
+    },
     chooseObject,
     button: (text: string) =>
       [...host.querySelectorAll<HTMLButtonElement>('button')].find((node) =>
@@ -167,11 +171,11 @@ function mount(initialTarget?: AnalysisTarget, messageIds?: string[], fixedTarge
 it('全局入口只预选当前位置，保留完整报告类型与对象列表并允许更换', async () => {
   const f = mount({ kind: 'group', groupCode: '777' }, undefined, false);
   try {
-    const types = f.host.querySelector<HTMLSelectElement>('[aria-label="报告类型"]');
+    const types = f.host.querySelector<HTMLButtonElement>('[aria-label="报告类型"]');
     expect(types).not.toBeNull();
-    expect(types!.value).toBe('group');
+    expect(types!.dataset.value).toBe('group');
     // 年度报告已挪到侧栏独立入口，分析工具里只剩这三类。
-    expect([...types!.options].map((option) => option.value)).toEqual(['group', 'buddy', 'member']);
+    expect(formOptions(types!).map((option) => option.value)).toEqual(['group', 'buddy', 'member']);
     expect(f.button('合成群 A').getAttribute('aria-pressed')).toBe('true');
     act(() => f.button('合成群 B').click());
     await act(async () => f.button('生成报告').click());
@@ -297,7 +301,9 @@ it('确认身份期间防重复提交，切号销毁草稿并拒绝旧响应', a
     expect(f.generate).not.toHaveBeenCalled();
     // 切号后工具按新账号重建：种类回到默认、上一轮选中的对象不再带过去，
     // 因此要重新选对象才能生成（不是卡在「正在提交」）。
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="报告类型"]')!.value).toBe('group');
+    expect(f.host.querySelector<HTMLElement>('[aria-label="报告类型"]')!.dataset.value).toBe(
+      'group',
+    );
     expect(f.host.querySelector('[data-analysis-choice][aria-pressed="true"]')).toBeNull();
     expect(f.button('生成报告').disabled).toBe(true);
   } finally {

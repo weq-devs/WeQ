@@ -12,6 +12,7 @@ export type FavoriteEmojiImportState =
 type MetadataState = 'not-run' | 'accepted' | 'confirmed' | 'failed';
 export interface FavoriteEmojiImportResultItem {
   key: string;
+  md5?: string;
   emojiId: string | null;
   state: FavoriteEmojiImportState;
   description: MetadataState;
@@ -21,6 +22,7 @@ export interface FavoriteEmojiImportResultItem {
 export interface FavoriteEmojiImportResult {
   items: FavoriteEmojiImportResultItem[];
   stopped: string | null;
+  inFlightKey?: string;
 }
 
 /** 复用 EmojiService 的真实写路径；不把来源 emojiId 当成目标账号的写入标识。 */
@@ -67,6 +69,7 @@ export async function runFavoriteEmojiImport(
   const result: FavoriteEmojiImportResult = {
     items: selected.map((item) => ({
       key: item.key,
+      md5: item.image?.md5,
       emojiId: null,
       state: 'not-run',
       description: 'not-run',
@@ -124,10 +127,14 @@ export async function runFavoriteEmojiImport(
     try {
       row.emojiId = await port.addFavorite(image.bytes, undefined, () => {
         current();
+        result.inFlightKey = row.key;
+        notify();
         sent = true;
       });
+      delete result.inFlightKey;
       row.state = 'accepted';
       added.push(row);
+      notify();
       current();
       if (parseCustomFaceId(row.emojiId).md5.toLowerCase() !== image.md5)
         throw new Error('上传返回的图片标识与所选原图不符');
@@ -143,6 +150,7 @@ export async function runFavoriteEmojiImport(
         throw new Error('上传后尚未在远端收藏列表读到该图片');
       knownMd5.add(image.md5);
     } catch (error) {
+      delete result.inFlightKey;
       row.issue = message(error);
       if (result.stopped) {
         if (sent && !row.emojiId) row.state = 'unconfirmed';

@@ -108,7 +108,7 @@ function rightClick() {
   );
 }
 function click(title: string) {
-  const button = host.querySelector<HTMLButtonElement>(`button[title="${title}"]`)!;
+  const button = document.querySelector<HTMLButtonElement>(`button[title="${title}"]`)!;
   expect(button).not.toBeNull();
   act(() => button.click());
 }
@@ -178,7 +178,7 @@ describe('语音消息转换入口', () => {
         .join('');
       writeFileSync(
         resolve(output, 'voice-settings.html'),
-        `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>body{margin:0;padding:16px;background:var(--weq-chat-bg);color:var(--foreground)}main{max-width:620px}.message-context-menu{left:32px!important;top:380px!important}.qq-voice-wrap{margin-top:24px}</style><body>${host.innerHTML}</body></html>`,
+        `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>body{margin:0;padding:16px;background:var(--weq-chat-bg);color:var(--foreground)}main{max-width:620px}.message-context-menu{left:32px!important;top:380px!important}.qq-voice-wrap{margin-top:24px}</style><body>${document.body.innerHTML}</body></html>`,
       );
     }
   });
@@ -195,17 +195,19 @@ describe('语音消息转换入口', () => {
     click('转换为文字');
     await settle();
     expect(state.transcribe).toHaveBeenCalledOnce();
-    expect(host.querySelector<HTMLButtonElement>('button[title="转文字"]')!.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('button[title="转文字"]')!.disabled).toBe(
+      true,
+    );
     rightClick();
     expect(
-      host
+      document
         .querySelector<HTMLButtonElement>('.message-context-menu button[title="正在转写语音"]')!
         .getAttribute('aria-disabled'),
     ).toBe('true');
     await act(async () => finish({ success: true, text: '识别完成' }));
     await settle();
     expect(host.querySelector('.qq-voice-transcript')?.textContent).toBe('识别完成');
-    expect(host.querySelector('button[title="转换为文字"]')).toBeNull();
+    expect(document.querySelector('button[title="转换为文字"]')).toBeNull();
     expect(state.transcribe).toHaveBeenCalledWith(
       expect.objectContaining({
         msgId: '42',
@@ -239,7 +241,7 @@ describe('语音消息转换入口', () => {
     render();
     rightClick();
     expect(
-      host
+      document
         .querySelector<HTMLButtonElement>('button[title="请先在设置中下载本地语音模型"]')!
         .getAttribute('aria-disabled'),
     ).toBe('true');

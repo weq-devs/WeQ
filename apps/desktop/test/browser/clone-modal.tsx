@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { NewCloneModal } from '../../src/renderer/src/views/agentlab/NewCloneModal';
 import { NewGroupModal } from '../../src/renderer/src/views/agentlab/NewGroupModal';
-import { CloneProgressModal } from '../../src/renderer/src/views/agentlab/CloneProgressModal';
 import { useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
@@ -15,7 +14,6 @@ const buddies = Array.from({ length: params.has('empty') ? 0 : 40 }, (_, index) 
   uin: String(10001 + index),
   label: names[index] ?? `合成好友 ${index + 1}`,
 }));
-const noop = () => {};
 Object.assign(window, { cloneModalTheme: useThemeStore });
 
 function Fixture() {
@@ -36,32 +34,6 @@ function Fixture() {
             }))}
             onClose={close}
             onCreate={(input) => setResult(JSON.stringify(input))}
-          />
-        ) : params.has('progress') ? (
-          <CloneProgressModal
-            task={{
-              accountId: null,
-              personaId: 'synthetic',
-              name: names[2]!,
-              uin: '10001',
-              mode: 'group',
-              phase: '正在处理合成语料',
-              percent: 42,
-              status: 'running',
-              outputs: [
-                {
-                  requestId: 'synthetic-request',
-                  feature: '合成画像',
-                  model: 'synthetic-model',
-                  status: 'running',
-                  content: '合成模型输出abcdefghij'.repeat(100),
-                  reasoning: '',
-                },
-              ],
-            }}
-            onHide={close}
-            onOpenPersona={noop}
-            onDismiss={noop}
           />
         ) : (
           <NewCloneModal

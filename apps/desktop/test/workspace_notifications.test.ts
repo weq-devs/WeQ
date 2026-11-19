@@ -28,6 +28,26 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('任务结果已读状态', () => {
+  it('WeQ 更新下载保留任务和进度，完成或失败不计入结果角标', () => {
+    const store = useWorkspaceMenu.getState();
+    const update = { id: 'weq-update', kind: 'update', updatedAt: 1 } as const;
+    store.syncTasks(
+      'updates',
+      summarizeWorkspaceTasks({ background: [{ ...update, status: 'running' }] }).items,
+    );
+    expect(useWorkspaceMenu.getState()).toMatchObject({ running: 1, finished: 0 });
+    for (const status of ['completed', 'failed'] as const) {
+      const { items } = summarizeWorkspaceTasks({ background: [{ ...update, status }] });
+      store.syncTasks('updates', items);
+      expect(useWorkspaceMenu.getState()).toMatchObject({
+        running: 0,
+        finished: 0,
+        failed: 0,
+        taskItems: [{ id: update.id, activity: 'finished', failed: status === 'failed' }],
+      });
+    }
+  });
+
   it.each(['running', 'paused', 'completed', 'failed', 'cancelled'] as const)(
     '数据库体检首次同步为 %s 时不打开主窗口任务列表，仍可手动查看',
     (status) => {
@@ -167,7 +187,7 @@ describe('任务结果已读状态', () => {
     expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 1);
   });
 
-  it('定时自动导出不弹出，手动导出、报告、克隆和闪传继续弹出', () => {
+  it('轮询不为定时导出或克隆弹出列表，手动导出、报告和闪传继续弹出', () => {
     const store = useWorkspaceMenu.getState();
     store.syncTasks('exports', []);
     const initial = useWorkspaceMenu.getState().taskOpenRequest;
@@ -198,11 +218,15 @@ describe('任务结果已读状态', () => {
           },
         ],
       }),
-      summarizeWorkspaceTasks({ clones: [{ personaId: 'clone', status: 'running' }] }),
       summarizeWorkspaceTasks({ flash: [{ id: 'flash', status: 'downloading' }] }),
     ])
       store.syncTasks('exports', summary.items);
-    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 4);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 3);
+    store.syncTasks(
+      'exports',
+      summarizeWorkspaceTasks({ clones: [{ personaId: 'clone', status: 'running' }] }).items,
+    );
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 3);
   });
 
   it('首次加载和切换账号不弹出，同账号新增任务自动打开，刷新和进度变化不重复弹出', () => {

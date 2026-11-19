@@ -120,8 +120,12 @@ try {
     await page.locator('.composer-editor[contenteditable="true"]').first().waitFor();
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.evaluate(() => window.timelineTest.jump('row-1500'));
-  await page.waitForSelector('[data-message-id="row-1500"]');
+  assert(
+    (await page.locator('[data-message-id="row-1500"]').count()) === 0,
+    'Search target was already mounted',
+  );
+  await page.evaluate(() => window.timelineTest.requestJump('row-1500'));
+  await page.waitForSelector('[data-message-id="row-1500"].weq-reply-target-flash');
   await page.waitForTimeout(250);
   const anchor = await page.evaluate(() => window.timelineTest.capture());
   assert(anchor.anchorId, 'Missing reading anchor');

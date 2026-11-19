@@ -229,7 +229,7 @@ export const exportViewerRouter = router({
         if (row.msgSeq <= 0n) throw new Error('这条消息没有可定位的序号，可以使用“打开会话”。');
       }
       if (getAppContext().services !== services) throw new Error('账号已切换，请重试。');
-      pushConversationJump({ kind: target.kind, conv: target.conv, seq });
+      pushConversationJump({ kind: target.kind, conv: target.conv, seq, msgId: input.msgId });
       return true;
     }),
   revealMedia: procedure

@@ -19,6 +19,8 @@ interface WorkspaceMenuState {
   assistantUnread: boolean;
   taskOpenRequest: number;
   taskFocusId: string | null;
+  taskPanelScope: string | null;
+  setTaskPanelScope: (scope: string | null) => void;
   focusTask: (id: string) => void;
   openTasks: () => void;
   mobileToolRequest: { tool: MobileWorkspaceTool } | null;
@@ -44,6 +46,9 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
   assistantUnread: false,
   taskOpenRequest: 0,
   taskFocusId: null,
+  taskPanelScope: null,
+  setTaskPanelScope: (taskPanelScope) =>
+    set((state) => (state.taskPanelScope === taskPanelScope ? state : { taskPanelScope })),
   focusTask: (id) =>
     set((state) => ({ taskFocusId: id, taskOpenRequest: state.taskOpenRequest + 1 })),
   openTasks: () =>
@@ -90,9 +95,12 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
         readTaskResults,
         readTaskResultsByScope: { ...state.readTaskResultsByScope, [taskScope]: readTaskResults },
         running: taskItems.filter((item) => item.activity === 'running').length,
-        failed: taskItems.filter((item) => item.failed).length,
+        failed: taskItems.filter((item) => item.failed && item.showResultBadge !== false).length,
         finished: taskItems.filter(
-          (item) => item.activity === 'finished' && readTaskResults[item.id] !== item.result,
+          (item) =>
+            item.activity === 'finished' &&
+            item.showResultBadge !== false &&
+            readTaskResults[item.id] !== item.result,
         ).length,
       };
     }),

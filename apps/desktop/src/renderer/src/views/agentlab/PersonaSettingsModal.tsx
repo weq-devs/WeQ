@@ -1,5 +1,7 @@
 /** 克隆体设置：配置统一保存，即时管理操作与配置分开。 */
 
+import { FormSelect } from '../../components/FormSelect';
+import { FormRange } from '../../components/FormRange';
 import {
   useEffect,
   useRef,
@@ -11,8 +13,9 @@ import {
 import '../../styles/assistant-settings.css';
 import { CloneUpdateButton } from './CloneUpdateButton';
 import '../../styles/persona-settings.css';
-import type { AgentLabModelSelection } from '@weq/agentlab';
+import type { AgentLabGenerationConfig, AgentLabModelSelection } from '@weq/agentlab';
 import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
+import { CloneGenerationPanel } from '../../components/settings/CloneGenerationPanel';
 import { TabActivity } from '../../components/RetainedTabs';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { DraftCloseContext, useDraftClose, useDraftProtection } from '../../lib/draftClose';
@@ -39,6 +42,7 @@ import {
   Info,
   Image as ImageIcon,
   Settings2,
+  Cpu,
 } from 'lucide-react';
 import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import { Toggle } from '../../components/settings/controls';
@@ -52,6 +56,7 @@ import { useAppDialog } from '../../lib/dialogUtils';
 import { openExternalLink } from '../../lib/openExternalLink';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
+import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { useExportReportDialog } from '../export/ExportReportControl.shared';
 
@@ -126,9 +131,10 @@ function MemoryTab({ personaId }: { personaId: string }): ReactElement {
   );
 }
 
-type Tab = 'profile' | 'reply' | 'voice' | 'memory' | 'export' | 'management';
+type Tab = 'model' | 'profile' | 'reply' | 'voice' | 'memory' | 'export' | 'management';
 
 const TABS: Array<{ id: Tab; label: string; icon: ReactElement }> = [
+  { id: 'model', label: '模型设置', icon: <Cpu size={16} /> },
   { id: 'profile', label: '人格与画像', icon: <UserRound size={15} /> },
   { id: 'reply', label: '回复设置', icon: <Gauge size={15} /> },
   { id: 'voice', label: '语音', icon: <Mic size={15} /> },
@@ -176,8 +182,7 @@ function WillingTab({
         <span>
           总体发言意愿：<span className="weq-number weq-number-inherit">{level}</span> · {levelHint}
         </span>
-        <input
-          type="range"
+        <FormRange
           min={0}
           max={100}
           step={5}
@@ -208,8 +213,7 @@ function WillingTab({
           <span>
             手滑频率：<span className="weq-number weq-number-inherit">{typoPct}</span>% · {typoHint}
           </span>
-          <input
-            type="range"
+          <FormRange
             min={0}
             max={30}
             step={1}
@@ -315,7 +319,7 @@ function VoiceTab({
         <>
           <label className="weq-agentlab-field">
             <span>TTS 服务商</span>
-            <select
+            <FormSelect
               className="weq-set-input"
               value={currentProvider?.id ?? ''}
               onChange={(e) => setProviderId(e.target.value)}
@@ -325,7 +329,7 @@ function VoiceTab({
                   {p.name}
                 </option>
               ))}
-            </select>
+            </FormSelect>
           </label>
           <label className="weq-agentlab-field">
             <span>音色方式</span>
@@ -585,7 +589,6 @@ export function ExportTab({
       if (!save.isCurrent()) return;
       setTaskId(r.taskId);
       guard.reset(exportDraft);
-      dialog.success('机器人导出任务已创建', '可在任务列表查看进度、保存位置和完整结果。');
     } catch (e) {
       if (save.isCurrent()) dialog.error('导出失败', e instanceof Error ? e.message : String(e));
     } finally {
@@ -767,8 +770,8 @@ export function PersonaSettingsModal(props: ComponentProps<typeof PersonaSetting
 function PersonaSettingsBody({
   persona,
   profileContent,
-  replyContent,
   fromGroup = false,
+  anchor,
   onClose,
   onSaved,
   onDelete,
@@ -786,24 +789,26 @@ function PersonaSettingsBody({
     voiceProfile?: { ratio: number; refClips?: unknown[] };
     willing?: WillingCfg;
     typo?: TypoCfg;
-    models?: { vision?: AgentLabModelSelection };
+    models?: { chat?: AgentLabModelSelection; vision?: AgentLabModelSelection };
+    generation?: AgentLabGenerationConfig;
   };
   profileContent?: ReactNode;
-  replyContent: ReactNode;
   fromGroup?: boolean;
+  anchor?: HTMLElement;
   onClose: () => void;
   onSaved: () => void;
   onDelete?: () => void;
   deleting?: boolean;
 }): ReactElement {
   const update = trpc.account.updateAgentLabPersona.useMutation();
-  const [tab, setTab] = useState<Tab>('profile');
-  const [visited, setVisited] = useState<Tab[]>(['profile']);
+  const [tab, setTab] = useState<Tab>('model');
+  const [visited, setVisited] = useState<Tab[]>(['model']);
   const form = useCloneSettingsDraft(async (patch) => {
     const result = await update.mutateAsync({ personaId: persona.id, ...patch });
     if (!result) throw new Error('克隆体已不存在');
     onSaved();
   });
+  useSettingsSaveBanner(form.saving);
   const guard = useDraftClose(onClose, null, update.isLoading || deleting);
 
   return (
@@ -814,6 +819,7 @@ function PersonaSettingsBody({
         <ConversationSettingsFrame<Tab>
           title="克隆体设置"
           subtitle={persona.name}
+          anchor={anchor}
           value={tab}
           onClose={() =>
             void form.flush().then((ok) => {
@@ -827,10 +833,6 @@ function PersonaSettingsBody({
             setTab(id);
           }}
         >
-          <div className="weq-cvs-body-head">
-            <span className="weq-cvs-body-icon">{TABS.find((item) => item.id === tab)?.icon}</span>
-            <strong>{TABS.find((item) => item.id === tab)?.label}</strong>
-          </div>
           <div
             className="weq-cvs-body-scroll"
             onBlurCapture={() => {
@@ -853,7 +855,9 @@ function PersonaSettingsBody({
               {visited.map((page) => (
                 <TabActivity key={page} active={tab === page}>
                   <div hidden={tab !== page} inert={tab !== page}>
-                    {page === 'profile' ? (
+                    {page === 'model' ? (
+                      <CloneGenerationPanel persona={persona} />
+                    ) : page === 'profile' ? (
                       <div className="weq-persona-form">
                         <p className="weq-persona-note">
                           训练范围：
@@ -867,11 +871,7 @@ function PersonaSettingsBody({
                         {profileContent}
                       </div>
                     ) : page === 'reply' ? (
-                      <div className="weq-persona-form">
-                        {replyContent}
-                        <div className="weq-persona-divider" />
-                        <WillingTab persona={persona} />
-                      </div>
+                      <WillingTab persona={persona} />
                     ) : page === 'voice' ? (
                       <VoiceTab persona={persona} />
                     ) : page === 'memory' ? (
@@ -902,23 +902,25 @@ function PersonaSettingsBody({
               ))}
             </fieldset>
           </div>
-          <footer className="weq-persona-savebar">
-            <span role="status">{form.valid ? form.status : '请检查配置值'}</span>
-            {form.error ? (
-              <>
-                <span role="alert">{form.error}</span>
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-primary"
-                  disabled={!form.valid || form.saving || deleting}
-                  onClick={() => void form.flush()}
-                >
-                  <Save size={14} />
-                  重试保存
-                </button>
-              </>
-            ) : null}
-          </footer>
+          {!form.valid || form.error ? (
+            <footer className="weq-persona-savebar">
+              {!form.valid ? <span role="status">请检查配置值</span> : null}
+              {form.error ? (
+                <>
+                  <span role="alert">保存失败：{form.error}</span>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-primary"
+                    disabled={!form.valid || form.saving || deleting}
+                    onClick={() => void form.flush()}
+                  >
+                    <Save size={14} />
+                    重试保存
+                  </button>
+                </>
+              ) : null}
+            </footer>
+          ) : null}
         </ConversationSettingsFrame>
       </CloneSettingsDraftContext.Provider>
     </DraftCloseContext.Provider>

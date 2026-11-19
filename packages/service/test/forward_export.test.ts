@@ -123,6 +123,65 @@ it('专属导出支持 Ark 聊天记录，本地嵌套缓存完整时无需联�
   expect(msgs.exportFetchForward).not.toHaveBeenCalled();
 });
 
+it('嵌套记录按所选位置导出，重复 ID 不合并，也不下载未选卡片', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-record-selection-'));
+  roots.push(root);
+  const outer = card('outer');
+  const buildRecord = (msgId: string, elements: RenderElement[]): FetchedForwardRecord => ({
+    msgId,
+    sendNick: '作者',
+    sendTime: '1700000000',
+    elements,
+  });
+  const text = (value: string): RenderElement => ({ type: 'text', data: { textContent: value } });
+  const fetch = vi.fn(async (resId: string) => {
+    if (resId === 'outer')
+      return [buildRecord('8', [card('unselected')]), buildRecord('8', [card('inner')])];
+    if (resId === 'inner')
+      return [
+        buildRecord('9', [text('不导出中间的重复 ID')]),
+        buildRecord('9', [text('选中的第一条')]),
+        buildRecord('9', [card('unselected')]),
+        buildRecord('9', [text('选中的第二条')]),
+      ];
+    throw new Error('未选卡片不应被请求');
+  });
+  const row = {
+    msgId: 1n,
+    msgSeq: 1n,
+    senderUid: 'u_carrier',
+    senderUin: 123n,
+    sendTime: 1n,
+    elements: [outer],
+  };
+  const forwardTarget = {
+    elementIndex: 0,
+    resId: 'outer',
+    path: [{ elementIndex: 0, resId: 'inner', record: { index: 1, msgId: '8' } }],
+    records: [
+      { index: 3, msgId: '9' },
+      { index: 1, msgId: '9' },
+    ],
+  };
+  const msgs = {
+    exportFilter: { messageIds: ['1'], forwardTarget },
+    getC2cAfter: async () => [row],
+    getC2cSeqlessAfterRowId: async () => [],
+    listForward: async () => [],
+    exportFetchForward: fetch,
+    exportJournal: new MessageJournal(join(root, 'messages.jsonl'), undefined, true),
+  } as unknown as MsgService;
+  const outputPath = join(root, 'record.txt');
+  const result = await exportConversationToTxt(msgs, { kind: 'c2c', conv: 'peer', outputPath });
+  const output = readFileSync(outputPath, 'utf8');
+  expect(result.messageCount).toBe(2);
+  expect(output).toMatch(/选中的第一条[\s\S]+选中的第二条/);
+  expect(output).not.toContain('不导出中间的重复 ID');
+  expect(fetch.mock.calls.map(([id]) => id)).toEqual(['outer', 'inner']);
+  forwardTarget.records[0]!.msgId = 'changed';
+  await expect(expandForwards(msgs, 'c2c', message())).rejects.toThrow('所选消息已变化');
+});
+
 it('实际 TXT 文件直接输出内部消息，不保留承载消息的作者、时间或卡片包装', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-record-txt-'));
   roots.push(root);

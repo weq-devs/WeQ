@@ -4,10 +4,12 @@ import tailwind from '@tailwindcss/vite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const output = process.env.WEQ_ENTRY_ARTIFACTS;
+const unreadOnly = process.argv.includes('--unread');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const cacheRoot = resolve(root, 'node_modules/.cache');
 await mkdir(cacheRoot, { recursive: true });
@@ -51,6 +53,67 @@ try {
       : route.abort(),
   );
   const results = [];
+  const waitForViewport = (seq, visible) =>
+    page.waitForFunction(
+      ({ seq, visible }) => {
+        const scroll = document.querySelector('.message-scroll');
+        if (!scroll) return false;
+        const row = scroll.querySelector(`[data-message-id="row-${seq}"]`);
+        const bounds = scroll.getBoundingClientRect();
+        const rect = row?.getBoundingClientRect();
+        return Boolean(rect && rect.top < bounds.bottom && rect.bottom > bounds.top) === visible;
+      },
+      { seq, visible },
+    );
+  const assertDismissed = async (dock) => {
+    // 等滚动和视口观察回调交付，避免在提示重新出现前就完成断言。
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    assert.equal(await dock.count(), 0, '已看过的未读提醒不应因翻阅历史而重现');
+  };
+  for (const count of [25, 50]) {
+    const seq = 1008;
+    const newest = 1000 + count;
+    const base = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?entry&count=${count}`;
+    await page.goto(`${base}&unread-from=${seq}`);
+    const dock = page.getByRole('button', { name: '跳到首条未读', exact: true });
+    await dock.waitFor();
+    await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
+    await waitForViewport(seq, true);
+    await dock.waitFor({ state: 'hidden' });
+    await page.evaluate(() => {
+      const scroll = document.querySelector('.message-scroll');
+      scroll.scrollTop = scroll.scrollHeight;
+    });
+    await waitForViewport(newest, true);
+    await waitForViewport(seq, false);
+    await assertDismissed(dock);
+
+    await page.goto(`${base}&unread-from=${newest}`);
+    const entryDock = page.getByRole('button', { name: '跳到首条未读', exact: true });
+    await waitForViewport(newest, true);
+    await entryDock.waitFor({ state: 'hidden' });
+    await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
+    await waitForViewport(newest, false);
+    await assertDismissed(entryDock);
+
+    const important = newest - 10;
+    await page.goto(`${base}&unread-from=${seq}&important-seqs=${important},${newest}`);
+    const mentionDock = page.getByTitle('下一条：有人@我', { exact: true });
+    const replyDock = page.getByTitle('下一条：有人回复我', { exact: true });
+    await waitForViewport(newest, true);
+    await waitForViewport(important, false);
+    await mentionDock.waitFor();
+    assert.equal(await page.locator('.unread-dock-count').textContent(), '1');
+    await page.evaluate((id) => window.timelineTest.jump(id), `row-${important}`);
+    await waitForViewport(important, true);
+    await dock.waitFor();
+    await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
+    await waitForViewport(seq, true);
+    await assertDismissed(mentionDock);
+    await assertDismissed(replyDock);
+  }
   if (output) await mkdir(output, { recursive: true });
   const snapshot = () =>
     page.evaluate(() => {
@@ -67,7 +130,7 @@ try {
         ),
       };
     });
-  for (const count of [25, 50, 300]) {
+  for (const count of unreadOnly ? [] : [25, 50, 300]) {
     for (const [width, theme, delayed, follow] of [
       [1280, 'light', false, true],
       [1280, 'dark', true, false],
@@ -149,7 +212,7 @@ try {
       });
     }
   }
-  console.log(JSON.stringify({ results, errors }, null, 2));
+  console.log(JSON.stringify({ unreadViewports: [25, 50], results, errors }, null, 2));
   if (output)
     await writeFile(
       resolve(output, 'entry-report.json'),

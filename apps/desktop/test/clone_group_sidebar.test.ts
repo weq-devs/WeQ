@@ -11,6 +11,18 @@ import {
 } from '../src/renderer/src/views/agentlab/cloneChatAdapter';
 
 vi.mock('../src/renderer/src/trpc/client', () => import('./browser/clone-conversation.stub'));
+const binding = vi.hoisted(() => ({
+  expectedAccountUin: '10000',
+  expectedAccountConfigId: 'test',
+}));
+vi.mock('../src/renderer/src/lib/clientPreferences', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/lib/clientPreferences')>()),
+  accountBinding: () => binding,
+}));
+vi.mock('../src/renderer/src/hooks/useMobileWebViewport', async (original) => ({
+  ...(await original<object>()),
+  useMobileWebLayout: () => true,
+}));
 const confirm = vi.hoisted(() => vi.fn(async () => true));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
   useAppDialog: () => ({ confirm, error: vi.fn() }),
@@ -162,7 +174,14 @@ it('克隆群成员右键复用普通菜单，支持提及与确认移除，不�
   };
   try {
     await act(async () => root.render(h(GroupChatPanel, props)));
-    act(() => host.querySelector<HTMLButtonElement>('.weq-mobile-group-info-trigger')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="更多会话操作"]')!.click());
+    for (const label of ['工具', '群聊侧栏']) {
+      act(() =>
+        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+          .find((button) => button.textContent === label)!
+          .click(),
+      );
+    }
     let buttons = await openMenu('合成好友');
     act(() =>
       host

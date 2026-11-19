@@ -23,18 +23,21 @@ interface FavoriteSendDeps {
     file: string,
   ): Promise<string | null>;
   checkCurrent(): void;
+  resolveCachedFavorite?(file: string): string | null;
   download?: typeof downloadUrlToFile;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : null;
 }
-function address(value: Record<string, unknown>): EmojiPreviewAddress {
+function address(value: Record<string, unknown>): Omit<EmojiPreviewAddress, 'scope'> & {
+  scope: EmojiPreviewAddress['scope'] | 'favorite';
+} {
   const { scope, bucket, variant, file } = value;
   if (
-    (scope !== 'personal' && scope !== 'recv') ||
+    (scope !== 'personal' && scope !== 'recv' && scope !== 'favorite') ||
     typeof bucket !== 'string' ||
-    (scope === 'personal' ? bucket !== '' : !/^\d{4}-\d{2}$/.test(bucket)) ||
+    (scope === 'recv' ? !/^\d{4}-\d{2}$/.test(bucket) : bucket !== '') ||
     (variant !== 'ori' && variant !== 'thumb') ||
     typeof file !== 'string' ||
     !/^[0-9a-f]{6,}[^/\\]*$/i.test(file) ||
@@ -43,7 +46,7 @@ function address(value: Record<string, unknown>): EmojiPreviewAddress {
     throw new Error('收藏表情资源地址无效');
   return { scope, bucket, variant, file };
 }
-function sameAddress(a: EmojiPreviewAddress | undefined, b: EmojiPreviewAddress): boolean {
+function sameAddress(a: EmojiPreviewAddress | undefined, b: ReturnType<typeof address>): boolean {
   return (
     !!a &&
     a.scope === b.scope &&
@@ -100,47 +103,56 @@ export async function prepareFavoriteEmojiElements(
       continue;
     }
     deps.checkCurrent();
-    rows ??= await deps.listRows();
-    deps.checkCurrent();
-    // 旧草稿同样按真实收藏记录查原图，绝不信任渲染进程传来的本机路径或下载地址。
-    const matches = rows.filter(
-      (row) =>
-        sameAddress(previewFromPath(row.oriPath), ref) ||
-        sameAddress(previewFromPath(row.thumbPath), ref),
-    );
-    const row = matches[0];
-    if (
-      !row ||
-      matches.some((other) => other.oriPath !== row.oriPath || other.remoteUrl !== row.remoteUrl)
-    ) {
-      throw new Error('收藏表情已移除或资源身份不明确，请重新选择');
-    }
-    const original = previewFromPath(row.oriPath);
-    const path =
-      original?.variant === 'ori'
-        ? await deps.resolveFile(original.scope, original.bucket, 'ori', original.file)
-        : null;
-    deps.checkCurrent();
     let bytes: Buffer;
-    if (path) {
+    let hash: string;
+    if (ref.scope === 'favorite') {
+      const path = ref.variant === 'ori' ? deps.resolveCachedFavorite?.(ref.file) : null;
+      if (!path) throw new Error('收藏表情原图缓存已移除，请重新选择');
       bytes = await readOriginal(path);
+      hash = ref.file.slice(0, 32);
     } else {
-      if (!/^https?:\/\//i.test(row.remoteUrl))
-        throw new Error('收藏表情原图不存在，且没有可用的在线原图');
-      const dir = await mkdtemp(join(tmpdir(), 'weq-favorite-send-'));
-      try {
-        const target = join(dir, 'original');
-        const result = await (deps.download ?? downloadUrlToFile)(row.remoteUrl, target, {
-          expectedKind: 'image',
-          maxBytes: FAVORITE_EMOJI_MAX_BYTES,
-          timeoutMs: 30_000,
-        });
-        deps.checkCurrent();
-        if (!result.ok) throw new Error(`收藏表情原图下载失败：${result.reason}`);
-        bytes = await readOriginal(target);
-      } finally {
-        await rm(dir, { recursive: true, force: true });
+      rows ??= await deps.listRows();
+      deps.checkCurrent();
+      // 旧草稿同样按真实收藏记录查原图，绝不信任渲染进程传来的本机路径或下载地址。
+      const matches = rows.filter(
+        (row) =>
+          sameAddress(previewFromPath(row.oriPath), ref) ||
+          sameAddress(previewFromPath(row.thumbPath), ref),
+      );
+      const row = matches[0];
+      if (
+        !row ||
+        matches.some((other) => other.oriPath !== row.oriPath || other.remoteUrl !== row.remoteUrl)
+      ) {
+        throw new Error('收藏表情已移除或资源身份不明确，请重新选择');
       }
+      const original = previewFromPath(row.oriPath);
+      const path =
+        original?.variant === 'ori'
+          ? await deps.resolveFile(original.scope, original.bucket, 'ori', original.file)
+          : null;
+      deps.checkCurrent();
+      if (path) {
+        bytes = await readOriginal(path);
+      } else {
+        if (!/^https?:\/\//i.test(row.remoteUrl))
+          throw new Error('收藏表情原图不存在，且没有可用的在线原图');
+        const dir = await mkdtemp(join(tmpdir(), 'weq-favorite-send-'));
+        try {
+          const target = join(dir, 'original');
+          const result = await (deps.download ?? downloadUrlToFile)(row.remoteUrl, target, {
+            expectedKind: 'image',
+            maxBytes: FAVORITE_EMOJI_MAX_BYTES,
+            timeoutMs: 30_000,
+          });
+          deps.checkCurrent();
+          if (!result.ok) throw new Error(`收藏表情原图下载失败：${result.reason}`);
+          bytes = await readOriginal(target);
+        } finally {
+          await rm(dir, { recursive: true, force: true });
+        }
+      }
+      hash = row.hash;
     }
     deps.checkCurrent();
     const image = detectImageFormat(bytes);
@@ -151,7 +163,7 @@ export async function prepareFavoriteEmojiElements(
     const extension = (
       { 1000: 'jpg', 1001: 'png', 1002: 'webp', 1005: 'bmp', 2000: 'gif' } as Record<number, string>
     )[image.format];
-    const name = /^[0-9a-f]+$/i.test(row.hash) ? row.hash : 'emoji';
+    const name = /^[0-9a-f]+$/i.test(hash) ? hash : 'emoji';
     const imageElement = {
       kind: 'image',
       source: bytes,

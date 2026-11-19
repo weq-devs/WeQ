@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -57,8 +58,8 @@ try {
   if (output) await mkdir(output, { recursive: true });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   // 用较短的真实滚动容器验证吸顶和分组交接，不依赖列表条数或固定栏高度。
-  await friends.getByLabel('分组依据').selectOption('qq');
-  await groups.getByLabel('分组依据').selectOption('capacity');
+  await chooseFormOption(friends.getByLabel('分组依据'), 'qq');
+  await chooseFormOption(groups.getByLabel('分组依据'), 'capacity');
   for (const width of [1180, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ['light', 'dark']) {
@@ -138,9 +139,9 @@ try {
         await headers.nth(1).click();
         assert.equal(await headers.nth(1).getAttribute('aria-expanded'), 'false');
         await headers.nth(1).click();
-        await list.getByLabel('分组依据').selectOption('none');
+        await chooseFormOption(list.getByLabel('分组依据'), 'none');
         assert.equal(await list.locator('.contact-cat-header:not([hidden])').count(), 0);
-        await list.getByLabel('分组依据').selectOption(list === friends ? 'qq' : 'capacity');
+        await chooseFormOption(list.getByLabel('分组依据'), list === friends ? 'qq' : 'capacity');
       }
     }
   }

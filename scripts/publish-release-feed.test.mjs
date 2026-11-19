@@ -78,11 +78,26 @@ test('先核对签名者，再创建及公开索引；错误密钥不产生远�
     publicKeys: keys,
     api,
     readAsset: async () => catalog,
+    readChangelog: async (tag) => {
+      assert.equal(tag, 'v2.7.2');
+      return [
+        '# Changelog',
+        '## Unreleased - 进行中',
+        '- 尚未发布',
+        '## 2.7.2 - 2026-11-16',
+        '### 副标题',
+        '- **更新说明**：查看[详情](https://example.com)。',
+        '## 2.7.1 - 2026-11-15',
+        '- 上一版',
+      ].join('\n');
+    },
     upload: async (_release, signed) => {
       uploaded = signed;
     },
   });
-  assert.equal(verifyReleaseIndex(uploaded, 'weq-devs/WeQ', keys).releases[0].version, '2.7.2');
+  const [published] = verifyReleaseIndex(uploaded, 'weq-devs/WeQ', keys).releases;
+  assert.equal(published.version, '2.7.2');
+  assert.equal(published.summary, '更新说明：查看详情。');
   assert.deepEqual(
     writes.map(([method]) => method),
     ['POST', 'PATCH'],

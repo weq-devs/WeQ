@@ -1,28 +1,27 @@
-import { createContext, memo, useContext, useEffect, useId, useRef, useState } from 'react';
+import { FormSelect } from '../../components/FormSelect';
 import {
-  Brain,
-  Cpu,
-  Image,
-  ListOrdered,
-  Settings2,
-  SlidersHorizontal,
-  RotateCcw,
-  RefreshCw,
-} from 'lucide-react';
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { Cpu, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import type { AssistantConfig } from '@weq/service';
-import {
-  ASSISTANT_PARAMETER_DEFAULTS,
-  validateAssistantParameters,
-} from '@weq/service/assistant-config';
-import { isDefaultModelSelection } from '@weq/agentlab/model-selection';
+import { DEFAULT_ASSISTANT_SEND_MODE, type AssistantSendMode } from '@weq/service/assistant-config';
 import { trpc } from '../../trpc/client';
-import { ApiModelSelect } from '../../components/settings/ApiModelSelect';
-import { AiImagePreferenceSetting } from '../../components/settings/AiImageSettings';
-import { Row } from '../../components/settings/controls';
-import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
+import { ConversationModelSettings } from '../../components/settings/ConversationModelSettings';
+import { Card, Row, SectionHeader } from '../../components/settings/controls';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useSettingsAutosave, type SettingsSection } from '../../hooks/useSettingsAutosave';
+import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
+import { useDraftProtection } from '../../lib/draftClose';
+import { settingsSaves } from '../../lib/settingsSaveQueue';
+import { SettingsResetContext } from '../../components/settings/resetContext';
+import { ConversationSettingsFrame } from '../../components/ConversationSettingsFrame';
 import '../../styles/assistant-settings.css';
 import { ASSISTANT_SEND_MODES } from './AssistantSettingsPanel.shared';
 
@@ -59,6 +58,7 @@ function useAssistantParameters() {
   };
   const queue = useRef<Promise<void>>(Promise.resolve());
   const failed = useRef<AssistantConfig | null>(null);
+  const paused = useRef(false);
   const performSave = async (input: AssistantConfig) => {
     let patch = input;
     setError('');
@@ -94,6 +94,7 @@ function useAssistantParameters() {
     }
   };
   const save = (patch: AssistantConfig) => {
+    if (paused.current) return Promise.resolve();
     pending.current = { ...pending.current, ...patch };
     setOptimistic(pending.current);
     const operation = queue.current
@@ -108,191 +109,16 @@ function useAssistantParameters() {
     error: error || query.error?.message,
     save,
     settle: () => queue.current,
+    suspend: async () => {
+      paused.current = true;
+      await queue.current.catch(() => {});
+    },
+    release: () => {
+      paused.current = false;
+    },
     retry: () => (failed.current ? save(failed.current) : Promise.resolve()),
+    reload: () => query.refetch(),
   };
-}
-function EffortSelect({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  disabled: boolean;
-}) {
-  const config = trpc.account.getAssistantConfig.useQuery();
-  const providers = trpc.bootstrap.listAgentLabProviders.useQuery();
-  const defaults = trpc.bootstrap.getAgentLabDefaultModel.useQuery();
-  const model = config.data?.model;
-  const ref = !model || isDefaultModelSelection(model) ? defaults.data?.ref : model;
-  const declared =
-    ref &&
-    providers.data
-      ?.find((provider) => provider.id === ref.providerId)
-      ?.models.find((item) => item.id === ref.model)?.reasoningEfforts;
-  const values = [
-    'off',
-    ...(declared ?? ['low', 'medium', 'high']).filter((item) => item !== 'off'),
-  ];
-  if (!values.includes(value)) values.push(value);
-  return (
-    <select
-      className="weq-set-input"
-      aria-label="思考等级"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      disabled={disabled}
-    >
-      {values.map((effort) => (
-        <option value={effort} key={effort}>
-          {effort === 'off' ? '不指定' : effort}
-        </option>
-      ))}
-    </select>
-  );
-}
-export const AssistantQuickTools = memo(function AssistantQuickTools() {
-  const { data, save, saving, error } = useAssistantParameters();
-  return (
-    <div className="weq-conversation-tools">
-      <span className="weq-assistant-parameter">
-        <span>模型</span>
-        <ApiModelSelect
-          label="聊天模型"
-          value={data?.model ?? { useDefault: true }}
-          disabled={!data || saving}
-          onChange={(model) => {
-            if (model) void save({ model }).catch(() => {});
-          }}
-        />
-      </span>
-      <label className="weq-assistant-parameter">
-        <span>思考</span>
-        <EffortSelect
-          value={data?.reasoningEffort ?? 'off'}
-          onChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
-          disabled={!data || saving}
-        />
-      </label>
-      {error ? (
-        <span role="alert">{error}</span>
-      ) : saving ? (
-        <span role="status">保存中…</span>
-      ) : null}
-    </div>
-  );
-});
-function NumberSetting({
-  name,
-  label,
-  value,
-  nullable = false,
-  scale = 1,
-}: {
-  name: keyof typeof ASSISTANT_PARAMETER_DEFAULTS;
-  label: string;
-  value: number | null;
-  nullable?: boolean;
-  scale?: number;
-}) {
-  const [draft, setDraft] = useState(value === null ? '' : String(value / scale));
-  const [automatic, setAutomatic] = useState(value === null);
-  const focused = useRef(false);
-  const prior = useRef(value);
-  const lastValue = useRef(
-    value ??
-      (ASSISTANT_PARAMETER_DEFAULTS[name] as number | null) ??
-      (name === 'maxOutputTokens' ? 4096 : 1),
-  );
-  useEffect(() => {
-    if (typeof value === 'number') lastValue.current = value;
-  }, [value]);
-  useEffect(() => {
-    const old = prior.current;
-    setDraft((current) =>
-      current === (old === null ? '' : String(old / scale))
-        ? value === null
-          ? ''
-          : String(value / scale)
-        : current,
-    );
-    setAutomatic((current) => (current === (old === null) ? value === null : current));
-    prior.current = value;
-  }, [value, scale]);
-  const next = automatic ? null : Number(draft) * scale;
-  let error = '';
-  try {
-    if (!automatic && !draft.trim()) throw new Error('请输入数值');
-    validateAssistantParameters({ [name]: next });
-  } catch (reason) {
-    error = reason instanceof Error ? reason.message : String(reason);
-  }
-  const form = useAssistantField(name, { draft, automatic }, { [name]: next }, !error);
-  useEffect(() => {
-    if (typeof next === 'number' && !error) lastValue.current = next;
-  }, [next, error]);
-  const immediate = () => setTimeout(() => void form?.flush(), 0);
-  return (
-    <Row
-      label={label}
-      control={
-        <div className="weq-conversation-tools">
-          {nullable ? (
-            <SegmentedControl
-              label={`${label}模式`}
-              value={automatic ? 'auto' : 'custom'}
-              options={[
-                {
-                  value: 'auto',
-                  label:
-                    name === 'temperature' || name === 'maxOutputTokens' ? '跟随模型' : '不限制',
-                },
-                { value: 'custom', label: '自定义' },
-              ]}
-              onChange={(mode) => {
-                setAutomatic(mode === 'auto');
-                if (mode === 'custom') setDraft(String(lastValue.current / scale));
-                immediate();
-              }}
-            />
-          ) : null}
-          {!automatic ? (
-            <input
-              className="weq-set-input weq-number"
-              type="number"
-              step="any"
-              aria-label={label}
-              value={draft}
-              onFocus={() => {
-                focused.current = true;
-              }}
-              onChange={(event) => setDraft(event.target.value)}
-              onBlur={() => {
-                focused.current = false;
-                void form?.flush();
-              }}
-            />
-          ) : null}
-          <button
-            data-danger="outline"
-            type="button"
-            className="weq-set-iconbtn"
-            title={`恢复${label}默认值`}
-            aria-label={`恢复${label}默认值`}
-            onClick={() => {
-              const fallback = ASSISTANT_PARAMETER_DEFAULTS[name] as number | null;
-              setAutomatic(fallback === null);
-              setDraft(fallback === null ? '' : String(fallback / scale));
-              immediate();
-            }}
-          >
-            <RotateCcw size={14} />
-          </button>
-          {error ? <span role="alert">{error}</span> : null}
-        </div>
-      }
-    />
-  );
 }
 function TextSetting({
   label,
@@ -321,24 +147,12 @@ function TextSetting({
     prior.current = value;
   }, [value]);
   return (
-    <div className="weq-agentlab-field">
-      <div className="weq-setting-field-head">
-        <label htmlFor={id}>{label}</label>
-        <button
-          data-danger="outline"
-          type="button"
-          className="weq-set-iconbtn"
-          title={`恢复${label}默认值`}
-          aria-label={`恢复${label}默认值`}
-          onClick={() => {
-            setDraft('');
-            setTimeout(() => void form?.flush(), 0);
-          }}
-        >
-          <RotateCcw size={14} />
-        </button>
-      </div>
+    <div className="weq-set-text-field" data-setting-id={`weq-assistant-${name}`}>
+      <label className="weq-set-row-label" htmlFor={id}>
+        {label}
+      </label>
       <textarea
+        className="weq-set-input"
         id={id}
         aria-invalid={Boolean(error)}
         rows={5}
@@ -353,134 +167,160 @@ function TextSetting({
   );
 }
 
-export function AssistantSettingsPanel({ onClose }: { onClose: () => void }) {
-  const { data, save, saving, error, settle, retry } = useAssistantParameters();
-  const form = useSettingsAutosave<AssistantConfig>(async (patch) => {
-    validateAssistantParameters({ ...ASSISTANT_PARAMETER_DEFAULTS, ...data, ...patch });
-    await save(patch);
-  });
-  const [section, setSection] = useState('model');
-  const config = { ...ASSISTANT_PARAMETER_DEFAULTS, ...data };
-  const fields: Array<{
-    name: keyof typeof ASSISTANT_PARAMETER_DEFAULTS;
-    label: string;
-    section: string;
-    nullable?: boolean;
-    scale?: number;
-  }> = [
-    { name: 'temperature', label: '温度', section: 'model', nullable: true },
-    { name: 'maxOutputTokens', label: '单次输出 Token 上限', section: 'model', nullable: true },
-    { name: 'maxRounds', label: '任务最大轮数', section: 'execution', nullable: true },
-    {
-      name: 'toolTimeoutMs',
-      label: '单工具超时（秒）',
-      section: 'execution',
-      nullable: true,
-      scale: 1000,
-    },
-    {
-      name: 'taskTimeoutMs',
-      label: '任务总时限（秒）',
-      section: 'execution',
-      nullable: true,
-      scale: 1000,
-    },
-    { name: 'historyMessages', label: '带入历史消息条数', section: 'context' },
-    { name: 'contextTokens', label: '上下文预算（Token）', section: 'context' },
-    { name: 'compressionTrigger', label: '压缩触发比例（%）', section: 'context', scale: 0.01 },
-    { name: 'compressionTarget', label: '压缩目标比例（%）', section: 'context', scale: 0.01 },
-    { name: 'summaryTokens', label: '摘要 Token 上限', section: 'context' },
-  ];
+const GLOBAL_GROUPS = [
+  { id: 'model', label: '模型设置', icon: <Cpu size={16} /> },
+  { id: 'tools', label: '提示与工具', icon: <SlidersHorizontal size={16} /> },
+] as const;
+type GlobalGroup = (typeof GLOBAL_GROUPS)[number]['id'];
+
+type AssistantSettingsProps = {
+  conversation?: {
+    title: string;
+    anchor?: HTMLElement;
+    onClose: () => void;
+  };
+};
+
+export function WeqAssistantSettingsSection(props: AssistantSettingsProps) {
+  const [resetRevision, setResetRevision] = useState(0);
   return (
-    <AssistantFields.Provider value={{ register: form.register, flush: form.flush }}>
-      <ConversationSettingsFrame
-        title="助手设置"
-        subtitle="WeQ 助手"
-        value={section}
-        onValueChange={(next) => {
-          void form.flush();
-          setSection(next);
-        }}
-        onClose={() =>
-          void form.flush().then(async (ok) => {
-            if (ok) {
-              try {
-                await settle();
-                onClose();
-              } catch {
-                /* 保留失败草稿。 */
-              }
-            }
-          })
-        }
-        sections={[
-          { id: 'model', label: '模型与生成', icon: <Cpu size={16} /> },
-          { id: 'execution', label: '任务执行', icon: <Settings2 size={16} /> },
-          { id: 'context', label: '上下文管理', icon: <Brain size={16} /> },
-          { id: 'tools', label: '提示与工具', icon: <SlidersHorizontal size={16} /> },
-          { id: 'images', label: '图片处理', icon: <Image size={16} /> },
-          { id: 'sending', label: '运行中发送', icon: <ListOrdered size={16} /> },
-        ]}
+    <AssistantSettingsFields
+      key={resetRevision}
+      {...props}
+      onReset={() => setResetRevision((previous) => previous + 1)}
+    />
+  );
+}
+
+function AssistantSettingsFields({
+  conversation,
+  onReset,
+}: AssistantSettingsProps & { onReset: () => void }) {
+  const [section, setSection] = useState<GlobalGroup>('model');
+  const { data, save, saving, error, settle, suspend, release, retry, reload } =
+    useAssistantParameters();
+  const reset = useContext(SettingsResetContext);
+  const form = useSettingsAutosave<AssistantConfig>(save);
+  useSettingsSaveBanner(saving || form.saving);
+  const protection = useDraftProtection(form.dirty || (data && error) ? true : null, false);
+  if (!form.dirty && !(data && error)) protection.reset(null);
+  const saveState = useRef({ form, saving, error, settle, suspend, release, onReset });
+  saveState.current = { form, saving, error, settle, suspend, release, onReset };
+  const resetSaves = conversation ? null : reset?.saves('assistant-config');
+  useEffect(() => {
+    let restored = false;
+    const entry = {
+      get pending() {
+        const { form, saving } = saveState.current;
+        return saving || form.saving || (form.dirty && form.valid && !form.error);
+      },
+      flush: async () => {
+        const { form, error, settle } = saveState.current;
+        if (form.error || error) return false;
+        return (
+          (await form.flush()) &&
+          (await settle().then(
+            () => true,
+            () => false,
+          ))
+        );
+      },
+      suspend: async () => {
+        const { form, suspend } = saveState.current;
+        await Promise.all([form.suspend(), suspend()]);
+      },
+      reset: () => {
+        restored = true;
+        saveState.current.onReset();
+      },
+      release: () => {
+        if (restored) return;
+        saveState.current.release();
+        saveState.current.form.release();
+      },
+    };
+    settingsSaves.add(entry);
+    resetSaves?.add(entry);
+    return () => {
+      settingsSaves.delete(entry);
+      resetSaves?.delete(entry);
+    };
+  }, [resetSaves]);
+  const group = (id: GlobalGroup, children: ReactNode) => {
+    if (conversation)
+      return (
+        <div hidden={section !== id} inert={section !== id}>
+          {children}
+        </div>
+      );
+    const current = GLOBAL_GROUPS.find((item) => item.id === id)!;
+    return (
+      <Card
+        settingId={id === 'model' ? 'weq-assistant-model-settings' : undefined}
+        title={current.label}
+        icon={current.icon}
       >
-        <div className="weq-cvs-body-scroll">
-          <div role="status">
-            {saving ? (
-              '保存中…'
-            ) : error || form.error ? (
-              <span role="alert">
-                保存失败：{error || form.error}
-                <button
-                  type="button"
-                  disabled={saving || form.saving}
-                  onClick={() =>
-                    void (form.dirty || form.error ? form.flush() : retry()).catch(() => {})
-                  }
-                  className="weq-retry-button"
-                >
-                  <RefreshCw size={14} aria-hidden />
-                  重试保存
-                </button>
-              </span>
-            ) : data ? (
-              form.status
-            ) : (
-              '读取中…'
-            )}
-          </div>
-          <div hidden={section !== 'model'}>
-            <Row
-              label="聊天模型"
-              control={
-                <ApiModelSelect
-                  label="聊天模型"
-                  value={data?.model ?? { useDefault: true }}
-                  onChange={(model) => {
-                    if (model) void save({ model }).catch(() => {});
-                  }}
-                />
-              }
-            />
-            <Row
-              label="思考等级"
-              control={
-                <EffortSelect
-                  value={data?.reasoningEffort ?? 'off'}
-                  onChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
-                  disabled={!data || saving}
-                />
-              }
-            />
-          </div>
-          {fields.map((field) => (
-            <div key={field.name} hidden={field.section !== section}>
-              <NumberSetting {...field} value={config[field.name] as number | null} />
-            </div>
-          ))}
-          <div hidden={section !== 'tools'}>
-            <Row
-              label="运行模式"
-              control={
-                <div>
+        {children}
+      </Card>
+    );
+  };
+  const closeConversation = async () => {
+    if (!conversation || !(await form.flush())) return;
+    try {
+      await settle();
+    } catch {
+      return;
+    }
+    conversation.onClose();
+  };
+  const sendMode = data?.sendMode ?? DEFAULT_ASSISTANT_SEND_MODE;
+  const contents = (
+    <>
+      {error || form.error || !data ? (
+        <div role="status">
+          {error || form.error ? (
+            <span role="alert">
+              {data ? '保存失败' : '读取失败'}：{error || form.error}{' '}
+              <button
+                type="button"
+                disabled={saving || form.saving}
+                onClick={() =>
+                  void (!data ? reload() : form.dirty || form.error ? form.flush() : retry()).catch(
+                    () => {},
+                  )
+                }
+                className="weq-retry-button"
+              >
+                <RefreshCw size={14} aria-hidden />
+                {data ? '重试保存' : '重新读取'}
+              </button>
+            </span>
+          ) : (
+            '读取中…'
+          )}
+        </div>
+      ) : null}
+      {data ? (
+        <>
+          {group(
+            'model',
+            <ConversationModelSettings
+              feature="assistant"
+              model={data.model ?? { useDefault: true }}
+              effort={data.reasoningEffort ?? 'off'}
+              disabled={saving}
+              onModelChange={(model) => void save({ model }).catch(() => {})}
+              onEffortChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
+            >
+              <Row
+                settingId="weq-assistant-permission"
+                label="运行模式"
+                desc={
+                  data.permissionMode === 'unrestricted'
+                    ? '以当前系统用户权限执行操作。'
+                    : '在沙箱中执行任务。'
+                }
+                control={
                   <SegmentedControl
                     label="运行模式"
                     value={data?.permissionMode ?? 'sandbox'}
@@ -494,46 +334,82 @@ export function AssistantSettingsPanel({ onClose }: { onClose: () => void }) {
                       { value: 'unrestricted', label: '任意权限' },
                     ]}
                   />
-                  <small>
-                    {data?.permissionMode === 'unrestricted'
-                      ? '以当前系统用户权限执行操作。'
-                      : '在沙箱中执行任务。'}
-                  </small>
-                </div>
-              }
-            />
-            <TextSetting label="额外提示词" value={data?.customPrompt ?? ''} name="customPrompt" />
-            <TextSetting label="外部 MCP 服务器" value={data?.mcpServers ?? ''} name="mcpServers" />
-          </div>
-          {section === 'images' ? <AiImagePreferenceSetting feature="assistant" /> : null}
-          {section === 'sending' ? (
-            <Row
-              label="运行中默认发送方式"
-              control={
-                <div>
-                  <SegmentedControl
-                    label="运行中默认发送方式"
-                    value={data?.sendMode ?? 'interrupt'}
-                    onChange={(sendMode) =>
-                      void save({
-                        sendMode,
-                      }).catch(() => {})
+                }
+              />
+              <Row
+                settingId="weq-assistant-send-mode"
+                label="运行中默认发送方式"
+                desc={
+                  sendMode === 'queue'
+                    ? '当前任务完成后，按顺序启动独立任务。'
+                    : sendMode === 'boundary'
+                      ? '本次模型调用和工具批次结束后补入当前任务。'
+                      : '中断当前模型请求，工具收尾后带补充继续。'
+                }
+                control={
+                  <FormSelect
+                    className="weq-set-input"
+                    aria-label="运行中默认发送方式"
+                    value={sendMode}
+                    onChange={(event) =>
+                      void save({ sendMode: event.target.value as AssistantSendMode }).catch(
+                        () => {},
+                      )
                     }
-                    options={ASSISTANT_SEND_MODES}
-                  />
-                  <small>
-                    {data?.sendMode === 'queue'
-                      ? '当前任务完成后，按顺序启动独立任务。'
-                      : data?.sendMode === 'boundary'
-                        ? '当前模型调用与工具批次结束后补入当前任务。'
-                        : '中断当前模型请求，工具收尾后带补充继续。'}
-                  </small>
-                </div>
-              }
-            />
-          ) : null}
+                  >
+                    {ASSISTANT_SEND_MODES.map(({ value, label }) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </FormSelect>
+                }
+              />
+            </ConversationModelSettings>,
+          )}
+          {group(
+            'tools',
+            <>
+              <TextSetting
+                label="额外提示词"
+                value={data?.customPrompt ?? ''}
+                name="customPrompt"
+              />
+              <TextSetting
+                label="外部 MCP 服务器"
+                value={data?.mcpServers ?? ''}
+                name="mcpServers"
+              />
+            </>,
+          )}
+        </>
+      ) : null}
+    </>
+  );
+  return (
+    <AssistantFields.Provider value={{ register: form.register, flush: form.flush }}>
+      {conversation ? (
+        <ConversationSettingsFrame
+          title="助手设置"
+          subtitle={conversation.title}
+          anchor={conversation.anchor}
+          onClose={() => void closeConversation()}
+          sections={GLOBAL_GROUPS}
+          value={section}
+          sectionDescription="应用级设置，所有助手会话共用"
+          onValueChange={(next) => {
+            setSection(next);
+            if (form.dirty && !form.error) void form.flush();
+          }}
+        >
+          <div className="weq-set weq-cvs-body-scroll weq-assistant-settings">{contents}</div>
+        </ConversationSettingsFrame>
+      ) : (
+        <div className="weq-set weq-assistant-settings">
+          <SectionHeader page="weq-assistant" title="WeQ 助手" />
+          {contents}
         </div>
-      </ConversationSettingsFrame>
+      )}
     </AssistantFields.Provider>
   );
 }

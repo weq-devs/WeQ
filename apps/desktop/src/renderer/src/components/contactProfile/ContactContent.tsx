@@ -748,9 +748,14 @@ export function ContactGroupContent({
     onNavigate,
   );
   if (!context) return null;
-  const groupLevel = member.memberLevel
-    ? `Lv.${member.memberLevel}${member.levelName ? ` · ${member.levelName}` : ''}`
-    : member.levelName;
+  const groupLevel = member.memberLevel ? (
+    <>
+      <span className="weq-number weq-number-inherit">{`Lv.${member.memberLevel}`}</span>
+      {member.levelName ? ` · ${member.levelName}` : null}
+    </>
+  ) : (
+    member.levelName
+  );
   const optional: Partial<Record<(typeof settings.groupOrder)[number], ReactNode>> = {
     groupLevel,
     joinedAt: memberDate(member.joinedAt),

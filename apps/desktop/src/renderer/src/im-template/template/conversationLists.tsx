@@ -2,14 +2,16 @@
 import { NumericText } from '../../components/NumericText';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderCount } from '../../components/ReminderBadge';
+import { useUnreadMarkers } from '../../lib/unreadMarkers';
 import { occupationText } from '@weqbot/protocol/profile-values';
 import {
+  Bell,
   BellOff,
   Bot,
   PenLine,
   Pin,
-  MailOpen,
   Mail,
+  Eye,
   EyeOff,
   List,
   MessageSquare,
@@ -253,6 +255,7 @@ export function ConversationList({
   loadingMore?: boolean;
 }) {
   const directory = useContext(ConversationDirectoryContext);
+  const markers = useUnreadMarkers();
   const directoryRef = useRef<HTMLDivElement>(null);
   const mobile = useMobileWebLayout();
   useMobileBack(
@@ -271,6 +274,8 @@ export function ConversationList({
   } | null>(null);
   const [localView, setLocalView] = useState<ConversationView>('regular');
   const view = directory?.view ?? localView;
+  const createAssistantDirectly = view === 'assistant';
+  const createLabel = createAssistantDirectly ? '新建 WeQ 助手会话' : '添加会话';
   const ViewIcon = VIEW_ICONS[view];
   const setView = directory?.onViewChange ?? setLocalView;
   const [queries, setQueries] = useState<Partial<Record<ConversationView, string>>>({});
@@ -287,11 +292,14 @@ export function ConversationList({
   const invertFrom = useRef<Set<string> | null>(null);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const createTriggerRef = useRef<HTMLButtonElement>(null);
-  const { selectionMode, selectedIds, setSelectedIds, setSelectionMode, anchorRef } =
-    useContentMultiSelect({
-      kind: 'conversations',
-      container: 'main-list',
-    });
+  const {
+    selectionMode,
+    selectedIds,
+    setSelectedIds,
+    setSelectionMode,
+    removeSelectedIds,
+    anchorRef,
+  } = useContentMultiSelect({ kind: 'conversations', container: 'main-list' });
   const viewportRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(600);
   const [rowHeight, setRowHeight] = useState(62);
@@ -300,6 +308,7 @@ export function ConversationList({
   const menuRef = useRef<HTMLDivElement>(null);
   useClientPreferences((state) => state.tick);
   const keepPosition = preferenceValue('keepConversationPositionOnHover');
+  const showPreview = preferenceValue('showConversationPreview');
   const account = useViewState((state) => state.openedUin);
   const listKey = `${account}:${view}:${keyword}`;
   const [pointerInside, setPointerInside] = useState(false);
@@ -310,11 +319,21 @@ export function ConversationList({
   }, []);
   useEffect(() => setActionMenu(null), [account, view, keyword]);
   useEffect(() => {
+    setCreateOpen(false);
     setSelectedIds(new Set());
     setSelectionMode(false);
     setSelectingAll(false);
     anchorRef.current = null;
   }, [view, account, setSelectedIds, setSelectionMode, anchorRef]);
+  // 克隆和助手列表不分页；用完整列表核对删除结果，搜索过滤不改变选区。
+  const generatedRows = view === 'clone' || view === 'assistant' ? directory?.rows : undefined;
+  useEffect(() => {
+    if (!generatedRows || loading || !selectedIds.size) return;
+    const availableIds = new Set(generatedRows.map((row) => row.id));
+    const removed = [...selectedIds].filter((id) => !availableIds.has(id));
+    if (removed.length === selectedIds.size) setSelectionMode(false);
+    else if (removed.length) removeSelectedIds(removed);
+  }, [generatedRows, loading, selectedIds, removeSelectedIds, setSelectionMode]);
   const sorted = useMemo(() => {
     const needle = keyword.trim().toLocaleLowerCase();
     const rows = directory?.rows ?? conversations;
@@ -341,6 +360,10 @@ export function ConversationList({
     [actionMenu],
   );
   const aggregateMenu = actionMenu?.conversation.type === 'merged';
+  const singleMenuConversation =
+    actionMenu?.ids.length === 1 && actionMenu.conversation.type !== 'merged'
+      ? actionMenu.conversation
+      : null;
   const selectConversation = (id: string, event: React.MouseEvent) => {
     if (!filtered.ids.includes(id)) return;
     const row = filtered.rows.find((item) => item.id === id);
@@ -437,6 +460,8 @@ export function ConversationList({
 
   const locateId = directory?.locate?.id;
   const locateRevision = directory?.locate?.revision;
+  const focusRequest = multi.focusRequest;
+  const scrollToFocus = focusRequest && focusRequest.revision > (locateRevision ?? 0);
   const handledLocate = useRef('');
   const [locateHighlight, setLocateHighlight] = useState<{
     id: string;
@@ -513,6 +538,10 @@ export function ConversationList({
     };
   }, [createOpen]);
 
+  const interruptUnreadCycle = (event: React.SyntheticEvent<HTMLElement>) => {
+    // 排除从菜单、弹窗等 Portal 冒泡的交互；程序滚动不会产生此处监听的输入事件。
+    if (event.currentTarget.contains(event.target as Node)) directory?.onListInteraction?.();
+  };
   return (
     <div
       className="list-stack weq-conversation-directory"
@@ -521,6 +550,14 @@ export function ConversationList({
         directoryRef.current = element;
         multi.rootProps.ref(element);
       }}
+      onPointerDownCapture={(event) => {
+        multi.rootProps.onPointerDownCapture();
+        if (event.pointerType === 'mouse') interruptUnreadCycle(event);
+      }}
+      onClickCapture={interruptUnreadCycle}
+      onContextMenuCapture={interruptUnreadCycle}
+      onWheelCapture={interruptUnreadCycle}
+      onTouchMoveCapture={interruptUnreadCycle}
       onPointerOverCapture={(event) => {
         if (event.pointerType === 'mouse')
           setPointerInside(event.currentTarget.contains(event.target));
@@ -553,11 +590,13 @@ export function ConversationList({
             <button
               ref={createTriggerRef}
               type="button"
-              title={searching ? '退出搜索会话' : '添加会话'}
-              aria-label={searching ? '退出搜索会话' : '添加会话'}
-              aria-haspopup={searching ? undefined : 'menu'}
-              aria-expanded={searching ? undefined : createOpen}
-              disabled={!searching && !directory}
+              title={searching ? '退出搜索会话' : createLabel}
+              aria-label={searching ? '退出搜索会话' : createLabel}
+              aria-haspopup={searching || createAssistantDirectly ? undefined : 'menu'}
+              aria-expanded={searching || createAssistantDirectly ? undefined : createOpen}
+              disabled={
+                !searching && (createAssistantDirectly ? !directory?.onCreateAssistant : !directory)
+              }
               onClick={() => {
                 if (searching) {
                   setCreateOpen(false);
@@ -565,10 +604,11 @@ export function ConversationList({
                   return;
                 }
                 setScopeOpen(false);
-                setCreateOpen(!createOpen);
+                if (createAssistantDirectly) directory?.onCreateAssistant?.();
+                else setCreateOpen(!createOpen);
               }}
               onKeyDown={(event) => {
-                if (searching || event.key !== 'ArrowDown') return;
+                if (searching || createAssistantDirectly || event.key !== 'ArrowDown') return;
                 event.preventDefault();
                 setScopeOpen(false);
                 setCreateOpen(true);
@@ -576,7 +616,7 @@ export function ConversationList({
             >
               <Plus size={16} className="weq-directory-add-icon" />
             </button>
-            {createOpen && !searching ? (
+            {createOpen && !searching && !createAssistantDirectly ? (
               <div role="menu" className="weq-directory-scope-menu" aria-label="添加会话菜单">
                 <button
                   type="button"
@@ -611,40 +651,44 @@ export function ConversationList({
                   <Users size={16} />
                   新建克隆体群聊
                 </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setCreateOpen(false);
-                    setLookupOpen('user');
-                  }}
-                >
-                  <UserRound size={16} />
-                  QQ 号搜索
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setCreateOpen(false);
-                    setLookupOpen('group');
-                  }}
-                >
-                  <Users size={16} />
-                  群号搜索
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setCreateOpen(false);
-                    directory?.onCreateAssistant?.();
-                  }}
-                  disabled={!directory?.onCreateAssistant}
-                >
-                  <Sparkles size={16} />
-                  新建 WeQ 助手会话
-                </button>
+                {view !== 'clone' && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setCreateOpen(false);
+                        setLookupOpen('user');
+                      }}
+                    >
+                      <UserRound size={16} />
+                      QQ 号搜索
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setCreateOpen(false);
+                        setLookupOpen('group');
+                      }}
+                    >
+                      <Users size={16} />
+                      群号搜索
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setCreateOpen(false);
+                        directory?.onCreateAssistant?.();
+                      }}
+                      disabled={!directory?.onCreateAssistant}
+                    >
+                      <Sparkles size={16} />
+                      新建 WeQ 助手会话
+                    </button>
+                  </>
+                )}
               </div>
             ) : null}
           </div>
@@ -734,27 +778,32 @@ export function ConversationList({
           restoreScrollTop={scrollPositions.current.get(listKey) ?? 0}
           onScrollTopChange={(top) => scrollPositions.current.set(listKey, top)}
           itemKey={(item) => item.id}
-          scrollToKey={
-            multi.focusRequest && multi.focusRequest.revision > (locateRevision ?? 0)
-              ? multi.focusRequest.id
-              : !keyword
-                ? locateId
-                : null
-          }
-          scrollRevision={Math.max(multi.focusRequest?.revision ?? 0, locateRevision ?? 0)}
+          scrollToKey={scrollToFocus ? focusRequest.id : !keyword ? locateId : null}
+          scrollRevision={Math.max(focusRequest?.revision ?? 0, locateRevision ?? 0)}
+          scrollAlign={scrollToFocus ? undefined : directory?.locate?.align}
           onNearEnd={hasMore && !loadingMore ? onLoadMore : undefined}
           className="weq-conversation-window"
           renderItem={(conversation) => {
             const active = conversation.id === activeConversationId;
             const updatedAt = conversation.updatedAt;
             const unreadCount = conversation.unreadCount ?? 0;
-            const hasDraft = !active && Boolean(drafts[conversation.id]?.trim());
-            const preview = conversationLastMessage(conversation, user);
+            const draft = drafts[conversation.id] ?? conversation.draftPreview;
+            const hasDraft = showPreview && !active && Boolean(draft?.trim());
+            const lastMessage = conversation.lastMessage;
+            const preview = showPreview && !hasDraft ? conversationPreviewNodes(conversation) : [];
             // 提醒高亮：来自 48902 的权威标记（特别关心 / @我 …）。
-            const highlightKinds = new Set((conversation.highlights ?? []).map((h) => h.kind));
+            const highlightKinds = new Set(
+              (markers.important ? (conversation.highlights ?? []) : []).map((h) => h.kind),
+            );
             // @我：优先用 48902 权威标记，回退到本地对消息正文的启发式解析。
             const showMentionAlert =
-              unreadCount > 0 && (highlightKinds.has('atMe') || preview.mentionsMe);
+              markers.important &&
+              unreadCount > 0 &&
+              (highlightKinds.has('atMe') ||
+                (conversation.type === 'group' &&
+                  lastMessage?.body &&
+                  lastMessage.senderId !== user?.id &&
+                  messageMentionsUser(lastMessage.body, user)));
             // @全体成员：同属「找你」红色告警类。
             const showAtAll = unreadCount > 0 && highlightKinds.has('atAll');
             // 回复我：同属「找你」红色告警类。
@@ -770,9 +819,19 @@ export function ConversationList({
               unreadCount > 0 && highlightKinds.has('groupAnnouncement');
             // 群提醒词：命中用户设置的关注词，与「找你」同类，行首挂红色标记。
             const showGroupKeyword = unreadCount > 0 && highlightKinds.has('groupKeyword');
+            const showPreviewLine =
+              showPreview ||
+              showSpecialCare ||
+              showMentionAlert ||
+              showAtAll ||
+              showReplyMe ||
+              showGroupKeyword ||
+              showNewFile ||
+              showGroupAnnouncement ||
+              showRedPacket;
             // 命中的关键词（可能多个）；让「[群提醒词]」能区分是哪个词命中的。
             const groupKeywordWords =
-              unreadCount > 0
+              markers.important && unreadCount > 0
                 ? [
                     ...new Set(
                       (conversation.highlights ?? [])
@@ -781,16 +840,18 @@ export function ConversationList({
                     ),
                   ]
                 : [];
-            // 免打扰：会话自带的 DB 值（41220）打底，本地手动偏好覆盖 ——
-            // 与 shellController.countVisibleUnreadConversations 的 merge 顺序保持一致。
-            const muted = Boolean(
-              {
-                ...conversation.preference,
-                ...preferences[conversation.id],
-              }.muted,
-            );
+            // 普通会话的免打扰由 DB 值（41220）打底，本地手动偏好覆盖。
+            const muted = conversation.generated
+              ? Boolean(conversation.preference?.muted)
+              : Boolean(
+                  {
+                    ...conversation.preference,
+                    ...preferences[conversation.id],
+                  }.muted,
+                );
             const pinned = isPinned(conversation, preferences);
             const virtualRow = directory?.virtual.find((item) => item.id === conversation.id);
+            const canOpenContextMenu = conversation.type !== 'merged' || Boolean(directory?.onPin);
 
             return (
               <button
@@ -816,6 +877,7 @@ export function ConversationList({
                 }}
                 onContextMenu={(event) => {
                   event.preventDefault();
+                  if (!canOpenContextMenu) return;
                   setActionMenu({
                     conversation,
                     ids: menuIds(conversation),
@@ -824,6 +886,7 @@ export function ConversationList({
                   });
                 }}
                 onKeyDown={(event) => {
+                  if (!canOpenContextMenu) return;
                   if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
                     return;
                   event.preventDefault();
@@ -902,51 +965,51 @@ export function ConversationList({
                       </small>
                     ) : null}
                   </strong>
-                  <span className={cn('row-preview-line')}>
-                    {hasDraft ? (
-                      <span className={cn('row-draft')}>
-                        <PenLine size={15} />
-                        <span className={cn('row-draft-text')}>
-                          {formatDraftPreview(drafts[conversation.id])}
-                        </span>
-                      </span>
-                    ) : (
-                      <span className={cn('row-message-preview')}>
-                        {showSpecialCare ? (
-                          <span className={cn('row-specialcare-alert')}>[特别关心]</span>
-                        ) : null}
-                        {showMentionAlert ? (
-                          <span className={cn('row-mention-alert')}>[有人@我]</span>
-                        ) : null}
-                        {showAtAll ? (
-                          <span className={cn('row-mention-alert')}>[@全体]</span>
-                        ) : null}
-                        {showReplyMe ? (
-                          <span className={cn('row-mention-alert')}>[有人回复我]</span>
-                        ) : null}
-                        {showGroupKeyword ? (
-                          <span className={cn('row-mention-alert')}>
-                            {groupKeywordWords.length > 0
-                              ? `[群提醒词·${groupKeywordWords.join('、')}]`
-                              : '[群提醒词]'}
+                  {showPreviewLine ? (
+                    <span className={cn('row-preview-line')}>
+                      {hasDraft ? (
+                        <span className={cn('row-draft')}>
+                          <PenLine size={15} />
+                          <span className={cn('row-draft-text')}>
+                            {conversation.generated ? draft : formatDraftPreview(draft)}
                           </span>
-                        ) : null}
-                        {showNewFile ? (
-                          <span className={cn('row-newfile-alert')}>[新文件]</span>
-                        ) : null}
-                        {showGroupAnnouncement ? (
-                          <span className={cn('row-newfile-alert')}>[群公告]</span>
-                        ) : null}
-                        {showRedPacket ? (
-                          <span className={cn('row-redpacket-alert')}>[红包]</span>
-                        ) : null}
-                        {preview.nodes.length ? <PreviewNodes nodes={preview.nodes} /> : null}
-                      </span>
-                    )}
-                    {!unreadCount && muted ? (
-                      <BellOff className={cn('row-muted')} size={15} />
-                    ) : null}
-                  </span>
+                        </span>
+                      ) : (
+                        <span className={cn('row-message-preview')}>
+                          {showSpecialCare ? (
+                            <span className={cn('row-specialcare-alert')}>[特别关心]</span>
+                          ) : null}
+                          {showMentionAlert ? (
+                            <span className={cn('row-mention-alert')}>[有人@我]</span>
+                          ) : null}
+                          {showAtAll ? (
+                            <span className={cn('row-mention-alert')}>[@全体]</span>
+                          ) : null}
+                          {showReplyMe ? (
+                            <span className={cn('row-mention-alert')}>[有人回复我]</span>
+                          ) : null}
+                          {showGroupKeyword ? (
+                            <span className={cn('row-mention-alert')}>
+                              {groupKeywordWords.length > 0
+                                ? `[群提醒词·${groupKeywordWords.join('、')}]`
+                                : '[群提醒词]'}
+                            </span>
+                          ) : null}
+                          {showNewFile ? (
+                            <span className={cn('row-newfile-alert')}>[新文件]</span>
+                          ) : null}
+                          {showGroupAnnouncement ? (
+                            <span className={cn('row-newfile-alert')}>[群公告]</span>
+                          ) : null}
+                          {showRedPacket ? (
+                            <span className={cn('row-redpacket-alert')}>[红包]</span>
+                          ) : null}
+                          {preview.length ? <PreviewNodes nodes={preview} /> : null}
+                        </span>
+                      )}
+                    </span>
+                  ) : null}
+                  {!unreadCount && muted ? <BellOff className={cn('row-muted')} size={15} /> : null}
                 </span>
                 <span className={cn('row-meta')}>
                   <span className={cn('row-time-line')}>
@@ -969,8 +1032,8 @@ export function ConversationList({
                     <TimeLabel value={updatedAt}>{formatConversationTime(updatedAt)}</TimeLabel>
                   </span>
                   {unreadCount &&
-                  (conversation.mergedKind !== 'groupAssistant' ||
-                    directory?.showGroupAssistantMessageCount) ? (
+                  (conversation.type !== 'merged' ||
+                    markers.aggregates[conversation.mergedKind]) ? (
                     <ReminderCount
                       count={unreadCount}
                       tone={muted ? 'muted' : 'notice'}
@@ -1017,6 +1080,14 @@ export function ConversationList({
               kind={actionMenu.conversation.type}
               generated={actionMenu.conversation.generated}
               count={actionMenu.ids.length}
+              onOpenProfile={
+                singleMenuConversation && directory?.onOpenProfile
+                  ? (anchor: HTMLElement) => {
+                      directory.onOpenProfile(singleMenuConversation, anchor);
+                      setActionMenu(null);
+                    }
+                  : undefined
+              }
               containedCount={
                 actionMenu.conversation.type === 'merged' &&
                 actionMenu.conversation.mergedKind === 'groupAssistant'
@@ -1030,40 +1101,46 @@ export function ConversationList({
           onClose={() => setActionMenu(null)}
           actions={(() => {
             return [
-              ...(aggregateMenu
+              ...(singleMenuConversation && directory?.onPreview
                 ? [
                     {
-                      label: `进入${CONVERSATION_VIEW_LABELS[aggregateView(actionMenu.conversation.mergedKind)]}`,
-                      icon: <ChevronRight size={16} />,
-                      action: () =>
-                        setView(aggregateView(actionMenu.conversation.mergedKind), true),
+                      label: '预览会话',
+                      icon: <Eye size={16} aria-hidden />,
+                      action: () => directory.onPreview(singleMenuConversation),
                     },
                   ]
                 : []),
-              ...(directory?.onReadState &&
-              !aggregateMenu &&
-              conversationViewActions(view).includes('read') &&
-              (actionMenu.ids.length > 1 ||
-                conversationSupportsAction(actionMenu.conversation, 'read'))
+              ...(!aggregateMenu && conversationViewActions(view).includes('read')
+                ? batch.readStateMenuActions(actionMenu.ids)
+                : []),
+              ...(directory?.onMuteGenerated &&
+              actionMenu.conversation.generated &&
+              actionMenu.ids.length === 1
                 ? [
-                    ...[false, true].map((unread) => ({
-                      label: unread ? '标为未读' : '标为已读',
-                      icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
-                      disabled:
-                        directory.readStateBusy ||
-                        actionMenu.ids.length > 4096 ||
-                        !batch.supportsAny(actionMenu.ids, 'read'),
-                      action: () => batch.runReadState(actionMenu.ids, unread),
-                    })),
+                    {
+                      label: actionMenu.conversation.preference?.muted
+                        ? '取消免打扰'
+                        : '消息免打扰',
+                      icon: actionMenu.conversation.preference?.muted ? (
+                        <Bell size={16} />
+                      ) : (
+                        <BellOff size={16} />
+                      ),
+                      action: () =>
+                        directory.onMuteGenerated?.(
+                          actionMenu.conversation,
+                          !actionMenu.conversation.preference?.muted,
+                        ),
+                    },
                   ]
                 : []),
               ...(directory?.onPin &&
-              (!aggregateMenu || actionMenu.conversation.mergedKind === 'groupAssistant') &&
               (aggregateMenu ||
-                conversationSupportsAction(actionMenu.conversation, 'read') ||
+                (!actionMenu.conversation.directoryRead &&
+                  conversationSupportsAction(actionMenu.conversation, 'read')) ||
                 (actionMenu.conversation.generated &&
                   actionMenu.conversation.generated.kind !== 'assistant')) &&
-              (actionMenu.ids.length === 1 || actionMenu.conversation.type === 'merged')
+              actionMenu.ids.length === 1
                 ? [
                     {
                       label: isPinned(actionMenu.conversation, preferences) ? '取消置顶' : '置顶',
@@ -1437,14 +1514,7 @@ export function GroupList({
           y={actionMenu.y}
           onClose={() => setActionMenu(null)}
           actions={[
-            ...(conversationDirectory?.onReadState
-              ? [false, true].map((unread) => ({
-                  label: unread ? '标为未读' : '标为已读',
-                  icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
-                  disabled: conversationDirectory.readStateBusy || actionMenu.ids.length > 4096,
-                  action: () => batch.runReadState(actionMenu.ids, unread),
-                }))
-              : []),
+            ...batch.readStateMenuActions(actionMenu.ids),
             ...(actionMenu.ids.length === 1 && conversationDirectory?.onAnalyze
               ? [
                   {
@@ -2321,14 +2391,7 @@ const ContactListContent = memo(function ContactListContent({
               : undefined
           }
           actions={[
-            ...(conversationDirectory?.onReadState
-              ? [false, true].map((unread) => ({
-                  label: unread ? '标为未读' : '标为已读',
-                  icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
-                  disabled: conversationDirectory.readStateBusy || actionMenu.ids.length > 4096,
-                  action: () => batch.runReadState(actionMenu.ids, unread),
-                }))
-              : []),
+            ...batch.readStateMenuActions(actionMenu.ids),
             ...(actionMenu.ids.length === 1 &&
             conversationDirectory?.onAnalyze &&
             conversationAnalysisTarget(
@@ -2509,23 +2572,12 @@ function conversationSeed(conversation: Conversation) {
   return conversation.type === 'group' ? conversation.id : conversation.otherUser.identityValue;
 }
 
-function conversationLastMessage(conversation: Conversation, user?: User) {
+function conversationPreviewNodes(conversation: Conversation): PreviewNode[] {
   // When the last message has no text body (e.g. element-only messages like
   // pure image / sticker / file with no preview text), keep the row's
   // preview line empty rather than printing a placeholder — the timestamp
   // and unread-count next to it already convey "there is activity".
-  if (!conversation.lastMessage?.body) {
-    return {
-      nodes: [],
-      text: '',
-      mentionsMe: false,
-    };
-  }
-
-  const mentionsMe =
-    conversation.type === 'group' &&
-    conversation.lastMessage.senderId !== user?.id &&
-    messageMentionsUser(conversation.lastMessage.body, user);
+  if (!conversation.lastMessage?.body) return [];
 
   // 富节点（文本 + 表情）优先；没有就把纯文本包成单个文本节点，渲染路径统一。
   const body: PreviewNode[] = conversation.lastMessage.previewNodes?.length
@@ -2541,11 +2593,7 @@ function conversationLastMessage(conversation: Conversation, user?: User) {
       ? `${conversation.lastMessage.senderDisplayName}：`
       : '';
 
-  return {
-    nodes: prefix ? [{ t: 'text', text: prefix } as PreviewNode, ...body] : body,
-    text: `${prefix}${conversation.lastMessage.body}`,
-    mentionsMe,
-  };
+  return prefix ? [{ t: 'text', text: prefix }, ...body] : body;
 }
 
 /** 预览节点 → React：文本原样输出，表情画成图（与聊天区同一个 FaceEmoji）。 */

@@ -49,7 +49,9 @@ it('汇总页按真实条数累计，重试清除来源缓存，源缓存容量�
   expect(job.memoryBytes - base.memoryBytes).toBe(source.cacheCapacityBytes);
   job.keepAlive(day);
   await finish(job);
-  expect(job.snapshot(day).rows[0]?.count).toBe(1025);
+  const detail = job.snapshot(day, 0, true);
+  expect(detail.rows[0]?.count).toBe(1025);
+  expect(job.snapshot(day, 0, true, 0)).toEqual({ ...detail, rows: [] });
   const restored = new ConversationCalendarJob('2026-11', [target], [source]);
   expect(restored.restore(job.checkpoint())).toBe(true);
   expect(restored.snapshot(day).rows[0]?.count).toBe(1025);

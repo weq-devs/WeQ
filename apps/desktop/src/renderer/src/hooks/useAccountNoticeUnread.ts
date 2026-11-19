@@ -3,6 +3,7 @@ import { client } from '../trpc/client';
 import type { NoticeSeenState } from '../../../shared/notice_seen';
 import { mergeNoticeSeen } from '../../../shared/notice_seen';
 import { useNoticeUnread } from './useNoticeUnread';
+import { type NewNoticeNotification, useNewNoticeNotification } from './useNewNoticeNotification';
 
 /** 连接电脑端的账号状态；断线不建立新基线，也不把已有已读回退。 */
 export function useAccountNoticeUnread(
@@ -11,6 +12,7 @@ export function useAccountNoticeUnread(
   ids: string[],
   open: boolean,
   ready: boolean,
+  notification?: NewNoticeNotification,
 ) {
   const [remote, setRemote] = useState<{ key: string; state: NoticeSeenState | null } | null>(null);
   const scope = `${accountKey}:${kind}`;
@@ -103,5 +105,7 @@ export function useAccountNoticeUnread(
         : undefined,
     [remote, scope, transport],
   );
-  return useNoticeUnread(accountKey, kind, ids, open, ready && Boolean(sync), sync);
+  const unread = useNoticeUnread(accountKey, kind, ids, open, ready && Boolean(sync), sync);
+  useNewNoticeNotification(scope, ids, unread, notification);
+  return unread?.length ?? 0;
 }

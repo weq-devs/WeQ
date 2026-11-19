@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { client } from '../trpc/client';
 import { accountBinding } from '../lib/clientPreferences';
 import { useMultiSelection } from '../hooks/useMultiSelection';
+import { useSettingsSaveBanner } from '../hooks/useSettingsSaveBanner';
 import { Avatar } from '../im-template/template/primitives';
 import { cn } from '../im-template/template/classNames';
 import { ProfileAvatar } from './ProfileAvatar';
@@ -42,23 +43,21 @@ type RuleMap = Record<string, { keywords: KeywordEntry[] }>;
 /**
  * 关键词编辑器本体（无外壳）。`groupId` 变化会重新读配置；卸载时 flush。
  *
- * `onSaveState` 把「保存中… / 已保存」外抛给会话设置渲染，编辑器自己不管这块 UI。
+ * 保存进度走全局横幅，失败留在编辑器内重试。
  */
 export function GroupKeywordEditor({
   groupId,
   members,
-  onSaveState,
 }: {
   groupId: string;
   members: KeywordMember[];
-  onSaveState?: (state: { saving: boolean; savedAt: number; error: string }) => void;
 }): ReactElement {
   const [entries, setEntries] = useState<KeywordEntry[]>([]);
   const [draft, setDraft] = useState('');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [memberQuery, setMemberQuery] = useState('');
   const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState(0);
+  useSettingsSaveBanner(saving);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -117,11 +116,6 @@ export function GroupKeywordEditor({
     return map;
   }, [scopedMembers]);
 
-  // 状态外抛给载体（灯箱页脚 / 会话设置页头）。
-  useEffect(() => {
-    onSaveState?.({ saving, savedAt, error });
-  }, [saving, savedAt, error, onSaveState]);
-
   // 读当前账号的全部规则（保留其它群的），取本群那份作为草稿。
   useEffect(() => {
     let cancelled = false;
@@ -168,7 +162,6 @@ export function GroupKeywordEditor({
       .mutate({ rules: nextRules, groupId, ...source.current })
       .then(() => {
         succeeded = true;
-        setSavedAt(Date.now());
       })
       .catch((error) => {
         dirtyRef.current = true;
@@ -222,7 +215,6 @@ export function GroupKeywordEditor({
 
   function applyEntries(next: KeywordEntry[]) {
     dirtyRef.current = true;
-    setSavedAt(0);
     entriesRef.current = next;
     setEntries(next);
   }

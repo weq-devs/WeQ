@@ -8,6 +8,7 @@ import { withQQAccountScope } from './shared.shared';
 import { GroupAvatar } from '../exportAvatars';
 import { GroupProfileDialog } from '../lazyMainPanels';
 import { ContactRow } from '../contactProfile/ContactRow';
+import { NumericText } from '../NumericText';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
 import { sharedGroupConversation } from '../ark/groupShareCard';
@@ -61,7 +62,13 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
           !query.data?.groupError
         }
       >
-        {query.data?.friendCount ?? (query.isFetching ? '读取中…' : null)}
+        {query.data?.friendCount == null ? (
+          query.isFetching ? (
+            '读取中…'
+          ) : null
+        ) : (
+          <NumericText>{query.data.friendCount}</NumericText>
+        )}
         {query.error || query.data?.friendError || query.data?.groupError ? (
           <button
             className="weq-profile-row-copy"
@@ -87,11 +94,7 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
           title="查看共同群列表"
           aria-label="查看共同群列表"
         >
-          {
-            <span className="weq-number weq-number-inherit">
-              {query.data?.groups?.length ?? '读取中…'}
-            </span>
-          }
+          <NumericText>{query.data?.groups?.length ?? '读取中…'}</NumericText>
         </button>
       </ContactRow>
       {open && (

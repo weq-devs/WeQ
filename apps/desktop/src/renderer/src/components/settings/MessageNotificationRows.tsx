@@ -7,7 +7,11 @@ import {
 import { IS_WEB } from '../../lib/target.shared';
 import { Row, Toggle } from './controls';
 
-export function MessageNotificationRows() {
+export function MessageNotificationRows({
+  part = 'all',
+}: {
+  part?: 'all' | 'notifications' | 'badge';
+}) {
   useClientPreferences((state) => state.tick);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -36,28 +40,32 @@ export function MessageNotificationRows() {
   }
   return (
     <>
-      <Row
-        settingId="message-system-notifications"
-        control={
-          <Toggle
-            label="新消息系统通知"
-            checked={preferenceValue('messageNotifications')}
-            disabled={busy}
-            onChange={(value) => void change('messageNotifications', value)}
-          />
-        }
-      />
-      <Row
-        settingId="application-unread-badge"
-        control={
-          <Toggle
-            label="应用图标未读角标"
-            checked={preferenceValue('applicationBadge')}
-            disabled={busy}
-            onChange={(value) => void change('applicationBadge', value)}
-          />
-        }
-      />
+      {part !== 'badge' && (
+        <Row
+          settingId="message-system-notifications"
+          control={
+            <Toggle
+              label="新消息系统通知"
+              checked={preferenceValue('messageNotifications')}
+              disabled={busy}
+              onChange={(value) => void change('messageNotifications', value)}
+            />
+          }
+        />
+      )}
+      {part !== 'notifications' && (
+        <Row
+          settingId="application-unread-badge"
+          control={
+            <Toggle
+              label="应用图标未读角标"
+              checked={preferenceValue('applicationBadge')}
+              disabled={busy}
+              onChange={(value) => void change('applicationBadge', value)}
+            />
+          }
+        />
+      )}
       {error ? <p role="alert">{error}</p> : null}
     </>
   );

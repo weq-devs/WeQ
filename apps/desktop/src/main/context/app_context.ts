@@ -59,6 +59,7 @@ import { createReportQzoneCapability } from '../report_qzone';
 import { refreshWeqStats, setWeqStats, statsCachePath } from '../weq_assistant/stats';
 import { ensureDefaultTweets, tweetsStorePath } from '../weq_assistant/tweets';
 import { assistantToolSpecs, runAssistantTool } from '../mcp/openai_tools';
+import { isAssistantToolReadOnly } from '../mcp/tool_permissions';
 import { bindAccountTools, invalidateAccountTools } from '../mcp/account_scope';
 import { cancelAssistantRuns } from '../mcp/assistant_bus';
 import {
@@ -378,6 +379,10 @@ function webNotice(session: AccountSession, notice: Omit<WebNotice, 'uin' | 'con
     configId,
   } satisfies WebNotice);
 }
+function recallNotificationsEnabled(config: UserConfigService): boolean {
+  const { banner, system } = config.getSettings().notificationEvents.recall;
+  return banner || system;
+}
 function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
   webNotice(session, {
     kind: 'recall',
@@ -385,7 +390,7 @@ function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
     body: '有一条消息被撤回。',
     ...(event.kind === 'dataline'
       ? {}
-      : { target: { kind: event.kind, conv: event.conv, seq: event.origSeq } }),
+      : { target: { kind: event.kind, conv: event.conv, seq: event.origSeq, msgId: event.msgId } }),
   });
   recallNotifier?.(event);
 }
@@ -608,7 +613,12 @@ function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): v
           kind: 'keyword',
           title: '群关键词提醒',
           body: '收到命中群提醒词的消息。',
-          target: { kind: 'group', conv: hit.groupCode, seq: String(hit.msgSeq) },
+          target: {
+            kind: 'group',
+            conv: hit.groupCode,
+            seq: String(hit.msgSeq),
+            msgId: String(hit.msgId),
+          },
         });
         return groupKeywordNotifier?.(hit);
       },
@@ -774,8 +784,8 @@ function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platfor
  * Non-reentrant: only one check runs at a time. When it comes back clean the
  * gate reopens, so a later suspicion can re-verify (the trigger was a false
  * alarm / transient). A CONFIRMED corruption writes a damage report to the log
- * dir and surfaces the dialog — the account session is deliberately KEPT open
- * so the user can close the dialog and continue browsing.
+ * dir and publishes a notification — the account session is deliberately KEPT
+ * open so the user can continue browsing.
  */
 
 /**
@@ -868,9 +878,11 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
   dbHealthCheckRunning = true;
   const seq = ++dbHealthCheckSeq;
   const dbDir = platform.ntDbDir(session.context.uin) ?? dirname(session.msgDbPath);
-  // 用户勾选「不再提醒」后：健康检查照常执行、报告照常生成，但不再发弹窗事件。
-  const reminderSuppressed = (): boolean =>
-    ctx.bootstrap?.userConfig.getSettings().suppressDbDamageReminder ?? false;
+  // 两个通知渠道都关闭时仍执行检查和生成报告。
+  const reminderSuppressed = (): boolean => {
+    const channels = ctx.bootstrap?.userConfig.getSettings().notificationEvents.databaseDamage;
+    return channels ? !channels.banner && !channels.system : false;
+  };
   void (async (): Promise<void> => {
     try {
       logger.info('starting database health check', {
@@ -880,7 +892,7 @@ function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: 
       const failures = await checkAccountDatabaseHealth(session, platform);
       // A newer check started or the account changed mid-check — drop the result.
       if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
-      // 没检出损坏就不弹窗（误报/瞬时错误），放行让后续可再触发。
+      // 没检出损坏就不提醒（误报/瞬时错误），放行让后续可再触发。
       if (failures.length === 0) {
         logger.info('database health check passed', { event: 'db-health-check-clean' });
         return;
@@ -1590,6 +1602,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
+      this.services?.assistant.cancelPendingTitles();
       this.scheduler?.stop();
       this.scheduler = null;
       logger.info('opening account session', {
@@ -1794,6 +1807,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
         {
           onRecall: (event) => notifyRecall(session, event),
+          notificationsEnabled: () => recallNotificationsEnabled(userConfig),
           preferences: sharedPreferencePersistence(
             userConfig,
             'antiRecall',
@@ -1807,11 +1821,20 @@ export function initAppContext(fileRoot?: string): AppContext {
       antiRecall.startMonitor();
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
-      const emojiService = new EmojiService(session, platform, {
-        nt: platform.native.ntHelper,
-        resolvePid: resolveOnlinePid,
-      });
-      const favoriteImportFiles = new FileResourceService(session, platform);
+      const emojiService = new EmojiService(
+        session,
+        platform,
+        {
+          nt: platform.native.ntHelper,
+          resolvePid: resolveOnlinePid,
+        },
+        userConfig.cacheDir(join('favorite-emoji', exportConfigId)),
+      );
+      const favoriteImportFiles = new FileResourceService(
+        session,
+        platform,
+        join(platform.appDataRoot(), 'config', 'accounts', exportConfigId, 'sent_files.json'),
+      );
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
       // 都把它当作 QQ 目录之后的第二个查找根。
@@ -1999,6 +2022,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: assistantToolSpecs,
+            isReadOnly: isAssistantToolReadOnly,
             withConfig: (config, run) =>
               withExternalMcpConfiguration(config.mcpServers, () =>
                 withImageTaskConfiguration(run),
@@ -2268,7 +2292,9 @@ export function initAppContext(fileRoot?: string): AppContext {
               : null;
           },
           {
-            notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
+            notificationsEnabled:
+              userConfig.getSettings().notificationEvents.mail.banner ||
+              userConfig.getSettings().notificationEvents.mail.system,
             allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => notifyMail(session, notice),
           },
@@ -2424,7 +2450,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       await accountConfig.refreshDisplayName();
       const mail = this.services.mail;
       mail.startBackground({
-        notifications: accountConfig.getRecord()?.mailNotifications ?? false,
+        notifications:
+          userConfig.getSettings().notificationEvents.mail.banner ||
+          userConfig.getSettings().notificationEvents.mail.system,
         showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
         pollIntervalMinutes: accountConfig.getRecord()?.mailPollIntervalMinutes,
       });
@@ -2560,6 +2588,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
+      this.services?.assistant.cancelPendingTitles();
       logger.info('opening static account session', {
         event: 'open-static-account-start',
         accountUin: selfPreview.uin,
@@ -2738,6 +2767,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         {
           readOnly: !this.accountIsAndroidBackup,
           onRecall: (event) => notifyRecall(session, event),
+          notificationsEnabled: () => recallNotificationsEnabled(userConfig),
           preferences: sharedPreferencePersistence(
             userConfig,
             'antiRecall',
@@ -2749,8 +2779,17 @@ export function initAppContext(fileRoot?: string): AppContext {
 
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
-      const emojiService = new EmojiService(session, staticPlatform);
-      const favoriteImportFiles = new FileResourceService(session, staticPlatform);
+      const emojiService = new EmojiService(
+        session,
+        staticPlatform,
+        undefined,
+        userConfig.cacheDir(join('favorite-emoji', exportConfigId)),
+      );
+      const favoriteImportFiles = new FileResourceService(
+        session,
+        staticPlatform,
+        join(platform.appDataRoot(), 'config', 'accounts', exportConfigId, 'sent_files.json'),
+      );
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
       // 都把它当作 QQ 目录之后的第二个查找根。
@@ -2904,6 +2943,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             // 内置工具 + 用户接入的外部 MCP 工具合并；外部列举是惰性异步的。
             specs: assistantToolSpecs,
+            isReadOnly: isAssistantToolReadOnly,
             withConfig: (config, run) =>
               withExternalMcpConfiguration(config.mcpServers, () =>
                 withImageTaskConfiguration(run),
@@ -3148,7 +3188,9 @@ export function initAppContext(fileRoot?: string): AppContext {
               : null;
           },
           {
-            notificationsEnabled: accountConfig.getRecord()?.mailNotifications ?? false,
+            notificationsEnabled:
+              userConfig.getSettings().notificationEvents.mail.banner ||
+              userConfig.getSettings().notificationEvents.mail.system,
             allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => notifyMail(session, notice),
           },
@@ -3283,7 +3325,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       await accountConfig.refreshDisplayName();
       const mail = this.services.mail;
       mail.startBackground({
-        notifications: accountConfig.getRecord()?.mailNotifications ?? false,
+        notifications:
+          userConfig.getSettings().notificationEvents.mail.banner ||
+          userConfig.getSettings().notificationEvents.mail.system,
         showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
         pollIntervalMinutes: accountConfig.getRecord()?.mailPollIntervalMinutes,
       });
@@ -3376,6 +3420,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       clearFullMode(this);
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
+      this.services?.assistant.cancelPendingTitles();
       logger.info('clearing account session', {
         event: 'clear-account',
         accountUin: this.account?.context.uin ?? null,

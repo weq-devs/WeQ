@@ -65,6 +65,13 @@ export class FlashTransferService {
     /** 可选封面：**真实 PNG** 路径（协议会读 IHDR 取宽高并上传为缩略图）。 */
     thumbPath?: string;
     uploader: FlashUploaderInfo;
+    onUpload?: (
+      filesetUuid: string,
+      stage: 'preparing' | 'upload' | 'confirming' | 'done' | 'failed',
+      received: number | undefined,
+      total: number | undefined,
+      shareUrl: string,
+    ) => void;
   }): Promise<{ filesetUuid: string; shareUrl: string; uploaded: Promise<void> }> {
     const pid = this.resolvePid();
     const pending = await createFlashFileset(this.nt, pid, params.files, {
@@ -92,9 +99,20 @@ export class FlashTransferService {
     }
 
     // 消息已发出；只剩主文件的字节上传丢后台（封面刚才已就绪）。
+    params.onUpload?.(pending.filesetUuid, 'preparing', undefined, undefined, pending.shareUrl);
     const uploaded = (async () => {
-      await uploadFlashMainFiles(this.nt, pid, pending);
+      await uploadFlashMainFiles(this.nt, pid, pending, (received, total) =>
+        params.onUpload?.(
+          pending.filesetUuid,
+          total ? 'upload' : 'confirming',
+          received,
+          total,
+          pending.shareUrl,
+        ),
+      );
+      params.onUpload?.(pending.filesetUuid, 'done', undefined, undefined, pending.shareUrl);
     })().catch((error: unknown) => {
+      params.onUpload?.(pending.filesetUuid, 'failed', undefined, undefined, pending.shareUrl);
       logger.error('flash upload failed in background', {
         event: 'flash-upload-failed',
         filesetUuid: pending.filesetUuid,

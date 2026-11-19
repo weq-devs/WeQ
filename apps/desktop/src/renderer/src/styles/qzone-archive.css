@@ -1,23 +1,29 @@
-.weq-qzn-archive-operations {
-  display: flex;
-  flex-direction: column;
+.weq-qzn .weq-qzn-post-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
   gap: 4px;
-  min-width: 144px;
+  max-width: 100%;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  text-align: start;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
 }
-.weq-qzn-archive-operations button {
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--weq-fg-primary);
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
+.weq-qzn button.weq-qzn-post-status:is(:hover, :focus-visible) {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
 }
-.weq-qzn-archive-operations button:hover,
-.weq-qzn-archive-operations button:focus-visible {
-  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+.weq-qzn-post-status-icon {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
 }
-html[data-theme='dark'] .weq-qzn-archive-operations button {
-  color: var(--weq-fg-primary);
+.weq-qzn button.weq-qzn-archive-menu-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--muted-foreground);
 }

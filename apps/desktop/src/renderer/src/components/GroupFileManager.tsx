@@ -28,6 +28,10 @@ import { ContactEmptyState } from './contactProfile/ContactRow';
 import { client, trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target.shared';
 import { stageAccountFile } from '../lib/accountFilePicker';
+import { newOutgoingRequestId } from '../hooks/useOutgoingReceipts';
+import { useTransferActive, useTransferProgress } from '../lib/transferActivity';
+import { groupBatchTransferTarget, type TransferProgress } from '../../../shared/transfer_progress';
+import { TransferRing, TransferSummary } from './TransferRing';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { useTabActive } from './RetainedTabs.shared';
@@ -102,6 +106,17 @@ const accepted = (result: QQWriteOutcome) =>
   result.state === 'accepted' || result.state === 'confirmed' || result.state === 'unchanged';
 const creationKey = (name: string) =>
   JSON.stringify(['createFolder', name.normalize('NFC').toLocaleLowerCase()]);
+
+function UploadProgress({ id, name }: { id: string; name: string }) {
+  const progress = useTransferProgress(id);
+  return (
+    <TransferRing progress={progress ?? { phase: 'preparing' }} label={`上传 ${name}`} size={19} />
+  );
+}
+function BatchDownloadProgress({ target }: { target?: string }) {
+  const progress = useTransferProgress(target);
+  return progress ? <TransferSummary progress={progress} label="正在下载群文件" /> : null;
+}
 function GroupFileManagerBody({
   groupId,
   directory,
@@ -143,6 +158,10 @@ function GroupFileManagerBody({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; keys: string[] } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState<{ key: string; id: string } | null>(null);
+  const [staging, setStaging] = useState<TransferProgress>();
+  const batchTarget = active ? groupBatchTransferTarget(String(groupId)) : undefined;
+  const batchActive = useTransferActive(batchTarget);
   useDraftProtection(
     { editor, uploads: uploads.filter((item) => item.state !== 'accepted') },
     a.pending || saving,
@@ -482,6 +501,8 @@ function GroupFileManagerBody({
             complete = false;
             break;
           }
+          const transferId = newOutgoingRequestId();
+          setUploading({ key: item.key, id: transferId });
           try {
             const result = await client.account.sendFile.mutate({
               ...binding,
@@ -490,6 +511,7 @@ function GroupFileManagerBody({
               path: item.path,
               fileName: validateGroupFileName(item.name),
               folderId: item.directory,
+              transferId,
             });
             if (!result.ok) throw new Error('上传或发送回执未确认，请先核对群文件');
             if (current())
@@ -511,6 +533,8 @@ function GroupFileManagerBody({
               );
             complete = false;
             break;
+          } finally {
+            setUploading(null);
           }
         }
         return { state: complete ? 'accepted' : 'unconfirmed' };
@@ -576,15 +600,22 @@ function GroupFileManagerBody({
         void openEditor('move', keys, folderId, folderName);
       } else {
         const incoming = [];
-        for (const file of clipboardFiles(event.dataTransfer)) {
+        const files = clipboardFiles(event.dataTransfer);
+        const total = files.reduce((sum, file) => sum + file.size, 0);
+        let received = 0;
+        for (const file of files) {
           incoming.push(
             IS_WEB
-              ? await stageAccountFile(file)
+              ? await stageAccountFile(file, a.binding ?? undefined, undefined, (bytes) => {
+                  if (current())
+                    setStaging({ phase: 'to-host', received: received + bytes, total });
+                })
               : {
                   fileName: file.name,
                   path: window.weq?.pathForFile?.(file) ?? '',
                 },
           );
+          received += file.size;
         }
         if (!incoming.length || incoming.some((file) => !file.path))
           throw new Error('无法取得本机文件路径，请使用选择上传文件');
@@ -592,6 +623,18 @@ function GroupFileManagerBody({
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setStaging(undefined);
+    }
+  }
+  async function chooseUpload() {
+    try {
+      const file = await a.pickFile((received, total) => {
+        if (current()) setStaging({ phase: 'to-host', received, total });
+      });
+      if (file && current()) stage([file]);
+    } finally {
+      setStaging(undefined);
     }
   }
   const menuRows = all.filter((row) => menu?.keys.includes(row.key));
@@ -665,13 +708,9 @@ function GroupFileManagerBody({
           label="选择上传文件"
           title={uploadAllowed ? '选择上传文件' : '此群不允许普通成员上传文件'}
           disabled={locked || !uploadAllowed}
-          onClick={() =>
-            void a.pickFile().then((file) => {
-              if (file && current()) stage([file]);
-            })
-          }
+          onClick={() => void chooseUpload()}
         >
-          <FileUp size={17} />
+          {staging ? <TransferRing progress={staging} size={19} /> : <FileUp size={17} />}
         </ActionIcon>
         {manager && (
           <ActionIcon
@@ -733,19 +772,32 @@ function GroupFileManagerBody({
           }))}
         />
       </div>
+      {!chosen.length && batchActive && (
+        <div className="weq-file-selection-toolbar">
+          <BatchDownloadProgress target={batchTarget} />
+        </div>
+      )}
       {chosen.length > 0 && (
         <div className="weq-file-selection-toolbar" role="toolbar" aria-label="群文件所选项目">
           <span>
             已选 {<span className="weq-number weq-number-inherit">{chosen.length}</span>} 项
           </span>
-          {onSaveSelected && (
-            <ActionIcon
-              label="保存所选项目"
-              disabled={loading || saving}
-              onClick={() => void saveRows([...selected])}
-            >
-              <Download size={17} />
-            </ActionIcon>
+          {batchActive ? (
+            <BatchDownloadProgress target={batchTarget} />
+          ) : (
+            onSaveSelected && (
+              <ActionIcon
+                label="保存所选项目"
+                disabled={loading || saving}
+                onClick={() => void saveRows([...selected])}
+              >
+                {saving ? (
+                  <TransferRing progress={{ phase: 'preparing' }} label="正在准备下载" size={19} />
+                ) : (
+                  <Download size={17} />
+                )}
+              </ActionIcon>
+            )
           )}
           <ActionIcon
             label="重命名所选项目"
@@ -931,13 +983,17 @@ function GroupFileManagerBody({
                 }
               />
               <span>{item.directoryName}</span>
-              <ActionIcon
-                label={`移除上传项 ${item.name}`}
-                disabled={a.pending}
-                onClick={() => setUploads((old) => old.filter((row) => row.key !== item.key))}
-              >
-                <X size={15} />
-              </ActionIcon>
+              {uploading?.key === item.key ? (
+                <UploadProgress id={uploading.id} name={item.name} />
+              ) : (
+                <ActionIcon
+                  label={`移除上传项 ${item.name}`}
+                  disabled={a.pending}
+                  onClick={() => setUploads((old) => old.filter((row) => row.key !== item.key))}
+                >
+                  <X size={15} />
+                </ActionIcon>
+              )}
             </div>
           ))}
         </div>
@@ -1206,10 +1262,7 @@ function GroupFileManagerBody({
                     label: '选择上传文件',
                     icon: <FileUp size={16} />,
                     disabled: locked,
-                    action: () =>
-                      void a.pickFile().then((file) => {
-                        if (file && current()) stage([file]);
-                      }),
+                    action: () => void chooseUpload(),
                   },
                   ...(manager
                     ? [
@@ -1241,7 +1294,7 @@ function GroupFileManagerBody({
                   {
                     label: '保存所选项目',
                     icon: <Download size={16} />,
-                    disabled: saving || loading || !menuRows.length,
+                    disabled: saving || batchActive || loading || !menuRows.length,
                     action: () => void saveRows(menu.keys),
                   },
                 ]

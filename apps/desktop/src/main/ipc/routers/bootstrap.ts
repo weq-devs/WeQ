@@ -15,14 +15,27 @@
 import { OperationError, developmentDressToolsEnabled } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
-import { consumeNotificationClick, notificationClickEvents } from '../../notification_click_bus';
+import {
+  consumeNotificationClick,
+  notificationClickEvents,
+  pushNotificationClick,
+} from '../../notification_click_bus';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod';
 import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
 import { normalizeContactCard } from '@weq/service/contact-card';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
-import { isToastDuration } from '@weq/service/toast-settings';
+import { isToastDuration, TOAST_TIMED_KINDS } from '@weq/service/toast-settings';
+import {
+  notificationEventPatch,
+  notificationEventUpdateInput,
+} from '../../../shared/notification_method';
+import {
+  NOTIFICATION_EVENTS,
+  normalizeNotificationEvents,
+  type NotificationEvent,
+} from '@weq/service/notification-settings';
 import {
   copyExportSavePolicy,
   resolveExportSaveDirectory,
@@ -150,6 +163,13 @@ export interface PickRootResult {
   /** Human-readable reason when `ok` is false and the user didn't just cancel. */
   error?: string;
 }
+
+const modelRequestPropertiesSchema = z.object({
+  contextWindowTokens: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional(),
+  maxOutputTokens: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional(),
+  temperatureSupported: z.boolean().optional(),
+  outputTokenParameter: z.enum(['max_tokens', 'max_completion_tokens']).optional(),
+});
 
 const algoSchema = z.object({
   pageHmacAlgorithm: z.string(),
@@ -353,6 +373,7 @@ function validateWeqOneBotConfig(value: unknown, uin: string): OneBotConfig {
     ...(typeof record.qzoneDomain === 'string' ? { qzoneDomain: record.qzoneDomain } : {}),
   };
 }
+const configuredNotificationKeys = new Set<string>();
 
 export const bootstrapRouter = router({
   ...backupProcedures,
@@ -930,7 +951,10 @@ export const bootstrapRouter = router({
   setRestrictedModeBannerEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ restrictedModeBannerEnabled: input.enabled });
+      requireBootstrap().userConfig.setSettings({
+        restrictedModeBannerEnabled: input.enabled,
+        notificationEvents: { runtime: { banner: input.enabled } },
+      });
       return true;
     }),
 
@@ -1017,6 +1041,78 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  resetNotificationEvents: procedure.mutation(() => {
+    const config = requireBootstrap().userConfig;
+    const next = normalizeNotificationEvents(undefined);
+    config.setSettings({
+      notificationEvents: next,
+      restrictedModeBannerEnabled: next.runtime.banner,
+      suppressDbDamageReminder: false,
+    });
+    config.patchSharedPreference('mail', { mailNotifications: true });
+    const notifyEnabled = next.recall.banner || next.recall.system;
+    config.patchSharedPreference('antiRecall', { notifyEnabled });
+    const services = getAppContext().services;
+    void services?.mail.setNotifications(true).catch(() => {});
+    services?.antiRecall.setNotify({ enabled: notifyEnabled });
+    return next;
+  }),
+
+  setNotificationEvents: procedure.input(notificationEventUpdateInput).mutation(({ input }) => {
+    const config = requireBootstrap().userConfig;
+    const current = config.getSettings().notificationEvents;
+    const patch = notificationEventPatch(current, input);
+    const next = config.setSettings({ notificationEvents: patch }).notificationEvents;
+    const services = getAppContext().services;
+    if (input.events.includes('mail')) {
+      const enabled = next.mail.banner || next.mail.system;
+      config.patchSharedPreference('mail', { mailNotifications: enabled });
+      void services?.mail.setNotifications(enabled).catch(() => {});
+    }
+    if (input.events.includes('recall')) {
+      const enabled = next.recall.banner || next.recall.system;
+      if (services) services.antiRecall.setNotify({ enabled });
+      else config.patchSharedPreference('antiRecall', { notifyEnabled: enabled });
+    }
+    if (input.events.includes('runtime'))
+      config.setSettings({ restrictedModeBannerEnabled: next.runtime.banner });
+    if (input.events.includes('databaseDamage'))
+      config.setSettings({
+        suppressDbDamageReminder: !next.databaseDamage.banner && !next.databaseDamage.system,
+      });
+    return next;
+  }),
+
+  notifyConfiguredEvent: procedure
+    .input(
+      z.object({
+        event: z.custom<NotificationEvent>(
+          (value) =>
+            typeof value === 'string' && NOTIFICATION_EVENTS.includes(value as NotificationEvent),
+        ),
+        title: z.string().max(512),
+        body: z.string().max(2048),
+        clickId: z.string().uuid().optional(),
+        dedupeKey: z.string().max(512).optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      if (!requireBootstrap().userConfig.getSettings().notificationEvents[input.event].system)
+        return false;
+      const key = input.dedupeKey && `${input.event}:${input.dedupeKey}`;
+      if (key && configuredNotificationKeys.has(key)) return false;
+      const shown =
+        getHost().showMessageNotification?.({ title: input.title, body: input.body }, () => {
+          if (input.clickId) pushNotificationClick(input.clickId);
+        }) ?? false;
+      if (shown && key) {
+        configuredNotificationKeys.add(key);
+        if (configuredNotificationKeys.size > 5000)
+          configuredNotificationKeys.delete(configuredNotificationKeys.values().next().value!);
+      }
+      return shown;
+    }),
+
   consumeNotificationClick: procedure.mutation(() => consumeNotificationClick()),
   onNotificationClick: procedure.subscription(() =>
     observable<{ pending: true }>((emit) => {
@@ -1029,17 +1125,14 @@ export const bootstrapRouter = router({
   setToastDuration: procedure
     .input(
       z.object({
-        kind: z.enum(['success', 'failure']),
+        kind: z.enum(TOAST_TIMED_KINDS),
         seconds: z.number().int().refine(isToastDuration, '请输入 -1 或 1 至 86400 的整数秒数'),
       }),
     )
     .mutation(
       ({ input }) =>
         requireBootstrap().userConfig.setSettings({
-          toastDurations:
-            input.kind === 'success'
-              ? { successSeconds: input.seconds }
-              : { failureSeconds: input.seconds },
+          toastDurations: { [`${input.kind}Seconds`]: input.seconds },
         }).toastDurations,
     ),
 
@@ -1090,11 +1183,19 @@ export const bootstrapRouter = router({
         .qqShowCacheMinutes;
     }),
 
-  /** 数据库损坏弹窗「不再提醒」开关（全局配置，重启后仍生效）。 */
+  /** 兼容旧客户端的「不再提醒」，新客户端使用数据库异常事件的双渠道设置。 */
   setSuppressDbDamageReminder: procedure
     .input(z.object({ suppressed: z.boolean() }))
     .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ suppressDbDamageReminder: input.suppressed });
+      requireBootstrap().userConfig.setSettings({
+        suppressDbDamageReminder: input.suppressed,
+        notificationEvents: {
+          databaseDamage: {
+            banner: !input.suppressed,
+            ...(input.suppressed ? { system: false } : {}),
+          },
+        },
+      });
       return true;
     }),
 
@@ -1209,11 +1310,16 @@ export const bootstrapRouter = router({
     }),
 
   /**
-   * 聊天里裸链接的展示方式。`enabled` 关掉后只做蓝色下划线、不出网；`screenshot`
-   * 决定页面没有 og:image 时要不要用离屏窗口截一张。纯持久化。
+   * 链接卡片显示与自动联网补全分别保存；截图仅在联网补全时使用。
    */
   setLinkPreview: procedure
-    .input(z.object({ enabled: z.boolean().optional(), screenshot: z.boolean().optional() }))
+    .input(
+      z.object({
+        enabled: z.boolean().optional(),
+        autoFetch: z.boolean().optional(),
+        screenshot: z.boolean().optional(),
+      }),
+    )
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ linkPreview: input });
       return true;
@@ -1580,11 +1686,11 @@ export const bootstrapRouter = router({
    * body 根本不读）。结果按 URL 落盘缓存，命中不出网。不可预览返回 null。
    */
   linkPreview: procedure
-    .input(z.object({ url: z.string().trim().max(2048) }))
+    .input(z.object({ url: z.string().trim().max(2048), cacheOnly: z.boolean().optional() }))
     .query(async ({ input }) => {
       const boot = requireBootstrap();
       if (!boot.userConfig.getSettings().linkPreview.enabled) return null;
-      return boot.linkPreview.get(input.url);
+      return boot.linkPreview.get(input.url, input.cacheOnly);
     }),
 
   /**
@@ -1594,11 +1700,11 @@ export const bootstrapRouter = router({
    * 因为这个 URL 一样来自不可信的聊天消息。拿不到返回空串。
    */
   linkCover: procedure
-    .input(z.object({ url: z.string().trim().max(2048) }))
+    .input(z.object({ url: z.string().trim().max(2048), cacheOnly: z.boolean().optional() }))
     .query(async ({ input }) => {
       const boot = requireBootstrap();
       if (!boot.userConfig.getSettings().linkPreview.enabled) return '';
-      return boot.linkPreview.cacheCover(input.url);
+      return boot.linkPreview.cacheCover(input.url, input.cacheOnly);
     }),
 
   /**
@@ -2060,6 +2166,30 @@ export const bootstrapRouter = router({
     requireBootstrap().agentLabConfig.getDefaultModelStatus(),
   ),
 
+  setAgentLabModelTokenDefaults: procedure
+    .input(
+      z.object({
+        defaultContextWindowTokens: z
+          .number()
+          .int()
+          .positive()
+          .max(Number.MAX_SAFE_INTEGER)
+          .optional(),
+        defaultMaxOutputTokens: z
+          .number()
+          .int()
+          .positive()
+          .max(Number.MAX_SAFE_INTEGER)
+          .nullable()
+          .optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const { defaultContextWindowTokens, defaultMaxOutputTokens } =
+        requireBootstrap().userConfig.setSettings({ agentLab: input }).agentLab;
+      return { defaultContextWindowTokens, defaultMaxOutputTokens };
+    }),
+
   getDefaultVisionModel: procedure.query(() =>
     requireBootstrap().agentLabConfig.getDefaultVisionModelStatus(),
   ),
@@ -2148,8 +2278,8 @@ export const bootstrapRouter = router({
         name: z.string().min(1),
         vendor: z.string().min(1),
         baseUrl: z.string().min(1),
-        apiKey: z.string().min(1),
-        timeoutMs: z.number().int().min(1).max(2_147_483_647).optional(),
+        apiKey: z.string(),
+        timeoutMs: z.number().int().min(1).max(2_147_483_647).nullish(),
         models: z
           .array(
             z.object({
@@ -2161,6 +2291,7 @@ export const bootstrapRouter = router({
                 .object({
                   capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])).optional(),
                   reasoning: z.boolean().optional(),
+                  request: modelRequestPropertiesSchema.optional(),
                 })
                 .optional(),
               metadata: z
@@ -2211,7 +2342,7 @@ export const bootstrapRouter = router({
       return requireBootstrap().agentLabConfig.deleteProvider(input.id);
     }),
 
-  /** 「测试连通性」：用表单里的 base_url + api_key + 某个 chat 模型探活，返回详细错误（含状态码/响应体）。 */
+  /** 「测试连通性」：使用表单当前的服务地址、认证、模型和用途。 */
   testAgentLabProvider: procedure
     .input(
       z.object({
@@ -2220,6 +2351,8 @@ export const bootstrapRouter = router({
         model: z.string().min(1),
         providerId: z.string().min(1).optional(),
         providerName: z.string().optional(),
+        capability: z.enum(['chat', 'embedding', 'vision']).optional(),
+        requestProperties: modelRequestPropertiesSchema.optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -2236,6 +2369,7 @@ export const bootstrapRouter = router({
         providerName: z.string().optional(),
         capabilities: z.array(z.enum(['chat', 'embedding', 'vision'])).optional(),
         reasoning: z.boolean().optional(),
+        requestProperties: modelRequestPropertiesSchema.optional(),
       }),
     )
     .mutation(({ input }) => requireBootstrap().agentLabConfig.detectCapabilities(input)),

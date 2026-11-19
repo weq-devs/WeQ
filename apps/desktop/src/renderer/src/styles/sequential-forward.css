@@ -59,7 +59,7 @@
   color: var(--weq-fg-secondary);
 }
 .weq-forward-options input,
-.weq-forward-options select {
+.weq-forward-options .weq-select-trigger {
   min-width: 0;
   width: 100%;
   background: var(--weq-bg-surface);
@@ -163,12 +163,11 @@
 .weq-forward-time > span {
   white-space: nowrap;
 }
-.weq-forward-banner-progress progress {
+.weq-forward-banner-progress > .weq-task-progress-track {
   grid-area: bar;
   width: 100%;
   min-width: 0;
   height: 6px;
-  accent-color: var(--weq-accent-effective);
 }
 .weq-forward-banner-progress > button {
   grid-area: stop;

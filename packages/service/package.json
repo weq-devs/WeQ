@@ -1,9 +1,11 @@
 {
   "name": "@weq/service",
-  "version": "2.7.2",
+  "version": "2.7.5",
   "private": true,
   "type": "module",
   "exports": {
+    "./analysis-report": "./src/common/analysis_report.ts",
+    "./task-display": "./src/common/task_display.ts",
     "./notification-settings": "./src/common/notification_settings.ts",
     "./qq-permissions": "./src/common/qq_permissions.ts",
     "./data-saver": "./src/common/data_saver.ts",
@@ -12,6 +14,8 @@
     "./managed-download": "./src/common/managed_download.ts",
     "./model-store": "./src/common/model_store.ts",
     "./atomic-write": "./src/common/atomic_write.ts",
+    "./json-store": "./src/common/json_store.ts",
+    "./export-checkpoint": "./src/account/export/checkpoint.ts",
     "./assistant-config": "./src/account/assistant_config.ts",
     "./ocr-models": "./src/common/ocr_models.ts",
     "./ocr-cache": "./src/common/ocr_cache.ts",

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AccountSession } from '@weq/account';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ConversationStore, MAX_CONVERSATION_TURNS } from '../src/account/agentlab_conversation';
+import { ConversationStore } from '../src/account/agentlab_conversation';
 import {
   searchGeneratedMessages,
   type GeneratedSearchSources,
@@ -41,23 +41,25 @@ describe('生成对话身份', () => {
     expect(await readFile(f.file, 'utf8')).toBe(f.raw);
   });
 
-  it('裁剪和补全正文后保留已有身份，新回合始终唯一', async () => {
+  it('越过旧的条数上限并补全正文后，仍保留全部历史及已有身份', async () => {
     const f = await storeFixture();
     const previous = f.store.get('p:s');
     f.store.patchLastAssistant('p:s', { text: '补全答复', ts: 3 });
     expect(new ConversationStore(f.file).get('p:s').at(-1)?.id).toBe(previous.at(-1)?.id);
     f.store.append(
       'p:s',
-      Array.from({ length: MAX_CONVERSATION_TURNS - 1 }, () => ({
+      Array.from({ length: 401 }, () => ({
         role: 'user' as const,
         text: '重复新回合',
         ts: 4,
       })),
     );
     const next = new ConversationStore(f.file).get('p:s');
-    expect(next).toHaveLength(MAX_CONVERSATION_TURNS);
-    expect(next[0]?.id).toBe(previous[2]?.id);
-    expect(new Set(next.map((turn) => turn.id)).size).toBe(MAX_CONVERSATION_TURNS);
+    expect(next).toHaveLength(previous.length + 401);
+    expect(next.slice(0, previous.length).map((turn) => turn.id)).toEqual(
+      previous.map((turn) => turn.id),
+    );
+    expect(new Set(next.map((turn) => turn.id)).size).toBe(next.length);
   });
 });
 

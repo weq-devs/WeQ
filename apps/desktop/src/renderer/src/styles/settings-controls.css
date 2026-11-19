@@ -55,9 +55,38 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
   padding-inline: 0;
 }
 
-.weq-set-row-ctrl :is(input, select, textarea) {
+.weq-set-row-ctrl :is(input, .weq-select-trigger, textarea) {
   min-width: 0;
   max-width: 100%;
+}
+
+.weq-set-row-ctrl:has(.weq-set-row-status) {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.weq-set-row-status {
+  display: block;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+
+.weq-set-text-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.weq-set-text-field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.55;
+  color: var(--weq-fg-primary);
 }
 
 .weq-set-toggle:focus-visible {
@@ -67,22 +96,16 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
 }
 
 .weq-set-toggle.is-mixed .weq-set-toggle-track {
-  background: color-mix(in srgb, var(--weq-accent-effective) 28%, var(--weq-bg-surface));
+  background-image: linear-gradient(to right, var(--weq-accent-effective) 50%, transparent 50%);
   outline: 1px solid var(--weq-border-strong);
   outline-offset: -1px;
 }
 
 .weq-set-toggle.is-mixed .weq-set-toggle-knob {
-  display: grid;
-  place-items: center;
   transform: translateX(9px);
   background: var(--weq-bg-elevated);
   color: var(--weq-fg-primary);
   box-shadow: var(--weq-shadow-soft);
-}
-
-html[data-theme='dark'] .weq-set-toggle.is-mixed .weq-set-toggle-track {
-  background: color-mix(in srgb, var(--weq-accent-effective) 36%, var(--weq-bg-elevated));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -133,6 +156,10 @@ html[data-theme='dark'] .weq-set-toggle.is-mixed .weq-set-toggle-track {
   gap: 8px;
   min-width: 0;
   max-width: 100%;
+}
+
+.weq-set :is(.weq-set-btn-group, .weq-set-actions, .weq-set-card-action) > .weq-set-btn {
+  align-self: center;
 }
 
 .weq-set .weq-set-card-head {
@@ -211,7 +238,7 @@ html[data-theme='dark'] body .weq-set-chk:not(.is-on):not(:disabled) {
   overflow-wrap: anywhere;
 }
 
-/* 卡片 head 的状态位：保存中/已保存/失败重试固定在这里，不再占用行描述位置。 */
+/* 卡片 head 的状态位：校验和失败重试不占用行描述位置。 */
 .weq-set-card-status {
   display: inline-flex;
   align-items: center;

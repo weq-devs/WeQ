@@ -1,6 +1,7 @@
 import {
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -13,11 +14,19 @@ import type { ToolSearchRequest } from './search/appSearchCatalog';
 import { ShieldAlert, X, Maximize2, Minimize2 } from 'lucide-react';
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
+import { AnnouncementEntry } from './AnnouncementCenter';
 import { RetainedTabs } from './RetainedTabs';
-import { ExportTool, ExportViewer, AnalysisTool, RoamingBackfillPanel } from './lazyWorkspaces';
+import {
+  ExportTool,
+  ExportViewer,
+  AnalysisTool,
+  AnalysisReportsTool,
+  RoamingBackfillPanel,
+} from './lazyWorkspaces';
 import { preloadWorkspace } from './lazyWorkspaces.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
+import { useTaskNotifications } from '../hooks/useTaskNotifications';
 import { trpc } from '../trpc/client';
 import {
   useContentExportRequest,
@@ -43,6 +52,7 @@ import { conversationAnalysisTarget } from '../lib/conversationActions';
 import { useBackgroundTasks, backgroundTaskId } from '../hooks/useBackgroundTasks';
 import type { ContentSelection } from '../../../shared/content_selection';
 import type { ExportMode } from '../views/export/types';
+import { IS_ELECTRON } from '../lib/target.shared';
 import {
   analysisTargetForWorkspace,
   selectionForWorkspace,
@@ -51,7 +61,7 @@ import {
   type WorkspaceContext,
 } from '../lib/toolTargets';
 
-type Tool = 'export' | 'viewer' | 'backfill' | 'analysis';
+type Tool = 'export' | 'viewer' | 'backfill' | 'analysis' | 'analysis-reports';
 
 export function WorkspaceTools({
   accountScope,
@@ -91,6 +101,10 @@ export function WorkspaceTools({
   const setTaskSummary = useWorkspaceMenu((state) => state.setTasks);
   const syncTasks = useWorkspaceMenu((state) => state.syncTasks);
   const [expanded, setExpanded] = useState(false);
+  const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
+  const handledTaskOpenRequest = useRef(taskOpenRequest);
+  const taskListOpen =
+    !hidden && Boolean(anchor || expanded || taskOpenRequest !== handledTaskOpenRequest.current);
   const lastAnchor = useRef<HTMLElement | null>(null);
   if (anchor) lastAnchor.current = anchor;
   const [exportAuthorization, setExportAuthorization] =
@@ -196,10 +210,39 @@ export function WorkspaceTools({
   const roamingTasks = trpc.account.roamingBackfill.list.useQuery(undefined, taskQueryOptions);
   const flashTasks = trpc.account.flashListDownloadTasks.useQuery(undefined, taskQueryOptions);
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
+  const taskUtils = trpc.useUtils();
+  const localMediaOutputs = useMemo(
+    () =>
+      IS_ELECTRON &&
+      JSON.stringify(
+        tasks.data?.flatMap((task) =>
+          task.status === 'completed' && task.resource?.kind === 'media'
+            ? [[task.id, task.save?.status, task.save?.savedAt]]
+            : [],
+        ),
+      ),
+    [tasks.data],
+  );
+  useEffect(() => {
+    if (localMediaOutputs && localMediaOutputs !== '[]')
+      void taskUtils.account.mediaResource.messageLocations.invalidate();
+  }, [localMediaOutputs, taskUtils]);
+  const recoveredClones = JSON.stringify(
+    background.tasks.flatMap(({ task }) =>
+      task.kind === 'clone' && task.status === 'completed' ? [[task.id, task.updatedAt]] : [],
+    ),
+  );
+  useEffect(() => {
+    if (recoveredClones === '[]') return;
+    void taskUtils.account.listAgentLabPersonas.invalidate();
+    void taskUtils.account.getAgentLabPersonaDetail.invalidate();
+    void taskUtils.account.getAgentLabPersona.invalidate();
+  }, [recoveredClones, taskUtils]);
   const taskDataReady =
     tasks.data !== undefined &&
     roamingTasks.data !== undefined &&
     flashTasks.data !== undefined &&
+    (!background.scope?.uin || Boolean(background.scope.configId)) &&
     background.query.data !== undefined;
   const { running, items: taskItems } = summarizeWorkspaceTasks({
     exports: tasks.data,
@@ -209,6 +252,7 @@ export function WorkspaceTools({
     flash: flashTasks.data,
     background: background.tasks.map((entry) => ({ ...entry.task, id: backgroundTaskId(entry) })),
   });
+  useTaskNotifications(accountScope, taskItems, taskDataReady, taskListOpen, hidden);
   useEffect(() => {
     if (accountScope && taskDataReady) syncTasks(accountScope, taskItems);
   }, [accountScope, taskItems, taskDataReady, syncTasks]);
@@ -332,8 +376,6 @@ export function WorkspaceTools({
     } else selectRef.current(next);
   }, [mobileToolRequest, closeMenu, onOpenComposition, onOpenAssistant]);
   const handledSearchRequest = useRef<typeof searchRequest>(null);
-  const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
-  const handledTaskOpenRequest = useRef(taskOpenRequest);
   useEffect(() => {
     if (taskOpenRequest === handledTaskOpenRequest.current) return;
     handledTaskOpenRequest.current = taskOpenRequest;
@@ -379,6 +421,7 @@ export function WorkspaceTools({
           target.kind === 'tool' &&
           (target.tool === 'export' ||
             target.tool === 'analysis' ||
+            target.tool === 'analysis-reports' ||
             target.tool === 'viewer' ||
             target.tool === 'backfill')
         )
@@ -395,7 +438,7 @@ export function WorkspaceTools({
         centered={expanded}
         anchor={anchor}
         onClose={closeWorkspace}
-        width={expanded ? 1100 : 392}
+        width={expanded ? 1100 : 440}
         className={`weq-workspace-menu${expanded ? ' is-expanded' : ' is-compact'}`}
         labelledBy={expanded ? 'weq-workspace-menu-title' : undefined}
       >
@@ -469,27 +512,22 @@ export function WorkspaceTools({
         {!expanded ? (
           <>
             <nav className="weq-workspace-actions" aria-label="内容工具">
-              {[...items]
-                .sort(
-                  (a, b) =>
-                    ['analysis', 'export', 'viewer', 'composition'].indexOf(a.id) -
-                    ['analysis', 'export', 'viewer', 'composition'].indexOf(b.id),
-                )
-                .map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    title={item.id === 'export' ? entry.label : item.label}
-                    aria-label={item.label}
-                    onPointerEnter={() => preloadWorkspace(item.id)}
-                    onFocus={() => preloadWorkspace(item.id)}
-                    onClick={item.action}
-                  >
-                    {item.icon}
-                    <span>{item.label}</span>
-                  </button>
-                ))}
+              {items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  title={item.id === 'export' ? entry.label : item.label}
+                  aria-label={item.label}
+                  onPointerEnter={() => preloadWorkspace(item.id)}
+                  onFocus={() => preloadWorkspace(item.id)}
+                  onClick={item.action}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
             </nav>
+            <AnnouncementEntry placement="workspace" beforeOpen={closeWorkspace} />
             {footerControls}
           </>
         ) : null}
@@ -572,6 +610,8 @@ export function WorkspaceTools({
                 messageIds={analysisMessageIds}
                 onGenerate={(report) => leave(() => onOpenAnalysis(report))}
               />
+            ) : tool === 'analysis-reports' ? (
+              <AnalysisReportsTool onOpenReport={(report) => leave(() => onOpenAnalysis(report))} />
             ) : null
           ) : null}
         </RetainedTabs>

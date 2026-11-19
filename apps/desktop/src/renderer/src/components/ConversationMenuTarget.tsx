@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { NumericText } from './NumericText';
 import { Avatar } from '../im-template/template/primitives';
 import { CopyButton } from './CopyButton';
@@ -12,6 +13,7 @@ export function ConversationMenuTarget({
   generated,
   count,
   containedCount,
+  onOpenProfile,
 }: {
   name: string;
   avatarUrl?: string | null;
@@ -20,17 +22,43 @@ export function ConversationMenuTarget({
   generated?: Conversation['generated'];
   count: number;
   containedCount?: number;
+  onOpenProfile?: (anchor: HTMLElement) => void;
 }) {
+  const profileId = useId();
   const numberLabel = kind === 'group' ? '群号' : /^\d+$/.test(identity) ? 'QQ 号' : 'ID';
+  const avatar = avatarUrl ? (
+    <Avatar resolution="small" name={name} avatarUrl={avatarUrl} seed={identity} />
+  ) : null;
+  const heading = (
+    <strong title={name}>
+      {count > 1 ? <NumericText>{`已选 ${count} 个会话`}</NumericText> : name}
+    </strong>
+  );
   return (
     <>
-      {avatarUrl ? (
-        <Avatar resolution="small" name={name} avatarUrl={avatarUrl} seed={identity} />
-      ) : null}
+      {avatar && onOpenProfile ? (
+        <label htmlFor={profileId} className="weq-conversation-menu-avatar" title="查看名片">
+          {avatar}
+        </label>
+      ) : (
+        avatar
+      )}
       <span>
-        <strong title={name}>
-          {count > 1 ? <NumericText>{`已选 ${count} 个会话`}</NumericText> : name}
-        </strong>
+        {onOpenProfile ? (
+          <button
+            id={profileId}
+            type="button"
+            role="menuitem"
+            aria-haspopup="dialog"
+            aria-label={`查看${name}的名片`}
+            className="weq-conversation-menu-profile"
+            onClick={(event) => onOpenProfile(event.currentTarget)}
+          >
+            {heading}
+          </button>
+        ) : (
+          heading
+        )}
         <small>
           {count > 1 ? (
             `从 ${name} 打开`

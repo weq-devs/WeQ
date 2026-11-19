@@ -106,7 +106,12 @@ export class GroupProfileReader {
     }
     return task;
   }
-  async read(groupId: number, refresh = false, force = false): Promise<GroupProfileResult> {
+  async read(
+    groupId: number,
+    refresh = false,
+    force = false,
+    priority = 0,
+  ): Promise<GroupProfileResult> {
     this.current();
     if (!Number.isInteger(groupId) || groupId <= 0 || groupId > 0xffffffff)
       throw new Error('群号格式错误');
@@ -206,9 +211,9 @@ export class GroupProfileReader {
       return { ...snapshot, source: 'online', error };
     };
     const queue = this.scheduler();
-    const task = (queue ? queue.schedule(`group-profile:${groupId}`, run) : run()).finally(() =>
-      this.inflight.delete(groupId),
-    );
+    const task = (
+      queue ? queue.schedule(`group-profile:${groupId}`, run, priority) : run()
+    ).finally(() => this.inflight.delete(groupId));
     this.inflight.set(groupId, task);
     return structuredClone(await task);
   }

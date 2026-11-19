@@ -70,10 +70,6 @@
   font-size: 13px;
 }
 
-.weq-group-member-list-search::placeholder {
-  color: var(--weq-fg-secondary);
-}
-
 .weq-group-member-list-rows {
   min-height: 0;
   margin: 0;
@@ -176,6 +172,10 @@
 
 .weq-group-quick-card .weq-group-quick-sections .weq-profile-section-block {
   min-width: 0;
+}
+
+.weq-group-quick-sections > [data-profile-anchor='members'] .weq-profile-data-row {
+  grid-template-columns: min(120px, 48%) minmax(0, 1fr);
 }
 
 .weq-group-quick-card .weq-profile-avatar:disabled {

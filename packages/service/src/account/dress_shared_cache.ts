@@ -43,15 +43,17 @@ import {
   readFileSync,
   readSync,
   readdirSync,
+  statSync,
   writeFileSync,
   rmSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import type { TrpcNative } from '@weqbot/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weqbot/protocol';
 import type { NtHelperBinding } from '@weq/native';
 import { getHost } from '../common/host';
+import { writeFileAtomic } from '../common/atomic_write';
 import { getLogger, logErrorContext } from '../common/logger';
 import {
   extractAllFromZip,
@@ -60,7 +62,16 @@ import {
   isRenderableSfnt,
   pngSize,
 } from '../common/zip';
-import { buildLocalBubbleSkin, type BubbleSkin, type MessageBubbleSkin } from './bubble_skin';
+import {
+  BUBBLE_GEOMETRY_VERSION,
+  argbToCss,
+  bubbleConfigMetadata,
+  buildLocalBubbleSkin,
+  readBubbleGeometry,
+  type BubbleGeometry,
+  type BubbleSkin,
+  type MessageBubbleSkin,
+} from './bubble_skin';
 import { downloadUrlToFile } from './media_url';
 import { scopedNetworkAllowed } from '../common/network_scope';
 import { getDressIndexStore, type DressIndexKind, type DressIndexStore } from './dress_index';
@@ -90,6 +101,8 @@ export interface FontFxVariant {
 /** 一款字体的炫彩帧素材。 */
 export interface FontFx {
   variants: FontFxVariant[];
+  /** 官方描述符帧延迟；旧图片提取缓存没有该值，由渲染侧采用待原生对照的基准。 */
+  frameTimeMs?: number;
 }
 
 /** `fonts/<id>.json` —— 字体派生物的 sidecar。 */
@@ -141,15 +154,21 @@ export interface FontDerived {
 }
 
 /** 气泡元数据 sidecar。 */
-export interface BubbleSidecar {
+export interface BubbleSidecar extends BubbleGeometry {
   itemId: number;
-  slice: { top: number; right: number; bottom: number; left: number };
-  imageSize: { w: number; h: number };
   textColor: string;
+  linkColor?: string;
+  zoomPoint?: [number, number];
+  geometryVersion?: number;
   animationFrameCount?: number;
   animationFrameTimeMs?: number;
   animationRepeat?: number;
 }
+
+const MAX_CACHED_BUBBLE_ARCHIVE_BYTES = 16 * 1024 * 1024;
+const MAX_BUBBLE_CONFIG_BYTES = 256 * 1024;
+// Android 9.3.85 普通 bubbleframe 由 PngsFileDecoder 供帧，不采用配置的 time。
+const BUBBLE_FRAME_TIME_MS = 100;
 
 /** 挂件元数据 sidecar。 */
 export interface PendantSidecar {
@@ -196,27 +215,36 @@ export class DressSharedCache {
   private async cacheMessageBubble(itemId: number): Promise<void> {
     try {
       const path = join(this.bubblesDir, `${itemId}.png`);
-      const [json, info] = await Promise.all([
-        readFile(join(this.bubblesDir, `${itemId}.json`), 'utf8'),
-        stat(path),
-      ]);
+      const sidecarPath = join(this.bubblesDir, `${itemId}.json`);
+      const [json, info] = await Promise.all([readFile(sidecarPath, 'utf8'), stat(path)]);
       if (!info.isFile()) return;
-      const png = info.size <= 512 * 1024 ? await readFile(path) : null;
-      const meta = JSON.parse(json) as BubbleSidecar;
-      if (!meta.slice || !meta.imageSize || !meta.textColor || (png && !pngSize(png))) return;
+      const png = await readFile(path);
+      let meta = JSON.parse(json) as BubbleSidecar;
+      if (!meta.slice || !meta.imageSize || !meta.textColor || !pngSize(png)) return;
+      if (meta.geometryVersion !== BUBBLE_GEOMETRY_VERSION) {
+        const config = await this.readCachedBubbleConfig(itemId);
+        const refreshed = refreshBubbleSidecar(meta, png, config);
+        if (!refreshed) return;
+        meta = refreshed;
+        if (config)
+          await writeFileAtomic(sidecarPath, JSON.stringify(meta, null, 2)).catch(() => {});
+      }
       const skin: MessageBubbleSkin = {
         itemId,
         slice: meta.slice,
         imageSize: meta.imageSize,
+        configuredPatch: meta.configuredPatch,
         textColor: meta.textColor,
+        linkColor: meta.linkColor,
         localFile: join(this.bubblesDir, `${itemId}.png`),
         animationFrameCount: meta.animationFrameCount,
-        animationFrameTimeMs: meta.animationFrameTimeMs,
+        animationFrameTimeMs: meta.animationFrameCount ? BUBBLE_FRAME_TIME_MS : undefined,
         animationRepeat: meta.animationRepeat,
       };
       // 只缓存静态九宫格，不把动画帧或整个装扮目录塞进消息页。
       const previousBytes = this.messageBubbles.get(itemId)?.baseImage?.length ?? 0;
-      const baseImage = png ? `data:image/png;base64,${png.toString('base64')}` : undefined;
+      const baseImage =
+        info.size <= 512 * 1024 ? `data:image/png;base64,${png.toString('base64')}` : undefined;
       this.messageBubbleBytes -= previousBytes;
       if (baseImage && this.messageBubbleBytes + baseImage.length <= 32 * 1024 * 1024) {
         skin.baseImage = baseImage;
@@ -302,21 +330,34 @@ export class DressSharedCache {
    * 它当未装处理走下载链重下（见 {@link installBubble}）。
    */
   private loadBubbleSkin(itemId: number): BubbleSkin | null {
+    const prepared = this.messageBubbles.get(itemId);
+    if (prepared && existsSync(prepared.localFile)) return prepared;
     const sidecarPath = join(this.bubblesDir, `${itemId}.json`);
     const localFile = join(this.bubblesDir, `${itemId}.png`);
     if (!existsSync(sidecarPath) || !existsSync(localFile)) return null;
 
     try {
-      const sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8')) as BubbleSidecar;
+      let sidecar = JSON.parse(readFileSync(sidecarPath, 'utf-8')) as BubbleSidecar;
       if (!sidecar.slice || !sidecar.imageSize || !sidecar.textColor) return null;
+      if (sidecar.geometryVersion !== BUBBLE_GEOMETRY_VERSION) {
+        const refreshed = refreshBubbleSidecar(
+          sidecar,
+          readFileSync(localFile),
+          this.readCachedBubbleConfigSync(itemId),
+        );
+        if (!refreshed) return null;
+        sidecar = refreshed;
+      }
       return {
         itemId,
         slice: sidecar.slice,
         imageSize: sidecar.imageSize,
+        configuredPatch: sidecar.configuredPatch,
         textColor: sidecar.textColor,
+        linkColor: sidecar.linkColor,
         localFile,
         animationFrameCount: sidecar.animationFrameCount,
-        animationFrameTimeMs: sidecar.animationFrameTimeMs,
+        animationFrameTimeMs: sidecar.animationFrameCount ? BUBBLE_FRAME_TIME_MS : undefined,
         animationRepeat: sidecar.animationRepeat,
       };
     } catch (e) {
@@ -327,6 +368,39 @@ export class DressSharedCache {
       });
       return null;
     }
+  }
+
+  private async readCachedBubbleConfig(itemId: number) {
+    const config = parseBubbleConfig(
+      await readFile(join(this.bubblesDir, `${itemId}-config.json`), 'utf8').catch(() => null),
+    );
+    if (config) return config;
+    const zip = join(this.bubblesDir, `${itemId}-other.zip`);
+    try {
+      if ((await stat(zip)).size <= MAX_CACHED_BUBBLE_ARCHIVE_BYTES)
+        return bubbleConfigFromZip(await readFile(zip));
+    } catch {
+      // 以前未保存原包，或原包已清理；仍保留 PNG 的切片回退。
+    }
+    return undefined;
+  }
+
+  private readCachedBubbleConfigSync(itemId: number) {
+    const configPath = join(this.bubblesDir, `${itemId}-config.json`);
+    try {
+      const config = parseBubbleConfig(readFileSync(configPath, 'utf8'));
+      if (config) return config;
+    } catch {
+      // 无独立配置时复用动画 ZIP 自带的配置。
+    }
+    const zip = join(this.bubblesDir, `${itemId}-other.zip`);
+    try {
+      if (statSync(zip).size <= MAX_CACHED_BUBBLE_ARCHIVE_BYTES)
+        return bubbleConfigFromZip(readFileSync(zip));
+    } catch {
+      // 切片仍可从 PNG 推导。
+    }
+    return undefined;
   }
 
   /**
@@ -393,16 +467,44 @@ export class DressSharedCache {
     const pngPath = join(this.bubblesDir, `${itemId}.png`);
     writeFileSync(pngPath, png);
 
-    // 帧动画 / 配色都来自 zip 侧的 config.json；拿不到就当纯静态款。
-    const config = await fetchBubbleConfig(urls.configUrl);
-    const animation =
-      config?.animation && urls.otherZipUrl
-        ? await this.extractBubbleFrames(itemId, urls.otherZipUrl, config.animation)
-        : undefined;
+    // 优先手机的独立配置；缺失时再看动画包中的配置。
+    let config = await fetchBubbleConfig(
+      urls.configUrl,
+      join(this.bubblesDir, `${itemId}-config.json`),
+    );
+    let animation: ReturnType<DressSharedCache['extractBubbleFrames']>;
+    if (urls.otherZipUrl && (!config || config.animation)) {
+      try {
+        const otherZipPath = join(this.bubblesDir, `${itemId}-other.zip`);
+        const other = await downloadUrlToFile(
+          urls.otherZipUrl,
+          otherZipPath,
+          config ? undefined : { maxBytes: MAX_CACHED_BUBBLE_ARCHIVE_BYTES },
+        );
+        if (other.ok) {
+          const archive = readFileSync(otherZipPath);
+          config ??= bubbleConfigFromZip(archive);
+          if (config?.animation)
+            animation = this.extractBubbleFrames(itemId, archive, config.animation);
+        }
+      } catch (e) {
+        this.logger.warn('could not load bubble animation archive', {
+          itemId,
+          ...logErrorContext(e),
+        });
+      }
+    }
 
-    const skin = buildLocalBubbleSkin({ itemId, pngPath, color: config?.color, animation });
+    const skin = buildLocalBubbleSkin({
+      itemId,
+      pngPath,
+      color: config?.color,
+      linkColor: config?.linkColor,
+      zoomPoint: config?.zoomPoint,
+      animation,
+    });
     if (!skin) {
-      // 九宫格不合法（缺 npTc / 恒等式不成立）——清掉刚落的 png,避免占着缓存。
+      // 不支持或破损的几何不进入渲染缓存。
       rmSync(pngPath, { force: true });
       return null;
     }
@@ -411,7 +513,11 @@ export class DressSharedCache {
       itemId,
       slice: skin.slice,
       imageSize: skin.imageSize,
+      configuredPatch: skin.configuredPatch,
       textColor: skin.textColor,
+      linkColor: skin.linkColor,
+      zoomPoint: config?.zoomPoint,
+      geometryVersion: BUBBLE_GEOMETRY_VERSION,
       ...(skin.animationFrameCount
         ? {
             animationFrameCount: skin.animationFrameCount,
@@ -432,27 +538,24 @@ export class DressSharedCache {
   }
 
   /**
-   * 下 other.zip，把帧动画解出来。
+   * 从同一个动画 ZIP 解包，避免再下载一次原件。
    */
-  private async extractBubbleFrames(
+  private extractBubbleFrames(
     itemId: number,
-    otherZipUrl: string,
-    anim: { zipName: string; frameTimeMs: number; repeat: number },
-  ): Promise<{ frameCount: number; frameTimeMs: number; repeat: number } | undefined> {
+    archive: Buffer,
+    anim: { zipName: string; repeat: number },
+  ): { frameCount: number; frameTimeMs: number; repeat: number } | undefined {
     try {
-      const zipPath = join(this.bubblesDir, `${itemId}-other.zip`);
-      const dl = await downloadUrlToFile(otherZipUrl, zipPath);
-      if (!dl.ok) return undefined;
-
-      const prefix = anim.zipName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const frameRe = new RegExp(`^${prefix}/.*\\.9\\.png$`, 'i');
-      const frames = extractAllFromZip(readFileSync(zipPath), (n) => frameRe.test(n)).sort(
-        (a, b) => {
-          const na = Number(a.name.match(/(\d+)/)?.[1] ?? 0);
-          const nb = Number(b.name.match(/(\d+)/)?.[1] ?? 0);
-          return na - nb;
-        },
-      );
+      const frameIndex = (name: string) => Number(posix.basename(name).split('.', 1)[0]);
+      const frames = extractAllFromZip(
+        archive,
+        (name) =>
+          posix.dirname(name) === anim.zipName &&
+          name.endsWith('.png') &&
+          /^[+-]?\d+\./.test(posix.basename(name)) &&
+          frameIndex(name) >= -0x80000000 &&
+          frameIndex(name) <= 0x7fffffff,
+      ).sort((a, b) => frameIndex(a.name) - frameIndex(b.name));
       if (frames.length === 0) return undefined;
 
       frames.forEach((frame, i) => {
@@ -464,7 +567,7 @@ export class DressSharedCache {
         itemId,
         frameCount: frames.length,
       });
-      return { frameCount: frames.length, frameTimeMs: anim.frameTimeMs, repeat: anim.repeat };
+      return { frameCount: frames.length, frameTimeMs: BUBBLE_FRAME_TIME_MS, repeat: anim.repeat };
     } catch (e) {
       this.logger.warn('bubble frame animation extract failed', {
         event: 'dress-bubble-frames-failed',
@@ -1157,38 +1260,69 @@ export function readFontFx(assetsDir: string): FontFx | null {
   return variants.length > 0 ? { variants } : null;
 }
 
-/** 下 config.json，拿顶层 color 与 animation_sets.bubbleframe_anim。 */
-async function fetchBubbleConfig(
-  url: string | undefined,
-): Promise<
-  | { color?: string; animation?: { zipName: string; frameTimeMs: number; repeat: number } }
-  | undefined
-> {
+/** 独立配置和动画原包中的 config.json 共用字段解析。 */
+function parseBubbleConfig(text: string | null) {
+  if (!text) return undefined;
+  try {
+    const json: unknown = JSON.parse(text);
+    if (!json || typeof json !== 'object' || Array.isArray(json)) return undefined;
+    const config = json as {
+      bubbleframe_animation?: { animation_set?: unknown };
+      animation_sets?: Record<string, { zip_name?: unknown; repeat?: unknown }>;
+    };
+    const setKey = config.bubbleframe_animation?.animation_set;
+    const set = typeof setKey === 'string' ? config.animation_sets?.[setKey] : undefined;
+    const zipName = typeof set?.zip_name === 'string' ? set.zip_name : undefined;
+    const animation = zipName ? { zipName, repeat: Number(set?.repeat ?? 0) } : undefined;
+
+    return { ...bubbleConfigMetadata(json), animation };
+  } catch {
+    return undefined;
+  }
+}
+
+function bubbleConfigFromZip(zip: Buffer) {
+  const config = extractFromZip(zip, (name) => name === 'config.json', MAX_BUBBLE_CONFIG_BYTES);
+  return parseBubbleConfig(config?.toString('utf8') ?? null);
+}
+
+function refreshBubbleSidecar(
+  sidecar: BubbleSidecar,
+  png: Buffer,
+  config: ReturnType<typeof parseBubbleConfig>,
+): BubbleSidecar | null {
+  const zoomPoint = config?.zoomPoint ?? sidecar.zoomPoint;
+  const geometry = readBubbleGeometry(png, zoomPoint);
+  if (!geometry) return null;
+  return {
+    ...sidecar,
+    ...geometry,
+    configuredPatch: geometry.configuredPatch,
+    zoomPoint,
+    textColor: config?.color ? argbToCss(config.color) : sidecar.textColor,
+    linkColor: config?.linkColor ? argbToCss(config.linkColor) : sidecar.linkColor,
+    geometryVersion: BUBBLE_GEOMETRY_VERSION,
+  };
+}
+
+async function fetchBubbleConfig(url: string | undefined, cachePath: string) {
   if (!url) return undefined;
   try {
     const res = await networkFetch(url);
     if (!res.ok) return undefined;
-    const json = (await res.json()) as {
-      color?: unknown;
-      bubbleframe_animation?: { animation_set?: unknown };
-      animation_sets?: Record<
-        string,
-        { zip_name?: unknown; time?: unknown; repeat?: unknown; count?: unknown }
-      >;
-    };
-    const color = typeof json.color === 'string' ? json.color : undefined;
-
-    const setKey = json.bubbleframe_animation?.animation_set;
-    const set = typeof setKey === 'string' ? json.animation_sets?.[setKey] : undefined;
-    const zipName = typeof set?.zip_name === 'string' ? set.zip_name : undefined;
-    const frameTimeMs = Number(set?.time ?? 0);
-    const hasFrames = Number(set?.count ?? 0) > 0;
-    const animation =
-      zipName && hasFrames && frameTimeMs > 0
-        ? { zipName, frameTimeMs, repeat: Number(set?.repeat ?? 0) }
-        : undefined;
-
-    return { color, animation };
+    const text = await res.text();
+    const config = parseBubbleConfig(text);
+    if (config) {
+      try {
+        writeFileSync(cachePath, text);
+      } catch (error) {
+        getLogger().warn('could not cache bubble config', {
+          event: 'dress-bubble-config-cache',
+          ...logErrorContext(error),
+        });
+      }
+    }
+    return config;
   } catch {
     return undefined;
   }

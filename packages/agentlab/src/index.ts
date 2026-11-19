@@ -131,6 +131,7 @@ export type * from './types';
 export {
   beginApiUsage,
   fetchApi,
+  withApiDeadline,
   requestApiJson,
   parseApiUsage,
   isApiCancellation,
@@ -140,7 +141,9 @@ export {
 } from './api_usage';
 export { isUnsupportedTemperature } from './temperature_fallback';
 export { requestChatCompletionStream } from './extract_stream';
-export { CLONE_GENERATION, CLONE_GENERATION_KEYS, normalizeCloneGeneration } from './generation';
-export type { AgentLabGenerationConfig, CloneGenerationKey } from './generation';
+export { normalizeCloneGeneration } from './generation';
+export type { AgentLabGenerationConfig } from './generation';
+export { ConversationContextCompactor, estimateContextTokens } from './conversation_context';
 export * from './images';
+export { ImageRecognitionRequests } from './image_requests';
 export { imageDescriptionCache } from './image_cache';

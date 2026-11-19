@@ -43,7 +43,7 @@ export function ConversationBatchToolbar({
         rosterReason={
           reason ??
           (!batch.exportAvailable
-            ? '当前无法导出名单'
+            ? '当前无法导出群成员名单'
             : !batch.rosterIds(ids).length
               ? '请先选择群聊'
               : undefined)

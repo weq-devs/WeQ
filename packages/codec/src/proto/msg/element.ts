@@ -66,6 +66,7 @@ export const ReplyElementWire = {
   elementType: ProtoField(45002, ScalarType.UINT32, { optional: true }),
   subType: ProtoField(45003, ScalarType.UINT32, { optional: true }),
   textContent: ProtoField(45101, ScalarType.STRING, { optional: true }),
+  atTargetUid: ProtoField(45105, ScalarType.STRING, { optional: true }),
   fileName: ProtoField(45402, ScalarType.STRING, { optional: true }),
   filePath: ProtoField(45403, ScalarType.STRING, { optional: true }),
   fileSize: ProtoField(45405, ScalarType.UINT32, { optional: true }),

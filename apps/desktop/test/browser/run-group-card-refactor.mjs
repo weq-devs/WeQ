@@ -82,9 +82,9 @@ try {
   );
   assert.deepEqual(
     (await page.locator('.weq-group-quick-card .weq-profile-data-label').allTextContents()).slice(
-      -3,
+      -4,
     ),
-    ['群容量', '群成员数', '群内好友数'],
+    ['群容量', '群成员数', '群内好友数', '在本群添加的好友数'],
   );
   const cardActions = page.locator('.weq-group-quick-card .weq-profile-card-actions');
   assert.equal(await cardActions.locator('button.weq-contact-secondary').count(), 2);
@@ -260,7 +260,7 @@ try {
   await pane.getByText('其他操作', { exact: true }).waitFor();
   assert.equal(await pane.getByText('群名称', { exact: true }).count(), 0);
   assert.equal(await pane.getByRole('button', { name: '更换群头像', exact: true }).count(), 0);
-  await pane.getByRole('button', { name: '查看群资料', exact: true }).click();
+  await pane.getByRole('button', { name: '关闭', exact: true }).click();
   await pane.waitFor({ state: 'detached' });
   assert.equal(await search.inputValue(), '成员3');
   await search.fill('');

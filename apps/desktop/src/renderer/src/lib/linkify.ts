@@ -14,6 +14,7 @@
  */
 
 import { LinkifyIt } from 'linkify-it';
+import { useDialog } from '../components/Dialog.shared';
 import { openExternalLink } from './openExternalLink';
 
 // 邮件也交给解析器消费，但不生成链接，避免把邮箱的域名截成独立网址。
@@ -68,7 +69,7 @@ const RISKY_EXT =
  * 用系统浏览器打开一个链接。非 http(s) 直接拒绝；指向可执行/压缩包后缀时先确认。
  * 返回是否真的打开了。
  */
-export async function openLink(href: string): Promise<boolean> {
+export async function openLink(href: string, ownerDocument?: Document): Promise<boolean> {
   let url: URL;
   try {
     url = new URL(href);
@@ -84,14 +85,18 @@ export async function openLink(href: string): Promise<boolean> {
     } catch {
       // 非法百分号编码仍按原始文件名确认，不让链接点击抛出异常。
     }
-    const ok = window.confirm(
-      `这个链接指向一个可执行文件或压缩包，打开后浏览器可能直接开始下载。\n\n` +
-        `站点：${url.hostname}\n文件：${name}\n\n确定要在浏览器中打开吗？`,
-    );
+    const ok = await useDialog
+      .getState()
+      .confirm(
+        '打开下载链接？',
+        `这个链接指向一个可执行文件或压缩包，打开后浏览器可能直接开始下载。\n\n` +
+          `站点：${url.hostname}\n文件：${name}`,
+        { okLabel: '在浏览器中打开', ownerDocument },
+      );
     if (!ok) return false;
   }
   try {
-    return (await openExternalLink(url.toString())).ok;
+    return (await openExternalLink(url.toString(), ownerDocument?.defaultView ?? undefined)).ok;
   } catch {
     return false;
   }

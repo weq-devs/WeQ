@@ -12,7 +12,6 @@
  */
 import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
-import type React from 'react';
 import { createPortal } from 'react-dom';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -47,6 +46,7 @@ import { OverlapMatrix } from './OverlapMatrix';
 import { OverlapPairCard, type OverlapPairSelection } from './OverlapPairCard';
 import type { GraphMode, GraphSettings, GroupFilterMode, OverlapDirection, RawNode } from './types';
 import './relationGraph.css';
+import { FormRange } from '../FormRange';
 
 const MODE_OPTIONS: Array<{ value: GraphMode; label: string; icon: JSX.Element }> = [
   { value: 'people', label: '群友圈子', icon: <UserRound size={13} /> },
@@ -210,7 +210,7 @@ export function RelationGraphView({
               className="weq-graph-icon-btn"
               type="button"
               onClick={refresh}
-              disabled={(loading && !refreshing) || !ready}
+              disabled={!ready}
               aria-busy={refreshing}
               title="更新全部群成员并重新计算"
             >
@@ -634,6 +634,7 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
             </button>
             <button
               className="weq-grouppick-btn is-primary"
+              data-weq-dialog-confirm
               type="button"
               onClick={() => onConfirm(Array.from(draft))}
             >
@@ -675,7 +676,6 @@ function RangeControl({ value, min, max, step, onCommit, label, unit }) {
   }
 
   const clampedLocal = clampNumber(local, min, max);
-  const pct = max === min ? 100 : ((clampedLocal - min) / (max - min)) * 100;
 
   return (
     <label className="weq-graph-slider">
@@ -686,10 +686,8 @@ function RangeControl({ value, min, max, step, onCommit, label, unit }) {
           <span className="weq-number weq-number-inherit">{clampedLocal}</span>
         </span>
       </span>
-      <input
+      <FormRange
         className="weq-graph-range"
-        style={{ '--pct': `${pct}%` } as React.CSSProperties}
-        type="range"
         min={min}
         max={max}
         step={step}

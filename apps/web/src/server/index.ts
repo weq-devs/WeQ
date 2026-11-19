@@ -19,17 +19,28 @@ import { randomBytes } from 'node:crypto';
 import { DEFAULT_SERVICE_PORTS } from '@weq/service/service-ports';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { setHost, initLogger, configureDevelopmentLogging, getLogger } from '@weq/service';
+import {
+  setHost,
+  initLogger,
+  configureDevelopmentLogging,
+  flushFileLogger,
+  getLogger,
+} from '@weq/service';
 import { initAppContext, getAppContext } from '@weq/desktop/main/context/app_context';
 import { assistantResourceServer } from '@weq/desktop/main/weq_assistant/server';
 import { appRouter } from '@weq/desktop/main/ipc/router';
+import { startAnnouncements } from '@weq/desktop/main/announcements';
 import { AuthGate } from './auth';
 import { createWebHost } from './host';
 import { startServer } from './http';
 import { createTrpcHandler, attachWsHandler } from './trpc_adapter';
-import { installPerformanceMonitor } from '@weq/service/performance';
+import {
+  finishPerformanceRecordingReset,
+  installPerformanceMonitor,
+} from '@weq/service/performance';
 import { createNodeCollector } from '@weq/service/performance-node';
 import { performanceDatabaseDetails } from '@weq/desktop/main/performance_database';
+import { getBackupContext } from '@weq/desktop/main/context/backup_context';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -94,6 +105,14 @@ async function main(): Promise<void> {
 
   setHost(createWebHost({ exportDir: EXPORT_DIR, version: VERSION }));
   initAppContext();
+  const stopAnnouncements = startAnnouncements({
+    dataRoot: DATA_DIR,
+    platform: 'web',
+    version: VERSION,
+    bannerEnabled: () =>
+      getAppContext().bootstrap?.userConfig.getSettings().notificationEvents.officialAnnouncement
+        .banner ?? true,
+  });
   void import('@weq/desktop/main/data_saver')
     .then(async ({ refreshTransferPolicy }) => {
       await refreshTransferPolicy();
@@ -104,6 +123,11 @@ async function main(): Promise<void> {
     DATA_DIR,
     createNodeCollector(performanceDatabaseDetails),
   );
+  const files = getBackupContext();
+  if (files.ok)
+    void finishPerformanceRecordingReset(files.config).catch((error: unknown) => {
+      console.warn('[web] 恢复性能记录档位未完成:', error);
+    });
 
   const assistant = getAppContext().bootstrap?.userConfig.getSettings().weqAssistant;
   if (assistant?.enabled)
@@ -131,11 +155,15 @@ async function main(): Promise<void> {
   const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
+    stopAnnouncements();
     getAppContext().bootstrap?.enhancements.updates.stop();
     void assistantResourceServer.shutdown();
     const monitorStopped = performanceMonitor.dispose();
     server.close(() => {
-      void monitorStopped.finally(() => process.exit(0));
+      void monitorStopped.finally(async () => {
+        await flushFileLogger();
+        process.exit(0);
+      });
     });
     setTimeout(() => process.exit(0), 3000).unref();
   };
@@ -143,7 +171,8 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error('[web] failed to start:', e);
+  await flushFileLogger();
   process.exit(1);
 });

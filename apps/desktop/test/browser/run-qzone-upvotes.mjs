@@ -64,8 +64,7 @@ try {
       await ordinary
         .getByRole('button', { name: '推', exact: true })
         .filter({ hasText: '199' })
-        .waitFor();
-      await ordinary.getByRole('button', { name: '推', exact: true }).focus();
+        .hover();
       const panel = page.getByRole('region', { name: '推的人', exact: true });
       await panel.getByText('合成推用户1', { exact: true }).waitFor();
       await panel.getByText('已显示 5 人，共 199 人推过', { exact: true }).waitFor();
@@ -107,10 +106,13 @@ try {
     const page = await visit(390, 'light', mode);
     const post = page.getByRole('article', { name: '普通说说' });
     if (mode === 'error') await post.getByRole('button', { name: '重试空友状态' }).click();
-    await post.getByRole('button', { name: '推', exact: true }).focus();
+    const preview = post.getByRole('button', { name: '推', exact: true });
+    if (mode === 'unknown') {
+      await post.locator('.weq-qzn-post-head').waitFor();
+      assert.equal(await preview.count(), 0);
+    } else await preview.click();
     const panel = page.getByRole('region', { name: '推的人', exact: true });
     if (mode === 'empty') await panel.getByText('还没有人推过', { exact: true }).waitFor();
-    if (mode === 'unknown') await panel.getByText('暂无可读取的推数据', { exact: true }).waitFor();
     if (mode === 'error') {
       await panel.getByText('合成推用户1', { exact: true }).waitFor();
     }
@@ -131,12 +133,17 @@ try {
     for (const mode of ['tag', 'manage']) {
       const page = await visit(width, 'dark', mode);
       const post = page.getByRole('article', { name: '普通说说' });
-      if (mode === 'tag')
-        await post.getByRole('button', { name: '空友爱看', exact: true }).waitFor();
-      else {
-        await post.getByRole('button', { name: '空友爱看管理', exact: true }).hover();
-        const operations = page.getByRole('region', { name: '空友爱看管理操作', exact: true });
-        await operations.getByRole('button', { name: '投稿至空友爱看' }).waitFor();
+      const header = post.locator('header');
+      if (mode === 'tag') {
+        await header.getByRole('button', { name: '空友爱看', exact: true }).click();
+        assert.equal(await page.getByLabel('当前用户').textContent(), '空友爱看');
+      } else {
+        await header.getByRole('button', { name: '空友爱看管理', exact: true }).click();
+        const operations = page.getByRole('menu', { name: '空友爱看管理操作', exact: true });
+        assert.equal(
+          await operations.getByRole('menuitem', { name: '投稿至空友爱看' }).isDisabled(),
+          true,
+        );
         const rect = await operations.boundingBox();
         assert.ok(rect && rect.x >= 0 && rect.x + rect.width <= width + 1);
       }

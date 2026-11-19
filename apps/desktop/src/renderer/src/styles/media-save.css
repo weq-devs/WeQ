@@ -38,7 +38,7 @@ html[data-theme='dark'] .qq-voice-row .weq-media-save-controls .qq-voice-transcr
   border-color: var(--weq-border-strong);
   background: var(--weq-bg-surface);
 }
-.qq-media-file:has(> .weq-media-save-controls) {
+.qq-media-file.qq-media-file-downloadable {
   width: 340px;
   max-width: 100%;
 }
@@ -55,4 +55,33 @@ html[data-theme='dark'] .qq-voice-row .weq-media-save-controls .qq-voice-transcr
   text-align: left;
   font: inherit;
   cursor: pointer;
+}
+.qq-file-action,
+.qq-file-download-ring {
+  display: grid;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+}
+.qq-file-action {
+  flex: 0 0 36px;
+}
+.qq-file-download-ring {
+  position: relative;
+  color: var(--weq-accent-effective);
+}
+.qq-file-download-cancel {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  inset: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.qq-file-download-cancel:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
 }

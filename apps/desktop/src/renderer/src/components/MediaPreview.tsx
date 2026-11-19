@@ -9,12 +9,15 @@ import {
 } from 'react';
 import { ChevronLeft, ChevronRight, Copy, RefreshCw } from 'lucide-react';
 import { interactiveMediaUrl } from '../lib/resourceUrl';
+import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import { MediaPreviewShell } from './MediaPreviewShell';
 import { MediaLoadStatus, MediaZoomControls, type MediaLoadState } from './MediaPreviewControls';
 import { mediaZoomKeyDown } from './MediaPreviewControls.shared';
 import { useZoomPan } from './useZoomPan';
 import { PreviewOcr } from './usePreviewOcr';
 import { MediaSourceSave } from './MediaSaveControls';
+import { MediaLoadingRing } from './TransferRing';
+import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import { exportMedia } from '../lib/mediaExport';
 import { useToastApi } from './Toast.shared';
 import { retainObjectUrl } from '../lib/objectUrl';
@@ -100,7 +103,9 @@ export function MediaPreview(options: MediaPreviewOptions) {
       const request = pageRequest.current;
       pageLoading.current.set(direction, request);
       if (navigate) setPending(direction);
-      setPageErrors((previous) => previous.filter((entry) => entry !== direction));
+      setPageErrors((previous) =>
+        previous.includes(direction) ? previous.filter((entry) => entry !== direction) : previous,
+      );
       try {
         const page = await options.loadPage(direction);
         if (!live.current || request !== pageRequest.current) return;
@@ -132,12 +137,32 @@ export function MediaPreview(options: MediaPreviewOptions) {
     [items, options.loadPage],
   );
   useEffect(() => {
-    if (!options.prefetchAdjacent || currentIndex < 0) return;
-    // 提前准备邻项，空批次沿游标继续；未知或已到头的方向不冒充可点击媒体。
-    if (currentIndex <= 1 && older && !pageErrors.includes('older')) void readPage('older', false);
-    if (currentIndex >= items.length - 2 && newer && !pageErrors.includes('newer'))
-      void readPage('newer', false);
-  }, [options.prefetchAdjacent, currentIndex, items.length, older, newer, pageErrors, readPage]);
+    if (!active || !options.prefetchAdjacent || currentIndex < 0) return;
+    const before = currentIndex <= 1 && older && !pageErrors.includes('older');
+    const after = currentIndex >= items.length - 2 && newer && !pageErrors.includes('newer');
+    if (!before && !after) return;
+    // 先显示当前媒体，再在空闲时查邻项；空页沿游标续查也要让出交互时间。
+    const prefetch = () => {
+      if (before) void readPage('older', false);
+      if (after) void readPage('newer', false);
+    };
+    const view = ownerDocument.defaultView;
+    if (view && view !== window) {
+      const timer = view.setTimeout(prefetch, 150);
+      return () => view.clearTimeout(timer);
+    }
+    return scheduleBackgroundLoad(prefetch, 150);
+  }, [
+    active,
+    ownerDocument,
+    options.prefetchAdjacent,
+    currentIndex,
+    items.length,
+    older,
+    newer,
+    pageErrors,
+    readPage,
+  ]);
   async function move(direction: 'older' | 'newer') {
     if (pending) return;
     setPageNotice('');
@@ -291,6 +316,7 @@ function MediaPreviewItemBody({
   const video = useRef<HTMLVideoElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const eventKey = `${item.key}:${current.kind}:${src}:${attempt}`;
+  const buffering = useVideoBuffering(eventKey, active && current.kind === 'video');
   const latestEvent = useRef(eventKey);
   latestEvent.current = eventKey;
   const setVideo = useCallback(
@@ -411,11 +437,14 @@ function MediaPreviewItemBody({
               <MediaSourceSave
                 key={`${item.key}:${source}`}
                 source={
-                  item.saveSource ?? {
-                    kind: 'url',
-                    url: resolved?.key === item.key ? resolved.saveSrc : source,
-                    name: item.title,
-                  }
+                  item.saveSource?.kind === 'url' && item.progressTarget
+                    ? { ...item.saveSource, progressTarget: item.progressTarget }
+                    : (item.saveSource ?? {
+                        kind: 'url',
+                        url: resolved?.key === item.key ? resolved.saveSrc : source,
+                        name: item.title,
+                        progressTarget: item.progressTarget,
+                      })
                 }
                 className="weq-lightbox-action"
                 label={
@@ -526,6 +555,7 @@ function MediaPreviewItemBody({
             autoPlay={active}
             muted={item.isLivePhoto === true}
             playsInline
+            {...buffering.events}
             style={{ ...zoom.style, touchAction: zoom.zoomed ? 'none' : 'auto' }}
             onMouseDown={(event) => {
               if (
@@ -546,14 +576,20 @@ function MediaPreviewItemBody({
                 surface.focus({ preventScroll: true });
             }}
             onCanPlay={() => {
+              buffering.events.onCanPlay();
               if (latestEvent.current === eventKey) setStatus('ready');
             }}
             onError={() => {
+              buffering.events.onError();
               if (latestEvent.current === eventKey) setStatus('error');
             }}
           />
         ) : null}
-        {/* 播放器挂载后使用原生加载提示，避免叠加两组转圈。 */}
+        {active &&
+          !waiting &&
+          current.kind === 'video' &&
+          status !== 'error' &&
+          buffering.waiting && <MediaLoadingRing label="正在缓冲视频" />}
         {waiting || current.kind === 'image' || status === 'error' ? (
           <MediaLoadStatus
             kind={current.kind === 'image' ? '图片' : '视频'}

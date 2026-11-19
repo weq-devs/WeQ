@@ -96,7 +96,17 @@ export function ComponentAppearance() {
             >
               <ComponentStylePreview style={option.value} />
               <span className="weq-style-option-label">
-                {option.label}
+                <span>
+                  {option.value === 'qqnt' ? (
+                    <>
+                      QQ NT
+                      <wbr />
+                      <span className="weq-style-option-default">（默认）</span>
+                    </>
+                  ) : (
+                    option.label
+                  )}
+                </span>
                 {style === option.value && <Check size={14} aria-hidden="true" />}
               </span>
             </button>

@@ -1,6 +1,6 @@
 {
   "name": "weq",
-  "version": "2.7.2",
+  "version": "2.7.5",
   "private": true,
   "type": "module",
   "description": "QQ NT 本地聊天记录解密、导出、查看与年度报告",
@@ -18,6 +18,8 @@
     "test": "pnpm -r --no-sort --no-bail --workspace-concurrency=2 test --maxWorkers=2 --minWorkers=1",
     "test:fail-fast": "pnpm -r --no-sort --workspace-concurrency=2 test --maxWorkers=2 --minWorkers=1 --bail=1",
     "test:changed": "pnpm -r --no-sort --workspace-concurrency=2 test --changed --passWithNoTests --maxWorkers=2 --minWorkers=1 --bail=1",
+    "browser:install": "playwright install chromium webkit",
+    "browser:check": "node scripts/browser-runtime.mjs",
     "lint": "biome lint --error-on-warnings .",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
@@ -53,6 +55,7 @@
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "esbuild": "^0.28.1",
+    "playwright": "1.65.0",
     "tsx": "^4.22.4",
     "typescript": "^5.7.3"
   }

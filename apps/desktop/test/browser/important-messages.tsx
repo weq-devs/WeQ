@@ -27,7 +27,6 @@ const longPeer = {
   displayName: '很长的群成员名片ABCDEFGHIJKLMNOPQRSTUVWXYZ',
 };
 const dock = {
-  unread: 14,
   stops: [
     { kind: 'atMe' as const, seq: '1024' },
     { kind: 'replyMe' as const, seq: '1023' },

@@ -48,6 +48,7 @@ import {
   type UiTask,
   type UiLogLine,
   taskPct,
+  taskTitle,
   taskTypeLabel,
   taskIcon,
   taskSaveActionLabel,
@@ -56,6 +57,8 @@ import {
   taskCanPause,
   taskCancelActionLabel,
 } from './TaskList.shared';
+import { exportTaskDisplay } from '@weq/service/task-display';
+import { TaskName, TaskOriginalName } from '../../components/tasks/TaskName';
 
 /** The CDN-completion stages (download missing → bundle). */
 const COMPLETION_KEYS = new Set(['image', 'video', 'file', 'ptt']);
@@ -156,6 +159,7 @@ export function StageRow({
   onSkip,
   paused = false,
   logMode = 'preview',
+  failureCount = stage.failures?.length ?? 0,
 }: {
   stage: UiStage;
   logs: UiLogLine[];
@@ -163,6 +167,7 @@ export function StageRow({
   onSkip?: () => void;
   paused?: boolean;
   logMode?: 'preview' | 'expanded';
+  failureCount?: number;
 }): ReactElement {
   const [open, setOpen] = useState(logMode === 'expanded');
   const pct = stagePct(stage);
@@ -180,14 +185,14 @@ export function StageRow({
         <span className="weq-exp-detail-stage-label" title={stage.note}>
           {stage.label}
         </span>
-        {failures.length > 0 ? (
+        {failureCount > 0 ? (
           <button
             type="button"
             className="weq-exp-detail-stage-failures"
             title="点击查看失败详情"
             onClick={() => onShowFailures(failures)}
           >
-            失败 <span className="weq-number weq-number-inherit">{fmtCount(failures.length)}</span>
+            失败 <span className="weq-number weq-number-inherit">{fmtCount(failureCount)}</span>
           </button>
         ) : null}
         <TaskProgressBar
@@ -259,7 +264,7 @@ function TaskCard({
       type="button"
       className={`weq-exp-card is-${task.status}${active ? ' is-active' : ''}`}
       onClick={onSelect}
-      title={`${taskTypeLabel(task)} · ${task.name}${task.generatedResources?.missing || task.resource?.failed ? ' · 部分资源缺失' : ''}`}
+      title={`${taskTitle(task)}${task.generatedResources?.missing || task.resource?.failed ? ' · 部分资源缺失' : ''}`}
     >
       {idle ? (
         <span className="weq-exp-card-skeleton" aria-hidden />
@@ -280,7 +285,9 @@ function TaskCard({
       )}
       <span className="weq-exp-card-top">
         <span className="weq-exp-card-icon">{taskIcon(task)}</span>
-        <span className="weq-exp-card-name">{task.name}</span>
+        <span className="weq-exp-card-name">
+          <TaskName display={exportTaskDisplay(task)} />
+        </span>
       </span>
     </button>
   );
@@ -360,10 +367,13 @@ function TaskDetail({
       <header className="weq-exp-detail-head">
         <span className="weq-exp-detail-kind">{taskIcon(t)}</span>
         <div className="weq-exp-detail-title">
-          <strong>{t.name}</strong>
+          <strong>
+            <TaskName display={exportTaskDisplay(t)} />
+          </strong>
+          <TaskOriginalName name={t.name} display={exportTaskDisplay(t)} />
           <span className="weq-exp-detail-meta">
             {taskTypeLabel(t)}
-            {t.isMarketPack || t.isEmojiPack || t.resource ? null : (
+            {t.isMarketPack || t.isEmojiPack || t.resource || t.resourceOnly ? null : (
               <NumericText>{` · ${fmtFormats(t)}`}</NumericText>
             )}
             {' · '}
@@ -550,7 +560,7 @@ function TaskDetail({
       </header>
       <TaskProgressBar
         value={overall}
-        label={`${t.name}总进度`}
+        label={`${taskTitle(t)}总进度`}
         status={t.networkPaused ? 'paused' : t.status}
       />
       {t.databaseRecovery && onDatabaseRecovery && (

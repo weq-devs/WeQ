@@ -84,6 +84,7 @@
 }
 .weq-qzone-permission-users .weq-set-iconbtn {
   width: 26px;
+  min-height: 26px;
   height: 26px;
   min-width: 26px;
 }

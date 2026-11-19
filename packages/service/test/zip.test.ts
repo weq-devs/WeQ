@@ -201,6 +201,11 @@ describe('extract helpers', () => {
     expect(extractFromZip(zip, (n) => n.endsWith('.zip'))).toBeNull();
   });
 
+  it('按单项读取时拒绝超过限制的配置，不影响读取同包的小条目', () => {
+    expect(extractFromZip(zip, (n) => n.endsWith('.ttf'), 2)).toBeNull();
+    expect(extractFromZip(zip, (n) => n.endsWith('.png'), 2)?.toString()).toBe('p1');
+  });
+
   it('extractAllFromZip 收集全部命中', () => {
     const all = extractAllFromZip(zip, (n) => n.endsWith('.png'));
     expect(all.map((e) => e.data.toString())).toEqual(['p1', 'p2']);

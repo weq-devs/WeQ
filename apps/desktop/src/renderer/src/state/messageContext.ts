@@ -1,4 +1,5 @@
 import { createContext } from 'react';
+import type { UnreadMessageIdentity } from '../lib/unreadNavigation';
 
 /**
  * Lets a reply quote ask the host (MainView) to scroll the message list to the
@@ -9,6 +10,10 @@ import { createContext } from 'react';
  * (e.g. tests).
  */
 export interface ReplyJumpTarget {
+  /** 普通未读跳转按区间定位，不要求已读水位后的推算序号真实存在。 */
+  mode?: 'firstUnread';
+  /** 重要提醒可能与灰条同序号，保留原消息的身份。 */
+  importantMessage?: UnreadMessageIdentity;
   /** 已知原消息时优先精确匹配，兼容序号为空或同序号的漫游记录。 */
   msgId?: string;
   /** origMsgSeq (tag 47402) — the 40003 anchor for GROUP messages. */
@@ -19,7 +24,10 @@ export interface ReplyJumpTarget {
   senderUin?: number | string;
   sendTime?: number | string;
 }
-const replyJumpContext = createContext<(target: ReplyJumpTarget) => void | Promise<void>>(() => {});
+export type ReplyJump = (
+  target: ReplyJumpTarget,
+) => boolean | void | Promise<void> | Promise<boolean>;
+const replyJumpContext = createContext<ReplyJump>(() => {});
 
 /**
  * The conversation kind of the open chat. MultiMsg lookups (合并转发) hit a
@@ -48,21 +56,8 @@ export const ConvContext = createContext<string>('');
 export interface ForwardCarrier {
   msgId: string;
   kind: 'c2c' | 'group';
+  resId?: string;
 }
 export const ForwardCarrierContext = createContext<ForwardCarrier | null>(null);
-
-/**
- * 嵌套合并转发的**内联子记录**表（msgId → 该 multiMsg 的 subMsgs）。
- *
- * 40900 缓存里嵌套那一层是现成的（一条 multiMsg 记录的 `subMsgs` 就是它内部那串
- * 子消息），所以再点进去时**不必重新查库**。转发窗口把当前这一层所有子记录的
- * `subMsgs` 挂进这个表，{@link QqMessageContent} 的 multiMsg 分支就能直接把
- * 内联记录交给预览卡片，省掉一次 IPC 往返。
- *
- * 未提供（主时间线、合成转发预览）时退回按 msgId / resId 现查 —— 行为与以前一致。
- * `unknown[]` 是 `ForwardRecordWire[]`：这里不 import 那个类型，避免与
- * ForwardWindow 形成类型环路，取值点自己收窄。
- */
-export const ForwardSubRecordsContext = createContext<Map<string, unknown[]> | null>(null);
 
 export { replyJumpContext as ReplyJumpContext };

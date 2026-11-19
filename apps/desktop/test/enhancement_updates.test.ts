@@ -19,7 +19,12 @@ import {
   parseEnhancementCatalogForHost,
 } from '../src/shared/enhancement_release';
 import { backgroundTasks } from '../src/main/background_tasks';
-import { trackEnhancementPreparation } from '../src/main/enhancements/tasks';
+import {
+  forgetEnhancementTask,
+  restoreEnhancementTasks,
+  startEnhancementDownloads,
+  trackEnhancementPreparation,
+} from '../src/main/enhancements/tasks';
 import { updateTransferPolicy } from '@weq/service/transfer-policy';
 import { networkCost } from '@weq/service/data-saver';
 import { enhancementEngineCompatibility } from '../src/shared/enhancement_manifest';
@@ -270,6 +275,64 @@ it('关闭自动安装时启动核对已有资源，不生成增强包已就绪�
   expect(f.ensure).not.toHaveBeenCalled();
   expect(f.fetcher).not.toHaveBeenCalled();
   expect(backgroundTasks.snapshot()).toEqual([]);
+});
+
+it('同步准备观察者与手动入口共用一条记录，创建意图在完成后仍保留', async () => {
+  const f = await fixture(false);
+  f.packs.observePreparations((id, name) => {
+    void trackEnhancementPreparation(f.packs, id, name).catch(() => {});
+  });
+  await startEnhancementDownloads(f.packs, ['dress']);
+  const tasks = backgroundTasks.snapshot();
+  expect(tasks).toHaveLength(1);
+  expect(tasks[0]?.display?.action).toBe('安装增强包');
+  await f.packs.wait();
+  await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).not.toBe('running'));
+  expect(backgroundTasks.snapshot()).toHaveLength(1);
+  expect(backgroundTasks.snapshot()[0]?.display).toEqual(tasks[0]?.display);
+});
+
+it('重启找回暂停的增强包，自动安装只检查，手动继续才接回原任务', async () => {
+  const first = await fixture();
+  const firstDirectory = join(first.root, 'enhancements');
+  restoreEnhancementTasks(first.packs, firstDirectory);
+  const gate = Promise.withResolvers<void>();
+  const ensure = first.ensure.getMockImplementation()!;
+  first.ensure.mockImplementationOnce(async () => {
+    await gate.promise;
+    return ensure();
+  });
+  await startEnhancementDownloads(first.packs, ['dress']);
+  const id = backgroundTasks.snapshot()[0]!.id;
+  await vi.waitFor(() => expect(first.ensure).toHaveBeenCalledOnce());
+  await backgroundTasks.act(id, 'pause');
+  await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).toBe('paused'));
+  const saved = await readFile(join(firstDirectory, 'download-tasks.json'));
+  await backgroundTasks.act(id, 'continue');
+  gate.resolve();
+  await first.packs.wait();
+  await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).toBe('completed'));
+  backgroundTasks.remove(id);
+
+  const restarted = await fixture();
+  restarted.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+  const directory = join(restarted.root, 'enhancements');
+  await writeFile(join(directory, 'download-tasks.json'), saved);
+  restoreEnhancementTasks(restarted.packs, directory);
+  expect(backgroundTasks.snapshot()[0]).toMatchObject({
+    id,
+    status: 'paused',
+    display: { action: '更新增强包' },
+  });
+  await restarted.controller.check(['dress'], true);
+  expect(restarted.ensure).not.toHaveBeenCalled();
+  await backgroundTasks.act(id, 'continue');
+  await restarted.packs.wait();
+  await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).toBe('completed'));
+  expect(restarted.ensure).toHaveBeenCalledOnce();
+  expect(backgroundTasks.snapshot()).toHaveLength(1);
+  expect(forgetEnhancementTask(restarted.packs, id)).toBe(true);
+  expect(JSON.parse(await readFile(join(directory, 'download-tasks.json'), 'utf8'))).toEqual({});
 });
 
 it('同版统一清单存在但损坏时不改读旧格式或更旧版本', async () => {
@@ -692,6 +755,25 @@ it.each([false, true])(
     expect(backgroundTasks.snapshot()).toEqual([]);
   },
 );
+it('自动检查收尾期间刷新网络策略，不会把已完成的检查改回进行中', async () => {
+  const f = await fixture();
+  const list = f.packs.list.bind(f.packs);
+  const notices = vi.fn();
+  f.controller.subscribeNotifications(notices);
+  vi.spyOn(f.packs, 'list').mockImplementationOnce(async () => {
+    expect(f.controller.state('dress').phase).toBe('checked');
+    updateTransferPolicy('never', networkCost(false, false, 'test'));
+    return list();
+  });
+
+  await f.controller.check(['dress'], true);
+
+  expect(f.controller.state('dress')).toMatchObject({
+    phase: 'checked',
+    checkedAt: expect.any(Number),
+  });
+  expect(notices).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'dress' })]);
+});
 it.each([false, true])(
   '更新检查失败不登记任务，保留错误并允许原位重试（自动：%s）',
   async (automatic) => {

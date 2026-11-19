@@ -4,6 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ExportSavePolicy } from '@weq/service';
 import { MediaSourceSave } from '../src/renderer/src/components/MediaSaveControls';
 import { useMediaSave } from '../src/renderer/src/components/MediaSaveControls.shared';
+import { TransferActivityProvider } from '../src/renderer/src/components/TransferActivityProvider';
+import { mediaTransferTarget, type ActiveTransfer } from '../src/shared/transfer_progress';
 import { QqFile, QqVoice } from '../src/renderer/src/components/QqMedia';
 import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog';
 import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
@@ -42,7 +44,14 @@ const state = vi.hoisted(() => ({
   ),
   cancel: vi.fn(async (_input: unknown) => true),
   toast: vi.fn(),
+  accepted: vi.fn(),
   open: vi.fn(),
+  locations: [] as { kind: 'local' | 'cache'; key: string; available: boolean }[],
+  locationsFetching: false,
+  localMessageId: '',
+  refetchLocations: vi.fn(async () => {}),
+  transferListeners: new Set<(value: ActiveTransfer[]) => void>(),
+  openMessageFile: vi.fn(async (_input: unknown) => false),
   transcribe: vi.fn(),
   cacheEntries: [] as unknown[],
   files: vi.fn(async (_input: unknown) => ({
@@ -59,6 +68,9 @@ const state = vi.hoisted(() => ({
       },
     ],
   })),
+}));
+vi.mock('../src/renderer/src/lib/taskNotifications', () => ({
+  notifyTaskCreated: state.accepted,
 }));
 // 只替换缓存分页的数据边界，卡片、灯箱与公共保存控件走真实组件。
 vi.mock('../src/renderer/src/views/cache/CacheShared', async (importOriginal) => ({
@@ -134,8 +146,18 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       listGroupFiles: { query: state.files },
       startGroupFileExport: { mutate: state.exportFiles },
       mediaSave: { save: { mutate: state.save }, cancel: { mutate: state.cancel } },
+      transfers: {
+        watch: {
+          subscribe: (_: unknown, handlers: { onData: (value: ActiveTransfer[]) => void }) => {
+            state.transferListeners.add(handlers.onData);
+            return { unsubscribe: () => state.transferListeners.delete(handlers.onData) };
+          },
+        },
+      },
       getExportOutputReceipt: { query: state.receipt },
       exportTaskDownload: { mutate: state.download },
+      mediaResource: { openMessageFile: { mutate: state.openMessageFile } },
+      fileResource: { download: { open: { mutate: state.open } } },
     },
   },
   trpc: {
@@ -194,6 +216,17 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
       ocrChatImage: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       fileResource: { download: { open: { useMutation: () => ({ mutate: state.open }) } } },
+      mediaResource: {
+        messageLocations: {
+          useQuery: ({ target }: { target: { msgId: string } }) => ({
+            data:
+              !state.localMessageId || target.msgId === state.localMessageId ? state.locations : [],
+            isFetched: true,
+            isFetching: state.locationsFetching,
+            refetch: state.refetchLocations,
+          }),
+        },
+      },
       transcribeVoice: { useMutation: () => ({ mutateAsync: state.transcribe, isLoading: false }) },
     },
   },
@@ -214,7 +247,14 @@ beforeEach(() => {
   state.download.mockClear();
   state.cancel.mockClear();
   state.toast.mockClear();
+  state.accepted.mockClear();
   state.open.mockClear();
+  state.locations = [];
+  state.locationsFetching = false;
+  state.localMessageId = '';
+  state.refetchLocations.mockReset();
+  state.transferListeners.clear();
+  state.openMessageFile.mockReset().mockResolvedValue(false);
   state.transcribe.mockClear();
 });
 afterEach(() => {
@@ -234,7 +274,19 @@ async function mount(
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(element));
+  const render = (next = element) =>
+    act(async () =>
+      root.render(
+        h(
+          TransferActivityProvider,
+          {
+            binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },
+          },
+          next,
+        ),
+      ),
+    );
+  await render();
   const close = () => {
     act(() => root.unmount());
     host.remove();
@@ -242,6 +294,7 @@ async function mount(
   cleanup.push(close);
   return {
     host,
+    render,
     close: () => {
       cleanup.splice(cleanup.indexOf(close), 1);
       close();
@@ -286,11 +339,13 @@ function capture(node: HTMLElement, name: string) {
     'styles/group-media.css',
     'styles/workspace-surfaces.css',
     'styles/page-chrome.css',
+    'im-template/styles/chat.css',
     'im-template/styles/emoji.css',
     'styles/lightbox-actions.css',
     'styles/conversation-actions.css',
     'styles/export-save-actions.css',
     'styles/media-save.css',
+    'styles/transfer-progress.css',
   ]
     .map((file) => `<link rel="stylesheet" href="/@fs${resolve('src/renderer/src', file)}">`)
     .join('');
@@ -310,10 +365,8 @@ it('主动作沿用公共偏好，排队只提示受理，不直接写盘或打�
   });
   expect(state.prepare).not.toHaveBeenCalled();
   expect(state.download).not.toHaveBeenCalled();
-  expect(state.toast.mock.calls[0]![0]).toMatchObject({
-    tone: 'info',
-    title: '媒体保存任务已创建',
-  });
+  expect(state.accepted).toHaveBeenCalledWith('media-task', '正在保存媒体');
+  expect(state.toast).not.toHaveBeenCalled();
 });
 it('Remote 原位保存默认下载到设备，不弹电脑目录或使用电脑预设', async () => {
   state.web = true;
@@ -422,12 +475,9 @@ it('同号来源变化后不把旧保存回执反馈给新来源', async () => {
   expect(state.toast).not.toHaveBeenCalled();
   expect(state.download).not.toHaveBeenCalled();
 });
-it('文件卡片保留本地打开，显式保存仍走公共策略，不把控制按钮嵌进打开按钮', async () => {
-  const invoke = vi.fn(async () => ({ success: true }));
-  Reflect.defineProperty(window, 'electron', {
-    configurable: true,
-    value: { ipcRenderer: { invoke } },
-  });
+it('有本地记录时文件卡片直接打开，不显示下载按钮', async () => {
+  state.locations = [{ kind: 'local', key: 'output', available: true }];
+  state.openMessageFile.mockResolvedValue(true);
   const view = await mount(
     h(QqFile, {
       data: { fileName: 'report.txt', fileToken: 'token' },
@@ -436,9 +486,26 @@ it('文件卡片保留本地打开，显式保存仍走公共策略，不把控�
       conv: '123',
     }),
   );
+  expect(view.host.querySelector('[aria-label="保存文件"]')).toBeNull();
   await act(async () => view.host.querySelector<HTMLButtonElement>('.qq-media-file-open')!.click());
-  expect(invoke).toHaveBeenCalledWith('file:reveal', '41');
+  expect(state.openMessageFile).toHaveBeenCalledWith(
+    expect.objectContaining({
+      expectedAccountConfigId: 'source-a',
+      target: expect.objectContaining({ msgId: '41', token: 'token' }),
+      location: state.locations[0],
+    }),
+  );
   expect(state.save).not.toHaveBeenCalled();
+});
+it('没有本地记录的文件卡片仍走公共保存策略', async () => {
+  const view = await mount(
+    h(QqFile, {
+      data: { fileName: 'report.txt', fileToken: 'token' },
+      sendTimeMs: 1,
+      msgId: '41',
+      conv: '123',
+    }),
+  );
   await click(view.host, '保存文件');
   expect(state.save.mock.calls[0]![0]).toMatchObject({
     source: { kind: 'chat-file', msgId: '41', token: 'token', conv: '123', name: 'report.txt' },
@@ -446,6 +513,119 @@ it('文件卡片保留本地打开，显式保存仍走公共策略，不把控�
   expect(view.host.querySelector('.qq-media-file-open button')).toBeNull();
   expect(view.host.querySelector('.qq-media-file-name')?.getAttribute('title')).toBe('report.txt');
 });
+it('文件任务受理及进度结束后保持原位反馈，相邻同名文件不受进度或位置刷新影响', async () => {
+  const receipt = Promise.withResolvers<Awaited<ReturnType<typeof state.receipt>>>();
+  const location = Promise.withResolvers<void>();
+  state.receipt.mockReturnValueOnce(receipt.promise);
+  state.refetchLocations.mockReturnValueOnce(location.promise);
+  const name = '同名文件用于验证相邻卡片尺寸不受影响.txt';
+  const view = await mount(
+    h(
+      'section',
+      { className: 'qa-chat' },
+      ['41', '42'].map((msgId) =>
+        h(
+          'div',
+          { key: msgId, 'data-message': msgId },
+          h(QqFile, {
+            data: { fileName: name, fileToken: 'token', fileSize: 200 },
+            sendTimeMs: 1,
+            msgId,
+            conv: '123',
+          }),
+        ),
+      ),
+    ),
+  );
+  const card = view.host.querySelector<HTMLElement>('[data-message="41"]')!;
+  const neighbor = view.host.querySelector<HTMLElement>('[data-message="42"]')!;
+  const progress = () => card.querySelector('[role="progressbar"]');
+  const neighborSave = neighbor.querySelector<HTMLButtonElement>('[aria-label="保存文件"]');
+  expect(neighborSave?.disabled).toBe(false);
+  capture(view.host, 'file-download-idle.html');
+
+  await click(card, '保存文件');
+  expect(state.accepted).toHaveBeenCalledOnce();
+  expect(progress()).not.toBeNull();
+  capture(view.host, 'file-download-accepted.html');
+  const target = mediaTransferTarget({
+    kind: 'chat-file',
+    msgId: '41',
+    conv: '123',
+    token: 'token',
+    name,
+  });
+  const publish = (entries: ActiveTransfer[]) =>
+    act(() => {
+      for (const listener of state.transferListeners) listener(entries);
+    });
+  publish([
+    {
+      id: 'media-task',
+      target,
+      direction: 'download',
+      phase: 'download',
+      received: 50,
+      total: 200,
+    },
+  ]);
+  expect(progress()?.getAttribute('aria-valuenow')).toBe('25');
+  expect(neighbor.querySelector('[role="progressbar"]')).toBeNull();
+  capture(view.host, 'file-download-progress.html');
+
+  state.locationsFetching = true;
+  await view.render();
+  expect(neighborSave?.isConnected && !neighborSave.disabled).toBe(true);
+  publish([]);
+  expect(progress()).not.toBeNull();
+  await act(async () => receipt.resolve({ status: 'completed', error: undefined }));
+  expect(state.refetchLocations).toHaveBeenCalledOnce();
+  expect(progress()).not.toBeNull();
+  capture(view.host, 'file-download-refresh.html');
+
+  state.localMessageId = '41';
+  state.locations = [{ kind: 'cache', key: 'output', available: true }];
+  await act(async () => location.resolve());
+  expect(progress()).toBeNull();
+  expect(card.querySelector('[aria-label="保存文件"]')).toBeNull();
+  expect(neighborSave?.isConnected && !neighborSave.disabled).toBe(true);
+  capture(view.host, 'file-download-completed.html');
+});
+it.each([200, undefined])(
+  '活动下载在文件卡片显示圆环，已知总大小 %s 才显示百分比',
+  async (total) => {
+    const view = await mount(
+      h(QqFile, {
+        data: { fileName: 'report.txt', fileToken: 'token' },
+        sendTimeMs: 1,
+        msgId: '41',
+        conv: '123',
+      }),
+    );
+    const target = mediaTransferTarget({
+      kind: 'chat-file',
+      msgId: '41',
+      conv: '123',
+      token: 'token',
+      name: 'report.txt',
+    });
+    act(() => {
+      for (const publish of state.transferListeners)
+        publish([
+          { id: 'download', target, direction: 'download', phase: 'download', received: 50, total },
+        ]);
+    });
+    const ring = view.host.querySelector('[role="progressbar"]');
+    expect(ring).not.toBeNull();
+    expect(ring?.getAttribute('aria-valuenow')).toBe(total ? '25' : null);
+    expect(view.host.querySelector('[aria-label="保存文件"]')).toBeNull();
+    expect(view.host.querySelector<HTMLButtonElement>('.qq-media-file-open')?.disabled).toBe(true);
+    act(() => {
+      for (const publish of state.transferListeners) publish([]);
+    });
+    expect(view.host.querySelector('[role="progressbar"]')).toBeNull();
+  },
+);
 it('语音消息不显示保存按钮，也不自动保存、播放或转写', async () => {
   const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
   const view = await mount(
@@ -498,7 +678,7 @@ it('独立 Web 窗口的同源绝对媒体地址还原成已有挂载路径', as
 it('图片右键只保留一个另存为动作并保留消息身份', async () => {
   const message = createTemplateDemoData().messages[0]!,
     download = vi.fn();
-  const view = await mount(
+  await mount(
     h(MessageContextMenu, {
       state: { message, x: 10, y: 10, downloadUrl: 'weq-media://pic?name=photo.jpg' },
       onCopy: vi.fn(),
@@ -506,7 +686,7 @@ it('图片右键只保留一个另存为动作并保留消息身份', async () =
     }),
   );
   const action = (name: string) =>
-    [...view.host.querySelectorAll<HTMLButtonElement>('button')].find(
+    [...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button')].find(
       (button) => button.textContent === name,
     )!;
   act(() => action('另存为').click());
@@ -742,7 +922,7 @@ it.each([false, true])('保存控件合成布局，Web=%s', async (web) => {
     ),
   );
   capture(chat.host, web ? 'media-chat-web.html' : 'media-chat-desktop.html');
-  expect(chat.host.querySelectorAll('.weq-media-save-controls')).toHaveLength(1);
+  expect(chat.host.querySelectorAll('[aria-label="保存文件"]')).toHaveLength(1);
   state.files.mockResolvedValueOnce({
     targetDirectory: '/',
     folders: [],

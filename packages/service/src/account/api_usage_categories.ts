@@ -39,6 +39,7 @@ const FEATURES: Record<string, readonly [Category, string]> = {
   assistant: ['assistant', '对话生成'],
   'assistant-title': ['assistant', '会话标题'],
   'assistant-summary': ['assistant', '上下文摘要'],
+  'clone-summary': ['clone', '上下文摘要'],
   'intent-analysis': ['intent', '意图分析'],
   'intent-profile': ['profile', '画像提炼'],
   'reply-suggestion': ['suggestions', '回复生成'],

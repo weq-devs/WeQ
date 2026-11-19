@@ -3,7 +3,6 @@
   min-width: 320px;
   height: 100vh;
   overflow: hidden;
-  background: var(--background);
 }
 
 html[data-native-window-controls] .weq-composition-window-control {
@@ -16,7 +15,7 @@ html[data-native-window-controls] .weq-composition-window-control {
   height: 100vh;
   min-width: 0;
   color: var(--weq-fg-primary);
-  background: var(--weq-chat-bg, var(--weq-bg-surface));
+  background: var(--background);
   font-size: 13px;
 }
 .weq-composition-workspace.is-fallback {
@@ -137,37 +136,38 @@ html[data-native-window-controls] .weq-composition-window-control {
   padding: 8px;
 }
 .weq-composition-entry {
-  padding: 12px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 6px;
   margin-bottom: 8px;
   background: color-mix(in srgb, var(--weq-bg-surface) 80%, transparent);
 }
-.weq-composition-entry > strong,
-.weq-composition-entry > span {
-  display: block;
-  overflow-wrap: anywhere;
-}
 .weq-composition-entry.is-selected {
   border-color: var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
-.weq-composition-entry-title {
+.weq-composition-entry-open {
   display: block;
   width: 100%;
-  padding: 0;
+  padding: 12px;
+  border-radius: inherit;
   text-align: left;
   font: inherit;
-  font-weight: 600;
   overflow-wrap: anywhere;
   color: inherit;
   border: 0;
   background: transparent;
   cursor: pointer;
 }
-.weq-composition-entry-title:focus-visible {
+.weq-composition-entry-open:disabled {
+  cursor: default;
+}
+.weq-composition-entry-open:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 3px;
+  outline-offset: -2px;
+}
+.weq-composition-entry-title {
+  display: block;
+  font-weight: 600;
 }
 .weq-composition-editor.is-drop-target {
   outline: 2px solid var(--weq-accent-effective);
@@ -181,24 +181,27 @@ html[data-native-window-controls] .weq-composition-window-control {
   background: var(--weq-accent-effective);
   pointer-events: none;
 }
-.weq-composition-entry > span {
+.weq-composition-entry-meta {
+  display: block;
   font-size: 12px;
   color: var(--weq-fg-muted);
   margin-top: 4px;
 }
-.weq-composition-entry > p {
+.weq-composition-entry-preview {
+  display: block;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 140px;
   overflow: auto;
   font-size: 13px;
-  margin: 10px 0;
+  margin-top: 10px;
   color: var(--weq-fg-secondary);
 }
 .weq-composition-entry-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
+  padding: 0 12px 12px;
 }
 .weq-composition-title {
   width: calc(100% - 24px);

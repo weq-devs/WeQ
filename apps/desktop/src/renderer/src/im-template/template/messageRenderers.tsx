@@ -13,6 +13,7 @@ export type MessageRenderer = {
   id: string;
   match: (context: MessageRendererContext) => boolean;
   render: (context: MessageRendererContext) => ReactNode;
+  renderTrailing?: (context: MessageRendererContext) => ReactNode;
 };
 
 export type ComposeMessageRenderersOptions = {
@@ -51,12 +52,4 @@ export function composeMessageRenderers({
   append = [],
 }: ComposeMessageRenderersOptions = {}): MessageRenderer[] {
   return [...prepend, ...base, ...append];
-}
-
-export function renderMessageWithRegistry(
-  context: MessageRendererContext,
-  renderers: MessageRenderer[] = defaultMessageRenderers,
-) {
-  const renderer = renderers.find((item) => item.match(context));
-  return renderer?.render(context) ?? renderDefaultMessageContent(context.message);
 }

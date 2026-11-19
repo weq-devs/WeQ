@@ -16,6 +16,7 @@ import { clientStateRouter } from './routers/client_state';
 import { bootstrapRouter } from './routers/bootstrap';
 import { accountRouter } from './routers/account';
 import { updateRouter } from './routers/update';
+import { announcementsRouter } from './routers/announcements';
 import { helpRouter } from './routers/help';
 import { groupFeedbackRouter } from './routers/group_feedback';
 import { wonderfulToolsRouter } from './routers/wonderful_tools';
@@ -47,6 +48,7 @@ export const appRouter = router({
   bootstrap: bootstrapRouter,
   account: accountRouter,
   update: updateRouter,
+  announcements: announcementsRouter,
   help: helpRouter,
   groupFeedback: groupFeedbackRouter,
   wonderfulTools: wonderfulToolsRouter,

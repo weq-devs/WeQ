@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { usePageSnapshotReset } from '../PageSnapshots.shared';
 import { Loader2, Plus, Play, Save, Trash2, Volume2, X } from 'lucide-react';
@@ -269,7 +270,7 @@ export function TtsProvidersCard(): ReactElement {
         play();
         return {
           detail: '已生成样例语音。',
-          action: { label: '播放样例语音', run: play, icon: 'play' },
+          action: { label: '播放样例语音', run: play, icon: 'play', keepOpen: true },
         };
       }
       return { detail: res.error ?? '配置可用。' };
@@ -354,7 +355,13 @@ export function TtsProvidersCard(): ReactElement {
           width={620}
           className="weq-provider-window"
         >
-          <div className="weq-provider-modal">
+          <form
+            className="weq-provider-modal"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!saveProvider.isLoading) void onSave();
+            }}
+          >
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">
                 <Volume2 size={16} strokeWidth={1.8} aria-hidden />
@@ -383,7 +390,7 @@ export function TtsProvidersCard(): ReactElement {
                 label="服务商模板"
                 desc={vendorEntry?.note}
                 control={
-                  <select
+                  <FormSelect
                     className="weq-set-input"
                     aria-label="TTS 服务商模板"
                     value={form.vendor}
@@ -398,7 +405,7 @@ export function TtsProvidersCard(): ReactElement {
                         {item.label}
                       </option>
                     ))}
-                  </select>
+                  </FormSelect>
                 }
               />
               <Row
@@ -562,9 +569,8 @@ export function TtsProvidersCard(): ReactElement {
 
             <div className="weq-provider-modal-actions">
               <button
-                type="button"
+                type="submit"
                 className="weq-set-btn weq-set-btn-primary"
-                onClick={() => void onSave()}
                 disabled={saveProvider.isLoading}
               >
                 <Save size={14} />
@@ -590,7 +596,7 @@ export function TtsProvidersCard(): ReactElement {
                 删除
               </button>
             </div>
-          </div>
+          </form>
         </Modal>
       ) : null}
     </>

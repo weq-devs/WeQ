@@ -149,6 +149,7 @@ function fixture() {
     onlineStatus: {
       getOnlineStatus: vi.fn(async () => null),
       editableStatuses: () => [{ value: 10, label: '在线' }],
+      confirmSelfStatus: vi.fn(async () => true),
     },
   };
   function read(input: QQWriteBinding) {
@@ -569,6 +570,19 @@ describe('QQ 写 IPC 边界', () => {
     expect(state.profile?.signature).toBe(self.signature);
     expect(state.status).toBeNull();
     expect(state.statusError).toBe('premature EOF');
+  });
+
+  it('本人状态读回不重发写请求，读回过程切换账号则丢弃结果', async () => {
+    const f = fixture();
+    const expected = { ...binding, status: 30, extStatus: 0 };
+    await expect(f.caller.selfStatusReadback(expected)).resolves.toBe(true);
+    expect(f.services.onlineStatus.confirmSelfStatus).toHaveBeenCalledWith(expected);
+    f.services.onlineStatus.confirmSelfStatus = async () => {
+      f.switchAccount();
+      return true;
+    };
+    await expect(f.caller.selfStatusReadback(expected)).rejects.toThrow(/切换/);
+    expect(f.services.accountWrite.onlineStatus).not.toHaveBeenCalled();
   });
 
   it('群昵称目标使用账号会话 UID，不依赖个人资料缓存已填充', async () => {

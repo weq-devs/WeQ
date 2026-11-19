@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { parseModelList } from '@weq/agentlab';
 import { DEFAULT_APP_SETTINGS, MAX_LOG_RETENTION_DAYS } from '../src/bootstrap/user_config';
 import {
   snapshotWeqSettings,
@@ -60,6 +61,20 @@ function settings() {
   value.mcp.token = 'synthetic-mcp-secret';
   return value;
 }
+
+it('有模型元数据、手动属性和请求时限的 API 备份可以重新导入', () => {
+  const source = settings();
+  const provider = source.agentLab.providers[0]!;
+  provider.timeoutMs = 120_000;
+  const [model] = parseModelList([
+    { id: 'synthetic-model', kind: 'chat', context_length: 8192, reasoning_levels: ['low'] },
+  ]);
+  provider.models[0] = { ...model!, overrides: { request: { temperatureSupported: false } } };
+  const api = JSON.parse(JSON.stringify(snapshotWeqApiSettings(source)));
+  expect(() => validateWeqApiSettings(api)).not.toThrow();
+  api.agentLab.providers[0].models[0].overrides.request.maxOutputTokens = 0;
+  expect(() => validateWeqApiSettings(api)).toThrow('maxOutputTokens');
+});
 
 it('应用设置与 API 分区独立，快照不改原值或夹带运行票据', () => {
   const source = settings();

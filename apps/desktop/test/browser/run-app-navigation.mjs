@@ -84,10 +84,11 @@ try {
           .innerHTML(),
         noticeIcon,
       );
-      await page
+      const noticeBack = page
         .getByRole('region', { name: '好友通知', exact: true })
-        .getByRole('button', { name: '返回', exact: true })
-        .click();
+        .getByRole('button', { name: '返回', exact: true });
+      if (single) await noticeBack.click();
+      else assert.equal(await noticeBack.count(), 0);
       for (const [label, target] of [
         ['QQ 空间', 'qzone'],
         ['QQ 邮箱', 'mail'],

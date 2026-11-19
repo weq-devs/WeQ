@@ -1,4 +1,5 @@
 import { EmptyState } from './EmptyState';
+import { NumericText } from './NumericText';
 import { useEffect, useRef, useState } from 'react';
 import { LocateFixed, RefreshCw, X, SearchX } from 'lucide-react';
 import { client } from '../trpc/client';
@@ -95,11 +96,9 @@ export function GroupFileMessageResults({
             >
               <LocateFixed size={16} />
               <span>
-                {
-                  <span className="weq-number weq-number-inherit">
-                    {formatFileTime(Number(message.sendTime)) || '发送时间未知'}
-                  </span>
-                }{' '}
+                <NumericText>
+                  {formatFileTime(Number(message.sendTime)) || '发送时间未知'}
+                </NumericText>{' '}
                 · 消息 <span className="weq-number weq-number-inherit">{message.msgSeq}</span>
               </span>
             </button>

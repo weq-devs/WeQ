@@ -22,6 +22,7 @@ export interface PreviewMedia {
   load?: (refresh?: boolean) => Promise<{ src: string; kind: 'image' | 'video' }>;
   saveSource?: MediaSaveSource | null;
   saveLabel?: string;
+  progressTarget?: string;
   ocr?: PreviewOcrContext | null;
   order?: { time: number; messageId: string; rawId?: string; element: number; sequence?: string };
 }

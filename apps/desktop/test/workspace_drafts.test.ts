@@ -32,6 +32,7 @@ vi.mock('../src/renderer/src/lib/notificationNavigation.shared', () => ({
 }));
 vi.mock('../src/renderer/src/lib/composerDraftMedia', () => ({
   composerAssetIds: () => new Set(),
+  removeUnusedComposerImages: vi.fn(),
   shareComposerImages: f.share,
 }));
 vi.mock('../src/renderer/src/lib/clientPreferences', async (importOriginal) => ({
@@ -141,6 +142,14 @@ it.each(['direct', 'group'] as const)(
     await c.render({ activeConversationId: row.id });
     await c.edit(row.id, '离开前的正文');
     await c.render({ activeConversationId: null });
+    expect(f.share).toHaveBeenCalledWith(
+      c.input.messageScope,
+      row.id,
+      '离开前的正文',
+      expect.any(Function),
+      undefined,
+      c.input.openedUin,
+    );
     expect(f.save).toHaveBeenCalledOnce();
     expect(f.save.mock.calls[0][0]).toMatchObject({
       ...c.input.binding,

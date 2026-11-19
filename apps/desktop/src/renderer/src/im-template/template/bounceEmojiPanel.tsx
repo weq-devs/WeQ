@@ -24,7 +24,7 @@
 import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useMemo, useState } from 'react';
 import type { RefObject } from 'react';
-import { Rocket, Search, SendHorizontal, Smile, Sparkles, X, SearchX } from 'lucide-react';
+import { SendHorizontal, Smile } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { formatBounceCount } from '../../lib/bounceCount';
 import { cn } from './classNames';
@@ -32,7 +32,8 @@ import { systemFaceItem } from './emojiPacks';
 import { BOUNCE_COUNT_MAX, type BounceEmojiDraft } from './bounceEmojiPanel.shared';
 
 /** 面板里的快捷数量。最后一条直接顶到 int32 上限，省得手敲十个数字。 */
-const COUNT_PRESETS: number[] = [1, 3, 10, 99, BOUNCE_COUNT_MAX];
+const COUNT_PRESETS = [1, 10, 99, 520, BOUNCE_COUNT_MAX];
+const countLabel = new Intl.NumberFormat('en-US');
 
 /** `[笑哭]` → `笑哭`：`name` 字段不带方括号。 */
 function bareFaceName(desc: string, faceId: string): string {
@@ -57,23 +58,24 @@ function parseCount(text: string): { count: number | null; error: string | null 
 
 export function BounceEmojiPanel({
   panelRef,
+  initialFace,
   disabled,
   disabledHint,
   onSend,
-  onClose,
 }: {
   panelRef?: RefObject<HTMLDivElement | null>;
+  initialFace?: { id: string; name: string };
   /** QQ 未在线 / 完全离线等：面板照常填，只是发不出去。 */
   disabled: boolean;
   disabledHint: string;
   onSend: (draft: BounceEmojiDraft) => void;
-  onClose: () => void;
 }) {
   const overview = trpc.account.emojiPanel.overview.useQuery(undefined, { staleTime: 30_000 });
-  const [pick, setPick] = useState<{ id: string; desc: string } | null>(null);
+  const [pick, setPick] = useState<{ id: string; desc: string } | null>(
+    initialFace ? { id: initialFace.id, desc: initialFace.name } : null,
+  );
   const [countText, setCountText] = useState('1');
   const [touched, setTouched] = useState(false);
-  const [query, setQuery] = useState('');
 
   /** 弹射只对系统表情有意义（字符表情没有图可弹），unicode 那些组整组排除。 */
   const groups = useMemo(
@@ -87,23 +89,6 @@ export function BounceEmojiPanel({
         .filter((group) => group.items.length > 0),
     [overview.data],
   );
-
-  const keyword = query.trim().toLowerCase();
-  const filtered = useMemo(() => {
-    if (!keyword) return groups;
-    return groups
-      .map((group) => ({
-        ...group,
-        // 表情名（`[笑哭]`）与分组名（`小黄脸表情`）都参与匹配 —— 想按分类翻的时候
-        // 不用一个个点。
-        items: group.items.filter(
-          (item) =>
-            item.desc.toLowerCase().includes(keyword) ||
-            group.label.toLowerCase().includes(keyword),
-        ),
-      }))
-      .filter((group) => group.items.length > 0);
-  }, [groups, keyword]);
 
   const firstItem = groups[0]?.items[0];
 
@@ -123,8 +108,6 @@ export function BounceEmojiPanel({
   const parsed = parseCount(countText);
   const name = pick ? bareFaceName(pick.desc, pick.id) : '';
   const canSend = Boolean(pick) && parsed.count !== null && !disabled;
-  const summary =
-    pick && parsed.count !== null ? `你弹射了${parsed.count}个[${name}]` : '选一枚表情、填个数量';
   const previewItem = pick ? systemFaceItem(pick.id, pick.desc) : null;
 
   /** 输入框只留数字，顺手卡在 10 位（int32 上限就是 10 位数）。 */
@@ -154,31 +137,14 @@ export function BounceEmojiPanel({
       role="dialog"
       aria-label="弹射表情"
     >
-      <header className={cn('bounce-head')}>
-        <span className={cn('bounce-head-title')}>
-          <Rocket size={14} strokeWidth={2.1} />
-          弹射表情
-        </span>
-        <span className={cn('bounce-head-tag')}>单独发送</span>
-        <button
-          type="button"
-          className={cn('bounce-close')}
-          title="关闭"
-          aria-label="关闭"
-          onClick={onClose}
-        >
-          <X size={15} strokeWidth={2.4} />
-        </button>
-      </header>
-
-      <div className={cn('bounce-body')}>
+      <div className="bounce-config">
         <div className={cn('bounce-stage')}>
-          <div className={cn('bounce-preview')} title={summary}>
+          <div className={cn('bounce-preview')}>
             {previewItem?.src ? (
               <img
                 className={cn('bounce-preview-face')}
                 src={previewItem.src}
-                alt={summary}
+                alt={previewItem.name}
                 draggable={false}
               />
             ) : (
@@ -197,175 +163,119 @@ export function BounceEmojiPanel({
             ) : null}
           </div>
 
-          <div className={cn('bounce-controls')}>
-            <span className={cn('bounce-label')}>
-              弹射个数
-              <em className={cn('bounce-range')}>
-                1 –{' '}
-                <span className="weq-number weq-number-inherit">
-                  {BOUNCE_COUNT_MAX.toLocaleString('en-US')}
-                </span>
-              </em>
-            </span>
-            <div className={cn('bounce-count-row')}>
+          <div className="bounce-presets">
+            {COUNT_PRESETS.map((value) => (
               <button
+                key={value}
                 type="button"
-                className={cn('bounce-step')}
-                title="减一个"
-                aria-label="减一个"
-                disabled={(parsed.count ?? 1) <= 1}
-                onClick={() => step(-1)}
-              >
-                −
-              </button>
-              <input
-                className={cn('bounce-input', touched && parsed.error && 'is-invalid')}
-                value={countText}
-                inputMode="numeric"
-                autoComplete="off"
-                spellCheck={false}
-                aria-label="弹射个数"
-                onChange={(event) => commit(event.target.value)}
-                onBlur={() => setTouched(true)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    submit();
-                  }
+                className={cn('bounce-preset', parsed.count === value && 'is-active')}
+                aria-pressed={parsed.count === value}
+                onClick={() => {
+                  setCountText(String(value));
+                  setTouched(true);
                 }}
-              />
-              <button
-                type="button"
-                className={cn('bounce-step')}
-                title="加一个"
-                aria-label="加一个"
-                disabled={(parsed.count ?? 0) >= BOUNCE_COUNT_MAX}
-                onClick={() => step(1)}
               >
-                +
+                {countLabel.format(value)}
               </button>
-            </div>
-            <div className={cn('bounce-presets')}>
-              {COUNT_PRESETS.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={cn('bounce-preset', parsed.count === value && 'is-active')}
-                  title={
-                    value === BOUNCE_COUNT_MAX
-                      ? `int32 上限 ${BOUNCE_COUNT_MAX.toLocaleString('en-US')}`
-                      : `弹射 ${value} 个`
-                  }
-                  onClick={() => {
-                    setCountText(String(value));
-                    setTouched(true);
-                  }}
-                >
-                  {value === BOUNCE_COUNT_MAX ? '最大' : value}
-                </button>
-              ))}
-            </div>
-            {touched && parsed.error ? (
-              <span className={cn('bounce-error')}>{parsed.error}</span>
-            ) : (
-              <span className={cn('bounce-summary')} title={summary}>
-                {pick && parsed.count !== null ? (
-                  <>
-                    你弹射了<span className="weq-number weq-number-inherit">{parsed.count}</span>个[
-                    {name}]
-                  </>
-                ) : (
-                  summary
-                )}
-              </span>
-            )}
+            ))}
           </div>
         </div>
 
-        <div className={cn('bounce-search')}>
-          <Search size={13} strokeWidth={2} />
+        <div className={cn('bounce-count-row')}>
+          <span className={cn('bounce-label')}>弹射个数</span>
+          <button
+            type="button"
+            className={cn('bounce-step')}
+            title="减一个"
+            aria-label="减一个"
+            disabled={(parsed.count ?? 1) <= 1}
+            onClick={() => step(-1)}
+          >
+            −
+          </button>
           <input
-            value={query}
-            placeholder="搜索表情名，如 笑哭"
-            aria-label="搜索系统表情"
+            className={cn('bounce-input', touched && parsed.error && 'is-invalid')}
+            value={countText}
+            inputMode="numeric"
             autoComplete="off"
             spellCheck={false}
-            onChange={(event) => setQuery(event.target.value)}
+            aria-label="弹射个数"
+            onChange={(event) => commit(event.target.value)}
+            onBlur={() => setTouched(true)}
+            onKeyDown={(event) => {
+              if (
+                event.key === 'Enter' &&
+                !event.nativeEvent.isComposing &&
+                event.nativeEvent.keyCode !== 229
+              ) {
+                event.preventDefault();
+                submit();
+              }
+            }}
           />
-          {query ? (
-            <button
-              type="button"
-              className={cn('bounce-search-clear')}
-              title="清空搜索"
-              aria-label="清空搜索"
-              onClick={() => setQuery('')}
-            >
-              <X size={12} strokeWidth={2.6} />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className={cn('bounce-step')}
+            title="加一个"
+            aria-label="加一个"
+            disabled={(parsed.count ?? 0) >= BOUNCE_COUNT_MAX}
+            onClick={() => step(1)}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className={cn('bounce-btn', 'primary')}
+            title={disabled ? disabledHint : (parsed.error ?? '发送弹射表情')}
+            disabled={!canSend}
+            onClick={submit}
+          >
+            <SendHorizontal size={13} strokeWidth={2.2} />
+            发射
+          </button>
         </div>
-
-        <div className={cn('bounce-picker')}>
-          {overview.isLoading && groups.length === 0 ? (
-            <div className={cn('bounce-state')}>加载中…</div>
-          ) : groups.length === 0 ? (
-            <EmptyState compact icon={<Smile />} title="这个账号还没有可用的系统表情" />
-          ) : filtered.length === 0 ? (
-            <EmptyState compact icon={<SearchX />} title={`没有匹配「${query.trim()}」的表情`} />
-          ) : (
-            filtered.map((group) => (
-              <section className={cn('bounce-group')} key={group.key}>
-                <h4>{group.label}</h4>
-                <div className={cn('bounce-grid')}>
-                  {group.items.map((item) => {
-                    const face = systemFaceItem(item.id, item.desc);
-                    const active = pick?.id === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className={cn('bounce-cell', active && 'is-active')}
-                        title={`${item.desc}（弹射）`}
-                        aria-pressed={active}
-                        onClick={() => setPick({ id: item.id, desc: item.desc })}
-                      >
-                        {face.src ? (
-                          <img src={face.src} alt={item.desc} draggable={false} />
-                        ) : (
-                          <Smile size={20} strokeWidth={1.4} />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            ))
-          )}
-        </div>
+        {touched && parsed.error ? (
+          <span className="bounce-error" role="status">
+            {parsed.error}
+          </span>
+        ) : null}
       </div>
 
-      <footer className={cn('bounce-foot')}>
-        <span className={cn('bounce-hint')}>
-          {disabled ? (
-            disabledHint
-          ) : (
-            <>
-              <Sparkles size={11} strokeWidth={2.2} />
-              单独发送，不带输入框里的文字
-            </>
-          )}
-        </span>
-        <button
-          type="button"
-          className={cn('bounce-btn', 'primary')}
-          title={disabled ? disabledHint : '发送弹射表情'}
-          disabled={!canSend}
-          onClick={submit}
-        >
-          <SendHorizontal size={13} strokeWidth={2.2} />
-          发射
-        </button>
-      </footer>
+      <div className={cn('bounce-picker')}>
+        {overview.isLoading && groups.length === 0 ? (
+          <div className={cn('bounce-state')}>加载中…</div>
+        ) : groups.length === 0 ? (
+          <EmptyState compact icon={<Smile />} title="这个账号还没有可用的系统表情" />
+        ) : (
+          groups.map((group) => (
+            <section className={cn('bounce-group')} key={group.key}>
+              <h4>{group.label}</h4>
+              <div className={cn('bounce-grid')}>
+                {group.items.map((item) => {
+                  const face = systemFaceItem(item.id, item.desc);
+                  const active = pick?.id === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={cn('bounce-cell', active && 'is-active')}
+                      title={`${item.desc}（弹射）`}
+                      aria-pressed={active}
+                      onClick={() => setPick({ id: item.id, desc: item.desc })}
+                    >
+                      {face.src ? (
+                        <img src={face.src} alt={item.desc} draggable={false} />
+                      ) : (
+                        <Smile size={20} strokeWidth={1.4} />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))
+        )}
+      </div>
     </div>
   );
 }

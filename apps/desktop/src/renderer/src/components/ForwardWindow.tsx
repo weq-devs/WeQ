@@ -3,7 +3,7 @@ import {
   Suspense,
   useCallback,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   type ReactElement,
@@ -24,6 +24,7 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { visibleViewport } from '../lib/visibleViewport';
 import { LoadingIndicator } from './LoadingIndicator';
 import { parseArkMultiMsg } from './ForwardWindow.shared';
+import type { ForwardActions } from './ForwardRecordList';
 
 export type { ForwardRecordWire } from '../state/forwardWindow';
 
@@ -101,7 +102,7 @@ function parseMultiMsgXml(xml: string): {
   //   - the occasional <hr> self-close mismatch.
   // We try strict XML first; if it produces no usable nodes we fall back to the
   // HTML parser, which is liberal enough to recover every shape we've seen.
-  const cleaned = xml.replace(/^�/, '').trim();
+  const cleaned = xml.replace(/^﻿/, '').trim();
 
   function extract(doc: Document): {
     titles: string[];
@@ -231,6 +232,9 @@ export function ForwardMultiMsgPreview({
   nestedRecords,
   msgId,
   kind,
+  elementIndex,
+  source,
+  parentRecord,
 }: {
   /** The raw multiMsg element data, or an Ark `com.tencent.multimsg` wrapper. */
   data: Record<string, unknown>;
@@ -240,6 +244,9 @@ export function ForwardMultiMsgPreview({
   msgId: string;
   /** Conversation kind so the lookup hits the right table. */
   kind: 'c2c' | 'group';
+  elementIndex?: number;
+  source?: Pick<NonNullable<ForwardWindowState['exportSource']>, 'owner' | 'carrierId'>;
+  parentRecord?: import('@weq/service').ForwardRecordTarget;
 }): ReactElement {
   const parsed = useMemo(() => parseForwardPreviewData(data), [data]);
   const titleText = useMemo(() => clampPreviewText(parsed.mainTitle, 36), [parsed.mainTitle]);
@@ -258,6 +265,22 @@ export function ForwardMultiMsgPreview({
 
   const open = useCallback(
     (anchor: HTMLElement) => {
+      const card = elementIndex === undefined ? undefined : { elementIndex, resId };
+      const parent = useForwardStore
+        .getState()
+        .windows.find((item) => item.id === parentId)?.exportSource;
+      const exportSource =
+        card && parent && parentRecord
+          ? {
+              ...parent,
+              card: {
+                ...parent.card,
+                path: [...(parent.card.path ?? []), { ...card, record: parentRecord }],
+              },
+            }
+          : card && source && !parentId
+            ? { ...source, card }
+            : undefined;
       openForwardWindow({
         parentId,
         anchor: anchor.getBoundingClientRect(),
@@ -266,11 +289,25 @@ export function ForwardMultiMsgPreview({
         conv,
         msgId,
         rootMsgId: carrier?.msgId || msgId,
+        exportSource,
         records: nestedRecords && nestedRecords.length > 0 ? nestedRecords : undefined,
         ...(resId ? { resId } : {}),
       });
     },
-    [kind, conv, carrier, msgId, nestedRecords, parsed.mainTitle, parsed.source, resId, parentId],
+    [
+      kind,
+      conv,
+      carrier,
+      msgId,
+      nestedRecords,
+      parsed.mainTitle,
+      parsed.source,
+      resId,
+      parentId,
+      elementIndex,
+      source,
+      parentRecord,
+    ],
   );
 
   return (
@@ -278,6 +315,7 @@ export function ForwardMultiMsgPreview({
       type="button"
       className="weq-forward-preview"
       data-forward-res-id={resId}
+      data-forward-element-index={elementIndex}
       onClick={(event) => open(event.currentTarget)}
       title="查看合并转发"
     >
@@ -301,17 +339,17 @@ export function ForwardMultiMsgPreview({
 }
 
 /** 宿主与请求状态常驻，窗口正文只在首次打开时加载。 */
-export function ForwardWindowHost(): ReactElement | null {
+export function ForwardWindowHost({ actions }: { actions?: ForwardActions }): ReactElement | null {
   const windows = useForwardStore((s) => s.windows);
   const revision = useForwardStore((s) => s.zTop);
   const { layer, scope } = useOverlayLayerScope(windows.length > 0, revision);
-  useEffect(() => () => useForwardStore.setState({ windows: [] }), []);
+  useLayoutEffect(() => () => useForwardStore.setState({ windows: [] }), []);
   if (typeof document === 'undefined' || windows.length === 0) return null;
   return createPortal(
     <div className="weq-forward-layer" style={{ zIndex: layer }} aria-live="polite">
       <OverlayLayerContext.Provider value={scope}>
         <Suspense fallback={windows.map((win) => <PendingWindow key={win.id} win={win} />)}>
-          <Content windows={windows} />
+          <Content windows={windows} actions={actions} />
         </Suspense>
       </OverlayLayerContext.Provider>
     </div>,

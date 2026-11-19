@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MsgService } from '@weq/service';
+import {
+  DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+} from '@weq/agentlab/model-metadata';
 import { startAnalyticsSave } from '../src/main/analytics_save';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import type { AnalyticsExportPayload } from '../src/shared/analytics_export';
@@ -19,6 +23,7 @@ const state = vi.hoisted(() => ({
   afterPick: null as (() => void) | null,
   record: vi.fn(),
 }));
+const chatModel = { providerId: 'fixture-provider', model: 'chat' };
 vi.mock('../src/main/context/app_context', () => {
   const bootstrap = () => ({
     userConfig: {
@@ -32,7 +37,17 @@ vi.mock('../src/main/context/app_context', () => {
       }),
     },
     agentLabConfig: {
-      resolveModels: () => ({}),
+      resolveModels: () => ({ chat: chatModel }),
+      getModelTokenDefaults: () => ({
+        contextWindowTokens: DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+        maxOutputTokens: DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+      }),
+      getProvider: () => ({
+        id: chatModel.providerId,
+        baseUrl: 'https://synthetic.invalid',
+        apiKey: '',
+        models: [{ id: chatModel.model, overrides: { request: { contextWindowTokens: 192_000 } } }],
+      }),
     },
   });
   return {
@@ -94,7 +109,7 @@ beforeEach(() => {
     agentLab: {
       assetRoot: root,
       getPersonaRecord: () => ({
-        persona: { id: botRequest.personaId, name: '合成克隆', models: {} },
+        persona: { id: botRequest.personaId, name: '合成克隆', models: { chat: chatModel } },
         pairs: [],
       }),
       recordExport: state.record,
@@ -179,6 +194,15 @@ it('机器人整包进入公共任务，原打包器产物和运行配置均保�
   const config = JSON.parse(readFileSync(join(task.save!.path!, 'files', 'config.json'), 'utf8'));
   expect(config.adapter.wsUrl).toBe(botRequest.wsUrl);
   expect(config.selfId).toBe(botRequest.selfId);
+  expect(config.llmProviders[0].modelProperties).toEqual([
+    {
+      id: chatModel.model,
+      requestProperties: {
+        contextWindowTokens: 192_000,
+        maxOutputTokens: DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+      },
+    },
+  ]);
   expect(state.record).toHaveBeenCalledWith(
     botRequest.personaId,
     expect.objectContaining({ taskId: result.taskId, id: config.webui.id }),

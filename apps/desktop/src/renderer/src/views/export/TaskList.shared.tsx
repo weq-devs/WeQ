@@ -11,7 +11,17 @@
  */
 
 import type { ReactElement } from 'react';
-import { Bookmark, Contact, Globe, FolderOpen, Sticker, Users, UserRound } from 'lucide-react';
+import {
+  Bookmark,
+  Contact,
+  Globe,
+  FolderOpen,
+  Sticker,
+  Users,
+  UserRound,
+  MessagesSquare,
+} from 'lucide-react';
+import { exportTaskDisplay, taskDisplayTitle, type TaskDisplay } from '@weq/service/task-display';
 import '../../styles/chat-export-continuation.css';
 
 export type StageStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'failed';
@@ -58,6 +68,8 @@ export const SKIPPABLE_STAGE_KEYS = [
 ] as const;
 
 export interface UiTask {
+  display?: TaskDisplay;
+  createdAt?: number;
   databaseRecovery?: import('@weq/service').ExportTask['databaseRecovery'];
   databaseRecoveryRecords?: import('@weq/service').ExportTask['databaseRecoveryRecords'];
   networkPaused?: boolean;
@@ -74,7 +86,7 @@ export interface UiTask {
   resumeMode?: 'checkpoint' | 'restart';
   reportPath?: string;
   id: string;
-  kind: 'group' | 'c2c';
+  kind: import('@weq/service').ExportTask['kind'];
   name: string;
   format: string;
   /** 多格式导出（同一任务多文件；缺省 = [format]）。 */
@@ -151,32 +163,41 @@ export function taskPct(t: UiTask): number {
 
 /** 任务类型标签（卡片 title / 详情 meta）。 */
 export function taskTypeLabel(t: UiTask): string {
-  if (t.resourceOnly) return '资源导出';
-  if (t.resource?.kind === 'database') return '数据库明文导出';
-  if (t.resource?.kind === 'assistant-artifact') return '助手报告保存';
-  if (t.resource?.kind === 'market-image') return '商城单张表情保存';
-  if (t.resource?.kind === 'mail-attachment') return '邮件附件保存';
-  if (t.resource?.kind === 'mail-messages') return '邮件导出';
-  if (t.resource?.kind === 'decoration') return '装扮资源保存';
-  if (t.resource?.kind === 'qzone-albums') return '空间相册导出';
-  if (t.resource?.kind === 'favorite-emoji') return '收藏表情导出';
-  if (t.resource?.kind === 'annual-report') return '年度报告导出';
-  if (t.resource?.kind === 'analytics-report') return '分析长图导出';
-  if (t.resource?.kind === 'persona-bot') return '克隆体机器人导出';
-  if (t.resource?.kind === 'media') return '媒体文件保存';
-  if (t.resource) return t.resource.kind === 'group-albums' ? '群相册导出' : '群文件导出';
-  if (t.isMarketPack) return '商城表情下载';
-  if (t.isEmojiPack) return '导出表情包';
-  if (t.isQzone) return 'QQ 空间导出';
-  if (t.isContacts) return '联系人导出';
-  if (t.isCollection) return '收藏导出';
-  if (t.isGuild) return '消息导出 · 频道私聊';
-  if (t.isGenerated) return '本地生成对话导出';
-  return t.kind === 'group' ? '消息导出 · 群聊' : '消息导出 · 私聊';
+  if (t.display?.category) return t.display.category;
+  if (t.resourceOnly) return '聊天资源';
+  if (t.resource?.kind === 'database') return '明文数据库';
+  if (t.resource?.kind === 'assistant-artifact') return '助手报告';
+  if (t.resource?.kind === 'market-image') return '商城单张表情';
+  if (t.resource?.kind === 'mail-attachment') return '邮件附件';
+  if (t.resource?.kind === 'mail-messages') return '邮件';
+  if (t.resource?.kind === 'decoration') return '装扮素材';
+  if (t.resource?.kind === 'qzone-albums') return 'QQ 空间相册';
+  if (t.resource?.kind === 'favorite-emoji') return '收藏表情';
+  if (t.resource?.kind === 'annual-report') return '年度报告';
+  if (t.resource?.kind === 'analytics-report') return '分析长图';
+  if (t.resource?.kind === 'persona-bot') return '克隆机器人';
+  if (t.resource?.kind === 'media') return '媒体文件';
+  if (t.resource?.kind === 'composition') return '合成聊天记录';
+  if (t.resource?.kind === 'group-albums') return '群相册';
+  if (t.resource?.kind === 'group-files') return '群文件';
+  if (t.resource) return '资源';
+  if (t.isMarketPack) return '商城表情包';
+  if (t.isEmojiPack) return '表情图片';
+  if (t.isQzone) return 'QQ 空间';
+  if (t.isContacts) return '联系人名单';
+  if (t.isCollection) return '收藏';
+  if (t.isGuild) return '频道私聊';
+  if (t.isGenerated) return '本地生成对话';
+  return { group: '群聊', c2c: '私聊', official: '官方号', service: '服务号' }[t.kind] ?? '会话';
+}
+
+export function taskTitle(t: UiTask): string {
+  return taskDisplayTitle(exportTaskDisplay(t));
 }
 
 /** 任务类型图标（消息 / 联系人 / QQ 空间 / 收藏 / 商城表情）。 */
 export function taskIcon(t: UiTask): ReactElement {
+  if (t.resource?.kind === 'composition') return <MessagesSquare size={15} />;
   if (t.resource) return <FolderOpen size={15} />;
   if (t.isMarketPack) return <Sticker size={15} />;
   if (t.isEmojiPack) return <Sticker size={15} />;

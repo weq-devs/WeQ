@@ -2,7 +2,6 @@ body.weq-capture-window-body {
   margin: 0;
   overflow: hidden;
   color: var(--weq-fg-primary);
-  background: var(--weq-chat-bg, var(--weq-bg-surface));
 }
 .weq-capture-window-surface,
 .weq-capture-native {
@@ -39,7 +38,8 @@ body.weq-capture-window-body {
   min-width: 0;
   overflow: hidden;
 }
-.weq-capture-window-content > .weq-cap {
+body.weq-capture-window-body .weq-capture-window-content > .weq-cap {
+  --cap-bg: var(--background);
   flex: 1;
   min-width: 0;
 }

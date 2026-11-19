@@ -3,9 +3,14 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SavedAnalysisBody } from '../src/renderer/src/views/analysis/SavedAnalysisBody';
 import type { SavedAnalysisReport } from '../../../packages/service/src/account/analysis_reports';
+import { chooseFormOption, formOptions, formSelectSelector } from './support/form-controls';
 const f = vi.hoisted(() => ({
   saved: null as SavedAnalysisReport | null,
-  versions: [] as Array<{ resultRevision: number }>,
+  versions: [] as Array<{
+    resultRevision: number;
+    request: SavedAnalysisReport['request'];
+    updatedAt: number;
+  }>,
   create: vi.fn(async () => undefined),
   cancel: vi.fn(async () => undefined),
   resume: vi.fn(async () => undefined),
@@ -74,32 +79,35 @@ it('只有一个结果时隐藏版本控件，多版本不重复最新项，加�
     position: 0,
     updatedAt: 1,
   };
-  f.versions = [{ resultRevision: 1 }];
+  f.versions = [{ resultRevision: 1, request, updatedAt: 1 }];
   const host = document.createElement('div');
+  document.body.append(host);
   const root = createRoot(host);
   const render = () => root.render(createElement(SavedAnalysisBody, { request, onClose() {} }));
   try {
     await act(async () => render());
-    expect(host.querySelector('select')).toBeNull();
+    expect(host.querySelector(formSelectSelector)).toBeNull();
     f.saved = { ...f.saved, revision: 2, resultRevision: 2 };
-    f.versions = [{ resultRevision: 2 }, { resultRevision: 1 }];
+    f.versions = [
+      { resultRevision: 2, request, updatedAt: 2 },
+      { resultRevision: 1, request, updatedAt: 1 },
+    ];
     await act(async () => render());
-    const select = host.querySelector('select')!;
-    expect(select.classList.contains('weq-saved-analysis-version')).toBe(true);
-    expect([...select.options].map((option) => option.value)).toEqual(['0', '1']);
+    const select = host.querySelector<HTMLButtonElement>(formSelectSelector)!;
+    expect(formOptions(select).map((option) => option.value)).toEqual(['0', '1']);
     await act(async () => {
-      select.value = '1';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(select, '1');
     });
     expect(host.textContent).toContain('已保存图表');
     expect(f.body).toHaveBeenLastCalledWith(expect.objectContaining({ initialData: { count: 7 } }));
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="重新分析"]')!.click(),
     );
-    expect(select.value).toBe('0');
+    expect(select.dataset.value).toBe('0');
     expect(f.resume).toHaveBeenCalledWith(expect.objectContaining({ refresh: true }));
   } finally {
     await act(async () => root.unmount());
+    host.remove();
   }
 });
 it('展示保存结果，刷新失败仍传旧结果给图表，关闭面板不取消运行任务', async () => {
@@ -121,6 +129,7 @@ it('展示保存结果，刷新失败仍传旧结果给图表，关闭面板不�
     logs: [],
     revision: 2,
     resultRevision: 1,
+    resultRequest: request,
     position: 100,
     updatedAt: 1,
   };
@@ -130,10 +139,21 @@ it('展示保存结果，刷新失败仍传旧结果给图表，关闭面板不�
     await act(async () => root.render(createElement(SavedAnalysisBody, { request, onClose() {} })));
     expect(host.textContent).toContain('正在分析');
     expect(f.body).toHaveBeenLastCalledWith(expect.objectContaining({ initialData: { count: 7 } }));
-    f.saved = { ...f.saved, status: 'failed', error: '读取失败' };
+    f.saved = {
+      ...f.saved,
+      status: 'failed',
+      error: '读取失败',
+      request: {
+        ...request,
+        scope: { ...request.scope, startTime: 1793462400, endTime: 1793548799 },
+      },
+    };
     await act(async () => root.render(createElement(SavedAnalysisBody, { request, onClose() {} })));
     expect(host.textContent).toContain('读取失败');
     expect(f.body).toHaveBeenLastCalledWith(expect.objectContaining({ initialData: { count: 7 } }));
+    expect(f.body).toHaveBeenLastCalledWith(expect.objectContaining({ scope: request.scope }));
+    expect(host.textContent).toContain('结果范围：全部本地历史');
+    expect(host.textContent).toContain('本次分析范围：2026-11-01 至 2026-11-01');
     expect(f.resume).not.toHaveBeenCalled();
   } finally {
     await act(async () => root.unmount());

@@ -19,7 +19,7 @@
 import type { ReactElement, ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import { memo, useMemo } from 'react';
 import { recordMessageCounter } from '../../lib/messagePerformance';
-import { Check } from 'lucide-react';
+import { MessageSelectionMark } from '../../components/MessageSelectionMark';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { MessageBubble } from './messageBubble';
 import type { MessageRenderer } from './messageRenderers';
@@ -47,11 +47,13 @@ export function GrayTipLine({
   conversation,
   message,
   user,
+  onReedit,
 }: {
   gt: GrayTipMatch;
   conversation?: Conversation;
   message?: Message;
   user?: User;
+  onReedit?: (message: Message) => Promise<boolean>;
 }): ReactElement | null {
   switch (gt.kind) {
     case 'grayTipPoke':
@@ -70,6 +72,7 @@ export function GrayTipLine({
           conversation={conversation as never}
           message={message as never}
           user={user}
+          onReedit={onReedit}
         />
       );
     case 'grayTipGroup':
@@ -215,6 +218,7 @@ export const MessageRow = memo(function MessageRow({
         className={[
           grayTipClassName,
           'weq-system-message-row',
+          'weq-message-selectable',
           selectionMode ? 'selection-mode' : '',
           selected ? 'is-selected' : '',
         ]
@@ -234,13 +238,15 @@ export const MessageRow = memo(function MessageRow({
             : undefined
         }
       >
-        {selectionMode ? (
-          <span className="message-select-mark" aria-hidden>
-            {selected ? <Check size={13} /> : null}
-          </span>
-        ) : null}
+        {selectionMode ? <MessageSelectionMark selected={selected} /> : null}
         <SystemMessageContent message={message}>
-          <GrayTipLine gt={gt} conversation={conversation} message={message} user={user} />
+          <GrayTipLine
+            gt={gt}
+            conversation={conversation}
+            message={message}
+            user={user}
+            onReedit={selectionMode ? undefined : onReedit}
+          />
         </SystemMessageContent>
       </div>
     );

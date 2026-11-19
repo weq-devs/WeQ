@@ -58,6 +58,7 @@ import { registerUdpCaptureStorage } from './udp_capture_register';
 import { getAppContext, accountEventBus } from './context/app_context';
 import { installDesktopNetwork } from './network';
 import { configureReleaseFeeds } from './update/release_feed';
+import { desktopAnnouncementPlatform, startAnnouncements } from './announcements';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
@@ -99,7 +100,12 @@ import {
 } from './app_quit_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
-import { installPerformanceMonitor, type PerformanceMonitor } from '@weq/service/performance';
+import {
+  finishPerformanceRecordingReset,
+  installPerformanceMonitor,
+  type PerformanceMonitor,
+} from '@weq/service/performance';
+import { getBackupContext } from './context/backup_context';
 import { createDesktopCollector } from './performance_monitor';
 import { performanceDatabaseDetails } from './performance_database';
 import { databaseCheckups } from './db_checkup';
@@ -118,6 +124,7 @@ import { backgroundServicesRunning } from './background_services';
 import { registerElevationIpc } from './elevation_ipc';
 import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
+  flushFileLogger,
   getLogDir,
   getLogger,
   configureDevelopmentLogging,
@@ -751,7 +758,7 @@ function createWindow(
               detail:
                 '放弃本次扫描结果并关闭窗口，将停止检查、释放全部目标数据库的维护锁。历史报告继续保留。',
               buttons: ['继续维护', '放弃并关闭'],
-              defaultId: 0,
+              defaultId: 1,
               cancelId: 0,
               noLink: true,
             })
@@ -829,10 +836,6 @@ void app.whenReady().then(async () => {
     arch: process.arch,
   });
   if (!hasSingleInstanceLock) return;
-  if (process.platform === 'darwin' && !app.isPackaged) {
-    const icon = resolveWindowIcon();
-    if (icon) app.dock?.setIcon(icon);
-  }
   const autostart =
     app.isPackaged &&
     isAutostartLaunch(
@@ -871,8 +874,20 @@ void app.whenReady().then(async () => {
     })
     .catch(() => undefined);
   const userConfig = getAppContext().bootstrap?.userConfig;
-  configureReleaseFeeds(userConfig?.appDataRoot() ?? app.getPath('userData'));
+  const updateDataRoot = userConfig?.appDataRoot() ?? app.getPath('userData');
+  configureReleaseFeeds(updateDataRoot);
+  app.once(
+    'will-quit',
+    startAnnouncements({
+      dataRoot: updateDataRoot,
+      platform: desktopAnnouncementPlatform(process.platform),
+      version: app.getVersion(),
+      bannerEnabled: () =>
+        userConfig?.getSettings().notificationEvents.officialAnnouncement.banner ?? true,
+    }),
+  );
   installUpdateActions({
+    dataRoot: updateDataRoot,
     getInterval: () => userConfig?.getSettings().updateCheckIntervalMinutes ?? 60,
     setInterval: (minutes) => {
       if (!userConfig) throw new Error('配置尚未准备好，请稍后重试');
@@ -967,6 +982,11 @@ void app.whenReady().then(async () => {
         (kind, reason) => performanceMonitor?.recordEvent(kind, reason),
       ),
     );
+    const files = getBackupContext();
+    if (files.ok)
+      void finishPerformanceRecordingReset(files.config).catch((error: unknown) =>
+        logger.warn('恢复性能记录档位未完成', { error: String(error) }),
+      );
   }
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。
@@ -1021,7 +1041,7 @@ void app.whenReady().then(async () => {
           title: '存在未保存的更改',
           message: '放弃此窗口中未保存的更改？',
           buttons: ['继续编辑', '放弃更改'],
-          defaultId: 0,
+          defaultId: 1,
           cancelId: 0,
           noLink: true,
         }) === 1,
@@ -1078,7 +1098,10 @@ void app.whenReady().then(async () => {
   // dot. Deferred so it never competes with first paint; failures are ignored.
   startAutomaticUpdateChecks();
 
-  app.on('activate', openMainWindow);
+  app.on('activate', (_event, hasVisibleWindows) => {
+    // 已有可见窗口时由 macOS 恢复窗口顺序，不让主窗口盖过工具窗口。
+    if (!hasVisibleWindows) openMainWindow();
+  });
 });
 
 app.on('window-all-closed', () => {
@@ -1099,7 +1122,7 @@ guardDatabaseMaintenanceQuit(app, {
       detail:
         '停止尚未提交的临时重建，不再启动后续数据库；已经修复成功的库保持不变，并保留本轮报告。',
       buttons: ['继续修复', '停止修复并退出'],
-      defaultId: 0,
+      defaultId: 1,
       cancelId: 0,
       noLink: true,
     };
@@ -1136,13 +1159,18 @@ if (hasSingleInstanceLock) {
   registerAppQuitCleanup(
     app,
     async () => {
-      await Promise.all([
-        flushConversationCalendarResults(),
-        databaseCheckups.cancelAll(),
-        databaseMaintenance.shutdown(),
-        assistantResourceServer.shutdown(),
-        getAppContext().services?.unreadInfo.dispose(),
-      ]);
+      logger.info('app quit cleanup started', { event: 'app-quit-cleanup-start' });
+      try {
+        await Promise.all([
+          flushConversationCalendarResults(),
+          databaseCheckups.cancelAll(),
+          databaseMaintenance.shutdown(),
+          assistantResourceServer.shutdown(),
+          getAppContext().services?.unreadInfo.dispose(),
+        ]);
+      } finally {
+        await flushFileLogger();
+      }
     },
     (error) => {
       logger.warn('failed to stop assistant resources on quit', {

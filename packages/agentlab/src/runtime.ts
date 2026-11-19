@@ -37,7 +37,7 @@ import type {
 } from './types';
 import { isStickerUsable } from './sticker';
 import { assertEmbeddingModelIdentity } from './model_selection';
-import { normalizeCloneGeneration } from './generation';
+import { ConversationContextCompactor } from './conversation_context';
 import type { AiImagePort, AiImageRef, AiImageOutcome } from './images';
 
 /**
@@ -170,6 +170,7 @@ const REFLECT_EVERY = 8;
 const MIN_UNREFLECTED = 4;
 
 export class AgentRuntime {
+  private readonly contextCompactor = new ConversationContextCompactor();
   private readonly images?: AiImagePort;
   private readonly lifecycle = new AbortController();
   private readonly externalSignal?: AbortSignal;
@@ -453,6 +454,7 @@ export class AgentRuntime {
       chatEndpoint: AgentLabEndpoint;
       embeddingEndpoint: AgentLabEndpoint | null;
       history: AgentLabChatTurn[];
+      historyScope?: string;
       input: string;
       images?: AiImageRef[];
       now: number;
@@ -475,23 +477,34 @@ export class AgentRuntime {
         }
       : null;
     const voiceEnabled = this.isVoiceReady(persona);
-    let prepared = await this.images?.prepare({
+    const prepared = await this.images?.prepare({
       feature: 'cloneChat',
       personaId: persona.id,
       text: opts.input,
       images: opts.images,
-      endpoint: chatEndpoint,
-      direct: true,
       signal,
     });
-    const history: AgentLabChatTurn[] = [];
-    const historyCount = normalizeCloneGeneration(persona.generation).historyMessages;
-    for (const turn of historyCount === 0 ? [] : opts.history.slice(-historyCount))
-      history.push(
-        turn.images?.length && this.images
-          ? {
-              ...turn,
-              text: (
+    const result = await runPersonaChat(
+      chatEndpoint,
+      embeddingEndpoint,
+      {
+        persona,
+        pairs,
+        history: opts.history,
+        input: prepared?.text ?? opts.input,
+        memories: opts.memories ?? this.memories.get(opts.dataKey ?? persona.id),
+        notes: this.notes.get(opts.dataKey ?? persona.id),
+        voiceEnabled,
+        typoIntensity: resolveTypoIntensity(persona.typo),
+        relationNote: opts.relationNote,
+        replyReason: opts.replyReason,
+      },
+      {
+        compactor: this.contextCompactor,
+        scope: opts.historyScope,
+        prepareHistory: async (turn) =>
+          turn.images?.length && this.images
+            ? (
                 await this.images.prepare({
                   feature: 'cloneChat',
                   personaId: persona.id,
@@ -499,37 +512,10 @@ export class AgentRuntime {
                   images: turn.images,
                   signal,
                 })
-              ).text,
-            }
-          : turn,
-      );
-    const result = await runPersonaChat(chatEndpoint, embeddingEndpoint, {
-      persona,
-      pairs,
-      history,
-      input: prepared?.text ?? opts.input,
-      inputContent: prepared?.content,
-      fallbackImageInput: prepared?.outcomes.some((outcome) => outcome.status === 'direct')
-        ? async () => {
-            prepared = await this.images!.prepare({
-              feature: 'cloneChat',
-              text: opts.input,
-              images: prepared?.images ?? opts.images,
-              signal,
-              forceOcr: true,
-            });
-            for (const outcome of prepared.outcomes)
-              outcome.notes.unshift('视觉请求失败，本次已回退 OCR。');
-            return prepared.text;
-          }
-        : undefined,
-      memories: opts.memories ?? this.memories.get(opts.dataKey ?? persona.id),
-      notes: this.notes.get(opts.dataKey ?? persona.id),
-      voiceEnabled,
-      typoIntensity: resolveTypoIntensity(persona.typo),
-      relationNote: opts.relationNote,
-      replyReason: opts.replyReason,
-    });
+              ).text
+            : turn.text,
+      },
+    );
     signal.throwIfAborted();
     result.imageOutcomes = prepared?.outcomes;
     result.imageRefs = prepared?.images;
@@ -591,6 +577,13 @@ export class AgentRuntime {
     /** 仅由受信任的传输层提供；Bot 必传，桌面缺省兼容旧单用户作用域。 */
     privatePeerId?: string;
     signal?: AbortSignal;
+    /** 桌面实时对话已先保存用户消息，由宿主逐段交付回复。 */
+    live?: {
+      gateText: string;
+      onTyping: () => void;
+      deliver: (turns: ConversationTurnLike[], delayMs: number) => Promise<void>;
+      onImageOutcomes: (outcomes: AiImageOutcome[]) => void;
+    };
   }) {
     const record = this.store.getPersona(input.personaId);
     if (!record) throw new Error('找不到 persona');
@@ -612,7 +605,7 @@ export class AgentRuntime {
     const willing = record.persona.willing;
     if (willing?.gatePrivate) {
       const decision = scoreReplyGate({
-        text: input.text,
+        text: input.live?.gateText ?? input.text,
         personaName: record.persona.name,
         fromOwner: true,
         interestTerms: this.personaInterestTerms(record.persona),
@@ -622,9 +615,10 @@ export class AgentRuntime {
       });
       if (!decision.shouldReply) {
         const ts = Date.now();
-        this.conversations.append(bucket, [
-          { role: 'user', text: input.text, ts, images: input.images },
-        ]);
+        if (!input.live)
+          this.conversations.append(bucket, [
+            { role: 'user', text: input.text, ts, images: input.images },
+          ]);
         return {
           text: '',
           segments: [],
@@ -641,6 +635,7 @@ export class AgentRuntime {
       }
     }
 
+    input.live?.onTyping();
     const now = Date.now();
     const { result, renderedTurns } = await this.generatePersonaTurns(
       record.persona,
@@ -648,7 +643,9 @@ export class AgentRuntime {
       {
         chatEndpoint,
         embeddingEndpoint,
-        history: input.history.length ? input.history : this.conversations.get(bucket),
+        history:
+          input.live || input.history.length ? input.history : this.conversations.get(bucket),
+        historyScope: bucket,
         input: input.text,
         images: input.images,
         now,
@@ -663,17 +660,21 @@ export class AgentRuntime {
       text,
       ts: now,
     }));
-    this.conversations.append(bucket, [
-      {
-        role: 'user',
-        text: input.text,
-        ts: now,
-        ...(input.images?.length
-          ? { images: result.imageRefs ?? input.images, imageOutcomes: result.imageOutcomes }
-          : {}),
-      },
-      ...assistantTurns,
-    ]);
+    if (input.live) {
+      if (result.imageOutcomes) input.live.onImageOutcomes(result.imageOutcomes);
+      await input.live.deliver(assistantTurns, result.replyDelayMs);
+    } else
+      this.conversations.append(bucket, [
+        {
+          role: 'user',
+          text: input.text,
+          ts: now,
+          ...(input.images?.length
+            ? { images: result.imageRefs ?? input.images, imageOutcomes: result.imageOutcomes }
+            : {}),
+        },
+        ...assistantTurns,
+      ]);
 
     // 每隔若干轮，从最近对话蒸馏记忆 + 反思扮演效果（都不阻塞本次回复）。
     this.startBackground(
@@ -922,6 +923,7 @@ export class AgentRuntime {
       chatEndpoint,
       embeddingEndpoint,
       history: input.history,
+      historyScope: input.groupId === undefined ? undefined : dataKey,
       input: `「${input.senderName}」：${input.text}`,
       now,
       relationNote,

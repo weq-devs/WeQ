@@ -54,6 +54,8 @@ interface Session {
   abort?: AbortController;
   pending?: Promise<DatabaseMaintenanceSnapshot>;
   lastSaved: number;
+  lastPublished: number;
+  publishTimer?: ReturnType<typeof setTimeout>;
   preparation?: DatabaseProgressTracker;
   finalizedReportId?: string;
   ending?: Promise<void>;
@@ -62,11 +64,19 @@ interface Session {
 const keyFor = (scope: DatabaseMaintenanceScope) =>
   JSON.stringify([scope.uin, scope.configId ?? null]);
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const progressPublishIntervalMs = 1000;
 
 /** 维护的生命周期属于宿主，不属于窗口；每次执行各自留一份不可覆盖的历史结果。 */
 export class DatabaseMaintenance {
   private readonly sessions = new Map<string, Session>();
   constructor(private readonly deps: DatabaseMaintenanceDeps) {}
+
+  leaseId(scope: DatabaseMaintenanceScope): string | undefined {
+    const session = this.sessions.get(keyFor(scope));
+    return session?.snapshot.locked && !session.lease?.signal?.aborted
+      ? session.lease?.id
+      : undefined;
+  }
 
   current(scope: DatabaseMaintenanceScope): DatabaseMaintenanceSnapshot | null {
     const session = this.sessions.get(keyFor(scope));
@@ -156,6 +166,7 @@ export class DatabaseMaintenance {
         },
         targets,
         lastSaved: 0,
+        lastPublished: 0,
         unsavedReports: session?.unsavedReports ?? new Map(),
       };
       this.sessions.set(keyFor(scope), session);
@@ -497,7 +508,7 @@ export class DatabaseMaintenance {
     if (session.pending) {
       session.snapshot.operation!.stopping = true;
       session.abort!.abort(new DOMException('已停止数据库维护操作。', 'AbortError'));
-      this.publish(session);
+      this.publish(session, true);
       await session.pending;
     }
     return this.current(scope);
@@ -593,7 +604,17 @@ export class DatabaseMaintenance {
     tick: DatabaseWorkProgress,
   ) {
     row.progress = tracker.update(phase, tick);
-    this.publish(session);
+    session.snapshot.progress = row.progress;
+    // 进度管道只更新内存；完整扫描明细的复制、保存与广播留到有界回调中。
+    if (session.publishTimer !== undefined) return;
+    session.publishTimer = setTimeout(
+      () => {
+        session.publishTimer = undefined;
+        this.publish(session);
+      },
+      Math.max(0, progressPublishIntervalMs - (Date.now() - session.lastPublished)),
+    );
+    session.publishTimer.unref();
   }
   private countCompleted(session: Session) {
     const op = session.snapshot.operation!;
@@ -632,6 +653,9 @@ export class DatabaseMaintenance {
     this.countCompleted(session);
   }
   private publish(session: Session, force = false) {
+    clearTimeout(session.publishTimer);
+    session.publishTimer = undefined;
+    session.lastPublished = Date.now();
     if (session.ending) session.snapshot.state = 'ending';
     const op = session.snapshot.operation;
     const row = op?.currentDb
@@ -654,7 +678,7 @@ export class DatabaseMaintenance {
         session.snapshot.databases.some((item) => item.scanStatus === 'completed') ||
         (op.status !== 'running' && op.status !== 'cancelled')) &&
       session.finalizedReportId !== op.id &&
-      (force || Date.now() - session.lastSaved >= 500)
+      (force || Date.now() - session.lastSaved >= 2000)
     ) {
       session.unsavedReports.set(
         op.id,

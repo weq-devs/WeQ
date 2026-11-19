@@ -103,7 +103,6 @@ function ContactProfilePage({
                         kind: 'c2c',
                         conv: person.uid || person.id,
                         title: person.nick || person.displayName,
-                        contact: person,
                       }
                     : undefined
                 }

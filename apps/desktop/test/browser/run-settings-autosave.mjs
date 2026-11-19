@@ -66,7 +66,7 @@ try {
   assert.equal(await page.evaluate(() => window.autosaveQa.calls.length), 1);
   await input.fill('14');
   await input.press('Enter');
-  await page.getByText('已保存', { exact: true }).waitFor();
+  await page.waitForFunction(() => window.autosaveQa.settings.qzonePagination.windowSeconds === 14);
   await page.evaluate(() => {
     window.autosaveQa.delay = 500;
   });

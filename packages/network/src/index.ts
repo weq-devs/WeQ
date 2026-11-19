@@ -199,9 +199,14 @@ export async function resolveDownloadSources(sources: readonly string[], signal?
 export async function fetchSourceJson<T>(
   url: string,
   validate: (value: unknown) => T,
-  options: { signal?: AbortSignal; fetcher?: NetworkFetch; maxBytes?: number } = {},
+  options: {
+    signal?: AbortSignal;
+    fetcher?: NetworkFetch;
+    maxBytes?: number;
+    sources?: readonly string[];
+  } = {},
 ): Promise<T> {
-  const sources = orderSources(downloadSources(url));
+  const sources = orderSources(options.sources ?? downloadSources(url));
   const deadline = Date.now() + 20000;
   let error: unknown = new Error('没有可用的资源来源');
   for (let at = 0; at < sources.length && Date.now() < deadline; at += 3) {

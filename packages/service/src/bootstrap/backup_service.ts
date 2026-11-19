@@ -275,13 +275,18 @@ export class WeqBackupService {
         api.agentLab.defaultModel !== null ||
         api.agentLab.defaultVisionModel !== null ||
         api.agentLab.defaultEmbeddingModel !== null ||
+        api.agentLab.defaultContextWindowTokens !==
+          DEFAULT_APP_SETTINGS.agentLab.defaultContextWindowTokens ||
+        api.agentLab.defaultMaxOutputTokens !==
+          DEFAULT_APP_SETTINGS.agentLab.defaultMaxOutputTokens ||
         api.ttsProviders.length > 0 ||
         api.mcp.enabled ||
         Boolean(api.mcp.token) ||
         api.mcp.port !== DEFAULT_APP_SETTINGS.mcp.port ||
         JSON.stringify(api.oneBotByUin) !== JSON.stringify(DEFAULT_APP_SETTINGS.oneBotByUin) ||
         api.externalRkey.servers.length > 0 ||
-        api.ssePush.servers.length > 0,
+        api.ssePush.servers.length > 0 ||
+        Boolean(api.sharedAssistant?.mcpServers?.trim()),
       paths: weqDefaultsPaths(this.config.read()),
     };
   }

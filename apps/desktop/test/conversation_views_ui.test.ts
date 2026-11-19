@@ -13,12 +13,19 @@ import {
   generatedAggregateRow,
 } from '../src/renderer/src/lib/conversationDirectoryRows';
 import {
+  aggregatePinPreferences,
   conversationViewRows,
   type ConversationView,
   type ConversationViewDirectory,
 } from '../src/renderer/src/lib/conversationViews';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { useCurrentContentSelection } from '../src/renderer/src/state/contentSelection.shared';
+import {
+  acceptAccountState,
+  acceptPreferences,
+  bindAccountState,
+  useAccountRecords,
+} from '../src/renderer/src/lib/clientPreferences';
 import { createTemplateDemoData } from './support/templateDemoData';
 import {
   mobileBack,
@@ -44,7 +51,12 @@ const clone = virtualConversationRow({
   ownerId: 'p1',
   name: '合成克隆',
 });
-const assistant = assistantConversationRow({ id: 's1', title: '合成助手对话', updatedAt: 12345 });
+const assistant = assistantConversationRow({
+  id: 's1',
+  title: '合成助手对话',
+  updatedAt: 12345,
+  directoryRead: { key: 'assistant:s1', position: '12345' },
+});
 const cloneGroup = virtualConversationRow({
   id: 'virtual:group:g1',
   kind: 'group',
@@ -105,22 +117,31 @@ function Probe() {
 function Fixture({
   initialView = 'regular',
   active = true,
+  entries = directory,
+  pinScope = '',
 }: {
   initialView?: ConversationView;
   active?: boolean;
+  entries?: ConversationViewDirectory;
+  pinScope?: string;
 }) {
   const [view, setView] = useState(initialView);
   const [back, setBack] = useState(false);
   const [chat, setChat] = useState('原先打开的聊天');
   const rows = useMemo(
-    () => conversationViewRows(directory, view, { includeHidden: false, includeDeleted: false }),
-    [view],
+    () => conversationViewRows(entries, view, { includeHidden: false, includeDeleted: false }),
+    [entries, view],
+  );
+  const accountPins = useAccountRecords('pins', pinScope);
+  const preferences = useMemo(
+    () => aggregatePinPreferences(entries.regular, {}, accountPins),
+    [entries.regular, accountPins],
   );
   const value = useMemo(
     () => ({
       view,
       rows,
-      views: directory,
+      views: entries,
       virtual: [],
       returnToRegular: back,
       onViewChange: (next: ConversationView, aggregate = false) => {
@@ -141,7 +162,7 @@ function Fixture({
       onRoaming: roaming,
       onReadState: () => {},
     }),
-    [view, rows, back],
+    [view, rows, entries, back],
   );
   return h(
     ContentSelectionProvider,
@@ -153,7 +174,7 @@ function Fixture({
         active,
         conversations: rows,
         activeConversationId: null,
-        preferences: {},
+        preferences,
         drafts: {},
         onSelect: setChat,
       }),
@@ -209,6 +230,52 @@ it('聚合入口不进入全选或反选，点击只切列表且保留右侧聊�
   expect(host.querySelector('[data-conversation-id="merged:group-assistant"]')).not.toBeNull();
   expect(host.querySelector('[aria-label="会话视图"]')).not.toBeNull();
 });
+it('可取消已隐藏会话入口的默认置顶，回读后按普通会话排序', () => {
+  const entry: Conversation = {
+    ...helper,
+    id: 'merged:hidden',
+    mergedKind: 'hidden',
+    title: '已隐藏会话',
+    updatedAt: new Date(0).toISOString(),
+    preference: { pinned: true, muted: false, blocked: false },
+  };
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+  const pinScope = JSON.stringify([binding.expectedAccountUin, binding.expectedAccountConfigId]);
+  bindAccountState(binding);
+  try {
+    act(() =>
+      root.render(h(Fixture, { entries: { ...directory, regular: [ordinary, entry] }, pinScope })),
+    );
+    const firstId = () =>
+      host.querySelector<HTMLElement>('[data-conversation-id]')?.dataset.conversationId;
+    const choose = (label: string) => {
+      act(() =>
+        host
+          .querySelector(`[data-conversation-id="${entry.id}"]`)!
+          .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+      );
+      const item = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+        (node) => node.textContent === label,
+      );
+      expect(item).toBeDefined();
+      act(() => item!.click());
+    };
+    expect(firstId()).toBe(entry.id);
+    choose('取消置顶');
+    expect(pin).toHaveBeenLastCalledWith(entry, false);
+    act(() =>
+      acceptAccountState(
+        { revision: 1, values: {}, records: { pins: { [entry.id]: false } } },
+        binding,
+      ),
+    );
+    expect(firstId()).toBe(ordinary.id);
+    choose('置顶');
+    expect(pin).toHaveBeenLastCalledWith(entry, true);
+  } finally {
+    act(() => bindAccountState(null));
+  }
+});
 it.each(['groupAssistant', 'clone', 'assistant'] as const)(
   '移动端从常规进入 %s 后可逐层返回，切换标签时不保留后台返回入口',
   (view) => {
@@ -257,7 +324,7 @@ it('移动端直接从视图菜单进入分类不新增返回常规层级', () =
   expect(host.querySelector('[data-conversation-id="12345"]')).not.toBeNull();
   expect(mobileBack()).toBe(false);
 });
-it('菜单直接切换保留视图菜单，所有视图的新建菜单固定五项', () => {
+it('菜单直接切换保留视图菜单，助手视图的加号直接新建会话', () => {
   act(() => root.render(h(Fixture)));
   click('[aria-label="会话视图"]');
   expect(host.querySelectorAll('[role="menuitemradio"]')).toHaveLength(10);
@@ -267,29 +334,102 @@ it('菜单直接切换保留视图菜单，所有视图的新建菜单固定五�
   act(() => target.click());
   expect(host.querySelector('[aria-label="返回常规视图"]')).toBeNull();
   expect(host.querySelector('[data-conversation-id="assistant:s1"]')).not.toBeNull();
-  click('[aria-label="添加会话"]');
-  expect([...host.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent)).toEqual([
-    '新建好友克隆',
-    '新建克隆体群聊',
-    'QQ 号搜索',
-    '群号搜索',
-    '新建 WeQ 助手会话',
-  ]);
-  act(() => [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].at(-1)!.click());
+  click('[aria-label="新建 WeQ 助手会话"]');
   expect(createAssistant).toHaveBeenCalledOnce();
+  expect(host.querySelector('[aria-label="添加会话菜单"]')).toBeNull();
 });
-it('助手视图只展示导出和永久删除，未选对象时保留禁用及原因', () => {
+it('助手视图支持导出、标为已读和永久删除，未选对象时禁用', () => {
   act(() => root.render(h(Fixture, { initialView: 'assistant' })));
   click('[aria-label="多选会话"]');
   const toolbar = host.querySelector('[aria-label="会话多选操作"]')!;
-  expect(toolbar.querySelectorAll('button')).toHaveLength(2);
+  const read = toolbar.querySelector<HTMLButtonElement>('[aria-label="标为已读"]')!;
+  expect(read.disabled).toBe(true);
+  expect(toolbar.querySelector('[aria-label="导出聊天记录"]')).not.toBeNull();
   const del = toolbar.querySelector<HTMLButtonElement>('[aria-label="永久删除所选 AI 会话"]')!;
   expect(del.disabled).toBe(true);
   expect(del.title).toBe('请先选择会话');
   click('[aria-label="全选当前结果"]');
+  expect(read.disabled).toBe(false);
   expect(del.disabled).toBe(false);
   act(() => del.click());
   expect(remove).toHaveBeenCalledWith([assistant]);
+});
+it('助手摘要和克隆草稿服从会话预览开关，图片草稿与未读仍各自表达', () => {
+  const generated = [
+    assistantConversationRow({
+      id: 'preview',
+      title: '预览助手',
+      updatedAt: 35000,
+      preview: '报告已完成',
+      unreadCount: 1,
+    }),
+    virtualConversationRow({
+      id: 'virtual:persona:draft',
+      kind: 'persona',
+      ownerId: 'draft',
+      name: '预览克隆',
+      preview: '上一条消息',
+      draftPreview: '[图片] 草稿',
+      unreadCount: 2,
+    }),
+  ];
+  const entries = { ...directory, assistant: [generated[0]!], clone: [generated[1]!] };
+  const render = (show: boolean, revision: number) =>
+    act(() => {
+      acceptPreferences(
+        {
+          epoch: 'fixture-preview',
+          revision,
+          values: { showConversationPreview: show },
+          records: {},
+        },
+        false,
+      );
+      root.render(h(Fixture, { initialView: 'all', entries }));
+    });
+  try {
+    const unreadBadges = () =>
+      generated.map(
+        (row) => host.querySelector(`[data-conversation-id="${row.id}"] .row-unread`)?.textContent,
+      );
+    render(true, 1);
+    expect(host.textContent).toContain('报告已完成');
+    expect(host.textContent).toContain('[图片] 草稿');
+    expect(host.textContent).not.toContain('上一条消息');
+    expect(unreadBadges()).toEqual(['1', '2']);
+    render(false, 2);
+    expect(host.textContent).not.toContain('报告已完成');
+    expect(host.textContent).not.toContain('[图片] 草稿');
+    expect(unreadBadges()).toEqual(['1', '2']);
+  } finally {
+    render(true, 3);
+  }
+});
+it.each([
+  ['clone', clone, cloneGroup],
+  ['assistant', assistant, assistantConversationRow({ id: 's2', title: '另一会话', updatedAt: 0 })],
+] as const)('%s 刷新删除结果后，只保留仍存在的选中项，再删完则退出多选', (view, first, second) => {
+  const refresh = (rows: Conversation[]) =>
+    act(() =>
+      root.render(h(Fixture, { initialView: view, entries: { ...directory, [view]: rows } })),
+    );
+  refresh([first, second]);
+  click('[aria-label="多选会话"]');
+  click('[aria-label="全选当前结果"]');
+  expect(host.querySelector('.weq-directory-selection-count')?.textContent).toBe('已选 2');
+  click('[aria-label="永久删除所选 AI 会话"]');
+  expect(remove).toHaveBeenCalledWith(expect.arrayContaining([first, second]));
+  expect(selected()).toHaveLength(2);
+
+  refresh([second]);
+  expect(selected()).toEqual([second.id]);
+  expect(host.querySelector('.weq-directory-selection-count')?.textContent).toBe('已选 1');
+  click('[aria-label="永久删除所选 AI 会话"]');
+  expect(remove).toHaveBeenLastCalledWith([second]);
+  refresh([]);
+  expect(host.querySelector('[data-selection]')?.textContent).toBe('null');
+  expect(host.querySelector('[aria-label="会话多选操作"]')).toBeNull();
+  expect(host.querySelector('[aria-label="多选会话"]')).not.toBeNull();
 });
 it.each([
   ['assistant', assistant, 'WeQ 助手会话'],
@@ -328,7 +468,6 @@ it.each([false, true])(
       const shell = useChatShellController({
         conversations: onlyAggregate ? [helper] : [helper, ordinary],
         contacts: [],
-        conversationPrefs: {},
         initialActiveConversationId: null,
         initialView: 'home',
         sidebarWidthStorageKey: 'fixture-sidebar',
@@ -354,6 +493,34 @@ it.each([false, true])(
     expect(read).not.toHaveBeenCalledWith(helper.id);
   },
 );
+it('关闭当前聊天后不自动选中其他聊天，移动端返回也不会恢复已关闭的聊天', () => {
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    (media) => Object.assign(new EventTarget(), { matches: true, media }) as MediaQueryList,
+  );
+  function Shell() {
+    const shell = useChatShellController({
+      conversations: [ordinary, group],
+      contacts: [],
+      initialActiveConversationId: ordinary.id,
+      initialView: 'messages',
+      sidebarWidthStorageKey: 'fixture-sidebar',
+      history: noopChatShellHistoryAdapter,
+    });
+    return h(
+      'div',
+      null,
+      h('button', { onClick: () => shell.openConversation(group.id) }, '打开聊天'),
+      h('button', { onClick: () => shell.openConversation(null) }, '关闭聊天'),
+      h('output', null, shell.activeConversationId ?? '未选中'),
+    );
+  }
+  act(() => root.render(h(Shell)));
+  click('button:first-child');
+  expect(host.querySelector('output')!.textContent).toBe(group.id);
+  click('button:nth-child(2)');
+  expect(host.querySelector('output')!.textContent).toBe('未选中');
+  expect(mobileBack()).toBe(false);
+});
 it('全部会话混选拉取漫游和导出名单都须列明不支持对象，确认后再执行', () => {
   act(() => root.render(h(Fixture, { initialView: 'all' })));
   click('[aria-label="多选会话"]');
@@ -370,6 +537,6 @@ it('全部会话混选拉取漫游和导出名单都须列明不支持对象，�
   );
   expect(roaming).toHaveBeenCalledOnce();
   expect(roaming.mock.calls[0]![0]).toHaveLength(2);
-  click('[aria-label="导出名单"]');
-  expect(document.querySelector('[role="dialog"]')!.textContent).toContain('不支持导出群名单');
+  click('[aria-label="导出群成员名单"]');
+  expect(document.querySelector('[role="dialog"]')!.textContent).toContain('不支持导出群成员名单');
 });

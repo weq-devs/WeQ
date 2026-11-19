@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import { useState } from 'react';
 import { Save } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
@@ -52,7 +53,7 @@ export function GroupJoinSettings({ groupId }: { groupId: number }) {
         label="谁可以加入"
         desc="直接写入 QQ 群设置，保存后生效"
         control={
-          <select
+          <FormSelect
             aria-label="加群方式"
             value={mode}
             disabled={disabled || query.isFetching}
@@ -60,13 +61,15 @@ export function GroupJoinSettings({ groupId }: { groupId: number }) {
               setDraft({ mode: joinMode(Number(event.target.value)), question, answer: '' })
             }
           >
-            <option value="">尚未读取加群方式</option>
+            <option value="" data-placeholder>
+              尚未读取加群方式
+            </option>
             <option value={1}>允许任何人</option>
             <option value={2}>需要审核</option>
             <option value={3}>不允许加入</option>
             <option value={4}>正确回答问题</option>
             <option value={5}>回答问题并审核</option>
-          </select>
+          </FormSelect>
         }
       />
       {asking ? (

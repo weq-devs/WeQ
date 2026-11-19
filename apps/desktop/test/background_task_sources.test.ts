@@ -6,6 +6,15 @@ import { updateFavoriteImportTask } from '../src/main/favorite_import_task';
 import { backgroundTasksRouter } from '../src/main/ipc/routers/background_tasks';
 import type { FavoriteEmojiImportPreview, ModelDownloadProgress } from '@weq/service';
 
+vi.mock('../src/main/context/app_context', () => ({
+  accountEventBus: new EventEmitter(),
+  getAppContext: () => ({}),
+}));
+vi.mock(import('../src/main/ipc/routers/analysis_reports'), async (original) => ({
+  ...(await original()),
+  restoreAnalysisReportTasks: vi.fn(),
+}));
+
 afterEach(() => {
   for (const task of backgroundTasks.snapshot()) {
     backgroundTasks.finish(task.id, 'cancelled');

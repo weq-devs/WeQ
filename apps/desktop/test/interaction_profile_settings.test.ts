@@ -6,6 +6,7 @@ import { DEFAULT_INTENT_TUNING } from '@weq/service/intent-context';
 import { AI_SETTING_ITEMS } from '../src/renderer/src/components/settings/aiSettingsCatalog';
 import { searchAppEntries } from '../src/renderer/src/components/search/appSearchCatalog';
 import { findSettingElement } from '../src/renderer/src/components/settings/searchTarget';
+import { chooseFormOption } from './support/form-controls';
 
 const fixture = vi.hoisted(() => ({
   mode: 'api',
@@ -100,9 +101,8 @@ async function render() {
 }
 async function select(label: string, value: string) {
   await act(async () => {
-    const input = document.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)!;
-    input.value = value;
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+    const input = document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+    chooseFormOption(input, value);
   });
 }
 
@@ -124,7 +124,7 @@ it('画像本地资源独立选择，在途允许继续选择并由共用队列�
   fixture.pending = true;
   await render();
   expect(
-    document.querySelector<HTMLSelectElement>('[aria-label="互动画像本地模型资源"]')!.disabled,
+    document.querySelector<HTMLButtonElement>('[aria-label="互动画像本地模型资源"]')!.disabled,
   ).toBe(false);
 });
 it('宿主不支持本地画像模型时禁用选择并显示原因，不误提交', async () => {
@@ -132,7 +132,7 @@ it('宿主不支持本地画像模型时禁用选择并显示原因，不误提�
   fixture.localAvailable = false;
   await render();
   expect(
-    document.querySelector<HTMLSelectElement>('[aria-label="互动画像本地模型资源"]')!.disabled,
+    document.querySelector<HTMLButtonElement>('[aria-label="互动画像本地模型资源"]')!.disabled,
   ).toBe(true);
   expect(document.body.textContent).toContain('当前宿主不支持本地画像模型');
   expect(fixture.save).not.toHaveBeenCalled();

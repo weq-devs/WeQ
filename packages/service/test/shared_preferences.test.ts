@@ -92,8 +92,9 @@ describe('统一设置来源', () => {
     f.service.migrateSharedAccountPreferences('a');
     expect(f.service.getSharedPreference('mail')).toMatchObject({
       mailShowUnread: false,
-      mailNotifications: false,
     });
+    expect(f.service.getSharedPreference('mail').mailNotifications).toBeUndefined();
+    expect(f.service.getSettings().notificationEvents.mail).toEqual({ banner: true, system: true });
     expect(f.service.getSharedPreference('dress')).toMatchObject({
       installedBubbles: [1, 2, 3],
       activeBubble: 1,

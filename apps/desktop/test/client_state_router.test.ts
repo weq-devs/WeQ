@@ -29,6 +29,7 @@ import { clientStateRouter, boundClientState } from '../src/main/ipc/routers/cli
 import { createWebHost } from '../src/main/web/host';
 import { getAppContext } from '../src/main/context/app_context';
 import { pickedBrowserFiles } from '../src/main/browser_files';
+import { assistantBus, type AssistantStreamEvent } from '../src/main/mcp/assistant_bus';
 import { networkCost } from '@weq/service/data-saver';
 import { dataSaverSession, updateTransferPolicy } from '@weq/service/transfer-policy';
 beforeEach(() => {
@@ -102,6 +103,28 @@ it('助手永久删除后的迟到草稿写入不能恢复内容，不影响未�
     }),
   ).resolves.toMatchObject({ ok: true });
 });
+it('助手新提问和标题变更只向同一数据源推送列表刷新，不转发生成片段', async () => {
+  const binding = { expectedAccountUin: context.uin, expectedAccountConfigId: context.configId };
+  const stream = await clientStateRouter.createCaller({}).accountChanged(binding);
+  const next = vi.fn();
+  const sub = stream.subscribe({ next });
+  const emit = (step: AssistantStreamEvent['step'], accountConfigId = context.configId) =>
+    assistantBus.emit('step', { accountConfigId, sessionId: 'session', runId: 'run', step });
+  try {
+    emit({ kind: 'text_delta', text: '回答片段' });
+    emit({ kind: 'session_title' }, 'other-source');
+    expect(next).not.toHaveBeenCalled();
+    emit({ kind: 'turn', turn: { role: 'user', text: '提问', ts: 1 } });
+    emit({ kind: 'session_title' });
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(next).toHaveBeenLastCalledWith({
+      revision: expect.any(Number),
+      section: 'assistantSessions',
+    });
+  } finally {
+    sub.unsubscribe();
+  }
+});
 it('手机不能自动提交旧值为共享初值；显式修改和桌面补缺保持最后提交值', async () => {
   const desktop = clientStateRouter.createCaller({});
   const mobile = clientStateRouter.createCaller({
@@ -141,14 +164,20 @@ it('同号不同配置隔离，旧账号绑定不能写入新配置', async () =
   const client = clientStateRouter.createCaller({});
   const old = { expectedAccountUin: context.uin, expectedAccountConfigId: context.configId };
   await client.accountPatch({ ...old, namespace: 'pins', values: { '123': true } });
+  await client.accountPatch({ ...old, namespace: 'pins', values: { 'merged:hidden': false } });
   context.configId = '10001_11223344';
   await expect(client.accountSnapshot(old)).rejects.toThrow('已切换');
   await expect(
-    client.accountPatch({ ...old, namespace: 'pins', values: { '123': false } }),
+    client.accountPatch({ ...old, namespace: 'pins', values: { 'merged:hidden': true } }),
   ).rejects.toThrow('已切换');
   expect(
     (await client.accountSnapshot({ ...old, expectedAccountConfigId: context.configId })).records,
   ).toEqual({ order: {} });
+  context.configId = old.expectedAccountConfigId;
+  expect((await client.accountSnapshot(old)).records.pins).toEqual({
+    '123': true,
+    'merged:hidden': false,
+  });
 });
 it('复用真实分段接收后转存素材，临时接收目录丢弃后持久副本仍可读取', async () => {
   const services = getAppContext().services!;

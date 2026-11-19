@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { TaskProgressBar } from '../tasks/TaskProgressBar';
 import { Film, Upload, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { useDraftProtection } from '../../lib/draftClose';
 import { ActionIcon } from './shared';
 import { useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared.shared';
-import { localBackgroundTasks } from '../../state/backgroundTasks';
+import { localBackgroundTasks, rememberWindowTask } from '../../state/backgroundTasks';
 
 interface VideoDraft {
   fileName: string;
@@ -178,12 +179,27 @@ function GroupAlbumVideoUploadBody({
                 let taskId: string | null = null;
                 let stopped = false;
                 let submittedToQQ = false;
+                const remember = () => {
+                  if (taskId)
+                    rememberWindowTask(taskId, {
+                      submitted: submittedToQQ,
+                      groupCode: String(groupId),
+                      albumId,
+                      videoId: videoId ?? undefined,
+                    });
+                };
                 void a
                   .perform(
                     async (binding) => {
                       taskId = localBackgroundTasks.start({
                         kind: 'album-upload',
                         name: draft.fileName,
+                        display: {
+                          action: '上传群相册视频',
+                          subject: draft.fileName,
+                          context: `群 ${groupId} · 相册 ${albumId}`,
+                          fileName: true,
+                        },
                         scope: {
                           uin: binding.expectedAccountUin,
                           configId: binding.expectedAccountConfigId,
@@ -191,6 +207,7 @@ function GroupAlbumVideoUploadBody({
                         note: draft.file ? '正在传输视频到宿主' : '准备上传到群相册',
                         details: [`群：${groupId}`, `相册：${albumId}`],
                       });
+                      remember();
                       setSubmitted(true);
                       const captured = generation.current;
                       const assertTransfer = () => {
@@ -255,6 +272,7 @@ function GroupAlbumVideoUploadBody({
                         });
                         const { file: _file, path, ...metadata } = draft;
                         submittedToQQ = true;
+                        remember();
                         const result = await client.account.qqActions.albumVideoUpload.mutate({
                           ...binding,
                           groupId,
@@ -265,6 +283,7 @@ function GroupAlbumVideoUploadBody({
                         });
                         videoId = result.videoId;
                         localBackgroundTasks.update(taskId, { note: '已提交，正在核对群相册结果' });
+                        remember();
                         return result;
                       } catch (error) {
                         localBackgroundTasks.finish(
@@ -279,6 +298,7 @@ function GroupAlbumVideoUploadBody({
                             note: error instanceof Error ? error.message : String(error),
                           },
                         );
+                        remember();
                         throw error;
                       } finally {
                         localBackgroundTasks.setActions(taskId, []);
@@ -323,12 +343,14 @@ function GroupAlbumVideoUploadBody({
                           ? '视频已发布到群相册并读回确认'
                           : '已提交上传，请在群相册核对结果；不会自动重复上传',
                       });
+                    remember();
                   })
                   .catch((error: unknown) => {
                     if (taskId)
                       localBackgroundTasks.finish(taskId, submittedToQQ ? 'paused' : 'failed', {
                         note: error instanceof Error ? error.message : String(error),
                       });
+                    remember();
                   });
               }}
             >
@@ -352,7 +374,7 @@ function GroupAlbumVideoUploadBody({
         />
       )}
       {error && <p role="alert">{error}</p>}
-      {progress !== null && <progress max={100} value={progress} aria-label="视频传到宿主的进度" />}
+      {progress !== null && <TaskProgressBar value={progress} label="视频传到宿主的进度" />}
       {submitted && !a.busy && (
         <p role="status">本次上传已尝试，请在相册中核对结果后再选择其他视频。</p>
       )}

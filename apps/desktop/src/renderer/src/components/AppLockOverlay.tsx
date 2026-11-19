@@ -66,7 +66,7 @@ export function AppLockOverlay(): ReactElement | null {
   const appLock = settings.data?.appLock;
   const inMain = view === 'main';
   const method = appLock?.method ?? 'totp';
-  const lockEnabled = appLock?.enabled ?? true;
+  const lockEnabled = appLock?.enabled ?? false;
 
   // Leaving the main view (switch account / sign out) clears the lock — the
   // bootstrap home is its own gate and a stale lock there would trap the user.

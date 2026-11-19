@@ -1,4 +1,4 @@
-/** 稳定恢复身份与可见分区的对应关系；不依赖已挂载的控件。 */
+/** 设置注册表的恢复分区；前端、服务端和文档共用，不依赖已挂载的控件。 */
 export const SETTINGS_RESET_CARDS = [
   ['startup', 'startup-system', '开机启动'],
   ['startup', 'startup-page', '启动时进入'],
@@ -10,13 +10,16 @@ export const SETTINGS_RESET_CARDS = [
   ['appearance', 'theme-components', '组件风格'],
   ['appearance', 'window-appearance', '窗口外观'],
   ['global', 'toast', '应用内横幅提醒'],
-  ['global', 'message-notifications', '消息提醒'],
+  ['global', 'notification-events', '事件通知'],
+  ['global', 'notification-badges', '未读角标'],
+  ['global', 'recall-notifications', '撤回提醒'],
   ['privacy', 'privacy-mode', '隐私模式'],
   ['privacy', 'app-lock', '应用锁'],
-  ['privacy', 'web-notifications', '网页通知'],
+  ['global', 'web-notifications', '浏览器通知授权'],
+  ['chat-messages', 'conversation-preview', '会话预览'],
+  ['chat-messages', 'conversation-order', '列表行为'],
+  ['chat-messages', 'conversation-markers', '常规视图未读角标'],
   ['chat-messages', 'conversation-scope', '全部会话视图'],
-  ['chat-messages', 'conversation-order', '列表排序'],
-  ['chat-messages', 'unread', '未读标记'],
   ['message-display', 'reading', '阅读与定位'],
   ['message-display', 'message-content', '内容显示'],
   ['contact-card', 'contact-card', '联系人名片'],
@@ -35,6 +38,8 @@ export const SETTINGS_RESET_CARDS = [
   ['qzone', 'qzone-public-refresh', '空友爱看'],
   ['mail', 'mail', '邮箱提醒'],
   ['agentlab', 'api-default', 'LLM'],
+  ['weq-assistant', 'assistant-config', '助手生成与执行'],
+  ['weq-assistant', 'assistant-images', '图片处理'],
   ['intent-sense', 'intent-basic', '功能与模型'],
   ['intent-sense', 'intent-display', '显示方式'],
   ['intent-sense', 'intent-trigger', '触发方式'],
@@ -57,6 +62,7 @@ export const SETTINGS_RESET_CARDS = [
   ['enhancement-packs', 'enhancement-updates', '增强包自动更新'],
   ['database-management', 'realtime', '监听与读取'],
   ['account', 'attach', 'QQ 在线能力'],
+  ['account', 'read-sync', '已读同步'],
   ['accounts', 'auto-enter', '现有配置'],
   ['resource-loading', 'external-chatpic', '外部安卓图片缓存'],
   ['resource-loading', 'cdn', '加载来源'],
@@ -72,6 +78,7 @@ export const SETTINGS_RESET_CARDS = [
   ['assistant', 'assistant', '推送与资源服务'],
   ['version', 'update', '软件更新'],
   ['logs', 'logs', '应用日志'],
+  ['logs', 'performance-recording', '性能记录'],
   ['database-management', 'database-read', '读取性能'],
 ] as const;
 export type SettingsResetCardId = (typeof SETTINGS_RESET_CARDS)[number][1];

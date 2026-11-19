@@ -24,7 +24,7 @@ export function ChatMainContent({
   view,
   contactTab,
   relationGraphSlot,
-  contactOverviewOpen = true,
+  contactOverviewOpen = false,
   onBackContactOverview,
   selectedContact,
   onPreviewContactChat,
@@ -51,6 +51,7 @@ export function ChatMainContent({
   onReadCurrentConversation,
   conversationPrefs,
   drafts,
+  draftScope,
   query = '',
   onBackContact,
   onBackGroup,
@@ -105,6 +106,8 @@ export function ChatMainContent({
   onForwardMessages,
   onViewDeleted,
   onViewRecalled,
+  messageRecords,
+  onCloseMessageRecords,
   onOpenGapMessages,
   onLoadSelectionMessages,
   onSearchChatRecords,
@@ -115,6 +118,7 @@ export function ChatMainContent({
   onOpenTool,
   onSelectTool,
   unreadDock,
+  seenUnreadHighlights,
   missingJumpSeq,
   resolvedGapIds,
   onLoadOlder,
@@ -156,6 +160,7 @@ export function ChatMainContent({
   | 'onSendBubbleVideo'
   | 'onSendRedPacket'
   | 'onMessageAction'
+  | 'draftScope'
   | 'onDraftChange'
   | 'onDraftClear'
   | 'onEditRaw'
@@ -181,6 +186,8 @@ export function ChatMainContent({
   | 'onAddMessage'
   | 'onViewDeleted'
   | 'onViewRecalled'
+  | 'messageRecords'
+  | 'onCloseMessageRecords'
   | 'onOpenGapMessages'
   | 'onLoadSelectionMessages'
   | 'onSearchChatRecords'
@@ -192,6 +199,7 @@ export function ChatMainContent({
   | 'onAddToComposition'
   | 'onForwardMessages'
   | 'unreadDock'
+  | 'seenUnreadHighlights'
   | 'missingJumpSeq'
   | 'resolvedGapIds'
   | 'onLoadOlder'
@@ -321,6 +329,7 @@ export function ChatMainContent({
       onReadCurrentConversation={onReadCurrentConversation}
       preference={activeConversation ? conversationPrefs[activeConversation.id] : undefined}
       draft={activeConversation ? (drafts[activeConversation.id] ?? '') : ''}
+      draftScope={draftScope}
       onLoadMoreGroupMembers={onLoadMoreGroupMembers}
       groupMembersLoading={groupMembersLoading}
       groupMembersError={groupMembersError}
@@ -372,6 +381,8 @@ export function ChatMainContent({
       onForwardMessages={onForwardMessages}
       onViewDeleted={onViewDeleted}
       onViewRecalled={onViewRecalled}
+      messageRecords={messageRecords}
+      onCloseMessageRecords={onCloseMessageRecords}
       onOpenGapMessages={onOpenGapMessages}
       onLoadSelectionMessages={onLoadSelectionMessages}
       onSearchChatRecords={onSearchChatRecords}
@@ -380,6 +391,7 @@ export function ChatMainContent({
       hiddenDeletedIds={hiddenDeletedIds}
       onRestoreMessage={onRestoreMessage}
       unreadDock={unreadDock}
+      seenUnreadHighlights={seenUnreadHighlights}
       missingJumpSeq={missingJumpSeq}
       resolvedGapIds={resolvedGapIds}
       onLoadOlder={onLoadOlder}

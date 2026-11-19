@@ -26,6 +26,23 @@ export const preferenceDefaults = {
   webNotifications: false,
   messageNotifications: false,
   applicationBadge: true,
+  showMessageUnreadBadge: true,
+  showContactUnreadCount: false,
+  showGroupAssistantMessageCount: false,
+  showOfficialUnreadBadge: false,
+  showServiceUnreadBadge: true,
+  showGuildUnreadBadge: true,
+  showCloneUnreadBadge: true,
+  showAssistantAggregateBadge: true,
+  showHiddenUnreadBadge: false,
+  showDeletedUnreadBadge: false,
+  showConversationPreview: true,
+  showImportantMessageMarkers: true,
+  showContactRequestBadge: true,
+  showTaskRunningBadge: true,
+  showTaskResultBadge: true,
+  showUpdateBadge: true,
+  showOfficialAnnouncementBadge: true,
   accent: '',
   background: 'plain',
   componentStyle: 'qqnt',
@@ -46,6 +63,7 @@ export const preferenceDefaults = {
   slashEmojiEnabled: true,
   slashEmojiAutoReplace: false,
   keepConversationPositionOnHover: false,
+  closeConversationOutsideView: false,
   autoFetchMissingMessages: false,
   autoFetchMissingContext: false,
   missingMessageContextCount: 30,
@@ -67,7 +85,33 @@ export const preferenceDefaults = {
 export type PreferenceKey = keyof typeof preferenceDefaults;
 export type PreferenceValues = typeof preferenceDefaults;
 export type PreferencePatch = Partial<PreferenceValues>;
+export const AGGREGATE_BADGE_SETTINGS = [
+  ['groupAssistant', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
+  ['official', 'showOfficialUnreadBadge', 'official-unread-badge', '公众号'],
+  ['service', 'showServiceUnreadBadge', 'service-unread-badge', '服务号'],
+  ['guildDirect', 'showGuildUnreadBadge', 'guild-unread-badge', '频道私聊'],
+  ['hidden', 'showHiddenUnreadBadge', 'hidden-unread-badge', '已隐藏会话'],
+  ['deleted', 'showDeletedUnreadBadge', 'deleted-unread-badge', '已删除会话'],
+  ['clone', 'showCloneUnreadBadge', 'clone-unread-badge', '克隆会话'],
+  ['assistant', 'showAssistantAggregateBadge', 'assistant-aggregate-badge', 'WeQ 助手会话'],
+] as const satisfies readonly (readonly [string, PreferenceKey, string, string])[];
+export const CONTACT_UNREAD_COUNT_LABEL = '好友与群聊未读消息数';
+export const ENTRY_BADGE_SETTINGS = [
+  ['showContactRequestBadge', 'contact-request-badge', '好友与群通知未读角标'],
+  ['showTaskRunningBadge', 'task-running-badge', '进行中任务'],
+  ['showTaskResultBadge', 'task-result-badge', '已完成任务'],
+  ['showUpdateBadge', 'update-badge', '增强包更新'],
+  ['showOfficialAnnouncementBadge', 'official-announcement-badge', '官方公告'],
+] as const satisfies readonly (readonly [PreferenceKey, string, string])[];
+const retiredUnreadPreferences = new Set([
+  'showConversationUnreadBadge',
+  'showAssistantUnreadBadge',
+  'showMailItemUnreadBadge',
+]);
 export const displayPreferenceKeys: readonly PreferenceKey[] = [
+  'showMessageUnreadBadge',
+  'showContactUnreadCount',
+  'showGroupAssistantMessageCount',
   'accent',
   'background',
   'componentStyle',
@@ -151,11 +195,56 @@ export function validatePreferencePatch(value: unknown): asserts value is Prefer
             entry.sources.every((part) => SEARCH_SOURCES.includes(part)))) &&
         typeof entry.appEnabled === 'boolean' &&
         typeof entry.numberLookupEnabled === 'boolean';
-    else if (Object.hasOwn(preferenceDefaults, key)) valid = typeof entry === 'boolean';
+    else if (Object.hasOwn(preferenceDefaults, key) || retiredUnreadPreferences.has(key))
+      valid = typeof entry === 'boolean';
     if (!valid) throw new Error(`无效的共享偏好：${key}`);
   }
 }
-export type StateNamespace = 'pins' | 'tasks' | 'assistant' | 'todos' | 'order';
+export function validReadPosition(value: unknown): value is string {
+  return typeof value === 'string' && /^(\d{1,20}|-?\d{1,20}:-?\d{1,20}:-?\d{1,20})$/.test(value);
+}
+export function newerReadPosition(next: string, previous = '0'): boolean {
+  const left = next.split(':').map(BigInt);
+  const right = previous.split(':').map(BigInt);
+  if (left.length !== right.length) return previous === '0';
+  for (let index = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) return left[index]! > right[index]!;
+  }
+  return false;
+}
+export const isDirectoryReadKey = (key: string) =>
+  /^(persona|clone-group|assistant|official|service|guild):.{1,960}$/.test(key);
+export const directoryUnreadKey = (key: string) => `unread:${key}`;
+export const generatedMuteKey = (id: string) => `mute:${id}`;
+
+export type DirectoryReadChange = {
+  key: string;
+  before: { position?: string; marker?: string };
+  after: { position?: string; marker?: string };
+};
+/** 与只读分页共用三字段顺序，保留零／重复序号及负消息 ID。 */
+export function messageReadPosition(row: {
+  msgSeq: string | bigint;
+  sendTime: string | bigint;
+  msgId: string | bigint;
+}): string {
+  return `${row.msgSeq}:${row.sendTime}:${row.msgId}`;
+}
+export function messageReadCursor(position: string) {
+  const [msgSeq, sendTime, msgId] = position.includes(':')
+    ? position.split(':').map(BigInt)
+    : [0n, 0n, -(1n << 63n)];
+  return { msgSeq: msgSeq!, sendTime: sendTime!, msgId: msgId! };
+}
+
+export type StateNamespace =
+  | 'pins'
+  | 'tasks'
+  | 'assistant'
+  | 'todos'
+  | 'order'
+  | 'notifications'
+  | 'reads';
 export type StateRecords = Partial<Record<StateNamespace, Record<string, unknown>>>;
 export interface SharedDraft {
   version: string | null;
@@ -170,5 +259,6 @@ export interface ClientStateSnapshot {
 }
 export interface ClientStateChange {
   revision: number;
-  section: 'preferences' | StateNamespace | 'drafts';
+  section: 'preferences' | StateNamespace | 'drafts' | 'assistantSessions';
+  draftKey?: string;
 }

@@ -19,6 +19,7 @@ import '../../src/renderer/src/styles/index.css';
 const demo = createTemplateDemoData();
 const noop = () => {};
 const kind = new URLSearchParams(location.search).get('kind') ?? 'assistant';
+const empty = new URLSearchParams(location.search).has('empty');
 Object.assign(window, {
   unifiedRequests: () => requests,
   unifiedTheme: (theme: 'light' | 'dark') => useThemeStore.getState().setPreference(theme),
@@ -71,7 +72,7 @@ createRoot(document.getElementById('root')!).render(
           <DialogHost />
           {kind === 'assistant' ? (
             <AssistantPanel
-              sessionId="session"
+              sessionId={empty ? null : 'session'}
               chatModels={[]}
               onBack={noop}
               onSessionCreated={noop}

@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CALENDAR_SOURCE_ORDER, calendarMonthDays } from '@weq/service/conversation-calendar';
 import { CalendarTaskDetails } from '../src/renderer/src/components/CalendarTaskDetails';
 import { CalendarNavigationContext } from '../src/renderer/src/lib/calendarNavigation';
+import { chooseCalendarDate } from './support/form-controls';
 
 const fixture = vi.hoisted(() => ({
   query: vi.fn(),
@@ -110,7 +111,15 @@ it('任务详情复用按天数的单一进度、默认展开日志、日期与�
         ),
       ),
     );
-    expect(host.querySelector('input[type="date"]')?.getAttribute('min')).toBe('2026-11-01');
+    const date = host.querySelector<HTMLButtonElement>('button[aria-label^="列表日期："]')!;
+    act(() => chooseCalendarDate(date, '2026-10-31'));
+    const dateDialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dateDialog.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
+    act(() =>
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      ),
+    );
     expect(host.querySelector('.weq-density-calendar-grid')).toBeNull();
     expect(host.querySelectorAll('[aria-label="统计内容"] button')).toHaveLength(8);
     const allKinds = host.querySelector<HTMLButtonElement>('[aria-label="全部统计内容"]')!;
@@ -141,7 +150,7 @@ it('任务详情复用按天数的单一进度、默认展开日志、日期与�
     );
     expect(fixture.refetch).toHaveBeenCalled();
     expect(host.querySelector('progress[aria-label="当月进度"]')?.getAttribute('value')).toBe('0');
-    expect(host.querySelector('input[type="date"]')?.getAttribute('value')).toBe('2026-11-08');
+    expect(date.getAttribute('aria-label')).toBe('列表日期：2026-11-08');
     expect(host.querySelector('h4')?.textContent).toBe('统计进度');
     expect(
       host

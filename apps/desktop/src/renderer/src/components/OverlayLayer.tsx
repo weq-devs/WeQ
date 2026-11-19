@@ -43,7 +43,11 @@ import {
 } from 'react';
 import { cn } from '../im-template/template/classNames';
 import { OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
-import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor.shared';
+import {
+  OverlayAnchorContext,
+  useOverlayAnchor,
+  type OverlayAnchor,
+} from '../lib/overlayAnchor.shared';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
 import { useTabActive } from './RetainedTabs.shared';
@@ -57,7 +61,7 @@ import '../styles/dialog-layout.css';
 
 export type OverlayLayerProps = {
   portalTarget?: Element | null;
-  anchor?: HTMLElement | null;
+  anchor?: HTMLElement | OverlayAnchor | null;
   anchorPlacement?: 'above' | 'below' | 'side';
   presentation?: 'modal' | 'panel' | 'popover' | 'page' | 'sidecar' | 'floating';
   width?: number;

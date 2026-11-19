@@ -726,45 +726,53 @@ function PublicFeedCard({
         </p>
       ) : null}
       <QzoneMediaGrid images={grid.images} videos={grid.videos} />
-      <div className="weq-qzn-actions weq-qzn-public-actions">
+      <div className="weq-qzn-actions">
         <QzoneLikesPopover
           trigger={
             <button
               type="button"
               aria-pressed={view.liked}
-              aria-label={view.liked ? '取消赞' : '赞'}
+              aria-label={view.liked ? '取消点赞' : '点赞'}
+              aria-busy={pending === 'like'}
               disabled={!view.actionable || pending !== null}
               onClick={() => void like()}
             >
-              <ThumbsUp size={16} fill={view.liked ? 'currentColor' : 'none'} />
-              点赞{' '}
-              <span className="weq-number weq-number-inherit">{countText(view.likeCount)}</span>
+              {pending === 'like' ? (
+                <Loader2 size={16} className="weq-spin" />
+              ) : (
+                <ThumbsUp size={16} fill={view.liked ? 'currentColor' : 'none'} />
+              )}
+              点赞 <span className="weq-number">{countText(view.likeCount)}</span>
             </button>
           }
         >
           <p className="weq-qzn-status">
-            共 <span className="weq-number weq-number-inherit">{countText(view.likeCount)}</span>{' '}
-            人赞过 · 空友爱看点赞名单接口尚未接入
+            {view.likeCount === 0
+              ? '还没有人点赞'
+              : view.likeCount === null
+                ? '暂无法查看点赞名单'
+                : `共 ${view.likeCount} 人点赞，暂无法查看名单`}
           </p>
         </QzoneLikesPopover>
         <button type="button" aria-expanded={expanded} aria-label="查看评论" onClick={onToggle}>
           <MessageCircle size={16} />
-          评论 <span className="weq-number weq-number-inherit">{countText(view.commentCount)}</span>
+          评论 <span className="weq-number">{countText(view.commentCount)}</span>
         </button>
         <QzoneForwardAction
           count={view.forwardCount}
-          message="空友爱看当前未提供可用转发名单，暂无可信数据。"
+          message={view.forwardCount === 0 ? '还没有人转发' : '暂无法查看转发名单'}
           onClick={() => setForwardOpen(true)}
         />
         <QzoneUpvoteAction
           value={view.upvote}
           onClick={capabilities.canUpvote && view.actionable ? () => void upvote() : undefined}
-          pending={pending !== null}
+          pending={pending === 'upvote'}
+          disabled={pending !== null}
           onSpace={onSpace}
         />
-        <span title="浏览量（非去重访客数）">
+        <span className="weq-qzn-views" title="浏览量（非去重访客数）">
           <Eye size={16} />
-          浏览量 <span className="weq-number weq-number-inherit">{countText(view.viewCount)}</span>
+          浏览量 <span className="weq-number">{countText(view.viewCount)}</span>
         </span>
       </div>
       {error ? (

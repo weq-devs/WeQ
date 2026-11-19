@@ -52,7 +52,8 @@ vi.mock('../src/renderer/src/hooks/useMsgDecoration', () => ({ useMsgDecoration:
 vi.mock('../src/renderer/src/hooks/useActiveWidget', () => ({
   useActiveWidget: () => ({ widget: null }),
 }));
-vi.mock('../src/renderer/src/hooks/useActiveWidget.shared', () => ({
+vi.mock('../src/renderer/src/hooks/useActiveWidget.shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/hooks/useActiveWidget.shared')>()),
   useActiveWidget: () => ({ widget: null }),
 }));
 vi.mock('../src/renderer/src/components/useAnalyticsExport', () => ({

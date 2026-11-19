@@ -98,6 +98,7 @@ export function DatabaseMaintenanceProgress({
   connectionError,
   compact = false,
   showBatch = true,
+  showBatchError = true,
   showMaintained = true,
 }: {
   progress: DatabaseTaskProgress;
@@ -106,6 +107,8 @@ export function DatabaseMaintenanceProgress({
   compact?: boolean;
   /** 批次摘要已由外层页头表达时关闭，避免同一条计数出现两次。 */
   showBatch?: boolean;
+  /** 外层报告已经展示批次错误时关闭。 */
+  showBatchError?: boolean;
   /** 维护锁提示由外层状态卡表达时关闭。 */
   showMaintained?: boolean;
 }) {
@@ -124,6 +127,21 @@ export function DatabaseMaintenanceProgress({
       : batch.elapsedMs
     : (running ? Math.max(now, progress.updatedAt) : progress.updatedAt) - progress.startedAt;
   const currentKey = stageKey(progress.current, progress.kind);
+  const detailedPhases = new Set(
+    progress.steps.filter((step) => step.step !== step.phase).map((step) => step.phase),
+  );
+  // 原生阶段起止回执不是额外工作步骤；保留带诊断、对象或计数的回执。
+  const visibleSteps = progress.steps.filter(
+    (step) =>
+      progress.kind !== 'repair' ||
+      !['Scan', 'Decrypt', 'Repair', 'Encrypt', 'Restore', 'Verify'].includes(step.phase) ||
+      step.step !== step.phase ||
+      !detailedPhases.has(step.phase) ||
+      attention(step) ||
+      step.detail ||
+      step.objectName ||
+      step.completed !== undefined,
+  );
   const basePlan = stages[progress.kind];
   const plan = progress.steps.some((step) => step.step === 'mapping')
     ? [...basePlan.slice(0, 2), ['mapping', '归属分析'] as const, ...basePlan.slice(2)]
@@ -151,7 +169,7 @@ export function DatabaseMaintenanceProgress({
         </div>
       ) : null}
       {abnormal ? <p className="weq-db-progress-warning">异常步骤 {abnormal}</p> : null}
-      {batch?.error ? (
+      {showBatchError && batch?.error ? (
         <p className="weq-db-progress-warning" role="alert">
           {batch.error}
         </p>
@@ -161,12 +179,12 @@ export function DatabaseMaintenanceProgress({
         aria-label={`${{ scan: '扫描', checkup: '体检', repair: '修复' }[progress.kind]}阶段`}
       >
         {plan.map(([key, title], index) => {
-          const steps = progress.steps.filter((step) => stageKey(step, progress.kind) === key);
+          const steps = visibleSteps.filter((step) => stageKey(step, progress.kind) === key);
           if (!steps.length && (!running || index <= currentIndex)) return null;
           const active = running && currentKey === key;
           const needsAttention = steps.some(attention);
           const pending = !steps.length;
-          const sharedHeading = steps.length === 1 && steps[0]?.message === title;
+          const sharedHeading = steps.length === 1;
           const open = active || needsAttention || (expanded[key] ?? false);
           const Icon = active ? Loader2 : needsAttention ? AlertTriangle : pending ? Circle : Check;
           return (
@@ -198,10 +216,12 @@ export function DatabaseMaintenanceProgress({
                       className={active && !connectionError ? 'weq-spin' : undefined}
                     />
                   </span>
-                  <span>{title}</span>
+                  <span>{sharedHeading ? steps[0]!.message : title}</span>
                   <strong>
                     {sharedHeading
-                      ? label(steps[0]!, progress.status === 'cancelled')
+                      ? connectionError && active
+                        ? '连接中断'
+                        : label(steps[0]!, progress.status === 'cancelled')
                       : active
                         ? '进行中'
                         : pending
@@ -215,7 +235,7 @@ export function DatabaseMaintenanceProgress({
                   ) : null}
                 </summary>
                 {steps.map((step) => {
-                  const isCurrent = step === progress.steps.at(-1);
+                  const isCurrent = step === visibleSteps.at(-1);
                   const executing = isCurrent && running && step.status === 'running';
                   const percent = databaseStepPercent(step);
                   const count = countText(step);

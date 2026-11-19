@@ -22,8 +22,8 @@ export interface KeyboardButton {
 }
 
 const BTN_BASE =
-  'flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg ' +
-  'border text-sm truncate transition-colors';
+  'flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 ' +
+  'border text-sm truncate transition-colors weq-qq-inline-keyboard-button';
 
 export function QqInlineKeyboard({
   rows,
@@ -51,9 +51,9 @@ export function QqInlineKeyboard({
                 // biome-ignore lint/suspicious/noArrayIndexKey: 同上
                 key={buttonIndex}
                 type="button"
-                className={`${BTN_BASE} border-blue-400/60 text-blue-500 hover:bg-blue-500/10 cursor-pointer`}
+                className={`${BTN_BASE} weq-qq-inline-keyboard-link cursor-pointer`}
                 title={href}
-                onClick={() => openLink(href)}
+                onClick={(event) => void openLink(href, event.currentTarget.ownerDocument)}
               >
                 <ExternalLink size={13} className="shrink-0" />
                 <span className="truncate">{button.label}</span>
@@ -106,7 +106,7 @@ function CallbackButton({
     <div className="weq-qq-keyboard-action">
       <button
         type="button"
-        className={`${BTN_BASE} border-border text-foreground`}
+        className={BTN_BASE}
         disabled={a.disabled}
         title={button.label}
         onClick={() =>

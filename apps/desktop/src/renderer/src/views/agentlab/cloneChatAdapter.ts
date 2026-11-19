@@ -60,7 +60,10 @@ export function cloneChatConversation({
 }
 
 export function cloneChatMessages(
-  rows: readonly { id?: string; text: string; ts: number; images?: AiImageRef[] }[],
+  rows: readonly ({ id?: string; text: string; ts: number; images?: AiImageRef[] } & Pick<
+    Message,
+    'optimistic' | 'outgoingToHost' | 'optimisticError'
+  >)[],
   conversationId: string,
   senderFor: (index: number) => User,
 ): Message[] {
@@ -69,7 +72,10 @@ export function cloneChatMessages(
     const date = new Date(row.ts);
     return {
       id: row.id || `pending-clone:${index}`,
-      generatedPending: !row.id,
+      generatedPending: !row.id || Boolean(row.optimistic),
+      optimistic: row.optimistic,
+      outgoingToHost: row.outgoingToHost,
+      optimisticError: row.optimisticError,
       conversationId,
       senderId: sender.id,
       sender,

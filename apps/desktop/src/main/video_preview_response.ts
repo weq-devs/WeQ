@@ -12,6 +12,7 @@ export async function videoPreviewResponse(
   cachePath: string,
   request: Request,
   check: () => void = () => {},
+  cacheVideo = true,
 ): Promise<Response> {
   if (!scopedNetworkAllowed()) return new Response('省流量模式：点击加载', { status: 409 });
   check();
@@ -93,6 +94,7 @@ export async function videoPreviewResponse(
   const encoded = !['', 'identity'].includes(upstream.headers.get('content-encoding') ?? '');
   if (encoded) responseHeaders.delete('Content-Length');
   let cacheable =
+    cacheVideo &&
     !encoded &&
     full &&
     Number.isSafeInteger(length) &&

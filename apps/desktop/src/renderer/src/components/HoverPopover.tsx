@@ -11,12 +11,14 @@ export function HoverPopover({
   label = '点赞列表',
   keepMounted = false,
   classPrefix = 'weq-qzn-like',
+  clickOnly = false,
 }: {
   trigger: ReactNode | ((open: boolean) => ReactNode);
-  children?: ReactNode | ((open: boolean) => ReactNode);
+  children?: ReactNode | ((open: boolean, close: () => void) => ReactNode);
   label?: string;
   keepMounted?: boolean;
   classPrefix?: string;
+  clickOnly?: boolean;
 }) {
   const document = useRenderDocument();
   const anchor = useRef<HTMLDivElement>(null);
@@ -37,6 +39,16 @@ export function HoverPopover({
     cancelClose();
     closeTimer.current = setTimeout(() => setOpen(false), 120);
   };
+  const dismiss = () => {
+    cancelClose();
+    setOpen(false);
+  };
+  const dismissFromLayer = () => {
+    if (layer.current?.contains(document.activeElement)) {
+      anchor.current?.querySelector<HTMLElement>('button')?.focus();
+    }
+    dismiss();
+  };
   const blur = (target: EventTarget | null) => {
     const NodeType = document.defaultView?.Node;
     if (
@@ -45,8 +57,7 @@ export function HoverPopover({
       (anchor.current?.contains(target) || layer.current?.contains(target))
     )
       return;
-    cancelClose();
-    setOpen(false);
+    dismiss();
   };
   useEffect(() => () => clearTimeout(closeTimer.current), []);
   useEffect(() => {
@@ -54,6 +65,9 @@ export function HoverPopover({
     const close = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         clearTimeout(closeTimer.current);
+        if (clickOnly && layer.current?.contains(document.activeElement)) {
+          anchor.current?.querySelector<HTMLElement>('button')?.focus();
+        }
         setOpen(false);
       }
     };
@@ -73,21 +87,21 @@ export function HoverPopover({
       document.removeEventListener('keydown', close);
       document.removeEventListener('pointerdown', outside);
     };
-  }, [open, document]);
+  }, [open, document, clickOnly]);
   return (
     <>
       <div
         ref={anchor}
         className={`${classPrefix}-hover`}
-        onMouseEnter={show}
-        onMouseLeave={leave}
-        onFocus={show}
-        onClick={show}
+        onMouseEnter={clickOnly ? undefined : show}
+        onMouseLeave={clickOnly ? undefined : leave}
+        onFocus={clickOnly ? undefined : show}
+        onClick={clickOnly ? (open ? dismiss : show) : show}
         onBlur={(event) => blur(event.relatedTarget)}
         onKeyDown={(event) => {
           if (open && event.key === 'Tab' && !event.shiftKey) {
             const first = layer.current?.querySelector<HTMLElement>(
-              'button, a[href], [tabindex="0"]',
+              'button:not(:disabled), a[href], [tabindex="0"]',
             );
             if (first) {
               event.preventDefault();
@@ -112,11 +126,11 @@ export function HoverPopover({
                 role="region"
                 aria-label={label}
                 onMouseEnter={cancelClose}
-                onMouseLeave={leave}
+                onMouseLeave={clickOnly ? undefined : leave}
                 onFocus={cancelClose}
                 onBlur={(event) => blur(event.relatedTarget)}
               >
-                {typeof children === 'function' ? children(open) : children}
+                {typeof children === 'function' ? children(open, dismissFromLayer) : children}
               </div>
             </div>,
             document.body,

@@ -64,10 +64,11 @@ it('导出 Bot 脱离桌面独立收图并回复，过期 URL 通过 get_image �
     });
     req.on('end', () => {
       apiCalls.push(JSON.parse(body));
+      const content = body.includes('"image_url"') ? '合成看图描述' : '合成看图回复';
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
-          choices: [{ message: { content: '合成看图回复' } }],
+          choices: [{ message: { content } }],
           usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         }),
       );
@@ -145,8 +146,11 @@ it('导出 Bot 脱离桌面独立收图并回复，过期 URL 通过 get_image �
     bot = await exported.startBot(config);
     await vi.waitFor(() => expect(sent.join('')).toContain('合成看图回复'), { timeout: 8000 });
     expect(actions).toContain('get_image');
-    expect(apiCalls).toHaveLength(1);
+    expect(apiCalls).toHaveLength(2);
     expect(JSON.stringify(apiCalls[0])).toContain('image_url');
+    expect(JSON.stringify(apiCalls[1])).toContain('合成看图描述');
+    expect(JSON.stringify(apiCalls[1])).not.toContain('image_url');
+    expect(sent).toHaveLength(1);
     const history = readFileSync(join(outDir, 'data/conversations.json'), 'utf8');
     expect(history).not.toContain('base64');
     expect(history).toContain('images');

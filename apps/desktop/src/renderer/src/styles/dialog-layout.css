@@ -121,7 +121,7 @@ html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft:hov
     overflow: auto;
   }
 
-  .weq-web-dialog-layer :is(input, select, textarea) {
+  .weq-web-dialog-layer :is(input, .weq-select-trigger, textarea) {
     font-size: 16px;
   }
   .weq-web-dialog-layer .weq-dialog-foot button {

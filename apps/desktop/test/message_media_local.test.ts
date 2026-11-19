@@ -6,9 +6,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { AccountServices } from '../src/main/context/app_context';
 import type { MessageMediaTarget } from '../src/shared/message_media';
 
-const state = vi.hoisted(() => ({ root: '' }));
+const state = vi.hoisted(() => ({ root: '', services: null as object | null, find: vi.fn() }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
+    services: state.services,
     platform: {
       appDataRoot: () => state.root,
       marketFaceDir: () => join(state.root, 'qq'),
@@ -17,9 +18,12 @@ vi.mock('../src/main/context/app_context', () => ({
     bootstrap: { userConfig: { cacheDir: () => join(state.root, 'cache', 'media') } },
   }),
 }));
+vi.mock('../src/main/media_protocol', () => ({ findMediaElement: state.find }));
 import { messageMediaLocations, savedMediaSourceKey } from '../src/main/message_media_local';
 
 afterEach(async () => {
+  state.services = null;
+  state.find.mockReset();
   if (state.root) await rm(state.root, { recursive: true, force: true });
 });
 const target = (kind: MessageMediaTarget['kind']): MessageMediaTarget => ({
@@ -47,6 +51,10 @@ function services(source: string | null = null) {
       ),
     },
     fileAssistant: { getFileInfoByMsgId: vi.fn(async () => null) },
+    fileResource: {
+      resolveSentFile: vi.fn(async (): Promise<string | null> => null),
+      resolveLocalFile: vi.fn(async (): Promise<string | null> => null),
+    },
     mediaDownload: {
       cachedFile: vi.fn((): string | null => null),
       download: vi.fn(() => {
@@ -232,6 +240,37 @@ it('QQ 文件缓存目录内的 localPath 不冒充正式下载文件', async ()
   };
   expect(await messageMediaLocations(deps as unknown as AccountServices, target('file'))).toEqual([
     expect.objectContaining({ kind: 'cache', path }),
+  ]);
+});
+
+it('已发送原件和 45403 记录可用于打开；同名搜索结果仅用于定位', async () => {
+  state.root = await mkdtemp(join(tmpdir(), 'weq-menu-media-'));
+  const sameName = join(state.root, 'same-name.txt');
+  const recorded = join(state.root, 'recorded.txt');
+  await writeFile(sameName, 'unrelated');
+  await writeFile(recorded, 'fixture');
+  const deps = services(sameName);
+  const current = deps as unknown as AccountServices;
+  state.services = current;
+  const file = target('file');
+  expect(await messageMediaLocations(current, file, true)).toEqual([]);
+  expect(deps.fileSearch.findFile).not.toHaveBeenCalled();
+  deps.fileResource.resolveSentFile.mockResolvedValueOnce(recorded);
+  expect(await messageMediaLocations(current, file, true)).toEqual([
+    expect.objectContaining({ kind: 'local', path: recorded }),
+  ]);
+  expect(deps.fileResource.resolveSentFile).toHaveBeenCalledWith(file.token, file.name);
+  state.find.mockResolvedValue({
+    element: { fileName: file.name, fileToken: file.token, filePath: `::NTOSFull::${recorded}` },
+  });
+  deps.fileResource.resolveLocalFile.mockResolvedValue(recorded);
+  expect(await messageMediaLocations(current, file, true)).toEqual([
+    expect.objectContaining({ kind: 'local', path: recorded }),
+  ]);
+  expect(deps.fileResource.resolveLocalFile).toHaveBeenCalledWith(recorded);
+  expect(await messageMediaLocations(current, { ...file, token: 'another' }, true)).toEqual([]);
+  expect(await messageMediaLocations(current, { ...file, token: 'another' })).toEqual([
+    expect.objectContaining({ kind: 'cache', path: sameName }),
   ]);
 });
 

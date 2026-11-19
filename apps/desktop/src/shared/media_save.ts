@@ -1,5 +1,5 @@
 export type MediaSaveSource =
-  | { kind: 'url'; url: string; name?: string }
+  | { kind: 'url'; url: string; name?: string; progressTarget?: string }
   | {
       kind: 'chat-file';
       msgId: string;
@@ -8,5 +8,6 @@ export type MediaSaveSource =
       conv?: string;
       fwdMsgId?: string;
       fwdKind?: 'c2c' | 'group';
+      fwdResId?: string;
     }
   | { kind: 'group-file'; groupCode: string; fileId: string; fileName: string; busId?: number };

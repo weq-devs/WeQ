@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -212,13 +213,13 @@ try {
       '40.0%',
     );
     assert.equal(await monitor.locator('[data-metric="cpuPercent"] path.weq-perf-line').count(), 2);
-    await monitor.getByLabel('进程', { exact: true }).selectOption('渲染进程');
+    await chooseFormOption(monitor.getByLabel('进程', { exact: true }), '渲染进程');
     assert.equal(
       await monitor.locator('[data-metric="cpuPercent"] header strong').textContent(),
       '20.0%',
     );
     assert.equal(await monitor.locator('[data-metric="cpuPercent"] path.weq-perf-line').count(), 2);
-    await monitor.getByLabel('进程', { exact: true }).selectOption('主窗口');
+    await chooseFormOption(monitor.getByLabel('进程', { exact: true }), '主窗口');
     assert.ok(
       await monitor.getByLabel('进程', { exact: true }).locator('option[value="主进程"]').count(),
     );
@@ -234,7 +235,7 @@ try {
       'auto',
     );
     await monitor.getByText('同步 1.2 ms', { exact: false }).waitFor();
-    await monitor.getByLabel('明细类别').selectOption('resources');
+    await chooseFormOption(monitor.getByLabel('明细类别'), 'resources');
     await monitor.getByText('受管图片', { exact: false }).waitFor();
     if (output)
       await monitor.screenshot({ path: resolve(output, host + '-sample.png'), fullPage: true });

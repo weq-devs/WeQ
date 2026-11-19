@@ -20,7 +20,7 @@ const settings = {
   manualReadReportEnabled: true,
   qqShowCacheMinutes: 5,
   chatImageCacheMiB: 256,
-  linkPreview: { enabled: true, screenshot: false },
+  linkPreview: { enabled: true, autoFetch: false, screenshot: false },
   voiceTranscribe: { autoTranscribe: false },
 };
 const clearCalls: unknown[] = [];

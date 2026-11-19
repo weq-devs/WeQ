@@ -65,7 +65,7 @@ const key = (name: string) =>
     ),
   );
 
-it('可操作图片、闪照、语音、视频及商城表情使用原生按钮，动画表情不伪装成按钮', () => {
+it('可操作图片、图片表情、闪照、语音、视频及商城表情使用原生按钮', () => {
   act(() =>
     root.render(
       h(
@@ -82,6 +82,7 @@ it('可操作图片、闪照、语音、视频及商城表情使用原生按钮�
   );
   for (const selector of [
     '.qq-media-wrap:not(.qq-media-wrap-emoji)',
+    '.qq-media-wrap-emoji',
     '.qq-flash-cover',
     '.qq-media-voice',
     '.qq-media-video',
@@ -92,7 +93,6 @@ it('可操作图片、闪照、语音、视频及商城表情使用原生按钮�
     expect(control.getAttribute('aria-label')).toBeTruthy();
     expect(control.querySelector('button')).toBeNull();
   }
-  expect(host.querySelector('.qq-media-wrap-emoji')!.tagName).toBe('SPAN');
 });
 
 it('图片候选全部失败才显示终态，重试从原始候选重新进入同一媒体链并忽略迟到事件', async () => {
@@ -163,6 +163,7 @@ it('引用定位缩略图不再叠加媒体按钮或失败重试入口', () => {
         Fragment,
         null,
         h(QqImage, { data: {}, sendTimeMs: 1, interactive: false }),
+        h(QqImage, { data: { subType: 1 }, sendTimeMs: 1, interactive: false }),
         h(QqVideo, { data: {}, sendTimeMs: 1, interactive: false }),
         h(QqMarketFace, {
           data: { emojiPackId: 1, marketEmoticonIdHex: 'abc' },
@@ -349,11 +350,21 @@ it('视频预览具有模态语义、失败提示、重试及焦点归还', asyn
   expect(document.activeElement).toBe(trigger);
 });
 
-it('聊天视频从封面开始播放或失败重试后聚焦原生播放器', () => {
-  act(() => root.render(h(QqVideo, { data: {}, sendTimeMs: 1 })));
+it('聊天视频播放失败时保留放大预览，原地重试仍聚焦播放器', async () => {
+  act(() =>
+    root.render(h(Fragment, null, h(QqVideo, { data: {}, sendTimeMs: 1 }), h(MediaPreviewHost))),
+  );
+  const expand = button('放大预览视频');
   act(() => button('播放视频').click());
   expect(document.activeElement).toBe(host.querySelector('video'));
   send(host.querySelector('video')!, 'error');
+  expect(button('放大预览视频')).toBe(expand);
+  await act(async () => {
+    expand.click();
+    await vi.dynamicImportSettled();
+  });
+  expect(document.querySelector('[role="dialog"] video')).not.toBeNull();
+  act(() => button('关闭预览').click());
   act(() => button('重试加载视频').click());
   expect(document.activeElement).toBe(host.querySelector('video'));
 });

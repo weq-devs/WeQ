@@ -302,6 +302,7 @@ export function DataSaverMenu() {
                     <button
                       type="button"
                       className="weq-set-btn weq-set-btn-primary"
+                      data-weq-dialog-confirm
                       disabled={
                         busy ||
                         (duration === 'minutes' && !validMinutes) ||

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GroupReadTools } from '../src/renderer/src/components/qq-actions/GroupReadTools';
 import { GROUP_SIGN_PAGE_SIZE } from '../src/renderer/src/components/qq-actions/GroupReadTools.shared';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+import { chooseCalendarDate } from './support/form-controls';
 
 const state = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -193,14 +194,8 @@ it('换日期重新从首批读取，旧日期的迟到响应不追加到新日�
   await mount();
   bottom();
   await settle();
-  const date = document.querySelector<HTMLInputElement>('[aria-label="打卡日期"]')!;
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
-      date,
-      '2020-01-02',
-    );
-    date.dispatchEvent(new Event('input', { bubbles: true }));
-  });
+  const date = document.querySelector<HTMLButtonElement>('button[aria-label^="打卡日期："]')!;
+  act(() => chooseCalendarDate(date, '2020-01-02'));
   await settle();
   expect(rows()).toHaveLength(1);
   expect(rows()[0].textContent).toContain('另一天');

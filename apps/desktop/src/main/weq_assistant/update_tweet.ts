@@ -14,10 +14,10 @@
 import { join } from 'node:path';
 import { publishReleasePages, type ReleasePageInput } from './release_page';
 import { addTweet, loadTweets, tweetsStorePath } from './tweets';
-import { getReleaseChangelogEntry } from './changelog';
 import { WeqAssistantService, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext, requireBootstrap } from '../context/app_context';
 import { resolveResource } from '../resource';
+import { getReleaseFeed } from '../update/release_feed';
 
 const logger = getLogger().child({ scope: 'weq-assistant-update' });
 
@@ -52,9 +52,9 @@ export async function announceUpdateAvailable(version: string): Promise<void> {
   const assistantDir = userConfig.cacheDir('weq-assistant');
   const docroot = join(assistantDir, 'docroot');
 
-  // 内容约定与 release 推文一致：正文取 CHANGELOG 对应章节的第一条 bullet。
-  const entry = getReleaseChangelogEntry(v);
-  const summary = entry?.summary ?? `WeQ ${v} 已发布，点击查看更新内容。`;
+  // 更新检查已读取签名索引，摘要跟随目标版本，不依赖当前安装包里的日志。
+  const summary =
+    getReleaseFeed('weq-devs/WeQ').summary(v) ?? `WeQ ${v} 已发布，点击查看更新内容。`;
   const releaseUrl = `https://github.com/weq-devs/WeQ/releases/tag/v${v}`;
   const title = `WeQ ${v} 更新可用`;
   const input: ReleasePageInput = { version: v, title, summary, releaseUrl, slug: SLUG };

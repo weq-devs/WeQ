@@ -777,6 +777,7 @@ function ConfirmStage({
         <button
           type="button"
           className={`weq-clean-go${preset.danger ? ' is-danger' : ''}`}
+          data-weq-dialog-confirm
           disabled={nothing || !phraseOk || disabled}
           onClick={onRun}
           data-danger={preset.danger ? 'solid' : 'outline'}

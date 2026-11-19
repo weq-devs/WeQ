@@ -2,6 +2,7 @@
 import { createRequire } from 'node:module';
 import { Worker } from 'node:worker_threads';
 import { SANDBOX_WORKER_SOURCE } from './sandbox_worker_source';
+import { isAssistantToolReadOnly } from './tool_permissions';
 
 export const JS_SANDBOX_DEFAULT_TIMEOUT_MS = 15_000;
 export const JS_SANDBOX_MAX_TIMEOUT_MS = 45_000;
@@ -22,7 +23,7 @@ export interface JsSandboxCall {
   ms: number;
   error?: string;
   /** 超时或停止不等于已发出的宿主操作已回滚。 */
-  state?: 'running' | 'completed' | 'unknown';
+  state?: 'running' | 'completed' | 'interrupted' | 'unknown';
 }
 
 export interface JsSandboxResult {
@@ -96,15 +97,21 @@ export async function runJsSandbox(
       options.signal?.removeEventListener('abort', onAbort);
       controller.abort();
       void worker.terminate();
-      const snapshot = calls.map((call) => ({
-        ...call,
-        state: call.state === 'running' ? ('unknown' as const) : call.state,
-      }));
-      const unknown = snapshot.filter((call) => call.state === 'unknown');
+      const snapshot = calls.map(
+        (call): JsSandboxCall => ({
+          ...call,
+          state:
+            call.state !== 'running'
+              ? call.state
+              : isAssistantToolReadOnly(call.name)
+                ? 'interrupted'
+                : 'unknown',
+        }),
+      );
       resolve({
         ...result,
         calls: snapshot,
-        ...(unknown.length
+        ...(snapshot.some((call) => call.state === 'unknown')
           ? {
               ok: false,
               notes: [
@@ -115,11 +122,8 @@ export async function runJsSandbox(
           : {}),
       });
     };
-    const onAbort = (): void => settle(fail('脚本已取消；已发出的操作不保证回滚'));
-    const timer = setTimeout(
-      () => settle(fail(`脚本执行超过 ${limit}ms 已中止；已发出的操作不保证回滚`)),
-      limit,
-    );
+    const onAbort = (): void => settle(fail('脚本已取消'));
+    const timer = setTimeout(() => settle(fail(`脚本执行超过 ${limit}ms 已中止`)), limit);
     options.signal?.addEventListener('abort', onAbort, { once: true });
     if (options.signal?.aborted) onAbort();
     const handleCall = async (msg: WorkerMessage): Promise<void> => {

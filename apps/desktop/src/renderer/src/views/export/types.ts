@@ -327,6 +327,7 @@ export interface ScheduleConversation {
 
 export type ScheduleOutcome =
   | 'running'
+  | 'interrupted'
   | 'completed'
   | 'partial'
   | 'failed'

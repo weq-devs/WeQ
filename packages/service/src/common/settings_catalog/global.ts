@@ -12,6 +12,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   updateCheckIntervalMinutes: 'preference',
   enhancementUpdates: 'preference',
   toastDurations: 'preference',
+  notificationEvents: 'preference',
   exportSaveMode: 'preference',
   realtimeEnabled: 'preference',
   autoAttachQq: 'preference',

@@ -9,6 +9,13 @@ import {
   pushMessageNoticeClick,
 } from '../../message_notice_bus';
 import type { WebNotice } from '../../web/notices';
+import {
+  normalizeNotificationEvents,
+  NOTIFICATION_EVENTS,
+  type NotificationEvent,
+} from '@weq/service/notification-settings';
+import { requireBootstrap } from '../../context/app_context';
+import { claimMessageSystemNotification } from '../../message_notification_dedupe';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -30,18 +37,39 @@ export function createMessageNotificationsRouter(
       .input(
         binding.extend({
           messageId: z.string().min(1).max(128),
+          anchorId: z.string().min(1).max(128).optional(),
           kind: z.enum(['c2c', 'group']),
           conv: z.string().min(1),
           seq: z.string().regex(/^[1-9]\d*$/),
           title: z.string().max(512),
           body: z.string().max(2048),
           private: z.boolean(),
+          reasons: z
+            .array(
+              z.custom<NotificationEvent>(
+                (value) =>
+                  typeof value === 'string' &&
+                  NOTIFICATION_EVENTS.includes(value as NotificationEvent),
+              ),
+            )
+            .max(8)
+            .optional(),
         }),
       )
       .mutation(({ input }) => {
         resolve(input);
         const values = globalClientState().snapshot().values;
-        if (values.messageNotifications !== true) return false;
+        const events =
+          requireBootstrap().userConfig.getSettings().notificationEvents ??
+          normalizeNotificationEvents(undefined, {
+            messageNotifications: values.messageNotifications,
+          });
+        if (
+          !(input.reasons ?? [input.kind === 'group' ? 'groupMessage' : 'directMessage']).some(
+            (event) => events[event].system,
+          )
+        )
+          return false;
         const key = JSON.stringify([
           input.expectedAccountConfigId,
           input.kind,
@@ -49,6 +77,16 @@ export function createMessageNotificationsRouter(
           input.messageId,
         ]);
         if (shown.has(key)) return true;
+        if (
+          input.kind === 'group' &&
+          !claimMessageSystemNotification(
+            input.expectedAccountConfigId,
+            input.kind,
+            input.conv,
+            input.seq,
+          )
+        )
+          return true;
         const hide = input.private || values.privacyMode === true;
         const notice: WebNotice = {
           uin: input.expectedAccountUin,
@@ -56,7 +94,7 @@ export function createMessageNotificationsRouter(
           kind: 'message',
           title: hide ? 'WeQ' : input.title,
           body: hide ? '收到新消息' : input.body,
-          target: { kind: input.kind, conv: input.conv, seq: input.seq },
+          target: { kind: input.kind, conv: input.conv, seq: input.seq, msgId: input.anchorId },
         };
         const supported =
           getHost().showMessageNotification?.(notice, () => pushMessageNoticeClick(notice)) ??
@@ -64,7 +102,13 @@ export function createMessageNotificationsRouter(
         if (supported) {
           shown.add(key);
           while (shown.size > 5000) shown.delete(shown.values().next().value!);
-        }
+        } else
+          claimMessageSystemNotification.release(
+            input.expectedAccountConfigId,
+            input.kind,
+            input.conv,
+            input.seq,
+          );
         return supported;
       }),
     consume: procedure.input(binding).mutation(({ input }) => {

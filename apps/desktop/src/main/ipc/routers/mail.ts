@@ -149,6 +149,17 @@ export const mailRouter = router({
         resume,
         includeIntegrityReport: input.includeIntegrityReport,
         name: input.ids === null ? '所有邮件' : `邮件导出-${input.ids.length}封`,
+        display: {
+          action: '导出邮件',
+          subject:
+            input.ids !== null && !input.expandThreads ? `${input.ids.length} 封` : undefined,
+          context:
+            input.ids === null
+              ? '当前邮件筛选范围'
+              : input.expandThreads
+                ? `选定 ${input.ids.length} 项 · 展开邮件会话`
+                : undefined,
+        },
         savePolicy: input.savePolicy,
         run: (context) => runResumableExport(services, resume, context, check),
       });

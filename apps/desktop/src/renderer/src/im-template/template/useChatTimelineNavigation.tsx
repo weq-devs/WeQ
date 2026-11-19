@@ -1,9 +1,11 @@
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
-import { timelineViewport } from '../../lib/timelineViewport';
+import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
+import { firstUnreadMessage, matchesUnreadMessage } from '../../lib/unreadNavigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ReplyJumpTarget } from '../../components/QqMessageContent';
+import type { ReplyJump, ReplyJumpTarget } from '../../state/messageContext';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
-import type { Conversation, Message } from './types';
+import type { Conversation, Message, UnreadDockStop } from './types';
+import { unreadHighlightKey } from './unreadDock';
 import type { ChatPaneProps } from './chatPane';
 import {
   type UnreadJumpState,
@@ -28,6 +30,7 @@ export function useChatTimelineNavigation({
   selectionOrder,
   tabActive,
   unreadDock,
+  seenUnreadHighlights,
   user,
   visibleMessages,
 }: {
@@ -45,10 +48,11 @@ export function useChatTimelineNavigation({
   messages: ChatPaneProps['messages'];
   onJumpToLatest: ChatPaneProps['onJumpToLatest'];
   onReadCurrentConversation: ChatPaneProps['onReadCurrentConversation'];
-  parentJumpToSeq: (target: ReplyJumpTarget) => void | Promise<void>;
+  parentJumpToSeq: ReplyJump;
   selectionOrder: string[];
   tabActive: boolean;
   unreadDock: ChatPaneProps['unreadDock'];
+  seenUnreadHighlights?: Set<string>;
   user: ChatPaneProps['user'];
   visibleMessages: Message[];
 }) {
@@ -58,15 +62,41 @@ export function useChatTimelineNavigation({
 
   const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
 
-  // 列表与跳转坞按序号共享查看进度，乱序定位不跳过其它提醒。
-  const [visitedStops, setVisitedStops] = useState<Set<string>>(() => new Set());
   const [locatedSeq, setLocatedSeq] = useState<string | null>(null);
   const navigationKey = useMemo(
-    () => ({ conversationId: conversation?.id, dock: unreadDock }),
-    [conversation?.id, unreadDock],
+    () => ({ conversationId: conversation?.id, dock: unreadDock, seenUnreadHighlights }),
+    [conversation?.id, unreadDock, seenUnreadHighlights],
   );
   const navigationScope = useRef(navigationKey);
   navigationScope.current = navigationKey;
+  // 普通未读只记本次跳转；重要提醒在同一数据源内切换会话后仍记得已查看。
+  const [visited, setVisited] = useState<{ scope: typeof navigationKey; seqs: Set<string> }>();
+  const visitedStops = visited?.scope === navigationKey ? visited.seqs : undefined;
+  const visitStops = useCallback((scope: typeof navigationKey, seqs: string[]) => {
+    if (navigationScope.current !== scope || !seqs.length) return;
+    const { conversationId, dock, seenUnreadHighlights: seen } = scope;
+    if (conversationId && seen) {
+      for (const stop of dock?.stops ?? []) {
+        if (stop.kind !== 'unread' && seqs.includes(stop.seq))
+          seen.add(unreadHighlightKey(conversationId, stop));
+      }
+      while (seen.size > 512) seen.delete(seen.values().next().value!);
+    }
+    setVisited((current) => {
+      const previous = current?.scope === scope ? current.seqs : undefined;
+      return seqs.every((seq) => previous?.has(seq))
+        ? current
+        : { scope, seqs: new Set([...(previous ?? []), ...seqs]) };
+    });
+  }, []);
+  const isVisited = useCallback(
+    (stop: UnreadDockStop) =>
+      visitedStops?.has(stop.seq) ||
+      (stop.kind !== 'unread' &&
+        navigationKey.conversationId &&
+        seenUnreadHighlights?.has(unreadHighlightKey(navigationKey.conversationId, stop))),
+    [navigationKey, seenUnreadHighlights, visitedStops],
+  );
   const locateTask = useRef<object | null>(null);
   const [dockJumping, setDockJumping] = useState(false);
   const dockTask = useRef<object | null>(null);
@@ -104,27 +134,38 @@ export function useChatTimelineNavigation({
   const readingPositionApplied = useRef(false);
 
   const readGestureUntil = useRef(0);
+  const messagesForDock = useRef(messages);
+  messagesForDock.current = messages;
 
   const jumpToSeq = useCallback(
-    (target: ReplyJumpTarget) => {
+    async (target: ReplyJumpTarget): Promise<boolean> => {
       // 滚动事件晚于消息刷新提交；先退出贴底，避免原消息刚定位就被刷新拉回末尾。
       atBottomRef.current = false;
       readGestureUntil.current = 0;
       const started = navigationScope.current;
       const task = {};
       locateTask.current = task;
-      const complete = () => {
-        if (navigationScope.current !== started || locateTask.current !== task) return;
-        const seq = target.seq == null ? null : String(target.seq);
-        setLocatedSeq(seq);
-        if (seq && started.dock?.stops.some((stop) => stop.seq === seq))
-          setVisitedStops((old) => new Set([...old, seq]));
-      };
-      const result = parentJumpToSeq(target);
-      if (result) return result.then(complete);
-      complete();
+      const found = await parentJumpToSeq(target);
+      if (found === false || navigationScope.current !== started || locateTask.current !== task)
+        return false;
+      const seq = target.seq == null ? null : String(target.seq);
+      setLocatedSeq(seq);
+      const stop = started.dock?.stops.find((stop) => stop.seq === seq);
+      if (
+        stop &&
+        (!stop.identity ||
+          target.importantMessage === stop.identity ||
+          (target.msgId &&
+            messagesForDock.current.some(
+              (message) =>
+                (message.msgId ?? message.id) === target.msgId &&
+                matchesUnreadMessage(message, stop.seq, stop.identity),
+            )))
+      )
+        visitStops(started, [stop.seq]);
+      return true;
     },
-    [parentJumpToSeq],
+    [parentJumpToSeq, visitStops],
   );
 
   const lastReadSignal = useRef({ key: '', at: 0 });
@@ -171,7 +212,6 @@ export function useChatTimelineNavigation({
 
   // 换会话（或上层重下了新的一份快照）时，跳转坞从第一个跳转点重新开始。
   useEffect(() => {
-    setVisitedStops(new Set());
     setLocatedSeq(null);
     dockTask.current = null;
     setDockJumping(false);
@@ -458,22 +498,23 @@ export function useChatTimelineNavigation({
   );
 
   useEffect(() => {
-    if (!jumpRequest || loading || loadError) {
+    if (!tabActive || !jumpRequest || loading || loadError) {
       setJumpMissing(false);
       if (!jumpRequest) locatedJump.current = undefined;
       return;
     }
     if (locatedJump.current === jumpRequest) return;
     const frame = requestAnimationFrame(() => {
-      const target = [
-        ...(messageScrollRef.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? []),
-      ].find((node) => node.dataset.messageId === jumpRequest.messageId);
-      setJumpMissing(!target);
-      if (target) locatedJump.current = jumpRequest;
-      target?.scrollIntoView({ block: 'center', behavior: 'instant' });
+      const scroll = messageScrollRef.current;
+      const found = Boolean(scroll && revealTimelineMessage(scroll, jumpRequest.messageId, true));
+      setJumpMissing(!found);
+      if (!found) return;
+      atBottomRef.current = false;
+      readGestureUntil.current = 0;
+      locatedJump.current = jumpRequest;
     });
     return () => cancelAnimationFrame(frame);
-  }, [jumpRequest, loading, loadError, messages]);
+  }, [jumpRequest, loading, loadError, tabActive, visibleMessages]);
 
   function scrollMessagesToBottom() {
     const scroll = messageScrollRef.current;
@@ -707,16 +748,88 @@ export function useChatTimelineNavigation({
 
   // ── 未读跳转坞 ──────────────────────────────────────────────────────────
   // 打开会话时上层已经把未读/高亮读进内存并清了库，这里只负责按顺序引导：
-  // 每点一下跳一个目标（高亮按 seq 从大到小，最后是「新的 N 条未读消息」），
+  // 每点一下跳一个目标（高亮按 seq 从大到小，最后是首条未读），
   // 跳完自动消失。
-  const nextDockIndex = unreadDock?.stops.findIndex((stop) => !visitedStops.has(stop.seq)) ?? -1;
+  const nextDockIndex = unreadDock?.stops.findIndex((stop) => !isVisited(stop)) ?? -1;
   const dockIndex = nextDockIndex < 0 ? (unreadDock?.stops.length ?? 0) : nextDockIndex;
   const dockStop = unreadDock?.stops[dockIndex] ?? null;
-  const dockRemaining = unreadDock?.stops.filter((stop) => !visitedStops.has(stop.seq)).length ?? 0;
+  const dockRemaining = unreadDock?.stops.filter((stop) => !isVisited(stop)).length ?? 0;
   const dockImportantRemaining =
-    unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !visitedStops.has(stop.seq))
-      .length ?? 0;
+    unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !isVisited(stop)).length ?? 0;
 
+  const dockTargets = useMemo(() => {
+    const pending = unreadDock?.stops.filter((stop) => !isVisited(stop));
+    if (!pending?.length) return undefined;
+    const pendingBySeq = new Map(pending.map((stop) => [stop.seq, stop]));
+    const idsBySeq = new Map<string, string>();
+    for (const message of messages) {
+      const stop = message.msgSeq ? pendingBySeq.get(message.msgSeq) : undefined;
+      if (stop && !idsBySeq.has(stop.seq) && matchesUnreadMessage(message, stop.seq, stop.identity))
+        idsBySeq.set(stop.seq, message.id);
+    }
+    const unreadSeq = pending.find((stop) => stop.kind === 'unread')?.seq;
+    if (unreadSeq && !idsBySeq.has(unreadSeq)) {
+      const start = BigInt(unreadSeq);
+      // 只为普通未读补缺号；重要消息必须看到对应原文。
+      const covered = messages.some(
+        ({ msgSeq }) => msgSeq && /^[1-9]\d*$/.test(msgSeq) && BigInt(msgSeq) < start,
+      );
+      const next = covered ? firstUnreadMessage(messages, unreadSeq) : undefined;
+      if (next) idsBySeq.set(unreadSeq, next.id);
+    }
+    const seqsById = new Map<string, string[]>();
+    for (const [seq, id] of idsBySeq) {
+      const seqs = seqsById.get(id);
+      if (seqs) seqs.push(seq);
+      else seqsById.set(id, [seq]);
+    }
+    return seqsById;
+  }, [messages, unreadDock, isVisited]);
+  const renderedTimelineItems = timeline.enabled ? timeline.items : null;
+  useLayoutEffect(() => {
+    const scroll = messageScrollRef.current;
+    if (!tabActive || loading || loadingNewer || !scroll || !dockTargets?.size) return;
+    // 首次检查在绘制前完成；之后只观察候选目标，虚拟列表预挂载不等于可见。
+    const bounds = scroll.getBoundingClientRect();
+    if (bounds.height <= 0) return;
+    const seen: string[] = [];
+    const offscreen = new Map<Element, string[]>();
+    for (const target of scroll.querySelectorAll<HTMLElement>('[data-message-id]')) {
+      const seqs = dockTargets.get(target.dataset.messageId ?? '');
+      if (!seqs) continue;
+      const rect = target.getBoundingClientRect();
+      if (rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom)
+        seen.push(...seqs);
+      else offscreen.set(target, seqs);
+    }
+    visitStops(navigationKey, seen);
+    if (!offscreen.size || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        visitStops(
+          navigationKey,
+          entries.flatMap((entry) =>
+            entry.intersectionRatio > 0 ? (offscreen.get(entry.target) ?? []) : [],
+          ),
+        );
+      },
+      { root: scroll, threshold: Number.EPSILON },
+    );
+    for (const target of offscreen.keys()) observer.observe(target);
+    return () => {
+      observer.disconnect();
+      observer.takeRecords();
+    };
+  }, [
+    loading,
+    loadingNewer,
+    navigationKey,
+    renderedTimelineItems,
+    tabActive,
+    dockTargets,
+    visibleMessages,
+    visitStops,
+  ]);
   const dockVisible = Boolean(dockStop);
 
   async function jumpDockStop(): Promise<boolean> {
@@ -725,8 +838,15 @@ export function useChatTimelineNavigation({
     dockTask.current = task;
     setDockJumping(true);
     try {
-      await jumpToSeq({ seq: dockStop.seq });
-      return dockTask.current === task;
+      const found = await jumpToSeq({
+        seq: dockStop.seq,
+        ...(dockStop.kind === 'unread'
+          ? { mode: 'firstUnread' as const }
+          : dockStop.identity
+            ? { importantMessage: dockStop.identity }
+            : {}),
+      });
+      return found && dockTask.current === task;
     } catch (err) {
       console.error('[unread-dock] jump failed', err);
       return false;

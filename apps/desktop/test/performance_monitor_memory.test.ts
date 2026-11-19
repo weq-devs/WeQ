@@ -9,6 +9,7 @@ import { trpc } from '../src/renderer/src/trpc/client';
 import { createQueryClient } from '../src/renderer/src/trpc/queryClient';
 import PerformanceMonitorView from '../src/renderer/src/components/performance/PerformanceMonitorView';
 import type { Chart } from '../src/renderer/src/components/performance/PerformanceCharts';
+import { chooseFormOption } from './support/form-controls';
 
 vi.mock('../src/renderer/src/components/performance/PerformanceCharts', async (importOriginal) => {
   const original =
@@ -201,10 +202,9 @@ it('实时刷新等待响应时不卸载图表，也不插入读取占位', asyn
 it('筛选和明细切换不积压结果，关闭后迟到的历史响应也会释放', async () => {
   const f = fixture();
   await settle();
-  const process = f.host.querySelector<HTMLSelectElement>('[aria-label="进程"]')!;
+  const process = f.host.querySelector<HTMLButtonElement>('[aria-label="进程"]')!;
   await act(async () => {
-    process.value = '合成进程';
-    process.dispatchEvent(new Event('change', { bubbles: true }));
+    chooseFormOption(process, '合成进程');
   });
   await settle();
   expect(f.historyReads.at(-1)).toMatchObject({ processGroup: '合成进程', aggregate: true });

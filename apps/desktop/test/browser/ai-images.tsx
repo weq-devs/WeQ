@@ -8,12 +8,14 @@ import {
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import { useViewState } from '../../src/renderer/src/state/view';
 import { imageRequests } from './ai-images.stub';
+import { bindAccountState } from '../../src/renderer/src/lib/clientPreferences';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
 import '../../src/renderer/src/styles/agentlab-workspace.css';
 import '../../src/renderer/src/styles/assistant-conversation.css';
 
 useViewState.setState({ openedUin: '10000' });
+bindAccountState({ expectedAccountUin: '10000', expectedAccountConfigId: 'fixture' });
 const CloneChatPanel = lazy(() =>
   import('../../src/renderer/src/views/agentlab/CloneChatPanel').then((module) => ({
     default: module.CloneChatPanel,

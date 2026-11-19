@@ -1,3 +1,4 @@
+import { FormSelect, FormSuggestions } from '../FormSelect';
 import { EmptyState } from '../EmptyState';
 import { eventTimeFormatter } from '@weq/time';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
@@ -15,15 +16,24 @@ import { client } from '../../trpc/client';
 import { preflightExportEstimate } from '../../views/export/preflight';
 import { useExportReportDialog } from '../../views/export/ExportReportControl.shared';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { ConvContext, ForwardKindContext, ReplyJumpContext } from '../../state/messageContext';
+import {
+  ConvContext,
+  ForwardKindContext,
+  ReplyJumpContext,
+  type ReplyJumpTarget,
+} from '../../state/messageContext';
+import { closeForwardWindows } from '../../state/forwardWindow';
 import { ChatMediaGallery } from '../ChatMediaGallery';
 import { MessageBubble } from '../../im-template/template/messageBubble';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
-import type { Conversation, Message, User } from '../../im-template/template/types';
+import type { Conversation, GroupMember, Message, User } from '../../im-template/template/types';
 import '../../styles/chat-records.css';
 import { conversationExportSelection } from '../../lib/conversationActions';
 import { useRequestContentExport } from '../../state/contentSelection.shared';
+import { createReplyPreviewIndex } from '../../lib/replyPreview';
+import { enrichReplyElements } from '../../views/workspace/messageProjection';
+import type { RenderElement } from '../QqMessageContent.shared';
 
 const noop = (): void => {};
 
@@ -34,6 +44,9 @@ export function ChatRecordsModal({
   onClose,
   onJumpMessage,
   renderers,
+  user,
+  groupMembers,
+  resolveGroupMembers,
   localSource,
   embeddedKeyword,
 }: {
@@ -63,6 +76,9 @@ export function ChatRecordsModal({
   }) => void;
   /** The same message renderers the chat pane uses (qqMessageRenderer etc.). */
   renderers?: MessageRenderer[];
+  user?: User;
+  groupMembers?: (groupCode: string) => ReadonlyMap<string, GroupMember>;
+  resolveGroupMembers?: (groupCode: string, uids: string[]) => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const requestExport = useRequestContentExport();
@@ -104,6 +120,10 @@ export function ChatRecordsModal({
       setOwnUin(localSource.user.identityValue);
       return () => {};
     }
+    if (user) {
+      setOwnUin(user.identityValue);
+      return () => {};
+    }
     if (fixed)
       void client.account.getSelfProfile
         .query()
@@ -114,7 +134,7 @@ export function ChatRecordsModal({
     return () => {
       active = false;
     };
-  }, [fixed, localSource]);
+  }, [fixed, localSource, user]);
   const selected = initialHit;
   const [messages, setMessages] = useState<ConversationRecordHit[]>([]);
   const [msgLoading, setMsgLoading] = useState(false);
@@ -123,6 +143,32 @@ export function ChatRecordsModal({
   const [msgLimited, setMsgLimited] = useState(false);
   const msgRunRef = useRef(0);
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
+  const isGroup = selected.source === 'group';
+  const members = useMemo(
+    () => (isGroup && !localSource ? groupMembers?.(selected.targetUid) : undefined),
+    [isGroup, localSource, groupMembers, selected.targetUid],
+  );
+  useEffect(() => {
+    if (!isGroup || localSource || !resolveGroupMembers) return;
+    const uids = new Set<string>();
+    for (const row of messages) {
+      if (row.senderUid) uids.add(row.senderUid);
+      for (const element of (row.elements ?? []) as RenderElement[]) {
+        const uid = element?.type === 'reply' ? element.data?.origSenderUid : undefined;
+        if (typeof uid === 'string' && uid) uids.add(uid);
+      }
+    }
+    if (uids.size) resolveGroupMembers(selected.targetUid, [...uids]);
+  }, [isGroup, localSource, selected.targetUid, messages, resolveGroupMembers]);
+  const replyIndex = useMemo(
+    () =>
+      createReplyPreviewIndex(
+        messages
+          .filter((row) => row.elements?.length)
+          .map((row) => ({ ...row, elements: row.elements! })),
+      ),
+    [messages],
+  );
 
   // A minimal conversation view for the selected hit — enough for MessageBubble.
   const conversation = useMemo(
@@ -307,8 +353,9 @@ export function ChatRecordsModal({
   ]);
 
   const jumpTo = useCallback(
-    (msg: ConversationRecordHit) => {
+    (msg: Pick<ConversationRecordHit, 'msgSeq' | 'msgId'>) => {
       if (localSource) {
+        closeForwardWindows();
         localSource.onJump(msg.msgId);
         onClose();
         return;
@@ -322,6 +369,7 @@ export function ChatRecordsModal({
         return;
       }
       // 跳转进会话时自动关闭聊天记录模态。
+      closeForwardWindows();
       onJumpMessage({
         source: selected.source,
         targetUid: selected.targetUid,
@@ -333,8 +381,36 @@ export function ChatRecordsModal({
     [onJumpMessage, onClose, selected, localSource],
   );
 
-  const isGroup = selected?.source === 'group';
-  const convKey = isGroup && selected ? selected.targetUid : '';
+  const jumpToReply = useCallback(
+    async (target: ReplyJumpTarget) => {
+      if (localSource) {
+        if (target.msgId) jumpTo({ msgId: target.msgId, msgSeq: '' });
+        return;
+      }
+      const positive = (value: unknown) =>
+        /^[1-9]\d*$/.test(String(value)) ? String(value) : undefined;
+      const run = msgRunRef.current;
+      let seq = isGroup ? (positive(target.seq) ?? positive(target.index)) : positive(target.index);
+      if (!isGroup && !seq && positive(target.clientSeq)) {
+        try {
+          seq =
+            (await client.account.resolveReplySeq.query({
+              conv: selected.targetUid,
+              clientSeq: String(target.clientSeq),
+              senderUin: positive(target.senderUin),
+              sendTime: positive(target.sendTime),
+            })) ?? undefined;
+        } catch {
+          // 服务未能精确解析引用时，不用不同语义的序号跳到另一条消息。
+        }
+      } else if (!isGroup) seq ??= positive(target.seq);
+      if (run !== msgRunRef.current) return;
+      jumpTo({ msgId: target.msgId ?? '', msgSeq: seq ?? '' });
+    },
+    [isGroup, jumpTo, localSource, selected.targetUid],
+  );
+
+  const convKey = isGroup ? selected.targetUid : '';
 
   const content = (
     <>
@@ -364,14 +440,7 @@ export function ChatRecordsModal({
             kind={selected.source === 'group' ? 'group' : 'c2c'}
             conv={selected.targetUid}
             onClose={() => setCalendarOpen(false)}
-            onJump={(seq) => {
-              onJumpMessage({
-                source: selected.source,
-                targetUid: selected.targetUid,
-                msgSeq: seq,
-              });
-              onClose();
-            }}
+            onJump={(seq, msgId) => jumpTo({ msgSeq: seq, msgId: msgId ?? '' })}
           />
         ) : null}
         {embedded ? null : (
@@ -440,14 +509,11 @@ export function ChatRecordsModal({
           <div className="weq-record-filters">
             <label>
               发送者
-              <input
+              <FormSuggestions
                 placeholder="QQ 号或 UID"
-                list="weq-record-senders"
                 value={sender}
-                onChange={(e) => setSender(e.target.value)}
-              />
-              <datalist id="weq-record-senders">
-                {[
+                onValueChange={setSender}
+                options={[
                   ...new Map(
                     messages.map((m) => [
                       m.senderUin && m.senderUin !== '0' ? m.senderUin : m.senderUid,
@@ -456,10 +522,8 @@ export function ChatRecordsModal({
                   ).entries(),
                 ]
                   .filter(([id]) => !!id)
-                  .map(([id, name]) => (
-                    <option key={id} value={id} label={name} />
-                  ))}
-              </datalist>
+                  .map(([value, label]) => ({ value, label }))}
+              />
             </label>
             <label className="weq-record-self">
               <input
@@ -470,7 +534,7 @@ export function ChatRecordsModal({
               />
               我
             </label>
-            <select
+            <FormSelect
               aria-label="消息类型"
               disabled={Boolean(localSource)}
               value={category}
@@ -491,8 +555,8 @@ export function ChatRecordsModal({
                   {label}
                 </option>
               ))}
-            </select>
-            <select
+            </FormSelect>
+            <FormSelect
               aria-label="导出格式"
               disabled={Boolean(localSource)}
               value={exportFormat}
@@ -501,7 +565,7 @@ export function ChatRecordsModal({
               {['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'].map((f) => (
                 <option key={f}>{f}</option>
               ))}
-            </select>
+            </FormSelect>
             <label className="weq-record-self">
               <input
                 type="checkbox"
@@ -618,7 +682,7 @@ export function ChatRecordsModal({
                     elements: message.elements ?? [],
                   }))}
                 >
-                  <ReplyJumpContext.Provider value={noop}>
+                  <ReplyJumpContext.Provider value={jumpToReply}>
                     {msgLoading ? (
                       <SearchListSkeleton rows={4} />
                     ) : messages.length === 0 ? (
@@ -634,8 +698,30 @@ export function ChatRecordsModal({
                           if (msg.elements?.length && conversation) {
                             const message =
                               localSource?.messages.find((message) => message.id === msg.msgId) ??
-                              messageFromHit(msg, conversation);
-                            const sender = message.sender ?? senderUserFromHit(msg);
+                              messageFromHit(
+                                msg,
+                                conversation,
+                                user
+                                  ? enrichReplyElements(
+                                      msg.elements,
+                                      conversation,
+                                      user,
+                                      members,
+                                      replyIndex,
+                                    )
+                                  : msg.elements,
+                              );
+                            const mine = localSource
+                              ? message.senderId === localSource.user.id
+                              : Boolean(
+                                  (user?.uid && user.uid === msg.senderUid) ||
+                                    (ownUin && ownUin === msg.senderUin),
+                                );
+                            const sender =
+                              members?.get(msg.senderUid) ??
+                              (mine && !isGroup ? (localSource?.user ?? user) : undefined) ??
+                              message.sender ??
+                              senderUserFromHit(msg);
                             return (
                               <div
                                 key={msg.msgId}
@@ -644,7 +730,10 @@ export function ChatRecordsModal({
                                 tabIndex={0}
                                 onClick={() => jumpTo(msg)}
                                 onKeyDown={(event) => {
-                                  if (event.key === 'Enter' || event.key === ' ') {
+                                  if (
+                                    event.target === event.currentTarget &&
+                                    (event.key === 'Enter' || event.key === ' ')
+                                  ) {
                                     event.preventDefault();
                                     jumpTo(msg);
                                   }
@@ -655,7 +744,7 @@ export function ChatRecordsModal({
                                   message={message}
                                   conversation={conversation}
                                   sender={sender}
-                                  mine={false}
+                                  mine={mine}
                                   senderName={displayUserName(sender)}
                                   senderAvatarUrl={sender.avatarUrl}
                                   senderSeed={sender.identityValue}
@@ -775,7 +864,7 @@ function conversationFromHit(hit: ChatRecordSearchHit): Conversation {
     const code = hit.targetUid;
     return {
       type: 'group',
-      id: `group:${code}`,
+      id: code,
       updatedAt: '',
       unreadCount: 0,
       lastMessage: null,
@@ -804,7 +893,7 @@ function conversationFromHit(hit: ChatRecordSearchHit): Conversation {
   };
   return {
     type: 'direct',
-    id: `c2c:${hit.targetUid}`,
+    id: hit.targetUid,
     updatedAt: '',
     unreadCount: 0,
     lastMessage: null,
@@ -815,7 +904,11 @@ function conversationFromHit(hit: ChatRecordSearchHit): Conversation {
 }
 
 /** Build the template Message the bubble renders from a search hit. */
-function messageFromHit(hit: ConversationRecordHit, conversation: Conversation): Message {
+function messageFromHit(
+  hit: ConversationRecordHit,
+  conversation: Conversation,
+  elements: unknown[],
+): Message {
   const sender = senderUserFromHit(hit);
   return {
     id: hit.msgId,
@@ -824,7 +917,7 @@ function messageFromHit(hit: ConversationRecordHit, conversation: Conversation):
     sender,
     body: hit.content,
     createdAt: toIsoTime(hit.sendTime),
-    qqElements: hit.elements ?? [],
+    qqElements: elements,
     ...(hit.setEmojiList ? { setEmojiList: hit.setEmojiList } : {}),
     ...(hit.decoration ? { decoration: hit.decoration } : {}),
     msgId: hit.msgId,

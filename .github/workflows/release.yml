@@ -5,16 +5,20 @@ name: Release
 #   - Windows: NSIS 安装包 + latest.yml（应用内自动更新读取）
 #   - Linux  : AppImage / tar.gz，x64 与 arm64 两个架构
 #   - macOS  : dmg + zip（自动更新读取 latest-mac.yml），x64 与 arm64 两个架构
-# 最后的 notes job 会用「中文说明 + GitHub 自动生成的 commit 变更列表」
-# 覆写 Release 正文，并标注 aarch64 未经真机实测、macOS 产物未公证。
+# notes job 写入下载表、CHANGELOG 及 GitHub 自动生成的变更列表，
+# 并注明 macOS 产物的签名与公证状态。
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
+      package_candidate:
+        description: 对所选分支运行完整 CI 和 Windows 安装包预检，不发布或上传 Release
+        type: boolean
+        default: false
       source_ref:
-        description: 只诊断 Windows 打包准备，不创建或上传 Release
+        description: 仅用于 Windows 打包准备诊断，不用于候选预检
         required: true
         default: v2.7.1
 
@@ -31,7 +35,7 @@ env:
 
 jobs:
   windows-preparation-probe:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.package_candidate
     runs-on: windows-latest
     timeout-minutes: 20
     strategy:
@@ -125,6 +129,7 @@ jobs:
 
   checks:
     needs: [gate]
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.package_candidate)) }}
     uses: ./.github/workflows/ci.yml
 
   prepare:
@@ -154,7 +159,8 @@ jobs:
     permissions:
       contents: write # 创建 / 上传 Release
     runs-on: windows-latest
-    needs: [prepare]
+    needs: [prepare, checks]
+    if: ${{ !cancelled() && needs.checks.result == 'success' && (needs.prepare.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.package_candidate)) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -179,7 +185,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # nt_helper.node 与装扮资源 *.dat 不入库：打包前从 weq-devs/nt_helper_release
-      # 取最新的一份（脚本默认只取本 runner 的平台，再带上三个 .dat —— 它们同源，
+      # 取明确锚定的一份（脚本默认只取本 runner 的平台，再带上三个 .dat —— 它们同源，
       # 不能混版本）。--require-fresh 卡住 30 天有效期，--verify 当场 require 一次
       # 跑 getInitStatus()，二进制有问题在这里就炸，而不是出厂后才发现。
       - name: Fetch nt_helper native artifacts
@@ -191,6 +197,7 @@ jobs:
       # 把 tag 里的版本号（v1.2.3 -> 1.2.3）写进 package.json，
       # 让 electron-builder 命名产物、app.getVersion() 也能读到。
       - name: Sync version from tag
+        if: github.event_name == 'push'
         run: node scripts/set-version.mjs ${{ github.ref_name }}
 
       # 把 clone-export 机器人引擎打包到 resources/bot-runtime/bot.mjs，
@@ -232,6 +239,7 @@ jobs:
           Get-Content apps/desktop/electron-builder.yml -Raw | Write-Host
 
       - name: Package + publish release
+        if: github.event_name == 'push'
         run: pnpm --filter @weq/desktop exec electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -239,10 +247,28 @@ jobs:
           # 保留它好让下一次失败（asar / filter / publish）自解释。
           DEBUG: electron-builder
 
+      - name: Package only (no Release)
+        if: github.event_name == 'workflow_dispatch'
+        run: pnpm --filter @weq/desktop exec electron-builder --win --publish never
+
+      - name: Verify packaged database maintenance
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          $app = "apps/desktop/release/$version/win-unpacked"
+          node scripts/verify-native-maintenance.mjs "$app/resources/out/main" "$app/native"
+
       - name: Verify enhancement engines
         run: node scripts/verify-enhancement-engines.mjs
 
+      - name: Verify release metadata signer
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          WEQ_RELEASE_SIGNING_KEY: ${{ secrets.WEQ_RELEASE_SIGNING_KEY }}
+        run: node scripts/publish-release-feed.mjs --check-key
+
       - name: Upload enhancement engines
+        if: github.event_name == 'push'
         run: node scripts/upload-enhancement-engines.mjs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -278,6 +304,7 @@ jobs:
   # 而 native binding 都是构建机架构的，两者一旦不一致就会打出坏包
   # （见 electron-builder.yml 里 linux 一节的说明）。
   linux-x64:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     needs: [windows]
@@ -360,6 +387,7 @@ jobs:
           test ! -e "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-x64"
           test -f "$APP_DIR/resources/enhancements/manifest.json"
           test ! -e "$APP_DIR/resources/resources/daemon"
+          node scripts/verify-native-maintenance.mjs "$APP_DIR/resources/out/main" "$APP_DIR/native"
 
       - name: Verify enhancement engines
         run: node scripts/verify-enhancement-engines.mjs
@@ -389,6 +417,7 @@ jobs:
   # 均为 ELF aarch64），但整体是否可用未验证。用原生 arm64 runner
   # （公开仓库免费）构建，让 sherpa-onnx / resvg 装到正确的 arm64 版本。
   linux-arm64:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     needs: [windows]
@@ -466,6 +495,7 @@ jobs:
           test ! -e "$APP_DIR/resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-arm64"
           test -f "$APP_DIR/resources/enhancements/manifest.json"
           test ! -e "$APP_DIR/resources/resources/daemon"
+          node scripts/verify-native-maintenance.mjs "$APP_DIR/resources/out/main" "$APP_DIR/native"
 
       - name: Verify enhancement engines
         run: node scripts/verify-enhancement-engines.mjs
@@ -497,6 +527,7 @@ jobs:
   # 两个 macOS 架构共用固定自签发布身份；缺料中止，不退回 ad-hoc。
   # 不是 Apple 公证，首次仍需在「隐私与安全性」中对可信来源手动放行。
   macos-x64:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     needs: [windows]
@@ -574,6 +605,12 @@ jobs:
       - name: Verify signed ZIP (x64)
         run: node scripts/verify-macos-signing.mjs "apps/desktop/release/${GITHUB_REF_NAME#v}/weQ-${GITHUB_REF_NAME#v}-mac-x64.zip"
 
+      - name: Verify packaged database maintenance
+        run: |
+          resources=$(find "apps/desktop/release/${GITHUB_REF_NAME#v}" -path '*/weQ.app/Contents/Resources' -type d -print -quit)
+          test -n "$resources"
+          node scripts/verify-native-maintenance.mjs "$resources/out/main" "$resources/native"
+
       - name: Cleanup signing keychain
         if: always()
         run: node scripts/prepare-macos-signing.mjs --cleanup
@@ -618,6 +655,7 @@ jobs:
   # 原生 arm64 runner（macos-15，macOS 15 arm64）构建，让 sherpa-onnx / resvg
   # 装到正确的 arm64 版本；native/darwin/arm64 预编译二进制随 extraFiles 进包。
   macos-arm64:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     needs: [windows]
@@ -699,6 +737,12 @@ jobs:
 
       - name: Verify signed ZIP (arm64)
         run: node scripts/verify-macos-signing.mjs "apps/desktop/release/${GITHUB_REF_NAME#v}/weQ-${GITHUB_REF_NAME#v}-mac-arm64.zip"
+
+      - name: Verify packaged database maintenance
+        run: |
+          resources=$(find "apps/desktop/release/${GITHUB_REF_NAME#v}" -path '*/weQ.app/Contents/Resources' -type d -print -quit)
+          test -n "$resources"
+          node scripts/verify-native-maintenance.mjs "$resources/out/main" "$resources/native"
 
       - name: Cleanup signing keychain
         if: always()
@@ -784,6 +828,7 @@ jobs:
   #
   # 保留 windows 之后的构建顺序；这里只上传到 prepare 建好的草稿。
   web:
+    if: github.event_name == 'push'
     permissions:
       contents: write
     needs: [windows]
@@ -875,74 +920,17 @@ jobs:
           echo "== apps/web/dist =="
           ls -laR apps/web/dist 2>/dev/null | head -50 || echo "(no dist/)"
 
-  # ==================== 版本说明整理（AI，可回退）====================
-  # CHANGELOG 是开发者自己记事的，条目按开发顺序堆叠、粒度不一。这里在发版时
-  # 让 LLM 按「新功能 / 优化 / 修复 / 性能 / 兼容性 / 体验」重新组织一遍，
-  # 语气口语化一些。整理结果作为 artifact 同时供 Release 说明和 QQ 群通知，
-  # 保证两处文案一致；LLM 没配 / 挂了 / 格式不合格时脚本自动回退 CHANGELOG 原文。
-  #
-  # job 本身不设 if：notes 无论是否发版都会写 Release 正文，这里保持一致。
-  release-notes:
-    permissions:
-      contents: read
-    needs: [prepare]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: 生成版本说明
-        env:
-          RELEASE_NOTES_API_KEY: ${{ secrets.RELEASE_NOTES_API_KEY }}
-          RELEASE_NOTES_BASE_URL: ${{ secrets.RELEASE_NOTES_BASE_URL }}
-          RELEASE_NOTES_MODEL: ${{ secrets.RELEASE_NOTES_MODEL }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          node scripts/release-notes.mjs \
-            --version "${GITHUB_REF_NAME}" \
-            --output dist/release-notes.md
-          echo "== 版本说明 =="
-          cat dist/release-notes.md
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-notes
-          path: dist/release-notes.md
-          retention-days: 7
-
   # ======================= Release 说明（中文）=======================
-  # 等所有产物上传到草稿后，用「中文说明头 + GitHub 自动
-  # 生成的 commit/PR 变更列表」覆写 Release 正文，并标注 aarch64 未实测、
-  # macOS 使用固定自签证书签名、未公证。
+  # 等所有产物上传到草稿后，写入下载表、CHANGELOG 正文及 GitHub 变更列表。
   notes:
     permissions:
       contents: write
-    needs: [prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web, release-notes]
+    needs: [prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
     runs-on: ubuntu-latest
     steps:
-      # 只需当前标签；分类已前置，不再重复抓取完整历史。
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      # 整理好的版本说明由 release-notes job 产出。
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-notes
-          path: dist
-
-      # 兜底：artifact 为空（理论上不该发生）时直接回退 CHANGELOG 原文，
-      # 不让 Release 正文因为空文件变成一片空白。
-      - name: 校验版本说明
-        run: |
-          set -euo pipefail
-          if ! grep -q . dist/release-notes.md 2>/dev/null; then
-            echo "::warning::release-notes artifact 为空，回退 CHANGELOG 原文"
-            node scripts/extract-changelog.mjs "${GITHUB_REF_NAME}" CHANGELOG.md > dist/release-notes.md
-          fi
-          wc -c dist/release-notes.md
 
       # 内置 native 的构建 / 过期时间来自 native/pinned.json —— 那是本地
       # `pnpm native:fetch` 装完 .node 后写回的（日期源头是二进制自报的
@@ -982,11 +970,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 版本说明的「内容」来自 release-notes job 整理好的文案（数据源仍是
-          # CHANGELOG.md 对应章节），GitHub 自动生成的 commit/PR 变更列表附在后面
-          # 作为补充。release-notes 已在失败时回退原文，这里只读文件，不再自行抽取。
-          SECTION=$(cat dist/release-notes.md)
+          SECTION=$(node scripts/extract-changelog.mjs "$TAG")
+          SUBTITLE=""
+          if [[ "$SECTION" == '### '* ]]; then
+            SUBTITLE=${SECTION%%$'\n'*}
+            SECTION=${SECTION#"$SUBTITLE"}
+            while [[ "$SECTION" == $'\n'* ]]; do
+              SECTION=${SECTION#$'\n'}
+            done
+            SUBTITLE+=$'\n\n'
+          fi
           DOCS_COMMIT=$(git rev-parse "${TAG}:docs")
+          VERSION="${TAG#v}"
+          ASSET_BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
           # 让 GitHub 从上一个 tag 到本 tag 自动生成变更列表（commit/PR）。
           # 只取其中的正文（.body），拼到我们自己的中文说明后面。
@@ -1004,35 +1000,27 @@ jobs:
           fi
 
           NOTES=$(cat <<EOF
-          ## weQ ${TAG} 
+          ${SUBTITLE}## 下载 WeQ ${TAG}
 
-          ### 更新内容
+          | 平台 | 桌面版 | 独立 Web 版 |
+          | --- | --- | --- |
+          | Windows x64 | [EXE 安装包](${ASSET_BASE}/weQ-${VERSION}-setup.exe) | [Web 压缩包](${ASSET_BASE}/weq-web-${VERSION}-win32-x64.tar.gz) |
+          | macOS · Apple 芯片 | [DMG 安装包](${ASSET_BASE}/weQ-${VERSION}-mac-arm64.dmg) | [Web 压缩包](${ASSET_BASE}/weq-web-${VERSION}-darwin-arm64.tar.gz) |
+          | macOS · Intel | [DMG 安装包](${ASSET_BASE}/weQ-${VERSION}-mac-x64.dmg) | [Web 压缩包](${ASSET_BASE}/weq-web-${VERSION}-darwin-x64.tar.gz) |
+          | Linux x64 | [AppImage](${ASSET_BASE}/weQ-${VERSION}-linux-x86_64.AppImage) · [桌面压缩包](${ASSET_BASE}/weQ-${VERSION}-linux-x64.tar.gz) | [Web 压缩包](${ASSET_BASE}/weq-web-${VERSION}-linux-x64.tar.gz) |
+          | Linux ARM64 | [AppImage](${ASSET_BASE}/weQ-${VERSION}-linux-arm64.AppImage) · [桌面压缩包](${ASSET_BASE}/weQ-${VERSION}-linux-arm64.tar.gz) | [Web 压缩包](${ASSET_BASE}/weq-web-${VERSION}-linux-arm64.tar.gz) |
+
+          - **macOS**：安装包用固定自签证书签名，未公证。打开 DMG，把 WeQ 拖入「应用程序」。若首次提示无法验证开发者，确认来源后按 [macOS 安装与首次打开](https://github.com/weq-devs/WeqDocs/blob/${DOCS_COMMIT}/guide/macos-install.md) 中的步骤选择「仍要打开」。
+          - **Linux**：AppImage 执行 \`chmod +x 文件名.AppImage\` 后打开；若遇到 FUSE 错误，改用桌面压缩包。Arch Linux 可用 \`paru -S weq-bin\` 或 \`yay -S weq-bin\` 安装桌面版。
+          - **独立 Web**：需 Node.js ≥ 22，无需 \`npm install\`。解压后，Windows 双击 \`start.bat\`，macOS / Linux 运行 \`./start.sh\`。在浏览器打开终端打印的地址并输入令牌。[部署说明](https://github.com/${REPO}/blob/${TAG}/apps/web/README.md)
+
+          ## 更新内容
           ${SECTION}
 
-          ### 内置组件
+          ## 内置组件
           ${NATIVE_LINE:-（未记录 native 构建时间）}
 
-          ### 下载
-          - **Windows**: \`weQ-${TAG#v}-setup.exe\`
-          - **Linux x64**: \`weQ-${TAG#v}-linux-x86_64.AppImage\` / \`.tar.gz\`
-          - **Linux arm64（未实测）**: \`weQ-${TAG#v}-linux-arm64.AppImage\` / \`.tar.gz\`
-          - **Arch Linux (AUR)**: \`paru -S weq-bin\`（或 \`yay -S weq-bin\`，预编译包）
-          - **macOS Intel (x64)**: \`weQ-${TAG#v}-mac-x64.dmg\`（固定自签证书签名，未公证）
-          - **macOS Apple Silicon (arm64)**: \`weQ-${TAG#v}-mac-arm64.dmg\`（固定自签证书签名，未公证）
-          - **浏览器版 Web**（需自备 Node ≥22，每平台一个压缩包，按运行机器选）：
-            - Windows x64: \`weq-web-${TAG#v}-win32-x64.tar.gz\`
-            - Linux x64: \`weq-web-${TAG#v}-linux-x64.tar.gz\`
-            - Linux arm64: \`weq-web-${TAG#v}-linux-arm64.tar.gz\`
-            - macOS Intel (x64): \`weq-web-${TAG#v}-darwin-x64.tar.gz\`
-            - macOS Apple Silicon (arm64): \`weq-web-${TAG#v}-darwin-arm64.tar.gz\`
-            每个包自带对应平台的 native 原生模块，助手资源服务随应用运行，
-            详见[使用说明](https://github.com/${REPO}/blob/main/apps/web/README.md)
-
-          ### macOS 首次打开
-          将 WeQ 拖入“应用程序”后打开。只有确认下载来源可信时，才在“系统设置 → 隐私与安全性”对 WeQ 点“仍要打开”。无需终端命令，不关闭 SIP；“已损坏”或恶意软件警告不能当作普通首次提醒处理。
-          详见[图形化安装说明](https://github.com/weq-devs/WeqDocs/blob/${DOCS_COMMIT}/guide/macos-install.md)。
-
-          ### 变更
+          ## 完整变更
           ${CHANGES}
           EOF
           )
@@ -1077,6 +1065,39 @@ jobs:
           TAG: ${{ github.ref_name }}
           WEQ_RELEASE_SIGNING_KEY: ${{ secrets.WEQ_RELEASE_SIGNING_KEY }}
         run: node scripts/publish-release-feed.mjs
+
+  publish-announcement:
+    needs: [publish, gate]
+    if: github.repository == 'weq-devs/WeQ' && needs.gate.outputs.prerelease == 'false'
+    concurrency:
+      group: official-announcements-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --filter @weq/network --frozen-lockfile --ignore-scripts
+      - name: Publish signed release announcement
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WEQ_RELEASE_SIGNING_KEY: ${{ secrets.WEQ_RELEASE_SIGNING_KEY }}
+          WEQ_ANNOUNCEMENT_BACKUP_DIR: ${{ runner.temp }}/announcement-backup
+        run: node scripts/publish-announcements.mjs publish-release
+      - name: Preserve previous signed announcements on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: announcement-backup-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/announcement-backup
+          if-no-files-found: ignore
+          retention-days: 7
 
 
   # ============================ AUR ============================
@@ -1149,7 +1170,7 @@ jobs:
   #   - 现在把全部产物打成一包 .torrent（约 20 KiB），作为附件发进群；
   #     种子内嵌 GitHub Release 直链做 web seed（BEP 19），所以不需要
   #     任何常驻做种者 —— 实测 aria2 169 MiB/s、哈希与原件一致。
-  #   - 消息正文只放 CHANGELOG 摘要 + 一个 Release 页面链接，不放长链接；
+  #   - 消息正文放 CHANGELOG 对应章节和 Release 页面链接；
   #     各平台下载用内联键盘的链接按钮（5 行 × 2 列）。
   qq-notify:
     needs: [publish, gate]
@@ -1157,20 +1178,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # 与 Release 说明共用同一份整理好的文案。
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-notes
-          path: dist
-
-      - name: 校验版本说明
-        run: |
-          set -euo pipefail
-          if ! grep -q . dist/release-notes.md 2>/dev/null; then
-            echo "::warning::release-notes artifact 为空，回退 CHANGELOG 原文"
-            node scripts/extract-changelog.mjs "${GITHUB_REF_NAME}" CHANGELOG.md > dist/release-notes.md
-          fi
 
       # 拉全量产物（约 2.6 GB）用来算 piece 哈希。
       - name: Download release assets
@@ -1232,8 +1239,7 @@ jobs:
           BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
           PAGE_URL="https://github.com/${REPO}/releases/tag/${VERSION}"
 
-          # 正文用 release-notes job 整理好的文案（与 Release 说明一致）。
-          BODY=$(cat dist/release-notes.md)
+          BODY=$(node scripts/extract-changelog.mjs "$VERSION")
 
           # 5 行 × 2 列：同一行左 desktop、右 web，横向对比最直观。
           # QQ 内联键盘最多 5 行（超了报 40034029），所以不能再加。
@@ -1250,7 +1256,7 @@ jobs:
             echo "## WeQ ${VER} 发布"
             echo ""
             echo "详细更改如下："
-            echo "${BODY}"
+            printf '%s\n' "$BODY"
             echo ""
             echo "---"
             echo ""

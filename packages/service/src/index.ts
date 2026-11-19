@@ -19,6 +19,11 @@
 
 // ---- bootstrap ----
 export { AnalysisReportsService } from './account/analysis_reports';
+export type {
+  ForwardCardTarget,
+  ForwardExportTarget,
+  ForwardRecordTarget,
+} from './account/message_filter';
 export { installContentSearchCapture } from './account/content_search_capture';
 export { writeCompositionBundle } from './account/export/composition_export';
 export { fileDigest } from './account/export/archive_resource';
@@ -407,7 +412,7 @@ export type { FileType, SearchResult } from './account/file_search';
 export { OnlineStatusService } from './account/online_status';
 export type { OnlineStatusOnlineDeps } from './account/online_status';
 export type { FormattedOnlineStatus } from './account/online_status';
-export { AgentLabService } from './account/agentlab';
+export { AgentLabService, type CloneConversationEvent } from './account/agentlab';
 export type {
   AgentLabMediaDeps,
   EndpointResolver,
@@ -428,12 +433,13 @@ export {
 } from './account/weq_assistant';
 export type { WeqTweetCard } from './account/weq_assistant';
 export { AssistantService, ASSISTANT_AGENT_ID, mergeAssistantConfig } from './account/assistant';
-export { ASSISTANT_PARAMETER_DEFAULTS } from './account/assistant_config';
-export type { AssistantSendMode, AssistantParameters } from './account/assistant_config';
+export { withAssistantToolDeadline } from './account/assistant_tool_deadline';
+export type { AssistantSendMode } from './account/assistant_config';
 export type {
   AssistantConfig,
   AssistantReasoningEffort,
   AssistantSession,
+  AssistantSessionGeneration,
   AssistantTools,
   AssistantToolSpec,
   AssistantStep,
@@ -1233,6 +1239,9 @@ export type {
   OcrCacheTextInput,
 } from './common/ocr_cache';
 export {
+  archiveHistoricalLogs,
+  flushFileLogger,
+  getActiveLogPath,
   getLogDir,
   getLogger,
   initLogger,
@@ -1240,6 +1249,8 @@ export {
   planExpiredLogs,
   pruneExpiredLogs,
 } from './common/logger';
+export { logFileSource, readLogFileChunk, readLogFileInfo, scanLogFiles } from './common/log_files';
+export type { LogFileEntry, LogFileKind } from './common/log_files';
 export type { LogFileCandidate } from './common/logger';
 export { configureConsoleLogger, flushConsoleLogger } from './common/logger';
 export { withLogOperation, currentOperationId } from './common/operation_log';
@@ -1357,7 +1368,9 @@ export type {
   ContactMetricRows,
   ContactMetricsSnapshot,
   ContactMetricsProgress,
+  ContactMetricsLaneKey,
   ContactMetricJob,
+  ContactMetricJobFailure,
 } from './account/contact_metrics';
 export { RecentReactions } from './account/recent_reactions';
 export {

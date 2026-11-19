@@ -286,7 +286,7 @@ it.each(['stream-error', 'send-error', 'aborted'] as const)(
   },
 );
 
-it('停止和恢复控件位于助手消息内，停止保留正文，恢复逐段追加且可以再次停止', async () => {
+it('停止和恢复控件附在对应的助手消息，停止保留正文且恢复后逐段追加', async () => {
   rememberAssistantDraft('stop-resume', 'session', '合成问题');
   const host = document.createElement('div');
   document.body.append(host);
@@ -307,10 +307,10 @@ it('停止和恢复控件位于助手消息内，停止保留正文，恢复逐�
     flushFrame();
     emit({ kind: 'text_delta', text: '已有正文\n\n' });
     flushFrame();
-    const stop = host.querySelector<HTMLButtonElement>(
-      '.weq-asst-content [aria-label="停止输出"]',
-    )!;
-    expect(stop).not.toBeNull();
+    const stop = host.querySelector<HTMLButtonElement>('[aria-label="停止输出"]')!;
+    expect(stop.closest('[data-message-id]')?.querySelector('.stream-body')?.textContent).toBe(
+      '已有正文\n\n',
+    );
     expect(host.querySelector('.composer [aria-label="停止输出"]')).toBeNull();
     await act(async () => stop.click());
     expect(fixture.control).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'stop' }));
@@ -343,7 +343,7 @@ it('停止和恢复控件位于助手消息内，停止保留正文，恢复逐�
     flushFrame();
     expect(host.querySelector('.stream-body')?.textContent).toBe('已有正文\n\n后续片段');
     expect(host.querySelector('.stream-body')?.getAttribute('data-streaming')).toBe('true');
-    expect(host.querySelector('.weq-asst-content [aria-label="停止输出"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="停止输出"]')).not.toBeNull();
     emit({ kind: 'final', text: '已有正文\n\n后续片段' });
     flushFrame();
     expect(host.querySelector('[aria-label="停止输出"]')).toBeNull();

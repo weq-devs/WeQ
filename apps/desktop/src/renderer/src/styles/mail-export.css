@@ -28,7 +28,7 @@
   font-size: 13px;
 }
 
-.weq-mail-export-filters input {
+.weq-mail-export-filters :is(input, .weq-date-filter) {
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
@@ -39,7 +39,7 @@
   color: var(--weq-fg-primary);
 }
 
-.weq-mail-export-filters input:focus-visible {
+.weq-mail-export-filters :is(input, .weq-date-filter):focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
@@ -103,7 +103,7 @@
   font-size: 12px;
 }
 
-html[data-theme='dark'] .weq-mail-export-filters input {
+html[data-theme='dark'] .weq-mail-export-filters :is(input, .weq-date-filter) {
   color-scheme: dark;
   border-color: var(--weq-border-strong);
   background: var(--weq-bg-surface);

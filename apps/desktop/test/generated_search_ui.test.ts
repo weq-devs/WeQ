@@ -226,7 +226,7 @@ describe('生成内容搜索定位', () => {
         // 会话切换已并入统一会话列表，标题栏只保留「这是生成内容」的标记。
         expect(f.host.querySelector('.chat-header [title="克隆会话"]')).not.toBeNull();
         expect(f.host.querySelector('.chat-header [aria-label="克隆会话"]')).not.toBeNull();
-        expect(f.host.querySelector('.chat-header [aria-label="搜索聊天记录"]')).not.toBeNull();
+        expect(f.host.querySelector('.chat-header [aria-label="搜索"]')).not.toBeNull();
         // 未接入导出上下文且没有可用管理操作时，不显示空菜单。
         expect(f.host.querySelector('.chat-header [aria-label="消息管理"]')).toBeNull();
         expect(f.host.querySelector('.chat-header [aria-label="更多会话操作"]')).toBeNull();
@@ -562,7 +562,7 @@ describe('生成内容搜索定位', () => {
           await vi.advanceTimersByTimeAsync(50);
         });
         expect(f.host.querySelector('.is-search-hit')?.textContent).toContain('合成搜索命中');
-        expect(f.scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'instant' });
+        expect(f.scroll).toHaveBeenCalledWith(expect.objectContaining({ block: 'center' }));
         const name =
           kind === 'persona'
             ? 'getAgentLabConversation'

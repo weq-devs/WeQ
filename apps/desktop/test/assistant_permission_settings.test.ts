@@ -3,10 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, it, vi } from 'vitest';
-import { AssistantSettings } from '../src/renderer/src/views/agentlab/AssistantPanel';
+import { WeqAssistantSettingsSection } from '../src/renderer/src/views/agentlab/AssistantSettingsPanel';
 import { DialogHost } from '../src/renderer/src/components/Dialog';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { AssistantConfig } from '@weq/service';
+import { chooseFormOption, formOptions } from './support/form-controls';
 
 const f = vi.hoisted(() => ({
   config: { permissionMode: 'sandbox' } as AssistantConfig,
@@ -32,8 +33,24 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
     // 设置面板里的模型选择与图片偏好会读取服务商、默认模型和共享设置。
     bootstrap: {
-      listAgentLabProviders: { useQuery: () => ({ data: [] }) },
-      getAgentLabDefaultModel: { useQuery: () => ({ data: undefined }) },
+      listAgentLabProviders: {
+        useQuery: () => ({
+          data: [
+            {
+              id: 'fixture',
+              name: '合成服务商',
+              models: [
+                { id: 'chat', capabilities: ['chat'], reasoningEfforts: ['medium', 'high'] },
+              ],
+            },
+          ],
+        }),
+      },
+      getAgentLabDefaultModel: {
+        useQuery: () => ({
+          data: { ref: { providerId: 'fixture', model: 'chat' }, available: true },
+        }),
+      },
       getSettings: { useQuery: () => ({ data: { aiImages: {} } }) },
       setAiImagePreference: {
         useMutation: () => ({ mutateAsync: async () => ({}), isLoading: false }),
@@ -63,20 +80,13 @@ it('requires the real warning confirmation before persisting unrestricted permis
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const onClose = vi.fn();
   try {
-    act(() => root.render(h(Fragment, {}, h(AssistantSettings, { onClose }), h(DialogHost))));
+    act(() => root.render(h(Fragment, {}, h(WeqAssistantSettingsSection), h(DialogHost))));
     expect(
-      [...document.querySelectorAll('[aria-label="思考等级"] option')].map(
-        (option) => option.textContent,
+      formOptions(document.querySelector<HTMLButtonElement>('[aria-label="默认思考强度"]')!).map(
+        (option) => option.value,
       ),
-    ).toEqual(['不指定', 'low', 'medium', 'high']);
-    // 权限模式在「提示与工具」分区，标题也改成了「运行模式」。
-    act(() =>
-      [...document.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]
-        .find((button) => button.textContent?.trim() === '提示与工具')!
-        .click(),
-    );
+    ).toEqual(['off', 'medium', 'high']);
     const mode = document.querySelector<HTMLElement>('[aria-label="运行模式"]')!;
     expect(mode.querySelector('[aria-checked="true"]')?.textContent).toBe('沙箱模式');
     capture('sandbox-settings');
@@ -96,16 +106,6 @@ it('requires the real warning confirmation before persisting unrestricted permis
     );
     expect(f.save).not.toHaveBeenCalled();
     // 取消后回到沙箱态再选一次，确认通过才真正落库。
-    act(() =>
-      [...document.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]
-        .find((button) => button.textContent?.trim() === '模型与生成')!
-        .click(),
-    );
-    act(() =>
-      [...document.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]
-        .find((button) => button.textContent?.trim() === '提示与工具')!
-        .click(),
-    );
     const retry = document.querySelector<HTMLElement>('[aria-label="运行模式"]')!;
     act(() => {
       [...retry.querySelectorAll('button')]
@@ -137,36 +137,30 @@ it('选择保存失败仍保留当前选择，重试成功后才清除失败状�
   document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(h(AssistantSettings, { onClose: () => {} })));
-    const effort = document.querySelector<HTMLSelectElement>('[aria-label="思考等级"]')!;
+    await act(async () => root.render(h(WeqAssistantSettingsSection)));
+    const effort = document.querySelector<HTMLButtonElement>('[aria-label="默认思考强度"]')!;
     await act(async () => {
-      effort.value = 'high';
-      effort.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(effort, 'high');
     });
-    expect(effort.value).toBe('high');
+    expect(effort.dataset.value).toBe('high');
     expect(document.body.textContent).toContain('合成保存失败');
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>('button')]
         .find((button) => button.textContent === '重试保存')!
         .click(),
     );
-    expect(effort.value).toBe('high');
+    expect(effort.dataset.value).toBe('high');
     expect(document.body.textContent).not.toContain('合成保存失败');
     f.save.mockRejectedValueOnce(new Error('第二次合成失败'));
     await act(async () => {
-      effort.value = 'medium';
-      effort.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(effort, 'medium');
     });
-    await act(async () =>
-      [...document.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')]
-        .find((button) => button.textContent === '运行中发送')!
-        .click(),
-    );
-    await act(async () =>
-      [...document.querySelectorAll<HTMLButtonElement>('[aria-label="运行中默认发送方式"] button')]
-        .find((button) => button.textContent === '排队发送')!
-        .click(),
-    );
+    await act(async () => {
+      const sending = document.querySelector<HTMLButtonElement>(
+        '[aria-label="运行中默认发送方式"]',
+      )!;
+      chooseFormOption(sending, 'queue');
+    });
     expect(f.save).toHaveBeenLastCalledWith(
       expect.objectContaining({ reasoningEffort: 'medium', sendMode: 'queue' }),
     );

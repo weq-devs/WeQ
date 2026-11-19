@@ -1,7 +1,11 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_TOAST_DURATIONS, type ToastDurations } from '@weq/service/toast-settings';
+import {
+  DEFAULT_TOAST_DURATIONS,
+  type ToastDurations,
+  type ToastTimedKind,
+} from '@weq/service/toast-settings';
 import { ToastSettingsCard } from '../src/renderer/src/components/settings/ToastSettingsCard';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 
@@ -37,17 +41,15 @@ beforeEach(() => {
   state.invalidate.mockReset().mockResolvedValue(undefined);
   state.save
     .mockReset()
-    .mockImplementation(
-      async ({ kind, seconds }: { kind: 'success' | 'failure'; seconds: number }) => {
-        const durations = {
-          ...DEFAULT_TOAST_DURATIONS,
-          ...state.settings.toastDurations,
-          [kind === 'success' ? 'successSeconds' : 'failureSeconds']: seconds,
-        };
-        state.settings = { toastDurations: durations };
-        return durations;
-      },
-    );
+    .mockImplementation(async ({ kind, seconds }: { kind: ToastTimedKind; seconds: number }) => {
+      const durations = {
+        ...DEFAULT_TOAST_DURATIONS,
+        ...state.settings.toastDurations,
+        [`${kind}Seconds`]: seconds,
+      };
+      state.settings = { toastDurations: durations };
+      return durations;
+    });
   useToast.setState({ toasts: [], leaving: [], durations: { ...DEFAULT_TOAST_DURATIONS } });
 });
 afterEach(() => {
@@ -101,7 +103,7 @@ describe('通知停留时长设置', () => {
     type(f.input('成功'), '5');
     await f.commit('成功');
     expect(state.save).toHaveBeenCalledWith({ kind: 'success', seconds: 5 });
-    expect(useToast.getState().durations).toEqual({ successSeconds: 5, failureSeconds: -1 });
+    expect(useToast.getState().durations).toMatchObject({ successSeconds: 5, failureSeconds: -1 });
     expect(useToast.getState().toasts).toHaveLength(0);
     f.render();
     type(f.input('失败'), '8');
@@ -111,7 +113,8 @@ describe('通知停留时长设置', () => {
     const reopened = fixture();
     expect(reopened.input('成功').value).toBe('5');
     expect(reopened.input('失败').value).toBe('8');
-    expect(f.host.textContent).toContain('已保存');
+    expect(useToast.getState().durations).toMatchObject({ successSeconds: 5, failureSeconds: 8 });
+    expect(useToast.getState().toasts).toHaveLength(0);
   });
   it.each(['', '0', '-2', '1.5', '86401'])('非法输入 %s 不可提交', async (value) => {
     const f = fixture();

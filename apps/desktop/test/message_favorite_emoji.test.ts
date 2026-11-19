@@ -14,6 +14,8 @@ const state = vi.hoisted(() => ({
   query: vi.fn(),
   favorites: vi.fn(),
   overview: vi.fn(),
+  cancel: vi.fn(),
+  setData: vi.fn(),
 }));
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
 vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
@@ -46,7 +48,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({
       account: {
-        qqActions: { favorites: { invalidate: state.favorites } },
+        qqActions: {
+          favorites: { invalidate: state.favorites, cancel: state.cancel, setData: state.setData },
+        },
         emojiPanel: { overview: { invalidate: state.overview } },
       },
     }),
@@ -115,6 +119,43 @@ describe('添加到表情目标', () => {
 });
 
 describe('添加到表情按钮', () => {
+  it('提交受理后立即合并可用原图，不等待在线读回；已有项不重复或改变顺序', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const local = { id: 'favorite:abc', scope: 'favorite', oriFile: 'abc.gif' };
+    const rows = [{ emojiId: 'old', desc: '原备注', position: 1, local: null }];
+    state.mutate.mockResolvedValue({ state: 'accepted', emojiId: 'new', local });
+    state.perform.mockImplementation(async (write) => {
+      await write(binding);
+      expect(state.cancel).toHaveBeenCalledWith(binding);
+      const update = state.setData.mock.calls.at(-1)![1];
+      expect(update(rows)).toEqual([
+        { emojiId: 'new', desc: '', position: 1, local },
+        { ...rows[0], position: 2 },
+      ]);
+      const existing = [{ emojiId: 'new', desc: '已有备注', position: 7, local: null }];
+      expect(update(existing)).toEqual([{ ...existing[0], local }]);
+      expect(update(undefined)).toBeUndefined();
+      expect(state.query).not.toHaveBeenCalled();
+      return true;
+    });
+    try {
+      await act(async () =>
+        root.render(
+          createElement(MessageFavoriteEmojiAction, {
+            url: 'weq-media://pic?token=a',
+            onClose: vi.fn(),
+          }),
+        ),
+      );
+      await act(async () => host.querySelector('button')!.click());
+      expect(state.setData).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it('绑定账号提交、精确读回 ID 并刷新列表；失败不关闭菜单', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');

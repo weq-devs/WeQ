@@ -2,10 +2,20 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { ForwardWindowHost } from '../src/renderer/src/components/ForwardWindow';
-import { openForwardWindow } from '../src/renderer/src/state/forwardWindow';
+import { ChatRecordsModal } from '../src/renderer/src/components/search/ChatRecordsModal';
+import { qqMessageRenderer } from '../src/renderer/src/components/QqMessageContent.shared';
+import {
+  closeForwardWindows,
+  openForwardWindow,
+  useForwardStore,
+} from '../src/renderer/src/state/forwardWindow';
 import { Modal } from '../src/renderer/src/components/Dialog';
 
-vi.mock('../src/renderer/src/trpc/client', () => ({ client: { account: {} }, trpc: {} }));
+const search = vi.hoisted(() => vi.fn());
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: { account: { searchConversationRecords: { query: search } } },
+  trpc: { account: { dressup: { resolveMsgDecoration: { useQuery: () => ({}) } } } },
+}));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
     binding: null,
@@ -82,6 +92,76 @@ it('复用转发宿主仍提升到新父窗上方，聚焦父记录不遮住子�
         button.click();
       root.unmount();
     });
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('聊天记录中的引用跳向被引用消息，并关掉叠开的转发窗口', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onClose = vi.fn();
+  const onJumpMessage = vi.fn();
+  search.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        msgId: '38',
+        msgSeq: '38',
+        senderUid: 'u_peer',
+        senderUin: '10002',
+        senderName: '成员',
+        sendTime: '1794528000',
+        content: '回复正文',
+        elements: [
+          {
+            type: 'reply',
+            data: {
+              origMsgSeq: 37,
+              origElements: [{ type: 'text', data: { textContent: '被引用消息' } }],
+            },
+          },
+          { type: 'text', data: { textContent: '回复正文' } },
+        ],
+      },
+    ],
+  });
+  try {
+    await act(async () =>
+      root.render(
+        h(ChatRecordsModal, {
+          initialHit: {
+            category: 'chatRecord',
+            source: 'group',
+            partition: '12345',
+            targetUid: '12345',
+            targetUin: '12345',
+            name: '合成群',
+            count: 1,
+          },
+          initialKeyword: '回复正文',
+          embeddedKeyword: '回复正文',
+          onClose,
+          onJumpMessage,
+          renderers: [qqMessageRenderer],
+        }),
+      ),
+    );
+    const records = { kind: 'group' as const, conv: '12345', msgId: '38', records: [] };
+    openForwardWindow({ ...records, title: '父记录' });
+    openForwardWindow({ ...records, title: '子记录', parentId: useForwardStore.getState().seq });
+    await act(async () => host.querySelector<HTMLElement>('.qq-reply-quote')!.click());
+    expect(onJumpMessage).toHaveBeenCalledOnce();
+    expect(onJumpMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ msgSeq: '37', targetUid: '12345' }),
+    );
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(useForwardStore.getState().windows).toHaveLength(0);
+  } finally {
+    closeForwardWindows();
+    act(() => root.unmount());
     host.remove();
     vi.unstubAllGlobals();
   }

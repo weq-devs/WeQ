@@ -1,5 +1,6 @@
 import { NumericText } from './NumericText';
 import { useContext, useId, useMemo, useState } from 'react';
+import { Mail, MailOpen } from 'lucide-react';
 import { ConversationDirectoryContext, virtualConversationRow } from '../lib/conversationDirectory';
 import { conversationRoamingTarget } from '../lib/conversationActions';
 import {
@@ -9,6 +10,7 @@ import {
 } from '../lib/conversationViews';
 import type { Conversation } from '../im-template/template/types';
 import { useRequestContentExport } from '../state/contentSelection.shared';
+import type { ConversationMenuAction } from './ConversationActionsMenu';
 import { Modal } from './Dialog';
 import '../styles/conversation-directory.css';
 
@@ -26,12 +28,12 @@ export function useConversationBatchActions(conversations: Conversation[]) {
   const rows = useMemo(
     () =>
       new Map([
-        ...conversations.map((row) => [row.id, row] as const),
-        ...(directory?.real ?? []).map((row) => [row.id, row] as const),
-        ...(directory?.rows ?? []).map((row) => [row.id, row] as const),
         ...(directory?.virtual ?? []).map(
           (item) => [item.id, virtualConversationRow(item)] as const,
         ),
+        ...conversations.map((row) => [row.id, row] as const),
+        ...(directory?.real ?? []).map((row) => [row.id, row] as const),
+        ...(directory?.rows ?? []).map((row) => [row.id, row] as const),
       ]),
     [conversations, directory?.real, directory?.rows, directory?.virtual],
   );
@@ -104,11 +106,11 @@ export function useConversationBatchActions(conversations: Conversation[]) {
       setPending({
         label:
           action === 'export'
-            ? '导出'
+            ? '导出聊天记录'
             : action === 'delete'
               ? '永久删除'
               : action === 'roster'
-                ? '导出群名单'
+                ? '导出群成员名单'
                 : action === 'roaming'
                   ? '拉取漫游消息'
                   : action === 'unread'
@@ -119,6 +121,20 @@ export function useConversationBatchActions(conversations: Conversation[]) {
         run: execute,
       });
     else execute();
+  };
+  const readStateMenuActions = (ids: string[]): ConversationMenuAction[] => {
+    if (!directory?.onReadState) return [];
+    const supported = ids.filter((id) => supports(id, 'read'));
+    if (!supported.length) return [];
+    const unread = !supported.some((id) => (rows.get(id)?.unreadCount ?? 0) > 0);
+    return [
+      {
+        label: unread ? '标为未读' : '标为已读',
+        icon: unread ? <Mail size={16} /> : <MailOpen size={16} />,
+        disabled: directory.readStateBusy || ids.length > 4096,
+        action: () => run(ids, unread ? 'unread' : 'read'),
+      },
+    ];
   };
   return {
     rosterIds,
@@ -133,6 +149,7 @@ export function useConversationBatchActions(conversations: Conversation[]) {
     runExport: (ids: string[]) => run(ids, 'export'),
     runRoaming: (ids: string[]) => run(ids, 'roaming'),
     runReadState: (ids: string[], unread: boolean) => run(ids, unread ? 'unread' : 'read'),
+    readStateMenuActions,
     confirmation: pending ? (
       <Modal
         centered
@@ -158,12 +175,17 @@ export function useConversationBatchActions(conversations: Conversation[]) {
           </NumericText>
         </p>
         <div>
-          <button type="button" onClick={() => setPending(null)}>
+          <button
+            type="button"
+            data-weq-dialog-confirm={!pending.supported || undefined}
+            onClick={() => setPending(null)}
+          >
             {pending.supported ? '取消' : '知道了'}
           </button>
           {pending.supported ? (
             <button
               type="button"
+              data-weq-dialog-confirm
               onClick={() => {
                 setPending(null);
                 pending.run();

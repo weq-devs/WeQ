@@ -71,7 +71,15 @@ afterEach(() => {
   host.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
+function usePrefetchClock() {
+  vi.useFakeTimers();
+  vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+  vi.stubGlobal('requestIdleCallback', undefined);
+  return () => act(async () => vi.advanceTimersByTimeAsync(400));
+}
 const items: PreviewMedia[] = [
   { key: 'a', src: 'data:image/png;base64,a', kind: 'image', title: '图片A' },
   { key: 'b', src: 'data:video/webm;base64,b', kind: 'video', title: '视频B' },
@@ -165,6 +173,7 @@ it('稀疏空页继续前进，分页错误可以原地重试', async () => {
   expect(page).toHaveBeenCalledTimes(3);
 });
 it('聊天首尾在点击前置灰，后台越过空媒体页且不切换当前项', async () => {
+  const idle = usePrefetchClock();
   let finish!: (value: { items: PreviewMedia[]; hasMore: boolean }) => void;
   const page = vi.fn((direction: 'older' | 'newer') =>
     direction === 'older'
@@ -187,9 +196,13 @@ it('聊天首尾在点击前置灰，后台越过空媒体页且不切换当前�
   );
   expect(button('上一项媒体').disabled).toBe(true);
   expect(button('下一项媒体').disabled).toBe(true);
+  expect(document.querySelector('img')?.src).toBe(items[0]!.src);
   key('ArrowRight');
+  expect(page).not.toHaveBeenCalled();
+  await idle();
   expect(page).toHaveBeenCalledTimes(2);
   await act(async () => finish({ items: [], hasMore: true }));
+  await idle();
   expect(page).toHaveBeenCalledTimes(3);
   expect(button('下一项媒体').disabled).toBe(true);
   await act(async () => finish({ items: [items[1]!], hasMore: false }));
@@ -222,6 +235,7 @@ it('聊天首尾在点击前置灰，后台越过空媒体页且不切换当前�
   expect(page).toHaveBeenCalledTimes(3);
 });
 it('相邻媒体后台读取失败可重试，重试不移动当前项', async () => {
+  const idle = usePrefetchClock();
   const page = vi
     .fn()
     .mockRejectedValueOnce(new Error('fixture'))
@@ -237,6 +251,7 @@ it('相邻媒体后台读取失败可重试，重试不移动当前项', async (
       }),
     ),
   );
+  await idle();
   expect(button('下一项媒体').disabled).toBe(true);
   expect(page).toHaveBeenCalledTimes(1);
   const retry = [...document.querySelectorAll('button')].find((item) =>
@@ -247,7 +262,8 @@ it('相邻媒体后台读取失败可重试，重试不移动当前项', async (
   expect(button('下一项媒体').disabled).toBe(false);
   expect(page).toHaveBeenCalledTimes(2);
 });
-it('开发严格模式的迟到分页不覆盖当前边界，关闭后不再继续读空页', async () => {
+it('开发严格模式只启动一次预取，交互期间及关闭后不再读空页', async () => {
+  const idle = usePrefetchClock();
   const finish: Array<(value: { items: PreviewMedia[]; hasMore: boolean }) => void> = [];
   const page = vi.fn(
     () =>
@@ -268,12 +284,18 @@ it('开发严格模式的迟到分页不覆盖当前边界，关闭后不再继�
       ),
     ),
   );
-  expect(page).toHaveBeenCalledTimes(2);
-  await act(async () => finish[0]!({ items: [items[1]!], hasMore: true }));
+  expect(page).not.toHaveBeenCalled();
+  await act(async () => vi.advanceTimersByTimeAsync(100));
+  document.dispatchEvent(new Event('wheel', { bubbles: true }));
+  await act(async () => vi.advanceTimersByTimeAsync(100));
+  expect(page).not.toHaveBeenCalled();
+  await idle();
+  expect(page).toHaveBeenCalledOnce();
+  await act(async () => finish[0]!({ items: [], hasMore: true }));
   expect(button('下一项媒体').disabled).toBe(true);
   await act(async () => root.render(null));
-  await act(async () => finish[1]!({ items: [], hasMore: true }));
-  expect(page).toHaveBeenCalledTimes(2);
+  await idle();
+  expect(page).toHaveBeenCalledOnce();
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
 it('同文档图片和视频预览互相替换', async () => {
@@ -536,6 +558,7 @@ it('真实聊天入口传递锚点，同包切换更新高亮，点击背景继�
   act(() => useViewState.getState().setOpenedUin(previous));
 });
 it('真实消息渲染入口接入混排、双向分页、实时追加和账号切换', async () => {
+  const idle = usePrefetchClock();
   mocks.bound = true;
   const picture = {
     type: 'pic',
@@ -586,6 +609,7 @@ it('真实消息渲染入口接入混排、双向分页、实时追加和账号�
     '[aria-label="查看图片：fixture.png"]',
   )!;
   await act(async () => trigger.click());
+  await idle();
   expect(document.querySelector('.weq-preview-count')?.textContent).toContain('2 / 3');
   await act(async () => button('上一项媒体').click());
   expect(mocks.page.mock.calls[0]![0]).toMatchObject({

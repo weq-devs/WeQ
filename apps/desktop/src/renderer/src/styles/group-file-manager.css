@@ -24,6 +24,7 @@
 .weq-file-row-tools > .weq-set-iconbtn {
   flex: 0 0 30px;
   width: 30px;
+  min-height: 30px;
   height: 30px;
 }
 .weq-file-selection-toolbar {
@@ -51,7 +52,7 @@
   color: var(--weq-fg-muted);
 }
 .weq-file-manager-search > input,
-.weq-file-manager-toolbar > select,
+.weq-file-manager-toolbar > .weq-select-trigger,
 .weq-file-upload-row > input {
   min-width: 0;
   border: 1px solid var(--weq-border-strong);

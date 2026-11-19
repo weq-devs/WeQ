@@ -62,7 +62,7 @@ afterEach(() => {
   useLogPerformanceWindow.getState().dismiss();
   useDatabaseBrowserWindow.getState().dismiss();
   useAppLock.setState({ locked: false });
-  useUpdateStore.setState({ available: false });
+  useUpdateStore.setState({ packsAvailable: false });
   vi.unstubAllGlobals();
 });
 
@@ -111,18 +111,18 @@ function fixture(initialSection: SectionId = 'global') {
 
 describe('设置来源工具不替换设置页面', () => {
   it('更新红点与分类文字共用第二列，不成为下一行的独立网格项', () => {
-    useUpdateStore.setState({ available: true });
+    useUpdateStore.setState({ packsAvailable: true });
     const f = fixture();
     try {
       const mark = f.host.querySelector('.weq-settings-nav .weq-settings-update-mark')!;
       expect(mark).not.toBeNull();
       expect(mark.parentElement?.className).toBe('weq-settings-nav-label');
-      expect(mark.parentElement?.textContent).toBe('关于 WeQ');
+      expect(mark.parentElement?.textContent).toBe('增强功能');
       expect(mark.closest('button')?.children).toHaveLength(3);
       expect(
         mark.closest('button')?.lastElementChild?.classList.contains('weq-mobile-settings-chevron'),
       ).toBe(true);
-      act(() => useUpdateStore.setState({ available: false }));
+      act(() => useUpdateStore.setState({ packsAvailable: false }));
       expect(f.host.querySelector('.weq-settings-nav .weq-settings-update-mark')).toBeNull();
     } finally {
       f.close();

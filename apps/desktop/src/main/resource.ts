@@ -3,8 +3,8 @@
  *
  * The repo-root `resources/` tree (brand assets, …) is shipped two different
  * ways depending on build mode, so every consumer must probe a list of
- * candidate roots rather than hard-code one. (QQ emoji are no longer bundled —
- * they stream from the account's QQ NT dir; see resource_protocol.ts.)
+ * candidate roots rather than hard-code one. Most QQ emoji stream from the
+ * account's QQ NT dir; see resource_protocol.ts for the classic fallback.
  *
  *   Dev:      walk up from this bundled file to the repo root and look for `resources/`.
  *   Packaged: electron-builder copies the tree to

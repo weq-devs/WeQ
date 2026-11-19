@@ -47,6 +47,7 @@ export function installDevelopmentReloadNotice(
         ? {
             label,
             icon: 'reload' as const,
+            keepOpen: true,
             run: () => {
               if (!state.status?.ready || state.applying) return;
               state.applying = true;

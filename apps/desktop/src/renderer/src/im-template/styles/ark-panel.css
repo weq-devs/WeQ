@@ -405,10 +405,6 @@
   outline: none;
 }
 
-.ark-search input::placeholder {
-  color: color-mix(in srgb, var(--weq-fg-muted, #858585) 74%, transparent);
-}
-
 .ark-search-clear {
   display: grid;
   width: 20px;

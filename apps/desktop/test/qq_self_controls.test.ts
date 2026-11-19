@@ -7,6 +7,7 @@ import { TitleBar } from '../src/renderer/src/im-template/template/TitleBar';
 import type { User } from '../src/renderer/src/im-template/template/types';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import SelfOnlineStatusEditor from '../src/renderer/src/components/SelfOnlineStatusEditor';
+import { chooseFormOption } from './support/form-controls';
 
 vi.mock('../src/renderer/src/components/settings/EditableSelfProfile', () => ({
   useEditableSelfProfileFields: () => ({ fields: {}, feedback: null }),
@@ -38,6 +39,7 @@ const state = vi.hoisted(() => ({
   queryOptions: { refetchInterval: false as number | false },
   invalidate: vi.fn(async () => undefined),
   mutate: vi.fn(async (_input: unknown) => ({ state: 'accepted' as const })),
+  confirmStatus: vi.fn(async (_input: unknown) => true),
   pick: vi.fn<() => Promise<{ path: string } | null>>(async () => null),
   navigate: vi.fn(),
   statusSaved: vi.fn(),
@@ -63,7 +65,10 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
-      qqWrite: { onlineStatus: { mutate: (input: unknown) => state.mutate(input) } },
+      qqWrite: {
+        onlineStatus: { mutate: (input: unknown) => state.mutate(input) },
+        selfStatusReadback: { query: state.confirmStatus },
+      },
       pickSendFile: { mutate: state.pick },
     },
   },
@@ -196,10 +201,9 @@ function input(host: HTMLElement, name: string, value: string) {
   });
 }
 function selectExtended(host: HTMLElement, value: string) {
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
+  const select = host.querySelector<HTMLButtonElement>('[aria-label="扩展在线状态"]')!;
   act(() => {
-    select.value = value;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    chooseFormOption(select, value);
   });
 }
 beforeEach(() => {
@@ -211,6 +215,7 @@ beforeEach(() => {
   state.status = { type: 10, subType: 0, customStatus: undefined };
   state.invalidate.mockClear();
   state.mutate.mockClear();
+  state.confirmStatus.mockReset().mockResolvedValue(true);
   state.pick.mockReset().mockResolvedValue(null);
   state.navigate.mockClear();
   state.statusSaved.mockClear();
@@ -231,9 +236,9 @@ describe('个人资料编辑入口', () => {
       customStatus: { faceId: 14, faceType: 1, text: '迟到的完整状态' },
     };
     f.render();
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!.value).toBe(
-      '2000',
-    );
+    expect(
+      f.host.querySelector<HTMLButtonElement>('[aria-label="扩展在线状态"]')!.dataset.value,
+    ).toBe('2000');
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
       '迟到的完整状态',
     );
@@ -243,9 +248,8 @@ describe('个人资料编辑入口', () => {
     state.status = { type: 10, subType: 1018, customStatus: undefined };
     const f = fixture();
     act(() => {
-      const base = f.host.querySelector<HTMLSelectElement>('[aria-label="在线状态"]')!;
-      base.value = '30';
-      base.dispatchEvent(new Event('change', { bubbles: true }));
+      const base = f.host.querySelector<HTMLButtonElement>('[aria-label="在线状态"]')!;
+      chooseFormOption(base, '30');
     });
     expect(f.host.querySelector('[aria-label="扩展在线状态"]')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
@@ -259,11 +263,15 @@ describe('个人资料编辑入口', () => {
       status: 30,
       extStatus: 0,
     });
-    expect(await state.readback!()).toBe(false);
-    state.status = { type: 30, subType: 0, customStatus: undefined };
     expect(await state.readback!()).toBe(true);
+    expect(state.confirmStatus).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      status: 30,
+      extStatus: 0,
+    });
   });
-  it('自定义状态完整核对基础值、扩展值、文字、表情编号和表情类型', async () => {
+  it('自定义状态交给宿主完整读回，与本地缓存读出的旧值分开', async () => {
     const expected = { faceId: 0, text: '完整状态', faceType: 1 };
     state.status = { type: 10, subType: 2000, customStatus: expected };
     const f = fixture();
@@ -271,12 +279,16 @@ describe('个人资料编辑入口', () => {
       f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!.click(),
     );
     const readback = state.readback!;
-    expect(await readback()).toBe(true);
-    for (const patch of [{ text: '另一个值' }, { faceId: 14 }, { faceType: 2 }]) {
-      state.status = { type: 10, subType: 2000, customStatus: { ...expected, ...patch } };
-      expect(await readback()).toBe(false);
-    }
     state.statusError = '读取失败';
+    expect(await readback()).toBe(true);
+    expect(state.confirmStatus).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      status: 10,
+      extStatus: 2000,
+      custom: { wording: '完整状态', faceId: 0, faceType: 1 },
+    });
+    state.confirmStatus.mockResolvedValueOnce(false);
     expect(await readback()).toBe(false);
   });
   it('状态保存期间连续点击不重复提交，失败后保留整份草稿可重试', async () => {
@@ -298,7 +310,9 @@ describe('个人资料编辑入口', () => {
     await act(async () => reject(new Error('合成状态提交失败')));
     expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成状态提交失败');
     expect(save.disabled).toBe(false);
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="在线状态"]')!.value).toBe('10');
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="在线状态"]')!.dataset.value).toBe(
+      '10',
+    );
   });
   it.each([
     { label: '性别', value: '1', payload: { patch: { gender: 1 } } },
@@ -310,9 +324,8 @@ describe('个人资料编辑入口', () => {
       if (label === '性别') {
         f.host.querySelectorAll<HTMLButtonElement>('[aria-label="性别"] button')[1]!.click();
       } else {
-        const select = f.host.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)!;
-        select.value = value;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
+        const select = f.host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+        chooseFormOption(select, value);
       }
       expect(state.mutate).not.toHaveBeenCalled();
     });
@@ -354,11 +367,10 @@ describe('个人资料编辑入口', () => {
       customStatus: { faceId: 0, text: '测试状态', faceType: 1 },
     };
     const f = fixture();
-    expect(f.host.querySelector<HTMLSelectElement>('[aria-label="在线状态"]')!.value).toBe('10');
-    expect(
-      f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!.selectedOptions[0]
-        .textContent,
-    ).toBe('自定义状态');
+    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="在线状态"]')!.dataset.value).toBe(
+      '10',
+    );
+    expect(f.host.querySelector('[aria-label="扩展在线状态"]')!.textContent).toBe('自定义状态');
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="自定义状态文字"]')!.value).toBe(
       '测试状态',
     );
@@ -497,11 +509,10 @@ describe('个人资料编辑入口', () => {
   it('基础状态在扩展状态上方，预设扩展状态预览图标后确认提交', async () => {
     const f = fixture();
     const basic = f.host.querySelector('[aria-label="在线状态"]')!;
-    const extended = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
+    const extended = f.host.querySelector<HTMLButtonElement>('[aria-label="扩展在线状态"]')!;
     expect(basic.compareDocumentPosition(extended) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await act(async () => {
-      extended.value = '1018';
-      extended.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(extended, '1018');
     });
     const preview = f.host.querySelector('[aria-label="扩展状态预览"]')!;
     expect(preview.textContent).toBe('学习中');
@@ -534,10 +545,9 @@ describe('个人资料编辑入口', () => {
     expect(f.host.querySelector('.weq-qq-live-status')).toBeNull();
     expect(f.host.querySelector('[aria-label="查询服务端在线状态"]')).toBeNull();
     expect(f.host.textContent).not.toContain('服务端状态');
-    const select = f.host.querySelector<HTMLSelectElement>('[aria-label="扩展在线状态"]')!;
+    const select = f.host.querySelector<HTMLButtonElement>('[aria-label="扩展在线状态"]')!;
     await act(async () => {
-      select.value = '1018';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+      chooseFormOption(select, '1018');
     });
     await act(async () =>
       f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!.click(),

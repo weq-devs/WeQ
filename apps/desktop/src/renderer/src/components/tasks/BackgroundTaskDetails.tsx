@@ -8,11 +8,13 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { ContactMetricsLaneKey } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 import { removeBackgroundTask, type BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
 import type { BackgroundTaskScope } from '../../../../shared/background_task';
+import { backgroundTaskDisplay } from '../../../../shared/background_task';
 import { IS_WEB } from '../../lib/target.shared';
 import { useDialog } from '../Dialog.shared';
 import type { TaskLogLine } from '../TaskLogConsole';
@@ -22,6 +24,7 @@ import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { TaskActivityLog } from './TaskActivityLog';
 import { TaskProgressDetails } from './TaskProgressDetails';
 import { DatabaseMaintenanceProgress } from '../DatabaseMaintenanceProgress';
+import { usePageDataCache } from '../PageSnapshots.shared';
 import '../../styles/export.css';
 import '../../styles/conversation-overview-calendar.css';
 import '../../styles/contact-directory-order.css';
@@ -35,11 +38,13 @@ export function BackgroundTaskActionIcon({ id }: { id: string }) {
         ? Pause
         : id === 'resume' || id === 'continue'
           ? Play
-          : id === 'retry'
+          : id === 'retry' || id === 'verify'
             ? RefreshCw
             : id === 'download'
               ? Download
-              : FolderOpen;
+              : id === 'install'
+                ? RotateCw
+                : FolderOpen;
   return <Icon size={14} aria-hidden />;
 }
 
@@ -47,10 +52,14 @@ export function BackgroundTaskDetails({
   entry,
   scope,
   refresh,
+  onOpenClone,
+  cloneLog,
 }: {
   entry: BackgroundTaskEntry;
   scope: BackgroundTaskScope | null;
   refresh: () => Promise<unknown>;
+  onOpenClone?: (id: string) => void;
+  cloneLog?: ReactNode;
 }) {
   return (
     <TaskDetails
@@ -58,6 +67,8 @@ export function BackgroundTaskDetails({
       entry={entry}
       scope={scope}
       refresh={refresh}
+      onOpenClone={onOpenClone}
+      cloneLog={cloneLog}
     />
   );
 }
@@ -66,12 +77,19 @@ function TaskDetails({
   entry,
   scope,
   refresh,
+  onOpenClone,
+  cloneLog,
 }: {
   entry: BackgroundTaskEntry;
   scope: BackgroundTaskScope | null;
   refresh: () => Promise<unknown>;
+  onOpenClone?: (id: string) => void;
+  cloneLog?: ReactNode;
 }) {
   const { task } = entry;
+  const canManageTask = !IS_WEB || task.kind !== 'update';
+  const cache = usePageDataCache();
+  const cacheKey = JSON.stringify(['background-task', task.id, scope]);
   const maintenance = trpc.dbRepair.maintenance.useQuery(
     { uin: task.scope?.uin ?? '', configId: task.scope?.configId },
     { enabled: task.destination === 'db-checkup' && !!task.scope?.uin, refetchInterval: 2000 },
@@ -82,7 +100,11 @@ function TaskDetails({
     {
       enabled: entry.source === 'host' && task.kind !== 'contacts',
       cacheTime: 0,
+      staleTime: 0,
+      refetchOnMount: 'always',
       keepPreviousData: true,
+      placeholderData: () => cache.read<string[]>(`${cacheKey}:details`),
+      onSuccess: (data) => cache.write(`${cacheKey}:details`, data),
     },
   );
   const details = entry.source === 'host' ? hostDetails.data : task.details;
@@ -91,7 +113,11 @@ function TaskDetails({
     {
       enabled: entry.source === 'host' && task.kind !== 'calendar' && !task.databaseProgress,
       cacheTime: 0,
+      staleTime: 0,
+      refetchOnMount: 'always',
       keepPreviousData: true,
+      placeholderData: () => cache.read<TaskLogLine[]>(`${cacheKey}:logs`),
+      onSuccess: (data) => cache.write(`${cacheKey}:logs`, data),
     },
   );
   const retainedLogs = useRef(taskLogs.data);
@@ -103,6 +129,30 @@ function TaskDetails({
     contactLogLines(details ?? []);
   const [busy, setBusy] = useState(false);
   const showError = useDialog((state) => state.showError);
+  const failureRequest = useRef(0);
+  useEffect(() => {
+    return () => {
+      failureRequest.current++;
+    };
+  }, []);
+  const showContactFailures = async (lane: ContactMetricsLaneKey, label: string) => {
+    const request = ++failureRequest.current;
+    try {
+      const failures =
+        entry.source === 'host'
+          ? await client.backgroundTasks.contactFailures.query({ id: task.id, scope, lane })
+          : (task.contactFailures?.filter((item) => item.lane === lane) ?? []);
+      if (request !== failureRequest.current) return;
+      showError(
+        `${label}更新失败项`,
+        failures.map((item) => `${item.label}：${item.error}`).join('\n') ||
+          '这次任务没有保留失败明细。',
+      );
+    } catch (error) {
+      if (request !== failureRequest.current) return;
+      showError('无法读取失败明细', error instanceof Error ? error.message : String(error));
+    }
+  };
   const act = async (run: () => Promise<unknown>) => {
     if (busy) return;
     setBusy(true);
@@ -133,6 +183,7 @@ function TaskDetails({
       ) : (
         <TaskProgressDetails
           name={task.name}
+          display={backgroundTaskDisplay(task)}
           status={task.status}
           statusLabel={task.statusLabel}
           progress={task.progress}
@@ -154,9 +205,7 @@ function TaskDetails({
         <ContactTaskStages
           task={task}
           logs={logs}
-          onShowFailures={(label, items) =>
-            showError(`${label}读取失败`, items.map((item) => item.error).join('\n'))
-          }
+          onShowFailures={(lane, label) => void showContactFailures(lane, label)}
         />
       ) : null}
       {hostDetails.error && entry.source === 'host' ? (
@@ -175,7 +224,9 @@ function TaskDetails({
           </ul>
         </div>
       ) : null}
-      {!task.databaseProgress &&
+      {cloneLog}
+      {!cloneLog &&
+      !task.databaseProgress &&
       task.kind !== 'calendar' &&
       (task.kind !== 'contacts' || !task.subtasks?.length) ? (
         <TaskActivityLog
@@ -205,36 +256,36 @@ function TaskDetails({
             下载到浏览器
           </a>
         ) : null}
-        {task.actions.map((action) => (
-          <button
-            key={action.id}
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            disabled={busy}
-            onClick={() =>
-              void act(() =>
-                entry.source === 'window'
-                  ? localBackgroundTasks.act(task.id, action.id)
-                  : client.backgroundTasks.act.mutate({ id: task.id, action: action.id, scope }),
-              )
-            }
-          >
-            <BackgroundTaskActionIcon id={action.id} />
-            {action.label}
-          </button>
-        ))}
-        {task.kind === 'update' && task.status === 'completed' && !IS_WEB ? (
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            disabled={busy}
-            onClick={() => void act(() => client.update.install.mutate())}
-          >
-            <RotateCw size={14} />
-            重启并安装
-          </button>
-        ) : null}
-        {task.status !== 'running' ? (
+        {canManageTask &&
+          task.actions
+            .filter((action) => action.id !== 'view-clone' || Boolean(onOpenClone))
+            .map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                disabled={busy}
+                onClick={() => {
+                  if (action.id === 'view-clone' && task.clonePersonaId) {
+                    onOpenClone?.(task.clonePersonaId);
+                    return;
+                  }
+                  void act(() =>
+                    entry.source === 'window'
+                      ? localBackgroundTasks.act(task.id, action.id)
+                      : client.backgroundTasks.act.mutate({
+                          id: task.id,
+                          action: action.id,
+                          scope,
+                        }),
+                  );
+                }}
+              >
+                <BackgroundTaskActionIcon id={action.id} />
+                {action.label}
+              </button>
+            ))}
+        {canManageTask && task.status !== 'running' ? (
           <button
             data-danger="outline"
             type="button"

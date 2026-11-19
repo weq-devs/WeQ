@@ -10,8 +10,6 @@ import { ProfileDetailSurface } from './ProfileDetailSurface';
 import { GroupFileManager } from './GroupFileManager';
 import { GroupFileMessageResults } from './GroupFileMessageResults';
 import { useQQAction, withQQAccountScope } from './qq-actions/shared.shared';
-import { useToast } from './Toast.shared';
-import { taskNotificationSource } from '../lib/notificationNavigation.shared';
 import { collectGroupFileSubtree, resolveGroupFileSelection } from '../lib/groupFileSelection';
 import type { GroupFileWire, GroupFolderWire } from '../lib/groupFile';
 import '../styles/group-media.css';
@@ -47,7 +45,6 @@ function GroupFileDialogBody({
   const a = useQQAction(`group-file-window:${groupCode}`);
   const mediaSave = useMediaSave(),
     save = useExportSavePolicy();
-  const toast = useToast((s) => s.push);
   const report = useExportReportDialog();
   const [locatingFile, setLocatingFile] = useState<GroupFileWire | null>(null);
   const [crumbs, setCrumbs] = useState<Crumb[]>(
@@ -130,7 +127,7 @@ function GroupFileDialogBody({
     if (includeIntegrityReport === null || !isCurrent()) return;
     const savePolicy = await save.prepareSave(undefined, { kind: 'bundle', name });
     if (!savePolicy || !isCurrent()) return;
-    const taskId = await client.account.startGroupFileExport.mutate({
+    await client.account.startGroupFileExport.mutate({
       ...binding,
       includeIntegrityReport,
       groupCode,
@@ -144,12 +141,6 @@ function GroupFileDialogBody({
       })),
       concurrency: 4,
     });
-    if (isCurrent())
-      toast({
-        tone: 'info',
-        title: '群文件保存任务已创建',
-        source: taskNotificationSource(taskId),
-      });
   }
   return (
     <ProfileDetailSurface

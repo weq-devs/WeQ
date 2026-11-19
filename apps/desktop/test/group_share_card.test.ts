@@ -25,6 +25,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       contactMetrics: {
         snapshot: { useQuery: () => ({ data: undefined }) },
+        groupFriendSources: { useQuery: () => ({ data: undefined }) },
         changed: { useSubscription: () => {} },
       },
     },

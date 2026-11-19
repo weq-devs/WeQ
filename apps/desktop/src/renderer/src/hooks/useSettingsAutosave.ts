@@ -13,6 +13,7 @@ export function useSettingsAutosave<P extends object>(save: (patch: P) => Promis
   const [error, setError] = useState('');
   const active = useRef<Promise<boolean> | null>(null);
   const mounted = useRef(true);
+  const suspended = useRef(false);
   const notify = useCallback(() => {
     if (mounted.current) update((value) => value + 1);
   }, []);
@@ -33,13 +34,14 @@ export function useSettingsAutosave<P extends object>(save: (patch: P) => Promis
     [notify],
   );
   const flush = useCallback((): Promise<boolean> => {
+    if (suspended.current) return Promise.resolve(false);
     if (active.current) return active.current;
     const run = async () => {
       setSaving(true);
       setError('');
       try {
         for (;;) {
-          if (!mounted.current) return false;
+          if (!mounted.current || suspended.current) return false;
           const changed = [...sections.current].filter(
             ([, value]) => value.snapshot !== value.baseline,
           );
@@ -80,13 +82,22 @@ export function useSettingsAutosave<P extends object>(save: (patch: P) => Promis
       mounted.current = false;
     };
   }, []);
+  const suspend = useCallback(async () => {
+    suspended.current = true;
+    await active.current;
+  }, []);
+  const release = useCallback(() => {
+    suspended.current = false;
+    notify();
+  }, [notify]);
   return {
     register,
     flush,
+    suspend,
+    release,
     saving,
     dirty,
     valid,
     error,
-    status: error ? '保存失败' : saving ? '保存中…' : dirty ? '未保存' : '已保存',
   };
 }

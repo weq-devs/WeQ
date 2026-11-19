@@ -8,7 +8,7 @@
   width: 100%;
   height: 5px;
   overflow: hidden;
-  border-radius: 3px;
+  border-radius: min(3px, var(--weq-skin-radius, 3px));
   background: color-mix(in srgb, var(--weq-fg-primary) 12%, transparent);
 }
 
@@ -39,12 +39,12 @@
 
 .weq-task-progress-track > progress::-webkit-progress-value {
   background: var(--task-progress-color);
-  border-radius: 3px;
+  border-radius: inherit;
 }
 
 .weq-task-progress-track > progress::-moz-progress-bar {
   background: var(--task-progress-color);
-  border-radius: 3px;
+  border-radius: inherit;
 }
 
 .weq-task-progress-track.is-indeterminate > progress {
@@ -75,6 +75,15 @@
 
 html[data-theme='dark'] .weq-task-progress-track {
   background: color-mix(in srgb, var(--weq-fg-primary) 18%, transparent);
+}
+
+@media (forced-colors: active) {
+  html[data-theme] .weq-task-progress-track {
+    --task-progress-color: Highlight;
+    forced-color-adjust: none;
+    background: Canvas;
+    box-shadow: inset 0 0 0 1px CanvasText;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

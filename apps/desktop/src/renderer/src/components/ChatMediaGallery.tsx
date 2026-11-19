@@ -26,7 +26,7 @@ export function ChatMediaGallery({
   conv?: string;
   kind?: 'c2c' | 'group';
   filter?: GalleryFilter;
-  carrier?: { msgId: string; kind: 'c2c' | 'group' };
+  carrier?: import('../state/messageContext').ForwardCarrier;
   paged?: boolean;
   scopeKey?: string;
 }) {

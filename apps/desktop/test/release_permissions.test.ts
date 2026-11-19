@@ -19,11 +19,12 @@ const workflow = load(
   jobs: Record<string, Job>;
 };
 
-it('发布工作流默认只读，只有实际发布产物或说明的 job 可写', () => {
+it('发布工作流默认只读，只有修改 Release 或其附件的 job 可写', () => {
   expect(workflow.permissions).toEqual({ contents: 'read' });
   const writers = [
     'prepare',
     'publish',
+    'publish-announcement',
     'windows',
     'linux-x64',
     'linux-arm64',

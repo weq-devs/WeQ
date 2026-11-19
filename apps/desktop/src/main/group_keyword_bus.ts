@@ -12,6 +12,7 @@ import { accountEventBus } from './context/app_context';
 export interface GroupKeywordJump {
   groupCode: string;
   msgSeq: string;
+  msgId?: string;
 }
 
 /**
@@ -22,6 +23,7 @@ export interface ConversationJump {
   kind: 'c2c' | 'group';
   conv: string;
   seq: string;
+  msgId?: string;
 }
 
 /** 待渲染层消费的跳转请求（FIFO）。主进程只往这里塞，渲染层来领。 */

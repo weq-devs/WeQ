@@ -907,20 +907,13 @@ export function useWorkspaceDirectory({
       ),
     [buddyRequests.data, profileByUid],
   );
-  // 红点按原始通知建立基线，不把群资料加载后补出的卡片当作新通知。
-  const groupNoticeRecords = useMemo(
-    () =>
-      ((groupNotifies.data ?? []) as GroupNotifyWire[]).filter((n) =>
-        Object.hasOwn(GROUP_NOTIFY_ACTION, n.status),
-      ),
-    [groupNotifies.data],
-  );
   const groupRequests = useMemo(
     () =>
-      groupNoticeRecords
+      ((groupNotifies.data ?? []) as GroupNotifyWire[])
+        .filter((n) => Object.hasOwn(GROUP_NOTIFY_ACTION, n.status))
         .map((n) => groupNotifyToGroupRequest(n, profileByUid, groupsById))
         .filter((r): r is NonNullable<typeof r> => r !== null),
-    [groupNoticeRecords, profileByUid, groupsById],
+    [groupNotifies.data, profileByUid, groupsById],
   );
 
   return {
@@ -944,7 +937,6 @@ export function useWorkspaceDirectory({
     contactDirectoryConversations,
     profileContacts,
     contactRequests,
-    groupNoticeRecords,
     groupRequests,
   };
 }

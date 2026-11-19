@@ -17,6 +17,10 @@
  */
 
 import {
+  normalizeNotificationEvents,
+  mergeNotificationEventOverrides,
+} from '../common/notification_settings';
+import {
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -44,6 +48,10 @@ import { DEFAULT_SERVICE_PORTS } from '../common/service_ports';
 import { DEFAULT_CONTACT_CARD, normalizeContactCard } from '../common/contact_card';
 import type { AgentLabModelRef, AgentLabProviderConfig, TtsProviderConfig } from '@weq/agentlab';
 import { normalizeImagePreferences, type AiImagePreferences } from '@weq/agentlab';
+import {
+  DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+  DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+} from '@weq/agentlab/model-metadata';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
 import {
@@ -745,6 +753,12 @@ export interface AgentLabSettings {
   defaultModel: AgentLabModelRef | null;
   defaultVisionModel: AgentLabModelRef | null;
   defaultEmbeddingModel: AgentLabModelRef | null;
+  defaultContextWindowTokens: number;
+  defaultMaxOutputTokens: number | null;
+}
+
+function modelTokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 /**
@@ -772,8 +786,10 @@ export interface AppLockConfig {
 
 /** 聊天里裸链接的展示方式（见 bootstrap/link_preview.ts）。 */
 export interface LinkPreviewConfig {
-  /** 整条消息只有一个链接时，抓取 og 元信息渲染成卡片。关掉则只做蓝色下划线。 */
+  /** 显示 QQ 随消息保存的元数据或本地预览。关掉则只显示可点击的链接。 */
   enabled: boolean;
+  /** 浏览消息时是否允许联网补齐未缓存的网页元数据及封面。 */
+  autoFetch: boolean;
   /** 页面没有 og:image 时，用离屏窗口截一张网页图当封面。默认关——它要真的把页面跑起来。 */
   screenshot: boolean;
 }
@@ -788,6 +804,7 @@ export interface AppSettings {
   enhancementUpdates: { autoCheck: boolean; autoInstall: boolean };
   /** 横幅完成态停留秒数，-1 表示不自动关闭。 */
   toastDurations: ToastDurations;
+  notificationEvents: import('../common/notification_settings').NotificationEvents;
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
@@ -931,10 +948,8 @@ export interface AppSettings {
    */
   suppressAttachHint: boolean;
   /**
-   * 数据库损坏弹窗是否不再提醒。用户点「不再提醒」后写入全局配置；之后健康检查
-   * 仍照常执行并生成报告，但不再弹出提醒。
-   *
-   * 设置页 数据库宽容 → 损坏提醒 里可以再打开（不然这是个单向的门）。
+   * 旧版数据库异常提醒开关；仅供迁移和旧客户端兼容。
+   * 当前双渠道选择保存在 notificationEvents.databaseDamage，健康检查和报告不受影响。
    */
   suppressDbDamageReminder: boolean;
   /**
@@ -945,7 +960,7 @@ export interface AppSettings {
   /**
    * 日志保留天数（设置 → 日志）。默认 {@link DEFAULT_LOG_RETENTION_DAYS} 天，
    * 0 = 永久保留。WeQ 自身的 `logs/` 与原生组件日志目录都按此清理，判断依据是
-   * 文件名里的日期（`2026-09-20.log` / `nt_helper_2026-09-20.log`）。
+   * 文件名里的日期（包括 WeQ 的 `.log.gz` 历史分段）。
    */
   logRetentionDays: number;
   /** 同一数据库的并行只读上限；宿主级设置，所有账号和客户端共用。 */
@@ -1202,6 +1217,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   updateCheckIntervalMinutes: DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
   enhancementUpdates: { autoCheck: true, autoInstall: false },
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
+  notificationEvents: normalizeNotificationEvents(undefined),
   exportSaveMode: 'before',
   realtimeEnabled: true,
   // 默认关闭：是否扫描 QQ 内存由首次运行欢迎框征得同意后再打开，见
@@ -1215,7 +1231,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   reportReadEnabled: true,
   manualReadReportEnabled: true,
   autoLockMinutes: 0,
-  appLock: { enabled: true, method: 'totp' },
+  appLock: { enabled: false, method: 'totp' },
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
   voiceTranscribe: { modelId: '', autoTranscribe: false, onlineConcurrency: 5, ttsProviders: [] },
   // 本地图片文字识别：两个用途各自独立选模型（都空 = 未启用）。
@@ -1231,15 +1247,17 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     defaultModel: null,
     defaultVisionModel: null,
     defaultEmbeddingModel: null,
+    defaultContextWindowTokens: DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+    defaultMaxOutputTokens: DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
   },
   aiImages: normalizeImagePreferences(null),
   windowCloseBehavior: 'tray',
   windowsStyleControls: false,
-  renderTextMarkdown: true,
+  renderTextMarkdown: false,
   showAvatarPendant: true,
   showChatQqShow: true,
   qqShowCacheMinutes: 5,
-  linkPreview: { enabled: true, screenshot: false },
+  linkPreview: { enabled: true, autoFetch: false, screenshot: false },
   preferCdn: false,
   home: DEFAULT_HOME_SETTINGS,
   typingStatus: { mode: 'off', hidden: [] },
@@ -1280,6 +1298,8 @@ export interface UserConfig {
   desktopPreferencesSeeded?: boolean;
   sharedPreferenceRestoreReceipts?: string[];
   settingsRevision?: number;
+  /** 全局恢复已提交，等待宿主性能监视应用档位。 */
+  performanceRecordingResetRevision?: number;
   globalClientPreferencesMigrated?: boolean;
   sharedPreferencesMigration?: { version: 1; configId: string | null; receipt?: string };
   autoEnter?: AutoEnterTarget | null;
@@ -1992,6 +2012,13 @@ export class UserConfigService {
         autoInstall: s?.enhancementUpdates?.autoInstall === true,
       },
       toastDurations: normalizeToastDurations(s?.toastDurations),
+      notificationEvents: normalizeNotificationEvents(s?.notificationEvents, {
+        messageNotifications: s?.sharedPreferences?.client?.messageNotifications,
+        mailNotifications: s?.sharedPreferences?.mail?.mailNotifications,
+        recallNotifications: s?.sharedPreferences?.antiRecall?.notifyEnabled,
+        restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled,
+        suppressDbDamageReminder: s?.suppressDbDamageReminder,
+      }),
       exportSaveMode:
         s?.exportSaveMode === 'before' || s?.exportSaveMode === 'preset'
           ? s.exportSaveMode
@@ -2075,6 +2102,7 @@ export class UserConfigService {
       callDisableP2P: typeof s?.callDisableP2P === 'boolean' ? s.callDisableP2P : d.callDisableP2P,
       linkPreview: {
         enabled: s?.linkPreview?.enabled ?? d.linkPreview.enabled,
+        autoFetch: s?.linkPreview?.autoFetch ?? d.linkPreview.autoFetch,
         screenshot: s?.linkPreview?.screenshot ?? d.linkPreview.screenshot,
       },
       modelResources: resources,
@@ -2122,6 +2150,14 @@ export class UserConfigService {
         defaultModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultModel),
         defaultVisionModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultVisionModel),
         defaultEmbeddingModel: normalizeAgentLabDefaultModel(s?.agentLab?.defaultEmbeddingModel),
+        defaultContextWindowTokens:
+          modelTokenCount(s?.agentLab?.defaultContextWindowTokens) ??
+          d.agentLab.defaultContextWindowTokens,
+        defaultMaxOutputTokens:
+          s?.agentLab?.defaultMaxOutputTokens === null
+            ? null
+            : (modelTokenCount(s?.agentLab?.defaultMaxOutputTokens) ??
+              d.agentLab.defaultMaxOutputTokens),
       },
       aiImages: normalizeImagePreferences(s?.aiImages),
     };
@@ -2175,6 +2211,9 @@ export class UserConfigService {
         ...patch.enhancementUpdates,
       },
       toastDurations: normalizeToastDurations(patch.toastDurations, current.toastDurations),
+      notificationEvents: normalizeNotificationEvents(
+        mergeNotificationEventOverrides(current.notificationEvents, patch.notificationEvents),
+      ),
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
@@ -2284,6 +2323,7 @@ export class UserConfigService {
         typeof patch.callDisableP2P === 'boolean' ? patch.callDisableP2P : current.callDisableP2P,
       linkPreview: {
         enabled: patch.linkPreview?.enabled ?? current.linkPreview.enabled,
+        autoFetch: patch.linkPreview?.autoFetch ?? current.linkPreview.autoFetch,
         screenshot: patch.linkPreview?.screenshot ?? current.linkPreview.screenshot,
       },
       modelResources: resources,
@@ -2343,10 +2383,30 @@ export class UserConfigService {
           patch.agentLab?.defaultEmbeddingModel !== undefined
             ? normalizeAgentLabDefaultModel(patch.agentLab.defaultEmbeddingModel)
             : current.agentLab.defaultEmbeddingModel,
+        defaultContextWindowTokens:
+          modelTokenCount(patch.agentLab?.defaultContextWindowTokens) ??
+          current.agentLab.defaultContextWindowTokens,
+        defaultMaxOutputTokens:
+          patch.agentLab?.defaultMaxOutputTokens === null
+            ? null
+            : (modelTokenCount(patch.agentLab?.defaultMaxOutputTokens) ??
+              current.agentLab.defaultMaxOutputTokens),
       },
       aiImages: normalizeImagePreferences({ ...current.aiImages, ...patch.aiImages }),
     };
-    this.write({ settings: next });
+    const stored: DeepPartial<AppSettings> = { ...next };
+    // 首次打开旧账号前的无关设置保存，不提前固化尚未迁入的通知值。
+    if (
+      patch.notificationEvents === undefined &&
+      this.read().settings?.notificationEvents === undefined
+    )
+      delete stored.notificationEvents;
+    else
+      stored.notificationEvents = mergeNotificationEventOverrides(
+        this.read().settings?.notificationEvents,
+        patch.notificationEvents,
+      );
+    this.write({ settings: stored });
     applyQzonePagination(next.qzonePagination);
     configureDatabaseReadConcurrency(next.databaseReadConcurrency);
     this.logger.info('updated app settings', {

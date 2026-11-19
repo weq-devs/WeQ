@@ -91,9 +91,7 @@
   color: var(--weq-fg-secondary);
 }
 
-.weq-select .weq-static-hint,
-.weq-select .weq-static-input::placeholder,
-.weq-select .weq-keyfield-text::placeholder {
+.weq-select .weq-static-hint {
   color: var(--weq-fg-secondary);
 }
 
@@ -947,9 +945,6 @@ html[data-theme] .weq-account-workspace .weq-action-soft:disabled {
 }
 .weq-key-recovery .weq-keyfield-text {
   color: var(--weq-fg-primary);
-}
-.weq-key-recovery .weq-keyfield-text::placeholder {
-  color: var(--weq-fg-secondary);
 }
 .weq-key-recovery .weq-keyfield-icon,
 .weq-key-recovery .weq-keyfield-lead {

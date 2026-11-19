@@ -36,7 +36,7 @@ it.each(['persona', 'group'] as const)(
         f.host.querySelector<HTMLButtonElement>('[aria-label="模拟消息右键多选"]')!.click(),
       );
       act(() =>
-        f.host.querySelector<HTMLButtonElement>('.message-context-menu [title="多选"]')!.click(),
+        document.querySelector<HTMLButtonElement>('.message-context-menu [title="多选"]')!.click(),
       );
       const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('.selection-bar button')];
       expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
@@ -138,7 +138,7 @@ it.each(['persona', 'group'] as const)(
         f.host.querySelector<HTMLButtonElement>('[aria-label="模拟消息右键多选"]')!.click(),
       );
       act(() =>
-        f.host.querySelector<HTMLButtonElement>('.message-context-menu [title="多选"]')!.click(),
+        document.querySelector<HTMLButtonElement>('.message-context-menu [title="多选"]')!.click(),
       );
       act(() => f.host.querySelector<HTMLElement>('[data-message-id="a"]')!.click());
       expect(f.host.querySelector('.selection-bar-info')?.getAttribute('aria-label')).toBe(
@@ -177,7 +177,7 @@ it('共用正常会话的选区缓存，窗口变化仍按真实身份导出，E
   try {
     act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="模拟消息右键多选"]')!.click());
     act(() =>
-      f.host.querySelector<HTMLButtonElement>('.message-context-menu [title="多选"]')!.click(),
+      document.querySelector<HTMLButtonElement>('.message-context-menu [title="多选"]')!.click(),
     );
     f.render([]);
     const exportButton = f.host.querySelector<HTMLButtonElement>('[aria-label="导出所选消息"]')!;

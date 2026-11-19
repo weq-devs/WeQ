@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
+import { launchBrowser } from '../../../../scripts/browser-runtime.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const playwright = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const server = await createServer({
   configFile: false,
   root,
@@ -48,11 +48,7 @@ try {
   const output = process.env.WEQ_MOBILE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   for (const engine of engines) {
-    const executablePath = process.env[`WEQ_${engine.toUpperCase()}_EXECUTABLE`];
-    const browser = await playwright[engine].launch({
-      headless: true,
-      ...(executablePath ? { executablePath } : {}),
-    });
+    const browser = await launchBrowser(engine);
     try {
       const context = await browser.newContext({
         isMobile: true,

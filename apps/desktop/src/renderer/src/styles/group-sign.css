@@ -84,7 +84,7 @@ html[data-theme='dark'] .weq-group-sign-page {
   padding: 0;
   margin: 0;
 }
-.weq-group-sign-layer .weq-group-sign-tools input[type='date'] {
+.weq-group-sign-layer .weq-group-sign-tools .weq-date-filter {
   flex: 1 1 0;
   width: 0;
   height: 30px;

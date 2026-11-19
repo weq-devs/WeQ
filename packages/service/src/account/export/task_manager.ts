@@ -15,6 +15,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { exportTaskDisplay } from '../../common/task_display';
 import { randomUUID } from 'node:crypto';
 import {
   readFileSync,
@@ -107,6 +108,7 @@ import { prepareDirectOutput, type DirectOutput } from './direct_output';
 import { inspectDestination } from './storage_preflight';
 import {
   copyExportSavePolicy,
+  publishStagedDownload,
   saveExportOutput,
   inventoryExportOutput,
   type ExportSavePolicy,
@@ -376,6 +378,8 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  display?: import('../../common/task_display').TaskDisplay;
+  scheduleName?: string;
   databaseRecovery?: DatabaseRecoveryRequest;
   databaseRecoveryRecords?: DatabaseRecoveryRecord[];
   workBundleId?: string;
@@ -422,8 +426,11 @@ export interface ExportTask {
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;
+    directDownload?: boolean;
     /** 原始资源身份，用于从消息定位已保存的文件，不能仅按同名文件匹配。 */
     sourceKey?: string;
+    /** 仅保留进度关联用的短标识，字节计数不随任务持久化。 */
+    transferTargets?: string[];
   };
   save?: ExportSaveState;
   directOutput?: DirectOutput;
@@ -533,6 +540,51 @@ export interface ResourceExportSummary {
 export type ResumableResourceRequest =
   | { type: 'favorite-emoji' }
   | {
+      type: 'media-file';
+      source:
+        | {
+            kind: 'group-file';
+            groupCode: string;
+            fileId: string;
+            fileName: string;
+            busId?: number;
+          }
+        | { kind: 'chat-file'; msgId: string; name: string; conv?: string };
+      fileName: string;
+    }
+  | {
+      type: 'group-files';
+      groupCode: string;
+      files?: Array<{ fileId: string; fileName: string; busId?: number; path?: string[] }>;
+      concurrency?: number;
+    }
+  | {
+      type: 'group-albums';
+      groupCode: string;
+      albums: ResourceAlbumSelection[];
+      concurrency?: number;
+    }
+  | { type: 'qzone-albums'; hostUin: string; albums: ResourceAlbumSelection[] }
+  | {
+      type: 'album-references';
+      items: Array<
+        | {
+            kind: 'group-album' | 'group-photo';
+            groupCode: string;
+            albumId: string;
+            mediaKey?: string;
+            name?: string;
+          }
+        | {
+            kind: 'qzone-album' | 'qzone-photo';
+            uin: string;
+            albumId: string;
+            mediaKey?: string;
+            name?: string;
+          }
+      >;
+    }
+  | {
       type: 'mail';
       ids: string[] | null;
       filter?: MailExportFilter;
@@ -540,12 +592,47 @@ export type ResumableResourceRequest =
       archive?: MailArchiveOptions;
     };
 
+type ResourceAlbumSelection = { id: string; title?: string; mediaKeys?: string[] };
+
+function resourceResumeKind(request: ResumableResourceRequest) {
+  if (request.type === 'mail') return 'mail-messages';
+  if (request.type === 'media-file') return 'media';
+  if (request.type === 'album-references')
+    return request.items.every((item) => item.kind.startsWith('qzone-'))
+      ? 'qzone-albums'
+      : 'group-albums';
+  return request.type;
+}
+
 export interface ResourceExportRunContext {
   checkpoint?: ExportCheckpoint;
   archive?: ArchiveOptions;
   directory: string;
   signal: AbortSignal;
   progress(current: number, total: number): void;
+  transferProgress?(received: number, total?: number, item?: string): void;
+  transferItemFinished?(item: string, success: boolean): void;
+}
+
+interface TransferBytes {
+  received: number;
+  total?: number;
+}
+interface ResourceTransfer {
+  bytes: TransferBytes;
+  files: Map<string, TransferBytes>;
+  completedBytes: number;
+  completedKnown: number;
+}
+
+function tracksResourceTransfer(task: ExportTask): boolean {
+  const kind = task.resource?.kind;
+  return (
+    Boolean(task.resource?.transferTargets?.length) ||
+    kind === 'media' ||
+    kind === 'group-files' ||
+    kind === 'qzone-albums'
+  );
 }
 
 /** 任务列表 wire 视图：ExportTask + 内存日志（不持久化，重启后清空）。 */
@@ -670,6 +757,8 @@ export class ExportTaskManager extends EventEmitter {
   private queueReleases = new Map<string, () => void>();
   private executions = new Map<string, Promise<void>>();
   private tasks = new Map<string, ExportTask>();
+  private readonly resourceTransfers = new Map<ExportTask, ResourceTransfer>();
+  private readonly transferListeners = new Set<() => void>();
   private abortControllers = new Map<string, AbortController>();
   /** 任务日志（内存环形缓冲，不随 export_tasks.json 持久化）。 */
   private taskLogs = new Map<string, TaskLogLine[]>();
@@ -711,9 +800,11 @@ export class ExportTaskManager extends EventEmitter {
   private clearResumeState(task: ExportTask): void {
     try {
       rmSync(this.checkpoint(task).directory, { recursive: true, force: true });
-      if (task.status === 'cancelled')
+      if (task.status === 'cancelled') {
         for (const id of new Set([task.id, task.workBundleId ?? `${task.id}-${task.scanId}`]))
           rmSync(join(this.cacheDir, `.bundle-${id}.partial`), { recursive: true, force: true });
+        this.clearDirectDownloadStage(task);
+      }
     } catch {
       this.log(task.id, 'task', '导出已结束，续作缓存清理未完成；删除任务时将重试。', 'warn');
     }
@@ -725,6 +816,20 @@ export class ExportTaskManager extends EventEmitter {
     this.abortControllers.delete(task.id);
     this.finalizing.delete(task.id);
     if (task.status === 'completed' || task.status === 'cancelled') this.clearResumeState(task);
+  }
+
+  private directDownloadTarget(task: ExportTask): string | undefined {
+    const path = task.save?.policy.filePath;
+    if (!task.resource?.directDownload || !path) return undefined;
+    const root = dirname(path);
+    if (!lstatSync(root).isDirectory()) throw new Error('保存目录不可用，请重新选择。');
+    return join(realpathSync(this.deps.resolveSaveDirectory?.(root) ?? root), basename(path));
+  }
+
+  private clearDirectDownloadStage(task: ExportTask): void {
+    const target = this.directDownloadTarget(task);
+    if (target)
+      rmSync(join(dirname(target), `.bundle-${task.id}.partial`), { recursive: true, force: true });
   }
 
   constructor(
@@ -779,8 +884,10 @@ export class ExportTaskManager extends EventEmitter {
         t.networkOverride = false;
         if (t.status === 'running' || t.status === 'pending') {
           t.status = 'paused'; // crashed or queued tasks require explicit continuation
-          if (t.resource && !t.resource.resume)
-            t.error = '上次资源下载被中断，请重新选择资源创建任务；已完成的其他任务结果仍保留。';
+        }
+        if (t.status === 'paused' && t.resource && !t.resource.resume) {
+          t.status = 'failed';
+          t.error = '上次资源处理已中断，原来源无法重新定位，请回到发起处重新选择。';
         }
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
         if (t.save?.status === 'saving') {
@@ -932,7 +1039,7 @@ export class ExportTaskManager extends EventEmitter {
           task.marketpack ||
           task.completeAvatar ||
           media?.completeMedia ||
-          media?.completeMessages ||
+          (media?.completeMessages && task.filter?.messageIds === undefined) ||
           media?.completeDress ||
           media?.onlineTranscribe)) ||
         (network
@@ -993,6 +1100,8 @@ export class ExportTaskManager extends EventEmitter {
   override emit(event: 'progress', data: TaskProgress): boolean {
     const emitted = super.emit(event, data);
     const task = this.tasks.get(data.taskId);
+    if (task && data.status !== 'pending' && data.status !== 'running')
+      this.resourceTransfers.delete(task);
     if (data.status === 'completed' && task?.save?.status === 'pending')
       void this.saveTaskOutput(task.id).catch(() => undefined);
     return emitted;
@@ -1206,6 +1315,7 @@ export class ExportTaskManager extends EventEmitter {
         delete view.generatedResourceReport;
         return {
           ...view,
+          display: exportTaskDisplay(task),
           generated: summary,
           ...(task.generatedResourceReport
             ? {
@@ -1249,6 +1359,59 @@ export class ExportTaskManager extends EventEmitter {
 
   getTask(id: string): ExportTask | null {
     return this.tasks.get(id) ?? null;
+  }
+
+  subscribeResourceTransfers(listener: () => void): () => void {
+    this.transferListeners.add(listener);
+    return () => this.transferListeners.delete(listener);
+  }
+
+  private resourceTransferChanged(): void {
+    for (const listener of this.transferListeners) listener();
+  }
+
+  private beginResourceTransfer(task: ExportTask): ResourceTransfer {
+    const transfer = {
+      bytes: { received: 0 },
+      files: new Map<string, TransferBytes>(),
+      completedBytes: 0,
+      completedKnown: 0,
+    };
+    this.resourceTransfers.set(task, transfer);
+    this.resourceTransferChanged();
+    return transfer;
+  }
+
+  activeResourceTransfers() {
+    return [...this.resourceTransfers.entries()].flatMap(([task, transfer]) => {
+      if (task.status !== 'pending' && task.status !== 'running') return [];
+      let bytes = transfer.bytes;
+      if (task.resource?.kind === 'group-files' && task.total > 0) {
+        const files = [...transfer.files.values()];
+        if (
+          transfer.completedKnown + files.length === task.total &&
+          files.every((file) => file.total)
+        )
+          bytes = files.reduce<{ received: number; total: number }>(
+            (sum, file) => ({
+              received: sum.received + file.received,
+              total: sum.total + file.total!,
+            }),
+            { received: transfer.completedBytes, total: transfer.completedBytes },
+          );
+      }
+      return [
+        {
+          id: task.id,
+          targets: task.resource?.transferTargets,
+          status: task.status,
+          ...bytes,
+          processed: task.current,
+          items: task.total,
+          files: [...transfer.files].map(([target, progress]) => ({ target, ...progress })),
+        },
+      ];
+    });
   }
 
   async preflight(opts: {
@@ -1313,6 +1476,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   async startTask(opts: {
+    scheduleName?: string;
     autoOpenTaskList?: boolean;
     extra?: import('../../common/export_content').ExportExtraOptions;
     content?: ExportContentPolicy;
@@ -1356,12 +1520,13 @@ export class ExportTaskManager extends EventEmitter {
       throw new Error('聊天记录导出必须锁定一条承载消息，请重新选择卡片。');
     if (opts.filter?.forwardTarget && opts.baselineDirectory)
       throw new Error('聊天记录卡片单独导出，不能合入会话归档。');
+    const localMessagesOnly =
+      opts.filter?.messageIds !== undefined ||
+      Boolean(opts.guild) ||
+      opts.kind === 'official' ||
+      opts.kind === 'service';
     if (opts.content && !opts.qzone && !opts.contacts && !opts.collection && !opts.generated) {
-      const content = normalizeExportContent(
-        opts.content,
-        {},
-        Boolean(opts.guild) || opts.kind === 'official' || opts.kind === 'service',
-      );
+      const content = normalizeExportContent(opts.content, {}, localMessagesOnly);
       if (!hasExportContent(content)) throw new Error('请至少选择一项导出内容。');
       const flags = exportContentFlags(content);
       opts = {
@@ -1385,7 +1550,7 @@ export class ExportTaskManager extends EventEmitter {
         },
       };
     }
-    if ((opts.kind === 'official' || opts.kind === 'service') && opts.media?.completeMessages) {
+    if (localMessagesOnly && opts.media?.completeMessages) {
       opts = { ...opts, media: { ...opts.media, completeMessages: false } };
     }
     const resourceOnly = opts.formats?.length === 0;
@@ -1690,6 +1855,7 @@ export class ExportTaskManager extends EventEmitter {
       ...archiveSettings,
       content: opts.content ? structuredClone(opts.content) : undefined,
       resourceOnly,
+      scheduleName: opts.scheduleName,
       completeAvatar: opts.completeAvatar,
       id,
       kind: opts.kind,
@@ -1720,7 +1886,7 @@ export class ExportTaskManager extends EventEmitter {
               ...opts.filter,
               ...(opts.filter.messageIds ? { messageIds: [...opts.filter.messageIds] } : {}),
               ...(opts.filter.forwardTarget
-                ? { forwardTarget: { ...opts.filter.forwardTarget } }
+                ? { forwardTarget: structuredClone(opts.filter.forwardTarget) }
                 : {}),
             },
           }
@@ -1785,8 +1951,9 @@ export class ExportTaskManager extends EventEmitter {
     return id;
   }
 
-  /** 既有独立下载器只写私有缓存，发布、另存、取消和回执沿用同一个任务管理器。 */
+  /** 独立资源沿用同一个任务管理器；单文件下载只在目标卷上暂存。 */
   async startResourceExport(opts: {
+    display?: import('../../common/task_display').TaskDisplay;
     resume?: ResumableResourceRequest;
     networkTransfer?: { batch?: boolean; bytes?: number };
     archive?: ArchiveOptions;
@@ -1796,15 +1963,12 @@ export class ExportTaskManager extends EventEmitter {
     savePolicy?: ExportSavePolicy;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     sourceKey?: string;
+    transferTarget?: string | readonly string[];
     run(context: ResourceExportRunContext): Promise<ResourceExportSummary>;
     onPublished?(directory: string): void;
   }): Promise<string> {
     const id = `resource-${randomUUID()}`;
-    if (
-      opts.resume &&
-      ((opts.resume.type === 'mail' && opts.kind !== 'mail-messages') ||
-        (opts.resume.type === 'favorite-emoji' && opts.kind !== 'favorite-emoji'))
-    )
+    if (opts.resume && resourceResumeKind(opts.resume) !== opts.kind)
       throw new Error('资源续作类型与导出任务不匹配。');
     const output = opts.output ? structuredClone(opts.output) : undefined;
     if (
@@ -1827,13 +1991,25 @@ export class ExportTaskManager extends EventEmitter {
       kind: 'c2c',
       conv: opts.kind,
       name: opts.name,
+      display: opts.display ? structuredClone(opts.display) : undefined,
       format: opts.archive?.formats?.[0] ?? 'json',
       resource: {
         ...(opts.resume ? { resume: structuredClone(opts.resume) } : {}),
         networkTransfer: opts.networkTransfer,
         kind: opts.kind,
         ...(output ? { output } : {}),
+        ...(output && (opts.kind === 'media' || opts.kind === 'mail-attachment')
+          ? { directDownload: true }
+          : {}),
         ...(opts.sourceKey ? { sourceKey: opts.sourceKey } : {}),
+        ...(opts.transferTarget?.length
+          ? {
+              transferTargets:
+                typeof opts.transferTarget === 'string'
+                  ? [opts.transferTarget]
+                  : [...opts.transferTarget],
+            }
+          : {}),
       },
       includeIntegrityReport: opts.includeIntegrityReport,
       status: 'pending',
@@ -1867,6 +2043,7 @@ export class ExportTaskManager extends EventEmitter {
     };
     this.registerTask(task, opts.savePolicy);
     this.log(id, 'task', `资源任务已创建：${task.name}`);
+    if (tracksResourceTransfer(task)) this.beginResourceTransfer(task);
     this.saveTasks();
     const run = opts.run;
     this.networkRunners.set(id, () => this.runResourceTask(task, run, opts.onPublished));
@@ -1884,12 +2061,20 @@ export class ExportTaskManager extends EventEmitter {
     const abort = new AbortController();
     this.abortControllers.set(task.id, abort);
     task.status = 'running';
+    const transfer = tracksResourceTransfer(task) ? this.beginResourceTransfer(task) : undefined;
     const stage = task.stages[0]!;
     stage.status = 'running';
     this.saveTasks();
     let bundle: AtomicExportBundle | undefined;
     try {
-      bundle = createAtomicExportBundle(this.cacheDir, task.id, Boolean(task.resource?.resume));
+      const target = this.directDownloadTarget(task);
+      if (target && !task.save?.policy.uniqueFileName && existsSync(target))
+        throw new Error('保存位置已有同名文件，请选择其他名称。');
+      bundle = createAtomicExportBundle(
+        target ? dirname(target) : this.cacheDir,
+        task.id,
+        Boolean(target || task.resource?.resume),
+      );
       const directory = join(bundle.stageDir, 'files');
       mkdirSync(directory, { recursive: true });
       const summary = await run({
@@ -1901,6 +2086,22 @@ export class ExportTaskManager extends EventEmitter {
         },
         directory,
         signal: abort.signal,
+        transferProgress: (received, total, item) => {
+          if (!transfer || abort.signal.aborted) return;
+          if (item) transfer.files.set(item, { received, total });
+          else transfer.bytes = { received, total };
+          this.resourceTransferChanged();
+        },
+        transferItemFinished: (item, success) => {
+          const bytes = transfer?.files.get(item);
+          if (!transfer || !bytes) return;
+          if (success && bytes.total && bytes.total === bytes.received) {
+            transfer.completedKnown++;
+            transfer.completedBytes += bytes.received;
+          }
+          transfer.files.delete(item);
+          this.resourceTransferChanged();
+        },
         progress: (current, total) => {
           if (abort.signal.aborted) return;
           task.current = stage.current = current;
@@ -1969,11 +2170,23 @@ export class ExportTaskManager extends EventEmitter {
           abort.signal,
         );
       }
-      bundle.publish();
-      task.resource!.cacheDirectory = bundle.finalDir;
-      if (output) task.filePath = join(bundle.finalDir, 'files', summary.fileName!);
-      else task.bundleDir = bundle.finalDir;
-      onPublished?.(join(bundle.finalDir, 'files'));
+      if (target && task.save) {
+        this.finalizing.add(task.id);
+        const path = await publishStagedDownload(
+          join(directory, summary.fileName!),
+          target,
+          Boolean(task.save.policy.uniqueFileName),
+          abort.signal,
+        );
+        task.filePath = path;
+        task.save = { policy: task.save.policy, status: 'saved', path, savedAt: Date.now() };
+      } else {
+        bundle.publish();
+        task.resource!.cacheDirectory = bundle.finalDir;
+        if (output) task.filePath = join(bundle.finalDir, 'files', summary.fileName!);
+        else task.bundleDir = bundle.finalDir;
+        onPublished?.(join(bundle.finalDir, 'files'));
+      }
       const counts = summary.contents ?? summary;
       task.current = stage.current = counts.ok;
       task.total = stage.total = counts.total;
@@ -1986,6 +2199,7 @@ export class ExportTaskManager extends EventEmitter {
       task.progress = 100;
       task.status = 'completed';
       this.log(task.id, 'file', stage.note, counts.failed.length ? 'warn' : 'info');
+      if (target) this.saveTasks();
     } catch (error) {
       if (abort.signal.aborted) {
         if (task.status === 'running') task.status = 'paused';
@@ -2003,8 +2217,17 @@ export class ExportTaskManager extends EventEmitter {
         this.log(task.id, 'file', task.error, 'error');
       }
     } finally {
-      if (!task.resource?.resume || this.tasks.get(task.id)?.status === 'cancelled')
-        bundle?.discard();
+      this.resourceTransfers.delete(task);
+      try {
+        if (
+          (task.resource?.directDownload && task.status === 'completed') ||
+          !task.resource?.resume ||
+          this.tasks.get(task.id)?.status === 'cancelled'
+        )
+          bundle?.discard();
+      } catch {
+        this.log(task.id, 'file', '下载临时文件清理失败，删除任务时将重试。', 'warn');
+      }
       this.releaseTask(task);
       task.updatedAt = Date.now();
       this.saveTasks();
@@ -2377,6 +2600,14 @@ export class ExportTaskManager extends EventEmitter {
     const task = this.tasks.get(id);
     if (!task || task.status === 'cancelled') return;
 
+    // 旧版精确导出任务可能已保存会话补全选项及其阶段；续作时不再执行。
+    if (task.filter?.messageIds !== undefined) {
+      if (task.media?.completeMessages) task.media.completeMessages = false;
+      if (task.content?.messages === 'cloud') task.content.messages = 'local';
+      task.stages = task.stages.filter((stage) => stage.key !== 'backfill');
+      if (task.skippedStages?.includes('backfill'))
+        task.skippedStages = task.skippedStages.filter((key) => key !== 'backfill');
+    }
     task.status = 'running';
     task.partialReady = false;
     // 旧任务没有收尾阶段；续作时也必须重新校验本轮生成的文件。
@@ -6217,6 +6448,7 @@ export class ExportTaskManager extends EventEmitter {
 
   private canRetrySkippedStage(task: ExportTask, stage: TaskStage): boolean {
     if (stage.status !== 'skipped') return false;
+    if (stage.key === 'backfill' && task.filter?.messageIds !== undefined) return false;
     if (task.skippedStages?.includes(stage.key)) return Boolean(task.skippedStageOptions);
     if (stage.key === 'record') return task.media?.mediaKinds?.voice !== false;
     if (stage.key === 'ocrfilter') return Boolean(task.media?.ocrPrefilter);
@@ -6711,6 +6943,12 @@ export class ExportTaskManager extends EventEmitter {
         recursive: true,
         force: true,
       });
+    if (task.resource?.directDownload) {
+      try {
+        this.clearDirectDownloadStage(task);
+      } catch {}
+      return;
+    }
     if (task.directOutput) return;
     if (task.archiveTargets || task.domainUpdate) {
       for (const path of [

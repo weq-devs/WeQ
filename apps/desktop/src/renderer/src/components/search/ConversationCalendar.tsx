@@ -15,7 +15,7 @@ export function ConversationCalendar({
   kind: 'group' | 'c2c';
   conv: string;
   onClose: () => void;
-  onJump: (seq: string) => void;
+  onJump: (seq: string, messageId: string) => void;
   embedded?: boolean;
 }) {
   const calendar = trpc.account.conversationCalendar.useQuery(
@@ -49,7 +49,7 @@ export function ConversationCalendar({
       });
       if (run !== generation.current) return;
       if (result) {
-        onJump(result.msgSeq);
+        onJump(result.msgSeq, result.msgId);
         onClose();
       } else setError('该范围没有可定位的消息序号。');
     } catch (e) {

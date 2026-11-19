@@ -1,3 +1,4 @@
+import { FormSelect } from '../FormSelect';
 import type { WeqDefaultsChoice, WeqDefaultsPath, WeqDefaultsConnection } from '@weq/service';
 import { Row, Toggle } from './controls';
 import { DEFAULTS_DESCRIPTION } from './DefaultsOptions.shared';
@@ -25,13 +26,14 @@ export function DefaultsOptions({
     <div className="weq-defaults-options">
       <p>{DEFAULTS_DESCRIPTION}</p>
       <p>
-        默认保留 API 配置与凭据、WeQ 服务配置和自定义目录；不删除账号配置、聊天记录或克隆体数据。
+        恢复 WeQ 助手的通用设置，保留会话和会话级模型选择。默认保留 API 配置与凭据、WeQ
+        服务配置和自定义目录；不删除账号配置、聊天记录或克隆体数据。
       </p>
       <fieldset disabled={disabled}>
         <div className="weq-defaults-toggles">
           <Row
             label="清除 API 配置"
-            desc="清除模型、TTS、MCP、OneBot、外部 rKey、SSE 的配置与凭据。"
+            desc="清除模型、TTS、MCP、助手的外部 MCP 服务器、OneBot、外部 rKey 和 SSE 的配置与凭据。"
             control={
               <Toggle
                 label="清除 API 配置"
@@ -72,12 +74,13 @@ export function DefaultsOptions({
           <section aria-label="自定义目录">
             <h4>自定义目录</h4>
             {info.paths.map((item) => (
-              <label className="weq-defaults-row" key={item.id}>
-                <span>
-                  {item.label}
-                  <small>{item.value}</small>
+              <label className="weq-set-row weq-defaults-row" key={item.id}>
+                <span className="weq-set-row-main">
+                  <span className="weq-set-row-label">{item.label}</span>
+                  <small className="weq-set-row-desc">{item.value}</small>
                 </span>
-                <select
+                <FormSelect
+                  className="weq-set-input"
                   aria-label={item.label}
                   value={choice.resetPaths?.includes(item.id) ? 'reset' : 'keep'}
                   onChange={(event) =>
@@ -92,7 +95,7 @@ export function DefaultsOptions({
                 >
                   <option value="keep">保留当前</option>
                   <option value="reset">恢复默认</option>
-                </select>
+                </FormSelect>
               </label>
             ))}
             {choice.resetPaths?.length ? (

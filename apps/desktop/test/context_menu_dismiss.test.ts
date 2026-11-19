@@ -122,17 +122,27 @@ describe('右键菜单外部点击', () => {
     const copy = vi.fn();
     act(() => {
       root.render(
-        createElement(MessageContextMenu, {
-          state: { message: createTemplateDemoData().messages[0]!, x: 20, y: 20 },
-          onCopy: copy,
-          onClose: close,
-        }),
+        createElement(
+          'div',
+          null,
+          createElement('section', {
+            className: 'weq-forward-window',
+            role: 'dialog',
+            style: { zIndex: 1200 },
+            'aria-label': '聊天记录',
+          }),
+          createElement(MessageContextMenu, {
+            state: { message: createTemplateDemoData().messages[0]!, x: 20, y: 20 },
+            onCopy: copy,
+            onClose: close,
+          }),
+        ),
       );
     });
     press(document.querySelector('.message-context-menu [aria-label="复制"]')!);
     expect(copy).toHaveBeenCalledOnce();
     expect(close).not.toHaveBeenCalled();
-    press(host);
+    press(host.querySelector('[aria-label="聊天记录"]')!);
     expect(close).toHaveBeenCalledOnce();
   });
 

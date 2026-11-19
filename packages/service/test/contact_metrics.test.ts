@@ -241,18 +241,26 @@ it('取消不再启动剩余工作，关闭后排队与在途响应均不能更�
   const { service } = await setup();
   let release!: () => void;
   const later = vi.fn(async () => {});
+  const next = Promise.withResolvers<void>();
+  const nextStarted = vi.fn(() => next.promise);
   service.start([
     {
       key: 'first',
-      run: () =>
-        new Promise<void>((resolve) => {
-          release = resolve;
-        }),
+      queueFields: true,
+      run: (enqueue) =>
+        enqueue!(
+          () =>
+            new Promise<void>((resolve) => {
+              release = resolve;
+            }),
+        ),
     },
-    { key: 'second', run: later },
+    { key: 'second', queueFields: true, run: (enqueue) => enqueue!(nextStarted) },
+    { key: 'third', queueFields: true, run: (enqueue) => enqueue!(later) },
   ]);
-  await vi.waitFor(() => expect(release).toBeDefined());
+  await vi.waitFor(() => expect(nextStarted).toHaveBeenCalledOnce());
   service.cancel();
+  next.resolve();
   release();
   await vi.waitFor(() => expect(service.progress.status).toBe('cancelled'));
   expect(later).not.toHaveBeenCalled();

@@ -1,3 +1,4 @@
+import { FormSelect } from './FormSelect';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { MessageMenuFeedbackContext } from '../lib/messageMenuFeedback';
@@ -70,6 +71,28 @@ export function QQWriteTextRow({
   const savingRef = useRef(false);
   const clearingUnknown = initial === null && allowEmpty && value === '';
   const actionLabel = `${!inlineEditor && clearingUnknown ? '清空' : '保存'}${label}`;
+  const saveDisabled =
+    disabled ||
+    saving ||
+    inlineEditor?.disabled ||
+    (!allowEmpty && !value.trim()) ||
+    value.length > maxLength;
+  function save() {
+    if (saveDisabled || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    void saveField(() => onSave(value))
+      .then((ok) => {
+        if (ok) {
+          setSubmitted(value);
+          if (clearOnSave) setValue('');
+        }
+      })
+      .finally(() => {
+        savingRef.current = false;
+        setSaving(false);
+      });
+  }
   const previous = useRef(initial ?? '');
   useEffect(() => {
     const before = previous.current;
@@ -109,7 +132,28 @@ export function QQWriteTextRow({
       label={<QQWriteRowLabel icon={icon} label={label} />}
       control={
         <div className="weq-qq-write-field" data-qq-action>
-          {multiline ? <textarea {...input} rows={3} /> : <input {...input} />}
+          {multiline ? (
+            <textarea {...input} rows={3} />
+          ) : (
+            <input
+              {...input}
+              onKeyDown={(event) => {
+                if (
+                  event.key !== 'Enter' ||
+                  event.defaultPrevented ||
+                  event.nativeEvent.isComposing ||
+                  event.keyCode === 229 ||
+                  event.altKey ||
+                  event.ctrlKey ||
+                  event.metaKey ||
+                  event.shiftKey
+                )
+                  return;
+                event.preventDefault();
+                if (!event.repeat && !clearingUnknown) save();
+              }}
+            />
+          )}
           <ProfileEditorAction>
             <button
               type="button"
@@ -119,29 +163,8 @@ export function QQWriteTextRow({
               aria-label={actionLabel}
               data-danger={clearingUnknown ? 'outline' : undefined}
               title={actionLabel}
-              disabled={
-                disabled ||
-                saving ||
-                inlineEditor?.disabled ||
-                (!allowEmpty && !value.trim()) ||
-                value.length > maxLength
-              }
-              onClick={() => {
-                if (savingRef.current) return;
-                savingRef.current = true;
-                setSaving(true);
-                void saveField(() => onSave(value))
-                  .then((ok) => {
-                    if (ok) {
-                      setSubmitted(value);
-                      if (clearOnSave) setValue('');
-                    }
-                  })
-                  .finally(() => {
-                    savingRef.current = false;
-                    setSaving(false);
-                  });
-              }}
+              disabled={saveDisabled}
+              onClick={save}
             >
               {inlineEditor ? (
                 <Check size={14} />
@@ -237,7 +260,7 @@ export function QQWriteSelectRow({
                   )}
                 </>
               ) : (
-                <select
+                <FormSelect
                   className="weq-qq-write-input"
                   aria-label={label}
                   value={value}
@@ -254,7 +277,7 @@ export function QQWriteSelectRow({
                       {option.label}
                     </option>
                   ))}
-                </select>
+                </FormSelect>
               )}
               {!autoSave && !editor ? (
                 <ProfileEditorAction>

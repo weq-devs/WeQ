@@ -1,3 +1,4 @@
+import './support/development-features.stub';
 import { act, createElement as h, Profiler, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -64,25 +65,30 @@ it('点击消息入口时实际视图与图标高亮同一次提交，不单独�
   }
 });
 
-it('未读角标没有可定位目标时不伪造消息页高亮', () => {
+it('从联系人页点未读角标只返回消息页，再点才定位', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   const root = createRoot(host);
+  const locate = vi.fn();
+  function Harness() {
+    const [view, setView] = useState<MainView>('contacts');
+    return h(AppRail, {
+      ...props,
+      view,
+      onViewChange: setView,
+      messageBadgeCount: 1,
+      onMessageBadgeClick: locate,
+    });
+  }
   try {
-    act(() =>
-      root.render(
-        h(AppRail, {
-          ...props,
-          view: 'contacts',
-          onViewChange: noop,
-          messageBadgeCount: 1,
-          onMessageBadgeClick: noop,
-        }),
-      ),
-    );
-    act(() => host.querySelector<HTMLButtonElement>('.rail-message-badge')!.click());
-    expect(host.querySelector('.rail-tab-contacts')?.getAttribute('aria-current')).toBe('page');
-    expect(host.querySelector('.rail-tab-messages')?.getAttribute('aria-current')).toBeNull();
+    act(() => root.render(h(Harness)));
+    const clickBadge = () =>
+      act(() => host.querySelector<HTMLButtonElement>('.rail-message-badge')!.click());
+    clickBadge();
+    expect(locate).not.toHaveBeenCalled();
+    expect(host.querySelector('.rail-tab-messages')?.getAttribute('aria-current')).toBe('page');
+    clickBadge();
+    expect(locate).toHaveBeenCalledOnce();
   } finally {
     act(() => root.unmount());
   }

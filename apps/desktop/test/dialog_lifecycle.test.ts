@@ -54,3 +54,27 @@ it('host unmount cancels its pending confirmation', async () => {
   expect(done.mock.calls).toEqual([[false]]);
   host.remove();
 });
+
+it('确认框默认聚焦确认按钮，Enter 完成并只结算一次', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const done = vi.fn();
+  try {
+    act(() => root.render(createElement(DialogHost)));
+    act(() => {
+      void useDialog.getState().confirm('删除合成记录', '合成内容').then(done);
+    });
+    expect(document.activeElement?.textContent).toBe('确定');
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    act(() => document.activeElement!.dispatchEvent(event));
+    await Promise.resolve();
+    expect(event.defaultPrevented).toBe(true);
+    expect(done.mock.calls).toEqual([[true]]);
+    expect(useDialog.getState().current).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});

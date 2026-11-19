@@ -60,10 +60,10 @@
   font-size: 11px;
   color: var(--weq-fg-secondary);
 }
-.weq-enhancement-progress progress {
+.weq-enhancement-progress > .weq-task-progress-track {
+  min-height: 4px;
   width: 100%;
   height: 4px;
-  accent-color: var(--weq-accent-effective);
 }
 .weq-enhancement-phase {
   grid-column: 1 / -1;

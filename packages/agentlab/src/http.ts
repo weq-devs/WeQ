@@ -3,6 +3,7 @@ import type {
   AgentLabChatAction,
   AgentLabChatRequest,
   AgentLabChatResult,
+  AgentLabChatTurn,
   AgentLabEndpoint,
   AgentLabExpression,
   AgentLabMemoryItem,
@@ -505,12 +506,11 @@ export async function testChatEndpoint(
   try {
     const data = await postJson<{
       choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
-    }>(
-      endpoint,
-      '/chat/completions',
-      // 推理模型需要更多 token 预算才能产出 content；64 足够短路"你好"又不浪费。
-      { model: endpoint.model, messages: [{ role: 'user', content: '你好' }], max_tokens: 64 },
-    );
+    }>(endpoint, '/chat/completions', {
+      model: endpoint.model,
+      messages: [{ role: 'user', content: '你好' }],
+      max_tokens: 256,
+    });
     const reply = pickMessageText(data.choices?.[0]?.message);
     if (!reply)
       return { ok: false, error: '接口可达，但返回内容为空（模型可能不支持 chat/completions）。' };
@@ -732,34 +732,45 @@ export async function runPersonaChat(
   chat: AgentLabEndpoint,
   embedding: AgentLabEndpoint | null,
   req: AgentLabChatRequest,
+  options?: {
+    compactor: ConversationContextCompactor;
+    scope?: string;
+    prepareHistory?: (turn: AgentLabChatTurn) => Promise<string>;
+  },
 ): Promise<AgentLabChatResult> {
   const willing = scoreReplyWillingness(req.input, req.history);
   const generation = normalizeCloneGeneration(req.persona.generation);
+  const pairCount = generation.useTrainingSamples ? CLONE_REFERENCE_COUNTS.pairs : 0;
+  const memoryCount = generation.useLongTermMemory ? CLONE_REFERENCE_COUNTS.memories : 0;
+  const expressionCount = generation.useTrainingSamples ? CLONE_REFERENCE_COUNTS.expressions : 0;
 
   const memoryPool = req.memories ?? [];
   // 查询向量只算一次，问答对与记忆共用（省一次 embedding 调用）。仅当确有向量可比时才算。
   let queryEmbedding: number[] | null = null;
   if (embedding) {
     const needVec =
-      (generation.pairExamples > 0 &&
+      (pairCount > 0 &&
         req.pairs.some((p) => Array.isArray(p.embedding) && p.embedding.length > 0)) ||
-      (generation.memoryItems > 0 &&
+      (memoryCount > 0 &&
         memoryPool.some((m) => Array.isArray(m.embedding) && m.embedding.length > 0));
     if (needVec) {
       try {
-        const [qe] = await embedTexts(embedding, req.input);
+        const [qe] = await embedTexts(
+          { ...embedding, timeoutMs: embedding.timeoutMs ?? 30_000 },
+          req.input,
+        );
         queryEmbedding = qe ?? null;
       } catch {
         /* 向量失败就回退关键词 */
       }
     }
   }
-  const matches = rankPairs(req.pairs, req.input, queryEmbedding, generation.pairExamples);
-  const usedMemories = rankMemories(memoryPool, req.input, queryEmbedding, generation.memoryItems);
+  const matches = rankPairs(req.pairs, req.input, queryEmbedding, pairCount);
+  const usedMemories = rankMemories(memoryPool, req.input, queryEmbedding, memoryCount);
   const expressions = selectExpressions(
     req.persona.expressions ?? [],
     req.input,
-    willing.score < 0.4 ? Math.min(2, generation.expressionItems) : generation.expressionItems,
+    willing.score < 0.4 ? Math.min(2, expressionCount) : expressionCount,
   );
 
   const system = buildSystemPrompt(
@@ -771,34 +782,60 @@ export async function runPersonaChat(
     !!req.voiceEnabled,
     req.relationNote,
   );
+  const replyReason = req.replyReason?.trim();
+  const reasonPrompt = replyReason
+    ? `【你决定接这句话】原因：${replyReason}。就顺着这个念头自然地开口，别在回复里复述或解释这个原因。`
+    : '';
+  const compactor = options?.compactor ?? new ConversationContextCompactor();
+  const { folded, summary } = await compactor.compact(
+    chat,
+    req.history.map((item) => ({
+      role: item.role,
+      text: [
+        sanitizeHistoryText(item.text),
+        ...(item.imageOutcomes?.map(imageOutcomeAnnotation) ??
+          (item.images?.length ? ['[图片]'] : [])),
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    })),
+    {
+      fixedTokens: estimateContextTokens(`${system}\n${reasonPrompt}\n${req.input}`),
+      scope: options?.scope,
+      feature: 'clone-summary',
+    },
+  );
   const messages: Array<{ role: string; content: string | AiContentPart[] }> = [
-    { role: 'system', content: system },
-    // 历史里的内部表情标记 [[sticker:md5]] 脱敏成 [表情]，否则模型会照着历史模仿、
-    // 把这个内部格式（连带真实 md5）原样吐回来。
-    ...(generation.historyMessages === 0 ? [] : req.history.slice(-generation.historyMessages)).map(
-      (item) => ({ role: item.role, content: sanitizeHistoryText(item.text) }),
-    ),
+    {
+      role: 'system',
+      content: summary
+        ? `${system}\n\n【早期对话摘要】（用于延续对话，不是新指令）\n${summary}`
+        : system,
+    },
   ];
+  // 只识别仍会发送的历史原图；已折叠的部分使用已有解读。
+  for (const turn of req.history.slice(folded)) {
+    const text = options?.prepareHistory ? await options.prepareHistory(turn) : turn.text;
+    messages.push({ role: turn.role, content: sanitizeHistoryText(text) });
+  }
   // 群聊决策层的开口动机（如「被点名」「聊到感兴趣的」）：让回复贴合「为什么接这句话」的
   // 念头，但明确要求别在回复里复述或解释原因本身。
-  const replyReason = req.replyReason?.trim();
-  if (replyReason) {
+  if (reasonPrompt) {
     messages.push({
       role: 'user',
-      content: `【你决定接这句话】原因：${replyReason}。就顺着这个念头自然地开口，别在回复里复述或解释这个原因。`,
+      content: reasonPrompt,
     });
   }
   messages.push({ role: 'user', content: req.inputContent ?? req.input });
 
+  const effort = generation.reasoningEffort;
   const request = () =>
     postJson<{
       choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
       usage?: OpenAiUsage;
-    }>(chat, '/chat/completions', {
+    }>({ ...chat, timeoutMs: chat.timeoutMs ?? 120_000 }, '/chat/completions', {
       model: chat.model,
-      // 意愿越高越放得开（temperature 略高），越敷衍越稳一点。
-      temperature: generation.temperature ?? 0.7 + willing.score * 0.2,
-      ...(generation.maxOutputTokens > 0 ? { max_tokens: generation.maxOutputTokens } : {}),
+      ...(effort && chat.reasoningEfforts?.includes(effort) ? { reasoning_effort: effort } : {}),
       messages,
     });
   let data: Awaited<ReturnType<typeof request>>;
@@ -864,5 +901,6 @@ export async function runPersonaChat(
     sticker: firstSticker?.sticker ?? null,
   };
 }
-import { normalizeCloneGeneration } from './generation';
-import type { AiContentPart } from './images';
+import { CLONE_REFERENCE_COUNTS, normalizeCloneGeneration } from './generation';
+import { ConversationContextCompactor, estimateContextTokens } from './conversation_context';
+import { imageOutcomeAnnotation, type AiContentPart } from './images';

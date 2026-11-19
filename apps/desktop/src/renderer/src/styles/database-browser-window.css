@@ -9,7 +9,6 @@
   height: 100dvh;
   min-height: 0;
   color: var(--weq-fg-primary);
-  background: var(--weq-bg-surface);
 }
 .weq-database-browser-window[hidden] {
   display: none;
@@ -38,8 +37,4 @@
   justify-content: center;
   gap: 12px;
   color: var(--weq-fg-secondary);
-  background: var(--weq-bg-surface);
-}
-html[data-theme='dark'] .weq-database-browser-window {
-  background: var(--weq-bg-surface);
 }

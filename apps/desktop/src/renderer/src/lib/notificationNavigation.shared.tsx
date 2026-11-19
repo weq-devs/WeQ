@@ -6,6 +6,7 @@ import type { GroupWorkspaceTab, ContactWorkspaceTab } from './profileNavigation
 import type { Message } from '../im-template/template/types';
 import { accountBinding } from './clientPreferences';
 import { IS_WEB } from './target.shared';
+import type { GeneratedReply } from '../../../shared/generated_reply';
 
 export type NotificationTarget =
   | { kind: 'app'; target: AppSearchTarget; recordId?: string }
@@ -22,6 +23,10 @@ export type NotificationTarget =
   | { kind: 'group'; id: string; section?: GroupWorkspaceTab }
   | { kind: 'contact-notice'; notice: 'friend' | 'group' }
   | { kind: 'assistant' }
+  | ({ kind: 'generated-reply'; conversationKind: GeneratedReply['kind'] } & Pick<
+      GeneratedReply,
+      'conversationId' | 'messageId'
+    >)
   | { kind: 'qzone'; target: QzoneCardTarget }
   | { kind: 'group-resource'; request: Omit<GroupResourceRequest, 'onJumpToMessage'> }
   | { kind: 'local'; open: () => unknown };
@@ -85,7 +90,7 @@ export function taskNotificationSource(id: string, prefix = 'export') {
 
 export function messageNotificationSource(
   conversation: { id: string; type: string },
-  message: Pick<Message, 'id' | 'msgId' | 'msgSeq' | 'sourceFormat' | 'ntSeqVerified'>,
+  message: Pick<Message, 'id' | 'msgSeq' | 'sourceFormat' | 'ntSeqVerified'>,
   binding = accountBinding(),
 ) {
   return notificationSource(
@@ -93,7 +98,7 @@ export function messageNotificationSource(
       kind: 'conversation',
       conversationKind: conversation.type === 'group' ? 'group' : 'c2c',
       conv: conversation.id,
-      msgId: message.msgId ?? message.id,
+      msgId: message.id,
       seq:
         message.sourceFormat === 'protocol' && !message.ntSeqVerified ? undefined : message.msgSeq,
     },

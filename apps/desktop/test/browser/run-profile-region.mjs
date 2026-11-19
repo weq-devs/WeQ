@@ -1,3 +1,4 @@
+import { chooseFormOption } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -60,7 +61,7 @@ try {
   );
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/profile-region.html`;
   await page.goto(url);
-  await page.getByLabel('当前地区省', { exact: true }).selectOption('0');
+  await chooseFormOption(page.getByLabel('当前地区省', { exact: true }), '0');
   assert.equal(await page.getByLabel('当前地区市', { exact: true }).inputValue(), '0');
   assert.equal(await page.getByLabel('当前地区市', { exact: true }).isDisabled(), true);
   await page.getByRole('button', { name: '保存当前地区', exact: true }).click();
@@ -70,7 +71,7 @@ try {
   });
   assert.equal(await page.getByLabel('家乡省', { exact: true }).isDisabled(), true);
   assert.equal(await page.getByLabel('家乡市', { exact: true }).isEnabled(), true);
-  await page.getByLabel('家乡国家', { exact: true }).selectOption('0');
+  await chooseFormOption(page.getByLabel('家乡国家', { exact: true }), '0');
   await page.getByRole('button', { name: '保存家乡', exact: true }).click();
   assert.deepEqual(await page.evaluate(() => window.profileRegionQa.saved[1]), {
     field: 'hometown',

@@ -7,11 +7,11 @@ import type { AccountSession } from '@weq/account';
 import type { RenderC2cMsg } from './msg';
 import type { C2cMsg } from '@weq/db';
 import { classifyChatType } from '@weq/codec';
-import { filterArkOnly } from './ark_feed';
+import { feedConversationPreview, filterArkOnly } from './ark_feed';
 import { toRenderElements } from './msg_view';
 import { resolveC2cPartition } from './c2c_partition';
 import { readonlyConversationPage, type ReadonlyPageRequest } from './readonly_conversation';
-import { plainContentText } from '../common/message_plain_text';
+import { messageReadPosition, messageReadCursor } from '../common/client_preferences';
 
 export interface OfficialAccountSummary {
   peerUid: string;
@@ -20,6 +20,7 @@ export interface OfficialAccountSummary {
   targetUin: string;
   sendTime: bigint;
   prompt: string;
+  latestReadPosition: string;
 }
 
 export interface ArkFeedMessage extends RenderC2cMsg {
@@ -40,9 +41,15 @@ export class OfficialAccountService {
       if (classifyChatType(c.chatType) !== 'official') continue;
 
       // Pull the real latest message (ignore 40051 preview blob).
-      const latest = await this.session.c2cMsgs.listLatest(
+      const latest = await this.session.c2cMsgs.listHistory(
         await resolveC2cPartition(this.session.uidMap, c.targetUid),
-        1,
+        {
+          min: -(1n << 63n),
+          max: (1n << 63n) - 1n,
+          descending: true,
+          limit: 1,
+          includeSeqless: true,
+        },
       );
       const rendered = latest.map((msg: C2cMsg) => this.renderC2c(msg));
       const first = rendered[0];
@@ -66,7 +73,8 @@ export class OfficialAccountService {
         avatarUrl: null, // 前端用 targetUin 拼接
         targetUin,
         sendTime: first?.sendTime ?? c.sendTime,
-        prompt: first ? plainContentText(first.elements) : '',
+        prompt: first ? feedConversationPreview(first.elements) : '',
+        latestReadPosition: first ? messageReadPosition(first) : '0:0:0',
       });
     }
 
@@ -87,6 +95,12 @@ export class OfficialAccountService {
 
   listMessages(peerUid: string, request: ReadonlyPageRequest) {
     return readonlyConversationPage(this.session, { kind: 'official', peerUid }, request);
+  }
+  async countUnread(peerUid: string, readSeq: string) {
+    return this.session.c2cMsgs.countIncomingAfter(
+      await resolveC2cPartition(this.session.uidMap, peerUid),
+      messageReadCursor(readSeq),
+    );
   }
 
   private renderC2c(m: C2cMsg): RenderC2cMsg {

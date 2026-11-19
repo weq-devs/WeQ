@@ -213,6 +213,25 @@ export class GuildDirectMsgDb {
   }
 
   /** 每个会话的消息总数（会话列表一次性取，避免逐会话 N+1 查询）。 */
+  async countIncomingAfter(
+    nodeId: bigint,
+    cursor: { msgSeq: bigint; sendTime: bigint; msgId: bigint },
+  ): Promise<number> {
+    const floor = cursor.msgSeq > 0n ? 'AND "40003" >= ?' : '';
+    const rows = await this.qq.query(
+      `SELECT COUNT(*) FROM guild_msg_table WHERE "40027" = ? ${floor} AND (COALESCE("40003",0),COALESCE("40050",0),"40001") > (?,?,?) AND "40013" = 0`,
+      [
+        nodeId,
+        ...(cursor.msgSeq > 0n ? [cursor.msgSeq] : []),
+        cursor.msgSeq,
+        cursor.sendTime,
+        cursor.msgId,
+      ],
+    );
+    return Number(rows[0]?.[0] ?? 0);
+  }
+
+  /** 每个会话的消息总数（会话列表一次性取，避免逐会话 N+1 查询）。 */
   async countAllByNode(): Promise<Array<{ nodeId: bigint; count: number }>> {
     const rows = await this.qq.query(
       'SELECT "40027", COUNT(*) FROM guild_msg_table GROUP BY "40027"',

@@ -50,7 +50,7 @@ export function loadGroupAssistantPins(account: string): GroupAssistantPins {
   if (isAccountStateReady() && accountBinding()?.expectedAccountUin === account)
     return Object.fromEntries(
       Object.entries(sharedAccountRecords('pins')).filter(
-        (row): row is [string, boolean] => typeof row[1] === 'boolean',
+        (row): row is [string, boolean] => /^\d+$/.test(row[0]) && typeof row[1] === 'boolean',
       ),
     );
   try {

@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { DEFAULT_APP_SETTINGS, DEFAULT_INTENT_SENSE_CONFIG } from '@weq/service';
+import {
+  DEFAULT_APP_SETTINGS,
+  DEFAULT_INTENT_SENSE_CONFIG,
+  mergeAssistantConfig,
+} from '@weq/service';
 import {
   DEFAULT_MAIL_POLL_INTERVAL_MINUTES,
   mailPollIntervalMinutes,
@@ -23,6 +27,8 @@ import { clientStateRouter } from './client_state';
 import { dataSaverBehaviorDefaults } from '@weq/service/data-saver';
 import { dataSaverSession } from '@weq/service/transfer-policy';
 import { preferenceDefaults } from '@weq/service/client-preferences';
+import { DEFAULT_MONITOR_SETTINGS, getPerformanceMonitor } from '@weq/service/performance';
+import { TOAST_TIMED_KINDS } from '@weq/service/toast-settings';
 import {
   remoteResetCardAvailable,
   remoteSettingAvailable,
@@ -64,6 +70,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   const shared = sharedSettingsRouter.createCaller(ctx);
   const r = remoteRouter.createCaller(ctx);
   const appWriters = {
+    notificationEvents: () => b.resetNotificationEvents(),
     home: () => b.setHomeSettings(defaults.home),
     contactCard: () => b.setContactCard(defaults.contactCard),
     startupPage: () => b.setStartupPage({ page: defaults.startupPage }),
@@ -86,9 +93,6 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       b.setAutoFollowLatestMessages({ enabled: defaults.autoFollowLatestMessages }),
     showScrollToBottomButton: () =>
       b.setShowScrollToBottomButton({ enabled: defaults.showScrollToBottomButton }),
-    reportReadEnabled: () => b.setReportReadEnabled({ enabled: defaults.reportReadEnabled }),
-    manualReadReportEnabled: () =>
-      b.setManualReadReportEnabled({ enabled: defaults.manualReadReportEnabled }),
     showMessageSeq: () => b.setShowMessageSeq({ enabled: defaults.showMessageSeq }),
     showMessageDate: () => b.setShowMessageDate({ enabled: defaults.showMessageDate }),
     showMessageTime: () => b.setShowMessageTime({ enabled: defaults.showMessageTime }),
@@ -112,8 +116,6 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       b.setQzonePublicRefreshCooldown({ minutes: defaults.qzonePublicRefreshCooldownMinutes }),
     realtimeEnabled: () => b.setRealtimeEnabled({ enabled: defaults.realtimeEnabled }),
     autoAttachQq: () => b.setAutoAttachQq({ enabled: defaults.autoAttachQq }),
-    restrictedModeBannerEnabled: () =>
-      b.setRestrictedModeBannerEnabled({ enabled: defaults.restrictedModeBannerEnabled }),
     restrictedModeIndicatorEnabled: () =>
       b.setRestrictedModeIndicatorEnabled({ enabled: defaults.restrictedModeIndicatorEnabled }),
     preferCdn: () => b.setPreferCdn({ enabled: defaults.preferCdn }),
@@ -169,8 +171,17 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   if (!ctx.authorize)
     bind('startup-system:autostart', undefined, false, () => b.setAutostart({ enabled: false }));
 
-  for (const kind of ['success', 'failure'] as const) {
-    const key = kind === 'success' ? 'successSeconds' : 'failureSeconds';
+  const readSync = (automatic: boolean, manual: boolean) =>
+    automatic === manual ? automatic : automatic ? '仅自动阅读上报' : '仅手动标记上报';
+  bind(
+    'read-sync:enabled',
+    readSync(current.reportReadEnabled, current.manualReadReportEnabled),
+    readSync(defaults.reportReadEnabled, defaults.manualReadReportEnabled),
+    () => b.setReadSyncEnabled({ enabled: defaults.reportReadEnabled }),
+  );
+
+  for (const kind of TOAST_TIMED_KINDS) {
+    const key = `${kind}Seconds` as const;
     bind(`${'toast'}:${key}`, current.toastDurations[key], defaults.toastDurations[key], () =>
       b.setToastDuration({ kind, seconds: defaults.toastDurations[key] }),
     );
@@ -227,6 +238,64 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     defaults.agentLab.defaultEmbeddingModel,
     () => b.setDefaultEmbeddingModel({ ref: defaults.agentLab.defaultEmbeddingModel }),
   );
+  bind(
+    'api-default:context-window',
+    current.agentLab.defaultContextWindowTokens,
+    defaults.agentLab.defaultContextWindowTokens,
+    () =>
+      b.setAgentLabModelTokenDefaults({
+        defaultContextWindowTokens: defaults.agentLab.defaultContextWindowTokens,
+      }),
+  );
+  bind(
+    'api-default:max-output',
+    current.agentLab.defaultMaxOutputTokens,
+    defaults.agentLab.defaultMaxOutputTokens,
+    () =>
+      b.setAgentLabModelTokenDefaults({
+        defaultMaxOutputTokens: defaults.agentLab.defaultMaxOutputTokens,
+      }),
+  );
+  if (selected.has('assistant-config')) {
+    const assistant = shared.assistant;
+    const defaultConfig = mergeAssistantConfig({}, {});
+    const currentConfig = mergeAssistantConfig(await assistant.getConfig(), {});
+    // 恢复预览只说明文本已配置，不回传可能含密钥的 MCP 配置。
+    const previewConfig = ({
+      customPrompt,
+      mcpServers,
+      modelSettingsVersion: _version,
+      ...value
+    }: typeof defaultConfig) => ({
+      ...value,
+      customPrompt: Boolean(customPrompt),
+      mcpServers: Boolean(mcpServers),
+    });
+    bind(
+      'assistant-config:config',
+      previewConfig(currentConfig),
+      previewConfig(defaultConfig),
+      () => assistant.setConfig(defaultConfig),
+    );
+  }
+  bind('assistant-images:mode', current.aiImages.assistant, defaults.aiImages.assistant, () =>
+    b.setAiImagePreference({ feature: 'assistant', mode: defaults.aiImages.assistant }),
+  );
+  for (const [card, feature] of [
+    ['intent-basic', 'intent'],
+    ['suggestion-basic', 'suggestions'],
+    ['profile-basic', 'profile'],
+  ] as const)
+    bind(`${card}:imageMode`, current.aiImages[feature], defaults.aiImages[feature], () =>
+      b.setAiImagePreference({ feature, mode: defaults.aiImages[feature] }),
+    );
+  if (selected.has('performance-recording')) {
+    const monitor = getPerformanceMonitor();
+    await monitor.ready;
+    bind('performance-recording:mode', monitor.settings.mode, DEFAULT_MONITOR_SETTINGS.mode, () =>
+      monitor.resetRecordingMode(),
+    );
+  }
   for (const kind of ['voice', 'ocr'] as const) {
     const concurrency =
       kind === 'voice' ? current.voiceTranscribe.onlineConcurrency : current.ocr.onlineConcurrency;
@@ -342,11 +411,11 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       );
     }
     const mail = sharedMailPreferences();
-    bind('mail:unread', mail.showUnread, true, async () => {
+    bind('notification-badges:unread', mail.showUnread, true, async () => {
       await shared.mail.patch({ showUnread: true });
     });
-    bind('mail:notifications', mail.notifications, false, async () => {
-      await shared.mail.patch({ notifications: false });
+    bind('mail:unread', mail.showUnread, true, async () => {
+      await shared.mail.patch({ showUnread: true });
     });
     bind(
       'mail:poll-interval',
@@ -356,20 +425,17 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
         await shared.mail.patch({ pollIntervalMinutes: DEFAULT_MAIL_POLL_INTERVAL_MINUTES });
       },
     );
-    if (selected.has('recall-scope')) {
+    if (selected.has('recall-scope') || selected.has('recall-notifications')) {
       const recall = await sharedAntiRecallStatus();
       bind('recall-scope:scope', recall.enabled ? recall.mode : 'off', 'off', async () =>
         shared.antiRecall.setScope({ scope: 'off' }),
-      );
-      bind('recall-scope:notify', recall.notifyEnabled, false, async () =>
-        shared.antiRecall.setNotify({ enabled: false }),
       );
       if (services)
         bind('recall-scope:targets', recall.targets, [], async () =>
           services.antiRecall.setTargets([]),
         );
       if (services)
-        bind('recall-scope:notify-targets', recall.notifyTargets, [], async () =>
+        bind('recall-notifications:notify-targets', recall.notifyTargets, [], async () =>
           services.antiRecall.setNotify({ targets: [] }),
         );
     }

@@ -37,10 +37,13 @@ export function CalendarTaskDetails({
         running || (data?.snapshot.hasPending && data.snapshot.controls.day.state === 'running')
           ? 1000
           : false,
-      cacheTime: 0,
+      cacheTime: 60_000,
+      staleTime: 0,
+      refetchOnMount: 'always',
     },
   );
   const value = query.data;
+  const failure = error || query.error?.message;
   const selectedDay = day ?? value?.day ?? `${value?.month ?? ''}-01`;
   async function locate(target: CalendarTarget, anchor: CalendarAnchor) {
     if (!value || !navigate || busy) return;
@@ -80,32 +83,36 @@ export function CalendarTaskDetails({
   }
   return (
     <div className="weq-calendar-task-details" data-privacy-sensitive>
-      <CalendarStatisticsProgress
-        onControl={(scope, action, day) => void control(scope, action, day)}
-        snapshot={value?.snapshot}
-        busy={busy}
-        statusText={error || query.error?.message}
-        logOpen={open}
-        onLogOpenChange={setOpen}
-      />
-      <CalendarStatistics
-        snapshot={value?.snapshot}
-        day={selectedDay}
-        month={value?.month}
-        onDayChange={(day) => {
-          setDay(day);
-          setLimit(50);
-        }}
-        id={value?.id}
-        targets={targets}
-        busy={busy}
-        locateDisabled={!navigate}
-        error={error || query.error?.message}
-        onLocate={(target, anchor) => void locate(target, anchor)}
-        onLoadMore={() =>
-          setLimit((current) => Math.min(current + 50, value?.snapshot.totalRows ?? current))
-        }
-      />
+      {failure ? <p role="alert">{failure}</p> : null}
+      {value || !failure ? (
+        <CalendarStatisticsProgress
+          onControl={(scope, action, day) => void control(scope, action, day)}
+          snapshot={value?.snapshot}
+          busy={busy}
+          statusText={!value ? '正在读取统计…' : undefined}
+          logOpen={open}
+          onLogOpenChange={setOpen}
+        />
+      ) : null}
+      {value ? (
+        <CalendarStatistics
+          snapshot={value?.snapshot}
+          day={selectedDay}
+          month={value?.month}
+          onDayChange={(day) => {
+            setDay(day);
+            setLimit(50);
+          }}
+          id={value?.id}
+          targets={targets}
+          busy={busy}
+          locateDisabled={!navigate}
+          onLocate={(target, anchor) => void locate(target, anchor)}
+          onLoadMore={() =>
+            setLimit((current) => Math.min(current + 50, value?.snapshot.totalRows ?? current))
+          }
+        />
+      ) : null}
     </div>
   );
 }

@@ -4,7 +4,9 @@ import type {
   AgentLabModelRef,
   AgentLabProviderConfig,
   AgentLabProviderModel,
+  ModelRequestProperties,
 } from './types';
+import { readModelRequestProperties } from './model_metadata';
 
 function trimSlash(value: string): string {
   return value
@@ -66,7 +68,6 @@ export function validateProviderConfig(input: AgentLabProviderConfig): void {
   if (!input.id.trim()) throw new Error('Provider id 不能为空');
   if (!input.name.trim()) throw new Error('Provider 名称不能为空');
   if (!/^https?:\/\//i.test(input.baseUrl)) throw new Error('base_url 必须是 http/https 地址');
-  if (!input.apiKey.trim()) throw new Error('api_key 不能为空');
   if (input.models.length === 0) throw new Error('至少配置一个模型');
 }
 
@@ -82,12 +83,20 @@ export function modelsWithCapability(
 export function resolveEndpoint(
   provider: AgentLabProviderConfig,
   ref: AgentLabModelRef,
+  defaults?: Pick<ModelRequestProperties, 'contextWindowTokens' | 'maxOutputTokens'>,
 ): AgentLabEndpoint {
+  const model = provider.models.find((item) => item.id === ref.model);
+  const request = { ...readModelRequestProperties(model?.metadata), ...model?.overrides?.request };
+  if (request.contextWindowTokens === undefined && defaults?.contextWindowTokens !== undefined)
+    request.contextWindowTokens = defaults.contextWindowTokens;
+  if (request.maxOutputTokens === undefined && defaults?.maxOutputTokens !== undefined)
+    request.maxOutputTokens = defaults.maxOutputTokens;
   return {
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
     model: ref.model,
-    reasoningEfforts: provider.models.find((model) => model.id === ref.model)?.reasoningEfforts,
+    reasoningEfforts: model?.reasoningEfforts,
+    ...(Object.keys(request).length ? { requestProperties: request } : {}),
     ...(provider.timeoutMs === undefined ? {} : { timeoutMs: provider.timeoutMs }),
   };
 }

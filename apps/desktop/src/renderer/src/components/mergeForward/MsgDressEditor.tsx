@@ -86,6 +86,7 @@ function DressPreview({
       className="weq-forward-row weq-mf-dress-preview"
       data-bubble={msgDec.bubbleId || undefined}
       data-font={msgDec.fontId || undefined}
+      data-weq-system-font={msgDec.systemFont || undefined}
       data-fontfx={fontFxAttr}
       data-widget={msgDec.widget ? decoration.widgetId : undefined}
     >
@@ -213,7 +214,7 @@ export function MsgDressEditor({
                 {KIND_META[kind].label}
               </span>
               <input
-                className="weq-mf-input mono weq-mf-dress-input"
+                className="weq-mf-input weq-mf-dress-input"
                 inputMode="numeric"
                 placeholder="id"
                 value={value > 0 ? String(value) : ''}

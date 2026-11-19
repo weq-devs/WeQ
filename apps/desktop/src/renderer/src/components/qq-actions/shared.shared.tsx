@@ -81,13 +81,21 @@ export function useQQAction(scope: string, feedback: QQWriteFeedback = 'all') {
       if (mounted.current) setPending(false);
     }
   }
-  async function pick(kind: 'image' | 'file'): Promise<{ path: string; fileName: string } | null> {
+  async function pick(
+    kind: 'image' | 'file',
+    onProgress?: (received: number, total: number) => void,
+  ): Promise<{ path: string; fileName: string } | null> {
     setError('');
     if (busy.current || disabled) return null;
     busy.current = true;
     setPending(true);
     try {
-      const result = await pickAccountFile(kind, session.binding ?? undefined);
+      const result = await pickAccountFile(
+        kind,
+        session.binding ?? undefined,
+        undefined,
+        onProgress,
+      );
       return mounted.current && latest.current === identity ? result : null;
     } catch (e) {
       if (mounted.current && latest.current === identity)
@@ -104,7 +112,7 @@ export function useQQAction(scope: string, feedback: QQWriteFeedback = 'all') {
     pending,
     perform,
     pickImage: () => pick('image'),
-    pickFile: () => pick('file'),
+    pickFile: (onProgress?: (received: number, total: number) => void) => pick('file', onProgress),
     error,
   };
 }

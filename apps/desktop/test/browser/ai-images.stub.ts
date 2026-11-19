@@ -91,20 +91,6 @@ async function mutate(name: string, input: Record<string, unknown>) {
     const id = (serial++).toString(16).padStart(64, '0') + '.png';
     return { id, path: `/synthetic/${id}`, name: '合成截图.png' };
   }
-  if (name === 'chatWithAgentLabPersona') {
-    clone.push(
-      turn('user', String(input.text), input.images as unknown[]),
-      turn('assistant', '合成克隆看图回复'),
-    );
-    refresh();
-    return {
-      text: '合成克隆看图回复',
-      segments: ['合成克隆看图回复'],
-      renderedTurns: ['合成克隆看图回复'],
-      silent: false,
-      replyDelayMs: 0,
-    };
-  }
   if (name === 'chatWithAssistant' || name === 'submitAssistantMessage') {
     const runId = `run${serial++}`;
     setTimeout(() => {
@@ -128,37 +114,29 @@ async function mutate(name: string, input: Record<string, unknown>) {
     }, 20);
     return { runId };
   }
-  if (name === 'sendAgentLabGroupMessage') {
+  if (name === 'submitCloneMessage') {
+    const mine = {
+      ...turn('user', String(input.text), input.images as unknown[]),
+      id: String(input.requestId),
+    };
+    const isGroup = input.kind === 'group';
+    const userMessage = isGroup
+      ? { ...mine, groupId: 'g', senderId: 'self', senderKind: 'user' }
+      : mine;
+    const rows = isGroup ? group : clone;
+    const kind = isGroup ? 'group-message' : 'persona-message';
+    rows.push(userMessage);
     setTimeout(() => {
-      const mine = {
-        id: `g${serial++}`,
-        groupId: 'g',
-        senderId: 'self',
-        senderKind: 'user',
-        text: String(input.text),
-        images: input.images,
-        ts: Date.now(),
-      };
-      const reply = {
-        id: `g${serial++}`,
-        groupId: 'g',
-        senderId: 'p',
-        senderKind: 'persona',
-        text: '合成群聊看图回复',
-        ts: Date.now() + 1,
-      };
-      group.push(mine, reply);
-      for (const message of [mine, reply])
-        emit('onGroupChatEvent', {
-          groupId: 'g',
-          groupRunId: 'group-run',
-          kind: 'message',
-          message,
-        });
-      emit('onGroupChatEvent', { groupId: 'g', groupRunId: 'group-run', kind: 'done' });
+      const body = turn('assistant', isGroup ? '合成群聊看图回复' : '合成克隆看图回复');
+      const message = isGroup
+        ? { ...body, groupId: 'g', senderId: 'p', senderKind: 'persona' }
+        : body;
+      rows.push(message);
+      emit('onCloneConversation', { kind, message });
+      emit('onCloneConversation', { kind: 'settled' });
       refresh();
     }, 20);
-    return { groupRunId: 'group-run' };
+    return { kind, message: userMessage };
   }
   return {};
 }
