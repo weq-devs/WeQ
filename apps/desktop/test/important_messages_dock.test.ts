@@ -10,7 +10,6 @@ it('定位进行中不消耗跳转点，失败可重试，旧会话任务结束�
   const data = createTemplateDemoData();
   const messages: [] = [];
   const dock = {
-    unread: 2,
     stops: [
       { kind: 'atMe' as const, seq: '101' },
       { kind: 'replyMe' as const, seq: '102' },
@@ -83,18 +82,18 @@ it('列表与队列共享定位进度，乱序选择只完成自身，重定位�
   const root = createRoot(host);
   const messages: [] = [];
   const dock = {
-    unread: 3,
     stops: [
-      { kind: 'atMe' as const, seq: '103' },
+      { kind: 'newFile' as const, seq: '103', identity: { senderUid: 'u_file', sendTime: '1000' } },
       { kind: 'replyMe' as const, seq: '102' },
       { kind: 'unread' as const, seq: '101' },
     ],
   };
   let state!: ReturnType<typeof useChatTimelineNavigation>;
-  function Harness() {
+  const seenUnreadHighlights = new Set<string>();
+  function Harness({ conversationId = '777' }: { conversationId?: string }) {
     state = useChatTimelineNavigation({
       atLatest: false,
-      conversation: demo.conversations[0],
+      conversation: { ...demo.conversations[0]!, id: conversationId },
       initialReadingPosition: undefined,
       jumpRequest: undefined,
       latestMessageSeq: undefined,
@@ -109,6 +108,7 @@ it('列表与队列共享定位进度，乱序选择只完成自身，重定位�
       selectionOrder: [],
       tabActive: true,
       unreadDock: dock,
+      seenUnreadHighlights,
       user: demo.user,
       visibleMessages: messages,
     });
@@ -123,7 +123,7 @@ it('列表与队列共享定位进度，乱序选择只完成自身，重定位�
         release = done;
       }),
     );
-    let earlier!: void | Promise<void>;
+    let earlier!: Promise<boolean>;
     act(() => {
       earlier = state.jumpToSeq({ seq: '103' });
     });
@@ -138,19 +138,29 @@ it('列表与队列共享定位进度，乱序选择只完成自身，重定位�
     expect(state.dockImportantRemaining).toBe(1);
     await act(async () => state.jumpToSeq({ seq: '102' }));
     expect(state.dockRemaining).toBe(2);
+    jump.mockResolvedValueOnce(false);
+    await act(async () => state.jumpDockStop());
+    expect(state.dockRemaining).toBe(2);
     jump.mockRejectedValueOnce(new Error('fixture failure'));
     await act(async () => state.jumpDockStop());
     expect(state.dockRemaining).toBe(2);
     expect(state.locatedSeq).toBe('102');
     await act(async () => state.jumpDockStop());
     expect(state.locatedSeq).toBe('103');
-    expect(jump).toHaveBeenLastCalledWith({ seq: '103' });
+    expect(jump).toHaveBeenLastCalledWith({
+      seq: '103',
+      importantMessage: dock.stops[0]?.identity,
+    });
     expect(state.dockStop?.seq).toBe('101');
     expect(state.dockRemaining).toBe(1);
     expect(state.dockImportantRemaining).toBe(0);
     await act(async () => state.jumpDockStop());
     expect(jump).toHaveBeenLastCalledWith({ seq: '101', mode: 'firstUnread' });
     expect(state.dockRemaining).toBe(0);
+    await act(async () => root.render(h(Harness, { conversationId: '888' })));
+    expect(state.dockStop?.kind).toBe('newFile');
+    await act(async () => root.render(h(Harness, { conversationId: '777' })));
+    expect(state.dockStop?.kind).toBe('unread');
   } finally {
     act(() => root.unmount());
     host.remove();

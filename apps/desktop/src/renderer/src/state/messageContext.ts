@@ -1,4 +1,5 @@
 import { createContext } from 'react';
+import type { UnreadMessageIdentity } from '../lib/unreadNavigation';
 
 /**
  * Lets a reply quote ask the host (MainView) to scroll the message list to the
@@ -11,6 +12,8 @@ import { createContext } from 'react';
 export interface ReplyJumpTarget {
   /** 普通未读跳转按区间定位，不要求已读水位后的推算序号真实存在。 */
   mode?: 'firstUnread';
+  /** 重要提醒可能与灰条同序号，保留原消息的身份。 */
+  importantMessage?: UnreadMessageIdentity;
   /** 已知原消息时优先精确匹配，兼容序号为空或同序号的漫游记录。 */
   msgId?: string;
   /** origMsgSeq (tag 47402) — the 40003 anchor for GROUP messages. */
@@ -21,7 +24,10 @@ export interface ReplyJumpTarget {
   senderUin?: number | string;
   sendTime?: number | string;
 }
-const replyJumpContext = createContext<(target: ReplyJumpTarget) => void | Promise<void>>(() => {});
+export type ReplyJump = (
+  target: ReplyJumpTarget,
+) => boolean | void | Promise<void> | Promise<boolean>;
+const replyJumpContext = createContext<ReplyJump>(() => {});
 
 /**
  * The conversation kind of the open chat. MultiMsg lookups (合并转发) hit a

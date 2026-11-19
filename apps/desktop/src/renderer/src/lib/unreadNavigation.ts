@@ -1,5 +1,19 @@
 import type { Conversation, ConversationPreferences } from '../im-template/template/types';
 
+export type UnreadMessageIdentity = { senderUid?: string; sendTime?: string };
+
+export function matchesUnreadMessage(
+  message: UnreadMessageIdentity & { msgSeq?: string },
+  seq: string,
+  identity?: UnreadMessageIdentity,
+): boolean {
+  return (
+    message.msgSeq === seq &&
+    (!identity?.senderUid || message.senderUid === identity.senderUid) &&
+    (!identity?.sendTime || message.sendTime === identity.sendTime)
+  );
+}
+
 /** 在未读区间内选最早的真实消息，不回退到已读水位之前。 */
 export function firstUnreadMessage<T extends { msgSeq?: string }>(
   messages: readonly T[],

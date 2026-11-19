@@ -691,6 +691,7 @@ export type ChatPaneProps = {
    * 未读 → 标记已读」之后交下来，本组件据此在右上角逐个引导跳转。
    */
   unreadDock?: UnreadDock | null;
+  seenUnreadHighlights?: Set<string>;
   /**
    * 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时，若它恰好
    * 落在相邻两行之间的「单条缺口」上（seq 差为 1，默认缺口条不渲染），就在那里
@@ -785,6 +786,7 @@ export function ChatPane({
   onAddToComposition,
   onForwardMessages,
   unreadDock,
+  seenUnreadHighlights,
   missingJumpSeq,
   resolvedGapIds,
   headerActions,
@@ -1539,6 +1541,7 @@ export function ChatPane({
     selectionOrder,
     tabActive,
     unreadDock,
+    seenUnreadHighlights,
     user,
     visibleMessages,
   });
@@ -6571,7 +6574,11 @@ export function ChatPane({
         >
           <button
             type="button"
-            title={`下一条：${dockStopLabel(dockStop, unreadDock.unread)}`}
+            title={
+              dockStop.kind === 'unread'
+                ? dockStopLabel(dockStop)
+                : `下一条：${dockStopLabel(dockStop)}`
+            }
             disabled={dockJumping}
             onClick={() => {
               void jumpDockStop();
@@ -6583,9 +6590,7 @@ export function ChatPane({
               <Sparkles size={13} strokeWidth={2.4} aria-hidden />
             )}
             <span className={cn('unread-dock-label')}>
-              {dockStop.kind === 'unread'
-                ? dockStopLabel(dockStop, unreadDock.unread)
-                : highlightLabel(dockStop.kind)}
+              {dockStop.kind === 'unread' ? dockStopLabel(dockStop) : highlightLabel(dockStop.kind)}
             </span>
             {dockStop.kind !== 'unread' ? (
               <span
@@ -6729,15 +6734,15 @@ export function ChatPane({
           conv={intentConv}
           replyTargetId={latestPeerMsgId}
           latestMessageId={latestSuggestionId}
-          onLocate={(target) =>
-            jumpToSeq({
+          onLocate={async (target) => {
+            await jumpToSeq({
               msgId: target.msgId,
               seq: target.msgSeq,
               index: target.msgSeq,
               senderUin: target.senderUin,
               sendTime: target.sendTime,
-            })
-          }
+            });
+          }}
           onInsert={(text) => {
             const prefix = body.trim().length > 0 ? ' ' : '';
             insertComposerText(`${prefix}${text}`);

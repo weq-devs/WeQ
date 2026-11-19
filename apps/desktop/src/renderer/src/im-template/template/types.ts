@@ -141,6 +141,7 @@ export type ConversationHighlight = {
   rawKind: number;
   senderUid: string;
   msgSeq: string;
+  sendTime?: string;
   /** 命中关键词（群提醒词）或预览文本；可能为空。 */
   text?: string;
 };
@@ -151,6 +152,7 @@ export type UnreadDockStop = {
   kind: ConversationHighlightKind | 'unread';
   /** 要跳转到的会话内 seq。 */
   seq: string;
+  identity?: import('../../lib/unreadNavigation').UnreadMessageIdentity;
   /** 高亮附带的文本（群提醒词为命中的关键词）；兜底未读没有。 */
   text?: string;
 };
@@ -162,8 +164,6 @@ export type UnreadDockStop = {
  */
 export type UnreadDock = {
   stops: UnreadDockStop[];
-  /** 该会话打开时的未读总数（用于最后那条「新的 N 条未读消息」）。 */
-  unread: number;
 };
 
 type ConversationBase = {
@@ -366,6 +366,8 @@ export type Message = {
   forwardSnapshot?: { carrierId: string; kind: 'c2c' | 'group'; conv: string };
   conversationId: string;
   senderId: string;
+  senderUid?: string;
+  sendTime?: string;
   body: string;
   /** QQ 渲染视图元素，逐条重发与只读预览共用，不能用 body 标签替代。 */
   qqElements?: RepeatElement[];

@@ -77,7 +77,7 @@ try {
     const newest = 1000 + count;
     const base = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?entry&count=${count}`;
     await page.goto(`${base}&unread-from=${seq}`);
-    const dock = page.getByText(`新的 ${1001 + count - seq} 条未读消息`, { exact: true });
+    const dock = page.getByRole('button', { name: '跳到首条未读', exact: true });
     await dock.waitFor();
     await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
     await waitForViewport(seq, true);
@@ -91,7 +91,7 @@ try {
     await assertDismissed(dock);
 
     await page.goto(`${base}&unread-from=${newest}`);
-    const entryDock = page.getByText('新的 1 条未读消息', { exact: true });
+    const entryDock = page.getByRole('button', { name: '跳到首条未读', exact: true });
     await waitForViewport(newest, true);
     await entryDock.waitFor({ state: 'hidden' });
     await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);

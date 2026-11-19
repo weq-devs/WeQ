@@ -286,6 +286,38 @@ it('自动阅读写库失败不清角标，按原位置重试成功后才更新'
   expect(f.setReadState).toHaveBeenLastCalledWith(2, '70001', '100', '100', false);
   expect((await f.query())[0]?.unreadCount).toBe(2);
 });
+it('QQ 已先清除文件提醒时，自动标已读即使无需写入也立即回读旧缓存', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  await f.query();
+  f.update([
+    row({
+      highlights: [
+        {
+          kind: 'newFile',
+          rawKind: 2004,
+          msgSeq: 99,
+          senderUid: 'u_peer',
+          sendTime: 1,
+          text: '',
+        },
+      ],
+    }),
+  ]);
+  expect((await f.query())[0]?.highlights?.[0]?.kind).toBe('newFile');
+  f.all.mockClear();
+  const unsubscribe = f.service.onCountsChanged(() => {});
+  try {
+    f.update([row({ msgSeq: 100 })]);
+    f.markRead.mockResolvedValueOnce(false);
+    expect(await f.service.markRead(2, target.uid, '100')).toBe(false);
+    expect((await f.query())[0]).toMatchObject({ readSeq: '100', unreadCount: 0 });
+    expect((await f.query())[0]?.highlights).toBeUndefined();
+    expect(f.all).not.toHaveBeenCalled();
+  } finally {
+    unsubscribe();
+  }
+});
 it('1300 会话一次加载，查询接口不逐会话统计', async () => {
   const f = fixture();
   await f.query();

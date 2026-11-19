@@ -644,7 +644,15 @@ export class UnreadInfoService {
       const changed = await this.writeTarget(target, version, () =>
         this.session.unreadInfo.markRead(chatType, uid, sequence),
       );
-      if (changed) await this.refreshWrittenTargets([written]);
+      const cached = this.results.get(this.key(target));
+      const through = BigInt(sequence);
+      // QQ 可能已经更新过该行；即使无需写入，也要校准仍挂着旧提醒的缓存。
+      const stale =
+        cached &&
+        (cached.markUnread ||
+          (cached.unreadCount && BigInt(cached.readSeq ?? '0') < through) ||
+          cached.highlights?.some((hit) => BigInt(hit.msgSeq) <= through));
+      if (changed || (changed === false && stale)) await this.refreshWrittenTargets([written]);
       else if (changed === false) this.invalidate();
       return changed === true || local;
     } catch {

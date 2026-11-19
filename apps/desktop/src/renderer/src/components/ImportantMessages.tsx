@@ -22,7 +22,7 @@ import {
   IMPORTANT_MESSAGE_KINDS,
   type ImportantMessageKind,
 } from '../im-template/template/unreadDock';
-import type { ReplyJumpTarget } from '../state/messageContext';
+import type { ReplyJump, ReplyJumpTarget } from '../state/messageContext';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { useMessageLocateMenu } from '../hooks/useMessageLocateMenu';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
@@ -44,7 +44,7 @@ type PanelProps = {
   open: boolean;
   onClose: () => void;
   senderName: (uid: string) => string;
-  onLocate: (target: ReplyJumpTarget) => void | Promise<void>;
+  onLocate: ReplyJump;
   activeSeq?: string | null;
   locatePending?: boolean;
   navigationAnchor?: HTMLElement | null;
@@ -317,7 +317,7 @@ export function ImportantMessagesList({
         !owner.open
       )
         return;
-      await onLocate(msgId ? { ...target, msgId } : target);
+      if ((await onLocate(msgId ? { ...target, msgId } : target)) === false) return;
       if (!alive.current || scope.current !== started) return;
       setSelected(String(target.seq));
       if (mobile) onClose();

@@ -11,7 +11,7 @@ import {
   readUnreadInfos,
 } from './workspace/useConversationWindowRead';
 import { PAGE_SIZE } from './workspace/paging';
-import { firstUnreadMessage } from '../lib/unreadNavigation';
+import { firstUnreadMessage, matchesUnreadMessage } from '../lib/unreadNavigation';
 import {
   toMessageWire,
   optimisticToTemplate,
@@ -4953,17 +4953,18 @@ function MainWorkspace(): ReactElement {
   // 随即把该会话标记为已读（清表），右上角再按内存副本逐个引导跳转。
   // 之所以「先读后清」：清表后 48902 就空了，跳转目标只能靠这份内存副本。
   const [unreadDock, setUnreadDock] = useState<UnreadDock | null>(null);
+  const seenUnreadHighlights = useMemo(() => new Set<string>(), [messageScope]);
   // 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时聊天区会在
   // 最近邻消息旁渲染一条「点击拉取」的缺口条 —— 因为这种单条缺失 seq 差恰好为 1，
   // 默认的缺口条（只在跳空 >1 时出现）不会渲染，得由这次跳转手动补上入口。
   const [missingJumpSeq, setMissingJumpSeq] = useState<string | null>(null);
   // 正在处理（或已处理完）的会话 id —— 同一个会话只引导一次（分页/刷新不再重复）。
   // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
-  const unreadDockConvRef = useRef<string | null>(null);
-  const unreadSnapshotPendingRef = useRef<string | null>(null);
+  const unreadDockRequestRef = useRef<{ convId: string } | null>(null);
+  const unreadSnapshotPendingRef = useRef<{ convId: string } | null>(null);
   const readRequestsRef = useRef(new Map<string, { again: boolean; promise: Promise<void> }>());
   useEffect(() => {
-    unreadDockConvRef.current = null;
+    unreadDockRequestRef.current = null;
     unreadSnapshotPendingRef.current = null;
     setUnreadDock(null);
   }, [messageScope]);
@@ -5238,10 +5239,10 @@ function MainWorkspace(): ReactElement {
 
   // 换会话立刻收起上一个会话的跳转坞（首屏还没落地时不该继续挂着旧坞）。
   useEffect(() => {
-    const convId = unreadSelectionId;
-    if (unreadDockConvRef.current !== convId) setUnreadDock(null);
+    unreadDockRequestRef.current = null;
+    unreadSnapshotPendingRef.current = null;
+    setUnreadDock(null);
     setMissingJumpSeq(null);
-    if (convId === null) unreadDockConvRef.current = null;
   }, [unreadSelectionId]);
 
   useEffect(() => {
@@ -5252,10 +5253,11 @@ function MainWorkspace(): ReactElement {
     }
     // 等首批消息落地后记录未读快照；跳转目标是否可见由聊天视口判断。
     if (messagesLoading || loaded.length === 0) return undefined;
-    if (unreadDockConvRef.current === conv.id) return undefined;
+    if (unreadDockRequestRef.current?.convId === conv.id) return undefined;
 
     const convId = conv.id;
-    unreadDockConvRef.current = convId;
+    const request = { convId };
+    unreadDockRequestRef.current = request;
     const chatType =
       conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1);
     const source = messageScopeRef.current;
@@ -5265,17 +5267,18 @@ function MainWorkspace(): ReactElement {
     // 若用 cleanup 的 cancelled 会把刚拿到、还该用的结果一并丢掉。
     const stillCurrent = () => {
       if (!messagesTabActiveRef.current) {
-        if (unreadDockConvRef.current === convId) unreadDockConvRef.current = null;
+        if (unreadDockRequestRef.current === request) unreadDockRequestRef.current = null;
         return false;
       }
       return (
         Boolean(binding) &&
         messageScopeRef.current === source &&
-        unreadDockConvRef.current === convId
+        selectedUidRef.current === convId &&
+        unreadDockRequestRef.current === request
       );
     };
 
-    unreadSnapshotPendingRef.current = convId;
+    unreadSnapshotPendingRef.current = request;
     (async () => {
       let info: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number] | undefined;
       try {
@@ -5289,7 +5292,7 @@ function MainWorkspace(): ReactElement {
         console.error('[unread-dock] getUnreadInfo failed', err);
         return;
       } finally {
-        if (unreadSnapshotPendingRef.current === convId) unreadSnapshotPendingRef.current = null;
+        if (unreadSnapshotPendingRef.current === request) unreadSnapshotPendingRef.current = null;
       }
       if (!stillCurrent() || !info || info.readError) return;
 
@@ -5502,6 +5505,7 @@ function MainWorkspace(): ReactElement {
       exactRecord?: ChatMsgWire,
       messageId?: string,
       mode?: ReplyJumpTarget['mode'],
+      importantMessage?: ReplyJumpTarget['importantMessage'],
     ): Promise<boolean> =>
       runMessageLocate(
         async (isCurrent) => {
@@ -5579,7 +5583,7 @@ function MainWorkspace(): ReactElement {
               ? firstUnreadMessage(merged, targetSeq)
               : exactId
                 ? findTimelineMessageById(merged, exactId, targetSeq)
-                : merged.find((m) => m.msgSeq === targetSeq);
+                : merged.find((m) => matchesUnreadMessage(m, targetSeq, importantMessage));
           let target = findTarget();
 
           const autoContext = () =>
@@ -5663,7 +5667,7 @@ function MainWorkspace(): ReactElement {
             await new Promise<void>((resolve) => window.setTimeout(resolve, 160));
             if (!current()) return false;
             const positioned = scrollToMsgId(timelineRowKey(anchor), Boolean(target));
-            if (target && !positioned && exactId) {
+            if (target && !positioned && (exactId || importantMessage || mode === 'firstUnread')) {
               pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
               return false;
             }
@@ -5707,10 +5711,10 @@ function MainWorkspace(): ReactElement {
   //     path, constant-cost 2 queries). If the target turns out to be a hole
   //     there too, we still land beside it and toast.
   const jumpToSeq = useCallback(
-    async (jumpTarget: ReplyJumpTarget): Promise<void> => {
+    async (jumpTarget: ReplyJumpTarget): Promise<boolean> => {
       const sel = selectionRef.current;
       if (!sel) {
-        return;
+        return false;
       }
       closeForwardWindows();
       cancelMessageLocate();
@@ -5721,7 +5725,7 @@ function MainWorkspace(): ReactElement {
           jumpTarget.msgId,
           jumpTarget.seq == null ? undefined : String(jumpTarget.seq),
         );
-        if (exact && scrollToMsgId(timelineRowKey(exact))) return;
+        if (exact && scrollToMsgId(timelineRowKey(exact))) return true;
       }
       const notFound = (): void => {
         pushToast({
@@ -5756,19 +5760,20 @@ function MainWorkspace(): ReactElement {
           console.error('[reply-jump] resolution failed', error);
           rawSeq = undefined;
         }
-        if (selectionRef.current !== sel) return;
+        if (selectionRef.current !== sel) return false;
       }
       if (rawSeq === undefined || rawSeq === null || rawSeq === '') {
         notFound();
-        return;
+        return false;
       }
       const targetSeq = String(rawSeq);
 
-      const here = !jumpTarget.msgId && loadedRef.current.find((m) => m.msgSeq === targetSeq);
-      if (here) {
-        scrollToMsgId(timelineRowKey(here));
-        return;
-      }
+      const here =
+        !jumpTarget.msgId &&
+        loadedRef.current.find((m) =>
+          matchesUnreadMessage(m, targetSeq, jumpTarget.importantMessage),
+        );
+      if (here && scrollToMsgId(timelineRowKey(here))) return true;
 
       const current = loadedRef.current;
       const minSeq = current[0]?.msgSeq;
@@ -5782,30 +5787,28 @@ function MainWorkspace(): ReactElement {
       if (minSeq && maxSeq) {
         if (targetNum === null) {
           notFound();
-          return;
+          return false;
         }
         if (targetNum >= BigInt(minSeq) && targetNum <= BigInt(maxSeq)) {
           if (jumpTarget.mode === 'firstUnread') {
             const first = firstUnreadMessage(current, targetSeq);
-            if (first) {
-              scrollToMsgId(timelineRowKey(first));
-              return;
-            }
+            if (first && scrollToMsgId(timelineRowKey(first))) return true;
           }
           if (
             jumpTarget.msgId ||
+            jumpTarget.importantMessage ||
             preferenceValue('autoFetchMissingMessages') ||
             preferenceValue('autoFetchMissingContext')
           ) {
-            await centerWindowOnSeq(
+            return centerWindowOnSeq(
               sel.id,
               kind,
               targetSeq,
               undefined,
               jumpTarget.msgId,
               jumpTarget.mode,
+              jumpTarget.importantMessage,
             );
-            return;
           }
           // 在已加载范围内却没有这一行 ⇒ 一条被撤回/删除/从未同步的「空消息」。
           // 不把用户丢回原地：滚到最近的邻居，并挂一条「点击拉取」的缺口条，
@@ -5814,17 +5817,18 @@ function MainWorkspace(): ReactElement {
           setMissingJumpSeq(targetSeq);
           const anchor = nearestBySeq(current, targetSeq);
           if (anchor) scrollToMsgId(timelineRowKey(anchor), false);
-          return;
+          return false;
         }
       }
 
-      await centerWindowOnSeq(
+      return centerWindowOnSeq(
         sel.id,
         kind,
         targetSeq,
         undefined,
         jumpTarget.msgId,
         jumpTarget.mode,
+        jumpTarget.importantMessage,
       );
     },
     [centerWindowOnSeq, scrollToMsgId, pushToast, cancelMessageLocate, selectionRef, loadedRef],
@@ -9662,7 +9666,7 @@ function MainWorkspace(): ReactElement {
                               }
                             }}
                             onReadCurrentConversation={(conv) => {
-                              if (unreadSnapshotPendingRef.current !== conv.id)
+                              if (unreadSnapshotPendingRef.current?.convId !== conv.id)
                                 void markVisibleConversationRead(conv);
                             }}
                             conversationPrefs={conversationPrefs}
@@ -9779,7 +9783,12 @@ function MainWorkspace(): ReactElement {
                             onRestoreMessage={(msgId) =>
                               handleRestoreMessage(msgId, selectedConversation)
                             }
-                            unreadDock={unreadDock}
+                            unreadDock={
+                              unreadDockRequestRef.current?.convId === unreadSelectionId
+                                ? unreadDock
+                                : null
+                            }
+                            seenUnreadHighlights={seenUnreadHighlights}
                             missingJumpSeq={missingJumpSeq}
                             resolvedGapIds={resolvedGaps}
                           />

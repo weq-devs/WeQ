@@ -38,7 +38,7 @@ const unreadDock =
         highlights: (params.get('important-seqs')?.split(',') ?? []).map((msgSeq, index) => ({
           kind: index === 0 ? 'atMe' : 'replyMe',
           msgSeq,
-          senderUid: 'u_peer',
+          senderUid: Number(msgSeq) % 3 ? 'u_peer' : 'u_self',
           rawKind: 1,
         })),
       })
@@ -90,6 +90,7 @@ const message = (seq: number): Message => ({
   id: `row-${seq}`,
   conversationId: conversation.id,
   senderId: seq % 3 ? 'u_peer' : user.id,
+  senderUid: seq % 3 ? 'u_peer' : 'u_self',
   body: `合成消息 ${seq}：${'用于检查长时间线和动态高度。'.repeat((Math.abs(seq) % 8) + 1)}`,
   createdAt: new Date(1792544400000 + seq * 1000).toISOString(),
   msgSeq: String(seq),

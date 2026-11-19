@@ -65,9 +65,9 @@ export function highlightTone(kind: ConversationHighlightKind): HighlightTone {
   return HIGHLIGHT_TONE[kind] ?? 'alert';
 }
 
-/** 一个跳转点要显示的文案（兜底的未读用「新的 N 条未读消息」）。 */
-export function dockStopLabel(stop: UnreadDockStop, unread: number): string {
-  if (stop.kind === 'unread') return `新的 ${unread > 99 ? '99+' : unread} 条未读消息`;
+/** 普通跳转定位打开时的起点，不代表当前还剩多少未读。 */
+export function dockStopLabel(stop: UnreadDockStop): string {
+  if (stop.kind === 'unread') return '跳到首条未读';
   const base = highlightLabel(stop.kind);
   // 群提醒词把命中的关键词一并显示，多个词才能区分开。
   if (stop.kind === 'groupKeyword' && stop.text) return `${base}「${stop.text}」`;
@@ -77,6 +77,15 @@ export function dockStopLabel(stop: UnreadDockStop, unread: number): string {
 /** 兜底未读点的色调永远是中性的「未读蓝」。 */
 export function dockStopTone(stop: UnreadDockStop): HighlightTone {
   return stop.kind === 'unread' ? 'info' : highlightTone(stop.kind);
+}
+
+export function unreadHighlightKey(conversationId: string, stop: UnreadDockStop): string {
+  return JSON.stringify([
+    conversationId,
+    stop.seq,
+    stop.identity?.senderUid,
+    stop.identity?.sendTime,
+  ]);
 }
 
 function toBig(value: string | number | undefined | null): bigint {
@@ -119,7 +128,17 @@ export function buildUnreadDock(input: {
     // 同一 seq 命中多个类别时保留先到的那个（跳一次就够）。若其中有群提醒词，
     // 把命中的关键词挂上，让跳转坞显示「群提醒词·喵喵喵1」。
     const existing = bySeq.get(seq);
-    if (!existing) bySeq.set(seq, { kind: highlight.kind, seq, text: highlight.text });
+    const senderUid =
+      highlight.senderUid && highlight.senderUid !== '0' ? highlight.senderUid : undefined;
+    const sendTime =
+      highlight.sendTime && /^[1-9]\d*$/.test(highlight.sendTime) ? highlight.sendTime : undefined;
+    if (!existing)
+      bySeq.set(seq, {
+        kind: highlight.kind,
+        seq,
+        text: highlight.text,
+        ...(senderUid || sendTime ? { identity: { senderUid, sendTime } } : {}),
+      });
     else if (highlight.kind === 'groupKeyword' && highlight.text) existing.text = highlight.text;
   }
   const stops: UnreadDockStop[] = Array.from(bySeq.values())
@@ -131,5 +150,5 @@ export function buildUnreadDock(input: {
     stops.push({ kind: 'unread', seq: firstUnreadSeq });
 
   if (stops.length === 0) return null;
-  return { stops, unread };
+  return { stops };
 }

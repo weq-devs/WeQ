@@ -208,6 +208,8 @@ export function messageToTemplate(
     localSent: message.localSent,
     conversationId: conversation.id,
     senderId: sender.id,
+    senderUid: message.senderUid,
+    sendTime: message.sendTime,
     sender,
     body: messageBody(message.elements) || (message.sourceFormat ? '[漫游空消息或未解析]' : ''),
     // 闪照：本地库只剩一句兜底文案（元素本体从没落库）。打上标记，让聊天窗按需走
