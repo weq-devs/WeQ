@@ -303,6 +303,10 @@ it('只有最后公开任务可发布，任一平台失败不会越过该任务�
     'notes',
   ];
   expect(workflow.jobs.publish?.needs).toEqual(expect.arrayContaining(required));
+  expect(workflow.jobs['publish-announcement']?.needs).toEqual(['publish', 'gate']);
+  expect(workflow.jobs['publish-announcement']?.if).toContain(
+    "needs.gate.outputs.prerelease == 'false'",
+  );
   expect(workflow.jobs['qq-notify']?.needs).toContain('publish');
   expect(workflow.jobs.notes?.steps?.map((s) => s.run ?? '').join('\n')).not.toContain(
     '--prerelease',

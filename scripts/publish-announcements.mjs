@@ -14,6 +14,8 @@ import {
   verifyAnnouncementFeed,
 } from '../packages/network/src/announcement_metadata.mjs';
 import { FEED_TAG } from '../packages/network/src/release_metadata.mjs';
+import { extractSection } from './extract-changelog.mjs';
+import { versionInput } from './version-input.mjs';
 
 function withReleaseLink(entry) {
   if (!entry.releaseVersion) return entry;
@@ -23,33 +25,74 @@ function withReleaseLink(entry) {
 }
 
 function feed(entries, revision) {
-  const data = validateAnnouncementFeed({
+  return validateAnnouncementFeed({
     schemaVersion: 1,
     kind: 'official-announcements',
     repository: ANNOUNCEMENT_REPOSITORY,
     revision,
     entries,
   });
+}
+
+function withReleaseLinks(data) {
   return { ...data, entries: data.entries.map(withReleaseLink) };
 }
 
-export async function publishAnnouncements({
-  entries,
-  permission,
-  signingKey,
-  publicKeys,
-  read,
-  backup,
-  upload,
-}) {
+export async function publishAnnouncements({ entries, permission, ...transport }) {
   if (!['ADMIN', 'MAINTAIN'].includes(permission))
     throw new Error('只有 WeQ 官方仓库的维护者或管理员可发布公告');
+  const result = await writeAnnouncements({
+    ...transport,
+    compose: (_, revision) => withReleaseLinks(feed(entries, revision)),
+  });
+  return result.feed;
+}
+
+export async function publishReleaseAnnouncement({ tag, release, changelog, ...transport }) {
+  const version = versionInput(tag);
+  if (
+    !version ||
+    !tag.startsWith('v') ||
+    version.split('+')[0].includes('-') ||
+    release?.tag_name !== tag ||
+    release.draft !== false ||
+    release.prerelease !== false ||
+    !Number.isSafeInteger(release.id) ||
+    release.id < 1 ||
+    !release.published_at
+  )
+    throw new Error('只能为已公开的 WeQ 正式版本发布公告');
+  const id = `weq-release-${release.id}`;
+  return writeAnnouncements({
+    ...transport,
+    compose: (previous, revision) => {
+      const entries = previous?.entries ?? [];
+      if (entries.some((entry) => entry.id === id || entry.releaseVersion === version)) return null;
+      const body = extractSection(changelog, tag);
+      if (!body.trim()) throw new Error(`CHANGELOG.md 里没有 ${version} 的公告正文`);
+      const entry = withReleaseLink({
+        id,
+        title: `WeQ ${version} 正式发布`,
+        body,
+        publishedAt: release.published_at,
+        level: 'normal',
+        releaseVersion: version,
+      });
+      return feed([...entries, entry], revision);
+    },
+  });
+}
+
+async function writeAnnouncements({ compose, signingKey, publicKeys, read, backup, upload }) {
   const previous = await read();
-  const revision = (previous ? verifyAnnouncementFeed(previous, publicKeys).revision : 0) + 1;
-  const next = feed(entries, revision);
+  const current = previous ? verifyAnnouncementFeed(previous, publicKeys) : null;
+  const next = compose(current, (current?.revision ?? 0) + 1);
+  if (!next) return { feed: current, published: false };
   const signed = signAnnouncementFeed(next, await signingKey());
   verifyAnnouncementFeed(signed, publicKeys);
-  const previousPath = previous ? await backup(previous, revision - 1) : null;
+  const previousPath = previous ? await backup(previous, current.revision) : null;
+  if ((await read())?.signature !== previous?.signature)
+    throw new Error('线上公告已更新，请基于最新修订重试');
   try {
     await upload(signed);
     const latest = await read();
@@ -61,7 +104,7 @@ export async function publishAnnouncements({
       const latest = await read();
       if (latest) {
         const verified = verifyAnnouncementFeed(latest, publicKeys);
-        if (latest.signature === signed.signature) return verified;
+        if (latest.signature === signed.signature) return { feed: verified, published: true };
         status = `线上仍是修订 ${verified.revision}`;
       } else status = '线上公告文件缺失';
     } catch {
@@ -72,20 +115,35 @@ export async function publishAnnouncements({
       { cause: error },
     );
   }
-  return next;
+  return { feed: next, published: true };
 }
 
 async function main() {
   const [action, file] = process.argv.slice(2);
-  if (!file || !['check', 'publish'].includes(action))
-    throw new Error('用法：node scripts/publish-announcements.mjs <check|publish> <清单.json>');
-  const entries = JSON.parse(await readFile(file, 'utf8'));
+  const automatic = action === 'publish-release' && file === undefined;
+  const repository = ANNOUNCEMENT_REPOSITORY;
+  const tag = process.env.GITHUB_REF_NAME;
+  if (!automatic && (!file || !['check', 'publish'].includes(action)))
+    throw new Error(
+      '用法：node scripts/publish-announcements.mjs <check|publish> <清单.json>，或在正式发版工作流中使用 publish-release',
+    );
+  if (
+    automatic &&
+    (process.env.GITHUB_ACTIONS !== 'true' ||
+      process.env.GITHUB_EVENT_NAME !== 'push' ||
+      process.env.GITHUB_REPOSITORY !== repository ||
+      !tag?.startsWith('v') ||
+      process.env.GITHUB_REF !== `refs/tags/${tag}` ||
+      !process.env.WEQ_RELEASE_SIGNING_KEY)
+  )
+    throw new Error('自动公告只能在 WeQ 官方标签发布工作流中运行');
+  const entries = automatic ? undefined : JSON.parse(await readFile(file, 'utf8'));
   if (action === 'check') {
     const { privateKey } = generateKeyPairSync('ed25519', {
       publicKeyEncoding: { type: 'spki', format: 'pem' },
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
     });
-    signAnnouncementFeed(feed(entries, 1), privateKey);
+    signAnnouncementFeed(withReleaseLinks(feed(entries, 1)), privateKey);
     console.log(`公告清单有效：${entries.length} 条`);
     return;
   }
@@ -98,10 +156,6 @@ async function main() {
   );
   const gh = (...args) =>
     execFileSync('gh', args, { encoding: 'utf8', maxBuffer: MAX_ANNOUNCEMENT_BYTES * 2 });
-  const repository = ANNOUNCEMENT_REPOSITORY;
-  const { viewerPermission: permission } = JSON.parse(
-    gh('repo', 'view', repository, '--json', 'viewerPermission'),
-  );
   const read = async () => {
     const release = JSON.parse(gh('api', `repos/${repository}/releases/tags/${FEED_TAG}`));
     if (release.draft || release.immutable) throw new Error('公告发布渠道不可更新');
@@ -138,15 +192,29 @@ async function main() {
       await rm(directory, { recursive: true, force: true });
     }
   };
-  const result = await publishAnnouncements({
-    entries,
-    permission,
-    signingKey,
-    publicKeys,
-    read,
-    backup,
-    upload,
-  });
+  const transport = { signingKey, publicKeys, read, backup, upload };
+  let result;
+  if (automatic) {
+    const release = JSON.parse(
+      gh('api', `repos/${repository}/releases/tags/${encodeURIComponent(tag)}`),
+    );
+    const outcome = await publishReleaseAnnouncement({
+      ...transport,
+      tag,
+      release,
+      changelog: await readFile(new URL('../CHANGELOG.md', import.meta.url), 'utf8'),
+    });
+    if (!outcome.published) {
+      console.log(`${tag} 的发布公告已存在，未改动线上清单`);
+      return;
+    }
+    result = outcome.feed;
+  } else {
+    const { viewerPermission: permission } = JSON.parse(
+      gh('repo', 'view', repository, '--json', 'viewerPermission'),
+    );
+    result = await publishAnnouncements({ ...transport, entries, permission });
+  }
   console.log(`官方公告已发布并验签：修订 ${result.revision}，${result.entries.length} 条`);
 }
 

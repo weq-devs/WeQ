@@ -21,6 +21,14 @@ const date = (value) => {
 };
 const text = (value, limit) =>
   typeof value === 'string' && value.length <= limit && value.trim().length > 0;
+function isReleaseVersion(value) {
+  if (typeof value !== 'string') return false;
+  const parsed = semver.parse(value);
+  return (
+    parsed !== null &&
+    `${parsed.version}${parsed.build.length ? `+${parsed.build.join('.')}` : ''}` === value
+  );
+}
 
 export function validateAnnouncementFeed(feed) {
   if (
@@ -53,9 +61,7 @@ export function validateAnnouncementFeed(feed) {
           !entry.platforms.every((platform) => PLATFORMS.has(platform)))) ||
       (entry.versionRange !== undefined &&
         (!text(entry.versionRange, 120) || semver.validRange(entry.versionRange) === null)) ||
-      (entry.releaseVersion !== undefined &&
-        (typeof entry.releaseVersion !== 'string' ||
-          semver.valid(entry.releaseVersion) !== entry.releaseVersion))
+      (entry.releaseVersion !== undefined && !isReleaseVersion(entry.releaseVersion))
     )
       throw new Error(`官方公告条目无效：${typeof entry?.id === 'string' ? entry.id : '缺少 ID'}`);
     ids.add(entry.id);

@@ -1066,6 +1066,37 @@ jobs:
           WEQ_RELEASE_SIGNING_KEY: ${{ secrets.WEQ_RELEASE_SIGNING_KEY }}
         run: node scripts/publish-release-feed.mjs
 
+  publish-announcement:
+    needs: [publish, gate]
+    if: github.repository == 'weq-devs/WeQ' && needs.gate.outputs.prerelease == 'false'
+    concurrency:
+      group: official-announcements-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --filter @weq/network --frozen-lockfile --ignore-scripts
+      - name: Publish signed release announcement
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WEQ_RELEASE_SIGNING_KEY: ${{ secrets.WEQ_RELEASE_SIGNING_KEY }}
+          WEQ_ANNOUNCEMENT_BACKUP_DIR: ${{ runner.temp }}/announcement-backup
+        run: node scripts/publish-announcements.mjs publish-release
+      - name: Preserve previous signed announcements on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: announcement-backup-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/announcement-backup
+          if-no-files-found: ignore
+          retention-days: 7
+
 
   # ============================ AUR ============================
   # 发布公开后，用 release 里已经上传的 Linux tar.gz 更新 AUR 上的 weq-bin。
