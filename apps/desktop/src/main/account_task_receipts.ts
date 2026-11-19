@@ -109,7 +109,10 @@ function verifiedClone(receipt: Receipt) {
   }
 }
 
-export function restoreRecordedTasks(scope: BackgroundTaskScope) {
+export function restoreRecordedTasks(
+  scope: BackgroundTaskScope,
+  retryClone: (id: string, scope: BackgroundTaskScope, request: unknown) => Promise<void>,
+) {
   const owner = storeFor(scope);
   if (!owner) return;
   const { store, session } = owner;
@@ -143,10 +146,9 @@ export function restoreRecordedTasks(scope: BackgroundTaskScope) {
       actions.push({
         id: 'retry',
         label: '重新执行',
-        run: async () => {
+        run: () => {
           if (getAppContext().account !== session) throw new Error('请回到原账号和数据源继续');
-          const { retryRecordedClone } = await import('./ipc/routers/account');
-          await retryRecordedClone(saved.id, scope, request);
+          return retryClone(saved.id, scope, request);
         },
       });
     if (saved.kind === 'clone' && status === 'completed')

@@ -4,10 +4,8 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
-import {
-  exportSelectedQzoneAlbums,
-  runResumableAlbumResource,
-} from '../src/main/ipc/routers/account';
+import { exportSelectedQzoneAlbums } from '../src/main/account_resource_exports';
+import { runResumableExport } from '../src/main/resumable_exports';
 import { ExportCheckpoint } from '@weq/service/export-checkpoint';
 import type { AccountServices } from '../src/main/context/app_context';
 vi.mock('../src/main/context/app_context', () => {
@@ -45,6 +43,7 @@ it('相册导出暂停后复用完成的相册，断点文件不符时拒绝发�
   });
   const services = {
     accountConfig: { getRecord: () => ({ qqOnline: true, qqPid: 1 }) },
+    groupFile: {},
     webQuery: { getQzoneAlbumPhotos: pages },
   } as unknown as AccountServices;
   const request = {
@@ -53,7 +52,7 @@ it('相册导出暂停后复用完成的相册，断点文件不符时拒绝发�
     albums: [{ id: 'first' }, { id: 'second' }],
   };
   const work = (signal: AbortSignal) =>
-    runResumableAlbumResource(
+    runResumableExport(
       services,
       request,
       {

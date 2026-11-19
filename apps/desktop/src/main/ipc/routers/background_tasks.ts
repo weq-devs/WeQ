@@ -8,6 +8,7 @@ import { removeCalendarTask, restoreCalendarTasks } from './conversation_calenda
 import { getUpdateActions } from '../../update/state';
 import { forgetEnhancementTask } from '../../enhancements/tasks';
 import { forgetRecordedTask, restoreRecordedTasks } from '../../account_task_receipts';
+import { retryRecordedClone } from './account';
 
 const scope = z.object({ uin: z.string(), configId: z.string().optional() }).nullable();
 const ref = z.object({ id: z.string().uuid(), scope });
@@ -15,7 +16,7 @@ const ref = z.object({ id: z.string().uuid(), scope });
 export const backgroundTasksRouter = router({
   list: procedure.input(scope).query(async ({ input }) => {
     if (input?.configId) {
-      restoreRecordedTasks(input);
+      restoreRecordedTasks(input, retryRecordedClone);
       restoreCalendarTasks(input);
       await restoreAnalysisReportTasks({
         expectedAccountUin: input.uin,

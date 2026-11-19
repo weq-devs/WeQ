@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { backgroundTasks } from '../src/main/background_tasks';
 import { restoreRecordedTasks } from '../src/main/account_task_receipts';
-import '../src/main/ipc/routers/account';
+import { retryRecordedClone } from '../src/main/ipc/routers/account';
 
 const f = vi.hoisted(() => ({
   root: '',
@@ -62,7 +62,7 @@ it('旧克隆构建只恢复回执，用户重跑沿用原任务并能停止；�
         },
       ]),
     );
-    restoreRecordedTasks(scope);
+    restoreRecordedTasks(scope, retryRecordedClone);
     expect(agentLab.buildFromC2c).not.toHaveBeenCalled();
     expect(backgroundTasks.snapshot().find((task) => task.id === id)).toMatchObject({
       status: 'failed',
