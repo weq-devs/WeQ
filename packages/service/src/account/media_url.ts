@@ -509,6 +509,10 @@ export async function downloadUrlToFile(
       } else {
         const maxBytes = options.maxBytes ?? Number.MAX_SAFE_INTEGER;
         const length = Number(res.headers.get('content-length') ?? 0);
+        const encoding = res.headers.get('content-encoding');
+        const transferTotal =
+          options.expectedSize ??
+          ((!encoding || encoding === 'identity') && Number.isSafeInteger(length) ? length : 0);
         if (length > maxBytes) {
           await res.body.cancel();
           throw new Error('媒体超过大小上限。');
@@ -526,7 +530,7 @@ export async function downloadUrlToFile(
               return;
             }
             hash.update(chunk);
-            options.onProgress?.(bytes, options.expectedSize ?? length);
+            options.onProgress?.(bytes, transferTotal);
             if (prefix.length < 512)
               prefix = Buffer.concat([prefix, chunk.subarray(0, 512 - prefix.length)]);
             done(null, chunk);

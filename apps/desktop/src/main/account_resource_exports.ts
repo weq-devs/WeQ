@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { z } from 'zod';
+import { albumMediaTransferTarget, mediaTransferTarget } from '../shared/transfer_progress';
 import {
   clientKeyExpiryMs,
   downloadUrlToFile,
@@ -427,8 +428,9 @@ async function downloadAlbumUrl(
   url: string,
   targetPath: string,
   signal?: AbortSignal,
+  onProgress?: (received: number, total: number) => void,
 ): Promise<void> {
-  const outcome = await downloadUrlToFile(url, targetPath, { signal });
+  const outcome = await downloadUrlToFile(url, targetPath, { signal, onProgress });
   if (!outcome.ok) throw new Error(outcome.reason);
 }
 
@@ -546,18 +548,25 @@ export async function exportQzoneAlbumMedia(
     check(): void;
     progress(current: number, total: number): void;
     resolved?: { url: string; fileName: string };
-  },
+  } & Pick<ResourceExportRunContext, 'transferProgress' | 'transferItemFinished'>,
 ): Promise<QzoneAlbumMediaExportResult> {
   requireOnlineQqForWeb(services);
   const used = new Set<string>();
   const failed: QzoneAlbumMediaExportResult['failed'] = [];
   let ok = 0;
+  context?.progress(0, input.items.length);
   await mkdir(input.outputDir, { recursive: true });
   await runWithConcurrency(
     input.items.map((item, index) => ({ item, index })),
     input.concurrency ?? 4,
     async ({ item, index }) => {
+      const target = albumMediaTransferTarget(
+        input.hostUin,
+        input.topicId,
+        qzoneAlbumMediaKey(item),
+      );
       let fileName = item.name || item.id;
+      let success = false;
       try {
         context?.check();
         context?.signal.throwIfAborted();
@@ -566,9 +575,15 @@ export async function exportQzoneAlbumMedia(
         context?.check();
         context?.signal.throwIfAborted();
         fileName = uniqueFilename(source.fileName, used);
-        await downloadAlbumUrl(source.url, join(input.outputDir, fileName), context?.signal);
+        await downloadAlbumUrl(
+          source.url,
+          join(input.outputDir, fileName),
+          context?.signal,
+          (received, total) => context?.transferProgress?.(received, total || undefined, target),
+        );
         context?.check();
         ok += 1;
+        success = true;
       } catch (e) {
         context?.signal.throwIfAborted();
         context?.check();
@@ -577,6 +592,8 @@ export async function exportQzoneAlbumMedia(
           fileName,
           error: e instanceof Error ? e.message : String(e),
         });
+      } finally {
+        context?.transferItemFinished?.(target, success);
       }
       context?.progress(ok + failed.length, input.items.length);
     },
@@ -641,7 +658,7 @@ export async function exportSelectedQzoneAlbums(
     check(): void;
     progress(current: number, total: number): void;
     folder?: string;
-  },
+  } & Pick<ResourceExportRunContext, 'transferProgress' | 'transferItemFinished'>,
 ) {
   const failed: Array<{ fileName: string; error: string }> = [];
   const folders = new Set<string>();
@@ -720,7 +737,11 @@ export async function exportSelectedQzoneAlbums(
               concurrency: 4,
               items,
             },
-            { ...context, progress: () => {} },
+            {
+              ...context,
+              progress: (current, size) =>
+                context.progress(ok + failed.length + current, total + size),
+            },
           );
           total += result.total;
           ok += result.ok;
@@ -764,7 +785,10 @@ export async function exportSelectedQzoneAlbums(
 export async function exportGroupFiles(
   services: AccountServices,
   input: z.infer<typeof exportGroupFilesInput>,
-  context?: Pick<ResourceExportRunContext, 'signal' | 'progress' | 'checkpoint'> & {
+  context?: Pick<
+    ResourceExportRunContext,
+    'signal' | 'progress' | 'checkpoint' | 'transferProgress' | 'transferItemFinished'
+  > & {
     check?: () => void;
   },
 ): Promise<GroupFileExportResult> {
@@ -806,11 +830,20 @@ export async function exportGroupFiles(
 
   const failed: GroupFileExportResult['failed'] = [];
   let ok = 0;
+  context?.progress(0, work.length);
   await mkdir(input.outputDir, { recursive: true });
   await runWithConcurrency(
     work,
     input.concurrency ?? 4,
     async (item) => {
+      const target = mediaTransferTarget({
+        kind: 'group-file',
+        groupCode: input.groupCode,
+        fileId: item.fileId,
+        fileName: item.fileName,
+        busId: item.busId,
+      });
+      let success = false;
       try {
         const download = async () => {
           context?.check?.();
@@ -824,6 +857,8 @@ export async function exportGroupFiles(
           context?.check?.();
           const outcome = await downloadUrlToFile(url, item.targetPath, {
             signal: context?.signal,
+            onProgress: (received, total) =>
+              context?.transferProgress?.(received, total || undefined, target),
           });
           if (!outcome.ok) throw new Error(outcome.reason);
           context?.check?.();
@@ -837,6 +872,7 @@ export async function exportGroupFiles(
           );
         else await download();
         ok += 1;
+        success = true;
       } catch (e) {
         context?.signal.throwIfAborted();
         context?.check?.();
@@ -846,6 +882,8 @@ export async function exportGroupFiles(
           fileName: item.fileName,
           error: e instanceof Error ? e.message : String(e),
         });
+      } finally {
+        context?.transferItemFinished?.(target, success);
       }
       context?.progress(ok + failed.length, work.length);
     },
@@ -919,7 +957,14 @@ export async function runResumableAlbumResource(
           : await exportSelectedQzoneAlbums(
               services,
               { hostUin: album.owner, outputDir: parent, albums: selection },
-              { signal, progress, check, folder: fixedFolder },
+              {
+                signal,
+                progress,
+                check,
+                folder: fixedFolder,
+                transferProgress: context.transferProgress,
+                transferItemFinished: context.transferItemFinished,
+              },
             );
       check();
       signal.throwIfAborted();

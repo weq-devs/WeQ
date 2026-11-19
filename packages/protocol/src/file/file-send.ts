@@ -148,6 +148,8 @@ export interface GroupFileSendParams {
   /** 上传完是否发布成群聊气泡；缺省 true。 */
   publish?: boolean;
   beforeSend?: () => void;
+  onProgress?: (confirmed: number, total: number) => void;
+  onUploaded?: () => void;
   log?: (message: string) => void;
 }
 
@@ -239,11 +241,14 @@ export async function sendGroupFile(
       fileMd5: hashes.md5,
       extend,
       log,
+      beforeSend: params.beforeSend,
+      onProgress: params.onProgress,
     });
   } else {
     log?.('群文件命中秒传（服务端已持有该 md5，未传字节）');
   }
 
+  params.onUploaded?.();
   const publish = params.publish !== false;
   params.beforeSend?.();
   if (publish) await invokeOidb(nt, pid, PublishGroupFile, { groupId, fileId });
@@ -379,6 +384,8 @@ export interface PrivateFileSendParams {
   send?: boolean;
   /** 长上传期间的账号 / 运行时检查；失败时不继续发布。 */
   beforeSend?: () => void;
+  onProgress?: (confirmed: number, total: number) => void;
+  onUploaded?: () => void;
   log?: (message: string) => void;
 }
 
@@ -496,6 +503,8 @@ export async function sendPrivateFile(
       fileMd5: hashes.md5,
       extend,
       log,
+      beforeSend: params.beforeSend,
+      onProgress: params.onProgress,
     });
   } else {
     log?.('私聊文件命中秒传（服务端已持有该 md5，未传字节）');
@@ -503,6 +512,7 @@ export async function sendPrivateFile(
 
   // finalize 是**尽力而为**：`file` 本身已够收端下载，`field6` 只是加强。
   // 失败只记日志，不让整条发送跟着失败。
+  params.onUploaded?.();
   let meta: FinalizeMetadata | null = null;
   params.beforeSend?.();
   try {

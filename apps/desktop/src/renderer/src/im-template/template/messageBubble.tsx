@@ -14,6 +14,8 @@ import {
   X,
 } from 'lucide-react';
 import { MessageSelectionMark } from '../../components/MessageSelectionMark';
+import { TransferRing, transferLabel } from '../../components/TransferRing';
+import { useTransferProgress } from '../../lib/transferActivity';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import {
   defaultMessageRenderers,
@@ -120,6 +122,44 @@ function PendantOverlay({
         />
       ) : null}
       {qqShowSrc ? <QqShowAvatar key={qqShowSrc} src={qqShowSrc} /> : null}
+    </span>
+  );
+}
+
+function OutgoingSendProgress({
+  transferId,
+  outgoingToHost,
+}: Pick<Message, 'transferId' | 'outgoingToHost'>) {
+  const transfer = useTransferProgress(transferId);
+  const toHost = IS_WEB && outgoingToHost && (!transfer || transfer.phase === 'to-host');
+  const progress = toHost
+    ? (transfer ?? { phase: 'to-host' as const })
+    : transfer?.phase === 'to-host'
+      ? undefined
+      : transfer;
+  const label = progress ? transferLabel(progress) : '发送中';
+  const monitor = toHost ? (
+    <Monitor className="weq-message-send-host" size={10} aria-hidden />
+  ) : undefined;
+  return (
+    <span
+      className={cn('weq-message-sending', toHost && 'is-to-host')}
+      role="status"
+      aria-label={label}
+      title={label}
+    >
+      {transferId ? (
+        <TransferRing
+          progress={progress ?? { phase: 'preparing' }}
+          label={label}
+          center={monitor}
+        />
+      ) : (
+        <>
+          <LoaderCircle className="weq-message-send-spinner" size={toHost ? 22 : 16} aria-hidden />
+          {monitor}
+        </>
+      )}
     </span>
   );
 }
@@ -613,24 +653,10 @@ function MessageBubbleBody({
           <div className="weq-repeat-content">
             {content}
             {optimistic === 'sending' ? (
-              <span
-                className={cn(
-                  'weq-message-sending',
-                  IS_WEB && message.outgoingToHost && 'is-to-host',
-                )}
-                role="status"
-                aria-label={IS_WEB && message.outgoingToHost ? '正在传给电脑' : '发送中'}
-                title={IS_WEB && message.outgoingToHost ? '正在传给电脑' : '发送中'}
-              >
-                <LoaderCircle
-                  className="weq-message-send-spinner"
-                  size={IS_WEB && message.outgoingToHost ? 22 : 16}
-                  aria-hidden
-                />
-                {IS_WEB && message.outgoingToHost ? (
-                  <Monitor className="weq-message-send-host" size={10} aria-hidden />
-                ) : null}
-              </span>
+              <OutgoingSendProgress
+                transferId={message.transferId}
+                outgoingToHost={message.outgoingToHost}
+              />
             ) : (
               repeatAction
             )}

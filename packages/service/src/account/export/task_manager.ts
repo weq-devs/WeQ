@@ -429,6 +429,8 @@ export interface ExportTask {
     directDownload?: boolean;
     /** 原始资源身份，用于从消息定位已保存的文件，不能仅按同名文件匹配。 */
     sourceKey?: string;
+    /** 仅保留进度关联用的短标识，字节计数不随任务持久化。 */
+    transferTargets?: string[];
   };
   save?: ExportSaveState;
   directOutput?: DirectOutput;
@@ -608,7 +610,29 @@ export interface ResourceExportRunContext {
   directory: string;
   signal: AbortSignal;
   progress(current: number, total: number): void;
-  transferProgress?(received: number, total?: number): void;
+  transferProgress?(received: number, total?: number, item?: string): void;
+  transferItemFinished?(item: string, success: boolean): void;
+}
+
+interface TransferBytes {
+  received: number;
+  total?: number;
+}
+interface ResourceTransfer {
+  bytes: TransferBytes;
+  files: Map<string, TransferBytes>;
+  completedBytes: number;
+  completedKnown: number;
+}
+
+function tracksResourceTransfer(task: ExportTask): boolean {
+  const kind = task.resource?.kind;
+  return (
+    Boolean(task.resource?.transferTargets?.length) ||
+    kind === 'media' ||
+    kind === 'group-files' ||
+    kind === 'qzone-albums'
+  );
 }
 
 /** 任务列表 wire 视图：ExportTask + 内存日志（不持久化，重启后清空）。 */
@@ -733,7 +757,8 @@ export class ExportTaskManager extends EventEmitter {
   private queueReleases = new Map<string, () => void>();
   private executions = new Map<string, Promise<void>>();
   private tasks = new Map<string, ExportTask>();
-  private readonly mediaTransfers = new WeakMap<ExportTask, { received: number; total?: number }>();
+  private readonly resourceTransfers = new Map<ExportTask, ResourceTransfer>();
+  private readonly transferListeners = new Set<() => void>();
   private abortControllers = new Map<string, AbortController>();
   /** 任务日志（内存环形缓冲，不随 export_tasks.json 持久化）。 */
   private taskLogs = new Map<string, TaskLogLine[]>();
@@ -1075,6 +1100,8 @@ export class ExportTaskManager extends EventEmitter {
   override emit(event: 'progress', data: TaskProgress): boolean {
     const emitted = super.emit(event, data);
     const task = this.tasks.get(data.taskId);
+    if (task && data.status !== 'pending' && data.status !== 'running')
+      this.resourceTransfers.delete(task);
     if (data.status === 'completed' && task?.save?.status === 'pending')
       void this.saveTaskOutput(task.id).catch(() => undefined);
     return emitted;
@@ -1334,15 +1361,57 @@ export class ExportTaskManager extends EventEmitter {
     return this.tasks.get(id) ?? null;
   }
 
-  activeMediaTransfer(sourceKey: string): { received: number; total?: number } | null {
-    let queued = false;
-    for (const task of this.tasks.values()) {
-      if (task.resource?.kind !== 'media' || task.resource.sourceKey !== sourceKey) continue;
-      if (task.status === 'running')
-        return { ...(this.mediaTransfers.get(task) ?? { received: 0 }) };
-      if (task.status === 'pending') queued = true;
-    }
-    return queued ? { received: 0 } : null;
+  subscribeResourceTransfers(listener: () => void): () => void {
+    this.transferListeners.add(listener);
+    return () => this.transferListeners.delete(listener);
+  }
+
+  private resourceTransferChanged(): void {
+    for (const listener of this.transferListeners) listener();
+  }
+
+  private beginResourceTransfer(task: ExportTask): ResourceTransfer {
+    const transfer = {
+      bytes: { received: 0 },
+      files: new Map<string, TransferBytes>(),
+      completedBytes: 0,
+      completedKnown: 0,
+    };
+    this.resourceTransfers.set(task, transfer);
+    this.resourceTransferChanged();
+    return transfer;
+  }
+
+  activeResourceTransfers() {
+    return [...this.resourceTransfers.entries()].flatMap(([task, transfer]) => {
+      if (task.status !== 'pending' && task.status !== 'running') return [];
+      let bytes = transfer.bytes;
+      if (task.resource?.kind === 'group-files' && task.total > 0) {
+        const files = [...transfer.files.values()];
+        if (
+          transfer.completedKnown + files.length === task.total &&
+          files.every((file) => file.total)
+        )
+          bytes = files.reduce<{ received: number; total: number }>(
+            (sum, file) => ({
+              received: sum.received + file.received,
+              total: sum.total + file.total!,
+            }),
+            { received: transfer.completedBytes, total: transfer.completedBytes },
+          );
+      }
+      return [
+        {
+          id: task.id,
+          targets: task.resource?.transferTargets,
+          status: task.status,
+          ...bytes,
+          processed: task.current,
+          items: task.total,
+          files: [...transfer.files].map(([target, progress]) => ({ target, ...progress })),
+        },
+      ];
+    });
   }
 
   async preflight(opts: {
@@ -1894,6 +1963,7 @@ export class ExportTaskManager extends EventEmitter {
     savePolicy?: ExportSavePolicy;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     sourceKey?: string;
+    transferTarget?: string | readonly string[];
     run(context: ResourceExportRunContext): Promise<ResourceExportSummary>;
     onPublished?(directory: string): void;
   }): Promise<string> {
@@ -1932,6 +2002,14 @@ export class ExportTaskManager extends EventEmitter {
           ? { directDownload: true }
           : {}),
         ...(opts.sourceKey ? { sourceKey: opts.sourceKey } : {}),
+        ...(opts.transferTarget?.length
+          ? {
+              transferTargets:
+                typeof opts.transferTarget === 'string'
+                  ? [opts.transferTarget]
+                  : [...opts.transferTarget],
+            }
+          : {}),
       },
       includeIntegrityReport: opts.includeIntegrityReport,
       status: 'pending',
@@ -1965,6 +2043,7 @@ export class ExportTaskManager extends EventEmitter {
     };
     this.registerTask(task, opts.savePolicy);
     this.log(id, 'task', `资源任务已创建：${task.name}`);
+    if (tracksResourceTransfer(task)) this.beginResourceTransfer(task);
     this.saveTasks();
     const run = opts.run;
     this.networkRunners.set(id, () => this.runResourceTask(task, run, opts.onPublished));
@@ -1982,8 +2061,7 @@ export class ExportTaskManager extends EventEmitter {
     const abort = new AbortController();
     this.abortControllers.set(task.id, abort);
     task.status = 'running';
-    const transfer: { received: number; total?: number } = { received: 0 };
-    if (task.resource?.kind === 'media') this.mediaTransfers.set(task, transfer);
+    const transfer = tracksResourceTransfer(task) ? this.beginResourceTransfer(task) : undefined;
     const stage = task.stages[0]!;
     stage.status = 'running';
     this.saveTasks();
@@ -2008,9 +2086,21 @@ export class ExportTaskManager extends EventEmitter {
         },
         directory,
         signal: abort.signal,
-        transferProgress: (received, total) => {
-          transfer.received = received;
-          transfer.total = total;
+        transferProgress: (received, total, item) => {
+          if (!transfer || abort.signal.aborted) return;
+          if (item) transfer.files.set(item, { received, total });
+          else transfer.bytes = { received, total };
+          this.resourceTransferChanged();
+        },
+        transferItemFinished: (item, success) => {
+          const bytes = transfer?.files.get(item);
+          if (!transfer || !bytes) return;
+          if (success && bytes.total && bytes.total === bytes.received) {
+            transfer.completedKnown++;
+            transfer.completedBytes += bytes.received;
+          }
+          transfer.files.delete(item);
+          this.resourceTransferChanged();
         },
         progress: (current, total) => {
           if (abort.signal.aborted) return;
@@ -2127,7 +2217,7 @@ export class ExportTaskManager extends EventEmitter {
         this.log(task.id, 'file', task.error, 'error');
       }
     } finally {
-      this.mediaTransfers.delete(task);
+      this.resourceTransfers.delete(task);
       try {
         if (
           (task.resource?.directDownload && task.status === 'completed') ||

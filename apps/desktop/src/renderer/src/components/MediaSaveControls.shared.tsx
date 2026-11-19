@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ExportSavePolicy } from '@weq/service';
 import type { MediaSaveSource } from '../../../shared/media_save';
-import { client, trpc } from '../trpc/client';
+import { client } from '../trpc/client';
+import { mediaTransferTarget } from '../../../shared/transfer_progress';
+import { useTransferActivity } from '../lib/transferActivity';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { IS_WEB } from '../lib/target.shared';
 import { useRemoteClient } from '../lib/remoteClient';
@@ -44,7 +46,7 @@ async function pause(signal: AbortSignal) {
 
 export function useMediaSave() {
   const remote = useRemoteClient();
-  const utils = trpc.useUtils();
+  const transfers = useTransferActivity();
   const save = useExportSavePolicy(),
     document = useRenderDocument();
   const push = useToast((state) => state.push);
@@ -105,6 +107,7 @@ export function useMediaSave() {
     };
     pending.current = op;
     setOperation({ identity, key: sourceKey(source), browser });
+    let target: string | undefined;
     const current = () =>
       pending.current === op && save.isCurrent() && !op.controller.signal.aborted;
     try {
@@ -115,6 +118,8 @@ export function useMediaSave() {
           ? await save.prepareSave(intent, { kind: 'bundle', name: sourceName(source) })
           : save.policy;
       if (!policy || !current()) return { taskId: null, cancelled: true };
+      target = mediaTransferTarget(selected);
+      transfers?.setLocal(target, { phase: 'preparing' });
       op.taskId = await client.account.mediaSave.save.mutate({
         ...op.expected,
         source: selected,
@@ -122,14 +127,6 @@ export function useMediaSave() {
       });
       if (op.cancelled && op.taskId) await stopTask(op);
       if (!op.taskId || !current()) return { taskId: op.taskId, cancelled: true };
-      if (selected.kind === 'chat-file') {
-        const lookup = { ...op.expected, source: selected };
-        utils.account.mediaSave.activeFileTransfer.setData(
-          lookup,
-          (prior) => prior ?? { received: 0 },
-        );
-        void utils.account.mediaSave.activeFileTransfer.invalidate(lookup);
-      }
       if (!browser) {
         notifyTaskCreated(op.taskId, '正在保存媒体');
         return { taskId: op.taskId };
@@ -183,6 +180,7 @@ export function useMediaSave() {
       }
       return { taskId: op.taskId, cancelled: true };
     } finally {
+      if (target) transfers?.setLocal(target);
       if (pending.current === op) pending.current = null;
       setOperation((previous) => (previous?.identity === identity ? null : previous));
     }

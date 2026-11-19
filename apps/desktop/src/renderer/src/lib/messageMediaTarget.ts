@@ -1,6 +1,7 @@
 import type { Message } from '../im-template/template/types';
 import type { MessageMediaTarget } from '../../../shared/message_media';
 import type { MediaSaveSource } from '../../../shared/media_save';
+import { messageTransferTarget } from '../../../shared/transfer_progress';
 import { localFileUrl, localVoiceFileUrl, mediaUrl } from './resourceUrl';
 import { messageFavoriteEmojiUrl } from './messageFavoriteEmoji';
 import { flashPicUrl } from './cdn';
@@ -76,8 +77,14 @@ export function messageMediaTarget(
                 md5,
                 orig: String(data.originalUrl ?? ''),
                 recv: kind === 'emoji' ? 1 : 0,
-                ...(forward && (kind === 'video' || kind === 'ptt')
-                  ? { msgId, conv, fwdMsgId: message.msgId || '', fwdKind: forward.carrier.kind }
+                ...(kind === 'video' || kind === 'ptt'
+                  ? {
+                      msgId,
+                      conv,
+                      ...(forward
+                        ? { fwdMsgId: message.msgId || '', fwdKind: forward.carrier.kind }
+                        : {}),
+                    }
                   : {}),
                 ...(fwdResId && (kind === 'video' || kind === 'ptt') ? { fwdResId } : {}),
               });
@@ -119,5 +126,15 @@ export function messageMediaSaveSource(target: MessageMediaTarget): MediaSaveSou
             : {}),
         }
       : null;
-  return target.url ? { kind: 'url', url: target.url, name: target.name || undefined } : null;
+  if (!target.url) return null;
+  const progressTarget =
+    target.kind === 'pic' || target.kind === 'video'
+      ? messageTransferTarget(target.kind, target.msgId, target.token, target.name, target)
+      : undefined;
+  return {
+    kind: 'url',
+    url: target.url,
+    name: target.name || undefined,
+    ...(progressTarget ? { progressTarget } : {}),
+  };
 }

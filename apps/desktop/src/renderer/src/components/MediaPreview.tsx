@@ -16,6 +16,7 @@ import { mediaZoomKeyDown } from './MediaPreviewControls.shared';
 import { useZoomPan } from './useZoomPan';
 import { PreviewOcr } from './usePreviewOcr';
 import { MediaSourceSave } from './MediaSaveControls';
+import { MediaLoadingRing, useVideoBuffering } from './TransferRing';
 import { exportMedia } from '../lib/mediaExport';
 import { useToastApi } from './Toast.shared';
 import { retainObjectUrl } from '../lib/objectUrl';
@@ -314,6 +315,7 @@ function MediaPreviewItemBody({
   const video = useRef<HTMLVideoElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const eventKey = `${item.key}:${current.kind}:${src}:${attempt}`;
+  const buffering = useVideoBuffering(eventKey, active && current.kind === 'video');
   const latestEvent = useRef(eventKey);
   latestEvent.current = eventKey;
   const setVideo = useCallback(
@@ -434,11 +436,14 @@ function MediaPreviewItemBody({
               <MediaSourceSave
                 key={`${item.key}:${source}`}
                 source={
-                  item.saveSource ?? {
-                    kind: 'url',
-                    url: resolved?.key === item.key ? resolved.saveSrc : source,
-                    name: item.title,
-                  }
+                  item.saveSource?.kind === 'url' && item.progressTarget
+                    ? { ...item.saveSource, progressTarget: item.progressTarget }
+                    : (item.saveSource ?? {
+                        kind: 'url',
+                        url: resolved?.key === item.key ? resolved.saveSrc : source,
+                        name: item.title,
+                        progressTarget: item.progressTarget,
+                      })
                 }
                 className="weq-lightbox-action"
                 label={
@@ -549,6 +554,7 @@ function MediaPreviewItemBody({
             autoPlay={active}
             muted={item.isLivePhoto === true}
             playsInline
+            {...buffering.events}
             style={{ ...zoom.style, touchAction: zoom.zoomed ? 'none' : 'auto' }}
             onMouseDown={(event) => {
               if (
@@ -569,14 +575,20 @@ function MediaPreviewItemBody({
                 surface.focus({ preventScroll: true });
             }}
             onCanPlay={() => {
+              buffering.events.onCanPlay();
               if (latestEvent.current === eventKey) setStatus('ready');
             }}
             onError={() => {
+              buffering.events.onError();
               if (latestEvent.current === eventKey) setStatus('error');
             }}
           />
         ) : null}
-        {/* 播放器挂载后使用原生加载提示，避免叠加两组转圈。 */}
+        {active &&
+          !waiting &&
+          current.kind === 'video' &&
+          status !== 'error' &&
+          buffering.waiting && <MediaLoadingRing label="正在缓冲视频" />}
         {waiting || current.kind === 'image' || status === 'error' ? (
           <MediaLoadStatus
             kind={current.kind === 'image' ? '图片' : '视频'}

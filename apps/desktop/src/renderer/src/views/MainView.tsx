@@ -195,7 +195,8 @@ import {
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
 import { OutgoingQueue } from '../lib/outgoingQueue';
 import { matchGeneratedMessages } from '../lib/generatedOutgoing';
-import { useOutgoingReceipts } from '../hooks/useOutgoingReceipts';
+import { newOutgoingRequestId, useOutgoingReceipts } from '../hooks/useOutgoingReceipts';
+import { TransferActivityProvider, useTransferActivity } from '../lib/transferActivity';
 import { readVideoMeta } from '../im-template/template/composerMedia';
 import { releaseObjectUrl } from '../lib/objectUrl';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
@@ -593,7 +594,16 @@ export function MainView(): ReactElement {
   if (config.isLoading) return <WorkspaceStartupLoading />;
   const workspace = (
     <PageSnapshots scope={scope} resetOnMount={startupPage !== null}>
-      <MainWorkspace key={scope ?? `pending:${uin ?? ''}`} />
+      <TransferActivityProvider
+        key={scope ?? `pending:${uin ?? ''}`}
+        binding={
+          scope && uin && configId
+            ? { expectedAccountUin: uin, expectedAccountConfigId: configId }
+            : null
+        }
+      >
+        <MainWorkspace />
+      </TransferActivityProvider>
     </PageSnapshots>
   );
   return IS_WEB && scope ? (
@@ -610,6 +620,7 @@ export function MainView(): ReactElement {
 }
 
 function MainWorkspace(): ReactElement {
+  const transferActivity = useTransferActivity();
   const firstPageStreamReady = useWebConnection((state) => state.status === 'connected');
   const [startupView] = useState(() => useViewState.getState().startupPage);
   useEffect(() => {
@@ -6823,6 +6834,11 @@ function MainWorkspace(): ReactElement {
     };
 
     let plan: ComposerSendPlan;
+    let transferId: string | undefined;
+    const reportToHost = (received: number, total: number) => {
+      if (transferId && isCurrent())
+        transferActivity?.setLocal(transferId, { phase: 'to-host', received, total });
+    };
     let outcome: {
       ok: boolean;
       result?: number;
@@ -6847,6 +6863,18 @@ function MainWorkspace(): ReactElement {
           ? await repeated.plan()
           : repeated.plan
         : buildComposerSendPlan({ body, locals: locals ?? [], superStickers });
+      if (
+        plan.kind === 'file' ||
+        (plan.kind === 'elements' &&
+          plan.elements.some((element) =>
+            ['image', 'video', 'bubbleVideo', 'flashPhoto'].includes(
+              String((element as { kind?: string })?.kind),
+            ),
+          ))
+      ) {
+        transferId = newOutgoingRequestId();
+        patchOptimistic({ transferId });
+      }
       if (plan.kind === 'elements')
         plan.elements = await resolveSendMentions(plan.elements, (elements) =>
           resolveMentions(elements, conversation, isCurrent),
@@ -6885,15 +6913,21 @@ function MainWorkspace(): ReactElement {
             ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
             peerType: target.peerType,
             targetId: target.targetId,
+            transferId,
             ...source,
             fileName,
           });
         if (plan.file !== undefined) {
           if (!expectedAccountConfigId) throw new Error('账号来源未就绪，请重新打开会话');
-          const staged = await stageAccountFile(plan.file, {
-            expectedAccountUin: user.identityValue,
-            expectedAccountConfigId,
-          });
+          const staged = await stageAccountFile(
+            plan.file,
+            {
+              expectedAccountUin: user.identityValue,
+              expectedAccountConfigId,
+            },
+            undefined,
+            reportToHost,
+          );
           if (!isCurrent()) throw new Error('账号或会话已切换，未发送文件');
           outcome = await sendFile({ path: staged.path });
         } else if (plan.path !== undefined) outcome = await sendFile({ path: plan.path });
@@ -6908,6 +6942,7 @@ function MainWorkspace(): ReactElement {
             plan.bytes,
             isCurrent,
             (uploadId) => sendFile({ uploadId }),
+            reportToHost,
           );
         }
       } else if (plan.kind === 'voice') {
@@ -6948,6 +6983,7 @@ function MainWorkspace(): ReactElement {
           targetId: target.targetId,
           ...(target.tempGroupCode ? { tempGroupCode: target.tempGroupCode } : {}),
           elements: toIpcElements(plan.elements),
+          transferId,
         });
       }
     } catch (error) {
@@ -6959,6 +6995,8 @@ function MainWorkspace(): ReactElement {
         detail: reason,
       });
       throw error;
+    } finally {
+      if (transferId) transferActivity?.setLocal(transferId);
     }
 
     // 服务端明确拒绝（result≠0）不抛传输异常，只能靠回执判断 —— 不把「调用了」当「发成功」。
@@ -7185,6 +7223,7 @@ function MainWorkspace(): ReactElement {
         }),
     );
     const optimisticId = `optimistic-${mfId('flp')}`;
+    const transferId = newOutgoingRequestId();
     const optimisticElement = (url: string, name: string): unknown => ({
       type: 'pic',
       data: {
@@ -7202,6 +7241,7 @@ function MainWorkspace(): ReactElement {
       ...current,
       {
         id: optimisticId,
+        transferId,
         convId: conversation.id,
         body: FLASH_PHOTO_PLACEHOLDER_TEXT,
         afterSeq: outgoingAfterSeq(conversation.id),
@@ -7225,6 +7265,7 @@ function MainWorkspace(): ReactElement {
         ...outgoingReceipt(optimisticId),
         expectedAccountUin: user.identityValue,
         expectedAccountConfigId,
+        transferId,
         peerType: target.peerType,
         targetId: target.targetId,
         elements: toIpcElements([

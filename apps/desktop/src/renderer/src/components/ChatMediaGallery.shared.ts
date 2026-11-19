@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 import { localFileUrl, mediaUrl } from '../lib/resourceUrl';
 import { timelineRowKey } from '../../../shared/roaming_timeline';
 import type { PreviewMedia } from './mediaPreviewTypes';
+import { messageTransferTarget } from '../../../shared/transfer_progress';
 
 export interface GalleryMessage {
   msgId: string;
@@ -85,6 +86,13 @@ export function galleryMedia(
             element: mediaIndex - 1,
           },
           kind: image ? 'image' : 'video',
+          progressTarget: messageTransferTarget(
+            image ? 'pic' : 'video',
+            carrier?.msgId ?? message.msgId,
+            token,
+            name,
+            carrier ? { fwdMsgId: message.msgId, fwdResId: carrier.resId } : undefined,
+          ),
           src,
           saveSource: src.startsWith('blob:')
             ? data.localPath

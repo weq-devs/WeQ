@@ -56,6 +56,7 @@ export async function pickAccountFile(
   kind: AccountFileKind,
   binding?: FileBinding,
   signal?: AbortSignal,
+  onProgress?: (received: number, total: number) => void,
 ) {
   signal?.throwIfAborted();
   if (!IS_WEB) return client.account.pickSendFile.mutate({ kind });
@@ -72,10 +73,15 @@ export async function pickAccountFile(
   );
   if (!file) return null;
   if (useViewState.getState().openedUin !== uin) throw new Error('账号已切换，请重新选择附件');
-  return stageAccountFile(file, binding, signal);
+  return stageAccountFile(file, binding, signal, onProgress);
 }
 
-export async function stageAccountFile(file: File, expected?: FileBinding, signal?: AbortSignal) {
+export async function stageAccountFile(
+  file: File,
+  expected?: FileBinding,
+  signal?: AbortSignal,
+  onProgress?: (received: number, total: number) => void,
+) {
   signal?.throwIfAborted();
   if (!file.size || file.size > 2 * 1024 ** 3) throw new Error('请选择 2 GiB 以内的非空文件');
   const config = expected
@@ -98,6 +104,7 @@ export async function stageAccountFile(file: File, expected?: FileBinding, signa
     name: file.name,
   });
   try {
+    onProgress?.(0, file.size);
     check();
     for (let offset = 0; offset < file.size; offset += BROWSER_FILE_CHUNK_BYTES) {
       check();
@@ -115,6 +122,8 @@ export async function stageAccountFile(file: File, expected?: FileBinding, signa
         base64: btoa(binary),
       });
       if (next.offset !== offset + bytes.length) throw new Error('附件接收进度不匹配');
+      check();
+      onProgress?.(next.offset, file.size);
     }
     check();
     const completed = await client.account.pickedFileFinish.mutate({ ...binding, uploadId: id });

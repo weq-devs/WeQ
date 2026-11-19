@@ -40,6 +40,12 @@ import { client } from '../trpc/client';
 import { fileIconUrl } from '../lib/resourceUrl';
 import { useToast } from './Toast.shared';
 import { taskNotificationSource } from '../lib/notificationNavigation.shared';
+import { TransferRing, transferDetail } from './TransferRing';
+import { useTransferProgress } from '../lib/transferActivity';
+import {
+  flashFileTransferTarget,
+  flashFilesetTransferTarget,
+} from '../../../shared/transfer_progress';
 import '../styles/flash-transfer.css';
 
 function EmbeddedTransfer({ children }: ComponentProps<typeof Modal>): ReactElement {
@@ -136,6 +142,15 @@ function fileExtIcon(fileName: string): string {
   return map[ext] ?? 'unknown.png';
 }
 
+function FlashFileProgress({ file }: { file: FlashEntry }) {
+  const progress = useTransferProgress(
+    file.isDir ? undefined : flashFileTransferTarget(file.filesetId, file.physicalId),
+  );
+  return progress ? (
+    <TransferRing progress={progress} label={`下载 ${file.name}`} size={18} />
+  ) : null;
+}
+
 export function FlashTransferViewer({
   filesetId,
   title,
@@ -163,6 +178,8 @@ export function FlashTransferViewer({
   const [sharing, setSharing] = useState(false);
   const openTasks = useWorkspaceMenu((state) => state.openTasks);
   const [starting, setStarting] = useState(false);
+  const downloads = useTransferProgress(flashFilesetTransferTarget(filesetId, 'download'));
+  const upload = useTransferProgress(flashFilesetTransferTarget(filesetId, 'upload'));
   const showTasks = (): void => {
     openTasks();
     onClose();
@@ -507,6 +524,11 @@ export function FlashTransferViewer({
             {current.zipFileId ? (
               <span className="weq-ft-toolbar-hint">正在浏览压缩包内容</span>
             ) : null}
+            {upload?.phase === 'failed' ? (
+              <span role="status">文件上传失败</span>
+            ) : upload ? (
+              <TransferRing progress={upload} label="闪传文件上传进度" size={18} />
+            ) : null}
           </div>
 
           <div className="weq-ft-body">
@@ -578,6 +600,7 @@ export function FlashTransferViewer({
                           {!ready && !file.isDir ? ' · 等待上传' : ''}
                         </span>
                       </div>
+                      <FlashFileProgress file={file} />
                       <label
                         className={`weq-ft-check${!ready ? ' weq-ft-check-disabled' : ''}`}
                         onClick={(e) => {
@@ -626,12 +649,22 @@ export function FlashTransferViewer({
               disabled={selectedCount === 0 || starting}
               onClick={() => void handleStart()}
             >
-              {starting ? (
-                <Loader2 size={15} strokeWidth={2} className="weq-spin" aria-hidden />
+              {starting || downloads ? (
+                <TransferRing
+                  progress={downloads ?? { phase: 'preparing' }}
+                  label="闪传下载进度"
+                  size={16}
+                />
               ) : (
                 <Download size={15} strokeWidth={2} aria-hidden />
               )}
-              <span>{starting ? '解析中…' : '下载'}</span>
+              <span>
+                {starting
+                  ? '解析中…'
+                  : downloads
+                    ? (transferDetail(downloads) ?? '正在下载')
+                    : '下载'}
+              </span>
             </button>
           </footer>
         </div>

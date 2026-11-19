@@ -109,6 +109,8 @@ export interface SendMessageParams {
     /** 自己 uid —— 闪照的老式上传（`LongConn.OffPicUp`）要带。 */
     selfUid?: string;
     log?: (message: string) => void;
+    onUploadProgress?: MediaSendContext['onUploadProgress'];
+    onUploaded?: () => void;
   };
 }
 
@@ -335,6 +337,7 @@ function resolveMediaContext(
     userUid: params.userUid ?? params.groupTemp?.toUid,
     ...(media.selfUid ? { selfUid: media.selfUid } : {}),
     ...(media.log ? { log: media.log } : {}),
+    onUploadProgress: media.onUploadProgress,
     ...(onUpload ? { onUpload } : {}),
   };
 }
@@ -470,6 +473,7 @@ export async function sendMessage(
 ): Promise<SendMessageReceipt> {
   const uploads: SendMediaUploadReport[] = [];
   const built = await buildSendRequestWithMedia(params, (report) => uploads.push(report));
+  params.media?.onUploaded?.();
   // `MessageSvc.PbSendMsg` 在签名清单里。
   const responseBytes = await sendPacket(nt, pid, SEND_MSG_CMD, built.bytes);
   const response = parseSendResponse(responseBytes);

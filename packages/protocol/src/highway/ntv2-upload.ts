@@ -97,6 +97,7 @@ export interface Ntv2UploadParams {
   uploads: MediaSubFileUpload[];
   label?: string;
   log?: (message: string) => void;
+  onProgress?: (confirmed: number, total: number) => void;
   /**
    * 覆盖 `upload.clientRandomId`。
    *
@@ -178,10 +179,19 @@ export async function runNtv2Upload(
 
   let session: HighwaySession | null = null;
   let didPut = false;
+  const transferSize = (sub: MediaSubFileUpload) =>
+    sub.fileSource?.fileSize ?? sub.bytes?.length ?? 0;
+  const total = params.onProgress
+    ? params.uploads.reduce((sum, sub) => {
+        const target = sub.source === 'top' ? upload : upload.subFileInfos?.[sub.source];
+        return sum + (target?.uKey ? transferSize(sub) : 0);
+      }, 0)
+    : 0;
+  let confirmed = 0;
   for (const sub of params.uploads) {
     const target = sub.source === 'top' ? upload : upload.subFileInfos?.[sub.source];
     const uKey = target?.uKey ?? '';
-    const size = sub.fileSource ? sub.fileSource.fileSize : (sub.bytes?.length ?? 0);
+    const size = transferSize(sub);
 
     // 没 uKey = 服务端已持有该资源（fast-upload 命中），不需要传字节。
     if (!uKey) {
@@ -215,6 +225,7 @@ export async function runNtv2Upload(
       ? await FileChunkSource.open(sub.fileSource.filePath, sub.fileSource.fileSize)
       : new BufferChunkSource(sub.bytes ?? new Uint8Array(0));
 
+    let confirmedForSub = 0;
     await uploadHighwayHttp({
       session,
       uin: String(params.uin),
@@ -223,7 +234,14 @@ export async function runNtv2Upload(
       fileMd5: sub.md5,
       extend,
       log,
+      onProgress: params.onProgress
+        ? (received) => {
+            confirmedForSub = received;
+            params.onProgress?.(confirmed + received, total);
+          }
+        : undefined,
     });
+    confirmed += confirmedForSub;
     didPut = true;
   }
   if (!didPut) log?.(`${label} 全部子文件命中 fast-upload，无需上传字节`);

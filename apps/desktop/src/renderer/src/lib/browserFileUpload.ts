@@ -21,6 +21,7 @@ export async function withBrowserFile<T>(
   bytes: Uint8Array,
   isCurrent: () => boolean,
   send: (uploadId: string) => Promise<T>,
+  onProgress?: (received: number, total: number) => void,
 ): Promise<T> {
   if (!bytes.length || bytes.length > BROWSER_FILE_MAX_BYTES)
     throw new Error('请选择 100 MB 以内的非空文件');
@@ -30,6 +31,7 @@ export async function withBrowserFile<T>(
   check();
   const { id } = await api.browserFileStart.mutate({ ...binding, size: bytes.length });
   try {
+    onProgress?.(0, bytes.length);
     for (let offset = 0; offset < bytes.length; offset += BROWSER_FILE_CHUNK_BYTES) {
       check();
       const chunk = bytes.subarray(offset, offset + BROWSER_FILE_CHUNK_BYTES);
@@ -43,6 +45,8 @@ export async function withBrowserFile<T>(
         base64: btoa(binary),
       });
       if (next.offset !== offset + chunk.length) throw new Error('附件接收进度不匹配，请重新选择');
+      check();
+      onProgress?.(next.offset, bytes.length);
     }
     check();
     return await send(id);

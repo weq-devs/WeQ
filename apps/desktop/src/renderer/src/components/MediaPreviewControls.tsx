@@ -1,4 +1,5 @@
-import { ImageOff, Loader2, Maximize, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
+import { ImageOff, Maximize, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
+import { TransferRing } from './TransferRing';
 import type { ZoomPan } from './useZoomPan';
 import '../styles/media-preview.css';
 
@@ -20,7 +21,7 @@ export function MediaLoadStatus({
       role="status"
     >
       {status === 'loading' ? (
-        <Loader2 className="weq-spin" size={24} aria-hidden />
+        <TransferRing progress={{ phase: 'preparing' }} label={`正在加载${kind}`} size={24} />
       ) : (
         <ImageOff size={24} aria-hidden />
       )}

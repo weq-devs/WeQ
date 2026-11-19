@@ -236,6 +236,20 @@ export class FlashTransferDownloadManager extends EventEmitter {
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  activeDownloadBatches(): FlashDownloadBatch[] {
+    const active = new Set(
+      this.tasks
+        .filter((task) => !FINISHED_FLASH_STATUSES.has(task.status))
+        .map((task) => task.batchId ?? task.id),
+    );
+    // 快照仅取在途批次，避免一个分块更新去重组全部历史日志。
+    return groupFlashDownloads(
+      this.tasks
+        .filter((task) => active.has(task.batchId ?? task.id))
+        .map((task) => ({ ...task, logs: undefined })),
+    );
+  }
+
   /** 只重试失败或取消的文件；旧下载完全退出后才复用任务身份与路径。 */
   retry(taskId: string): Promise<boolean> {
     const request = this.startQueue.then(async () => {

@@ -151,6 +151,7 @@ export function optimisticMessageToTemplate(
     optimisticRejected: item.seqRejected && outgoingSequenceRejected(item),
     optimistic: item.state,
     outgoingToHost: !item.hostReceived,
+    transferId: item.transferId,
     optimisticAfterSeq: item.afterSeq,
     optimisticError: item.error,
     composerDraft: item.composerDraft,

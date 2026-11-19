@@ -240,6 +240,7 @@ describe('uploadHighwayHttp（本地假节点）', () => {
     nodes.push(node);
 
     const bytes = new Uint8Array(1024).fill(9);
+    const progress: Array<[number, number]> = [];
     await uploadHighwayHttp({
       session: node.session,
       uin: '1',
@@ -247,12 +248,14 @@ describe('uploadHighwayHttp（本地假节点）', () => {
       source: new BufferChunkSource(bytes),
       fileMd5: new Uint8Array([1]),
       extend: new Uint8Array(0),
+      onProgress: (confirmed, total) => progress.push([confirmed, total]),
     });
 
     // 第 0 块发了两次（第二次才是成功），两次偏移都是 0。
     expect(node.received.length).toBeGreaterThanOrEqual(2);
     expect(node.received[0]!.offset).toBe(0);
     expect(node.received[1]!.offset).toBe(0);
+    expect(progress).toEqual([[1024, 1024]]);
     expect(Buffer.from(node.received[1]!.body).equals(Buffer.from(bytes))).toBe(true);
   });
 

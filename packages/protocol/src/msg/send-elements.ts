@@ -602,6 +602,12 @@ export interface MediaSendContext {
    */
   selfUid?: string;
   log?: (message: string) => void;
+  onUploadProgress?: (progress: {
+    index: number;
+    count: number;
+    received: number;
+    total: number;
+  }) => void;
   /** 每个媒体元素上传完成时回调（用于把「是否走了秒传」透出去）。 */
   onUpload?: (report: SendMediaUploadReport) => void;
 }
@@ -1312,10 +1318,19 @@ export async function buildSendElemsWithMedia(
   }
 
   const target = resolveMediaTarget(ctx);
-  const options = ctx.log ? { log: ctx.log } : {};
+  const count = slots.filter((slot) => slot === null).length;
+  let ordinal = 0;
   for (let index = 0; index < elements.length; index++) {
     const element = elements[index]!;
     if (!isSendUploadElement(element)) continue;
+    const item = ordinal++;
+    const options = {
+      log: ctx.log,
+      onProgress: ctx.onUploadProgress
+        ? (received: number, total: number) =>
+            ctx.onUploadProgress?.({ index: item, count, received, total })
+        : undefined,
+    };
 
     // 闪照：老式图片通道（不是 NTV2），上传产物直接拼成图片记录。
     if (element.kind === 'flashPhoto') {

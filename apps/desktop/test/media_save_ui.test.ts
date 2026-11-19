@@ -4,6 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ExportSavePolicy } from '@weq/service';
 import { MediaSourceSave } from '../src/renderer/src/components/MediaSaveControls';
 import { useMediaSave } from '../src/renderer/src/components/MediaSaveControls.shared';
+import { TransferActivityProvider } from '../src/renderer/src/lib/transferActivity';
+import { mediaTransferTarget, type ActiveTransfer } from '../src/shared/transfer_progress';
 import { QqFile, QqVoice } from '../src/renderer/src/components/QqMedia';
 import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog';
 import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
@@ -45,9 +47,7 @@ const state = vi.hoisted(() => ({
   accepted: vi.fn(),
   open: vi.fn(),
   locations: [] as { kind: 'local' | 'cache'; key: string; available: boolean }[],
-  transfer: undefined as { received: number; total?: number } | undefined,
-  markTransfer: vi.fn(),
-  refreshTransfer: vi.fn(),
+  transferListeners: new Set<(value: ActiveTransfer[]) => void>(),
   openMessageFile: vi.fn(async (_input: unknown) => false),
   transcribe: vi.fn(),
   cacheEntries: [] as unknown[],
@@ -143,6 +143,14 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       listGroupFiles: { query: state.files },
       startGroupFileExport: { mutate: state.exportFiles },
       mediaSave: { save: { mutate: state.save }, cancel: { mutate: state.cancel } },
+      transfers: {
+        watch: {
+          subscribe: (_: unknown, handlers: { onData: (value: ActiveTransfer[]) => void }) => {
+            state.transferListeners.add(handlers.onData);
+            return { unsubscribe: () => state.transferListeners.delete(handlers.onData) };
+          },
+        },
+      },
       getExportOutputReceipt: { query: state.receipt },
       exportTaskDownload: { mutate: state.download },
       mediaResource: { openMessageFile: { mutate: state.openMessageFile } },
@@ -150,16 +158,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   trpc: {
-    useUtils: () => ({
-      account: {
-        mediaSave: {
-          activeFileTransfer: {
-            setData: state.markTransfer,
-            invalidate: state.refreshTransfer,
-          },
-        },
-      },
-    }),
+    useUtils: () => ({}),
     bootstrap: {
       getSettings: { useQuery: () => ({ data: { voiceTranscribe: { modelId: state.model } } }) },
     },
@@ -219,7 +218,6 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           useQuery: () => ({ data: state.locations, isFetched: true, refetch: vi.fn() }),
         },
       },
-      mediaSave: { activeFileTransfer: { useQuery: () => ({ data: state.transfer }) } },
       transcribeVoice: { useMutation: () => ({ mutateAsync: state.transcribe, isLoading: false }) },
     },
   },
@@ -243,9 +241,7 @@ beforeEach(() => {
   state.accepted.mockClear();
   state.open.mockClear();
   state.locations = [];
-  state.transfer = undefined;
-  state.markTransfer.mockClear();
-  state.refreshTransfer.mockClear();
+  state.transferListeners.clear();
   state.openMessageFile.mockReset().mockResolvedValue(false);
   state.transcribe.mockClear();
 });
@@ -266,7 +262,17 @@ async function mount(
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(element));
+  await act(async () =>
+    root.render(
+      h(
+        TransferActivityProvider,
+        {
+          binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },
+        },
+        element,
+      ),
+    ),
+  );
   const close = () => {
     act(() => root.unmount());
     host.remove();
@@ -487,19 +493,12 @@ it('没有本地记录的文件卡片仍走公共保存策略', async () => {
   expect(state.save.mock.calls[0]![0]).toMatchObject({
     source: { kind: 'chat-file', msgId: '41', token: 'token', conv: '123', name: 'report.txt' },
   });
-  expect(state.refreshTransfer).toHaveBeenCalledWith(
-    expect.objectContaining({
-      expectedAccountConfigId: 'source-a',
-      source: expect.objectContaining({ kind: 'chat-file', msgId: '41', token: 'token' }),
-    }),
-  );
   expect(view.host.querySelector('.qq-media-file-open button')).toBeNull();
   expect(view.host.querySelector('.qq-media-file-name')?.getAttribute('title')).toBe('report.txt');
 });
 it.each([200, undefined])(
   '活动下载在文件卡片显示圆环，已知总大小 %s 才显示百分比',
   async (total) => {
-    state.transfer = { received: 50, total };
     const view = await mount(
       h(QqFile, {
         data: { fileName: 'report.txt', fileToken: 'token' },
@@ -508,11 +507,28 @@ it.each([200, undefined])(
         conv: '123',
       }),
     );
+    const target = mediaTransferTarget({
+      kind: 'chat-file',
+      msgId: '41',
+      conv: '123',
+      token: 'token',
+      name: 'report.txt',
+    });
+    act(() => {
+      for (const publish of state.transferListeners)
+        publish([
+          { id: 'download', target, direction: 'download', phase: 'download', received: 50, total },
+        ]);
+    });
     const ring = view.host.querySelector('[role="progressbar"]');
     expect(ring).not.toBeNull();
     expect(ring?.getAttribute('aria-valuenow')).toBe(total ? '25' : null);
     expect(view.host.querySelector('[aria-label="保存文件"]')).toBeNull();
     expect(view.host.querySelector<HTMLButtonElement>('.qq-media-file-open')?.disabled).toBe(true);
+    act(() => {
+      for (const publish of state.transferListeners) publish([]);
+    });
+    expect(view.host.querySelector('[role="progressbar"]')).toBeNull();
   },
 );
 it('语音消息不显示保存按钮，也不自动保存、播放或转写', async () => {

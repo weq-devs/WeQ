@@ -435,6 +435,8 @@ async function httpPostFrame(
   return readHttpResponseBody(socket);
 }
 
+export type UploadByteProgress = (confirmed: number, total: number) => void;
+
 export interface HighwayUploadParams {
   session: HighwaySession;
   /** 自己账号的 uin（字符串形式，进 head）。 */
@@ -453,6 +455,7 @@ export interface HighwayUploadParams {
   /** 可选日志钩子（默认静默）。 */
   log?: (message: string) => void;
   beforeSend?: () => void;
+  onProgress?: UploadByteProgress;
   onResponse?: (response: {
     extend: Uint8Array;
     body: Uint8Array;
@@ -485,6 +488,7 @@ export async function uploadHighwayHttp(params: HighwayUploadParams): Promise<vo
 
   try {
     let offset = 0;
+    let confirmed = 0;
     while (offset < totalSize) {
       const chunkSize = Math.min(HIGHWAY_BLOCK_SIZE, totalSize - offset);
       const chunk = await source.read(offset, chunkSize);
@@ -546,6 +550,10 @@ export async function uploadHighwayHttp(params: HighwayUploadParams): Promise<vo
             `errorCode=${errorCode} segRetCode=${segRetCode} head=${Buffer.from(respHeadBytes).toString('hex')}`,
         );
         if (errorCode === 0) {
+          if (segRetCode === 0) {
+            confirmed += chunkSize;
+            params.onProgress?.(confirmed, totalSize);
+          }
           params.onResponse?.({
             extend: resp.bytesRspExtendInfo ?? new Uint8Array(),
             body: respBody,

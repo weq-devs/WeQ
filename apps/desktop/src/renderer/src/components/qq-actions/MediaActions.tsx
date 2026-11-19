@@ -5,6 +5,9 @@ import type { QQWriteBinding, QQWriteOutcome } from '../../hooks/useQQWriteSessi
 import { client, trpc } from '../../trpc/client';
 import { localFileUrl } from '../../lib/resourceUrl';
 import { useDraftProtection } from '../../lib/draftClose';
+import { newOutgoingRequestId } from '../../hooks/useOutgoingReceipts';
+import { useTransferProgress } from '../../lib/transferActivity';
+import { TransferRing } from '../TransferRing';
 import { qzoneSelfLiked, type QzoneReplyTarget } from '../../lib/qzoneActions';
 import { qzoneReplyPresentation } from '../../lib/qzoneReplyPresentation';
 import type { QzoneInteraction } from '../../views/qzone_types';
@@ -388,6 +391,8 @@ function QzoneWriteActionsBody({
   const picture = draftPicture === undefined ? localPicture : draftPicture;
   const setPicture = onDraftPictureChange ?? setLocalPicture;
   const [commentPending, setCommentPending] = useState(false);
+  const [pictureTransfer, setPictureTransfer] = useState<{ id: string; path: string } | null>(null);
+  const progress = useTransferProgress(pictureTransfer?.id);
   const commentRunning = useRef(false),
     mounted = useRef(true);
   useEffect(() => {
@@ -409,6 +414,9 @@ function QzoneWriteActionsBody({
     try {
       await a.perform(
         async (b) => {
+          const transferId = submittedPicture ? newOutgoingRequestId() : undefined;
+          if (transferId && submittedPicture)
+            setPictureTransfer({ id: transferId, path: submittedPicture.path });
           const result = await client.account.qqActions.qzone.mutate({
             ...b,
             hostUin,
@@ -425,6 +433,7 @@ function QzoneWriteActionsBody({
               : undefined,
             content: submittedContent,
             imagePath: submittedPicture?.path,
+            transferId,
           });
           accepted = result.state === 'accepted' || result.state === 'confirmed';
           return result;
@@ -474,7 +483,10 @@ function QzoneWriteActionsBody({
       );
     } finally {
       commentRunning.current = false;
-      if (mounted.current) setCommentPending(false);
+      if (mounted.current) {
+        setPictureTransfer(null);
+        setCommentPending(false);
+      }
     }
   }
   if (mode === 'like')
@@ -525,15 +537,23 @@ function QzoneWriteActionsBody({
       {picture && (
         <div className="weq-qq-action-image">
           <img src={localFileUrl(picture.path)} alt={picture.fileName} />
-          <ActionIcon
-            label="移除评论图片"
-            onClick={() => {
-              draftRevision.current++;
-              setPicture(null);
-            }}
-          >
-            <Trash2 size={15} />
-          </ActionIcon>
+          {pictureTransfer?.path === picture.path && progress?.phase !== 'confirming' ? (
+            <TransferRing
+              progress={progress ?? { phase: 'preparing' }}
+              label="正在上传评论图片"
+              size={19}
+            />
+          ) : (
+            <ActionIcon
+              label="移除评论图片"
+              onClick={() => {
+                draftRevision.current++;
+                setPicture(null);
+              }}
+            >
+              <Trash2 size={15} />
+            </ActionIcon>
+          )}
         </div>
       )}
       <div className="weq-qq-action-bar" aria-busy={commentPending || undefined}>
@@ -570,7 +590,11 @@ function QzoneWriteActionsBody({
           onClick={() => void sendComment()}
         >
           {commentPending ? (
-            <Loader2 size={16} className="weq-qq-like-spin" aria-label="正在发送评论" />
+            <TransferRing
+              progress={progress ?? { phase: 'confirming' }}
+              label="正在发送评论"
+              size={16}
+            />
           ) : (
             <Send size={16} />
           )}

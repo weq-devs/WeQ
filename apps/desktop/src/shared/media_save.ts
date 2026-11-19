@@ -1,5 +1,5 @@
 export type MediaSaveSource =
-  | { kind: 'url'; url: string; name?: string }
+  | { kind: 'url'; url: string; name?: string; progressTarget?: string }
   | {
       kind: 'chat-file';
       msgId: string;

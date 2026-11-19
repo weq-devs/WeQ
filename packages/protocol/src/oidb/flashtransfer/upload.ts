@@ -250,6 +250,7 @@ export async function uploadFlashMainFiles(
   nt: OidbNative,
   pid: number,
   pending: FlashFilesetPending,
+  onProgress?: (confirmed: number, total?: number) => void,
 ): Promise<void> {
   const { filesetUuid, items } = pending;
 
@@ -263,9 +264,13 @@ export async function uploadFlashMainFiles(
   const prepared = results.filter(
     (r): r is { item: FlashStagedItem; upload: PreparedUpload } => r.upload !== null,
   );
+  const total = prepared.reduce((sum, { item }) => sum + item.fileSize, 0);
+  let confirmed = 0;
+  if (total) onProgress?.(0, total);
   await Promise.all(
-    prepared.map(({ item, upload }) =>
-      sliceuploadFile(
+    prepared.map(({ item, upload }) => {
+      let previous = 0;
+      return sliceuploadFile(
         item.path,
         item.fileSize,
         upload.rkey,
@@ -275,12 +280,20 @@ export async function uploadFlashMainFiles(
         {
           appid: FLASH_APPID_MAIN,
           field100: 5,
+          onProgress: onProgress
+            ? (received) => {
+                confirmed += received - previous;
+                previous = received;
+                onProgress(confirmed, total);
+              }
+            : undefined,
           ...(upload.filesetRef ? { fileRef: upload.filesetRef } : {}),
         },
-      ),
-    ),
+      );
+    }),
   );
 
+  onProgress?.(confirmed);
   await SetFilesetStatus.invoke(nt, pid, { filesetUuid });
 }
 

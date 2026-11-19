@@ -73,6 +73,8 @@ export interface DatalineFileSendParams {
   filePath: string;
   fileName?: string;
   beforeSend?: () => void;
+  onProgress?: (confirmed: number, total: number) => void;
+  onUploaded?: () => void;
   log?: (message: string) => void;
 }
 export interface DatalineFileSendResult {
@@ -230,16 +232,21 @@ export async function sendDatalineFile(
         const ack = await postBlock(target, built.packet, params.beforeSend);
         uploadedBytes += data.length;
         params.beforeSend?.();
-        if (ack.complete) break;
+        if (ack.complete) {
+          params.onProgress?.(hashes.fileSize, hashes.fileSize);
+          break;
+        }
         if (ack.nextOffset <= BigInt(offset) || ack.nextOffset > BigInt(hashes.fileSize))
           throw new Error('设备文件上传确认偏移无效，未继续发送');
         offset = Number(ack.nextOffset);
+        params.onProgress?.(offset, hashes.fileSize);
         params.log?.(`设备文件上传确认：${offset}/${hashes.fileSize}`);
       }
     } finally {
       await source.close();
     }
   }
+  params.onUploaded?.();
   params.beforeSend?.();
   const receipt = await sendMessage(nt, pid, {
     dataline: params.target,

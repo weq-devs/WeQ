@@ -121,6 +121,16 @@ import { resolveLocalOcrModel, runLocalOcr, type LocalOcrModel } from '../../ocr
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { outgoingProcedure, outgoingRouter } from '../outgoing_receipts';
+import {
+  observeUpload,
+  transferIdInput,
+  transferProgressRouter,
+  updateFlashUpload,
+} from './transfer_progress';
+import {
+  groupBatchTransferTarget,
+  qzoneBatchTransferTarget,
+} from '../../../shared/transfer_progress';
 import { createQQWriteRouter } from './qq_write';
 import { createProfileExtrasRouter } from './profile_extras';
 import { createAnalysisReportsRouter } from './analysis_reports';
@@ -1316,6 +1326,7 @@ export async function retryRecordedClone(id: string, scope: BackgroundTaskScope,
 
 export const accountRouter = router({
   outgoing: outgoingRouter,
+  transfers: transferProgressRouter,
   noticeRead: createNoticeReadRouter((input) => {
     const config = requireExpectedAccount(
       input.expectedAccountUin,
@@ -6460,6 +6471,7 @@ export const accountRouter = router({
         targetId: z.string().min(1),
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
+        transferId: transferIdInput,
         tempGroupCode: z.string().min(1).optional(),
         elements: z.array(z.any()).min(1),
         dress: z.any().optional(),
@@ -6502,16 +6514,29 @@ export const accountRouter = router({
         },
       );
       checkCurrent();
-      return services.messageSend.sendElements({
-        peerType: input.peerType,
-        targetId: input.targetId,
-        ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
-        elements: elements as never,
-        ...(input.preparedChatFont !== undefined
-          ? { preparedChatFont: input.preparedChatFont }
-          : {}),
-        ...(input.dress ? { dress: input.dress as never } : {}),
-      });
+      return observeUpload(services, input.transferId, (update) =>
+        services.messageSend.sendElements({
+          peerType: input.peerType,
+          targetId: input.targetId,
+          ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
+          elements: elements as never,
+          ...(input.preparedChatFont !== undefined
+            ? { preparedChatFont: input.preparedChatFont }
+            : {}),
+          ...(input.dress ? { dress: input.dress as never } : {}),
+          ...(input.transferId
+            ? {
+                beforeSend: checkCurrent,
+                onUploadProgress: ({ index, count, received, total }) =>
+                  update({
+                    phase: 'upload',
+                    ...(count === 1 ? { received, total } : { processed: index, items: count }),
+                  }),
+                onUploaded: () => update({ phase: 'confirming' }),
+              }
+            : {}),
+        }),
+      );
     }),
 
   browserFileStart: procedure
@@ -6562,6 +6587,7 @@ export const accountRouter = router({
           targetId: z.string().min(1),
           expectedAccountUin: z.string().min(1).optional(),
           expectedAccountConfigId: z.string().min(1).optional(),
+          transferId: transferIdInput,
           path: z.string().min(1).optional(),
           uploadId: z.string().uuid().optional(),
           fileName: z.string().min(1).optional(),
@@ -6587,23 +6613,31 @@ export const accountRouter = router({
         const host = input.uploadId ? null : getHost();
         const keepSource =
           host?.canReveal && !host.remoteClient && !pickedBrowserFiles.hasPath(path.trim());
-        const outcome = await services.messageSend.sendFile({
-          peerType: input.peerType,
-          targetId: input.targetId,
-          path,
-          ...(input.fileName ? { fileName: input.fileName } : {}),
-          ...(input.folderId ? { folderId: input.folderId } : {}),
-          beforeSend: () => {
-            if (
-              requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
-                services ||
-              services.accountConfig.getRecord()?.configId !== sourceConfigId ||
-              services.accountConfig.getRecord()?.qqPid !== sourcePid
-            )
-              throw new Error('账号数据源已切换，已停止发送文件');
-            requireQqOnlineForAlbum(services);
-          },
-        });
+        const outcome = await observeUpload(services, input.transferId, (update) =>
+          services.messageSend.sendFile({
+            peerType: input.peerType,
+            targetId: input.targetId,
+            path,
+            ...(input.fileName ? { fileName: input.fileName } : {}),
+            ...(input.folderId ? { folderId: input.folderId } : {}),
+            ...(input.transferId
+              ? {
+                  onProgress: (received, total) => update({ phase: 'upload', received, total }),
+                  onUploaded: () => update({ phase: 'confirming' }),
+                }
+              : {}),
+            beforeSend: () => {
+              if (
+                requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+                  services ||
+                services.accountConfig.getRecord()?.configId !== sourceConfigId ||
+                services.accountConfig.getRecord()?.qqPid !== sourcePid
+              )
+                throw new Error('账号数据源已切换，已停止发送文件');
+              requireQqOnlineForAlbum(services);
+            },
+          }),
+        );
         if (outcome.ok && keepSource)
           services.fileResource.rememberSentFile(
             outcome.fileId,
@@ -6758,6 +6792,10 @@ export const accountRouter = router({
         targetId: input.targetId,
         ...(input.name?.trim() ? { name: input.name.trim() } : {}),
         ...(coverPath ? { thumbPath: coverPath } : {}),
+        onUpload: (fileset, phase, received, total, shareUrl) => {
+          const shortCode = shareUrl.match(/^https?:\/\/qfile\.qq\.com\/q\/([\w-]+)/i)?.[1];
+          updateFlashUpload(services, fileset, phase, received, total, shortCode);
+        },
         uploader: {
           uin: record?.uin ?? '',
           nickname: record?.displayName ?? '',
@@ -7699,6 +7737,7 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         name: selected.name,
+        transferTarget: qzoneBatchTransferTarget(selected.hostUin),
         display: {
           action: '保存相册媒体',
           subject: resolved ? resolved.fileName : `${selected.items.length} 项`,
@@ -7762,6 +7801,13 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: selected.every((item) => item.provider === 'qzone') ? 'qzone-albums' : 'group-albums',
         resume,
+        transferTarget: [
+          ...new Set(
+            selected
+              .filter((item) => item.provider === 'qzone')
+              .map((item) => qzoneBatchTransferTarget(item.owner)),
+          ),
+        ],
         name: frozen.name,
         display: {
           action: selected.every((item) => item.provider === 'qzone')
@@ -7827,6 +7873,7 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
         resume,
+        transferTarget: qzoneBatchTransferTarget(selected.hostUin),
         name: selected.name,
         display: {
           action: '导出 QQ 空间相册',
@@ -8060,6 +8107,7 @@ export const accountRouter = router({
       return services.exportManager.startResourceExport({
         kind: 'group-files',
         resume,
+        transferTarget: groupBatchTransferTarget(selected.groupCode),
         archive: {
           extra: selected.extra,
           profile: selected.profile,

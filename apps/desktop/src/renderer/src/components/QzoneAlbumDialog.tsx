@@ -39,6 +39,12 @@ import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';
 import { MediaPreview, type PreviewMedia } from './MediaPreview';
+import { MediaTransferBadge, TransferRing, TransferSummary } from './TransferRing';
+import { useTransferProgress } from '../lib/transferActivity';
+import {
+  albumMediaTransferTarget,
+  qzoneBatchTransferTarget,
+} from '../../../shared/transfer_progress';
 import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
@@ -74,6 +80,11 @@ interface QzoneAlbumPhotoWire {
 /** Native placeholder IDs are not unique; keep selections tied to the actual media. */
 function photoKey(photo: QzoneAlbumPhotoWire): string {
   return qzoneAlbumMediaKey(photo);
+}
+
+function QzoneBatchProgress({ owner }: { owner: string }) {
+  const progress = useTransferProgress(qzoneBatchTransferTarget(owner));
+  return progress ? <TransferSummary progress={progress} label="正在下载相册" /> : null;
 }
 
 /** 秒级时间戳 → `YYYY-MM-DD`（媒体格子的日期角标）。 */
@@ -704,6 +715,7 @@ export function AlbumGridView({
 
   return (
     <div className="weq-qzal-album-list">
+      <QzoneBatchProgress owner={hostUin} />
       <ContentReferenceToolbar
         owner={owner}
         selection={selection}
@@ -734,6 +746,7 @@ export function AlbumGridView({
               <span className="weq-qzal-album-cover weq-media-frame">
                 {album.coverUrl ? (
                   <ShimmerImage
+                    mediaLoading
                     src={albumMediaUrl(album.coverUrl)}
                     alt="相册封面"
                     loading="lazy"
@@ -947,6 +960,7 @@ export function MediaView({
         src: albumMediaUrl(photo.url || photo.thumbUrl),
         poster: albumMediaUrl(photo.thumbUrl || photo.url),
         title: photo.name,
+        progressTarget: albumMediaTransferTarget(hostUin, topicId, photoKey(photo)),
         load: photo.picKey
           ? async () => {
               cancelDetail();
@@ -1008,6 +1022,7 @@ export function MediaView({
           {albumName} · <NumericText>{countText}</NumericText>
           {total > photos.length ? <NumericText>{` · 共 ${total} 项`}</NumericText> : ''}
         </span>
+        <QzoneBatchProgress owner={hostUin} />
       </div>
       <ContentReferenceToolbar
         owner={photoOwner}
@@ -1061,12 +1076,20 @@ export function MediaView({
                         src={proxied}
                         alt="相册媒体"
                         loading="lazy"
+                        mediaLoading
                         referrerPolicy="no-referrer"
+                      />
+                      <MediaTransferBadge
+                        target={albumMediaTransferTarget(hostUin, topicId, row)}
                       />
                       {photo.isVideo ? (
                         <span className="weq-qzal-media-play" aria-hidden>
                           {videoResolving === row ? (
-                            <Loader2 size={16} className="weq-spin" />
+                            <TransferRing
+                              progress={{ phase: 'preparing' }}
+                              label="正在读取视频"
+                              size={16}
+                            />
                           ) : (
                             <Play size={18} />
                           )}

@@ -52,6 +52,20 @@ import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
 import { useTabActive } from './RetainedTabs.shared';
 import { useRemoteClient } from '../lib/remoteClient';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
+import { useTransferProgress } from '../lib/transferActivity';
+import {
+  mediaTransferTarget,
+  messageTransferTarget,
+  transferPercent,
+  type TransferProgress,
+} from '../../../shared/transfer_progress';
+import {
+  MediaLoadingRing,
+  MediaTransferBadge,
+  TransferRing,
+  transferLabel,
+  useVideoBuffering,
+} from './TransferRing';
 import '../styles/media-preview.css';
 
 type Data = Record<string, unknown>;
@@ -168,11 +182,15 @@ export function QqImage({
   data,
   sendTimeMs,
   conv = '',
+  msgId = '',
+  fwd,
   interactive = true,
 }: {
   data: Data;
   sendTimeMs: number;
   conv?: string;
+  msgId?: string;
+  fwd?: ForwardRef;
   interactive?: boolean;
 }) {
   const limited = useDataSaver((state) => state.enabled);
@@ -188,6 +206,7 @@ export function QqImage({
   }, [attempt]);
   const name = str(data, 'fileName');
   const token = str(data, 'fileToken');
+  const progressTarget = messageTransferTarget('pic', msgId, token, name, fwd);
   const orig = str(data, 'originalUrl');
   // 安卓 chatpic 兜底寻址用（见 main/media_protocol.ts 的 resolveChatpicFallback）。
   const md5 = str(data, 'md5');
@@ -293,27 +312,31 @@ export function QqImage({
       ? { width: fit.width, height: fit.height }
       : { width: 140, height: 190 };
     return (
-      <QqFlashCover
-        style={{ ...flashStyle, cursor: flashFullSrc && interactive ? 'zoom-in' : undefined }}
-        onClick={
-          flashFullSrc && interactive
-            ? (event) => {
-                openMediaPreview({
-                  items: [
-                    {
-                      key: flashFullSrc,
-                      kind: 'image',
-                      src: flashFullSrc,
-                      title: name || '[闪照]',
-                      ocr: ocrContext,
-                    },
-                  ],
-                  ownerDocument: event.currentTarget.ownerDocument,
-                });
-              }
-            : undefined
-        }
-      />
+      <span className="qq-media-image-preview-wrap">
+        <QqFlashCover
+          style={{ ...flashStyle, cursor: flashFullSrc && interactive ? 'zoom-in' : undefined }}
+          onClick={
+            flashFullSrc && interactive
+              ? (event) => {
+                  openMediaPreview({
+                    items: [
+                      {
+                        key: flashFullSrc,
+                        kind: 'image',
+                        src: flashFullSrc,
+                        title: name || '[闪照]',
+                        ocr: ocrContext,
+                        progressTarget,
+                      },
+                    ],
+                    ownerDocument: event.currentTarget.ownerDocument,
+                  });
+                }
+              : undefined
+          }
+        />
+        <MediaTransferBadge target={progressTarget} />
+      </span>
     );
   }
   const ImageControl = openable ? 'button' : 'span';
@@ -340,6 +363,7 @@ export function QqImage({
                     src: previewSrc,
                     ocr: ocrContext,
                     fallbackSources: [originalProxySrc, proxySrc],
+                    progressTarget,
                   })
                 )
                   return;
@@ -351,6 +375,7 @@ export function QqImage({
                       src: previewSrc,
                       title: name || (isAnimatedEmoji ? '[表情]' : '[图片]'),
                       ocr: ocrContext,
+                      progressTarget,
                       fallbackSources: [
                         ...candidates
                           .slice(srcIndex + 1)
@@ -372,6 +397,7 @@ export function QqImage({
         ) : (
           <ShimmerImage
             suspendOffscreen
+            mediaLoading={!isAnimatedEmoji}
             className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
             style={style}
             src={src}
@@ -386,6 +412,7 @@ export function QqImage({
           />
         )}
       </ImageControl>
+      <MediaTransferBadge target={isAnimatedEmoji ? undefined : progressTarget} />
       {broken && openable ? (
         <button
           type="button"
@@ -437,7 +464,7 @@ export function QqVideo({
   const [posterBroken, setPosterBroken] = useState(false);
   const ownerDocument = useRenderDocument();
   const [playing, setPlaying] = useState(bubble);
-  const [loading, setLoading] = useState(bubble);
+  const tabActive = useTabActive();
   const [videoBroken, setVideoBroken] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const playerRef = useRef<HTMLVideoElement>(null);
@@ -452,6 +479,7 @@ export function QqVideo({
   // Cover is fetched with videoToken; the original mp4 with fileToken.
   const coverToken = str(data, 'videoToken');
   const fileToken = str(data, 'fileToken');
+  const progressTarget = messageTransferTarget('video', msgId, fileToken, name, fwd);
   const w = num(data, 'videoWidth');
   const h = num(data, 'videoHeight');
   const duration = num(data, 'videoDuration');
@@ -497,7 +525,6 @@ export function QqVideo({
               setAttempt((value) => value + 1);
               setVideoBroken(false);
               setPlaying(true);
-              setLoading(true);
             }
           : undefined
       }
@@ -522,6 +549,7 @@ export function QqVideo({
     ),
     attempt,
   );
+  const buffering = useVideoBuffering(videoSrc, tabActive && playing);
 
   // bubble mode: auto-play muted loop, no controls, fill the circle container.
   if (bubble) {
@@ -529,6 +557,7 @@ export function QqVideo({
     return (
       <div className="qq-media-video" style={style} onKeyDown={mediaKeyDown}>
         <video
+          key={videoSrc}
           ref={playerRef}
           className="qq-media-video-player"
           src={videoSrc}
@@ -536,19 +565,32 @@ export function QqVideo({
           loop
           autoPlay
           playsInline
-          onCanPlay={() => setLoading(false)}
-          onError={() => setVideoBroken(true)}
+          {...buffering.events}
+          onError={() => {
+            buffering.events.onError();
+            setVideoBroken(true);
+          }}
         />
-        {loading ? <span className="qq-media-spinner" aria-hidden /> : null}
+        {buffering.waiting && <MediaLoadingRing label="正在缓冲视频" />}
+        <MediaTransferBadge target={progressTarget} />
       </div>
     );
   }
 
   function expand() {
     playerRef.current?.pause();
-    if (!galleryOpen?.(previewKey, ownerDocument))
+    if (!galleryOpen?.(previewKey, ownerDocument, { progressTarget }))
       openMediaPreview({
-        items: [{ key: videoSrc, kind: 'video', src: videoSrc, poster: coverSrc, title: name }],
+        items: [
+          {
+            key: videoSrc,
+            kind: 'video',
+            src: videoSrc,
+            poster: coverSrc,
+            title: name,
+            progressTarget,
+          },
+        ],
         ownerDocument: ownerDocument,
       });
   }
@@ -568,6 +610,7 @@ export function QqVideo({
     return (
       <div className="weq-video-preview-wrap">
         {missingVideo}
+        <MediaTransferBadge target={progressTarget} />
         {expandButton}
       </div>
     );
@@ -581,20 +624,23 @@ export function QqVideo({
       <div className="weq-video-preview-wrap">
         <div className="qq-media-video" style={style} onKeyDown={mediaKeyDown}>
           <video
+            key={videoSrc}
             ref={playerRef}
             tabIndex={0}
             className="qq-media-video-player"
             src={videoSrc}
             controls
             autoPlay
-            onCanPlay={() => setLoading(false)}
+            {...buffering.events}
             onError={() => {
+              buffering.events.onError();
               setVideoBroken(true);
               setPlaying(false);
             }}
           />
-          {loading ? <span className="qq-media-spinner" aria-hidden /> : null}
+          {buffering.waiting && <MediaLoadingRing label="正在缓冲视频" />}
         </div>
+        <MediaTransferBadge target={progressTarget} />
         {expandButton}
       </div>
     );
@@ -614,7 +660,6 @@ export function QqVideo({
           interactive
             ? () => {
                 focusPlayer.current = true;
-                setLoading(true);
                 setPlaying(true);
               }
             : undefined
@@ -625,6 +670,7 @@ export function QqVideo({
         ) : (
           <ShimmerImage
             suspendOffscreen
+            mediaLoading
             className="qq-media-video-poster"
             src={coverSrc}
             alt={name || '[视频]'}
@@ -642,6 +688,7 @@ export function QqVideo({
           </span>
         ) : null}
       </VideoControl>
+      <MediaTransferBadge target={progressTarget} />
       {expandButton}
     </div>
   );
@@ -703,29 +750,16 @@ function iconForName(name: string): string {
   return EXT_ICON[ext] ?? 'unknown.png';
 }
 
-function FileDownloadRing({ percent, onCancel }: { percent?: number; onCancel?: () => void }) {
+function FileDownloadRing({
+  progress,
+  onCancel,
+}: {
+  progress: TransferProgress;
+  onCancel?: () => void;
+}) {
   return (
     <span className="qq-file-download-ring weq-media-save-controls weq-save-action-group">
-      <svg
-        role="progressbar"
-        aria-label="文件下载进度"
-        aria-valuenow={percent}
-        viewBox="0 0 24 24"
-        className={cn(percent === undefined && 'weq-spin')}
-      >
-        <circle className="qq-file-download-track" cx="12" cy="12" r="10" />
-        {percent !== 0 ? (
-          <circle
-            cx="12"
-            cy="12"
-            r="10"
-            pathLength="100"
-            strokeDasharray={`${percent ?? 28} 100`}
-            strokeLinecap="round"
-            transform="rotate(-90 12 12)"
-          />
-        ) : null}
-      </svg>
+      <TransferRing progress={progress} label="文件下载进度" size={24} />
       {onCancel ? (
         <button
           className="qq-file-download-cancel"
@@ -812,21 +846,11 @@ export function QqFile({
     locations.data?.find((location) => location.kind === 'local' && location.available) ??
     locations.data?.find((location) => location.available);
   const opensFile = canOpenHere && Boolean(previewPath || local);
-  const transfer = trpc.account.mediaSave.activeFileTransfer.useQuery(
-    { ...mediaSave.binding, source: chatFile },
-    {
-      enabled: active && hasMessage && Boolean(mediaSave.binding),
-      staleTime: 0,
-      refetchOnMount: true,
-      refetchOnWindowFocus: true,
-      retry: false,
-      refetchInterval: (progress) => (progress ? 750 : false),
-    },
-  ).data;
-  const downloading = Boolean(transfer) || mediaSave.isBusy(source);
-  const percent = transfer?.total
-    ? Math.min(99, Math.floor((transfer.received / transfer.total) * 100))
-    : undefined;
+  const transfer = useTransferProgress(active ? mediaTransferTarget(source) : undefined);
+  const progress =
+    transfer ?? (mediaSave.isBusy(source) ? { phase: 'preparing' as const } : undefined);
+  const downloading = Boolean(progress);
+  const percent = progress ? transferPercent(progress) : undefined;
   const wasDownloading = useRef(false);
   const refetchLocations = locations.refetch;
   useEffect(() => {
@@ -875,7 +899,11 @@ export function QqFile({
       }
     })();
   };
-  const busyLabel = downloading ? '正在下载…' : opensFile ? '正在打开…' : '准备保存…';
+  const busyLabel = progress
+    ? `${transferLabel(progress)}…`
+    : opensFile
+      ? '正在打开…'
+      : '准备保存…';
   return (
     <>
       <div className="qq-media-file">
@@ -931,9 +959,9 @@ export function QqFile({
             </span>
           </span>
         </button>
-        {downloading ? (
+        {progress ? (
           <FileDownloadRing
-            percent={percent}
+            progress={progress}
             onCancel={mediaSave.downloading ? () => void mediaSave.cancel() : undefined}
           />
         ) : !opensFile &&

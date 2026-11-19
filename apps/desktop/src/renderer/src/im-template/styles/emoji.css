@@ -1204,26 +1204,6 @@ html[data-theme='dark'] .qq-flash-cover {
   background: #000000;
 }
 
-/* Centered download spinner shown while the original video loads. */
-.qq-media-spinner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 34px;
-  height: 34px;
-  margin: -17px 0 0 -17px;
-  border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #ffffff;
-  animation: qq-media-spin 0.9s linear infinite;
-}
-
-@keyframes qq-media-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .qq-media-video-noposter {
   min-height: 120px;
   background: linear-gradient(135deg, #2b2b2b, #4a4a4a);

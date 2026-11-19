@@ -26,13 +26,9 @@ import {
   prepareExportDestination,
 } from './export_save';
 import type { MediaSaveSource } from '../../../shared/media_save';
+import { mediaTransferTarget } from '../../../shared/transfer_progress';
 import type { ResumableResourceRequest, ResourceExportRunContext } from '@weq/service';
-import {
-  resolveRecordedChatFile,
-  savedChatFileKey,
-  savedMediaSourceKey,
-} from '../../message_media_local';
-import { requireResourceSource } from './resource_source';
+import { resolveRecordedChatFile, savedMediaSourceKey } from '../../message_media_local';
 
 const messageId = z.string().regex(/^\d{1,20}$/);
 const chatFileInput = z.object({
@@ -46,7 +42,15 @@ const chatFileInput = z.object({
   fwdResId: z.string().max(4096).optional(),
 });
 const sourceInput = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('url'), url: z.string().min(1), name: z.string().optional() }),
+  z.object({
+    kind: z.literal('url'),
+    url: z.string().min(1),
+    name: z.string().optional(),
+    progressTarget: z
+      .string()
+      .regex(/^[a-f0-9]{16}$/)
+      .optional(),
+  }),
   chatFileInput,
   z.object({
     kind: z.literal('group-file'),
@@ -111,7 +115,8 @@ async function openUrl(raw: string, signal?: AbortSignal, check?: () => void): P
   const url = new URL(local ?? raw);
   if (url.username || url.password) throw new Error('媒体地址无效');
   const request = new Request(url, { signal });
-  if (url.protocol === 'weq-media:') return handleMediaRequest(request, check, { cacheVideo: false });
+  if (url.protocol === 'weq-media:')
+    return handleMediaRequest(request, check, { cacheVideo: false });
   if (url.protocol === 'weq-asset:') return handleResourceRequest(request);
   if (url.protocol !== 'https:' && url.protocol !== 'http:')
     throw new Error('这份媒体尚未落盘，暂时无法保存');
@@ -414,13 +419,6 @@ async function savePlannedMedia(
 }
 
 export const mediaSaveRouter = router({
-  activeFileTransfer: procedure
-    .input(exportAccountBindingInput.extend({ source: chatFileInput }))
-    .query(({ input }) =>
-      requireResourceSource(input).exportManager.activeMediaTransfer(
-        savedChatFileKey(input.source),
-      ),
-    ),
   save: procedure.input(saveInput).mutation(async ({ input }) => {
     const context = getAppContext(),
       services = context.services;
@@ -478,6 +476,7 @@ export const mediaSaveRouter = router({
       kind: 'media',
       resume,
       sourceKey: savedMediaSourceKey(selected.source),
+      transferTarget: mediaTransferTarget(selected.source),
       name: output.name,
       display: {
         action:

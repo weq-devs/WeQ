@@ -414,6 +414,7 @@ export type PendingScrollRestore = {
  */
 export type OptimisticMessage = {
   hostReceived?: boolean;
+  transferId?: string;
   id: string;
   /** 目标会话 id（模板层 Conversation.id）。 */
   convId: string;

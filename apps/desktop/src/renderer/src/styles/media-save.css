@@ -64,16 +64,6 @@ html[data-theme='dark'] .qq-voice-row .weq-media-save-controls .qq-voice-transcr
   block-size: 36px;
   color: var(--weq-accent-effective);
 }
-.qq-file-download-ring > svg {
-  inline-size: 24px;
-  block-size: 24px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-}
-.qq-file-download-track {
-  stroke: var(--weq-border-strong);
-}
 .qq-file-download-cancel {
   position: absolute;
   display: grid;
@@ -88,9 +78,4 @@ html[data-theme='dark'] .qq-voice-row .weq-media-save-controls .qq-voice-transcr
 }
 .qq-file-download-cancel:hover {
   background: color-mix(in srgb, currentColor 12%, transparent);
-}
-@media (prefers-reduced-motion: reduce) {
-  .qq-file-download-ring > svg.weq-spin {
-    animation: none;
-  }
 }

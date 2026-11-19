@@ -25,6 +25,10 @@ import { FlashTransferViewer } from './FlashTransferViewer';
 import { useToast } from './Toast.shared';
 import { formatBytes } from '../lib/format';
 import { parseFlashTransfer } from './QqFlashTransfer.shared';
+import { ShimmerImage } from './ShimmerImage';
+import { TransferRing } from './TransferRing';
+import { useTransferProgress } from '../lib/transferActivity';
+import { flashFilesetTransferTarget } from '../../../shared/transfer_progress';
 
 // ---- desc fallback from the real flashTransferInfo -----------------------
 
@@ -71,6 +75,7 @@ function FlashCardView({
   tailIcon,
   tailText,
   onOpen,
+  id,
 }: {
   title: string;
   desc: string;
@@ -79,7 +84,12 @@ function FlashCardView({
   tailIcon: string;
   tailText: string;
   onOpen: () => void;
+  id?: string;
 }): ReactElement {
+  const upload = useTransferProgress(id ? flashFilesetTransferTarget(id, 'upload') : undefined);
+  const download = useTransferProgress(id ? flashFilesetTransferTarget(id, 'download') : undefined);
+  const [failedCover, setFailedCover] = useState('');
+  const coverSrc = failedCover === cover && fallbackCover ? fallbackCover : cover;
   return (
     <div
       className="weq-flash-card"
@@ -96,23 +106,13 @@ function FlashCardView({
     >
       {cover ? (
         <div className="weq-flash-media-box">
-          <img
+          <ShimmerImage
             className="weq-flash-cover"
-            src={cover}
+            src={coverSrc}
             alt=""
             loading="lazy"
-            // 加载失败回退到 JSON 里给的 failedSrc 默认封面（dataset 标志位防止死循环）。
-            onError={
-              fallbackCover
-                ? (e) => {
-                    const img = e.currentTarget;
-                    if (img.dataset.fb !== '1') {
-                      img.dataset.fb = '1';
-                      img.src = fallbackCover;
-                    }
-                  }
-                : undefined
-            }
+            mediaLoading
+            onError={coverSrc !== fallbackCover ? () => setFailedCover(cover) : undefined}
           />
         </div>
       ) : null}
@@ -125,6 +125,12 @@ function FlashCardView({
             <img className="weq-flash-tail-icon" src={tailIcon} alt="" loading="lazy" />
           ) : null}
           <span>{tailText}</span>
+          {upload?.phase === 'failed' ? (
+            <span role="status">文件上传失败</span>
+          ) : upload ? (
+            <TransferRing progress={upload} label="闪传文件上传进度" size={17} />
+          ) : null}
+          {download && <TransferRing progress={download} label="闪传下载进度" size={17} />}
         </div>
       </div>
     </div>
@@ -172,6 +178,7 @@ export function QqFlashTransfer({
         fallbackCover={fallbackCover}
         tailIcon={tailIcon}
         tailText={view.tailText}
+        id={filesetId}
         onOpen={handleOpen}
       />
       {viewerOpen ? (
@@ -207,6 +214,7 @@ export function QqFlashTransferLink({ code }: { code: string }): ReactElement {
         fallbackCover=""
         tailIcon=""
         tailText="QQ闪传"
+        id={code}
         onOpen={() => setShareOpen(true)}
       />
       {shareOpen ? (

@@ -57,6 +57,7 @@ import {
   type SendElement,
   type SendForwardParams as ProtocolSendForwardParams,
   type SendMediaUploadReport,
+  type MediaSendContext,
   type SendMessageReceipt,
   type SendScene,
 } from '@weq/protocol';
@@ -232,6 +233,8 @@ export interface SendMediaParams {
 
 export interface SendElementsParams {
   beforeSend?: () => void;
+  onUploadProgress?: MediaSendContext['onUploadProgress'];
+  onUploaded?: () => void;
   peerType: SendPeerType;
   targetId: string | number;
   /** 群临时会话的来源群号（会话行的 `60001`）；给了就走 grpTmp 路由。 */
@@ -411,6 +414,8 @@ export interface SendFileParams {
   /** 群文件目录；缺省 `/`（私聊忽略）。 */
   folderId?: string;
   beforeSend?: () => void;
+  onProgress?: (confirmed: number, total: number) => void;
+  onUploaded?: () => void;
 }
 
 /** 文件发送结果（JSON 安全）。 */
@@ -890,6 +895,8 @@ export class MessageSendService {
         filePath,
         ...(params.fileName?.trim() ? { fileName: params.fileName.trim() } : {}),
         beforeSend: params.beforeSend,
+        onProgress: params.onProgress,
+        onUploaded: params.onUploaded,
         log: (message) => logger.info(message, { event: 'device-file-upload' }),
       });
       return {
@@ -929,6 +936,8 @@ export class MessageSendService {
         ...(params.folderId?.trim() ? { folderId: params.folderId } : {}),
         log,
         beforeSend: params.beforeSend,
+        onProgress: params.onProgress,
+        onUploaded: params.onUploaded,
       });
       logger.info(
         result.fastUpload
@@ -981,6 +990,8 @@ export class MessageSendService {
       ...(fileName ? { fileName } : {}),
       log,
       beforeSend: params.beforeSend,
+      onProgress: params.onProgress,
+      onUploaded: params.onUploaded,
     });
     logger.info(
       result.fastUpload
@@ -1142,6 +1153,8 @@ export class MessageSendService {
               // 上传链路（会话节点 / 每块 highway 回帧）写进账号日志：真机排查
               // 「上传成功但收端说过期」时，这是唯一能看到服务端态度的地方。
               log: (message: string) => logger.info(message, { event: 'media-upload' }),
+              onUploadProgress: params.onUploadProgress,
+              onUploaded: params.onUploaded,
             },
           }
         : {}),

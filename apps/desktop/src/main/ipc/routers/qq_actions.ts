@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { z } from 'zod';
+import { observeUpload, transferIdInput } from './transfer_progress';
 import { parseCustomFaceId, PROFILE_LIKE_MAX_PER_REQUEST, type GroupRequest } from '@weq/protocol';
 import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
 import { FAVORITE_EMOJI_MAX_ARCHIVE_BYTES, FAVORITE_EMOJI_MAX_ITEMS } from '@weq/service';
@@ -1085,6 +1086,7 @@ export function createQQActionsRouter(
           content: text.optional(),
           time: z.number().int().nonnegative().safe().default(0),
           imagePath: id.optional(),
+          transferId: transferIdInput,
         }),
       )
       .mutation(({ input: i }) =>
@@ -1093,36 +1095,38 @@ export function createQQActionsRouter(
             return s.webQuery.setQzoneLike(i.hostUin, i.tid, i.action === 'like', i.time, current);
           if (!i.content) throw new Error('评论不能为空');
           if (i.action === 'comment' && i.replyTarget) throw new Error('回复不能作为一级评论提交');
-          if (i.action === 'reply') {
-            const target = i.replyTarget;
-            if (!target) throw new Error('请选择回复目标');
-            let imageUrl: string | undefined;
-            if (i.imagePath) {
+          const content = i.content;
+          return observeUpload(s, i.imagePath ? i.transferId : undefined, async (update) => {
+            const upload = async (path: string) => {
+              const data = await image(s, path, current);
+              update({ phase: 'upload' });
               const picture = await s.webQuery.uploadQzoneImage(
-                Buffer.from(await image(s, i.imagePath, current)).toString('base64'),
+                Buffer.from(data).toString('base64'),
                 current,
               );
               current();
-              imageUrl = picture.url;
+              update({ phase: 'confirming' });
+              return picture.url;
+            };
+            if (i.action === 'reply') {
+              const target = i.replyTarget;
+              if (!target) throw new Error('请选择回复目标');
+              const imageUrl = i.imagePath ? await upload(i.imagePath) : undefined;
+              return s.webQuery.replyQzone(i.hostUin, i.tid, target, content, imageUrl, current);
             }
-            return s.webQuery.replyQzone(i.hostUin, i.tid, target, i.content, imageUrl, current);
-          }
-          if (!i.imagePath)
-            return s.webQuery.commentQzone(
-              i.hostUin,
-              i.tid,
-              i.content,
-              undefined,
-              undefined,
-              current,
-            );
-          const picture = await s.webQuery.uploadQzoneImage(
-            Buffer.from(await image(s, i.imagePath, current)).toString('base64'),
-            current,
-          );
-          current();
-          // 评论 richval 接受图片直链，不是发表说说的逗号分隔图片元数据。
-          return s.webQuery.commentQzone(i.hostUin, i.tid, i.content, 1, picture.url, current);
+            if (!i.imagePath)
+              return s.webQuery.commentQzone(
+                i.hostUin,
+                i.tid,
+                content,
+                undefined,
+                undefined,
+                current,
+              );
+            const imageUrl = await upload(i.imagePath);
+            // 评论 richval 接受图片直链，不是发表说说的逗号分隔图片元数据。
+            return s.webQuery.commentQzone(i.hostUin, i.tid, content, 1, imageUrl, current);
+          });
         }),
       ),
     qzoneForward: procedure

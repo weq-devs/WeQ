@@ -26,6 +26,7 @@ import { ChatImageCacheContext } from './ChatImageCacheProvider.shared';
 import '../styles/chat-image-preview.css';
 import { useDataSaver } from '../lib/dataSaver';
 import { thumbnailPolicyRequest } from '../lib/resourceUrl';
+import { MediaLoadingRing } from './TransferRing';
 
 const noSubscription = () => () => {};
 
@@ -35,8 +36,12 @@ export function ShimmerImage({
   onLoad,
   onError,
   suspendOffscreen = false,
+  mediaLoading = false,
   ...rest
-}: ImgHTMLAttributes<HTMLImageElement> & { suspendOffscreen?: boolean }): ReactElement {
+}: ImgHTMLAttributes<HTMLImageElement> & {
+  suspendOffscreen?: boolean;
+  mediaLoading?: boolean;
+}): ReactElement {
   const [loaded, setLoaded] = useState(false);
   const limited = useDataSaver((state) => state.enabled);
   useDataSaver((state) => (state.enabled ? state.behavior : null));
@@ -63,6 +68,14 @@ export function ShimmerImage({
   );
   const active = tabActive && visible;
   const enabled = !suspendOffscreen || active || retained;
+  const observeLoading = mediaLoading && rest.loading === 'lazy';
+  const showRing =
+    mediaLoading &&
+    tabActive &&
+    ((!suspendOffscreen && !observeLoading) || active) &&
+    enabled &&
+    Boolean(src) &&
+    !failed;
 
   useEffect(() => {
     if (suspendOffscreen && active) return cache?.activate(cacheKey);
@@ -75,7 +88,7 @@ export function ShimmerImage({
   }, [cache, cacheKey, budget, suspendOffscreen, active, image]);
 
   useEffect(() => {
-    if (!suspendOffscreen || !image) return;
+    if ((!suspendOffscreen && !observeLoading) || !image) return;
     if (!tabActive) {
       setVisible(false);
       return;
@@ -95,7 +108,7 @@ export function ShimmerImage({
             intersecting = entries.some((entry) => entry.isIntersecting);
             update();
           },
-          { rootMargin: noPrefetch ? '0px' : '200px' },
+          { rootMargin: noPrefetch || !suspendOffscreen ? '0px' : '200px' },
         )
       : null;
     observer?.observe(image);
@@ -105,7 +118,7 @@ export function ShimmerImage({
       observer?.disconnect();
       doc.removeEventListener('visibilitychange', update);
     };
-  }, [suspendOffscreen, tabActive, ownerDocument, image, noPrefetch]);
+  }, [suspendOffscreen, observeLoading, tabActive, ownerDocument, image, noPrefetch]);
 
   // src 变化（首次挂载 / 失败回退换源）时重置；已缓存完成的直接显示，避免闪一下。
   useLayoutEffect(() => {
@@ -121,15 +134,17 @@ export function ShimmerImage({
       {!enabled || !loaded ? (
         <span
           className="weq-image-placeholder"
-          role="img"
+          role={showRing ? undefined : 'img'}
           aria-label={
             failed ? `${alt || '图片'}未加载${limited ? '（省流量模式）' : ''}` : alt || '图片'
           }
         >
-          {enabled && src && !failed ? (
+          {showRing ? (
+            <MediaLoadingRing label="正在加载图片" />
+          ) : enabled && src && !failed && !mediaLoading ? (
             <span ref={observePlaceholderAnimation} className="weq-shimmer-block" aria-hidden />
           ) : null}
-          <ImageIcon size={28} strokeWidth={1.5} aria-hidden />
+          {!showRing && <ImageIcon size={28} strokeWidth={1.5} aria-hidden />}
         </span>
       ) : null}
       <img

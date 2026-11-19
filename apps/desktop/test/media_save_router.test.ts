@@ -2,12 +2,23 @@
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaElement, type MsgService } from '@weq/service';
 import { makeSolidPng } from '@weq/protocol';
 import { mediaSaveRouter } from '../src/main/ipc/routers/media_save';
 import { mediaResourceRouter } from '../src/main/ipc/routers/media_resource';
 import { boundClientState } from '../src/main/ipc/routers/client_state';
+import {
+  observeUpload,
+  transferProgressRouter,
+  updateFlashUpload,
+} from '../src/main/ipc/routers/transfer_progress';
+import {
+  flashFilesetTransferTarget,
+  mediaTransferTarget,
+  type ActiveTransfer,
+} from '../src/shared/transfer_progress';
 import { messageMediaLocations } from '../src/main/message_media_local';
 import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
 import type { AccountServices } from '../src/main/context/app_context';
@@ -48,6 +59,7 @@ const state = vi.hoisted(() => ({
   ),
 }));
 vi.mock('../src/main/context/app_context', () => ({
+  accountEventBus: new EventEmitter(),
   getAppContext: () => ({ account: { context: { uin: '10001' } }, services: state.services }),
   requirePlatform: () => ({ appDataRoot: () => root }),
 }));
@@ -93,6 +105,9 @@ beforeEach(() => {
   state.services = {
     accountConfig: { getRecord: () => ({ configId: state.configId }) },
     exportManager: manager,
+    flashTransferFiles: {
+      downloads: Object.assign(new EventEmitter(), { activeDownloadBatches: () => [] }),
+    },
     fileAssistant: { getFileInfoByMsgId: state.fileInfo },
     fileResource: { resolveSentFile: async () => null },
     mediaUrl: {
@@ -104,6 +119,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 const api = () => mediaSaveRouter.createCaller({});
+const transferApi = () => transferProgressRouter.createCaller({});
 const image = {
   kind: 'url' as const,
   url: 'weq-media://pic?t=1&name=original.jpg',
@@ -235,25 +251,79 @@ it.each([
       { headers },
     );
   const caller = api();
+  let latest: ActiveTransfer[] = [];
+  const sub = (await transferApi().watch(binding)).subscribe({
+    next: (snapshot) => {
+      latest = snapshot;
+    },
+  });
   const id = await caller.save({ ...input, savePolicy: { mode: 'before', directory: root } });
   await vi.waitFor(() => expect(stream).toBeDefined());
   try {
     stream.enqueue(new Uint8Array(3));
     await vi.waitFor(async () =>
-      expect(await caller.activeFileTransfer(input)).toEqual({ received: 3, total }),
+      expect(latest).toEqual([
+        expect.objectContaining({ id, target: mediaTransferTarget(source), received: 3, total }),
+      ]),
     );
-    expect(
-      await caller.activeFileTransfer({ ...input, source: { ...source, msgId: '43' } }),
-    ).toBeNull();
     await expect(
-      caller.activeFileTransfer({ ...input, expectedAccountConfigId: 'source-b' }),
+      transferApi().watch({ ...binding, expectedAccountConfigId: 'source-b' }),
     ).rejects.toThrow('数据源已切换');
   } finally {
     stream.enqueue(new Uint8Array(5));
     stream.close();
     await completed(id);
+    try {
+      await vi.waitFor(() => expect(latest).toEqual([]));
+    } finally {
+      sub.unsubscribe();
+    }
   }
-  expect(await caller.activeFileTransfer(input)).toBeNull();
+});
+it('发送进度不创建任务；闪传卡片发出后仍按文件集更新，切来源后不继续投递', async () => {
+  const services = state.services as unknown as AccountServices;
+  let latest: ActiveTransfer[] = [];
+  let closed = false;
+  const sub = (await transferApi().watch(binding)).subscribe({
+    next: (snapshot) => {
+      latest = snapshot;
+    },
+    complete: () => {
+      closed = true;
+    },
+  });
+  try {
+    await observeUpload(services, 'message-1', async (report) => {
+      report({ phase: 'upload', received: 17, total: 40 });
+      await vi.waitFor(() =>
+        expect(latest).toEqual([
+          expect.objectContaining({
+            id: 'message-1',
+            direction: 'upload',
+            received: 17,
+            total: 40,
+          }),
+        ]),
+      );
+    });
+    updateFlashUpload(services, 'fileset', 'upload', 10, 30);
+    await vi.waitFor(() =>
+      expect(latest).toEqual([
+        expect.objectContaining({
+          target: flashFilesetTransferTarget('fileset', 'upload'),
+          received: 10,
+          total: 30,
+        }),
+      ]),
+    );
+    expect(manager.listTasks()).toEqual([]);
+    state.configId = 'source-b';
+    updateFlashUpload(services, 'fileset', 'done');
+    await vi.waitFor(() => expect(closed).toBe(true));
+    expect(latest[0]?.received).toBe(10);
+  } finally {
+    sub.unsubscribe();
+  }
 });
 it('重启后按原消息打开下载文件，只将成功打开的任务标为已读', async () => {
   state.find.mockResolvedValue({

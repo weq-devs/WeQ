@@ -52,6 +52,7 @@ export interface SlicePart {
 }
 
 export interface SliceUploadOptions {
+  onProgress?: (confirmed: number) => void;
   /** 主文件 14901 / png 缩略图 14903 / jpg 缩略图 14902。 */
   appid?: number;
   /** 覆盖顶层 f3（sliceupload 请求序号）。缺省用模块内单调递增值。 */
@@ -156,6 +157,7 @@ export async function sliceuploadFile(
       opts,
     );
     await postSliceupload(bodyBytes, `${fileName} slice ${i}`);
+    opts?.onProgress?.(start + chunkLen);
   }
 }
 import { networkFetch } from '@weq/network';

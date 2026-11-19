@@ -58,6 +58,8 @@ import {
 } from '../state/contentSelection.shared';
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
+import { TransferRing } from '../components/TransferRing';
+import { ShimmerImage } from '../components/ShimmerImage';
 import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
 import { withQQAccountScope } from '../components/qq-actions/shared.shared';
 import { albumMediaUrl } from '../lib/resourceUrl';
@@ -2270,7 +2272,13 @@ function FeedLinkCover({ src, music }: { src?: string; music: boolean }) {
   return (
     <span className="weq-qzn-feed-link-cover" aria-hidden>
       {src && !failed ? (
-        <img src={albumMediaUrl(src)} alt="" loading="lazy" onError={() => setFailed(true)} />
+        <ShimmerImage
+          src={albumMediaUrl(src)}
+          alt=""
+          loading="lazy"
+          mediaLoading
+          onError={() => setFailed(true)}
+        />
       ) : music ? (
         <Music2 size={26} />
       ) : (
@@ -3745,6 +3753,7 @@ function Composer({
   const [busy, setBusy] = useState(false);
   const [reading, setReading] = useState(false);
   const [stage, setStage] = useState('');
+  const [uploadingImage, setUploadingImage] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [uncertain, setUncertain] = useState(false);
   const active = useRef(true),
@@ -3801,13 +3810,15 @@ function Composer({
     try {
       const richvals: string[] = [];
       for (const [index, image] of images.entries()) {
-        setStage(`上传图片 ${index + 1}/${images.length}`);
+        setUploadingImage(index);
+        setStage(`已上传 ${index}/${images.length} 张`);
         const result = await client.account.qzone.uploadImage.mutate({
           selfUin,
           base64: image.base64,
         });
         richvals.push(result.richval);
       }
+      setUploadingImage(null);
       setStage('正在发表');
       submitted = true;
       await client.account.qzone.publish.mutate({ selfUin, content, richvals, visibility });
@@ -3826,6 +3837,7 @@ function Composer({
       if (active.current) {
         setBusy(false);
         setStage('');
+        setUploadingImage(null);
       }
     }
   }
@@ -3857,6 +3869,15 @@ function Composer({
           {images.map((image, index) => (
             <span key={image.id}>
               <img src={`data:${image.type};base64,${image.base64}`} alt={image.name} />
+              {uploadingImage === index && (
+                <span className="weq-transfer-media-action">
+                  <TransferRing
+                    progress={{ phase: 'upload' }}
+                    label={`正在上传${image.name}`}
+                    size={19}
+                  />
+                </span>
+              )}
               <button
                 type="button"
                 aria-label={`移除图片 ${index + 1}`}
@@ -3901,7 +3922,15 @@ function Composer({
             disabled={busy || reading || uncertain || !content.trim()}
             onClick={() => void publish()}
           >
-            {busy || reading ? <Loader2 size={15} className="weq-spin" /> : <Send size={15} />}
+            {busy || reading ? (
+              <TransferRing
+                progress={{ phase: 'preparing' }}
+                label={stage || '正在读取图片'}
+                size={15}
+              />
+            ) : (
+              <Send size={15} />
+            )}
             {stage || (reading ? '读取图片' : '发表')}
           </button>
         </footer>

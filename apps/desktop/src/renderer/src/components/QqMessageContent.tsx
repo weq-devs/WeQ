@@ -200,7 +200,9 @@ function MediaBody({
   const ownerMsgId = carrier ? carrier.msgId : msgId;
   switch (element.type) {
     case 'pic':
-      return <QqImage data={data} sendTimeMs={sendTimeMs} conv={conv} />;
+      return (
+        <QqImage data={data} sendTimeMs={sendTimeMs} conv={conv} msgId={ownerMsgId} fwd={fwd} />
+      );
     case 'video':
       return (
         <QqVideo data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />
