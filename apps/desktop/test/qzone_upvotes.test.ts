@@ -24,7 +24,6 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             rawStatus: 2,
             capabilitiesObserved: true,
             tag: null,
-            statusLabel: '',
             showUpvote: true,
             canContribute: false,
             canUncontribute: false,

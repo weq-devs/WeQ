@@ -39,7 +39,6 @@ export const client = {
                     targetUrl: 'mqzone://arouse/publicrecommend/feeds?source=4',
                   }
                 : null,
-            statusLabel: '',
             showUpvote: mode !== 'manage',
             canContribute: mode === 'manage',
             canUncontribute: false,

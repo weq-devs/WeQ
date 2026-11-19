@@ -269,7 +269,6 @@ export function QzonePostUpvotes({
           {tag.text}
         </button>
       ) : null}
-      {archive?.statusLabel ? <span>{archive.statusLabel}</span> : null}
       {archive?.showUpvote ? (
         <QzoneUpvoteAction
           value={value}

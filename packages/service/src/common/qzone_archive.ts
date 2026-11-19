@@ -53,7 +53,6 @@ export function projectQzoneArchive(
         (QZONE_ARCHIVE_DEFAULTS.tagStatuses as readonly number[]).includes(status ?? -1))
         ? state.tag
         : null,
-    statusLabel: status === 101 ? '审核中' : status === 102 ? '审核通过' : '',
     showUpvote:
       present &&
       (config.showUnarchive.includes(status) || config.showUncontribute.includes(status)),
