@@ -12,6 +12,14 @@ packages:
   # 控制通道：宿主用它驱动 kernel（attach / onebot.get / onebot.set）。
   # 只依赖 common + wire，纯 TS，不会把 .node 带进 desktop。
   - vendor/weqbot/packages/control
+  # 下面四个**只服务构建**：`scripts/build-weqbot-daemon.mjs` 要把 daemon 打成
+  # 单文件产物。它们不在任何 desktop 的 `dependencies` 里，所以
+  # externalizeDepsPlugin 不会把它们拉进运行时产物；`@weqbot/node` 会加载
+  # `.node`，但它只在构建时被 esbuild 读源码，运行时由产物自己的 loader 按路径加载。
+  - vendor/weqbot/packages/session
+  - vendor/weqbot/packages/onebot
+  - vendor/weqbot/packages/bot
+  - vendor/weqbot/packages/node
 
 # pnpm 12.1 起，workspace 任务依赖环从"静默乱序执行"变成硬错误
 # （ERR_PNPM_TASK_CYCLE）。native <-> testkit 是刻意保留的环，

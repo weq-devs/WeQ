@@ -786,6 +786,24 @@ importers:
         specifier: 8.21.0
         version: 8.21.0
 
+  vendor/weqbot/packages/bot:
+    dependencies:
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/onebot':
+        specifier: workspace:*
+        version: link:../onebot
+      '@weqbot/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@weqbot/session':
+        specifier: workspace:*
+        version: link:../session
+      '@weqbot/wire':
+        specifier: workspace:*
+        version: link:../wire
+
   vendor/weqbot/packages/common:
     devDependencies:
       '@types/node':
@@ -801,6 +819,43 @@ importers:
         specifier: workspace:*
         version: link:../wire
 
+  vendor/weqbot/packages/node:
+    dependencies:
+      '@weqbot/bot':
+        specifier: workspace:*
+        version: link:../bot
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/control':
+        specifier: workspace:*
+        version: link:../control
+      '@weqbot/session':
+        specifier: workspace:*
+        version: link:../session
+      '@weqbot/wire':
+        specifier: workspace:*
+        version: link:../wire
+
+  vendor/weqbot/packages/onebot:
+    dependencies:
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@weqbot/session':
+        specifier: workspace:*
+        version: link:../session
+      ws:
+        specifier: ^8.18.3
+        version: 8.21.0
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+
   vendor/weqbot/packages/protocol:
     dependencies:
       '@weqbot/common':
@@ -813,6 +868,18 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+
+  vendor/weqbot/packages/session:
+    dependencies:
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@weqbot/wire':
+        specifier: workspace:*
+        version: link:../wire
 
   vendor/weqbot/packages/wire:
     dependencies:

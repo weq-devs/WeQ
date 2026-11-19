@@ -20,10 +20,15 @@ import { defaultControlSocketPath } from '@weqbot/control';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** 打包后随 `extraResources` 放进去的入口。 */
-const PACKAGED_ENTRY = 'bot-runtime/weqbot-daemon.mjs';
+/**
+ * 打包后的入口：`<resourcesPath>/resources/weqbot/weqbot-daemon.mjs`。
+ *
+ * 走 `resources/**` 这一整棵树的 extraResources（与品牌资源同一套），**不是**
+ * `bot-runtime/` —— 那里是 AI 克隆体的产物目录，两者不是一回事。
+ */
+const PACKAGED_ENTRY = join('resources', 'weqbot', 'weqbot-daemon.mjs');
 
-/** 打包后 `extraResources` 落点：`process.resourcesPath`。 */
+/** Electron 的 `process.resourcesPath`（打包后才存在）。 */
 function resourcesPath(): string | undefined {
   return (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
 }
@@ -70,18 +75,25 @@ export function resolveDaemonPaths(options: ResolveDaemonPathsOptions): DaemonPa
     };
   }
 
+  /** 构建好的单文件产物：打包后在 resourcesPath 下，dev 在仓库的 `resources/`。 */
+  const bundled = (candidate: string): DaemonPaths | null =>
+    existsSync(candidate)
+      ? { node: process.execPath, nodeArgs: [], entry: candidate, nativeDir, socketPath }
+      : null;
+
   const packaged = resourcesPath();
   if (packaged) {
-    const entry = join(packaged, PACKAGED_ENTRY);
-    if (existsSync(entry)) {
-      return { node: process.execPath, nodeArgs: [], entry, nativeDir, socketPath };
-    }
+    const found = bundled(join(packaged, PACKAGED_ENTRY));
+    if (found) return found;
   }
 
-  // dev：从当前文件往上找 `vendor/weqbot/packages/node/src/daemon-entry.ts`。
-  // 不能写死层级 —— electron-vite 会把共享模块拆到 `out/main/chunks/`。
+  // dev：优先用 `pnpm build:weqbot-daemon` 的产物（与打包版同一份代码），
+  // 没有再退回 tsx 直接跑源码 —— 两种都必须能起，否则「打包挂了但 dev 正常」
+  // 这类问题要等到发版才发现。
   let dir = here;
   for (let i = 0; i < 8; i++) {
+    const built = bundled(join(dir, 'resources', 'weqbot', 'weqbot-daemon.mjs'));
+    if (built) return built;
     const candidate = join(dir, 'vendor', 'weqbot', 'packages', 'node', 'src', 'daemon-entry.ts');
     if (existsSync(candidate)) {
       return {
