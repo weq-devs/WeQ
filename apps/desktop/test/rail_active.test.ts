@@ -134,8 +134,9 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
       );
       act(() => host.querySelector<HTMLButtonElement>('.rail-tab-messages')!.click());
     }
-    expect(locate.mock.calls).toEqual([[false], [false], [false], [true]]);
-    expect(navigate).not.toHaveBeenCalled();
+    expect(locate.mock.calls).toEqual([[false], [false], [false]]);
+    expect(navigate).toHaveBeenCalledOnce();
+    expect(navigate).toHaveBeenCalledWith('messages');
     act(() =>
       root.render(
         h(AppRail, {
@@ -148,11 +149,12 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
       ),
     );
     act(() => host.querySelector<HTMLButtonElement>('.rail-tab-messages')!.click());
-    expect(locate).toHaveBeenCalledTimes(5);
-    expect(locate).toHaveBeenLastCalledWith(true);
+    expect(locate).toHaveBeenCalledTimes(3);
+    expect(navigate).toHaveBeenCalledTimes(2);
     act(() => root.render(h(AppRail, { ...props, view: 'contacts', onViewChange: navigate })));
     act(() => host.querySelector<HTMLButtonElement>('.rail-tab-messages')!.click());
-    expect(navigate).toHaveBeenCalledWith('messages');
+    expect(navigate).toHaveBeenCalledTimes(3);
+    expect(navigate).toHaveBeenLastCalledWith('messages');
     for (const title of ['数据库管理', '存储占用', '清理缓存', '数据库修复', '抓包'] as const) {
       act(() =>
         root.render(

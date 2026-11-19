@@ -208,9 +208,9 @@ export function MobileWebNavigation({
               aria-expanded={id === 'more' ? moreOpen : undefined}
               aria-label={badge > 0 ? `${label}，${badge} 条未读` : label}
               onClick={() => {
-                if (id === 'messages' && onMessageBadgeClick) {
+                if (id === 'messages' && active === 'messages' && onMessageBadgeClick) {
                   mobilePage?.close();
-                  onMessageBadgeClick(active !== 'messages');
+                  onMessageBadgeClick(false);
                 } else activate(target);
               }}
             >

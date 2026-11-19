@@ -197,8 +197,8 @@ export function AppRail({
                   }}
                   onClick={() => {
                     setProfileOpen(false);
-                    if (id === 'messages' && onMessageBadgeClick)
-                      onMessageBadgeClick(activeView !== 'messages');
+                    if (id === 'messages' && activeView === 'messages' && onMessageBadgeClick)
+                      onMessageBadgeClick(false);
                     else
                       activateNavigation(target, {
                         onViewChange: selectView,
