@@ -6982,6 +6982,7 @@ function MainWorkspace(): ReactElement {
     // privateSequence，AI 声聊回执两者都没有，所以分类处理。
     if (plan.kind === 'file') {
       const fileOutcome = outcome as Awaited<ReturnType<typeof client.account.sendFile.mutate>>;
+      if (!IS_WEB) void utils.account.mediaResource.messageLocations.invalidate();
       patchOptimistic({
         fileSync: { fileId: fileOutcome.fileId, existingMsgIds: fileExistingMsgIds },
         ...expectedKeysOf({

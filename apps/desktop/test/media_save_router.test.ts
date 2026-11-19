@@ -86,6 +86,7 @@ beforeEach(() => {
     accountConfig: { getRecord: () => ({ configId: state.configId }) },
     exportManager: manager,
     fileAssistant: { getFileInfoByMsgId: state.fileInfo },
+    fileResource: { resolveSentFile: async () => null },
     mediaUrl: {
       getGroupFileUrl: state.groupUrl,
       resolveFileUrl: state.fileUrl,

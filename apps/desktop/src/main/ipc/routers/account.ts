@@ -6584,7 +6584,10 @@ export const accountRouter = router({
       const sourcePid = services.accountConfig.getRecord()?.qqPid;
       const path = input.uploadId ? browserFiles.acquire(services, input.uploadId) : input.path!;
       try {
-        return await services.messageSend.sendFile({
+        const host = input.uploadId ? null : getHost();
+        const keepSource =
+          host?.canReveal && !host.remoteClient && !pickedBrowserFiles.hasPath(path.trim());
+        const outcome = await services.messageSend.sendFile({
           peerType: input.peerType,
           targetId: input.targetId,
           path,
@@ -6601,6 +6604,14 @@ export const accountRouter = router({
             requireQqOnlineForAlbum(services);
           },
         });
+        if (outcome.ok && keepSource)
+          services.fileResource.rememberSentFile(
+            outcome.fileId,
+            outcome.fileName,
+            outcome.fileSize,
+            path.trim(),
+          );
+        return outcome;
       } finally {
         if (input.uploadId) await browserFiles.discard(services, input.uploadId, true);
       }

@@ -1748,7 +1748,11 @@ export function initAppContext(fileRoot?: string): AppContext {
         },
         userConfig.cacheDir(join('favorite-emoji', exportConfigId)),
       );
-      const favoriteImportFiles = new FileResourceService(session, platform);
+      const favoriteImportFiles = new FileResourceService(
+        session,
+        platform,
+        join(platform.appDataRoot(), 'config', 'accounts', exportConfigId, 'sent_files.json'),
+      );
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
       // 都把它当作 QQ 目录之后的第二个查找根。
@@ -2701,7 +2705,11 @@ export function initAppContext(fileRoot?: string): AppContext {
         undefined,
         userConfig.cacheDir(join('favorite-emoji', exportConfigId)),
       );
-      const favoriteImportFiles = new FileResourceService(session, staticPlatform);
+      const favoriteImportFiles = new FileResourceService(
+        session,
+        staticPlatform,
+        join(platform.appDataRoot(), 'config', 'accounts', exportConfigId, 'sent_files.json'),
+      );
       // 内置表情补全：QQ 的 EmojiSystermResource 目录缺失时按需下 CDN 资源包。
       // 表情全账号通用，所以缓存不按账号分目录；资源浏览器与 weq-asset 协议
       // 都把它当作 QQ 目录之后的第二个查找根。

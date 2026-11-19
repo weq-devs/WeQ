@@ -35,7 +35,7 @@ import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@rendere
 import { useDataSaver } from '@renderer/lib/dataSaver';
 import { IS_WEB } from '../lib/target.shared';
 import { cn } from '@renderer/lib/utils';
-import { trpc } from '@renderer/trpc/client';
+import { client, trpc } from '@renderer/trpc/client';
 import { openMediaPreview } from './mediaPreviewStore.shared';
 
 import { MediaItemKeyContext, useChatMediaOpen } from './ChatMediaGallery.shared';
@@ -159,27 +159,6 @@ function QqMediaMissing({
       ) : null}
     </span>
   );
-}
-
-/** Reveal a video/file in the OS file manager via the main-process IPC. */
-function revealMedia(t: number, name: string, type: 'video' | 'file'): void {
-  const bridge = (
-    window as {
-      electron?: { ipcRenderer?: { invoke?: (c: string, a: unknown) => Promise<unknown> } };
-    }
-  ).electron;
-  void bridge?.ipcRenderer?.invoke?.('media:reveal', { t, name, type });
-}
-
-/** Reveal a file by msgId (searches file_assistant.db). Returns whether it was
- *  found locally so the caller can fall back to an OIDB download. */
-async function revealFile(msgId: string): Promise<boolean> {
-  const bridge = window.electron;
-  const result = (await bridge?.ipcRenderer?.invoke?.('file:reveal', msgId)) as {
-    success: boolean;
-    error?: string;
-  };
-  return Boolean(result?.success);
 }
 
 // ---- image --------------------------------------------------------------
@@ -737,58 +716,101 @@ export function QqFile({
   fwd?: ForwardRef;
 }) {
   const remote = useRemoteClient();
+  const active = useTabActive();
   const name = str(data, 'fileName'),
     size = num(data, 'fileSize'),
     token = str(data, 'fileToken');
-  const localPath = str(data, 'localPath');
-  const openLocal = trpc.account.fileResource.download.open.useMutation();
+  const previewPath = !msgId && !fwd?.fwdResId ? str(data, 'localPath') : '';
   const mediaSave = useMediaSave();
-  const source: MediaSaveSource =
-    remote && localPath && !msgId
-      ? { kind: 'url', url: localFileUrl(localPath), name }
-      : {
-          kind: 'chat-file',
-          msgId: fwd && !/^\d+$/.test(msgId) ? '0' : msgId,
-          name,
-          token,
-          conv,
-          ...fwd,
-          ...(fwd && !/^\d+$/.test(fwd.fwdMsgId) ? { fwdMsgId: undefined } : {}),
-        };
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState<string | null>(null);
-  const saving = busy || mediaSave.busy;
+  const source: MediaSaveSource = previewPath
+    ? { kind: 'url', url: localFileUrl(previewPath), name }
+    : {
+        kind: 'chat-file',
+        msgId: fwd && !/^\d+$/.test(msgId) ? '0' : msgId,
+        name,
+        token,
+        conv,
+        ...fwd,
+        ...(fwd && !/^\d+$/.test(fwd.fwdMsgId) ? { fwdMsgId: undefined } : {}),
+      };
+  const canOpenHere = IS_ELECTRON && !remote;
+  const hasMessage = /^\d+$/.test(msgId) || Boolean(fwd?.fwdResId);
+  const lookup = {
+    ...mediaSave.binding,
+    target: {
+      kind: 'file' as const,
+      t: sendTimeMs,
+      name,
+      token,
+      md5: '',
+      msgId: source.kind === 'chat-file' ? source.msgId : msgId,
+      conv,
+      ...(source.kind === 'chat-file'
+        ? { fwdMsgId: source.fwdMsgId, fwdKind: source.fwdKind, fwdResId: source.fwdResId }
+        : {}),
+      pack: '',
+      hash: '',
+      label: name,
+    },
+  };
+  const checkLocal = canOpenHere && hasMessage;
+  const locations = trpc.account.mediaResource.messageLocations.useQuery(
+    { ...lookup, exactFile: true },
+    {
+      enabled: checkLocal && active && Boolean(mediaSave.binding),
+      staleTime: 0,
+      refetchOnMount: true,
+      refetchOnWindowFocus: true,
+      retry: false,
+    },
+  );
+  const local =
+    locations.data?.find((location) => location.kind === 'local' && location.available) ??
+    locations.data?.find((location) => location.available);
+  const opensFile = canOpenHere && Boolean(previewPath || local);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<{ action: 'open' | 'save'; message: string } | null>(null);
+  const working = busy || mediaSave.busy;
   useEffect(() => {
     if (mediaSave.busy) setError(null);
   }, [mediaSave.busy]);
   const onClick = (): void => {
-    if (saving) return;
+    if (working) return;
     setError(null);
-    if (localPath && !remote) {
-      openLocal.mutate(
-        { path: localPath },
-        { onError: (e) => setError(e instanceof Error ? e.message : String(e)) },
-      );
-      return;
-    }
     setBusy(true);
     void (async () => {
+      let action: 'open' | 'save' = canOpenHere ? 'open' : 'save';
       try {
-        if (IS_ELECTRON && !fwd && msgId && (await revealFile(msgId))) return;
-        if (!msgId && !localPath && !fwd?.fwdResId) {
-          if (IS_ELECTRON) revealMedia(sendTimeMs, name, 'file');
-          else setError('文件定位信息不足');
+        if (canOpenHere && previewPath) {
+          const result = await client.account.fileResource.download.open.mutate({
+            path: previewPath,
+          });
+          if (!result.ok) throw new Error(result.error);
           return;
         }
+        if (checkLocal) {
+          if (!mediaSave.binding) throw new Error('账号资料尚未就绪，请重试');
+          if (
+            await client.account.mediaResource.openMessageFile.mutate({
+              ...lookup,
+              location: local,
+            })
+          )
+            return;
+        }
+        if (!hasMessage && !previewPath) throw new Error('文件定位信息不足');
+        action = 'save';
         const result = await mediaSave.run(source);
-        if (result.error) setError(result.error);
+        if (result.error) setError({ action, message: result.error });
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError({ action, message: e instanceof Error ? e.message : String(e) });
+        if (checkLocal && action === 'open') void locations.refetch();
       } finally {
         setBusy(false);
       }
     })();
   };
+  const busyLabel = opensFile ? '正在打开…' : '准备保存…';
   return (
     <>
       <div className="qq-media-file">
@@ -796,17 +818,18 @@ export function QqFile({
           type="button"
           className="qq-media-file-open"
           onClick={onClick}
-          disabled={saving}
+          disabled={working}
+          onKeyDown={mediaKeyDown}
           title={
-            error ??
-            (saving
-              ? '准备保存…'
+            error?.message ??
+            (working
+              ? busyLabel
               : remote
                 ? '下载文件到设备'
-                : localPath
+                : opensFile
                   ? '打开文件（本机）'
-                  : IS_ELECTRON
-                    ? '本地打开，无缓存时按偏好保存'
+                  : canOpenHere
+                    ? '保存文件'
                     : '保存文件到服务器')
           }
         >
@@ -821,19 +844,19 @@ export function QqFile({
               {name || '[文件]'}
             </span>
             <span className={cn('qq-media-file-size', error && 'qq-media-file-error')}>
-              {saving ? (
+              {working ? (
                 <span className="qq-media-file-status">
-                  <Loader2 size={11} strokeWidth={2} className="weq-spin" aria-hidden /> 准备保存…
+                  <Loader2 size={11} strokeWidth={2} className="weq-spin" aria-hidden /> {busyLabel}
                 </span>
               ) : error ? (
-                `保存失败：${error}`
+                `${error.action === 'open' ? '打开' : '保存'}失败：${error.message}`
               ) : (
                 <span className="weq-number">{formatSize(size)}</span>
               )}
             </span>
           </span>
         </button>
-        {!localPath && msgId ? (
+        {!opensFile && hasMessage && (!checkLocal || locations.isFetched) ? (
           <MediaSaveControls
             save={mediaSave}
             source={source}

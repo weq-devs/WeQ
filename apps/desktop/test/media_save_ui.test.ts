@@ -44,6 +44,8 @@ const state = vi.hoisted(() => ({
   toast: vi.fn(),
   accepted: vi.fn(),
   open: vi.fn(),
+  locations: [] as { kind: 'local' | 'cache'; key: string; available: boolean }[],
+  openMessageFile: vi.fn(async (_input: unknown) => false),
   transcribe: vi.fn(),
   cacheEntries: [] as unknown[],
   files: vi.fn(async (_input: unknown) => ({
@@ -140,6 +142,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       mediaSave: { save: { mutate: state.save }, cancel: { mutate: state.cancel } },
       getExportOutputReceipt: { query: state.receipt },
       exportTaskDownload: { mutate: state.download },
+      mediaResource: { openMessageFile: { mutate: state.openMessageFile } },
+      fileResource: { download: { open: { mutate: state.open } } },
     },
   },
   trpc: {
@@ -198,6 +202,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
       ocrChatImage: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       fileResource: { download: { open: { useMutation: () => ({ mutate: state.open }) } } },
+      mediaResource: {
+        messageLocations: {
+          useQuery: () => ({ data: state.locations, isFetched: true, refetch: vi.fn() }),
+        },
+      },
       transcribeVoice: { useMutation: () => ({ mutateAsync: state.transcribe, isLoading: false }) },
     },
   },
@@ -220,6 +229,8 @@ beforeEach(() => {
   state.toast.mockClear();
   state.accepted.mockClear();
   state.open.mockClear();
+  state.locations = [];
+  state.openMessageFile.mockReset().mockResolvedValue(false);
   state.transcribe.mockClear();
 });
 afterEach(() => {
@@ -425,12 +436,9 @@ it('同号来源变化后不把旧保存回执反馈给新来源', async () => {
   expect(state.toast).not.toHaveBeenCalled();
   expect(state.download).not.toHaveBeenCalled();
 });
-it('文件卡片保留本地打开，显式保存仍走公共策略，不把控制按钮嵌进打开按钮', async () => {
-  const invoke = vi.fn(async () => ({ success: true }));
-  Reflect.defineProperty(window, 'electron', {
-    configurable: true,
-    value: { ipcRenderer: { invoke } },
-  });
+it('有本地记录时文件卡片直接打开，不显示下载按钮', async () => {
+  state.locations = [{ kind: 'local', key: 'output', available: true }];
+  state.openMessageFile.mockResolvedValue(true);
   const view = await mount(
     h(QqFile, {
       data: { fileName: 'report.txt', fileToken: 'token' },
@@ -439,9 +447,26 @@ it('文件卡片保留本地打开，显式保存仍走公共策略，不把控�
       conv: '123',
     }),
   );
+  expect(view.host.querySelector('[aria-label="保存文件"]')).toBeNull();
   await act(async () => view.host.querySelector<HTMLButtonElement>('.qq-media-file-open')!.click());
-  expect(invoke).toHaveBeenCalledWith('file:reveal', '41');
+  expect(state.openMessageFile).toHaveBeenCalledWith(
+    expect.objectContaining({
+      expectedAccountConfigId: 'source-a',
+      target: expect.objectContaining({ msgId: '41', token: 'token' }),
+      location: state.locations[0],
+    }),
+  );
   expect(state.save).not.toHaveBeenCalled();
+});
+it('没有本地记录的文件卡片仍走公共保存策略', async () => {
+  const view = await mount(
+    h(QqFile, {
+      data: { fileName: 'report.txt', fileToken: 'token' },
+      sendTimeMs: 1,
+      msgId: '41',
+      conv: '123',
+    }),
+  );
   await click(view.host, '保存文件');
   expect(state.save.mock.calls[0]![0]).toMatchObject({
     source: { kind: 'chat-file', msgId: '41', token: 'token', conv: '123', name: 'report.txt' },

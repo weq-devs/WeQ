@@ -182,6 +182,7 @@ export function useMediaSave() {
     run,
     cancel,
     busy,
+    binding: save.binding,
     disabled: busy || !save.binding || save.settings.isLoading,
     isBusy: (source: MediaSaveSource) => busy && operation?.key === sourceKey(source),
     downloading: busy && operation?.browser,

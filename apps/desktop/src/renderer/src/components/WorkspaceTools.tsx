@@ -1,6 +1,7 @@
 import {
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -50,6 +51,7 @@ import { conversationAnalysisTarget } from '../lib/conversationActions';
 import { useBackgroundTasks, backgroundTaskId } from '../hooks/useBackgroundTasks';
 import type { ContentSelection } from '../../../shared/content_selection';
 import type { ExportMode } from '../views/export/types';
+import { IS_ELECTRON } from '../lib/target.shared';
 import {
   analysisTargetForWorkspace,
   selectionForWorkspace,
@@ -208,6 +210,22 @@ export function WorkspaceTools({
   const flashTasks = trpc.account.flashListDownloadTasks.useQuery(undefined, taskQueryOptions);
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
   const taskUtils = trpc.useUtils();
+  const localMediaOutputs = useMemo(
+    () =>
+      IS_ELECTRON &&
+      JSON.stringify(
+        tasks.data?.flatMap((task) =>
+          task.status === 'completed' && task.resource?.kind === 'media'
+            ? [[task.id, task.save?.status, task.save?.savedAt]]
+            : [],
+        ),
+      ),
+    [tasks.data],
+  );
+  useEffect(() => {
+    if (localMediaOutputs && localMediaOutputs !== '[]')
+      void taskUtils.account.mediaResource.messageLocations.invalidate();
+  }, [localMediaOutputs, taskUtils]);
   const recoveredClones = JSON.stringify(
     background.tasks.flatMap(({ task }) =>
       task.kind === 'clone' && task.status === 'completed' ? [[task.id, task.updatedAt]] : [],

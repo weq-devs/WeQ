@@ -30,11 +30,21 @@
  */
 
 import { readdir, stat } from 'node:fs/promises';
-import { join, resolve, sep, extname } from 'node:path';
+import { join, resolve, sep, extname, isAbsolute } from 'node:path';
+import { createHash } from 'node:crypto';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { FileAssistantRow } from '@weq/db';
 import { clampLimit } from './resource_paging';
+import { JsonStore } from '../common/json_store';
+
+type SentFilePaths = Record<string, { path: string; size: number }>;
+
+function sentFileKey(token: string, name: string): string {
+  return createHash('sha256')
+    .update(JSON.stringify([token, name]))
+    .digest('hex');
+}
 
 /** Coarse bucket a file falls into, driving the category tabs + default icon. */
 export type FileCategory =
@@ -140,10 +150,39 @@ const MAX_SCAN_DEPTH = 8;
 const DOWNLOAD_SNAPSHOT_CAP = 100_000;
 
 export class FileResourceService {
+  private sentFiles?: JsonStore<SentFilePaths>;
+
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
+    private readonly sentFileStorePath?: string,
   ) {}
+
+  private sentFileStore() {
+    if (!this.sentFileStorePath) return undefined;
+    this.sentFiles ??= new JsonStore<SentFilePaths>(this.sentFileStorePath, () => ({}), {
+      normalize: (raw) =>
+        raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as SentFilePaths) : {},
+    });
+    return this.sentFiles;
+  }
+
+  /** 记录桌面发送成功的原路径，不复制或接管原件。 */
+  rememberSentFile(token: string, name: string, size: number, path: string): void {
+    if (!token || !name || !isAbsolute(path)) return;
+    const store = this.sentFileStore();
+    if (!store) return;
+    store.data[sentFileKey(token, name)] = { path, size };
+    store.save();
+  }
+
+  async resolveSentFile(token: string, name: string): Promise<string | null> {
+    if (!token || !name) return null;
+    const file = this.sentFileStore()?.data[sentFileKey(token, name)];
+    if (typeof file?.path !== 'string' || !isAbsolute(file.path)) return null;
+    const info = await stat(file.path).catch(() => null);
+    return info?.isFile() && info.size === file.size ? file.path : null;
+  }
 
   // ── File 目录 (nt_data/File/Ori) ────────────────────────────────────────────
 

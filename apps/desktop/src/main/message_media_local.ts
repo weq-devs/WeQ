@@ -39,32 +39,45 @@ async function firstFile(paths: (string | null | undefined)[]): Promise<string |
   return null;
 }
 
-export async function resolveForwardChatFile(
+export async function resolveRecordedChatFile(
   services: AccountServices,
   source: Extract<MediaSaveSource, { kind: 'chat-file' }>,
+  selected?: Awaited<ReturnType<typeof findMediaElement>>,
 ) {
+  if (!source.fwdKind && !source.fwdMsgId && !source.fwdResId && /^\d+$/.test(source.msgId)) {
+    const sent = await services.fileResource.resolveSentFile(source.token ?? '', source.name ?? '');
+    if (sent) return { path: sent, name: source.name };
+    const info = await services.fileAssistant
+      .getFileInfoByMsgId(BigInt(source.msgId))
+      .catch(() => null);
+    if (info && (!source.name || info.fileName === source.name)) {
+      const path = info.localPath.replace(/^::NTOSFull::/, '');
+      if (isAbsolute(path) && (await firstFile([path]))) return { path, name: info.fileName };
+    }
+  }
   if (getAppContext().services !== services) return null;
-  const found = await findMediaElement(
-    source.msgId,
-    'file',
-    source.token ?? '',
-    source.fwdMsgId,
-    source.fwdKind,
-    source.fwdResId,
-  );
+  const found =
+    selected === undefined
+      ? await findMediaElement(
+          source.msgId,
+          'file',
+          source.token ?? '',
+          source.fwdMsgId,
+          source.fwdKind,
+          source.fwdResId,
+        )
+      : selected;
   const file = found?.element;
   if (
     !file?.filePath ||
+    (source.token && source.token !== file.fileToken) ||
     (source.name && source.name !== file.fileName) ||
     getAppContext().services !== services
   )
     return null;
-  const path = await services.fileResource.resolveLocalFile(
-    file.filePath.replace(/^::NTOSFull::/, ''),
-  );
-  return path && (await firstFile([path]))
-    ? { path, name: file.fileName || source.name || '文件' }
-    : null;
+  const rawPath = file.filePath.replace(/^::NTOSFull::/, '');
+  const path = isAbsolute(rawPath) ? await services.fileResource.resolveLocalFile(rawPath) : null;
+  return path ? { path, name: file.fileName || source.name || '文件' } : null;
 }
 
 interface LocalMediaLocation extends MessageMediaLocation {
@@ -75,6 +88,7 @@ interface LocalMediaLocation extends MessageMediaLocation {
 export async function messageMediaLocations(
   services: AccountServices,
   target: MessageMediaTarget,
+  exactFile = false,
 ): Promise<LocalMediaLocation[]> {
   const context = getAppContext();
   const locations: LocalMediaLocation[] = [];
@@ -138,28 +152,22 @@ export async function messageMediaLocations(
     if (path) add('cache', path);
     return locations;
   }
-  if (target.kind === 'file' && !target.fwdKind && /^\d+$/.test(target.msgId)) {
-    const info = await services.fileAssistant
-      .getFileInfoByMsgId(BigInt(target.msgId))
-      .catch(() => null);
-    if (info && (!target.name || info.fileName === target.name)) {
-      const path = await firstFile([info.localPath.replace(/^::NTOSFull::/, '')]);
-      if (path) {
-        const record = services.accountConfig.getRecord();
-        const root = record?.uin ? context.platform?.fileDir(record.uin) : null;
-        const sub = root ? relative(root, path) : null;
-        const cached =
-          sub !== null && sub !== '..' && !sub.startsWith(`..${sep}`) && !isAbsolute(sub);
-        add(cached ? 'cache' : 'local', path);
-      }
+  if (target.kind === 'file') {
+    const path = (await resolveRecordedChatFile(services, { ...target, kind: 'chat-file' }))?.path;
+    if (path) {
+      const record = services.accountConfig.getRecord();
+      const root = record?.uin ? context.platform?.fileDir(record.uin) : null;
+      const sub = root ? relative(root, path) : null;
+      const cached =
+        sub !== null && sub !== '..' && !sub.startsWith(`..${sep}`) && !isAbsolute(sub);
+      add(cached ? 'cache' : 'local', path);
     }
-  }
-  if (target.kind === 'file' && target.fwdKind) {
-    const file = await resolveForwardChatFile(services, { ...target, kind: 'chat-file' });
-    if (file) add('local', file.path);
-    const cached = await taskCache();
-    if (cached) add('cache', cached);
-    return locations;
+    // 按文件名找到的缓存可定位核对，但不能直接当成该消息的文件打开。
+    if (target.fwdKind || target.fwdMsgId || target.fwdResId || exactFile) {
+      const cached = await taskCache();
+      if (cached) add('cache', cached);
+      return locations;
+    }
   }
   const found = await services.fileSearch.findFile(
     target.t,

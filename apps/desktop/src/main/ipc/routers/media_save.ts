@@ -1,7 +1,7 @@
 import { networkFetch } from '@weq/network';
 import { z } from 'zod';
 import { basename, extname, join } from 'node:path';
-import { stat, open, unlink } from 'node:fs/promises';
+import { open, unlink } from 'node:fs/promises';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
@@ -27,7 +27,7 @@ import {
 } from './export_save';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import type { ResumableResourceRequest, ResourceExportRunContext } from '@weq/service';
-import { resolveForwardChatFile, savedMediaSourceKey } from '../../message_media_local';
+import { resolveRecordedChatFile, savedMediaSourceKey } from '../../message_media_local';
 
 const messageId = z.string().regex(/^\d{1,20}$/);
 const sourceInput = z.discriminatedUnion('kind', [
@@ -168,22 +168,6 @@ async function probeMedia(
   }
 }
 
-async function localChatFile(
-  services: AccountServices,
-  source: Extract<MediaSaveSource, { kind: 'chat-file' }>,
-) {
-  if (source.fwdKind || source.fwdResId || source.fwdMsgId)
-    return resolveForwardChatFile(services, source);
-  const file = await services.fileAssistant
-    .getFileInfoByMsgId(BigInt(source.msgId))
-    .catch(() => null);
-  if (!file || (source.name && source.name !== file.fileName)) return null;
-  const path = file.localPath.startsWith('::NTOSFull::')
-    ? file.localPath.slice('::NTOSFull::'.length)
-    : file.localPath;
-  return (await stat(path).catch(() => null))?.isFile() ? { path, name: file.fileName } : null;
-}
-
 async function planSource(services: AccountServices, source: MediaSaveSource, check: () => void) {
   if (source.kind === 'url') {
     const fileName = await probeMedia(source.url, source.name, check);
@@ -207,8 +191,6 @@ async function planSource(services: AccountServices, source: MediaSaveSource, ch
         return openUrl(url, signal, check);
       },
     };
-  const local = await localChatFile(services, source);
-  check();
   const selected = await findMediaElement(
     source.msgId,
     'file',
@@ -217,6 +199,8 @@ async function planSource(services: AccountServices, source: MediaSaveSource, ch
     source.fwdKind,
     source.fwdResId,
   );
+  check();
+  const local = await resolveRecordedChatFile(services, source, selected);
   check();
   if (
     (selected && source.token && selected.element.fileToken !== source.token) ||
@@ -254,7 +238,7 @@ async function planSource(services: AccountServices, source: MediaSaveSource, ch
         found.element.fileName !== source.name
       )
         throw new Error('未找到所选文件');
-      const cached = await localChatFile(services, source);
+      const cached = await resolveRecordedChatFile(services, source, found);
       check();
       if (cached) return fileResponse(cached.path);
       if (!found) throw new Error('未找到所选文件');

@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   services: {} as object,
   resolve: vi.fn(async (_services: object, _target: object): Promise<Location[]> => []),
   reveal: vi.fn(async (_path: string) => {}),
+  open: vi.fn(async (_path: string) => {}),
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({ account: { context: { uin: '10001' } }, services: state.services }),
@@ -15,7 +16,11 @@ vi.mock('../src/main/context/app_context', () => ({
 vi.mock('../src/main/message_media_local', () => ({ messageMediaLocations: state.resolve }));
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
-  getHost: () => ({ canReveal: state.canReveal, revealInFolder: state.reveal }),
+  getHost: () => ({
+    canReveal: state.canReveal,
+    revealInFolder: state.reveal,
+    revealPath: state.open,
+  }),
 }));
 import { mediaResourceRouter } from '../src/main/ipc/routers/media_resource';
 
@@ -45,6 +50,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue([{ ...location, path: '/synthetic/file', available: true }]);
   state.reveal.mockClear();
+  state.open.mockClear();
 });
 const api = () => mediaResourceRouter.createCaller({});
 
@@ -74,6 +80,23 @@ it('来源不匹配或异步查询期间切换账号时丢弃结果，不打开�
   });
   await expect(api().revealMessageMedia(revealInput)).rejects.toThrow('账号数据源已切换');
   expect(state.reveal).not.toHaveBeenCalled();
+});
+
+it('文件卡片打开当前记录而不定位文件夹，原文件失效时不打开另一份', async () => {
+  const target = { ...input.target, kind: 'file' as const };
+  const openInput = { ...input, target, location };
+  expect(await api().openMessageFile(openInput)).toBe(true);
+  expect(state.open).toHaveBeenCalledWith('/synthetic/file');
+  expect(state.reveal).not.toHaveBeenCalled();
+  state.open.mockClear();
+  state.resolve.mockResolvedValue([
+    { kind: 'cache', key: 'other', path: '/synthetic/other', available: true },
+  ]);
+  await expect(api().openMessageFile(openInput)).rejects.toThrow('本地文件已移动或删除');
+  expect(state.open).not.toHaveBeenCalled();
+  state.resolve.mockResolvedValue([]);
+  expect(await api().openMessageFile({ ...input, target })).toBe(false);
+  expect(state.open).not.toHaveBeenCalled();
 });
 it('Web host 不允许通过接口打开服务器文件夹', async () => {
   state.canReveal = false;

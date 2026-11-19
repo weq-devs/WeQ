@@ -178,6 +178,9 @@ export class FileUploadStaging {
     if (!found) throw new Error('请选择本次上传的附件');
     return this.complete(owner, found[0]);
   }
+  hasPath(path: string): boolean {
+    return [...this.uploads.values()].some((entry) => entry.path === path);
+  }
   whenDiscarded(owner: object, id: string, callback: () => void): void {
     this.entry(owner, id).onDiscard = callback;
   }

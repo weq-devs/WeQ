@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { readFile, access } from 'node:fs/promises';
 import { webNotices, type WebNotice } from '../src/main/web/notices';
+import type { HostBridge } from '@weq/service';
 
 const f = vi.hoisted(() => ({
   configId: 'source-a',
@@ -14,6 +15,7 @@ const f = vi.hoisted(() => ({
   sendFile: vi.fn(),
   trustPath: vi.fn(),
   untrustPath: vi.fn(),
+  rememberSentFile: vi.fn(),
 }));
 vi.mock('../src/main/ocr/local', () => ({
   resolveLocalOcrModel: () => null,
@@ -25,7 +27,11 @@ vi.mock('../src/main/context/app_context', () => {
     groupFile: { list: f.list },
     contentSearch: { remember: f.remember },
     messageSend: { sendFile: f.sendFile },
-    fileResource: { trustPath: f.trustPath, untrustPath: f.untrustPath },
+    fileResource: {
+      trustPath: f.trustPath,
+      untrustPath: f.untrustPath,
+      rememberSentFile: f.rememberSentFile,
+    },
   };
   const bootstrap = () => ({
     userConfig: { getSettings: () => ({ autoAttachQq: true, ocr: { prefilterEnabled: false } }) },
@@ -138,6 +144,7 @@ describe('群文件管理器 IPC 来源', () => {
       await expect(access(path)).rejects.toThrow();
       await api.browserFileDiscard({ ...binding, uploadId: upload.id });
     }
+    expect(f.rememberSentFile).not.toHaveBeenCalled();
   });
   it('Web 附件绑定账号，不接受混合来源或无效编码', async () => {
     const api = accountRouter.createCaller({});
@@ -196,7 +203,14 @@ describe('群文件管理器 IPC 来源', () => {
     },
   );
   it('本机文件沿用发送管线，传递真实目录与改名，长上传前复核来源及 QQ 运行时', async () => {
-    await accountRouter.createCaller({}).sendFile({
+    f.sendFile.mockResolvedValueOnce({
+      ok: true,
+      fileId: 'sent-id',
+      fileName: '新名称.txt',
+      fileSize: 3,
+    });
+    const api = accountRouter.createCaller({ host: { canReveal: true } as HostBridge });
+    await api.sendFile({
       ...binding,
       peerType: 'group',
       targetId: '123',
@@ -204,6 +218,12 @@ describe('群文件管理器 IPC 来源', () => {
       path: '/synthetic/file.txt',
       fileName: '新名称.txt',
     });
+    expect(f.rememberSentFile).toHaveBeenCalledWith(
+      'sent-id',
+      '新名称.txt',
+      3,
+      '/synthetic/file.txt',
+    );
     const sent = f.sendFile.mock.calls[0]![0];
     expect(sent).toMatchObject({
       peerType: 'group',

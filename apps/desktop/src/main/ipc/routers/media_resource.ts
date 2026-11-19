@@ -61,23 +61,43 @@ const messageMediaInput = resourceSourceInput.extend({
     url: z.string().optional(),
   }),
 });
+const locationInput = z.object({
+  kind: z.enum(['saved', 'local', 'cache', 'thumbnail', 'cover', 'transcoded']),
+  key: z.string().min(1),
+});
 
 export const mediaResourceRouter = router({
-  messageLocations: procedure.input(messageMediaInput).query(async ({ input }) => {
-    const services = requireResourceSource(input);
-    const locations = await messageMediaLocations(services, input.target);
-    assertResourceSource(services, input);
-    return locations.map(({ kind, key, available }) => ({ kind, key, available }));
-  }),
+  messageLocations: procedure
+    .input(messageMediaInput.extend({ exactFile: z.boolean().optional() }))
+    .query(async ({ input }) => {
+      const services = requireResourceSource(input);
+      const locations = await messageMediaLocations(services, input.target, input.exactFile);
+      assertResourceSource(services, input);
+      return locations.map(({ kind, key, available }) => ({ kind, key, available }));
+    }),
+  openMessageFile: procedure
+    .input(messageMediaInput.extend({ location: locationInput.optional() }))
+    .mutation(async ({ input }) => {
+      const host = getHost();
+      if (!host.canReveal || host.remoteClient) throw new Error('当前环境不支持打开本机文件');
+      if (input.target.kind !== 'file') throw new Error('不是文件消息');
+      const services = requireResourceSource(input);
+      const locations = await messageMediaLocations(services, input.target, true);
+      assertResourceSource(services, input);
+      const { location } = input;
+      const selected = location
+        ? locations.find(({ kind, key }) => kind === location.kind && key === location.key)
+        : (locations.find((item) => item.kind === 'local' && item.available) ??
+          locations.find((item) => item.available));
+      if (!selected?.available) {
+        if (location) throw new Error('本地文件已移动或删除，请重新保存');
+        return false;
+      }
+      await host.revealPath(selected.path);
+      return true;
+    }),
   revealMessageMedia: procedure
-    .input(
-      messageMediaInput.extend({
-        location: z.object({
-          kind: z.enum(['saved', 'local', 'cache', 'thumbnail', 'cover', 'transcoded']),
-          key: z.string().min(1),
-        }),
-      }),
-    )
+    .input(messageMediaInput.extend({ location: locationInput }))
     .mutation(async ({ input }) => {
       const host = getHost();
       if (!host.canReveal) throw new Error('当前环境不支持在文件夹中显示');
