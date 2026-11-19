@@ -9,6 +9,9 @@
 
 .weq-announcement-entry svg {
   flex: none;
+}
+
+.weq-announcement-entry:not(.is-mobile) svg {
   color: var(--weq-fg-secondary);
 }
 
@@ -24,6 +27,23 @@
 
 .weq-announcement-entry.is-workspace .weq-announcement-entry-label {
   flex: 1;
+}
+
+.weq-announcement-entry-label {
+  white-space: nowrap;
+}
+
+.weq-announcement-entry-preview {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-secondary);
+  font-size: 0.875em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-announcement-entry.is-startup .weq-announcement-entry-preview {
+  max-width: min(14em, 25vw);
 }
 
 .weq-announcement-entry.is-startup {

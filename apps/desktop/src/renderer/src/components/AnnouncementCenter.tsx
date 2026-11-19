@@ -1,4 +1,14 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  lazy,
+  Suspense,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { ChevronRight } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { useAppLock } from '../state/lock';
@@ -10,11 +20,12 @@ import {
 } from '../lib/announcementPresentation';
 import { preferenceValue, useClientPreferences } from '../lib/clientPreferences';
 import { useNotificationPolicy } from '../lib/notificationPolicy';
-import { ReminderCount } from './ReminderBadge';
+import { ReminderDot } from './ReminderBadge';
 import { useToast } from './Toast.shared';
 import '../styles/announcements.css';
 
 const AnnouncementPanel = lazy(() => import('./AnnouncementPanel'));
+const AnnouncementPreviewTitle = createContext<string | undefined>(undefined);
 const bannerKey = 'official-announcement';
 const inForeground = () =>
   document.visibilityState === 'visible' &&
@@ -137,7 +148,11 @@ export function AnnouncementCenter({ active, children }: { active: boolean; chil
 
   return (
     <OpenAnnouncement.Provider value={open}>
-      <AnnouncementUnread.Provider value={unread}>{children}</AnnouncementUnread.Provider>
+      <AnnouncementUnread.Provider value={unread}>
+        <AnnouncementPreviewTitle.Provider value={query.data?.entries[0]?.title}>
+          {children}
+        </AnnouncementPreviewTitle.Provider>
+      </AnnouncementUnread.Provider>
       {selection && !locked && (
         <Suspense fallback={null}>
           <AnnouncementPanel
@@ -157,28 +172,30 @@ export function AnnouncementEntry({
   placement,
   beforeOpen,
 }: {
-  placement: 'workspace' | 'startup';
+  placement: 'workspace' | 'startup' | 'mobile';
   beforeOpen?: () => void;
 }) {
   const { unread, open } = useAnnouncementPresentation();
+  const preview = useContext(AnnouncementPreviewTitle);
   const { label, icon: Icon } = APP_NAVIGATION.announcements;
+  const mobile = placement === 'mobile';
   return (
     <button
       type="button"
       className={`weq-announcement-entry is-${placement}`}
-      title={label}
+      title={preview ?? label}
       aria-label={unread ? `${label}，${unread} 条未读` : label}
+      aria-description={preview}
       onClick={() => {
         beforeOpen?.();
         open();
       }}
     >
-      <Icon size={16} aria-hidden />
+      <Icon size={mobile ? 22 : 16} aria-hidden />
       <span className="weq-announcement-entry-label">{label}</span>
-      <ReminderCount count={unread} aria-hidden />
-      {placement === 'workspace' && (
-        <ChevronRight className="weq-announcement-entry-arrow" size={14} aria-hidden />
-      )}
+      {preview && <span className="weq-announcement-entry-preview">{preview}</span>}
+      {unread > 0 && <ReminderDot aria-hidden />}
+      {placement !== 'startup' && <ChevronRight size={mobile ? 18 : 14} aria-hidden />}
     </button>
   );
 }

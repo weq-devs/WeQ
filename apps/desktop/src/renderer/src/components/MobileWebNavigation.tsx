@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
+import { AnnouncementEntry } from './AnnouncementCenter';
 import { ReminderCount, ReminderDot } from './ReminderBadge';
 import { useAnnouncementPresentation } from '../lib/announcementPresentation';
 import { SelfProfileAvatar } from './SelfProfileAvatar';
@@ -68,7 +69,7 @@ export function MobileWebNavigation({
   onOpenCollection: () => void;
 }) {
   const mobilePage = useWorkspaceMobilePage();
-  const announcements = useAnnouncementPresentation();
+  const { unread: announcementUnread } = useAnnouncementPresentation();
   const mobile = useMobileWebLayout();
   const developmentDressTools = useDevelopmentDressTools();
   const dataSaver = useDataSaver((state) => state.enabled);
@@ -118,7 +119,6 @@ export function MobileWebNavigation({
       onOpenSettings,
       onOpenTool: openTool,
       onOpenNotice: () => {},
-      onOpenAnnouncements: () => announcements.open(),
     });
   const badgeFor = (id: string) =>
     id === 'messages'
@@ -127,9 +127,7 @@ export function MobileWebNavigation({
         ? contactBadgeCount
         : id === 'mail' || id === 'more'
           ? mailBadgeCount
-          : id === 'announcements'
-            ? announcements.unread
-            : 0;
+          : 0;
   const moreContent = (
     <section className="weq-mobile-more" aria-label="更多功能">
       <div className="weq-mobile-more-account">
@@ -140,34 +138,32 @@ export function MobileWebNavigation({
         </div>
       </div>
       {navigationEntries('mobile-more', developmentDressTools).map(
-        ({ id, label, icon: Icon, target, workspace }) => (
-          <button
-            key={id}
-            type="button"
-            aria-label={
-              id === 'announcements' && announcements.unread
-                ? `${label}，${announcements.unread} 条未读`
-                : undefined
-            }
-            onClick={() => activate(target)}
-            onPointerEnter={() => {
-              if (workspace) preloadWorkspace(workspace);
-            }}
-            onFocus={() => {
-              if (workspace) preloadWorkspace(workspace);
-            }}
-            onPointerDown={() => {
-              if (workspace) preloadWorkspace(workspace);
-            }}
-          >
-            <Icon size={22} aria-hidden />
-            <span>{label}</span>
-            {badgeFor(id) > 0 ? (
-              <ReminderCount count={badgeFor(id)} className="weq-mobile-badge" />
-            ) : null}
-            <ChevronRight size={18} aria-hidden />
-          </button>
-        ),
+        ({ id, label, icon: Icon, target, workspace }) =>
+          target.kind === 'announcements' ? (
+            <AnnouncementEntry key={id} placement="mobile" />
+          ) : (
+            <button
+              key={id}
+              type="button"
+              onClick={() => activate(target)}
+              onPointerEnter={() => {
+                if (workspace) preloadWorkspace(workspace);
+              }}
+              onFocus={() => {
+                if (workspace) preloadWorkspace(workspace);
+              }}
+              onPointerDown={() => {
+                if (workspace) preloadWorkspace(workspace);
+              }}
+            >
+              <Icon size={22} aria-hidden />
+              <span>{label}</span>
+              {badgeFor(id) > 0 ? (
+                <ReminderCount count={badgeFor(id)} className="weq-mobile-badge" />
+              ) : null}
+              <ChevronRight size={18} aria-hidden />
+            </button>
+          ),
       )}
     </section>
   );
@@ -210,7 +206,7 @@ export function MobileWebNavigation({
       <nav className="weq-mobile-tabs" aria-label="主导航">
         {tabs.map(({ id, label, icon: Icon, target }) => {
           const badge = badgeFor(id);
-          const announcementDot = id === 'more' && announcements.unread > 0;
+          const announcementDot = id === 'more' && announcementUnread > 0;
           return (
             <button
               key={id}
