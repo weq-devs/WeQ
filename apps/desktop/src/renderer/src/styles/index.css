@@ -11912,44 +11912,6 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   margin-top: 4px;
 }
 
-.weq-clone-min {
-  margin-left: auto;
-}
-
-.weq-clone-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 28px 24px;
-  align-items: center;
-}
-.weq-clone-progress-phase {
-  font-size: 14px;
-  color: var(--weq-fg-primary);
-}
-.weq-clone-progress-track {
-  width: 100%;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(127, 127, 127, 0.18);
-  overflow: hidden;
-}
-.weq-clone-progress-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--weq-accent-effective);
-  transition: width 240ms ease;
-}
-.weq-clone-progress-pct {
-  font-size: 12px;
-  color: var(--weq-fg-secondary);
-}
-.weq-clone-progress-hint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--weq-fg-muted);
-}
-
 /* ── 克隆体设置灯箱 ──────────────────────────────────────────────────────── */
 .weq-persona-modal {
   display: flex;

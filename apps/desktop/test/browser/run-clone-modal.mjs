@@ -173,8 +173,6 @@ try {
     assert.ok(await page.getByRole('button', { name: '下一步', exact: true }).isDisabled());
     await page.keyboard.press('Escape');
     await page.locator('.weq-clone-modal').waitFor({ state: 'hidden' });
-    await open('progress');
-    await check('progress', '.weq-clone-progress');
     results.push({ profile, passed: true });
   }
   assert.deepEqual(errors, []);

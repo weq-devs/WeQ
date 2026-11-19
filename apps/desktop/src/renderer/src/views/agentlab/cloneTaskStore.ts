@@ -112,17 +112,11 @@ function maybeStopProgressSub(): void {
   }
 }
 
-/**
- * 发起一次克隆构建：登记 running 任务 → 后台跑构建（promise 不绑定组件）→ 收尾改 done/error。
- * 同一 personaId 再发起会替换旧任务。
- */
 export async function startCloneTask(args: StartCloneArgs): Promise<void> {
   const expectedAccountUin = useViewState.getState().openedUin ?? undefined;
-  const pending = runCloneTask(args, () =>
+  return runCloneTask(args, () =>
     client.account.buildAgentLabFromC2c.mutate({ ...args.params, expectedAccountUin }),
   );
-  useWorkspaceMenu.getState().openTasks();
-  return pending;
 }
 
 export async function startCloneUpdate(args: {
@@ -147,6 +141,7 @@ export async function startCloneUpdate(args: {
   );
 }
 
+/** 创建和更新都先登记任务并打开统一列表，再于后台执行。 */
 async function runCloneTask(
   args: { params: { personaId: string }; meta: StartCloneArgs['meta'] },
   run: () => Promise<unknown>,
@@ -175,6 +170,7 @@ async function runCloneTask(
     },
   ]);
   ensureProgressSub();
+  useWorkspaceMenu.getState().openTasks();
   try {
     await run();
     flushProgress();

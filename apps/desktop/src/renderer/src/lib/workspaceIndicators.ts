@@ -120,6 +120,7 @@ export function summarizeWorkspaceTasks({
       activity: task.status === 'running' ? 'running' : 'finished',
       result: task.status,
       failed: task.status === 'error',
+      autoOpenTaskList: false, // 创建和更新会主动打开任务列表。
     });
   }
   for (const task of roaming) {
