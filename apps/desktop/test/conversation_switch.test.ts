@@ -96,8 +96,6 @@ const f = vi.hoisted(() => ({
   unreadFailures: 0,
   unreadReply: undefined as (() => Promise<unknown>) | undefined,
   markedRead: [] as Array<{ chatType: number; uid: string; latestSeq?: string }>,
-  markUnread: undefined as ((id: string) => void) | undefined,
-  saveUnread: undefined as (() => Promise<void>) | undefined,
   readCurrent: undefined as (() => void) | undefined,
   dbChanged: undefined as (() => void) | undefined,
   notificationSubscriptions: { group: [], conversation: [] } as Record<
@@ -223,7 +221,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return () => ({ mutate: vi.fn(), mutateAsync: refetch, isLoading: false });
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
-          return async (input?: UnreadInput & { beforeSeq?: string; uid?: string }) => {
+          return async (input?: UnreadInput & { beforeSeq?: string }) => {
             if (path.at(-1) === 'peerQqShow') return null;
             if (
               [
@@ -249,16 +247,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             }
             if (path.at(-1) === 'markConversationRead') {
               f.markedRead.push(input as unknown as (typeof f.markedRead)[number]);
-              if (input?.uid) f.unreadCounts[input.uid] = 0;
               return { changed: true, report: { state: 'disabled' } };
-            }
-            if (path.at(-1) === 'setConversationReadState' && input) {
-              await f.saveUnread?.();
-              const rows = input.targets.map((target) => {
-                f.unreadCounts[target.uid] = 1;
-                return { ...target, unreadCount: 1 };
-              });
-              return { rows, failed: 0, undoToken: 'manual-unread' };
             }
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
             if (path.at(-1) === 'listBefore')
@@ -359,17 +348,12 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
     ),
 }));
 vi.mock('../src/renderer/src/im-template/template/chatSidebarContent', () => ({
-  ChatSidebarContent: (props: ComponentProps<typeof ChatSidebarContent>) => {
-    const directory = useContext(ConversationDirectoryContext);
-    f.markUnread = (id) => {
-      const row = props.conversations.find((conversation) => conversation.id === id);
-      if (row) directory?.onReadState?.([row], true);
-    };
-    return h(
+  ChatSidebarContent: (props: ComponentProps<typeof ChatSidebarContent>) =>
+    h(
       'nav',
       null,
       h('span', {
-        'data-list-locate': directory?.locate?.id ?? '',
+        'data-list-locate': useContext(ConversationDirectoryContext)?.locate?.id ?? '',
       }),
       h('span', { 'data-previews': true }, JSON.stringify(props.conversations)),
       ...f.recent.map((row) =>
@@ -379,8 +363,7 @@ vi.mock('../src/renderer/src/im-template/template/chatSidebarContent', () => ({
           row.targetUid,
         ),
       ),
-    );
-  },
+    ),
 }));
 vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (importOriginal) => {
   const actual =
@@ -489,8 +472,6 @@ afterEach(() => {
   f.unreadReads.length = 0;
   f.unreadFailures = 0;
   f.unreadReply = undefined;
-  f.markUnread = undefined;
-  f.saveUnread = undefined;
   f.dbChanged = undefined;
   f.notificationSubscriptions = { group: [], conversation: [] };
   f.notificationReads = { group: 0, conversation: 0 };
@@ -1150,85 +1131,6 @@ it('返回消息页不重放上一次未读定位，下次点击继续定位下�
   } finally {
     await act(async () => root.unmount());
     client.clear();
-    host.remove();
-  }
-});
-
-it.each([false, true])('再次点开当前手动未读会话会清除角标：仍在保存=%s', async (pending) => {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  vi.stubGlobal('localStorage', new Storage());
-  useViewState.getState().setOpenedUin('90001');
-  f.unreadMode = true;
-  const id = '10001';
-  let finishSave: (() => void) | undefined;
-  if (pending)
-    f.saveUnread = () =>
-      new Promise((resolve) => {
-        finishSave = resolve;
-      });
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const select = () =>
-    act(async () =>
-      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
-        .find((button) => button.textContent === id)!
-        .click(),
-    );
-  const count = () =>
-    (
-      JSON.parse(host.querySelector('[data-previews]')!.textContent!) as Array<{
-        id: string;
-        unreadCount?: number;
-      }>
-    ).find((row) => row.id === id)?.unreadCount;
-  try {
-    await act(async () =>
-      root.render(
-        h(
-          QueryClientProvider,
-          { client: queryClient },
-          h(ContentSelectionProvider, null, h(MainView)),
-        ),
-      ),
-    );
-    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
-    await select();
-    await act(async () =>
-      f.reads.at(-1)!.show({
-        complete: true,
-        rows: [
-          {
-            msgId: 'target-message',
-            msgSeq: '100',
-            sendTime: '1794200000',
-            senderUid: 'u_peer',
-            senderUin: '20001',
-            elements: [{ type: 'text', data: { textContent: '已读的消息' } }],
-          },
-        ],
-      }),
-    );
-    expect(f.markedRead).toHaveLength(1);
-    await act(async () => f.markUnread!(id));
-    expect(f.markedRead).toHaveLength(1);
-    if (!pending) expect(count()).toBe(1);
-
-    await select();
-    if (pending) {
-      expect(f.markedRead).toHaveLength(1);
-      await act(async () => finishSave!());
-    }
-    expect(f.markedRead).toHaveLength(2);
-    expect(f.markedRead.at(-1)).toMatchObject({ chatType: 2, uid: id, latestSeq: '100' });
-    expect(count()).toBe(0);
-    await select();
-    expect(f.markedRead).toHaveLength(2);
-  } finally {
-    finishSave?.();
-    await act(async () => root.unmount());
-    queryClient.clear();
     host.remove();
   }
 });

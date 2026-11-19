@@ -108,13 +108,11 @@ function bySeqDesc(a: UnreadDockStop, b: UnreadDockStop): number {
  *
  * @param highlights  48902 解出的高亮（可能为 undefined）
  * @param readSeq     已读到的 seq（41002）；第一条未读 = readSeq + 1
- * @param latestSeq   最新消息序号；只有手动未读标志时不生成不存在的跳转目标
  * @param unread      打开会话时的未读总数（recent_contact 40003 − 41002）
  */
 export function buildUnreadDock(input: {
   highlights: ConversationHighlight[] | null | undefined;
   readSeq?: string | number | null;
-  latestSeq?: string | null;
   unread: number;
 }): UnreadDock | null {
   const unread = Math.max(0, Math.floor(input.unread));
@@ -148,12 +146,7 @@ export function buildUnreadDock(input: {
     .sort(bySeqDesc);
 
   const firstUnreadSeq = firstUnread.toString();
-  if (
-    hasRead &&
-    unread > 0 &&
-    (input.latestSeq == null || firstUnread <= toBig(input.latestSeq)) &&
-    !stops.some((stop) => stop.seq === firstUnreadSeq)
-  )
+  if (hasRead && unread > 0 && !stops.some((stop) => stop.seq === firstUnreadSeq))
     stops.push({ kind: 'unread', seq: firstUnreadSeq });
 
   if (stops.length === 0) return null;

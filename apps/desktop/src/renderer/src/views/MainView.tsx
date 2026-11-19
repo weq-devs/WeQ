@@ -2336,7 +2336,6 @@ function MainWorkspace(): ReactElement {
   const unreadUpdateGuardRef = useRef(createUnreadUpdateGuard());
   const unreadRefreshStateRef = useRef(createUnreadRefreshState());
   const manualReadPendingRef = useRef(new Set<string>());
-  const [unreadReopenRevision, setUnreadReopenRevision] = useState(0);
   const [readStateBusy, setReadStateBusy] = useState(false);
   const readStateBusyRef = useRef(false);
   const [readUndo, setReadUndo] = useState<{
@@ -3312,12 +3311,6 @@ function MainWorkspace(): ReactElement {
         setSpecialChat(null);
         setArkFeedState(null);
         setSurfaceNavigation((value) => value + 1);
-        // 重选当前会话不会改变会话 ID，但仍须消费这次打开前留下的未读。
-        if (
-          selectedUidRef.current === conversationId &&
-          ((row?.unreadCount ?? 0) > 0 || manualReadPendingRef.current.has(conversationId))
-        )
-          setUnreadReopenRevision((value) => value + 1);
         shell.selectConversation(conversationId);
       }),
     [shell, syncDraftsFromPending, settingsNavigation, switchConversationView],
@@ -5248,13 +5241,13 @@ function MainWorkspace(): ReactElement {
       ? selectedConversation.id
       : null;
 
-  // 换会话或重开未读会话时，收起旧的跳转坞并重新获取打开时的快照。
+  // 换会话立刻收起上一个会话的跳转坞（首屏还没落地时不该继续挂着旧坞）。
   useEffect(() => {
     unreadDockRequestRef.current = null;
     unreadSnapshotPendingRef.current = null;
     setUnreadDock(null);
     setMissingJumpSeq(null);
-  }, [unreadSelectionId, unreadReopenRevision]);
+  }, [unreadSelectionId]);
 
   useEffect(() => {
     const conv = selectedConversation;
@@ -5264,8 +5257,6 @@ function MainWorkspace(): ReactElement {
     }
     // 等首批消息落地后记录未读快照；跳转目标是否可见由聊天视口判断。
     if (messagesLoading || loaded.length === 0) return undefined;
-    // 若点开时手动标记仍在保存，等操作落地再消费未读。
-    if (manualReadPendingRef.current.has(conv.id)) return undefined;
     if (unreadDockRequestRef.current?.convId === conv.id) return undefined;
 
     const convId = conv.id;
@@ -5315,7 +5306,6 @@ function MainWorkspace(): ReactElement {
       const dock = buildUnreadDock({
         highlights: info?.highlights ?? null,
         readSeq,
-        latestSeq: info.latestSeq,
         unread,
       });
 
@@ -5331,8 +5321,6 @@ function MainWorkspace(): ReactElement {
     selectedConversation,
     messagesLoading,
     loaded,
-    readStateBusy,
-    unreadReopenRevision,
     recentContactsData,
     markVisibleConversationRead,
     openedUin,

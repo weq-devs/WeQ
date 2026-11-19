@@ -15,9 +15,6 @@ it('跳转使用服务端未读数，不以序号差猜测，缺水位不伪造�
     stops: [{ kind: 'unread', seq: '5001' }],
   });
   expect(buildUnreadDock({ readSeq: null, unread: 2, highlights: [] })).toBeNull();
-  expect(
-    buildUnreadDock({ readSeq: '5000', latestSeq: '5000', unread: 1, highlights: [] }),
-  ).toBeNull();
 });
 
 it('排除已读的重要消息，首条未读本身是重要消息时只保留一个跳转', () => {
