@@ -75,9 +75,9 @@ it('本地状态未刷新时，精确匹配的线上读回立即供所有本人�
     subType: 0,
     statusName: '',
   };
-  // 0x116c_1 业务回包：UID@1、主状态@2、扩展@10、自定义@14（省略默认表情 ID 0）。
+  // 真实 0x116c_1 主状态为 11；样本用合成 UID、文字和默认表情 ID 0。
   const sendOidbPacket = vi.fn(async () =>
-    Buffer.from('0a06755f73656c66100a50d00f720712036e65771801', 'hex'),
+    Buffer.from('0a06755f73656c66100b50d00f720712036e65771801', 'hex'),
   );
   const service = new OnlineStatusService(
     { misc: { getUserOnlineStatus: async (uid) => ({ ...local, uid }) } },

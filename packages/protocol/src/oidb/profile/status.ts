@@ -305,11 +305,13 @@ export namespace GetContactOnlineStatus {
     const uid = body.uid || body.alternateUid;
     const status = body.effectiveStatus ?? body.status;
     if (typeof uid !== 'string' || !uid || status === undefined) return null;
+    const rawStatus = toInt(status);
     const custom = body.custom as Record<string, unknown> | undefined;
     const extStatus = toInt(body.extStatus);
     return {
       uid,
-      status: toInt(status),
+      // 0x116c_1 返回 Android AppRuntime.Status 的 online=11，WeQ 使用 10。
+      status: rawStatus === 11 ? 10 : rawStatus,
       extStatus,
       customStatus:
         extStatus === 2000 && typeof custom?.text === 'string' && custom.faceType !== undefined
