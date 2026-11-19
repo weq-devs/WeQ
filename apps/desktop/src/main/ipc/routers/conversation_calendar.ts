@@ -144,7 +144,7 @@ accountEventBus.on('closing', (session: AccountSession | null) => {
 
 function syncTask(value: Entry) {
   if (!value.taskId) return;
-  const snapshot = value.job.snapshot(value.day, 0, true);
+  const snapshot = value.job.snapshot(value.day, 0, true, 0);
   const { completedSources: done, totalSources: total, failedSources: failed } = snapshot.progress;
   const complete = done === total && snapshot.complete && !snapshot.hasPending;
   const status: CalendarReceipt['status'] = complete

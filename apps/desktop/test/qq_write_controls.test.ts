@@ -181,6 +181,39 @@ describe('QQ 写控件', () => {
     expect(input.value).toBe('新备注');
   });
 
+  it('单行 Enter 保存一次，选字和多行换行不提交', async () => {
+    const f = fixture();
+    const save = vi.fn(async () => true);
+    const render = (multiline: boolean, disabled = false) =>
+      act(() =>
+        f.root.render(
+          h(QQWriteTextRow, { label: '资料', initial: '内容', disabled, multiline, onSave: save }),
+        ),
+      );
+    const press = (field: string, init?: KeyboardEventInit) =>
+      f.host
+        .querySelector(field)!
+        .dispatchEvent(
+          new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', ...init }),
+        );
+    render(false);
+    act(() => {
+      expect(press('input', { isComposing: true })).toBe(true);
+      press('input', { repeat: true });
+    });
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => {
+      expect(press('input')).toBe(false);
+      press('input');
+    });
+    expect(save).toHaveBeenCalledWith('内容');
+    render(true);
+    act(() => expect(press('textarea')).toBe(true));
+    render(false, true);
+    act(() => press('input'));
+    expect(save).toHaveBeenCalledOnce();
+  });
+
   it('原值和清空字符串都可主动提交，不编辑不会自动提交', async () => {
     const f = fixture();
     const save = vi.fn(async () => true);
@@ -342,6 +375,14 @@ describe('QQ 写控件', () => {
     );
     const button = f.host.querySelector<HTMLButtonElement>('[aria-label="清空好友备注"]')!;
     expect(button.disabled).toBe(false);
+    act(() =>
+      f.host
+        .querySelector('input')!
+        .dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        ),
+    );
+    expect(save).not.toHaveBeenCalled();
     await act(async () => button.click());
     expect(save).toHaveBeenCalledWith('');
   });

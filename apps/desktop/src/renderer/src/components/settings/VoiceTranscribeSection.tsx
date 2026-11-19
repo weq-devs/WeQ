@@ -354,7 +354,13 @@ export function TtsProvidersCard(): ReactElement {
           width={620}
           className="weq-provider-window"
         >
-          <div className="weq-provider-modal">
+          <form
+            className="weq-provider-modal"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!saveProvider.isLoading) void onSave();
+            }}
+          >
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">
                 <Volume2 size={16} strokeWidth={1.8} aria-hidden />
@@ -562,9 +568,8 @@ export function TtsProvidersCard(): ReactElement {
 
             <div className="weq-provider-modal-actions">
               <button
-                type="button"
+                type="submit"
                 className="weq-set-btn weq-set-btn-primary"
-                onClick={() => void onSave()}
                 disabled={saveProvider.isLoading}
               >
                 <Save size={14} />
@@ -590,7 +595,7 @@ export function TtsProvidersCard(): ReactElement {
                 删除
               </button>
             </div>
-          </div>
+          </form>
         </Modal>
       ) : null}
     </>

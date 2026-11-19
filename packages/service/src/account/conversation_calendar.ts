@@ -995,7 +995,10 @@ export class ConversationCalendarJob {
     const complete = day
       ? work.length > 0 && work.every((item) => item.detailed)
       : enabledWork.length > 0 && enabledWork.every((item) => item.counted);
-    const rows = work.flatMap((item) => [...item.rows.values()]);
+    // 仅同步任务进度时仍报告真实总数，但不生成或排序会话明细。
+    const totalRows = work.reduce((sum, item) => sum + item.rows.size, 0);
+    const rows =
+      limit > 0 && offset < totalRows ? work.flatMap((item) => [...item.rows.values()]) : [];
     const state = (scope?: string): CalendarControlState => {
       if (!enabledWork.some((item) => !scope || item.day === scope)) return 'empty';
       const pending = enabledWork.filter(
@@ -1075,7 +1078,7 @@ export class ConversationCalendarJob {
           }
         : undefined,
       rows: rows.slice(offset, offset + limit),
-      totalRows: rows.length,
+      totalRows,
       complete,
       cancelled: this.controller.signal.aborted,
       metrics: { ...this.metrics },

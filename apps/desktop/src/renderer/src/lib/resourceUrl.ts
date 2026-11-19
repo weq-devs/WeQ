@@ -8,7 +8,8 @@
  */
 
 import { useThemeStore } from '../state/theme';
-import { dataSaverActive, networkClientId, useDataSaver } from './dataSaver';
+import { dataSaverActive, useDataSaver } from './dataSaver';
+import { networkClientId } from './networkClientId';
 
 const IS_WEB = import.meta.env.VITE_WEQ_TARGET === 'web';
 

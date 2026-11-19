@@ -1144,7 +1144,14 @@ export function AgentLabSection(): ReactElement {
           width={620}
           className="weq-provider-window"
         >
-          <div className="weq-provider-modal">
+          <form
+            className="weq-provider-modal"
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!saveProvider.isLoading && detectingModel === null) void onSave();
+            }}
+          >
             <header className="weq-provider-modal-head">
               <span className="weq-provider-modal-icon">
                 <Server size={16} strokeWidth={1.8} aria-hidden />
@@ -1564,9 +1571,8 @@ export function AgentLabSection(): ReactElement {
 
             <div className="weq-provider-modal-actions">
               <button
-                type="button"
+                type="submit"
                 className="weq-set-btn weq-set-btn-primary"
-                onClick={() => void onSave()}
                 disabled={saveProvider.isLoading || detectingModel !== null}
               >
                 <Save size={14} />
@@ -1592,7 +1598,7 @@ export function AgentLabSection(): ReactElement {
                 删除
               </button>
             </div>
-          </div>
+          </form>
         </Modal>
       ) : null}
     </div>

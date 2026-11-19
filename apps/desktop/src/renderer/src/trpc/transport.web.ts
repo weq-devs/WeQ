@@ -18,7 +18,7 @@ import {
 } from '@trpc/client';
 import type { AppRouter } from '../../../shared/router';
 import { useWebConnection } from '../state/webConnection';
-import { networkClientId } from '../lib/dataSaver';
+import { networkClientId } from '../lib/networkClientId';
 import { HTTP_BATCH_MAX_URL_LENGTH } from '../lib/unreadRequests';
 import { fetchRpcWithDeadline } from './httpDeadline';
 

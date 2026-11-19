@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter, once } from 'node:events';
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -50,6 +51,8 @@ const data = {
 };
 const requests = new Map();
 const unknown = new Set();
+const closedWindows = new EventEmitter();
+const closeCounts = new Map();
 async function serveFixture(req, res, pathname) {
   const asset = /^\/assets\/[^/]+$/.test(pathname);
   const name = asset || pathname === '/startup-theme.js' ? pathname : '/index.html';
@@ -75,6 +78,26 @@ async function serveFixture(req, res, pathname) {
 }
 const server = createServer((req, res) => {
   const url = new URL(req.url, 'http://fixture.invalid');
+  if (url.pathname === '/trpc/settings.dataSaver.windowClosed') {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      try {
+        const { json } = JSON.parse(body);
+        assert.equal(req.method, 'POST');
+        assert.equal(req.headers['content-type'], 'application/json');
+        assert.equal(typeof json.windowId, 'string');
+        closeCounts.set(json.windowId, (closeCounts.get(json.windowId) ?? 0) + 1);
+        closedWindows.emit(json.windowId);
+        res.setHeader('content-type', 'application/json');
+        res.end('{"result":{"data":{"json":null}}}');
+      } catch {
+        res.writeHead(400).end();
+      }
+    });
+    return;
+  }
   if (url.pathname.startsWith('/trpc/')) {
     const result = decodeURIComponent(url.pathname.slice('/trpc/'.length))
       .split(',')
@@ -118,6 +141,15 @@ try {
           const errors = [];
           page.on('pageerror', (error) => errors.push(error.message));
           requests.clear();
+          const registered = reload
+            ? page.waitForRequest((req) =>
+                new URL(req.url()).pathname
+                  .split('/')
+                  .at(-1)
+                  .split(',')
+                  .includes('settings.dataSaver.status'),
+              )
+            : null;
           await page.goto(origin);
           await page.waitForFunction(() => window.weqRemoteStartup?.state === 'ready');
           await page.locator('.weq-account-workspace').waitFor();
@@ -131,10 +163,23 @@ try {
           for (const asset of inventory.resources)
             assert.equal(requests.get(asset.path), 1, asset.path);
           const coldRequests = [...requests.values()].reduce((sum, count) => sum + count, 0);
-          if (reload) {
-            await page.reload();
+          if (registered) {
+            const status = new URL((await registered).url());
+            const path = status.pathname.split('/').at(-1).split(',');
+            const input = JSON.parse(status.searchParams.get('input'));
+            const { windowId } = (
+              status.searchParams.get('batch') === '1'
+                ? input[path.indexOf('settings.dataSaver.status')]
+                : input
+            ).json;
+            assert.equal(closeCounts.has(windowId), false);
+            await Promise.all([
+              once(closedWindows, windowId, { signal: AbortSignal.timeout(5000) }),
+              page.reload(),
+            ]);
             await page.waitForFunction(() => window.weqRemoteStartup?.state === 'ready');
             await page.locator('.weq-account-workspace').waitFor();
+            assert.equal(closeCounts.get(windowId), 1);
             for (const asset of inventory.resources)
               assert.equal(requests.get(asset.path), 1, asset.path);
           }
