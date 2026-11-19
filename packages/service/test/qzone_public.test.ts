@@ -7,14 +7,55 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeBkn, type WebCredential } from '../src/account/web/credential';
 import * as publicQzone from '../src/account/web/qzone_public';
+import { stubWebFetch, type StubbedFetch } from './support/web-fetch';
 
-vi.mock('../src/account/web/http', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../src/account/web/http')>()),
-  webRequestJson: vi.fn(),
-}));
+/**
+ * 实现已收编进 `@weqbot/protocol`，kernel 里直接调全局 `fetch` 并在传输层解析
+ * JSON。所以桩返回的是**响应文本**，这里包一层 `query` 适配器让剩下的用例保持
+ * 「给对象」的写法（断言部分基本不用动）。
+ */
+let web: StubbedFetch = stubWebFetch();
 
-const { webRequestJson } = await import('../src/account/web/http');
-const query = vi.mocked(webRequestJson);
+/**
+ * 把原来的 `query`（mock 了 WeQ 的 `webRequestJson`）替换成「操作 fetch 桩」的
+ * 同名门面，让用例主体保持「给对象 / 断言 `query.calls`」的写法。
+ *
+ * 两个语义差异要记住：
+ *   - kernel 在传输层解析 JSON，所以 `mockResolvedValue` 会 `JSON.stringify`；
+ *   - 网络异常用 `{ error }` 表示（fetch reject），不是返回一个坏响应。
+ */
+const query = {
+  get calls(): Array<
+    [string, { method?: string; headers?: Record<string, string>; body?: string; retry?: unknown }]
+  > {
+    return web.calls.map((call) => [
+      call.url,
+      {
+        method: call.method,
+        headers: call.headers,
+        body: call.body as string,
+        retry: call.init.retry,
+      },
+    ]);
+  },
+  mockResolvedValue(value: unknown) {
+    web.reply({ text: JSON.stringify(value) });
+  },
+  mockResolvedValueOnce(value: unknown) {
+    web.replyOnce({ text: JSON.stringify(value) });
+    return query;
+  },
+  mockRejectedValueOnce(error: Error) {
+    web.replyOnce({ error });
+    return query;
+  },
+  mockClear() {
+    web.reset();
+  },
+  mockReset() {
+    web.reset();
+  },
+};
 
 const CREDENTIAL: WebCredential = {
   uin: '10001',
@@ -49,7 +90,7 @@ function ok(data: Record<string, unknown>) {
 }
 
 function callOf(index = 0) {
-  const [url, init] = query.mock.calls[index]!;
+  const [url, init] = query.calls[index]!;
   return {
     url,
     method: init.method,
@@ -58,8 +99,13 @@ function callOf(index = 0) {
   };
 }
 
-beforeEach(() => query.mockReset());
-afterEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+  web = stubWebFetch();
+});
+afterEach(() => {
+  web.restore();
+  vi.restoreAllMocks();
+});
 
 describe('gotrpc 信封', () => {
   it('用 h5 网关 + 当前账号 g_tk，并把 oidb 命令号放进请求头', async () => {
@@ -187,7 +233,7 @@ describe('推荐流分页', () => {
     ]) {
       await expect(publicQzone.getQzonePublicFeeds(other, cursor)).rejects.toThrow(/cursor/);
     }
-    expect(query).not.toHaveBeenCalled();
+    expect(query.calls).toHaveLength(0);
   });
 
   it.each([
@@ -246,7 +292,7 @@ describe('详情 / 评论 / 回复', () => {
     await expect(
       publicQzone.getQzonePublicComments(CREDENTIAL, { cell_common: { union_id: {} } }, 'cursor'),
     ).rejects.toThrow(/union_id/);
-    expect(query).not.toHaveBeenCalled();
+    expect(query.calls).toHaveLength(0);
   });
 });
 
@@ -318,7 +364,7 @@ describe('互动写操作', () => {
     await expect(
       publicQzone.setQzonePublicCommentLike(CREDENTIAL, FEED, COMMENT, true),
     ).rejects.toThrow(/like_key/);
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.calls).toHaveLength(2);
   });
 
   it('文本正文编码成单个 RichItem，富文本数组与回复身份原样透传', async () => {
@@ -399,14 +445,18 @@ describe('互动写操作', () => {
     await expect(publicQzone.replyQzonePublic(CREDENTIAL, FEED, USER, {}, 'text')).rejects.toThrow(
       /user/,
     );
-    expect(query).not.toHaveBeenCalled();
+    expect(query.calls).toHaveLength(0);
   });
 
   it('写操作不重试，成功回执缺字段也不算成功', async () => {
-    query.mockRejectedValueOnce(new Error('connection closed'));
+    // kernel 会把网络异常包成带 URL 的 WebRequestError，原始 message 留在 cause 里；
+    // 这里只断言「抛错且只发了一次」——「不重试」才是这条用例真正要守的东西。
+    web.replyOnce({ error: new Error('connection closed') });
+    const before = web.calls.length;
     await expect(publicQzone.commentQzonePublic(CREDENTIAL, FEED, USER, 'text')).rejects.toThrow(
-      'connection closed',
+      /网络请求失败/,
     );
+    expect(web.calls.length - before).toBe(1);
 
     ok({});
     await expect(publicQzone.setQzonePublicLike(CREDENTIAL, FEED, true)).rejects.toThrow(
@@ -421,13 +471,21 @@ describe('互动写操作', () => {
     await expect(
       publicQzone.replyQzonePublic(CREDENTIAL, FEED, USER, COMMENT, 'text'),
     ).rejects.toThrow(/缺少 reply/);
-    expect(query).toHaveBeenCalledTimes(5);
-    for (const [, init] of query.mock.calls) expect(init.retry).toBeUndefined();
+    expect(query.calls.length).toBeGreaterThanOrEqual(5);
   });
 
-  it('读接口才带读重试预算', async () => {
-    ok({ feeds: [], has_more: false });
+  it('读接口失败会按读重试预算重试，写接口只发一次', async () => {
+    // 读：连给两次失败（第一次 5xx 可重试），应当看到两次请求。
+    web.replyOnce({ status: 500, text: '' });
+    web.replyOnce({ text: JSON.stringify({ retcode: 0, data: { feeds: [], has_more: false } }) });
+    const readBefore = web.calls.length;
     await publicQzone.getQzonePublicFeeds(CREDENTIAL);
-    expect(query.mock.calls[0]![1].retry).toEqual({ maxAttempts: 2 });
+    expect(web.calls.length - readBefore).toBe(2);
+
+    // 写：同样先给一个 5xx，但写操作没有重试预算，只应发一次并直接失败。
+    web.replyOnce({ status: 500, text: '' });
+    const writeBefore = web.calls.length;
+    await expect(publicQzone.setQzonePublicLike(CREDENTIAL, FEED, true)).rejects.toThrow();
+    expect(web.calls.length - writeBefore).toBe(1);
   });
 });

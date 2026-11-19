@@ -83,9 +83,12 @@ import { organizeStorageUsage } from './storage_inventory';
 import {
   DEFAULT_QZONE_PAGINATION,
   normalizeQzonePagination,
-  qzonePaginationLimiter,
+  qzonePaginationLimiter as localPaginationLimiter,
   type QzonePaginationSettings,
 } from '../common/qzone_pagination';
+// 业务实现收编进 kernel 后，真正的空间请求走的是 kernel 的限流器；用户设置必须
+// 同时下发到它，否则「空间翻页限额」这个设置项会变成摆设。
+import { qzonePaginationLimiter as kernelPaginationLimiter } from '@weqbot/protocol';
 import {
   DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
   normalizeQzonePublicRefreshCooldown,
@@ -1344,6 +1347,13 @@ export function planDbDamageReminderPolicyReset(config: UserConfig): Partial<Use
   return patch;
 }
 
+/** 把空间翻页限额同时下发给本地（导出/后台任务）与 kernel（真正发请求的那个）。 */
+function applyQzonePagination(value: QzonePaginationSettings | undefined): void {
+  const settings = normalizeQzonePagination(value);
+  localPaginationLimiter.configure(settings);
+  kernelPaginationLimiter.configure(settings);
+}
+
 export class UserConfigService {
   private readonly root: string;
   private readonly configPath: string;
@@ -1365,7 +1375,7 @@ export class UserConfigService {
     } catch (error) {
       this.logger.warn('旧全局偏好迁移失败，保留原件等待重试', logErrorContext(error));
     }
-    qzonePaginationLimiter.configure(this.getSettings().qzonePagination);
+    applyQzonePagination(this.getSettings().qzonePagination);
     configureDatabaseReadConcurrency(this.getSettings().databaseReadConcurrency);
   }
 
@@ -2337,7 +2347,7 @@ export class UserConfigService {
       aiImages: normalizeImagePreferences({ ...current.aiImages, ...patch.aiImages }),
     };
     this.write({ settings: next });
-    qzonePaginationLimiter.configure(next.qzonePagination);
+    applyQzonePagination(next.qzonePagination);
     configureDatabaseReadConcurrency(next.databaseReadConcurrency);
     this.logger.info('updated app settings', {
       event: 'set-settings',

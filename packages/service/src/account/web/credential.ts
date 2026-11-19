@@ -1,12 +1,14 @@
 /**
- * Credential plumbing for the qq.com web cgi layer.
+ * WeQ 侧的 Web 凭据：**宿主注入的那一半**。
  *
- * 凭据获取本身（ptlogin2 / clientKey jump / OIDB 0x102a_0 兜底）**只在
- * nt_helper 里实现一份**，这里只负责：
+ * 业务逻辑（`computeBkn` / `cookieHeader` / `WebCredential` / `withRetry` /
+ * `WebAuthError`）已收编进 `@weqbot/protocol`，这里直接 re-export，不再保留第二份
+ * 实现。留下的是 WeQ 独有的能力：从**在线 QQ 进程**取 skey / p_skey
+ * （`ptFetchCredentials`，即「免 attach、只走 pt_login」那条路）。
  *
- *   1. 按域缓存 native 返回的凭据；
- *   2. 计算 `bkn` / `g_tk`；
- *   3. 把 skey / p_skey / Cookie 拼成 cgi 需要的头。
+ * 为什么不搬进 kernel：kernel 不加载 `.node`、也拿不到 QQ 的 pid，凭据必须由宿主
+ * 注入（D18 的 `WebCredentialSource`）。独立 weqbot 走的是 OIDB `0x102a_1` 那条链，
+ * 与这里互不依赖。
  */
 
 import type { NtHelperBinding } from '@weq/native';
@@ -14,53 +16,9 @@ import { getLogger, logErrorContext } from '../../common/logger';
 import { createNativeSingleFlight } from '../../common/native_single_flight';
 import { OperationError } from '../../common/operation_error';
 
-/**
- * djb2 hash → 31-bit `bkn` (a.k.a. `g_tk` / csrf token), QQ-web style.
- * Sole implementation — the former native copy was removed together with the
- * rest of `nt_helper/src/protocol/service`.
- */
-export function computeBkn(key: string): number {
-  let hash = 5381;
-  for (let i = 0; i < key.length; i++) {
-    hash += (hash << 5) + key.charCodeAt(i);
-  }
-  return hash & 0x7fffffff;
-}
-
-/** The per-account tokens a web cgi needs, before they're joined into a header. */
-export interface WebCredential {
-  /** Raw uin, WITHOUT the leading 'o' (query params want it bare). */
-  uin: string;
-  /** ptlogin2 skey. */
-  skey: string;
-  /** p_skey for the target domain. May be empty if only skey was obtainable. */
-  pskey: string;
-  /**
-   * Full cookie-jar header harvested via the ptlogin2 jump (含 pt4_token/RK/ptcz
-   * 等风控 cookie)。存在时 {@link cookieHeader} 优先发它 —— 手拼的 4 字段会被
-   * QZone 风控甩 `-10000`。拿不到时为空,回退到 4 字段拼装。
-   */
-  cookie?: string;
-}
-
-/**
- * Assemble the `Cookie` header a qq.com web cgi expects. 优先用 ptlogin2 jump 收到
- * 的完整 jar(`cred.cookie`);没有时回退到 `uin/skey/p_uin/p_skey` 四字段拼装。
- * `uin` / `p_uin` carry the conventional 'o' prefix; empty tokens are dropped.
- */
-export function cookieHeader(cred: WebCredential): string {
-  if (cred.cookie) return cred.cookie;
-  const jar: Record<string, string> = {
-    uin: `o${cred.uin}`,
-    skey: cred.skey,
-    p_uin: `o${cred.uin}`,
-    p_skey: cred.pskey,
-  };
-  return Object.entries(jar)
-    .filter(([, v]) => v)
-    .map(([k, v]) => `${k}=${v}`)
-    .join('; ');
-}
+export { computeBkn, cookieHeader, WebAuthError, withRetry } from '@weqbot/protocol';
+export type { WebCredential, WebCredentialSource } from '@weqbot/protocol';
+import { cookieHeader, type WebCredential } from '@weqbot/protocol';
 
 /** Minimal native surface the web layer needs. */
 export type WebNative = Pick<NtHelperBinding, 'ptFetchCredentials'>;
@@ -296,53 +254,5 @@ export class WebCredentialProvider {
       );
       throw error;
     }
-  }
-}
-
-/**
- * Thrown by a cgi wrapper when the response says "these credentials are no
- * good". {@link withRetry} catches exactly this to decide a retry is worth it —
- * a parse failure or a 500 would not be.
- *
- * QQ's web cgis signal this with an HTTP **200** plus an error code in the body
- * (-3000 / -10000 / 光 message), so every caller has to check its own body
- * shape; there's no shared status-code path that could do it for them.
- */
-export class WebAuthError extends Error {
-  constructor(
-    message: string,
-    /** The cgi's own code, for logs. */
-    readonly code?: number,
-  ) {
-    super(message);
-    this.name = 'WebAuthError';
-  }
-}
-
-/**
- * Run `fn` with credentials for `domain`; if it throws {@link WebAuthError},
- * drop the cached tokens and run it once more with freshly-minted ones.
- *
- * One retry, not a loop: if newly-minted credentials are also rejected then the
- * problem isn't staleness (QQ logged out, risk control, no permission) and
- * hammering the hook won't fix it.
- */
-export async function withRetry<T>(
-  creds: Pick<WebCredentialProvider, 'forDomain' | 'invalidate'>,
-  domain: string,
-  fn: (cred: WebCredential) => Promise<T>,
-  beforeSend?: () => void,
-): Promise<T> {
-  const send = async () => {
-    const credential = await creds.forDomain(domain);
-    beforeSend?.();
-    return fn(credential);
-  };
-  try {
-    return await send();
-  } catch (e) {
-    if (!(e instanceof WebAuthError)) throw e;
-    creds.invalidate(domain);
-    return send();
   }
 }
