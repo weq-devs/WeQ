@@ -2285,13 +2285,13 @@ html[data-theme='dark'] .weq-exp-mode.is-active {
 }
 
 html[data-theme='dark'] .weq-exp-mode.is-active {
-  border-color: rgba(86, 168, 247, 0.36);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 36%, transparent);
   box-shadow: 0 10px 26px -18px rgba(0, 0, 0, 0.58);
 }
 
 html[data-theme='dark'] .weq-exp-mode.is-active .weq-exp-mode-icon {
-  background: #56a8f7;
-  color: #08131d;
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground);
 }
 
 html[data-theme='dark'] .weq-exp-mode-text strong,
@@ -2352,8 +2352,8 @@ html[data-theme='dark'] .weq-exp-tasks-toggle {
 }
 
 html[data-theme='dark'] .weq-exp-tasks-toggle:hover {
-  border-color: rgba(86, 168, 247, 0.45);
-  color: #56a8f7;
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  color: var(--weq-accent-ink);
 }
 
 html[data-theme='dark'] .weq-exp-tasks-mini-status {
@@ -2361,11 +2361,11 @@ html[data-theme='dark'] .weq-exp-tasks-mini-status {
 }
 
 html[data-theme='dark'] .weq-exp-tasks-mini-status.is-done {
-  color: #56a8f7;
+  color: var(--weq-accent-ink);
 }
 
 html[data-theme='dark'] .weq-exp-tasks-mini-bar {
-  background: rgba(86, 168, 247, 0.15);
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
 }
 
 html[data-theme='dark'] .weq-exp-tasks-head:hover {
@@ -2379,7 +2379,7 @@ html[data-theme='dark'] .weq-exp-card {
 }
 
 html[data-theme='dark'] .weq-exp-card.is-active {
-  background: color-mix(in srgb, #56a8f7 14%, #171d25);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, #171d25);
 }
 
 /* Translucent search field so the canvas shows through the list pane in dark. */
@@ -2405,7 +2405,7 @@ html[data-theme='dark'] .weq-exp-path {
 
 html[data-theme='dark'] .weq-exp-search:focus-within,
 html[data-theme='dark'] .weq-exp-num input:focus {
-  border-color: rgba(86, 168, 247, 0.44);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 44%, transparent);
   background: #151c24;
 }
 
@@ -2428,13 +2428,13 @@ html[data-theme='dark'] .weq-exp-album-row:hover:not(:disabled) {
 
 html[data-theme='dark'] .weq-exp-row.is-on,
 html[data-theme='dark'] .weq-exp-album-row.is-on {
-  border-color: rgba(86, 168, 247, 0.35);
-  background: rgba(86, 168, 247, 0.12);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
 }
 
 html[data-theme='dark'] .weq-exp-file-row.is-on {
-  border-color: rgba(86, 168, 247, 0.38);
-  background: rgba(86, 168, 247, 0.13);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
 }
 
 html[data-theme='dark'] .weq-exp-file-check {
@@ -2468,24 +2468,24 @@ html[data-theme='dark'] .weq-exp-cal-head button:hover {
 html[data-theme='dark'] .weq-exp-primary,
 html[data-theme='dark'] .weq-exp-btn.is-primary,
 html[data-theme='dark'] .weq-exp-sched-head button {
-  background: #56a8f7;
-  border-color: #56a8f7;
-  color: #08131d;
-  box-shadow: 0 10px 24px -18px rgba(86, 168, 247, 0.55);
+  background: var(--weq-accent-solid);
+  border-color: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground);
+  box-shadow: 0 10px 24px -18px color-mix(in srgb, var(--weq-accent-solid) 55%, transparent);
 }
 
 html[data-theme='dark'] .weq-exp-primary:hover:not(:disabled),
 html[data-theme='dark'] .weq-exp-btn.is-primary:hover:not(:disabled),
 html[data-theme='dark'] .weq-exp-sched-head button:hover {
-  background: #6cb4fb;
-  border-color: #6cb4fb;
+  background: var(--weq-accent-solid-hover);
+  border-color: var(--weq-accent-solid-hover);
 }
 
 html[data-theme='dark'] .weq-exp-primary:disabled,
 html[data-theme='dark'] .weq-exp-btn:disabled {
-  background: #394655;
-  border-color: #394655;
-  color: #7e8a99;
+  background: var(--muted);
+  border-color: var(--border);
+  color: var(--muted-foreground);
 }
 
 html[data-theme='dark'] .weq-exp-empty,
@@ -3476,8 +3476,8 @@ html[data-theme='dark'] .weq-epk-card {
 }
 
 html[data-theme='dark'] .weq-epk-card.is-checked {
-  border-color: rgba(86, 168, 247, 0.5);
-  background: rgba(86, 168, 247, 0.08);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
 
 html[data-theme='dark'] .weq-epk-card-check {
@@ -3486,8 +3486,8 @@ html[data-theme='dark'] .weq-epk-card-check {
 }
 
 html[data-theme='dark'] .weq-epk-card-icon {
-  color: #8cc4ff;
-  background: rgba(86, 168, 247, 0.14);
+  color: var(--weq-accent-ink);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
 }
 
 html[data-theme='dark'] .weq-epk-card.is-recv .weq-epk-card-icon {

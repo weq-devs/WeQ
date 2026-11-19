@@ -28,6 +28,9 @@ html[data-theme='light']:not([data-component-style='qqnt']) {
 /* 保留各处尺寸及皮肤形态，只统一输入框的状态颜色和可见描边。 */
 html:root[data-theme][data-component-style] body
   :is(
+    input,
+    select,
+    textarea,
     .weq-input,
     .weq-set-input,
     .weq-set-select,

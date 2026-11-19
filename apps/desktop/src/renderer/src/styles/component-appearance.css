@@ -100,7 +100,39 @@ html[data-component-style][data-theme]:not([data-component-style='classic']) bod
     .weq-directory-toolbar input,
     .weq-directory-toolbar button,
     .weq-settings-theme-option,
-    .weq-density-options button
+    .weq-density-options button,
+    .weq-set-iconbtn,
+    .weq-set-seg,
+    .weq-set-seg-item,
+    .weq-segmented,
+    .weq-segmented > button,
+    .weq-picker-trigger,
+    .weq-picker-option,
+    .weq-asst-select,
+    .weq-qq-inline-keyboard-button,
+    .weq-clean-go,
+    .weq-clean-cancel,
+    .weq-workspace-control,
+    button:is(
+      [class*='-btn'],
+      [class*='-button'],
+      [class*='-action'],
+      [class*='-primary'],
+      [class*='-secondary'],
+      [class*='-tool'],
+      [class*='-cancel'],
+      [class*='-retry'],
+      [class*='-save'],
+      [class*='-seg'],
+      [class*='-chip'],
+      [class*='-pill']
+    ),
+    .selection-action,
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not(
+      [type='file']
+    ):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']),
+    select,
+    textarea
   ):not(:where(html[data-component-style='qqnt'] button)) {
   border-radius: var(--weq-control-radius, var(--weq-skin-radius));
   box-shadow: var(--weq-control-shadow, var(--weq-skin-shadow));
@@ -112,7 +144,28 @@ html[data-component-style][data-theme]:not([data-component-style='classic']) bod
     .weq-action-soft,
     .secondary-button,
     .mode-button:not(.active),
-    .weq-set-btn:not(.weq-set-btn-primary)
+    .weq-set-btn:not(.weq-set-btn-primary),
+    .weq-picker-trigger,
+    .weq-asst-select,
+    .weq-set-seg,
+    .weq-set-seg-item,
+    .weq-segmented,
+    .weq-segmented > button,
+    .weq-set-iconbtn,
+    .weq-clean-cancel,
+    button:is(
+      [class*='-btn']:not(.is-primary),
+      [class*='-button']:not(.is-primary),
+      [class*='-action']:not(.is-primary),
+      [class*='-secondary'],
+      [class*='-tool'],
+      [class*='-cancel'],
+      [class*='-retry'],
+      [class*='-save'],
+      [class*='-seg'],
+      [class*='-chip'],
+      [class*='-pill']
+    )
   ):not(:where(html[data-component-style='qqnt'] button)) {
   border-style: solid;
   border-width: var(--weq-control-border-width, var(--weq-skin-border-width));
@@ -124,13 +177,20 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-input,
     .weq-set-input,
     .weq-set-select,
+    .weq-picker-trigger,
+    .weq-asst-select,
     .form-field input,
     .form-field select,
     .form-field textarea,
     .weq-set-row-ctrl input,
     .weq-set-row-ctrl select,
     .weq-set-row-ctrl textarea,
-    .weq-directory-toolbar input
+    .weq-directory-toolbar input,
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not(
+      [type='file']
+    ):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']),
+    select,
+    textarea
   ) {
   --weq-control-shadow: var(--weq-skin-input-shadow);
   --weq-control-border-width: var(--weq-skin-input-border-width);
@@ -143,7 +203,16 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-action-soft,
     .secondary-button,
     .mode-button:not(.active),
-    .weq-set-btn:not(.weq-set-btn-primary):not(.weq-set-btn-danger):not(.weq-set-btn-del)
+    .weq-set-btn:not(.weq-set-btn-primary):not(.weq-set-btn-danger):not(.weq-set-btn-del),
+    .weq-clean-cancel,
+    button:is(
+      [class*='-btn']:not(.is-primary, [class*='-primary']),
+      [class*='-button']:not(.is-primary, [class*='-primary']),
+      [class*='-secondary'],
+      [class*='-cancel'],
+      [class*='-retry'],
+      [class*='-save']
+    )
   ):not(:disabled):not([data-danger]):not(:where(html[data-component-style='qqnt'] button)) {
   border-color: var(--weq-skin-border);
   background: var(--weq-skin-surface);
@@ -172,7 +241,11 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
       )
     ),
     .weq-select,
-    .weq-provider-modal
+    .weq-provider-modal,
+    .weq-picker-menu,
+    .weq-asst-select-pop,
+    [role='menu'],
+    [role='listbox']
   ) {
   border: var(--weq-skin-border-width) solid var(--weq-skin-border);
   border-radius: var(--weq-skin-popup-radius, var(--weq-skin-radius));
@@ -185,7 +258,14 @@ html[data-component-style][data-theme]:not(
     [data-component-style='qqnt']
   )
   body
-  :is(.weq-action-primary, .primary-button, .composer-send, .weq-set-btn-primary) {
+  :is(
+    .weq-action-primary,
+    .primary-button,
+    .composer-send,
+    .weq-set-btn-primary,
+    .weq-clean-go:not(.is-danger),
+    button:is([class*='-primary']:not([data-danger]), .is-primary)
+  ) {
   border-style: solid;
   border-width: var(--weq-skin-primary-border-width);
 }
@@ -195,9 +275,14 @@ html[data-component-style][data-theme]:not(
     [data-component-style='qqnt']
   )
   body
-  :is(.weq-action-primary, .primary-button, .composer-send, .weq-set-btn-primary):not(
-    :disabled
-  ):not([data-danger]) {
+  :is(
+    .weq-action-primary,
+    .primary-button,
+    .composer-send,
+    .weq-set-btn-primary,
+    .weq-clean-go:not(.is-danger),
+    button:is([class*='-primary']:not([data-danger]), .is-primary)
+  ):not(:disabled):not([data-danger]) {
   border-color: var(--weq-skin-primary-border);
   background: var(--weq-skin-primary-bg);
   color: var(--weq-skin-primary-fg);
@@ -325,7 +410,12 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     .weq-set-row-ctrl input:not([type='checkbox']):not([type='range']):not([type='color']),
     .weq-set-row-ctrl select,
     .weq-set-row-ctrl textarea,
-    .weq-directory-toolbar input
+    .weq-directory-toolbar input,
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not(
+      [type='file']
+    ):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']),
+    select,
+    textarea
   ):not(:disabled):where(
     :not(
       .is-error,

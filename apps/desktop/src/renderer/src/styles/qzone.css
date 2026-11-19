@@ -371,8 +371,8 @@
   font-size: 14px;
 }
 .weq-qzn-primary {
-  background: var(--primary) !important;
-  color: var(--primary-foreground) !important;
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 .weq-qzn-draft-images {
   display: flex;
