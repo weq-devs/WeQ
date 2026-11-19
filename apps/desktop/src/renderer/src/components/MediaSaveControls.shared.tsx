@@ -44,7 +44,7 @@ async function pause(signal: AbortSignal) {
   });
 }
 
-export function useMediaSave() {
+export function useMediaSave({ waitForCompletion = false }: { waitForCompletion?: boolean } = {}) {
   const remote = useRemoteClient();
   const transfers = useTransferActivity();
   const save = useExportSavePolicy(),
@@ -127,11 +127,8 @@ export function useMediaSave() {
       });
       if (op.cancelled && op.taskId) await stopTask(op);
       if (!op.taskId || !current()) return { taskId: op.taskId, cancelled: true };
-      if (!browser) {
-        notifyTaskCreated(op.taskId, '正在保存媒体');
-        return { taskId: op.taskId };
-      }
-      notifyTaskCreated(op.taskId, '正在准备媒体下载');
+      notifyTaskCreated(op.taskId, browser ? '正在准备媒体下载' : '正在保存媒体');
+      if (!browser && !waitForCompletion) return { taskId: op.taskId };
       const deadline = Date.now() + 15 * 60_000;
       while (current() && Date.now() < deadline) {
         const receipt = await client.account.getExportOutputReceipt.query({
@@ -144,6 +141,7 @@ export function useMediaSave() {
         if (receipt.status === 'cancelled' || receipt.status === 'paused')
           return { taskId: op.taskId, cancelled: true };
         if (receipt.status === 'completed') {
+          if (!browser) return { taskId: op.taskId };
           const result = await client.account.exportTaskDownload.mutate({
             ...op.expected,
             taskId: op.taskId,

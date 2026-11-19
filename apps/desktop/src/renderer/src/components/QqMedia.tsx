@@ -19,6 +19,7 @@ import {
 } from 'react';
 import {
   Cloud,
+  Download,
   Maximize,
   FileText,
   ImageOff,
@@ -45,7 +46,6 @@ import { openMarketFaceLightbox } from '../state/marketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
 import { IS_ELECTRON } from '../lib/target.shared';
 import { cdnImageUrl, cdnVideoCoverUrl, flashPicUrl, useCdn } from '@renderer/lib/cdn';
-import { MediaSaveControls } from './MediaSaveControls';
 import { useMediaSave } from './MediaSaveControls.shared';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
@@ -754,7 +754,7 @@ function FileDownloadRing({
   onCancel?: () => void;
 }) {
   return (
-    <span className="qq-file-download-ring weq-media-save-controls weq-save-action-group">
+    <span className="qq-file-download-ring">
       <TransferRing progress={progress} label="文件下载进度" size={24} />
       {onCancel ? (
         <button
@@ -794,7 +794,7 @@ export function QqFile({
     size = num(data, 'fileSize'),
     token = str(data, 'fileToken');
   const previewPath = !msgId && !fwd?.fwdResId ? str(data, 'localPath') : '';
-  const mediaSave = useMediaSave();
+  const mediaSave = useMediaSave({ waitForCompletion: true });
   const chatFile = {
     kind: 'chat-file' as const,
     msgId: fwd && !/^\d+$/.test(msgId) ? '0' : msgId,
@@ -809,6 +809,7 @@ export function QqFile({
     : chatFile;
   const canOpenHere = IS_ELECTRON && !remote;
   const hasMessage = /^\d+$/.test(msgId) || Boolean(fwd?.fwdResId);
+  const hasDownloadAction = hasMessage || (!canOpenHere && Boolean(previewPath));
   const lookup = {
     ...mediaSave.binding,
     target: {
@@ -843,37 +844,36 @@ export function QqFile({
     locations.data?.find((location) => location.available);
   const opensFile = canOpenHere && Boolean(previewPath || local);
   const transfer = useTransferProgress(active ? mediaTransferTarget(source) : undefined);
-  const progress =
-    transfer ?? (mediaSave.isBusy(source) ? { phase: 'preparing' as const } : undefined);
-  const downloading = Boolean(progress);
-  const percent = progress ? transferPercent(progress) : undefined;
-  const wasDownloading = useRef(false);
-  const refetchLocations = locations.refetch;
-  useEffect(() => {
-    if (wasDownloading.current && !downloading && checkLocal && active) void refetchLocations();
-    wasDownloading.current = downloading;
-  }, [downloading, checkLocal, active, refetchLocations]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ action: 'open' | 'save'; message: string } | null>(null);
-  const working = busy || mediaSave.busy || (downloading && !opensFile);
+  const progress = transfer ?? (busy && !opensFile ? { phase: 'preparing' as const } : undefined);
+  const downloading = Boolean(progress);
+  const percent = progress ? transferPercent(progress) : undefined;
+  const transferring = Boolean(transfer);
+  const wasTransferring = useRef(false);
+  const refetchLocations = locations.refetch;
   useEffect(() => {
-    if (mediaSave.busy) setError(null);
-  }, [mediaSave.busy]);
-  const onClick = (): void => {
+    if (wasTransferring.current && !transferring && !busy && checkLocal && active)
+      void refetchLocations();
+    wasTransferring.current = transferring;
+  }, [transferring, busy, checkLocal, active, refetchLocations]);
+  const working = busy || (downloading && !opensFile);
+  const showSave = !opensFile && hasMessage && (!checkLocal || locations.isFetched);
+  const onClick = (saveOnly = false): void => {
     if (working) return;
     setError(null);
     setBusy(true);
     void (async () => {
-      let action: 'open' | 'save' = canOpenHere ? 'open' : 'save';
+      let action: 'open' | 'save' = canOpenHere && !saveOnly ? 'open' : 'save';
       try {
-        if (canOpenHere && previewPath) {
+        if (action === 'open' && previewPath) {
           const result = await client.account.fileResource.download.open.mutate({
             path: previewPath,
           });
           if (!result.ok) throw new Error(result.error);
           return;
         }
-        if (checkLocal) {
+        if (action === 'open' && checkLocal) {
           if (!mediaSave.binding) throw new Error('账号资料尚未就绪，请重试');
           if (
             await client.account.mediaResource.openMessageFile.mutate({
@@ -887,6 +887,7 @@ export function QqFile({
         action = 'save';
         const result = await mediaSave.run(source);
         if (result.error) setError({ action, message: result.error });
+        else if (result.taskId && !result.cancelled && checkLocal) await refetchLocations();
       } catch (e) {
         setError({ action, message: e instanceof Error ? e.message : String(e) });
         if (checkLocal && action === 'open') void locations.refetch();
@@ -902,11 +903,11 @@ export function QqFile({
       : '准备保存…';
   return (
     <>
-      <div className="qq-media-file">
+      <div className={cn('qq-media-file', hasDownloadAction && 'qq-media-file-downloadable')}>
         <button
           type="button"
           className="qq-media-file-open"
-          onClick={onClick}
+          onClick={() => onClick()}
           disabled={working}
           onKeyDown={mediaKeyDown}
           title={
@@ -955,21 +956,31 @@ export function QqFile({
             </span>
           </span>
         </button>
-        {progress ? (
-          <FileDownloadRing
-            progress={progress}
-            onCancel={mediaSave.downloading ? () => void mediaSave.cancel() : undefined}
-          />
-        ) : !opensFile &&
-          hasMessage &&
-          (!checkLocal || (locations.isFetched && !locations.isFetching)) ? (
-          <MediaSaveControls
-            save={mediaSave}
-            source={source}
-            className="icon-button"
-            label="保存文件"
-            iconOnly
-          />
+        {hasDownloadAction ? (
+          <div
+            className="qq-file-action"
+            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            {progress ? (
+              <FileDownloadRing
+                progress={progress}
+                onCancel={mediaSave.downloading ? () => void mediaSave.cancel() : undefined}
+              />
+            ) : showSave ? (
+              <button
+                type="button"
+                className="icon-button"
+                title={remote ? '保存文件到设备' : IS_WEB ? '保存文件到服务器' : '保存文件'}
+                aria-label="保存文件"
+                disabled={working || mediaSave.disabled}
+                onClick={() => onClick(true)}
+                onKeyDown={mediaKeyDown}
+              >
+                <Download size={15} aria-hidden />
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
       {mediaSave.prompt}

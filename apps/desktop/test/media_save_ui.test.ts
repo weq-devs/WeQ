@@ -47,6 +47,9 @@ const state = vi.hoisted(() => ({
   accepted: vi.fn(),
   open: vi.fn(),
   locations: [] as { kind: 'local' | 'cache'; key: string; available: boolean }[],
+  locationsFetching: false,
+  localMessageId: '',
+  refetchLocations: vi.fn(async () => {}),
   transferListeners: new Set<(value: ActiveTransfer[]) => void>(),
   openMessageFile: vi.fn(async (_input: unknown) => false),
   transcribe: vi.fn(),
@@ -215,7 +218,13 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       fileResource: { download: { open: { useMutation: () => ({ mutate: state.open }) } } },
       mediaResource: {
         messageLocations: {
-          useQuery: () => ({ data: state.locations, isFetched: true, refetch: vi.fn() }),
+          useQuery: ({ target }: { target: { msgId: string } }) => ({
+            data:
+              !state.localMessageId || target.msgId === state.localMessageId ? state.locations : [],
+            isFetched: true,
+            isFetching: state.locationsFetching,
+            refetch: state.refetchLocations,
+          }),
         },
       },
       transcribeVoice: { useMutation: () => ({ mutateAsync: state.transcribe, isLoading: false }) },
@@ -241,6 +250,9 @@ beforeEach(() => {
   state.accepted.mockClear();
   state.open.mockClear();
   state.locations = [];
+  state.locationsFetching = false;
+  state.localMessageId = '';
+  state.refetchLocations.mockReset();
   state.transferListeners.clear();
   state.openMessageFile.mockReset().mockResolvedValue(false);
   state.transcribe.mockClear();
@@ -262,17 +274,19 @@ async function mount(
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () =>
-    root.render(
-      h(
-        TransferActivityProvider,
-        {
-          binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },
-        },
-        element,
+  const render = (next = element) =>
+    act(async () =>
+      root.render(
+        h(
+          TransferActivityProvider,
+          {
+            binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },
+          },
+          next,
+        ),
       ),
-    ),
-  );
+    );
+  await render();
   const close = () => {
     act(() => root.unmount());
     host.remove();
@@ -280,6 +294,7 @@ async function mount(
   cleanup.push(close);
   return {
     host,
+    render,
     close: () => {
       cleanup.splice(cleanup.indexOf(close), 1);
       close();
@@ -324,11 +339,13 @@ function capture(node: HTMLElement, name: string) {
     'styles/group-media.css',
     'styles/workspace-surfaces.css',
     'styles/page-chrome.css',
+    'im-template/styles/chat.css',
     'im-template/styles/emoji.css',
     'styles/lightbox-actions.css',
     'styles/conversation-actions.css',
     'styles/export-save-actions.css',
     'styles/media-save.css',
+    'styles/transfer-progress.css',
   ]
     .map((file) => `<link rel="stylesheet" href="/@fs${resolve('src/renderer/src', file)}">`)
     .join('');
@@ -495,6 +512,84 @@ it('没有本地记录的文件卡片仍走公共保存策略', async () => {
   });
   expect(view.host.querySelector('.qq-media-file-open button')).toBeNull();
   expect(view.host.querySelector('.qq-media-file-name')?.getAttribute('title')).toBe('report.txt');
+});
+it('文件任务受理及进度结束后保持原位反馈，相邻同名文件不受进度或位置刷新影响', async () => {
+  const receipt = Promise.withResolvers<Awaited<ReturnType<typeof state.receipt>>>();
+  const location = Promise.withResolvers<void>();
+  state.receipt.mockReturnValueOnce(receipt.promise);
+  state.refetchLocations.mockReturnValueOnce(location.promise);
+  const name = '同名文件用于验证相邻卡片尺寸不受影响.txt';
+  const view = await mount(
+    h(
+      'section',
+      { className: 'qa-chat' },
+      ['41', '42'].map((msgId) =>
+        h(
+          'div',
+          { key: msgId, 'data-message': msgId },
+          h(QqFile, {
+            data: { fileName: name, fileToken: 'token', fileSize: 200 },
+            sendTimeMs: 1,
+            msgId,
+            conv: '123',
+          }),
+        ),
+      ),
+    ),
+  );
+  const card = view.host.querySelector<HTMLElement>('[data-message="41"]')!;
+  const neighbor = view.host.querySelector<HTMLElement>('[data-message="42"]')!;
+  const progress = () => card.querySelector('[role="progressbar"]');
+  const neighborSave = neighbor.querySelector<HTMLButtonElement>('[aria-label="保存文件"]');
+  expect(neighborSave?.disabled).toBe(false);
+  capture(view.host, 'file-download-idle.html');
+
+  await click(card, '保存文件');
+  expect(state.accepted).toHaveBeenCalledOnce();
+  expect(progress()).not.toBeNull();
+  capture(view.host, 'file-download-accepted.html');
+  const target = mediaTransferTarget({
+    kind: 'chat-file',
+    msgId: '41',
+    conv: '123',
+    token: 'token',
+    name,
+  });
+  const publish = (entries: ActiveTransfer[]) =>
+    act(() => {
+      for (const listener of state.transferListeners) listener(entries);
+    });
+  publish([
+    {
+      id: 'media-task',
+      target,
+      direction: 'download',
+      phase: 'download',
+      received: 50,
+      total: 200,
+    },
+  ]);
+  expect(progress()?.getAttribute('aria-valuenow')).toBe('25');
+  expect(neighbor.querySelector('[role="progressbar"]')).toBeNull();
+  capture(view.host, 'file-download-progress.html');
+
+  state.locationsFetching = true;
+  await view.render();
+  expect(neighborSave?.isConnected && !neighborSave.disabled).toBe(true);
+  publish([]);
+  expect(progress()).not.toBeNull();
+  await act(async () => receipt.resolve({ status: 'completed', error: undefined }));
+  expect(state.refetchLocations).toHaveBeenCalledOnce();
+  expect(progress()).not.toBeNull();
+  capture(view.host, 'file-download-refresh.html');
+
+  state.localMessageId = '41';
+  state.locations = [{ kind: 'cache', key: 'output', available: true }];
+  await act(async () => location.resolve());
+  expect(progress()).toBeNull();
+  expect(card.querySelector('[aria-label="保存文件"]')).toBeNull();
+  expect(neighborSave?.isConnected && !neighborSave.disabled).toBe(true);
+  capture(view.host, 'file-download-completed.html');
 });
 it.each([200, undefined])(
   '活动下载在文件卡片显示圆环，已知总大小 %s 才显示百分比',
@@ -827,7 +922,7 @@ it.each([false, true])('保存控件合成布局，Web=%s', async (web) => {
     ),
   );
   capture(chat.host, web ? 'media-chat-web.html' : 'media-chat-desktop.html');
-  expect(chat.host.querySelectorAll('.weq-media-save-controls')).toHaveLength(1);
+  expect(chat.host.querySelectorAll('[aria-label="保存文件"]')).toHaveLength(1);
   state.files.mockResolvedValueOnce({
     targetDirectory: '/',
     folders: [],
