@@ -60,7 +60,7 @@ export function MergeForwardDialog({
   const [sending, setSending] = useState(false);
 
   const title = useMemo(() => draft.title || draftTitle(draft.nodes), [draft]);
-  const canNext = draft.nodes.length > 0;
+  const hasMessages = draft.nodes.length > 0;
 
   async function copyJson(): Promise<void> {
     const ok = await copyTextToClipboard(draftToJson(draft));
@@ -187,35 +187,38 @@ export function MergeForwardDialog({
         </div>
 
         <footer className="weq-mf-foot">
-          <CompositionButton type="button" className="weq-mf-soft" onClick={() => void copyJson()}>
-            <ClipboardCopy size={15} /> 复制 JSON
-          </CompositionButton>
-          <span className="weq-mf-foot-spacer" />
-          {step === 'edit' ? (
-            <>
+          <div className="weq-mf-foot-group">
+            <CompositionButton type="button" className="weq-mf-soft" onClick={() => void copyJson()}>
+              <ClipboardCopy size={15} /> 复制 JSON
+            </CompositionButton>
+            {step === 'edit' ? (
               <CompositionButton type="button" className="weq-mf-soft" onClick={onClose}>
                 取消
               </CompositionButton>
+            ) : null}
+          </div>
+          <div className="weq-mf-foot-group weq-mf-foot-actions">
+            <CompositionButton
+              type="button"
+              className="weq-mf-soft"
+              disabled={!hasMessages}
+              disabledReason="请先添加有内容的预览消息"
+              onClick={() => void persist()}
+            >
+              <Save size={15} /> 保存为合成记录
+            </CompositionButton>
+            {step === 'edit' ? (
               <CompositionButton
                 type="button"
                 className="weq-mf-primary"
-                disabled={!canNext}
+                disabled={!hasMessages}
                 disabledReason="请先添加有内容的预览消息"
-                title={canNext ? '' : '还没有任何预览消息'}
+                title={hasMessages ? '' : '还没有任何预览消息'}
                 onClick={() => setStep('targets')}
               >
                 下一步：选择会话
               </CompositionButton>
-            </>
-          ) : (
-            <>
-              <CompositionButton
-                type="button"
-                className="weq-mf-soft"
-                onClick={() => void persist()}
-              >
-                <Save size={15} /> 保存为合成记录
-              </CompositionButton>
+            ) : (
               <CompositionButton
                 type="button"
                 className={cn('weq-mf-primary')}
@@ -233,8 +236,8 @@ export function MergeForwardDialog({
               >
                 <Share2 size={15} /> {sending ? '转发中…' : '转发'}
               </CompositionButton>
-            </>
-          )}
+            )}
+          </div>
         </footer>
       </div>
     </Modal>

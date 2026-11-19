@@ -23384,17 +23384,27 @@ html.weq-theme-ripple::view-transition-new(root) {
   overflow: hidden;
 }
 
-.weq-mf-foot {
+.weq-mf-foot,
+.weq-mf-foot-group {
   display: flex;
-  flex-shrink: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+}
+
+.weq-mf-foot {
+  flex-shrink: 0;
   padding: 0.75rem 1rem;
   border-top: 1px solid var(--weq-border-subtle);
 }
 
-.weq-mf-foot-spacer {
-  flex: 1;
+.weq-mf-foot-group {
+  white-space: nowrap;
+}
+
+.weq-mf-foot-actions {
+  margin-inline-start: auto;
+  justify-content: flex-end;
 }
 
 .weq-mf-soft,
@@ -23419,7 +23429,7 @@ html.weq-theme-ripple::view-transition-new(root) {
   background: var(--weq-bg-elevated);
 }
 
-.weq-mf-soft:hover {
+.weq-mf-soft:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
   color: var(--weq-accent-effective);
 }
@@ -23439,10 +23449,18 @@ html.weq-theme-ripple::view-transition-new(root) {
   transform: translateY(1px);
 }
 
+.weq-mf-soft:disabled,
 .weq-mf-primary:disabled {
   opacity: 0.45;
   box-shadow: none;
   cursor: not-allowed;
+}
+
+@media (max-width: 420px) {
+  .weq-mf-foot .weq-mf-soft,
+  .weq-mf-foot .weq-mf-primary {
+    padding-inline: 0.5rem;
+  }
 }
 
 /* ── 编辑区：预览列表 ─────────────────────────────────────────────────── */
