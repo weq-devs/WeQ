@@ -30,7 +30,6 @@ import { AutoSave } from './AutoSave';
 import { Card, SectionHeader, Toggle } from './controls';
 import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
 import { ContactFieldSort } from './contactCard/ContactFieldSort';
-import { ContactBadgeRows } from './UnreadBadgeSettings';
 import '../../styles/contact-card.css';
 
 /** 每个分区一个 15px 图标，与其它设置卡片的「图标 + 标题」版式一致。 */
@@ -123,9 +122,6 @@ export function ContactCardSettings() {
             </span>
           }
         />
-        <Card title="联系人列表标记">
-          <ContactBadgeRows />
-        </Card>
         {CONTACT_CARD_SECTIONS.map((section) => (
           <Fragment key={section.key}>
             <Card

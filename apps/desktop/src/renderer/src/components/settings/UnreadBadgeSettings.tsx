@@ -64,7 +64,7 @@ export function EntryBadgeRows({ kind }: { kind: 'requests' | 'tasks' | 'updates
   );
 }
 
-export function ContactBadgeRows() {
+function ContactBadgeRows() {
   return (
     <>
       <EntryBadgeRows kind="requests" />
