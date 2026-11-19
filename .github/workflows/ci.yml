@@ -24,8 +24,8 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-          # 正式标签使用与 Apple Silicon 打包一致的系统镜像。
-          - ${{ github.ref_type == 'tag' && 'macos-15' || 'macos-latest' }}
+          # 标签发布和手动发布预检使用与 Apple Silicon 打包一致的系统镜像。
+          - ${{ (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') && 'macos-15' || 'macos-latest' }}
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
