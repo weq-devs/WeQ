@@ -67,7 +67,7 @@ export interface AntiRecallConfig {
   mode: 'selected' | 'all';
   /** Conversations the user chose to protect (used when `mode === 'selected'`). */
   targets: AntiRecallTarget[];
-  /** Master switch for recall notifications (system-native popups). */
+  /** 旧版通知总开关；宿主接入统一渠道后由当前渠道决定。 */
   notifyEnabled: boolean;
   /**
    * Conversations whose recalls raise a notification, keyed `${kind}:${id}`
@@ -102,6 +102,7 @@ export interface RecallNotifyEvent {
 export interface AntiRecallOptions {
   readOnly?: boolean;
   preferences?: PreferencePersistence<AntiRecallConfig>;
+  notificationsEnabled?: () => boolean;
   /**
    * Raised for every newly-recorded recall in a conversation whose notification
    * switch is on. Implemented in the Electron main process (native notification
@@ -222,6 +223,7 @@ export class AntiRecallService {
     const installed = this.opts.readOnly ? [] : await this.openDb().status();
     return {
       ...this.config,
+      notifyEnabled: this.notificationsEnabled(this.config),
       settingsRevision: this.opts.preferences?.revision?.(),
       installed,
       qqRunning: this.isQqRunning(),
@@ -437,15 +439,23 @@ export class AntiRecallService {
     const active = !this.opts.readOnly && this.config.enabled ? this.config.targets : [];
     return {
       ...this.config,
+      notifyEnabled: this.notificationsEnabled(this.config),
       settingsRevision: this.opts.preferences?.revision?.(),
       installed: expectedAntiRecallTriggers(allConversations, active),
       qqRunning: this.isQqRunning(),
     };
   }
 
+  private notificationsEnabled(config: AntiRecallConfig): boolean {
+    return this.opts.notificationsEnabled?.() ?? config.notifyEnabled;
+  }
+
   private shouldNotify(row: RecallLogRow): boolean {
-    if (!this.config.notifyEnabled) return false;
-    return this.config.notifyTargets.includes(notifyKey(row.kind, row.conv));
+    const config = this.config;
+    return (
+      config.notifyTargets.includes(notifyKey(row.kind, row.conv)) &&
+      this.notificationsEnabled(config)
+    );
   }
 
   /**
@@ -495,7 +505,9 @@ export class AntiRecallService {
    */
   private async drainRecalls(reads: AbortController): Promise<void> {
     if (!this.monitorCurrent(reads)) return;
-    if (!this.config.enabled && !this.config.notifyEnabled) return;
+    const config = this.config;
+    if (!config.enabled && (!config.notifyTargets.length || !this.notificationsEnabled(config)))
+      return;
     if (this.recallBaseline) await this.recallBaseline;
     if (!this.monitorCurrent(reads)) return;
     // 只读包装复用账号连接；close 会关闭同库其他读者的 native 缓存。

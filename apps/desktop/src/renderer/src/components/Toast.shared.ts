@@ -142,10 +142,9 @@ function toastTtl(
   return seconds === -1 ? 0 : seconds * 1000;
 }
 
-const messageEvents = new Set<NotificationEvent>([
-  ...NOTIFICATION_GROUPS[0].events,
-  ...NOTIFICATION_GROUPS[1].events,
-]);
+const messageEvents = new Set<NotificationEvent>(
+  NOTIFICATION_GROUPS.filter(({ id }) => id !== 'app').flatMap(({ events }) => [...events]),
+);
 
 function defaultDurationKind(
   tone: ToastTone,

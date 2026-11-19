@@ -7,7 +7,7 @@ import {
   mergeNotificationEventOverrides,
   normalizeNotificationScope,
 } from '../src/common/notification_settings';
-it('通知目录四组并纳入数据库异常，普通消息横幅关闭、系统部分开启', () => {
+it('通知目录四组并纳入数据库异常，普通消息仅系统通知', () => {
   expect(NOTIFICATION_GROUPS).toHaveLength(4);
   expect(new Set(NOTIFICATION_EVENTS).size).toBe(23);
   const values = normalizeNotificationEvents(undefined);
@@ -16,11 +16,11 @@ it('通知目录四组并纳入数据库异常，普通消息横幅关闭、系�
     mixed: false,
   });
   expect(notificationGroupState(NOTIFICATION_GROUPS[0].events, 'system', values)).toEqual({
-    checked: false,
-    mixed: true,
+    checked: true,
+    mixed: false,
   });
   expect(values.redPacket).toEqual({ banner: false, system: false });
-  expect(values.recall).toEqual({ banner: false, system: false });
+  expect(values.recall).toEqual({ banner: true, system: false });
 });
 it('只覆盖已提供的布尔渠道，显式关闭不丢失，也不固化其他事件默认值', () => {
   const patch = mergeNotificationEventOverrides(

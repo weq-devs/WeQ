@@ -378,6 +378,10 @@ function webNotice(session: AccountSession, notice: Omit<WebNotice, 'uin' | 'con
     configId,
   } satisfies WebNotice);
 }
+function recallNotificationsEnabled(config: UserConfigService): boolean {
+  const { banner, system } = config.getSettings().notificationEvents.recall;
+  return banner || system;
+}
 function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
   webNotice(session, {
     kind: 'recall',
@@ -1721,6 +1725,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
         {
           onRecall: (event) => notifyRecall(session, event),
+          notificationsEnabled: () => recallNotificationsEnabled(userConfig),
           preferences: sharedPreferencePersistence(
             userConfig,
             'antiRecall',
@@ -2678,6 +2683,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         {
           readOnly: !this.accountIsAndroidBackup,
           onRecall: (event) => notifyRecall(session, event),
+          notificationsEnabled: () => recallNotificationsEnabled(userConfig),
           preferences: sharedPreferencePersistence(
             userConfig,
             'antiRecall',

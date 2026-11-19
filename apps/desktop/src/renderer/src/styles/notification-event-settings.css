@@ -33,8 +33,9 @@
   font-weight: 400;
   text-align: left;
 }
-.weq-notification-table td {
-  text-align: center;
+.weq-notification-table td > .weq-set-toggle {
+  display: flex;
+  margin-inline: auto;
 }
 .weq-notification-group th button {
   display: flex;

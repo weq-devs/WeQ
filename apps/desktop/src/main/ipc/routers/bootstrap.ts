@@ -979,10 +979,11 @@ export const bootstrapRouter = router({
       suppressDbDamageReminder: false,
     });
     config.patchSharedPreference('mail', { mailNotifications: true });
-    config.patchSharedPreference('antiRecall', { notifyEnabled: false });
+    const notifyEnabled = next.recall.banner || next.recall.system;
+    config.patchSharedPreference('antiRecall', { notifyEnabled });
     const services = getAppContext().services;
     void services?.mail.setNotifications(true).catch(() => {});
-    services?.antiRecall.setNotify({ enabled: false });
+    services?.antiRecall.setNotify({ enabled: notifyEnabled });
     return next;
   }),
 

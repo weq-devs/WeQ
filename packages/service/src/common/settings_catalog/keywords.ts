@@ -29,6 +29,7 @@ export const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   'send-with-qq-font': ['发送字体'],
   'chat-image-cache': ['图片缓存', '表情缓存'],
   'message-unread-badge': ['未读红点'],
+  'contact-request-badge': ['好友与群通知'],
   'text-markdown': ['纯文本消息渲染 Markdown', '富文本'],
   'message-seq': ['消息序号'],
   'message-date': ['消息日期 yyyy-mm-dd'],

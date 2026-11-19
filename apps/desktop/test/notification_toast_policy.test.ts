@@ -56,12 +56,14 @@ it('消息横幅默认常驻，修改时长不影响成功或失败的任务结�
   const store = useToast.getState();
   const ordinary = store.push({ event: 'assistantReply', title: '回复' });
   const important = store.push({ event: 'mentionMe', tone: 'warning', title: '提及' });
+  const other = store.push({ event: 'recall', title: '撤回' });
   const success = store.push({ event: 'taskComplete', tone: 'warning', title: '任务成功' });
   const failure = store.push({ event: 'taskFailure', title: '任务失败' });
   const ttls = () => useToast.getState().toasts.map(({ id, ttl }) => [id, ttl]);
   expect(ttls()).toEqual([
     [ordinary, 0],
     [important, 0],
+    [other, 0],
     [success, 3000],
     [failure, 0],
   ]);
@@ -69,6 +71,7 @@ it('消息横幅默认常驻，修改时长不影响成功或失败的任务结�
   expect(ttls()).toEqual([
     [ordinary, 6000],
     [important, 6000],
+    [other, 6000],
     [success, 3000],
     [failure, 9000],
   ]);

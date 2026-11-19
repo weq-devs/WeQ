@@ -59,12 +59,14 @@ const target = z.object({
 export async function sharedAntiRecallStatus(): Promise<AntiRecallStatus> {
   const service = getAppContext().services?.antiRecall;
   if (service) return service.getStatus();
-  const value = requireBootstrap().userConfig.getSharedPreference('antiRecall');
+  const config = requireBootstrap().userConfig;
+  const value = config.getSharedPreference('antiRecall');
+  const { banner, system } = config.getSettings().notificationEvents.recall;
   return {
-    settingsRevision: requireBootstrap().userConfig.sharedPreferenceRevision(),
+    settingsRevision: config.sharedPreferenceRevision(),
     enabled: value.enabled ?? false,
     mode: value.mode ?? 'selected',
-    notifyEnabled: value.notifyEnabled ?? false,
+    notifyEnabled: banner || system,
     targets: [],
     notifyTargets: [],
     installed: [],

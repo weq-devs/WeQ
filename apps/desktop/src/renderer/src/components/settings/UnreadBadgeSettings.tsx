@@ -1,16 +1,25 @@
 import { BellDot } from 'lucide-react';
-import { AGGREGATE_BADGE_SETTINGS, ENTRY_BADGE_SETTINGS } from '@weq/service/client-preferences';
+import {
+  AGGREGATE_BADGE_SETTINGS,
+  CONTACT_UNREAD_COUNT_LABEL,
+  ENTRY_BADGE_SETTINGS,
+} from '@weq/service/client-preferences';
 import { Card, Row } from './controls';
 import { SharedDisplayToggle } from './SharedDisplayToggle';
 import { MailNotificationSettings } from './MailNotificationSettings';
 import '../../styles/unread-badge-settings.css';
 
 export function BadgeSettingRow(
-  props: Parameters<typeof SharedDisplayToggle>[0] & { settingId: string },
+  props: Parameters<typeof SharedDisplayToggle>[0] & { settingId: string; desc?: string },
 ) {
-  const { settingId, ...toggle } = props;
+  const { settingId, desc, ...toggle } = props;
   return (
-    <Row settingId={settingId} label={toggle.label} control={<SharedDisplayToggle {...toggle} />} />
+    <Row
+      settingId={settingId}
+      label={toggle.label}
+      desc={desc}
+      control={<SharedDisplayToggle {...toggle} />}
+    />
   );
 }
 
@@ -40,7 +49,16 @@ export function EntryBadgeRows({ kind }: { kind: 'requests' | 'tasks' | 'updates
             ? key === 'showUpdateBadge'
             : key === 'showTaskRunningBadge' || key === 'showTaskResultBadge',
       ).map(([key, id, label]) => (
-        <BadgeSettingRow key={key} name={key} settingId={id} label={label} fallback={true} />
+        <BadgeSettingRow
+          key={key}
+          name={key}
+          settingId={id}
+          label={label}
+          desc={
+            kind === 'requests' ? '在联系人导航及好友通知、群通知入口显示未读角标。' : undefined
+          }
+          fallback={true}
+        />
       ))}
     </>
   );
@@ -53,7 +71,8 @@ export function ContactBadgeRows() {
       <BadgeSettingRow
         name="showContactUnreadCount"
         settingId="contact-unread-count"
-        label="好友与群聊"
+        label={CONTACT_UNREAD_COUNT_LABEL}
+        desc="在好友和群聊列表的对应会话旁显示未读消息数量。"
         fallback={false}
       />
     </>

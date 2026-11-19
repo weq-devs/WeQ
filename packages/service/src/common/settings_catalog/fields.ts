@@ -3,6 +3,7 @@ import type { IntentSenseConfig } from '../../account/intent_sense';
 import { INTENT_TUNING, type IntentTuningKey } from '../intent_context';
 import {
   AGGREGATE_BADGE_SETTINGS,
+  CONTACT_UNREAD_COUNT_LABEL,
   ENTRY_BADGE_SETTINGS,
   type PreferenceKey,
 } from '../client_preferences';
@@ -47,7 +48,12 @@ export const APP_SETTING_FIELDS = (
     ['window-appearance', 'windowsStyleControls', 'windows-style-controls', '仿 Windows 窗口按钮'],
     ['app-lock', 'autoLockMinutes', 'auto-lock', '自动锁定分钟'],
     ['notification-badges', 'showMessageUnreadBadge', 'message-unread-badge', '消息导航未读角标'],
-    ['notification-badges', 'showContactUnreadCount', 'contact-unread-count', '好友与群聊'],
+    [
+      'notification-badges',
+      'showContactUnreadCount',
+      'contact-unread-count',
+      CONTACT_UNREAD_COUNT_LABEL,
+    ],
     ['notification-badges', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
     ['reading', 'readFromFirstUnread', 'read-first-unread', '从首条未读开始'],
     ['conversation-markers', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],

@@ -269,7 +269,7 @@ describe('页内防撤回摘要与按需工具', () => {
       f.dispose();
     }
   });
-  it('保护和通知选择均可搜索、多选并保存，未保存关闭必须确认', async () => {
+  it('页内选择保护会话后，未保存关闭必须确认', async () => {
     const f = mount();
     try {
       click('编辑启用防撤回的会话');
@@ -282,6 +282,20 @@ describe('页内防撤回摘要与按需工具', () => {
       expect(document.querySelector('.weq-tool-modal')).not.toBeNull();
       await act(async () => click('保存选择'));
       expect(fixture.saves).toHaveBeenCalledWith('setTargets', { targets: [] });
+    } finally {
+      f.dispose();
+    }
+  });
+  it('互动与防撤回页就地打开提醒会话选择，保存只修改名单', async () => {
+    const f = mount();
+    try {
+      click('选择提醒会话');
+      expect(document.querySelector('.weq-tool-modal')).not.toBeNull();
+      expect(f.close).not.toHaveBeenCalled();
+      click('清空');
+      await act(async () => click('保存选择'));
+      expect(fixture.saves.mock.calls).toEqual([['setNotify', { targets: [] }]]);
+      expect(fixture.status.notifyEnabled).toBe(true);
     } finally {
       f.dispose();
     }

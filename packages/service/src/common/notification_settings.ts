@@ -9,7 +9,7 @@ export const NOTIFICATION_GROUPS = [
     label: '重点消息',
     events: ['specialCare', 'mentionMe', 'mentionAll', 'replyMe', 'redPacket', 'keyword'],
   },
-  { id: 'activity', label: '其他动态', events: ['recall', 'contact', 'mail'] },
+  { id: 'activity', label: '其他通知', events: ['recall', 'contact', 'mail'] },
   {
     id: 'app',
     label: '应用与任务',
@@ -82,14 +82,15 @@ const BANNER_DISABLED_DEFAULTS = new Set<NotificationEvent>([
   'directMessage',
   'groupMessage',
   'assistantReply',
-  'recall',
   'redPacket',
 ]);
 const SYSTEM_DEFAULTS = new Set<NotificationEvent>([
   'directMessage',
+  'groupMessage',
   'assistantReply',
   'specialCare',
   'mentionMe',
+  'mentionAll',
   'replyMe',
   'keyword',
   'contact',

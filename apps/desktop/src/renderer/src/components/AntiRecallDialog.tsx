@@ -665,10 +665,25 @@ export function AntiRecallDialog({
                 <Row label="撤回提醒" control={<NotificationMethodSelect event="recall" />} />
                 <Row
                   label="提醒范围"
+                  desc={
+                    !hasAccount
+                      ? '打开账号后选择会话。'
+                      : status.data
+                        ? notifyIds.size
+                          ? `当前账号已选择 ${notifyIds.size} 个提醒会话。`
+                          : '未选择会话时不会发送撤回提醒。'
+                        : undefined
+                  }
                   control={
-                    <NotificationSettingsLink settingId="recall-notifications">
+                    <button
+                      type="button"
+                      className="weq-set-btn"
+                      disabled={unavailable || !hasAccount}
+                      onClick={() => openEditor('notify')}
+                    >
+                      <Pencil size={14} aria-hidden />
                       选择提醒会话
-                    </NotificationSettingsLink>
+                    </button>
                   }
                 />
               </>

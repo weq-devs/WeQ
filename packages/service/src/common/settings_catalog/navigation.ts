@@ -2,7 +2,11 @@
 import { AI_SETTING_ITEMS } from './ai';
 import { CONTACT_CARD_FIELDS, CONTACT_GROUP_FIELDS } from '../contact_card';
 import { NOTIFICATION_EVENTS, NOTIFICATION_LABELS } from '../notification_settings';
-import { AGGREGATE_BADGE_SETTINGS, ENTRY_BADGE_SETTINGS } from '../client_preferences';
+import {
+  AGGREGATE_BADGE_SETTINGS,
+  CONTACT_UNREAD_COUNT_LABEL,
+  ENTRY_BADGE_SETTINGS,
+} from '../client_preferences';
 export const SETTINGS_PAGE_LABELS = {
   'contact-card': '联系人名片',
   appearance: '外观与布局',
@@ -708,7 +712,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ...(
     [
       ['message-unread-badge', '消息导航未读角标', '消息图标红点', '显示消息汇总红点'],
-      ['contact-unread-count', '好友与群聊', '联系人列表未读消息数', '在联系人界面显示未读消息数'],
+      [
+        'contact-unread-count',
+        CONTACT_UNREAD_COUNT_LABEL,
+        '好友与群聊',
+        '联系人列表未读消息数',
+        '在联系人界面显示未读消息数',
+      ],
       ['group-assistant-count', '群助手', '群助手未读汇总角标', '群助手显示总消息数'],
       ['all-conversations-include-hidden', '包含已隐藏会话', '全部会话隐藏范围'],
       ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],

@@ -94,8 +94,9 @@ export const AGGREGATE_BADGE_SETTINGS = [
   ['clone', 'showCloneUnreadBadge', 'clone-unread-badge', '克隆会话'],
   ['assistant', 'showAssistantAggregateBadge', 'assistant-aggregate-badge', 'WeQ 助手会话'],
 ] as const satisfies readonly (readonly [string, PreferenceKey, string, string])[];
+export const CONTACT_UNREAD_COUNT_LABEL = '好友与群聊未读消息数';
 export const ENTRY_BADGE_SETTINGS = [
-  ['showContactRequestBadge', 'contact-request-badge', '好友与群通知'],
+  ['showContactRequestBadge', 'contact-request-badge', '好友与群通知未读角标'],
   ['showTaskRunningBadge', 'task-running-badge', '进行中任务'],
   ['showTaskResultBadge', 'task-result-badge', '已完成任务'],
   ['showUpdateBadge', 'update-badge', '新版本与增强包更新'],
