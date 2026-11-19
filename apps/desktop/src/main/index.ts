@@ -1148,6 +1148,7 @@ if (hasSingleInstanceLock) {
   registerAppQuitCleanup(
     app,
     async () => {
+      logger.info('app quit cleanup started', { event: 'app-quit-cleanup-start' });
       try {
         await Promise.all([
           flushConversationCalendarResults(),
