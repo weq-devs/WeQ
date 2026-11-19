@@ -538,7 +538,7 @@ export class ContactDirectoryRuntime {
       list.push(job);
       grouped.set(key, list);
     }
-    return [...grouped].map(([key, work]) => {
+    return [...grouped].map<ContactMetricJob>(([key, work]) => {
       const uin = key.slice('friend:'.length),
         uid = friends.find(
           (friend) => (friend.uin > 0n ? String(friend.uin) : friend.uid) === uin,
@@ -547,13 +547,16 @@ export class ContactDirectoryRuntime {
       return {
         key,
         label: `好友 ${this.friendMeta.get(uin)?.昵称 ?? ''}（${uin}）`,
-        run: async () => {
+        queueFields: batch,
+        run: async (enqueue) => {
           this.assertCurrent();
           const failures: string[] = [];
+          let attempted = false;
           const runField = async (job: ContactMetricJob) => {
             this.assertCurrent();
             if (completed.has(job.key)) return;
             if (!this.online()) throw new ContactMetricsOfflineError('QQ 暂不可在线查询');
+            attempted = true;
             try {
               await job.run();
               this.assertCurrent();
@@ -566,9 +569,12 @@ export class ContactDirectoryRuntime {
             }
           };
           try {
-            if (batch) {
-              // 等本人的各项结果收尾后再换人；其中一项失败不阻塞其余字段。
-              for (const result of await Promise.allSettled(work.map(runField))) {
+            if (enqueue) {
+              const remaining = work.filter((field) => !completed.has(field.key));
+              const reads = remaining.map((field) =>
+                enqueue(() => withDatabaseSignal(this.lifetime.signal, () => runField(field))),
+              );
+              for (const result of await Promise.allSettled(reads)) {
                 if (result.status === 'rejected') throw result.reason;
                 if (result.value) failures.push(result.value);
               }
@@ -579,7 +585,7 @@ export class ContactDirectoryRuntime {
               }
             }
           } finally {
-            if (batch && this.isCurrent()) await this.summarizeFriend(uin, uid);
+            if (batch && attempted && this.isCurrent()) await this.summarizeFriend(uin, uid);
           }
           if (failures.length) {
             if (!completed.size) throw new Error(failures.join('；'));
@@ -923,12 +929,12 @@ export class ContactDirectoryRuntime {
           return;
         }
         this.cache.start(
-          jobs.map((job) => ({
+          jobs.map<ContactMetricJob>((job) => ({
             ...job,
-            run: () =>
+            run: (enqueue) =>
               withDatabaseSignal(this.lifetime.signal, async () => {
                 this.assertCurrent();
-                const result = await job.run();
+                const result = await job.run(enqueue);
                 this.assertCurrent();
                 return result;
               }),

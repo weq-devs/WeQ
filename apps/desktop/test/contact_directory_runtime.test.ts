@@ -524,6 +524,33 @@ it('慢字段不阻塞同一好友的其余指标，部分成功不判整个对�
   );
 });
 
+it('多个好友卡在慢字段时，队列继续刷新后面的好友', async () => {
+  const f = await setup();
+  await settled(f);
+  f.buddies.push(
+    { uid: 'u_second', uin: 23456n },
+    { uid: 'u_third', uin: 34567n },
+    { uid: 'u_fourth', uin: 45678n },
+    { uid: 'u_fifth', uin: 56789n },
+  );
+  const slow = deferred<number>();
+  for (let index = 0; index < 3; index++)
+    f.services.peerStats.getQqLevel.mockReturnValueOnce(slow.promise);
+  await f.runtime.rebuild(false, ['level']);
+  await waitFor(() => expect(f.runtime.cache.progress.lanes?.friends.done).toBe(2));
+  expect(f.services.peerStats.getQqLevel.mock.calls.map(([uin]) => uin)).toEqual([
+    '12345',
+    '23456',
+    '34567',
+    '45678',
+    '56789',
+  ]);
+  expect(f.runtime.cache.progress.status).toBe('running');
+  slow.resolve(1);
+  await waitFor(() => expect(f.runtime.cache.progress.status).toBe('completed'));
+  expect(f.runtime.cache.progress.lanes?.friends).toEqual({ done: 5, total: 5, failed: 0 });
+});
+
 it('好友并行刷新中断线，继续时保留同批已成功的字段', async () => {
   const { runtime, services, setOnline } = await setup();
   const level = Promise.withResolvers<number>();
