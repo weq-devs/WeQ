@@ -165,6 +165,23 @@ html[data-component-style='retro'][data-theme] body .composer-editor {
   box-shadow: var(--weq-retro-well);
 }
 
+html[data-component-style='retro'][data-theme]:where(
+    :not([data-weq-layout='single'], [data-weq-mobile-client='true'])
+  )
+  .composer
+  > .composer-editor {
+  width: auto;
+  margin-right: var(--composer-side-inset);
+}
+
+html[data-component-style='retro'][data-theme]:where(
+    :not([data-weq-layout='single'], [data-weq-mobile-client='true'])
+  )
+  .composer:has(> .composer-editor:not(.composer-row-hidden))
+  > .composer-send {
+  right: calc(var(--composer-side-inset) + 8px);
+}
+
 html[data-component-style='retro'][data-theme]
   body
   :is(

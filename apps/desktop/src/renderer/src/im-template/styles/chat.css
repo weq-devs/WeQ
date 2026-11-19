@@ -2361,6 +2361,7 @@ html[data-theme='dark'] .member-role-badge.admin {
 }
 
 .composer {
+  --composer-side-inset: 22px;
   position: relative;
   grid-column: 1;
   display: grid;
@@ -2368,7 +2369,7 @@ html[data-theme='dark'] .member-role-badge.admin {
   overflow: visible;
   grid-template-rows: 42px minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr);
-  padding: 12px 0 16px 22px;
+  padding: 12px 0 16px var(--composer-side-inset);
   border-top: 1px solid var(--weq-bar-border, #dedede);
   /* Frosted glass — same single-gradient trick as .chat-header. */
   background: var(--weq-bar-surface, rgba(255, 255, 255, 0.58));
@@ -2435,7 +2436,7 @@ html[data-theme='dark'] .member-role-badge.admin {
 .composer-send {
   position: absolute;
   z-index: 4;
-  right: 22px;
+  right: var(--composer-side-inset);
   bottom: 20px;
   display: inline-flex;
   width: auto;
