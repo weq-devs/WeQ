@@ -37,6 +37,7 @@ const independentReads = new Set([
   'account.getGroupMembersByUids',
   'account.getGroupDetail',
   // 任务轮询与按需日志不能等待同批的 QQ / 数据库慢查询。
+  'account.getAccountConfig', // 后台任务必须先确认账号和数据源。
   'backgroundTasks.list',
   'backgroundTasks.details',
   'backgroundTasks.logs',

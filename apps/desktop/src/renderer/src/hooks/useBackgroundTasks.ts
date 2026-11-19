@@ -53,5 +53,6 @@ export function useBackgroundTasks(enabled: boolean) {
     ],
     [host.data, local, scope],
   );
-  return { tasks, scope, query: host };
+  const error = host.error ?? (uin && !configId ? config.error : null);
+  return { tasks, scope, query: host, error };
 }

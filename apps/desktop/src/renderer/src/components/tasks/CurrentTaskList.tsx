@@ -864,7 +864,7 @@ export function CurrentTaskList({
   useLayoutEffect(() => {
     if (visible && active && !loading && unreadResults > 0) readTasks();
   }, [visible, active, loading, unreadResults, readTasks]);
-  const hasError = exportError || roaming.error || flash.error || background.query.error;
+  const hasError = exportError || roaming.error || flash.error || background.error;
   /** 已结束的任务都可移除；进行中、等待和可续传的暂停任务保留。 */
   const finished = items.filter(
     (task) =>
@@ -996,9 +996,9 @@ export function CurrentTaskList({
           闪传任务读取失败：{flash.error.message}
         </p>
       ) : null}
-      {background.query.error ? (
+      {background.error ? (
         <p role="alert" className="weq-current-tasks-notice">
-          后台任务读取失败：{background.query.error.message}
+          后台任务读取失败：{background.error.message}
         </p>
       ) : null}
       {!items.length && !hasError ? (

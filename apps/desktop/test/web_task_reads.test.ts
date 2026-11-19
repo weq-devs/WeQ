@@ -14,7 +14,7 @@ vi.mock('@trpc/client', async (importOriginal) => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('真实 HTTP link 在慢业务批次未结束时仍返回任务和日志', async () => {
+it('真实 HTTP link 在慢业务批次未结束时仍返回任务所需的账号配置、列表和日志', async () => {
   const requests: string[] = [];
   let release!: () => void;
   const blocked = new Promise<void>((resolve) => {
@@ -28,8 +28,8 @@ it('真实 HTTP link 在慢业务批次未结束时仍返回任务和日志', as
       requests.push(url.pathname);
       const batched = url.searchParams.has('batch');
       if (url.pathname.includes('account.listBuddies')) await blocked;
-      const result = { result: { data: url.pathname } };
-      return new Response(JSON.stringify(batched ? [result] : result), {
+      const results = url.pathname.split(',').map((path) => ({ result: { data: path } }));
+      return new Response(JSON.stringify(batched ? results : results[0]), {
         headers: { 'Content-Type': 'application/json' },
       });
     }),
@@ -39,7 +39,13 @@ it('真实 HTTP link 在慢业务批次未结束时仍返回任务和日志', as
   const slow = client.query('account.listBuddies').then(() => {
     slowFinished = true;
   });
+  const config = client.query('account.getAccountConfig');
   try {
+    await vi.waitFor(() => {
+      expect(requests.find((path) => path.includes('account.getAccountConfig'))).toBeDefined();
+    });
+    expect(requests).toContain('/trpc/account.getAccountConfig');
+    expect(await config).toBe('/trpc/account.getAccountConfig');
     const values = await Promise.all([
       client.query('backgroundTasks.list'),
       client.query('backgroundTasks.logs'),
@@ -56,6 +62,6 @@ it('真实 HTTP link 在慢业务批次未结束时仍返回任务和日志', as
     expect(requests.every((path) => !path.includes(','))).toBe(true);
   } finally {
     release();
-    await slow;
+    await Promise.all([slow, config]);
   }
 });
