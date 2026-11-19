@@ -47,6 +47,7 @@ export function Modal({
   anchorPlacement,
   centered = false,
   dismissOnOutside = true,
+  focusContainerOnOpen = false,
   portalTarget,
   mobileChrome = false,
 }: {
@@ -68,6 +69,7 @@ export function Modal({
   centered?: boolean;
   /** 安全验证、编辑正文等流程可显式禁用点外关闭。 */
   dismissOnOutside?: boolean;
+  focusContainerOnOpen?: boolean;
   portalTarget?: Element | null;
   mobileChrome?: boolean;
 }): ReactElement | null {
@@ -95,6 +97,7 @@ export function Modal({
     presentation === 'modal',
     100,
     scope,
+    focusContainerOnOpen,
   );
   useSurfaceOutside(
     ref,

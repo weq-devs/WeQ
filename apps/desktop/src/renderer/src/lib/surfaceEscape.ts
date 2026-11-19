@@ -146,6 +146,7 @@ export function useSurfaceEscape(
   modal: boolean,
   mobilePriority: number | false = 100,
   layerScope?: symbol,
+  focusContainerOnOpen = false,
 ) {
   useSurfaceConfirm(ref, active);
   const returnFocus = useRef<Element | null>(null);
@@ -185,8 +186,10 @@ export function useSurfaceEscape(
         focusable?.closest(
           'header, nav, [role="navigation"], .weq-mobile-settings-header, .weq-app-title-bar',
         );
-      const target = chrome ? element : (focusable ?? element);
-      if (chrome && !element.hasAttribute('tabindex')) element.setAttribute('tabindex', '-1');
+      const focusContainer = focusContainerOnOpen || chrome;
+      const target = focusContainer ? element : (focusable ?? element);
+      if (focusContainer && !element.hasAttribute('tabindex'))
+        element.setAttribute('tabindex', '-1');
       target.focus({ preventScroll: true });
     }
     return () => {
@@ -198,7 +201,7 @@ export function useSurfaceEscape(
       )
         (previous as HTMLElement).focus({ preventScroll: true });
     };
-  }, [active, modal, ref, layerScope]);
+  }, [active, modal, ref, layerScope, focusContainerOnOpen]);
 
   useEffect(() => {
     const element = ref.current;
@@ -228,6 +231,7 @@ export function useSurfaceEscape(
         if (
           !first ||
           !last ||
+          focused === element ||
           !element.contains(focused) ||
           (event.shiftKey ? focused === first : focused === last)
         ) {

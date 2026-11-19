@@ -79,6 +79,38 @@ it('非模态弹窗主动操作其他背景控件后不消费 Esc', () => {
   expect(f.close).toHaveBeenCalledOnce();
 });
 
+it('弹窗可打开而不聚焦输入框，保留正反向 Tab 与关闭后的焦点恢复', () => {
+  const f = mount((close) =>
+    h(
+      Modal,
+      { onClose: close, focusContainerOnOpen: true },
+      h('input'),
+      h('button', null, '下一步'),
+    ),
+  );
+  const dialog = document.querySelector('[role="dialog"]')!;
+  const title = dialog.querySelector('input')!;
+  const next = dialog.querySelector('button')!;
+  const initial = document.activeElement as HTMLElement;
+  expect(initial.contains(dialog)).toBe(true);
+  expect(initial).not.toBe(document.body);
+  for (const [shiftKey, expected] of [
+    [false, title],
+    [true, next],
+  ] as const) {
+    act(() => initial.focus());
+    act(() =>
+      initial.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(document.activeElement).toBe(expected);
+  }
+  pressEscape();
+  expect(f.close).toHaveBeenCalledOnce();
+  expect(document.activeElement).toBe(f.trigger);
+});
+
 it('普通非模态页面失焦后不响应 Esc，重新聚焦页面才关闭', () => {
   function Page({ onClose }: { onClose: () => void }) {
     const ref = useRef<HTMLElement>(null);

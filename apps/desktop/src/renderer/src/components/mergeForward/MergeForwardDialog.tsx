@@ -113,6 +113,7 @@ export function MergeForwardDialog({
     <Modal
       onClose={onClose}
       dismissOnOutside={false}
+      focusContainerOnOpen
       width={880}
       labelledBy="weq-mf-title"
       className="weq-mf-modal"
