@@ -85,7 +85,7 @@ function parseRange(header: string | null, size: number): { start: number; end: 
 export async function fileResponse(
   path: string,
   request?: Request,
-  opts: { revalidate?: boolean } = {},
+  opts: { revalidate?: boolean; sniffImageType?: boolean } = {},
 ): Promise<Response> {
   let size: number;
   let mtimeMs: number;
@@ -99,7 +99,8 @@ export async function fileResponse(
   }
 
   let type = mimeOf(path);
-  if (/^[a-f0-9]{64}$/.test(basename(path))) {
+  const contentHash = /^[a-f0-9]{64}$/.test(basename(path));
+  if (contentHash || (opts.sniffImageType && type === 'application/octet-stream')) {
     const handle = await open(path, 'r');
     try {
       const buffer = Buffer.alloc(32),
@@ -107,18 +108,20 @@ export async function fileResponse(
       const head = buffer.subarray(0, bytesRead),
         image = sniffImageExt(head);
       if (image) type = mimeOf(`image${image}`);
-      else if (head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WAVE')
-        type = 'audio/wav';
-      else if (head.toString('ascii', 0, 4) === 'OggS') type = 'audio/ogg';
-      else if (head.toString('ascii', 4, 8) === 'ftyp')
-        type = head.toString('ascii', 8, 12).startsWith('M4A') ? 'audio/mp4' : 'video/mp4';
-      else if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3)
-        type = 'video/webm';
-      else if (
-        head.toString('ascii', 0, 3) === 'ID3' ||
-        (head[0] === 0xff && (head[1]! & 0xe0) === 0xe0)
-      )
-        type = 'audio/mpeg';
+      else if (contentHash) {
+        if (head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WAVE')
+          type = 'audio/wav';
+        else if (head.toString('ascii', 0, 4) === 'OggS') type = 'audio/ogg';
+        else if (head.toString('ascii', 4, 8) === 'ftyp')
+          type = head.toString('ascii', 8, 12).startsWith('M4A') ? 'audio/mp4' : 'video/mp4';
+        else if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3)
+          type = 'video/webm';
+        else if (
+          head.toString('ascii', 0, 3) === 'ID3' ||
+          (head[0] === 0xff && (head[1]! & 0xe0) === 0xe0)
+        )
+          type = 'audio/mpeg';
+      }
     } finally {
       await handle.close();
     }

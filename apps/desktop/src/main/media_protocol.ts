@@ -250,12 +250,7 @@ function fileResponse(path: string): Promise<Response> {
   return streamFile(path, currentRequest.getStore());
 }
 
-/**
- * Like {@link fileResponse} but asking the renderer to revalidate (304 on an
- * unchanged mtime). For the local avatar cache: the file NAME is a uid hash, so
- * QQ overwrites it in place when someone changes their picture — caching by
- * max-age would keep showing the old one.
- */
+/** 媒体在原路径被覆盖时要求重新校验，不让浏览器按原 URL 保留旧内容。 */
 function revalidatingFileResponse(path: string): Promise<Response> {
   return streamFile(path, currentRequest.getStore(), { revalidate: true });
 }
@@ -1052,6 +1047,9 @@ async function routeMediaRequest(request: Request): Promise<Response> {
             const fresh = await avatarFallbackResponse(fb, true);
             if (fresh.ok || fresh.status === 304) return fresh;
           }
+          // QQ 本地头像没有扩展名，Web 头像缓存仍需真实的图片 Content-Type。
+          const serveLocalAvatar = (path: string) =>
+            streamFile(path, request, { revalidate: true, sniffImageType: true });
           let local: AvatarLocalFile | null = null;
           if (hash) {
             // 本地资源浏览器按 hash 直取，没有「哪个更新」的语义。
@@ -1071,7 +1069,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
                   .catch(() => null)
               : null;
           if (local && !local.stale && (cachedAt == null || cachedAt <= local.mtimeMs))
-            return revalidatingFileResponse(local.path);
+            return serveLocalAvatar(local.path);
 
           // 本地大图过期（只有缩略图是新的）或本地干脆没有 → 回源 CDN：它既比旧大图
           // 新，又比缩略图清晰。缓存比本地文件旧时强制重拉，否则直接用缓存字节。
@@ -1083,7 +1081,7 @@ async function routeMediaRequest(request: Request): Promise<Response> {
             if (fresh.ok || fresh.status === 304) return fresh;
           }
           // CDN 拿不到（离线 / 无网）→ 至少显示当前头像的缩略图，别退回旧大图。
-          if (local) return revalidatingFileResponse(local.path);
+          if (local) return serveLocalAvatar(local.path);
           return notFound('avatar not found');
         }
         case 'cemoji': {

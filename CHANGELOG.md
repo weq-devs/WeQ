@@ -1275,3 +1275,4 @@
 ## Unreleased - 进行中
 
 - 修复 WeQ Remote 横屏时左上角 Logo 与主导航没有对齐的问题。
+- 修复 WeQ Remote 无法显示电脑上已缓存的 QQ 好友及群头像的问题。
