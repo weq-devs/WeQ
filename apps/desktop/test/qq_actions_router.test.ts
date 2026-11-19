@@ -20,6 +20,10 @@ import {
 import type { GroupTodoView } from '@weq/service';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
 
+vi.mock('../src/main/account_task_receipts', () => ({
+  recordAccountTask: () => vi.fn(),
+}));
+
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
 const group = { ...binding, groupId: 123 };
 const empty = () => vi.fn(async (..._args: unknown[]) => {});

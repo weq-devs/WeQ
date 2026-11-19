@@ -37,7 +37,7 @@ describe('工作菜单状态汇总', () => {
     expect(markup).toContain(`is-${status}`);
     expect(markup).toContain(`>${text}</span>`);
   });
-  it('各类在途与结束任务逐项计数，暂停和待执行漫游不贡献结束提醒', () => {
+  it('各类在途与结束任务逐项计数，部分完成的漫游计入结束，暂停和待执行不计入', () => {
     expect(
       summarizeWorkspaceTasks({
         exports: withIds([
@@ -73,7 +73,7 @@ describe('工作菜单状态汇总', () => {
           { status: 'cancelled' },
         ]),
       }),
-    ).toMatchObject({ running: 9, finished: 11, failed: 4 });
+    ).toMatchObject({ running: 9, finished: 12, failed: 4 });
   });
 
   it('已完成任务再次保存只贡献一个蓝点，保存失败只贡献一个红点', () => {

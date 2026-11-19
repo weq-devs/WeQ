@@ -29,6 +29,7 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: vi.fn(),
     account: {
       listExportTasks: { useQuery: () => ({ data: [] }) },
       roamingBackfill: { list: { useQuery: () => ({ data: { jobs: [] } }) } },

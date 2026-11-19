@@ -9,16 +9,26 @@ const f = vi.hoisted(() => ({
   refresh: vi.fn(async () => ({ id: 'valid-old_id-123' })),
   saveConfig: vi.fn(() => ({})),
 }));
-vi.mock('../src/main/context/app_context', () => ({
-  accountEventBus: new EventEmitter(),
-  getAppContext: () => ({
-    account: { context: { uin: '10001' } },
+vi.mock('../src/main/context/app_context', () => {
+  const record = { uin: '10001', configId: 'fixture' };
+  const context = {
+    account: { context: { uin: record.uin }, msgDbPath: '/fixture/msg.db' },
     services: {
-      agentLab: { getPersona: f.get, deletePersona: f.remove, refreshFromC2c: f.refresh },
+      accountConfig: { getRecord: () => record },
+      agentLab: Object.assign(new EventEmitter(), {
+        getPersona: f.get,
+        deletePersona: f.remove,
+        refreshFromC2c: f.refresh,
+      }),
       assistant: { setConfig: f.saveConfig },
     },
-  }),
-}));
+  };
+  return {
+    accountEventBus: new EventEmitter(),
+    accountRuntimeCacheRoot: () => undefined,
+    getAppContext: () => context,
+  };
+});
 beforeEach(() => vi.clearAllMocks());
 
 it.each([
