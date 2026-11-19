@@ -25,6 +25,7 @@ import {
   ImagePlus,
   Loader2,
   Link2,
+  Lock,
   Music2,
   MessageCircle,
   RefreshCw,
@@ -1627,10 +1628,13 @@ function Post({
           size={34}
           time={
             <div className="weq-qzn-post-meta">
-              <time dateTime={new Date(post.time * 1000).toISOString()}>
-                {timeText(post.time)}
-                {post.isPrivate ? ' · 仅自己可见' : ''}
-              </time>
+              <time dateTime={new Date(post.time * 1000).toISOString()}>{timeText(post.time)}</time>
+              {post.isPrivate ? (
+                <span className="weq-qzn-post-status">
+                  <Lock size={16} className="weq-qzn-post-status-icon" aria-hidden />
+                  <span>仅自己可见</span>
+                </span>
+              ) : null}
               {tag}
             </div>
           }

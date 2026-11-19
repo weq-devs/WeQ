@@ -140,9 +140,9 @@ try {
         assert.equal(await page.getByLabel('当前用户').textContent(), '空友爱看');
       } else {
         await header.getByRole('button', { name: '空友爱看管理', exact: true }).click();
-        const operations = page.getByRole('region', { name: '空友爱看管理操作', exact: true });
+        const operations = page.getByRole('menu', { name: '空友爱看管理操作', exact: true });
         assert.equal(
-          await operations.getByRole('button', { name: '投稿至空友爱看' }).isDisabled(),
+          await operations.getByRole('menuitem', { name: '投稿至空友爱看' }).isDisabled(),
           true,
         );
         const rect = await operations.boundingBox();

@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Heart, Loader2, RefreshCw, MoreHorizontal, UsersRound } from 'lucide-react';
+import { ArchiveX, Heart, Loader2, MoreHorizontal, RefreshCw, Send, Undo2 } from 'lucide-react';
 import type { QzoneUpvotePreview } from '@weq/protocol';
 import { client } from '../trpc/client';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
@@ -12,7 +12,8 @@ import { useQQAction } from './qq-actions/shared.shared';
 import { useToast } from './Toast.shared';
 import { qzoneMediaSource } from '../lib/qzone';
 import { ShimmerImage } from './ShimmerImage';
-import { HoverPopover } from './HoverPopover';
+import { ConversationActionsMenu } from './ConversationActionsMenu';
+import { visibleViewport } from '../lib/visibleViewport';
 import '../styles/qzone-archive.css';
 import {
   qzoneCardTarget,
@@ -64,10 +65,8 @@ export function QzoneUpvoteAction({
         >
           {pending ? (
             <Loader2 size={16} className="weq-spin" />
-          ) : onClick ? (
-            <Heart size={16} fill={value?.upvoted ? 'currentColor' : 'none'} />
           ) : (
-            <UsersRound size={16} />
+            <Heart size={16} fill={onClick && value?.upvoted ? 'currentColor' : 'none'} />
           )}
           {onClick ? '推' : label} <span className="weq-number">{value?.count ?? '?'}</span>
         </button>
@@ -154,6 +153,8 @@ export function QzonePostArchive({
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [archive, setArchive] = useState<ArchiveView | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; above: boolean } | null>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
   const write = useQQAction(`qzone-archive:${hostUin}:${tid}`, 'failure-only');
   const writeScope = `${selfUin}:${hostUin}:${tid}:${time}:${write.binding?.expectedAccountConfigId}`;
   const latestWriteScope = useRef(writeScope);
@@ -274,76 +275,93 @@ export function QzonePostArchive({
   const target = tag ? qzoneCardTarget(tag.targetUrl) : null;
   const publicTarget = tag?.targetUrl.startsWith('mqzone://arouse/publicrecommend/feeds?') === true;
   const openTag = target && navigate ? () => navigate(target) : publicTarget ? openPublic : null;
+  const tagContent = tag && (
+    <>
+      {tagIcon ? (
+        <span className="weq-qzn-post-status-icon" aria-hidden>
+          <ShimmerImage src={tagIcon} alt="" width={16} height={16} />
+        </span>
+      ) : null}
+      <span>{tag.text}</span>
+    </>
+  );
   const canViewUpvotes = archive?.showUpvote && hasUpvotePreview(value);
-  const canManage =
-    selfUin === hostUin &&
-    (archive?.canContribute || archive?.canUncontribute || archive?.canUnarchive);
+  const operations =
+    selfUin === hostUin && archive
+      ? (
+          [
+            ['contribute', archive.canContribute, '投稿至空友爱看', Send],
+            ['uncontribute', archive.canUncontribute, '取消投稿', Undo2],
+            ['unarchive', archive.canUnarchive, '取消收录', ArchiveX],
+          ] as const
+        ).filter(([, allowed]) => allowed)
+      : [];
+  const canManage = operations.length > 0;
+  const closeMenu = () => {
+    setMenu(null);
+    menuTrigger.current?.focus({ preventScroll: true });
+  };
   const showRetry = error && !canViewUpvotes;
   const retryRead = () => setRetry((current) => current + 1);
   return render({
     tag: tag ? (
       openTag ? (
-        <button type="button" className="weq-qzn-archive-tag" title={tag.text} onClick={openTag}>
-          {tagIcon ? <ShimmerImage src={tagIcon} alt="" width={16} height={16} /> : null}
-          {tag.text}
+        <button type="button" className="weq-qzn-post-status" title={tag.text} onClick={openTag}>
+          {tagContent}
         </button>
       ) : (
-        <span className="weq-qzn-archive-tag">
-          {tagIcon ? <ShimmerImage src={tagIcon} alt="" width={16} height={16} /> : null}
-          {tag.text}
-        </span>
+        <span className="weq-qzn-post-status">{tagContent}</span>
       )
     ) : null,
     menu:
       canManage || showRetry ? (
         <>
           {canManage ? (
-            <HoverPopover
-              label="空友爱看管理操作"
-              clickOnly
-              trigger={(open) => (
-                <button
-                  type="button"
-                  className="weq-qzn-archive-menu-button"
-                  title="空友爱看管理"
-                  aria-label="空友爱看管理"
-                  aria-expanded={open}
-                  aria-busy={write.pending}
-                >
-                  {write.pending ? (
-                    <Loader2 size={16} className="weq-spin" />
-                  ) : (
-                    <MoreHorizontal size={16} />
-                  )}
-                </button>
-              )}
-            >
-              {(_open, dismiss) => (
-                <div className="weq-qzn-archive-operations">
-                  {(
-                    [
-                      ['contribute', archive.canContribute, '投稿至空友爱看'],
-                      ['uncontribute', archive.canUncontribute, '取消投稿'],
-                      ['unarchive', archive.canUnarchive, '取消收录'],
-                    ] as const
-                  ).map(([action, allowed, label]) =>
-                    allowed ? (
-                      <button
-                        key={action}
-                        type="button"
-                        disabled={write.disabled}
-                        onClick={() => {
-                          dismiss();
-                          void perform(action);
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ) : null,
-                  )}
-                </div>
-              )}
-            </HoverPopover>
+            <>
+              <button
+                ref={menuTrigger}
+                type="button"
+                className="weq-qzn-archive-menu-button"
+                title="空友爱看管理"
+                aria-label="空友爱看管理"
+                aria-haspopup="menu"
+                aria-expanded={menu !== null}
+                aria-busy={write.pending}
+                onClick={(event) => {
+                  if (menu) {
+                    closeMenu();
+                    return;
+                  }
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const viewport = visibleViewport(event.currentTarget.ownerDocument.defaultView);
+                  const below = viewport.top + viewport.height - rect.bottom;
+                  const above =
+                    below < operations.length * 44 + 22 && rect.top - viewport.top > below;
+                  setMenu({ x: rect.right, y: above ? rect.top - 4 : rect.bottom + 4, above });
+                }}
+              >
+                {write.pending ? (
+                  <Loader2 size={16} className="weq-spin" />
+                ) : (
+                  <MoreHorizontal size={16} />
+                )}
+              </button>
+              {menu ? (
+                <ConversationActionsMenu
+                  x={menu.x}
+                  y={menu.y}
+                  dropdown={menu.above ? 'above' : true}
+                  label="空友爱看管理操作"
+                  onClose={closeMenu}
+                  actions={operations.map(([action, , label, Icon]) => ({
+                    label,
+                    icon: <Icon size={16} aria-hidden />,
+                    disabled: write.disabled,
+                    action: () => void perform(action),
+                  }))}
+                />
+              ) : null}
+            </>
           ) : null}
           {showRetry ? (
             <button
