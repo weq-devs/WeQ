@@ -159,7 +159,7 @@ export class ContactDirectoryRuntime {
     this.cache = new ContactMetricsService(
       join(cacheDir, 'metrics.json'),
       () => this.online() && this.current(),
-      { interval: 500, concurrency: 2 },
+      { interval: 200, concurrency: 4 },
       this.history,
     );
     services.accountWrite.contactMetrics = this.cache;
@@ -383,7 +383,7 @@ export class ContactDirectoryRuntime {
     only?: string[],
     force = true,
     fields?: ContactMetric[],
-    report = false,
+    batch = false,
     maxAgeMs?: number,
     candidates: RefreshContact[] = [],
   ): Promise<ContactMetricJob[]> {
@@ -413,7 +413,7 @@ export class ContactDirectoryRuntime {
     for (const friend of buddies) byUid.set(friend.uid, friend);
     let friends = [...byUid.values()];
     const profiles =
-      report || candidates.length || !fields || fields.includes('likeCount')
+      batch || candidates.length || !fields || fields.includes('likeCount')
         ? await this.services.profile.profilesByUids(friends.map((friend) => friend.uid))
         : [];
     this.assertCurrent();
@@ -426,7 +426,7 @@ export class ContactDirectoryRuntime {
       .filter((friend) => String(friend.uin) !== this.scope.uin);
     const excludedLikes = await this.excludeLikeMetrics(profiles);
     this.assertCurrent();
-    if (report)
+    if (batch)
       for (const profile of profiles) {
         this.friendMeta.set(profile.uin > 0n ? String(profile.uin) : profile.uid, {
           昵称: profile.nick,
@@ -454,11 +454,11 @@ export class ContactDirectoryRuntime {
       if (friend.uin > 0n && needs('level'))
         jobs.push({ key: `${key}:level`, run: () => this.services.peerStats.getQqLevel(uin, 1) });
       if (friend.uin > 0n && needs('energy'))
-        jobs.push({ key: `${key}:energy`, run: () => this.services.profileExtras.energy(uin) });
+        jobs.push({ key: `${key}:energy`, run: () => this.services.profileExtras.energy(uin, 1) });
       if (friend.uin > 0n && needs('schools'))
         jobs.push({
           key: `${key}:schools`,
-          run: () => this.services.profileExtras.educationHistory(uin),
+          run: () => this.services.profileExtras.educationHistory(uin, 1),
         });
       const missingIdentity = (
         ['level', 'commonFriends', 'commonGroups', 'energy', 'schools'] as const
@@ -550,25 +550,36 @@ export class ContactDirectoryRuntime {
         run: async () => {
           this.assertCurrent();
           const failures: string[] = [];
-          try {
-            for (const job of work) {
+          const runField = async (job: ContactMetricJob) => {
+            this.assertCurrent();
+            if (completed.has(job.key)) return;
+            if (!this.online()) throw new ContactMetricsOfflineError('QQ 暂不可在线查询');
+            try {
+              await job.run();
               this.assertCurrent();
-              if (completed.has(job.key)) continue;
+              completed.add(job.key);
+            } catch (error) {
+              this.assertCurrent();
+              if (error instanceof ContactMetricsOfflineError) throw error;
               if (!this.online()) throw new ContactMetricsOfflineError('QQ 暂不可在线查询');
-              try {
-                await job.run();
-                this.assertCurrent();
-                completed.add(job.key);
-              } catch (error) {
-                this.assertCurrent();
-                if (error instanceof ContactMetricsOfflineError) throw error;
-                failures.push(
-                  `${job.key.split(':').at(-1)}：${error instanceof Error ? error.message : String(error)}`,
-                );
+              return `${job.key.split(':').at(-1)}：${error instanceof Error ? error.message : String(error)}`;
+            }
+          };
+          try {
+            if (batch) {
+              // 等本人的各项结果收尾后再换人；其中一项失败不阻塞其余字段。
+              for (const result of await Promise.allSettled(work.map(runField))) {
+                if (result.status === 'rejected') throw result.reason;
+                if (result.value) failures.push(result.value);
+              }
+            } else {
+              for (const job of work) {
+                const failure = await runField(job);
+                if (failure) failures.push(failure);
               }
             }
           } finally {
-            if (report && this.isCurrent()) await this.summarizeFriend(uin, uid);
+            if (batch && this.isCurrent()) await this.summarizeFriend(uin, uid);
           }
           if (failures.length) {
             if (!completed.size) throw new Error(failures.join('；'));
@@ -822,6 +833,7 @@ export class ContactDirectoryRuntime {
                         Number(group.groupCode),
                         true,
                         true,
+                        1,
                       );
                       this.assertCurrent();
                       if (result.error) throw new Error(result.error);
