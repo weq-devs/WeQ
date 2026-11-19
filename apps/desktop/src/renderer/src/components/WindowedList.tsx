@@ -13,6 +13,7 @@ export function WindowedList<T>({
   label,
   scrollToKey,
   scrollRevision,
+  scrollAlign = 'center',
   onNearEnd,
   resetKey,
   onVisibleItems,
@@ -29,6 +30,7 @@ export function WindowedList<T>({
   label?: string;
   scrollToKey?: string | null;
   scrollRevision?: number;
+  scrollAlign?: 'start' | 'center';
   onNearEnd?: () => void;
   resetKey?: string;
   onVisibleItems?: (items: readonly T[]) => void;
@@ -70,7 +72,11 @@ export function WindowedList<T>({
       const index = items.findIndex((item) => itemKey(item) === scrollToKey);
       if (index < 0) return false;
       const viewportHeight = viewport.clientHeight || height;
-      const next = Math.max(0, index * rowHeight - viewportHeight / 2 + rowHeight / 2);
+      const rowTop = index * rowHeight;
+      const next =
+        scrollAlign === 'start'
+          ? Math.min(rowTop, Math.max(0, items.length * rowHeight - viewportHeight))
+          : Math.max(0, rowTop - viewportHeight / 2 + rowHeight / 2);
       viewport.scrollTop = next;
       setTop(viewport.clientHeight ? Math.max(0, viewport.scrollTop) : next);
       if (!viewport.clientHeight) return false;
@@ -85,7 +91,7 @@ export function WindowedList<T>({
     });
     observer.observe(viewport);
     return () => observer.disconnect();
-  }, [items, itemKey, scrollToKey, scrollRevision, rowHeight, height]);
+  }, [items, itemKey, scrollToKey, scrollRevision, scrollAlign, rowHeight, height]);
   const range = visibleListRange(items.length, rowHeight, height, top, bufferScreens);
   const renderedRangeRef = useRef(range);
   renderedRangeRef.current = range;

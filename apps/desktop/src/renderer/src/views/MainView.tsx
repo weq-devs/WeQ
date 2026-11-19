@@ -11,7 +11,12 @@ import {
   readUnreadInfos,
 } from './workspace/useConversationWindowRead';
 import { PAGE_SIZE } from './workspace/paging';
-import { firstUnreadMessage, matchesUnreadMessage } from '../lib/unreadNavigation';
+import {
+  countMessageNavigationUnread,
+  firstUnreadConversation,
+  firstUnreadMessage,
+  matchesUnreadMessage,
+} from '../lib/unreadNavigation';
 import {
   toMessageWire,
   optimisticToTemplate,
@@ -216,7 +221,6 @@ import {
   UNREAD_BATCH_SIZE,
   createUnreadRefreshState,
 } from '../lib/unreadRefresh';
-import { firstUnreadConversation } from '../lib/unreadNavigation';
 import { flashShareCodeOfUrl } from '../lib/flashShare';
 import {
   classifyFlashPhotoFetch,
@@ -409,6 +413,7 @@ import {
   guildConversationRow,
   virtualConversationRow,
   type ConcreteConversation,
+  type ConversationLocateRequest,
 } from '../lib/conversationDirectory';
 import type { OverlayAnchor } from '../lib/overlayAnchor.shared';
 import {
@@ -1310,10 +1315,9 @@ function MainWorkspace(): ReactElement {
   const [assistantSessionId, setAssistantSessionId] = useState<string | null>(null);
   const [assistantVisited, setAssistantVisited] = useState(false);
   const [deletedAssistantSessions, setDeletedAssistantSessions] = useState<string[]>([]);
-  const [conversationLocate, setConversationLocate] = useState<{
-    id: string;
-    revision: number;
-  } | null>(null);
+  const [conversationLocate, setConversationLocate] = useState<ConversationLocateRequest | null>(
+    null,
+  );
   const requestConversationExport = useRequestContentExport();
   const openAssistantConversation = useStableCallback(
     (sessionId: string, searchTarget?: GeneratedSearchHit): void => {
@@ -7966,10 +7970,7 @@ function MainWorkspace(): ReactElement {
     directory.regular = directory.regular.map((row) => {
       if (row.type !== 'merged') return row;
       const members = new Map(
-        directory[row.mergedKind === 'guildDirect' ? 'guild' : row.mergedKind].map((member) => [
-          member.id,
-          member,
-        ]),
+        directory[aggregateView(row.mergedKind)].map((member) => [member.id, member]),
       );
       const unreadMembers = [...members.values()].filter((member) => (member.unreadCount ?? 0) > 0);
       const muted =
@@ -8013,7 +8014,12 @@ function MainWorkspace(): ReactElement {
       ),
     [conversationViews],
   );
-  const messageBadgeCount = shell.messageUnreadCount + directoryUnread;
+  const appBadgeCount = shell.messageUnreadCount + directoryUnread;
+  const messageBadgeCount = useMemo(
+    () =>
+      countMessageNavigationUnread(conversationViews, conversationPrefs, unreadMarkers.aggregates),
+    [conversationViews, conversationPrefs, unreadMarkers.aggregates],
+  );
   useMessageNotifications({
     selfUin: user.identityValue,
     selfUid: user.uid,
@@ -8021,7 +8027,7 @@ function MainWorkspace(): ReactElement {
     preferences: conversationPrefs,
     groupAssistantIds,
     resolveGroupSenderName: resolveNoticeGroupSenderName,
-    badgeCount: messageBadgeCount,
+    badgeCount: appBadgeCount,
     foregroundConversation:
       messagesTabActive && !settingsOpen && !dressUpOpen ? selectedUid : undefined,
   });
@@ -9106,6 +9112,7 @@ function MainWorkspace(): ReactElement {
                 const target = firstUnreadConversation(
                   conversationViews.regular,
                   regularViewPreferences,
+                  unreadMarkers.aggregates,
                 );
                 if (!target) return;
                 setSurfaceNavigation((value) => value + 1);
@@ -9120,6 +9127,7 @@ function MainWorkspace(): ReactElement {
                 setConversationLocate((previous) => ({
                   id: target.id,
                   revision: Math.max(Date.now(), (previous?.revision ?? 0) + 1),
+                  align: 'start',
                 }));
               })
             }

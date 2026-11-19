@@ -460,6 +460,8 @@ export function ConversationList({
 
   const locateId = directory?.locate?.id;
   const locateRevision = directory?.locate?.revision;
+  const focusRequest = multi.focusRequest;
+  const scrollToFocus = focusRequest && focusRequest.revision > (locateRevision ?? 0);
   const handledLocate = useRef('');
   const [locateHighlight, setLocateHighlight] = useState<{
     id: string;
@@ -764,14 +766,9 @@ export function ConversationList({
           restoreScrollTop={scrollPositions.current.get(listKey) ?? 0}
           onScrollTopChange={(top) => scrollPositions.current.set(listKey, top)}
           itemKey={(item) => item.id}
-          scrollToKey={
-            multi.focusRequest && multi.focusRequest.revision > (locateRevision ?? 0)
-              ? multi.focusRequest.id
-              : !keyword
-                ? locateId
-                : null
-          }
-          scrollRevision={Math.max(multi.focusRequest?.revision ?? 0, locateRevision ?? 0)}
+          scrollToKey={scrollToFocus ? focusRequest.id : !keyword ? locateId : null}
+          scrollRevision={Math.max(focusRequest?.revision ?? 0, locateRevision ?? 0)}
+          scrollAlign={scrollToFocus ? undefined : directory?.locate?.align}
           onNearEnd={hasMore && !loadingMore ? onLoadMore : undefined}
           className="weq-conversation-window"
           renderItem={(conversation) => {

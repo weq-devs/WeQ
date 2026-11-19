@@ -41,7 +41,7 @@ it('列表被布局压缩后，按真实可视高度定位目标，而不是使�
   document.body.append(host);
   const root = createRoot(host);
   const items = Array.from({ length: 1000 }, (_, index) => String(index));
-  const render = (target?: string) =>
+  const render = (target?: string, scrollAlign?: 'start', scrollRevision = 1) =>
     act(() =>
       root.render(
         createElement(WindowedList<string>, {
@@ -51,7 +51,8 @@ it('列表被布局压缩后，按真实可视高度定位目标，而不是使�
           itemKey: (item) => item,
           renderItem: (item) => createElement('button', null, item),
           scrollToKey: target,
-          scrollRevision: 1,
+          scrollAlign,
+          scrollRevision,
         }),
       ),
     );
@@ -63,6 +64,10 @@ it('列表被布局压缩后，按真实可视高度定位目标，而不是使�
     expect(viewport.scrollTop).toBe(30 * 64 - 144 / 2 + 64 / 2);
     expect(30 * 64 - viewport.scrollTop).toBeLessThan(viewport.clientHeight);
     expect(host.querySelectorAll('button').length).toBeLessThan(40);
+    render('30', 'start', 2);
+    expect(viewport.scrollTop).toBe(30 * 64);
+    render('999', 'start', 3);
+    expect(viewport.scrollTop).toBe(items.length * 64 - viewport.clientHeight);
   } finally {
     act(() => root.unmount());
     host.remove();

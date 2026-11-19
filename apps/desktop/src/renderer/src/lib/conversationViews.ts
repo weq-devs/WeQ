@@ -33,8 +33,7 @@ export const CONVERSATION_VIEW_LABELS: Record<ConversationView, string> = {
   clone: '克隆会话',
   assistant: 'WeQ 助手会话',
 };
-export const aggregateView = (kind: MergedKind): ConversationView =>
-  kind === 'guildDirect' ? 'guild' : kind;
+export const aggregateView = (kind: MergedKind) => (kind === 'guildDirect' ? 'guild' : kind);
 
 export function aggregatePinPreferences(
   rows: readonly Conversation[],

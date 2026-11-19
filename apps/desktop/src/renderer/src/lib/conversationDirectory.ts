@@ -7,6 +7,12 @@ import type { ConversationView, ConversationViewDirectory } from './conversation
 
 export type ConcreteConversation = Exclude<Conversation, { type: 'merged' }>;
 
+export interface ConversationLocateRequest {
+  id: string;
+  revision: number;
+  align?: 'start';
+}
+
 export interface VirtualConversation {
   id: string;
   kind: 'persona' | 'group';
@@ -51,7 +57,7 @@ export const ConversationDirectoryContext = createContext<{
   /** 主会话列表始终排除这些群，完整目录搜索也不能绕过归属。 */
   groupAssistantIds?: ReadonlySet<string>;
   showContactUnreadCount?: boolean;
-  locate?: { id: string; revision: number } | null;
+  locate?: ConversationLocateRequest | null;
   onVirtual: (item: VirtualConversation) => void;
   /** 新建好友克隆（支持批量：一次性把多个好友交给 AgentLab）。 */
   onCreate: (friendUids?: string[]) => void;

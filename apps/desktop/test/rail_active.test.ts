@@ -19,7 +19,6 @@ it('从设置进入维护工具后仍指定设置高亮，不沿用其它页面�
 it('主界面将实际未读汇总传入消息入口，不固定为零', () => {
   const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
   expect(source.includes('displaySettings.data?.showMessageUnreadBadge === false')).toBe(true);
-  expect(source).toContain('messageBadgeCount = shell.messageUnreadCount + directoryUnread');
   expect(source).toContain('? 0 : messageBadgeCount');
 });
 
