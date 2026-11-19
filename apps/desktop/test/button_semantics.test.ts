@@ -35,7 +35,7 @@ it.each([
   ['components/settings/ResourceManagementSection.tsx', "setView('browse')"],
   ['components/settings/RemotePanel.tsx', 'onClick={onCopy}'],
   ['components/settings/McpServerSection.tsx', 'copiedConfig'],
-  ['components/settings/OneBotSection.tsx', 'copy(ccConnectConfig)'],
+  ['components/settings/OneBotSection.tsx', '复制配置'],
   ['components/settings/BackupSection.tsx', 'setPreview(null)}'],
   ['components/QqDebugCopyPermissions.tsx', 'onClick={onClose}'],
   ['components/RestrictedQqAction.tsx', 'setSettingsOpen(true)'],
@@ -47,7 +47,7 @@ it.each([
 it.each([
   ['components/settings/VoiceTranscribeSection.tsx', 'type="submit"'],
   ['components/settings/AgentLabSection.tsx', 'type="submit"'],
-  ['components/settings/OneBotSection.tsx', 'saveServer.isLoading'],
+  ['components/settings/OneBotSection.tsx', 'type="submit"'],
   ['components/settings/ExternalRkeySection.tsx', '<Save size={13}'],
   ['components/settings/SsePushSection.tsx', '<Save size={13}'],
   ['components/settings/TypingStatusSettingsCard.tsx', 'onSave()'],

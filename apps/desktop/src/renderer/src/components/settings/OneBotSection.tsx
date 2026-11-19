@@ -31,6 +31,8 @@ import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { EditorDialog } from '../EditorDialog';
 import { useDraftClose } from '../../lib/draftClose';
+import { z } from 'zod';
+import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-onebot.css';
 
@@ -118,6 +120,26 @@ interface NetworkDraft {
   timeoutMs: string;
 }
 
+const networkDraftSchema = z
+  .object({
+    key: z.enum(['wsServers', 'wsClients', 'httpServers', 'httpClients']),
+    original: z.string(),
+    name: z.string(),
+    enabled: z.boolean(),
+    host: z.string(),
+    port: z.string(),
+    path: z.string(),
+    url: z.string(),
+    role: z.enum(['Api', 'Event', 'Universal']),
+    messageFormat: z.enum(['array', 'string']),
+    accessToken: z.string(),
+    reportSelfMessage: z.boolean(),
+    enableWebSocket: z.boolean(),
+    reconnectIntervalMs: z.string(),
+    timeoutMs: z.string(),
+  })
+  .nullable();
+
 function generatedToken(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
     byte.toString(16).padStart(2, '0'),
@@ -199,7 +221,13 @@ export function OneBotSection(): ReactElement {
   const showError = useDialog((s) => s.showError);
   const toast = useToast((s) => s.push);
 
-  const [draft, setDraft] = useState<NetworkDraft | null>(null);
+  const [draft, setDraft] = usePageState<NetworkDraft | null>(
+    'onebot:draft',
+    null,
+    networkDraftSchema,
+    true,
+  );
+  usePageDraftConfirmation('onebot:draft', null);
   const [revealToken, setRevealToken] = useState(false);
   useEffect(() => {
     if (!active) setRevealToken(false);
@@ -211,6 +239,8 @@ export function OneBotSection(): ReactElement {
   // 关闭抽屉时要问一句「放弃未保存的修改？」—— 网络配置改错一个端口就会让
   // bot 连不上，静默丢弃比多问一句更糟。
   const protection = useDraftClose(() => setDraft(null), draft, busy);
+  // 从页面现场恢复的草稿同样算未保存：关闭前仍要确认一次。
+  useEffect(() => protection.reset(null), [protection.reset]);
 
   async function refetch(): Promise<void> {
     await status.refetch();
@@ -786,8 +816,5 @@ export function OneBotSection(): ReactElement {
     </div>
   );
 }
-
-/** 供测试断言四类网络的顺序与标题。 */
-export const ONE_BOT_NETWORKS = NETWORKS;
 
 export type { ControlHttpClient, ControlHttpServer, ControlWsClient, ControlWsServer };
