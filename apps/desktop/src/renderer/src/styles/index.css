@@ -3908,6 +3908,7 @@ html *::-webkit-scrollbar-corner {
 }
 
 .app-shell-root {
+  --im-rail-width: 50px;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -3936,7 +3937,7 @@ html[data-theme='dark'] .app-title-bar {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 50px;
+  width: var(--im-rail-width);
   height: 100%;
   flex-shrink: 0;
   border: 0;
@@ -4073,7 +4074,6 @@ html[data-theme='dark'] .app-title-bar-signature {
 }
 
 .app-shell {
-  --im-rail-width: 50px;
   width: 100%;
   flex: 1;
   min-height: 0;
