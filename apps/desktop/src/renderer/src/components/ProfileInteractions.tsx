@@ -336,6 +336,7 @@ export function SignatureInteractions({
     <div className="weq-signature-interactions">
       <div className="weq-qzn-actions">
         <QzoneLikesPopover
+          contextMenu={false}
           trigger={
             <button
               type="button"

@@ -94,6 +94,7 @@ import {
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
+import { QzoneActionsRow } from '../components/QzoneActionsRow';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
@@ -1753,24 +1754,25 @@ function Repost({
         target={{ selfUin, hostUin: original.uin, tid: original.tid, time: original.time ?? 0 }}
       />
       {actions ?? (
-        <div className="weq-qzn-actions">
+        <QzoneActionsRow>
           <span>
             <ThumbsUp size={16} />
-            点赞 ?
+            <span className="weq-qzn-action-label">点赞</span> <span className="weq-number">?</span>
           </span>
           <span>
             <MessageCircle size={16} />
-            评论 ?
+            <span className="weq-qzn-action-label">评论</span> <span className="weq-number">?</span>
           </span>
           <span>
             <Repeat2 size={16} />
-            转发 ?
+            <span className="weq-qzn-action-label">转发</span> <span className="weq-number">?</span>
           </span>
           <span className="weq-qzn-views">
             <Eye size={16} />
-            浏览量 ?
+            <span className="weq-qzn-action-label">浏览量</span>{' '}
+            <span className="weq-number">?</span>
           </span>
-        </div>
+        </QzoneActionsRow>
       )}
     </>
   );
@@ -1964,7 +1966,7 @@ function PostActionsBody({
   );
   const renderActions = (upvote: ReactNode) => (
     <div ref={ref}>
-      <div className="weq-qzn-actions">
+      <QzoneActionsRow>
         <QzoneLikesPopover
           trigger={
             <QzoneWriteActions
@@ -2016,7 +2018,8 @@ function PostActionsBody({
           onClick={() => setExpanded(expanded === 'comments' ? null : 'comments')}
         >
           <MessageCircle size={16} />
-          评论 <span className="weq-number">{commentCount ?? '?'}</span>
+          <span className="weq-qzn-action-label">评论</span>{' '}
+          <span className="weq-number">{commentCount ?? '?'}</span>
         </button>
         <QzoneForwardAction
           key={`${selfUin}:${hostUin}:${post.tid}:${refresh}`}
@@ -2044,9 +2047,10 @@ function PostActionsBody({
         )}
         <span className="weq-qzn-views" title="浏览量（非去重访客数）">
           <Eye size={16} />
-          浏览量 <span className="weq-number">{likes?.reportedViewCount ?? '?'}</span>
+          <span className="weq-qzn-action-label">浏览量</span>{' '}
+          <span className="weq-number">{likes?.reportedViewCount ?? '?'}</span>
         </span>
-      </div>
+      </QzoneActionsRow>
       {likeError && (
         <p className="weq-qzn-status" role="status">
           互动数据暂未校准：{likeError}
@@ -2197,17 +2201,19 @@ function FeedCounts({
     };
   }, [visible, selfUin, appid, body.counterKey, refresh, run, cancel]);
   return (
-    <div ref={ref} className="weq-qzn-actions" title={error || undefined}>
+    <QzoneActionsRow rowRef={ref} title={error || undefined}>
       <span>
-        <ThumbsUp size={16} />赞{' '}
+        <ThumbsUp size={16} />
+        <span className="weq-qzn-action-label">赞</span>{' '}
         <span className="weq-number">{counts?.likeCount ?? body.likeCount ?? '?'}</span>
       </span>
       <span>
         <MessageCircle size={16} />
-        评论 <span className="weq-number">{counts?.commentCount ?? body.commentCount ?? '?'}</span>
+        <span className="weq-qzn-action-label">评论</span>{' '}
+        <span className="weq-number">{counts?.commentCount ?? body.commentCount ?? '?'}</span>
       </span>
       {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
-    </div>
+    </QzoneActionsRow>
   );
 }
 

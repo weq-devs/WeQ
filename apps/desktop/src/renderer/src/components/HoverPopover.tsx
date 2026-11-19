@@ -12,6 +12,7 @@ export function HoverPopover({
   keepMounted = false,
   classPrefix = 'weq-qzn-like',
   clickOnly = false,
+  contextMenu = false,
 }: {
   trigger: ReactNode | ((open: boolean) => ReactNode);
   children?: ReactNode | ((open: boolean, close: () => void) => ReactNode);
@@ -19,11 +20,13 @@ export function HoverPopover({
   keepMounted?: boolean;
   classPrefix?: string;
   clickOnly?: boolean;
+  contextMenu?: boolean;
 }) {
   const document = useRenderDocument();
   const anchor = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'hover' | 'contextmenu' | null>(null);
+  const open = mode !== null;
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const placement = useOverlayAnchor(layer, open, true, anchor.current);
   const zIndex = useOverlayLayer(open);
@@ -33,15 +36,18 @@ export function HoverPopover({
   };
   const show = () => {
     cancelClose();
-    setOpen(true);
+    setMode((current) => current ?? 'hover');
   };
   const leave = () => {
     cancelClose();
-    closeTimer.current = setTimeout(() => setOpen(false), 120);
+    closeTimer.current = setTimeout(
+      () => setMode((current) => (current === 'hover' ? null : current)),
+      120,
+    );
   };
   const dismiss = () => {
     cancelClose();
-    setOpen(false);
+    setMode(null);
   };
   const dismissFromLayer = () => {
     if (layer.current?.contains(document.activeElement)) {
@@ -50,6 +56,8 @@ export function HoverPopover({
     dismiss();
   };
   const blur = (target: EventTarget | null) => {
+    // 触屏点名单时，部分浏览器会让原按钮失焦，但不给 relatedTarget。
+    if (!target && mode === 'contextmenu') return;
     const NodeType = document.defaultView?.Node;
     if (
       NodeType &&
@@ -65,10 +73,13 @@ export function HoverPopover({
     const close = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         clearTimeout(closeTimer.current);
-        if (clickOnly && layer.current?.contains(document.activeElement)) {
+        if (
+          (clickOnly || mode === 'contextmenu') &&
+          layer.current?.contains(document.activeElement)
+        ) {
           anchor.current?.querySelector<HTMLElement>('button')?.focus();
         }
-        setOpen(false);
+        setMode(null);
       }
     };
     const outside = (event: PointerEvent) => {
@@ -79,7 +90,7 @@ export function HoverPopover({
         !anchor.current?.contains(event.target) &&
         !layer.current?.contains(event.target)
       )
-        setOpen(false);
+        setMode(null);
     };
     document.addEventListener('keydown', close);
     document.addEventListener('pointerdown', outside);
@@ -87,16 +98,27 @@ export function HoverPopover({
       document.removeEventListener('keydown', close);
       document.removeEventListener('pointerdown', outside);
     };
-  }, [open, document, clickOnly]);
+  }, [open, document, clickOnly, mode]);
   return (
     <>
       <div
         ref={anchor}
         className={`${classPrefix}-hover`}
+        data-weq-touch-context={contextMenu || undefined}
         onMouseEnter={clickOnly ? undefined : show}
         onMouseLeave={clickOnly ? undefined : leave}
         onFocus={clickOnly ? undefined : show}
         onClick={clickOnly ? (open ? dismiss : show) : show}
+        onContextMenu={
+          contextMenu
+            ? (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                cancelClose();
+                setMode('contextmenu');
+              }
+            : undefined
+        }
         onBlur={(event) => blur(event.relatedTarget)}
         onKeyDown={(event) => {
           if (open && event.key === 'Tab' && !event.shiftKey) {

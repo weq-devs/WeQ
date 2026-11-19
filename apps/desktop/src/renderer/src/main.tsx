@@ -32,10 +32,11 @@ import.meta.hot?.dispose(stopWorkspacePreload);
 const stopDataSaver = installDataSaver();
 import.meta.hot?.dispose(stopDataSaver);
 
-if (IS_WEB) {
-  const stopTouchContextMenu = installTouchContextMenu(document);
-  import.meta.hot?.dispose(stopTouchContextMenu);
-}
+const stopTouchContextMenu = installTouchContextMenu(
+  document,
+  IS_WEB ? undefined : '[data-weq-touch-context]',
+);
+import.meta.hot?.dispose(stopTouchContextMenu);
 
 const stopDevelopmentErrors = installDevelopmentErrors(
   window,

@@ -3,6 +3,41 @@
   align-items: center;
   gap: 8px 18px;
 }
+.weq-qzn-actions[data-fit] {
+  min-width: 0;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.weq-qzn-actions[data-fit] > *,
+.weq-qzn-actions[data-fit] :is(button, .weq-qzn-views) > svg {
+  flex-shrink: 0;
+}
+.weq-qzn-actions[data-fit][data-compact] {
+  column-gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.weq-qzn-actions[data-fit][data-compact] > :is(span, button),
+.weq-qzn-actions[data-fit][data-compact] > .weq-qzn-like-hover > button {
+  column-gap: 4px;
+  padding-inline: 5px;
+}
+.weq-qzn-actions[data-fit][data-compact] .weq-qzn-action-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.weq-qzn-actions[data-fit][data-compact] button:focus-visible {
+  outline-offset: -2px;
+}
+@media (any-pointer: coarse) {
+  .weq-qzn-actions[data-fit] > button,
+  .weq-qzn-actions[data-fit] > .weq-qzn-like-hover > button {
+    min-height: 44px;
+  }
+}
 .weq-qzn-forward-dialog button {
   display: inline-flex;
   align-items: center;
