@@ -2,6 +2,7 @@ import type { ExportTask, FlashDownloadTask, RoamingJobStatus } from '@weq/servi
 import type { CloneTask } from '../views/agentlab/cloneTaskStore';
 import type { BackgroundTask } from '../../../shared/background_task';
 import { backgroundTaskDisplay } from '../../../shared/background_task';
+import { isRoamingJobComplete } from '../../../shared/roaming_task_status';
 import { roamingTaskDisplay, taskNoticeTitle } from '@weq/service/task-display';
 
 export type AssistantActivity = 'idle' | 'running' | 'finished';
@@ -123,7 +124,9 @@ export function summarizeWorkspaceTasks({
       cancelled: task.status === 'cancelled',
       activity: ['running', 'pausing'].includes(task.status)
         ? 'running'
-        : ['completed', 'failed', 'cancelled'].includes(task.status)
+        : isRoamingJobComplete(task.status) ||
+            task.status === 'failed' ||
+            task.status === 'cancelled'
           ? 'finished'
           : 'idle',
       result: `${task.status}:${task.updatedAt ?? ''}`,

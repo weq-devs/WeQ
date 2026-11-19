@@ -504,7 +504,8 @@ export class RoamingBackfillManager {
 
   pause(id: string, cancel = false) {
     const job = this.job(id);
-    if (job.status === 'completed' || job.status === 'cancelled') return roamingJobSummary(job);
+    if (job.status === 'completed' || job.status === 'partial' || job.status === 'cancelled')
+      return roamingJobSummary(job);
     job.status = this.active === id && !cancel ? 'pausing' : cancel ? 'cancelled' : 'paused';
     job.note =
       this.active === id
@@ -544,6 +545,7 @@ export class RoamingBackfillManager {
     try {
       for (const target of job.targets) {
         if (signal.aborted) break;
+        if (!target.pending.length) continue;
         const local = sequencePlan(await this.deps.listSeqWindow(target, job.options.range), false);
         if (target.snapshot.count > 0 && local.seqs.length === 0)
           throw new Error('原计划的本地锚点已不可读，请重新扫描创建任务。');
@@ -723,10 +725,11 @@ export class RoamingBackfillManager {
         job.note = signal.aborted
           ? '任务已暂停，在途结果已保存。'
           : job.status === 'partial'
-            ? '本轮检查结束，仍有未取得或失败的候选区间；不代表服务器不存在这些消息。'
+            ? '本轮检查已结束，仍有候选区间未取得记录；不代表服务器不存在这些消息。'
             : '计划中的候选缺口已由实际记录覆盖；不代表全部历史完整。';
         if (job.unparsedOrEmpty) job.note += ` 内容为空或未解析的记录 ${job.unparsedOrEmpty} 条。`;
       } else job.note = '任务已取消；已取得的记录保留，未完成区间未视为补齐。';
+      job.updatedAt = Date.now();
       this.save();
     } catch (error) {
       if (runRequests > 0 && job.inFlight) {

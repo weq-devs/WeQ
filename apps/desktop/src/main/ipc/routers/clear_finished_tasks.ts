@@ -1,4 +1,5 @@
 import type { AccountServices } from '../../context/app_context';
+import { isRoamingJobComplete } from '../../../shared/roaming_task_status';
 
 export interface FinishedTaskSelection {
   exports: string[];
@@ -8,7 +9,6 @@ export interface FinishedTaskSelection {
 
 /** 已结束且不会自行继续的状态；等待、运行、暂停（可续传）都保留。 */
 const FINISHED_EXPORT_STATUSES = new Set(['completed', 'failed', 'cancelled']);
-const FINISHED_ROAMING_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
 /** 只处理确认时的 ID；再次核对状态，不扩展到后来结束的任务。 */
 export async function clearFinishedTasks(
@@ -35,10 +35,10 @@ export async function clearFinishedTasks(
   }
   for (const id of new Set(selection.roaming)) {
     try {
+      const job = services.roamingBackfill.list().find((job) => job.id === id);
       if (
-        services.roamingBackfill
-          .list()
-          .some((job) => job.id === id && FINISHED_ROAMING_STATUSES.has(job.status))
+        job &&
+        (isRoamingJobComplete(job.status) || job.status === 'failed' || job.status === 'cancelled')
       ) {
         services.roamingBackfill.remove(id);
         removed += 1;

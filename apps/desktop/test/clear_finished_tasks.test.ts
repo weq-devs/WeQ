@@ -62,13 +62,13 @@ describe('清除已结束任务', () => {
       ['failed'],
       ['cancelled'],
     ]);
-    // 三个已结束的漫游任务都尝试移除，但来源报错时只计入 errors 而不计入 removed。
-    expect(remove.mock.calls).toEqual([['done'], ['failed'], ['cancelled']]);
+    // 有缺口的已完成任务也可清理；来源报错时只计入 errors。
+    expect(remove.mock.calls).toEqual([['done'], ['partial'], ['failed'], ['cancelled']]);
     expect(clearFinishedSelection).toHaveBeenCalledWith(['flash-done', 'flash-running']);
     expect(result).toEqual({
       removed: 6,
-      skipped: 9,
-      errors: ['正在收尾', '正在收尾', '正在收尾'],
+      skipped: 8,
+      errors: ['正在收尾', '正在收尾', '正在收尾', '正在收尾'],
     });
   });
 });

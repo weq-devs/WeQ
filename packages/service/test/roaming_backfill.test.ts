@@ -263,6 +263,26 @@ describe('exact interval algebra', () => {
 });
 
 describe('durable manual roaming jobs', () => {
+  it('only revalidates conversations with pending windows and finishes after the last window', async () => {
+    const f = setup([3n, 1n]);
+    const trailing = { ...target, conv: '12346', name: 'No gaps' };
+    const read = vi.mocked(f.deps.listSeqWindow);
+    read.mockImplementationOnce(async () => ({ seqs: [3n, 1n], below: null, above: null }));
+    read.mockImplementationOnce(async () => ({ seqs: [2n, 1n], below: null, above: null }));
+    const job = await f.manager.plan(options({ targets: [target, trailing] }));
+    read.mockClear();
+    read.mockImplementation(async (peer) => {
+      if (peer.conv === trailing.conv)
+        throw Error('A conversation without gaps must not be reread');
+      return { seqs: [3n, 1n], below: null, above: null };
+    });
+    f.manager.start(job.id);
+    await f.done();
+    expect(f.manager.running()).toBeNull();
+    expect(read.mock.calls).toEqual([[expect.objectContaining({ conv: target.conv }), undefined]]);
+    expect(f.manager.list()[0]).toMatchObject({ status: 'completed', pendingSeqs: 0 });
+  });
+
   it('一次提交自动检查并启动，保留原有覆盖统计与断点', async () => {
     const f = setup([5n, 1n]);
     const job = await f.manager.plan(options(), true);
@@ -425,6 +445,7 @@ describe('durable manual roaming jobs', () => {
       pendingSeqs: 0,
       observed: 0,
     });
+    expect(f.manager.pause(job.id, true).status).toBe('partial');
     f.manager.start(job.id, true);
     await f.done();
     expect(f.fetch).toHaveBeenCalledTimes(2);

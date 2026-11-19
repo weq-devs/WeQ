@@ -23,10 +23,11 @@ import {
   taskNoticeTitle,
 } from '@weq/service/task-display';
 import { taskTypeLabel } from '../src/renderer/src/views/export/TaskList.shared';
+import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
 
 const fixture = vi.hoisted(() => ({
   accountId: 'fixture-account',
-  roamingStatus: 'partial',
+  roamingStatus: 'paused',
   plannedSeqs: 100,
   flashStatus: 'pending',
   flashCount: 1,
@@ -158,6 +159,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                   status: fixture.roamingStatus,
                   plannedSeqs: fixture.plannedSeqs,
                   remainingSeqs: fixture.plannedSeqs > 0 ? 75 : 0,
+                  pendingSeqs:
+                    fixture.plannedSeqs > 0 && fixture.roamingStatus !== 'partial' ? 50 : 0,
                   options: { transport: 'sso' },
                 },
               ],
@@ -208,7 +211,7 @@ afterEach(() => {
   }
   fixture.background = [];
   fixture.accountId = 'fixture-account';
-  fixture.roamingStatus = 'partial';
+  fixture.roamingStatus = 'paused';
   fixture.plannedSeqs = 100;
   fixture.flashStatus = 'pending';
   fixture.flashCount = 1;
@@ -1328,8 +1331,17 @@ describe('统一当前任务', () => {
       expect(host.querySelector('.weq-long-task-detail')?.textContent).toContain(
         '漫游详情 same-id',
       );
-      expect(rows[2]!.textContent).toContain('仍有缺口');
-      expect(rows[2]!.querySelector('progress')?.value).toBe(25);
+      expect(rows[2]!.querySelector('progress')?.value).toBe(50);
+      fixture.roamingStatus = 'partial';
+      act(render);
+      const completed = [...host.querySelectorAll<HTMLButtonElement>('.weq-long-task')].find(
+        (row) => row.textContent?.includes('合成漫游'),
+      )!;
+      expect(completed.textContent).toContain('已完成 · 仍有缺口');
+      expect(completed.querySelector('progress')?.value).toBe(100);
+      expect(
+        summarizeWorkspaceTasks({ roaming: [{ id: 'same-id', status: 'partial' }] }),
+      ).toMatchObject({ finished: 1, running: 0, failed: 0 });
       act(() => rows[3]!.click());
       expect(host.querySelector('.weq-long-task-detail')?.textContent).toBe('导出详情 合成导出');
       fixture.accountId = 'other-account';

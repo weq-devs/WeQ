@@ -32,6 +32,7 @@ import { ConversationActionsMenu, type ConversationMenuAction } from './Conversa
 import { useRemoteShellAvailable } from './RemoteShellMenus.shared';
 import '../styles/conversation-actions.css';
 import { FEATURE_ICONS } from '../lib/featureIcons.shared';
+import { roamingJobProgress } from '../../../shared/roaming_task_status';
 
 const ExportIcon = FEATURE_ICONS.export;
 const BackfillIcon = FEATURE_ICONS.backfill;
@@ -94,18 +95,11 @@ export function ConversationMessageActions({
           .sort((a, b) => b.createdAt - a.createdAt)[0]
       : undefined;
   const running = job?.status === 'running' || job?.status === 'pausing';
-  const percent =
-    job && job.plannedSeqs > 0
-      ? Math.min(
-          100,
-          Math.max(0, Math.floor(((job.plannedSeqs - job.remainingSeqs) / job.plannedSeqs) * 100)),
-        )
-      : 0;
   const status =
     job?.status === 'pausing'
       ? '暂停收尾中'
-      : running
-        ? `${percent}%`
+      : job?.status === 'running'
+        ? `${roamingJobProgress(job) ?? 0}%`
         : job?.status === 'paused'
           ? '已暂停'
           : undefined;

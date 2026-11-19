@@ -72,6 +72,7 @@ import {
   taskDate,
 } from '@weq/service/task-display';
 import { backgroundTaskDisplay } from '../../../../shared/background_task';
+import { isRoamingJobComplete, roamingJobProgress } from '../../../../shared/roaming_task_status';
 import { TaskName } from './TaskName';
 
 export interface ExportTaskActions {
@@ -359,6 +360,7 @@ export function CurrentTaskList({
   }
   for (const job of roaming.data?.jobs ?? []) {
     const display = roamingTaskDisplay(job.targets);
+    const complete = isRoamingJobComplete(job.status);
     const actions: TaskQuickAction[] = [];
     const refresh = () => utils.account.roamingBackfill.list.invalidate();
     const busy = Boolean(roaming.data?.activeId || roaming.data?.scanning);
@@ -399,7 +401,7 @@ export function CurrentTaskList({
           await refresh();
         },
       });
-    if (!['completed', 'cancelled'].includes(job.status))
+    if (!complete && job.status !== 'cancelled')
       actions.push({
         id: 'cancel',
         label: '取消',
@@ -439,7 +441,7 @@ export function CurrentTaskList({
         : job.status === 'pausing'
           ? 'running'
           : job.status === 'partial'
-            ? 'paused'
+            ? 'completed'
             : job.status;
     items.push({
       id: `roaming:${job.id}`,
@@ -455,7 +457,7 @@ export function CurrentTaskList({
       status,
       statusLabel:
         job.status === 'partial'
-          ? '仍有缺口'
+          ? '已完成 · 仍有缺口'
           : job.status === 'pausing'
             ? '暂停收尾中'
             : job.status === 'completed'
@@ -463,11 +465,7 @@ export function CurrentTaskList({
                 ? '未发现可补全的缺口'
                 : '候选缺口已覆盖'
               : undefined,
-      // 进度只表示已实际覆盖的候选 seq，不把已尝试的请求当作成功。
-      progress:
-        job.plannedSeqs > 0
-          ? ((job.plannedSeqs - job.remainingSeqs) / job.plannedSeqs) * 100
-          : undefined,
+      progress: roamingJobProgress(job),
       note: job.options.range
         ? `${job.options.range.start ? taskDate(job.options.range.start * 1000) : '不限起始'} 至 ${job.options.range.end ? taskDate(job.options.range.end * 1000) : '不限结束'}`
         : undefined,
