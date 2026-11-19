@@ -11,6 +11,7 @@ import type { QQWriteBinding } from './qq_write';
 import { exportSavePolicyInput } from './export_save';
 import { AlbumVideoStaging } from './album_video_staging';
 import { backgroundTasks, taskError } from '../../background_tasks';
+import { recordAccountTask } from '../../account_task_receipts';
 import { updateFavoriteImportTask } from '../../favorite_import_task';
 import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 import { runResumableExport } from '../../resumable_exports';
@@ -751,13 +752,16 @@ export function createQQActionsRouter(
       .mutation(({ input: i }) => {
         const s = resolve(i);
         if (busy.has(s)) throw new Error('请等待当前 QQ 操作完成');
+        const scope = { uin: i.expectedAccountUin, configId: i.expectedAccountConfigId };
         const id = backgroundTasks.start({
           kind: 'favorite-import',
           name: '收藏表情导入',
           display: { action: '导入收藏表情', subject: `${i.keys.length} 张` },
-          scope: { uin: i.expectedAccountUin, configId: i.expectedAccountConfigId },
+          scope,
         });
+        const save = recordAccountTask(id, scope);
         try {
+          save();
           const view = s.favoriteEmojiImport.start(
             i.token,
             i.keys,
@@ -769,7 +773,16 @@ export function createQQActionsRouter(
                 busy.delete(s);
               }
             },
-            (view) => updateFavoriteImportTask(id, view),
+            (view) => {
+              updateFavoriteImportTask(id, view);
+              save(
+                view.result?.items.flatMap((item, index) =>
+                  item.md5 && (item.state !== 'not-run' || item.key === view.result?.inFlightKey)
+                    ? [{ index: index + 1, md5: item.md5 }]
+                    : [],
+                ),
+              );
+            },
           );
           backgroundTasks.setActions(id, [
             {
@@ -784,6 +797,11 @@ export function createQQActionsRouter(
           return view;
         } catch (error) {
           backgroundTasks.finish(id, 'failed', { note: taskError(error) });
+          try {
+            save();
+          } catch {
+            /* 保留原保存或启动错误。 */
+          }
           throw error;
         }
       }),

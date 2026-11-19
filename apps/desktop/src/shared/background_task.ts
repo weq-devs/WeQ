@@ -3,6 +3,7 @@ import type { TaskDisplay } from '@weq/service/task-display';
 export type BackgroundTaskKind =
   | 'analysis'
   | 'calendar'
+  | 'clone'
   | 'contacts'
   | 'model'
   | 'update'
@@ -42,6 +43,7 @@ export interface BackgroundTask {
   subtasks?: Array<{ label: string; done: number; total: number; failed: number }>;
   download?: { url: string; name: string };
   reportId?: string;
+  clonePersonaId?: string;
   actions: { id: string; label: string }[];
   startedAt: number;
   updatedAt: number;
@@ -63,6 +65,7 @@ export function backgroundTaskDisplay(
   const action = {
     analysis: '生成分析',
     calendar: '统计会话日历',
+    clone: '创建好友克隆',
     contacts: '更新联系人信息',
     model: task.destination === 'enhancement-packs' ? '准备增强包' : '下载模型',
     update: '下载 WeQ 更新',
@@ -93,6 +96,7 @@ type TaskPatch = Partial<
     BackgroundTask,
     | 'progress'
     | 'display'
+    | 'clonePersonaId'
     | 'note'
     | 'details'
     | 'statusLabel'

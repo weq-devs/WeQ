@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { analysisPeriod } from '../common/analysis_report';
 
+const PAUSE_REQUEST = new Error('已暂停分析');
+
 export interface SavedAnalysisRequest {
   id: string;
   kind: 'buddy' | 'group' | 'member';
@@ -219,14 +221,29 @@ export class AnalysisReportsService extends EventEmitter {
       report.status = 'completed';
       report.logs.push({ ts: Date.now(), text: '报告已保存' });
     } catch (error) {
-      report.status = signal.aborted ? (this.closing ? 'paused' : 'cancelled') : 'failed';
-      report.error = error instanceof Error ? error.message : String(error);
+      report.status = signal.aborted
+        ? this.closing || signal.reason === PAUSE_REQUEST
+          ? 'paused'
+          : 'cancelled'
+        : 'failed';
+      if (report.status !== 'paused')
+        report.error = error instanceof Error ? error.message : String(error);
       report.logs.push({
         ts: Date.now(),
-        text: signal.aborted ? '分析已停止，可继续未完成阶段' : report.error,
+        text: signal.aborted
+          ? report.status === 'paused'
+            ? '已暂停分析，保留完成的阶段'
+            : '分析已停止，可继续未完成阶段'
+          : report.error!,
       });
     }
     await this.save(report);
+  }
+  async pause(id: string) {
+    const run = this.runs.get(id);
+    if (!run) return;
+    run.controller.abort(PAUSE_REQUEST);
+    await run.done;
   }
   async cancel(id: string) {
     const run = this.runs.get(id);

@@ -5,7 +5,7 @@ import { mediaUrl } from '../../lib/resourceUrl';
 import { useDraftProtection } from '../../lib/draftClose';
 import { ActionIcon } from './shared';
 import { useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared.shared';
-import { localBackgroundTasks } from '../../state/backgroundTasks';
+import { localBackgroundTasks, rememberWindowTask } from '../../state/backgroundTasks';
 
 interface VideoDraft {
   fileName: string;
@@ -178,6 +178,15 @@ function GroupAlbumVideoUploadBody({
                 let taskId: string | null = null;
                 let stopped = false;
                 let submittedToQQ = false;
+                const remember = () => {
+                  if (taskId)
+                    rememberWindowTask(taskId, {
+                      submitted: submittedToQQ,
+                      groupCode: String(groupId),
+                      albumId,
+                      videoId: videoId ?? undefined,
+                    });
+                };
                 void a
                   .perform(
                     async (binding) => {
@@ -197,6 +206,7 @@ function GroupAlbumVideoUploadBody({
                         note: draft.file ? '正在传输视频到宿主' : '准备上传到群相册',
                         details: [`群：${groupId}`, `相册：${albumId}`],
                       });
+                      remember();
                       setSubmitted(true);
                       const captured = generation.current;
                       const assertTransfer = () => {
@@ -261,6 +271,7 @@ function GroupAlbumVideoUploadBody({
                         });
                         const { file: _file, path, ...metadata } = draft;
                         submittedToQQ = true;
+                        remember();
                         const result = await client.account.qqActions.albumVideoUpload.mutate({
                           ...binding,
                           groupId,
@@ -271,6 +282,7 @@ function GroupAlbumVideoUploadBody({
                         });
                         videoId = result.videoId;
                         localBackgroundTasks.update(taskId, { note: '已提交，正在核对群相册结果' });
+                        remember();
                         return result;
                       } catch (error) {
                         localBackgroundTasks.finish(
@@ -285,6 +297,7 @@ function GroupAlbumVideoUploadBody({
                             note: error instanceof Error ? error.message : String(error),
                           },
                         );
+                        remember();
                         throw error;
                       } finally {
                         localBackgroundTasks.setActions(taskId, []);
@@ -329,12 +342,14 @@ function GroupAlbumVideoUploadBody({
                           ? '视频已发布到群相册并读回确认'
                           : '已提交上传，请在群相册核对结果；不会自动重复上传',
                       });
+                    remember();
                   })
                   .catch((error: unknown) => {
                     if (taskId)
                       localBackgroundTasks.finish(taskId, submittedToQQ ? 'paused' : 'failed', {
                         note: error instanceof Error ? error.message : String(error),
                       });
+                    remember();
                   });
               }}
             >

@@ -74,6 +74,33 @@ it('失败保留已完成阶段，继续只重算未完成部分', async () => {
   await vi.waitFor(async () => expect((await service.get(request.id)).status).toBe('completed'));
   expect(run.mock.calls.map((call) => call[1])).toEqual(['report', 'batches', 'batches', 'graph']);
 });
+
+it('手动暂停保留已完成阶段且不冒报取消或失败', async () => {
+  const entered = Promise.withResolvers<void>();
+  let block = true;
+  const run = vi.fn<ConstructorParameters<typeof AnalysisReportsService>[1]>(
+    async (_request, stage, signal) => {
+      if (stage === 'batches' && block) {
+        entered.resolve();
+        await new Promise<void>((resolve) =>
+          signal.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        signal.throwIfAborted();
+      }
+      return { stage };
+    },
+  );
+  const { service } = await fixture(run);
+  await service.create(request);
+  await service.resume(request.id);
+  await entered.promise;
+  await service.pause(request.id);
+  expect(await service.get(request.id)).toMatchObject({ status: 'paused', completed: ['report'] });
+  block = false;
+  await service.resume(request.id);
+  await vi.waitFor(async () => expect((await service.get(request.id)).status).toBe('completed'));
+  expect(run.mock.calls.map((call) => call[1])).toEqual(['report', 'batches', 'batches', 'graph']);
+});
 it('移除任务不删除报告，重新分析恢复任务；旧入口可打开改过范围的报告', async () => {
   const { service } = await fixture(async () => ({ count: 2 }));
   await service.create(request);

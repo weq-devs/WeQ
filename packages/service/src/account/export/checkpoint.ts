@@ -10,6 +10,7 @@ interface SavedOperation<T> {
   value: T;
   files: Array<[string, string]>;
 }
+export class ExportCheckpointError extends Error {}
 
 /** 每项成功并落盘后才提交；快照与任务同寿命，不依赖进程内的运行器或过期凭据。 */
 export class ExportCheckpoint {
@@ -85,8 +86,14 @@ export class ExportCheckpoint {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
     if (saved) {
-      const operation = deserialize(saved) as SavedOperation<T>;
-      if (operation.version !== 1) throw new Error('导出续作记录版本不可用。');
+      let operation: SavedOperation<T>;
+      try {
+        operation = deserialize(saved) as SavedOperation<T>;
+      } catch (error) {
+        throw new ExportCheckpointError('导出续作记录不可用。', { cause: error });
+      }
+      if (operation?.version !== 1 || !Array.isArray(operation.files))
+        throw new ExportCheckpointError('导出续作记录版本不可用。');
       const current = await this.inventory(files(operation.value)).catch(() => null);
       if (
         !current ||
@@ -96,7 +103,7 @@ export class ExportCheckpoint {
             operation.files[index]?.[0] !== file || operation.files[index]?.[1] !== hash,
         )
       )
-        throw new Error('续作文件已丢失或发生变化，请恢复原文件后继续。');
+        throw new ExportCheckpointError('续作文件已丢失或发生变化，请恢复原文件后继续。');
       return operation.value;
     }
     const value = await produce();

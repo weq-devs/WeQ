@@ -284,7 +284,10 @@ export function CurrentTaskList({
       quickActions: actions.length ? <TaskQuickActions actions={actions} /> : null,
     };
   });
-  for (const task of clones.filter((item) => item.accountId === accountId)) {
+  const hostClones = new Set(background.tasks.map(({ task }) => task.clonePersonaId));
+  for (const task of clones.filter(
+    (item) => item.accountId === accountId && !hostClones.has(item.personaId),
+  )) {
     const display = {
       action: task.operation === 'update' ? '更新好友克隆' : '创建好友克隆',
       subject: task.name,
@@ -359,7 +362,7 @@ export function CurrentTaskList({
     });
   }
   for (const job of roaming.data?.jobs ?? []) {
-    const display = roamingTaskDisplay(job.targets);
+    const display = roamingTaskDisplay(job.planning ? job.options.targets : job.targets);
     const complete = isRoamingJobComplete(job.status);
     const actions: TaskQuickAction[] = [];
     const refresh = () => utils.account.roamingBackfill.list.invalidate();
@@ -456,16 +459,20 @@ export function CurrentTaskList({
           : '多个会话',
       status,
       statusLabel:
-        job.status === 'partial'
-          ? '已完成 · 仍有缺口'
-          : job.status === 'pausing'
-            ? '暂停收尾中'
-            : job.status === 'completed'
-              ? job.plannedSeqs === 0
-                ? '未发现可补全的缺口'
-                : '候选缺口已覆盖'
-              : undefined,
-      progress: roamingJobProgress(job),
+        job.planning && job.status === 'running'
+          ? '检查缺失消息'
+          : job.status === 'partial'
+            ? '已完成 · 仍有缺口'
+            : job.status === 'pausing'
+              ? '暂停收尾中'
+              : job.status === 'completed'
+                ? job.plannedSeqs === 0
+                  ? '未发现可补全的缺口'
+                  : '候选缺口已覆盖'
+                : undefined,
+      progress: job.planning
+        ? (100 * job.targets.length) / job.options.targets.length
+        : roamingJobProgress(job),
       note: job.options.range
         ? `${job.options.range.start ? taskDate(job.options.range.start * 1000) : '不限起始'} 至 ${job.options.range.end ? taskDate(job.options.range.end * 1000) : '不限结束'}`
         : undefined,
@@ -481,7 +488,7 @@ export function CurrentTaskList({
       quickActions: <TaskQuickActions actions={actions} />,
     });
   }
-  if (roaming.data?.scanning) {
+  if (roaming.data?.scanning && !roaming.data.jobs.some((job) => job.planning)) {
     items.push({
       id: 'roaming:scanning',
       name: '拉取漫游消息',
@@ -509,11 +516,17 @@ export function CurrentTaskList({
           ? 'running'
           : task.status;
     const statusLabel = task.interrupted
-      ? '已中断'
+      ? task.pausedByUser
+        ? '已暂停'
+        : '已中断'
       : task.status === 'resolving'
         ? '获取链接'
         : undefined;
-    const retryLabel = task.interrupted ? '重试未完成文件' : '重试下载';
+    const retryLabel = task.pausedByUser
+      ? '继续剩余文件'
+      : task.interrupted
+        ? '重试未完成文件'
+        : '重试下载';
     const single = (task.files?.length ?? 1) === 1;
     const display = {
       action: '下载闪传文件',
@@ -586,6 +599,21 @@ export function CurrentTaskList({
         disabled: !cleanupBinding,
         run: retryFlash,
       });
+    if (running || task.status === 'pending')
+      actions.unshift({
+        id: 'pause',
+        label: '暂停下载',
+        icon: <Pause size={14} />,
+        disabled: !cleanupBinding,
+        run: async () => {
+          if (!cleanupBinding) return;
+          await client.account.flashPauseDownloadTask.mutate({
+            ...cleanupBinding,
+            taskId: task.id,
+          });
+          await utils.account.flashListDownloadTasks.invalidate();
+        },
+      });
     if (!IS_WEB) {
       if (single && task.status === 'done')
         actions.unshift({
@@ -656,7 +684,9 @@ export function CurrentTaskList({
                 <span title={file.targetPath}>{file.relativePath}</span>
                 <span>
                   {file.interrupted
-                    ? '已中断'
+                    ? file.pausedByUser
+                      ? '已暂停'
+                      : '已中断'
                     : {
                         pending: '等待中',
                         resolving: '获取链接',
@@ -706,6 +736,9 @@ export function CurrentTaskList({
             binding={cleanupBinding}
           />
           <div className="weq-long-task-actions">
+            {actions.find((action) => action.id === 'pause') ? (
+              <TaskQuickActions actions={actions.filter((action) => action.id === 'pause')} />
+            ) : null}
             {task.canRetry ? (
               <TaskQuickActions
                 actions={[
@@ -778,27 +811,31 @@ export function CurrentTaskList({
     if (!canManageTask) desktopOnlyIds.add(backgroundTaskId(entry));
     const display = backgroundTaskDisplay(task);
     const Icon = BACKGROUND_TASK_ICONS[task.kind];
-    const actions: TaskQuickAction[] = (canManageTask ? task.actions : []).map((action) => ({
-      id: action.id,
-      label: action.label,
-      icon: <BackgroundTaskActionIcon id={action.id} />,
-      run: async () => {
-        if (action.id === 'view-report' && task.reportId) {
-          window.dispatchEvent(
-            new CustomEvent('weq:open-saved-analysis', { detail: task.reportId }),
-          );
-          return;
-        }
-        if (entry.source === 'window') await localBackgroundTasks.act(task.id, action.id);
-        else
-          await client.backgroundTasks.act.mutate({
-            id: task.id,
-            action: action.id,
-            scope: background.scope,
-          });
-        await background.query.refetch();
-      },
-    }));
+    const actions: TaskQuickAction[] = (canManageTask ? task.actions : [])
+      .filter((action) => action.id !== 'view-clone' || Boolean(onOpenClone))
+      .map((action) => ({
+        id: action.id,
+        label: action.label,
+        icon: <BackgroundTaskActionIcon id={action.id} />,
+        run: async () => {
+          if (action.id === 'view-clone' && task.clonePersonaId)
+            return onOpenClone?.(task.clonePersonaId);
+          if (action.id === 'view-report' && task.reportId) {
+            window.dispatchEvent(
+              new CustomEvent('weq:open-saved-analysis', { detail: task.reportId }),
+            );
+            return;
+          }
+          if (entry.source === 'window') await localBackgroundTasks.act(task.id, action.id);
+          else
+            await client.backgroundTasks.act.mutate({
+              id: task.id,
+              action: action.id,
+              scope: background.scope,
+            });
+          await background.query.refetch();
+        },
+      }));
     const navigation = backgroundTaskNavigation(task);
     if (navigation) actions.unshift(navigation);
     if (canManageTask && task.status !== 'running')
@@ -812,6 +849,16 @@ export function CurrentTaskList({
           if (!removed) showInfo('暂时无法移除', '任务状态已变化，请查看最新任务状态。');
         },
       });
+    const clone = clones.find(
+      (item) =>
+        item.accountId === accountId &&
+        item.personaId === task.clonePersonaId &&
+        (task.status === 'running'
+          ? item.status === 'running'
+          : task.status === 'completed'
+            ? item.status === 'done'
+            : item.status === 'error'),
+    );
     items.push({
       id: backgroundTaskId(entry),
       name: taskDisplayTitle(display),
@@ -835,6 +882,12 @@ export function CurrentTaskList({
           entry={entry}
           scope={background.scope}
           refresh={() => background.query.refetch()}
+          onOpenClone={onOpenClone}
+          cloneLog={
+            clone ? (
+              <CloneTaskLog key={`${clone.personaId}:${clone.revision}`} task={clone} />
+            ) : undefined
+          }
         />
       ),
     });

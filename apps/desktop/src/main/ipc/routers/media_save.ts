@@ -26,6 +26,7 @@ import {
   prepareExportDestination,
 } from './export_save';
 import type { MediaSaveSource } from '../../../shared/media_save';
+import type { ResumableResourceRequest, ResourceExportRunContext } from '@weq/service';
 import { resolveForwardChatFile, savedMediaSourceKey } from '../../message_media_local';
 
 const messageId = z.string().regex(/^\d{1,20}$/);
@@ -345,6 +346,61 @@ async function copyResponse(
   }
 }
 
+type MediaResumeRequest = Extract<ResumableResourceRequest, { type: 'media-file' }>;
+
+export async function runResumableMediaFile(
+  services: AccountServices,
+  request: MediaResumeRequest,
+  context: ResourceExportRunContext,
+  check: () => void,
+) {
+  if (basename(request.fileName) !== request.fileName || ['.', '..', ''].includes(request.fileName))
+    throw new Error('原文件输出名称无效。');
+  const source = sourceInput.parse(request.source);
+  if (
+    source.kind === 'url' ||
+    (source.kind === 'chat-file' &&
+      (source.token || source.fwdKind || source.fwdMsgId || source.fwdResId))
+  )
+    throw new Error('原文件没有可复用的来源身份，请重新选择。');
+  return savePlannedMedia(
+    await planSource(services, source, check),
+    request.fileName,
+    context,
+    check,
+  );
+}
+
+async function savePlannedMedia(
+  plan: Awaited<ReturnType<typeof planSource>>,
+  fileName: string,
+  context: ResourceExportRunContext,
+  check: () => void,
+  expectedExtension?: string,
+) {
+  const { directory, signal, progress, checkpoint } = context;
+  const path = join(directory, fileName);
+  const download = async () => {
+    check();
+    signal.throwIfAborted();
+    progress(0, 1);
+    const response = await plan.open(signal);
+    try {
+      check();
+      signal.throwIfAborted();
+      await copyResponse(response, path, signal, expectedExtension);
+      check();
+      signal.throwIfAborted();
+    } finally {
+      await closeResponse(response);
+    }
+    return true;
+  };
+  if (checkpoint) await checkpoint.file('selected-file', path, download);
+  else await download();
+  return { total: 1, ok: 1, failed: [], fileName };
+}
+
 export const mediaSaveRouter = router({
   save: procedure.input(saveInput).mutation(async ({ input }) => {
     const context = getAppContext(),
@@ -384,8 +440,24 @@ export const mediaSaveRouter = router({
     );
     if (!policy) return null;
     const fileName = exportOutputFileName(output);
+    const source = selected.source;
+    const recoverable =
+      source.kind === 'group-file'
+        ? source
+        : source.kind === 'chat-file' &&
+            source.name &&
+            !source.token &&
+            !source.fwdKind &&
+            !source.fwdMsgId &&
+            !source.fwdResId
+          ? { kind: source.kind, msgId: source.msgId, name: source.name, conv: source.conv }
+          : undefined;
+    const resume: MediaResumeRequest | undefined = recoverable
+      ? { type: 'media-file', source: recoverable, fileName }
+      : undefined;
     return services.exportManager.startResourceExport({
       kind: 'media',
+      resume,
       sourceKey: savedMediaSourceKey(selected.source),
       name: output.name,
       display: {
@@ -404,27 +476,14 @@ export const mediaSaveRouter = router({
       },
       output,
       savePolicy: policy,
-      run: async ({ directory, signal, progress }) => {
-        check();
-        signal.throwIfAborted();
-        progress(0, 1);
-        const response = await plan.open(signal);
-        try {
-          check();
-          signal.throwIfAborted();
-          await copyResponse(
-            response,
-            join(directory, fileName),
-            signal,
-            selected.source.kind === 'url' ? output.extension : undefined,
-          );
-          check();
-          signal.throwIfAborted();
-        } finally {
-          await closeResponse(response);
-        }
-        return { total: 1, ok: 1, failed: [], fileName };
-      },
+      run: (context) =>
+        savePlannedMedia(
+          plan,
+          fileName,
+          context,
+          check,
+          source.kind === 'url' ? output.extension : undefined,
+        ),
     });
   }),
   cancel: procedure

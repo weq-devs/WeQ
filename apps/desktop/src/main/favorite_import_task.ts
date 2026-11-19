@@ -13,15 +13,17 @@ export function updateFavoriteImportTask(id: string, view: FavoriteEmojiImportPr
     details: items.map(
       (item, index) =>
         `第 ${index + 1} 项：${
-          {
-            'not-run': '未执行',
-            exists: '已存在，跳过',
-            failed: '发送前失败',
-            accepted: '已添加，元数据未完成',
-            unconfirmed: '结果未确认',
-            'metadata-failed': '元数据需核对',
-            confirmed: '已确认',
-          }[item.state]
+          view.result?.inFlightKey === item.key
+            ? '正在提交，结果待核对'
+            : {
+                'not-run': '未执行',
+                exists: '已存在，跳过',
+                failed: '发送前失败',
+                accepted: '已添加，元数据未完成',
+                unconfirmed: '结果未确认',
+                'metadata-failed': '元数据需核对',
+                confirmed: '已确认',
+              }[item.state]
         }${item.issue ? ` · ${item.issue}` : ''}`,
     ),
   };

@@ -536,12 +536,69 @@ export interface ResourceExportSummary {
 export type ResumableResourceRequest =
   | { type: 'favorite-emoji' }
   | {
+      type: 'media-file';
+      source:
+        | {
+            kind: 'group-file';
+            groupCode: string;
+            fileId: string;
+            fileName: string;
+            busId?: number;
+          }
+        | { kind: 'chat-file'; msgId: string; name: string; conv?: string };
+      fileName: string;
+    }
+  | {
+      type: 'group-files';
+      groupCode: string;
+      files?: Array<{ fileId: string; fileName: string; busId?: number; path?: string[] }>;
+      concurrency?: number;
+    }
+  | {
+      type: 'group-albums';
+      groupCode: string;
+      albums: ResourceAlbumSelection[];
+      concurrency?: number;
+    }
+  | { type: 'qzone-albums'; hostUin: string; albums: ResourceAlbumSelection[] }
+  | {
+      type: 'album-references';
+      items: Array<
+        | {
+            kind: 'group-album' | 'group-photo';
+            groupCode: string;
+            albumId: string;
+            mediaKey?: string;
+            name?: string;
+          }
+        | {
+            kind: 'qzone-album' | 'qzone-photo';
+            uin: string;
+            albumId: string;
+            mediaKey?: string;
+            name?: string;
+          }
+      >;
+    }
+  | {
       type: 'mail';
       ids: string[] | null;
       filter?: MailExportFilter;
       expandThreads?: boolean;
       archive?: MailArchiveOptions;
     };
+
+type ResourceAlbumSelection = { id: string; title?: string; mediaKeys?: string[] };
+
+function resourceResumeKind(request: ResumableResourceRequest) {
+  if (request.type === 'mail') return 'mail-messages';
+  if (request.type === 'media-file') return 'media';
+  if (request.type === 'album-references')
+    return request.items.every((item) => item.kind.startsWith('qzone-'))
+      ? 'qzone-albums'
+      : 'group-albums';
+  return request.type;
+}
 
 export interface ResourceExportRunContext {
   checkpoint?: ExportCheckpoint;
@@ -782,8 +839,10 @@ export class ExportTaskManager extends EventEmitter {
         t.networkOverride = false;
         if (t.status === 'running' || t.status === 'pending') {
           t.status = 'paused'; // crashed or queued tasks require explicit continuation
-          if (t.resource && !t.resource.resume)
-            t.error = '上次资源下载被中断，请重新选择资源创建任务；已完成的其他任务结果仍保留。';
+        }
+        if (t.status === 'paused' && t.resource && !t.resource.resume) {
+          t.status = 'failed';
+          t.error = '上次资源处理已中断，原来源无法重新定位，请回到发起处重新选择。';
         }
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
         if (t.save?.status === 'saving') {
@@ -1808,11 +1867,7 @@ export class ExportTaskManager extends EventEmitter {
     onPublished?(directory: string): void;
   }): Promise<string> {
     const id = `resource-${randomUUID()}`;
-    if (
-      opts.resume &&
-      ((opts.resume.type === 'mail' && opts.kind !== 'mail-messages') ||
-        (opts.resume.type === 'favorite-emoji' && opts.kind !== 'favorite-emoji'))
-    )
+    if (opts.resume && resourceResumeKind(opts.resume) !== opts.kind)
       throw new Error('资源续作类型与导出任务不匹配。');
     const output = opts.output ? structuredClone(opts.output) : undefined;
     if (

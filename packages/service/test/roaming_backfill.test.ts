@@ -341,15 +341,32 @@ describe('durable manual roaming jobs', () => {
     expect(f.fetch).not.toHaveBeenCalled();
   });
 
-  it('检查期间关闭账号不创建任务，也不自动启动其他账号的拉取', async () => {
+  it('检查期间关闭账号保留原任务；重新打开不会自动拉取，继续只扫描剩余会话', async () => {
     const f = setup([5n, 1n]);
-    vi.mocked(f.deps.listSeqWindow).mockImplementation(async () => {
-      f.manager.dispose();
-      return { seqs: [5n, 1n], below: null, above: null };
-    });
-    await expect(f.manager.plan(options(), true)).rejects.toThrow('账号已关闭');
-    expect(f.manager.list()).toHaveLength(0);
+    const second = { kind: 'group' as const, conv: '12346', name: 'Second group' };
+    vi.mocked(f.deps.listSeqWindow)
+      .mockImplementationOnce(async () => ({ seqs: [], below: null, above: null }))
+      .mockImplementationOnce(async () => {
+        f.manager.dispose();
+        return { seqs: [5n, 1n], below: null, above: null };
+      });
+    await expect(f.manager.plan(options({ targets: [target, second] }), true)).rejects.toThrow(
+      '账号已关闭',
+    );
+    const reopened = f.make();
+    const saved = reopened.list()[0]!;
+    expect(saved).toMatchObject({ status: 'paused', targets: [{ conv: target.conv }] });
     expect(f.fetch).not.toHaveBeenCalled();
+    vi.mocked(f.deps.listSeqWindow).mockResolvedValue({ seqs: [], below: null, above: null });
+    expect(reopened.start(saved.id)).toMatchObject({ id: saved.id, status: 'running' });
+    await vi.waitFor(() =>
+      expect(reopened.list()[0]).toMatchObject({ id: saved.id, status: 'completed' }),
+    );
+    expect(vi.mocked(f.deps.listSeqWindow).mock.calls.map(([item]) => item.conv)).toEqual([
+      target.conv,
+      second.conv,
+      second.conv,
+    ]);
   });
 
   it('stops on a failed response without silently consuming that window', async () => {

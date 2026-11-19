@@ -338,12 +338,20 @@ export class ResourceCleanupService {
    * locked file (running QQ) or vanished tree can't abort the rest; failures are
    * counted and returned. Returns total bytes freed + per-target results.
    */
-  async cleanup(instructions: CleanupInstruction[]): Promise<CleanupResult> {
+  async cleanup(
+    instructions: CleanupInstruction[],
+    options?: {
+      signal?: AbortSignal;
+      before?(instruction: CleanupInstruction): void;
+      after?(result: CleanupTargetResult): void;
+    },
+  ): Promise<CleanupResult> {
     const perTarget: CleanupTargetResult[] = [];
     let freedBytes = 0;
     const seen = new Set<string>();
 
     for (const ins of instructions) {
+      if (options?.signal?.aborted) break;
       const key = JSON.stringify([ins.id, ins.variant]);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -358,6 +366,7 @@ export class ResourceCleanupService {
         continue;
       }
 
+      options?.before?.(ins);
       try {
         const res = await this.removeByVariant(dir, variant);
         freedBytes += res.freedBytes;
@@ -372,6 +381,7 @@ export class ResourceCleanupService {
         });
         perTarget.push({ id: def.id, variant, freedBytes: 0, removed: 0, failed: 1 });
       }
+      options?.after?.(perTarget[perTarget.length - 1]!);
     }
 
     this.logger.info('cleaned nt_data resources', {

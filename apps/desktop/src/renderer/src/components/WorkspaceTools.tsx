@@ -207,6 +207,18 @@ export function WorkspaceTools({
   const roamingTasks = trpc.account.roamingBackfill.list.useQuery(undefined, taskQueryOptions);
   const flashTasks = trpc.account.flashListDownloadTasks.useQuery(undefined, taskQueryOptions);
   const cloneTasks = useSyncExternalStore(subscribeCloneTasks, getCloneTasks);
+  const taskUtils = trpc.useUtils();
+  const recoveredClones = JSON.stringify(
+    background.tasks.flatMap(({ task }) =>
+      task.kind === 'clone' && task.status === 'completed' ? [[task.id, task.updatedAt]] : [],
+    ),
+  );
+  useEffect(() => {
+    if (recoveredClones === '[]') return;
+    void taskUtils.account.listAgentLabPersonas.invalidate();
+    void taskUtils.account.getAgentLabPersonaDetail.invalidate();
+    void taskUtils.account.getAgentLabPersona.invalidate();
+  }, [recoveredClones, taskUtils]);
   const taskDataReady =
     tasks.data !== undefined &&
     roamingTasks.data !== undefined &&

@@ -1,7 +1,8 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
-import { localBackgroundTasks } from '../state/backgroundTasks';
+import { forgetWindowTask, localBackgroundTasks } from '../state/backgroundTasks';
+import { dismissCloneTask } from '../views/agentlab/cloneTaskStore';
 import {
   backgroundTaskVisible,
   type BackgroundTask,
@@ -21,12 +22,18 @@ export async function removeBackgroundTask(
   entry: BackgroundTaskEntry,
   scope: BackgroundTaskScope | null,
 ) {
-  if (entry.source === 'window') return localBackgroundTasks.remove(entry.task.id, entry.task);
-  return client.backgroundTasks.remove.mutate({
+  if (entry.source === 'window') {
+    const removed = localBackgroundTasks.remove(entry.task.id, entry.task);
+    if (removed) forgetWindowTask(entry.task.id);
+    return removed;
+  }
+  const removed = await client.backgroundTasks.remove.mutate({
     id: entry.task.id,
     updatedAt: entry.task.updatedAt,
     scope,
   });
+  if (removed && entry.task.clonePersonaId) dismissCloneTask(entry.task.clonePersonaId);
+  return removed;
 }
 
 export function useBackgroundTasks(enabled: boolean) {

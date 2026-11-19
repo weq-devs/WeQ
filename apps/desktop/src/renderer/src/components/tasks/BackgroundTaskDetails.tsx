@@ -8,7 +8,7 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ContactMetricsLaneKey } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
@@ -38,7 +38,7 @@ export function BackgroundTaskActionIcon({ id }: { id: string }) {
         ? Pause
         : id === 'resume' || id === 'continue'
           ? Play
-          : id === 'retry'
+          : id === 'retry' || id === 'verify'
             ? RefreshCw
             : id === 'download'
               ? Download
@@ -52,10 +52,14 @@ export function BackgroundTaskDetails({
   entry,
   scope,
   refresh,
+  onOpenClone,
+  cloneLog,
 }: {
   entry: BackgroundTaskEntry;
   scope: BackgroundTaskScope | null;
   refresh: () => Promise<unknown>;
+  onOpenClone?: (id: string) => void;
+  cloneLog?: ReactNode;
 }) {
   return (
     <TaskDetails
@@ -63,6 +67,8 @@ export function BackgroundTaskDetails({
       entry={entry}
       scope={scope}
       refresh={refresh}
+      onOpenClone={onOpenClone}
+      cloneLog={cloneLog}
     />
   );
 }
@@ -71,10 +77,14 @@ function TaskDetails({
   entry,
   scope,
   refresh,
+  onOpenClone,
+  cloneLog,
 }: {
   entry: BackgroundTaskEntry;
   scope: BackgroundTaskScope | null;
   refresh: () => Promise<unknown>;
+  onOpenClone?: (id: string) => void;
+  cloneLog?: ReactNode;
 }) {
   const { task } = entry;
   const canManageTask = !IS_WEB || task.kind !== 'update';
@@ -214,7 +224,9 @@ function TaskDetails({
           </ul>
         </div>
       ) : null}
-      {!task.databaseProgress &&
+      {cloneLog}
+      {!cloneLog &&
+      !task.databaseProgress &&
       task.kind !== 'calendar' &&
       (task.kind !== 'contacts' || !task.subtasks?.length) ? (
         <TaskActivityLog
@@ -245,24 +257,34 @@ function TaskDetails({
           </a>
         ) : null}
         {canManageTask &&
-          task.actions.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              disabled={busy}
-              onClick={() =>
-                void act(() =>
-                  entry.source === 'window'
-                    ? localBackgroundTasks.act(task.id, action.id)
-                    : client.backgroundTasks.act.mutate({ id: task.id, action: action.id, scope }),
-                )
-              }
-            >
-              <BackgroundTaskActionIcon id={action.id} />
-              {action.label}
-            </button>
-          ))}
+          task.actions
+            .filter((action) => action.id !== 'view-clone' || Boolean(onOpenClone))
+            .map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                disabled={busy}
+                onClick={() => {
+                  if (action.id === 'view-clone' && task.clonePersonaId) {
+                    onOpenClone?.(task.clonePersonaId);
+                    return;
+                  }
+                  void act(() =>
+                    entry.source === 'window'
+                      ? localBackgroundTasks.act(task.id, action.id)
+                      : client.backgroundTasks.act.mutate({
+                          id: task.id,
+                          action: action.id,
+                          scope,
+                        }),
+                  );
+                }}
+              >
+                <BackgroundTaskActionIcon id={action.id} />
+                {action.label}
+              </button>
+            ))}
         {canManageTask && task.status !== 'running' ? (
           <button
             data-danger="outline"

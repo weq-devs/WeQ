@@ -16,6 +16,11 @@ import { z } from 'zod';
 import { plainContentText } from '@weq/service/message-plain-text';
 import { setReactionWithRecent } from '../../recent_reactions';
 import { deduplicateAlbumResources } from '../../album_resource_dedup';
+import type { ResumableResourceRequest, ResourceExportRunContext } from '@weq/service';
+import { ExportCheckpointError } from '@weq/service/export-checkpoint';
+import { recordAccountTask } from '../../account_task_receipts';
+import { backgroundTasks, taskError } from '../../background_tasks';
+import type { BackgroundTaskScope } from '../../../shared/background_task';
 import {
   resourceSourceInput,
   requireResourceSource,
@@ -1500,7 +1505,11 @@ async function runWithConcurrency<T>(
 async function exportGroupAlbums(
   services: AccountServices,
   input: z.infer<typeof exportGroupAlbumsInput>,
-  context?: { signal: AbortSignal; progress(current: number, total: number): void },
+  context?: {
+    signal: AbortSignal;
+    progress(current: number, total: number): void;
+    folder?: string;
+  },
 ): Promise<AlbumExportResult> {
   requireFreshClientKeyForAlbum(services);
   const work: AlbumDownloadWork[] = [];
@@ -1508,7 +1517,8 @@ async function exportGroupAlbums(
   const albumNames = new Set<string>();
   for (const album of input.albums) {
     context?.signal.throwIfAborted();
-    const albumTitle = uniqueFilename(sanitizePathSegment(album.title, album.id), albumNames);
+    const albumTitle =
+      context?.folder ?? uniqueFilename(sanitizePathSegment(album.title, album.id), albumNames);
     const albumDir = join(input.outputDir, albumTitle);
     const used = new Set<string>();
     const media = await collectAlbumMedia(services, input.groupCode, album.id, context?.signal);
@@ -1673,7 +1683,12 @@ export async function exportSelectedQzoneAlbums(
     albums: Array<{ id: string; title?: string; mediaKeys?: string[] }>;
     outputDir: string;
   },
-  context: { signal: AbortSignal; check(): void; progress(current: number, total: number): void },
+  context: {
+    signal: AbortSignal;
+    check(): void;
+    progress(current: number, total: number): void;
+    folder?: string;
+  },
 ) {
   const failed: Array<{ fileName: string; error: string }> = [];
   const folders = new Set<string>();
@@ -1685,10 +1700,9 @@ export async function exportSelectedQzoneAlbums(
     let readError = '';
     context.signal.throwIfAborted();
     context.check();
-    const folder = uniqueFilename(
-      sanitizePathSegment(`${album.title || '相册'}_${album.id}`, '相册'),
-      folders,
-    );
+    const folder =
+      context.folder ??
+      uniqueFilename(sanitizePathSegment(`${album.title || '相册'}_${album.id}`, '相册'), folders);
     let start = 0,
       pageIndex = 0,
       sequence = 0;
@@ -1797,12 +1811,14 @@ export async function exportSelectedQzoneAlbums(
 async function exportGroupFiles(
   services: AccountServices,
   input: z.infer<typeof exportGroupFilesInput>,
-  context?: { signal: AbortSignal; progress(current: number, total: number): void },
+  context?: Pick<ResourceExportRunContext, 'signal' | 'progress' | 'checkpoint'> & {
+    check?: () => void;
+  },
 ): Promise<GroupFileExportResult> {
   requireQqOnlineForAlbum(services);
 
   // 没给具体文件就递归整个群,path 用来在输出目录里重建文件夹结构。
-  const targets =
+  const enumerate = async () =>
     input.files ??
     (await services.groupFile.listRecursive(Number(input.groupCode))).map((f) => ({
       fileId: f.fileId,
@@ -1810,6 +1826,10 @@ async function exportGroupFiles(
       busId: f.busId,
       path: f.path,
     }));
+  const targets = context?.checkpoint
+    ? await context.checkpoint.run('group-file-plan', enumerate)
+    : await enumerate();
+  context?.check?.();
 
   const work: GroupFileDownloadWork[] = [];
   // 同名去重按目录分桶 —— 不同子文件夹下的同名文件本来就不冲突。
@@ -1839,31 +1859,162 @@ async function exportGroupFiles(
     input.concurrency ?? 4,
     async (item) => {
       try {
-        // 直链有时效,逐个文件在下载前才换取。
-        const url = await services.mediaUrl.getGroupFileUrl(
-          Number(input.groupCode),
-          item.fileId,
-          item.busId,
-          item.fileName,
-        );
-        context?.signal.throwIfAborted();
-        const outcome = await downloadUrlToFile(url, item.targetPath, { signal: context?.signal });
-        if (!outcome.ok) throw new Error(outcome.reason);
+        const download = async () => {
+          context?.check?.();
+          const url = await services.mediaUrl.getGroupFileUrl(
+            Number(input.groupCode),
+            item.fileId,
+            item.busId,
+            item.fileName,
+          );
+          context?.signal.throwIfAborted();
+          context?.check?.();
+          const outcome = await downloadUrlToFile(url, item.targetPath, {
+            signal: context?.signal,
+          });
+          if (!outcome.ok) throw new Error(outcome.reason);
+          context?.check?.();
+          return true;
+        };
+        if (context?.checkpoint)
+          await context.checkpoint.file(
+            ['group-file', item.fileId, item.targetPath],
+            item.targetPath,
+            download,
+          );
+        else await download();
         ok += 1;
       } catch (e) {
         context?.signal.throwIfAborted();
+        context?.check?.();
+        if (e instanceof ExportCheckpointError) throw e;
         failed.push({
           fileId: item.fileId,
           fileName: item.fileName,
           error: e instanceof Error ? e.message : String(e),
         });
       }
-      context?.progress(ok, work.length);
+      context?.progress(ok + failed.length, work.length);
     },
     context?.signal,
   );
 
   return { outputDir: input.outputDir, total: work.length, ok, failed };
+}
+
+export async function runResumableAlbumResource(
+  services: AccountServices,
+  request: Exclude<ResumableResourceRequest, { type: 'mail' | 'favorite-emoji' | 'media-file' }>,
+  context: ResourceExportRunContext,
+  check: () => void,
+) {
+  check();
+  const { directory, signal, checkpoint } = context;
+  if (request.type === 'group-files')
+    return exportGroupFiles(services, { ...request, outputDir: directory }, { ...context, check });
+  if (request.type === 'group-albums') requireFreshClientKeyForAlbum(services);
+  if (request.type === 'qzone-albums') requireOnlineQqForWeb(services);
+  const mixed = request.type === 'album-references';
+  const albums =
+    request.type === 'album-references'
+      ? groupAlbumReferences(request.items)
+      : request.albums.map((album) => ({
+          provider: request.type === 'group-albums' ? ('group' as const) : ('qzone' as const),
+          owner: request.type === 'group-albums' ? request.groupCode : request.hostUin,
+          albumId: album.id,
+          title: album.title,
+          mediaKeys: album.mediaKeys,
+        }));
+  const folders = new Map<string, Set<string>>();
+  const failed: Array<{ fileName: string; error: string }> = [];
+  let total = 0;
+  let ok = 0;
+  for (const [index, album] of albums.entries()) {
+    signal.throwIfAborted();
+    check();
+    const owner = `${album.provider}-${album.owner}`;
+    const used = folders.get(owner) ?? new Set<string>();
+    folders.set(owner, used);
+    const folder = uniqueFilename(
+      mixed
+        ? sanitizePathSegment(album.albumId, 'album')
+        : album.provider === 'group'
+          ? sanitizePathSegment(album.title, album.albumId)
+          : sanitizePathSegment(`${album.title || '相册'}_${album.albumId}`, '相册'),
+      used,
+    );
+    const outputDir = mixed ? join(directory, owner, folder) : join(directory, folder);
+    const parent = mixed ? outputDir : directory;
+    const fixedFolder = mixed ? undefined : folder;
+    const selection = [{ id: album.albumId, title: album.title, mediaKeys: album.mediaKeys }];
+    const progress = (current: number, size: number) =>
+      context.progress(ok + failed.length + current, total + size);
+    const download = async () => {
+      await mkdir(outputDir, { recursive: true });
+      const result =
+        album.provider === 'group'
+          ? await exportGroupAlbums(
+              services,
+              {
+                groupCode: album.owner,
+                outputDir: parent,
+                albums: selection,
+                concurrency: request.type === 'group-albums' ? request.concurrency : undefined,
+              },
+              { signal, progress, folder: fixedFolder },
+            )
+          : await exportSelectedQzoneAlbums(
+              services,
+              { hostUin: album.owner, outputDir: parent, albums: selection },
+              { signal, progress, check, folder: fixedFolder },
+            );
+      check();
+      signal.throwIfAborted();
+      return result;
+    };
+    try {
+      const result = checkpoint
+        ? await checkpoint.file(
+            ['album', index, owner, album.albumId],
+            outputDir,
+            download,
+            (result) => !result.failed.length,
+          )
+        : await download();
+      total += result.total;
+      ok += result.ok;
+      failed.push(
+        ...result.failed.map((item) => ({
+          fileName: `${album.owner}/${album.albumId}/${item.fileName}`,
+          error: item.error,
+        })),
+      );
+    } catch (error) {
+      signal.throwIfAborted();
+      check();
+      if (error instanceof ExportCheckpointError) throw error;
+      const keys = album.mediaKeys ?? [album.albumId];
+      total += keys.length;
+      failed.push(
+        ...keys.map((key) => ({
+          fileName: `${album.owner}/${album.albumId}/${key}`,
+          error: error instanceof Error ? error.message : '相册读取失败',
+        })),
+      );
+    }
+    context.progress(ok + failed.length, total);
+  }
+  signal.throwIfAborted();
+  check();
+  if (request.type === 'album-references') {
+    await deduplicateAlbumResources(directory, signal);
+    await writeFile(
+      join(directory, 'selected-items.json'),
+      JSON.stringify({ items: request.items, total, ok, failed }, null, 2),
+      { signal },
+    );
+  }
+  return { total, ok, failed };
 }
 
 /**
@@ -1975,6 +2126,131 @@ const directoryReadUndo = new WeakMap<
     changes: DirectoryReadChange[];
   }
 >();
+
+const cloneBuildInput = z.object({
+  personaId: agentLabPersonaId,
+  name: z.string().optional(),
+  models: agentLabModels,
+  customPrompt: z.string().optional(),
+  targetUid: z.string().min(1),
+  title: z.string().optional(),
+  limit: z.number().int().min(20).max(20000).optional(),
+  mode: z.enum(['private', 'group']).optional(),
+  autoName: z.boolean().optional(),
+});
+const cloneRequest = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('create'), params: cloneBuildInput }),
+  z.object({ type: z.literal('update'), personaId: agentLabPersonaId }),
+]);
+
+async function executeRecordedClone(
+  services: AccountServices,
+  request: z.infer<typeof cloneRequest>,
+  existingId?: string,
+) {
+  const { agentLab } = services;
+  const account = services.accountConfig.getRecord();
+  const scope = { uin: account!.uin, configId: account?.configId };
+  const personaId = request.type === 'create' ? request.params.personaId : request.personaId;
+  const previous = agentLab.getPersona(personaId);
+  if (
+    backgroundTasks
+      .snapshot()
+      .some(
+        (task) =>
+          task.kind === 'clone' &&
+          task.clonePersonaId === personaId &&
+          task.scope?.configId === scope.configId &&
+          task.status === 'running',
+      )
+  )
+    throw new Error('该克隆体正在创建或更新中');
+  const action = request.type === 'create' ? '创建好友克隆' : '更新好友克隆';
+  const name =
+    request.type === 'create'
+      ? request.params.name || request.params.title || '好友克隆'
+      : previous?.name || '好友克隆';
+  const id =
+    existingId ??
+    backgroundTasks.start({
+      kind: 'clone',
+      scope,
+      name,
+      clonePersonaId: personaId,
+      display: { action, subject: name },
+    });
+  const save = recordAccountTask(id, scope, request);
+  let stopped = false;
+  const onProgress = (progress: import('@weq/service').AgentLabBuildProgress) => {
+    if (progress.personaId === personaId && !progress.output && !progress.error)
+      backgroundTasks.update(id, { progress: progress.percent, statusLabel: progress.phase });
+  };
+  const retry = {
+    id: 'retry',
+    label: '重新执行',
+    run: () => {
+      if (getAppContext().services !== services) throw new Error('请回到原账号和数据源继续');
+      return retryRecordedClone(id, scope, request);
+    },
+  };
+  backgroundTasks.resume(id);
+  backgroundTasks.update(id, { progress: 0, note: undefined });
+  backgroundTasks.setActions(id, [
+    {
+      id: 'stop',
+      label: '停止构建',
+      run: () => {
+        if (requireExpectedAccount(scope.uin, scope.configId) !== services)
+          throw new Error('账号已切换');
+        if (agentLab.stopBuild(personaId)) {
+          stopped = true;
+          backgroundTasks.update(id, { statusLabel: '停止收尾中' });
+          backgroundTasks.setActions(id, []);
+        }
+      },
+    },
+  ]);
+  agentLab.on('build-progress', onProgress);
+  try {
+    save();
+    const result = await (request.type === 'create'
+      ? agentLab.buildFromC2c(request.params)
+      : agentLab.refreshFromC2c(personaId));
+    backgroundTasks.finish(id, 'completed', { note: '克隆体已保存' });
+    backgroundTasks.setActions(id, [
+      { id: 'view-clone', label: '查看克隆体', run: () => undefined },
+    ]);
+    return result;
+  } catch (error) {
+    backgroundTasks.finish(id, stopped ? 'cancelled' : 'failed', {
+      note: stopped ? '构建已停止，原克隆体保留' : taskError(error),
+    });
+    backgroundTasks.setActions(id, [retry]);
+    throw error;
+  } finally {
+    agentLab.off('build-progress', onProgress);
+    try {
+      save();
+    } catch (error) {
+      console.warn('[克隆] 任务回执保存失败', error);
+    }
+  }
+}
+
+export async function retryRecordedClone(id: string, scope: BackgroundTaskScope, raw: unknown) {
+  const services = requireExpectedAccount(scope.uin, scope.configId);
+  const request = cloneRequest.parse(raw);
+  const task = backgroundTasks
+    .snapshot()
+    .find((entry) => entry.id === id && entry.kind === 'clone' && entry.status !== 'running');
+  if (!task) throw new Error('克隆任务已失效');
+  if (request.type === 'create' && services.agentLab.getPersona(request.params.personaId))
+    throw new Error('该克隆体已存在，不能用旧任务覆盖');
+  void executeRecordedClone(services, request, id).catch((error: unknown) => {
+    if (backgroundTasks.snapshot().find((entry) => entry.id === id)?.status !== 'cancelled')
+      console.warn('[克隆] 重新执行未完成', error);
+  });
+}
 
 export const accountRouter = router({
   outgoing: outgoingRouter,
@@ -2278,39 +2554,43 @@ export const accountRouter = router({
 
   buildAgentLabFromC2c: procedure
     .input(
-      z.object({
-        personaId: agentLabPersonaId,
-        name: z.string().optional(),
-        models: agentLabModels,
-        customPrompt: z.string().optional(),
-        targetUid: z.string().min(1),
-        title: z.string().optional(),
-        // 总消息上限（默认 C2C_CORPUS_CAP）；一般不由前端指定。
-        limit: z.number().int().min(20).max(20000).optional(),
-        // 语料模式：private 纯私聊不回退；group 私聊不足时群补采。默认 group。
-        mode: z.enum(['private', 'group']).optional(),
-        // 让克隆体自己起名（仅训练使用，不改前端展示名）。默认关闭。
-        autoName: z.boolean().optional(),
-      }),
+      z
+        .object({
+          personaId: agentLabPersonaId,
+          name: z.string().optional(),
+          models: agentLabModels,
+          customPrompt: z.string().optional(),
+          targetUid: z.string().min(1),
+          title: z.string().optional(),
+          // 总消息上限（默认 C2C_CORPUS_CAP）；一般不由前端指定。
+          limit: z.number().int().min(20).max(20000).optional(),
+          // 语料模式：private 纯私聊不回退；group 私聊不足时群补采。默认 group。
+          mode: z.enum(['private', 'group']).optional(),
+          // 让克隆体自己起名（仅训练使用，不改前端展示名）。默认关闭。
+          autoName: z.boolean().optional(),
+        })
+        .merge(exportAccountBindingInput),
     )
     .mutation(async ({ input }) => {
-      return requireServices().agentLab.buildFromC2c({
-        personaId: input.personaId,
-        name: input.name,
-        models: input.models,
-        customPrompt: input.customPrompt,
-        targetUid: input.targetUid,
-        title: input.title,
-        limit: input.limit,
-        mode: input.mode,
-        autoName: input.autoName,
-      });
+      const { expectedAccountUin, expectedAccountConfigId, ...params } = input;
+      return executeRecordedClone(
+        requireExpectedAccount(expectedAccountUin, expectedAccountConfigId),
+        { type: 'create', params },
+      );
     }),
 
   refreshAgentLabFromC2c: procedure
-    .input(z.object({ personaId: agentLabPersonaId, expectedAccountUin: z.string().min(1) }))
+    .input(
+      exportAccountBindingInput.extend({
+        personaId: agentLabPersonaId,
+        expectedAccountUin: z.string().min(1),
+      }),
+    )
     .mutation(({ input }) =>
-      requireExpectedAccount(input.expectedAccountUin).agentLab.refreshFromC2c(input.personaId),
+      executeRecordedClone(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        { type: 'update', personaId: input.personaId },
+      ),
     ),
 
   /** Subscribe to AgentLab clone-build progress (drives the build progress bar). */
@@ -8021,6 +8301,15 @@ export const accountRouter = router({
       return requireServices().flashTransferFiles.downloads.cancel(input.taskId);
     }),
 
+  flashPauseDownloadTask: procedure
+    .input(generatedAccountInput.extend({ taskId: z.string().min(1) }))
+    .mutation(({ input }) =>
+      requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).flashTransferFiles.downloads.pause(input.taskId),
+    ),
+
   flashRetryDownloadTask: procedure
     .input(exportAccountBindingInput.required().extend({ taskId: z.string().min(1) }))
     .mutation(async ({ input }) => {
@@ -8396,8 +8685,10 @@ export const accountRouter = router({
       );
       if (!policy) return null;
       check();
+      const resume = { type: 'album-references' as const, items: frozen.items };
       return services.exportManager.startResourceExport({
         kind: selected.every((item) => item.provider === 'qzone') ? 'qzone-albums' : 'group-albums',
+        resume,
         name: frozen.name,
         display: {
           action: selected.every((item) => item.provider === 'qzone')
@@ -8419,76 +8710,7 @@ export const accountRouter = router({
         },
         savePolicy: policy,
         includeIntegrityReport: frozen.includeIntegrityReport,
-        run: async (context) => {
-          const failed: Array<{ fileName: string; error: string }> = [];
-          let total = 0,
-            ok = 0;
-          for (const album of selected) {
-            context.signal.throwIfAborted();
-            check();
-            const outputDir = join(
-              context.directory,
-              `${album.provider}-${album.owner}`,
-              sanitizePathSegment(album.albumId, 'album'),
-            );
-            try {
-              const progress = (current: number, size: number) =>
-                context.progress(ok + failed.length + current, total + size);
-              const result =
-                album.provider === 'group'
-                  ? await exportGroupAlbums(
-                      services,
-                      {
-                        groupCode: album.owner,
-                        outputDir,
-                        albums: [
-                          { id: album.albumId, title: album.title, mediaKeys: album.mediaKeys },
-                        ],
-                      },
-                      { signal: context.signal, progress },
-                    )
-                  : await exportSelectedQzoneAlbums(
-                      services,
-                      {
-                        hostUin: album.owner,
-                        outputDir,
-                        albums: [
-                          { id: album.albumId, title: album.title, mediaKeys: album.mediaKeys },
-                        ],
-                      },
-                      { signal: context.signal, check, progress },
-                    );
-              total += result.total;
-              ok += result.ok;
-              failed.push(
-                ...result.failed.map((item) => ({
-                  fileName: `${album.owner}/${album.albumId}/${item.fileName}`,
-                  error: item.error,
-                })),
-              );
-            } catch (error) {
-              context.signal.throwIfAborted();
-              check();
-              const keys = album.mediaKeys ?? [album.albumId];
-              total += keys.length;
-              failed.push(
-                ...keys.map((key) => ({
-                  fileName: `${album.owner}/${album.albumId}/${key}`,
-                  error: error instanceof Error ? error.message : '相册读取失败',
-                })),
-              );
-            }
-            context.progress(ok + failed.length, total);
-          }
-          context.signal.throwIfAborted();
-          check();
-          await deduplicateAlbumResources(context.directory, context.signal);
-          await writeFile(
-            join(context.directory, 'selected-items.json'),
-            JSON.stringify({ items: frozen.items, total, ok, failed }, null, 2),
-          );
-          return { total, ok, failed };
-        },
+        run: (context) => runResumableAlbumResource(services, resume, context, check),
       });
     }),
 
@@ -8524,8 +8746,14 @@ export const accountRouter = router({
         check,
       );
       if (!policy) return null;
+      const resume = {
+        type: 'qzone-albums' as const,
+        hostUin: selected.hostUin,
+        albums: selected.albums,
+      };
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
+        resume,
         name: selected.name,
         display: {
           action: '导出 QQ 空间相册',
@@ -8537,15 +8765,7 @@ export const accountRouter = router({
         },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: policy,
-        run: async (context) => {
-          const result = await exportSelectedQzoneAlbums(
-            services,
-            { ...selected, outputDir: context.directory },
-            { ...context, check },
-          );
-          check();
-          return result;
-        },
+        run: (context) => runResumableAlbumResource(services, resume, context, check),
       });
     }),
 
@@ -8578,8 +8798,15 @@ export const accountRouter = router({
       );
       requireFreshClientKeyForAlbum(services);
       const selected = structuredClone(input);
+      const resume = {
+        type: 'group-albums' as const,
+        groupCode: selected.groupCode,
+        albums: selected.albums,
+        concurrency: selected.concurrency,
+      };
       return services.exportManager.startResourceExport({
         kind: 'group-albums',
+        resume,
         archive: {
           extra: selected.extra,
           profile: selected.profile,
@@ -8601,20 +8828,16 @@ export const accountRouter = router({
         },
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
-        run: async (context) => {
-          if (
-            requireExpectedAccount(
-              selected.expectedAccountUin,
-              selected.expectedAccountConfigId,
-            ) !== services
-          )
-            throw new Error('账号或数据源已切换，请重新选择资源。');
-          return exportGroupAlbums(
-            services,
-            { ...selected, outputDir: context.directory },
-            context,
-          );
-        },
+        run: (context) =>
+          runResumableAlbumResource(services, resume, context, () => {
+            if (
+              requireExpectedAccount(
+                selected.expectedAccountUin,
+                selected.expectedAccountConfigId,
+              ) !== services
+            )
+              throw new Error('账号或数据源已切换，请重新选择资源。');
+          }),
       });
     }),
 
@@ -8755,8 +8978,15 @@ export const accountRouter = router({
       );
       requireQqOnlineForAlbum(services);
       const selected = structuredClone(input);
+      const resume = {
+        type: 'group-files' as const,
+        groupCode: selected.groupCode,
+        files: selected.files,
+        concurrency: selected.concurrency,
+      };
       return services.exportManager.startResourceExport({
         kind: 'group-files',
+        resume,
         archive: {
           extra: selected.extra,
           profile: selected.profile,
@@ -8772,16 +9002,16 @@ export const accountRouter = router({
         name: selected.name,
         includeIntegrityReport: selected.includeIntegrityReport,
         savePolicy: selected.savePolicy,
-        run: async (context) => {
-          if (
-            requireExpectedAccount(
-              selected.expectedAccountUin,
-              selected.expectedAccountConfigId,
-            ) !== services
-          )
-            throw new Error('账号或数据源已切换，请重新选择资源。');
-          return exportGroupFiles(services, { ...selected, outputDir: context.directory }, context);
-        },
+        run: (context) =>
+          runResumableAlbumResource(services, resume, context, () => {
+            if (
+              requireExpectedAccount(
+                selected.expectedAccountUin,
+                selected.expectedAccountConfigId,
+              ) !== services
+            )
+              throw new Error('账号或数据源已切换，请重新选择资源。');
+          }),
       });
     }),
 

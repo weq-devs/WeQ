@@ -136,3 +136,31 @@ it('一次下载建立一个持久化任务，整批取消并保留各文件详�
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+it('暂停闪传收尾前不能启动同一批，收尾后可重试未完成文件', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'weq-flash-pause-'));
+  const pending = Promise.withResolvers<string>();
+  vi.spyOn(FlashTransferResolver.prototype, 'resolveDownloads').mockResolvedValue({
+    files: [
+      { name: 'a', relativePath: 'a', physicalId: 'original', fileSize: 10, filesetId: 'set' },
+    ],
+    errors: [],
+  });
+  const urls = vi
+    .spyOn(FlashTransferClient.prototype, 'getDownloadUrl')
+    .mockReturnValue(pending.promise);
+  try {
+    const manager = new FlashTransferDownloadManager(dir);
+    const { taskId } = await manager.start('合成操作', 'set', [], dir);
+    expect(await manager.pause(taskId!)).toBe(true);
+    expect(await manager.retry(taskId!)).toBe(false);
+    pending.resolve('unused');
+    await vi.waitFor(() =>
+      expect(manager.list()[0]).toMatchObject({ interrupted: true, canRetry: true }),
+    );
+    expect(urls).toHaveBeenCalledOnce();
+    expect(await manager.clearFinished()).toBe(0);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});

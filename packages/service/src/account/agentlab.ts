@@ -2111,6 +2111,13 @@ export class AgentLabService extends EventEmitter {
     return this.buildingPersonas.size;
   }
 
+  stopBuild(personaId: string): boolean {
+    const controller = this.buildControllers.get(personaId);
+    if (!controller || controller.signal.aborted) return false;
+    controller.abort();
+    return true;
+  }
+
   async buildFromC2c(input: BuildFromC2cInput): Promise<AgentLabPersona> {
     return this.executeBuild(input);
   }

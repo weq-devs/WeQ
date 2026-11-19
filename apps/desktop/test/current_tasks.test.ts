@@ -9,7 +9,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { dismissCloneTask, getCloneTasks } from '../src/renderer/src/views/agentlab/cloneTaskStore';
-import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
+import {
+  localBackgroundTasks,
+  restoreWindowTaskReceipts,
+} from '../src/renderer/src/state/backgroundTasks';
 import type { BackgroundTask } from '../src/shared/background_task';
 import { TaskQuickActions } from '../src/renderer/src/components/tasks/TaskQuickActions';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
@@ -24,6 +27,52 @@ import {
 } from '@weq/service/task-display';
 import { taskTypeLabel } from '../src/renderer/src/views/export/TaskList.shared';
 import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
+
+it('冷启只恢复转发及群相册回执，不提供再次提交；尚未提交 QQ 的上传不会标成未知', () => {
+  const scope = { uin: 'fixture-account', configId: 'fixture-source' };
+  const list = [
+    {
+      task: {
+        id: 'cold-forward',
+        kind: 'forward',
+        name: '合成转发',
+        scope,
+        status: 'running',
+        details: ['第 1 条：已开始发送，结果待核对'],
+        actions: [{ id: 'send' }],
+      },
+    },
+    {
+      task: {
+        id: 'cold-upload',
+        kind: 'album-upload',
+        name: '合成视频',
+        scope,
+        status: 'running',
+        actions: [{ id: 'upload' }],
+      },
+      upload: { submitted: false, groupCode: '1', albumId: 'album' },
+    },
+  ];
+  const keys = list.map((item) => `weq-window-task-v1:${item.task.id}`);
+  const storage = {
+    length: 2,
+    key: (index: number) => keys[index] ?? null,
+    getItem: (key: string) => JSON.stringify(list[keys.indexOf(key)]),
+    removeItem: vi.fn(),
+  };
+  try {
+    restoreWindowTaskReceipts(storage);
+    expect(
+      localBackgroundTasks.snapshot().find((task) => task.id === 'cold-forward'),
+    ).toMatchObject({ status: 'paused', actions: [], details: list[0]?.task.details });
+    expect(localBackgroundTasks.snapshot().find((task) => task.id === 'cold-upload')).toMatchObject(
+      { status: 'cancelled', actions: [] },
+    );
+  } finally {
+    for (const { task } of list) localBackgroundTasks.remove(task.id);
+  }
+});
 
 const fixture = vi.hoisted(() => ({
   accountId: 'fixture-account',

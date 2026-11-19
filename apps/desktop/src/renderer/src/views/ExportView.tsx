@@ -3235,6 +3235,8 @@ function fmtRel(sec: number | null): string {
 
 function outcomeLabel(t: { outcome: string; skipReason?: string }): string {
   switch (t.outcome) {
+    case 'interrupted':
+      return '已暂停 · 可继续子任务';
     case 'running':
       return '运行中';
     case 'completed':

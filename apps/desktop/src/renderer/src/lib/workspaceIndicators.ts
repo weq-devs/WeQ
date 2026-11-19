@@ -61,14 +61,22 @@ export function summarizeWorkspaceTasks({
   roaming?: {
     id: string;
     status: RoamingJobStatus;
+    planning?: unknown;
     updatedAt?: number;
     targets?: { name: string }[];
   }[];
   scanning?: boolean;
   flash?: (Pick<FlashDownloadTask, 'id' | 'status'> &
-    Partial<Pick<FlashDownloadTask, 'finishedAt' | 'name'>> & { files?: readonly unknown[] })[];
+    Partial<Pick<FlashDownloadTask, 'finishedAt' | 'name' | 'interrupted'>> & {
+      files?: readonly unknown[];
+    })[];
   background?: (Pick<BackgroundTask, 'id' | 'status' | 'updatedAt'> &
-    Partial<Pick<BackgroundTask, 'name' | 'kind' | 'destination' | 'subtasks' | 'display'>>)[];
+    Partial<
+      Pick<
+        BackgroundTask,
+        'name' | 'kind' | 'destination' | 'subtasks' | 'display' | 'clonePersonaId'
+      >
+    >)[];
 }) {
   const items: WorkspaceTaskIndicator[] = [];
   for (const task of exports) {
@@ -99,6 +107,7 @@ export function summarizeWorkspaceTasks({
     });
   }
   for (const task of clones) {
+    if (background.some((entry) => entry.clonePersonaId === task.personaId)) continue;
     items.push({
       id: `clone:${task.personaId}`,
       name: '克隆构建',
@@ -134,7 +143,7 @@ export function summarizeWorkspaceTasks({
       autoOpenTaskList: false,
     });
   }
-  if (scanning)
+  if (scanning && !roaming.some((job) => job.planning))
     items.push({
       id: 'roaming:scanning',
       notificationHandled: true,
@@ -152,11 +161,14 @@ export function summarizeWorkspaceTasks({
         subject: (task.files?.length ?? 0) > 1 ? `${task.files!.length} 个文件` : task.name,
       }),
       cancelled: task.status === 'cancelled',
-      activity: ['pending', 'resolving', 'downloading'].includes(task.status)
-        ? 'running'
-        : 'finished',
+      paused: task.interrupted,
+      activity: task.interrupted
+        ? 'idle'
+        : ['pending', 'resolving', 'downloading'].includes(task.status)
+          ? 'running'
+          : 'finished',
       result: `${task.status}:${task.finishedAt ?? ''}`,
-      failed: task.status === 'failed',
+      failed: !task.interrupted && task.status === 'failed',
     });
   }
   for (const task of background) {

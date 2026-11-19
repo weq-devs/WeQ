@@ -11,7 +11,7 @@ import type { AccountServices } from './context/app_context';
 
 /** 仅保存内容选择；恢复时重新使用当前账号的邮箱和表情服务，不持久化登录凭据。 */
 export async function runResumableExport(
-  services: Pick<AccountServices, 'mail' | 'emoji' | 'fileResource'>,
+  services: AccountServices | Pick<AccountServices, 'mail' | 'emoji' | 'fileResource'>,
   request: ResumableResourceRequest,
   context: ResourceExportRunContext,
   current: () => void,
@@ -30,6 +30,15 @@ export async function runResumableExport(
           request.expandThreads,
           request.archive,
         );
+  }
+  if (request.type !== 'favorite-emoji') {
+    if (!('groupFile' in services)) throw new Error('账号资源服务不可用，无法继续导出。');
+    if (request.type === 'media-file') {
+      const { runResumableMediaFile } = await import('./ipc/routers/media_save');
+      return runResumableMediaFile(services, request, context, current);
+    }
+    const { runResumableAlbumResource } = await import('./ipc/routers/account');
+    return runResumableAlbumResource(services, request, context, current);
   }
   const result = await exportOnlineFavoriteEmojiBundle(services.emoji, {
     current,

@@ -117,7 +117,10 @@ function maybeStopProgressSub(): void {
  * 同一 personaId 再发起会替换旧任务。
  */
 export async function startCloneTask(args: StartCloneArgs): Promise<void> {
-  const pending = runCloneTask(args, () => client.account.buildAgentLabFromC2c.mutate(args.params));
+  const expectedAccountUin = useViewState.getState().openedUin ?? undefined;
+  const pending = runCloneTask(args, () =>
+    client.account.buildAgentLabFromC2c.mutate({ ...args.params, expectedAccountUin }),
+  );
   useWorkspaceMenu.getState().openTasks();
   return pending;
 }

@@ -167,7 +167,10 @@ export function createAnalysisReportsRouter(
             [
               { id: 'view-report', label: '查看报告', run: () => undefined },
               ...(report.status === 'running'
-                ? [{ id: 'cancel', label: '取消', run: () => current.cancel(id) }]
+                ? [
+                    { id: 'pause', label: '暂停', run: () => current.pause(id) },
+                    { id: 'cancel', label: '取消', run: () => current.cancel(id) },
+                  ]
                 : report.status !== 'completed'
                   ? [
                       {

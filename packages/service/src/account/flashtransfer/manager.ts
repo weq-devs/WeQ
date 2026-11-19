@@ -114,6 +114,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
   private tasks: FlashDownloadTask[] = [];
   private readonly aborts = new Map<string, AbortController>();
   private readonly running = new Set<string>();
+  private readonly publishing = new Set<string>();
   private pumping = false;
   private loading: Promise<void> | undefined;
   private writes = Promise.resolve();
@@ -248,6 +249,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       for (const file of files) {
         file.status = 'pending';
         delete file.interrupted;
+        delete file.pausedByUser;
         file.error = undefined;
         file.finishedAt = undefined;
         file.downloadedBytes = 0;
@@ -352,11 +354,35 @@ export class FlashTransferDownloadManager extends EventEmitter {
   }
 
   /** 取消整次下载操作，已完成的文件保留。 */
+  async pause(taskId: string): Promise<boolean> {
+    await this.loading;
+    const files = this.tasks.filter(
+      (task) =>
+        (task.batchId ?? task.id) === taskId &&
+        !this.publishing.has(task.id) &&
+        ['pending', 'resolving', 'downloading'].includes(task.status),
+    );
+    if (!files.length) return false;
+    for (const task of files) {
+      task.status = 'failed';
+      task.interrupted = true;
+      task.pausedByUser = true;
+      task.downloadedBytes = 0;
+      task.finishedAt = Date.now();
+      task.error = '已手动暂停；继续时只重试未完成文件。';
+      this.aborts.get(task.id)?.abort();
+      this.emitTask(task);
+    }
+    await this.persist(true);
+    return true;
+  }
+
   async cancel(taskId: string): Promise<boolean> {
     await this.loading;
     const tasks = this.tasks.filter((t) => (t.batchId ?? t.id) === taskId);
     if (!tasks.length) return false;
     for (const task of tasks) {
+      if (this.publishing.has(task.id)) continue;
       if (
         !task.interrupted &&
         task.status !== 'pending' &&
@@ -368,6 +394,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       task.status = 'cancelled';
       if (task.interrupted) {
         delete task.interrupted;
+        delete task.pausedByUser;
         delete task.error;
       }
       task.finishedAt = Date.now();
@@ -449,7 +476,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
     this.aborts.set(task.id, abort);
     try {
       // 取消竞态：cancel() 可能在 pump 调度后才生效，这里每次推进前复查。
-      if ((task.status as FlashTaskStatus) === 'cancelled') return;
+      if (abort.signal.aborted || (task.status as FlashTaskStatus) === 'cancelled') return;
 
       // 1) 换直链
       task.status = 'resolving';
@@ -457,7 +484,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       task.downloadedBytes = 0;
       this.emitTask(task);
       const url = await this.client.getDownloadUrl(task.physicalId);
-      if ((task.status as FlashTaskStatus) === 'cancelled') return;
+      if (abort.signal.aborted || (task.status as FlashTaskStatus) === 'cancelled') return;
 
       // 2) 流式下载
       task.status = 'downloading';
@@ -468,6 +495,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       });
       if (abort.signal.aborted) return;
       // 成品仅排他创建；重试写自己的临时文件，不覆盖用户已有文件。
+      this.publishing.add(task.id);
       await copyFile(partialPath, task.targetPath, constants.COPYFILE_EXCL);
       if (abort.signal.aborted) return;
 
@@ -477,7 +505,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       this.emitTask(task);
     } catch (error) {
       if (abort.signal.aborted) {
-        task.status = 'cancelled';
+        task.status = task.interrupted ? 'failed' : 'cancelled';
       } else {
         task.status = 'failed';
         task.error = error instanceof Error ? error.message : String(error);
@@ -485,6 +513,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       task.finishedAt = Date.now();
       this.emitTask(task);
     } finally {
+      this.publishing.delete(task.id);
       await rm(partialPath, { force: true }).catch((error: unknown) =>
         logger.warn('清理闪传临时文件失败', { error: String(error) }),
       );
