@@ -18,6 +18,7 @@ export const NOTIFICATION_GROUPS = [
       'taskComplete',
       'taskFailure',
       'update',
+      'officialAnnouncement',
       'connection',
       'runtime',
       'databaseDamage',
@@ -34,6 +35,12 @@ export type NotificationEvents = Record<NotificationEvent, Record<NotificationCh
 export type NotificationEventOverrides = Partial<
   Record<NotificationEvent, Partial<Record<NotificationChannel, boolean>>>
 >;
+export function supportsNotificationChannel(
+  event: NotificationEvent,
+  channel: NotificationChannel,
+) {
+  return event !== 'officialAnnouncement' || channel === 'banner';
+}
 export function mergeNotificationEventOverrides(
   before: unknown,
   patch: unknown,
@@ -45,6 +52,7 @@ export function mergeNotificationEventOverrides(
       const channels: unknown = Reflect.get(raw, event);
       if (!channels || typeof channels !== 'object' || Array.isArray(channels)) continue;
       for (const channel of ['banner', 'system'] as const) {
+        if (!supportsNotificationChannel(event, channel)) continue;
         const value: unknown = Reflect.get(channels, channel);
         if (typeof value === 'boolean') result[event] = { ...result[event], [channel]: value };
       }
@@ -69,6 +77,7 @@ export const NOTIFICATION_LABELS: Record<NotificationEvent, string> = {
   taskComplete: '后台任务完成',
   taskFailure: '后台任务失败或部分失败',
   update: '发现新版本或增强包更新',
+  officialAnnouncement: '重要官方公告',
   connection: '连接中断或恢复',
   runtime: '功能受限或运行异常',
   databaseDamage: '数据库异常提醒',
@@ -135,6 +144,7 @@ export function normalizeNotificationEvents(
     const value: unknown = Reflect.get(raw, event);
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
     for (const channel of ['banner', 'system'] as const) {
+      if (!supportsNotificationChannel(event, channel)) continue;
       const enabled: unknown = Reflect.get(value, channel);
       if (typeof enabled === 'boolean') result[event][channel] = enabled;
     }
@@ -146,8 +156,12 @@ export function notificationGroupState(
   channel: NotificationChannel,
   values: NotificationEvents,
 ) {
-  const count = events.filter((event) => values[event][channel]).length;
-  return { checked: count === events.length, mixed: count > 0 && count < events.length };
+  const supported = events.filter((event) => supportsNotificationChannel(event, channel));
+  const count = supported.filter((event) => values[event][channel]).length;
+  return {
+    checked: supported.length > 0 && count === supported.length,
+    mixed: count > 0 && count < supported.length,
+  };
 }
 export const SCOPED_NOTIFICATION_EVENTS = [
   'mentionMe',

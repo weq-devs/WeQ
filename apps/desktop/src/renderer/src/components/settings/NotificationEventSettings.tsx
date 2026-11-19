@@ -5,6 +5,7 @@ import {
   NOTIFICATION_LABELS,
   normalizeNotificationEvents,
   notificationGroupState,
+  supportsNotificationChannel,
   type NotificationEvent,
   type NotificationChannel,
   type ScopedNotificationEvent,
@@ -80,11 +81,12 @@ export function NotificationEventSettings({
       channel === 'system' && enabled && IS_WEB && typeof Notification !== 'undefined'
         ? Notification.requestPermission()
         : null;
-    if (saving) return;
+    const supported = events.filter((event) => supportsNotificationChannel(event, channel));
+    if (saving || !supported.length) return;
     setSaving(true);
     setError('');
     try {
-      const next = await mutation.mutateAsync({ events: [...events], channel, enabled });
+      const next = await mutation.mutateAsync({ events: supported, channel, enabled });
       useNotificationPolicy.getState().setEvents(next);
       utils.bootstrap.getSettings.setData(undefined, (previous) =>
         previous ? { ...previous, notificationEvents: next } : previous,
@@ -175,12 +177,14 @@ export function NotificationEventSettings({
                     </th>
                     {(['banner', 'system'] as const).map((channel) => (
                       <td key={channel}>
-                        <Toggle
-                          checked={values[event][channel]}
-                          label={`${NOTIFICATION_LABELS[event]}：${channel === 'banner' ? '应用内横幅通知' : '系统通知'}`}
-                          disabled={!query.data || Boolean(query.error) || saving}
-                          onChange={(enabled) => void save([event], channel, enabled)}
-                        />
+                        {supportsNotificationChannel(event, channel) ? (
+                          <Toggle
+                            checked={values[event][channel]}
+                            label={`${NOTIFICATION_LABELS[event]}：${channel === 'banner' ? '应用内横幅通知' : '系统通知'}`}
+                            disabled={!query.data || Boolean(query.error) || saving}
+                            onChange={(enabled) => void save([event], channel, enabled)}
+                          />
+                        ) : null}
                       </td>
                     ))}
                   </tr>

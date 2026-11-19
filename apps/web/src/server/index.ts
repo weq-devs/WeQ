@@ -29,6 +29,7 @@ import {
 import { initAppContext, getAppContext } from '@weq/desktop/main/context/app_context';
 import { assistantResourceServer } from '@weq/desktop/main/weq_assistant/server';
 import { appRouter } from '@weq/desktop/main/ipc/router';
+import { startAnnouncements } from '@weq/desktop/main/announcements';
 import { AuthGate } from './auth';
 import { createWebHost } from './host';
 import { startServer } from './http';
@@ -104,6 +105,14 @@ async function main(): Promise<void> {
 
   setHost(createWebHost({ exportDir: EXPORT_DIR, version: VERSION }));
   initAppContext();
+  const stopAnnouncements = startAnnouncements({
+    dataRoot: DATA_DIR,
+    platform: 'web',
+    version: VERSION,
+    bannerEnabled: () =>
+      getAppContext().bootstrap?.userConfig.getSettings().notificationEvents.officialAnnouncement
+        .banner ?? true,
+  });
   void import('@weq/desktop/main/data_saver')
     .then(async ({ refreshTransferPolicy }) => {
       await refreshTransferPolicy();
@@ -146,6 +155,7 @@ async function main(): Promise<void> {
   const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
+    stopAnnouncements();
     getAppContext().bootstrap?.enhancements.updates.stop();
     void assistantResourceServer.shutdown();
     const monitorStopped = performanceMonitor.dispose();

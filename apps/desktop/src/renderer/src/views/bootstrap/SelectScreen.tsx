@@ -163,7 +163,7 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
             {mode === 'existing' ? '打开账号' : mode === 'new' ? '添加账号' : '导入备份'}
           </h1>
         </div>
-        <BootstrapWindowActions />
+        <BootstrapWindowActions showAnnouncements />
       </header>
       <div className="weq-account-content">
         <section

@@ -8,6 +8,7 @@ import {
   House,
   LayoutGrid,
   ListTodo,
+  Megaphone,
   Settings,
   Waypoints,
 } from 'lucide-react';
@@ -29,6 +30,7 @@ export type AppNavigationTarget =
   | { kind: 'setting'; section: 'startup' }
   | { kind: 'dressup' }
   | { kind: 'composition' }
+  | { kind: 'announcements' }
   | { kind: 'contact-overview' }
   | { kind: 'contact-notice'; notice: 'friend' | 'group' };
 export type NavigationSurface = 'rail' | 'mobile-tabs' | 'mobile-more' | 'workspace' | 'search';
@@ -44,6 +46,13 @@ export interface AppNavigationEntry {
 
 // 布局只决定入口的位置；名称、图标、目标和预加载来源在这里统一维护。
 export const APP_NAVIGATION = {
+  announcements: {
+    label: '官方公告',
+    icon: Megaphone,
+    target: { kind: 'announcements' },
+    keywords: [],
+    placements: { 'mobile-more': -1, search: 18 },
+  },
   home: {
     label: '主页',
     icon: House,
@@ -246,6 +255,7 @@ export interface AppNavigationActions {
   onOpenTool: (tool: NavigationTool | 'composition') => void;
   onOpenNotice: (notice: 'friend' | 'group') => void;
   onOpenContactOverview?: () => void;
+  onOpenAnnouncements?: () => void;
 }
 
 export function activateNavigation(target: AppNavigationTarget, actions: AppNavigationActions) {
@@ -262,6 +272,8 @@ export function activateNavigation(target: AppNavigationTarget, actions: AppNavi
       return actions.onOpenTool(target.tool);
     case 'composition':
       return actions.onOpenTool('composition');
+    case 'announcements':
+      return actions.onOpenAnnouncements?.();
     case 'contact-notice':
       return actions.onOpenNotice(target.notice);
     case 'contact-overview':

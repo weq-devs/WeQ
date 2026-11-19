@@ -1,7 +1,8 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
-import { ReminderCount } from './ReminderBadge';
+import { ReminderCount, ReminderDot } from './ReminderBadge';
+import { useAnnouncementPresentation } from '../lib/announcementPresentation';
 import { SelfProfileAvatar } from './SelfProfileAvatar';
 import type { ProfileGroup } from '../lib/profileNavigation';
 import type { MainView, User } from '../im-template/template/types';
@@ -67,6 +68,7 @@ export function MobileWebNavigation({
   onOpenCollection: () => void;
 }) {
   const mobilePage = useWorkspaceMobilePage();
+  const announcements = useAnnouncementPresentation();
   const mobile = useMobileWebLayout();
   const developmentDressTools = useDevelopmentDressTools();
   const dataSaver = useDataSaver((state) => state.enabled);
@@ -116,6 +118,7 @@ export function MobileWebNavigation({
       onOpenSettings,
       onOpenTool: openTool,
       onOpenNotice: () => {},
+      onOpenAnnouncements: () => announcements.open(),
     });
   const badgeFor = (id: string) =>
     id === 'messages'
@@ -124,7 +127,9 @@ export function MobileWebNavigation({
         ? contactBadgeCount
         : id === 'mail' || id === 'more'
           ? mailBadgeCount
-          : 0;
+          : id === 'announcements'
+            ? announcements.unread
+            : 0;
   const moreContent = (
     <section className="weq-mobile-more" aria-label="更多功能">
       <div className="weq-mobile-more-account">
@@ -139,6 +144,11 @@ export function MobileWebNavigation({
           <button
             key={id}
             type="button"
+            aria-label={
+              id === 'announcements' && announcements.unread
+                ? `${label}，${announcements.unread} 条未读`
+                : undefined
+            }
             onClick={() => activate(target)}
             onPointerEnter={() => {
               if (workspace) preloadWorkspace(workspace);
@@ -200,6 +210,7 @@ export function MobileWebNavigation({
       <nav className="weq-mobile-tabs" aria-label="主导航">
         {tabs.map(({ id, label, icon: Icon, target }) => {
           const badge = badgeFor(id);
+          const announcementDot = id === 'more' && announcements.unread > 0;
           return (
             <button
               key={id}
@@ -207,7 +218,7 @@ export function MobileWebNavigation({
               aria-current={active === id ? 'page' : undefined}
               data-mobile-tab={id}
               aria-expanded={id === 'more' ? moreOpen : undefined}
-              aria-label={badge > 0 ? `${label}，${badge} 条未读` : label}
+              aria-label={`${label}${badge > 0 ? `，${badge} 条未读` : ''}${announcementDot ? '，有未读官方公告' : ''}`}
               onClick={() => {
                 if (id === 'messages' && locateUnread) locateUnread();
                 else activate(target);
@@ -217,6 +228,8 @@ export function MobileWebNavigation({
                 <Icon size={24} aria-hidden />
                 {badge > 0 ? (
                   <ReminderCount count={badge} overlay className="weq-mobile-badge" />
+                ) : announcementDot ? (
+                  <ReminderDot overlay className="weq-mobile-badge" aria-hidden />
                 ) : null}
               </span>
               <span>{label}</span>

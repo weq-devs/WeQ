@@ -39,16 +39,18 @@ export function AggregateBadgeRows() {
   );
 }
 
-export function EntryBadgeRows({ kind }: { kind: 'requests' | 'tasks' | 'updates' }) {
+const entryBadgeGroups = {
+  requests: ['showContactRequestBadge'],
+  tasks: ['showTaskRunningBadge', 'showTaskResultBadge'],
+  updates: ['showUpdateBadge'],
+  announcements: ['showOfficialAnnouncementBadge'],
+} as const satisfies Record<string, readonly (typeof ENTRY_BADGE_SETTINGS)[number][0][]>;
+
+export function EntryBadgeRows({ kind }: { kind: keyof typeof entryBadgeGroups }) {
+  const keys: readonly string[] = entryBadgeGroups[kind];
   return (
     <>
-      {ENTRY_BADGE_SETTINGS.filter(([key]) =>
-        kind === 'requests'
-          ? key === 'showContactRequestBadge'
-          : kind === 'updates'
-            ? key === 'showUpdateBadge'
-            : key === 'showTaskRunningBadge' || key === 'showTaskResultBadge',
-      ).map(([key, id, label]) => (
+      {ENTRY_BADGE_SETTINGS.filter(([key]) => keys.includes(key)).map(([key, id, label]) => (
         <BadgeSettingRow
           key={key}
           name={key}
@@ -109,6 +111,7 @@ export function UnreadBadgeSettings() {
       <h4 className="weq-badge-group-title">菜单</h4>
       <EntryBadgeRows kind="tasks" />
       <EntryBadgeRows kind="updates" />
+      <EntryBadgeRows kind="announcements" />
     </Card>
   );
 }

@@ -58,6 +58,7 @@ import { registerUdpCaptureStorage } from './udp_capture_register';
 import { getAppContext, accountEventBus } from './context/app_context';
 import { installDesktopNetwork } from './network';
 import { configureReleaseFeeds } from './update/release_feed';
+import { desktopAnnouncementPlatform, startAnnouncements } from './announcements';
 import { handleGroupKeywordHit } from './group_keyword_notify';
 import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
@@ -875,6 +876,16 @@ void app.whenReady().then(async () => {
   const userConfig = getAppContext().bootstrap?.userConfig;
   const updateDataRoot = userConfig?.appDataRoot() ?? app.getPath('userData');
   configureReleaseFeeds(updateDataRoot);
+  app.once(
+    'will-quit',
+    startAnnouncements({
+      dataRoot: updateDataRoot,
+      platform: desktopAnnouncementPlatform(process.platform),
+      version: app.getVersion(),
+      bannerEnabled: () =>
+        userConfig?.getSettings().notificationEvents.officialAnnouncement.banner ?? true,
+    }),
+  );
   installUpdateActions({
     dataRoot: updateDataRoot,
     getInterval: () => userConfig?.getSettings().updateCheckIntervalMinutes ?? 60,

@@ -32,6 +32,7 @@ export type AppSearchTarget =
   | { kind: 'tool'; tool: SearchableTool; exportMode?: ExportMode }
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
+  | { kind: 'announcements' }
   | { kind: 'dressup'; dressKind?: DressKind }
   | { kind: 'self-profile'; tab?: ContactWorkspaceTab }
   | { kind: 'clone-create'; group?: boolean };
@@ -82,6 +83,8 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
       return target.dressKind ? DRESS_KIND_ICONS[target.dressKind] : APP_NAVIGATION.dressup.icon;
     case 'composition':
       return APP_NAVIGATION.composition.icon;
+    case 'announcements':
+      return APP_NAVIGATION.announcements.icon;
     case 'self-profile':
       return target.tab === 'giftwall' ? Gift : ContactRound;
     case 'clone-create':

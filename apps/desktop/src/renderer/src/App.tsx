@@ -29,6 +29,7 @@ import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost'
 import { RemoteRequests } from './components/RemoteRequests';
 import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost } from './components/Toast';
+import { AnnouncementCenter } from './components/AnnouncementCenter';
 import { useToast } from './components/Toast.shared';
 import { NotificationClickBridge } from './components/NotificationClickBridge';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
@@ -236,7 +237,7 @@ export default function App(): ReactElement {
   // 切号过渡期间整棵 MainView 都不挂载，换成载入页：既盖住「空白头像 + 默认
   // 昵称」的粗糙首屏，也避免 openedUin 短暂变 null 时白挂载一次（那次的查询
   // 全打在已关闭的账号上）。
-  return (
+  const workspace = (
     <CdnProvider accountOpen={view === 'main' && !switching}>
       <ClientStateSync />
       <TextMarkdownProvider cacheScope={view === 'main' && !switching ? (openedUin ?? '') : ''}>
@@ -292,5 +293,10 @@ export default function App(): ReactElement {
         </SelfPendantProvider>
       </TextMarkdownProvider>
     </CdnProvider>
+  );
+  return (
+    <AnnouncementCenter active={!switching && (view === 'main' || homeStage !== 'booting')}>
+      {workspace}
+    </AnnouncementCenter>
   );
 }

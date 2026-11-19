@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./mirrors": "./src/mirrors.mjs",
+    "./announcement-metadata": "./src/announcement_metadata.mjs",
     "./release-metadata": "./src/release_metadata.mjs",
     "./release-keys": "./src/release_keys.json"
   },

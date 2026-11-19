@@ -14,8 +14,8 @@ import { migrateSharedPreferences } from '../src/bootstrap/shared_preferences_mi
 
 it('普通群聊仅系统通知，@全体双渠道，撤回仅横幅', () => {
   expect(NOTIFICATION_GROUPS).toHaveLength(4);
-  expect(NOTIFICATION_EVENTS).toHaveLength(23);
-  expect(new Set(NOTIFICATION_EVENTS).size).toBe(23);
+  expect(NOTIFICATION_EVENTS).toHaveLength(24);
+  expect(new Set(NOTIFICATION_EVENTS).size).toBe(NOTIFICATION_EVENTS.length);
   const values = normalizeNotificationEvents(undefined);
   expect(values.redPacket).toEqual({ banner: false, system: false });
   expect(values.recall).toEqual({ banner: true, system: false });
@@ -31,6 +31,7 @@ it('普通群聊仅系统通知，@全体双渠道，撤回仅横幅', () => {
     'databaseDamage',
   );
   expect(values.databaseDamage).toEqual({ banner: true, system: false });
+  expect(values.officialAnnouncement).toEqual({ banner: true, system: false });
 });
 it('数据库异常提醒继承旧关闭选择，新双渠道设置优先且保存重开保持独立', () => {
   expect(

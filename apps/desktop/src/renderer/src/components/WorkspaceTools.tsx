@@ -14,6 +14,7 @@ import type { ToolSearchRequest } from './search/appSearchCatalog';
 import { ShieldAlert, X, Maximize2, Minimize2 } from 'lucide-react';
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
+import { AnnouncementEntry } from './AnnouncementCenter';
 import { RetainedTabs } from './RetainedTabs';
 import {
   ExportTool,
@@ -526,6 +527,7 @@ export function WorkspaceTools({
                 </button>
               ))}
             </nav>
+            <AnnouncementEntry placement="workspace" beforeOpen={closeWorkspace} />
             {footerControls}
           </>
         ) : null}

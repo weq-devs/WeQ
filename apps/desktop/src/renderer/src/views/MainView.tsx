@@ -154,6 +154,7 @@ import {
   messageNotificationSource,
 } from '../lib/notificationNavigation.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
+import { useOpenAnnouncement } from '../lib/announcementPresentation';
 import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
 import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useUnreadMarkers } from '../lib/unreadMarkers';
@@ -8778,6 +8779,7 @@ function MainWorkspace(): ReactElement {
     recalledView
   ) : null;
 
+  const openAnnouncements = useOpenAnnouncement();
   const openAppSearchEntryNow = (entry: AppSearchEntry) => {
     setSearchDismissed(true);
     setSearchFocused(false);
@@ -8837,6 +8839,7 @@ function MainWorkspace(): ReactElement {
       setPrivatePreview(null);
       shell.openContactDetails({ ...user, createdAt: '' }, target.tab);
     } else if (target.kind === 'composition') compositionWindow.open();
+    else if (target.kind === 'announcements') openAnnouncements();
     else if (target.kind === 'dressup') {
       setDressUpEmojiTarget(null);
       setDressUpSearchKind(target.dressKind ?? 'usage');

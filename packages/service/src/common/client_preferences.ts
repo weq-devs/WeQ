@@ -42,6 +42,7 @@ export const preferenceDefaults = {
   showTaskRunningBadge: true,
   showTaskResultBadge: true,
   showUpdateBadge: true,
+  showOfficialAnnouncementBadge: true,
   accent: '',
   background: 'plain',
   componentStyle: 'qqnt',
@@ -100,6 +101,7 @@ export const ENTRY_BADGE_SETTINGS = [
   ['showTaskRunningBadge', 'task-running-badge', '进行中任务'],
   ['showTaskResultBadge', 'task-result-badge', '已完成任务'],
   ['showUpdateBadge', 'update-badge', '新版本与增强包更新'],
+  ['showOfficialAnnouncementBadge', 'official-announcement-badge', '官方公告'],
 ] as const satisfies readonly (readonly [PreferenceKey, string, string])[];
 const retiredUnreadPreferences = new Set([
   'showConversationUnreadBadge',

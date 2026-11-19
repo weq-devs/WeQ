@@ -4,10 +4,15 @@ import { shellBridge } from '../lib/target.shared';
 import { useDialog } from './Dialog.shared';
 import { RestrictedModeIndicator } from './RestrictedMode';
 import { useToast } from './Toast.shared';
+import { AnnouncementEntry } from './AnnouncementCenter';
 import '../styles/startup-shell.css';
 
 /** 账号页与启动状态页共用窗口操作，关闭行为交给主进程统一处理。 */
-export function BootstrapWindowActions() {
+export function BootstrapWindowActions({
+  showAnnouncements = false,
+}: {
+  showAnnouncements?: boolean;
+}) {
   const pushToast = useToast((s) => s.push);
   const showError = useDialog((s) => s.showError);
 
@@ -32,6 +37,7 @@ export function BootstrapWindowActions() {
 
   return (
     <div className="weq-shell-actions">
+      {showAnnouncements && <AnnouncementEntry placement="startup" />}
       <RestrictedModeIndicator />
       <DesktopOnly>
         <button
