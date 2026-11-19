@@ -190,14 +190,24 @@ function Fixture() {
                 <header className="weq-collection-head">
                   <h2>收藏</h2>
                 </header>
-                <nav className="weq-collection-filters" aria-label="收藏分类">
-                  <button type="button" className="weq-collection-chip is-active">
+                <div className="weq-collection-filters" role="tablist" aria-label="收藏分类">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                    className="weq-collection-chip is-active"
+                  >
                     全部
                   </button>
-                  <button type="button" className="weq-collection-chip">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                    className="weq-collection-chip"
+                  >
                     图片
                   </button>
-                </nav>
+                </div>
                 <label className="weq-collection-search">
                   <input aria-label="搜索收藏" placeholder="搜索收藏" />
                 </label>

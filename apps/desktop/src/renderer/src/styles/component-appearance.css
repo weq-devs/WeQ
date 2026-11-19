@@ -175,8 +175,8 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
     )
   ) {
   border-color: var(--weq-skin-border);
-  background: var(--weq-skin-surface);
-  color: var(--weq-fg-primary);
+  background: var(--weq-control-bg, var(--weq-skin-surface));
+  color: var(--weq-control-fg, var(--weq-fg-primary));
 }
 
 /* 只给真实浮层加外框。内嵌页面及页面内的结果列表不属于浮层。 */
