@@ -126,7 +126,7 @@
   padding: 22px 0;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
-.weq-qzn-post:first-of-type {
+.weq-qzn-post:first-of-type:not(:where(.weq-reference-item + .weq-reference-item > *)) {
   padding-top: 4px;
 }
 .weq-qzn-post-head {
