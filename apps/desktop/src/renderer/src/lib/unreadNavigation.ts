@@ -69,22 +69,36 @@ export function firstUnreadMessage<T extends { msgSeq?: string }>(
   return first;
 }
 
-/** 普通未读、免打扰未读、关闭角标的聚合入口依次定位；同级沿用列表排序。 */
-export function firstUnreadConversation(
-  conversations: readonly Conversation[],
-  preferences: ConversationPreferences,
-  aggregateBadges: AggregateUnreadBadges,
-): Conversation | null {
-  const unread = sortConversationRows(
-    conversations.filter((row) => (row.unreadCount ?? 0) > 0),
-    preferences,
-  );
-  let muted: Conversation | undefined;
-  let hiddenBadge: Conversation | undefined;
-  for (const row of unread) {
-    if (row.type === 'merged' && !aggregateBadges[row.mergedKind]) hiddenBadge ??= row;
-    else if (isMuted(row, preferences)) muted ??= row;
-    else return row;
-  }
-  return muted ?? hiddenBadge ?? null;
+/** 每轮按当前优先级遍历未读会话；已经定位过的行重排或消失，不会打断这一轮。 */
+export function createUnreadConversationCycle() {
+  const visited = new Set<string>();
+  return {
+    reset: () => visited.clear(),
+    next(
+      conversations: readonly Conversation[],
+      preferences: ConversationPreferences,
+      aggregateBadges: AggregateUnreadBadges,
+    ): Conversation | undefined {
+      const unread = sortConversationRows(
+        conversations.filter((row) => (row.unreadCount ?? 0) > 0),
+        preferences,
+      );
+      const regular: Conversation[] = [];
+      const muted: Conversation[] = [];
+      const hiddenBadge: Conversation[] = [];
+      for (const row of unread) {
+        if (row.type === 'merged' && !aggregateBadges[row.mergedKind]) hiddenBadge.push(row);
+        else if (isMuted(row, preferences)) muted.push(row);
+        else regular.push(row);
+      }
+      const ordered = [...regular, ...muted, ...hiddenBadge];
+      let target = ordered.find((row) => !visited.has(row.id));
+      if (!target) {
+        visited.clear();
+        target = ordered[0];
+      }
+      if (target) visited.add(target.id);
+      return target;
+    },
+  };
 }

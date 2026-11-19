@@ -2,11 +2,17 @@
 import { expect, it } from 'vitest';
 import {
   countMessageNavigationUnread,
-  firstUnreadConversation,
+  createUnreadConversationCycle,
   firstUnreadMessage,
 } from '../src/renderer/src/lib/unreadNavigation';
 import type { MergedConversation } from '../src/renderer/src/im-template/template/types';
 import { createTemplateDemoData } from './support/templateDemoData';
+
+function firstUnreadConversation(
+  ...args: Parameters<ReturnType<typeof createUnreadConversationCycle>['next']>
+) {
+  return createUnreadConversationCycle().next(...args);
+}
 
 it('首条未读序号缺失时选择区间内最早的消息，不落到已读消息或依赖输入顺序', () => {
   const read = { msgSeq: '9007199254740992' };
@@ -49,7 +55,7 @@ it('定位遵循列表的置顶顺序，普通未读优先；不改变会话或�
   expect(
     firstUnreadConversation(rows, { pinned: { muted: true }, ordinary: { muted: true } }, {}),
   ).toHaveProperty('id', 'muted');
-  expect(firstUnreadConversation([], {}, {})).toBeNull();
+  expect(firstUnreadConversation([], {}, {})).toBeUndefined();
   expect(JSON.stringify(rows)).toBe(before);
 });
 
@@ -67,7 +73,7 @@ it('普通未读优先于置顶免打扰，全部已读时没有定位目标', (
       {},
       {},
     ),
-  ).toBeNull();
+  ).toBeUndefined();
 });
 
 it('关闭角标的聚合入口连置顶也排在免打扰之后，仍可作为最后的定位目标', () => {
@@ -89,7 +95,37 @@ it('关闭角标的聚合入口连置顶也排在免打扰之后，仍可作为�
   expect(firstUnreadConversation(rows, {}, { groupAssistant: false })).toBe(muted);
   expect(firstUnreadConversation(rows, {}, { groupAssistant: true })).toBe(assistant);
   expect(firstUnreadConversation([assistant], {}, { groupAssistant: false })).toBe(assistant);
-  expect(firstUnreadConversation([{ ...assistant, unreadCount: 0 }], {}, {})).toBeNull();
+  expect(firstUnreadConversation([{ ...assistant, unreadCount: 0 }], {}, {})).toBeUndefined();
+});
+
+it('连续定位跨过三档优先级，已定位目标读掉时继续，走完或手动打断后从头开始', () => {
+  const base = createTemplateDemoData().conversations[0]!;
+  const first = { ...base, id: 'first', unreadCount: 1, preference: { pinned: true } };
+  const second = { ...base, id: 'second', unreadCount: 1 };
+  const muted = { ...base, id: 'muted', unreadCount: 1, preference: { muted: true } };
+  const aggregate: MergedConversation = {
+    ...base,
+    id: 'merged:official',
+    type: 'merged',
+    mergedKind: 'official',
+    title: '公众号',
+    group: null,
+    otherUser: null,
+    members: [],
+    preference: { pinned: true },
+    unreadCount: 1,
+  };
+  const cycle = createUnreadConversationCycle();
+  const rows = [aggregate, muted, second, first];
+  const withSecondRead = [aggregate, muted, { ...second, unreadCount: 0 }, first];
+  expect(cycle.next(rows, {}, {})).toBe(first);
+  expect(cycle.next(rows, {}, {})).toBe(second);
+  expect(cycle.next(withSecondRead, {}, {})).toBe(muted);
+  expect(cycle.next(withSecondRead, {}, {})).toBe(aggregate);
+  expect(cycle.next(withSecondRead, {}, {})).toBe(first);
+  expect(cycle.next(withSecondRead, {}, {})).toBe(muted);
+  cycle.reset();
+  expect(cycle.next(withSecondRead, {}, {})).toBe(first);
 });
 
 it('主导航只汇总已开启角标的聚合成员，并排除免打扰未读', () => {

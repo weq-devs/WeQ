@@ -401,7 +401,18 @@ it.each([0, 123])('消息汇总数为 %s 时再次点击消息入口仍可定位
     ),
   );
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[0]!.click());
-  expect(locateUnread).toHaveBeenCalledOnce();
+  await act(async () =>
+    root.render(
+      createElement(MobileWebNavigation, {
+        ...props,
+        view: 'contacts',
+        messageBadgeCount,
+        onMessageBadgeClick: locateUnread,
+      }),
+    ),
+  );
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[0]!.click());
+  expect(locateUnread.mock.calls).toEqual([[false], [true]]);
   expect(props.onViewChange).not.toHaveBeenCalled();
 });
 

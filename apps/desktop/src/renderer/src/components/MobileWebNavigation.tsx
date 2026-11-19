@@ -58,7 +58,7 @@ export function MobileWebNavigation({
   onSearchFocus?: () => void;
   searchPanel?: ReactNode;
   messageBadgeCount: number;
-  onMessageBadgeClick?: () => void;
+  onMessageBadgeClick?: (fromOtherPage: boolean) => void;
   contactBadgeCount: number;
   mailBadgeCount?: number;
   onViewChange: (view: MainView) => void;
@@ -208,8 +208,9 @@ export function MobileWebNavigation({
               aria-expanded={id === 'more' ? moreOpen : undefined}
               aria-label={badge > 0 ? `${label}，${badge} 条未读` : label}
               onClick={() => {
-                if (id === 'messages' && active === 'messages' && onMessageBadgeClick) {
-                  onMessageBadgeClick();
+                if (id === 'messages' && onMessageBadgeClick) {
+                  mobilePage?.close();
+                  onMessageBadgeClick(active !== 'messages');
                 } else activate(target);
               }}
             >

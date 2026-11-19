@@ -48,7 +48,7 @@ export function AppRail({
   onOpenDbRepair: () => void;
   onOpenQzoneAlbum: () => void;
   messageBadgeCount?: number;
-  onMessageBadgeClick?: () => void;
+  onMessageBadgeClick?: (fromOtherPage: boolean) => void;
   contactBadgeCount?: number;
   mailBadgeCount?: number;
   showTools?: boolean;
@@ -197,8 +197,8 @@ export function AppRail({
                   }}
                   onClick={() => {
                     setProfileOpen(false);
-                    if (id === 'messages' && activeView === 'messages' && onMessageBadgeClick)
-                      onMessageBadgeClick();
+                    if (id === 'messages' && onMessageBadgeClick)
+                      onMessageBadgeClick(activeView !== 'messages');
                     else
                       activateNavigation(target, {
                         onViewChange: selectView,
@@ -243,11 +243,11 @@ export function AppRail({
                       count={messageBadgeCount}
                       overlay
                       className="rail-badge rail-message-badge"
-                      title="定位首条未读会话"
-                      aria-label={`定位首条未读会话，共 ${messageBadgeCount} 条未读消息`}
+                      title="定位未读会话"
+                      aria-label={`定位未读会话，共 ${messageBadgeCount} 条未读消息`}
                       onClick={() => {
                         setProfileOpen(false);
-                        if (onMessageBadgeClick) onMessageBadgeClick();
+                        if (onMessageBadgeClick) onMessageBadgeClick(activeView !== 'messages');
                         else selectView('messages');
                       }}
                     />

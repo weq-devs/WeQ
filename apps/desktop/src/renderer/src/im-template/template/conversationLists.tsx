@@ -538,6 +538,10 @@ export function ConversationList({
     };
   }, [createOpen]);
 
+  const interruptUnreadCycle = (event: React.SyntheticEvent<HTMLElement>) => {
+    // 排除从菜单、弹窗等 Portal 冒泡的交互；程序滚动不会产生此处监听的输入事件。
+    if (event.currentTarget.contains(event.target as Node)) directory?.onListInteraction?.();
+  };
   return (
     <div
       className="list-stack weq-conversation-directory"
@@ -546,6 +550,14 @@ export function ConversationList({
         directoryRef.current = element;
         multi.rootProps.ref(element);
       }}
+      onPointerDownCapture={(event) => {
+        multi.rootProps.onPointerDownCapture();
+        if (event.pointerType === 'mouse') interruptUnreadCycle(event);
+      }}
+      onClickCapture={interruptUnreadCycle}
+      onContextMenuCapture={interruptUnreadCycle}
+      onWheelCapture={interruptUnreadCycle}
+      onTouchMoveCapture={interruptUnreadCycle}
       onPointerOverCapture={(event) => {
         if (event.pointerType === 'mouse')
           setPointerInside(event.currentTarget.contains(event.target));

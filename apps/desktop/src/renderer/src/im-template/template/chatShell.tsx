@@ -75,7 +75,7 @@ export function ChatShell({
   sidebarWidth: number;
   mainOpen: boolean;
   messageBadgeCount: number;
-  onMessageBadgeClick?: () => void;
+  onMessageBadgeClick?: (fromOtherPage: boolean) => void;
   contactBadgeCount: number;
   mailBadgeCount?: number;
   showTools?: boolean;

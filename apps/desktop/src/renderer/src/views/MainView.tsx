@@ -13,7 +13,7 @@ import {
 import { PAGE_SIZE } from './workspace/paging';
 import {
   countMessageNavigationUnread,
-  firstUnreadConversation,
+  createUnreadConversationCycle,
   firstUnreadMessage,
   matchesUnreadMessage,
 } from '../lib/unreadNavigation';
@@ -1318,6 +1318,7 @@ function MainWorkspace(): ReactElement {
   const [conversationLocate, setConversationLocate] = useState<ConversationLocateRequest | null>(
     null,
   );
+  const [unreadConversationCycle] = useState(createUnreadConversationCycle);
   const requestConversationExport = useRequestContentExport();
   const openAssistantConversation = useStableCallback(
     (sessionId: string, searchTarget?: GeneratedSearchHit): void => {
@@ -9075,6 +9076,34 @@ function MainWorkspace(): ReactElement {
       shell.selectGroup(id);
     }),
   );
+  const locateUnreadConversation = useStableCallback((fromOtherPage: boolean) =>
+    settingsNavigation.navigate(() => {
+      const target = unreadConversationCycle.next(
+        conversationViews.regular,
+        regularViewPreferences,
+        unreadMarkers.aggregates,
+      );
+      if (!target && !fromOtherPage) return;
+      setSurfaceNavigation((value) => value + 1);
+      setSettingsOpen(false);
+      setMaintenanceTool(null);
+      setDressUpOpen(false);
+      shell.switchView('messages');
+      if (!target) return;
+      setArkFeedState(null);
+      changeConversationView('regular');
+      shell.setQuery('');
+      if (isMobileShell()) {
+        setMobileConversationList(true);
+        shell.backConversation();
+      }
+      setConversationLocate((previous) => ({
+        id: target.id,
+        revision: Math.max(Date.now(), (previous?.revision ?? 0) + 1),
+        align: 'start',
+      }));
+    }),
+  );
   const replyJump = useStableCallback(jumpToSeq);
   const chatContent = (
     <ReplyJumpContext.Provider value={replyJump}>
@@ -9107,30 +9136,7 @@ function MainWorkspace(): ReactElement {
               displaySettings.data?.showMessageUnreadBadge === false ? 0 : messageBadgeCount
             }
             contactBadgeCount={unreadMarkers.requests ? friendNoticeCount + groupNoticeCount : 0}
-            onMessageBadgeClick={() =>
-              settingsNavigation.navigate(() => {
-                const target = firstUnreadConversation(
-                  conversationViews.regular,
-                  regularViewPreferences,
-                  unreadMarkers.aggregates,
-                );
-                if (!target) return;
-                setSurfaceNavigation((value) => value + 1);
-                setSettingsOpen(false);
-                setMaintenanceTool(null);
-                setDressUpOpen(false);
-                setArkFeedState(null);
-                changeConversationView('regular');
-                shell.setQuery('');
-                shell.switchView('messages');
-                if (isMobileShell()) shell.backConversation();
-                setConversationLocate((previous) => ({
-                  id: target.id,
-                  revision: Math.max(Date.now(), (previous?.revision ?? 0) + 1),
-                  align: 'start',
-                }));
-              })
-            }
+            onMessageBadgeClick={locateUnreadConversation}
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
             railFooterContent={() => <WorkspaceMenuButton />}
@@ -10605,6 +10611,7 @@ function MainWorkspace(): ReactElement {
                             loadingError: currentViewError,
                             virtual: virtualRows,
                             locate: conversationLocate,
+                            onListInteraction: unreadConversationCycle.reset,
                             onAnalyze: handleAnalyzeConversation,
                             onOpenProfile: openConversationProfile,
                             onPreview: previewMenuConversation,

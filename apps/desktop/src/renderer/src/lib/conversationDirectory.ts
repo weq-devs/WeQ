@@ -58,6 +58,7 @@ export const ConversationDirectoryContext = createContext<{
   groupAssistantIds?: ReadonlySet<string>;
   showContactUnreadCount?: boolean;
   locate?: ConversationLocateRequest | null;
+  onListInteraction?: () => void;
   onVirtual: (item: VirtualConversation) => void;
   /** 新建好友克隆（支持批量：一次性把多个好友交给 AgentLab）。 */
   onCreate: (friendUids?: string[]) => void;
