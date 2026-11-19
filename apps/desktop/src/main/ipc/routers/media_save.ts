@@ -111,7 +111,7 @@ async function openUrl(raw: string, signal?: AbortSignal, check?: () => void): P
   const url = new URL(local ?? raw);
   if (url.username || url.password) throw new Error('媒体地址无效');
   const request = new Request(url, { signal });
-  if (url.protocol === 'weq-media:') return handleMediaRequest(request, check);
+  if (url.protocol === 'weq-media:') return handleMediaRequest(request, check, { cacheVideo: false });
   if (url.protocol === 'weq-asset:') return handleResourceRequest(request);
   if (url.protocol !== 'https:' && url.protocol !== 'http:')
     throw new Error('这份媒体尚未落盘，暂时无法保存');

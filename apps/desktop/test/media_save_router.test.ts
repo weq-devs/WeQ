@@ -283,16 +283,10 @@ it('WeQ 下载后的文件可按消息定位，重建任务管理器仍有效，
   const locations = await messageMediaLocations(services, target);
   expect(locations).toEqual([
     expect.objectContaining({ kind: 'saved', path: task.save?.path, available: true }),
-    expect.objectContaining({ kind: 'cache', path: task.filePath, available: true }),
   ]);
   expect(await messageMediaLocations(services, { ...target, token: 'another-token' })).toEqual([]);
   expect(await messageMediaLocations(services, { ...target, msgId: '43' })).toEqual([]);
   rmSync(task.save!.path!);
-  expect(await messageMediaLocations(services, target)).toEqual([
-    { ...locations[0], available: false },
-    locations[1],
-  ]);
-  rmSync(task.filePath!, { force: true });
   expect(await messageMediaLocations(services, target)).toEqual([
     { ...locations[0], available: false },
   ]);
@@ -351,9 +345,9 @@ it('选择器取消及来源变化不启动保存，已有文件不覆盖', asyn
   state.picked = join(root, 'existing.png');
   writeFileSync(state.picked, 'personal');
   const id = await api().save({ ...binding, source: image, savePolicy: { mode: 'before' } });
-  await vi.waitFor(() => expect(manager.getTask(id!)?.save?.status).toBe('failed'));
+  await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('failed'));
   expect(readFileSync(state.picked, 'utf8')).toBe('personal');
-  expect(manager.getTask(id!)?.status).toBe('completed');
+  expect(manager.getTask(id!)?.filePath).toBeUndefined();
   state.afterPick = () => {
     state.configId = 'source-b';
   };

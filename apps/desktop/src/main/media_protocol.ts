@@ -630,7 +630,11 @@ export async function resolveChatImageFile(
   return { path: downloaded, variant: 'downloaded' as const };
 }
 
-export async function handleMediaRequest(request: Request, check?: () => void): Promise<Response> {
+export async function handleMediaRequest(
+  request: Request,
+  check?: () => void,
+  options?: { cacheVideo?: boolean },
+): Promise<Response> {
   try {
     const query = new URL(request.url).searchParams;
     const kind = new URL(request.url).hostname;
@@ -664,7 +668,7 @@ export async function handleMediaRequest(request: Request, check?: () => void): 
         },
         () =>
           currentRequest.run(request, async () => {
-            const response = await routeMediaRequest(request);
+            const response = await routeMediaRequest(request, options?.cacheVideo);
             return withCors(
               request.headers.get('x-weq-web') === '1'
                 ? new ManagedDownload().response(response)
@@ -681,7 +685,7 @@ export async function handleMediaRequest(request: Request, check?: () => void): 
   }
 }
 
-async function routeMediaRequest(request: Request): Promise<Response> {
+async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promise<Response> {
   {
     const url = new URL(request.url);
     const kind = url.hostname;
@@ -964,7 +968,13 @@ async function routeMediaRequest(request: Request): Promise<Response> {
           }
           if (!url) return notFound('video OIDB returned empty url');
           mediaBinding.getStore()?.();
-          return await videoPreviewResponse(url, cachePath, request, mediaBinding.getStore());
+          return await videoPreviewResponse(
+            url,
+            cachePath,
+            request,
+            mediaBinding.getStore(),
+            cacheVideo,
+          );
         }
         case 'ptt': {
           const silk = await resolveVoiceSilk(services, {

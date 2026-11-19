@@ -169,6 +169,42 @@ export async function publishVerifiedCopy(
   }
 }
 
+/** 发布目标卷上的下载文件，不覆盖已有文件，也不再在任务缓存留副本。 */
+export async function publishStagedDownload(
+  source: string,
+  target: string,
+  unique: boolean,
+  signal: AbortSignal,
+): Promise<string> {
+  const used = new Set<string>();
+  let canLink = true;
+  for (;;) {
+    signal.throwIfAborted();
+    const candidate = unique ? join(dirname(target), uniqueName(basename(target), used)) : target;
+    try {
+      if (canLink) {
+        try {
+          await link(source, candidate);
+        } catch (error) {
+          if (
+            !['ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EPERM', 'EXDEV'].includes(
+              (error as NodeJS.ErrnoException).code ?? '',
+            )
+          )
+            throw error;
+          canLink = false;
+        }
+      }
+      if (!canLink)
+        await publishVerifiedCopy(source, candidate, await fileSha256(source, signal), signal);
+      return candidate;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (!unique) throw new Error('保存位置已有同名文件，请选择其他名称。');
+    }
+  }
+}
+
 async function saveSingleExportFile(
   output: SourceOutput,
   selected: string,

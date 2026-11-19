@@ -108,6 +108,7 @@ import { prepareDirectOutput, type DirectOutput } from './direct_output';
 import { inspectDestination } from './storage_preflight';
 import {
   copyExportSavePolicy,
+  publishStagedDownload,
   saveExportOutput,
   inventoryExportOutput,
   type ExportSavePolicy,
@@ -425,6 +426,7 @@ export interface ExportTask {
     failed?: number;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
     cacheDirectory?: string;
+    directDownload?: boolean;
     /** 原始资源身份，用于从消息定位已保存的文件，不能仅按同名文件匹配。 */
     sourceKey?: string;
   };
@@ -773,9 +775,11 @@ export class ExportTaskManager extends EventEmitter {
   private clearResumeState(task: ExportTask): void {
     try {
       rmSync(this.checkpoint(task).directory, { recursive: true, force: true });
-      if (task.status === 'cancelled')
+      if (task.status === 'cancelled') {
         for (const id of new Set([task.id, task.workBundleId ?? `${task.id}-${task.scanId}`]))
           rmSync(join(this.cacheDir, `.bundle-${id}.partial`), { recursive: true, force: true });
+        this.clearDirectDownloadStage(task);
+      }
     } catch {
       this.log(task.id, 'task', '导出已结束，续作缓存清理未完成；删除任务时将重试。', 'warn');
     }
@@ -787,6 +791,20 @@ export class ExportTaskManager extends EventEmitter {
     this.abortControllers.delete(task.id);
     this.finalizing.delete(task.id);
     if (task.status === 'completed' || task.status === 'cancelled') this.clearResumeState(task);
+  }
+
+  private directDownloadTarget(task: ExportTask): string | undefined {
+    const path = task.save?.policy.filePath;
+    if (!task.resource?.directDownload || !path) return undefined;
+    const root = dirname(path);
+    if (!lstatSync(root).isDirectory()) throw new Error('保存目录不可用，请重新选择。');
+    return join(realpathSync(this.deps.resolveSaveDirectory?.(root) ?? root), basename(path));
+  }
+
+  private clearDirectDownloadStage(task: ExportTask): void {
+    const target = this.directDownloadTarget(task);
+    if (target)
+      rmSync(join(dirname(target), `.bundle-${task.id}.partial`), { recursive: true, force: true });
   }
 
   constructor(
@@ -1864,7 +1882,7 @@ export class ExportTaskManager extends EventEmitter {
     return id;
   }
 
-  /** 既有独立下载器只写私有缓存，发布、另存、取消和回执沿用同一个任务管理器。 */
+  /** 独立资源沿用同一个任务管理器；单文件下载只在目标卷上暂存。 */
   async startResourceExport(opts: {
     display?: import('../../common/task_display').TaskDisplay;
     resume?: ResumableResourceRequest;
@@ -1910,6 +1928,9 @@ export class ExportTaskManager extends EventEmitter {
         networkTransfer: opts.networkTransfer,
         kind: opts.kind,
         ...(output ? { output } : {}),
+        ...(output && (opts.kind === 'media' || opts.kind === 'mail-attachment')
+          ? { directDownload: true }
+          : {}),
         ...(opts.sourceKey ? { sourceKey: opts.sourceKey } : {}),
       },
       includeIntegrityReport: opts.includeIntegrityReport,
@@ -1968,7 +1989,14 @@ export class ExportTaskManager extends EventEmitter {
     this.saveTasks();
     let bundle: AtomicExportBundle | undefined;
     try {
-      bundle = createAtomicExportBundle(this.cacheDir, task.id, Boolean(task.resource?.resume));
+      const target = this.directDownloadTarget(task);
+      if (target && !task.save?.policy.uniqueFileName && existsSync(target))
+        throw new Error('保存位置已有同名文件，请选择其他名称。');
+      bundle = createAtomicExportBundle(
+        target ? dirname(target) : this.cacheDir,
+        task.id,
+        Boolean(target || task.resource?.resume),
+      );
       const directory = join(bundle.stageDir, 'files');
       mkdirSync(directory, { recursive: true });
       const summary = await run({
@@ -2052,11 +2080,23 @@ export class ExportTaskManager extends EventEmitter {
           abort.signal,
         );
       }
-      bundle.publish();
-      task.resource!.cacheDirectory = bundle.finalDir;
-      if (output) task.filePath = join(bundle.finalDir, 'files', summary.fileName!);
-      else task.bundleDir = bundle.finalDir;
-      onPublished?.(join(bundle.finalDir, 'files'));
+      if (target && task.save) {
+        this.finalizing.add(task.id);
+        const path = await publishStagedDownload(
+          join(directory, summary.fileName!),
+          target,
+          Boolean(task.save.policy.uniqueFileName),
+          abort.signal,
+        );
+        task.filePath = path;
+        task.save = { policy: task.save.policy, status: 'saved', path, savedAt: Date.now() };
+      } else {
+        bundle.publish();
+        task.resource!.cacheDirectory = bundle.finalDir;
+        if (output) task.filePath = join(bundle.finalDir, 'files', summary.fileName!);
+        else task.bundleDir = bundle.finalDir;
+        onPublished?.(join(bundle.finalDir, 'files'));
+      }
       const counts = summary.contents ?? summary;
       task.current = stage.current = counts.ok;
       task.total = stage.total = counts.total;
@@ -2069,6 +2109,7 @@ export class ExportTaskManager extends EventEmitter {
       task.progress = 100;
       task.status = 'completed';
       this.log(task.id, 'file', stage.note, counts.failed.length ? 'warn' : 'info');
+      if (target) this.saveTasks();
     } catch (error) {
       if (abort.signal.aborted) {
         if (task.status === 'running') task.status = 'paused';
@@ -2087,8 +2128,16 @@ export class ExportTaskManager extends EventEmitter {
       }
     } finally {
       this.mediaTransfers.delete(task);
-      if (!task.resource?.resume || this.tasks.get(task.id)?.status === 'cancelled')
-        bundle?.discard();
+      try {
+        if (
+          (task.resource?.directDownload && task.status === 'completed') ||
+          !task.resource?.resume ||
+          this.tasks.get(task.id)?.status === 'cancelled'
+        )
+          bundle?.discard();
+      } catch {
+        this.log(task.id, 'file', '下载临时文件清理失败，删除任务时将重试。', 'warn');
+      }
       this.releaseTask(task);
       task.updatedAt = Date.now();
       this.saveTasks();
@@ -6804,6 +6853,12 @@ export class ExportTaskManager extends EventEmitter {
         recursive: true,
         force: true,
       });
+    if (task.resource?.directDownload) {
+      try {
+        this.clearDirectDownloadStage(task);
+      } catch {}
+      return;
+    }
     if (task.directOutput) return;
     if (task.archiveTargets || task.domainUpdate) {
       for (const path of [
