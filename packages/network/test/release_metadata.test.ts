@@ -61,7 +61,7 @@ describe('可经镜像传输的发布身份', () => {
     expect(() => verifyReleaseIndex(signed, 'weq-devs/dress-resources', [publicPem])).toThrow();
     expect(() => verifyReleaseIndex(signed, index.repository, [])).toThrow();
   });
-  it('签名不能掩盖资产哈希、重复文件或路径错误', () => {
+  it('签名不能掩盖资产或摘要的格式错误', () => {
     for (const change of [
       (index: ReleaseIndex) => {
         index.releases[0]!.assets[0]!.sha256 = 'a'.repeat(64);
@@ -71,6 +71,9 @@ describe('可经镜像传输的发布身份', () => {
       },
       (index: ReleaseIndex) => {
         index.releases[0]!.assets[0]!.name = '../file';
+      },
+      (index: ReleaseIndex) => {
+        index.releases[0]!.summary = '不是\n单行摘要';
       },
     ]) {
       const index = fixture();

@@ -8,9 +8,11 @@ import { fileURLToPath } from 'node:url';
 import {
   FEED_TAG,
   FEED_ASSET,
+  RELEASE_SUMMARY_MAX_CHARS,
   signReleaseIndex,
   verifyReleaseIndex,
 } from '../packages/network/src/release_metadata.mjs';
+import { extractSection } from './extract-changelog.mjs';
 
 const require = createRequire(new URL('../packages/network/package.json', import.meta.url));
 const semver = require('semver');
@@ -19,6 +21,18 @@ const metadataAsset = (name) =>
     name,
   );
 const hash = (text) => createHash('sha256').update(text).digest('hex');
+
+function releaseSummary(changelog, tag) {
+  const firstBullet = /^[-*][ \t]+(.+)$/m.exec(extractSection(changelog, tag))?.[1];
+  if (!firstBullet) return undefined;
+  const summary = firstBullet
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\*\*|`/g, '')
+    .trim();
+  return summary.length > RELEASE_SUMMARY_MAX_CHARS
+    ? `${summary.slice(0, RELEASE_SUMMARY_MAX_CHARS - 1)}…`
+    : summary;
+}
 
 export async function describeRelease(repository, release, readAsset) {
   if (release.draft !== false || !release.published_at || release.tag_name === FEED_TAG)
@@ -81,6 +95,7 @@ export async function publishReleaseFeed({
   publicKeys,
   api,
   readAsset,
+  readChangelog,
   upload,
 }) {
   // 缺签名密钥或与客户端公钥不匹配时，在任何远端写入之前失败。
@@ -116,8 +131,14 @@ export async function publishReleaseFeed({
   for (const release of candidates)
     if (!selected.has(release.prerelease)) selected.set(release.prerelease, release);
   const descriptions = [];
-  for (const release of selected.values())
-    descriptions.push(await describeRelease(repository, release, readAsset));
+  for (const release of selected.values()) {
+    const descriptor = await describeRelease(repository, release, readAsset);
+    if (repository.endsWith('/WeQ') && release.tag_name === tag && readChangelog) {
+      const summary = releaseSummary(await readChangelog(tag), tag);
+      if (summary) descriptor.summary = summary;
+    }
+    descriptions.push(descriptor);
+  }
   const index = mergeReleaseIndex(repository, previous, descriptions);
   const signed = signReleaseIndex(index, privateKey);
   verifyReleaseIndex(signed, repository, publicKeys);
@@ -207,6 +228,8 @@ async function main() {
     publicKeys,
     api,
     readAsset,
+    readChangelog: (tag) =>
+      execFileSync('git', ['show', `refs/tags/${tag}:CHANGELOG.md`], { encoding: 'utf8' }),
     upload,
   });
   console.log(

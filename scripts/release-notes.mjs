@@ -7,6 +7,7 @@
  * 「新功能 / 优化 / 修复」这类分类，语气轻松一点；整理结果同时供 Release 说明
  * 和 QQ 群通知使用（同一个 artifact，保证两处一致）。
  *
+ * 副标题和变更规模使用 CHANGELOG 原文，不交给模型改写。
  * 失败即回退：没有 API key、请求失败、返回为空、格式不合格时，原样输出 CHANGELOG
  * 章节并退出码 0 —— 发版流程不该因为一个 LLM 调用而中断。
  *
@@ -85,6 +86,18 @@ export function buildUserPrompt(version, section) {
   ].join('\n');
 }
 
+function separateNotes(section) {
+  const subtitles = [];
+  const scale = [];
+  const changes = [];
+  for (const line of section.split('\n')) {
+    if (/^###\s+\S/.test(line)) subtitles.push(line);
+    else if (/^\*\*变更规模\*\*[:：]/.test(line)) scale.push(line);
+    else changes.push(line);
+  }
+  return { subtitles, scale, changes: changes.join('\n').trim() };
+}
+
 /**
  * 清洗模型输出：剥掉代码围栏、`#` 标题、首尾多余空行。
  * 模型偶尔会自作主张加个 `## v2.6.0` 或包一层 ```markdown。
@@ -139,6 +152,8 @@ export async function generateReleaseNotes({
   if (!section?.trim()) return fallback('CHANGELOG 章节为空');
   if (!apiKey?.trim()) return fallback('未配置 RELEASE_NOTES_API_KEY');
   if (!model?.trim()) return fallback('未配置 RELEASE_NOTES_MODEL');
+  const { subtitles, scale, changes } = separateNotes(section);
+  if (!changes) return fallback('CHANGELOG 没有可整理的改动');
 
   const url = chatCompletionsUrl(baseUrl);
   log(`AI 整理版本说明：${model} @ ${url}`);
@@ -147,7 +162,7 @@ export async function generateReleaseNotes({
     model: model.trim(),
     messages: [
       { role: 'system', content: buildSystemPrompt() },
-      { role: 'user', content: buildUserPrompt(version, section) },
+      { role: 'user', content: buildUserPrompt(version, changes) },
     ],
     max_tokens: MAX_TOKENS,
     temperature: 0.7,
@@ -187,15 +202,16 @@ export async function generateReleaseNotes({
 
   const choice = data?.choices?.[0];
   const raw = choice?.message?.content;
-  const text = normalizeAiText(raw);
-  if (!text) {
+  const notes = normalizeAiText(raw);
+  if (!notes) {
     const reason =
       choice?.message?.reasoning_content && choice?.finish_reason === 'length'
         ? '模型输出被 max_tokens 截断，只有思维链没有正文'
         : '模型返回空正文';
     return fallback(reason);
   }
-  if (!isValidNotes(text)) return fallback('模型输出格式不合格（缺少分类标题或列表）');
+  if (!isValidNotes(notes)) return fallback('模型输出格式不合格（缺少分类标题或列表）');
+  const text = [...subtitles, notes, ...scale].join('\n\n');
   if (text.length > MAX_OUTPUT_CHARS) {
     warn(`AI 输出 ${text.length} 字，超过 ${MAX_OUTPUT_CHARS} 字软上限，仍然使用`);
   }

@@ -11,6 +11,8 @@ import {
 } from './release-notes.mjs';
 
 const SECTION = ['- 新增会话总日历', '- **聊天**：', '    - 修复切换会话时旧消息覆盖'].join('\n');
+const SUBTITLE = '### 在时间里慢慢翻页';
+const SCALE = '**变更规模**：增加 123 行，删除 45 行。';
 
 /** 假 fetch：按顺序返回给定响应，记录调用次数。 */
 function fakeFetch(responses) {
@@ -74,24 +76,32 @@ test('isValidNotes 要求分类标题 + 列表项，并挡住超长输出', () =
   assert.equal(isValidNotes(`**修复**\n- ${'长'.repeat(MAX_OUTPUT_CHARS * 2)}`), false);
 });
 
-test('extractSection 保留嵌套缩进，并在下一个标题处结束', () => {
+test('extractSection 保留副标题、段间空行和嵌套缩进，并在下一个版本处结束', () => {
   const raw = [
     '# Changelog',
+    '## Unreleased - 进行中',
+    '- 尚未发布',
     '## 2.6.0 - 2026-11-10',
+    SUBTITLE,
+    '',
     '- 父项',
     '    - 子项',
-    '## Unreleased - 进行中',
+    '',
+    SCALE,
+    '',
+    '## 2.5.0 - 2026-11-06',
     '- 不属于 2.6.0',
   ].join('\n');
-  assert.equal(extractSection(raw, 'v2.6.0'), '- 父项\n    - 子项');
+  assert.equal(extractSection(raw, 'v2.6.0'), `${SUBTITLE}\n\n- 父项\n    - 子项\n\n${SCALE}`);
   assert.equal(extractSection(raw, '2.6.1'), '');
 });
 
 test('没有 API key 或模型时直接回退原文，不发请求', async () => {
   const { calls, fetchImpl } = fakeFetch([okResponse('**修复**\n- x')]);
-  const noKey = await generateReleaseNotes({ version: 'v1.0.0', section: SECTION, fetchImpl });
+  const section = [SUBTITLE, SECTION, SCALE].join('\n\n');
+  const noKey = await generateReleaseNotes({ version: 'v1.0.0', section, fetchImpl });
   assert.equal(noKey.source, 'fallback');
-  assert.equal(noKey.text, SECTION);
+  assert.equal(noKey.text, section);
   assert.match(noKey.reason ?? '', /API_KEY/);
 
   const noModel = await generateReleaseNotes({
@@ -105,26 +115,30 @@ test('没有 API key 或模型时直接回退原文，不发请求', async () =>
   assert.equal(calls.length, 0);
 });
 
-test('成功时使用模型正文，请求体带上模型与整理提示', async () => {
+test('成功时整理改动条目，副标题和变更规模原样拼回', async () => {
   const { calls, fetchImpl } = fakeFetch([okResponse('**新功能**\n- 有了总日历')]);
   const result = await generateReleaseNotes({
     version: 'v2.6.0',
-    section: SECTION,
+    section: [SUBTITLE, SECTION, SCALE].join('\n\n'),
     apiKey: 'key-1',
     baseUrl: 'https://api.deepseek.com',
     model: 'deepseek-flash',
     fetchImpl,
   });
 
-  assert.deepEqual(result, { text: '**新功能**\n- 有了总日历', source: 'ai' });
+  assert.deepEqual(result, {
+    text: [SUBTITLE, '**新功能**\n- 有了总日历', SCALE].join('\n\n'),
+    source: 'ai',
+  });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://api.deepseek.com/v1/chat/completions');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer key-1');
   assert.equal(calls[0].body.model, 'deepseek-flash');
   assert.equal(calls[0].body.stream, false);
   assert.equal(calls[0].body.messages[0].role, 'system');
-  // 原文要原样带进 user prompt，模型才有事实依据。
-  assert.ok(calls[0].body.messages[1].content.includes(SECTION));
+  const prompt = calls[0].body.messages[1].content;
+  assert.ok(prompt.includes(SECTION));
+  assert.ok(!prompt.includes(SUBTITLE) && !prompt.includes(SCALE));
 });
 
 test('5xx 会重试，重试成功后用新结果', async () => {

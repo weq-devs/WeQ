@@ -93,6 +93,9 @@ export class ReleaseFeed {
           : Date.parse(b.publishedAt) - Date.parse(a.publishedAt),
       )[0];
   }
+  summary(version: string): string | undefined {
+    return [...this.snapshots.values()].find((item) => item.version === version)?.summary;
+  }
   async archive(version: string, name: string) {
     await this.load();
     const release = [...this.snapshots.values()].find(

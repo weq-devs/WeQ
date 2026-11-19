@@ -2,8 +2,7 @@
  * 新版本推文的封面与跳转页渲染 + 发布（当前唯一调用方是打包版应用内更新检查
  * 的「更新可用」推文，见 ./update_tweet.ts）。
  *
- * 推文内容约定（见仓库根 CHANGELOG.md）：正文 = CHANGELOG.md 里对应版本的章节；
- * 封面 / 页面只吃纯文本摘要（第一条 bullet），不解析 Markdown。
+ * 封面 / 页面只吃签名更新索引中的纯文本摘要，不解析 Markdown。
  *
  *   /p/update      → <docroot>/p/update.html
  *   /cover/update  → <docroot>/cover/update.png
@@ -25,7 +24,7 @@ export interface ReleasePageInput {
   version: string;
   /** 推文标题，如「WeQ 0.5.0 发布」。 */
   title: string;
-  /** 摘要（CHANGELOG 章节的第一条 bullet，纯文本）。 */
+  /** 对应版本的纯文本摘要。 */
   summary: string;
   /** GitHub release 页跳转地址。 */
   releaseUrl: string;

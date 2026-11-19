@@ -2,7 +2,7 @@
 /**
  * 从 CHANGELOG.md 里抽取某版本的章节纯文本（release 工作流专用）。
  *
- * 约定见 CHANGELOG.md 头部：`## <版本> [- 日期]` 开段，`-` 开头的行为 bullet。
+ * 约定见 AGENTS.md：`## <版本> [- 日期]` 开段，保留 `###` 副标题和正文。
  * 用法：`node scripts/extract-changelog.mjs v0.5.0 [CHANGELOG.md]`
  * 版本号带不带 `v` 前缀都接受。找不到章节时退出码 1（CI 里显式失败）。
  *
@@ -27,11 +27,12 @@ export function extractSection(raw, version) {
       if (heading && (heading[1] ?? '') === wanted) inSection = true;
       continue;
     }
-    // 保留行首缩进：CHANGELOG 里 `- 父项` 下面缩进的 `- 子项` 是嵌套列表，
-    // 剥掉缩进会让子项在 Release 说明 / QQ 通知里变成平级条目。
-    if (inSection && trimmed) section.push(line.replace(/\s+$/, ''));
+    // 保留嵌套缩进和段间空行：变更规模不能被 Markdown 并进最后一个列表项。
+    if (inSection && (!trimmed.startsWith('#') || /^###\s+\S/.test(trimmed))) {
+      section.push(line.trimEnd());
+    }
   }
-  return section.filter((l) => !/^\s*#/.test(l)).join('\n');
+  return section.join('\n').replace(/^\n+|\n+$/g, '');
 }
 
 /** CLI 入口判定：被 import 时不执行命令行逻辑。 */
