@@ -141,7 +141,7 @@ git checkout -b feat/your-feature
 
 ## 更新日志
 
-[`CHANGELOG.md`](./CHANGELOG.md) 是 GitHub Release 和 QQ 群发版通知的正文来源。发布工作流直接取对应版本的章节，不再改写、分类或缩句。开发者和 Agent 都按以下约定撰写。
+[`CHANGELOG.md`](./CHANGELOG.md) 是 GitHub Release 和 QQ 群发版通知的正文来源。发布工作流直接取对应版本的章节，不再改写、分类或缩句。GitHub Release 将开头的小标题放在下载表上方，群通知保留章节原顺序。开发者和 Agent 都按以下约定撰写。
 
 **日常开发**
 

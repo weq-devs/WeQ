@@ -971,6 +971,15 @@ jobs:
           set -euo pipefail
 
           SECTION=$(node scripts/extract-changelog.mjs "$TAG")
+          SUBTITLE=""
+          if [[ "$SECTION" == '### '* ]]; then
+            SUBTITLE=${SECTION%%$'\n'*}
+            SECTION=${SECTION#"$SUBTITLE"}
+            while [[ "$SECTION" == $'\n'* ]]; do
+              SECTION=${SECTION#$'\n'}
+            done
+            SUBTITLE+=$'\n\n'
+          fi
           DOCS_COMMIT=$(git rev-parse "${TAG}:docs")
           VERSION="${TAG#v}"
           ASSET_BASE="https://github.com/${REPO}/releases/download/${TAG}"
@@ -991,7 +1000,7 @@ jobs:
           fi
 
           NOTES=$(cat <<EOF
-          ## 下载 WeQ ${TAG}
+          ${SUBTITLE}## 下载 WeQ ${TAG}
 
           | 平台 | 桌面版 | 独立 Web 版 |
           | --- | --- | --- |
