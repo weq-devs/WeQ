@@ -14,6 +14,7 @@
     "./managed-download": "./src/common/managed_download.ts",
     "./model-store": "./src/common/model_store.ts",
     "./atomic-write": "./src/common/atomic_write.ts",
+    "./json-store": "./src/common/json_store.ts",
     "./assistant-config": "./src/account/assistant_config.ts",
     "./ocr-models": "./src/common/ocr_models.ts",
     "./ocr-cache": "./src/common/ocr_cache.ts",

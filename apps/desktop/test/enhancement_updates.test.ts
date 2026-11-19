@@ -20,6 +20,8 @@ import {
 } from '../src/shared/enhancement_release';
 import { backgroundTasks } from '../src/main/background_tasks';
 import {
+  forgetEnhancementTask,
+  restoreEnhancementTasks,
   startEnhancementDownloads,
   trackEnhancementPreparation,
 } from '../src/main/enhancements/tasks';
@@ -288,6 +290,49 @@ it('同步准备观察者与手动入口共用一条记录，创建意图在完�
   await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).not.toBe('running'));
   expect(backgroundTasks.snapshot()).toHaveLength(1);
   expect(backgroundTasks.snapshot()[0]?.display).toEqual(tasks[0]?.display);
+});
+
+it('重启找回暂停的增强包，自动安装只检查，手动继续才接回原任务', async () => {
+  const first = await fixture();
+  const firstDirectory = join(first.root, 'enhancements');
+  restoreEnhancementTasks(first.packs, firstDirectory);
+  const gate = Promise.withResolvers<void>();
+  const ensure = first.ensure.getMockImplementation()!;
+  first.ensure.mockImplementationOnce(async () => {
+    await gate.promise;
+    return ensure();
+  });
+  await startEnhancementDownloads(first.packs, ['dress']);
+  const id = backgroundTasks.snapshot()[0]!.id;
+  await vi.waitFor(() => expect(first.ensure).toHaveBeenCalledOnce());
+  await backgroundTasks.act(id, 'pause');
+  await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).toBe('paused'));
+  const saved = await readFile(join(firstDirectory, 'download-tasks.json'));
+  await backgroundTasks.act(id, 'continue');
+  gate.resolve();
+  await first.packs.wait();
+  await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).toBe('completed'));
+  backgroundTasks.remove(id);
+
+  const restarted = await fixture();
+  restarted.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+  const directory = join(restarted.root, 'enhancements');
+  await writeFile(join(directory, 'download-tasks.json'), saved);
+  restoreEnhancementTasks(restarted.packs, directory);
+  expect(backgroundTasks.snapshot()[0]).toMatchObject({
+    id,
+    status: 'paused',
+    display: { action: '更新增强包' },
+  });
+  await restarted.controller.check(['dress'], true);
+  expect(restarted.ensure).not.toHaveBeenCalled();
+  await backgroundTasks.act(id, 'continue');
+  await restarted.packs.wait();
+  await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).toBe('completed'));
+  expect(restarted.ensure).toHaveBeenCalledOnce();
+  expect(backgroundTasks.snapshot()).toHaveLength(1);
+  expect(forgetEnhancementTask(restarted.packs, id)).toBe(true);
+  expect(JSON.parse(await readFile(join(directory, 'download-tasks.json'), 'utf8'))).toEqual({});
 });
 
 it('同版统一清单存在但损坏时不改读旧格式或更旧版本', async () => {

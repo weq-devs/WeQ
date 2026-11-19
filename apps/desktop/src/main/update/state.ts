@@ -76,7 +76,9 @@ export interface UpdateActions {
   getPrerelease(): boolean;
   setPrerelease(enabled: boolean): void;
   check(force: boolean): Promise<UpdateState>;
+  assertDownloadAvailable?(): void;
   startDownload(): Promise<void>;
+  forgetDownloadTask?(id: string): boolean;
   quitAndInstall(): void;
   /** False when this host can't self-update, so the UI can hide the card. */
   readonly supported: boolean;

@@ -1,16 +1,95 @@
-import type { EnhancementPackId } from '../../shared/enhancement_manifest';
+import { JsonStore } from '@weq/service/json-store';
+import { z } from 'zod';
+import { join } from 'node:path';
+import { ENHANCEMENT_PACK_IDS, type EnhancementPackId } from '../../shared/enhancement_manifest';
 import type { EnhancementPacks, PackOperation } from './packs';
-import { backgroundTasks, runBackgroundTask } from '../background_tasks';
+import { backgroundTasks, taskError } from '../background_tasks';
+import { downloadTaskReceipt, downloadTaskSnapshot } from '../download_task_receipt';
 
 interface PreparationTaskPort {
   list(): Promise<
     Array<{ id: EnhancementPackId; ready: boolean; operation?: PackOperation | null }>
   >;
   waitFor(id: EnhancementPackId): Promise<void>;
+  start?(ids: readonly EnhancementPackId[]): void;
+  pause?(id: EnhancementPackId): void;
   resume?(id: EnhancementPackId): void;
 }
 const pending = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, Promise<void>>>();
 const requestedActions = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, string>>();
+const enhancementReceipt = downloadTaskReceipt.extend({ name: z.string(), action: z.string() });
+const enhancementReceipts = z.record(z.enum(ENHANCEMENT_PACK_IDS), enhancementReceipt);
+const stores = new WeakMap<PreparationTaskPort, JsonStore<z.infer<typeof enhancementReceipts>>>();
+
+function presentation(name: string, action: string) {
+  return {
+    kind: 'model' as const,
+    name,
+    destination: 'enhancement-packs' as const,
+    display: { action, subject: name, category: '增强包' },
+  };
+}
+
+export function restoreEnhancementTasks(packs: EnhancementPacks, directory: string) {
+  if (stores.has(packs)) return;
+  const store = new JsonStore<z.infer<typeof enhancementReceipts>>(
+    join(directory, 'download-tasks.json'),
+    () => ({}),
+    {
+      normalize: (value) => enhancementReceipts.parse(value),
+    },
+  );
+  stores.set(packs, store);
+  for (const id of ENHANCEMENT_PACK_IDS) {
+    const saved = store.data[id];
+    if (!saved) continue;
+    const status = saved.status === 'running' ? 'paused' : saved.status;
+    backgroundTasks.project(
+      {
+        ...saved,
+        ...presentation(saved.name, saved.action),
+        status,
+        statusLabel: status === 'paused' ? '等待继续' : saved.statusLabel,
+        note:
+          status === 'paused' ? '上次准备已中断，继续时会复核兼容版本并复用可用资源。' : saved.note,
+        actions: [],
+      },
+      status === 'paused' || status === 'failed'
+        ? [
+            {
+              id: status === 'paused' ? 'continue' : 'retry',
+              label: status === 'paused' ? '继续下载' : '重试',
+              run: async () => {
+                await startEnhancementDownloads(packs, [id]);
+                if (status === 'paused') packs.resume(id);
+              },
+            },
+          ]
+        : [],
+    );
+  }
+}
+
+export function enhancementTaskNeedsInput(packs: EnhancementPacks, id: EnhancementPackId) {
+  const status = stores.get(packs)?.data[id]?.status;
+  return status === 'running' || status === 'paused' || status === 'failed';
+}
+
+export function forgetEnhancementTask(packs: EnhancementPacks, taskId: string): boolean {
+  const store = stores.get(packs);
+  const id = ENHANCEMENT_PACK_IDS.find((key) => store?.data[key]?.id === taskId);
+  if (!store || !id) return true;
+  if (packs.isPreparing(id) || pending.get(packs)?.has(id)) return false;
+  const next = { ...store.data };
+  delete next[id];
+  store.replace(next, true);
+  return true;
+}
+
+export function forgetRemovedPackTask(packs: EnhancementPacks, id: EnhancementPackId) {
+  const taskId = stores.get(packs)?.data[id]?.id;
+  if (taskId && forgetEnhancementTask(packs, taskId)) backgroundTasks.remove(taskId);
+}
 
 export async function startEnhancementDownloads(
   packs: EnhancementPacks,
@@ -43,8 +122,9 @@ export async function startEnhancementDownloads(
     requestedActions.delete(packs);
   }
   for (const id of ids) {
-    const pack = previous.find((entry) => entry.id === id)!;
-    void trackEnhancementPreparation(packs, id, pack.name, actions.get(id)).catch(() => {});
+    const pack = previous.find((entry) => entry.id === id);
+    if (pack)
+      void trackEnhancementPreparation(packs, id, pack.name, actions.get(id)).catch(() => {});
   }
 }
 
@@ -62,81 +142,113 @@ export function trackEnhancementPreparation(
   }
   const existing = tasks.get(id);
   if (existing) return existing;
-  const task = runBackgroundTask(
-    {
-      kind: 'model',
-      name,
-      destination: 'enhancement-packs',
-      display: { action, subject: name, category: '增强包' },
-    },
-    async (taskId) => {
-      let polling = true;
-      const update = async () => {
-        const current = (await packs.list()).find((entry) => entry.id === id);
-        if (!polling) return;
-        const operation = current?.operation;
-        if (operation?.paused) {
-          backgroundTasks.finish(taskId, 'paused', {
-            statusLabel: operation.pauseReasons?.includes('user')
-              ? '已暂停'
-              : operation.pauseReasons?.includes('resume-required')
-                ? '等待继续'
-                : '省流量模式已暂停',
-          });
-          backgroundTasks.setActions(
-            taskId,
-            packs.resume
-              ? [{ id: 'continue', label: '继续下载', run: () => packs.resume?.(id) }]
-              : [],
-          );
-        } else {
-          backgroundTasks.resume(taskId);
-          backgroundTasks.setActions(
-            taskId,
-            'pause' in packs
-              ? [{ id: 'pause', label: '暂停', run: () => (packs as EnhancementPacks).pause(id) }]
-              : [],
-          );
-        }
-        backgroundTasks.update(taskId, {
-          progress: operation?.total
-            ? Math.min(99, (operation.received / operation.total) * 100)
-            : undefined,
-          note: `${operation?.retryAt && operation.retryAt > Date.now() ? '等待自动重试' : (operation?.note ?? (operation?.phase === 'queued' ? '等待准备' : '检查资源'))}${operation?.source ? ` · ${operation.source}` : ''}${operation?.total ? ` · ${(operation.received / 1048576).toFixed(1)} / ${(operation.total / 1048576).toFixed(1)} MiB` : ''}`,
-        });
+  const store = stores.get(packs);
+  const saved = store?.data[id];
+  const useSaved =
+    saved &&
+    (saved.status === 'running' || saved.status === 'paused' || saved.status === 'failed') &&
+    backgroundTasks.snapshot().some((entry) => entry.id === saved.id);
+  const taskId = useSaved ? saved.id : backgroundTasks.start(presentation(name, action));
+  if (useSaved) action = saved.action;
+  const persist = () => {
+    const task = backgroundTasks.snapshot().find((entry) => entry.id === taskId);
+    if (!task || !store) return;
+    const previous = store.data[id];
+    if (
+      previous?.id === taskId &&
+      previous.status === task.status &&
+      previous.statusLabel === task.statusLabel
+    )
+      return;
+    try {
+      store.replace({ ...store.data, [id]: { ...downloadTaskSnapshot(task), name, action } }, true);
+    } catch (error) {
+      console.warn('[增强包] 任务记录保存失败', error);
+    }
+  };
+  const pause = { id: 'pause', label: '暂停', run: () => packs.pause?.(id) };
+  backgroundTasks.resume(taskId);
+  backgroundTasks.setActions(taskId, packs.pause ? [pause] : []);
+  persist();
+  let polling = true;
+  let updating = false;
+  const update = async () => {
+    if (updating) return;
+    updating = true;
+    try {
+      const current = (await packs.list()).find((entry) => entry.id === id);
+      if (!polling) return;
+      const operation = current?.operation;
+      const patch = {
+        progress: operation?.total
+          ? Math.min(99, (operation.received / operation.total) * 100)
+          : undefined,
+        note: `${operation?.retryAt && operation.retryAt > Date.now() ? '等待自动重试' : (operation?.note ?? (operation?.phase === 'queued' ? '等待准备' : '检查资源'))}${operation?.source ? ` · ${operation.source}` : ''}${operation?.total ? ` · ${(operation.received / 1048576).toFixed(1)} / ${(operation.total / 1048576).toFixed(1)} MiB` : ''}`,
       };
-      const timer = setInterval(() => {
-        void update().catch(() => {});
-      }, 750);
-      try {
-        await packs.waitFor(id);
-        const current = (await packs.list()).find((entry) => entry.id === id);
+      if (operation?.paused) {
+        backgroundTasks.finish(taskId, 'paused', {
+          ...patch,
+          statusLabel: operation.pauseReasons?.includes('user')
+            ? '已暂停'
+            : operation.pauseReasons?.includes('resume-required')
+              ? '等待继续'
+              : '省流量模式已暂停',
+        });
+        backgroundTasks.setActions(
+          taskId,
+          packs.resume
+            ? [{ id: 'continue', label: '继续下载', run: () => packs.resume?.(id) }]
+            : [],
+        );
+      } else {
         backgroundTasks.resume(taskId);
-        backgroundTasks.setActions(taskId, []);
-        if (!current?.ready || current.operation?.phase === 'failed')
-          throw new Error(current?.operation?.error ?? '增强包未准备完成');
-      } finally {
-        polling = false;
-        clearInterval(timer);
+        backgroundTasks.update(taskId, patch);
+        backgroundTasks.setActions(
+          taskId,
+          packs.pause && operation?.phase !== 'installing' ? [pause] : [],
+        );
       }
-    },
-    () => ({ note: '增强包已就绪' }),
-  )
-    .catch((error: unknown) => {
-      const task = backgroundTasks
-        .snapshot()
-        .findLast((entry) => entry.kind === 'model' && entry.name === name);
-      if (task && 'start' in packs)
-        backgroundTasks.setActions(task.id, [
-          {
-            id: 'retry',
-            label: '重试',
-            run: () => startEnhancementDownloads(packs as EnhancementPacks, [id]),
-          },
-        ]);
+      persist();
+    } finally {
+      updating = false;
+    }
+  };
+  const timer = setInterval(() => void update().catch(() => {}), 750);
+  const task = (async () => {
+    try {
+      await packs.waitFor(id);
+      const current = (await packs.list()).find((entry) => entry.id === id);
+      if (!current?.ready || current.operation?.phase === 'failed')
+        throw new Error(current?.operation?.error ?? '增强包未准备完成');
+      backgroundTasks.resume(taskId);
+      backgroundTasks.finish(taskId, 'completed', { note: '增强包已就绪' });
+      backgroundTasks.setActions(taskId, []);
+    } catch (error) {
+      backgroundTasks.resume(taskId);
+      backgroundTasks.finish(taskId, 'failed', { note: taskError(error) });
+      backgroundTasks.setActions(
+        taskId,
+        packs.start
+          ? [
+              {
+                id: 'retry',
+                label: '重试',
+                run: () => {
+                  packs.start?.([id]);
+                  void trackEnhancementPreparation(packs, id, name, action).catch(() => {});
+                },
+              },
+            ]
+          : [],
+      );
       throw error;
-    })
-    .finally(() => tasks!.delete(id));
+    } finally {
+      polling = false;
+      clearInterval(timer);
+      persist();
+      tasks!.delete(id);
+    }
+  })();
   tasks.set(id, task);
   return task;
 }

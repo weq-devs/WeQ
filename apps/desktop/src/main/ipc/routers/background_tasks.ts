@@ -5,6 +5,8 @@ import { procedure, router } from '../trpc';
 import { hideAnalysisReportTask, restoreAnalysisReportTasks } from './analysis_reports';
 import { getAppContext } from '../../context/app_context';
 import { removeCalendarTask, restoreCalendarTasks } from './conversation_calendar';
+import { getUpdateActions } from '../../update/state';
+import { forgetEnhancementTask } from '../../enhancements/tasks';
 
 const scope = z.object({ uin: z.string(), configId: z.string().optional() }).nullable();
 const ref = z.object({ id: z.string().uuid(), scope });
@@ -47,31 +49,42 @@ export const backgroundTasksRouter = router({
     const task = backgroundTasks.snapshot().find((task) => task.id === input.id);
     if (!task || !backgroundTaskVisible(task, input.scope)) throw new Error('任务已失效');
     if (ctx.authorize && input.action === 'open') throw new Error('请在桌面端定位本机文件');
+    if (ctx.authorize && task.kind === 'update') throw new Error('仅允许桌面端管理应用更新。');
     await backgroundTasks.act(input.id, input.action);
     return true;
   }),
-  remove: procedure.input(ref.extend({ updatedAt: z.number() })).mutation(async ({ input }) => {
-    const task = backgroundTasks.snapshot().find((task) => task.id === input.id);
-    if (
-      !task ||
-      task.status === 'running' ||
-      !backgroundTaskVisible(task, input.scope) ||
-      task.updatedAt !== input.updatedAt
-    )
-      return false;
-    if (task.kind === 'contacts') {
-      const services = getAppContext().services;
-      const account = services?.accountConfig.getRecord();
-      if (account?.uin !== task.scope?.uin || account?.configId !== task.scope?.configId)
+  remove: procedure
+    .input(ref.extend({ updatedAt: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const task = backgroundTasks.snapshot().find((task) => task.id === input.id);
+      if (
+        !task ||
+        task.status === 'running' ||
+        !backgroundTaskVisible(task, input.scope) ||
+        task.updatedAt !== input.updatedAt
+      )
         return false;
-      await services?.contactDirectory?.removeRefreshTask(task.id);
-    }
-    if (task.kind === 'calendar' && !removeCalendarTask(task)) return false;
-    if (task.kind === 'analysis' && task.reportId) {
-      await hideAnalysisReportTask(task.reportId);
-      backgroundTasks.remove(input.id, task);
-      return true;
-    }
-    return backgroundTasks.remove(input.id, task);
-  }),
+      if (task.kind === 'contacts') {
+        const services = getAppContext().services;
+        const account = services?.accountConfig.getRecord();
+        if (account?.uin !== task.scope?.uin || account?.configId !== task.scope?.configId)
+          return false;
+        await services?.contactDirectory?.removeRefreshTask(task.id);
+      }
+      if (task.kind === 'calendar' && !removeCalendarTask(task)) return false;
+      if (task.kind === 'update') {
+        if (ctx.authorize || getUpdateActions().forgetDownloadTask?.(task.id) === false)
+          return false;
+      }
+      if (task.kind === 'model' && task.destination === 'enhancement-packs') {
+        const packs = getAppContext().bootstrap?.enhancements?.packs;
+        if (packs && !forgetEnhancementTask(packs, task.id)) return false;
+      }
+      if (task.kind === 'analysis' && task.reportId) {
+        await hideAnalysisReportTask(task.reportId);
+        backgroundTasks.remove(input.id, task);
+        return true;
+      }
+      return backgroundTasks.remove(input.id, task);
+    }),
 });

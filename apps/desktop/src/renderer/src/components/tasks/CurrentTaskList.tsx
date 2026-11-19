@@ -771,11 +771,14 @@ export function CurrentTaskList({
       ),
     });
   }
+  const desktopOnlyIds = new Set<string>();
   for (const entry of background.tasks) {
     const task = entry.task;
+    const canManageTask = !IS_WEB || task.kind !== 'update';
+    if (!canManageTask) desktopOnlyIds.add(backgroundTaskId(entry));
     const display = backgroundTaskDisplay(task);
     const Icon = BACKGROUND_TASK_ICONS[task.kind];
-    const actions: TaskQuickAction[] = task.actions.map((action) => ({
+    const actions: TaskQuickAction[] = (canManageTask ? task.actions : []).map((action) => ({
       id: action.id,
       label: action.label,
       icon: <BackgroundTaskActionIcon id={action.id} />,
@@ -798,7 +801,7 @@ export function CurrentTaskList({
     }));
     const navigation = backgroundTaskNavigation(task);
     if (navigation) actions.unshift(navigation);
-    if (task.status !== 'running')
+    if (canManageTask && task.status !== 'running')
       actions.push({
         id: 'remove',
         label: '移除任务',
@@ -872,7 +875,8 @@ export function CurrentTaskList({
   /** 已结束的任务都可移除；进行中、等待和可续传的暂停任务保留。 */
   const finished = items.filter(
     (task) =>
-      task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled',
+      !desktopOnlyIds.has(task.id) &&
+      (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled'),
   );
   const clearFinished = async (): Promise<void> => {
     if (clearingRef.current || !cleanupBinding || !finished.length) return;

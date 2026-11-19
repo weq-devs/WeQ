@@ -867,8 +867,10 @@ void app.whenReady().then(async () => {
     })
     .catch(() => undefined);
   const userConfig = getAppContext().bootstrap?.userConfig;
-  configureReleaseFeeds(userConfig?.appDataRoot() ?? app.getPath('userData'));
+  const updateDataRoot = userConfig?.appDataRoot() ?? app.getPath('userData');
+  configureReleaseFeeds(updateDataRoot);
   installUpdateActions({
+    dataRoot: updateDataRoot,
     getInterval: () => userConfig?.getSettings().updateCheckIntervalMinutes ?? 60,
     setInterval: (minutes) => {
       if (!userConfig) throw new Error('配置尚未准备好，请稍后重试');

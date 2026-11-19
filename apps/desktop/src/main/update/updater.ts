@@ -16,6 +16,8 @@
  */
 
 import { app } from 'electron';
+import { z } from 'zod';
+import { JsonStore } from '@weq/service/json-store';
 import { TransferGate, shouldPauseTransfer } from '@weq/service/data-saver';
 import { transferBehavior } from '@weq/service/network-scope';
 import {
@@ -26,9 +28,11 @@ import {
 } from '@weq/service/transfer-policy';
 import { refreshTransferPolicy, hostDataSaver } from '../data_saver';
 import { backgroundTasks } from '../background_tasks';
+import { downloadTaskReceipt, downloadTaskSnapshot } from '../download_task_receipt';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
 import { UpdateCheckScheduler } from './scheduler';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import semver from 'semver';
 import electronUpdater from 'electron-updater';
 import { FILE_MIRRORS, resolveBestMirror } from './mirrors';
@@ -87,6 +91,8 @@ export function setCheckPrerelease(enabled: boolean): void {
   setUpdateState(null);
   downloaded = false;
   macPlan = null;
+  clearInstallTaskActions();
+  restoreUpdateTask();
 }
 
 function isDev(): boolean {
@@ -172,6 +178,87 @@ let downloading = false;
 let macVerifiedArchive = false;
 let archiveDownload: { file: string; version: string } | null = null;
 let macPlan: MacUpdatePlan | null = null;
+let activeTaskId: string | undefined;
+let latestTaskId: string | undefined;
+let lastDownload: UpdateReceipt | undefined;
+const updateReceipt = downloadTaskReceipt.extend({
+  version: z
+    .string()
+    .refine((value) => !!semver.valid(value))
+    .optional(),
+  channel: z.string().optional(),
+  includePrerelease: z.boolean(),
+});
+type UpdateReceipt = z.infer<typeof updateReceipt>;
+let downloadStore: JsonStore<{ current?: UpdateReceipt }> | undefined;
+
+function updatePresentation(version?: string) {
+  return {
+    kind: 'update' as const,
+    name: '下载 WeQ 更新',
+    display: { action: '下载 WeQ 更新', subject: version },
+  };
+}
+
+function restoreUpdateTask() {
+  const saved = lastDownload;
+  if (!saved) return;
+  const { version, channel: _channel, includePrerelease, ...task } = saved;
+  latestTaskId = saved.id;
+  const installed = version !== undefined && !isNewer(version, app.getVersion());
+  const channelChanged = includePrerelease !== preferences.get();
+  const managed = packageManaged();
+  const matches = !installed && !channelChanged && !managed;
+  const status = matches
+    ? saved.status === 'failed'
+      ? 'failed'
+      : 'paused'
+    : installed && saved.status === 'completed'
+      ? 'completed'
+      : 'cancelled';
+  backgroundTasks.project(
+    {
+      ...task,
+      ...updatePresentation(version),
+      status,
+      statusLabel: status === 'paused' ? '等待继续' : undefined,
+      note: installed
+        ? '当前 WeQ 已达到该版本，无需继续下载。'
+        : managed
+          ? '当前由包管理器维护，请通过包管理器更新。'
+          : channelChanged
+            ? '更新渠道已变更，请在版本与更新中重新检查。'
+            : status === 'paused'
+              ? '继续时会重新核对版本；完整的安装包可校验复用，未完成的会重新下载。'
+              : saved.note,
+      actions: [],
+    },
+    matches ? [retryUpdateAction(saved.id, status === 'failed' ? 'retry' : 'continue')] : [],
+  );
+}
+
+function forgetDownloadTask(id: string) {
+  if (activeTaskId === id) return false;
+  if (downloadStore?.data.current?.id === id) downloadStore.replace({}, true);
+  if (lastDownload?.id === id) lastDownload = undefined;
+  return true;
+}
+
+function clearInstallTaskActions() {
+  if (latestTaskId) backgroundTasks.setActions(latestTaskId, []);
+}
+
+function retryUpdateAction(id: string, action: 'retry' | 'continue') {
+  return {
+    id: action,
+    label: action === 'retry' ? '重试下载' : '继续下载',
+    run: () => {
+      assertDownloadAvailable();
+      if (lastDownload?.id !== id) throw new Error('更新任务已变更，请重新检查更新');
+      void startDownload(id).catch(() => {});
+    },
+  };
+}
 
 function installFailed(error: unknown): void {
   installing = false;
@@ -220,39 +307,44 @@ function wireAutoUpdater(): void {
 }
 
 /** One download attempt against a single mirror base. Resolves on success. */
-function attemptDownload(base: string): Promise<void> {
+const UPDATE_PAUSED = new Error('更新下载已暂停');
+function attemptDownload(base: string, state: UpdateState): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
+    let paused = false;
     const onError = (e: Error): void => finish(e);
     const finish = (err?: Error): void => {
       if (settled) return;
       settled = true;
+      cancelDownload = undefined;
       autoUpdater.off('error', onError);
-      if (err) reject(err);
+      if (err) reject(paused ? UPDATE_PAUSED : err);
       else resolve();
     };
 
     autoUpdater.on('error', onError);
     autoUpdater.setFeedURL({ provider: 'generic', url: base });
-    autoUpdater.allowPrerelease = getUpdateState()?.includePrerelease === true;
-    autoUpdater.channel = getUpdateState()?.channel ?? 'latest';
+    autoUpdater.allowPrerelease = state.includePrerelease === true;
+    autoUpdater.channel = state.channel ?? 'latest';
     autoUpdater.allowDowngrade = false;
     autoUpdater
       .checkForUpdates()
       .then((result) => {
         if (!result?.updateInfo) throw new Error('未获取到更新信息');
-        if (result.updateInfo.version !== getUpdateState()?.latest)
+        if (result.updateInfo.version !== state.latest)
           throw new Error('下载源返回了不同版本的更新清单');
         const token = result.cancellationToken;
         if (!token) throw new Error('更新器未提供可取消的下载任务');
-        cancelDownload = () => token.cancel();
+        cancelDownload = () => {
+          if (paused) return;
+          paused = true;
+          token.cancel();
+        };
         const sizes = result.updateInfo.files?.map((file) => file.size ?? 0) ?? [];
         const size = Math.max(0, ...sizes);
         if (size > 0) updateSizePolicy?.(size);
-        if (updateGate?.paused) {
-          token.cancel();
-          throw new Error('省流量模式已暂停');
-        }
+        if (updateGate?.paused) cancelDownload?.();
+        if (paused) throw UPDATE_PAUSED;
         return autoUpdater.downloadUpdate(token);
       })
       .then(() => finish())
@@ -265,28 +357,71 @@ function attemptDownload(base: string): Promise<void> {
  * Progress + the terminal `downloaded` event reach the renderer over
  * `updateBus`. A total failure emits an `error` event and rejects.
  */
-export async function startDownload(): Promise<void> {
+function assertDownloadAvailable() {
   if (isDev()) throw new Error('开发模式不支持自更新，请使用打包后的安装版。');
   // 包管理器托管的副本没有可写的安装目录：与其让 autoUpdater 在全部镜像上
   // 失败一遍（Linux 走 AppImageUpdater，`$APPIMAGE` 不存在），不如直接给出正解。
   if (packageManaged()) throw new Error(managedUpdateHint(true) ?? '当前安装不支持自动更新。');
+}
+
+export async function startDownload(resumeId?: string): Promise<void> {
+  assertDownloadAvailable();
   if (downloading || installing) return;
+  const saved = lastDownload;
+  const savedTask = saved && backgroundTasks.snapshot().find((task) => task.id === saved.id);
+  const check = getUpdateState();
+  const includePrerelease = preferences.get();
+  let version = check?.hasUpdate ? (check.latest ?? undefined) : undefined;
+  let channel = version ? (check?.channel ?? 'latest') : undefined;
+  const reuse =
+    savedTask &&
+    saved &&
+    savedTask.status !== 'cancelled' &&
+    saved.includePrerelease === includePrerelease &&
+    (resumeId === saved.id ||
+      (savedTask.status !== 'completed' &&
+        (!version ||
+          !saved.version ||
+          (saved.version === version && (!saved.channel || saved.channel === channel)))));
+  if (resumeId && !reuse) throw new Error('更新任务已变更，请重新检查更新');
+  if (reuse && saved.version) version = saved.version;
+  if (reuse && saved.channel) channel = saved.channel;
+  const expectedVersion = version;
+  const expectedChannel = channel;
   downloading = true;
   downloaded = false;
-  try {
-    await refreshTransferPolicy();
-  } catch (error) {
-    downloading = false;
-    throw error;
-  }
-  const owner = transferOwner();
+  clearInstallTaskActions();
+  const taskId = reuse ? saved.id : backgroundTasks.start(updatePresentation(version));
+  latestTaskId = taskId;
+  activeTaskId = taskId;
+  backgroundTasks.resume(taskId);
+  backgroundTasks.update(taskId, { progress: undefined, note: undefined });
+  const persist = () => {
+    const task = backgroundTasks.snapshot().find((item) => item.id === taskId);
+    if (!task) return;
+    lastDownload = { ...downloadTaskSnapshot(task), version, channel, includePrerelease };
+    if (!downloadStore) return;
+    const previous = downloadStore.data.current;
+    if (
+      previous?.id === taskId &&
+      previous.status === task.status &&
+      previous.version === version &&
+      previous.channel === channel &&
+      previous.statusLabel === task.statusLabel &&
+      Math.floor((previous.progress ?? 0) / 10) === Math.floor((task.progress ?? 0) / 10)
+    )
+      return;
+    try {
+      downloadStore.replace({ current: lastDownload }, true);
+    } catch (error) {
+      console.warn('[更新] 任务记录保存失败', error);
+    }
+  };
+  persist();
   const gate = new TransferGate();
+  if (resumeId && savedTask?.status === 'paused') gate.continue();
   updateGate = gate;
-  const taskId = backgroundTasks.start({
-    kind: 'update',
-    name: '下载 WeQ 更新',
-    display: { action: '下载 WeQ 更新', subject: getUpdateState()?.latest ?? undefined },
-  });
+  let owner = transferOwner();
   let total = 0;
   let received = 0;
   let policyPaused = false;
@@ -327,6 +462,7 @@ export async function startDownload(): Promise<void> {
         },
       ]);
     }
+    persist();
   };
   const progressPolicy = (progress: UpdateProgress) => {
     total = progress.total;
@@ -336,43 +472,77 @@ export async function startDownload(): Promise<void> {
       progress: total > 0 ? (received / total) * 100 : undefined,
       note: `${(received / 1048576).toFixed(1)} / ${total > 0 ? (total / 1048576).toFixed(1) : '未知'} MiB`,
     });
+    persist();
   };
   updateSizePolicy = (bytes) => {
     total = bytes;
     updatePolicy();
   };
-  updateBus.on('progress', progressPolicy);
-  const unwatch = watchTransferPolicy(updatePolicy);
-  updatePolicy();
+  let unwatch: (() => void) | undefined;
   try {
-    await downloadUpdate();
-    backgroundTasks.finish(taskId, 'completed');
+    await refreshTransferPolicy();
+    owner = transferOwner();
+    updateBus.on('progress', progressPolicy);
+    unwatch = watchTransferPolicy(updatePolicy);
+    updatePolicy();
+    await downloadUpdate(expectedVersion, expectedChannel, (latest, selectedChannel) => {
+      version = latest;
+      channel = selectedChannel;
+      backgroundTasks.update(taskId, { display: updatePresentation(latest).display });
+      persist();
+    });
+    backgroundTasks.resume(taskId);
+    backgroundTasks.finish(taskId, 'completed', { note: '更新包已下载，等待重启安装' });
+    backgroundTasks.setActions(taskId, [
+      {
+        id: 'install',
+        label: '重启并安装',
+        run: () => {
+          if (latestTaskId !== taskId) throw new Error('请选择当前已下载的更新');
+          quitAndInstall();
+        },
+      },
+    ]);
   } catch (error) {
     backgroundTasks.resume(taskId);
-    backgroundTasks.finish(taskId, 'failed', { note: String(error) });
     const message = error instanceof Error ? error.message : String(error);
+    backgroundTasks.finish(taskId, 'failed', { note: message });
+    backgroundTasks.setActions(taskId, [retryUpdateAction(taskId, 'retry')]);
     updateBus.emit('event', { kind: 'error', message } satisfies UpdateEvent);
     throw error;
   } finally {
-    unwatch();
+    unwatch?.();
     updateBus.off('progress', progressPolicy);
     cancelDownload = undefined;
     updateGate = undefined;
     updateSizePolicy = undefined;
-    backgroundTasks.setActions(taskId, []);
+    persist();
+    activeTaskId = undefined;
     downloading = false;
   }
 }
 
-async function downloadUpdate(): Promise<void> {
+async function downloadUpdate(
+  expectedVersion: string | undefined,
+  expectedChannel: string | undefined,
+  target: (version: string, channel: string) => void,
+): Promise<void> {
   if (!getUpdateState()?.hasUpdate) {
     await checkForUpdate(true);
   }
   const state = getUpdateState();
   const ranked = state?.ranked ?? [];
-  if (!state?.hasUpdate || ranked.length === 0) {
+  if (!state?.hasUpdate || !state.latest || ranked.length === 0) {
     throw new Error('当前已是最新版本或没有可用的更新源。');
   }
+  if (expectedVersion && state.latest !== expectedVersion)
+    throw new Error(
+      `原任务是 ${expectedVersion}，当前可用版本为 ${state.latest}；请在版本与更新中明确发起新下载。`,
+    );
+  const channel = state.channel ?? 'latest';
+  if (expectedChannel && channel !== expectedChannel)
+    throw new Error('原任务的更新渠道已变更，请在版本与更新中明确发起新下载。');
+  target(state.latest, channel);
 
   macVerifiedArchive = usesMacVerifiedArchiveUpdater();
   archiveDownload = null;
@@ -395,10 +565,10 @@ async function downloadUpdate(): Promise<void> {
       for (;;) {
         await updateGate?.wait();
         try {
-          await attemptDownload(base);
+          await attemptDownload(base, state);
           break;
         } catch (error) {
-          if (!updateGate?.paused) throw error;
+          if (error !== UPDATE_PAUSED && !updateGate?.paused) throw error;
         }
       }
       success = true;
@@ -412,7 +582,8 @@ async function downloadUpdate(): Promise<void> {
   if (macVerifiedArchive) {
     // 下载事件只说明 ZIP 已落地；官方哈希与固定发布身份通过后才允许安装。
     const update = archiveDownload as { file: string; version: string } | null;
-    if (!update?.file) throw new Error('未取得 macOS 更新包路径');
+    if (!update?.file || update.version !== state.latest)
+      throw new Error('macOS 更新包与已检查版本不一致，未安装');
     macPlan = await prepareMacUpdate(update.file, update.version, state.includePrerelease === true);
     downloaded = true;
     updateBus.emit('event', { kind: 'downloaded', latest: update.version } satisfies UpdateEvent);
@@ -467,11 +638,22 @@ export function quitAndInstall(): void {
 
 /** Wire this Electron implementation into the shell-agnostic update router. */
 export function installUpdateActions(
-  options?: typeof preferences & Partial<typeof intervalPreferences>,
+  options?: typeof preferences & Partial<typeof intervalPreferences> & { dataRoot?: string },
 ): void {
   if (options) preferences = options;
   if (options?.getInterval) intervalPreferences.getInterval = options.getInterval;
   if (options?.setInterval) intervalPreferences.setInterval = options.setInterval;
+  if (options?.dataRoot && !isDev()) {
+    downloadStore = new JsonStore(
+      join(options.dataRoot, `app-update-task-${process.platform}-${process.arch}.json`),
+      () => ({}),
+      {
+        normalize: (value) => z.object({ current: updateReceipt.optional() }).parse(value),
+      },
+    );
+    lastDownload = downloadStore.data.current;
+    restoreUpdateTask();
+  }
   if (process.platform === 'darwin' && app.isPackaged) {
     // 等新版本真正完成首个页面加载，不能在原生初始化前就删除回退副本。
     app.once('browser-window-created', (_event, window) => {
@@ -490,7 +672,9 @@ export function installUpdateActions(
     setPrerelease: setCheckPrerelease,
     supported: true,
     check: checkForUpdate,
+    assertDownloadAvailable,
     startDownload,
+    forgetDownloadTask,
     quitAndInstall,
   });
 }

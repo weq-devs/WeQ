@@ -29,7 +29,7 @@ import {
   type EnhancementUpdateNotice,
 } from '../../shared/enhancement_release';
 import { createEnhancementCatalog, createRelease, releaseContentVersion } from './release_catalog';
-import { startEnhancementDownloads } from './tasks';
+import { enhancementTaskNeedsInput, startEnhancementDownloads } from './tasks';
 import type { EnhancementPacks } from './packs';
 
 export interface EnhancementCheckState {
@@ -408,6 +408,7 @@ export class EnhancementUpdateController {
           pack.installed &&
           pack.updateAvailable &&
           !pack.busy &&
+          !enhancementTaskNeedsInput(this.packs, pack.id) &&
           !pack.blocker &&
           pack.operation?.phase !== 'failed' &&
           this.state(pack.id).phase === 'checked',

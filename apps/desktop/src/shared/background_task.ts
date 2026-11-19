@@ -92,6 +92,7 @@ type TaskPatch = Partial<
   Pick<
     BackgroundTask,
     | 'progress'
+    | 'display'
     | 'note'
     | 'details'
     | 'statusLabel'

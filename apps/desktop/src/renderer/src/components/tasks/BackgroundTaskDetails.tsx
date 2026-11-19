@@ -42,7 +42,9 @@ export function BackgroundTaskActionIcon({ id }: { id: string }) {
             ? RefreshCw
             : id === 'download'
               ? Download
-              : FolderOpen;
+              : id === 'install'
+                ? RotateCw
+                : FolderOpen;
   return <Icon size={14} aria-hidden />;
 }
 
@@ -75,6 +77,7 @@ function TaskDetails({
   refresh: () => Promise<unknown>;
 }) {
   const { task } = entry;
+  const canManageTask = !IS_WEB || task.kind !== 'update';
   const cache = usePageDataCache();
   const cacheKey = JSON.stringify(['background-task', task.id, scope]);
   const maintenance = trpc.dbRepair.maintenance.useQuery(
@@ -241,36 +244,26 @@ function TaskDetails({
             下载到浏览器
           </a>
         ) : null}
-        {task.actions.map((action) => (
-          <button
-            key={action.id}
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            disabled={busy}
-            onClick={() =>
-              void act(() =>
-                entry.source === 'window'
-                  ? localBackgroundTasks.act(task.id, action.id)
-                  : client.backgroundTasks.act.mutate({ id: task.id, action: action.id, scope }),
-              )
-            }
-          >
-            <BackgroundTaskActionIcon id={action.id} />
-            {action.label}
-          </button>
-        ))}
-        {task.kind === 'update' && task.status === 'completed' && !IS_WEB ? (
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            disabled={busy}
-            onClick={() => void act(() => client.update.install.mutate())}
-          >
-            <RotateCw size={14} />
-            重启并安装
-          </button>
-        ) : null}
-        {task.status !== 'running' ? (
+        {canManageTask &&
+          task.actions.map((action) => (
+            <button
+              key={action.id}
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              disabled={busy}
+              onClick={() =>
+                void act(() =>
+                  entry.source === 'window'
+                    ? localBackgroundTasks.act(task.id, action.id)
+                    : client.backgroundTasks.act.mutate({ id: task.id, action: action.id, scope }),
+                )
+              }
+            >
+              <BackgroundTaskActionIcon id={action.id} />
+              {action.label}
+            </button>
+          ))}
+        {canManageTask && task.status !== 'running' ? (
           <button
             data-danger="outline"
             type="button"
