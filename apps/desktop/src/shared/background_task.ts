@@ -38,6 +38,7 @@ export interface BackgroundTask {
   note?: string;
   details?: string[];
   logs?: BackgroundTaskLogLine[];
+  contactFailures?: ContactMetricJobFailure[];
   subtasks?: Array<{ label: string; done: number; total: number; failed: number }>;
   download?: { url: string; name: string };
   reportId?: string;
@@ -97,6 +98,7 @@ type TaskPatch = Partial<
     | 'download'
     | 'subtasks'
     | 'logs'
+    | 'contactFailures'
     | 'reportId'
     | 'databaseProgress'
     | 'databaseBatch'
@@ -331,4 +333,8 @@ export class BackgroundTaskRegistry {
     }
   }
 }
-import type { DatabaseTaskProgress, DatabaseMaintenanceOperation } from '@weq/service';
+import type {
+  ContactMetricJobFailure,
+  DatabaseTaskProgress,
+  DatabaseMaintenanceOperation,
+} from '@weq/service';

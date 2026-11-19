@@ -34,7 +34,7 @@ function mount() {
   };
   const logs = [
     { ts: 1, seq: 1, stage: 'friends', level: 'info' as const, text: '好友合成日志' },
-    { ts: 2, seq: 2, stage: 'groups', level: 'error' as const, text: '失败：群聊合成错误' },
+    { ts: 2, seq: 2, stage: 'groups', level: 'info' as const, text: '群聊合成日志' },
   ];
   const render = (patch: Partial<BackgroundTask> = {}) =>
     act(() =>
@@ -67,7 +67,7 @@ it('好友和群聊复用导出子任务样式，分别显示进度并独立完�
   expect(host.querySelectorAll('.weq-exp-detail-stage-bar.is-running')).toHaveLength(1);
 });
 
-it('分项日志不混用，失败详情只包含对应群聊错误', () => {
+it('分项日志不混用，日志里已没有错误时仍可查看群聊失败项', () => {
   const { host, render, onShowFailures } = mount();
   render({
     subtasks: [
@@ -81,13 +81,11 @@ it('分项日志不混用，失败详情只包含对应群聊错误', () => {
   expect(host.querySelectorAll('.weq-exp-log.is-export-scrollable')).toHaveLength(2);
   expect(host.querySelector('.weq-exp-log.is-scrollable')).toBeNull();
   expect(stages[0]?.textContent).toContain('好友合成日志');
-  expect(stages[0]?.textContent).not.toContain('群聊合成错误');
-  expect(stages[1]?.textContent).toContain('群聊合成错误');
+  expect(stages[0]?.textContent).not.toContain('群聊合成日志');
+  expect(stages[1]?.textContent).toContain('群聊合成日志');
   expect(stages[1]?.textContent).not.toContain('好友合成日志');
   act(() => stages[1]!.querySelector<HTMLButtonElement>('.weq-exp-detail-stage-failures')!.click());
-  expect(onShowFailures).toHaveBeenCalledWith('群聊', [
-    { stage: 'groups', fileName: '群聊', error: '失败：群聊合成错误' },
-  ]);
+  expect(onShowFailures).toHaveBeenCalledWith('groups', '群聊');
 });
 
 it('日志默认展开，完成后仍保留，并允许分别手动收起', () => {

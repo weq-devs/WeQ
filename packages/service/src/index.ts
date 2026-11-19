@@ -1361,7 +1361,9 @@ export type {
   ContactMetricRows,
   ContactMetricsSnapshot,
   ContactMetricsProgress,
+  ContactMetricsLaneKey,
   ContactMetricJob,
+  ContactMetricJobFailure,
 } from './account/contact_metrics';
 export { RecentReactions } from './account/recent_reactions';
 export {

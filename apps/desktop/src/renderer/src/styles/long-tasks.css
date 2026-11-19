@@ -517,3 +517,8 @@ html[data-theme='dark'] .weq-long-task-detail {
     grid-template-rows: minmax(0, 210px) minmax(0, 1fr);
   }
 }
+
+.weq-contact-task-stages .weq-exp-detail-stage-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

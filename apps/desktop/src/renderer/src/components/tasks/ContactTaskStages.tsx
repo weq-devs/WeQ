@@ -1,10 +1,6 @@
+import type { ContactMetricsLaneKey } from '@weq/service';
 import type { BackgroundTask } from '../../../../shared/background_task';
-import {
-  StageRow,
-  type UiFailure,
-  type UiLogLine,
-  type UiStage,
-} from '../../views/export/TaskList';
+import { StageRow, type UiLogLine, type UiStage } from '../../views/export/TaskList';
 
 export function ContactTaskStages({
   task,
@@ -13,11 +9,11 @@ export function ContactTaskStages({
 }: {
   task: BackgroundTask;
   logs: UiLogLine[];
-  onShowFailures: (label: string, failures: UiFailure[]) => void;
+  onShowFailures: (lane: ContactMetricsLaneKey, label: string) => void;
 }) {
   if (!task.subtasks?.length) return null;
   return (
-    <div className="weq-exp-detail-stages" data-privacy-sensitive>
+    <div className="weq-exp-detail-stages weq-contact-task-stages" data-privacy-sensitive>
       {task.subtasks.map((lane) => {
         const key = lane.label === '好友' ? 'friends' : 'groups';
         const status: UiStage['status'] =
@@ -30,29 +26,21 @@ export function ContactTaskStages({
               : task.status === 'failed'
                 ? 'failed'
                 : 'running';
-        const laneLogs = logs.filter((line) => line.stage === key);
-        const failures = lane.failed
-          ? laneLogs
-              .filter((line) => line.level === 'error' && line.text.startsWith('失败：'))
-              .slice(-lane.failed)
-              .map((line) => ({ stage: key, fileName: lane.label, error: line.text }))
-          : [];
         return (
           <StageRow
             key={key}
             logMode="expanded"
             stage={{
               key,
-              label: `${lane.label} ${lane.done}/${lane.total}`,
+              label: `${lane.label} ${lane.total ? `已处理 ${lane.done}/${lane.total}` : '无需更新'}`,
               current: lane.done,
               total: lane.total,
-              failed: lane.failed,
-              failures,
               status,
             }}
-            logs={laneLogs}
+            logs={logs.filter((line) => line.stage === key)}
             paused={task.status !== 'running'}
-            onShowFailures={(items) => onShowFailures(lane.label, items)}
+            failureCount={lane.failed}
+            onShowFailures={() => onShowFailures(key, lane.label)}
           />
         );
       })}

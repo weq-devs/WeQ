@@ -9,6 +9,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import type { ContactMetricsLaneKey } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 import { removeBackgroundTask, type BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
@@ -115,6 +116,30 @@ function TaskDetails({
     contactLogLines(details ?? []);
   const [busy, setBusy] = useState(false);
   const showError = useDialog((state) => state.showError);
+  const failureRequest = useRef(0);
+  useEffect(() => {
+    return () => {
+      failureRequest.current++;
+    };
+  }, []);
+  const showContactFailures = async (lane: ContactMetricsLaneKey, label: string) => {
+    const request = ++failureRequest.current;
+    try {
+      const failures =
+        entry.source === 'host'
+          ? await client.backgroundTasks.contactFailures.query({ id: task.id, scope, lane })
+          : (task.contactFailures?.filter((item) => item.lane === lane) ?? []);
+      if (request !== failureRequest.current) return;
+      showError(
+        `${label}更新失败项`,
+        failures.map((item) => `${item.label}：${item.error}`).join('\n') ||
+          '这次任务没有保留失败明细。',
+      );
+    } catch (error) {
+      if (request !== failureRequest.current) return;
+      showError('无法读取失败明细', error instanceof Error ? error.message : String(error));
+    }
+  };
   const act = async (run: () => Promise<unknown>) => {
     if (busy) return;
     setBusy(true);
@@ -167,9 +192,7 @@ function TaskDetails({
         <ContactTaskStages
           task={task}
           logs={logs}
-          onShowFailures={(label, items) =>
-            showError(`${label}读取失败`, items.map((item) => item.error).join('\n'))
-          }
+          onShowFailures={(lane, label) => void showContactFailures(lane, label)}
         />
       ) : null}
       {hostDetails.error && entry.source === 'host' ? (

@@ -38,6 +38,12 @@ export interface ContactMetricJob {
   online?: boolean;
   run: () => Promise<unknown>;
 }
+export type ContactMetricsLaneKey = 'friends' | 'groups';
+export interface ContactMetricJobFailure {
+  lane: ContactMetricsLaneKey;
+  label: string;
+  error: string;
+}
 export class ContactMetricsOfflineError extends Error {}
 export interface ContactMetricsLane {
   done: number;
@@ -70,7 +76,7 @@ export class ContactMetricsService extends EventEmitter {
   private pumpTimer?: ReturnType<typeof setTimeout>;
   private sequences = new Map<string, number>();
   private jobs: ContactMetricJob[] = [];
-  private failedJobs: ContactMetricJob[] = [];
+  private failedJobs: Array<{ job: ContactMetricJob; failure: ContactMetricJobFailure }> = [];
   private jobRunning = false;
   private cancelled = false;
   private afterRun?: () => Promise<void>;
@@ -463,12 +469,15 @@ export class ContactMetricsService extends EventEmitter {
     this.cancelled = true;
     if (!this.jobRunning) this.updateProgress('cancelled');
   }
+  failedItems(): ContactMetricJobFailure[] {
+    return this.failedJobs.map(({ failure }) => failure);
+  }
   resume() {
     if (this.jobRunning || !this.active) return;
     this.cancelled = false;
     this.emit('log', this.jobs.length ? '继续剩余查询' : '仅重试上次失败的查询');
     if (!this.jobs.length) {
-      this.jobs = this.failedJobs.splice(0);
+      this.jobs = this.failedJobs.splice(0).map(({ job }) => job);
       this.progress.failed = 0;
       this.progress.done = 0;
       this.progress.total = this.jobs.length;
@@ -501,6 +510,7 @@ export class ContactMetricsService extends EventEmitter {
     try {
       const blocked = new Set<ContactMetricJob>();
       const worker = async (group: boolean) => {
+        const laneKey = group ? 'groups' : 'friends';
         while (this.active && !this.cancelled) {
           const index = this.jobs.findIndex(
             (job) => job.key.startsWith('group:') === group && !blocked.has(job),
@@ -512,23 +522,21 @@ export class ContactMetricsService extends EventEmitter {
             this.jobs.push(job);
             continue;
           }
-          const lane = this.progress.lanes?.[group ? 'groups' : 'friends'];
-          this.emit('log', `开始：${job.label ?? job.key}`, group ? 'groups' : 'friends');
+          const lane = this.progress.lanes?.[laneKey];
+          const label = job.label ?? job.key;
+          this.emit('log', `开始：${label}`, laneKey);
           try {
             await job.run();
-            this.emit('log', `完成：${job.label ?? job.key}`, group ? 'groups' : 'friends');
+            this.emit('log', `完成：${label}`, laneKey);
           } catch (error) {
             if (error instanceof ContactMetricsOfflineError) {
               blocked.add(job);
               this.jobs.push(job);
               continue;
             }
-            this.emit(
-              'log',
-              `失败：${job.label ?? job.key}；${error instanceof Error ? error.message : String(error)}`,
-              group ? 'groups' : 'friends',
-            );
-            this.failedJobs.push(job);
+            const reason = error instanceof Error ? error.message : String(error);
+            this.emit('log', `失败：${label}；${reason}`, laneKey);
+            this.failedJobs.push({ job, failure: { lane: laneKey, label, error: reason } });
             this.progress.failed++;
             if (lane) lane.failed++;
           }

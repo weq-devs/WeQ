@@ -41,6 +41,7 @@ const independentReads = new Set([
   'backgroundTasks.list',
   'backgroundTasks.details',
   'backgroundTasks.logs',
+  'backgroundTasks.contactFailures',
   'account.calendarOverview.task',
   'account.listExportTasks',
   'account.roamingBackfill.list',

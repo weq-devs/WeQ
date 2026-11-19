@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ContactDirectoryRuntime } from '../src/main/context/contact_metrics';
 import { backgroundTasks } from '../src/main/background_tasks';
+import { backgroundTasksRouter } from '../src/main/ipc/routers/background_tasks';
 import type { AccountServices } from '../src/main/context/app_context';
 import type { AccountSession } from '@weq/account';
 import type { DbWatchService } from '@weq/service';
@@ -691,8 +692,10 @@ it('账号切换后旧任务的继续动作不能操作新账号', async () => {
   await expect(backgroundTasks.act(task!, 'retry')).rejects.toThrow('原账号');
 });
 
-it('任务有真实进度与完整阶段日志，日志仅保留最近 200 条', async () => {
+it('群聊失败明细独立于最近 200 条过程日志，重试成功后清除', async () => {
   const { runtime, services } = await setup();
+  const group = Promise.withResolvers<{ error: null }>();
+  services.groupInfo.getExtendedProfile.mockReturnValueOnce(group.promise);
   let release!: (value: {
     friendCount: number;
     groups: never[];
@@ -705,26 +708,41 @@ it('任务有真实进度与完整阶段日志，日志仅保留最近 200 条',
         release = resolve;
       }),
   );
-  const id = await runtime.rebuild(false, ['commonGroups']);
+  const id = (await runtime.rebuild(false, ['commonGroups', 'grade']))!;
   await waitFor(() => expect(release).toBeDefined());
   const running = backgroundTasks.snapshot().find((task) => task.id === id)!;
   expect(running.status).toBe('running');
   expect(running.progress).toBe(0);
   expect(running.logs?.some((line) => line.text.includes('开始'))).toBe(true);
+  group.reject(new Error('合成扩展资料读取失败'));
+  await waitFor(() => expect(runtime.cache.progress.lanes?.groups.failed).toBe(1));
   for (let index = 0; index < 250; index++) runtime.cache.emit('log', `合成任务日志 ${index}`);
-  expect(backgroundTasks.snapshot().find((task) => task.id === id)?.logs).toHaveLength(200);
+  const task = backgroundTasks.snapshot().find((item) => item.id === id)!;
+  expect(task.logs).toHaveLength(200);
+  expect(task.logs?.some((line) => line.level === 'error')).toBe(false);
+  const caller = backgroundTasksRouter.createCaller({});
+  const input = { id, scope: task.scope!, lane: 'groups' as const };
+  expect(await caller.contactFailures(input)).toEqual([
+    { lane: 'groups', label: '合成群（10001） · 群扩展资料', error: '合成扩展资料读取失败' },
+  ]);
+  expect(await caller.contactFailures({ ...input, lane: 'friends' })).toEqual([]);
+  await expect(caller.contactFailures({ ...input, scope: null })).rejects.toThrow('失效');
   release({ friendCount: 0, groups: [], friendError: null, groupError: null });
-  await waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
-  const completed = backgroundTasks.snapshot().find((task) => task.id === id)!;
-  expect(completed.progress).toBe(100);
-  expect(completed.logs?.at(-1)?.text).toContain('本轮结束');
+  await waitFor(() => expect(runtime.cache.progress.status).toBe('failed'));
+  const failed = backgroundTasks.snapshot().find((item) => item.id === id)!;
+  expect(failed.progress).toBe(100);
+  expect(failed.logs?.at(-1)?.text).toContain('本轮结束');
   expect(
-    completed.details?.some((line) => line.startsWith('好友获取结果：') && line.includes('12345')),
+    failed.details?.some((line) => line.startsWith('好友获取结果：') && line.includes('12345')),
   ).toBe(true);
-  expect(completed.subtasks?.find((lane) => lane.label === '好友')).toMatchObject({
+  expect(failed.subtasks?.find((lane) => lane.label === '好友')).toMatchObject({
     done: 1,
     total: 1,
   });
+  await backgroundTasks.act(id, 'retry');
+  await waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
+  expect(await caller.contactFailures(input)).toEqual([]);
+  expect(services.accountWrite.commonRelationships).toHaveBeenCalledOnce();
 });
 
 it('超 24h 范围逐个好友判断，只更新超时对象，不由全局最近刷新时间决定', async () => {

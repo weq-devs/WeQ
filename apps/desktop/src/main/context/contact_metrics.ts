@@ -809,6 +809,8 @@ export class ContactDirectoryRuntime {
           if (groups.length)
             for (const group of groups) {
               if (this.stopPreparing || this.disposed) break;
+              const name = this.groupMeta.get(group.groupCode)?.群名;
+              const label = name ? `${name}（${group.groupCode}）` : `群 ${group.groupCode}`;
               if (
                 !fields ||
                 fields.some((field) => ['grade', 'freezeState', 'joinedAt'].includes(field))
@@ -827,7 +829,7 @@ export class ContactDirectoryRuntime {
                 )
                   jobs.push({
                     key: `group:${group.groupCode}:profile`,
-                    label: `群资料（${group.groupCode}）`,
+                    label: `${label} · 群扩展资料`,
                     run: async () => {
                       const result = await this.services.groupInfo.getExtendedProfile(
                         Number(group.groupCode),
@@ -860,7 +862,7 @@ export class ContactDirectoryRuntime {
               )
                 jobs.push({
                   key: `group:${group.groupCode}`,
-                  label: `群 ${this.groupMeta.get(group.groupCode)?.群名 ?? ''}（${group.groupCode}）`,
+                  label: `${label} · 群聊指标`,
                   online: false,
                   run: async () => {
                     let recordedScore = false;
@@ -974,9 +976,10 @@ export class ContactDirectoryRuntime {
     const patch = {
       progress: progress.total ? (progress.done / progress.total) * 100 : 100,
       statusLabel: progress.phase,
-      note: `${progress.done}/${progress.total} 个对象，${progress.failed} 项未完成`,
+      note: `已处理 ${progress.done}/${progress.total} 项，${progress.failed} 项失败`,
       details: this.taskDetails(),
       logs: this.logs,
+      contactFailures: this.cache.failedItems(),
       subtasks: progress.lanes
         ? Object.entries(progress.lanes).map(([key, lane]) => ({
             label: key === 'friends' ? '好友' : '群聊',

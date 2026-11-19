@@ -159,6 +159,7 @@ export function StageRow({
   onSkip,
   paused = false,
   logMode = 'preview',
+  failureCount = stage.failures?.length ?? 0,
 }: {
   stage: UiStage;
   logs: UiLogLine[];
@@ -166,6 +167,7 @@ export function StageRow({
   onSkip?: () => void;
   paused?: boolean;
   logMode?: 'preview' | 'expanded';
+  failureCount?: number;
 }): ReactElement {
   const [open, setOpen] = useState(logMode === 'expanded');
   const pct = stagePct(stage);
@@ -183,14 +185,14 @@ export function StageRow({
         <span className="weq-exp-detail-stage-label" title={stage.note}>
           {stage.label}
         </span>
-        {failures.length > 0 ? (
+        {failureCount > 0 ? (
           <button
             type="button"
             className="weq-exp-detail-stage-failures"
             title="点击查看失败详情"
             onClick={() => onShowFailures(failures)}
           >
-            失败 <span className="weq-number weq-number-inherit">{fmtCount(failures.length)}</span>
+            失败 <span className="weq-number weq-number-inherit">{fmtCount(failureCount)}</span>
           </button>
         ) : null}
         <TaskProgressBar

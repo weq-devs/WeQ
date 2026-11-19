@@ -17,7 +17,9 @@ export const backgroundTasksRouter = router({
     return backgroundTasks
       .snapshot()
       .filter((task) => backgroundTaskVisible(task, input))
-      .map(({ details: _details, logs: _logs, ...task }) => task);
+      .map(
+        ({ details: _details, logs: _logs, contactFailures: _contactFailures, ...task }) => task,
+      );
   }),
   details: procedure.input(ref.extend({ updatedAt: z.number() })).query(({ input }) => {
     const task = backgroundTasks.snapshot().find((task) => task.id === input.id);
@@ -29,6 +31,14 @@ export const backgroundTasksRouter = router({
     if (!task || !backgroundTaskVisible(task, input.scope)) throw new Error('任务已失效');
     return task.logs ?? [];
   }),
+  contactFailures: procedure
+    .input(ref.extend({ lane: z.enum(['friends', 'groups']) }))
+    .query(({ input }) => {
+      const task = backgroundTasks.snapshot().find((task) => task.id === input.id);
+      if (task?.kind !== 'contacts' || !backgroundTaskVisible(task, input.scope))
+        throw new Error('任务已失效');
+      return task.contactFailures?.filter((item) => item.lane === input.lane) ?? [];
+    }),
   act: procedure.input(ref.extend({ action: z.string() })).mutation(async ({ input, ctx }) => {
     const task = backgroundTasks.snapshot().find((task) => task.id === input.id);
     if (!task || !backgroundTaskVisible(task, input.scope)) throw new Error('任务已失效');
