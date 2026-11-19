@@ -62,10 +62,9 @@ try {
       const page = await visit(width, theme);
       const ordinary = page.getByRole('article', { name: '普通说说' });
       await ordinary
-        .getByRole('button', { name: '查看推过的人', exact: true })
+        .getByRole('button', { name: '推', exact: true })
         .filter({ hasText: '199' })
-        .waitFor();
-      await ordinary.getByRole('button', { name: '查看推过的人', exact: true }).press('Enter');
+        .hover();
       const panel = page.getByRole('region', { name: '推的人', exact: true });
       await panel.getByText('合成推用户1', { exact: true }).waitFor();
       await panel.getByText('已显示 5 人，共 199 人推过', { exact: true }).waitFor();
@@ -107,7 +106,7 @@ try {
     const page = await visit(390, 'light', mode);
     const post = page.getByRole('article', { name: '普通说说' });
     if (mode === 'error') await post.getByRole('button', { name: '重试空友状态' }).click();
-    const preview = post.getByRole('button', { name: '查看推过的人', exact: true });
+    const preview = post.getByRole('button', { name: '推', exact: true });
     if (mode === 'unknown') {
       await post.locator('.weq-qzn-post-head').waitFor();
       assert.equal(await preview.count(), 0);
@@ -121,10 +120,10 @@ try {
       await page.keyboard.press('Escape');
       const push = page
         .getByRole('region', { name: '空友动态' })
-        .getByRole('button', { name: '查看推过的人', exact: true });
+        .getByRole('button', { name: '推', exact: true });
       await push.click();
       await panel.getByText('匿名空友预览', { exact: true }).waitFor();
-      assert.equal(await push.textContent(), '查看推过的人 199');
+      assert.equal(await push.textContent(), '推 199');
       assert.equal(await push.getAttribute('aria-pressed'), null);
     }
     scenes++;

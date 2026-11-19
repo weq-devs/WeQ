@@ -47,17 +47,19 @@ export function QzoneUpvoteAction({
   onSpace?: (uin: string, nickname?: string) => void;
 }) {
   if (!onClick && !hasUpvotePreview(value)) return null;
-  const label = onClick ? (value?.upvoted ? '取消推' : '推') : '查看推过的人';
+  const upvoted = value?.upvoted ?? false;
+  const label = onClick && upvoted ? '取消推' : '推';
   return (
     <QzoneLikesPopover
       label="推的人"
-      clickOnly={!onClick}
       trigger={(open) => (
         <button
           type="button"
           aria-label={label}
+          aria-description={onClick ? undefined : '点击查看推过的人'}
           title={label}
-          aria-pressed={onClick ? (value?.upvoted ?? false) : undefined}
+          data-qzone-upvoted={upvoted}
+          aria-pressed={onClick ? upvoted : undefined}
           aria-expanded={onClick ? undefined : open}
           aria-busy={pending || undefined}
           disabled={Boolean(onClick) && (pending || disabled)}
@@ -66,9 +68,9 @@ export function QzoneUpvoteAction({
           {pending ? (
             <Loader2 size={16} className="weq-spin" />
           ) : (
-            <Heart size={16} fill={onClick && value?.upvoted ? 'currentColor' : 'none'} />
+            <Heart size={16} fill={upvoted ? 'currentColor' : 'none'} />
           )}
-          {onClick ? '推' : label} <span className="weq-number">{value?.count ?? '?'}</span>
+          推 <span className="weq-number">{value?.count ?? '?'}</span>
         </button>
       )}
     >

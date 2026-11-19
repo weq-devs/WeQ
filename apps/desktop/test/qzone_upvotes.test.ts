@@ -95,14 +95,16 @@ it('像赞一样悬停或聚焦查看推预览，用户导航和写动作互不�
   await act(async () => button.click());
   expect(write).toHaveBeenCalledOnce();
 });
-it('只读且没有数据时不显示入口，已知零人仍可点击查看', async () => {
+it('只读且没有数据时不显示入口，已知零人可聚焦或点击查看', async () => {
   const view = mount(h(QzoneUpvoteAction, { value: null }));
   await view.render();
   expect(view.host.querySelector('button')).toBeNull();
   await view.render(h(QzoneUpvoteAction, { value: { count: 0, upvoted: false, users: [] } }));
-  const button = view.host.querySelector<HTMLButtonElement>('[aria-label="查看推过的人"]')!;
+  const button = view.host.querySelector<HTMLButtonElement>('[aria-label="推"]')!;
   expect(button.hasAttribute('aria-pressed')).toBe(false);
   await act(async () => button.focus());
+  expect(document.querySelector('[aria-label="推的人"]')?.textContent).toContain('还没有人推过');
+  await act(async () => button.blur());
   expect(document.querySelector('[aria-label="推的人"]')).toBeNull();
   await act(async () => button.click());
   expect(document.querySelector('[aria-label="推的人"]')?.textContent).toContain('还没有人推过');
@@ -130,13 +132,13 @@ it('普通说说仅可见时读取，刷新重取，原位重试保留已有计�
       refresh: false,
     }),
   );
-  expect(view.host.textContent).toContain('查看推过的人 199');
+  expect(view.host.textContent).toContain('推 199');
   state.read.mockRejectedValueOnce(new Error('合成读取失败'));
   await view.render(renderArchive({ ...input, enabled: true, refresh: 1 }));
   expect(state.read).toHaveBeenLastCalledWith(expect.objectContaining({ refresh: true }));
   await act(async () => view.host.querySelector<HTMLButtonElement>('button')!.click());
   expect(document.querySelector('[aria-label="推的人"]')?.textContent).toContain('合成读取失败');
-  expect(view.host.textContent).toContain('查看推过的人 199');
+  expect(view.host.textContent).toContain('推 199');
   await act(async () =>
     document.querySelector<HTMLButtonElement>('[aria-label="刷新推预览"]')!.click(),
   );
@@ -193,7 +195,7 @@ it('真实预览仅有 QQ 号时后台补昵称，名字未返回也先展示人
     }),
   );
   await view.render();
-  expect(view.host.textContent).toContain('查看推过的人 199');
+  expect(view.host.textContent).toContain('推 199');
   await act(async () => view.host.querySelector<HTMLButtonElement>('button')!.click());
   expect(document.querySelector('[aria-label="推的人"]')?.textContent).toContain('10002');
   await act(async () => finish({ '10002': '补全的昵称' }));

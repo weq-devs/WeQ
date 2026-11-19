@@ -45,7 +45,7 @@
   padding-top: 8px;
   color: var(--muted-foreground);
 }
-.weq-qzn-actions button[aria-expanded='true'] {
+.weq-qzn-actions button[aria-expanded='true']:not([data-qzone-upvoted]) {
   color: var(--primary);
 }
 .weq-qzn-interaction {
