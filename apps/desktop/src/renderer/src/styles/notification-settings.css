@@ -8,3 +8,7 @@
   width: 7rem;
   min-width: 0;
 }
+
+.weq-set-row:has(.weq-toast-duration-control) + .weq-autosave-status:empty {
+  display: none;
+}
