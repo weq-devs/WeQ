@@ -19,13 +19,17 @@ html[data-theme='light']:not([data-component-style='qqnt']) {
   --weq-field-placeholder: color-mix(in oklab, var(--weq-fg-muted) 95%, var(--weq-fg-primary));
 }
 
+html[data-theme] :where(input:is([type='checkbox'], [type='radio'], [type='range']), progress) {
+  accent-color: var(--weq-accent-solid);
+}
+
 :where(input, textarea)::placeholder {
   color: var(--weq-field-placeholder, var(--weq-fg-muted));
   opacity: 1;
   -webkit-text-fill-color: currentColor;
 }
 
-/* 保留各处尺寸及皮肤形态，只统一输入框的状态颜色和可见描边。 */
+/* 整个表单共用输入框形态与状态配色，各处仍控制自己的尺寸。 */
 html:root[data-theme][data-component-style] body
   :is(
     input,
@@ -85,8 +89,13 @@ html:root[data-theme][data-component-style] body
   border-color: var(--weq-field-border);
   border-style: solid;
   border-width: var(--weq-skin-input-border-width, 1px);
+  border-radius: var(--weq-skin-input-radius, 6px);
   caret-color: var(--weq-accent-ink, var(--weq-accent-effective));
   -webkit-text-fill-color: currentColor;
+
+  &:where(:not(:focus)) {
+    box-shadow: var(--weq-skin-input-shadow);
+  }
 
   &[readonly] {
     background: var(--weq-field-readonly-bg);
@@ -168,6 +177,9 @@ html:root[data-theme][data-component-style] body
     .search-box,
     .weq-dress-search,
     .weq-collection-search,
+    .weq-titlebar-search:where(.is-expanded),
+    .weq-exp-search,
+    .group-keyword-search,
     .weq-msglist-search,
     .weq-face-search,
     .weq-mf-search,
@@ -190,6 +202,8 @@ html:root[data-theme][data-component-style] body
   border-color: var(--weq-field-border);
   border-style: solid;
   border-width: var(--weq-skin-input-border-width, 1px);
+  border-radius: var(--weq-skin-input-radius, 6px);
+  box-shadow: var(--weq-skin-input-shadow);
 
   &:has([readonly]):not(:has(input:not([readonly]), textarea:not([readonly]))) {
     background: var(--weq-field-readonly-bg);
@@ -213,6 +227,8 @@ html:root[data-theme][data-component-style] body
     background: transparent;
     color: var(--weq-field-fg);
     border: 0;
+    border-radius: 0;
+    box-shadow: none;
     caret-color: var(--weq-accent-ink, var(--weq-accent-effective));
     -webkit-text-fill-color: currentColor;
 
@@ -224,22 +240,26 @@ html:root[data-theme][data-component-style] body
   }
 }
 
-html:root[data-theme][data-component-style] body .weq-asst-select:not(:disabled) {
+html:root[data-theme][data-component-style] body :is(.weq-asst-select, .weq-picker-trigger) {
   background: var(--weq-field-bg);
   color: var(--weq-field-fg);
   border-color: var(--weq-field-border);
+  border-style: solid;
+  border-width: var(--weq-skin-input-border-width, 1px);
+  border-radius: var(--weq-skin-input-radius, 6px);
+  box-shadow: var(--weq-skin-input-shadow);
 
-  &:is(:hover, :focus-visible, .is-open) {
+  &:enabled:is(:hover, :focus-visible, .is-open, [aria-expanded='true']) {
     border-color: var(--weq-accent-ink, var(--weq-accent-effective));
   }
-}
 
-html:root[data-theme][data-component-style] body .weq-asst-select:disabled {
-  background: var(--weq-field-disabled-bg);
-  color: var(--weq-field-disabled-fg);
-  border-color: var(--weq-border-subtle);
-  opacity: 1;
-  cursor: not-allowed;
+  &:disabled {
+    background: var(--weq-field-disabled-bg);
+    color: var(--weq-field-disabled-fg);
+    border-color: var(--weq-border-subtle);
+    opacity: 1;
+    cursor: not-allowed;
+  }
 }
 
 html[data-theme] .weq-asst-select-value.is-placeholder,

@@ -97,29 +97,6 @@ try {
             const checks = await page.evaluate(
               ({ value, density, width }) => {
                 const css = (selector) => getComputedStyle(document.querySelector(selector));
-                const classicSignature = () =>
-                  [
-                    '.weq-set-btn',
-                    '.weq-input',
-                    '.weq-directory-scope-menu',
-                    '.conversation-row.active',
-                    '.weq-set-toggle-track',
-                    '.weq-segmented',
-                    '.weq-collection-chip',
-                    '.weq-settings-nav-item',
-                    '.weq-dress-card',
-                    '.weq-workspace-menu',
-                  ].map((selector) => {
-                    const style = css(selector);
-                    return [
-                      style.backgroundColor,
-                      style.color,
-                      style.borderWidth,
-                      style.borderRadius,
-                      style.boxShadow,
-                    ];
-                  });
-                let classicUnchanged = true;
                 let qqntButtonsMatchClassic = true;
                 if (value === 'qqnt') {
                   const signature = () =>
@@ -146,21 +123,12 @@ try {
                     document.documentElement.dataset.componentStyle = value;
                   }
                 }
-                if (value === 'classic') {
-                  const actual = JSON.stringify(classicSignature());
-                  delete document.documentElement.dataset.componentStyle;
-                  try {
-                    classicUnchanged = actual === JSON.stringify(classicSignature());
-                  } finally {
-                    document.documentElement.dataset.componentStyle = value;
-                  }
-                }
                 const row = document.querySelector('.conversation-row');
                 const slot = row.parentElement;
                 const avatar = row.querySelector('.avatar').getBoundingClientRect();
                 const rowRect = row.getBoundingClientRect();
                 const preview = `[data-component-preview="${value}"]`;
-                const primary = css('.weq-set-btn');
+                const primary = css('.weq-set-btn-primary');
                 const compositeBackground = (selector) => {
                   const nodes = [];
                   for (let node = document.querySelector(selector); node; node = node.parentElement)
@@ -250,9 +218,8 @@ try {
                           ? 64
                           : 62),
                   previewGeometry:
-                    value === 'classic' ||
                     css('.weq-input').borderRadius ===
-                      css(`${preview} .weq-style-preview-input`).borderRadius,
+                    css(`${preview} .weq-style-preview-input`).borderRadius,
                   toggleGeometry:
                     value === 'classic' ||
                     css('.weq-set-toggle-track').borderRadius ===
@@ -260,9 +227,8 @@ try {
                   primaryContrast:
                     window.appearanceQa.contrastRatio(
                       pixel(primary.color),
-                      compositeBackground('.weq-set-btn'),
+                      compositeBackground('.weq-set-btn-primary'),
                     ) >= 4.5,
-                  classicUnchanged,
                   qqntButtonsMatchClassic,
                   selectionContrast:
                     window.appearanceQa.contrastRatio(

@@ -111,7 +111,7 @@ function Fixture() {
           <section>
             <h2>控件与会话</h2>
             <div className="appearance-controls">
-              <button type="button" className="weq-set-btn">
+              <button type="button" className="weq-set-btn weq-set-btn-primary">
                 保存
               </button>
               <button type="button" className="weq-set-btn weq-set-btn-soft">
