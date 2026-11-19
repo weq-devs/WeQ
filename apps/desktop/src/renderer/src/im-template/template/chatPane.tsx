@@ -5709,6 +5709,7 @@ export function ChatPane({
       : sending
         ? '消息发送中，请稍候'
         : null;
+  // 来源群禁言只限制在原地发送；转发另选目标，不使用此限制。
   const sendGateReason = actionGateReason || (groupSpeechBlocked ? groupSpeechReason : null);
   const pokeBlockedReason = !sendAvailable
     ? '在线能力受限，无法戳一戳'
@@ -6840,8 +6841,8 @@ export function ChatPane({
                     selectionBlockedReason ||
                     (!sendAvailable
                       ? '在线能力受限，无法转发消息'
-                      : sendGateReason
-                        ? `${sendGateReason}，暂不可发送`
+                      : actionGateReason
+                        ? `${actionGateReason}，暂不可发送`
                         : '转发')
                   }
                   aria-haspopup="menu"
@@ -6849,7 +6850,7 @@ export function ChatPane({
                   disabled={
                     restrictedSource ||
                     Boolean(selectionBlockedReason) ||
-                    Boolean(sendGateReason) ||
+                    Boolean(actionGateReason) ||
                     !selectedIds.size
                   }
                   onClick={(event) => openSelectionMenu('forward', event.currentTarget)}

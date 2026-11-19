@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -153,7 +153,7 @@ describe('禁言发送按钮', () => {
   });
 });
 
-async function mountChat() {
+async function mountChat(overrides: Partial<ComponentProps<typeof ChatPane>> = {}) {
   const f = host();
   const demo = createTemplateDemoData();
   rpc.uin = demo.user.identityValue;
@@ -167,6 +167,7 @@ async function mountChat() {
     onDraftClear: vi.fn(),
     onBack: vi.fn(),
     onSend: vi.fn(),
+    ...overrides,
   };
   const render = async () => {
     await act(async () => f.root.render(h(ChatPane, props)));
@@ -212,4 +213,37 @@ it.each(['owner', 'admin'] as const)('全员禁言不替换 %s 的正常发送�
   const button = f.element.querySelector<HTMLButtonElement>('.composer-send')!;
   expect(button.textContent).toBe('发送');
   expect(button.disabled).toBe(false);
+});
+
+it.each(['个人禁言', '全员禁言'])('%s 禁止在原群发送，但不阻断多选转发', async (mode) => {
+  rpc.permissions.muteAll = mode === '全员禁言';
+  rpc.permissions.muteUntil = mode === '个人禁言' ? now / 1000 + 60 : 0;
+  const demo = createTemplateDemoData();
+  const conversation = demo.conversations.find((row) => row.type === 'group')!;
+  const message = { ...demo.messages[0]!, id: '101', conversationId: conversation.id };
+  const onForwardMessages = vi.fn();
+  const onMergeForward = vi.fn();
+  const f = await mountChat({
+    conversation,
+    messages: [message],
+    onForwardMessages,
+    onMergeForward,
+  });
+  expect(f.element.querySelector<HTMLButtonElement>('.composer-send')?.disabled).toBe(true);
+  await act(async () =>
+    f.element
+      .querySelector('[data-message-id="101"] .message-bubble')!
+      .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })),
+  );
+  const click = (selector: string) =>
+    act(async () => document.querySelector<HTMLButtonElement>(selector)!.click());
+  await click('.message-context-menu [aria-label="多选"]');
+  for (const [label, forward] of [
+    ['逐条转发', onForwardMessages],
+    ['合并转发', onMergeForward],
+  ] as const) {
+    await click('.selection-bar [aria-label="转发"]');
+    await click(`[role="menuitem"][title="${label}"]`);
+    expect(forward).toHaveBeenCalledWith([message], conversation);
+  }
 });
