@@ -491,7 +491,7 @@ describe('真实输入区与 +1 操作', () => {
     }
   });
   it.each(['group', 'direct'] as const)(
-    '%s 最新相同消息旁显示一个 +1，防连点且不动草稿',
+    '%s 略过灰条和本地删除，在最新相同消息旁显示一个 +1，防连点且不动草稿',
     async (type) => {
       const f = fixture(type);
       let finish: () => void = () => {};
@@ -501,13 +501,16 @@ describe('真实输入区与 +1 操作', () => {
             finish = resolve;
           }),
       );
-      const messages = ['first', 'last'].map((id) => ({
+      const messages = ['first', 'poke', 'last', 'tail-tip'].map((id) => ({
         id,
         conversationId: f.props.conversation.id,
         senderId: f.props.user.id,
         body: '相同',
         createdAt: '2026-10-17T06:00:00Z',
-        qqElements: [{ type: 'text', data: { textContent: '相同' } }],
+        qqElements:
+          id === 'poke' || id === 'tail-tip'
+            ? [{ type: 'grayTipPoke' }]
+            : [{ type: 'text', data: { textContent: '相同' } }],
       }));
       try {
         await act(async () =>
@@ -527,6 +530,26 @@ describe('真实输入区与 +1 操作', () => {
         expect(repeat).toHaveBeenCalledOnce();
         expect(f.host.querySelector('.composer-editor')?.textContent).toBe('原有草稿');
         await act(async () => finish());
+        await act(async () =>
+          f.root.render(
+            createElement(ChatPane, {
+              ...f.props,
+              messages: [
+                messages[0]!,
+                {
+                  ...messages[0]!,
+                  id: 'deleted',
+                  body: '不同',
+                  qqElements: [{ type: 'text', data: { textContent: '不同' } }],
+                },
+                ...messages.slice(1),
+              ],
+              deletedIds: new Set(['deleted']),
+              onRepeatMessage: repeat,
+            }),
+          ),
+        );
+        expect(f.host.querySelector('[data-message-id="last"] .weq-message-repeat')).not.toBeNull();
         await act(async () =>
           f.root.render(
             createElement(ChatPane, {

@@ -5766,11 +5766,9 @@ export function ChatPane({
         : 0;
   const locationShareSelfUin = Number(user.identityValue);
   const mediaSendDisabled = Boolean(sendGateReason);
-  const repeatMessage = messages
-    .slice(-2)
-    .some((message) => deletedKeys.has(deletionIdentity(message.id)))
-    ? null
-    : repeatTarget(messages, atLatest);
+  const repeatMessage = repeatTarget(messages, atLatest, (message) =>
+    deletedKeys.has(deletionIdentity(message.id)),
+  );
   function messageCanRepeat(message: Message) {
     return (
       (conversation?.type === 'group' || conversation?.type === 'direct') &&
