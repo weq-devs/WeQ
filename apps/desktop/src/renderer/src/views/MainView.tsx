@@ -141,7 +141,6 @@ import {
   accountBinding as sharedAccountBinding,
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
-import { useUpdateStore } from '../state/update';
 import { useEnhancementUpdates } from '../hooks/useEnhancementUpdates';
 import { client } from '../trpc/client';
 import { useToast, sourceToastPush } from '../components/Toast.shared';
@@ -1193,21 +1192,10 @@ function MainWorkspace(): ReactElement {
 
   useEnhancementUpdates();
 
-  // Update availability: seed from the last cached check (the background startup
-  // check may have already run), then keep it live via the check events. Drives
-  // the settings rail red dot. setState via getState() to avoid re-render churn.
   useEffect(() => {
-    const setAvailable = useUpdateStore.getState().setAvailable;
-    void client.update.getState
-      .query()
-      .then((s) => {
-        if (s?.hasUpdate && s.latest) setAvailable(s.latest);
-      })
-      .catch(() => {});
     const sub = client.update.onEvent.subscribe(undefined, {
       onData(e) {
         if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
-          setAvailable(e.latest);
           useToast.getState().push({
             event: 'update',
             key: 'weq-update',

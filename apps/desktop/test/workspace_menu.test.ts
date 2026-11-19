@@ -126,7 +126,7 @@ beforeEach(() => {
     readTaskResults: {},
     readTaskResultsByScope: {},
   });
-  useUpdateStore.setState({ available: false });
+  useUpdateStore.setState({ packsAvailable: false });
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -310,9 +310,9 @@ describe('统一竖向工作菜单', () => {
     try {
       render();
       act(() => trigger().click());
-      act(() => useUpdateStore.setState({ available: true }));
-      expect(trigger().querySelector('.is-finished')).not.toBeNull();
-      expect(trigger().querySelector('.is-finished')?.textContent).toBe('1');
+      act(() => useUpdateStore.setState({ packsAvailable: true }));
+      expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
+      expect(trigger().querySelector('.weq-reminder-count')).toBeNull();
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       act(() => useWorkspaceMenu.getState().setAssistant('running'));
       expect(trigger().querySelector('.is-running')).toBeNull();
@@ -333,8 +333,7 @@ describe('统一竖向工作菜单', () => {
       }
       act(() => useWorkspaceMenu.getState().setAssistant('finished'));
       act(() => useWorkspaceMenu.getState().setTasks(0, 0, 1));
-      // 任务结果与版本更新汇总，助手会话未读不混入任务计数。
-      expect(trigger().querySelector('.is-finished')?.textContent).toBe('2');
+      expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       fixture.exports = [
         { id: 'a', status: 'running' },
@@ -352,16 +351,16 @@ describe('统一竖向工作菜单', () => {
         { id: 'c', status: 'failed' },
       ];
       render();
-      expect(trigger().querySelector('.is-finished')).not.toBeNull();
-      // 三项任务结果与版本更新；助手会话未读不混入。
-      expect(trigger().querySelector('.is-finished')?.textContent).toBe('4');
+      expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
+      expect(trigger().querySelector('.weq-reminder-count')).toBeNull();
       act(() => useWorkspaceMenu.getState().readTasks());
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
-      expect(trigger().querySelector('.is-finished')?.textContent).toBe('1');
+      expect(trigger().getAttribute('aria-label')).toContain('有增强包更新');
+      expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
       fixture.exports = [];
       render();
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
-      expect(trigger().querySelector('.is-finished')).not.toBeNull();
+      expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
     } finally {
       act(() => root.unmount());
       host.remove();
@@ -436,20 +435,20 @@ describe('统一竖向工作菜单', () => {
     const root = createRoot(host);
     try {
       act(() => {
-        useUpdateStore.setState({ available: true });
+        useUpdateStore.setState({ packsAvailable: true });
         useWorkspaceMenu.setState({ running: 2, failed: 1 });
         root.render(
           h('div', null, h(WorkspaceMenuButton), h(WorkspaceSettingsButton, { onClick: vi.fn() })),
         );
       });
       expect(
-        host.querySelector('[aria-label="设置，有新版本可更新"] .weq-workspace-dot'),
+        host.querySelector('[aria-label="设置，有增强包更新"] .weq-workspace-dot'),
       ).not.toBeNull();
       const trigger = host.querySelector<HTMLButtonElement>('.weq-workspace-menu-trigger')!;
       expect(trigger.getAttribute('aria-label')).toContain('2 项任务进行中');
       expect(trigger.getAttribute('aria-label')).toContain('1 项任务失败');
       act(() => trigger.click());
-      expect(useUpdateStore.getState().available).toBe(true);
+      expect(useUpdateStore.getState().packsAvailable).toBe(true);
       expect(useWorkspaceMenu.getState().failed).toBe(1);
     } finally {
       act(() => root.unmount());

@@ -6,11 +6,9 @@ import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { WorkspaceMenuButton } from '../src/renderer/src/components/WorkspaceMenuButton';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
-import { useUpdateStore } from '../src/renderer/src/state/update';
 
 afterEach(() => {
   useWorkspaceMenu.setState({ anchor: null, running: 0, failed: 0 });
-  useUpdateStore.setState({ available: false });
   vi.unstubAllGlobals();
 });
 
@@ -18,7 +16,6 @@ describe('左栏统一按钮', () => {
   it('内容与菜单共用按钮类，角标保持独立命中，选中与展开语义不丢失', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     useWorkspaceMenu.setState({ anchor: null, running: 2, failed: 0 });
-    useUpdateStore.setState({ available: true });
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);

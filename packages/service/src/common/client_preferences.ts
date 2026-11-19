@@ -100,7 +100,7 @@ export const ENTRY_BADGE_SETTINGS = [
   ['showContactRequestBadge', 'contact-request-badge', '好友与群通知未读角标'],
   ['showTaskRunningBadge', 'task-running-badge', '进行中任务'],
   ['showTaskResultBadge', 'task-result-badge', '已完成任务'],
-  ['showUpdateBadge', 'update-badge', '新版本与增强包更新'],
+  ['showUpdateBadge', 'update-badge', '增强包更新'],
   ['showOfficialAnnouncementBadge', 'official-announcement-badge', '官方公告'],
 ] as const satisfies readonly (readonly [PreferenceKey, string, string])[];
 const retiredUnreadPreferences = new Set([

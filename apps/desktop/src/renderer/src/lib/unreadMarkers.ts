@@ -1,6 +1,13 @@
 import { preferenceValue, useClientPreferences } from './clientPreferences';
 import { AGGREGATE_BADGE_SETTINGS } from '@weq/service/client-preferences';
 import { useShallow } from 'zustand/react/shallow';
+import { useUpdateStore } from '../state/update';
+
+export function useEnhancementUpdateBadge() {
+  const enabled = useClientPreferences(() => preferenceValue('showUpdateBadge'));
+  const packsAvailable = useUpdateStore((state) => state.packsAvailable);
+  return enabled && packsAvailable;
+}
 
 export function useUnreadMarkers() {
   useClientPreferences((state) => state.tick);
@@ -15,7 +22,6 @@ export function useUnreadMarkers() {
     requests: preferenceValue('showContactRequestBadge'),
     running: preferenceValue('showTaskRunningBadge'),
     tasks: preferenceValue('showTaskResultBadge'),
-    updates: preferenceValue('showUpdateBadge'),
     important: preferenceValue('showImportantMessageMarkers'),
     aggregates,
   };

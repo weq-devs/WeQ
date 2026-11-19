@@ -18,6 +18,7 @@ export interface WorkspaceTaskIndicator {
   waiting?: boolean;
   cancelled?: boolean;
   notificationHandled?: boolean;
+  showResultBadge?: boolean;
   /** 记录与提醒照常保留，但后台步骤不抢占当前界面。 */
   autoOpenTaskList?: boolean;
 }
@@ -190,6 +191,7 @@ export function summarizeWorkspaceTasks({
             )
           : undefined,
       notificationHandled: task.kind === 'forward' || task.destination === 'db-checkup',
+      showResultBadge: task.kind !== 'update',
       paused: task.status === 'paused',
       cancelled: task.status === 'cancelled',
       activity:
@@ -201,8 +203,9 @@ export function summarizeWorkspaceTasks({
   }
   return {
     running: items.filter((item) => item.activity === 'running').length,
-    finished: items.filter((item) => item.activity === 'finished').length,
-    failed: items.filter((item) => item.failed).length,
+    finished: items.filter((item) => item.activity === 'finished' && item.showResultBadge !== false)
+      .length,
+    failed: items.filter((item) => item.failed && item.showResultBadge !== false).length,
     items,
   };
 }

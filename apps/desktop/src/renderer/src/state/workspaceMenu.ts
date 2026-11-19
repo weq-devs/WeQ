@@ -95,9 +95,12 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
         readTaskResults,
         readTaskResultsByScope: { ...state.readTaskResultsByScope, [taskScope]: readTaskResults },
         running: taskItems.filter((item) => item.activity === 'running').length,
-        failed: taskItems.filter((item) => item.failed).length,
+        failed: taskItems.filter((item) => item.failed && item.showResultBadge !== false).length,
         finished: taskItems.filter(
-          (item) => item.activity === 'finished' && readTaskResults[item.id] !== item.result,
+          (item) =>
+            item.activity === 'finished' &&
+            item.showResultBadge !== false &&
+            readTaskResults[item.id] !== item.result,
         ).length,
       };
     }),

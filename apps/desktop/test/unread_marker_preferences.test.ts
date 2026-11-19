@@ -60,7 +60,7 @@ it('任务进行中标记跨端更新后可独立隐藏和恢复，不改计数'
   );
   expect(host.textContent).toBe('3');
 });
-it('菜单仅汇总任务和更新；关闭角标不清空任务状态', () => {
+it('菜单汇总任务和增强包更新；关闭角标不清空对应状态', () => {
   useWorkspaceMenu.setState({
     running: 0,
     finished: 2,
@@ -68,9 +68,9 @@ it('菜单仅汇总任务和更新；关闭角标不清空任务状态', () => {
     assistant: 'finished',
     assistantUnread: true,
   });
-  useUpdateStore.setState({ available: true, latest: '99.0.0' });
+  useUpdateStore.setState({ packsAvailable: true });
   const host = mount(h(WorkspaceMenuButton));
-  expect(host.querySelector('.weq-reminder-count')?.textContent).toBe('3');
+  expect(host.querySelector('.weq-reminder-dot')).not.toBeNull();
   act(() =>
     acceptPreferences(
       {
@@ -85,10 +85,10 @@ it('菜单仅汇总任务和更新；关闭角标不清空任务状态', () => {
       false,
     ),
   );
-  expect(host.querySelector('.weq-reminder-count')).toBeNull();
+  expect(host.querySelector('.weq-workspace-dot')).toBeNull();
   expect(useWorkspaceMenu.getState().finished).toBe(2);
   expect(useWorkspaceMenu.getState().assistantUnread).toBe(true);
-  expect(useUpdateStore.getState().available).toBe(true);
+  expect(useUpdateStore.getState().packsAvailable).toBe(true);
   act(() => useWorkspaceMenu.setState({ running: 1 }));
   expect(host.querySelector('.weq-reminder-count')).toBeNull();
   expect(useWorkspaceMenu.getState().running).toBe(1);

@@ -695,26 +695,29 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('更新提醒定位到帮助分类和版本项，打开页面不会清除待更新状态', () => {
+  it('更新红点只指向增强功能和增强包，打开页面不会清除待更新状态', () => {
     const f = mount('version');
     try {
-      act(() => useUpdateStore.setState({ available: true }));
+      act(() => useUpdateStore.setState({ packsAvailable: true }));
       expect(
         f.host.querySelector('.weq-settings-nav-item .weq-settings-update-mark')?.closest('button')
           ?.textContent,
-      ).toBe('关于 WeQ');
+      ).toBe('增强功能');
+      expect(
+        f.host.querySelector('.weq-settings-subnav-item .weq-settings-update-mark'),
+      ).toBeNull();
+      f.render('enhancement-packs');
       expect(
         f.host
           .querySelector('.weq-settings-subnav-item .weq-settings-update-mark')
           ?.closest('button')?.textContent,
-      ).toBe('版本与更新');
-      f.render('version');
-      expect(useUpdateStore.getState().available).toBe(true);
-      act(() => useUpdateStore.setState({ available: false }));
+      ).toBe('增强包');
+      expect(useUpdateStore.getState().packsAvailable).toBe(true);
+      act(() => useUpdateStore.setState({ packsAvailable: false }));
       expect(f.host.querySelector('.weq-settings-update-mark')).toBeNull();
     } finally {
       f.close();
-      useUpdateStore.setState({ available: false });
+      useUpdateStore.setState({ packsAvailable: false });
     }
   });
   it('从搜索打开设置时切换分区并定位真实项目，离开分区撤销高亮', () => {

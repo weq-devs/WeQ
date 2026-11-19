@@ -503,9 +503,9 @@ describe('主聊天区域的频道私聊', () => {
       expect(settingsButton.closest('[inert]')).toBeNull();
       act(() => settingsButton.click());
       expect(settings).toHaveBeenCalledOnce();
-      act(() => useUpdateStore.getState().setAvailable('synthetic-version'));
-      expect(settingsButton.title).toContain('有新版本可更新');
-      expect(settingsButton.querySelector('[aria-label="有新版本可更新"]')).not.toBeNull();
+      act(() => useUpdateStore.getState().setPacksAvailable(true));
+      expect(settingsButton.title).toContain('有增强包更新');
+      expect(settingsButton.querySelector('[aria-label="有增强包更新"]')).not.toBeNull();
       expect(f.host.querySelector('.rail-mobile-settings')).not.toBeNull();
       act(() => f.host.querySelector<HTMLButtonElement>('[title="收藏"]')!.click());
       expect(collection).toHaveBeenCalledOnce();
@@ -521,7 +521,7 @@ describe('主聊天区域的频道私聊', () => {
       expect(f.host.querySelector('[title="频道私聊"]')).toBeNull();
       expect(f.host.querySelector('[title="QQ 频道"]')).not.toBeNull();
     } finally {
-      act(() => useUpdateStore.getState().clear());
+      act(() => useUpdateStore.getState().setPacksAvailable(false));
       f.close();
     }
   });

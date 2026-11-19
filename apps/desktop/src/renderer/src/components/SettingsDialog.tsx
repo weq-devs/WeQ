@@ -113,9 +113,8 @@ import {
 export type { SectionId } from './settings/navigation';
 import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
 import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
-import { useUnreadMarkers } from '../lib/unreadMarkers';
+import { useEnhancementUpdateBadge } from '../lib/unreadMarkers';
 import { AggregateBadgeRows, BadgeSettingRow } from './settings/UnreadBadgeSettings';
-import { useUpdateStore } from '../state/update';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
@@ -459,9 +458,7 @@ function SettingsContent({
         SETTINGS_GROUPS.some((group) => group.sections.some((section) => section === value)),
     ),
   );
-  const markers = useUnreadMarkers();
-  const updateAvailable = useUpdateStore((state) => state.available) && markers.updates;
-  const packUpdatesAvailable = useUpdateStore((state) => state.packsAvailable) && markers.updates;
+  const packUpdate = useEnhancementUpdateBadge();
   const locked = useAppLock((state) => state.locked);
   const navRef = useRef<HTMLElement | null>(null);
   const [mobileCategoryOpen, setMobileCategoryOpen] = useState(
@@ -662,11 +659,10 @@ function SettingsContent({
                     </span>
                     <span className="weq-settings-nav-label">
                       {s.label}
-                      {(updateAvailable && s.sections.includes('version')) ||
-                      (packUpdatesAvailable && s.sections.includes('enhancement-packs')) ? (
+                      {packUpdate && s.sections.includes('enhancement-packs') ? (
                         <ReminderDot
                           className="weq-settings-update-mark"
-                          aria-label="有新版本可更新"
+                          aria-label="有增强包更新"
                         />
                       ) : null}
                     </span>
@@ -690,9 +686,8 @@ function SettingsContent({
                     <SettingsPageIcon page={section.id} />
                   </span>
                   <span className="weq-settings-subnav-label">{section.label}</span>
-                  {(updateAvailable && section.id === 'version') ||
-                  (packUpdatesAvailable && section.id === 'enhancement-packs') ? (
-                    <ReminderDot className="weq-settings-update-mark" aria-label="有新版本可更新" />
+                  {packUpdate && section.id === 'enhancement-packs' ? (
+                    <ReminderDot className="weq-settings-update-mark" aria-label="有增强包更新" />
                   ) : null}
                 </button>
               ))}

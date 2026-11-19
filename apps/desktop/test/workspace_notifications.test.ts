@@ -28,6 +28,26 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('任务结果已读状态', () => {
+  it('WeQ 更新下载保留任务和进度，完成或失败不计入结果角标', () => {
+    const store = useWorkspaceMenu.getState();
+    const update = { id: 'weq-update', kind: 'update', updatedAt: 1 } as const;
+    store.syncTasks(
+      'updates',
+      summarizeWorkspaceTasks({ background: [{ ...update, status: 'running' }] }).items,
+    );
+    expect(useWorkspaceMenu.getState()).toMatchObject({ running: 1, finished: 0 });
+    for (const status of ['completed', 'failed'] as const) {
+      const { items } = summarizeWorkspaceTasks({ background: [{ ...update, status }] });
+      store.syncTasks('updates', items);
+      expect(useWorkspaceMenu.getState()).toMatchObject({
+        running: 0,
+        finished: 0,
+        failed: 0,
+        taskItems: [{ id: update.id, activity: 'finished', failed: status === 'failed' }],
+      });
+    }
+  });
+
   it.each(['running', 'paused', 'completed', 'failed', 'cancelled'] as const)(
     '数据库体检首次同步为 %s 时不打开主窗口任务列表，仍可手动查看',
     (status) => {

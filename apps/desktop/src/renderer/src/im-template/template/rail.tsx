@@ -5,7 +5,6 @@ import { cn } from './classNames';
 import { Avatar } from './primitives';
 import type { MainView, SettingsTab, User } from './types';
 import { displayUserName } from './user';
-import { useUpdateStore } from '../../state/update';
 import '../../styles/rail-navigation.css';
 import {
   useWorkspaceActiveTitle,
@@ -13,7 +12,7 @@ import {
 } from '../../components/WorkspacePages.shared';
 import { preloadWorkspace } from '../../components/lazyWorkspaces.shared';
 import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
-import { useUnreadMarkers } from '../../lib/unreadMarkers';
+import { useEnhancementUpdateBadge } from '../../lib/unreadMarkers';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { APP_NAVIGATION, activateNavigation, navigationEntries } from '../../lib/appNavigation';
 
@@ -72,9 +71,8 @@ export function AppRail({
         : undefined;
   const activeView = activePage ?? activeRailItem ?? view;
   const locateUnread = activeView === 'messages' && !mainPageOpen ? onMessageBadgeClick : undefined;
-  const markers = useUnreadMarkers();
   const developmentDressTools = useDevelopmentDressTools();
-  const updateAvailable = useUpdateStore((s) => s.available || s.packsAvailable) && markers.updates;
+  const packUpdate = useEnhancementUpdateBadge();
   const settingsButton = (mobile = false) => (
     <button
       className={cn(
@@ -92,16 +90,16 @@ export function AppRail({
         onOpenSettings();
       }}
       title={
-        updateAvailable
-          ? `${APP_NAVIGATION.settings.label} · 有新版本可更新`
+        packUpdate
+          ? `${APP_NAVIGATION.settings.label} · 有增强包更新`
           : APP_NAVIGATION.settings.label
       }
       type="button"
     >
       <Settings size={22} strokeWidth={1.75} aria-hidden />
       {mobile ? <span className="rail-label">{APP_NAVIGATION.settings.label}</span> : null}
-      {updateAvailable ? (
-        <ReminderDot overlay className="rail-badge rail-badge-dot" aria-label="有新版本可更新" />
+      {packUpdate ? (
+        <ReminderDot overlay className="rail-badge rail-badge-dot" aria-label="有增强包更新" />
       ) : null}
     </button>
   );
