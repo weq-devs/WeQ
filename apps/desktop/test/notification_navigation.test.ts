@@ -48,7 +48,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it('来源随操作闭包保留，不因页面切换而指向另一个对象；普通成功不添加主操作', () => {
+it('来源随操作闭包保留，定位后只收起被打开的横幅', async () => {
   const host = document.createElement('div');
   const root = createRoot(host);
   const pushers: Array<ReturnType<typeof useToast.getState>['push']> = [];
@@ -80,8 +80,9 @@ it('来源随操作闭包保留，不因页面切换而指向另一个对象；�
   const off = onNotificationNavigation(receive);
   act(() => root.render(createElement(ToastHost)));
   expect(host.querySelectorAll('.weq-toast-open')).toHaveLength(1);
-  act(() => host.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
   expect(receive).toHaveBeenCalledWith(expect.objectContaining({ conv: 'first' }));
+  expect(useToast.getState().toasts.map((toast) => toast.title)).toEqual(['已复制']);
   off();
   act(() => root.unmount());
 });

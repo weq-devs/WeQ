@@ -197,9 +197,12 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
   const config = TONE_CONFIG[toast.tone];
   const progress = toast.ttl > 0 ? Math.max(0, Math.min(100, (timeLeft / toast.ttl) * 100)) : 0;
   const secondsLeft = Math.ceil(timeLeft / 1000);
-  const runAction = async (run: () => unknown) => {
+  const runAction = async (run: () => unknown, keepOpen = false) => {
     try {
       await run();
+      // 不播放退场动画，避免切页改变横幅锚点时已处理的通知跟着跳动。
+      if (!keepOpen && !toast.loading && toast.event !== 'progress' && toast.dismissible !== false)
+        remove(toast.id);
     } catch (error) {
       update(toast.id, { detail: error instanceof Error ? error.message : String(error) });
       setExpanded(true);
@@ -221,7 +224,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
           : sourceActionIcon(toast.source),
       }
     : toast.action
-      ? { ...toast.action, run: () => runAction(toast.action!.run) }
+      ? { ...toast.action, run: () => runAction(toast.action!.run, toast.action!.keepOpen) }
       : undefined;
   const extraAction = toast.source && !sameSource ? toast.action : undefined;
   const ActionIcon = ACTION_ICONS[action?.icon ?? sourceActionIcon(action?.source)];
@@ -285,7 +288,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
                 className="weq-toast-action"
                 title={extraAction.label}
                 aria-label={extraAction.label}
-                onClick={() => void runAction(extraAction.run)}
+                onClick={() => void runAction(extraAction.run, extraAction.keepOpen)}
               >
                 <ExtraActionIcon size={16} aria-hidden />
               </button>

@@ -43,6 +43,8 @@ export interface ToastAction {
   label: string;
   run: () => void;
   icon?: 'play' | 'open' | 'task' | 'conversation' | 'settings' | 'reload';
+  /** 非导航动作可继续保留横幅，例如重复播放样例或等待重载确认。 */
+  keepOpen?: boolean;
   /** 导航动作的明确目标，用于与来源入口去重；普通回调不按文案合并。 */
   source?: NotificationSource;
 }

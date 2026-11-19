@@ -49,11 +49,15 @@ function buttons() {
 
 it('独立播放主动作使用播放图标，点击一次只执行一次', async () => {
   const play = vi.fn();
-  render({ title: '样例已生成', action: { label: '播放样例语音', icon: 'play', run: play } });
+  const id = render({
+    title: '样例已生成',
+    action: { label: '播放样例语音', icon: 'play', run: play, keepOpen: true },
+  });
   expect(buttons()[0]!.querySelector('.lucide-play')).not.toBeNull();
   expect(buttons()[0]!.querySelector('.lucide-arrow-up-right')).toBeNull();
   await act(async () => buttons()[0]!.click());
   expect(play).toHaveBeenCalledOnce();
+  expect(useToast.getState().toasts[0]?.id).toBe(id);
 });
 
 it('来源切到失败任务后保留会话入口，两个动作使用任务与会话图标', () => {

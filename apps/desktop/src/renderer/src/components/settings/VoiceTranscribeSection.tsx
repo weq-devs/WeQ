@@ -270,7 +270,7 @@ export function TtsProvidersCard(): ReactElement {
         play();
         return {
           detail: '已生成样例语音。',
-          action: { label: '播放样例语音', run: play, icon: 'play' },
+          action: { label: '播放样例语音', run: play, icon: 'play', keepOpen: true },
         };
       }
       return { detail: res.error ?? '配置可用。' };
