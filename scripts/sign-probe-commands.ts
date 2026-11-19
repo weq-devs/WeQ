@@ -68,6 +68,7 @@ export const DEFAULT_OIDB_CASES: readonly string[] = [
   '1126_1',
   '112a_2',
   '112e_1',
+  '116c_1',
   '11c4_100',
   '11c5_100',
   '11e9_100',

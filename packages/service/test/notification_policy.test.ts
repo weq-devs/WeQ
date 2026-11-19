@@ -7,9 +7,12 @@ import {
   mergeNotificationEventOverrides,
   normalizeNotificationScope,
 } from '../src/common/notification_settings';
-it('通知目录四组并纳入数据库异常，普通消息仅系统通知', () => {
+it('通知目录四组且事件不重复，普通消息仅系统通知', () => {
   expect(NOTIFICATION_GROUPS).toHaveLength(4);
-  expect(new Set(NOTIFICATION_EVENTS).size).toBe(23);
+  expect(new Set(NOTIFICATION_EVENTS).size).toBe(NOTIFICATION_EVENTS.length);
+  expect(NOTIFICATION_GROUPS.find((group) => group.id === 'app')?.events).toEqual(
+    expect.arrayContaining(['databaseDamage', 'officialAnnouncement']),
+  );
   const values = normalizeNotificationEvents(undefined);
   expect(notificationGroupState(NOTIFICATION_GROUPS[0].events, 'banner', values)).toEqual({
     checked: false,

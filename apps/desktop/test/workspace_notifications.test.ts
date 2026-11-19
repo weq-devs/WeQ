@@ -167,7 +167,7 @@ describe('任务结果已读状态', () => {
     expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 1);
   });
 
-  it('定时自动导出不弹出，手动导出、报告、克隆和闪传继续弹出', () => {
+  it('轮询不为定时导出或克隆弹出列表，手动导出、报告和闪传继续弹出', () => {
     const store = useWorkspaceMenu.getState();
     store.syncTasks('exports', []);
     const initial = useWorkspaceMenu.getState().taskOpenRequest;
@@ -198,11 +198,15 @@ describe('任务结果已读状态', () => {
           },
         ],
       }),
-      summarizeWorkspaceTasks({ clones: [{ personaId: 'clone', status: 'running' }] }),
       summarizeWorkspaceTasks({ flash: [{ id: 'flash', status: 'downloading' }] }),
     ])
       store.syncTasks('exports', summary.items);
-    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 4);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 3);
+    store.syncTasks(
+      'exports',
+      summarizeWorkspaceTasks({ clones: [{ personaId: 'clone', status: 'running' }] }).items,
+    );
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 3);
   });
 
   it('首次加载和切换账号不弹出，同账号新增任务自动打开，刷新和进度变化不重复弹出', () => {

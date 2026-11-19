@@ -1,10 +1,11 @@
 import { createContext, useContext } from 'react';
 
 export const AnnouncementUnread = createContext(0);
-export const OpenAnnouncement = createContext<() => void>(() => {});
+const openAnnouncementContext = createContext<() => void>(() => {});
+export { openAnnouncementContext as OpenAnnouncement };
 
 export function useOpenAnnouncement() {
-  return useContext(OpenAnnouncement);
+  return useContext(openAnnouncementContext);
 }
 
 export function useAnnouncementPresentation() {
