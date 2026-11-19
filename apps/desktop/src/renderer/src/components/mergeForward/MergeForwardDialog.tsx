@@ -8,7 +8,7 @@ import { CompositionButton } from './CompositionButton';
  *   2. `targets`  —— 选择要转发到的会话（多选）。
  *
  * 「转发」按钮只在 QQ 在线且已注入时可点（与输入框的发送键同一条件）；不在线时
- * 只能「保存草稿」——草稿落在 weq 目录，下次继续编辑。
+ * 仍可「保存为合成记录」，之后在合成聊天记录中继续编辑。
  *
  * 真正的发包（UploadLongMsg）由 {@link onForward} 这一处接缝负责，**本组件不碰
  * protocol**。
@@ -19,6 +19,7 @@ import { ArrowLeft, ClipboardCopy, Save, Share2, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { useToast } from '../Toast.shared';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
+import { isSingleColumnLayout } from '../../lib/responsiveLayout';
 import { MergeForwardComposer } from './MergeForwardComposer';
 import { MergeForwardTargets } from './MergeForwardTargets';
 import { senderAvatarUrl } from './model';
@@ -47,7 +48,7 @@ export function MergeForwardDialog({
   /** QQ 在线且已注入 —— 决定「转发」能不能点。 */
   sendAvailable: boolean;
   onClose: () => void;
-  /** 保存草稿（落到 weq 目录）。 */
+  /** 保存为可续编的合成记录。 */
   onPersist: (draft: MfDraft) => Promise<void> | void;
   /** 发送接缝：真正的合并转发发包在这里接入（本分支不实现）。 */
   onForward: (draft: MfDraft, target: MfTarget) => Promise<void>;
@@ -72,10 +73,10 @@ export function MergeForwardDialog({
 
   async function persist(): Promise<void> {
     await onPersist(draft);
+    const menu = isSingleColumnLayout() ? '更多' : '菜单';
     pushToast({
       tone: 'success',
-      title: '草稿已保存',
-      message: '下次可在「合成聊天记录」继续编辑',
+      title: `已保存，请在「${menu} → 合成聊天记录 → 合成记录」中打开`,
     });
   }
 
@@ -213,7 +214,7 @@ export function MergeForwardDialog({
                 className="weq-mf-soft"
                 onClick={() => void persist()}
               >
-                <Save size={15} /> 保存草稿
+                <Save size={15} /> 保存为合成记录
               </CompositionButton>
               <CompositionButton
                 type="button"
