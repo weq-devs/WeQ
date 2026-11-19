@@ -14,6 +14,12 @@ const uint32 = z.number().int().min(0).max(0xffffffff);
 const groupId = uint32.positive();
 const remark = z.string().max(1024);
 const source = z.string().min(1);
+const onlineStatusInput = binding.extend({
+  status: uint32.positive(),
+  extStatus: uint32.optional(),
+  batteryStatus: uint32.optional(),
+  custom: z.object({ faceId: uint32, faceType: uint32, wording: z.string().max(1024) }).optional(),
+});
 
 export type QQWriteBinding = z.infer<typeof binding>;
 
@@ -63,7 +69,10 @@ export interface QQWriteServices {
     | 'operationContext'
   >;
   recentContacts: Pick<AccountServices['recentContacts'], 'getTopContacts' | 'getByTargetUids'>;
-  onlineStatus: Pick<AccountServices['onlineStatus'], 'getOnlineStatus' | 'editableStatuses'>;
+  onlineStatus: Pick<
+    AccountServices['onlineStatus'],
+    'getOnlineStatus' | 'editableStatuses' | 'confirmSelfStatus'
+  >;
 }
 
 function cachedGroupRole(
@@ -473,17 +482,14 @@ export function createQQWriteRouter(
       )
       .mutation(({ input }) => resolve(input).accountWrite.selfProfile(input.patch)),
     onlineStatus: procedure
-      .input(
-        binding.extend({
-          status: uint32.positive(),
-          extStatus: uint32.optional(),
-          batteryStatus: uint32.optional(),
-          custom: z
-            .object({ faceId: uint32, faceType: uint32, wording: z.string().max(1024) })
-            .optional(),
-        }),
-      )
+      .input(onlineStatusInput)
       .mutation(({ input }) => resolve(input).accountWrite.onlineStatus(input)),
+    selfStatusReadback: procedure.input(onlineStatusInput).query(async ({ input }) => {
+      const services = resolve(input);
+      const matched = await services.onlineStatus.confirmSelfStatus(input);
+      if (read(input) !== services) throw new Error('账号已切换，请重新读取在线状态');
+      return matched;
+    }),
     selfAvatar: procedure
       .input(binding.extend({ source }))
       .mutation(({ input }) => resolve(input).accountWrite.selfAvatar(input.source)),

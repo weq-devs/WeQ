@@ -142,6 +142,7 @@ export const SIGN_RULES = {
   'OidbSvcTrpcTcp.0x8fc_2': { sign: 'none' },
   'OidbSvcTrpcTcp.0xb5d_44': { sign: 'none' },
   'OidbSvcTrpcTcp.0xcd4_1': { sign: 'none' }, // 私聊正在输入
+  'OidbSvcTrpcTcp.0x116c_1': { sign: 'none' }, // 桌面 QQ 的完整在线状态查询
   'OidbSvcTrpcTcp.0xcde_2': { sign: 'none' },
   'OidbSvcTrpcTcp.0xd69_0': { sign: 'none' },
   'OidbSvcTrpcTcp.0xd72_0': { sign: 'none' },

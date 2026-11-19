@@ -301,7 +301,13 @@ export const client = withFallback({
         }),
       },
     },
-    qqWrite: { onlineStatus: { mutate } },
+    qqWrite: {
+      onlineStatus: { mutate },
+      selfStatusReadback: {
+        query: async (input: Parameters<typeof mutate>[0]) =>
+          onlineStatus.type === input.status && onlineStatus.subType === (input.extStatus ?? 0),
+      },
+    },
     pickedFileStart: { mutate: async () => ({ id: 'synthetic-upload' }) },
     pickedFileChunk: {
       mutate: async (input: { offset: number; base64: string }) => ({

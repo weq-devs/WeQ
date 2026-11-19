@@ -3,11 +3,14 @@
  */
 
 import type { AccountSession } from '@weq/account';
+import type { OnlineStatusData } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import {
+  GetContactOnlineStatus,
   GetUserOnlineStatus,
   SetDiyOnlineStatus,
   SetOnlineStatus,
+  type SetOnlineStatusParams,
   type UserOnlineStatus,
 } from '@weq/protocol';
 
@@ -85,7 +88,30 @@ export interface FormattedOnlineStatus {
   customStatus?: { faceId: number; text: string; faceType: number };
 }
 
+function statusKey(status: OnlineStatusData | null): string {
+  if (!status) return '';
+  const subType = status.type === OnlineType.ONLINE ? status.subType : 0;
+  const custom = subType === 2000 ? status.customStatus : undefined;
+  return JSON.stringify([status.type, subType, custom?.text, custom?.faceId, custom?.faceType]);
+}
+
+function matchesStatus(actual: OnlineStatusData | null, expected: SetOnlineStatusParams): boolean {
+  if (!actual || actual.type !== expected.status) return false;
+  const subType = actual.type === OnlineType.ONLINE ? actual.subType : 0;
+  if (subType !== (expected.extStatus ?? 0)) return false;
+  const { custom } = expected;
+  if (!custom) return subType !== 2000;
+  return (
+    actual.customStatus?.text === custom.wording &&
+    actual.customStatus.faceId === custom.faceId &&
+    actual.customStatus.faceType === custom.faceType
+  );
+}
+
 export class OnlineStatusService {
+  private confirmedSelf?: { pid: number; status: OnlineStatusData; previousLocal: string };
+  private readbackRevision = 0;
+
   constructor(
     private readonly session: { misc: Pick<AccountSession['misc'], 'getUserOnlineStatus'> },
     private readonly online?: OnlineStatusOnlineDeps,
@@ -114,19 +140,39 @@ export class OnlineStatusService {
    * Get formatted online status for a user.
    */
   async getOnlineStatus(uid: string): Promise<FormattedOnlineStatus | null> {
-    const raw = await this.session.misc.getUserOnlineStatus(uid);
+    const self = uid === this.selfPresence?.uid ? this.selfPresence : undefined;
+    let raw: OnlineStatusData | null;
+    try {
+      raw = await this.session.misc.getUserOnlineStatus(uid);
+    } catch (error) {
+      if (!self || !this.confirmedSelf || this.onlinePid() !== this.confirmedSelf.pid) throw error;
+      raw = null;
+    }
     // 本人下线后 misc.db 仍会保留上次状态，不能用它覆盖账号监测的当前结论。
-    if (uid === this.selfPresence?.uid && !this.selfPresence.isOnline()) {
+    if (self && !self.isOnline()) {
+      this.confirmedSelf = undefined;
       const typeName = ONLINE_TYPE_NAMES[OnlineType.OFFLINE]!;
       return {
         uid,
-        uin: this.selfPresence.uin,
+        uin: self.uin,
         type: OnlineType.OFFLINE,
         typeName,
         subType: 0,
         subTypeName: '',
         displayStatus: typeName,
       };
+    }
+    const confirmed = this.confirmedSelf;
+    if (self && confirmed) {
+      if (
+        this.onlinePid() === confirmed.pid &&
+        (!raw || statusKey(raw) === confirmed.previousLocal)
+      ) {
+        raw = confirmed.status;
+      } else {
+        // QQ 本地记录已同步或发生了另一次变化，重新以本地数据为准。
+        this.confirmedSelf = undefined;
+      }
     }
     if (!raw) return null;
 
@@ -159,6 +205,46 @@ export class OnlineStatusService {
   }
 
   // ───────────────────────── 在线写操作 / 实时查询 ─────────────────────────
+
+  private onlinePid(): number | undefined {
+    try {
+      return this.online?.resolvePid();
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 仅保存后主动读回；普通状态展示仍使用低成本的本地查询。 */
+  async confirmSelfStatus(expected: SetOnlineStatusParams): Promise<boolean> {
+    const self = this.selfPresence;
+    if (!self?.uid || !self.isOnline() || !this.online) return false;
+    const pid = this.onlinePid();
+    if (pid === undefined) return false;
+    const revision = ++this.readbackRevision;
+    const current = () =>
+      revision === this.readbackRevision && self.isOnline() && this.onlinePid() === pid;
+    const local = await this.session.misc.getUserOnlineStatus(self.uid).catch(() => null);
+    if (!current()) return false;
+    if (matchesStatus(local, expected)) {
+      this.confirmedSelf = undefined;
+      return true;
+    }
+
+    const observed = await GetContactOnlineStatus.invoke(this.online.nt, pid, self.uid);
+    if (!current() || observed?.uid !== self.uid) return false;
+    const status: OnlineStatusData = {
+      uid: self.uid,
+      uin: self.uin,
+      type: observed.status,
+      subType: observed.extStatus,
+      statusName: '',
+      customStatus: observed.customStatus,
+    };
+    if (!matchesStatus(status, expected)) return false;
+
+    this.confirmedSelf = { pid, status, previousLocal: statusKey(local) };
+    return true;
+  }
 
   /**
    * 设置本账号在线状态（trpc StatusService.SetStatus）。

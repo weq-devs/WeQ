@@ -39,6 +39,7 @@ const state = vi.hoisted(() => ({
   queryOptions: { refetchInterval: false as number | false },
   invalidate: vi.fn(async () => undefined),
   mutate: vi.fn(async (_input: unknown) => ({ state: 'accepted' as const })),
+  confirmStatus: vi.fn(async (_input: unknown) => true),
   pick: vi.fn<() => Promise<{ path: string } | null>>(async () => null),
   navigate: vi.fn(),
   statusSaved: vi.fn(),
@@ -64,7 +65,10 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
-      qqWrite: { onlineStatus: { mutate: (input: unknown) => state.mutate(input) } },
+      qqWrite: {
+        onlineStatus: { mutate: (input: unknown) => state.mutate(input) },
+        selfStatusReadback: { query: state.confirmStatus },
+      },
       pickSendFile: { mutate: state.pick },
     },
   },
@@ -211,6 +215,7 @@ beforeEach(() => {
   state.status = { type: 10, subType: 0, customStatus: undefined };
   state.invalidate.mockClear();
   state.mutate.mockClear();
+  state.confirmStatus.mockReset().mockResolvedValue(true);
   state.pick.mockReset().mockResolvedValue(null);
   state.navigate.mockClear();
   state.statusSaved.mockClear();
@@ -258,11 +263,15 @@ describe('个人资料编辑入口', () => {
       status: 30,
       extStatus: 0,
     });
-    expect(await state.readback!()).toBe(false);
-    state.status = { type: 30, subType: 0, customStatus: undefined };
     expect(await state.readback!()).toBe(true);
+    expect(state.confirmStatus).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      status: 30,
+      extStatus: 0,
+    });
   });
-  it('自定义状态完整核对基础值、扩展值、文字、表情编号和表情类型', async () => {
+  it('自定义状态交给宿主完整读回，与本地缓存读出的旧值分开', async () => {
     const expected = { faceId: 0, text: '完整状态', faceType: 1 };
     state.status = { type: 10, subType: 2000, customStatus: expected };
     const f = fixture();
@@ -270,12 +279,16 @@ describe('个人资料编辑入口', () => {
       f.host.querySelector<HTMLButtonElement>('[aria-label="保存在线状态"]')!.click(),
     );
     const readback = state.readback!;
-    expect(await readback()).toBe(true);
-    for (const patch of [{ text: '另一个值' }, { faceId: 14 }, { faceType: 2 }]) {
-      state.status = { type: 10, subType: 2000, customStatus: { ...expected, ...patch } };
-      expect(await readback()).toBe(false);
-    }
     state.statusError = '读取失败';
+    expect(await readback()).toBe(true);
+    expect(state.confirmStatus).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      status: 10,
+      extStatus: 2000,
+      custom: { wording: '完整状态', faceId: 0, faceType: 1 },
+    });
+    state.confirmStatus.mockResolvedValueOnce(false);
     expect(await readback()).toBe(false);
   });
   it('状态保存期间连续点击不重复提交，失败后保留整份草稿可重试', async () => {

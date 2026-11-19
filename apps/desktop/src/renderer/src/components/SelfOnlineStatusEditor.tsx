@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown, RefreshCw, Save, Smile } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
-import { trpc } from '../trpc/client';
+import { client, trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
@@ -50,11 +50,7 @@ export default function SelfOnlineStatusEditor({
           session={session}
           available={sameSource && session.available}
           onSaved={onSaved}
-          readback={async () => {
-            const result = await query.refetch();
-            if (result.error) throw result.error;
-            return result.data;
-          }}
+          refresh={query.refetch}
         />
       ) : null}
     </>
@@ -66,13 +62,13 @@ function StatusForm({
   session,
   available,
   onSaved,
-  readback,
+  refresh,
 }: {
   initial: SelfState;
   session: ReturnType<typeof useQQWriteSession>;
   available: boolean;
   onSaved: () => void;
-  readback: () => Promise<SelfState | undefined>;
+  refresh: () => Promise<unknown>;
 }) {
   const status = initial.statusError ? undefined : initial.status;
   const custom = status?.type === 10 && status.subType === 2000 ? status.customStatus : undefined;
@@ -158,25 +154,16 @@ function StatusForm({
       ...(isCustom ? { custom: { faceId: faceId!, faceType: 1, wording } } : {}),
     };
     try {
+      const binding = session.binding;
+      if (!binding) return;
       const saved = await session.run(
-        (binding) => mutation.mutateAsync({ ...binding, ...desired }),
-        undefined,
+        (current) => mutation.mutateAsync({ ...current, ...desired }),
+        refresh,
         {
           requireReadback: true,
           readbackSuccessText: '在线状态已更新',
-          readback: async () => {
-            const result = await readback();
-            const actual = result?.status;
-            return Boolean(
-              !result?.statusError &&
-                actual?.type === desired.status &&
-                (actual.subType || 0) === desired.extStatus &&
-                (!desired.custom ||
-                  (actual.customStatus?.text === desired.custom.wording &&
-                    actual.customStatus.faceId === desired.custom.faceId &&
-                    actual.customStatus.faceType === desired.custom.faceType)),
-            );
-          },
+          readback: () =>
+            client.account.qqWrite.selfStatusReadback.query({ ...binding, ...desired }),
         },
       );
       if (saved && mounted.current) onSaved();

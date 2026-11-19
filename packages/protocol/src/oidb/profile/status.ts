@@ -3,6 +3,7 @@
 //   trpc.qq_new_tech.status_svc.StatusService.SetStatus — 设置在线 / 自定义状态
 //   0xCD4_1 — 设置私聊「正在输入」等输入状态
 //   0xFE1_2 key 27372 — 查询某个 uin 的在线 / 扩展状态
+//   0x116C_1 — 按 UID 读取完整在线状态（含自定义状态）
 //
 // 搬运自 SnowLuma `core/src/bridge/apis/profile.ts`、
 // `oidb-services/profile/set-input-status.ts`、`oidb-services/extras/get-stranger-status.ts`。
@@ -262,4 +263,66 @@ export namespace GetUserOnlineStatus {
     params: Params,
   ): Promise<UserOnlineStatus | null> =>
     invokeOidb(nt, pid, GetUserOnlineStatus as OidbSpec<Params, UserOnlineStatus | null>, params);
+}
+
+// 桌面 QQ 7.0.3-54395：ProfileStatusWorker::GetStatus → EncodeGetFrdReq / DecodeGetFrdRsp。
+const CONTACT_STATUS_REQ = message([
+  { name: 'uid', tag: 1, type: 'string' },
+  { name: 'queryStatus', tag: 2, type: 'uint32' },
+  { name: 'context', tag: 3, type: 'bytes', force: true },
+  { name: 'includeDetails', tag: 4, type: 'uint32' },
+  { name: 'socialSwitch', tag: 6, type: 'uint32', force: true },
+]);
+const CONTACT_STATUS_RESP = message([
+  { name: 'uid', tag: 1, type: 'string' },
+  { name: 'status', tag: 2, type: 'int32' },
+  { name: 'extStatus', tag: 10, type: 'int32' },
+  { name: 'custom', tag: 14, type: STATUS_CUSTOM_EXT },
+  { name: 'effectiveStatus', tag: 17, type: 'int32' },
+  { name: 'alternateUid', tag: 21, type: 'string' },
+]);
+
+export interface ContactOnlineStatus extends UserOnlineStatus {
+  uid: string;
+  customStatus?: { faceId: number; text: string; faceType: number };
+}
+
+export namespace GetContactOnlineStatus {
+  export const command = 0x116c;
+  export const subCommand = 1;
+  export const reqSchema = CONTACT_STATUS_REQ;
+  export const respSchema = CONTACT_STATUS_RESP;
+
+  export const serialize = (uid: string): Record<string, unknown> => ({
+    uid,
+    queryStatus: 1,
+    context: new Uint8Array(),
+    includeDetails: 1,
+    socialSwitch: 0,
+  });
+
+  export function deserialize(body: Record<string, unknown>): ContactOnlineStatus | null {
+    const uid = body.uid || body.alternateUid;
+    const status = body.effectiveStatus ?? body.status;
+    if (typeof uid !== 'string' || !uid || status === undefined) return null;
+    const custom = body.custom as Record<string, unknown> | undefined;
+    const extStatus = toInt(body.extStatus);
+    return {
+      uid,
+      status: toInt(status),
+      extStatus,
+      customStatus:
+        extStatus === 2000 && typeof custom?.text === 'string' && custom.faceType !== undefined
+          ? { text: custom.text, faceId: toInt(custom.faceId), faceType: toInt(custom.faceType) }
+          : undefined,
+    };
+  }
+
+  export const invoke = (nt: OidbNative, pid: number, uid: string) =>
+    invokeOidb(
+      nt,
+      pid,
+      GetContactOnlineStatus as OidbSpec<string, ContactOnlineStatus | null>,
+      uid,
+    );
 }

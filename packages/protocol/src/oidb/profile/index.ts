@@ -10,6 +10,7 @@ export {
   SetDiyOnlineStatus,
   SetInputStatus,
   GetUserOnlineStatus,
+  GetContactOnlineStatus,
   unpackStatusWord,
 } from './status';
 export type {
