@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
@@ -227,8 +227,29 @@ test('运行中的有效宿主可复用，需要更新时不替换正在运行�
     new URL('../apps/desktop/build/entitlements.mac.plist', import.meta.url),
   );
   await writeFile(entitlementPath, Buffer.concat([existing, Buffer.from('\n')]));
+  const alias = join(dirname(options.directory), 'prepared-alias');
+  await symlink(options.directory, alias);
   const before = await stat(target);
-  await assert.rejects(prepareDevElectron({ ...options, entitlementPath }), /先按 Cmd\+Q/);
+  const processState = async () => ({
+    exitCode: child.exitCode,
+    signalCode: child.signalCode,
+    ps: await run('/bin/ps', ['-ww', '-p', String(child.pid), '-o', 'stat=,comm=,args=']).then(
+      ({ stdout }) => stdout.trim(),
+      (error) => ({ code: error.code, stderr: error.stderr }),
+    ),
+  });
+  const runningBefore = await processState();
+  try {
+    await assert.rejects(
+      prepareDevElectron({ ...options, directory: alias, entitlementPath }),
+      /先按 Cmd\+Q/,
+    );
+  } catch (error) {
+    t.diagnostic(
+      JSON.stringify({ target, alias, runningBefore, runningAfter: await processState() }),
+    );
+    throw error;
+  }
   assert.equal((await stat(target)).ino, before.ino);
 });
 
