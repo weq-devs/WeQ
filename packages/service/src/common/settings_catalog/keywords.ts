@@ -10,6 +10,7 @@ export const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   'windows-style-controls': ['macOS', 'Linux'],
   'toast-success': ['通知时间'],
   'toast-failure': ['通知时间'],
+  'toast-message': ['通知时间', '重要消息横幅', '消息横幅常驻'],
   'typing-status': ['正在输入', '打字状态'],
   'startup-enabled': ['自启动'],
   'startup-show-window': ['启动显示窗口', '隐藏启动'],

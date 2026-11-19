@@ -99,7 +99,12 @@ import {
 } from './app_quit_lifecycle';
 import { createRendererRecovery } from './renderer_recovery';
 import { registerRendererRecoveryIpc } from './renderer_recovery_ipc';
-import { installPerformanceMonitor, type PerformanceMonitor } from '@weq/service/performance';
+import {
+  finishPerformanceRecordingReset,
+  installPerformanceMonitor,
+  type PerformanceMonitor,
+} from '@weq/service/performance';
+import { getBackupContext } from './context/backup_context';
 import { createDesktopCollector } from './performance_monitor';
 import { performanceDatabaseDetails } from './performance_database';
 import { databaseCheckups } from './db_checkup';
@@ -965,6 +970,11 @@ void app.whenReady().then(async () => {
         (kind, reason) => performanceMonitor?.recordEvent(kind, reason),
       ),
     );
+    const files = getBackupContext();
+    if (files.ok)
+      void finishPerformanceRecordingReset(files.config).catch((error: unknown) =>
+        logger.warn('恢复性能记录档位未完成', { error: String(error) }),
+      );
   }
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。

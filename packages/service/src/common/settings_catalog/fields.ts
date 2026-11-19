@@ -282,6 +282,8 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   ),
   field('toast', 'successSeconds', 'toast-success', '成功通知停留时长', 'runtime'),
   field('toast', 'failureSeconds', 'toast-failure', '失败通知停留时长', 'runtime'),
+  field('toast', 'messageSeconds', 'toast-message', '消息通知停留时长', 'runtime'),
+  field('read-sync', 'enabled', 'read-sync', '向 QQ 服务器上报已读位置', 'runtime'),
   field('app-lock', 'enabled', 'app-lock', '启用应用锁', 'runtime'),
   field('app-lock', 'method', 'unlock-method', '解锁方式', 'runtime'),
   field('message-content', 'autoTranscribe', 'auto-transcribe-voice', '语音自动转文字', 'runtime'),

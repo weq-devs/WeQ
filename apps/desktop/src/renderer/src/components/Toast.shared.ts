@@ -19,7 +19,7 @@
 
 import { useContext, useMemo, type ReactElement, type ReactNode } from 'react';
 import { create, useStore, type StoreApi } from 'zustand';
-import type { NotificationEvent } from '@weq/service/notification-settings';
+import { NOTIFICATION_GROUPS, type NotificationEvent } from '@weq/service/notification-settings';
 import { publishNotificationSystem } from '../lib/notificationPolicy';
 import { taskNotificationPresented } from '../lib/taskNotificationPresentation';
 import {
@@ -30,13 +30,15 @@ import type { NotificationSource } from '../lib/notificationNavigation';
 import {
   DEFAULT_TOAST_DURATIONS,
   normalizeToastDurations,
+  TOAST_TIMED_KINDS,
   type ToastDurations,
+  type ToastTimedKind,
 } from '@weq/service/toast-settings';
 import '../styles/toast-action.css';
 import '../styles/toast-layout.css';
 
 export type ToastTone = 'info' | 'warning' | 'error' | 'success';
-export type ToastDurationKind = 'success' | 'failure' | 'long';
+export type ToastDurationKind = ToastTimedKind | 'long';
 export interface ToastAction {
   label: string;
   run: () => void;
@@ -61,7 +63,7 @@ export interface Toast {
   title: ReactNode;
   /** 可选的详情，传入后显示展开按钮与复制按钮 */
   detail?: ReactNode;
-  /** 自动关闭毫秒数，0 表示常驻；所有短期横幅遵循成功／失败设置。 */
+  /** 自动关闭毫秒数，0 表示常驻。 */
   ttl: number;
   timerRevision: number;
   /** 进行中的发送任务仅提供停止按钮，避免误关进度后继续静默发送。 */
@@ -90,7 +92,7 @@ export type ToastPatch = Partial<
 
 interface ToastStore {
   durations: ToastDurations;
-  setDurations(durations: ToastDurations): void;
+  setDurations(durations: Partial<ToastDurations>): void;
   toasts: Toast[];
   /** 正在播放退场动画的 toast id，动画结束后才真正移除 */
   leaving: number[];
@@ -136,12 +138,23 @@ function toastTtl(
 ): number {
   if (toast.loading || toast.dismissible === false || toast.durationKind === 'long')
     return toast.ttl ?? 0;
-  const seconds =
-    toast.durationKind === 'success' ? durations.successSeconds : durations.failureSeconds;
+  const seconds = durations[`${toast.durationKind}Seconds`];
   return seconds === -1 ? 0 : seconds * 1000;
 }
 
-function defaultDurationKind(tone: ToastTone, ttl?: number): ToastDurationKind {
+const messageEvents = new Set<NotificationEvent>([
+  ...NOTIFICATION_GROUPS[0].events,
+  ...NOTIFICATION_GROUPS[1].events,
+]);
+
+function defaultDurationKind(
+  tone: ToastTone,
+  ttl?: number,
+  event?: NotificationEvent,
+): ToastDurationKind {
+  if (event === 'taskComplete') return 'success';
+  if (event === 'taskFailure') return 'failure';
+  if (event && messageEvents.has(event)) return 'message';
   // 兼容旧调用点中明确常驻的普通提示，不把用户设置产生的 ttl=0 当作长期任务。
   if (tone === 'info' && ttl === 0) return 'long';
   return tone === 'warning' || tone === 'error' ? 'failure' : 'success';
@@ -152,10 +165,7 @@ const toastStore = create<ToastStore>((set, get) => ({
   setDurations(input) {
     const durations = normalizeToastDurations(input);
     const before = get().durations;
-    if (
-      before.successSeconds === durations.successSeconds &&
-      before.failureSeconds === durations.failureSeconds
-    )
+    if (TOAST_TIMED_KINDS.every((kind) => before[`${kind}Seconds`] === durations[`${kind}Seconds`]))
       return;
     set({
       durations,
@@ -192,7 +202,7 @@ const toastStore = create<ToastStore>((set, get) => ({
     // 兼容旧调用点：只传一个内容时它就是标题；传了 title 时旧 message 变成详情
     const actualTitle = title ?? message ?? '';
     const actualDetail = detail ?? (title != null ? message : undefined);
-    const kind = durationKind ?? defaultDurationKind(tone, ttl);
+    const kind = durationKind ?? defaultDurationKind(tone, ttl, event);
     const toast: Toast = {
       id,
       taskId: taskId ?? (source?.target.kind === 'task' ? source.target.id : undefined),
@@ -291,10 +301,11 @@ const toastStore = create<ToastStore>((set, get) => ({
           patch.ttl !== undefined ||
           patch.loading !== undefined ||
           patch.dismissible !== undefined ||
+          patch.event !== undefined ||
           patch.durationKind !== undefined;
         next.durationKind =
           patch.durationKind ??
-          (reset ? defaultDurationKind(next.tone, patch.ttl) : t.durationKind);
+          (reset ? defaultDurationKind(next.tone, patch.ttl, next.event) : t.durationKind);
         return {
           ...next,
           ttl: toastTtl(next, get().durations),

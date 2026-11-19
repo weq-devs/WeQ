@@ -2,7 +2,6 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountBasicsSection } from '../src/renderer/src/components/settings/AccountBasicsSection';
-import { Card } from '../src/renderer/src/components/settings/controls';
 import {
   normalizeNotificationEvents,
   type NotificationEvents,
@@ -97,22 +96,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function mount(page: 'read' | 'account' = 'read') {
+function mount() {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = () =>
-    act(() =>
-      root.render(
-        page === 'read'
-          ? createElement(
-              Card,
-              { title: '未读提醒' },
-              createElement(AccountBasicsSection, { page }),
-            )
-          : createElement(AccountBasicsSection, { page }),
-      ),
-    );
+  const render = () => act(() => root.render(createElement(AccountBasicsSection)));
   render();
   return {
     host,
@@ -136,7 +124,7 @@ describe('设置中的已读上报开关', () => {
         return fixture.notificationEvents;
       },
     );
-    const f = mount('account');
+    const f = mount();
     const select = f.host.querySelector<HTMLSelectElement>(
       '[aria-label="功能受限或运行异常通知方式"]',
     )!;

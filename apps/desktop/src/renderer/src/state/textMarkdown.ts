@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { createContext } from 'react';
 
-export const TextMarkdownContext = createContext(true);
+export const TextMarkdownContext = createContext(false);
 
 /** 廉价检测，避免给普通聊天文本启动 Markdown 渲染管线。 */
 export function looksLikeMarkdown(text: string): boolean {

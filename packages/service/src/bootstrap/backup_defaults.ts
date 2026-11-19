@@ -57,10 +57,12 @@ export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice
       previous?.voiceTranscribe?.ttsProviders ?? [],
     ) as typeof settings.voiceTranscribe.ttsProviders;
   }
+  const settingsRevision = Math.max(Date.now(), (current.settingsRevision ?? 0) + 1);
   const result: UserConfig = {
     ...current,
     settings,
-    settingsRevision: Math.max(Date.now(), (current.settingsRevision ?? 0) + 1),
+    settingsRevision,
+    performanceRecordingResetRevision: settingsRevision,
     globalClientPreferencesMigrated: true,
     desktopPreferencesSeeded: true,
     sharedPreferencesMigration: current.sharedPreferencesMigration ?? {

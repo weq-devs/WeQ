@@ -438,6 +438,7 @@ it('保存失败就地保留内容，关闭重开后可以重试', async () => {
 
 it('回退对话框保留增删、去空白与重复校验，开关不清空内容', async () => {
   Object.assign(state.data['settings.intent.getStatus'] as object, {
+    suggestionFallbackEnabled: true,
     suggestionFallbackTexts: ['A', 'B'],
   });
   const f = mount(ReplySuggestionsSection);

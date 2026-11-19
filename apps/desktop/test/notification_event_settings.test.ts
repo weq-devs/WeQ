@@ -93,7 +93,7 @@ it('初始四项折叠，展开得到二十三项且只有三列，不显示 N �
   expect(host.querySelectorAll('.weq-notification-group')).toHaveLength(4);
   expect(host.querySelectorAll('.weq-notification-event')).toHaveLength(0);
   expect(button(host, '普通消息：应用内横幅通知').getAttribute('aria-checked')).toBe('false');
-  expect(button(host, '普通消息：系统通知').getAttribute('aria-checked')).toBe('true');
+  expect(button(host, '普通消息：系统通知').getAttribute('aria-checked')).toBe('mixed');
   for (const label of ['普通消息', '重点消息', '其他动态', '应用与任务'])
     act(() => button(host, label).click());
   expect(host.querySelectorAll('.weq-notification-event')).toHaveLength(23);

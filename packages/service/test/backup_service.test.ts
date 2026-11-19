@@ -319,6 +319,18 @@ it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据�
       enabled: true,
       targets: [{ id: 'peer', kind: 'c2c' }],
     });
+    write(weqAccountSettingPath(f.root, f.cache, id, 'client-state.json'), {
+      records: {
+        notifications: {
+          mentionMe: { mode: 'selected', targets: [] },
+          mentionAll: { mode: 'selected', targets: ['group:20001'] },
+          replyMe: { mode: 'selected', targets: [] },
+          redPacket: { mode: 'all', targets: [] },
+          'mute:assistant:synthetic': true,
+        },
+        reads: { 'assistant:synthetic': '42' },
+      },
+    });
     write(weqAccountSettingPath(f.root, f.cache, id, 'intent.json'), {
       enabled: true,
       providerRef: { providerId: 'synthetic-provider', model: 'synthetic-model' },
@@ -364,6 +376,13 @@ it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据�
         readFileSync(weqAccountSettingPath(f.root, f.cache, account.configId, name), 'utf8'),
       );
     expect(read('anti-recall.json')).toEqual({});
+    expect(read('client-state.json').records).toMatchObject({
+      notifications: { 'mute:assistant:synthetic': true },
+      reads: { 'assistant:synthetic': '42' },
+    });
+    expect(read('client-state.json').records.notifications).toEqual({
+      'mute:assistant:synthetic': true,
+    });
     expect(read('intent.json')).toEqual(DEFAULT_INTENT_SENSE_CONFIG);
     expect(read('tolerance.json')).toEqual({});
     expect(read('dress.json')).toMatchObject({
@@ -378,6 +397,7 @@ it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据�
     clearApi ? DEFAULT_APP_SETTINGS.mcp.token : 'synthetic-local-token',
   );
   expect(reopened.getTotpSecret()).toBe('synthetic-totp-secret');
+  expect(reopened.read().performanceRecordingResetRevision).toBe(reopened.read().settingsRevision);
   expect(snapshotWeqApiSettings(reopened.getSettings())).toEqual(
     clearApi ? snapshotWeqApiSettings(DEFAULT_APP_SETTINGS) : beforeApi,
   );

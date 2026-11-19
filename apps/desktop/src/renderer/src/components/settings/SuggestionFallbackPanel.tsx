@@ -18,7 +18,7 @@ export function SuggestionFallbackPanel({
         control={
           <Toggle
             label="启用回退内容"
-            checked={status.data?.suggestionFallbackEnabled !== false}
+            checked={status.data?.suggestionFallbackEnabled === true}
             indeterminate={!status.data}
             disabled={disabled}
             onChange={(suggestionFallbackEnabled) => void patch({ suggestionFallbackEnabled })}

@@ -26,7 +26,7 @@ import { assertAccountBinding, optionalAccountBinding } from '../account_binding
 import { normalizeContactCard } from '@weq/service/contact-card';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
-import { isToastDuration } from '@weq/service/toast-settings';
+import { isToastDuration, TOAST_TIMED_KINDS } from '@weq/service/toast-settings';
 import {
   notificationEventPatch,
   notificationEventUpdateInput,
@@ -1053,17 +1053,14 @@ export const bootstrapRouter = router({
   setToastDuration: procedure
     .input(
       z.object({
-        kind: z.enum(['success', 'failure']),
+        kind: z.enum(TOAST_TIMED_KINDS),
         seconds: z.number().int().refine(isToastDuration, '请输入 -1 或 1 至 86400 的整数秒数'),
       }),
     )
     .mutation(
       ({ input }) =>
         requireBootstrap().userConfig.setSettings({
-          toastDurations:
-            input.kind === 'success'
-              ? { successSeconds: input.seconds }
-              : { failureSeconds: input.seconds },
+          toastDurations: { [`${input.kind}Seconds`]: input.seconds },
         }).toastDurations,
     ),
 

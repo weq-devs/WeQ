@@ -27,9 +27,13 @@ import { AuthGate } from './auth';
 import { createWebHost } from './host';
 import { startServer } from './http';
 import { createTrpcHandler, attachWsHandler } from './trpc_adapter';
-import { installPerformanceMonitor } from '@weq/service/performance';
+import {
+  finishPerformanceRecordingReset,
+  installPerformanceMonitor,
+} from '@weq/service/performance';
 import { createNodeCollector } from '@weq/service/performance-node';
 import { performanceDatabaseDetails } from '@weq/desktop/main/performance_database';
+import { getBackupContext } from '@weq/desktop/main/context/backup_context';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -104,6 +108,11 @@ async function main(): Promise<void> {
     DATA_DIR,
     createNodeCollector(performanceDatabaseDetails),
   );
+  const files = getBackupContext();
+  if (files.ok)
+    void finishPerformanceRecordingReset(files.config).catch((error: unknown) => {
+      console.warn('[web] 恢复性能记录档位未完成:', error);
+    });
 
   const assistant = getAppContext().bootstrap?.userConfig.getSettings().weqAssistant;
   if (assistant?.enabled)

@@ -12,17 +12,21 @@ import { ClientStateStore } from '../src/bootstrap/client_state';
 import { join } from 'node:path';
 import { migrateSharedPreferences } from '../src/bootstrap/shared_preferences_migration';
 
-it('清单为四组二十三项，普通消息横幅默认关闭且系统通知保持开启', () => {
+it('普通群聊不弹横幅或系统通知，定向消息和任务失败保留系统通知', () => {
   expect(NOTIFICATION_GROUPS).toHaveLength(4);
   expect(NOTIFICATION_EVENTS).toHaveLength(23);
   expect(new Set(NOTIFICATION_EVENTS).size).toBe(23);
   const values = normalizeNotificationEvents(undefined);
   for (const event of ['recall', 'redPacket'] as const)
     expect(values[event]).toEqual({ banner: false, system: false });
-  for (const event of NOTIFICATION_GROUPS[0].events)
+  for (const event of ['directMessage', 'assistantReply'] as const)
     expect(values[event]).toEqual({ banner: false, system: true });
-  expect(values.mentionAll).toEqual({ banner: true, system: true });
+  expect(values.groupMessage).toEqual({ banner: false, system: false });
+  expect(values.mentionMe).toEqual({ banner: true, system: true });
+  expect(values.replyMe).toEqual({ banner: true, system: true });
+  expect(values.mentionAll).toEqual({ banner: true, system: false });
   expect(values.progress).toEqual({ banner: true, system: false });
+  expect(values.taskComplete).toEqual({ banner: true, system: false });
   expect(values.taskFailure).toEqual({ banner: true, system: true });
   expect(NOTIFICATION_GROUPS.find((group) => group.id === 'app')?.events).toContain(
     'databaseDamage',
@@ -62,7 +66,7 @@ it('普通消息已明确选择的横幅渠道保留，缺省渠道使用新默�
     assistantReply: { system: false },
   });
   expect(values.directMessage).toEqual({ banner: true, system: true });
-  expect(values.groupMessage).toEqual({ banner: false, system: true });
+  expect(values.groupMessage).toEqual({ banner: false, system: false });
   expect(values.assistantReply).toEqual({ banner: false, system: false });
 });
 it('首次读取及重开使用普通消息横幅关闭的默认值，显式开启后可持久保留', () => {
@@ -71,10 +75,12 @@ it('首次读取及重开使用普通消息横幅关闭的默认值，显式开�
     for (const event of NOTIFICATION_GROUPS[0].events)
       expect(service.getSettings().notificationEvents[event]).toEqual({
         banner: false,
-        system: true,
+        system: event !== 'groupMessage',
       });
   }
-  f.service.setSettings({ notificationEvents: { directMessage: { banner: true } } });
+  f.service.setSettings({
+    notificationEvents: { directMessage: { banner: true }, groupMessage: { system: true } },
+  });
   const values = f.open().getSettings().notificationEvents;
   expect(values.directMessage).toEqual({ banner: true, system: true });
   expect(values.groupMessage).toEqual({ banner: false, system: true });
@@ -175,7 +181,7 @@ it('首次打开全新账号不把旧版缺省关闭误迁成新事件表的显�
   const f = configFixture();
   migrateSharedPreferences(f.service, f.root, join(f.root, 'cache'), 'fresh');
   const values = f.service.getSettings().notificationEvents;
-  expect(values.groupMessage).toEqual({ banner: false, system: true });
+  expect(values.groupMessage).toEqual({ banner: false, system: false });
   expect(values.mail).toEqual({ banner: true, system: true });
   expect(values.recall).toEqual({ banner: false, system: false });
 });

@@ -6,12 +6,20 @@ import {
   DEFAULT_TOAST_DURATIONS,
   isToastDuration,
   MAX_TOAST_DURATION_SECONDS,
+  TOAST_TIMED_KINDS,
+  type ToastTimedKind,
 } from '@weq/service/toast-settings';
 import { trpc } from '../../trpc/client';
 import { useToast } from '../Toast.shared';
 import { Card, Row } from './controls';
 import { useTabActive } from '../RetainedTabs.shared';
 import '../../styles/notification-settings.css';
+
+const durationLabels: Record<ToastTimedKind, string> = {
+  success: '成功通知停留时长',
+  failure: '失败通知停留时长',
+  message: '消息通知停留时长',
+};
 
 export function ToastSettingsCard() {
   const active = useTabActive();
@@ -28,28 +36,19 @@ export function ToastSettingsCard() {
   }, [saved, settings.data?.toastDurations]);
   return (
     <Card title="应用内横幅提醒" icon={<Bell size={15} />}>
-      <DurationRow
-        key="success"
-        kind="success"
-        initial={saved.successSeconds}
-        disabled={settings.isLoading || settings.isError}
-        save={async (seconds) => {
-          const durations = await mutation.mutateAsync({ kind: 'success', seconds });
-          useToast.getState().setDurations(durations);
-          await utils.bootstrap.getSettings.invalidate();
-        }}
-      />
-      <DurationRow
-        key="failure"
-        kind="failure"
-        initial={saved.failureSeconds}
-        disabled={settings.isLoading || settings.isError}
-        save={async (seconds) => {
-          const durations = await mutation.mutateAsync({ kind: 'failure', seconds });
-          useToast.getState().setDurations(durations);
-          await utils.bootstrap.getSettings.invalidate();
-        }}
-      />
+      {TOAST_TIMED_KINDS.map((kind) => (
+        <DurationRow
+          key={kind}
+          kind={kind}
+          initial={saved[`${kind}Seconds`]}
+          disabled={settings.isLoading || settings.isError}
+          save={async (seconds) => {
+            const durations = await mutation.mutateAsync({ kind, seconds });
+            useToast.getState().setDurations(durations);
+            await utils.bootstrap.getSettings.invalidate();
+          }}
+        />
+      ))}
       {settings.error && <p role="alert">{settings.error.message}</p>}
     </Card>
   );
@@ -61,12 +60,12 @@ function DurationRow({
   disabled,
   save,
 }: {
-  kind: 'success' | 'failure';
+  kind: ToastTimedKind;
   initial: number;
   disabled: boolean;
   save: (seconds: number) => Promise<void>;
 }) {
-  const label = `${kind === 'success' ? '成功' : '失败'}通知停留时长`;
+  const label = durationLabels[kind];
   const [value, setValue] = useNumericSettingDraft(
     `toast:${label}`,
     disabled ? undefined : initial,
@@ -75,7 +74,7 @@ function DurationRow({
   const seconds = value.trim() === '' ? NaN : Number(value);
   return (
     <AutoSave
-      resetKeys={[kind === 'success' ? 'successSeconds' : 'failureSeconds']}
+      resetKeys={[`${kind}Seconds`]}
       value={value.trim() ? Number(value) : ''}
       saved={initial}
       ready={!disabled}
@@ -84,6 +83,7 @@ function DurationRow({
       reset={() => setValue(String(initial))}
     >
       <Row
+        settingId={`toast-${kind}`}
         label={label}
         desc="1 至 86400 秒；-1 表示不自动关闭"
         control={

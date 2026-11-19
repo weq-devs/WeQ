@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { normalizeSearchPreferences } from '../account/search_policy';
 import { getLogger } from '../common/logger';
+import { SCOPED_NOTIFICATION_EVENTS } from '../common/notification_settings';
 import {
   isRecord,
   validReadPosition,
@@ -310,7 +311,7 @@ export class ClientStateStore {
           if (typeof value !== 'boolean') throw new Error('无效的免打扰状态');
         } else if (
           value !== null &&
-          (!['mentionMe', 'mentionAll', 'replyMe', 'redPacket'].includes(key) ||
+          (!SCOPED_NOTIFICATION_EVENTS.some((event) => event === key) ||
             !isRecord(value) ||
             !['all', 'selected'].includes(String(value.mode)) ||
             !Array.isArray(value.targets) ||

@@ -16,6 +16,7 @@ import {
 import { dirname, join, relative, resolve } from 'node:path';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { accountOrderDefaults } from '../common/client_preferences';
+import { SCOPED_NOTIFICATION_EVENTS } from '../common/notification_settings';
 import {
   buildWeqBackup,
   readWeqBackup,
@@ -860,7 +861,16 @@ function prepare(
           const saved = parseWeqBackupJson(readWeqBackupFile(path));
           if (!record(saved)) throw new Error('跨端状态无效，未恢复默认');
           const records = record(saved.records) ? saved.records : {};
-          value = { ...saved, values: {}, records: { ...records, order: accountOrderDefaults } };
+          const nextRecords = { ...records, order: accountOrderDefaults } as Record<
+            string,
+            unknown
+          >;
+          if (record(records.notifications)) {
+            const notifications = { ...records.notifications };
+            for (const event of SCOPED_NOTIFICATION_EVENTS) delete notifications[event];
+            nextRecords.notifications = notifications;
+          }
+          value = { ...saved, values: {}, records: nextRecords };
         }
         if (setting === 'dress.json') {
           const saved = parseWeqBackupJson(readWeqBackupFile(path));

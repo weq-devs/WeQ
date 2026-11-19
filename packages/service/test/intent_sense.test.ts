@@ -231,6 +231,7 @@ describe('IntentSenseService', () => {
       mine: true,
     });
     expect(analyze).toHaveBeenCalledOnce();
+    await svc.setConfig({ suggestionFallbackEnabled: true });
     expect((await svc.getSuggestions('c2c', 'u_peer', { refresh: true })).length).toBeGreaterThan(
       0,
     );
@@ -274,6 +275,8 @@ describe('IntentSenseService', () => {
       suggestionCount: 3,
       loadingAnimation: false,
     });
+    expect(await svc.getSuggestions('c2c', 'u_peer')).toEqual([]);
+    await svc.setConfig({ suggestionFallbackEnabled: true });
     const round = await svc.getSuggestionRound('c2c', 'u_peer');
     expect(round?.suggestions).toHaveLength(3);
     expect(new Set(round?.suggestions.map((s) => s.text)).size).toBe(3);
@@ -296,7 +299,11 @@ describe('IntentSenseService', () => {
   it('历史上限只在新增时裁剪，零不写历史但保留当前轮次与缓存，重启不裁剪旧历史', async () => {
     const session = makeSession([textMsg(1n, 'u_peer', '你好', 100)]);
     const svc = new IntentSenseService(session, dir);
-    await svc.setConfig({ suggestionsEnabled: true, suggestionHistoryLimit: 3 });
+    await svc.setConfig({
+      suggestionsEnabled: true,
+      suggestionFallbackEnabled: true,
+      suggestionHistoryLimit: 3,
+    });
     for (let i = 0; i < 3; i++) await svc.getSuggestionRound('c2c', 'u_peer', { refresh: true });
     await svc.setConfig({ suggestionHistoryLimit: 1 });
     expect(svc.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(3);
@@ -554,7 +561,7 @@ describe('IntentSenseService', () => {
   it('本地候选不冒充模型概括，旧历史缺少详情仍可读取', async () => {
     const session = makeSession([textMsg(1n, 'u_peer', '你好', 1000)]);
     const svc = new IntentSenseService(session, dir);
-    await svc.setConfig({ suggestionsEnabled: true });
+    await svc.setConfig({ suggestionsEnabled: true, suggestionFallbackEnabled: true });
     const round = await svc.getSuggestionRound('c2c', 'u_peer');
     expect(round?.summary).toBeUndefined();
     expect(round?.generation?.source).toBe('local');
@@ -653,6 +660,7 @@ describe('IntentSenseService', () => {
       ),
     );
     const reopened = new IntentSenseService(session, dir);
+    await reopened.setConfig({ suggestionFallbackEnabled: true });
     await reopened.getSuggestionRound('c2c', 'u_peer', { refresh: true });
     expect(reopened.getSuggestionHistory('c2c', 'u_peer')).toHaveLength(MAX_SUGGESTION_HISTORY);
     expect(reopened.getSuggestionDetails('c2c', 'u_peer', first.id)).toBeNull();
@@ -688,6 +696,7 @@ describe('IntentSenseService', () => {
       });
       await svc.setConfig({
         suggestionsEnabled: true,
+        suggestionFallbackEnabled: true,
         suggestionProviderRef: { providerId: 'p', model: 'attempted-model' },
       });
       const round = await svc.getSuggestionRound('c2c', 'u_peer');
@@ -975,7 +984,11 @@ describe('IntentSenseService', () => {
     const messages = [textMsg(1n, 'u_peer', '合成问题？', 1000)];
     const session = makeSession(messages);
     const svc = new IntentSenseService(session, dir);
-    await svc.setConfig({ suggestionsEnabled: true, suggestionProviderRef: null });
+    await svc.setConfig({
+      suggestionsEnabled: true,
+      suggestionFallbackEnabled: true,
+      suggestionProviderRef: null,
+    });
     const first = await svc.getSuggestions('c2c', 'u_peer');
     expect(svc.getSuggestionHistory('c2c', 'u_peer')).toMatchObject([
       {
@@ -2132,7 +2145,7 @@ describe('IntentSenseService', () => {
     },
   );
 
-  it('自己发送时的两个开关默认开启且独立保存', async () => {
+  it('自己发送时默认分析、不推荐，两个开关独立保存', async () => {
     const msgs = [textMsg(1n, 'u_self', '自己发出的合成消息', 1000)];
     const analyze = vi.fn(async () => ({
       intent: 'chat' as const,
@@ -2145,8 +2158,12 @@ describe('IntentSenseService', () => {
       localEngine: makeLocalPort(analyze),
     });
     await svc.setConfig({ enabled: true, engine: 'local', suggestionsEnabled: true });
-    expect(svc.getStatus()).toMatchObject({ analyzeAfterSelf: true, suggestAfterSelf: true });
-    await svc.setConfig({ analyzeAfterSelf: false, suggestAfterSelf: true });
+    expect(svc.getStatus()).toMatchObject({ analyzeAfterSelf: true, suggestAfterSelf: false });
+    await svc.setConfig({
+      analyzeAfterSelf: false,
+      suggestAfterSelf: true,
+      suggestionFallbackEnabled: true,
+    });
     expect((await svc.ensureAnalysis('c2c', 'u_peer')).analyzed).toBe(0);
     expect(await svc.analyzeMessage('c2c', 'u_peer', '1')).toBeNull();
     expect(analyze).not.toHaveBeenCalled();
@@ -2312,7 +2329,8 @@ describe('IntentSenseService', () => {
     const status = new IntentSenseService(makeSession([]), dir).getStatus();
     expect(DEFAULT_SUGGESTION_CONTEXT_MESSAGES).toBe(30);
     expect(status).toMatchObject({
-      suggestAfterSelf: true,
+      suggestAfterSelf: false,
+      suggestionFallbackEnabled: false,
       suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
     });
   });
@@ -3055,7 +3073,12 @@ describe('IntentSenseService', () => {
         confidence: 0.9,
       })),
     });
-    await svc.setConfig({ enabled: true, engine: 'local', suggestionsEnabled: true });
+    await svc.setConfig({
+      enabled: true,
+      engine: 'local',
+      suggestionsEnabled: true,
+      suggestionFallbackEnabled: true,
+    });
     await svc.ensureAnalysis('c2c', 'u_peer');
 
     const suggestions = await svc.getSuggestions('c2c', 'u_peer');

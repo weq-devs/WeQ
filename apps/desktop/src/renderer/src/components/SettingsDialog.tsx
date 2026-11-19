@@ -870,7 +870,7 @@ function AppearanceSection({
   const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
   const utils = trpc.useUtils();
   const [readingError, setReadingError] = useState<string | null>(null);
-  const [textMarkdown, setTextMarkdown] = useState(true);
+  const [textMarkdown, setTextMarkdown] = useState(false);
   const [linkPreview, setLinkPreviewDraft] = useState({
     enabled: true,
     autoFetch: false,

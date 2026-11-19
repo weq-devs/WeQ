@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { setTimeout as deadlineTimer, clearTimeout as clearDeadlineTimer } from 'node:timers';
 import { performanceWorker } from './worker';
+import type { UserConfigService } from '../bootstrap/user_config';
 import {
   DEFAULT_MONITOR_SETTINGS,
   type MonitorSettings,
@@ -360,6 +361,7 @@ export class PerformanceMonitor {
   async resetRecordingMode() {
     await this.ready;
     return this.mutate(async () => {
+      if (!this.initialized) throw new Error(this.error ?? '性能历史尚未就绪');
       const { mode, fullUntil } = DEFAULT_MONITOR_SETTINGS;
       if (this.settings.mode === mode && this.settings.fullUntil === fullUntil)
         return this.settings;
@@ -530,4 +532,16 @@ export function installPerformanceMonitor(root: string, collector: MonitorCollec
 export function getPerformanceMonitor() {
   if (!current) throw new Error('当前宿主尚未启动性能监视');
   return current;
+}
+
+/** 配置事务先落盘，宿主启动或在线恢复后再应用，不使用会清理历史的策略更新。 */
+export async function finishPerformanceRecordingReset(
+  config: Pick<UserConfigService, 'read' | 'write'>,
+  monitor = current,
+): Promise<void> {
+  const revision = config.read().performanceRecordingResetRevision;
+  if (revision === undefined || !monitor) return;
+  await monitor.resetRecordingMode();
+  if (config.read().performanceRecordingResetRevision === revision)
+    config.write({ performanceRecordingResetRevision: undefined });
 }

@@ -47,7 +47,9 @@ beforeEach(() => {
   rpc.notify.mockClear();
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
   useWorkspaceMenu.setState({ taskScope: scope, taskPanelScope: null, taskItems: [] });
-  useNotificationPolicy.getState().setEvents(normalizeNotificationEvents(undefined));
+  useNotificationPolicy
+    .getState()
+    .setEvents(normalizeNotificationEvents({ taskComplete: { system: true } }));
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);

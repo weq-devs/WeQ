@@ -304,6 +304,8 @@ try {
     await page.goto(url + '?welcome');
     const welcome = page.locator('.weq-welcome');
     await welcome.waitFor();
+    await welcome.getByRole('button', { name: '以离线模式开始使用', exact: true }).waitFor();
+    await welcome.getByRole('switch', { name: '允许扫描 QQ 内存' }).click();
     for (const theme of ['light', 'dark']) {
       await page.evaluate(
         (theme) => window.fullFunctionsQa.theme.getState().setPreference(theme),

@@ -28,6 +28,7 @@ import { dataSaverBehaviorDefaults } from '@weq/service/data-saver';
 import { dataSaverSession } from '@weq/service/transfer-policy';
 import { preferenceDefaults } from '@weq/service/client-preferences';
 import { DEFAULT_MONITOR_SETTINGS, getPerformanceMonitor } from '@weq/service/performance';
+import { TOAST_TIMED_KINDS } from '@weq/service/toast-settings';
 import {
   remoteResetCardAvailable,
   remoteSettingAvailable,
@@ -170,8 +171,17 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   if (!ctx.authorize)
     bind('startup-system:autostart', undefined, false, () => b.setAutostart({ enabled: false }));
 
-  for (const kind of ['success', 'failure'] as const) {
-    const key = kind === 'success' ? 'successSeconds' : 'failureSeconds';
+  const readSync = (automatic: boolean, manual: boolean) =>
+    automatic === manual ? automatic : automatic ? '仅自动阅读上报' : '仅手动标记上报';
+  bind(
+    'read-sync:enabled',
+    readSync(current.reportReadEnabled, current.manualReadReportEnabled),
+    readSync(defaults.reportReadEnabled, defaults.manualReadReportEnabled),
+    () => b.setReadSyncEnabled({ enabled: defaults.reportReadEnabled }),
+  );
+
+  for (const kind of TOAST_TIMED_KINDS) {
+    const key = `${kind}Seconds` as const;
     bind(`${'toast'}:${key}`, current.toastDurations[key], defaults.toastDurations[key], () =>
       b.setToastDuration({ kind, seconds: defaults.toastDurations[key] }),
     );

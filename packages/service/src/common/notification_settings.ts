@@ -87,16 +87,13 @@ const BANNER_DISABLED_DEFAULTS = new Set<NotificationEvent>([
 ]);
 const SYSTEM_DEFAULTS = new Set<NotificationEvent>([
   'directMessage',
-  'groupMessage',
   'assistantReply',
   'specialCare',
   'mentionMe',
-  'mentionAll',
   'replyMe',
   'keyword',
   'contact',
   'mail',
-  'taskComplete',
   'taskFailure',
   'request',
 ]);
@@ -151,7 +148,13 @@ export function notificationGroupState(
   const count = events.filter((event) => values[event][channel]).length;
   return { checked: count === events.length, mixed: count > 0 && count < events.length };
 }
-export type ScopedNotificationEvent = 'mentionMe' | 'mentionAll' | 'replyMe' | 'redPacket';
+export const SCOPED_NOTIFICATION_EVENTS = [
+  'mentionMe',
+  'mentionAll',
+  'replyMe',
+  'redPacket',
+] as const;
+export type ScopedNotificationEvent = (typeof SCOPED_NOTIFICATION_EVENTS)[number];
 export interface NotificationScope {
   mode: 'all' | 'selected';
   targets: string[];

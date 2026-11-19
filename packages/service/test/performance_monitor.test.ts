@@ -8,11 +8,13 @@ import {
   PerformanceMonitor,
   normalizeMonitorSettings,
   DEFAULT_MONITOR_SETTINGS,
+  finishPerformanceRecordingReset,
   sqliteWorkerExecArgv,
   type MonitorCollector,
   type MonitorRecord,
   type MonitorPrunePreview,
 } from '../src/performance';
+import { UserConfigService } from '../src/bootstrap/user_config';
 import { performanceWorker } from '../src/performance/worker';
 import { createNodeCollector } from '../src/performance/node';
 import {
@@ -209,7 +211,7 @@ describe('宿主性能监视', () => {
     await restored.status();
     expect(restored.settings.mode).toBe('light');
   });
-  it('恢复记录档位保留保存策略和已有采样', async () => {
+  it('接续全局恢复时只恢复记录档位，保留保存策略和已有采样', async () => {
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
     });
@@ -227,7 +229,11 @@ describe('宿主性能监视', () => {
       retentionDays: 30,
       capacityMiB: 256,
     });
-    expect(await service.resetRecordingMode()).toEqual({
+    const config = new UserConfigService({ appDataRoot: () => service.root });
+    config.write({ performanceRecordingResetRevision: 42 });
+    await finishPerformanceRecordingReset(config, service);
+    expect(config.read().performanceRecordingResetRevision).toBeUndefined();
+    expect(service.settings).toEqual({
       ...DEFAULT_MONITOR_SETTINGS,
       retentionDays: 30,
       capacityMiB: 256,

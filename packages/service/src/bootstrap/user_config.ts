@@ -1215,7 +1215,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   aiImages: normalizeImagePreferences(null),
   windowCloseBehavior: 'tray',
   windowsStyleControls: false,
-  renderTextMarkdown: true,
+  renderTextMarkdown: false,
   showAvatarPendant: true,
   showChatQqShow: true,
   qqShowCacheMinutes: 5,
@@ -1260,6 +1260,8 @@ export interface UserConfig {
   desktopPreferencesSeeded?: boolean;
   sharedPreferenceRestoreReceipts?: string[];
   settingsRevision?: number;
+  /** 全局恢复已提交，等待宿主性能监视应用档位。 */
+  performanceRecordingResetRevision?: number;
   globalClientPreferencesMigrated?: boolean;
   sharedPreferencesMigration?: { version: 1; configId: string | null; receipt?: string };
   autoEnter?: AutoEnterTarget | null;

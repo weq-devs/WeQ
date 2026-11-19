@@ -86,8 +86,7 @@ const MainView = lazy(loadMainWorkspace);
  *
  * 查询只在这一层做一次——QqMessageContent 每条消息一个实例，让它们各自 useQuery 会挂
  * 几百个订阅。必须包住 ForwardWindowHost（转发窗口里的气泡同样
- * 复用 QqMessageContent）。`?? true` 与 DEFAULT_APP_SETTINGS 一致，settings 还在加载时
- * 不会先闪成关再跳开。
+ * 复用 QqMessageContent）。加载偏好期间先按默认值显示原文。
  */
 function TextMarkdownProvider({
   children,
@@ -114,7 +113,7 @@ function TextMarkdownProvider({
       useToast.getState().setDurations(settings.data.toastDurations);
   }, [settings.data?.toastDurations]);
   return (
-    <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? true}>
+    <TextMarkdownContext.Provider value={settings.data?.renderTextMarkdown ?? false}>
       <LinkPreviewContext.Provider
         value={settings.data?.linkPreview ?? DEFAULT_LINK_PREVIEW_DISPLAY}
       >

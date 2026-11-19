@@ -211,9 +211,9 @@ const DEFAULT_CONFIG: IntentSenseConfig = {
   persistentDisplay: true,
   hoverDisplay: true,
   loadingAnimation: true,
-  suggestionFallbackEnabled: true,
+  suggestionFallbackEnabled: false,
   suggestionFallbackTexts: [...DEFAULT_SUGGESTION_FALLBACK_TEXTS],
-  suggestAfterSelf: true,
+  suggestAfterSelf: false,
   analysisContextMessages: DEFAULT_ANALYSIS_CONTEXT_MESSAGES,
   suggestionContextMessages: DEFAULT_SUGGESTION_CONTEXT_MESSAGES,
   hfMirror: true,
@@ -628,7 +628,7 @@ export function normalizeIntentSenseConfig(
     persistentDisplay: p.persistentDisplay !== false,
     hoverDisplay: p.hoverDisplay !== false,
     loadingAnimation: p.loadingAnimation !== false,
-    suggestionFallbackEnabled: p.suggestionFallbackEnabled !== false,
+    suggestionFallbackEnabled: p.suggestionFallbackEnabled === true,
     suggestionFallbackTexts: (() => {
       try {
         return validateSuggestionFallbackTexts(
@@ -638,7 +638,7 @@ export function normalizeIntentSenseConfig(
         return [...DEFAULT_SUGGESTION_FALLBACK_TEXTS];
       }
     })(),
-    suggestAfterSelf: p.suggestAfterSelf !== false,
+    suggestAfterSelf: p.suggestAfterSelf === true,
     analysisContextMessages: isIntentContextCount(p.analysisContextMessages)
       ? p.analysisContextMessages
       : DEFAULT_ANALYSIS_CONTEXT_MESSAGES,

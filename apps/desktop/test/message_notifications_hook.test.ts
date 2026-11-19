@@ -57,6 +57,7 @@ vi.mock('../src/renderer/src/lib/clientPreferences', () => ({
   useClientPreferences: () => 0,
   preferenceValue: (key: keyof typeof f.values) => f.values[key],
   accountBinding: () => ({ expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' }),
+  isAccountStateReady: () => true,
   sharedAccountRecords: () => ({ mentionMe: { mode: 'all', targets: [] } }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({

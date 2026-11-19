@@ -1,4 +1,7 @@
 import { join } from 'node:path';
+import { getLogger, recordWeqRestoreWarnings } from '@weq/service';
+import { finishPerformanceRecordingReset } from '@weq/service/performance';
+import { dataSaverSession } from '@weq/service/transfer-policy';
 import {
   getAppContext,
   requireBootstrap,
@@ -86,6 +89,8 @@ export function applyBackupLive(
     assertRuntimeFilesIdle();
     stage?.();
     const ctx = getAppContext();
+    const files = getBackupContext();
+    const resetBefore = files.config?.read().performanceRecordingResetRevision;
     let failure: string | undefined;
     try {
       await ctx.clearAccount(true);
@@ -93,6 +98,20 @@ export function applyBackupLive(
       const result = applyLiveBackupContext();
       if (result.needsRecovery) blockRuntimeForBackupRecovery(result.error || '恢复回滚尚未完成');
       if (result.status !== 'applied') throw new Error(result.error || '恢复未应用');
+      if (files.ok) {
+        const reset = files.config.read().performanceRecordingResetRevision;
+        if (reset !== undefined && reset !== resetBefore) dataSaverSession.clearTemporary();
+        try {
+          await finishPerformanceRecordingReset(files.config);
+        } catch (error) {
+          result.warnings.push(`恢复性能记录档位未完成：${String(error)}`);
+          try {
+            recordWeqRestoreWarnings(files.root, result);
+          } catch (receiptError) {
+            getLogger().warn('保存性能记录恢复回执失败', { error: String(receiptError) });
+          }
+        }
+      }
       try {
         if (ctx.bootstrap)
           await ctx.applyWeqAssistant(ctx.bootstrap.userConfig.getSettings().weqAssistant);

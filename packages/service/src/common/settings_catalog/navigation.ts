@@ -246,6 +246,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     [
       ['toast-success', 'global', '成功通知停留时长'],
       ['toast-failure', 'global', '失败通知停留时长'],
+      ['toast-message', 'global', '消息通知停留时长'],
       ['startup-show-window', 'startup', '自启时显示窗口'],
       ['call-mode', 'call-recording', '录音来源'],
       ['call-system-audio', 'call-recording', '同时录电脑声音'],
@@ -646,6 +647,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     label: '在线能力受限时在窗口右上角显示',
     aliases: ['在线能力受限标记', '标题栏在线能力受限', '受限状态显示'],
     from: ['account'],
+  },
+  {
+    id: 'read-sync',
+    section: 'account',
+    label: '向 QQ 服务器上报已读位置',
+    aliases: ['已读同步', '已读上报', '同步 QQ 未读'],
+    from: ['account', 'chat-messages'],
   },
   {
     id: 'qq-debug-copy',
