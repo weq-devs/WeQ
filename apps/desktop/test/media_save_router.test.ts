@@ -6,7 +6,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaElement, type MsgService } from '@weq/service';
 import { makeSolidPng } from '@weq/protocol';
 import { mediaSaveRouter } from '../src/main/ipc/routers/media_save';
+import { mediaResourceRouter } from '../src/main/ipc/routers/media_resource';
+import { boundClientState } from '../src/main/ipc/routers/client_state';
 import { messageMediaLocations } from '../src/main/message_media_local';
+import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
 import type { AccountServices } from '../src/main/context/app_context';
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -21,6 +24,7 @@ const state = vi.hoisted(() => ({
     async (_url: string, _opts?: { signal?: AbortSignal }): Promise<Response> => state.response(),
   ),
   fileInfo: vi.fn(async (_id: bigint) => state.local),
+  open: vi.fn(async (_path: string) => {}),
   find: vi.fn(
     async (
       _id: string,
@@ -45,6 +49,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({ account: { context: { uin: '10001' } }, services: state.services }),
+  requirePlatform: () => ({ appDataRoot: () => root }),
 }));
 vi.mock('../src/main/media_protocol', () => ({
   handleMediaRequest: state.media,
@@ -54,6 +59,8 @@ vi.mock('../src/main/resource_protocol', () => ({ handleResourceRequest: state.a
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
   getHost: () => ({
+    canReveal: true,
+    revealPath: state.open,
     fetchMedia: state.fetch,
     pickSaveTarget: async () => {
       state.afterPick?.();
@@ -77,6 +84,7 @@ beforeEach(() => {
   state.asset.mockClear();
   state.fetch.mockClear();
   state.fileInfo.mockClear();
+  state.open.mockReset();
   state.groupUrl.mockClear();
   state.fileUrl.mockClear();
   state.unknownUrl.mockClear();
@@ -247,26 +255,34 @@ it.each([
   }
   expect(await caller.activeFileTransfer(input)).toBeNull();
 });
-it('WeQ 下载后的文件可按消息定位，重建任务管理器仍有效，不误认同名文件', async () => {
+it('重启后按原消息打开下载文件，只将成功打开的任务标为已读', async () => {
   state.find.mockResolvedValue({
     element: { kind: 'file', fileToken: 'token-a', fileName: 'report.txt' },
     conv: 'group',
   });
   state.response = () => new Response('downloaded-file');
+  const source = { kind: 'chat-file' as const, msgId: '42', token: 'token-a', name: 'report.txt' };
   const task = await completed(
     await api().save({
       ...binding,
-      source: { kind: 'chat-file', msgId: '42', token: 'token-a', name: 'report.txt', conv: '123' },
+      source: { ...source, conv: '123' },
       savePolicy: { mode: 'before', directory: root },
     }),
   );
-  await vi.waitFor(() => expect(task.save?.status).toBe('saved'));
+  const other = await completed(
+    await api().save({
+      ...binding,
+      source: { ...source, msgId: '43', conv: '124' },
+      savePolicy: { mode: 'before', filePath: join(root, 'same-name-other-conversation.txt') },
+    }),
+  );
   const services = {
     ...state.services,
     exportManager: new ExportTaskManager({} as MsgService, join(root, 'tasks')),
     fileSearch: { findFile: vi.fn(async () => ({ source: null, thumb: null })) },
     mediaDownload: { cachedFile: vi.fn(() => null) },
   } as AccountServices;
+  state.services = services;
   const target = {
     kind: 'file' as const,
     t: 1,
@@ -286,6 +302,21 @@ it('WeQ 下载后的文件可按消息定位，重建任务管理器仍有效，
   ]);
   expect(await messageMediaLocations(services, { ...target, token: 'another-token' })).toEqual([]);
   expect(await messageMediaLocations(services, { ...target, msgId: '43' })).toEqual([]);
+  const media = mediaResourceRouter.createCaller({});
+  const fileInput = { ...binding, target, location: locations[0]! };
+  const account = boundClientState(binding);
+  expect(account.snapshot().records.tasks ?? {}).toEqual({});
+  state.open.mockRejectedValueOnce(new Error('no handler'));
+  await expect(media.openMessageFile(fileInput)).rejects.toThrow('no handler');
+  expect(account.snapshot().records.tasks ?? {}).toEqual({});
+  const exports = services.exportManager.listTasks();
+  const taskItems = summarizeWorkspaceTasks({ exports }).items;
+  await expect(media.openMessageFile(fileInput)).resolves.toBe(true);
+  expect(state.open).toHaveBeenLastCalledWith(task.save?.path);
+  const read = account.snapshot().records.tasks;
+  expect(taskItems.filter(({ id, result }) => read?.[id] !== result).map(({ id }) => id)).toEqual([
+    `export:${other.id}`,
+  ]);
   rmSync(task.save!.path!);
   expect(await messageMediaLocations(services, target)).toEqual([
     { ...locations[0], available: false },

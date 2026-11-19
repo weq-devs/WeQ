@@ -1,6 +1,7 @@
 import { stat } from 'node:fs/promises';
 import { extname, isAbsolute, join, relative, sep } from 'node:path';
 import { createHash } from 'node:crypto';
+import type { ExportTask } from '@weq/service';
 import type { AccountServices } from './context/app_context';
 import { getAppContext } from './context/app_context';
 import type {
@@ -9,6 +10,7 @@ import type {
   MessageMediaLocationKind,
 } from '../shared/message_media';
 import type { MediaSaveSource } from '../shared/media_save';
+import { exportTaskResult } from '../shared/export_task_result';
 import { findMediaElement } from './media_protocol';
 
 export function savedChatFileKey(source: Extract<MediaSaveSource, { kind: 'chat-file' }>): string {
@@ -82,6 +84,7 @@ export async function resolveRecordedChatFile(
 
 interface LocalMediaLocation extends MessageMediaLocation {
   path: string;
+  download?: { taskId: string; result: string };
 }
 
 /** 仅定位现成文件；另存记录与缓存独立，绝不下载、解密或复制资源。 */
@@ -92,12 +95,31 @@ export async function messageMediaLocations(
 ): Promise<LocalMediaLocation[]> {
   const context = getAppContext();
   const locations: LocalMediaLocation[] = [];
-  const add = (kind: MessageMediaLocationKind, path: string, available = true) => {
-    if (locations.some((location) => location.path === path)) return;
+  const add = (
+    kind: MessageMediaLocationKind,
+    path: string,
+    available = true,
+    task?: Pick<ExportTask, 'id' | 'status' | 'save' | 'updatedAt'>,
+  ) => {
+    const saveStatus = task?.save?.status;
+    const download =
+      exactFile &&
+      target.kind === 'file' &&
+      available &&
+      task &&
+      (!saveStatus || saveStatus === 'saved' || saveStatus === 'pending')
+        ? { taskId: task.id, result: exportTaskResult(task).result }
+        : undefined;
+    const samePath = locations.find((location) => location.path === path);
+    if (samePath) {
+      if (download && !samePath.download) samePath.download = download;
+      return;
+    }
     locations.push({
       kind,
       path,
       available,
+      ...(download ? { download } : {}),
       key: createHash('sha256')
         .update(JSON.stringify([kind, path]))
         .digest('hex'),
@@ -124,9 +146,15 @@ export async function messageMediaLocations(
     .sort((a, b) => (b.save?.savedAt ?? b.createdAt) - (a.save?.savedAt ?? a.createdAt))[0];
   if (saved?.save?.path) {
     const path = saved.save.path;
-    add('saved', path, Boolean(await firstFile([path])));
+    add('saved', path, Boolean(await firstFile([path])), saved);
   }
-  const taskCache = () => firstFile(tasks.map((task) => task.filePath));
+  const taskCache = async () => {
+    for (const task of tasks) {
+      const path = await firstFile([task.filePath]);
+      if (path) return { path, task };
+    }
+    return null;
+  };
   if (target.kind === 'mface') {
     if (!/^\d+$/.test(target.pack) || !/^[a-f\d]{1,128}$/i.test(target.hash)) return locations;
     const root = context.platform?.appDataRoot();
@@ -148,7 +176,7 @@ export async function messageMediaLocations(
               `${target.hash}_thu.png`,
             ].map((name) => join(qq, target.pack, name))
           : []),
-      ])) ?? (await taskCache());
+      ])) ?? (await taskCache())?.path;
     if (path) add('cache', path);
     return locations;
   }
@@ -165,7 +193,7 @@ export async function messageMediaLocations(
     // 按文件名找到的缓存可定位核对，但不能直接当成该消息的文件打开。
     if (target.fwdKind || target.fwdMsgId || target.fwdResId || exactFile) {
       const cached = await taskCache();
-      if (cached) add('cache', cached);
+      if (cached) add('cache', cached.path, true, cached.task);
       return locations;
     }
   }
@@ -192,7 +220,7 @@ export async function messageMediaLocations(
             ),
           ]
         : []),
-    ])) ?? (await taskCache());
+    ])) ?? (await taskCache())?.path;
   if (path)
     add(
       target.kind === 'ptt' && /\.(wav|mp3|ogg|m4a)$/i.test(extname(path)) ? 'transcoded' : 'cache',

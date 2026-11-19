@@ -2,6 +2,7 @@ import type { ExportTask, FlashDownloadTask, RoamingJobStatus } from '@weq/servi
 import type { CloneTask } from '../views/agentlab/cloneTaskStore';
 import type { BackgroundTask } from '../../../shared/background_task';
 import { backgroundTaskDisplay } from '../../../shared/background_task';
+import { exportTaskResult } from '../../../shared/export_task_result';
 import { isRoamingJobComplete } from '../../../shared/roaming_task_status';
 import { roamingTaskDisplay, taskNoticeTitle } from '@weq/service/task-display';
 
@@ -92,14 +93,13 @@ export function summarizeWorkspaceTasks({
       task.save?.status === 'failed' ||
       task.save?.status === 'interrupted';
     items.push({
-      id: `export:${task.id}`,
+      ...exportTaskResult(task),
       name: '导出任务',
       notificationName: task.display ? taskNoticeTitle(task.display) : undefined,
       paused: task.status === 'paused',
       waiting: Boolean(task.databaseRecovery),
       cancelled: task.status === 'cancelled',
       activity: running ? 'running' : finished ? 'finished' : 'idle',
-      result: `${task.status}:${task.save?.status ?? ''}:${task.updatedAt ?? ''}`,
       failed,
       autoOpenTaskList:
         task.autoOpenTaskList !== false &&

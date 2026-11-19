@@ -5,23 +5,25 @@
  * listings. Thin tRPC skin over `MediaResourceService` (see `@weq/service`); all
  * scanning / merging lives there. Bytes are NOT returned here — the renderer
  * points `<img>`/`<video>` at `weq-media://localmedia`, resolved via the same
- * service. Read-only apart from `transcribeVoice`, which runs the recognition
- * engine on a cached clip (it writes nothing).
+ * service. Opening a chat download can also acknowledge its task result.
  */
-import { OperationError } from '@weq/service';
+import { getHost, getLogger, OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { TranscribeResult } from '../../transcribe/engine';
 import { procedure, router } from '../trpc';
-import { getHost } from '@weq/service';
 import { messageMediaLocations } from '../../message_media_local';
 import { messageMediaLocationMissing } from '../../../shared/message_media';
+import { exportTaskResult } from '../../../shared/export_task_result';
+import { boundClientState } from './client_state';
 import {
   resourceSourceInput,
   requireResourceSource,
   assertResourceSource,
 } from './resource_source';
+
+const logger = getLogger().child({ scope: 'media-resource' });
 
 function requireServices(): AccountServices {
   const ctx = getAppContext();
@@ -94,6 +96,26 @@ export const mediaResourceRouter = router({
         return false;
       }
       await host.revealPath(selected.path);
+      const context = getAppContext();
+      const { download } = selected;
+      if (!download || context.services !== services) return true;
+      const task = services.exportManager.getTask(download.taskId);
+      const expectedAccountUin = context.account?.context.uin;
+      const expectedAccountConfigId = services.accountConfig.getRecord()?.configId;
+      if (!task || !expectedAccountUin || !expectedAccountConfigId) return true;
+      const { id, result } = exportTaskResult(task);
+      if (
+        result !== download.result ||
+        (task.save?.path !== selected.path && task.filePath !== selected.path)
+      )
+        return true;
+      try {
+        const state = boundClientState({ expectedAccountUin, expectedAccountConfigId });
+        if (state.snapshot().records.tasks?.[id] !== result)
+          state.records('tasks', { [id]: result });
+      } catch (error) {
+        logger.warn('文件已打开，下载任务已读状态保存失败', { error });
+      }
       return true;
     }),
   revealMessageMedia: procedure
