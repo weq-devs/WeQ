@@ -45,6 +45,9 @@ const state = vi.hoisted(() => ({
   accepted: vi.fn(),
   open: vi.fn(),
   locations: [] as { kind: 'local' | 'cache'; key: string; available: boolean }[],
+  transfer: undefined as { received: number; total?: number } | undefined,
+  markTransfer: vi.fn(),
+  refreshTransfer: vi.fn(),
   openMessageFile: vi.fn(async (_input: unknown) => false),
   transcribe: vi.fn(),
   cacheEntries: [] as unknown[],
@@ -147,7 +150,16 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   trpc: {
-    useUtils: () => ({}),
+    useUtils: () => ({
+      account: {
+        mediaSave: {
+          activeFileTransfer: {
+            setData: state.markTransfer,
+            invalidate: state.refreshTransfer,
+          },
+        },
+      },
+    }),
     bootstrap: {
       getSettings: { useQuery: () => ({ data: { voiceTranscribe: { modelId: state.model } } }) },
     },
@@ -207,6 +219,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           useQuery: () => ({ data: state.locations, isFetched: true, refetch: vi.fn() }),
         },
       },
+      mediaSave: { activeFileTransfer: { useQuery: () => ({ data: state.transfer }) } },
       transcribeVoice: { useMutation: () => ({ mutateAsync: state.transcribe, isLoading: false }) },
     },
   },
@@ -230,6 +243,9 @@ beforeEach(() => {
   state.accepted.mockClear();
   state.open.mockClear();
   state.locations = [];
+  state.transfer = undefined;
+  state.markTransfer.mockClear();
+  state.refreshTransfer.mockClear();
   state.openMessageFile.mockReset().mockResolvedValue(false);
   state.transcribe.mockClear();
 });
@@ -471,9 +487,34 @@ it('没有本地记录的文件卡片仍走公共保存策略', async () => {
   expect(state.save.mock.calls[0]![0]).toMatchObject({
     source: { kind: 'chat-file', msgId: '41', token: 'token', conv: '123', name: 'report.txt' },
   });
+  expect(state.refreshTransfer).toHaveBeenCalledWith(
+    expect.objectContaining({
+      expectedAccountConfigId: 'source-a',
+      source: expect.objectContaining({ kind: 'chat-file', msgId: '41', token: 'token' }),
+    }),
+  );
   expect(view.host.querySelector('.qq-media-file-open button')).toBeNull();
   expect(view.host.querySelector('.qq-media-file-name')?.getAttribute('title')).toBe('report.txt');
 });
+it.each([200, undefined])(
+  '活动下载在文件卡片显示圆环，已知总大小 %s 才显示百分比',
+  async (total) => {
+    state.transfer = { received: 50, total };
+    const view = await mount(
+      h(QqFile, {
+        data: { fileName: 'report.txt', fileToken: 'token' },
+        sendTimeMs: 1,
+        msgId: '41',
+        conv: '123',
+      }),
+    );
+    const ring = view.host.querySelector('[role="progressbar"]');
+    expect(ring).not.toBeNull();
+    expect(ring?.getAttribute('aria-valuenow')).toBe(total ? '25' : null);
+    expect(view.host.querySelector('[aria-label="保存文件"]')).toBeNull();
+    expect(view.host.querySelector<HTMLButtonElement>('.qq-media-file-open')?.disabled).toBe(true);
+  },
+);
 it('语音消息不显示保存按钮，也不自动保存、播放或转写', async () => {
   const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
   const view = await mount(

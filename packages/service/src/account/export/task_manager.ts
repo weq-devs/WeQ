@@ -606,6 +606,7 @@ export interface ResourceExportRunContext {
   directory: string;
   signal: AbortSignal;
   progress(current: number, total: number): void;
+  transferProgress?(received: number, total?: number): void;
 }
 
 /** 任务列表 wire 视图：ExportTask + 内存日志（不持久化，重启后清空）。 */
@@ -730,6 +731,7 @@ export class ExportTaskManager extends EventEmitter {
   private queueReleases = new Map<string, () => void>();
   private executions = new Map<string, Promise<void>>();
   private tasks = new Map<string, ExportTask>();
+  private readonly mediaTransfers = new WeakMap<ExportTask, { received: number; total?: number }>();
   private abortControllers = new Map<string, AbortController>();
   /** 任务日志（内存环形缓冲，不随 export_tasks.json 持久化）。 */
   private taskLogs = new Map<string, TaskLogLine[]>();
@@ -1312,6 +1314,17 @@ export class ExportTaskManager extends EventEmitter {
 
   getTask(id: string): ExportTask | null {
     return this.tasks.get(id) ?? null;
+  }
+
+  activeMediaTransfer(sourceKey: string): { received: number; total?: number } | null {
+    let queued = false;
+    for (const task of this.tasks.values()) {
+      if (task.resource?.kind !== 'media' || task.resource.sourceKey !== sourceKey) continue;
+      if (task.status === 'running')
+        return { ...(this.mediaTransfers.get(task) ?? { received: 0 }) };
+      if (task.status === 'pending') queued = true;
+    }
+    return queued ? { received: 0 } : null;
   }
 
   async preflight(opts: {
@@ -1948,6 +1961,8 @@ export class ExportTaskManager extends EventEmitter {
     const abort = new AbortController();
     this.abortControllers.set(task.id, abort);
     task.status = 'running';
+    const transfer: { received: number; total?: number } = { received: 0 };
+    if (task.resource?.kind === 'media') this.mediaTransfers.set(task, transfer);
     const stage = task.stages[0]!;
     stage.status = 'running';
     this.saveTasks();
@@ -1965,6 +1980,10 @@ export class ExportTaskManager extends EventEmitter {
         },
         directory,
         signal: abort.signal,
+        transferProgress: (received, total) => {
+          transfer.received = received;
+          transfer.total = total;
+        },
         progress: (current, total) => {
           if (abort.signal.aborted) return;
           task.current = stage.current = current;
@@ -2067,6 +2086,7 @@ export class ExportTaskManager extends EventEmitter {
         this.log(task.id, 'file', task.error, 'error');
       }
     } finally {
+      this.mediaTransfers.delete(task);
       if (!task.resource?.resume || this.tasks.get(task.id)?.status === 'cancelled')
         bundle?.discard();
       this.releaseTask(task);

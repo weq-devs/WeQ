@@ -56,3 +56,41 @@ html[data-theme='dark'] .qq-voice-row .weq-media-save-controls .qq-voice-transcr
   font: inherit;
   cursor: pointer;
 }
+.qq-file-download-ring.weq-media-save-controls {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  color: var(--weq-accent-effective);
+}
+.qq-file-download-ring > svg {
+  inline-size: 24px;
+  block-size: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.qq-file-download-track {
+  stroke: var(--weq-border-strong);
+}
+.qq-file-download-cancel {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  inset: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.qq-file-download-cancel:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .qq-file-download-ring > svg.weq-spin {
+    animation: none;
+  }
+}

@@ -205,6 +205,48 @@ it('本地文件只复制既有缓存，保留无后缀文件和原件，不要�
   expect(state.fileUrl).not.toHaveBeenCalled();
   expect(state.fetch).not.toHaveBeenCalled();
 });
+it.each([
+  { headers: { 'content-length': '8' }, size: undefined, total: 8 },
+  { headers: undefined, size: 8, total: 8 },
+  { headers: undefined, size: undefined, total: undefined },
+])('聊天文件下载从实际分块报告字节（总大小 $total）', async ({ headers, size, total }) => {
+  const source = { kind: 'chat-file' as const, msgId: '42', token: 'token-a', name: 'report.txt' };
+  const input = { ...binding, source };
+  state.find.mockResolvedValue({
+    element: { kind: 'file', fileToken: source.token, fileName: source.name, fileSize: size },
+    conv: 'c2c',
+  });
+  let stream!: ReadableStreamDefaultController<Uint8Array>;
+  state.response = () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          stream = controller;
+        },
+      }),
+      { headers },
+    );
+  const caller = api();
+  const id = await caller.save({ ...input, savePolicy: { mode: 'before', directory: root } });
+  await vi.waitFor(() => expect(stream).toBeDefined());
+  try {
+    stream.enqueue(new Uint8Array(3));
+    await vi.waitFor(async () =>
+      expect(await caller.activeFileTransfer(input)).toEqual({ received: 3, total }),
+    );
+    expect(
+      await caller.activeFileTransfer({ ...input, source: { ...source, msgId: '43' } }),
+    ).toBeNull();
+    await expect(
+      caller.activeFileTransfer({ ...input, expectedAccountConfigId: 'source-b' }),
+    ).rejects.toThrow('数据源已切换');
+  } finally {
+    stream.enqueue(new Uint8Array(5));
+    stream.close();
+    await completed(id);
+  }
+  expect(await caller.activeFileTransfer(input)).toBeNull();
+});
 it('WeQ 下载后的文件可按消息定位，重建任务管理器仍有效，不误认同名文件', async () => {
   state.find.mockResolvedValue({
     element: { kind: 'file', fileToken: 'token-a', fileName: 'report.txt' },

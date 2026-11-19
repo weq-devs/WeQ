@@ -27,21 +27,27 @@ import {
 } from './export_save';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import type { ResumableResourceRequest, ResourceExportRunContext } from '@weq/service';
-import { resolveRecordedChatFile, savedMediaSourceKey } from '../../message_media_local';
+import {
+  resolveRecordedChatFile,
+  savedChatFileKey,
+  savedMediaSourceKey,
+} from '../../message_media_local';
+import { requireResourceSource } from './resource_source';
 
 const messageId = z.string().regex(/^\d{1,20}$/);
+const chatFileInput = z.object({
+  kind: z.literal('chat-file'),
+  msgId: messageId,
+  name: z.string().optional(),
+  token: z.string().optional(),
+  conv: z.string().optional(),
+  fwdMsgId: messageId.optional(),
+  fwdKind: z.enum(['c2c', 'group']).optional(),
+  fwdResId: z.string().max(4096).optional(),
+});
 const sourceInput = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('url'), url: z.string().min(1), name: z.string().optional() }),
-  z.object({
-    kind: z.literal('chat-file'),
-    msgId: messageId,
-    name: z.string().optional(),
-    token: z.string().optional(),
-    conv: z.string().optional(),
-    fwdMsgId: messageId.optional(),
-    fwdKind: z.enum(['c2c', 'group']).optional(),
-    fwdResId: z.string().max(4096).optional(),
-  }),
+  chatFileInput,
   z.object({
     kind: z.literal('group-file'),
     groupCode: z
@@ -215,6 +221,7 @@ async function planSource(services: AccountServices, source: MediaSaveSource, ch
   const fileName = local?.name || source.name || selected?.element.fileName || '文件';
   return {
     fileName,
+    fileSize: selected?.element.fileSize,
     open: async (signal: AbortSignal) => {
       check();
       signal.throwIfAborted();
@@ -261,10 +268,19 @@ async function copyResponse(
   path: string,
   signal: AbortSignal,
   expectedExtension?: string,
+  transfer?: { size?: number; report: NonNullable<ResourceExportRunContext['transferProgress']> },
 ) {
   assertCompleteResponse(response);
   const handle = await open(path, 'wx', 0o600);
   try {
+    const encoding = response.headers.get('content-encoding');
+    const length =
+      !encoding || encoding === 'identity' ? Number(response.headers.get('content-length')) : 0;
+    const knownTotal = Number.isSafeInteger(length) && length > 0 ? length : transfer?.size;
+    const total =
+      knownTotal && Number.isSafeInteger(knownTotal) && knownTotal > 0 ? knownTotal : undefined;
+    let received = 0;
+    transfer?.report(received, total);
     const mime = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? '';
     const chunks: Buffer[] = [];
     let size = 0,
@@ -285,6 +301,10 @@ async function copyResponse(
     };
     const verify = new Transform({
       transform(chunk: Buffer, _encoding, done) {
+        if (transfer) {
+          received += chunk.length;
+          transfer.report(received, total && received <= total ? total : undefined);
+        }
         if (checked) {
           done(null, chunk);
           return;
@@ -372,7 +392,15 @@ async function savePlannedMedia(
     try {
       check();
       signal.throwIfAborted();
-      await copyResponse(response, path, signal, expectedExtension);
+      await copyResponse(
+        response,
+        path,
+        signal,
+        expectedExtension,
+        context.transferProgress
+          ? { size: plan.fileSize, report: context.transferProgress }
+          : undefined,
+      );
       check();
       signal.throwIfAborted();
     } finally {
@@ -386,6 +414,13 @@ async function savePlannedMedia(
 }
 
 export const mediaSaveRouter = router({
+  activeFileTransfer: procedure
+    .input(exportAccountBindingInput.extend({ source: chatFileInput }))
+    .query(({ input }) =>
+      requireResourceSource(input).exportManager.activeMediaTransfer(
+        savedChatFileKey(input.source),
+      ),
+    ),
   save: procedure.input(saveInput).mutation(async ({ input }) => {
     const context = getAppContext(),
       services = context.services;

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ExportSavePolicy } from '@weq/service';
 import type { MediaSaveSource } from '../../../shared/media_save';
-import { client } from '../trpc/client';
+import { client, trpc } from '../trpc/client';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { IS_WEB } from '../lib/target.shared';
 import { useRemoteClient } from '../lib/remoteClient';
@@ -44,6 +44,7 @@ async function pause(signal: AbortSignal) {
 
 export function useMediaSave() {
   const remote = useRemoteClient();
+  const utils = trpc.useUtils();
   const save = useExportSavePolicy(),
     document = useRenderDocument();
   const push = useToast((state) => state.push);
@@ -121,6 +122,14 @@ export function useMediaSave() {
       });
       if (op.cancelled && op.taskId) await stopTask(op);
       if (!op.taskId || !current()) return { taskId: op.taskId, cancelled: true };
+      if (selected.kind === 'chat-file') {
+        const lookup = { ...op.expected, source: selected };
+        utils.account.mediaSave.activeFileTransfer.setData(
+          lookup,
+          (prior) => prior ?? { received: 0 },
+        );
+        void utils.account.mediaSave.activeFileTransfer.invalidate(lookup);
+      }
       if (!browser) {
         notifyTaskCreated(op.taskId, '正在保存媒体');
         return { taskId: op.taskId };

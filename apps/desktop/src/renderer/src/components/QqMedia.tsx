@@ -29,6 +29,7 @@ import {
   Sparkles,
   Star,
   Store,
+  X,
   Zap,
 } from 'lucide-react';
 import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@renderer/lib/resourceUrl';
@@ -702,6 +703,48 @@ function iconForName(name: string): string {
   return EXT_ICON[ext] ?? 'unknown.png';
 }
 
+function FileDownloadRing({ percent, onCancel }: { percent?: number; onCancel?: () => void }) {
+  return (
+    <span className="qq-file-download-ring weq-media-save-controls weq-save-action-group">
+      <svg
+        role="progressbar"
+        aria-label="文件下载进度"
+        aria-valuenow={percent}
+        viewBox="0 0 24 24"
+        className={cn(percent === undefined && 'weq-spin')}
+      >
+        <circle className="qq-file-download-track" cx="12" cy="12" r="10" />
+        {percent !== 0 ? (
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+            pathLength="100"
+            strokeDasharray={`${percent ?? 28} 100`}
+            strokeLinecap="round"
+            transform="rotate(-90 12 12)"
+          />
+        ) : null}
+      </svg>
+      {onCancel ? (
+        <button
+          className="qq-file-download-cancel"
+          type="button"
+          title="停止本次下载"
+          aria-label="停止本次下载"
+          onKeyDown={mediaKeyDown}
+          onClick={(event) => {
+            event.stopPropagation();
+            onCancel();
+          }}
+        >
+          <X size={12} aria-hidden />
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
 export function QqFile({
   data,
   sendTimeMs,
@@ -722,17 +765,18 @@ export function QqFile({
     token = str(data, 'fileToken');
   const previewPath = !msgId && !fwd?.fwdResId ? str(data, 'localPath') : '';
   const mediaSave = useMediaSave();
+  const chatFile = {
+    kind: 'chat-file' as const,
+    msgId: fwd && !/^\d+$/.test(msgId) ? '0' : msgId,
+    name,
+    token,
+    conv,
+    ...fwd,
+    ...(fwd && !/^\d+$/.test(fwd.fwdMsgId) ? { fwdMsgId: undefined } : {}),
+  };
   const source: MediaSaveSource = previewPath
     ? { kind: 'url', url: localFileUrl(previewPath), name }
-    : {
-        kind: 'chat-file',
-        msgId: fwd && !/^\d+$/.test(msgId) ? '0' : msgId,
-        name,
-        token,
-        conv,
-        ...fwd,
-        ...(fwd && !/^\d+$/.test(fwd.fwdMsgId) ? { fwdMsgId: undefined } : {}),
-      };
+    : chatFile;
   const canOpenHere = IS_ELECTRON && !remote;
   const hasMessage = /^\d+$/.test(msgId) || Boolean(fwd?.fwdResId);
   const lookup = {
@@ -768,9 +812,30 @@ export function QqFile({
     locations.data?.find((location) => location.kind === 'local' && location.available) ??
     locations.data?.find((location) => location.available);
   const opensFile = canOpenHere && Boolean(previewPath || local);
+  const transfer = trpc.account.mediaSave.activeFileTransfer.useQuery(
+    { ...mediaSave.binding, source: chatFile },
+    {
+      enabled: active && hasMessage && Boolean(mediaSave.binding),
+      staleTime: 0,
+      refetchOnMount: true,
+      refetchOnWindowFocus: true,
+      retry: false,
+      refetchInterval: (progress) => (progress ? 750 : false),
+    },
+  ).data;
+  const downloading = Boolean(transfer) || mediaSave.isBusy(source);
+  const percent = transfer?.total
+    ? Math.min(99, Math.floor((transfer.received / transfer.total) * 100))
+    : undefined;
+  const wasDownloading = useRef(false);
+  const refetchLocations = locations.refetch;
+  useEffect(() => {
+    if (wasDownloading.current && !downloading && checkLocal && active) void refetchLocations();
+    wasDownloading.current = downloading;
+  }, [downloading, checkLocal, active, refetchLocations]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ action: 'open' | 'save'; message: string } | null>(null);
-  const working = busy || mediaSave.busy;
+  const working = busy || mediaSave.busy || (downloading && !opensFile);
   useEffect(() => {
     if (mediaSave.busy) setError(null);
   }, [mediaSave.busy]);
@@ -810,7 +875,7 @@ export function QqFile({
       }
     })();
   };
-  const busyLabel = opensFile ? '正在打开…' : '准备保存…';
+  const busyLabel = downloading ? '正在下载…' : opensFile ? '正在打开…' : '准备保存…';
   return (
     <>
       <div className="qq-media-file">
@@ -843,8 +908,18 @@ export function QqFile({
             <span className="qq-media-file-name" title={name}>
               {name || '[文件]'}
             </span>
-            <span className={cn('qq-media-file-size', error && 'qq-media-file-error')}>
-              {working ? (
+            <span
+              className={cn('qq-media-file-size', error && !downloading && 'qq-media-file-error')}
+            >
+              {downloading ? (
+                <span className="qq-media-file-status">
+                  {percent === undefined ? (
+                    busyLabel
+                  ) : (
+                    <span className="weq-number">{percent}%</span>
+                  )}
+                </span>
+              ) : working ? (
                 <span className="qq-media-file-status">
                   <Loader2 size={11} strokeWidth={2} className="weq-spin" aria-hidden /> {busyLabel}
                 </span>
@@ -856,7 +931,14 @@ export function QqFile({
             </span>
           </span>
         </button>
-        {!opensFile && hasMessage && (!checkLocal || locations.isFetched) ? (
+        {downloading ? (
+          <FileDownloadRing
+            percent={percent}
+            onCancel={mediaSave.downloading ? () => void mediaSave.cancel() : undefined}
+          />
+        ) : !opensFile &&
+          hasMessage &&
+          (!checkLocal || (locations.isFetched && !locations.isFetching)) ? (
           <MediaSaveControls
             save={mediaSave}
             source={source}
