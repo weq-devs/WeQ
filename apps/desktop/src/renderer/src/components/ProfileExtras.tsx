@@ -10,7 +10,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import type { PersonalityLabel, PersonalityPhoto } from '@weq/protocol';
+import type { PersonalityLabel, PersonalityPhoto } from '@weqbot/protocol';
 import { Modal } from './Dialog';
 import { OverlayLayer } from './OverlayLayer';
 import { SegmentedControl } from './SegmentedControl';

@@ -3,7 +3,7 @@
  * 消息从 QQ 服务端拉进本机漫游缓存（与聊天页「缺失消息」共用 RoamMsgCacheDb，
  * 之前聊天页已经拉过的窗口这里直接命中缓存、不再联网）。
  *
- * 拉取能力桥接 {@link GapHistoryService}（`@weq/protocol` 的 SsoGetGroupMsg /
+ * 拉取能力桥接 {@link GapHistoryService}（`@weqbot/protocol` 的 SsoGetGroupMsg /
  * SsoGetC2cMsg，单窗最多 30 条，拉到的消息以渲染视图写回漫游缓存）。扫描从
  * 最新的空窗开始向更旧的方向并发推进，连续 {@link MAX_EMPTY_WINDOWS} 个请求
  * 没有返回一条消息即判定更早的消息全部过期、提前结束；单窗耗时超过

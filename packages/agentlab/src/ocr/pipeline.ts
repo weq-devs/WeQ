@@ -11,7 +11,7 @@
  * 这里**不 import onnxruntime**：会话以 {@link OcrSession} 的最小接口注入，管线本身
  * 是纯几何 + 数值代码，单测里用假会话就能跑（真会话在 `worker.ts` 里包一层）。
  *
- * 坐标全程是**原图像素坐标**（原点左上），与在线那条线（`@weq/protocol` 的
+ * 坐标全程是**原图像素坐标**（原点左上），与在线那条线（`@weqbot/protocol` 的
  * `OcrImage`）同口径 —— 产出的 `quad` / `rect` 可以直接喂给现成的灯箱覆盖层与
  * `OcrTextPanel`。
  *

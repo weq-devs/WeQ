@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, unlink } from 'node:fs/promises';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
-import { detectImageFormat } from '@weq/protocol';
+import { detectImageFormat } from '@weqbot/protocol';
 import { writeFileAtomic } from '../common/atomic_write';
 
 const FILE = /^[0-9a-f]{32}\.(?:jpg|png|webp|bmp|gif)$/;

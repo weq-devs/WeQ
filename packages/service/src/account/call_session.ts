@@ -3,7 +3,7 @@
  *
  * 一次通话的三条腿：
  *
- *   1. **信令**（TCP，借 SSO）：开房、邀请、挂断。走 `@weq/protocol` 的
+ *   1. **信令**（TCP，借 SSO）：开房、邀请、挂断。走 `@weqbot/protocol` 的
  *      `startC2CCall` / `endC2CCall`，只需要已登记的 pid。
  *   2. **控制面**（UDP → GCS）：认证、心跳、状态上报、房间事件。
  *   3. **媒体**（UDP → GCS）：Opus 帧收发，20 ms 一帧。
@@ -83,7 +83,7 @@ import {
   isVideoSubType,
   endC2CCall,
   startC2CCall,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import type { Logger } from '../common/logger';
 
 // ─────────────────────────── 状态 ───────────────────────────
@@ -258,7 +258,7 @@ export interface CallVideoEncoder {
   close(): void;
 }
 
-/** 借凭据发信令的最小表面（`@weq/protocol` 的实现直接满足）。 */
+/** 借凭据发信令的最小表面（`@weqbot/protocol` 的实现直接满足）。 */
 export interface CallSignaling {
   start(params: {
     selfUid: string;
@@ -2704,7 +2704,7 @@ export class CallSession {
 
 // ─────────────────────────── 组装 ───────────────────────────
 
-/** 用 `@weq/protocol` 的信令实现 + 已登记的 pid 造一个信令客户端。 */
+/** 用 `@weqbot/protocol` 的信令实现 + 已登记的 pid 造一个信令客户端。 */
 export function protocolSignaling(
   nt: Parameters<typeof startC2CCall>[0],
   pid: number,

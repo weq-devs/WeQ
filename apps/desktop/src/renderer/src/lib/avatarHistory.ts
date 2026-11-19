@@ -1,4 +1,4 @@
-import type { HistoricalAvatar } from '@weq/protocol';
+import type { HistoricalAvatar } from '@weqbot/protocol';
 
 export function sortHistoricalAvatars(
   items: HistoricalAvatar[],

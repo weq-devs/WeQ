@@ -2,13 +2,13 @@
  * GroupModerationService 的离线单测：断言每条指令真正上 wire 的 command / cmd
  * 与 inner body，不连任何网络。
  *
- * 报文编码本身已在 @weq/protocol 的单测里覆盖（group_admin / recall），这里只验
+ * 报文编码本身已在 @weqbot/protocol 的单测里覆盖（group_admin / recall），这里只验
  * 服务层到协议的转发与参数映射。
  */
 
 import { describe, expect, it } from 'vitest';
 import { GroupModerationService } from '../src/account/group_moderation';
-import { RecallPrivate, decode, MuteGroupAll, MUTE_ALL_PERMANENT } from '@weq/protocol';
+import { RecallPrivate, decode, MuteGroupAll, MUTE_ALL_PERMANENT } from '@weqbot/protocol';
 
 interface OidbCall {
   pid: number;

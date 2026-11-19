@@ -1,4 +1,4 @@
-import { occupationText } from '@weq/protocol/profile-values';
+import { occupationText } from '@weqbot/protocol/profile-values';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';

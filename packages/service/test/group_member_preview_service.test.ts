@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
-import { FetchGroupMemberListPage } from '@weq/protocol';
+import { FetchGroupMemberListPage } from '@weqbot/protocol';
 import { GroupInfoService } from '../src/account/group_info';
 import { GROUP_PREVIEW_CANDIDATES } from '../src/account/group_member_preview';
 afterEach(() => vi.restoreAllMocks());

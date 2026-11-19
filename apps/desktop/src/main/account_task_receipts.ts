@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { JsonStore } from '@weq/service/json-store';
-import { parseCustomFaceId } from '@weq/protocol';
+import { parseCustomFaceId } from '@weqbot/protocol';
 import type {
   BackgroundTask,
   BackgroundTaskAction,

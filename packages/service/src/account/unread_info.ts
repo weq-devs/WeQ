@@ -2,7 +2,7 @@ import type { AccountSession } from '@weq/account';
 import { classifyChatType } from '@weq/codec';
 import { recordMessageWork, withDatabasePriority } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
-import { ReportRead, type ReadReportParams } from '@weq/protocol';
+import { ReportRead, type ReadReportParams } from '@weqbot/protocol';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
 import { LocalUnreadStore, type ResolvedUnreadInfo } from './local_unread';
 import type { NewMessages } from './nt_msg_hook';

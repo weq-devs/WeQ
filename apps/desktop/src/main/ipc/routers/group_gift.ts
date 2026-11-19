@@ -1,7 +1,7 @@
 /**
  * `account.groupGift.*` —— 群礼物面板（只读）。
  *
- * 走裸 SSO `GiftMidgroundPanel.SsoGetSceneItem`（见 `@weq/protocol` 的
+ * 走裸 SSO `GiftMidgroundPanel.SsoGetSceneItem`（见 `@weqbot/protocol` 的
  * `group-gift-panel`），需要在线 QQ 实例；完全离线模式下直接报错，由渲染层回落到
  * 内置抓包示例并弹错误提示。这里**没有任何写操作**：不下单、不付款。
  */

@@ -76,7 +76,9 @@ export type {
   McpServerConfig,
   OneBotConfig,
   OneBotWebSocketServerConfig,
+  OneBotWebSocketClientConfig,
   OneBotHttpServerConfig,
+  OneBotHttpClientConfig,
   WeqAssistantConfig,
   AgentLabSettings,
   LinkPreviewConfig,
@@ -884,7 +886,7 @@ export type {
   GiftMallWallItem,
   GiftMallWallOptions,
   GiftMallWallResponse,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 // ---- account protocol services (oidb/trpc packets) ----
 export { GapHistoryService } from './account/gap_history';

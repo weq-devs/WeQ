@@ -6,7 +6,7 @@ import {
   type TrpcNative,
   SetQzoneFeedStatus,
   type QzoneArchiveAction,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { getLogger } from '../common/logger';
 import { projectQzoneArchive } from '../common/qzone_archive';
 

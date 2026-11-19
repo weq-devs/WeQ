@@ -1,12 +1,18 @@
-import { NumericText } from '../NumericText';
-import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
-import { nextOneBotPort } from '@weq/service/service-ports';
+import { useEffect, useState, type ReactElement } from 'react';
+import type {
+  ControlHttpClient,
+  ControlHttpServer,
+  ControlOneBotConfig,
+  ControlOneBotListener,
+  ControlWsClient,
+  ControlWsServer,
+} from '@weqbot/control';
 import {
+  ArrowLeftRight,
   Copy,
   Eye,
   EyeOff,
   Globe2,
-  KeyRound,
   Loader2,
   Pencil,
   Plus,
@@ -16,6 +22,7 @@ import {
   Save,
   Server,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
@@ -23,32 +30,113 @@ import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { EditorDialog } from '../EditorDialog';
-import { useDraftProtection } from '../../lib/draftClose';
+import { useDraftClose } from '../../lib/draftClose';
 import { z } from 'zod';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-onebot.css';
 
-type ServerType = 'ws' | 'http';
+/**
+ * OneBot 网络配置。
+ *
+ * 四类网络与 weqbot kernel 一一对应：
+ *
+ *   - **正向 WS**（`wsServers`）：WeQ 监听，客户端连进来（NapCat / Koishi 常用）；
+ *   - **反向 WS**（`wsClients`）：WeQ 主动连客户端（NoneBot 的 `ws_reverse`）；
+ *   - **HTTP 服务端**（`httpServers`）：标准 OneBot v11 HTTP API；
+ *   - **HTTP 上报**（`httpClients`）：把事件 POST 到客户端。
+ *
+ * 配置存在 WeQ 的设置里（按账号），执行在 weqbot daemon —— 页面上的「运行中」
+ * 来自 daemon 的实际监听，不是配置里的期望值。
+ *
+ * ⚠️ **QQ 在线时（mode 1）只发不收**：action 全部可用，但不会有任何事件。
+ * 需要事件的用户应当让 QQ 离线后以 bot 方式上线（mode 2），或自己接 SSE 推送。
+ */
 
-interface ServerDraft {
-  id: string;
-  type: ServerType;
-  name: string;
-  port: string;
-  token: string;
-  enabled: boolean;
-  enableCors: boolean;
+type NetworkKey = 'wsServers' | 'wsClients' | 'httpServers' | 'httpClients';
+
+interface NetworkMeta {
+  key: NetworkKey;
+  title: string;
+  kind: string;
+  icon: ReactElement;
+  /** 服务端要端口，客户端要 URL。 */
+  mode: 'listen' | 'connect';
+  desc: string;
 }
-const serverDraftSchema = z
+
+const NETWORKS: NetworkMeta[] = [
+  {
+    key: 'wsServers',
+    title: '正向 WebSocket',
+    kind: 'ws-server',
+    icon: <RadioTower size={15} strokeWidth={1.8} />,
+    mode: 'listen',
+    desc: 'WeQ 监听端口，客户端连进来。',
+  },
+  {
+    key: 'wsClients',
+    title: '反向 WebSocket',
+    kind: 'ws-client',
+    icon: <ArrowLeftRight size={15} strokeWidth={1.8} />,
+    mode: 'connect',
+    desc: 'WeQ 主动连接客户端的 WS 地址（NoneBot 的 ws_reverse）。',
+  },
+  {
+    key: 'httpServers',
+    title: 'HTTP 服务端',
+    kind: 'http-server',
+    icon: <Globe2 size={15} strokeWidth={1.8} />,
+    mode: 'listen',
+    desc: '标准 OneBot v11 HTTP API，可选在同一端口接受 WS。',
+  },
+  {
+    key: 'httpClients',
+    title: 'HTTP 上报',
+    kind: 'http-client',
+    icon: <Upload size={15} strokeWidth={1.8} />,
+    mode: 'connect',
+    desc: '把事件 POST 到客户端的 HTTP 地址。',
+  },
+];
+
+/** 编辑抽屉里的草稿：统一成字符串，保存时再解析。 */
+interface NetworkDraft {
+  key: NetworkKey;
+  /** 编辑已有条目时是原名字；新建时是空串。 */
+  original: string;
+  name: string;
+  enabled: boolean;
+  host: string;
+  port: string;
+  path: string;
+  url: string;
+  role: 'Api' | 'Event' | 'Universal';
+  messageFormat: 'array' | 'string';
+  accessToken: string;
+  reportSelfMessage: boolean;
+  enableWebSocket: boolean;
+  reconnectIntervalMs: string;
+  timeoutMs: string;
+}
+
+const networkDraftSchema = z
   .object({
-    id: z.string(),
-    type: z.enum(['ws', 'http']),
+    key: z.enum(['wsServers', 'wsClients', 'httpServers', 'httpClients']),
+    original: z.string(),
     name: z.string(),
-    port: z.string(),
-    token: z.string(),
     enabled: z.boolean(),
-    enableCors: z.boolean(),
+    host: z.string(),
+    port: z.string(),
+    path: z.string(),
+    url: z.string(),
+    role: z.enum(['Api', 'Event', 'Universal']),
+    messageFormat: z.enum(['array', 'string']),
+    accessToken: z.string(),
+    reportSelfMessage: z.boolean(),
+    enableWebSocket: z.boolean(),
+    reconnectIntervalMs: z.string(),
+    timeoutMs: z.string(),
   })
   .nullable();
 
@@ -58,8 +146,67 @@ function generatedToken(): string {
   ).join('');
 }
 
-function nextPort(servers: readonly { port: number }[], type: ServerType): string {
-  return String(nextOneBotPort(new Set(servers.map((server) => server.port)), type));
+function emptyConfig(): ControlOneBotConfig {
+  return { networks: { wsServers: [], wsClients: [], httpServers: [], httpClients: [] } };
+}
+
+function draftOf(key: NetworkKey, entry: Record<string, unknown> | null): NetworkDraft {
+  const server = (entry ?? {}) as Record<string, unknown>;
+  return {
+    key,
+    original: typeof server.name === 'string' ? server.name : '',
+    name: typeof server.name === 'string' ? server.name : '',
+    enabled: server.enabled !== false,
+    host: typeof server.host === 'string' ? server.host : '',
+    port: typeof server.port === 'number' ? String(server.port) : '',
+    path: typeof server.path === 'string' ? server.path : '',
+    url: typeof server.url === 'string' ? server.url : '',
+    role: (server.role as NetworkDraft['role']) ?? 'Universal',
+    messageFormat: server.messageFormat === 'string' ? 'string' : 'array',
+    accessToken: typeof server.accessToken === 'string' ? server.accessToken : '',
+    reportSelfMessage: server.reportSelfMessage !== false,
+    enableWebSocket: server.enableWebSocket === true,
+    reconnectIntervalMs:
+      typeof server.reconnectIntervalMs === 'number' ? String(server.reconnectIntervalMs) : '',
+    timeoutMs: typeof server.timeoutMs === 'number' ? String(server.timeoutMs) : '',
+  };
+}
+
+/** 草稿 → 配置里的一行。空的可选字段直接不写，别让配置里堆 `""`。 */
+function entryOf(draft: NetworkDraft): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    name: draft.name.trim(),
+    enabled: draft.enabled,
+    messageFormat: draft.messageFormat,
+    reportSelfMessage: draft.reportSelfMessage,
+    ...(draft.accessToken.trim() ? { accessToken: draft.accessToken.trim() } : {}),
+  };
+  if (draft.key === 'wsClients' || draft.key === 'httpClients') {
+    base.url = draft.url.trim();
+    if (draft.key === 'wsClients') {
+      base.role = draft.role;
+      if (draft.reconnectIntervalMs.trim()) {
+        base.reconnectIntervalMs = Number(draft.reconnectIntervalMs);
+      }
+    } else if (draft.timeoutMs.trim()) {
+      base.timeoutMs = Number(draft.timeoutMs);
+    }
+    return base;
+  }
+  base.port = Number(draft.port);
+  if (draft.host.trim()) base.host = draft.host.trim();
+  if (draft.path.trim()) base.path = draft.path.trim();
+  if (draft.key === 'wsServers') base.role = draft.role;
+  if (draft.key === 'httpServers') base.enableWebSocket = draft.enableWebSocket;
+  return base;
+}
+
+function endpointOf(key: NetworkKey, entry: Record<string, unknown>): string {
+  if (key === 'wsClients' || key === 'httpClients') return String(entry.url ?? '');
+  const host = typeof entry.host === 'string' && entry.host ? entry.host : '127.0.0.1';
+  const scheme = key === 'wsServers' ? 'ws' : 'http';
+  const path = typeof entry.path === 'string' ? entry.path : '';
+  return `${scheme}://${host}:${String(entry.port ?? '?')}${path}`;
 }
 
 export function OneBotSection(): ReactElement {
@@ -70,17 +217,14 @@ export function OneBotSection(): ReactElement {
     refetchOnMount: 'always',
     refetchInterval: active ? 5000 : false,
   });
-  const setMaster = trpc.bootstrap.setOneBotEnabled.useMutation();
-  const saveServer = trpc.bootstrap.saveOneBotServer.useMutation();
-  const deleteServer = trpc.bootstrap.deleteOneBotServer.useMutation();
-  const setServerEnabled = trpc.bootstrap.setOneBotServerEnabled.useMutation();
-  const regenerateToken = trpc.bootstrap.regenerateOneBotServerToken.useMutation();
+  const save = trpc.bootstrap.saveOneBotConfig.useMutation();
   const showError = useDialog((s) => s.showError);
   const toast = useToast((s) => s.push);
-  const [draft, setDraft] = usePageState<ServerDraft | null>(
+
+  const [draft, setDraft] = usePageState<NetworkDraft | null>(
     'onebot:draft',
     null,
-    serverDraftSchema,
+    networkDraftSchema,
     true,
   );
   usePageDraftConfirmation('onebot:draft', null);
@@ -90,27 +234,33 @@ export function OneBotSection(): ReactElement {
   }, [active]);
 
   const data = status.data;
-  const servers = data?.servers ?? [];
-  const busy =
-    setMaster.isLoading ||
-    saveServer.isLoading ||
-    deleteServer.isLoading ||
-    setServerEnabled.isLoading ||
-    regenerateToken.isLoading;
-  const protection = useDraftProtection(draft !== null, busy);
-  useEffect(() => protection.reset(false), [protection.reset]);
+  const config = data?.config ?? null;
+  const busy = save.isLoading;
+  // 关闭抽屉时要问一句「放弃未保存的修改？」—— 网络配置改错一个端口就会让
+  // bot 连不上，静默丢弃比多问一句更糟。
+  const protection = useDraftClose(() => setDraft(null), draft, busy);
+  // 从页面现场恢复的草稿同样算未保存：关闭前仍要确认一次。
+  useEffect(() => protection.reset(null), [protection.reset]);
 
   async function refetch(): Promise<void> {
     await status.refetch();
   }
 
-  async function run(
-    action: () => Promise<unknown>,
-    success: { title: string; message?: string },
-  ): Promise<boolean> {
+  /**
+   * 保存整份配置。
+   *
+   * 一次提交全部：daemon 的 `onebot.set` 会先停旧再起新，逐条保存会让正在用的
+   * 网络反复重启。失败时 daemon 会回滚旧配置，页面重新拉一次就能看到实际情况。
+   */
+  async function persist(next: ControlOneBotConfig, success: string): Promise<boolean> {
     try {
-      await action();
-      toast({ tone: 'success', ...success });
+      const result = await save.mutateAsync({ config: next });
+      if (result.daemonCheck) {
+        // 配置已保存，但 daemon 起不来 —— 这不是「保存失败」，要说清楚。
+        showError('配置已保存，但 OneBot 没能启动', result.daemonCheck);
+      } else {
+        toast({ tone: 'success', title: success });
+      }
       return true;
     } catch (error) {
       showError('OneBot 配置失败', error instanceof Error ? error.message : String(error));
@@ -118,6 +268,82 @@ export function OneBotSection(): ReactElement {
     } finally {
       await refetch();
     }
+  }
+
+  async function writeNetwork(key: NetworkKey, rows: Record<string, unknown>[]): Promise<boolean> {
+    const base = config ?? emptyConfig();
+    return persist(
+      {
+        ...base,
+        networks: { ...base.networks, [key]: rows } as ControlOneBotConfig['networks'],
+      },
+      'OneBot 网络配置已更新',
+    );
+  }
+
+  function startCreate(meta: NetworkMeta): void {
+    const rows = (config?.networks[meta.key] ?? []) as unknown as Array<Record<string, unknown>>;
+    setDraft({
+      ...draftOf(meta.key, null),
+      name: `${meta.title} ${rows.length + 1}`,
+      accessToken: generatedToken(),
+      enabled: true,
+    });
+    setRevealToken(false);
+  }
+
+  function startEdit(meta: NetworkMeta, entry: Record<string, unknown>): void {
+    setDraft(draftOf(meta.key, entry));
+    setRevealToken(false);
+  }
+
+  async function remove(meta: NetworkMeta, entry: Record<string, unknown>): Promise<void> {
+    const rows = (config?.networks[meta.key] ?? []) as unknown as Array<Record<string, unknown>>;
+    await writeNetwork(
+      meta.key,
+      rows.filter((row) => row.name !== entry.name),
+    );
+  }
+
+  async function toggle(
+    meta: NetworkMeta,
+    entry: Record<string, unknown>,
+    enabled: boolean,
+  ): Promise<void> {
+    const rows = (config?.networks[meta.key] ?? []) as unknown as Array<Record<string, unknown>>;
+    await writeNetwork(
+      meta.key,
+      rows.map((row) => (row.name === entry.name ? { ...row, enabled } : row)),
+    );
+  }
+
+  async function onSave(): Promise<void> {
+    if (!draft) return;
+    if (!draft.name.trim()) {
+      showError('名称不能为空', '同一个网络里名称必须唯一，页面靠它区分卡片。');
+      return;
+    }
+    if (draft.key === 'wsClients' || draft.key === 'httpClients') {
+      if (!draft.url.trim()) {
+        showError('地址不能为空', '反向连接需要填写完整地址，例如 ws://127.0.0.1:6700/。');
+        return;
+      }
+    } else {
+      const port = Number(draft.port);
+      if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+        showError('端口无效', '端口需为 1 – 65535 之间的整数。');
+        return;
+      }
+    }
+
+    const rows = (config?.networks[draft.key] ?? []) as unknown as Array<Record<string, unknown>>;
+    const entry = entryOf(draft);
+    const exists = rows.some((row) => row.name === draft.original);
+    const next = exists
+      ? rows.map((row) => (row.name === draft.original ? entry : row))
+      : [...rows, entry];
+
+    if (await writeNetwork(draft.key, next)) setDraft(null);
   }
 
   async function copy(value: string): Promise<void> {
@@ -129,83 +355,24 @@ export function OneBotSection(): ReactElement {
     }
   }
 
-  function startCreate(type: ServerType): void {
-    const sameType = servers.filter((server) => server.type === type);
-    setDraft({
-      id: '',
-      type,
-      name: `${type === 'ws' ? 'WebSocket' : 'HTTP'} 服务器 ${sameType.length + 1}`,
-      port: nextPort(servers, type),
-      token: generatedToken(),
-      enabled: true,
-      enableCors: true,
-    });
-    setRevealToken(false);
-  }
+  /** 监听状态按名字匹配：配置里有、daemon 里没有 = 没起来。 */
+  const listenerByName = new Map<string, ControlOneBotListener>(
+    (data?.listeners ?? []).map((listener) => [`${listener.kind}:${listener.name}`, listener]),
+  );
 
-  function startEdit(server: {
-    id: string;
-    type: ServerType;
-    name: string;
-    port: number;
-    token: string;
-    enabled: boolean;
-    enableCors?: boolean;
-  }): void {
-    setDraft({
-      id: server.id,
-      type: server.type,
-      name: server.name,
-      port: String(server.port),
-      token: server.token,
-      enabled: server.enabled,
-      enableCors: server.enableCors ?? true,
-    });
-    setRevealToken(false);
-  }
-
-  async function onSave(event: FormEvent): Promise<void> {
-    event.preventDefault();
-    if (!draft) return;
-    const port = Number(draft.port);
-    if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {
-      showError('端口无效', '端口需为 1024 – 65535 之间的整数。');
-      return;
-    }
-    const saved = await run(
-      () =>
-        saveServer.mutateAsync({
-          id: draft.id || undefined,
-          type: draft.type,
-          name: draft.name.trim(),
-          enabled: draft.enabled,
-          port,
-          token: draft.token.trim(),
-          enableCors: draft.type === 'http' ? draft.enableCors : undefined,
-        }),
-      {
-        title: draft.id
-          ? '服务器配置已更新'
-          : `${draft.type === 'ws' ? 'WebSocket' : 'HTTP'} 服务器已创建`,
-      },
-    );
-    if (saved) setDraft(null);
-  }
-
-  const wsServer = data?.servers.find((server) => server.type === 'ws' && server.enabled) ?? null;
-  const ccConnectConfig = wsServer
-    ? `[[projects.platforms]]\ntype = "qq"\n[projects.platforms.options]\nws_url = "${wsServer.url}"\ntoken = "${wsServer.token}"\nallow_from = "填写你的 QQ 号"\ngroup_require_mention = true\n`
-    : '';
+  const draftMeta = draft ? NETWORKS.find((meta) => meta.key === draft.key) : null;
+  const wsServers = (config?.networks.wsServers ?? []) as ControlWsServer[];
+  const firstWs = wsServers.find((server) => server.enabled !== false);
 
   return (
     <div className="weq-set weq-set-onebot">
       <SectionHeader
         title="OneBot / cc-connect"
         page="onebot"
-        desc="可同时运行多个 OneBot v11 WebSocket 与 HTTP API 服务器；每张卡片独立启停、端口和令牌。端口被占用时会自动顺延到附近空闲端口。"
+        desc="网络配置按账号保存，由 weqbot daemon 执行。端口被占用时直接报错、不会自动顺延 —— 客户端里写死的就是这个端口。"
       />
 
-      <Card title="总开关" icon={<Power size={15} strokeWidth={1.8} />}>
+      <Card title="状态" icon={<Power size={15} strokeWidth={1.8} />}>
         {status.error ? (
           <QueryError
             message={status.error.message}
@@ -215,362 +382,173 @@ export function OneBotSection(): ReactElement {
           />
         ) : null}
         <Row
-          label="OneBot 服务"
-          desc="关闭后所有 WS / HTTP 服务器都会停止，但各自的启用配置会保留。"
-          control={
-            <Toggle
-              label="启用 OneBot 服务"
-              checked={data?.enabled ?? false}
-              disabled={!data || busy}
-              onChange={(enabled) =>
-                void run(() => setMaster.mutateAsync({ enabled }), {
-                  title: enabled ? 'OneBot 服务已启用' : 'OneBot 服务已停止',
-                })
-              }
-            />
-          }
+          label="账号"
+          desc={data?.uin ? `配置属于 ${data.uin}，切换账号会换成另一份。` : '没有打开的账号。'}
+          control={<span>{data?.uin ?? '—'}</span>}
         />
         <Row
           label="运行状态"
+          desc={
+            data?.daemonCheck
+              ? '配置已保存，但 daemon 没能启动，详见错误提示。'
+              : '实时监听来自 weqbot daemon；「未在监听」表示端口没起来。'
+          }
           control={
             <span className="weq-set-row-status">
-              {data?.running ? (
-                <NumericText>{`${data.servers.filter((server) => server.running).length} 个服务器运行中 · ${data.clients} 个连接`}</NumericText>
-              ) : data?.enabled ? (
-                data.accountOpen ? (
-                  '等待可用服务器'
-                ) : (
-                  '等待在线账号'
-                )
-              ) : (
-                '已停止'
-              )}
+              {data?.daemonCheck
+                ? 'daemon 未就绪'
+                : (data?.listeners.length ?? 0) > 0
+                  ? `${data?.listeners.filter((listener) => listener.state === 'listening' || listener.state === 'connected').length ?? 0} 个在网络中运行 · ${data?.listeners.reduce((sum, listener) => sum + (listener.clients ?? 0), 0) ?? 0} 个连接`
+                  : data?.enabled
+                    ? '尚未监听'
+                    : '未配置'}
             </span>
           }
         />
+        <Row
+          label="事件推送"
+          desc="QQ 在线时 WeQ 借 QQ 的会话（mode 1），这条链路只发不收：action 全部可用，但不会有消息事件。需要事件请让 QQ 离线后以 bot 方式上线（mode 2），或使用 SSE 推送。"
+          control={<span>mode 1 无事件</span>}
+        />
       </Card>
 
-      <Card
-        title="网络服务器"
-        icon={<Server size={15} strokeWidth={1.8} />}
-        action={
-          <div className="weq-onebot-add-actions">
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-sm"
-              disabled={busy}
-              onClick={() => startCreate('ws')}
-            >
-              <Plus size={13} />
-              WebSocket
-            </button>
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-sm weq-set-btn-soft"
-              disabled={busy}
-              onClick={() => startCreate('http')}
-            >
-              <Plus size={13} />
-              HTTP
-            </button>
-          </div>
-        }
-      >
-        {servers.length === 0 && !draft ? (
-          <div className="weq-set-empty">
-            还没有配置网络服务器。WebSocket 适合正向连接客户端，HTTP 提供标准 OneBot v11 action
-            API。
-          </div>
-        ) : null}
-        <ul className="weq-onebot-server-grid">
-          {servers.map((server) => {
-            const label = !data?.enabled
-              ? '总开关已关闭'
-              : !server.enabled
-                ? '未启用'
-                : !data.accountOpen
-                  ? '等待在线账号'
-                  : server.running
-                    ? server.type === 'ws'
-                      ? `运行中 · ${server.clients} 个连接`
-                      : '监听中'
-                    : server.error
-                      ? '启动失败'
-                      : '未在监听';
-            return (
-              <li
-                key={`${server.type}:${server.id}`}
-                className={`weq-onebot-server-card${server.running ? ' is-running' : ''}${server.enabled ? ' is-enabled' : ''}`}
+      {NETWORKS.map((meta) => {
+        const rows = (config?.networks[meta.key] ?? []) as unknown as Array<
+          Record<string, unknown>
+        >;
+        return (
+          <Card
+            key={meta.key}
+            title={meta.title}
+            icon={meta.icon}
+            action={
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-sm"
+                disabled={busy || !data?.uin}
+                onClick={() => startCreate(meta)}
               >
-                <div className="weq-onebot-server-head">
-                  <span className="weq-onebot-server-icon" aria-hidden>
-                    {server.type === 'ws' ? (
-                      <RadioTower size={17} strokeWidth={1.8} />
-                    ) : (
-                      <Globe2 size={17} strokeWidth={1.8} />
-                    )}
-                  </span>
-                  <div className="weq-onebot-server-title">
-                    <strong title={server.name}>{server.name}</strong>
-                    <span>{server.type === 'ws' ? 'WebSocket' : 'HTTP API'}</span>
-                  </div>
-                  <Toggle
-                    checked={server.enabled}
-                    disabled={busy}
-                    label={`启用 ${server.name}`}
-                    onChange={(enabled) =>
-                      void run(
-                        () =>
-                          setServerEnabled.mutateAsync({
-                            id: server.id,
-                            type: server.type,
-                            enabled,
-                          }),
-                        {
-                          title: enabled ? `${server.name} 已启用` : `${server.name} 已停用`,
-                        },
-                      )
-                    }
-                  />
-                </div>
-                <div className="weq-onebot-server-fields">
-                  <div>
-                    <span>监听地址</span>
-                    <code title={server.url}>{server.url}</code>
-                  </div>
-                  <div>
-                    <span>令牌</span>
-                    <code>{server.token ? '已设置访问令牌' : '无需鉴权'}</code>
-                  </div>
-                </div>
-                <div className="weq-onebot-server-status">
-                  <span className={`weq-onebot-status-dot${server.running ? ' is-live' : ''}`} />
-                  <span>{label}</span>
-                  {server.port !== server.requestedPort ? (
-                    <span className="weq-onebot-port-shift">
-                      原端口{' '}
-                      <span className="weq-number weq-number-inherit">{server.requestedPort}</span>{' '}
-                      被占用，已顺延
-                    </span>
-                  ) : null}
-                </div>
-                {server.error ? <p className="weq-onebot-server-error">{server.error}</p> : null}
-                <div className="weq-onebot-server-actions">
-                  <button
-                    type="button"
-                    className="weq-set-iconbtn"
-                    title="复制地址"
-                    aria-label={`复制 ${server.name} 地址`}
-                    onClick={() => void copy(server.url)}
-                  >
-                    <Copy size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="weq-set-iconbtn"
-                    title="编辑"
-                    aria-label={`编辑 ${server.name}`}
-                    disabled={busy}
-                    onClick={() => startEdit(server)}
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="weq-set-iconbtn"
-                    title="复制令牌"
-                    aria-label={`复制 ${server.name} 令牌`}
-                    disabled={!server.token}
-                    onClick={() => void copy(server.token)}
-                  >
-                    <KeyRound size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="weq-set-iconbtn"
-                    title="重新生成令牌"
-                    aria-label={`重新生成 ${server.name} 令牌`}
-                    disabled={busy}
-                    onClick={() =>
-                      void run(
-                        () => regenerateToken.mutateAsync({ id: server.id, type: server.type }),
-                        { title: `${server.name} 的令牌已更新` },
-                      )
-                    }
-                  >
-                    <RefreshCw size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="weq-set-iconbtn weq-set-iconbtn-danger"
-                    title="删除"
-                    aria-label={`删除 ${server.name}`}
-                    disabled={busy}
-                    onClick={() =>
-                      void run(
-                        () => deleteServer.mutateAsync({ id: server.id, type: server.type }),
-                        { title: `${server.name} 已删除` },
-                      )
-                    }
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                  {server.type === 'ws' && server.enabled ? (
-                    <button
-                      type="button"
-                      className="weq-onebot-card-link"
-                      onClick={() => {
-                        setDraft(null);
-                        void copy(
-                          `[[projects.platforms]]\ntype = "qq"\n[projects.platforms.options]\nws_url = "${server.url}"\ntoken = "${server.token}"\nallow_from = "填写你的 QQ 号"\ngroup_require_mention = true\n`,
-                        );
-                      }}
+                <Plus size={13} />
+                新建
+              </button>
+            }
+          >
+            <p className="weq-onebot-network-desc">{meta.desc}</p>
+            {rows.length === 0 ? (
+              <div className="weq-set-empty">还没有配置。</div>
+            ) : (
+              <ul className="weq-onebot-server-grid">
+                {rows.map((entry) => {
+                  const name = String(entry.name ?? '');
+                  const listener = listenerByName.get(`${meta.kind}:${name}`);
+                  const enabled = entry.enabled !== false;
+                  const live = listener?.state === 'listening' || listener?.state === 'connected';
+                  const label = !enabled
+                    ? '未启用'
+                    : live
+                      ? meta.mode === 'listen'
+                        ? `运行中 · ${listener?.clients ?? 0} 个连接`
+                        : '已连接'
+                      : listener?.state === 'error'
+                        ? '启动失败'
+                        : data?.daemonCheck
+                          ? 'daemon 未就绪'
+                          : '未在监听';
+                  return (
+                    <li
+                      key={`${meta.key}:${name}`}
+                      className={`weq-onebot-server-card${live ? ' is-running' : ''}${enabled ? ' is-enabled' : ''}`}
                     >
-                      cc-connect 配置
-                    </button>
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </Card>
-      {draft ? (
-        <EditorDialog
-          title={`${draft.id ? '编辑' : '新建'} ${draft.type === 'ws' ? 'WebSocket' : 'HTTP'} 服务器`}
-          onClose={() => setDraft(null)}
-          draft={draft}
-          busy={busy}
-          width={460}
-          bodyClassName="weq-set weq-set-onebot"
-        >
-          {(requestClose) => (
-            <form className="weq-onebot-server-form" onSubmit={(event) => void onSave(event)}>
-              <label>
-                <span>名称</span>
-                <input
-                  className="weq-set-input"
-                  aria-label="OneBot 服务器名称"
-                  value={draft.name}
-                  maxLength={80}
-                  onChange={(event) =>
-                    setDraft((current) => current && { ...current, name: event.target.value })
-                  }
-                />
-              </label>
-              <div className="weq-onebot-form-pair">
-                <label>
-                  <span>端口</span>
-                  <input
-                    className="weq-set-input weq-number"
-                    aria-label="OneBot 服务器端口"
-                    type="number"
-                    min={1024}
-                    max={65535}
-                    value={draft.port}
-                    onChange={(event) =>
-                      setDraft((current) => current && { ...current, port: event.target.value })
-                    }
-                  />
-                </label>
-                <div className="weq-onebot-toggle-field">
-                  <span>保存后启用</span>
-                  <Toggle
-                    checked={draft.enabled}
-                    label="保存后启用服务器"
-                    onChange={(enabled) =>
-                      setDraft((current) => current && { ...current, enabled })
-                    }
-                  />
-                </div>
-              </div>
-              <label>
-                <span>访问令牌</span>
-                <div className="weq-onebot-token-input">
-                  <input
-                    className="weq-set-input"
-                    aria-label="OneBot 服务器访问令牌"
-                    type={revealToken ? 'text' : 'password'}
-                    value={draft.token}
-                    spellCheck={false}
-                    onChange={(event) =>
-                      setDraft((current) => current && { ...current, token: event.target.value })
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="weq-set-iconbtn"
-                    title={revealToken ? '隐藏令牌' : '显示令牌'}
-                    aria-label={revealToken ? '隐藏服务器令牌' : '显示服务器令牌'}
-                    onClick={() => setRevealToken((value) => !value)}
-                  >
-                    {revealToken ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                  <button
-                    type="button"
-                    className="weq-set-iconbtn"
-                    title="生成新令牌"
-                    aria-label="为服务器生成新令牌"
-                    onClick={() =>
-                      setDraft((current) => current && { ...current, token: generatedToken() })
-                    }
-                  >
-                    <RefreshCw size={14} />
-                  </button>
-                </div>
-              </label>
-              {draft.type === 'http' ? (
-                <div className="weq-onebot-inline-toggle">
-                  <span>
-                    <strong>允许跨域</strong>
-                    <small>供浏览器中的 OneBot 客户端直接调用</small>
-                  </span>
-                  <Toggle
-                    checked={draft.enableCors}
-                    label="允许 HTTP 跨域"
-                    onChange={(enableCors) =>
-                      setDraft((current) => current && { ...current, enableCors })
-                    }
-                  />
-                </div>
-              ) : null}
-              <div className="weq-onebot-server-form-actions">
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft"
-                  onClick={requestClose}
-                >
-                  <X size={13} />
-                  取消
-                </button>
-                <button type="submit" className="weq-set-btn weq-set-btn-primary" disabled={busy}>
-                  {saveServer.isLoading ? (
-                    <Loader2 size={13} className="weq-set-spin" />
-                  ) : (
-                    <Save size={13} />
-                  )}
-                  保存
-                </button>
-              </div>
-            </form>
-          )}
-        </EditorDialog>
-      ) : null}
+                      <div className="weq-onebot-server-head">
+                        <span className="weq-onebot-server-icon" aria-hidden>
+                          {meta.icon}
+                        </span>
+                        <div className="weq-onebot-server-title">
+                          <strong title={name}>{name}</strong>
+                          <span>{meta.title}</span>
+                        </div>
+                        <Toggle
+                          checked={enabled}
+                          disabled={busy}
+                          label={`启用 ${name}`}
+                          onChange={(next) => void toggle(meta, entry, next)}
+                        />
+                      </div>
+                      <div className="weq-onebot-server-fields">
+                        <div>
+                          <span>{meta.mode === 'listen' ? '监听地址' : '目标地址'}</span>
+                          <code title={endpointOf(meta.key, entry)}>
+                            {endpointOf(meta.key, entry)}
+                          </code>
+                        </div>
+                        <div>
+                          <span>令牌</span>
+                          <code>{entry.accessToken ? '已设置访问令牌' : '无需鉴权'}</code>
+                        </div>
+                      </div>
+                      <div className="weq-onebot-server-status">
+                        <span className={`weq-onebot-status-dot${live ? ' is-live' : ''}`} />
+                        <span>{label}</span>
+                      </div>
+                      {listener?.error ? (
+                        <p className="weq-onebot-server-error">{listener.error}</p>
+                      ) : null}
+                      <div className="weq-onebot-server-actions">
+                        <button
+                          type="button"
+                          className="weq-set-iconbtn"
+                          title="复制地址"
+                          aria-label={`复制 ${name} 地址`}
+                          onClick={() => void copy(endpointOf(meta.key, entry))}
+                        >
+                          <Copy size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="weq-set-iconbtn"
+                          title="编辑"
+                          aria-label={`编辑 ${name}`}
+                          disabled={busy}
+                          onClick={() => startEdit(meta, entry)}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="weq-set-iconbtn"
+                          title="删除"
+                          aria-label={`删除 ${name}`}
+                          disabled={busy}
+                          onClick={() => void remove(meta, entry)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+        );
+      })}
 
       <Card title="cc-connect 配置" icon={<Server size={15} strokeWidth={1.8} />}>
         <Row
           label="正向 WebSocket"
-          desc={
-            wsServer
-              ? `使用「${wsServer.name}」生成，地址为 ${wsServer.url}。`
-              : '启用任意一个 WebSocket 服务器后即可生成。'
-          }
+          desc={firstWs ? `使用「${firstWs.name}」。` : '启用任意一个正向 WebSocket 后即可生成。'}
           control={
             <button
               type="button"
               className="weq-set-btn"
-              disabled={!wsServer}
-              onClick={() => void copy(ccConnectConfig)}
+              disabled={!firstWs}
+              onClick={() => {
+                if (!firstWs) return;
+                const url = endpointOf('wsServers', firstWs as unknown as Record<string, unknown>);
+                void copy(
+                  `[[projects.platforms]]\ntype = "qq"\n[projects.platforms.options]\nws_url = "${url}"\ntoken = "${firstWs.accessToken ?? ''}"\nallow_from = "填写你的 QQ 号"\ngroup_require_mention = true\n`,
+                );
+              }}
             >
               <Copy size={14} />
               复制配置
@@ -578,6 +556,265 @@ export function OneBotSection(): ReactElement {
           }
         />
       </Card>
+
+      {draft && draftMeta ? (
+        <EditorDialog
+          title={`${draft.original ? '编辑' : '新建'}${draftMeta.title}`}
+          onClose={protection.requestClose}
+          draft={draft}
+          busy={busy}
+        >
+          <form
+            className="weq-onebot-server-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onSave();
+            }}
+          >
+            <label>
+              <span>名称</span>
+              <input
+                className="weq-set-input"
+                aria-label="网络名称"
+                value={draft.name}
+                onChange={(event) =>
+                  setDraft((current) => current && { ...current, name: event.target.value })
+                }
+              />
+            </label>
+
+            {draftMeta.mode === 'listen' ? (
+              <div className="weq-onebot-form-pair">
+                <label>
+                  <span>端口</span>
+                  <input
+                    className="weq-set-input weq-number"
+                    aria-label="端口"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={draft.port}
+                    onChange={(event) =>
+                      setDraft((current) => current && { ...current, port: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  <span>监听地址</span>
+                  <input
+                    className="weq-set-input"
+                    aria-label="监听地址"
+                    placeholder="127.0.0.1"
+                    value={draft.host}
+                    onChange={(event) =>
+                      setDraft((current) => current && { ...current, host: event.target.value })
+                    }
+                  />
+                </label>
+              </div>
+            ) : (
+              <label>
+                <span>目标地址</span>
+                <input
+                  className="weq-set-input"
+                  aria-label="目标地址"
+                  placeholder={
+                    draft.key === 'wsClients' ? 'ws://127.0.0.1:6700/' : 'http://127.0.0.1:6700/'
+                  }
+                  value={draft.url}
+                  onChange={(event) =>
+                    setDraft((current) => current && { ...current, url: event.target.value })
+                  }
+                />
+              </label>
+            )}
+
+            <div className="weq-onebot-form-pair">
+              <label>
+                <span>消息格式</span>
+                <select
+                  className="weq-set-input"
+                  aria-label="消息格式"
+                  value={draft.messageFormat}
+                  onChange={(event) =>
+                    setDraft(
+                      (current) =>
+                        current && {
+                          ...current,
+                          messageFormat: event.target.value as NetworkDraft['messageFormat'],
+                        },
+                    )
+                  }
+                >
+                  <option value="array">array（消息段数组）</option>
+                  <option value="string">string（CQ 码）</option>
+                </select>
+              </label>
+              {draft.key !== 'httpClients' ? (
+                <label>
+                  <span>角色</span>
+                  <select
+                    className="weq-set-input"
+                    aria-label="角色"
+                    value={draft.role}
+                    onChange={(event) =>
+                      setDraft(
+                        (current) =>
+                          current && {
+                            ...current,
+                            role: event.target.value as NetworkDraft['role'],
+                          },
+                      )
+                    }
+                  >
+                    <option value="Universal">Universal（action + 事件）</option>
+                    <option value="Api">Api（只收 action）</option>
+                    <option value="Event">Event（只收事件）</option>
+                  </select>
+                </label>
+              ) : null}
+            </div>
+
+            <div className="weq-onebot-inline-toggle">
+              <span>
+                <strong>回报自己发出的消息</strong>
+                <small>关闭后不推送 message_sent 事件</small>
+              </span>
+              <Toggle
+                checked={draft.reportSelfMessage}
+                label="回报自己发出的消息"
+                onChange={(reportSelfMessage) =>
+                  setDraft((current) => current && { ...current, reportSelfMessage })
+                }
+              />
+            </div>
+
+            <label>
+              <span>访问令牌</span>
+              <div className="weq-onebot-token-input">
+                <input
+                  className="weq-set-input"
+                  aria-label="访问令牌"
+                  type={revealToken ? 'text' : 'password'}
+                  value={draft.accessToken}
+                  spellCheck={false}
+                  onChange={(event) =>
+                    setDraft(
+                      (current) => current && { ...current, accessToken: event.target.value },
+                    )
+                  }
+                />
+                <button
+                  type="button"
+                  className="weq-set-iconbtn"
+                  title={revealToken ? '隐藏令牌' : '显示令牌'}
+                  aria-label={revealToken ? '隐藏令牌' : '显示令牌'}
+                  onClick={() => setRevealToken((value) => !value)}
+                >
+                  {revealToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+                <button
+                  type="button"
+                  className="weq-set-iconbtn"
+                  title="生成新令牌"
+                  aria-label="生成新令牌"
+                  onClick={() =>
+                    setDraft((current) => current && { ...current, accessToken: generatedToken() })
+                  }
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+            </label>
+
+            {draft.key === 'httpServers' ? (
+              <div className="weq-onebot-inline-toggle">
+                <span>
+                  <strong>同一端口接受 WebSocket</strong>
+                  <small>省一个端口，客户端可以走 ws:// 连进来</small>
+                </span>
+                <Toggle
+                  checked={draft.enableWebSocket}
+                  label="同一端口接受 WebSocket"
+                  onChange={(enableWebSocket) =>
+                    setDraft((current) => current && { ...current, enableWebSocket })
+                  }
+                />
+              </div>
+            ) : null}
+
+            {draft.key === 'wsClients' ? (
+              <label>
+                <span>重连间隔（毫秒）</span>
+                <input
+                  className="weq-set-input weq-number"
+                  aria-label="重连间隔"
+                  type="number"
+                  min={1000}
+                  placeholder="5000"
+                  value={draft.reconnectIntervalMs}
+                  onChange={(event) =>
+                    setDraft(
+                      (current) =>
+                        current && { ...current, reconnectIntervalMs: event.target.value },
+                    )
+                  }
+                />
+              </label>
+            ) : null}
+
+            {draft.key === 'httpClients' ? (
+              <label>
+                <span>上报超时（毫秒）</span>
+                <input
+                  className="weq-set-input weq-number"
+                  aria-label="上报超时"
+                  type="number"
+                  min={1000}
+                  placeholder="10000"
+                  value={draft.timeoutMs}
+                  onChange={(event) =>
+                    setDraft((current) => current && { ...current, timeoutMs: event.target.value })
+                  }
+                />
+              </label>
+            ) : null}
+
+            <div className="weq-onebot-inline-toggle">
+              <span>
+                <strong>保存后启用</strong>
+                <small>关闭时只保存配置，不会启动这个网络</small>
+              </span>
+              <Toggle
+                checked={draft.enabled}
+                label="保存后启用"
+                onChange={(enabled) => setDraft((current) => current && { ...current, enabled })}
+              />
+            </div>
+
+            <div className="weq-onebot-server-form-actions">
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                onClick={protection.requestClose}
+              >
+                <X size={13} />
+                取消
+              </button>
+              <button type="submit" className="weq-set-btn weq-set-btn-primary" disabled={busy}>
+                {save.isLoading ? (
+                  <Loader2 size={13} className="weq-set-spin" />
+                ) : (
+                  <Save size={13} />
+                )}
+                保存
+              </button>
+            </div>
+          </form>
+        </EditorDialog>
+      ) : null}
     </div>
   );
 }
+
+export type { ControlHttpClient, ControlHttpServer, ControlWsClient, ControlWsServer };

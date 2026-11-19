@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaElement, type MsgService } from '@weq/service';
-import { makeSolidPng } from '@weq/protocol';
+import { makeSolidPng } from '@weqbot/protocol';
 import { mediaSaveRouter } from '../src/main/ipc/routers/media_save';
 import { mediaResourceRouter } from '../src/main/ipc/routers/media_resource';
 import { boundClientState } from '../src/main/ipc/routers/client_state';

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { buildSendElems, type SendElement } from '@weq/protocol';
+import { buildSendElems, type SendElement } from '@weqbot/protocol';
 import {
   canRepeatMessage,
   forwardUnsupportedReason,

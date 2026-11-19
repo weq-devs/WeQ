@@ -38,7 +38,7 @@ import {
   composerTextToElements,
   elementsToComposerText,
 } from '../src/renderer/src/im-template/template/draftElements';
-import { buildSendElems, type SendElement } from '@weq/protocol';
+import { buildSendElems, type SendElement } from '@weqbot/protocol';
 
 it('设备文件计划保留 File 句柄，不要求整个文件预读成字节', () => {
   const file = new File(['fixture'], 'fixture.bin');

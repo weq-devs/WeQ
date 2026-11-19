@@ -10,7 +10,7 @@
  *   1. **只给系统表情**（`base_sys_emoji_table` 里非 unicode 的那部分）：弹射的是
  *      表情图本身，字符表情没有图可弹，所以 unicode 那些组整组不出现；
  *   2. **个数 1 – 2147483647**：真机实测 QQ 按 **int32** 读这个字段（见
- *      `@weq/protocol` 的 send-elements 注释：`2^31` 回绕成负数、`2^32` 变 0，
+ *      `@weqbot/protocol` 的 send-elements 注释：`2^31` 回绕成负数、`2^32` 变 0，
  *      0 与负数是**静默不弹**），所以面板把上界钉在 int32 上限，不让人白填一个
  *      发出去什么都不发生的数；
  *   3. **预览**：左边就是这条消息在聊天窗口里的样子 —— 表情 + 右下角 ×N 角标
@@ -18,7 +18,7 @@
  *
  * ⚠️ 元素用的是**收侧 codec 形状**（`emojiBounceId` / `emojiBounceTextSummary`…），
  * 与草稿里其它元素同一套字段；将来把发送接上时，协议层要把它翻成
- * `@weq/protocol` 的 `SendEmojiBounceElement`（`faceId` / `count` / `name`）。
+ * `@weqbot/protocol` 的 `SendEmojiBounceElement`（`faceId` / `count` / `name`）。
  */
 
 import { EmptyState } from '../../components/EmptyState';

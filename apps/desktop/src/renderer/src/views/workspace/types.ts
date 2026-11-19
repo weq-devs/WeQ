@@ -319,7 +319,7 @@ export type OptimisticForward = {
   count: number;
   /**
    * 卡片封面预览（标题 / 摘要 / 前 4 行）。与服务端生成的那份同口径（见
-   * `@weq/protocol` 的 buildForwardCardMeta），同步回来后卡片不会变样。
+   * `@weqbot/protocol` 的 buildForwardCardMeta），同步回来后卡片不会变样。
    */
   preview: MfCardPreview;
   state: 'sending' | 'sent' | 'failed';

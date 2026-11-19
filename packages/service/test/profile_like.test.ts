@@ -3,8 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
-import { decode, encode, GetProfileLike, SendProfileLike } from '@weq/protocol';
-import type { OidbNative } from '@weq/protocol';
+import { decode, encode, GetProfileLike, SendProfileLike } from '@weqbot/protocol';
+import type { OidbNative } from '@weqbot/protocol';
 import { PeerStatsService } from '../src/account/peer_stats';
 import { ContactMetricsService } from '../src/account/contact_metrics';
 

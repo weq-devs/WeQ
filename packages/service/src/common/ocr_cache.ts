@@ -20,12 +20,12 @@
  *
  * 坐标：`blocks` 是「喂进去那张图」的像素坐标，所以每份结果自带 `frame`
  * （宽 / 高 + 是原图还是缩略图）。本地那条腿可能读到的是缩略图，调用方按 `frame`
- * 换算到当前显示的尺寸（`@weq/protocol` 的 `scaleOcrPoints` / `scaleOcrRect`）。
+ * 换算到当前显示的尺寸（`@weqbot/protocol` 的 `scaleOcrPoints` / `scaleOcrRect`）。
  */
 
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { OcrBlock } from '@weq/protocol';
+import type { OcrBlock } from '@weqbot/protocol';
 import { getLogger } from './logger';
 
 /** 记录格式版本（将来换 sqlite 或改结构时用于迁移 / 丢弃旧档）。 */

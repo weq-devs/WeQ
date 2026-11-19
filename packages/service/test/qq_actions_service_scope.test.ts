@@ -10,7 +10,7 @@ import {
   parseCustomFaceId,
   decode,
   encode,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { EmojiService, FAVORITE_EMOJI_DETAIL_BATCH_SIZE } from '../src/account/emoji';
 import { GroupAlbumMediaService } from '../src/account/group_album_media';
 

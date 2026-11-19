@@ -16,7 +16,7 @@ import {
   type GroupJoinInfo,
   type CustomFaceDetail,
   makeSolidPng,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import type { GroupTodoView } from '@weq/service';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
 

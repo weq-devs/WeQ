@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // Comment parser/page-budget fixtures do not wait on the app-wide network quota.
 // Real dispatch throttling and cancellation are covered by qzone_pagination_limit.test.ts.
-vi.mock('../src/common/qzone_pagination', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../src/common/qzone_pagination')>()),
-  waitForQzonePage: async () => {},
-}));
+//
+// 注意：收编后真正发包的是 kernel 的限流器（`@weqbot/protocol` 的那个单例），
+// 所以这里配置的是它，而不是 WeQ 的 `common/qzone_pagination`。
+import { qzonePaginationLimiter } from '@weqbot/protocol';
+qzonePaginationLimiter.configure({ windowSeconds: 1, maxPages: 1000 });
 import {
   parseQzoneCommentPage,
   readQzoneComments,

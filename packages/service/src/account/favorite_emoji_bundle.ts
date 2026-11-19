@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { detectImageFormat } from '@weq/protocol';
+import { detectImageFormat } from '@weqbot/protocol';
 import { buildZip, readZipEntries } from '../common/zip';
 import { sniffImageExt } from './export/emoji_export';
 import type { ExportCheckpoint } from './export/checkpoint';

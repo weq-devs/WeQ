@@ -6,7 +6,7 @@ import {
   GetFriendSnsPage,
   SNS_SPECIAL_CARE,
   type FriendSnsPage,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { AccountWriteService } from '@weq/service';
 import { readContactSpecialCare } from '../src/main/ipc/routers/contact_special_care';
 

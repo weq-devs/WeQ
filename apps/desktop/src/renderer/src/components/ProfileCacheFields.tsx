@@ -3,7 +3,7 @@ import {
   bloodTypeText,
   chineseZodiacText,
   profileTimeText,
-} from '@weq/protocol/profile-values';
+} from '@weqbot/protocol/profile-values';
 import { BriefcaseBusiness, Droplet, UserRound } from 'lucide-react';
 import { ContactRow } from './contactProfile/ContactRow';
 import type { ProfileExtInfo } from '../im-template/template/types';

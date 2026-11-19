@@ -14,7 +14,7 @@ import {
   PIC_FORMAT_JPEG,
   PIC_FORMAT_GIF,
   PIC_FORMAT_WEBP,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import type { MailAuth } from './auth';
 import type { MailAttachmentRegistry } from './attachments';
 import { MailFailure, type MailAttachment } from './types';

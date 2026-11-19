@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { encode, GetFriendSnsPage, SetFriendSpecialCare } from '@weq/protocol';
+import { encode, GetFriendSnsPage, SetFriendSpecialCare } from '@weqbot/protocol';
 import { AccountWriteService } from '../src/account/account_write';
 
 function fixture() {

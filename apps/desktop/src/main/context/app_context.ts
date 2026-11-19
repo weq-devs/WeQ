@@ -50,7 +50,8 @@ import {
   type Platform,
 } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
-import { applyOneBot, stopOneBot } from '../onebot/runtime';
+import { botRuntime } from '../bot_runtime';
+import { resolveOneBotAppid } from '../bot_runtime/appid';
 import { startLogRetention } from '../log_retention';
 import { assistantResourceServer } from '../weq_assistant/server';
 import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
@@ -786,6 +787,87 @@ function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platfor
  * dir and publishes a notification — the account session is deliberately KEPT
  * open so the user can continue browsing.
  */
+
+/**
+ * 账号打开后启动它的 OneBot 面。
+ *
+ * 两条路（互斥，由 QQ 的在线状态决定）：
+ *
+ *   - **QQ 在线** → daemon 用 `attach` 走 mode 1（借 QQ 的会话）。⚠️ 只发不收：
+ *     action 全部可用，但**没有事件**。需要事件的用户自己接 SSE 推送。
+ *   - **QQ 离线** → 用户显式「以 bot 方式上线」才走 `login`（mode 2）。这里不
+ *     自动做 —— 自建上线会让账号在 QQ 之外多一个在线端，必须由用户决定。
+ *
+ * 会话物料（a2 / d2 / d2Key / secToken）由 `AccountMonitorService` 采到
+ * `AccountConfig.session`；刚打开账号时可能还没采好，所以只用现成的。采不到就
+ * 只保持 daemon 待命（配置已下发），等物料齐全或用户手动上线。
+ */
+/**
+ * 账号关闭 / 切号时停掉它的 OneBot daemon。
+ *
+ * 这里**必须**让 daemon 下线（`shutdown` → `UnRegister`），而不是只断开 WeQ
+ * 这边的连接：关账号的语义是「这个号不再由 WeQ 托管」，bot 继续在线会让用户
+ * 以为没关掉。「关窗口但 bot 继续跑」是另一条路径，走 `botRuntime.disconnectAll()`。
+ */
+function shutdownAccountOneBot(ctx: AppContext): void {
+  const uin = ctx.account?.context.uin;
+  if (!uin) return;
+  void botRuntime.shutdown(String(uin), 'account-closed').catch((cause) => {
+    getLogger().warn('停止 OneBot daemon 失败', { accountUin: uin, ...logErrorContext(cause) });
+  });
+}
+
+async function startAccountOneBot(ctx: AppContext, uin: string): Promise<void> {
+  const config = ctx.bootstrap?.userConfig.getSettings().oneBotByUin[uin];
+  // 没配 OneBot 就不拉 daemon：一个常驻进程加一个 socket 不值得。
+  if (!config) return;
+
+  try {
+    await botRuntime.ensure(uin);
+    await botRuntime.setOneBot(uin, config);
+  } catch (cause) {
+    getLogger().error('OneBot daemon 启动失败', { accountUin: uin, ...logErrorContext(cause) });
+    return;
+  }
+
+  const record = ctx.services?.accountConfig.getRecord();
+  const material = record?.session;
+  const pid = record?.qqPid;
+  if (!material?.a2 || !material.d2 || !material.d2Key || !pid || !record?.guid || !record.uid) {
+    getLogger().info('OneBot daemon 已就绪；QQ 不在线或物料未采齐，暂不接入', { accountUin: uin });
+    return;
+  }
+
+  const appid = resolveOneBotAppid(ctx.platform!, ctx.platform!.native.ntHelper);
+  if (!appid) {
+    getLogger().warn('读不到 major.node，跳过 OneBot 有头模式', { accountUin: uin });
+    return;
+  }
+
+  try {
+    await botRuntime.attach(uin, {
+      pid,
+      uid: record.uid,
+      guid: record.guid,
+      a2: material.a2,
+      d2: material.d2,
+      d2Key: material.d2Key,
+      ...(material.secToken ? { secToken: material.secToken } : {}),
+      subAppId: appid.subAppId,
+      ...(appid.clientVersion ? { clientVersion: appid.clientVersion } : {}),
+      ...(appid.qua ? { qua: appid.qua } : {}),
+      ...(appid.wrapperPath ? { wrapperPath: appid.wrapperPath } : {}),
+    });
+    getLogger().info('OneBot 有头模式已接入（只发不收）', { accountUin: uin, pid });
+  } catch (cause) {
+    getLogger().error('OneBot 有头模式接入失败', {
+      accountUin: uin,
+      pid,
+      ...logErrorContext(cause),
+    });
+  }
+}
+
 function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: Platform): void {
   const logger = getLogger().child({ scope: 'db-health', accountUin: session.context.uin });
   if (dbHealthCheckRunning) return;
@@ -1533,7 +1615,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();
-      stopOneBot();
+      shutdownAccountOneBot(this);
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
@@ -2471,9 +2553,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Start it now if enabled; live toggling is handled by `applyMcp`.
       startConfiguredMcp();
 
-      void applyOneBot(this, userConfig.getSettings().oneBot).catch((error) => {
-        logger.error('failed to start OneBot bridge', logErrorContext(error));
-      });
+      void startAccountOneBot(this, String(session.context.uin));
 
       // WeQ 助手 is account-bound too: ensure the fabricated conversation exists
       // + start the loopback server when enabled. Live toggling → applyWeqAssistant.
@@ -2519,7 +2599,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();
-      stopOneBot();
+      shutdownAccountOneBot(this);
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
@@ -3355,7 +3435,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // ExportTaskManager.
       this.scheduler?.stop();
       this.scheduler = null;
-      stopOneBot();
+      shutdownAccountOneBot(this);
       const mcpClosed = stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       const externalMcpClosed = disposeExternalMcp();

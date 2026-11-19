@@ -2,7 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProfileExtras, ProfileLabelAlbum } from '../src/renderer/src/components/ProfileExtras';
-import type { PersonalityLabel } from '@weq/protocol';
+import type { PersonalityLabel } from '@weqbot/protocol';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 
 const openProfile = vi.fn();

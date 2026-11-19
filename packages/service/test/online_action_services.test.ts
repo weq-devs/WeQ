@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { decode, encode } from '@weq/protocol';
+import { decode, encode } from '@weqbot/protocol';
 import {
   CreateGroupFolder,
   DeleteGroupFile,
@@ -23,7 +23,7 @@ import {
   LeaveGroup,
   SetGroupRequest,
   type GroupMemberListItem,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { GroupModerationService } from '../src/account/group_moderation';
 import { GroupFileService } from '../src/account/group_file';
 import { GroupInfoService } from '../src/account/group_info';

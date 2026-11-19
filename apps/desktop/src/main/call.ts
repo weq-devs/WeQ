@@ -7,7 +7,7 @@
  *   - **UDP**：`node:dgram` 的 udp4 套接字，绑定随机端口；
  *   - **编解码**：nt_helper 的 `openCallCodec` / `encodeCallFrame` / `decodeCallFrame`
  *     （用的是 QQ 自带的那一版 Opus，标准 libopus 与它不互通）；
- *   - **信令**：`@weq/protocol` 的 `startC2CCall` / `endC2CCall`，借已登记的
+ *   - **信令**：`@weqbot/protocol` 的 `startC2CCall` / `endC2CCall`，借已登记的
  *     SSO 会话发包。
  *
  * 同一进程同时只允许一路通话（服务端也只给一路），所以这里是一个单例管理器。

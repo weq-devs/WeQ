@@ -3,7 +3,7 @@ import { NumericText } from '../../components/NumericText';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderCount } from '../../components/ReminderBadge';
 import { useUnreadMarkers } from '../../lib/unreadMarkers';
-import { occupationText } from '@weq/protocol/profile-values';
+import { occupationText } from '@weqbot/protocol/profile-values';
 import {
   Bell,
   BellOff,

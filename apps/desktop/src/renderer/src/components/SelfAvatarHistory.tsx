@@ -1,7 +1,7 @@
 import { NumericText } from './NumericText';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowDownWideNarrow, ArrowUpWideNarrow, ImagePlus, RefreshCw, X } from 'lucide-react';
-import type { HistoricalAvatar } from '@weq/protocol';
+import type { HistoricalAvatar } from '@weqbot/protocol';
 import { Modal } from './Dialog';
 import { MediaPreview } from './MediaPreview';
 import { SegmentedControl } from './SegmentedControl';

@@ -12,7 +12,7 @@ import {
   buildOptimisticRender,
   composerNeedsStickerCatalog,
 } from '../src/renderer/src/im-template/template/composerSend';
-import { buildSendElems, type SendElement } from '@weq/protocol';
+import { buildSendElems, type SendElement } from '@weqbot/protocol';
 import { FaceSubType } from '@weq/codec';
 
 afterEach(() => {

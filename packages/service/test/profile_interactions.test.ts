@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { ProfileInteractionWrites } from '../src/account/profile_interactions';
-import * as p from '@weq/protocol';
+import * as p from '@weqbot/protocol';
 const nt = { sendPacket: vi.fn() };
 const signature = { id: '66656564', createdAt: 123 };
 const label = { id: '12', text: '旅行', cover: null, photoCount: 0, photoCursor: null, photos: [] };

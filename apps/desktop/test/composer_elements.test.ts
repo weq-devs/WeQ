@@ -34,7 +34,7 @@ import { filterMentionMembers } from '../src/renderer/src/im-template/template/m
 import { createTemplateDemoData } from './support/templateDemoData';
 import { atAllMentionState } from '../src/renderer/src/lib/atAllMention';
 import { prepareReeditDraft } from '../src/renderer/src/im-template/template/composerReedit';
-import { buildSendElems, type SendElement } from '@weq/protocol';
+import { buildSendElems, type SendElement } from '@weqbot/protocol';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';

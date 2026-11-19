@@ -15,7 +15,7 @@ import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
-import type { SendMediaUploadReport } from '@weq/protocol';
+import type { SendMediaUploadReport } from '@weqbot/protocol';
 import { elementsFromEditable } from '../serde';
 import { procedure, router } from '../trpc';
 import { recentReactions } from '../../recent_reactions';

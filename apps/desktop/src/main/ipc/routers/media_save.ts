@@ -12,7 +12,7 @@ import {
   PIC_FORMAT_JPEG,
   PIC_FORMAT_PNG,
   PIC_FORMAT_WEBP,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { findMediaElement, handleMediaRequest } from '../../media_protocol';
 import { handleResourceRequest } from '../../resource_protocol';

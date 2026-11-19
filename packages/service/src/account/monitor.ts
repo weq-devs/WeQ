@@ -561,7 +561,7 @@ export class AccountMonitorService {
   }
 
   /**
-   * 把会话物料交给原生侧（`setSsoSession`）：之后 `@weq/protocol` 的每个 `sendOidb` /
+   * 把会话物料交给原生侧（`setSsoSession`）：之后 `@weqbot/protocol` 的每个 `sendOidb` /
    * `sendPacket` 都能用同一个 pid 借这些凭据直接发包。
    *
    * **只存物料、不建连、也不上线**：TCP 等到真要发包时才连，在线状态与心跳全交给同机

@@ -1,5 +1,5 @@
 /**
- * ChatImageOcrService — 聊天图片「文字识别」（OIDB 0xe07_0，见 `@weq/protocol` 的
+ * ChatImageOcrService — 聊天图片「文字识别」（OIDB 0xe07_0，见 `@weqbot/protocol` 的
  * `OcrImage`）。
  *
  * 取图链路和 `media_download.ts` 是同一套（rkey + CDN 直链），只是这里不是要字节、
@@ -24,7 +24,7 @@
 import type { AccountSession } from '@weq/account';
 import { ImageRecognitionRequests } from '@weq/agentlab';
 import type { NtHelperBinding } from '@weq/native';
-import { OcrImage, type OcrBlock } from '@weq/protocol';
+import { OcrImage, type OcrBlock } from '@weqbot/protocol';
 import {
   GROUP_IMAGE_RKEY_TYPE,
   PRIVATE_IMAGE_RKEY_TYPE,

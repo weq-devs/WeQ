@@ -12,7 +12,7 @@ import {
   PROFILE_DISPLAY_FIELDS,
   type ProfileDisplayField,
   type ProfileDisplaySetting,
-} from '@weq/protocol/profile-display';
+} from '@weqbot/protocol/profile-display';
 import { trpc } from '../trpc/client';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useSettingsSaveBanner } from '../hooks/useSettingsSaveBanner';

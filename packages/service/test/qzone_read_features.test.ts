@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
-import { GetQzoneFeedMediaDetail } from '@weq/protocol';
+import { GetQzoneFeedMediaDetail } from '@weqbot/protocol';
 import { WebQueryService } from '../src/account/web';
 import { WebCredentialProvider } from '../src/account/web/credential';
 import { getQzoneFeeds, mapMsgList } from '../src/account/web/qzone';

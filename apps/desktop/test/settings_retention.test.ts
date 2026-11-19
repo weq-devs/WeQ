@@ -63,7 +63,16 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                         host: '127.0.0.1',
                         url: 'http://127.0.0.1/fixture',
                       }
-                    : undefined,
+                    : path.at(-1) === 'getOneBotStatus'
+                      ? {
+                          uin: '10001',
+                          accountOpen: true,
+                          enabled: false,
+                          config: null,
+                          listeners: [],
+                          daemonCheck: null,
+                        }
+                      : undefined,
               isLoading: false,
               isFetching: false,
               refetch: vi.fn(async () => ({ data: undefined })),
@@ -403,41 +412,49 @@ describe('设置二级页现场与活动生命周期', () => {
       f.dispose();
     }
   });
-  it('未保存的 OneBot 内嵌编辑同样需要确认', () => {
+  it('未保存的 OneBot 网络编辑同样需要确认', () => {
     const f = mount('onebot');
     try {
-      const create = [...f.body().querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-        button.textContent?.includes('WebSocket'),
+      const create = [...f.body().querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent?.trim() === '新建',
       )!;
       act(() => create.click());
-      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
-      expect(f.onClose).not.toHaveBeenCalled();
+      expect(document.querySelector('.weq-editor-dialog')).not.toBeNull();
+      act(() =>
+        document.querySelector<HTMLButtonElement>('.weq-editor-dialog .weq-dialog-x')!.click(),
+      );
+      expect(document.querySelector('.weq-editor-dialog')).not.toBeNull();
       expect(useDialog.getState().current?.title).toBe('放弃未保存的修改？');
+      expect(f.onClose).not.toHaveBeenCalled();
     } finally {
       f.dispose();
     }
   });
-  it('恢复 OneBot 草稿后结束编辑，不再误报未保存', () => {
+  it('恢复 OneBot 草稿后结束编辑，不再误报未保存', async () => {
     const f = mount('onebot');
     try {
       act(() =>
         [...f.body().querySelectorAll<HTMLButtonElement>('button')]
-          .find((button) => button.textContent?.includes('WebSocket'))!
+          .find((button) => button.textContent?.trim() === '新建')!
           .click(),
       );
       inputValue(
-        document.querySelector<HTMLInputElement>('[aria-label="OneBot 服务器名称"]')!,
+        document.querySelector<HTMLInputElement>('[aria-label="网络名称"]')!,
         '未保存服务器',
       );
       f.render(undefined, undefined, 1);
-      expect(
-        document.querySelector<HTMLInputElement>('[aria-label="OneBot 服务器名称"]')!.value,
-      ).toBe('未保存服务器');
-      act(() =>
+      expect(document.querySelector<HTMLInputElement>('[aria-label="网络名称"]')!.value).toBe(
+        '未保存服务器',
+      );
+      await act(async () =>
         document
           .querySelector<HTMLButtonElement>('.weq-onebot-server-form-actions button')!
           .click(),
       );
+      await act(async () => {
+        useDialog.getState().current?.confirm?.resolve(true);
+        useDialog.getState().close();
+      });
       expect(document.querySelector('.weq-editor-dialog')).toBeNull();
       const navigate = vi.fn();
       f.navigate(navigate);

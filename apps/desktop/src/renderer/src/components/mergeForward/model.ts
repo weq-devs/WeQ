@@ -581,7 +581,7 @@ export interface MfCardPreview {
  *
  * 只处理收端卡片摘要认识的那几类（文本 / 图片 / 语音 / 视频 / 文件 / 聊天记录 /
  * Markdown / 卡片 / 表情），其余返回 ''（这一行退回只显示昵称）。刻意与
- * `@weq/protocol` 的实现对齐，乐观卡片和同步回来的真卡片才不会看出差异。
+ * `@weqbot/protocol` 的实现对齐，乐观卡片和同步回来的真卡片才不会看出差异。
  */
 function previewTextOfSegs(segs: MfSeg[]): string {
   for (const seg of segs) {
@@ -622,7 +622,7 @@ function previewTextOfSegs(segs: MfSeg[]): string {
 /**
  * 草稿 → 外层卡片预览（乐观渲染用）。
  *
- * 标题沿用草稿并透传到发送卡片；预览行与 `@weq/protocol` 的
+ * 标题沿用草稿并透传到发送卡片；预览行与 `@weqbot/protocol` 的
  * buildForwardCardMeta 同口径，同步到位时不会出现视觉跳变。
  */
 export function draftCardPreview(draft: MfDraft): MfCardPreview {
@@ -1047,7 +1047,7 @@ export function segsToSendElements(segs: MfSeg[]): SendElement[] {
  * 逐条消息装扮（列 40801 的 `{bubbleId,fontId,widgetId}`）→ 协议节点的 `dress`。
  *
  * 三项全 0 / 缺省时返回 undefined —— 不传 `dress` 就不会往节点里多写一个字节
- * （见 @weq/protocol 的 `buildDressElems`）。
+ * （见 @weqbot/protocol 的 `buildDressElems`）。
  *
  * 字体走 **原值透传**（`fontId1Raw` / `fontId2Raw`），不做任何换算：40801 的
  * `41525` / `41531` 与 elem 的 tag 56 / tag 15 是恒等映射，`fontId` 只是解码出来给

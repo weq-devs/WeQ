@@ -13,11 +13,16 @@ const io = vi.hoisted(() => ({
   })),
   upload: vi.fn(async () => {}),
 }));
-vi.mock('../../protocol/src/highway/highway-client', async (original) => ({
-  ...(await original<typeof import('../../protocol/src/highway/highway-client')>()),
-  fetchHighwaySession: io.fetch,
-  uploadHighwayHttp: io.upload,
-}));
+vi.mock(
+  '../../../vendor/weqbot/packages/protocol/src/highway/highway-client',
+  async (original) => ({
+    ...(await original<
+      typeof import('../../../vendor/weqbot/packages/protocol/src/highway/highway-client')
+    >()),
+    fetchHighwaySession: io.fetch,
+    uploadHighwayHttp: io.upload,
+  }),
+);
 const dirs: string[] = [];
 beforeEach(() => vi.clearAllMocks());
 afterEach(async () => {

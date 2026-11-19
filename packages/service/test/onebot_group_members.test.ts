@@ -1,5 +1,5 @@
 import type { AccountSession } from '@weq/account';
-import { FetchGroupMemberListPage } from '@weq/protocol';
+import { FetchGroupMemberListPage } from '@weqbot/protocol';
 import { afterEach, expect, it, vi } from 'vitest';
 import { GroupInfoService } from '../src/account/group_info';
 

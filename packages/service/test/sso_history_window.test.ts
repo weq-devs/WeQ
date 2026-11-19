@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSqliteStub, closeAllFixtureDbs } from '@weq/testkit';
-import { decode, encode, GetGroupHistory, GetC2cHistory } from '@weq/protocol';
+import { decode, encode, GetGroupHistory, GetC2cHistory } from '@weqbot/protocol';
 import { GapHistoryService } from '../src/account/gap_history';
 import { RoamingBackfillManager, type RoamingTarget } from '../src/account/roaming_backfill';
 import * as atomic from '../src/common/atomic_write';

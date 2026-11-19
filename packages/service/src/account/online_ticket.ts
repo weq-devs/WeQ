@@ -14,7 +14,7 @@ import {
   RequestDecryptKey,
   type ClientKeyInfo,
   type DownloadRkey,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 /** OIDB 请求只需要通用发包能力。 */
 export type OnlineTicketOidbNt = Pick<NtHelperBinding, 'sendOidbPacket'>;

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { encode, RequestDecryptKey } from '@weq/protocol';
+import { encode, RequestDecryptKey } from '@weqbot/protocol';
 import type { NtHelperBinding } from '@weq/native';
 import { requestDecryptKeyFromInstance } from '../src/account/online_ticket';
 

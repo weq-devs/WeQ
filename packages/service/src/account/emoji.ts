@@ -28,7 +28,7 @@ import {
   type AddCustomFaceParams,
   type CustomFaceDetail,
   type CustomFaceRef,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 /** 收藏表情在线操作需要的最小原生面。 */
 export interface EmojiOnlineDeps {

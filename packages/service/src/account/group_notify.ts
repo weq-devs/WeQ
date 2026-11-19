@@ -12,7 +12,7 @@ import {
   groupRequestOperationType,
   type GroupRequest,
   type GroupRequestPage,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 /** 在线处理加群请求需要的最小原生面。 */
 export interface GroupNotifyOnlineDeps {

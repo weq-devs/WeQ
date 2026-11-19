@@ -3,7 +3,7 @@ import type { GroupConversation } from '../im-template/template/types';
 import { Avatar } from '../im-template/template/primitives';
 import { displayUserName } from '../im-template/template/user';
 import { ProfileAvatar } from './ProfileAvatar';
-import { profileTimeText } from '@weq/protocol/profile-values';
+import { profileTimeText } from '@weqbot/protocol/profile-values';
 import { HoverPopover } from './HoverPopover';
 import { useGroupLabelSetter } from '../hooks/useGroupLabelSetter';
 import { avatarFromUin } from '../lib/avatarResolver';

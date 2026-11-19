@@ -1,4 +1,4 @@
-import { parseCustomFaceId } from '@weq/protocol';
+import { parseCustomFaceId } from '@weqbot/protocol';
 import { planFavoriteEmojiImport, type FavoriteEmojiBundleItem } from './favorite_emoji_bundle';
 
 export type FavoriteEmojiImportState =

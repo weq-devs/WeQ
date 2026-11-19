@@ -17,7 +17,7 @@ import {
   getCloudProfile,
   decode,
   message,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 /** 在线写操作需要的最小原生面（离线账号只读 DB 时可以不传）。 */
 export interface ProfileOnlineDeps {

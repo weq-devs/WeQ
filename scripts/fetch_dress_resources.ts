@@ -53,8 +53,8 @@ import {
   fontScid,
   pendantScid,
   VasBid,
-} from '../packages/protocol/src/scupdate';
-import type { ResourceUrl, ScidRef } from '../packages/protocol/src/scupdate/get-url';
+} from '../vendor/weqbot/packages/protocol/src/scupdate';
+import type { ResourceUrl, ScidRef } from '../vendor/weqbot/packages/protocol/src/scupdate/get-url';
 
 // ─────────────────────────── 参数 ───────────────────────────
 
@@ -489,7 +489,7 @@ function createPlatform(native: ReturnType<typeof loadNative>): Platform {
  * 反查目标账号的 QQ pid，并**登记原生 SSO 会话**。
  *
  * 关键：`ensureAttached` 只把 a2/d2/d2key 读出来，**不会**把它们交给原生侧；
- * 而 `@weq/protocol` 的 `sendPacket` 是按 pid 去原生侧的会话表里取凭据的，取不到
+ * 而 `@weqbot/protocol` 的 `sendPacket` 是按 pid 去原生侧的会话表里取凭据的，取不到
  * 就报「pid X 还没有登记 SSO 会话」。所以在读到物料之后必须走 `registerSsoSession`
  * 登记一次（与桌面端 `AccountMonitorService` 在线采集后走的是同一条路），否则
  * 换地址的第一包必然失败 —— 这正是本脚本抓不到任何资源的根因。

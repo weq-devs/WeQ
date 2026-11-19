@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
-import { C2C_PTT_TRANS_CMD } from '@weq/protocol';
+import { C2C_PTT_TRANS_CMD } from '@weqbot/protocol';
 import { OnlineVoiceTranscriber } from '../src/main/online_transcribe';
 
 const f = vi.hoisted(() => ({

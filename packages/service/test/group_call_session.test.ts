@@ -2,12 +2,12 @@
  * 群通话会话状态机回归测试。
  *
  * 全程用假时钟 + 假 socket + 假信令，不碰真 QQ、不联网。报文样本来自
- * `@weq/protocol` 的抓包 fixture，所以「收到真实字节能不能正确驱动状态机」
+ * `@weqbot/protocol` 的抓包 fixture，所以「收到真实字节能不能正确驱动状态机」
  * 也一并覆盖了。
  */
 
 import { describe, expect, it } from 'vitest';
-import { groupCall } from '@weq/protocol';
+import { groupCall } from '@weqbot/protocol';
 import {
   GroupCallSession,
   makeGroupStream,
@@ -24,7 +24,7 @@ import {
   memberPeerJoin,
   memberSelfReady,
   subscribeTwo,
-} from '../../protocol/test/fixtures/group_call_capture';
+} from './fixtures/group_call_capture';
 
 const { GROUP_SESSION_KEY_LEN, GroupRelayCmd, parseGroupRelay } = groupCall;
 

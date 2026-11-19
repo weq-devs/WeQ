@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { decode, encode, FetchDownloadRkeys, OcrImage } from '@weq/protocol';
+import { decode, encode, FetchDownloadRkeys, OcrImage } from '@weqbot/protocol';
 import type { AccountSession } from '@weq/account';
 import { ChatImageOcrService, OCR_DOWNLOAD_ERROR } from '../src/account/ocr_image';
 

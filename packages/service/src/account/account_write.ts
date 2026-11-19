@@ -35,7 +35,7 @@ import {
   type GroupMessagePolicy,
   type SelfProfilePatch,
   type SetOnlineStatusParams,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 export interface AccountWriteIdentity {
   uin: string;
@@ -72,7 +72,11 @@ export class AccountWriteService {
     );
     return this.interactionWrites;
   }
-  signatureLike(uin: string, signature: import('@weq/protocol').SignatureTarget, liked: boolean) {
+  signatureLike(
+    uin: string,
+    signature: import('@weqbot/protocol').SignatureTarget,
+    liked: boolean,
+  ) {
     return this.profileInteractions.signatureLike(uin, signature, liked);
   }
   signatureComment(uin: string, feedId: string, text: string, replyId?: string) {
@@ -80,7 +84,7 @@ export class AccountWriteService {
   }
   deleteSignatureComment(
     uin: string,
-    signature: import('@weq/protocol').SignatureTarget,
+    signature: import('@weqbot/protocol').SignatureTarget,
     commentId: string,
   ) {
     return this.profileInteractions.removeSignatureComment(uin, signature, commentId);
@@ -107,7 +111,10 @@ export class AccountWriteService {
     return this.profileDisplay.read();
   }
 
-  setSelfProfileDisplaySetting(field: import('@weq/protocol').ProfileDisplayField, value: number) {
+  setSelfProfileDisplaySetting(
+    field: import('@weqbot/protocol').ProfileDisplayField,
+    value: number,
+  ) {
     return this.profileDisplay.set(field, value);
   }
 

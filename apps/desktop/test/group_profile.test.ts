@@ -3,7 +3,7 @@ import { groupProfileRows, groupJoinedDate } from '../src/renderer/src/lib/group
 import { withLocalGroupJoinTimes, sortGroups } from '../src/renderer/src/lib/contactListOrder';
 import { groupSortDetail } from '../src/renderer/src/lib/contactDirectoryPresentation';
 import type { GroupConversation } from '../src/renderer/src/im-template/template/types';
-import type { GroupProfileExtras } from '@weq/protocol';
+import type { GroupProfileExtras } from '@weqbot/protocol';
 const base: GroupProfileExtras = {
   grade: 0,
   activeMemberCount: 0,

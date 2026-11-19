@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it, vi } from 'vitest';
-import type { TrpcNative } from '@weq/protocol';
+import type { TrpcNative } from '@weqbot/protocol';
 import type { NtHelperBinding } from '@weq/native';
 import { DressSharedCache } from '../src/account/dress_shared_cache';
 import { BUBBLE_GEOMETRY_VERSION } from '../src/account/bubble_skin';

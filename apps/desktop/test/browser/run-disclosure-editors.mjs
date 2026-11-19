@@ -145,11 +145,18 @@ try {
         },
         {
           surface: 'onebot',
-          add: 'WebSocket',
+          add: '新建',
           edit: '编辑 合成服务器 1',
-          title: '编辑 WebSocket 服务器',
-          field: 'OneBot 服务器名称',
-          path: 'bootstrap.saveOneBotServer',
+          title: '编辑正向 WebSocket',
+          field: '网络名称',
+          path: 'bootstrap.saveOneBotConfig',
+          // 新契约是整份配置一起提交，没有 `id`；确认改的那一行被写进
+          // `networks.wsServers` 才算数。
+          checkInput: (input) => {
+            const names = input.config.networks.wsServers.map((server) => server.name);
+            assert.ok(names.includes('编辑后的合成配置'), names.join(','));
+            assert.ok(!names.includes('合成服务器 1'), names.join(','));
+          },
         },
       ].filter(() => !signaturesOnly)) {
         console.log(`checking ${spec.surface} ${width} ${theme}`);
@@ -197,7 +204,8 @@ try {
         assert(await edit.evaluate((node) => node === document.activeElement));
         const call = await page.evaluate(() => window.disclosureQa.calls.at(-1));
         assert.equal(call.path, spec.path);
-        assert.equal(call.input.id, 'fixture-0');
+        if (spec.checkInput) spec.checkInput(call.input);
+        else assert.equal(call.input.id, 'fixture-0');
         cases += 2;
       }
       await open('signature');

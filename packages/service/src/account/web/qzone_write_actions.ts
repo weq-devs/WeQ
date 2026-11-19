@@ -1,4 +1,12 @@
-/** 普通说说的 Web 回复与转发；写入不做网络重试或端点降级。 */
+/**
+ * 普通说说的 Web 回复与转发；写入不做网络重试或端点降级。
+ *
+ * **为什么没并进 `@weqbot/protocol`**：kernel 的 `qzone-write.ts` 里也有一份
+ * `replyQzoneMsg`，但它走的是 `emotion_cgi_addreply_ugc`、不接受图片，也不返回
+ * 新评论 id；这里走 `emotion_cgi_re_feeds`，支持带图回复（`richtype/richval`），
+ * 界面上的「图片回复」依赖它。两版是**两条不同的 cgi**，不是新旧版本，不能直接
+ * 换。等确认 addreply_ugc 也支持图片时再合并。
+ */
 import { computeBkn, cookieHeader, WebAuthError, type WebCredential } from './credential';
 import { webRequestText } from './http';
 import { parseQzoneCallback } from './qzone';

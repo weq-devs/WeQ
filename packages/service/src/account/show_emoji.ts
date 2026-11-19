@@ -15,7 +15,7 @@
  * 里精确命中，因此反向拼装是可靠的。
  */
 
-import { encode, message, type ProtoMessage } from '@weq/protocol';
+import { encode, message, type ProtoMessage } from '@weqbot/protocol';
 
 /** 表情包类型（目录里的 `type` 字段）。 */
 export const SHOW_EMOJI_TYPE = { action: 1, duo: 2, chain: 3 } as const;

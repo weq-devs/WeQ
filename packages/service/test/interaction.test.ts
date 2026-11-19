@@ -16,7 +16,7 @@ import {
   SendPoke,
   SetReaction,
   SetInputStatus,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import type { AccountSession } from '@weq/account';
 import { InteractionService } from '../src/account/interaction';
 
