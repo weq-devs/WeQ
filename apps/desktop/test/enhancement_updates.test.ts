@@ -755,6 +755,25 @@ it.each([false, true])(
     expect(backgroundTasks.snapshot()).toEqual([]);
   },
 );
+it('自动检查收尾期间刷新网络策略，不会把已完成的检查改回进行中', async () => {
+  const f = await fixture();
+  const list = f.packs.list.bind(f.packs);
+  const notices = vi.fn();
+  f.controller.subscribeNotifications(notices);
+  vi.spyOn(f.packs, 'list').mockImplementationOnce(async () => {
+    expect(f.controller.state('dress').phase).toBe('checked');
+    updateTransferPolicy('never', networkCost(false, false, 'test'));
+    return list();
+  });
+
+  await f.controller.check(['dress'], true);
+
+  expect(f.controller.state('dress')).toMatchObject({
+    phase: 'checked',
+    checkedAt: expect.any(Number),
+  });
+  expect(notices).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'dress' })]);
+});
 it.each([false, true])(
   '更新检查失败不登记任务，保留错误并允许原位重试（自动：%s）',
   async (automatic) => {

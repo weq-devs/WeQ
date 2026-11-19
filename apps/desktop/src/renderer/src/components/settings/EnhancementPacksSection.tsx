@@ -1,4 +1,5 @@
 import { useContext, useState } from 'react';
+import { formatDateTime, timeDate } from '@weq/time';
 import {
   AudioLines,
   BrainCircuit,
@@ -139,6 +140,7 @@ export function EnhancementPacksSection() {
             const checking =
               pack.check?.phase === 'checking' ||
               (check.isLoading && check.variables?.ids.includes(pack.id));
+            const checkedAt = timeDate(pack.check?.checkedAt);
             const percent = operation?.total
               ? Math.min(100, Math.max(0, (operation.received / operation.total) * 100))
               : undefined;
@@ -275,10 +277,18 @@ export function EnhancementPacksSection() {
                       </span>
                     ) : null}
                   </div>
-                ) : status ? (
-                  <span className="weq-enhancement-status" title={missing} role="status">
-                    {status}
-                  </span>
+                ) : null}
+                {(!pack.busy && status) || checkedAt ? (
+                  <div className="weq-enhancement-status" title={missing}>
+                    {!pack.busy && status ? <span role="status">{status}</span> : null}
+                    {checkedAt ? (
+                      <>
+                        {!pack.busy && status ? ' · ' : null}
+                        上次成功检查：
+                        <time dateTime={checkedAt.toISOString()}>{formatDateTime(checkedAt)}</time>
+                      </>
+                    ) : null}
+                  </div>
                 ) : null}
                 {issue ? (
                   <p className="weq-enhancement-issue" role="alert">

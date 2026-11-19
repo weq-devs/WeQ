@@ -22,6 +22,7 @@ const fixture = vi.hoisted(() => ({
   partial: false,
   updateAvailable: false,
   checkPhase: 'unchecked' as 'unchecked' | 'checking' | 'waiting-network' | 'checked',
+  checkedAt: undefined as number | undefined,
   checkLoading: false,
   autoCheck: true,
   autoInstall: false,
@@ -59,7 +60,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               needsRepair: fixture.ready && fixture.partial,
               missingComponents: fixture.partial ? ['文字筛图模型'] : [],
               updateAvailable: fixture.partial || fixture.updateAvailable,
-              check: { phase: fixture.checkPhase },
+              check: { phase: fixture.checkPhase, checkedAt: fixture.checkedAt },
               blocker: fixture.requiresWeqUpdate ? '需先更新 WeQ 至 v3.0.0' : null,
               requiresWeqUpdate: fixture.requiresWeqUpdate,
               downloadBytes: fixture.ready ? 0 : 1048576,
@@ -129,6 +130,7 @@ beforeEach(() => {
   fixture.partial = false;
   fixture.updateAvailable = false;
   fixture.checkPhase = 'unchecked';
+  fixture.checkedAt = undefined;
   fixture.checkLoading = false;
   fixture.autoCheck = true;
   fixture.autoInstall = false;
@@ -244,8 +246,10 @@ describe('增强设置与非活动页面资源', () => {
       expect(fixture.intervals.get('enhancementPacks')).toBe(false);
       fixture.checkLoading = false;
       fixture.checkPhase = 'checked';
+      fixture.checkedAt = Date.parse('2026-11-19T08:03:31Z');
       f.render(true);
       expect(row.querySelector('[role="status"]')?.textContent).toBe('已检查');
+      expect(row.textContent).toContain('2026-11-19 16:03:31');
       expect(fixture.intervals.get('enhancementPacks')).toBe(false);
     } finally {
       f.dispose();
