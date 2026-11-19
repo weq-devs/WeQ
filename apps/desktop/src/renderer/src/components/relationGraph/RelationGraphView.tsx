@@ -210,7 +210,7 @@ export function RelationGraphView({
               className="weq-graph-icon-btn"
               type="button"
               onClick={refresh}
-              disabled={(loading && !refreshing) || !ready}
+              disabled={!ready}
               aria-busy={refreshing}
               title="更新全部群成员并重新计算"
             >
