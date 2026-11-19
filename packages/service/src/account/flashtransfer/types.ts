@@ -93,6 +93,7 @@ export interface FlashDownloadTask {
   status: FlashTaskStatus;
   downloadedBytes: number;
   error?: string;
+  interrupted?: boolean;
   createdAt: number;
   finishedAt?: number;
   logs?: FlashDownloadLogLine[];

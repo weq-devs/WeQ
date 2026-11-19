@@ -501,6 +501,19 @@ export function CurrentTaskList({
   }
   for (const task of flash.data ?? []) {
     const running = task.status === 'resolving' || task.status === 'downloading';
+    const status = task.interrupted
+      ? 'paused'
+      : task.status === 'done'
+        ? 'completed'
+        : task.status === 'resolving' || task.status === 'downloading'
+          ? 'running'
+          : task.status;
+    const statusLabel = task.interrupted
+      ? '已中断'
+      : task.status === 'resolving'
+        ? '获取链接'
+        : undefined;
+    const retryLabel = task.interrupted ? '重试未完成文件' : '重试下载';
     const single = (task.files?.length ?? 1) === 1;
     const display = {
       action: '下载闪传文件',
@@ -532,7 +545,7 @@ export function CurrentTaskList({
       }
     };
     const actions: TaskQuickAction[] =
-      running || task.status === 'pending'
+      running || task.status === 'pending' || task.interrupted
         ? [
             {
               id: 'cancel',
@@ -568,7 +581,7 @@ export function CurrentTaskList({
     if (task.canRetry)
       actions.unshift({
         id: 'retry',
-        label: '重试下载',
+        label: retryLabel,
         icon: <RefreshCw size={14} aria-hidden />,
         disabled: !cleanupBinding,
         run: retryFlash,
@@ -597,13 +610,8 @@ export function CurrentTaskList({
       display,
       createdAt: task.createdAt,
       kind: '闪传下载',
-      status:
-        task.status === 'done'
-          ? 'completed'
-          : task.status === 'resolving' || task.status === 'downloading'
-            ? 'running'
-            : task.status,
-      statusLabel: task.status === 'resolving' ? '获取链接' : undefined,
+      status,
+      statusLabel,
       progress:
         task.status === 'done'
           ? 100
@@ -619,14 +627,8 @@ export function CurrentTaskList({
           <TaskProgressDetails
             name={task.name}
             display={display}
-            status={
-              task.status === 'done'
-                ? 'completed'
-                : task.status === 'resolving' || task.status === 'downloading'
-                  ? 'running'
-                  : task.status
-            }
-            statusLabel={task.status === 'resolving' ? '获取链接' : undefined}
+            status={status}
+            statusLabel={statusLabel}
             progress={
               task.status === 'done'
                 ? 100
@@ -653,16 +655,16 @@ export function CurrentTaskList({
               <li key={file.id}>
                 <span title={file.targetPath}>{file.relativePath}</span>
                 <span>
-                  {
-                    {
-                      pending: '等待中',
-                      resolving: '获取链接',
-                      downloading: '下载中',
-                      done: '已完成',
-                      failed: '失败',
-                      cancelled: '已取消',
-                    }[file.status]
-                  }{' '}
+                  {file.interrupted
+                    ? '已中断'
+                    : {
+                        pending: '等待中',
+                        resolving: '获取链接',
+                        downloading: '下载中',
+                        done: '已完成',
+                        failed: '失败',
+                        cancelled: '已取消',
+                      }[file.status]}{' '}
                   ·{' '}
                   <span className="weq-number weq-number-inherit">
                     {formatSize(file.downloadedBytes)}
@@ -680,9 +682,11 @@ export function CurrentTaskList({
                   }
                   label={`${file.relativePath}下载进度`}
                   status={
-                    file.status === 'downloading' || file.status === 'resolving'
-                      ? 'running'
-                      : file.status
+                    file.interrupted
+                      ? 'paused'
+                      : file.status === 'downloading' || file.status === 'resolving'
+                        ? 'running'
+                        : file.status
                   }
                 />
                 {[...new Set([...(file.resolutionErrors ?? []), file.error].filter(Boolean))].map(
@@ -707,7 +711,7 @@ export function CurrentTaskList({
                 actions={[
                   {
                     id: 'retry',
-                    label: '重试下载',
+                    label: retryLabel,
                     icon: <RefreshCw size={14} aria-hidden />,
                     disabled: !cleanupBinding,
                     run: retryFlash,
@@ -751,7 +755,7 @@ export function CurrentTaskList({
                 打开下载目录
               </button>
             ) : null}
-            {running || task.status === 'pending' ? (
+            {running || task.status === 'pending' || task.interrupted ? (
               <button
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"

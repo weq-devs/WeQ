@@ -716,7 +716,7 @@ it('账号切换后旧任务的继续动作不能操作新账号', async () => {
   const task = await runtime.rebuild();
   await waitFor(() => expect(runtime.cache.progress.status).toBe('paused'));
   switchAccount();
-  await expect(backgroundTasks.act(task!, 'retry')).rejects.toThrow('原账号');
+  await expect(backgroundTasks.act(task!, 'resume')).rejects.toThrow('原账号');
 });
 
 it('群聊失败明细独立于最近 200 条过程日志，重试成功后清除', async () => {

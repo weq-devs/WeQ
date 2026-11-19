@@ -214,6 +214,7 @@ export class ConversationCalendarJob {
   private detailBatches = 0;
   private dayFocus: string | undefined;
   private readonly pausedDays = new Set<string>();
+  private suspended = false;
   private readonly connectionWaits = new WeakMap<Work, { retryAt: number; attempts: number }>();
   persistenceError: string | undefined;
   get day(): string | undefined {
@@ -225,6 +226,7 @@ export class ConversationCalendarJob {
     );
   }
   private nextWork(readyOnly = false): Work | undefined {
+    if (this.suspended) return;
     const pending = this.work.filter(
       (task) =>
         this.available(task) &&
@@ -245,6 +247,10 @@ export class ConversationCalendarJob {
         : undefined;
     return pending.find((task) => task.refresh) ?? quickCount ?? selected ?? pending[0];
   }
+  suspend(): void {
+    this.suspended = true;
+    this.log('info', 'task', `${this.month} 统计已暂停，保留读取进度`);
+  }
   control(scope: 'month' | 'day', action: CalendarControlAction, day?: string): void {
     if (
       scope === 'day' &&
@@ -253,6 +259,7 @@ export class ConversationCalendarJob {
         day > calendarToday())
     )
       throw new Error('请选择不晚于今天的本月日期');
+    if (action !== 'pause') this.suspended = false;
     if (action === 'pause') {
       if (scope === 'month') {
         this.dayFocus =
@@ -996,7 +1003,8 @@ export class ConversationCalendarJob {
       );
       if (scope && this.pausedDays.has(scope)) return 'paused';
       if (!pending.length) return 'complete';
-      if (this.controller.signal.aborted || (!scope && this.monthPaused)) return 'paused';
+      if (this.suspended || this.controller.signal.aborted || (!scope && this.monthPaused))
+        return 'paused';
       const failures = scope ? pending : pending.filter((item) => !this.pausedDays.has(item.day));
       return failures.length > 0 && failures.every((item) => (item.refresh ?? item).error)
         ? 'failed'

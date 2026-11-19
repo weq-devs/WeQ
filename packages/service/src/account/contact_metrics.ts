@@ -81,6 +81,7 @@ export class ContactMetricsService extends EventEmitter {
   private failedJobs: Array<{ job: ContactMetricJob; failure: ContactMetricJobFailure }> = [];
   private jobRunning = false;
   private cancelled = false;
+  private pauseRequested = false;
   private afterRun?: () => Promise<void>;
   progress: ContactMetricsProgress = {
     status: 'completed',
@@ -453,15 +454,28 @@ export class ContactMetricsService extends EventEmitter {
     );
   }
 
-  start(jobs: ContactMetricJob[], phase = '好友在线指标', afterRun?: () => Promise<void>) {
-    if (this.jobRunning || this.progress.status === 'paused') return false;
+  start(
+    jobs: ContactMetricJob[],
+    phase = '好友在线指标',
+    afterRun?: () => Promise<void>,
+    completed: string[] = [],
+  ) {
+    if (this.jobRunning || !this.active || this.progress.status === 'paused') return false;
     this.jobs = [...jobs];
     this.failedJobs = [];
     this.cancelled = false;
+    this.pauseRequested = false;
     this.afterRun = afterRun;
     this.progress = { status: 'running', done: 0, total: jobs.length, failed: 0, phase };
     this.emit('log', `已准备 ${jobs.length} 项查询`);
     this.resetLanes();
+    for (const key of completed) {
+      const lane = this.progress.lanes![key.startsWith('group:') ? 'groups' : 'friends'];
+      lane.done++;
+      lane.total++;
+      this.progress.done++;
+      this.progress.total++;
+    }
     this.launch();
     return true;
   }
@@ -469,7 +483,17 @@ export class ContactMetricsService extends EventEmitter {
   cancel() {
     this.emit('log', '收到取消请求，等待在途查询结束后停止');
     this.cancelled = true;
+    this.pauseRequested = false;
     if (!this.jobRunning) this.updateProgress('cancelled');
+  }
+  get pausing() {
+    return this.pauseRequested;
+  }
+  pause() {
+    if (!this.jobRunning || this.cancelled || this.pauseRequested) return;
+    this.pauseRequested = true;
+    this.emit('log', '收到暂停请求，等待在途查询结束');
+    this.updateProgress('running');
   }
   failedItems(): ContactMetricJobFailure[] {
     return this.failedJobs.map(({ failure }) => failure);
@@ -477,6 +501,7 @@ export class ContactMetricsService extends EventEmitter {
   resume() {
     if (this.jobRunning || !this.active) return;
     this.cancelled = false;
+    this.pauseRequested = false;
     this.emit('log', this.jobs.length ? '继续剩余查询' : '仅重试上次失败的查询');
     if (!this.jobs.length) {
       this.jobs = this.failedJobs.splice(0).map(({ job }) => job);
@@ -560,7 +585,7 @@ export class ContactMetricsService extends EventEmitter {
       };
       const worker = async (group: boolean) => {
         const laneKey = group ? 'groups' : 'friends';
-        while (this.active && !this.cancelled) {
+        while (this.active && !this.cancelled && !this.pauseRequested) {
           const index = this.jobs.findIndex(
             (job) =>
               !job.queueFields && job.key.startsWith('group:') === group && !blocked.has(job),
@@ -576,7 +601,7 @@ export class ContactMetricsService extends EventEmitter {
         }
       };
       const queuedFriends = async () => {
-        if (!this.active || this.cancelled || !this.isOnline()) return;
+        if (!this.active || this.cancelled || this.pauseRequested || !this.isOnline()) return;
         const fields: Array<(() => Promise<void>) | undefined> = [];
         let cursor = 0;
         let feeding = 0;
@@ -596,7 +621,7 @@ export class ContactMetricsService extends EventEmitter {
           new Promise((resolve, reject) => {
             fields.push(async () => {
               try {
-                if (!this.active || this.cancelled || !this.isOnline())
+                if (!this.active || this.cancelled || this.pauseRequested || !this.isOnline())
                   throw new ContactMetricsOfflineError('好友资料读取已停止');
                 resolve(await read());
               } catch (error) {
@@ -610,19 +635,32 @@ export class ContactMetricsService extends EventEmitter {
         await Promise.all(jobs.map((job) => runJob(job, 'friends', enqueue)));
       };
       await Promise.all([queuedFriends(), worker(false), worker(true)]);
-      if (!this.jobs.length && !this.cancelled && this.active && this.afterRun) {
+      let finalStepPending = Boolean(this.afterRun);
+      if (
+        !this.jobs.length &&
+        !this.cancelled &&
+        !this.pauseRequested &&
+        this.active &&
+        this.afterRun
+      ) {
         this.progress.phase = '整理结果';
         this.updateProgress('running');
         await this.afterRun();
+        finalStepPending = false;
       }
       if (this.jobs.length && !this.cancelled && this.active)
-        this.emit('log', 'QQ 当前不可在线查询，未完成部分已暂停，可在任务列表继续');
+        this.emit(
+          'log',
+          this.pauseRequested
+            ? '已暂停，未完成部分可在任务列表继续'
+            : 'QQ 当前不可在线查询，未完成部分已暂停，可在任务列表继续',
+        );
       await this.flush();
       this.jobRunning = false;
       const status =
         this.cancelled || !this.active
           ? 'cancelled'
-          : this.jobs.length
+          : this.jobs.length || (this.pauseRequested && finalStepPending)
             ? 'paused'
             : this.progress.failed
               ? 'failed'

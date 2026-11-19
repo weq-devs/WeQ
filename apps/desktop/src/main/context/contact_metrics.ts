@@ -1,5 +1,7 @@
 import { eventTimeFormatter } from '@weq/time';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import {
   ContactMetricsService,
   ContactHistoryService,
@@ -7,6 +9,7 @@ import {
   installContentSearchCapture,
   ContactMetricsOfflineError,
   DirectoryTimeReader,
+  JsonStore,
   type ContactMetric,
   type ContactMetricRows,
   type ContactMetricJob,
@@ -38,6 +41,34 @@ const METRIC_NAMES: Record<ContactMetric, string> = {
   grade: '群等级',
   freezeState: '冻结状态',
 };
+type RefreshJob = ContactMetricJob & { units?: string[] };
+const refreshOptions = z.object({
+  missingOnly: z.boolean(),
+  fields: z
+    .array(
+      z.custom<ContactMetric>(
+        (value) => typeof value === 'string' && Object.hasOwn(METRIC_NAMES, value),
+      ),
+    )
+    .optional(),
+  range: z.enum(['all', 'older24h']),
+  target: z.enum(['metrics', 'groupMembers']),
+});
+const refreshCheckpoint = z.object({
+  id: z.string().uuid(),
+  options: refreshOptions,
+  startedAt: z.number(),
+  updatedAt: z.number(),
+  status: z.enum(['running', 'paused', 'completed', 'failed', 'cancelled']),
+  plan: z.record(z.string(), z.array(z.string())).optional(),
+  done: z.array(z.string()),
+  graphDone: z.boolean(),
+  failures: z.array(
+    z.object({ lane: z.enum(['friends', 'groups']), label: z.string(), error: z.string() }),
+  ),
+});
+type RefreshCheckpoint = z.infer<typeof refreshCheckpoint>;
+type RefreshOptions = z.infer<typeof refreshOptions>;
 function needsMetricRefresh(
   cell: ContactMetricRows[string][ContactMetric],
   force: boolean,
@@ -101,7 +132,13 @@ export class ContactDirectoryRuntime {
   private groupBaselineReady = false;
   private profileSignature = '';
   private pendingKinds = new Set<'profile' | 'group'>();
-  private stopPreparing = false;
+  private stopPreparing?: 'pause' | 'cancel';
+  private readonly refreshStore: JsonStore<{ task?: RefreshCheckpoint }>;
+  private refresh?: RefreshCheckpoint;
+  private completed = new Set<string>();
+  private needsRebuild = false;
+  private checkpointTimer?: ReturnType<typeof setTimeout>;
+  private checkpointWrite = Promise.resolve();
   private logs: Array<{
     ts: number;
     seq: number;
@@ -129,6 +166,14 @@ export class ContactDirectoryRuntime {
     private readonly watchDelay = 2000,
   ) {
     this.scope = { uin: session.context.uin, configId };
+    const source = createHash('sha256')
+      .update(session.msgDbPath ?? session.profileInfo.dbPath)
+      .digest('hex');
+    this.refreshStore = new JsonStore<{ task?: RefreshCheckpoint }>(
+      join(cacheDir, `refresh-task-${source}.json`),
+      () => ({}),
+      { normalize: (value) => z.object({ task: refreshCheckpoint.optional() }).parse(value) },
+    );
     this.selfUid = session.selfUid;
     this.timeReaders = {
       friends: new DirectoryTimeReader(
@@ -193,6 +238,7 @@ export class ContactDirectoryRuntime {
     services.groupInfo.contactMembersObserved = this.memberObserver;
     this.cache.on('progress', (progress: ContactMetricsProgress) => this.updateTask(progress));
     this.cache.on('log', (message: string, stage?: string) => this.appendLog(message, stage));
+    this.restoreRefresh();
     this.stopProfileWatch = services.intentSense?.onCachedProfilesChanged?.(() => {
       if (this.isCurrent()) this.cache.emit('profilesChanged');
     });
@@ -282,6 +328,121 @@ export class ContactDirectoryRuntime {
         ? { ...this.cache.progress, status: 'running' as const, phase: '本地资料' }
         : { ...this.cache.progress },
     };
+  }
+
+  private refreshPresentation({ missingOnly, target }: RefreshOptions) {
+    return {
+      name:
+        target === 'groupMembers'
+          ? '更新全部群成员并重算群交集'
+          : missingOnly
+            ? '补齐好友/群信息缓存'
+            : '更新好友/群信息缓存',
+      display: {
+        action:
+          target === 'groupMembers'
+            ? '更新群成员名单'
+            : missingOnly
+              ? '补齐联系人信息'
+              : '更新联系人信息',
+        context: target === 'groupMembers' ? '全部群聊' : '好友资料、群资料',
+      },
+    };
+  }
+
+  private restoreRefresh() {
+    const saved = this.refreshStore.data.task;
+    if (!saved) return;
+    const status = saved.status === 'running' ? 'paused' : saved.status;
+    this.refresh = { ...saved, status };
+    this.completed = new Set(saved.done);
+    this.taskId = saved.id;
+    this.target = saved.options.target;
+    this.needsRebuild = status !== 'completed';
+    const lanes = {
+      friends: { done: 0, total: 0, failed: 0 },
+      groups: { done: 0, total: 0, failed: 0 },
+    };
+    for (const key of Object.keys(saved.plan ?? {})) {
+      const lane = lanes[key.startsWith('group:') ? 'groups' : 'friends'];
+      lane.total++;
+      if (this.completed.has(key)) lane.done++;
+    }
+    for (const failure of saved.failures) lanes[failure.lane].failed++;
+    const done = lanes.friends.done + lanes.groups.done;
+    const total = lanes.friends.total + lanes.groups.total;
+    this.cache.progress = { status, done, total, failed: saved.failures.length, phase: '', lanes };
+    backgroundTasks.project(
+      {
+        ...this.refreshPresentation(saved.options),
+        id: saved.id,
+        kind: 'contacts',
+        scope: this.scope,
+        startedAt: saved.startedAt,
+        updatedAt: saved.updatedAt,
+        status,
+        statusLabel: status === 'paused' ? '等待继续' : undefined,
+        progress: status === 'completed' ? 100 : total ? (100 * done) / total : 0,
+        note: `已完成 ${done}/${total} 项，${saved.failures.length} 项失败`,
+        contactFailures: saved.failures,
+        subtasks: this.contactSubtasks(lanes),
+        actions: [],
+      },
+      this.refreshActions(saved.id, status),
+    );
+  }
+
+  /** 先保存已取得的资料，再发布引用这些结果的断点。 */
+  private persistRefresh() {
+    clearTimeout(this.checkpointTimer);
+    this.checkpointTimer = undefined;
+    const refresh = this.refresh;
+    if (!refresh) return this.checkpointWrite;
+    const snapshot = { ...refresh, done: [...this.completed] };
+    const write = this.checkpointWrite
+      .catch(() => {})
+      .then(async () => {
+        await this.cache.flush();
+        this.refreshStore.replace({ task: snapshot }, true);
+      });
+    this.checkpointWrite = write;
+    return write;
+  }
+
+  private saveRefreshSoon() {
+    this.checkpointTimer ??= setTimeout(() => {
+      void this.persistRefresh().catch((error: unknown) => this.refreshStorageError(error));
+    }, 500);
+  }
+
+  private refreshStorageError(error: unknown) {
+    console.warn('[contacts] 任务断点保存失败', error);
+    this.appendLog('保存失败：联系人任务断点未写入，请检查缓存目录');
+  }
+
+  async removeRefreshTask(id: string) {
+    if (this.refresh?.id !== id) return;
+    // 移除排在已有写入之后，不能被旧快照写回。
+    clearTimeout(this.checkpointTimer);
+    this.checkpointTimer = undefined;
+    const refresh = this.refresh;
+    this.refresh = undefined;
+    const write = this.checkpointWrite
+      .catch(() => {})
+      .then(() => {
+        this.refreshStore.replace({}, true);
+      });
+    this.checkpointWrite = write;
+    try {
+      await write;
+      if (this.taskId === id) this.taskId = undefined;
+      if (!this.refresh)
+        this.cache.progress = { status: 'completed', done: 0, total: 0, failed: 0, phase: '' };
+      this.cache.emit('changed');
+    } catch (error) {
+      this.refresh ??= refresh;
+      throw error;
+    }
   }
 
   private appendLog(message: string, stage = 'task') {
@@ -386,7 +547,8 @@ export class ContactDirectoryRuntime {
     batch = false,
     maxAgeMs?: number,
     candidates: RefreshContact[] = [],
-  ): Promise<ContactMetricJob[]> {
+    plan?: RefreshCheckpoint['plan'],
+  ): Promise<RefreshJob[]> {
     this.assertCurrent();
     if (
       fields &&
@@ -538,61 +700,69 @@ export class ContactDirectoryRuntime {
       list.push(job);
       grouped.set(key, list);
     }
-    return [...grouped].map<ContactMetricJob>(([key, work]) => {
+    return [...grouped].flatMap<RefreshJob>(([key, candidates]) => {
+      const allowed = plan?.[key];
+      const work = plan ? candidates.filter((field) => allowed?.includes(field.key)) : candidates;
+      if (!work.length) return [];
       const uin = key.slice('friend:'.length),
         uid = friends.find(
           (friend) => (friend.uin > 0n ? String(friend.uin) : friend.uid) === uin,
         )!.uid;
-      const completed = new Set<string>();
-      return {
-        key,
-        label: `好友 ${this.friendMeta.get(uin)?.昵称 ?? ''}（${uin}）`,
-        queueFields: batch,
-        run: async (enqueue) => {
-          this.assertCurrent();
-          const failures: string[] = [];
-          let attempted = false;
-          const runField = async (job: ContactMetricJob) => {
+      const completed = batch ? this.completed : new Set<string>();
+      return [
+        {
+          key,
+          units: work.map((field) => field.key),
+          label: `好友 ${this.friendMeta.get(uin)?.昵称 ?? ''}（${uin}）`,
+          queueFields: batch,
+          run: async (enqueue) => {
             this.assertCurrent();
-            if (completed.has(job.key)) return;
-            if (!this.online()) throw new ContactMetricsOfflineError('QQ 暂不可在线查询');
-            attempted = true;
-            try {
-              await job.run();
+            const failures: string[] = [];
+            let attempted = false;
+            const runField = async (job: ContactMetricJob) => {
               this.assertCurrent();
-              completed.add(job.key);
-            } catch (error) {
-              this.assertCurrent();
-              if (error instanceof ContactMetricsOfflineError) throw error;
+              if (completed.has(job.key)) return;
               if (!this.online()) throw new ContactMetricsOfflineError('QQ 暂不可在线查询');
-              return `${job.key.split(':').at(-1)}：${error instanceof Error ? error.message : String(error)}`;
-            }
-          };
-          try {
-            if (enqueue) {
-              const remaining = work.filter((field) => !completed.has(field.key));
-              const reads = remaining.map((field) =>
-                enqueue(() => withDatabaseSignal(this.lifetime.signal, () => runField(field))),
-              );
-              for (const result of await Promise.allSettled(reads)) {
-                if (result.status === 'rejected') throw result.reason;
-                if (result.value) failures.push(result.value);
+              attempted = true;
+              try {
+                await job.run();
+                this.assertCurrent();
+                completed.add(job.key);
+                if (batch) this.saveRefreshSoon();
+              } catch (error) {
+                this.assertCurrent();
+                if (error instanceof ContactMetricsOfflineError) throw error;
+                if (!this.online()) throw new ContactMetricsOfflineError('QQ 暂不可在线查询');
+                return `${job.key.split(':').at(-1)}：${error instanceof Error ? error.message : String(error)}`;
               }
-            } else {
-              for (const job of work) {
-                const failure = await runField(job);
-                if (failure) failures.push(failure);
+            };
+            try {
+              if (enqueue) {
+                const remaining = work.filter((field) => !completed.has(field.key));
+                const reads = remaining.map((field) =>
+                  enqueue(() => withDatabaseSignal(this.lifetime.signal, () => runField(field))),
+                );
+                for (const result of await Promise.allSettled(reads)) {
+                  if (result.status === 'rejected') throw result.reason;
+                  if (result.value) failures.push(result.value);
+                }
+              } else {
+                for (const job of work) {
+                  const failure = await runField(job);
+                  if (failure) failures.push(failure);
+                }
               }
+            } finally {
+              if (batch && attempted && this.isCurrent()) await this.summarizeFriend(uin, uid);
             }
-          } finally {
-            if (batch && attempted && this.isCurrent()) await this.summarizeFriend(uin, uid);
-          }
-          if (failures.length) {
-            if (!completed.size) throw new Error(failures.join('；'));
-            this.appendLog(`${key} 部分字段未取得：${failures.join('；')}`, 'friends');
-          }
+            if (failures.length) {
+              if (!work.some((field) => completed.has(field.key)))
+                throw new Error(failures.join('；'));
+              this.appendLog(`${key} 部分字段未取得：${failures.join('；')}`, 'friends');
+            }
+          },
         },
-      };
+      ];
     });
   }
 
@@ -702,9 +872,10 @@ export class ContactDirectoryRuntime {
         throw new Error('另一范围的联系人刷新任务正在进行，请先完成或取消该任务');
       return this.taskId;
     }
+    const options = { missingOnly, fields, range, target };
     this.target = target;
-    this.preparing = true;
-    this.stopPreparing = false;
+    this.needsRebuild = true;
+    this.completed = new Set();
     this.logs = [];
     this.summaries.clear();
     this.friendMeta.clear();
@@ -712,55 +883,51 @@ export class ContactDirectoryRuntime {
     this.logSequence = 0;
     if (this.taskId) backgroundTasks.setActions(this.taskId, []);
     this.taskId = backgroundTasks.start({
-      name:
-        target === 'groupMembers'
-          ? '更新全部群成员并重算群交集'
-          : missingOnly
-            ? '补齐好友/群信息缓存'
-            : '更新好友/群信息缓存',
+      ...this.refreshPresentation(options),
       kind: 'contacts',
-      display: {
-        action:
-          target === 'groupMembers'
-            ? '更新群成员名单'
-            : missingOnly
-              ? '补齐联系人信息'
-              : '更新联系人信息',
-        context: target === 'groupMembers' ? '全部群聊' : '好友资料、群资料',
-      },
       scope: this.scope,
       statusLabel: '本地资料',
       progress: 0,
     });
     const id = this.taskId;
+    const now = Date.now();
+    this.refresh = {
+      id,
+      options,
+      startedAt: now,
+      updatedAt: now,
+      status: 'running',
+      done: [],
+      graphDone: false,
+      failures: [],
+    };
+    this.prepareRefresh(this.refresh);
+    return id;
+  }
+
+  private prepareRefresh(refresh: RefreshCheckpoint) {
+    this.preparing = true;
+    this.stopPreparing = undefined;
+    this.cache.progress = { ...this.cache.progress, status: 'running', phase: '本地资料' };
+    const {
+      id,
+      options: { missingOnly, fields, range, target },
+    } = refresh;
+    const plan = refresh.plan;
     this.appendLog('开始读取本地资料，旧缓存保留到新数据获取成功');
-    backgroundTasks.setActions(id, [
-      {
-        id: 'stop',
-        label: '取消',
-        run: () => {
-          this.stopPreparing = true;
-          this.cache.cancel();
-        },
-      },
-    ]);
+    backgroundTasks.setActions(id, this.refreshActions(id, 'running'));
     void withDatabaseSignal(this.lifetime.signal, async () => {
       try {
+        await this.persistRefresh();
         this.assertCurrent();
-        const maxAgeMs = range === 'older24h' ? 24 * 60 * 60 * 1000 : undefined;
+        const maxAgeMs = !plan && range === 'older24h' ? 24 * 60 * 60 * 1000 : undefined;
+        const force = Boolean(plan) || (!missingOnly && range === 'all');
         const targets = target === 'metrics' ? await this.conversationTargets() : undefined;
         this.assertCurrent();
-        const jobs =
+        const jobs: RefreshJob[] =
           target === 'groupMembers'
             ? []
-            : await this.friendJobs(
-                undefined,
-                !missingOnly && range === 'all',
-                fields,
-                true,
-                maxAgeMs,
-                targets?.users,
-              );
+            : await this.friendJobs(undefined, force, fields, true, maxAgeMs, targets?.users, plan);
         this.assertCurrent();
         const includeGroups =
           target === 'groupMembers' ||
@@ -828,7 +995,7 @@ export class ContactDirectoryRuntime {
                   requested.some((field) =>
                     needsMetricRefresh(
                       snapshot.rows[`group:${group.groupCode}`]?.[field],
-                      !missingOnly && range === 'all',
+                      force,
                       maxAgeMs,
                     ),
                   )
@@ -861,7 +1028,7 @@ export class ContactDirectoryRuntime {
                 groupFields.some((field) =>
                   needsMetricRefresh(
                     snapshot.rows[`group:${group.groupCode}`]?.[field],
-                    !missingOnly && range === 'all',
+                    force,
                     maxAgeMs,
                   ),
                 )
@@ -916,26 +1083,51 @@ export class ContactDirectoryRuntime {
           }
         }
         this.assertCurrent();
-        this.appendLog(`本地资料读取完成，准备 ${jobs.length} 项在线查询`);
         if (this.stopPreparing) {
-          backgroundTasks.finish(id, 'cancelled');
-          backgroundTasks.setActions(id, [
-            {
-              id: 'retry',
-              label: '重新准备',
-              run: () => this.rebuild(missingOnly, fields, range, target),
-            },
-          ]);
+          this.finishPreparing(refresh, this.stopPreparing === 'pause' ? 'paused' : 'cancelled');
           return;
         }
+        if (!plan) refresh.plan = Object.fromEntries(jobs.map((job) => [job.key, job.units ?? []]));
+        const byKey = new Map(jobs.map((job) => [job.key, job]));
+        const keys = Object.keys(refresh.plan!);
+        const completed = keys.filter((key) => this.completed.has(key));
+        const pending = keys
+          .filter((key) => !this.completed.has(key))
+          .map((key): RefreshJob => {
+            const job = byKey.get(key);
+            if (
+              job &&
+              (refresh.plan?.[key] ?? []).every(
+                (unit) => this.completed.has(unit) || job.units?.includes(unit),
+              )
+            )
+              return job;
+            return {
+              key,
+              online: false,
+              run: async () => {
+                throw new Error('原任务的联系人或资料范围已变化');
+              },
+            };
+          });
+        await this.persistRefresh();
+        this.assertCurrent();
+        if (this.stopPreparing) {
+          this.finishPreparing(refresh, this.stopPreparing === 'pause' ? 'paused' : 'cancelled');
+          return;
+        }
+        this.appendLog(`本地资料读取完成，准备 ${pending.length} 项查询`);
+        this.needsRebuild = false;
         this.cache.start(
-          jobs.map<ContactMetricJob>((job) => ({
+          pending.map<ContactMetricJob>((job) => ({
             ...job,
             run: (enqueue) =>
               withDatabaseSignal(this.lifetime.signal, async () => {
                 this.assertCurrent();
                 const result = await job.run(enqueue);
                 this.assertCurrent();
+                this.completed.add(job.key);
+                if (target === 'groupMembers') refresh.graphDone = false;
                 return result;
               }),
           })),
@@ -943,55 +1135,118 @@ export class ContactDirectoryRuntime {
           target === 'groupMembers'
             ? async () => {
                 this.assertCurrent();
+                if (refresh.graphDone) return;
                 this.appendLog('群成员更新结束，开始重新计算群交集');
                 await withDatabaseSignal(this.lifetime.signal, () =>
                   this.services.groupInfo.getRelationGraph({ force: true }),
                 );
                 if (!this.current() || this.disposed) return;
+                refresh.graphDone = true;
                 this.relationGraphRevision++;
                 this.appendLog('群交集已重新计算');
                 this.cache.emit('relationGraphChanged');
               }
             : undefined,
+          completed,
         );
       } catch (error) {
         if (!this.isCurrent()) return;
         this.appendLog(`准备失败：${error instanceof Error ? error.message : String(error)}`);
-        backgroundTasks.finish(id, 'failed', {
-          note: error instanceof Error ? error.message : String(error),
-          details: this.taskDetails(),
-        });
-        backgroundTasks.setActions(id, [
-          {
-            id: 'retry',
-            label: '重新准备',
-            run: () => this.rebuild(missingOnly, fields, range, target),
-          },
-        ]);
+        this.finishPreparing(
+          refresh,
+          'failed',
+          error instanceof Error ? error.message : String(error),
+        );
       } finally {
         this.preparing = false;
         if (this.isCurrent()) this.cache.emit('changed');
       }
     });
-    return id;
+  }
+
+  private finishPreparing(
+    refresh: RefreshCheckpoint,
+    status: 'paused' | 'cancelled' | 'failed',
+    note?: string,
+  ) {
+    refresh.status = status;
+    this.cache.progress = { ...this.cache.progress, status };
+    backgroundTasks.finish(refresh.id, status, { note, details: this.taskDetails() });
+    backgroundTasks.setActions(refresh.id, this.refreshActions(refresh.id, status));
+    refresh.updatedAt =
+      backgroundTasks.snapshot().find((task) => task.id === refresh.id)?.updatedAt ?? Date.now();
+    void this.persistRefresh().catch((error: unknown) => this.refreshStorageError(error));
+  }
+
+  private contactSubtasks(lanes: ContactMetricsProgress['lanes']) {
+    return lanes
+      ? Object.entries(lanes).map(([key, lane]) => ({
+          label: key === 'friends' ? '好友' : '群聊',
+          ...lane,
+        }))
+      : [];
+  }
+
+  private refreshActions(id: string, status: ContactMetricsProgress['status']) {
+    const assertTask = () => {
+      if (!this.isCurrent() || this.refresh?.id !== id) throw new Error('请回到原账号和数据源继续');
+      return this.refresh;
+    };
+    const stop = (mode: 'pause' | 'cancel') => {
+      const current = assertTask();
+      if (this.preparing) {
+        this.stopPreparing = mode;
+        backgroundTasks.update(id, { statusLabel: mode === 'pause' ? '暂停收尾中' : '取消收尾中' });
+        backgroundTasks.setActions(id, []);
+      } else if (mode === 'pause') this.cache.pause();
+      else if (this.needsRebuild) {
+        backgroundTasks.resume(id);
+        this.finishPreparing(current, 'cancelled');
+      } else this.cache.cancel();
+    };
+    if (status === 'running')
+      return [
+        { id: 'pause', label: '暂停', run: () => stop('pause') },
+        { id: 'stop', label: '取消', run: () => stop('cancel') },
+      ];
+    if (status === 'completed') return [];
+    const retry = {
+      id: status === 'paused' ? 'resume' : 'retry',
+      label:
+        status === 'paused'
+          ? '继续'
+          : this.needsRebuild && !this.refresh?.plan
+            ? '重新准备'
+            : status === 'failed'
+              ? '仅重试失败项'
+              : '继续',
+      run: () => {
+        const current = assertTask();
+        current.status = 'running';
+        backgroundTasks.resume(id);
+        if (this.needsRebuild) this.prepareRefresh(current);
+        else this.cache.resume();
+      },
+    };
+    return status === 'paused'
+      ? [retry, { id: 'stop', label: '取消', run: () => stop('cancel') }]
+      : [retry];
   }
 
   private updateTask(progress: ContactMetricsProgress) {
-    if (!this.taskId) return;
-    const id = this.taskId;
+    const refresh = this.refresh;
+    if (!refresh || this.disposed) return;
+    const id = refresh.id;
+    refresh.status = progress.status;
+    refresh.failures = this.cache.failedItems();
     const patch = {
       progress: progress.total ? (progress.done / progress.total) * 100 : 100,
-      statusLabel: progress.phase,
+      statusLabel: this.cache.pausing ? '暂停收尾中' : progress.phase,
       note: `已处理 ${progress.done}/${progress.total} 项，${progress.failed} 项失败`,
       details: this.taskDetails(),
       logs: this.logs,
-      contactFailures: this.cache.failedItems(),
-      subtasks: progress.lanes
-        ? Object.entries(progress.lanes).map(([key, lane]) => ({
-            label: key === 'friends' ? '好友' : '群聊',
-            ...lane,
-          }))
-        : [],
+      contactFailures: refresh.failures,
+      subtasks: this.contactSubtasks(progress.lanes),
     };
     if (progress.status === 'running') backgroundTasks.update(id, patch);
     else
@@ -1001,29 +1256,23 @@ export class ContactDirectoryRuntime {
           progress.status === 'failed'
             ? '部分完成'
             : progress.status === 'paused'
-              ? '等待 QQ 在线'
+              ? this.cache.pausing
+                ? '已暂停'
+                : '等待 QQ 在线'
               : undefined,
       });
     backgroundTasks.setActions(
       id,
-      progress.status === 'running'
-        ? [{ id: 'stop', label: '取消', run: () => this.cache.cancel() }]
-        : progress.status === 'paused' ||
-            progress.status === 'failed' ||
-            progress.status === 'cancelled'
-          ? [
-              {
-                id: 'retry',
-                label: progress.status === 'failed' ? '仅重试失败项' : '继续',
-                run: () => {
-                  if (!this.current() || this.disposed) throw new Error('请回到原账号重新创建任务');
-                  backgroundTasks.resume(id);
-                  this.cache.resume();
-                },
-              },
-            ]
-          : [],
+      progress.status === 'running' && this.cache.pausing
+        ? []
+        : this.refreshActions(id, progress.status),
     );
+    if (progress.status === 'running') this.saveRefreshSoon();
+    else {
+      refresh.updatedAt =
+        backgroundTasks.snapshot().find((task) => task.id === id)?.updatedAt ?? Date.now();
+      void this.persistRefresh().catch((error: unknown) => this.refreshStorageError(error));
+    }
   }
 
   private requestCheck(kind?: 'profile' | 'group') {
@@ -1184,13 +1433,14 @@ export class ContactDirectoryRuntime {
   }
 
   async dispose() {
+    if (this.disposed) return;
     this.stopSearchCapture();
     this.stopHistoryCapture();
     this.stopProfileWatch?.();
     this.services.groupInfo.disposeGroupProfiles();
     this.disposed = true;
     this.lifetime.abort();
-    this.stopPreparing = true;
+    this.stopPreparing = 'cancel';
     this.checkAgain = false;
     this.pendingKinds.clear();
     if (this.timer) clearTimeout(this.timer);
@@ -1206,13 +1456,18 @@ export class ContactDirectoryRuntime {
       this.services.peerStats.contactMetrics = undefined;
     if (this.services.profileExtras?.contactMetrics === this.cache)
       this.services.profileExtras.contactMetrics = undefined;
-    if (this.taskId)
-      backgroundTasks.finish(this.taskId, 'cancelled', { note: '账号已关闭，已保存完成的缓存' });
-    if (this.taskId) backgroundTasks.setActions(this.taskId, []);
+    if (this.taskId) {
+      backgroundTasks.finish(this.taskId, 'cancelled');
+      backgroundTasks.setActions(this.taskId, []);
+    }
+    if (this.refresh?.status === 'running') this.refresh.status = 'paused';
+    await this.cache
+      .dispose()
+      .catch((error: unknown) => console.warn('[contacts] 关闭时缓存保存失败', error));
     try {
-      await this.cache.dispose();
+      await this.persistRefresh();
     } catch (error) {
-      console.warn('[contacts] 关闭时缓存保存失败', error);
+      console.warn('[contacts] 关闭时任务断点保存失败', error);
     }
     await this.history.dispose();
   }

@@ -12,12 +12,13 @@ import { networkFetch } from '@weq/network';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, constants } from 'node:fs';
-import { readFile, writeFile, mkdir, lstat, readdir, copyFile, rm } from 'node:fs/promises';
+import { readFile, mkdir, lstat, readdir, copyFile, rm } from 'node:fs/promises';
 import { join, dirname, isAbsolute, resolve } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { getLogger, logErrorContext } from '../../common/logger';
 import { safeRelSegments, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
+import { writeFileAtomic } from '../../common/atomic_write';
 import { FlashTransferClient } from './client';
 import { FlashTransferResolver } from './resolver';
 import { groupFlashDownloads } from './batches';
@@ -115,6 +116,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
   private readonly running = new Set<string>();
   private pumping = false;
   private loading: Promise<void> | undefined;
+  private writes = Promise.resolve();
   private readonly client: FlashTransferClient;
   private readonly resolver: FlashTransferResolver;
   private startQueue: Promise<unknown> = Promise.resolve();
@@ -141,19 +143,29 @@ export class FlashTransferDownloadManager extends EventEmitter {
   }
 
   load(): Promise<void> {
-    if (this.loading) return this.loading;
-    const loading = this.readTasks().finally(() => {
-      if (this.loading === loading) this.loading = undefined;
-    });
-    this.loading = loading;
-    return loading;
+    this.loading ??= this.readTasks();
+    return this.loading;
   }
 
   private async readTasks(): Promise<void> {
     try {
       const raw = await readFile(this.tasksPath, 'utf8');
       const parsed = JSON.parse(raw) as FlashDownloadTask[];
-      if (Array.isArray(parsed)) this.tasks = parsed;
+      if (Array.isArray(parsed)) {
+        const now = Date.now();
+        this.tasks = parsed.map((task) =>
+          task.status === 'pending' || task.status === 'resolving' || task.status === 'downloading'
+            ? {
+                ...task,
+                status: 'failed',
+                interrupted: true,
+                finishedAt: now,
+                downloadedBytes: 0,
+                error: '上次下载已中断，可重试未完成文件。',
+              }
+            : task,
+        );
+      }
     } catch {
       // 首次运行 / 文件损坏：从空列表开始。
     }
@@ -161,8 +173,10 @@ export class FlashTransferDownloadManager extends EventEmitter {
 
   private async persist(strict = false): Promise<void> {
     try {
-      await mkdir(this.baseDir, { recursive: true });
-      await writeFile(this.tasksPath, JSON.stringify(this.tasks, null, 2), 'utf8');
+      const data = JSON.stringify(this.tasks, null, 2);
+      const write = this.writes.catch(() => {}).then(() => writeFileAtomic(this.tasksPath, data));
+      this.writes = write;
+      await write;
     } catch (error) {
       logger.error('failed to persist flash tasks', {
         event: 'flash-tasks-write',
@@ -233,6 +247,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       const previous = files.map((file) => ({ ...file }));
       for (const file of files) {
         file.status = 'pending';
+        delete file.interrupted;
         file.error = undefined;
         file.finishedAt = undefined;
         file.downloadedBytes = 0;
@@ -342,10 +357,19 @@ export class FlashTransferDownloadManager extends EventEmitter {
     const tasks = this.tasks.filter((t) => (t.batchId ?? t.id) === taskId);
     if (!tasks.length) return false;
     for (const task of tasks) {
-      if (task.status !== 'pending' && task.status !== 'resolving' && task.status !== 'downloading')
+      if (
+        !task.interrupted &&
+        task.status !== 'pending' &&
+        task.status !== 'resolving' &&
+        task.status !== 'downloading'
+      )
         continue;
       this.aborts.get(task.id)?.abort();
       task.status = 'cancelled';
+      if (task.interrupted) {
+        delete task.interrupted;
+        delete task.error;
+      }
       task.finishedAt = Date.now();
       this.emitTask(task);
     }
@@ -380,7 +404,9 @@ export class FlashTransferDownloadManager extends EventEmitter {
     await this.loading;
     const matched = new Set(
       this.list()
-        .filter((task) => (!ids || ids.has(task.id)) && statuses.has(task.status))
+        .filter(
+          (task) => (!ids || ids.has(task.id)) && !task.interrupted && statuses.has(task.status),
+        )
         .map((task) => task.id),
     );
     if (!matched.size) return 0;

@@ -7992,14 +7992,16 @@ export const accountRouter = router({
     }),
 
   /** 全部下载任务（含历史，新在前）。 */
-  flashListDownloadTasks: procedure.query(() => {
-    return requireServices()
-      .flashTransferFiles.downloads.list()
-      .map(({ logs: _logs, files, ...task }) => ({
-        ...task,
-        logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
-        files: files.map(({ logs: _fileLogs, ...file }) => file),
-      }));
+  flashListDownloadTasks: procedure.query(async () => {
+    const services = requireServices();
+    const downloads = services.flashTransferFiles.downloads;
+    await downloads.load();
+    if (requireServices() !== services) throw new Error('账号已切换');
+    return downloads.list().map(({ logs: _logs, files, ...task }) => ({
+      ...task,
+      logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
+      files: files.map(({ logs: _fileLogs, ...file }) => file),
+    }));
   }),
 
   flashDownloadTaskLogs: procedure

@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { conversationCalendarRouter } from '../src/main/ipc/routers/conversation_calendar';
+import {
+  conversationCalendarRouter,
+  restoreCalendarTasks,
+  removeCalendarTask,
+} from '../src/main/ipc/routers/conversation_calendar';
 import { backgroundTasks } from '../src/main/background_tasks';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -32,7 +36,46 @@ vi.mock('@weq/service/conversation-calendar-sources', () => ({
 const binding = { expectedAccountUin: 'fixture', expectedAccountConfigId: 'live' };
 beforeEach(() => {
   vi.useFakeTimers();
+  fixture.session = { ...fixture.session };
   fixture.read.mockReset();
+});
+
+it('后台任务重开先恢复原任务，打开详情不扫描，继续后才读取；移除不会重新出现', async () => {
+  fixture.root = await mkdtemp(join(tmpdir(), 'weq-calendar-background-'));
+  const firstRead = Promise.withResolvers<{ rows: never[]; done: boolean }>();
+  fixture.read.mockReturnValueOnce(firstRead.promise).mockResolvedValue({ rows: [], done: true });
+  const caller = conversationCalendarRouter.createCaller({});
+  const scope = { uin: binding.expectedAccountUin, configId: binding.expectedAccountConfigId };
+  const { id } = await caller.start({
+    ...binding,
+    month: '2026-10',
+    day: '2026-10-10',
+    targets: [],
+  });
+  const { taskId } = await caller.background({ ...binding, id });
+  await vi.advanceTimersByTimeAsync(100);
+  expect(fixture.read).toHaveBeenCalledOnce();
+  fixture.closing?.(fixture.session);
+  firstRead.resolve({ rows: [], done: true });
+  await waitForCalendarWrites();
+  fixture.session = { ...fixture.session };
+
+  restoreCalendarTasks(scope);
+  expect(backgroundTasks.snapshot().find((task) => task.id === taskId)).toMatchObject({
+    status: 'paused',
+  });
+  const detail = await caller.task({ ...binding, taskId: taskId! });
+  expect(detail.snapshot.controls.month.state).toBe('paused');
+  expect(fixture.read).toHaveBeenCalledOnce();
+  await backgroundTasks.act(taskId!, 'resume');
+  await vi.runAllTimersAsync();
+  expect(fixture.read).toHaveBeenCalledTimes(2);
+  const finished = backgroundTasks.snapshot().find((task) => task.id === taskId)!;
+  expect(finished.status).toBe('completed');
+  expect(removeCalendarTask(finished)).toBe(true);
+  expect(backgroundTasks.remove(finished.id)).toBe(true);
+  restoreCalendarTasks(scope);
+  expect(backgroundTasks.snapshot().some((task) => task.id === taskId)).toBe(false);
 });
 afterEach(async () => {
   fixture.closing?.(fixture.session);
