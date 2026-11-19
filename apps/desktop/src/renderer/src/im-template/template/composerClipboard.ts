@@ -82,10 +82,14 @@ export function composerClipboardFragment(
     const replacement = images[index];
     if (!replacement?.url) continue;
     node.src = replacement.url;
-    // 保留原元素的其余字段，只替换已释放的本地预览地址。
+    // 预览和持久素材标识都必须指向本次粘贴使用的附件。
     const element = tokenToElement(node.dataset.chatToken ?? '');
     if (element && typeof element === 'object') {
-      node.dataset.chatToken = elementToToken({ ...element, localPreviewUrl: replacement.url });
+      node.dataset.chatToken = elementToToken({
+        ...element,
+        localPreviewUrl: replacement.url,
+        localDraftAssetId: replacement.draftAssetId,
+      });
     }
   }
   const fragment = document.createDocumentFragment();
