@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { UnreadInfoDb } from '@weq/db';
-import { ProtoMsg } from '@weq/codec';
+import { ChatType, ProtoMsg } from '@weq/codec';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 
@@ -74,6 +74,35 @@ it('缺最近会话行、缺水位、设备和纯标记均可读取，不触发�
     expect(rows.find((row) => row.chatType === 8)?.localUnreadCount).toBe(3);
     expect(rows.find((row) => row.chatType === 134)?.storedUnreadCount).toBe(4);
     expect(f.query).toHaveBeenCalledOnce();
+  } finally {
+    f.db.close();
+  }
+});
+it('临时私聊用普通私聊的未读键找到最新位置，打开后能清除手动标记', async () => {
+  const f = fixture();
+  const insert = f.sql.prepare(
+    'INSERT INTO recent_contact_v3_table VALUES (?,?,?,NULL,NULL,NULL,NULL,NULL)',
+  );
+  const target = { chatType: ChatType.KCHATTYPEC2C, uid: 'u_temp' };
+  insert.run(target.uid, 47, ChatType.KCHATTYPETEMPC2CFROMGROUP);
+  insert.run('u_former_temp', 140, ChatType.KCHATTYPETEMPC2CFROMGROUP);
+  insert.run('u_former_temp', 100, ChatType.KCHATTYPEC2C);
+  insert.run('u_official', 200, ChatType.KCHATTYPETEMPPUBLICACCOUNT);
+  const former = { ...target, uid: 'u_former_temp' };
+  const official = { ...target, uid: 'u_official' };
+  try {
+    await f.db.setReadState(target.chatType, target.uid, '46', '46', false);
+    await f.db.setReadState(target.chatType, target.uid, '46', '47', true);
+    const snapshot = await f.db.getUnreadInfos([target, former, official]);
+    expect(snapshot).toMatchObject([
+      { peer: '1_u_temp', latestSeq: '47', msgSeq: 46, markUnread: true },
+      { peer: '1_u_former_temp', latestSeq: '100' },
+      { peer: '1_u_official', latestSeq: null },
+    ]);
+    expect(await f.db.getAllUnreadInfos()).toEqual(snapshot.slice(0, 2));
+
+    expect(await f.db.markRead(target.chatType, target.uid, snapshot[0]!.latestSeq!)).toBe(true);
+    expect((await f.db.getAllUnreadInfos())[0]).toMatchObject({ msgSeq: 47, markUnread: false });
   } finally {
     f.db.close();
   }

@@ -8,7 +8,7 @@
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import { QqDb } from '../qq_db';
-import { ElementType, GrayTipSubType, ProtoMsg } from '@weq/codec';
+import { ChatType, ElementType, GrayTipSubType, ProtoMsg } from '@weq/codec';
 import {
   appendNode,
   buildEditTree,
@@ -110,7 +110,15 @@ export interface UnreadInfoSnapshot extends UnreadInfoResult {
 }
 
 const GRAY_TIP = MsgType.GRAY_TIP;
-const RECENT_UNREAD_COLUMNS = `r."40003", r."40020", CASE WHEN r."40011"=${GRAY_TIP} THEN r."40051" END, r."40001", r."40027"`;
+const RECENT_CHAT_TYPE = `CAST(r."40010" AS INTEGER)`;
+const TEMP_DIRECT_TYPES = [
+  ChatType.KCHATTYPETEMPC2CFROMUNKNOWN,
+  ChatType.KCHATTYPETEMPC2CFROMGROUP,
+  ChatType.KCHATTYPETEMPFRIENDVERIFY,
+].join(',');
+// 临时私聊在最近会话表保留来源类型，未读表则与普通私聊共用 1_<uid>。
+const RECENT_UNREAD_TYPE = `CASE WHEN ${RECENT_CHAT_TYPE} IN (${TEMP_DIRECT_TYPES}) THEN 1 ELSE ${RECENT_CHAT_TYPE} END`;
+const RECENT_UNREAD_COLUMNS = `r."40003", r."40020", CASE WHEN r."40011"=${GRAY_TIP} THEN r."40051" END, r."40001", r."40027", ${RECENT_CHAT_TYPE}`;
 const previewProto = new ProtoMsg(RecentContactBody);
 
 interface GrayTipUnreadTarget {
@@ -139,6 +147,14 @@ function unreadGrayTip(blob: Uint8Array): 'recall' | 'poke' | undefined {
 function positiveInt(value: unknown): bigint | null {
   if (value == null || !/^\d{1,20}$/.test(String(value))) return null;
   return BigInt(String(value)) || null;
+}
+
+/** 转为正式私聊后若仍有临时摘要，优先使用与未读键同类型的正式摘要。 */
+function preferRecentUnreadRow(candidate: SqlRow, current: SqlRow): boolean {
+  const exact = Number(candidate[9]) === Number(candidate[0]);
+  const currentExact = Number(current[9]) === Number(current[0]);
+  if (exact !== currentExact) return exact;
+  return (positiveInt(candidate[4]) ?? 0n) > (positiveInt(current[4]) ?? 0n);
 }
 
 export interface UnreadReadChange extends UnreadInfoTarget {
@@ -213,10 +229,16 @@ export class UnreadInfoDb {
          SELECT t.chatType, t.uid, t.peer, u."48902", ${RECENT_UNREAD_COLUMNS}
          FROM targets t
          LEFT JOIN msg_unread_info_table u ON u."48901" = t.peer
-         LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND CAST(r."40010" AS INTEGER) = t.chatType`,
+         LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND (${RECENT_UNREAD_TYPE}) = t.chatType`,
         batch.flatMap((t) => [t.chatType, t.uid, `${t.chatType}_${t.uid}`]),
       );
-      result.push(...(await this.decodeAndResolveSnapshots(rows)));
+      const byPeer = new Map<string, SqlRow>();
+      for (const row of rows) {
+        const peer = String(row[2]);
+        const current = byPeer.get(peer);
+        if (!current || preferRecentUnreadRow(row, current)) byPeer.set(peer, row);
+      }
+      result.push(...(await this.decodeAndResolveSnapshots([...byPeer.values()])));
     }
     return result;
   }
@@ -224,11 +246,11 @@ export class UnreadInfoDb {
   /** 账号共享快照由两张小表驱动，包含没有最近会话行的未读记录。 */
   async getAllUnreadInfos(): Promise<UnreadInfoSnapshot[]> {
     const rows = await this.qq.query(
-      `SELECT r."40010", r."40021", CAST(r."40010" AS TEXT) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}
+      `SELECT ${RECENT_UNREAD_TYPE}, r."40021", (${RECENT_UNREAD_TYPE}) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}
        FROM recent_contact_v3_table r
-       WHERE CAST(r."40010" AS INTEGER) IN (1,2,8,134)
+       WHERE ${RECENT_CHAT_TYPE} IN (1,2,8,134,${TEMP_DIRECT_TYPES})
        UNION ALL
-       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
+       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
     );
     // 同一 SQL 快照分别返回小表行，再线性合并；避免缺行检测逐个重扫最近会话表。
     const merged = new Map<string, SqlRow>();
@@ -236,7 +258,7 @@ export class UnreadInfoDb {
       const peer = String(row[2]);
       const recent = merged.get(peer);
       if (recent && row[0] === null) recent[3] = row[3] ?? null;
-      else merged.set(peer, [...row]);
+      else if (!recent || preferRecentUnreadRow(row, recent)) merged.set(peer, [...row]);
     }
     return (await this.decodeAndResolveSnapshots([...merged.values()])).filter((row) =>
       [1, 2, 8, 134].includes(row.chatType),
