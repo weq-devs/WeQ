@@ -209,18 +209,31 @@ test('运行中的有效宿主可复用，需要更新时不替换正在运行�
   skip: process.platform !== 'darwin',
 }, async (t) => {
   const options = await fixture(t);
-  await copyFile('/bin/sleep', options.executable);
+  // macOS 15 上复制并重签的系统 sleep 可能在启动时崩溃。
+  const source = join(dirname(options.directory), 'running-host.c');
+  await writeFile(
+    source,
+    '#include <stdio.h>\n#include <unistd.h>\nint main(void) { puts("ready"); fflush(stdout); sleep(30); return 0; }\n',
+  );
+  await run('/usr/bin/cc', [source, '-o', options.executable]);
   await run('/usr/bin/codesign', ['--force', '--sign', '-', options.executable]);
   const target = await prepareDevElectron(options);
-  const child = spawn(target, ['30']);
-  await once(child, 'spawn');
+  const child = spawn(target);
   t.after(async () => {
-    if (child.exitCode === null && child.signalCode === null) {
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
       const exited = once(child, 'exit');
       child.kill();
       await exited;
     }
   });
+  const signal = AbortSignal.timeout(10_000);
+  const output = await Promise.race([
+    once(child.stdout, 'data', { signal }).then(([data]) => data.toString()),
+    once(child, 'exit', { signal }).then(([code, signal]) => {
+      throw new Error(`测试宿主未就绪：${signal ?? code}`);
+    }),
+  ]);
+  assert.equal(output.trim(), 'ready');
   assert.equal(await prepareDevElectron(options), target);
   const entitlementPath = join(options.directory, 'changed.plist');
   const existing = await readFile(
@@ -230,26 +243,10 @@ test('运行中的有效宿主可复用，需要更新时不替换正在运行�
   const alias = join(dirname(options.directory), 'prepared-alias');
   await symlink(options.directory, alias);
   const before = await stat(target);
-  const processState = async () => ({
-    exitCode: child.exitCode,
-    signalCode: child.signalCode,
-    ps: await run('/bin/ps', ['-ww', '-p', String(child.pid), '-o', 'stat=,comm=,args=']).then(
-      ({ stdout }) => stdout.trim(),
-      (error) => ({ code: error.code, stderr: error.stderr }),
-    ),
-  });
-  const runningBefore = await processState();
-  try {
-    await assert.rejects(
-      prepareDevElectron({ ...options, directory: alias, entitlementPath }),
-      /先按 Cmd\+Q/,
-    );
-  } catch (error) {
-    t.diagnostic(
-      JSON.stringify({ target, alias, runningBefore, runningAfter: await processState() }),
-    );
-    throw error;
-  }
+  await assert.rejects(
+    prepareDevElectron({ ...options, directory: alias, entitlementPath }),
+    /先按 Cmd\+Q/,
+  );
   assert.equal((await stat(target)).ino, before.ino);
 });
 
