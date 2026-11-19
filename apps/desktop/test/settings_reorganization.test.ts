@@ -136,27 +136,50 @@ function expectInnermostControlFocused(highlighted: HTMLElement | null) {
 }
 
 describe('设置归位后的实际页面', () => {
-  it('关闭链接卡片隐藏截图子项，搜索回到父项且重开保留截图偏好', async () => {
+  it('链接预览逐级隐藏子项，搜索定位到可见上级且重开保留偏好', async () => {
     conditional.settings = { linkPreview: { enabled: false, autoFetch: true, screenshot: true } };
     conditional.save.mockResolvedValue(true);
     const f = mount('message-display');
     try {
-      expect(f.body().querySelector('[data-setting-id="link-screenshot"]')).toBeNull();
-      f.render('message-display', {
-        section: 'message-display',
-        settingId: 'link-screenshot',
-        revision: 1,
-      });
-      expect(
-        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
-      ).toBe('link-preview');
-      await act(async () =>
-        f.body().querySelector<HTMLButtonElement>('[aria-label="链接预览卡片"]')!.click(),
-      );
-      expect(
-        f.body().querySelector('[aria-label="无封面时网页截图"]')?.getAttribute('aria-checked'),
-      ).toBe('true');
+      const toggle = (label: string) =>
+        f.body().querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${label}"]`);
+      const autoFetch = '自动联网补全链接预览';
+      const screenshot = '无封面时网页截图';
+      let revision = 0;
+      const expectSearchTarget = (settingId: string, expectedId: string) => {
+        f.render('message-display', {
+          section: 'message-display',
+          settingId,
+          revision: ++revision,
+        });
+        const highlighted = f.body().querySelector<HTMLElement>('[data-search-highlight]');
+        expect(highlighted?.dataset.settingId).toBe(expectedId);
+        expectInnermostControlFocused(highlighted);
+      };
+
+      expect(toggle(autoFetch)).toBeNull();
+      expect(toggle(screenshot)).toBeNull();
+      expectSearchTarget('link-preview-auto-fetch', 'link-preview');
+      expectSearchTarget('link-screenshot', 'link-preview');
+
+      await act(async () => toggle('链接预览卡片')!.click());
       expect(conditional.save).toHaveBeenLastCalledWith({ enabled: true });
+      expect(toggle(autoFetch)?.getAttribute('aria-checked')).toBe('true');
+      expect(toggle(screenshot)?.getAttribute('aria-checked')).toBe('true');
+
+      await act(async () => toggle(autoFetch)!.click());
+      expect(conditional.save).toHaveBeenLastCalledWith({ autoFetch: false });
+      expect(toggle(screenshot)).toBeNull();
+      expectSearchTarget('link-screenshot', 'link-preview-auto-fetch');
+
+      await act(async () => toggle(autoFetch)!.click());
+      expect(conditional.save).toHaveBeenLastCalledWith({ autoFetch: true });
+      expect(toggle(screenshot)?.getAttribute('aria-checked')).toBe('true');
+
+      await act(async () => toggle('链接预览卡片')!.click());
+      expect(conditional.save).toHaveBeenLastCalledWith({ enabled: false });
+      expect(toggle(autoFetch)).toBeNull();
+      expect(toggle(screenshot)).toBeNull();
     } finally {
       f.close();
     }
@@ -522,17 +545,11 @@ describe('设置归位后的实际页面', () => {
         '文本消息自动渲染为 Markdown',
         '链接预览卡片',
         '自动联网补全链接预览',
-        '无封面时网页截图',
         '图片预览内存预算',
       ]);
       expect(
         [...display.querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
       ).toEqual(['阅读与定位', '内容显示']);
-      expect(
-        display
-          .querySelector('[data-setting-id="link-screenshot"]')
-          ?.classList.contains('is-indent'),
-      ).toBe(true);
       expect(
         [...display.querySelectorAll('[aria-label="个性装扮"] button')].map(
           (node) => node.textContent,
@@ -559,6 +576,7 @@ describe('设置归位后的实际页面', () => {
     }
   });
   it('旧聊天条目的搜索切换二级页，手动切页不重放旧搜索，同一条目可再次定位', () => {
+    conditional.settings = { linkPreview: { enabled: true, autoFetch: true, screenshot: false } };
     const f = mount('chat-messages');
     try {
       const target = {
@@ -615,7 +633,7 @@ describe('设置归位后的实际页面', () => {
         expect(
           f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
           item.id,
-        ).toBe(item.id);
+        ).toBe(item.id === 'link-screenshot' ? 'link-preview-auto-fetch' : item.id);
       }
     } finally {
       f.close();

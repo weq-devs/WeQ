@@ -871,11 +871,9 @@ function AppearanceSection({
   const utils = trpc.useUtils();
   const [readingError, setReadingError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(false);
-  const [linkPreview, setLinkPreviewDraft] = useState({
-    enabled: true,
-    autoFetch: false,
-    screenshot: false,
-  });
+  const [linkPreview, setLinkPreviewDraft] = useState(
+    () => settings.data?.linkPreview ?? { enabled: true, autoFetch: false, screenshot: false },
+  );
 
   useEffect(() => {
     const enabled = settings.data?.renderTextMarkdown;
@@ -1195,7 +1193,9 @@ function AppearanceSection({
                 desc="一条消息只有一个链接时，显示 QQ 已提供或本地已缓存的预览。关闭后，链接仍可点击。"
                 control={
                   <span
-                    data-setting-fallback={!linkPreview.enabled ? 'link-screenshot' : undefined}
+                    data-setting-fallback={
+                      !linkPreview.enabled ? 'link-preview-auto-fetch link-screenshot' : undefined
+                    }
                   >
                     <Toggle
                       checked={linkPreview.enabled}
@@ -1206,22 +1206,26 @@ function AppearanceSection({
                   </span>
                 }
               />
-              <Row
-                settingId="link-preview-auto-fetch"
-                indent
-                desc="允许在浏览消息时访问链接或封面地址，补齐本地缺失的标题、简介和图片。"
-                control={
-                  <Toggle
-                    checked={linkPreview.autoFetch}
-                    disabled={
-                      !linkPreview.enabled || settings.isLoading || setLinkPreview.isLoading
-                    }
-                    onChange={(autoFetch) => void onSetLinkPreview({ autoFetch })}
-                    label="自动联网补全链接预览"
-                  />
-                }
-              />
               {linkPreview.enabled ? (
+                <Row
+                  settingId="link-preview-auto-fetch"
+                  indent
+                  desc="允许在浏览消息时访问链接或封面地址，补齐本地缺失的标题、简介和图片。"
+                  control={
+                    <span
+                      data-setting-fallback={!linkPreview.autoFetch ? 'link-screenshot' : undefined}
+                    >
+                      <Toggle
+                        checked={linkPreview.autoFetch}
+                        disabled={settings.isLoading || setLinkPreview.isLoading}
+                        onChange={(autoFetch) => void onSetLinkPreview({ autoFetch })}
+                        label="自动联网补全链接预览"
+                      />
+                    </span>
+                  }
+                />
+              ) : null}
+              {linkPreview.enabled && linkPreview.autoFetch ? (
                 <Row
                   settingId="link-screenshot"
                   indent
@@ -1229,9 +1233,7 @@ function AppearanceSection({
                   control={
                     <Toggle
                       checked={linkPreview.screenshot}
-                      disabled={
-                        !linkPreview.autoFetch || settings.isLoading || setLinkPreview.isLoading
-                      }
+                      disabled={settings.isLoading || setLinkPreview.isLoading}
                       onChange={(screenshot) => void onSetLinkPreview({ screenshot })}
                       label="无封面时网页截图"
                     />
