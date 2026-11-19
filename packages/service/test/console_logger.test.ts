@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { createConsoleLogger, projectConsoleContext } from '../src/common/console_logger';
-import { configureConsoleLogger, getLogger, initLogger } from '../src/common/logger';
+import {
+  configureConsoleLogger,
+  flushFileLogger,
+  getLogger,
+  initLogger,
+} from '../src/common/logger';
 
 const disposals: Array<() => void> = [];
 function fixture(env: NodeJS.ProcessEnv = {}, development = true) {
@@ -552,7 +557,7 @@ describe('开发终端', () => {
     broken.dispose();
     configureConsoleLogger({ development: false, processName: 'test', env: {} });
   });
-  it('终端过滤及堆栈收起不影响 JSON 文件格式或文件记录数', () => {
+  it('终端过滤及堆栈收起不影响 JSON 文件格式或文件记录数', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'weq-log-test-'));
     const sink = vi.fn();
     configureConsoleLogger({
@@ -571,6 +576,7 @@ describe('开发终端', () => {
       };
       getLogger().error('duplicate', context);
       getLogger().error('duplicate', context);
+      await flushFileLogger();
       expect(sink).toHaveBeenCalledTimes(2);
       expect(sink.mock.calls[0]![0]).toContain('at probe');
       expect(sink.mock.calls[1]![0]).not.toContain('at probe');

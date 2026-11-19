@@ -188,7 +188,11 @@ export function MergeForwardDialog({
 
         <footer className="weq-mf-foot">
           <div className="weq-mf-foot-group">
-            <CompositionButton type="button" className="weq-mf-soft" onClick={() => void copyJson()}>
+            <CompositionButton
+              type="button"
+              className="weq-mf-soft"
+              onClick={() => void copyJson()}
+            >
               <ClipboardCopy size={15} /> 复制 JSON
             </CompositionButton>
             {step === 'edit' ? (

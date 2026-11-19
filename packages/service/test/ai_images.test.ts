@@ -324,7 +324,7 @@ it.each([
     } as unknown as AccountSession;
     const root = directory();
     const service = new IntentSenseService(session, root, { images: processor });
-    await service.setConfig({ suggestionsEnabled: true });
+    await service.setConfig({ suggestionsEnabled: true, suggestionFallbackEnabled: true });
     const pending = service.getSuggestions('c2c', 'peer');
     try {
       await vi.waitFor(() => {
