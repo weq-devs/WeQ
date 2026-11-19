@@ -10,7 +10,7 @@ import {
   useConversationWindowEntry,
   readUnreadInfos,
 } from './workspace/useConversationWindowRead';
-import { PAGE_SIZE, GROUP_MEMBER_PAGE_SIZE } from './workspace/paging';
+import { PAGE_SIZE } from './workspace/paging';
 import { firstUnreadMessage } from '../lib/unreadNavigation';
 import {
   toMessageWire,
@@ -73,7 +73,12 @@ import { OverlayScrollbar } from '../components/OverlayScrollbar';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target.shared';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
-import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
+import {
+  type InfiniteData,
+  replaceEqualDeep,
+  useInfiniteQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { WebBusinessCache } from '../components/WebBusinessCache';
 import {
   RECENT_HEAD_SIZE,
@@ -258,9 +263,11 @@ import {
 } from '../hooks/useGroupMemberResolver';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
 import {
-  readFreshGroupMemberPage,
   activeGroupMembers,
   createGroupMemberLookup,
+  groupMemberPagesKey,
+  groupMemberPagesOptions,
+  refreshGroupMemberPages,
 } from '../lib/groupMemberRefresh';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
@@ -2337,14 +2344,9 @@ function MainWorkspace(): ReactElement {
   const [highlightsByConv, setHighlightsByConv] = useState<Record<string, ConversationHighlight[]>>(
     {},
   );
-  const [groupMemberPages, setGroupMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
-  // 分页失效时仅保留发言人的展示快照，不将历史成员重新加入当前名单。
+  // 分页更新时为历史发言人保留名片快照，不将已退群成员重新加入当前名单。
   const [senderMemberPages, setSenderMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
-  const [groupMemberHasMore, setGroupMemberHasMore] = useState<Record<string, boolean>>({});
-  const [groupMemberLoading, setGroupMemberLoading] = useState<Record<string, boolean>>({});
-  const [groupMemberError, setGroupMemberError] = useState<Record<string, string>>({});
   const [groupInfoRevision, setGroupInfoRevision] = useState(0);
-  const groupMemberLoadingRef = useRef<Record<string, boolean>>({});
   // Off-page message senders resolved on demand (groupCode → uid → member),
   // batched + deduped by useGroupMemberResolver. Kept separate from the global
   // profile cache because a group card is a (group × uid) thing, not a profile.
@@ -3348,8 +3350,6 @@ function MainWorkspace(): ReactElement {
     };
   }, [loaded, selectedUid, isDirect, isGroup, messageScope]);
 
-  const groupMemberTargets = useRef(new Set<string>());
-  groupMemberTargets.current = new Set([isGroup ? selectedUid : '']);
   const selectedGroupConversationForDetail = shell.selectedGroupConversation;
 
   // Keep one unread reader alive: DB pings request a refresh, rather than
@@ -3732,117 +3732,50 @@ function MainWorkspace(): ReactElement {
       })),
     [groupLeftMembers.data, profileByUid],
   );
+  const groupMembersEnabled = Boolean(pinSession.binding && groupExtrasReady && messagesTabActive);
+  const groupMembers = useInfiniteQuery({
+    ...groupMemberPagesOptions(messageScope, isGroup ? selectedUid : '', (offset, limit) =>
+      client.account.listGroupMembers.query({
+        ...pinSession.binding,
+        groupCode: selectedUid,
+        limit,
+        offset,
+      }),
+    ),
+    enabled: groupMembersEnabled,
+  });
   const selectedGroupMemberWires = useMemo(
-    () => (isGroup ? (groupMemberPages[selectedUid] ?? []) : []),
-    [isGroup, groupMemberPages, selectedUid],
+    () => mergeMessageMembers<GroupMemberWire>([], groupMembers.data?.pages.flat() ?? []),
+    [groupMembers.data],
   );
-  const selectedGroupMembersLoading = Boolean(isGroup && groupMemberLoading[selectedUid]);
-  const selectedGroupMembersHasMore = Boolean(isGroup && groupMemberHasMore[selectedUid]);
-  const selectedGroupMembersError = isGroup ? (groupMemberError[selectedUid] ?? null) : null;
-  const memberPageVersions = useRef(new Map<string, number>());
-
-  const loadGroupMembersPage = useCallback(
-    async (groupCode: string, offset: number): Promise<void> => {
-      if (!groupCode) return;
-      if (groupMemberLoadingRef.current[groupCode]) return;
-      groupMemberLoadingRef.current = {
-        ...groupMemberLoadingRef.current,
-        [groupCode]: true,
-      };
-      setGroupMemberLoading((current) => {
-        if (current[groupCode]) return current;
-        return { ...current, [groupCode]: true };
-      });
-
-      let version = memberPageVersions.current.get(groupCode) ?? 0;
-      memberPageVersions.current.set(groupCode, version);
-      try {
-        const result = await readFreshGroupMemberPage(
-          offset,
-          () => memberPageVersions.current.get(groupCode) ?? 0,
-          (pageOffset) =>
-            client.account.listGroupMembers.query({
-              groupCode,
-              limit: GROUP_MEMBER_PAGE_SIZE,
-              offset: pageOffset,
-            }),
-        );
-        if (!result) return;
-        version = result.version;
-        if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return;
-        const page = result.page;
-        offset = result.offset;
-
-        if (!groupMemberTargets.current.has(groupCode)) {
-          // User switched away during loading - cleanup and bail
-          groupMemberLoadingRef.current = {
-            ...groupMemberLoadingRef.current,
-            [groupCode]: false,
-          };
-          setGroupMemberLoading((current) => ({ ...current, [groupCode]: false }));
-          return;
-        }
-
-        setGroupMemberPages((current) => {
-          if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return current;
-          const existing = offset === 0 ? [] : (current[groupCode] ?? []);
-          const known = new Set(existing.map((member) => member.uid));
-          const fresh = page.filter((member) => !known.has(member.uid));
-          return { ...current, [groupCode]: [...existing, ...fresh] };
-        });
-        setSenderMemberPages((current) => {
-          if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return current;
-          return {
-            ...current,
-            [groupCode]: mergeMessageMembers(current[groupCode] ?? [], page),
-          };
-        });
-        setGroupMemberHasMore((current) => ({
-          ...current,
-          [groupCode]: page.length >= GROUP_MEMBER_PAGE_SIZE,
-        }));
-        // 如果第一次查询就返回空，说明数据库里没有缓存
-        if (offset === 0 && page.length === 0) {
-          setGroupMemberError((current) => ({
-            ...current,
-            [groupCode]: '数据库中没有该群的成员信息',
-          }));
-        } else {
-          setGroupMemberError((current) => ({ ...current, [groupCode]: '' }));
-        }
-      } catch (err) {
-        console.error('[group-members] listGroupMembers failed', err);
-        if (version !== (memberPageVersions.current.get(groupCode) ?? 0)) return;
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        setGroupMemberError((current) => ({ ...current, [groupCode]: errorMessage }));
-        setGroupMemberHasMore((current) => ({ ...current, [groupCode]: false }));
-      } finally {
-        groupMemberLoadingRef.current = {
-          ...groupMemberLoadingRef.current,
-          [groupCode]: false,
-        };
-        setGroupMemberLoading((current) => ({ ...current, [groupCode]: false }));
-      }
-    },
-    [],
-  );
+  const selectedGroupMembersLoading =
+    groupMembers.isInitialLoading || groupMembers.isFetchingNextPage;
+  const selectedGroupMembersError = groupMembers.isError
+    ? groupMembers.error instanceof Error
+      ? groupMembers.error.message
+      : String(groupMembers.error)
+    : groupMembers.data?.pages[0]?.length === 0
+      ? '数据库中没有该群的成员信息'
+      : null;
+  useEffect(() => {
+    if (!isGroup || !selectedGroupMemberWires.length) return;
+    setSenderMemberPages((current) => ({
+      ...current,
+      [selectedUid]: mergeMessageMembers(current[selectedUid] ?? [], selectedGroupMemberWires),
+    }));
+  }, [isGroup, selectedUid, selectedGroupMemberWires]);
 
   useEffect(() => {
     const binding = messageBindingRef.current;
     if (!messageScope || !binding) return;
     const refresh = createUnreadRefresh(async () => {
       if (messageScopeRef.current !== messageScope) return true;
-      for (const code of memberPageVersions.current.keys()) {
-        memberPageVersions.current.set(code, (memberPageVersions.current.get(code) ?? 0) + 1);
-      }
-      setGroupMemberPages({});
-      setGroupMemberHasMore({});
-      setGroupMemberError({});
       groupMemberLookup.invalidate();
       invalidateCachedMembers();
       invalidatePreviewMembers();
       setGroupInfoRevision((revision) => revision + 1);
       await Promise.all([
+        refreshGroupMemberPages(queryClient, messageScope),
         utils.account.getGroupDetail.invalidate(),
         utils.account.getGroupExt.invalidate(),
         utils.account.getGroupMemberLevelInfo.invalidate(),
@@ -3850,7 +3783,7 @@ function MainWorkspace(): ReactElement {
         utils.account.listAllGroups.invalidate(),
       ]);
       return true;
-    });
+    }, 1000);
     const sub = client.account.onGroupInfoChanged.subscribe(binding, {
       onData() {
         if (messageScopeRef.current === messageScope) refresh.request();
@@ -3865,6 +3798,7 @@ function MainWorkspace(): ReactElement {
     };
   }, [
     messageScope,
+    queryClient,
     utils,
     invalidateCachedMembers,
     invalidatePreviewMembers,
@@ -3875,6 +3809,7 @@ function MainWorkspace(): ReactElement {
 
   const peerUpdateSource = useRef(noticeAccountKey);
   peerUpdateSource.current = noticeAccountKey;
+  const memberReadbackVersions = useRef(new Map<string, number>());
   useEffect(
     () =>
       subscribeQQPeerUpdates(async ({ binding, target }) => {
@@ -3887,64 +3822,54 @@ function MainWorkspace(): ReactElement {
           );
           return;
         }
-        const version = (memberPageVersions.current.get(target.groupCode) ?? 0) + 1;
-        memberPageVersions.current.set(target.groupCode, version);
+        const key = `${source}:${target.groupCode}:${target.uid}`;
+        const version = (memberReadbackVersions.current.get(key) ?? 0) + 1;
+        memberReadbackVersions.current.set(key, version);
         const member = await client.account.qqWrite.memberDetails.query({
           ...binding,
           groupId: Number(target.groupCode),
           uid: target.uid,
         });
-        const rows = member ? [member] : [];
-        if (!current() || version !== memberPageVersions.current.get(target.groupCode)) return;
-        setGroupMemberPages((previous) => {
-          const loaded = previous[target.groupCode];
-          if (!current() || !loaded || version !== memberPageVersions.current.get(target.groupCode))
-            return previous;
-          return {
-            ...previous,
-            [target.groupCode]: replaceLoadedMembers(loaded, rows),
-          };
-        });
+        const queryKey = groupMemberPagesKey(
+          JSON.stringify([binding.expectedAccountUin, binding.expectedAccountConfigId]),
+          target.groupCode,
+        );
+        if (!member || !current() || version !== memberReadbackVersions.current.get(key)) return;
+        const filters = { queryKey, exact: true };
+        const wasFetching = queryClient.isFetching(filters) > 0;
+        if (wasFetching) await queryClient.cancelQueries(filters);
+        if (!current() || version !== memberReadbackVersions.current.get(key)) return;
+        const needsRefetch = wasFetching || queryClient.getQueryState(queryKey)?.isInvalidated;
+        const rows = [member];
+        queryClient.setQueryData<InfiniteData<GroupMemberWire[]>>(
+          queryKey,
+          (previous) =>
+            previous && {
+              ...previous,
+              pages: previous.pages.map((page) => replaceLoadedMembers(page, rows)),
+            },
+        );
         updateCachedMembers(target.groupCode, rows);
         updatePreviewMembers(target.groupCode, rows);
+        if (needsRefetch) void queryClient.invalidateQueries(filters, { cancelRefetch: false });
       }),
-    [refreshProfileCache, updateCachedMembers, updatePreviewMembers],
+    [queryClient, refreshProfileCache, updateCachedMembers, updatePreviewMembers],
   );
 
+  const {
+    fetchNextPage: fetchMoreGroupMembers,
+    hasNextPage,
+    isFetching: groupMembersFetching,
+  } = groupMembers;
   const requestMoreGroupMembers = useCallback((): void => {
-    if (!selectedUid || !isGroup || selectedGroupMembersLoading || selectedGroupMembersError)
-      return;
-    // 如果已经加载过但没有更多数据，不再重试（包括第一次查询返回空的情况）
-    if (!selectedGroupMembersHasMore && selectedUid in groupMemberHasMore) return;
-    void loadGroupMembersPage(selectedUid, selectedGroupMemberWires.length);
+    if (groupMembersEnabled && hasNextPage && !groupMembersFetching && !selectedGroupMembersError)
+      void fetchMoreGroupMembers({ cancelRefetch: false });
   }, [
-    isGroup,
-    loadGroupMembersPage,
-    selectedGroupMemberWires.length,
-    selectedGroupMembersHasMore,
-    selectedGroupMembersLoading,
+    fetchMoreGroupMembers,
+    groupMembersEnabled,
+    groupMembersFetching,
+    hasNextPage,
     selectedGroupMembersError,
-    selectedUid,
-    groupMemberHasMore,
-  ]);
-
-  useEffect(() => {
-    if (!groupExtrasReady || !selectedUid || !isGroup) return;
-    if (
-      selectedGroupMemberWires.length > 0 ||
-      selectedGroupMembersLoading ||
-      selectedGroupMembersError
-    )
-      return;
-    requestMoreGroupMembers();
-  }, [
-    groupExtrasReady,
-    isGroup,
-    requestMoreGroupMembers,
-    selectedGroupMemberWires.length,
-    selectedGroupMembersLoading,
-    selectedGroupMembersError,
-    selectedUid,
   ]);
 
   // 成员 wire → 模板层 GroupMember 的映射。群主 / 等级配置 / bot 名单只有上层有，

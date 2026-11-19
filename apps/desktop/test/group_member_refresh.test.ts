@@ -1,45 +1,147 @@
+import { InfiniteQueryObserver, QueryClient } from '@tanstack/react-query';
 import { expect, it, vi } from 'vitest';
 import {
-  readFreshGroupMemberPage,
   activeGroupMembers,
   createGroupMemberLookup,
+  groupMemberPagesOptions,
+  refreshGroupMemberPages,
 } from '../src/renderer/src/lib/groupMemberRefresh';
 
-it('成员增减时丢弃在途旧分页，从首屏重读而不沿用偏移', async () => {
-  let version = 0;
-  const load = vi.fn(async (_offset: number) => {
-    if (version === 0) {
-      version++;
-      return ['已退群'];
+it('群资料变化时保留已显示的所有页，后台校准完成后一次更新', async () => {
+  const client = new QueryClient();
+  const first = Array.from({ length: 120 }, (_, i) => `u_${i}`);
+  let release!: (rows: string[]) => void;
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => (markStarted = resolve));
+  let latestFirst = first;
+  const load = vi.fn(async (offset: number) => (offset === 0 ? latestFirst : ['u_last']));
+  const observer = new InfiniteQueryObserver(client, groupMemberPagesOptions('a', '123', load));
+  const stop = observer.subscribe(() => {});
+  try {
+    await observer.refetch();
+    await observer.fetchNextPage();
+    const previous = observer.getCurrentResult().data;
+    load.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+          markStarted();
+        }),
+    );
+    const refresh = refreshGroupMemberPages(client, 'a');
+    await started;
+    expect(observer.getCurrentResult()).toMatchObject({
+      isFetching: true,
+      isInitialLoading: false,
+      isFetchingNextPage: false,
+    });
+    expect(observer.getCurrentResult().data).toBe(previous);
+    latestFirst = ['u_new', ...first.slice(1)];
+    release(latestFirst);
+    await refresh;
+    expect(observer.getCurrentResult().data?.pages).toEqual([
+      ['u_new', ...first.slice(1)],
+      ['u_last'],
+    ]);
+    expect(load.mock.calls).toEqual([
+      [0, 120],
+      [120, 120],
+      [0, 120],
+      [120, 120],
+    ]);
+    const updated = observer.getCurrentResult().data;
+    await refreshGroupMemberPages(client, 'a');
+    expect(observer.getCurrentResult().data).toBe(updated);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    load.mockRejectedValueOnce(new Error('群资料暂不可读'));
+    try {
+      await refreshGroupMemberPages(client, 'a');
+    } finally {
+      error.mockRestore();
     }
-    return ['新成员'];
-  });
-  expect(await readFreshGroupMemberPage(120, () => version, load)).toEqual({
-    page: ['新成员'],
-    offset: 0,
-    version: 1,
-  });
-  expect(load.mock.calls).toEqual([[120], [0]]);
+    expect(observer.getCurrentResult().isRefetchError).toBe(true);
+    expect(observer.getCurrentResult().data).toBe(updated);
+  } finally {
+    stop();
+    client.clear();
+  }
 });
 
-it('无变更时保留当前分页偏移', async () => {
-  const load = vi.fn(async () => ['成员']);
-  expect(await readFreshGroupMemberPage(120, () => 3, load)).toEqual({
-    page: ['成员'],
-    offset: 120,
-    version: 3,
-  });
-  expect(load).toHaveBeenCalledOnce();
+it('变更时作废在途旧分页，不刷新其他账号或未打开的群', async () => {
+  const client = new QueryClient();
+  const first = Array.from({ length: 120 }, (_, i) => `u_${i}`);
+  let release!: (rows: string[]) => void;
+  let releaseInactive!: (rows: string[]) => void;
+  const load = vi.fn<(offset: number, limit: number) => Promise<string[]>>();
+  load
+    .mockResolvedValueOnce(first)
+    .mockImplementationOnce(() => new Promise((resolve) => (release = resolve)))
+    .mockResolvedValueOnce(['u_new']);
+  const inactive = vi.fn(async () => ['u_inactive']);
+  const inactiveOptions = groupMemberPagesOptions('a', '456', inactive);
+  const other = vi.fn(async () => ['u_other']);
+  const observer = new InfiniteQueryObserver(client, groupMemberPagesOptions('a', '123', load));
+  const otherObserver = new InfiniteQueryObserver(
+    client,
+    groupMemberPagesOptions('b', '123', other),
+  );
+  const stop = observer.subscribe(() => {});
+  const stopOther = otherObserver.subscribe(() => {});
+  try {
+    await Promise.all([
+      observer.refetch(),
+      otherObserver.refetch(),
+      client.fetchInfiniteQuery(inactiveOptions),
+    ]);
+    inactive.mockImplementationOnce(() => new Promise((resolve) => (releaseInactive = resolve)));
+    const inactiveFlight = client.prefetchInfiniteQuery({ ...inactiveOptions, staleTime: 0 });
+    const next = observer.fetchNextPage();
+    await refreshGroupMemberPages(client, 'a');
+    release(['u_old']);
+    releaseInactive(['u_late']);
+    await Promise.all([next, inactiveFlight]);
+    expect(observer.getCurrentResult().data?.pages).toEqual([['u_new']]);
+    expect(load.mock.calls).toEqual([
+      [0, 120],
+      [120, 120],
+      [0, 120],
+    ]);
+    expect(other).toHaveBeenCalledOnce();
+    expect(inactive).toHaveBeenCalledTimes(2);
+    expect(client.getQueryState(inactiveOptions.queryKey)).toMatchObject({
+      isInvalidated: true,
+      data: { pages: [['u_inactive']] },
+    });
+  } finally {
+    stop();
+    stopOther();
+    client.clear();
+  }
 });
 
-it('连续变更期间不回填失效结果，也不无限补读', async () => {
-  let version = 0;
-  const load = vi.fn(async () => {
-    version++;
-    return ['旧成员'];
+it('分页按原始行数推进，整页重复 UID 后还能读到新成员并结束', async () => {
+  const client = new QueryClient();
+  const load = vi.fn(async (offset: number, limit: number) => {
+    if (offset < 2 * limit) return Array.from({ length: limit }, () => 'u_duplicate');
+    return ['u_new'];
   });
-  expect(await readFreshGroupMemberPage(120, () => version, load)).toBeNull();
-  expect(load).toHaveBeenCalledTimes(2);
+  const observer = new InfiniteQueryObserver(client, groupMemberPagesOptions('a', '123', load));
+  const stop = observer.subscribe(() => {});
+  try {
+    await observer.refetch();
+    await observer.fetchNextPage();
+    const result = await observer.fetchNextPage();
+    expect(load.mock.calls).toEqual([
+      [0, 120],
+      [120, 120],
+      [240, 120],
+    ]);
+    expect(result.data?.pages.at(-1)).toEqual(['u_new']);
+    expect(result.hasNextPage).toBe(false);
+  } finally {
+    stop();
+    client.clear();
+  }
 });
 
 it('历史名片保留，但退群成员不重新混入当前成员名单', () => {
