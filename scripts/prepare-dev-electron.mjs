@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -172,9 +172,16 @@ export async function prepareDevElectron({
     if (await exists(target)) {
       if (![1, 2].includes(marker?.format) || (await lstat(target)).isSymbolicLink())
         throw new Error(`开发宿主位置已有非管理应用，未覆盖：${target}`);
-      const { stdout } = await run('/bin/ps', ['-axo', 'comm=']);
-      if (stdout.split('\n').some((line) => line.trim().startsWith(`${target}/Contents/`)))
-        throw new Error('开发宿主需要更新，请先按 Cmd+Q 退出 WeQ 后重新启动。');
+      // ps 可能报告真实路径，也可能保留启动时的路径别名。
+      const contents = `${await realpath(target)}/Contents/`;
+      const { stdout } = await run('/bin/ps', ['-ww', '-axo', 'comm=']);
+      for (const line of stdout.split('\n')) {
+        const command = line.trim();
+        if (!command.includes('/Electron.app/Contents/')) continue;
+        const actual = await realpath(command).catch(() => null);
+        if (actual?.startsWith(contents))
+          throw new Error('开发宿主需要更新，请先按 Cmd+Q 退出 WeQ 后重新启动。');
+      }
     }
     staging = await mkdtemp(join(directory, '.prepare-'));
     const app = join(staging, 'Electron.app');
