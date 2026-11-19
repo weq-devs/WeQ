@@ -1,8 +1,8 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
-  QzonePostUpvotes,
+  QzonePostArchive,
   QzoneUpvoteAction,
 } from '../src/renderer/src/components/QzoneUpvoteAction';
 import type { QzoneUpvotePreview } from '@weq/protocol';
@@ -71,6 +71,9 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
     },
   };
 }
+function renderArchive(props: Omit<ComponentProps<typeof QzonePostArchive>, 'render'>) {
+  return h(QzonePostArchive, { ...props, render: ({ upvote }) => upvote });
+}
 it('像赞一样悬停或聚焦查看推预览，用户导航和写动作互不触发', async () => {
   const write = vi.fn(),
     space = vi.fn();
@@ -92,19 +95,18 @@ it('像赞一样悬停或聚焦查看推预览，用户导航和写动作互不�
   await act(async () => button.click());
   expect(write).toHaveBeenCalledOnce();
 });
-it.each([null, { count: 0, upvoted: false, users: [] }])(
-  '零人和未知分别展示，不用预览长度冒充总数 %j',
-  async (data) => {
-    const view = mount(h(QzoneUpvoteAction, { value: data }));
-    await view.render();
-    const button = view.host.querySelector<HTMLButtonElement>('button')!;
-    expect(button.textContent).toBe(data ? '推 0' : '推 ?');
-    await act(async () => button.focus());
-    expect(document.querySelector('[aria-label="推的人"]')?.textContent).toContain(
-      data ? '还没有人推过' : '暂无可读取的推数据',
-    );
-  },
-);
+it('只读且没有数据时不显示入口，已知零人仍可点击查看', async () => {
+  const view = mount(h(QzoneUpvoteAction, { value: null }));
+  await view.render();
+  expect(view.host.querySelector('button')).toBeNull();
+  await view.render(h(QzoneUpvoteAction, { value: { count: 0, upvoted: false, users: [] } }));
+  const button = view.host.querySelector<HTMLButtonElement>('[aria-label="查看推过的人"]')!;
+  expect(button.hasAttribute('aria-pressed')).toBe(false);
+  await act(async () => button.focus());
+  expect(document.querySelector('[aria-label="推的人"]')).toBeNull();
+  await act(async () => button.click());
+  expect(document.querySelector('[aria-label="推的人"]')?.textContent).toContain('还没有人推过');
+});
 it('普通说说仅可见时读取，刷新重取，原位重试保留已有计数', async () => {
   const input = {
     selfUin: '10001',
@@ -114,10 +116,10 @@ it('普通说说仅可见时读取，刷新重取，原位重试保留已有计�
     enabled: false,
     refresh: 0,
   };
-  const view = mount(h(QzonePostUpvotes, input));
+  const view = mount(renderArchive(input));
   await view.render();
   expect(state.read).not.toHaveBeenCalled();
-  await view.render(h(QzonePostUpvotes, { ...input, enabled: true }));
+  await view.render(renderArchive({ ...input, enabled: true }));
   expect(state.read).toHaveBeenCalledOnce();
   expect(state.read).toHaveBeenLastCalledWith(
     expect.objectContaining({
@@ -128,13 +130,13 @@ it('普通说说仅可见时读取，刷新重取，原位重试保留已有计�
       refresh: false,
     }),
   );
-  expect(view.host.textContent).toContain('推 199');
+  expect(view.host.textContent).toContain('查看推过的人 199');
   state.read.mockRejectedValueOnce(new Error('合成读取失败'));
-  await view.render(h(QzonePostUpvotes, { ...input, enabled: true, refresh: 1 }));
+  await view.render(renderArchive({ ...input, enabled: true, refresh: 1 }));
   expect(state.read).toHaveBeenLastCalledWith(expect.objectContaining({ refresh: true }));
-  await act(async () => view.host.querySelector<HTMLButtonElement>('button')!.focus());
+  await act(async () => view.host.querySelector<HTMLButtonElement>('button')!.click());
   expect(document.querySelector('[aria-label="推的人"]')?.textContent).toContain('合成读取失败');
-  expect(view.host.textContent).toContain('推 199');
+  expect(view.host.textContent).toContain('查看推过的人 199');
   await act(async () =>
     document.querySelector<HTMLButtonElement>('[aria-label="刷新推预览"]')!.click(),
   );
@@ -142,8 +144,8 @@ it('普通说说仅可见时读取，刷新重取，原位重试保留已有计�
   expect(document.querySelector('[aria-label="推的人"]')?.textContent).not.toContain(
     '合成读取失败',
   );
-  await view.render(h(QzonePostUpvotes, { ...input, enabled: false, refresh: 1 }));
-  await view.render(h(QzonePostUpvotes, { ...input, enabled: true, refresh: 1 }));
+  await view.render(renderArchive({ ...input, enabled: false, refresh: 1 }));
+  await view.render(renderArchive({ ...input, enabled: true, refresh: 1 }));
   // 同一刷新轮次再次进入可见区不重复读。
   expect(state.read).toHaveBeenCalledTimes(3);
 });
@@ -163,12 +165,12 @@ it('隐藏或卸载后的迟到响应不污染计数，缺失发帖时间不猜�
     enabled: true,
     refresh: 0,
   };
-  const view = mount(h(QzonePostUpvotes, input));
+  const view = mount(renderArchive(input));
   await view.render();
-  await view.render(h(QzonePostUpvotes, { ...input, enabled: false }));
+  await view.render(renderArchive({ ...input, enabled: false }));
   await act(async () => finish(value));
   expect(view.host.textContent).not.toContain('推');
-  await view.render(h(QzonePostUpvotes, { ...input, time: 0 }));
+  await view.render(renderArchive({ ...input, time: 0 }));
   expect(state.read).toHaveBeenCalledOnce();
 });
 it('真实预览仅有 QQ 号时后台补昵称，名字未返回也先展示人数', async () => {
@@ -181,7 +183,7 @@ it('真实预览仅有 QQ 号时后台补昵称，名字未返回也先展示人
   );
   state.read.mockResolvedValueOnce({ ...value, users: [{ uin: '10002', uid: '', nickname: '' }] });
   const view = mount(
-    h(QzonePostUpvotes, {
+    renderArchive({
       selfUin: '10001',
       hostUin: '10003',
       tid: 'post',
@@ -191,8 +193,8 @@ it('真实预览仅有 QQ 号时后台补昵称，名字未返回也先展示人
     }),
   );
   await view.render();
-  expect(view.host.textContent).toContain('推 199');
-  await act(async () => view.host.querySelector<HTMLButtonElement>('button')!.focus());
+  expect(view.host.textContent).toContain('查看推过的人 199');
+  await act(async () => view.host.querySelector<HTMLButtonElement>('button')!.click());
   expect(document.querySelector('[aria-label="推的人"]')?.textContent).toContain('10002');
   await act(async () => finish({ '10002': '补全的昵称' }));
   expect(document.querySelector('[aria-label="推的人"]')?.textContent).toContain('补全的昵称');

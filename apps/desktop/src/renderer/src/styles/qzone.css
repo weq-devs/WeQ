@@ -134,8 +134,22 @@
   align-items: center;
   gap: 10px;
 }
-.weq-qzn-post-head > .weq-qzn-person-header {
+.weq-qzn-post-head > .weq-qzn-person-header,
+.weq-qzn-repost-author > .weq-qzn-person-header {
   min-width: 0;
+}
+.weq-qzn-post-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  min-width: 0;
+}
+.weq-qzn-post-tools {
+  display: flex;
+  flex: none;
+  align-self: flex-start;
+  margin-inline-start: auto;
 }
 .weq-qzn-post-head strong {
   font-size: 14px;
@@ -154,6 +168,9 @@
   margin-left: auto;
   color: var(--muted-foreground);
   font-size: 12px;
+}
+.weq-qzn-feed-kind + .weq-qzn-post-tools {
+  margin-inline-start: 0;
 }
 .weq-qzn-content {
   white-space: pre-wrap;
@@ -643,6 +660,10 @@
   padding: 7px 10px;
   border-radius: 6px;
   font-size: 13px;
+}
+.weq-qzn-actions > .weq-qzn-views {
+  margin-inline-start: auto;
+  white-space: nowrap;
 }
 
 .weq-qzn-owner-space {

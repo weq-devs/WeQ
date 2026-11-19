@@ -41,18 +41,6 @@
   border-color: transparent;
 }
 
-.weq-qzn-public-actions button[aria-pressed='true'] {
-  color: var(--weq-accent-effective);
-}
-
-.weq-qzn-public-actions > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-}
-
 .weq-qzn-public-detail .weq-qzn-comment > div {
   flex: 1;
   min-width: 0;

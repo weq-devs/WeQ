@@ -1,3 +1,25 @@
+.weq-qzn .weq-qzn-archive-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-weight: 400;
+  text-align: start;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+}
+.weq-qzn button.weq-qzn-archive-tag {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
+.weq-qzn button.weq-qzn-archive-menu-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--muted-foreground);
+}
 .weq-qzn-archive-operations {
   display: flex;
   flex-direction: column;
@@ -14,7 +36,11 @@
   font: inherit;
   cursor: pointer;
 }
-.weq-qzn-archive-operations button:hover,
+.weq-qzn-archive-operations button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.weq-qzn-archive-operations button:not(:disabled):hover,
 .weq-qzn-archive-operations button:focus-visible {
   background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
 }

@@ -94,7 +94,7 @@ import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
-import { QzonePostUpvotes } from '../components/QzoneUpvoteAction';
+import { QzonePostArchive } from '../components/QzoneUpvoteAction';
 import { QzonePublicNavigationContext } from '../lib/qzoneNavigation';
 import { QzoneRelatedRound, qzoneSelfLiked, type QzoneReplyTarget } from '../lib/qzoneActions';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
@@ -1617,13 +1617,8 @@ function Post({
           ),
       )
     : post.videos;
-  return (
-    <article
-      ref={ref}
-      {...selectionProps}
-      data-qzone-tid={post.tid}
-      className={`weq-qzn-post${selected ? ' is-selected' : ''}`}
-    >
+  const render = ({ tag, menu, actions }: PostActionSlots) => (
+    <>
       <div className="weq-qzn-post-head">
         <QzonePersonHeader
           uin={hostUin}
@@ -1631,14 +1626,18 @@ function Post({
           onSpace={onSpace}
           size={34}
           time={
-            <time dateTime={new Date(post.time * 1000).toISOString()}>
-              {timeText(post.time)}
-              {post.isPrivate ? ' · 仅自己可见' : ''}
-            </time>
+            <div className="weq-qzn-post-meta">
+              <time dateTime={new Date(post.time * 1000).toISOString()}>
+                {timeText(post.time)}
+                {post.isPrivate ? ' · 仅自己可见' : ''}
+              </time>
+              {tag}
+            </div>
           }
         >
           <QzoneName content={nickname} uin={hostUin} />
         </QzonePersonHeader>
+        {menu ? <div className="weq-qzn-post-tools">{menu}</div> : null}
       </div>
       {post.content.trim() ? (
         <p className="weq-qzn-content">
@@ -1669,13 +1668,25 @@ function Post({
         />
       ) : null}
       {sourceName ? <p className="weq-qzn-source">来自 {sourceName}</p> : null}
+      {actions}
+    </>
+  );
+  return (
+    <article
+      ref={ref}
+      {...selectionProps}
+      data-qzone-tid={post.tid}
+      className={`weq-qzn-post${selected ? ' is-selected' : ''}`}
+    >
       <PostActions
+        key={`${hostUin}:${post.tid}`}
         selfUin={selfUin}
         hostUin={hostUin}
         post={post}
         onSpace={onSpace}
         focusComment={focusComment}
         readComments={readComments}
+        render={render}
       />
     </article>
   );
@@ -1697,8 +1708,8 @@ function Repost({
   completion?: { loading: boolean; error: string; retry: () => void };
 }) {
   const validUin = /^[1-9]\d{4,19}$/.test(original.uin);
-  return (
-    <section className="weq-qzn-repost" aria-label="原帖">
+  const render = ({ tag, menu, actions }: PostActionSlots) => (
+    <>
       <div className="weq-qzn-repost-author">
         <QzonePersonHeader
           size={26}
@@ -1706,11 +1717,14 @@ function Repost({
           nickname={original.nickname || original.uin || '原作者'}
           onSpace={onSpace}
           time={
-            original.time ? (
-              <time>{timeText(original.time)}</time>
-            ) : original.timeLabel ? (
-              <time>{original.timeLabel}</time>
-            ) : null
+            <div className="weq-qzn-post-meta">
+              {original.time ? (
+                <time>{timeText(original.time)}</time>
+              ) : original.timeLabel ? (
+                <time>{original.timeLabel}</time>
+              ) : null}
+              {tag}
+            </div>
           }
         >
           <QzoneName
@@ -1718,6 +1732,7 @@ function Repost({
             uin={validUin ? original.uin : undefined}
           />
         </QzonePersonHeader>
+        {menu ? <div className="weq-qzn-post-tools">{menu}</div> : null}
       </div>
       {original.content.trim() ? (
         <p className="weq-qzn-content">
@@ -1730,6 +1745,30 @@ function Repost({
         videos={original.videos}
         target={{ selfUin, hostUin: original.uin, tid: original.tid, time: original.time ?? 0 }}
       />
+      {actions ?? (
+        <div className="weq-qzn-actions">
+          <span>
+            <ThumbsUp size={16} />
+            点赞 ?
+          </span>
+          <span>
+            <MessageCircle size={16} />
+            评论 ?
+          </span>
+          <span>
+            <Repeat2 size={16} />
+            转发 ?
+          </span>
+          <span className="weq-qzn-views">
+            <Eye size={16} />
+            浏览量 ?
+          </span>
+        </div>
+      )}
+    </>
+  );
+  return (
+    <section className="weq-qzn-repost" aria-label="原帖">
       {validUin && /^[a-zA-Z0-9_-]{1,128}$/.test(original.tid) ? (
         <PostActions
           key={`${original.uin}:${original.tid}`}
@@ -1745,26 +1784,10 @@ function Repost({
           }}
           initialLikeCount={original.likeCount ?? null}
           onSpace={onSpace}
+          render={render}
         />
       ) : (
-        <div className="weq-qzn-actions">
-          <span>
-            <ThumbsUp size={16} />
-            点赞 ?
-          </span>
-          <span>
-            <MessageCircle size={16} />
-            评论 ?
-          </span>
-          <span>
-            <Repeat2 size={16} />
-            转发 ?
-          </span>
-          <span>
-            <Eye size={16} />
-            浏览量 ?
-          </span>
-        </div>
+        render({ tag: null, menu: null, actions: null })
       )}
     </section>
   );
@@ -1778,6 +1801,7 @@ type InteractionPost = Pick<QzoneEmotion, 'tid' | 'time'> & {
   forwardNum?: number;
   repost?: QzoneEmotion['repost'];
 };
+type PostActionSlots = { tag: ReactNode; menu: ReactNode; actions: ReactNode };
 const PostActions = withQQAccountScope(PostActionsBody, (props) => ({
   kind: 'qzone',
   target: { kind: 'post', uin: props.hostUin, tid: props.post.tid },
@@ -1790,6 +1814,7 @@ function PostActionsBody({
   initialLikeCount = null,
   focusComment,
   readComments,
+  render,
 }: {
   selfUin: string;
   hostUin: string;
@@ -1798,6 +1823,7 @@ function PostActionsBody({
   initialLikeCount?: number | null;
   focusComment?: RelatedComment | null;
   readComments?: () => Promise<QzoneInteraction>;
+  render: (slots: PostActionSlots) => ReactElement;
 }) {
   const [expanded, setExpanded] = useState<'comments' | 'likes' | null>(
     focusComment ? 'comments' : null,
@@ -1929,7 +1955,7 @@ function PostActionsBody({
       }}
     />
   );
-  return (
+  const renderActions = (upvote: ReactNode) => (
     <div ref={ref}>
       <div className="weq-qzn-actions">
         <QzoneLikesPopover
@@ -1994,20 +2020,7 @@ function PostActionsBody({
           paused={readsPaused}
           renderContent={(content) => <QzoneText content={content} onSpace={onSpace} />}
         />
-        <QzonePostUpvotes
-          key={`upvotes:${selfUin}:${hostUin}:${post.tid}:${post.time}`}
-          selfUin={selfUin}
-          hostUin={hostUin}
-          tid={post.tid}
-          time={post.time}
-          enabled={visible && !readsPaused}
-          refresh={refresh}
-          onSpace={onSpace}
-        />
-        <span title={likeError || '浏览量（非去重访客数）'}>
-          <Eye size={16} />
-          浏览量 <span className="weq-number">{likes?.reportedViewCount ?? '?'}</span>
-        </span>
+        {upvote}
         {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
         {likeError && (
           <button
@@ -2022,6 +2035,10 @@ function PostActionsBody({
             <RefreshCw size={14} />
           </button>
         )}
+        <span className="weq-qzn-views" title="浏览量（非去重访客数）">
+          <Eye size={16} />
+          浏览量 <span className="weq-number">{likes?.reportedViewCount ?? '?'}</span>
+        </span>
       </div>
       {likeError && (
         <p className="weq-qzn-status" role="status">
@@ -2109,6 +2126,18 @@ function PostActionsBody({
         </QzonePostForwardDialog>
       ) : null}
     </div>
+  );
+  return (
+    <QzonePostArchive
+      selfUin={selfUin}
+      hostUin={hostUin}
+      tid={post.tid}
+      time={post.time}
+      enabled={visible && !readsPaused}
+      refresh={refresh}
+      onSpace={onSpace}
+      render={({ tag, menu, upvote }) => render({ tag, menu, actions: renderActions(upvote) })}
+    />
   );
 }
 
@@ -3626,8 +3655,8 @@ function FeedCard({
         links={body.links}
       />
     );
-  return (
-    <article ref={ref} className="weq-qzn-post" key={`${feed.uin}:${feed.appid}:${feed.key}`}>
+  const render = ({ tag, menu, actions }: PostActionSlots) => (
+    <>
       <div className="weq-qzn-post-head">
         <QzonePersonHeader
           uin={String(feed.uin)}
@@ -3635,9 +3664,12 @@ function FeedCard({
           onSpace={onSpace}
           size={34}
           time={
-            <time>
-              <NumericText>{timeText(feed.time)}</NumericText>
-            </time>
+            <div className="weq-qzn-post-meta">
+              <time>
+                <NumericText>{timeText(feed.time)}</NumericText>
+              </time>
+              {tag}
+            </div>
           }
         >
           <QzoneName content={feed.nickname || String(feed.uin)} uin={String(feed.uin)} />
@@ -3650,6 +3682,7 @@ function FeedCard({
             >
           )[feed.appid] || '动态'}
         </span>
+        {menu ? <div className="weq-qzn-post-tools">{menu}</div> : null}
       </div>
       {body.text.trim() && !body.unsupported ? (
         <p className="weq-qzn-content">
@@ -3661,8 +3694,14 @@ function FeedCard({
       {body.repost ? <Repost selfUin={selfUin} original={body.repost} onSpace={onSpace} /> : null}
       <FeedLinks links={body.links} ownerUin={String(feed.uin)} ownerNickname={feed.nickname} />
       {body.sourceName ? <p className="weq-qzn-source">来自 {body.sourceName}</p> : null}
+      {actions ?? <FeedCounts selfUin={selfUin} appid={feed.appid} body={body} />}
+    </>
+  );
+  return (
+    <article ref={ref} className="weq-qzn-post" key={`${feed.uin}:${feed.appid}:${feed.key}`}>
       {feed.appid === 311 && tid && /^[a-zA-Z0-9_-]{1,128}$/.test(tid) ? (
         <PostActions
+          key={`${feed.uin}:${tid}`}
           selfUin={selfUin}
           hostUin={String(feed.uin)}
           post={{
@@ -3676,9 +3715,10 @@ function FeedCard({
           }}
           initialLikeCount={body.likeCount}
           onSpace={onSpace}
+          render={render}
         />
       ) : (
-        <FeedCounts selfUin={selfUin} appid={feed.appid} body={body} />
+        render({ tag: null, menu: null, actions: null })
       )}
     </article>
   );

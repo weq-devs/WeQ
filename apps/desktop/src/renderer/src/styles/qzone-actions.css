@@ -17,6 +17,7 @@
   cursor: default;
 }
 .weq-qzn .weq-qzn-actions button[aria-pressed='true'],
+.weq-qzn-public-search .weq-qzn-actions button[aria-pressed='true'],
 .weq-qzn .weq-qzn-actions button[aria-expanded='true'],
 .weq-qzn .weq-qzn-interaction button.weq-qzn-person {
   color: var(--weq-accent-ink, var(--weq-accent-effective));

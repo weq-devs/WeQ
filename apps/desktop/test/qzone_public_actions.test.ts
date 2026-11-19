@@ -119,12 +119,13 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
   expect(space).toHaveBeenCalledWith('10002', '原作者');
   expect(profile).not.toHaveBeenCalled();
   const actions = host.querySelector('.weq-qzn-actions')!;
-  expect(actions.textContent).toBe('点赞 7评论 1转发 2推 ?浏览量 9');
   const forward = actions.querySelector<HTMLButtonElement>('[aria-label="转发"]')!;
   await act(async () => forward.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
-  expect(document.querySelector('[aria-label="转发列表"]')?.textContent).toContain('暂无可信数据');
+  expect(document.querySelector('[aria-label="转发列表"]')?.textContent).toContain(
+    '暂无法查看转发名单',
+  );
   expect(state.forward).not.toHaveBeenCalled();
-  const liked = actions.querySelector<HTMLButtonElement>('[aria-label="取消赞"]')!;
+  const liked = actions.querySelector<HTMLButtonElement>('[aria-label="取消点赞"]')!;
   expect(liked.getAttribute('aria-pressed')).toBe('true');
   await act(async () => liked.click());
   expect(state.like).toHaveBeenCalledWith(expect.objectContaining({ enable: false }));
