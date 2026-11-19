@@ -5,8 +5,8 @@ name: Release
 #   - Windows: NSIS 安装包 + latest.yml（应用内自动更新读取）
 #   - Linux  : AppImage / tar.gz，x64 与 arm64 两个架构
 #   - macOS  : dmg + zip（自动更新读取 latest-mac.yml），x64 与 arm64 两个架构
-# 最后的 notes job 会用「中文说明 + GitHub 自动生成的 commit 变更列表」
-# 覆写 Release 正文，并标注 aarch64 未经真机实测、macOS 产物未公证。
+# notes job 写入下载表、CHANGELOG 及 GitHub 自动生成的变更列表，
+# 并注明 macOS 产物的签名与公证状态。
 on:
   push:
     tags:
@@ -1010,7 +1010,7 @@ jobs:
           | Linux x64 | [AppImage](${ASSET_BASE}/weQ-${VERSION}-linux-x86_64.AppImage) · [桌面压缩包](${ASSET_BASE}/weQ-${VERSION}-linux-x64.tar.gz) | [Web 压缩包](${ASSET_BASE}/weq-web-${VERSION}-linux-x64.tar.gz) |
           | Linux ARM64 | [AppImage](${ASSET_BASE}/weQ-${VERSION}-linux-arm64.AppImage) · [桌面压缩包](${ASSET_BASE}/weQ-${VERSION}-linux-arm64.tar.gz) | [Web 压缩包](${ASSET_BASE}/weq-web-${VERSION}-linux-arm64.tar.gz) |
 
-          - **macOS**：打开 DMG，把 WeQ 拖入「应用程序」。若首次提示无法验证开发者，确认来源后按 [macOS 安装与首次打开](https://github.com/weq-devs/WeqDocs/blob/${DOCS_COMMIT}/guide/macos-install.md) 中的步骤选择「仍要打开」。
+          - **macOS**：安装包用固定自签证书签名，未公证。打开 DMG，把 WeQ 拖入「应用程序」。若首次提示无法验证开发者，确认来源后按 [macOS 安装与首次打开](https://github.com/weq-devs/WeqDocs/blob/${DOCS_COMMIT}/guide/macos-install.md) 中的步骤选择「仍要打开」。
           - **Linux**：AppImage 执行 \`chmod +x 文件名.AppImage\` 后打开；若遇到 FUSE 错误，改用桌面压缩包。Arch Linux 可用 \`paru -S weq-bin\` 或 \`yay -S weq-bin\` 安装桌面版。
           - **独立 Web**：需 Node.js ≥ 22，无需 \`npm install\`。解压后，Windows 双击 \`start.bat\`，macOS / Linux 运行 \`./start.sh\`。在浏览器打开终端打印的地址并输入令牌。[部署说明](https://github.com/${REPO}/blob/${TAG}/apps/web/README.md)
 
