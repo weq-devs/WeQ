@@ -54,7 +54,7 @@ try {
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
   if (styles.map((style) => style.value).join(',') !== 'qqnt,classic,retro')
-    failures.push('QQ NT 默认风格必须排在首位，后接简约、复古预设');
+    failures.push('QQ NT 默认风格必须排在首位，后接简约、立体预设');
   const quick = process.argv.includes('--quick');
   let cases = 0;
   for (const width of quick ? [1280, 320] : [1280, 390, 320]) {
@@ -337,14 +337,16 @@ try {
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   if (output) await page.screenshot({ path: resolve(output, 'mobile-qqnt.png'), fullPage: true });
-  await page.getByRole('radio', { name: '复古', exact: true }).click();
+  await page
+    .getByRole('radio', { name: styles.find((style) => style.value === 'retro').label, exact: true })
+    .click();
   const scope = page.getByRole('radiogroup', { name: '内容范围' });
   await scope.getByRole('radio', { name: '全部内容', exact: true }).focus();
   await page.keyboard.press('ArrowRight');
   if (
     (await scope.getByRole('radio', { name: '已选内容' }).getAttribute('aria-checked')) !== 'true'
   )
-    failures.push('复古分段控件键盘选择');
+    failures.push('立体风格分段控件键盘选择');
 
   // 同一套样式还需在真实聊天组件中成立，不能只对控件展示页生效。
   await page.goto(url.replace('component-appearance.html', 'qqnt-appearance.html'));

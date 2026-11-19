@@ -41,7 +41,7 @@ const labels: Record<string, string> = {
   qqnt: 'QQ NT',
   classic: '简约',
   minimal: '简约',
-  retro: '复古',
+  retro: '立体',
   ocr: 'OCR',
   placeholder: '文字占位',
   vision: '视觉模型',

@@ -22,7 +22,7 @@ export const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   'theme-mode': ['浅色模式', '深色模式', '暗色模式', '跟随系统'],
   'theme-accent': ['强调色', '主色', '颜色'],
   'theme-background': ['聊天背景', '壁纸'],
-  'component-style': ['皮肤', '默认风格', '经典', '简约', '复古', 'QQ NT', 'QQNT'],
+  'component-style': ['皮肤', '默认风格', '经典', '简约', '立体', '复古', 'QQ NT', 'QQNT'],
   'interface-density': ['舒适', '紧凑'],
   'read-first-unread': ['第一条未读'],
   'jump-latest-after-send': ['发送后跳转'],

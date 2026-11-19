@@ -12,7 +12,7 @@ export type ThemeBackground = 'plain' | 'paper' | 'grid' | 'dots' | 'wash' | 'te
 export const componentStyles = [
   { value: 'qqnt', label: 'QQ NT（默认）' },
   { value: 'classic', label: '简约' },
-  { value: 'retro', label: '复古' },
+  { value: 'retro', label: '立体' },
 ] as const;
 export type ThemeComponentStyle = (typeof componentStyles)[number]['value'];
 export type ThemeDensity = 'comfortable' | 'compact';
