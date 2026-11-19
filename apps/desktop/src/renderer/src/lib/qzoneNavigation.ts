@@ -10,7 +10,7 @@ export interface QzoneSpaceRequest {
 
 export type QzoneCardTarget =
   | { kind: 'space'; uin: string }
-  | { kind: 'posts'; uin: string }
+  | { kind: 'unlocated-post'; uin: string }
   | {
       kind: 'post';
       uin: string;
@@ -81,7 +81,7 @@ export function qzoneDynamicTarget(meta?: string, dynamicType?: number): QzoneCa
     });
     const target = targets.find((item) => item.kind !== 'space') ?? targets[0] ?? null;
     return target?.kind === 'space' && dynamicType === 2
-      ? { kind: 'posts', uin: target.uin }
+      ? { kind: 'unlocated-post', uin: target.uin }
       : target;
   } catch {
     return null;

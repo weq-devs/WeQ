@@ -117,8 +117,19 @@ type Tab = 'feeds' | 'posts' | OwnerTab | 'related' | 'public';
 
 function requestedOwnerTab(request: QzoneSpaceRequest): OwnerTab {
   const kind = request.target?.kind;
-  return kind === 'post' || kind === 'posts' ? 'person-posts' : 'space';
+  return kind === 'post' || kind === 'unlocated-post' ? 'person-posts' : 'space';
 }
+
+const linkedPostRequestsSchema = z.record(
+  z.object({
+    revision: z.string(),
+    nickname: z.string().optional(),
+    tid: z.string().optional(),
+    commentId: z.string().optional(),
+    parentCommentId: z.string().optional(),
+    replyId: z.string().optional(),
+  }),
+);
 
 function withoutOwner<T>(current: Record<string, T>, uin: string): Record<string, T> {
   if (!Object.hasOwn(current, uin)) return current;
@@ -437,9 +448,11 @@ export function QzoneView({
     setOwnerNames((current) => (current[uin] === value ? current : { ...current, [uin]: value }));
   }, []);
   const [albumRequests, setAlbumRequests] = useState<Record<string, QzoneAlbumRequest>>({});
-  const [postRequests, setPostRequests] = useState<
-    Record<string, { tid: string; revision: string; focusComment?: RelatedComment }>
-  >({});
+  const [postRequests, setPostRequests] = usePageState(
+    'linked-posts',
+    {},
+    linkedPostRequestsSchema,
+  );
   const rememberSpaceName = useCallback((uin: string, name: string) => {
     const value = name.trim();
     if (!value || value === uin) return;
@@ -542,33 +555,36 @@ export function QzoneView({
           revision: spaceRequest.revision,
         },
       }));
-    if (target?.kind === 'post') {
+    if (target?.kind === 'post' || target?.kind === 'unlocated-post') {
       setPostRequests((current) => ({
         ...current,
         [spaceRequest.uin]: {
-          tid: target.tid,
           revision: spaceRequest.revision,
-          ...(target.commentId
+          nickname: spaceRequest.nickname,
+          ...(target.kind === 'post'
             ? {
-                focusComment: {
-                  id: target.commentId,
-                  uin: '',
-                  content: target.commentText ?? '',
-                  images: [],
-                  parentCommentId: target.parentCommentId,
-                  replyId: target.replyId,
-                  isReply: Boolean(target.parentCommentId),
-                  source: 'search' as const,
-                },
+                tid: target.tid,
+                commentId: target.commentId,
+                parentCommentId: target.parentCommentId,
+                replyId: target.replyId,
               }
             : {}),
         },
       }));
-    } else if (target?.kind === 'posts') {
-      setPostRequests((current) => withoutOwner(current, target.uin));
     }
-  }, [active, selfUin, spaceRequest, openSpace, handledRequest, setHandledRequest]);
+  }, [
+    active,
+    selfUin,
+    spaceRequest,
+    openSpace,
+    handledRequest,
+    setHandledRequest,
+    setPostRequests,
+  ]);
   const currentOwner = tab === 'space' || tab === 'person-posts' ? hostUin : selfUin;
+  const linkedTid = tab === 'person-posts' ? postRequests[hostUin]?.tid : undefined;
+  const linkedAuthorName = (uin: string) =>
+    spaceNames[uin] || postRequests[uin]?.nickname || ownerNames[uin] || people.names[uin] || uin;
   const closeOwnerTab = (section: OwnerTab, uin: string) => {
     if (section === 'space') {
       setSpaces((current) => current.filter((value) => value !== uin));
@@ -616,9 +632,17 @@ export function QzoneView({
               type="button"
               title="导出说说"
               aria-label="导出说说"
-              disabled={!requestExport}
+              disabled={!requestExport || (tab === 'person-posts' && !linkedTid)}
               onClick={() => {
                 const uin = currentOwner;
+                if (tab === 'person-posts') {
+                  if (linkedTid)
+                    requestExport?.({
+                      owner: { kind: 'qzone-posts', container: uin },
+                      scope: { type: 'items', ids: [linkedTid] },
+                    });
+                  return;
+                }
                 requestExport?.(
                   contentSelection?.owner.kind === 'qzone-posts' &&
                     contentSelection.owner.container === uin
@@ -671,9 +695,7 @@ export function QzoneView({
             {(['space', 'person-posts'] as const).flatMap((section) =>
               (section === 'space' ? spaces : postOwners).map((uin) => {
                 const postsOnly = section === 'person-posts';
-                const name = postsOnly
-                  ? spaceNames[uin] || ownerNames[uin] || people.names[uin] || uin
-                  : spaceNames[uin] || uin;
+                const name = postsOnly ? linkedAuthorName(uin) : spaceNames[uin] || uin;
                 const ownPosts = postsOnly && uin === selfUin;
                 const suffix = postsOnly ? '的说说' : '的空间';
                 return (
@@ -784,7 +806,11 @@ export function QzoneView({
         ))}
         {postOwners.map((uin) => {
           const request = postRequests[uin];
-          const ownerName = uin === selfUin ? nickname : ownerNames[uin] || spaceNames[uin] || uin;
+          const ownerName = uin === selfUin ? nickname : linkedAuthorName(uin);
+          const commentText =
+            initialSpace?.revision === request?.revision && initialSpace?.target?.kind === 'post'
+              ? initialSpace.target.commentText
+              : undefined;
           return (
             <QzonePage
               key={uin}
@@ -792,25 +818,32 @@ export function QzoneView({
               refreshKey={0}
             >
               <div className="weq-qzn-timeline">
-                {request ? (
+                {request?.tid ? (
                   <LinkedPost
                     key={request.revision}
                     selfUin={selfUin}
                     hostUin={uin}
                     tid={request.tid}
-                    focusComment={request.focusComment}
+                    focusComment={
+                      request.commentId
+                        ? {
+                            id: request.commentId,
+                            uin: '',
+                            content: commentText ?? '',
+                            images: [],
+                            parentCommentId: request.parentCommentId,
+                            replyId: request.replyId,
+                            isReply: Boolean(request.parentCommentId),
+                            source: 'search',
+                          }
+                        : undefined
+                    }
                     nickname={ownerName}
                     onSpace={openSpace}
                   />
-                ) : null}
-                <Posts
-                  selfUin={selfUin}
-                  hostUin={uin}
-                  nickname={ownerName}
-                  onSpace={openSpace}
-                  onOwnerNickname={rememberOwnerName}
-                  showSpaceStats={false}
-                />
+                ) : (
+                  <p className="weq-qzn-status">无法定位这条说说</p>
+                )}
               </div>
             </QzonePage>
           );
@@ -834,8 +867,7 @@ export function QzoneView({
     <QzonePersonContext.Provider
       value={{
         action: personClickAction,
-        spaceUin:
-          tab === 'space' || tab === 'person-posts' || tab === 'posts' ? currentOwner : null,
+        spaceUin: tab === 'space' || tab === 'posts' ? currentOwner : null,
         onSpace: openSpace,
       }}
     >
@@ -1018,7 +1050,7 @@ function LinkedPost({
     )
       .then((result) => {
         if (!live) return;
-        if (!result.post) throw new Error('动态详情不存在或无权访问');
+        if (!result.post || result.post.tid !== tid) throw new Error('这条说说不存在或无权查看');
         setPost(result.post);
       })
       .catch((cause) => {
@@ -1053,7 +1085,7 @@ function LinkedPost({
           </button>
         </p>
       ) : (
-        <p role="status">正在读取动态…</p>
+        <p role="status">正在读取说说…</p>
       )}
     </div>
   );
@@ -1182,14 +1214,12 @@ function Posts({
   nickname,
   onSpace,
   onOwnerNickname,
-  showSpaceStats = true,
 }: {
   selfUin: string;
   hostUin: string;
   nickname: string;
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
-  showSpaceStats?: boolean;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
   const dataCache = usePageDataCache();
@@ -1317,7 +1347,7 @@ function Posts({
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
   return (
     <div {...multi.rootProps}>
-      {showSpaceStats ? <SpaceStats key={hostUin} selfUin={selfUin} hostUin={hostUin} /> : null}
+      <SpaceStats key={hostUin} selfUin={selfUin} hostUin={hostUin} />
       {loading && posts.length > 0 && headRequest.current ? (
         <LoadingStatus text={`正在刷新…${pageCountLabel}`} />
       ) : null}

@@ -46,10 +46,10 @@ describe('空间分享链接身份', () => {
     ).toBeNull();
     expect(qzoneCardTarget('mqqapi://qzoneschema/?schema=invalid')).toBeNull();
   });
-  it('说说卡片只带主页链接时打开作者的说说列表，精确链接优先', () => {
+  it('说说卡片只带主页链接时标记为无法定位，精确链接优先', () => {
     const jumpUrl = 'https://user.qzone.qq.com/123456';
     expect(qzoneDynamicTarget(JSON.stringify({ jumpUrl }), 2)).toEqual({
-      kind: 'posts',
+      kind: 'unlocated-post',
       uin: '123456',
     });
     expect(qzoneDynamicTarget(JSON.stringify({ jumpUrl }), 17)).toEqual({
