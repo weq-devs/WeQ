@@ -204,7 +204,7 @@ html[data-component-style='retro'][data-theme] body
     .weq-rail-control,
     .weq-page-back,
     .weq-page-close,
-    .composer-tools button,
+    .composer-tools button:not(:where(.weq-assistant-parameter-trigger)),
     .chat-actions button,
     .weq-workspace-menu-head button,
     .weq-workspace-actions > button,
