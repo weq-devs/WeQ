@@ -468,7 +468,6 @@ it.each([false, true])(
       const shell = useChatShellController({
         conversations: onlyAggregate ? [helper] : [helper, ordinary],
         contacts: [],
-        conversationPrefs: {},
         initialActiveConversationId: null,
         initialView: 'home',
         sidebarWidthStorageKey: 'fixture-sidebar',
@@ -502,7 +501,6 @@ it('关闭当前聊天后不自动选中其他聊天，移动端返回也不会�
     const shell = useChatShellController({
       conversations: [ordinary, group],
       contacts: [],
-      conversationPrefs: {},
       initialActiveConversationId: ordinary.id,
       initialView: 'messages',
       sidebarWidthStorageKey: 'fixture-sidebar',

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { expect, it } from 'vitest';
 import {
-  countMessageNavigationUnread,
+  countMessageBadgeUnread,
   createUnreadConversationCycle,
   firstUnreadMessage,
 } from '../src/renderer/src/lib/unreadNavigation';
@@ -128,7 +128,7 @@ it('连续定位跨过三档优先级，已定位目标读掉时继续，走完�
   expect(cycle.next(withSecondRead, {}, {})).toBe(first);
 });
 
-it('主导航只汇总已开启角标的聚合成员，并排除免打扰未读', () => {
+it('消息角标只汇总已开启角标的聚合成员，并按本地偏好排除免打扰未读', () => {
   const base = createTemplateDemoData().conversations[0]!;
   const aggregate: MergedConversation = {
     ...base,
@@ -155,9 +155,12 @@ it('主导航只汇总已开启角标的聚合成员，并排除免打扰未读'
     clone: [],
     assistant: [],
   };
-  expect(countMessageNavigationUnread(directory, {}, { guildDirect: false })).toBe(3);
-  expect(countMessageNavigationUnread(directory, {}, { guildDirect: true })).toBe(8);
-  expect(countMessageNavigationUnread(directory, { ordinary: { muted: true } }, {})).toBe(0);
+  expect(countMessageBadgeUnread(directory, {}, { guildDirect: false })).toBe(3);
+  expect(countMessageBadgeUnread(directory, {}, { guildDirect: true })).toBe(8);
+  expect(
+    countMessageBadgeUnread(directory, { [muted.id]: { muted: false } }, { guildDirect: true }),
+  ).toBe(15);
+  expect(countMessageBadgeUnread(directory, { ordinary: { muted: true } }, {})).toBe(0);
   expect(firstUnreadConversation([aggregate, muted], {}, { guildDirect: false })).toBe(muted);
   expect(firstUnreadConversation([aggregate, muted], {}, { guildDirect: true })).toBe(aggregate);
 });

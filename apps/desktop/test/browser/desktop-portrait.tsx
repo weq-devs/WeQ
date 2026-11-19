@@ -65,7 +65,6 @@ function DesktopFixture() {
     initialView: new URLSearchParams(location.search).has('home') ? 'home' : 'messages',
     conversations,
     contacts: [peer],
-    conversationPrefs: {},
     initialActiveConversationId: conversation.id,
     sidebarWidthStorageKey: 'portrait-fixture-width',
     history: {

@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { createTemplateDemoData } from './support/templateDemoData';
-import { countVisibleUnreadConversations } from '../src/renderer/src/im-template/template/shellController';
 import { readFileSync } from 'node:fs';
 import { WorkspacePage, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
 
@@ -20,19 +19,6 @@ it('主界面将实际未读汇总传入消息入口，不固定为零', () => {
   const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
   expect(source.includes('displaySettings.data?.showMessageUnreadBadge === false')).toBe(true);
   expect(source).toContain('? 0 : messageBadgeCount');
-});
-
-it('消息汇总按消息条数累加，免打扰可由本地偏好覆盖', () => {
-  const [first, second] = createTemplateDemoData().conversations;
-  const conversations = [
-    { ...first, unreadCount: 3, preference: { pinned: false, muted: false, blocked: false } },
-    { ...second, unreadCount: 7, preference: { pinned: false, muted: true, blocked: false } },
-  ];
-  expect(countVisibleUnreadConversations(conversations, {})).toBe(3);
-  expect(countVisibleUnreadConversations(conversations, { [second.id]: { muted: false } })).toBe(
-    10,
-  );
-  expect(countVisibleUnreadConversations(conversations, { [first.id]: { muted: true } })).toBe(0);
 });
 
 it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧高亮', () => {

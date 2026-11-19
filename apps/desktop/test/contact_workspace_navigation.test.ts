@@ -109,7 +109,6 @@ function mount(
     current = useChatShellController({
       contacts,
       conversations,
-      conversationPrefs: {},
       initialActiveConversationId: null,
       initialView: 'messages',
       startupView,

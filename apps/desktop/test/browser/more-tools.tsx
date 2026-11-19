@@ -37,7 +37,6 @@ function Fixture() {
   const shell = useChatShellController({
     conversations: [],
     contacts: [],
-    conversationPrefs: {},
     initialActiveConversationId: null,
     initialView: 'more',
     sidebarWidthStorageKey: 'fixture:more-width',

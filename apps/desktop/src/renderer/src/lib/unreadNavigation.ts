@@ -14,8 +14,8 @@ function isMuted(row: Conversation, preferences: ConversationPreferences): boole
   );
 }
 
-/** 导航角标统计常规视图的未读来源；聚合入口只加其未免打扰的成员，不重复加汇总行。 */
-export function countMessageNavigationUnread(
+/** 应用图标与消息导航共用未读来源；聚合入口只加其未免打扰的成员，不重复加汇总行。 */
+export function countMessageBadgeUnread(
   directory: ConversationViewDirectory,
   preferences: ConversationPreferences,
   aggregateBadges: AggregateUnreadBadges,

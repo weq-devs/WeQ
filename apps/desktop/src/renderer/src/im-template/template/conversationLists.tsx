@@ -840,8 +840,7 @@ export function ConversationList({
                     ),
                   ]
                 : [];
-            // 免打扰：会话自带的 DB 值（41220）打底，本地手动偏好覆盖 ——
-            // 与 shellController.countVisibleUnreadConversations 的 merge 顺序保持一致。
+            // 普通会话的免打扰由 DB 值（41220）打底，本地手动偏好覆盖。
             const muted = conversation.generated
               ? Boolean(conversation.preference?.muted)
               : Boolean(

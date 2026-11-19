@@ -1,7 +1,6 @@
 ﻿// @ts-nocheck
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SIDEBAR_WIDTH, loadLayoutNumber, saveLayoutNumber } from './layoutStorage';
-import { defaultConversationPreference } from './preferences';
 import { usePageSnapshotKey, usePageState } from '../../components/PageSnapshots.shared';
 import { pageSnapshots, pageValue } from '../../lib/pageSnapshots';
 import {
@@ -12,14 +11,7 @@ import {
 } from '../../hooks/useMobileNavigation';
 import { z } from 'zod';
 import { contactWorkspaceTabSchema, type ContactWorkspaceTab } from '../../lib/profileNavigation';
-import type {
-  Contact,
-  ContactNoticeView,
-  ContactTab,
-  Conversation,
-  ConversationPreferences,
-  MainView,
-} from './types';
+import type { Contact, ContactNoticeView, ContactTab, Conversation, MainView } from './types';
 
 type GroupConversation = Extract<Conversation, { type: 'group' }>;
 
@@ -51,7 +43,6 @@ export const noopChatShellHistoryAdapter: ChatShellHistoryAdapter = {
 export type UseChatShellControllerOptions = {
   conversations: Conversation[];
   contacts: Contact[];
-  conversationPrefs: ConversationPreferences;
   initialActiveConversationId: string | null;
   initialView?: MainView;
   startupView?: 'home' | 'messages' | null;
@@ -64,7 +55,6 @@ export type UseChatShellControllerOptions = {
 export function useChatShellController({
   conversations,
   contacts,
-  conversationPrefs,
   initialActiveConversationId,
   initialView = 'messages',
   startupView = null,
@@ -363,10 +353,6 @@ export function useChatShellController({
           ) ?? (expandedGroup?.id === selectedGroupConversationId ? expandedGroup : undefined))
         : undefined,
     [conversations, selectedGroupConversationId, expandedGroup, activeContactDetailTab],
-  );
-  const messageUnreadCount = useMemo(
-    () => countVisibleUnreadConversations(conversations, conversationPrefs),
-    [conversations, conversationPrefs],
   );
   const mainOpen =
     view === 'messages'
@@ -670,7 +656,6 @@ export function useChatShellController({
     contactWorkspaceTab,
     setContactWorkspaceTab,
     mainOpen,
-    messageUnreadCount,
     openContactNotice,
     openContactOverview,
     openConversation,
@@ -692,18 +677,4 @@ export function useChatShellController({
     updateSidebarWidth,
     view,
   };
-}
-
-export function countVisibleUnreadConversations(
-  conversations: Conversation[],
-  conversationPrefs: ConversationPreferences,
-) {
-  return conversations.reduce((total, conversation) => {
-    const preference = {
-      ...defaultConversationPreference,
-      ...conversation.preference,
-      ...conversationPrefs[conversation.id],
-    };
-    return preference.muted ? total : total + (conversation.unreadCount ?? 0);
-  }, 0);
 }

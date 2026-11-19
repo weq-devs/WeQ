@@ -12,7 +12,7 @@ import {
 } from './workspace/useConversationWindowRead';
 import { PAGE_SIZE } from './workspace/paging';
 import {
-  countMessageNavigationUnread,
+  countMessageBadgeUnread,
   createUnreadConversationCycle,
   firstUnreadMessage,
   matchesUnreadMessage,
@@ -2589,7 +2589,6 @@ function MainWorkspace(): ReactElement {
   const shell = useChatShellController({
     conversations: contactDirectoryConversations,
     contacts: profileContacts,
-    conversationPrefs,
     initialActiveConversationId: null,
     // 手机直接落在消息列表；桌面保留主页，会话均由用户显式点选。
     initialView: IS_WEB && isMobileShell() ? 'messages' : 'home',
@@ -8003,22 +8002,8 @@ function MainWorkspace(): ReactElement {
     deletedUidSet,
     temporaryConversations,
   ]);
-  const directoryUnread = useMemo(
-    () =>
-      (['clone', 'assistant', 'official', 'service', 'guild'] as const).reduce(
-        (total, view) =>
-          conversationViews[view].reduce(
-            (count, row) => count + (row.preference?.muted ? 0 : (row.unreadCount ?? 0)),
-            total,
-          ),
-        0,
-      ),
-    [conversationViews],
-  );
-  const appBadgeCount = shell.messageUnreadCount + directoryUnread;
   const messageBadgeCount = useMemo(
-    () =>
-      countMessageNavigationUnread(conversationViews, conversationPrefs, unreadMarkers.aggregates),
+    () => countMessageBadgeUnread(conversationViews, conversationPrefs, unreadMarkers.aggregates),
     [conversationViews, conversationPrefs, unreadMarkers.aggregates],
   );
   useMessageNotifications({
@@ -8028,7 +8013,7 @@ function MainWorkspace(): ReactElement {
     preferences: conversationPrefs,
     groupAssistantIds,
     resolveGroupSenderName: resolveNoticeGroupSenderName,
-    badgeCount: appBadgeCount,
+    badgeCount: messageBadgeCount,
     foregroundConversation:
       messagesTabActive && !settingsOpen && !dressUpOpen ? selectedUid : undefined,
   });
