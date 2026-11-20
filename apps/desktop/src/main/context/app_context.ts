@@ -2006,6 +2006,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               exportConfigId,
               'unread.json',
             ),
+            unreadSentSequences: (ranges) => gapHistory.unreadSentSequences(ranges),
           },
           createQqUnreadCountSource(platform.native.ntHelper, session.msgDbPath, () => {
             if (this.account !== session || this.accountIsStatic) return null;
@@ -2449,6 +2450,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           async (message) => {
             await gapHistory.retainForBatch([message]);
             if (getAppContext().account !== session) return;
+            this.services?.unreadInfo.invalidateSent(message.kind, message.conv);
             dbEventBus.emit('roaming', {
               session,
               kind: message.kind,
@@ -2935,6 +2937,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             'unread.json',
           ),
           readOnly: !this.accountIsAndroidBackup,
+          unreadSentSequences: (ranges) => gapHistory.unreadSentSequences(ranges),
         }),
         accountConfig,
         annualReport: new AnnualReportService(session, {
@@ -3332,6 +3335,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           async (message) => {
             await gapHistory.retainForBatch([message]);
             if (getAppContext().account !== session) return;
+            this.services?.unreadInfo.invalidateSent(message.kind, message.conv);
             dbEventBus.emit('roaming', {
               session,
               kind: message.kind,

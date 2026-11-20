@@ -23,6 +23,16 @@ const TABLE = 'gap_msg';
 const NATIVE_TABLE = 'native_gap_msg';
 const PROTOCOL_TABLE = 'protocol_gap_msg';
 const OBSERVATION_TABLE = 'protocol_gap_observation';
+const CONFIRMED_SENT =
+  "json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)";
+
+export interface UnreadSentRange {
+  peer: string;
+  kind: 'c2c' | 'group';
+  conv: string;
+  after: bigint;
+  through: bigint;
+}
 
 /** SQLite 存不了 bigint 字段值，渲染元素里又有 elementId/origMsgId 等 bigint，JSON 序列化时包一层。 */
 function serializeJson(value: unknown): string {
@@ -146,17 +156,60 @@ export class RoamMsgCacheDb {
   /** 每个会话最近一次已确认发送，用于 QQ 尚未同步时的会话摘要。 */
   async latestSent(): Promise<GapFetchedMessage[]> {
     await this.ensureSchema();
-    const eligible =
-      "json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)";
     const rows = await this.nt.executeSql(
       this.dbPath,
-      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE ${eligible}
+      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE ${CONFIRMED_SENT}
        AND (kind,conv,msg_seq) IN (
-         SELECT kind,conv,MAX(msg_seq) FROM ${PROTOCOL_TABLE} WHERE ${eligible} GROUP BY kind,conv
+         SELECT kind,conv,MAX(msg_seq) FROM ${PROTOCOL_TABLE} WHERE ${CONFIRMED_SENT} GROUP BY kind,conv
        )`,
       null,
     );
     return rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
+  }
+
+  /** 只按发送索引读取未读区间内已确认的自发序号。 */
+  async unreadSentSequences(
+    selfUid: string,
+    ranges: UnreadSentRange[],
+  ): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>();
+    if (!selfUid || !ranges.length || !existsSync(this.dbPath)) return result;
+    await this.ensureSchema();
+    for (let offset = 0; offset < ranges.length; offset += 128) {
+      const batch = ranges.slice(offset, offset + 128);
+      const rows = await scheduleDatabase(
+        this.dbPath,
+        () =>
+          this.nt.executeSql(
+            this.dbPath,
+            `WITH targets(peer, chat_kind, target_conv, after_seq, through_seq) AS
+          (VALUES ${batch.map(() => '(?,?,?,?,?)').join(',')})
+         SELECT DISTINCT t.peer, s.msg_seq FROM targets t
+         CROSS JOIN ${PROTOCOL_TABLE} s INDEXED BY protocol_sent_preview
+         WHERE s.kind=t.chat_kind AND s.conv=t.target_conv
+           AND s.msg_seq>t.after_seq AND s.msg_seq<=t.through_seq
+           AND ${CONFIRMED_SENT} AND json_extract(s.payload,'$.senderUid')=?`,
+            [
+              ...batch.flatMap(({ peer, kind, conv, after, through }) => [
+                peer,
+                kind,
+                conv,
+                after,
+                through,
+              ]),
+              selfUid,
+            ],
+          ),
+        this.nt,
+      );
+      for (const [peer, seq] of rows) {
+        const key = String(peer);
+        const sequences = result.get(key) ?? [];
+        sequences.push(String(seq));
+        result.set(key, sequences);
+      }
+    }
+    return result;
   }
 
   /** 独立读取发送快照，不能被同身份的空漫游观察遮住。 */
@@ -169,8 +222,7 @@ export class RoamMsgCacheDb {
     await this.ensureSchema();
     const rows = await this.nt.executeSql(
       this.dbPath,
-      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE json_extract(payload,'$.localSent')=1
-       AND (kind='group' OR nt_seq_verified=1)
+      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE ${CONFIRMED_SENT}
        ${recalledOnly ? "AND json_type(payload,'$.recall')='object'" : ''}
        ${kind ? 'AND kind=?' : ''} ${conv ? 'AND conv=?' : ''} ${seq !== undefined ? 'AND msg_seq=?' : ''}`,
       [...(kind ? [kind] : []), ...(conv ? [conv] : []), ...(seq !== undefined ? [seq] : [])],
@@ -698,7 +750,7 @@ export class RoamMsgCacheDb {
     await this.nt.executeSqlWrite(
       this.dbPath,
       `CREATE INDEX IF NOT EXISTS protocol_sent_preview ON ${PROTOCOL_TABLE}(kind,conv,msg_seq)
-       WHERE json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)`,
+       WHERE ${CONFIRMED_SENT}`,
       null,
     );
     const columns = await this.nt.executeSql(

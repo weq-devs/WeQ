@@ -21,7 +21,7 @@ import { measureMessageWork } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import { type decodeMessage, fetchC2cHistoryRaw, fetchGroupHistoryRaw } from '@weqbot/protocol';
 import { toRenderElements, type RenderElement } from './msg_view';
-import { RoamMsgCacheDb } from './roam_msg_cache';
+import { RoamMsgCacheDb, type UnreadSentRange } from './roam_msg_cache';
 import type { DeletedMsgStore } from './deleted_msgs';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 import { withRoamingRequest } from '../common/roaming_request_queue';
@@ -234,6 +234,10 @@ export class GapHistoryService {
 
   async latestSent(): Promise<GapFetchedMessage[]> {
     return (await this.cache.latestSent()).filter((row) => !this.deleted?.isHiddenCached(row));
+  }
+
+  unreadSentSequences(ranges: UnreadSentRange[]): Promise<Map<string, string[]>> {
+    return this.cache.unreadSentSequences(this.session.selfUid, ranges);
   }
 
   /** 原文可能仅在 WeQ 发送缓存里；先读快照，只有服务端确认撤回后才落标记。 */

@@ -152,7 +152,7 @@ export class LocalUnreadStore {
     this.revision++;
   }
 
-  resolve(snapshot: UnreadInfoSnapshot): ResolvedUnreadInfo {
+  resolve(snapshot: UnreadInfoSnapshot, confirmedSent: readonly string[] = []): ResolvedUnreadInfo {
     if (snapshot.readError) return snapshot;
     const row = this.positions.get(snapshot.peer);
     const databaseRead = [String(snapshot.msgSeq ?? 0), snapshot.localReadSeq ?? '0'].reduce(
@@ -210,6 +210,15 @@ export class LocalUnreadStore {
           this.pendingOutgoing.delete(this.pendingOutgoing.keys().next().value!);
         for (const seq of outgoing) decreased.add(seq);
       } else this.pendingOutgoing.delete(snapshot.peer);
+      for (const seq of confirmedSent) {
+        // 小表若已确认同序号的对方正文，优先保留该条未读。
+        if (
+          seq !== snapshot.latestSeq ||
+          !snapshot.latestSenderUid ||
+          snapshot.latestSenderUid === this.selfUid
+        )
+          decreased.add(seq);
+      }
     }
     if (snapshot.latestSeqNonMessage && snapshot.latestSeq !== null)
       decreased.add(snapshot.latestSeq);
