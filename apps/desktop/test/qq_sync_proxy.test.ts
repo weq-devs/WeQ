@@ -75,6 +75,52 @@ function reader(socket: Socket) {
     return result;
   };
 }
+it('切换端口保留已建立的隧道，端口占用或保存失败时保留原监听', async () => {
+  const remote = createServer((socket) => {
+    sockets.push(socket);
+    socket.pipe(socket);
+  });
+  servers.push(remote);
+  remote.listen(0, '127.0.0.1');
+  await once(remote, 'listening');
+  const remotePort = (remote.address() as { port: number }).port;
+  const proxy = new QqSyncProxy();
+  proxies.push(proxy);
+  const originalPort = await proxy.start(0);
+
+  async function tunnel(port: number) {
+    const client = connect(port, '127.0.0.1');
+    sockets.push(client);
+    const take = reader(client);
+    await once(client, 'connect');
+    client.write(`CONNECT 127.0.0.1:${remotePort} HTTP/1.1\r\n\r\n`);
+    const reply = 'HTTP/1.1 200 Connection Established\r\n\r\n';
+    expect((await take(Buffer.byteLength(reply))).toString()).toBe(reply);
+    return { client, take };
+  }
+
+  const persist = vi.fn(async () => {});
+  await expect(proxy.start(remotePort, persist)).rejects.toMatchObject({ code: 'EADDRINUSE' });
+  expect(persist).not.toHaveBeenCalled();
+  await expect(
+    proxy.start(0, async () => {
+      throw new Error('配置写入失败');
+    }),
+  ).rejects.toThrow('配置写入失败');
+  const original = await tunnel(originalPort);
+
+  const nextPort = await proxy.start(0, persist);
+  expect(persist).toHaveBeenCalledOnce();
+  const fresh = await tunnel(nextPort);
+  original.client.write('old connection');
+  fresh.client.write('new connection');
+  expect((await original.take(14)).toString()).toBe('old connection');
+  expect((await fresh.take(14)).toString()).toBe('new connection');
+  const rejected = connect(originalPort, '127.0.0.1');
+  sockets.push(rejected);
+  await expect(once(rejected, 'connect')).rejects.toMatchObject({ code: 'ECONNREFUSED' });
+});
+
 it('分片、连续帧与前导登录数据保持完整边界', () => {
   const f = frame();
   const observer = new FrameBuffer();

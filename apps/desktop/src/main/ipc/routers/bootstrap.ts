@@ -16,7 +16,12 @@ import { OperationError, developmentDressToolsEnabled } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
 import type { TranscribeResult } from '../../transcribe/engine';
-import { ensureQqSyncProxy, qqSyncStatus, qqSyncRequest } from '../../qq_sync/runtime';
+import {
+  ensureQqSyncProxy,
+  qqSyncStatus,
+  qqSyncRequest,
+  setQqSyncPort,
+} from '../../qq_sync/runtime';
 import {
   consumeNotificationClick,
   notificationClickEvents,
@@ -991,6 +996,10 @@ export const bootstrapRouter = router({
     const status = await qqSyncStatus(requirePlatform().appDataRoot());
     return { ...status, tasks: ctx.services?.qqClientSync?.status() ?? null };
   }),
+
+  setQqClientSyncPort: procedure
+    .input(z.object({ port: z.number().int().min(1).max(65535) }).strict())
+    .mutation(({ input }) => setQqSyncPort(requirePlatform().appDataRoot(), input.port)),
 
   setQqClientSyncEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())

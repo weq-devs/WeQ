@@ -5,10 +5,11 @@ import { dirname, join } from 'node:path';
 import { uptime } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
+import { writeFileAtomic } from '@weq/service/atomic-write';
 import { z } from 'zod';
 import { RecallJournal } from './recall_journal';
 import { QqSyncProxy } from './proxy';
-import type { SyncProxyConfig } from './ipc';
+import { QQ_SYNC_CONTROL_VERSION, type SyncProxyConfig } from './ipc';
 
 const suppliedPath = process.argv[process.argv.indexOf('--config') + 1];
 if (!suppliedPath || process.argv.indexOf('--config') < 0) throw new Error('缺少代理配置');
@@ -58,19 +59,27 @@ async function supervise() {
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
   let failures = 0;
+  let deferListen = process.argv.includes('--defer-listen');
   try {
     while (!stopped) {
       const started = Date.now();
       const code = await new Promise<number | null>((resolve) => {
         const launched = spawn(
           process.execPath,
-          [...process.execArgv, entry, '--config', configPath],
+          [
+            ...process.execArgv,
+            entry,
+            '--config',
+            configPath,
+            ...(deferListen ? ['--defer-listen'] : []),
+          ],
           {
             stdio: 'ignore',
             env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
           },
         );
         child = launched;
+        deferListen = false;
         launched.once('error', () => resolve(1));
         launched.once('exit', resolve);
       });
@@ -85,6 +94,11 @@ async function supervise() {
 
 const schema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('status'), token: z.string() }),
+  z.object({
+    op: z.literal('listen'),
+    token: z.string(),
+    port: z.number().int().min(1).max(65535).optional(),
+  }),
   z.object({
     op: z.literal('credential'),
     token: z.string(),
@@ -129,6 +143,70 @@ const schema = z.discriminatedUnion('op', [
 ]);
 async function serve() {
   const proxy = new QqSyncProxy(new RecallJournal(join(directory, 'recall-events')));
+  const startedAt = Date.now();
+  let listenError = '';
+  let retryListen: ReturnType<typeof setInterval> | undefined;
+  let pendingListen: Promise<number> | undefined;
+  let stopping = false;
+  const status = () => ({
+    ...proxy.status(),
+    pid: process.pid,
+    port: config.port,
+    error: listenError,
+    protocolVersion: QQ_SYNC_CONTROL_VERSION,
+  });
+  const recordStatus = () =>
+    writeFileAtomic(
+      join(directory, 'status.json'),
+      JSON.stringify({
+        pid: process.pid,
+        port: config.port,
+        startedAt,
+        state: proxy.status().running ? '正常' : '监听失败',
+        error: listenError,
+        protocolVersion: QQ_SYNC_CONTROL_VERSION,
+      }),
+    ).catch(() => undefined);
+  async function listen(requestedPort?: number): Promise<number> {
+    if (stopping) throw new Error('QQ 同步代理正在退出');
+    if (pendingListen) {
+      if (requestedPort === undefined) return pendingListen;
+      throw new Error('QQ 同步代理正在切换端口，请稍后重试');
+    }
+    const port = requestedPort ?? config.port;
+    if (port === config.port && proxy.status().running) return port;
+    pendingListen = (async () => {
+      try {
+        await proxy.start(
+          port,
+          port === config.port
+            ? undefined
+            : () => writeFileAtomic(configPath, JSON.stringify({ ...config, port })),
+        );
+        config.port = port;
+        listenError = '';
+        clearInterval(retryListen);
+        await recordStatus();
+        return port;
+      } catch (error) {
+        const cause = error as NodeJS.ErrnoException;
+        const message =
+          cause.code === 'EADDRINUSE'
+            ? `本机端口 ${port} 已被占用，请选择其他端口`
+            : `无法使用本机端口 ${port}：${cause.message}`;
+        if (port === config.port && !proxy.status().running && listenError !== message) {
+          listenError = message;
+          await recordStatus();
+        }
+        throw new Error(message);
+      }
+    })();
+    try {
+      return await pendingListen;
+    } finally {
+      pendingListen = undefined;
+    }
+  }
   const server = createServer((socket) => {
     let buffer = '';
     const timer = setTimeout(() => socket.destroy(), 10000);
@@ -150,7 +228,8 @@ async function serve() {
         if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))
           throw Error('代理认证失败');
         let result: unknown;
-        if (request.op === 'status') result = { ...proxy.status(), pid: process.pid };
+        if (request.op === 'status') result = status();
+        else if (request.op === 'listen') result = { port: await listen(request.port) };
         else if (request.op === 'credential') {
           proxy.setCredential(request.value);
           result = true;
@@ -179,7 +258,12 @@ async function serve() {
   });
   // 监护进程串行启动子进程，此处清理上一代退出后留下的 Unix socket。
   if (process.platform !== 'win32') await unlink(config.socket).catch(() => undefined);
-  await proxy.start(config.port);
+  // 端口占用时仍开放私有控制通道，供设置页改到可用端口。
+  if (!process.argv.includes('--defer-listen')) {
+    await listen().catch(() => {
+      retryListen = setInterval(() => void listen().catch(() => undefined), 5000).unref();
+    });
+  }
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(config.socket, () => {
@@ -189,18 +273,10 @@ async function serve() {
   });
   if (process.platform !== 'win32')
     await import('node:fs/promises').then((fs) => fs.chmod(config.socket, 0o600));
-  await writeFile(
-    join(directory, 'status.json'),
-    JSON.stringify({
-      pid: process.pid,
-      port: config.port,
-      startedAt: Date.now(),
-      state: '正常',
-      protocolVersion: 2,
-    }),
-    { mode: 0o600 },
-  );
   const stop = async () => {
+    stopping = true;
+    clearInterval(retryListen);
+    await pendingListen?.catch(() => undefined);
     await proxy.close();
     server.close(() => process.exit(0));
   };

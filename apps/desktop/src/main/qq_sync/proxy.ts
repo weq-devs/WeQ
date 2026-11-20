@@ -155,11 +155,13 @@ export class QqSyncProxy {
       delivered: this.deliveredCount,
       recallError: this.lastRecallError,
       filteredRecalls: this.filteredRecalls,
-      protocolVersion: 2,
     };
   }
-  async start(port: number) {
-    const server = createServer({ allowHalfOpen: true }, (client) => this.accept(client));
+  async start(port: number, persist?: () => Promise<void>) {
+    const server = createServer({ allowHalfOpen: true }, (client) => {
+      if (this.server === server) this.accept(client);
+      else client.destroy();
+    });
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(port, '127.0.0.1', () => {
@@ -167,7 +169,18 @@ export class QqSyncProxy {
         resolve();
       });
     });
+    const address = server.address() as { port: number };
+    try {
+      await persist?.();
+    } catch (error) {
+      server.close();
+      throw error;
+    }
+    const previous = this.server;
     this.server = server;
+    // 已建立的 QQ 隧道继续转发，旧地址停止接收新连接。
+    previous?.close();
+    return address.port;
   }
   async close() {
     for (const tunnel of this.tunnels.values()) {
