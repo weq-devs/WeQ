@@ -134,8 +134,7 @@ export function TitleBarSearch({
         ref={input}
         type="search"
         aria-label="搜索内容、功能与设置"
-        tabIndex={persistent || expanded ? 0 : -1}
-        disabled={!persistent && !expanded}
+        hidden={!persistent && !expanded}
         value={query}
         placeholder="搜索内容、功能与设置"
         onChange={(event) => onQueryChange(event.target.value)}
