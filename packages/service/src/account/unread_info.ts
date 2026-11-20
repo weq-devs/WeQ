@@ -2,7 +2,13 @@ import type { AccountSession } from '@weq/account';
 import { classifyChatType } from '@weq/codec';
 import { recordMessageWork, withDatabasePriority } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
-import { ReportRead, type ReadReportParams } from '@weqbot/protocol';
+import { ReportRead, readReportWatermark, type ReadReportParams } from '@weqbot/protocol';
+import {
+  messageReadCursor,
+  messageReadPosition,
+  validReadPosition,
+} from '../common/client_preferences';
+import { resolveC2cPartition } from './c2c_partition';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
 import { LocalUnreadStore, type ResolvedUnreadInfo } from './local_unread';
 import type { NewMessages } from './nt_msg_hook';
@@ -45,6 +51,7 @@ interface PendingReport {
   pid: number;
   owner: object | undefined;
   promise: Promise<ReadReportStatus>;
+  valid?: () => boolean;
 }
 
 interface ManualReadEntry extends UnreadInfoTarget {
@@ -78,7 +85,7 @@ export class UnreadInfoService {
   private readonly pending = new Map<string, PendingReport>();
   private readonly confirmed = new Map<
     string,
-    { pid: number; owner: object | undefined; sequence: number }
+    { pid: number; owner: object | undefined; watermark: number }
   >();
   private lastReport: ReadReportStatus = { state: 'disabled' };
   private readonly readHistory = new Map<string, ManualReadEntry[]>();
@@ -850,25 +857,88 @@ export class UnreadInfoService {
     }
   }
 
+  /** 公众号零序号阅读使用实际消息时间，上报确认后通知本机代理。 */
+  async reportOfficialRead(
+    uid: string,
+    position: string,
+    valid: () => boolean,
+    manual = false,
+  ): Promise<ReadReportStatus> {
+    if (this.localOptions?.readOnly || this.disposed || !valid()) return { state: 'unavailable' };
+    if (!this.reportEnabled(manual)) return { state: 'disabled' };
+    if (
+      !/^u_[A-Za-z0-9_-]+$/.test(uid) ||
+      !validReadPosition(position) ||
+      !position.startsWith('0:')
+    )
+      return { state: 'skipped' };
+    const cursor = messageReadCursor(position);
+    const timestamp = Number(cursor.sendTime);
+    if (!Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > 0xffffffff)
+      return { state: 'skipped' };
+    const generation = this.generation;
+    const pid = this.report!.resolvePid();
+    if (pid === null) return { state: 'unavailable' };
+    const owner = ssoWorkState(this.report!.nt, pid).owner;
+    try {
+      const rows = await this.session.c2cMsgs.calendarMessage(
+        await resolveC2cPartition(this.session.uidMap, uid),
+        cursor.msgId,
+      );
+      if (!rows.some((row) => messageReadPosition(row) === position)) return { state: 'skipped' };
+      const current = () =>
+        valid() &&
+        this.generation === generation &&
+        this.report!.resolvePid() === pid &&
+        ssoWorkState(this.report!.nt, pid).owner === owner;
+      if (!current()) return { state: 'unavailable' };
+      const target = { kind: 'official', targetUid: uid, sequence: 0, timestamp } as const;
+      const status = await this.reportTarget(
+        `${manual ? 'manual:' : ''}103_${uid}`,
+        target,
+        manual,
+        current,
+      );
+      if (!this.disposed && current()) {
+        this.lastReport = status;
+        if (status.state === 'acknowledged') this.report?.onAcknowledged?.(target);
+      }
+      return status;
+    } catch {
+      return { state: 'failed' };
+    }
+  }
+
   private reportTarget(
     key: string,
     target: ReadReportParams,
     manual = false,
+    valid?: () => boolean,
   ): Promise<ReadReportStatus> {
     const options = this.report!;
     const pid = options.resolvePid();
-    if (pid === null || this.disposed || !this.reportEnabled(manual))
+    if (pid === null || this.disposed || !this.reportEnabled(manual) || valid?.() === false)
       return Promise.resolve({ state: 'unavailable' });
     const owner = ssoWorkState(options.nt, pid).owner;
     const generation = this.generation;
     const prior = this.confirmed.get(key);
-    if (prior?.pid === pid && prior.owner === owner && prior.sequence >= target.sequence)
-      return Promise.resolve({ state: 'acknowledged', sequence: String(prior.sequence) });
+    if (
+      prior?.pid === pid &&
+      prior.owner === owner &&
+      prior.watermark >= readReportWatermark(target)
+    )
+      return Promise.resolve({
+        state: 'acknowledged',
+        sequence: String(target.kind === 'official' ? 0 : prior.watermark),
+      });
     const active = this.pending.get(key);
     if (active) {
       if (active.pid !== pid || active.owner !== owner)
         return Promise.resolve({ state: 'unavailable' });
-      if (target.sequence > active.target.sequence) active.target = target;
+      if (readReportWatermark(target) >= readReportWatermark(active.target)) {
+        active.target = target;
+        active.valid = valid;
+      }
       return active.promise;
     }
     if (this.pending.size >= 256) return Promise.resolve({ state: 'unavailable' });
@@ -876,12 +946,14 @@ export class UnreadInfoService {
       target,
       pid,
       owner,
+      valid,
       promise: Promise.resolve({ state: 'unavailable' }),
     };
     const current = () =>
       !this.disposed &&
       this.generation === generation &&
       this.reportEnabled(manual) &&
+      entry.valid?.() !== false &&
       options.resolvePid() === pid &&
       ssoWorkState(options.nt, pid).owner === owner;
     entry.promise = (async () => {
@@ -889,11 +961,18 @@ export class UnreadInfoService {
       await Promise.resolve();
       while (current()) {
         const requested = entry.target;
+        const requestedValid = entry.valid;
         let state: ReadReportState = 'failed';
         for (let attempt = 0; attempt < 3 && current(); attempt++) {
           try {
             state = await queueSsoWork(options.nt, pid, async () => {
-              if (!current() || !(await options.nt.hasSsoSession(pid)) || !current())
+              if (
+                !current() ||
+                requestedValid?.() === false ||
+                !(await options.nt.hasSsoSession(pid)) ||
+                !current() ||
+                requestedValid?.() === false
+              )
                 return 'unavailable' as const;
               return ReportRead.invoke(options.nt, pid, requested);
             });
@@ -907,9 +986,9 @@ export class UnreadInfoService {
         if (state === 'acknowledged') {
           if (this.confirmed.size >= 512)
             this.confirmed.delete(this.confirmed.keys().next().value!);
-          this.confirmed.set(key, { pid, owner, sequence: requested.sequence });
+          this.confirmed.set(key, { pid, owner, watermark: readReportWatermark(requested) });
         }
-        if (entry.target.sequence > requested.sequence) continue;
+        if (readReportWatermark(entry.target) > readReportWatermark(requested)) continue;
         return { state, sequence: String(requested.sequence) };
       }
       return { state: 'unavailable' as const };

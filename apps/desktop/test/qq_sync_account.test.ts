@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
@@ -14,6 +14,8 @@ vi.mock('@weqbot/protocol', () => ({
   fetchC2cHistoryRaw: f.history,
   fetchGroupHistoryRaw: f.history,
   extractPath: () => Buffer.from([8, 1]),
+  readReportWatermark: (target: { kind: string; sequence: number; timestamp?: number }) =>
+    target.kind === 'official' ? target.timestamp : target.sequence,
 }));
 const directories: string[] = [];
 const services: AccountQqSync[] = [];
@@ -104,6 +106,25 @@ it('同一会话待补读水位合并到最高位置', async () => {
   expect(clientReadTargets(Buffer.from(pushes[0]![1].body, 'base64'))).toEqual([
     { kind: 'group', groupUin: 55555, sequence: 20 },
   ]);
+});
+it.each([false, true])('公众号零序号按时间合并，后续手动未读（%s）使补投失效', async (unread) => {
+  const state = fixture();
+  const key = 'official:u_peer';
+  const reads = { [key]: '0:1700000002:20', ...(unread ? { [`unread:${key}`]: '9' } : {}) };
+  writeFileSync(join(state.root, 'client-state.json'), JSON.stringify({ records: { reads } }));
+  for (const timestamp of [1700000001, 1700000002, 1700000000])
+    state.service.read({ kind: 'official', targetUid: 'u_peer', sequence: 0, timestamp });
+  await vi.waitFor(() => expect(state.saved().tasks[0]?.target.timestamp).toBe(1700000002));
+  state.setOnline();
+  await vi.waitFor(() => expect(state.service.status().pending).toBe(0));
+  const pushes = f.request.mock.calls.filter((call) => call[1].op === 'push');
+  expect(pushes).toHaveLength(unread ? 0 : 1);
+  if (!unread) {
+    expect(pushes[0]![1].identity).toBe('read:official:u_peer:1700000002');
+    expect(clientReadTargets(Buffer.from(pushes[0]![1].body, 'base64'))).toEqual([
+      { kind: 'official', targetUid: 'u_peer', sequence: 0, timestamp: 1700000002 },
+    ]);
+  }
 });
 it('重启恢复先查本地接纳，已有消息不重复补投', async () => {
   const original = fixture();

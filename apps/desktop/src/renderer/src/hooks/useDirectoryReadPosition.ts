@@ -34,6 +34,7 @@ export function useDirectoryReadPosition(
     if (
       newerReadPosition(position, previous) ||
       (position === previous && marker) ||
+      (key.startsWith('official:') && position !== '0') ||
       directoryReportsUnread()
     )
       saveAccountRecords('reads', {

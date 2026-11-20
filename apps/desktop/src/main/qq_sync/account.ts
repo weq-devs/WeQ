@@ -1,11 +1,21 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { mkdir, writeFile, rename } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
+import {
+  directoryUnreadKey,
+  validReadPosition,
+  messageReadCursor,
+} from '@weq/service/client-preferences';
 import type { AccountSession } from '@weq/account';
 import type { GapFetchedMessage, AntiRecallService } from '@weq/service';
 import type { NtHelperBinding } from '@weq/native';
-import { fetchC2cHistoryRaw, fetchGroupHistoryRaw, extractPath } from '@weqbot/protocol';
+import {
+  fetchC2cHistoryRaw,
+  fetchGroupHistoryRaw,
+  extractPath,
+  readReportWatermark,
+} from '@weqbot/protocol';
 import {
   buildClientReadNotify,
   wrapClientMessage,
@@ -99,11 +109,37 @@ export class AccountQqSync {
     if (!this.options.enabled() || !this.options.readEnabled() || this.disposed) return;
     const id = `read:${target.kind}:${target.kind === 'group' ? target.groupUin : target.targetUid}`;
     const prior = this.tasks.get(id);
-    if (prior?.kind === 'read' && prior.target.sequence >= target.sequence) return;
+    if (prior?.kind === 'read' && readReportWatermark(prior.target) >= readReportWatermark(target))
+      return;
     this.enqueue({ id, kind: 'read', target, attempts: 0, nextAt: Date.now() });
   }
   refresh() {
     void this.run();
+  }
+  private async currentRead(target: ClientReadTarget): Promise<boolean> {
+    if (target.kind === 'official') {
+      const state = JSON.parse(
+        readFileSync(join(dirname(this.options.path), 'client-state.json'), 'utf8'),
+      );
+      const reads = state.records?.reads ?? {};
+      const key = `official:${target.targetUid}`;
+      const position = reads[key];
+      return (
+        validReadPosition(position) &&
+        position.startsWith('0:') &&
+        !reads[directoryUnreadKey(key)] &&
+        Number(messageReadCursor(position).sendTime) === target.timestamp
+      );
+    }
+    const snapshot = await this.options.session.unreadInfo.getUnreadInfo(
+      target.kind === 'group' ? 2 : 1,
+      target.kind === 'group' ? String(target.groupUin) : target.targetUid,
+    );
+    return (
+      !snapshot?.markUnread &&
+      BigInt(snapshot?.msgSeq ?? 0) <= BigInt(target.sequence) &&
+      BigInt(snapshot?.localReadSeq ?? '0') <= BigInt(target.sequence)
+    );
   }
   private enqueue(task: Task) {
     if (this.tasks.size >= 512 && !this.tasks.has(task.id)) {
@@ -287,21 +323,10 @@ export class AccountQqSync {
             await this.save();
             continue;
           }
-          if (task.kind === 'read') {
-            const target = task.target;
-            const snapshot = await this.options.session.unreadInfo.getUnreadInfo(
-              target.kind === 'group' ? 2 : 1,
-              target.kind === 'group' ? String(target.groupUin) : target.targetUid,
-            );
-            if (
-              snapshot?.markUnread ||
-              BigInt(snapshot?.msgSeq ?? 0) > BigInt(target.sequence) ||
-              BigInt(snapshot?.localReadSeq ?? '0') > BigInt(target.sequence)
-            ) {
-              if (this.tasks.get(task.id) === task) this.tasks.delete(task.id);
-              await this.save();
-              continue;
-            }
+          if (task.kind === 'read' && !(await this.currentRead(task.target))) {
+            if (this.tasks.get(task.id) === task) this.tasks.delete(task.id);
+            await this.save();
+            continue;
           }
           const body =
             task.kind === 'message'
@@ -313,7 +338,8 @@ export class AccountQqSync {
             (task.kind === 'read' && !this.options.readEnabled())
           )
             continue;
-          const identity = task.kind === 'read' ? `${task.id}:${task.target.sequence}` : task.id;
+          const identity =
+            task.kind === 'read' ? `${task.id}:${readReportWatermark(task.target)}` : task.id;
           await qqSyncRequest(this.options.root, {
             op: 'push',
             uin,

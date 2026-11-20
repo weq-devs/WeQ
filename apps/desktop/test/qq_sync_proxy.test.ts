@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { encode } from '@weqbot/protocol';
+import { decodePushEnvelope } from '../../../vendor/weqbot/packages/protocol/src/push/decode';
 import { PUSH_MSG_BODY } from '../../../vendor/weqbot/packages/protocol/src/msg/schemas';
 import {
   FRIEND_RECALL,
@@ -91,6 +92,21 @@ it('已读通知按真实样本字段构造，支持群和普通私聊', () => {
     expect(
       clientReadTargets(buildClientReadNotify({ uin: '10001', uid: 'u_self' }, target)),
     ).toEqual([target]);
+});
+it('公众号已读通知保留手机样本中的时间和显式零值字段', () => {
+  const target = {
+    kind: 'official',
+    targetUid: 'u_peer',
+    timestamp: 1700000000,
+    sequence: 0,
+  } as const;
+  const body = buildClientReadNotify({ uin: '10001', uid: 'u_self' }, target);
+  const message = decodePushEnvelope(body).messages[0]!;
+  expect(message.contentHead).toMatchObject({ msgType: 528, subType: 8, c2cCmd: 8 });
+  expect(Buffer.from(message.body!.msgContent!).toString('hex')).toBe(
+    '0a180a06755f706565721080e2cfaa0648005800a00100a80100',
+  );
+  expect(clientReadTargets(body)).toEqual([target]);
 });
 it('补投等待完整帧，按业务身份去重，并拒绝旧会话', async () => {
   let upstream: Socket | undefined;

@@ -88,7 +88,11 @@ import {
   PROJECT_GROUP_SHARE_URL,
 } from '../../../shared/project_groups';
 import { observable } from '@trpc/server/observable';
-import { boundClientState, trustSharedDraftMedia } from './client_state';
+import {
+  boundClientState,
+  trustSharedDraftMedia,
+  reportOfficialDirectoryReads,
+} from './client_state';
 import { mkdir, stat, lstat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -3556,6 +3560,7 @@ export const accountRouter = router({
         let failed = 0;
         try {
           changes = state.setDirectoryReadState(input.directoryTargets, input.unread);
+          if (!input.unread) reportOfficialDirectoryReads(state, input.directoryTargets, true);
         } catch (error) {
           if (!input.targets.length) throw error;
           failed += input.directoryTargets.length;
@@ -3592,7 +3597,19 @@ export const accountRouter = router({
       const services = requireExpectedAccount(input.expectedAccountUin);
       const local = directoryReadUndo.get(services);
       if (local?.token === input.undoToken) {
-        const restored = currentDraftState().undoDirectoryReadState(local.changes);
+        const state = currentDraftState();
+        const restored = state.undoDirectoryReadState(local.changes);
+        reportOfficialDirectoryReads(
+          state,
+          local.changes.flatMap((change) =>
+            change.before.position &&
+            !change.before.marker &&
+            newerReadPosition(change.before.position, change.after.position)
+              ? [{ key: change.key, position: change.before.position }]
+              : [],
+          ),
+          true,
+        );
         local.changes = [];
         const qq = local.qqToken
           ? await services.unreadInfo.undoReadState(local.qqToken)
