@@ -2,6 +2,39 @@ type MediaKind = 'pic' | 'video' | 'mface';
 type MediaData = Record<string, unknown>;
 export type MediaSize = { width: number; height: number };
 
+type MediaElement = { type?: string; data?: MediaData };
+export const CHAT_IMAGE_GRID_WIDTH = 240;
+export const CHAT_IMAGE_GRID_GAP = 4;
+
+export function isChatGalleryImage(data: MediaData): boolean {
+  return (
+    Number(data.subType) !== 1 && !data.isFlash && !String(data.fileToken ?? '').startsWith('/')
+  );
+}
+
+function isGridImage(element: MediaElement | undefined): boolean {
+  return element?.type === 'pic' && isChatGalleryImage(element.data ?? {});
+}
+
+/** 只合并相邻的普通图片，QQ 自动插入的单个换行随图片行折叠。 */
+export function chatImageGridAt(elements: readonly MediaElement[], start: number) {
+  if (!isGridImage(elements[start])) return undefined;
+  let end = start + 1;
+  let count = 1;
+  while (end < elements.length) {
+    if (isGridImage(elements[end])) end++;
+    else if (
+      elements[end]?.type === 'text' &&
+      ['', '\n'].includes(String(elements[end]?.data?.textContent ?? '')) &&
+      isGridImage(elements[end + 1])
+    )
+      end += 2;
+    else break;
+    count++;
+  }
+  return count > 1 ? { end, count, columns: count === 2 ? 2 : 3 } : undefined;
+}
+
 export function intrinsicMediaSize(width: number, height: number): MediaSize | undefined {
   if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0)
     return { width, height };

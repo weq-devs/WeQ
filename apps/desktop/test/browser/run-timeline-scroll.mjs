@@ -16,7 +16,14 @@ const baseline = process.env.WEQ_TIMELINE_BASELINE_REF;
 const width = Number(process.env.WEQ_SCROLL_WIDTH ?? 1280);
 const cachedBubbles = process.env.WEQ_SCROLL_CACHED_BUBBLES === '1';
 const grouped = process.env.WEQ_SCROLL_GROUPED === '1';
-const fixtureFlags = `${cachedBubbles ? '&cached-bubbles=1' : ''}${grouped ? '&grouped=1' : ''}`;
+const imageGrid = process.env.WEQ_SCROLL_IMAGE_GRID === '1';
+const fixtureFlags = [
+  cachedBubbles && '&cached-bubbles=1',
+  grouped && '&grouped=1',
+  imageGrid && '&image-grid=1',
+]
+  .filter(Boolean)
+  .join('');
 const server = await createServer({
   configFile: false,
   root,
@@ -76,6 +83,33 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=25${fixtureFlags}`,
   );
   await page.waitForSelector('[data-message-id="row-1001"]');
+  if (imageGrid) {
+    const grid = page.locator('[data-message-id="row-1004"] .qq-image-grid');
+    await grid.waitFor();
+    const layout = await grid.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return [...element.querySelectorAll('.qq-image-grid-tile > span button.qq-media-wrap')].map(
+        (button) => {
+          const rect = button.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            square: Math.abs(rect.width - rect.height) < 1,
+            within: rect.right <= bounds.right + 1 && rect.bottom <= bounds.bottom + 1,
+          };
+        },
+      );
+    });
+    assert.equal(layout.length, 4);
+    assert.ok(
+      layout.every((tile) => tile.square && tile.within),
+      JSON.stringify(layout),
+    );
+    assert.equal(layout[0].y, layout[2].y);
+    assert.ok(layout[0].x < layout[1].x && layout[1].x < layout[2].x);
+    assert.equal(layout[3].x, layout[0].x);
+    assert.ok(layout[3].y > layout[0].y);
+  }
   if (grouped && !cachedBubbles) {
     const layout = await page.evaluate(() => {
       const first = document.querySelector('[data-message-id="row-1003"]');
@@ -191,6 +225,7 @@ try {
     width,
     cachedBubbles,
     grouped,
+    imageGrid,
     baseline: baseline ?? null,
     samples: samples.length,
     blankFrames: samples.filter((sample) => sample.blank),

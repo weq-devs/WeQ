@@ -27,7 +27,9 @@ import {
   MediaItemKeyContext,
   MediaItemIndexContext,
   MediaMessageKeyContext,
+  useChatMediaOpen,
 } from './ChatMediaGallery.shared';
+import { chatImageGridAt, CHAT_IMAGE_GRID_WIDTH, CHAT_IMAGE_GRID_GAP } from '../lib/chatMediaSize';
 import { messageMediaKey } from '../lib/messageMediaTarget';
 import { QqMarkdown } from './QqMarkdown';
 import {
@@ -190,10 +192,12 @@ function MediaBody({
   element,
   sendTimeMs,
   msgId,
+  gridTile,
 }: {
   element: RenderElement;
   sendTimeMs: number;
   msgId: string;
+  gridTile?: boolean;
 }): ReactNode {
   const data = element.data ?? {};
   const conv = useContext(ConvContext);
@@ -207,7 +211,14 @@ function MediaBody({
   switch (element.type) {
     case 'pic':
       return (
-        <QqImage data={data} sendTimeMs={sendTimeMs} conv={conv} msgId={ownerMsgId} fwd={fwd} />
+        <QqImage
+          data={data}
+          sendTimeMs={sendTimeMs}
+          conv={conv}
+          msgId={ownerMsgId}
+          fwd={fwd}
+          gridTile={gridTile}
+        />
       );
     case 'video':
       return (
@@ -435,8 +446,7 @@ function ElementNode({
  * Render a list of elements, coalescing every run of text-like elements
  * (text / at / face) into a single inline `<span class="qq-text-run">` so they
  * share one inline flow. Media elements each get their own block wrapper
- * (`.qq-media-line`) so a picture never shares a line with text or another
- * picture; everything else stays a plain sibling.
+ * (`.qq-media-line`). 连续普通图片可以在同一媒体行合成网格。
  */
 function renderElementNodes(
   elements: RenderElement[],
@@ -444,6 +454,7 @@ function renderElementNodes(
   msgId: string,
   isSender = true,
   callConv?: CallConv | null,
+  groupImages = false,
 ): ReactNode[] {
   const out: ReactNode[] = [];
   let runStart = -1;
@@ -482,20 +493,51 @@ function renderElementNodes(
   };
 
   let mediaIndex = 0;
-  elements.forEach((element, index) => {
+  for (let index = 0; index < elements.length; index++) {
+    const element = elements[index]!;
+    const grid = groupImages ? chatImageGridAt(elements, index) : undefined;
+    if (grid) {
+      flushRun(true);
+      prevBlock = true;
+      const start = index;
+      const tiles: ReactNode[] = [];
+      for (; index < grid.end; index++) {
+        const picture = elements[index]!;
+        if (picture.type !== 'pic') continue;
+        const mediaPosition = mediaIndex++;
+        tiles.push(
+          <MediaItemIndexContext.Provider key={mediaPosition} value={mediaPosition}>
+            <div className="qq-image-grid-tile">
+              <MediaNode element={picture} sendTimeMs={sendTimeMs} msgId={msgId} gridTile />
+            </div>
+          </MediaItemIndexContext.Provider>,
+        );
+      }
+      index--;
+      out.push(
+        <div
+          key={`grid-${start}`}
+          className="qq-media-line qq-image-grid"
+          data-columns={grid.columns}
+          style={{ inlineSize: CHAT_IMAGE_GRID_WIDTH, gap: CHAT_IMAGE_GRID_GAP }}
+        >
+          {tiles}
+        </div>,
+      );
+      continue;
+    }
     const mediaPosition = mediaIndex;
     if (element.type === 'pic' || element.type === 'video') mediaIndex++;
     if (isTextLike(element)) {
       if (runStart === -1) runStart = index;
       runItems.push(element);
-      return;
+      continue;
     }
     const block = isBlockMedia(element);
     flushRun(block);
     prevBlock = block;
     const node = (
       <ElementNode
-        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         key={`el-${index}`}
         element={element}
         sendTimeMs={sendTimeMs}
@@ -506,7 +548,6 @@ function renderElementNodes(
     );
     out.push(
       block ? (
-        // biome-ignore lint/suspicious/noArrayIndexKey: 列表按位置渲染,无稳定唯一键
         <div key={`blk-${index}`} className="qq-media-line">
           <MediaItemIndexContext.Provider value={mediaPosition}>
             {node}
@@ -516,7 +557,7 @@ function renderElementNodes(
         node
       ),
     );
-  });
+  }
   flushRun(false);
   return out;
 }
@@ -806,6 +847,7 @@ function QqMessageContentBody({
   const groupCode = useContext(ConvContext);
   const textMarkdownOn = useContext(TextMarkdownContext);
   const { enabled: linkPreviewOn } = useContext(LinkPreviewContext);
+  const groupImages = Boolean(useChatMediaOpen());
   /**
    * 通话气泡查录音要用的会话身份。`conversation` 没传时（转发窗口 / 导出预览）
    * 退回 `ConvContext`（那里只有群号），再拿不到就干脆不查 —— 宁可没有播放按钮，
@@ -1033,7 +1075,7 @@ function QqMessageContentBody({
         <ReplyQuote data={replyElement.data ?? {}} sendTimeMs={sendTimeMs} />
         {meaningful.length > 0 ? (
           <div className="qq-reply-body">
-            {renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv)}
+            {renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv, groupImages)}
           </div>
         ) : null}
       </div>
@@ -1125,7 +1167,7 @@ function QqMessageContentBody({
     );
   }
 
-  const nodes = renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv);
+  const nodes = renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv, groupImages);
 
   return (
     <div className={cn('message-content', 'qq-message-inline')}>

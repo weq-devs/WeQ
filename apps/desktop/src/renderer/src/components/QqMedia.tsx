@@ -200,6 +200,7 @@ export function QqImage({
   msgId = '',
   fwd,
   interactive = true,
+  gridTile = false,
 }: {
   data: Data;
   sendTimeMs: number;
@@ -207,6 +208,7 @@ export function QqImage({
   msgId?: string;
   fwd?: ForwardRef;
   interactive?: boolean;
+  gridTile?: boolean;
 }) {
   const limited = useDataSaver((state) => state.enabled);
   const behavior = useDataSaver((state) => state.behavior);
@@ -413,14 +415,14 @@ export function QqImage({
         {broken ? (
           <QqMediaMissing
             label={`该${kindLabel}`}
-            style={{ ...style, minWidth: 0, minHeight: 0, padding: 0 }}
+            style={gridTile ? undefined : { ...style, minWidth: 0, minHeight: 0, padding: 0 }}
           />
         ) : (
           <ShimmerImage
             suspendOffscreen
             mediaLoading={!isAnimatedEmoji && !usingLocalPreview}
             className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
-            style={w && h ? style : { ...style, objectFit: 'contain' }}
+            style={gridTile ? undefined : w && h ? style : { ...style, objectFit: 'contain' }}
             width={previewSize.size.width}
             height={previewSize.size.height}
             src={src}

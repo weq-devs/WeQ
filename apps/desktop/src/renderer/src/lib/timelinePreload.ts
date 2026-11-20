@@ -1,13 +1,28 @@
 import { defaultRangeExtractor, type Range } from '@tanstack/react-virtual';
 import type { Message } from '../im-template/template/types';
-import { messageMediaSize } from './chatMediaSize';
+import {
+  chatImageGridAt,
+  CHAT_IMAGE_GRID_WIDTH,
+  CHAT_IMAGE_GRID_GAP,
+  messageMediaSize,
+} from './chatMediaSize';
 
 const MAX_PRELOAD_ROWS = 48;
 
 export function estimateTimelineRowHeight(message: Message | undefined): number {
   if (!message) return 96;
   let elementsHeight = 0;
-  for (const { type, data } of message.qqElements ?? []) {
+  const elements = message.qqElements ?? [];
+  for (let index = 0; index < elements.length; index++) {
+    const grid = chatImageGridAt(elements, index);
+    if (grid) {
+      const { count, columns } = grid;
+      const tileHeight = (CHAT_IMAGE_GRID_WIDTH - (columns - 1) * CHAT_IMAGE_GRID_GAP) / columns;
+      elementsHeight += Math.ceil(count / columns) * (tileHeight + CHAT_IMAGE_GRID_GAP);
+      index = grid.end - 1;
+      continue;
+    }
+    const { type, data } = elements[index]!;
     switch (type) {
       case 'pic':
       case 'video':

@@ -101,19 +101,29 @@ const message = (seq: number): Message => ({
     ? { bubbleId: cachedBubble.itemId, fontId: 0, widgetId: 0, cachedBubble }
     : undefined,
   qqElements:
-    seq % 19 === 0
-      ? [
-          {
-            type: 'pic',
-            data: {
-              fileName: `fixture-${seq}.png`,
-              ...(delayMedia && seq === 1102
-                ? { localPreviewUrl: `${location.origin}/timeline-delayed.svg` }
-                : { localPreviewUrl: image, imgWidth: 300, imgHeight: 180 + (seq % 5) * 80 }),
-            },
+    params.has('image-grid') && seq === 1004
+      ? Array.from({ length: 4 }, (_, index) => ({
+          type: 'pic',
+          data: {
+            fileName: `grid-${index}.png`,
+            localPreviewUrl: image,
+            imgWidth: 300,
+            imgHeight: 400,
           },
-        ]
-      : undefined,
+        }))
+      : seq % 19 === 0
+        ? [
+            {
+              type: 'pic',
+              data: {
+                fileName: `fixture-${seq}.png`,
+                ...(delayMedia && seq === 1102
+                  ? { localPreviewUrl: `${location.origin}/timeline-delayed.svg` }
+                  : { localPreviewUrl: image, imgWidth: 300, imgHeight: 180 + (seq % 5) * 80 }),
+              },
+            },
+          ]
+        : undefined,
 });
 const scroll = () => document.querySelector<HTMLElement>('.message-scroll')!;
 const bridge: Record<string, unknown> = {};

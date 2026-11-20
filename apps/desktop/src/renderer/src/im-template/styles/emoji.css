@@ -680,10 +680,8 @@ html[data-theme='dark'] .emoji-lb {
   vertical-align: -0.45em;
 }
 
-/* 图片类媒体（见 QqMessageContent 的 BLOCK_MEDIA_KINDS）各占一行：包一层块级容器后，
-   图片既不会和文字排在同一行，也不会和另一张图片并排。换行由块级容器提供，文字里
-   紧贴媒体的那个换行符在渲染时已剥掉，所以不会多出一个空行。 */
-.message-content .qq-media-line {
+/* 各媒体行独占一行。相邻普通图片可在同一媒体行组成网格。 */
+.message-content .qq-media-line:not(.qq-image-grid) {
   display: block;
 }
 

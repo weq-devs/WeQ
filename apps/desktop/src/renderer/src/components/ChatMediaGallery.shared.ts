@@ -3,6 +3,7 @@ import { localFileUrl, mediaUrl } from '../lib/resourceUrl';
 import { timelineRowKey } from '../../../shared/roaming_timeline';
 import type { PreviewMedia } from './mediaPreviewTypes';
 import { messageTransferTarget } from '../../../shared/transfer_progress';
+import { isChatGalleryImage } from '../lib/chatMediaSize';
 
 export interface GalleryMessage {
   msgId: string;
@@ -79,8 +80,7 @@ export function galleryMedia(
       const key = `${identity}:${mediaIndex++}`;
       const data = element.data ?? {};
       const token = String(data.fileToken ?? '');
-      if (element.type === 'pic' && (data.subType === 1 || data.isFlash || token.startsWith('/')))
-        return [];
+      if (element.type === 'pic' && !isChatGalleryImage(data)) return [];
       const image = element.type === 'pic';
       const t = Number(message.sendTime) * 1000;
       const name = String(data.fileName ?? '');

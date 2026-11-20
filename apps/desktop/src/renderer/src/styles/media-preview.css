@@ -16,6 +16,35 @@
   bottom: 4px;
 }
 
+.qq-image-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-inline-size: 100%;
+}
+
+.qq-image-grid[data-columns='2'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.qq-image-grid-tile {
+  min-inline-size: 0;
+  aspect-ratio: 1;
+}
+
+.qq-image-grid-tile
+  :is(.qq-media-image-preview-wrap, .qq-media-wrap, .qq-media-image, .qq-media-missing) {
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 0;
+  max-inline-size: 100%;
+  max-block-size: 100%;
+}
+
+.qq-image-grid-tile .qq-media-missing {
+  padding: 0;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .qq-media-wrap > img,
   .qq-media-video-poster {
