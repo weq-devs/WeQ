@@ -398,6 +398,60 @@ export async function uploadMailFile(
   }
 }
 
+async function restoreMailDownload(
+  auth: MailAuth,
+  file: { path: string; name: string; size: number; bizId: number },
+  integrity: { md5: string; algorithm: 'md5' | 'sha1'; expected: string },
+  signal: AbortSignal,
+): Promise<void> {
+  const invalid = new MailFailure('business', '附件内容校验失败，无法还原原文件。');
+  if (!integrity.md5) throw invalid;
+  const material = await auth.cgi(
+    '/attach/get_enc_key',
+    { bizid: file.bizId, size: file.size, md5: integrity.md5, filename: file.name },
+    { signal },
+  );
+  const encryption = {
+    key: Buffer.from(text(material.key_b64), 'base64url'),
+    iv: Buffer.from(text(material.iv_b64), 'base64url'),
+  };
+  try {
+    if (![16, 24, 32].includes(encryption.key.length) || encryption.iv.length !== 16) throw invalid;
+    const handle = await open(file.path, 'r+');
+    try {
+      const hash = createHash(integrity.algorithm);
+      // CTR 解密与加密是同一操作。只在临时文件中还原，校验通过后才发布。
+      for (let offset = 0; offset < file.size; offset += MAIL_PART_SIZE) {
+        const bytes = await readPart(
+          handle,
+          offset,
+          Math.min(MAIL_PART_SIZE, file.size - offset),
+          signal,
+        );
+        const plain = encryptMailPart(bytes, encryption, offset);
+        hash.update(plain);
+        for (let written = 0; written < plain.length; ) {
+          signal.throwIfAborted();
+          const result = await handle.write(
+            plain,
+            written,
+            plain.length - written,
+            offset + written,
+          );
+          if (!result.bytesWritten) throw invalid;
+          written += result.bytesWritten;
+        }
+      }
+      if (hash.digest('hex') !== integrity.expected) throw invalid;
+    } finally {
+      await handle.close();
+    }
+  } finally {
+    encryption.key.fill(0);
+    encryption.iv.fill(0);
+  }
+}
+
 /** 不覆盖已有文件；跨主机跳转时不转发邮箱 Cookie。 */
 export async function downloadMailFile(
   auth: MailAuth,
@@ -408,12 +462,25 @@ export async function downloadMailFile(
   request: MailDownloadRequest = requestMailDownload,
 ): Promise<void> {
   const source = registry.get(id);
-  if (!source.big && source.mailId)
-    await auth.cgi(
-      '/attach/download',
-      { func: 5, bizid: 2, mailid: source.mailId, name: source.name },
-      { signal },
+  const check =
+    !source.big && source.mailId
+      ? await auth.cgi(
+          '/attach/download',
+          { func: 5, bizid: 2, mailid: source.mailId, name: source.name },
+          { signal },
+        )
+      : {};
+  const metadata = items(object(check.attach_list).attach)
+    .map(object)
+    .find(
+      (item) => source.fileId && item.fileid === source.fileId && item.mailid === source.mailId,
     );
+  const rawSha = text(metadata?.sha).toLowerCase();
+  const rawMd5 = text(metadata?.md5).toLowerCase();
+  const sha = /^[a-f0-9]{40}$/.test(rawSha) ? rawSha : '';
+  const md5 = /^[a-f0-9]{32}$/.test(rawMd5) ? rawMd5 : '';
+  const algorithm = sha ? 'sha1' : 'md5';
+  const expected = sha || md5;
   const credentials = await auth.downloadCredentials(registry.downloadUrl(id), source.big, signal);
   const temporary = `${destination}.${randomUUID()}.part`;
   let created = false;
@@ -439,9 +506,11 @@ export async function downloadMailFile(
         throw new MailFailure('business', '附件下载失败，文件可能已过期。');
       }
       let bytes = 0;
+      const hash = expected ? createHash(algorithm) : null;
       const inspect = new Transform({
         transform(chunk: Buffer, _encoding, done) {
           bytes += chunk.length;
+          hash?.update(chunk);
           done(
             bytes > MAIL_MAX_FILE_BYTES
               ? new MailFailure('business', '附件超过下载大小上限。')
@@ -461,6 +530,14 @@ export async function downloadMailFile(
       await pipeline(response, inspect, handle.createWriteStream({ autoClose: true }), { signal });
       if (source.size > 0 && bytes !== source.size)
         throw new MailFailure('business', '附件下载不完整，请重试。');
+      if (hash && hash.digest('hex') !== expected)
+        await restoreMailDownload(
+          auth,
+          { path: temporary, name: source.name, size: bytes, bizId: source.bizId ?? 50 },
+          { md5, algorithm, expected },
+          signal,
+        );
+      signal.throwIfAborted();
       try {
         await link(temporary, destination);
       } catch (error) {
