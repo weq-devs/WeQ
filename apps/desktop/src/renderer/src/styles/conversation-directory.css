@@ -294,7 +294,6 @@ html[data-theme='dark'] .weq-conversation-locate-highlight {
 .app-shell .contact-row.is-multiselected {
   background: color-mix(in srgb, var(--weq-accent-effective) 22%, var(--weq-bg-surface));
   color: var(--weq-fg-primary);
-  box-shadow: inset 3px 0 var(--weq-accent-effective);
 }
 html[data-theme='dark'] .weq-directory-toolbar,
 html[data-theme='dark'] .weq-directory-scope-menu {
