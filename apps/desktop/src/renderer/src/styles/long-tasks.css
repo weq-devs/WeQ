@@ -141,7 +141,8 @@ html[data-theme='dark'] .weq-current-tasks .weq-set-btn-soft:hover:not(:disabled
   padding: 0;
 }
 
-.weq-task-quick-actions > button:focus-visible {
+.weq-task-quick-actions > button:focus-visible,
+.weq-task-detail-actions > .weq-set-btn:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
@@ -333,21 +334,6 @@ html[data-theme='dark'] .weq-long-task-detail > .weq-exp-detail {
   overflow-wrap: anywhere;
 }
 
-.weq-long-task-detail .weq-exp-detail-actions {
-  flex-wrap: wrap;
-}
-
-.weq-long-task-detail .weq-exp-detail-actions button {
-  border-color: var(--weq-border-strong);
-  background: transparent;
-  color: var(--weq-fg-secondary);
-}
-
-.weq-long-task-detail .weq-exp-detail-actions button:hover {
-  border-color: var(--weq-accent-effective);
-  color: var(--weq-accent-effective);
-}
-
 .weq-long-task-detail .weq-exp-detail-status.is-failed {
   color: var(--destructive);
 }
@@ -369,11 +355,26 @@ html[data-theme='dark'] .weq-long-task-detail > .weq-exp-detail {
   box-shadow: none;
 }
 
-.weq-long-task-actions {
+.weq-task-detail-actions {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-block: 6px;
+}
+
+.weq-task-detail-actions > .weq-set-btn {
+  max-width: 100%;
+  min-height: 32px;
+  overflow-wrap: anywhere;
+}
+
+.weq-task-detail-actions > .weq-set-btn > svg {
+  flex: none;
+}
+
+.weq-task-detail-actions > [aria-haspopup='menu'] {
+  padding-inline: 8px;
 }
 
 .weq-background-task-results {
@@ -487,11 +488,6 @@ html[data-theme='dark'] .weq-long-task-detail > .weq-exp-detail {
 .weq-export-tool.is-tasks .weq-exp-sched-card-history {
   flex-wrap: wrap;
   overflow-wrap: anywhere;
-}
-
-.weq-export-tool.is-tasks .weq-exp-sched-card-actions {
-  flex-wrap: wrap;
-  flex-shrink: 0;
 }
 
 html[data-theme='dark'] .weq-current-tasks {

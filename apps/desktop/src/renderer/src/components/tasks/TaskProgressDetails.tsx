@@ -1,5 +1,5 @@
 import { NumericText } from '../NumericText';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { formatDuration } from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
 import { longTaskProgress, longTaskStatusLabel } from './LongTaskRow.shared';
@@ -17,6 +17,7 @@ export function TaskProgressDetails({
   note,
   startedAt,
   finishedAt,
+  actions,
 }: {
   name: string;
   display?: TaskDisplay;
@@ -26,6 +27,7 @@ export function TaskProgressDetails({
   note?: string;
   startedAt?: number;
   finishedAt?: number;
+  actions?: ReactNode;
 }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -45,6 +47,7 @@ export function TaskProgressDetails({
         <strong>{display ? <TaskName display={display} /> : name}</strong>
         <span>{statusLabel ?? longTaskStatusLabel(status)}</span>
       </header>
+      {actions}
       {display ? (
         <>
           <TaskOriginalName name={name} display={display} />

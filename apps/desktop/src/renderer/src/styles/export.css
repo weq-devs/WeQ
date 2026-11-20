@@ -1739,40 +1739,6 @@ html[data-theme='dark'] .weq-exp-card-skeleton {
   font-variant-numeric: tabular-nums;
 }
 
-.weq-exp-detail-actions {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex: none;
-}
-
-.weq-exp-detail-actions button {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #51677c;
-  cursor: pointer;
-  transition:
-    border-color 140ms ease,
-    color 140ms ease,
-    background-color 140ms ease;
-}
-
-.weq-exp-detail-actions button:hover {
-  border-color: rgba(0, 153, 255, 0.45);
-  color: #0099ff;
-}
-
-.weq-exp-detail-actions button.is-danger:hover {
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #dc4040;
-  background: rgba(239, 68, 68, 0.05);
-}
-
 .weq-exp-detail-err {
   color: #dc4040;
   font-size: 12px;
@@ -2213,38 +2179,6 @@ html[data-theme='dark'] .weq-exp-detail-stage-failures {
   background: #cbd5e1;
 }
 
-.weq-exp-sched-card-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  justify-content: center;
-}
-
-.weq-exp-sched-card-actions button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 28px;
-  border-radius: 6px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: #ffffff;
-  color: #475569;
-  cursor: pointer;
-}
-
-.weq-exp-sched-card-actions button:hover {
-  border-color: rgba(0, 153, 255, 0.4);
-  color: #0099ff;
-  background: rgba(0, 153, 255, 0.05);
-}
-
-.weq-exp-sched-card-actions button.is-danger:hover {
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #dc4040;
-  background: rgba(239, 68, 68, 0.05);
-}
-
 .weq-exp-sched-empty {
   display: flex;
   flex-direction: column;
@@ -2436,9 +2370,7 @@ html[data-theme='dark'] .weq-exp-file-check {
 
 html[data-theme='dark'] .weq-exp-tool,
 html[data-theme='dark'] .weq-exp-btn,
-html[data-theme='dark'] .weq-exp-detail-actions button,
 html[data-theme='dark'] .weq-exp-detail-stage-toggle,
-html[data-theme='dark'] .weq-exp-sched-card-actions button,
 html[data-theme='dark'] .weq-exp-dialog-close,
 html[data-theme='dark'] .weq-exp-cal-head button,
 html[data-theme='dark'] .weq-exp-chip {
@@ -2449,9 +2381,7 @@ html[data-theme='dark'] .weq-exp-chip {
 
 html[data-theme='dark'] .weq-exp-tool:hover:not(:disabled),
 html[data-theme='dark'] .weq-exp-btn:hover:not(:disabled),
-html[data-theme='dark'] .weq-exp-detail-actions button:hover,
 html[data-theme='dark'] .weq-exp-detail-stage-toggle:hover:not(:disabled),
-html[data-theme='dark'] .weq-exp-sched-card-actions button:hover,
 html[data-theme='dark'] .weq-exp-dialog-close:hover,
 html[data-theme='dark'] .weq-exp-chip:hover,
 html[data-theme='dark'] .weq-exp-cal-head button:hover {

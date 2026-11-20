@@ -13,6 +13,7 @@
 import { NumericText } from '../../components/NumericText';
 import { useEffect, useState, type ReactElement } from 'react';
 import { TaskProgressBar } from '../../components/tasks/TaskProgressBar';
+import { TaskQuickActions, type TaskQuickAction } from '../../components/tasks/TaskQuickActions';
 import {
   Ban,
   Check,
@@ -362,6 +363,115 @@ function TaskDetail({
         (SKIPPABLE_STAGE_KEYS as readonly string[]).includes(s.key)),
   );
 
+  const actions: TaskQuickAction[] = [];
+  if (t.status === 'running' && taskCanPause(t)) {
+    actions.push({
+      id: 'pause',
+      label: '暂停',
+      icon: <Pause size={15} />,
+      disabled: t.isFinalizing,
+      run: () => onPause(t),
+    });
+  }
+  if (t.save?.path && onOpenSaved) {
+    actions.push({
+      id: 'open',
+      label: '打开保存结果',
+      icon: <ExternalLink size={15} />,
+      run: () => onOpenSaved(t, false),
+    });
+  }
+  if (saveLabel) {
+    actions.push({
+      id: 'save',
+      label: saveLabel,
+      icon: <Download size={15} />,
+      disabled: t.save?.status === 'saving',
+      secondary: Boolean(t.save?.path),
+      run: () => onDownload(t),
+    });
+  }
+  if (t.canResume && onResume) {
+    const resume: TaskQuickAction = {
+      id: 'resume',
+      label: taskResumeActionLabel(t),
+      tooltip:
+        t.resumeMode === 'restart' && t.status !== 'completed'
+          ? isResourceDownload(t)
+            ? '按原选择重新下载文件'
+            : '按原范围重新执行'
+          : undefined,
+      icon: t.resumeMode === 'restart' ? <RefreshCw size={15} /> : <Play size={15} />,
+      run: () => onResume(t),
+    };
+    if (t.status === 'completed') actions.push(resume);
+    else actions.unshift(resume);
+  }
+  if (t.status === 'completed' && onBrowserDownload) {
+    actions.push({
+      id: 'download',
+      label: '下载到浏览器',
+      icon: <Download size={15} />,
+      run: () => onBrowserDownload(t),
+    });
+  }
+  if (t.status === 'paused' && (t.canFinalize || t.journalPath) && onFinalize) {
+    actions.push({
+      id: 'finalize',
+      label: t.isFinalizing ? '收尾中' : t.partialReady ? '已收尾' : '收尾',
+      icon: t.isFinalizing ? <Loader2 size={15} className="weq-exp-spin" /> : <Check size={15} />,
+      disabled: !t.canResume || t.isFinalizing || t.partialReady,
+      run: () => onFinalize(t),
+    });
+  }
+  if (
+    t.status === 'paused' ||
+    t.status === 'failed' ||
+    (!taskCanPause(t) && ['pending', 'running'].includes(t.status))
+  ) {
+    actions.push({
+      id: 'cancel',
+      label: taskCancelActionLabel(t),
+      icon: <Square size={15} />,
+      disabled: t.isFinalizing,
+      run: () => onCancel(t),
+    });
+  }
+  if (t.reportPath && onReport) {
+    actions.push({
+      id: 'report',
+      label: '完整性报告',
+      icon: <FileCheck size={15} />,
+      run: () => onReport(t),
+    });
+  }
+  if (t.status === 'completed' && (t.canIncremental || t.journalPath) && onIncremental) {
+    actions.push({
+      id: 'incremental',
+      label: '增量导出',
+      icon: <FilePlus2 size={15} />,
+      disabled: t.save?.status === 'saving',
+      run: () => onIncremental(t),
+    });
+  }
+  if (t.save?.path && onOpenSaved) {
+    actions.push({
+      id: 'reveal',
+      label: '在文件夹中显示',
+      icon: <FolderOpen size={15} />,
+      run: () => onOpenSaved(t, true),
+    });
+  }
+  if (t.status !== 'running') {
+    actions.push({
+      id: 'remove',
+      label: '删除导出缓存',
+      icon: <Trash2 size={15} />,
+      disabled: t.save?.status === 'saving' || t.isFinalizing,
+      run: () => onDelete(t),
+    });
+  }
+
   return (
     <div className={`weq-exp-detail is-${t.status}`}>
       <header className="weq-exp-detail-head">
@@ -422,142 +532,8 @@ function TaskDetail({
         <strong className="weq-exp-detail-overall">
           <span className="weq-number weq-number-inherit">{overall}</span>%
         </strong>
-        <div className="weq-exp-detail-actions">
-          {t.status === 'paused' && (t.canFinalize || t.journalPath) && onFinalize ? (
-            <button
-              type="button"
-              title={t.isFinalizing ? '收尾中' : t.partialReady ? '已收尾' : '收尾'}
-              aria-label={t.isFinalizing ? '收尾中' : t.partialReady ? '已收尾' : '收尾'}
-              disabled={!t.canResume || t.isFinalizing || t.partialReady}
-              onClick={() => onFinalize(t)}
-            >
-              {t.isFinalizing ? (
-                <Loader2 size={15} className="weq-exp-spin" />
-              ) : (
-                <Check size={15} />
-              )}
-            </button>
-          ) : null}
-          {t.status === 'completed' && (t.canIncremental || t.journalPath) && onIncremental ? (
-            <button
-              type="button"
-              title="增量导出"
-              aria-label="增量导出"
-              disabled={t.save?.status === 'saving'}
-              onClick={() => onIncremental(t)}
-            >
-              <FilePlus2 size={15} aria-hidden />
-            </button>
-          ) : null}
-          {t.canResume && onResume ? (
-            <button
-              type="button"
-              title={
-                t.resumeMode === 'restart' && t.status !== 'completed'
-                  ? isResourceDownload(t)
-                    ? '按原选择重新下载文件'
-                    : '按原范围重新执行'
-                  : taskResumeActionLabel(t)
-              }
-              aria-label={taskResumeActionLabel(t)}
-              onClick={() => onResume(t)}
-            >
-              {t.resumeMode === 'restart' ? (
-                <RefreshCw size={15} aria-hidden />
-              ) : (
-                <Play size={15} />
-              )}
-            </button>
-          ) : null}
-          {t.reportPath && onReport ? (
-            <button
-              type="button"
-              title="完整性报告"
-              aria-label="完整性报告"
-              onClick={() => onReport(t)}
-            >
-              <FileCheck size={15} />
-            </button>
-          ) : null}
-          {t.status === 'running' && taskCanPause(t) ? (
-            <button
-              type="button"
-              title="暂停"
-              aria-label="暂停"
-              disabled={t.isFinalizing}
-              onClick={() => onPause(t)}
-            >
-              <Pause size={15} />
-            </button>
-          ) : null}
-          {saveLabel ? (
-            <button
-              type="button"
-              title={saveLabel}
-              aria-label={saveLabel}
-              disabled={t.save?.status === 'saving'}
-              onClick={() => onDownload(t)}
-            >
-              <Download size={15} />
-            </button>
-          ) : null}
-          {t.save?.path && onOpenSaved && (
-            <>
-              <button
-                type="button"
-                title="打开保存结果"
-                aria-label="打开保存结果"
-                onClick={() => onOpenSaved(t, false)}
-              >
-                <ExternalLink size={15} />
-              </button>
-              <button
-                type="button"
-                title="在文件夹中显示"
-                aria-label="在文件夹中显示"
-                onClick={() => onOpenSaved(t, true)}
-              >
-                <FolderOpen size={15} />
-              </button>
-            </>
-          )}
-          {t.status === 'completed' && onBrowserDownload ? (
-            <button
-              type="button"
-              title="下载到浏览器"
-              aria-label="下载到浏览器"
-              onClick={() => onBrowserDownload(t)}
-            >
-              <Download size={15} />
-            </button>
-          ) : null}
-          {t.status === 'paused' ||
-          t.status === 'failed' ||
-          (!taskCanPause(t) && ['pending', 'running'].includes(t.status)) ? (
-            <button
-              type="button"
-              title={taskCancelActionLabel(t)}
-              aria-label={taskCancelActionLabel(t)}
-              disabled={t.isFinalizing}
-              onClick={() => onCancel(t)}
-            >
-              <Square size={15} />
-            </button>
-          ) : null}
-          {t.status !== 'running' ? (
-            <button
-              data-danger="outline"
-              type="button"
-              title="删除导出缓存"
-              disabled={t.save?.status === 'saving' || t.isFinalizing}
-              className="is-danger"
-              onClick={() => onDelete(t)}
-            >
-              <Trash2 size={15} />
-            </button>
-          ) : null}
-        </div>
       </header>
+      <TaskQuickActions variant="detail" actions={actions} />
       <TaskProgressBar
         value={overall}
         label={`${taskTitle(t)}总进度`}

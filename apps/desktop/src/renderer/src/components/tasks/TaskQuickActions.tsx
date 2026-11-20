@@ -3,10 +3,12 @@ import { MoreHorizontal } from 'lucide-react';
 import { useDialog } from '../Dialog.shared';
 import type { DangerLevel } from '../Dialog';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
+import '../../styles/long-tasks.css';
 
 export interface TaskQuickAction {
   id: string;
   label: string;
+  tooltip?: string;
   icon: ReactNode;
   disabled?: boolean;
   secondary?: boolean;
@@ -14,7 +16,15 @@ export interface TaskQuickAction {
   run: () => unknown;
 }
 
-export function TaskQuickActions({ actions }: { actions: TaskQuickAction[] }) {
+export function TaskQuickActions({
+  actions,
+  variant = 'compact',
+  children,
+}: {
+  actions: TaskQuickAction[];
+  variant?: 'compact' | 'detail';
+  children?: ReactNode;
+}) {
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const [menu, setMenu] = useState<{ x: number; y: number; actionIds: string } | null>(null);
@@ -27,9 +37,12 @@ export function TaskQuickActions({ actions }: { actions: TaskQuickAction[] }) {
   const act = async (action: TaskQuickAction) => {
     if (pending.current || action.disabled) return;
     pending.current = true;
-    setBusy(true);
     try {
-      await action.run();
+      const operation = action.run();
+      if (operation && typeof (operation as PromiseLike<unknown>).then === 'function') {
+        setBusy(true);
+        await operation;
+      }
     } catch (error) {
       showError('任务操作失败', error instanceof Error ? error.message : String(error));
     } finally {
@@ -37,7 +50,8 @@ export function TaskQuickActions({ actions }: { actions: TaskQuickAction[] }) {
       setBusy(false);
     }
   };
-  if (!actions.length) return null;
+  if (!actions.length && !children) return null;
+  const detail = variant === 'detail';
   const primary = actions
     .filter((action) => !action.secondary && !['remove', 'delete'].includes(action.id))
     .slice(0, 2);
@@ -47,19 +61,25 @@ export function TaskQuickActions({ actions }: { actions: TaskQuickAction[] }) {
     trigger.current?.focus();
   };
   return (
-    <div className="weq-task-quick-actions" role="group" aria-label="任务快捷操作">
-      {primary.map((action) => (
+    <div
+      className={detail ? 'weq-task-detail-actions' : 'weq-task-quick-actions'}
+      role="group"
+      aria-label={detail ? '任务操作' : '任务快捷操作'}
+    >
+      {children}
+      {primary.map((action, index) => (
         <button
           key={action.id}
           type="button"
-          className="weq-set-btn weq-set-btn-soft"
+          className={`weq-set-btn ${detail && !children && index === 0 && !action.danger ? 'weq-set-btn-primary' : 'weq-set-btn-soft'}`}
           data-danger={action.danger}
-          title={action.label}
+          title={action.tooltip ?? action.label}
           aria-label={action.label}
           disabled={busy || action.disabled}
           onClick={() => void act(action)}
         >
           {action.icon}
+          {detail ? action.label : null}
         </button>
       ))}
       {more.length ? (

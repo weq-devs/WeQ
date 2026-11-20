@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -125,6 +125,7 @@ export function DatabaseMaintenanceProgress({
   showBatch = true,
   showBatchError = true,
   showMaintained = true,
+  actions,
 }: {
   progress: DatabaseTaskProgress;
   batch?: DatabaseMaintenanceOperation & { locked: boolean };
@@ -136,6 +137,7 @@ export function DatabaseMaintenanceProgress({
   showBatchError?: boolean;
   /** 维护锁提示由外层状态卡表达时关闭。 */
   showMaintained?: boolean;
+  actions?: ReactNode;
 }) {
   const [now, setNow] = useState(Date.now);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -250,6 +252,7 @@ export function DatabaseMaintenanceProgress({
           </span>
         </div>
       ) : null}
+      {actions}
       {abnormal ? <p className="weq-db-progress-warning">异常步骤 {abnormal}</p> : null}
       {showBatchError && batch?.error ? (
         <p className="weq-db-progress-warning" role="alert">

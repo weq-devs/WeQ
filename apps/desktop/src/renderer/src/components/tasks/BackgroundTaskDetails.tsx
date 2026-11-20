@@ -8,7 +8,7 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { ContactMetricsLaneKey } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
@@ -22,6 +22,7 @@ import { CalendarTaskDetails } from '../CalendarTaskDetails';
 import { ContactTaskStages } from './ContactTaskStages';
 import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { TaskActivityLog } from './TaskActivityLog';
+import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 import { TaskProgressDetails } from './TaskProgressDetails';
 import { DatabaseMaintenanceProgress } from '../DatabaseMaintenanceProgress';
 import { usePageDataCache } from '../PageSnapshots.shared';
@@ -127,7 +128,6 @@ function TaskDetails({
   const logs =
     (entry.source === 'host' ? (taskLogs.data ?? retainedLogs.current) : task.logs) ??
     contactLogLines(details ?? []);
-  const [busy, setBusy] = useState(false);
   const showError = useDialog((state) => state.showError);
   const failureRequest = useRef(0);
   useEffect(() => {
@@ -154,17 +154,52 @@ function TaskDetails({
     }
   };
   const act = async (run: () => Promise<unknown>) => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await run();
-      await refresh();
-    } catch (error) {
-      showError('任务操作失败', error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
+    await run();
+    await refresh();
   };
+  const taskActions: TaskQuickAction[] = (canManageTask ? task.actions : [])
+    .filter((action) => action.id !== 'view-clone' || Boolean(onOpenClone))
+    .map((action) => ({
+      id: action.id,
+      label: action.label,
+      icon: <BackgroundTaskActionIcon id={action.id} />,
+      run: () => {
+        if (action.id === 'view-clone' && task.clonePersonaId) {
+          return onOpenClone?.(task.clonePersonaId);
+        }
+        return act(() =>
+          entry.source === 'window'
+            ? localBackgroundTasks.act(task.id, action.id)
+            : client.backgroundTasks.act.mutate({ id: task.id, action: action.id, scope }),
+        );
+      },
+    }));
+  if (navigation) {
+    if (task.status === 'running') taskActions.push(navigation);
+    else taskActions.unshift(navigation);
+  }
+  if (canManageTask && task.status !== 'running') {
+    taskActions.push({
+      id: 'remove',
+      label: '移除任务',
+      icon: <Trash2 size={14} />,
+      run: () => act(() => removeBackgroundTask(entry, scope)),
+    });
+  }
+  const actions = (
+    <TaskQuickActions variant="detail" actions={taskActions}>
+      {task.download ? (
+        <a
+          className="weq-set-btn weq-set-btn-primary"
+          href={task.download.url}
+          download={task.download.name}
+        >
+          <Download size={14} aria-hidden />
+          下载到浏览器
+        </a>
+      ) : null}
+    </TaskQuickActions>
+  );
   return (
     <div className="weq-background-task-details">
       {task.databaseProgress ? (
@@ -179,6 +214,7 @@ function TaskDetails({
               : undefined
           }
           compact
+          actions={actions}
         />
       ) : (
         <TaskProgressDetails
@@ -190,6 +226,7 @@ function TaskDetails({
           note={task.kind === 'contacts' && task.subtasks?.length ? undefined : task.note}
           startedAt={task.startedAt}
           finishedAt={task.finishedAt}
+          actions={actions}
         />
       )}
       {task.databaseProgress && task.status !== 'running' && task.note ? <p>{task.note}</p> : null}
@@ -235,69 +272,6 @@ function TaskDetails({
           error={taskLogs.error?.message}
         />
       ) : null}
-      <div className="weq-long-task-actions">
-        {navigation ? (
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            onClick={() => navigation.run()}
-          >
-            {navigation.icon}
-            {navigation.label}
-          </button>
-        ) : null}
-        {task.download ? (
-          <a
-            className="weq-set-btn weq-set-btn-soft"
-            href={task.download.url}
-            download={task.download.name}
-          >
-            <Download size={14} />
-            下载到浏览器
-          </a>
-        ) : null}
-        {canManageTask &&
-          task.actions
-            .filter((action) => action.id !== 'view-clone' || Boolean(onOpenClone))
-            .map((action) => (
-              <button
-                key={action.id}
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={busy}
-                onClick={() => {
-                  if (action.id === 'view-clone' && task.clonePersonaId) {
-                    onOpenClone?.(task.clonePersonaId);
-                    return;
-                  }
-                  void act(() =>
-                    entry.source === 'window'
-                      ? localBackgroundTasks.act(task.id, action.id)
-                      : client.backgroundTasks.act.mutate({
-                          id: task.id,
-                          action: action.id,
-                          scope,
-                        }),
-                  );
-                }}
-              >
-                <BackgroundTaskActionIcon id={action.id} />
-                {action.label}
-              </button>
-            ))}
-        {canManageTask && task.status !== 'running' ? (
-          <button
-            data-danger="outline"
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            disabled={busy}
-            onClick={() => void act(() => removeBackgroundTask(entry, scope))}
-          >
-            <Trash2 size={14} />
-            移除任务
-          </button>
-        ) : null}
-      </div>
     </div>
   );
 }
