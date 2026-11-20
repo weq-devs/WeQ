@@ -194,8 +194,8 @@ it('空间增量同时更新说说与相册分卷，复用整包媒体根，查�
   for (const resource of afterAlbum.resources.filter((resource) => resource.status === 'saved'))
     expect(readFileSync(join(saved, String(resource.path))).length).toBeGreaterThan(0);
 });
-it('转发原帖的配图在正式归档中仍然引用已下载的包内媒体', async () => {
-  const originalImage = 'https://synthetic.invalid/other-repost.png';
+it.each([false, true])('归档保留转发原帖的媒体，借用配图只挂在原帖：%s', async (mirrored) => {
+  const originalImage = mirrored ? image : 'https://synthetic.invalid/other-repost.png';
   state.different = true;
   const { task } = await run({
     repost: {
@@ -213,7 +213,9 @@ it('转发原帖的配图在正式归档中仍然引用已下载的包内媒体'
     JSON.parse(readFileSync(join(task.bundleDir!, '合成空间.json'), 'utf8')),
   );
   const original = archive.records.find((record) => record.data.sourceId === 'original');
-  const resource = archive.resources.find((item) => item.url === originalImage);
+  const matching = archive.resources.filter((item) => item.url === originalImage);
+  expect(matching).toHaveLength(1);
+  const resource = matching[0];
   expect(original?.data.content).toContainEqual({
     type: 'media',
     mediaType: 'image',
