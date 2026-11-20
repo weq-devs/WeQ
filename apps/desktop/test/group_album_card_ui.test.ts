@@ -329,8 +329,7 @@ it('读取错误保持可重试，不误显示空评论；重试后恢复内容'
     }),
   );
   await act(async () => {
-    vi.advanceTimersByTimeAsync(3100);
-    await vi.dynamicImportSettled();
+    await vi.advanceTimersByTimeAsync(3000);
   });
   expect(document.body.textContent).toContain('synthetic-read-error');
   expect(document.body.textContent).not.toContain('暂无评论');
@@ -446,8 +445,7 @@ it('分页失败后可再次点击加载同一页，不因游标未变而无响�
     )!;
   await click(more());
   await act(async () => {
-    vi.advanceTimersByTimeAsync(3100);
-    await vi.dynamicImportSettled();
+    await vi.advanceTimersByTimeAsync(3000);
   });
   expect(document.body.textContent).toContain('synthetic-page-error');
   rpc.feed.mockResolvedValue({ ...page(), comments: [comment('c2')] });
