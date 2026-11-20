@@ -9,20 +9,29 @@
  * WeQ 曾经把 0x93d7 提到上传之前（「先发后传」）：对端一收到消息就拉 fileset，此时封面
  * 还没登记，卡片只显示默认封面，且客户端不会再重拉 —— 这条测试把它钉死，防止再回退。
  *
- * native 打桩：0x12a9 的 prepare 响应**不带 rkey**（秒传命中）⇒ 不传字节、不连网络，
- * 只记账真正上 wire 的 OIDB 顺序。
+ * native 与 CDN 打桩，覆盖秒传和未命中秒传的分片回执，并核对封面读回与发卡片的顺序。
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ApplyFileset, ApplyUpload, decode, encode, PrepareUpload } from '@weqbot/protocol';
 import type { AccountSession } from '@weq/account';
+import { type NetworkFetch, withNetworkTransport } from '@weq/network';
+import {
+  ApplyFileset,
+  ApplyUpload,
+  decode,
+  encode,
+  FLASH_SLICE_UPLOAD_RESP,
+  GetFilesetDetail,
+  PrepareUpload,
+} from '@weqbot/protocol';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FlashTransferService } from '../src/account/flash_transfer';
 
 const PID = 4321;
 const FILESET = '11111111-2222-3333-4444-555555555555';
+const COVER_URL = 'https://multimedia.qfile.qq.com/download?appid=14903&rkey=fixture';
 /** apply 响应里服务端规范化的 filesetWrap 原始字节（sliceupload 原样回带的那个）。 */
 const FILESET_REF = new Uint8Array([0x0a, 0x02, 0x01, 0x02]);
 
@@ -47,7 +56,7 @@ interface OidbCall {
   isUid: boolean;
 }
 
-function fakeNative() {
+function fakeNative({ requiresCoverUpload = false } = {}) {
   const calls: OidbCall[] = [];
   return {
     calls,
@@ -73,9 +82,23 @@ function fakeNative() {
           encode(ApplyUpload.respSchema, { payload: { filesetWrap: FILESET_REF } }),
         );
       }
+      if (command === 0x12a9 && subCommand === 100 && requiresCoverUpload) {
+        const request = decode(PrepareUpload.reqSchema, body);
+        if ((request.payload as { field2: number }).field2 === 1) {
+          return Buffer.from(encode(PrepareUpload.respSchema, { rkeyWrap: { rkey: 'upload' } }));
+        }
+      }
+      if (command === 0x93d3) {
+        return Buffer.from(
+          encode(GetFilesetDetail.respSchema, {
+            entries: [
+              { filesetUuid: FILESET, fileIdWrap: { download: { downloadUrl: COVER_URL } } },
+            ],
+          }),
+        );
+      }
       if (command === 0x93d7) return Buffer.from('0a101a0e0801120a0a08755f667269656e64', 'hex');
-      // 其余（0x93d0/0x93db/0x93d1）空 ack；0x12a9_100 不带 rkey ⇒ 秒传命中，
-      // 跳过 sliceupload，不需要网络。
+      // 其余命令返回空 ack。prepare 不带 rkey 时跳过 sliceupload。
       return Buffer.alloc(0);
     },
   };
@@ -110,16 +133,25 @@ describe('FlashTransferService 发送时序', () => {
     if (dir) await rm(dir, { recursive: true, force: true });
   });
 
-  it('封面在 0x93d7 之前传完，主文件留在发送之后', async () => {
-    const nt = fakeNative();
+  function sendWithCover(nt: ReturnType<typeof fakeNative>, fetchCover: NetworkFetch) {
     const svc = new FlashTransferService(nt, fakeSession(), () => PID);
+    return withNetworkTransport(fetchCover, () =>
+      svc.sendFlashTransfer({
+        files: [{ path: mainPath }],
+        peerType: 'c2c',
+        targetId: '20002',
+        thumbPath: coverPath,
+        uploader: { uin: '10001', nickname: 'me', uid: 'u_me' },
+      }),
+    );
+  }
 
-    const result = await svc.sendFlashTransfer({
-      files: [{ path: mainPath }],
-      peerType: 'c2c',
-      targetId: '20002',
-      thumbPath: coverPath,
-      uploader: { uin: '10001', nickname: 'me', uid: 'u_me' },
+  it('封面可以读回才发送，主文件留在发送之后', async () => {
+    const nt = fakeNative();
+    const result = await sendWithCover(nt, async (url) => {
+      expect(url).toBe(COVER_URL);
+      expect(nt.calls.some((c) => c.command === 0x93d7)).toBe(false);
+      return new Response(new Uint8Array(tinyPng()));
     });
     await result.uploaded;
 
@@ -133,7 +165,8 @@ describe('FlashTransferService 发送时序', () => {
       '0x93db_1',
       '0x12a9_100', // 封面 prepare
       '0x12a9_103', // 封面 apply（报备进 fileset）
-      '0x93d7_1', // 发消息 —— 必须晚于封面
+      '0x93d3_1', // 读回封面下载地址
+      '0x93d7_1', // 发消息 —— 必须晚于封面读回
       '0x12a9_100', // 主文件 prepare
       '0x12a9_103', // 主文件 apply
       '0x93d1_1', // fileset 状态
@@ -153,14 +186,7 @@ describe('FlashTransferService 发送时序', () => {
 
   it('封面报备带 fileset 标记（payload.f2=1 / filesetWrap.f5=1），主文件不带', async () => {
     const nt = fakeNative();
-    const svc = new FlashTransferService(nt, fakeSession(), () => PID);
-    const result = await svc.sendFlashTransfer({
-      files: [{ path: mainPath }],
-      peerType: 'c2c',
-      targetId: '20002',
-      thumbPath: coverPath,
-      uploader: { uin: '10001', nickname: 'me', uid: 'u_me' },
-    });
+    const result = await sendWithCover(nt, async () => new Response(new Uint8Array(tinyPng())));
     await result.uploaded;
 
     const prep = nt.calls.filter((c) => c.command === 0x12a9 && c.subCommand === 100);
@@ -169,5 +195,25 @@ describe('FlashTransferService 发送时序', () => {
 
     expect(roleOf(prep[0]!.body)).toBe(1); // 封面
     expect(roleOf(prep[1]!.body)).toBe(0); // 主文件
+  });
+
+  it('非秒传上传返回成功但封面下载不到时，提示失败并拦截发送', async () => {
+    const nt = fakeNative({ requiresCoverUpload: true });
+    const sliceUpload = vi.fn(
+      async () =>
+        new Response(new Uint8Array(encode(FLASH_SLICE_UPLOAD_RESP, { status: 'success' }))),
+    );
+    vi.stubGlobal('fetch', sliceUpload);
+
+    try {
+      const fetchCover = vi.fn(async () => new Response('文件不存在'));
+      await expect(sendWithCover(nt, fetchCover)).rejects.toThrow('闪传封面验证失败');
+      expect(sliceUpload).toHaveBeenCalledOnce();
+      expect(fetchCover).toHaveBeenCalledTimes(2);
+      expect(nt.calls.map(label)).not.toContain('0x93d7_1');
+      expect(nt.calls.map(label)).not.toContain('0x93d1_1');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
