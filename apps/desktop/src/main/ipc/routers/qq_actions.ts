@@ -744,8 +744,6 @@ export function createQQActionsRouter(
           change: z.discriminatedUnion('key', [
             z.object({
               key: z.enum([
-                'searchByName',
-                'searchByNumber',
                 'newMemberHistory',
                 'allowMemberUploadAlbum',
                 'allowMemberTemporarySession',
@@ -754,6 +752,10 @@ export function createQQActionsRouter(
                 'robotMemberExamine',
               ]),
               value: z.boolean(),
+            }),
+            z.object({
+              key: z.literal('searchMode'),
+              value: z.enum(['keyword_or_number', 'number_only', 'disabled']),
             }),
             z.object({
               key: z.literal('invitePolicy'),

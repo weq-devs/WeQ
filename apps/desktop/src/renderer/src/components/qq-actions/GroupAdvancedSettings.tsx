@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { client, trpc } from '../../trpc/client';
 import { FormSelect } from '../FormSelect';
 import { Row } from '../settings/controls';
@@ -6,8 +6,6 @@ import { ActionFeedback } from './shared';
 import { useQQAction } from './shared.shared';
 
 const switches = [
-  ['searchByName', '允许通过关键词搜索'],
-  ['searchByNumber', '允许通过群号搜索'],
   ['newMemberHistory', '新成员可查看历史消息'],
   ['allowMemberTemporarySession', '允许成员发起临时会话'],
   ['allowMemberCreateGroup', '允许成员发起群聊'],
@@ -15,6 +13,11 @@ const switches = [
   ['robotMemberSwitch', '允许邀请群机器人'],
   ['robotMemberExamine', '群机器人入群需要审核'],
 ] as const;
+const searchModes = {
+  keyword_or_number: '允许通过关键词或群号搜索',
+  number_only: '仅允许通过群号搜索',
+  disabled: '禁止搜索',
+} as const;
 const inviteModes = {
   disabled: '禁止成员邀请',
   require_approval: '需要审核',
@@ -23,13 +26,14 @@ const inviteModes = {
 } as const;
 type Change =
   | { key: (typeof switches)[number][0]; value: boolean }
+  | { key: 'searchMode'; value: keyof typeof searchModes }
   | { key: 'invitePolicy'; value: keyof typeof inviteModes };
 
-function Options({ groupId }: { groupId: number }) {
+export function GroupAdvancedSettings({ groupId }: { groupId: number }) {
   const action = useQQAction(`group-advanced-settings:${groupId}`);
   const query = trpc.account.qqActions.groupAdvancedSettings.useQuery(
     { ...action.binding!, groupId },
-    { enabled: action.available, refetchOnWindowFocus: false, retry: false },
+    useQQAutoRefresh(action.available),
   );
   const disabled = action.disabled || query.isFetching || query.isError;
   function update(change: Change) {
@@ -50,6 +54,30 @@ function Options({ groupId }: { groupId: number }) {
   }
   return (
     <div className="weq-join-settings">
+      <Row
+        label="群搜索方式"
+        control={
+          <FormSelect
+            aria-label="群搜索方式"
+            value={query.data?.searchMode ?? ''}
+            disabled={disabled || query.data?.searchMode == null}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (Object.hasOwn(searchModes, value))
+                update({ key: 'searchMode', value: value as keyof typeof searchModes });
+            }}
+          >
+            <option value="" disabled>
+              {query.isFetching ? '读取中…' : '状态未知'}
+            </option>
+            {Object.entries(searchModes).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </FormSelect>
+        }
+      />
       {switches.map(([key, label]) => {
         const value = query.data?.[key];
         return (
@@ -98,25 +126,7 @@ function Options({ groupId }: { groupId: number }) {
         }
       />
       {query.error ? <p role="alert">{query.error.message}</p> : null}
-      <button
-        type="button"
-        className="weq-set-btn"
-        disabled={!action.available || action.pending || query.isFetching}
-        onClick={() => void query.refetch()}
-      >
-        刷新群设置
-      </button>
       <ActionFeedback action={action} />
     </div>
-  );
-}
-
-export function GroupAdvancedSettings({ groupId }: { groupId: number }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>更多群设置</summary>
-      {open ? <Options groupId={groupId} /> : null}
-    </details>
   );
 }

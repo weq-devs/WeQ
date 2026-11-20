@@ -113,8 +113,6 @@ function requireTargetUid(uid: string): string {
 }
 
 type GroupSettingSwitch =
-  | 'searchByName'
-  | 'searchByNumber'
   | 'newMemberHistory'
   | 'allowMemberUploadAlbum'
   | 'allowMemberTemporarySession'
@@ -122,12 +120,20 @@ type GroupSettingSwitch =
   | 'robotMemberSwitch'
   | 'robotMemberExamine';
 
+const GROUP_SEARCH_FLAGS = {
+  keyword_or_number: { noFingerOpen: 0, noCodeFingerOpen: 0 },
+  number_only: { noFingerOpen: 1, noCodeFingerOpen: 0 },
+  disabled: { noFingerOpen: 1, noCodeFingerOpen: 1 },
+} as const;
+type GroupSearchMode = keyof typeof GROUP_SEARCH_FLAGS;
+
 type GroupSettingChange =
   | { key: GroupSettingSwitch; value: boolean }
+  | { key: 'searchMode'; value: GroupSearchMode }
   | { key: 'invitePolicy'; value: GroupMemberInvitePolicy };
 
-function decodeSwitch(value: number | undefined, on = 1) {
-  return value === 0 || value === 1 ? value === on : null;
+function decodeSwitch(value: number | undefined) {
+  return value === 0 || value === 1 ? value === 1 : null;
 }
 
 export class GroupModerationService {
@@ -296,10 +302,16 @@ export class GroupModerationService {
     const fields = detail.settingFields ?? {};
     const flags = fields.privilegeFlag;
     const member = flags === undefined ? null : decodeGroupMemberPermissions(flags);
+    const searchMode = (Object.keys(GROUP_SEARCH_FLAGS) as GroupSearchMode[]).find((mode) => {
+      const expected = GROUP_SEARCH_FLAGS[mode];
+      return (
+        fields.noFingerOpen === expected.noFingerOpen &&
+        fields.noCodeFingerOpen === expected.noCodeFingerOpen
+      );
+    });
     return {
       privilegeFlag: flags ?? null,
-      searchByName: decodeSwitch(fields.noFingerOpen, 0),
-      searchByNumber: decodeSwitch(fields.noCodeFingerOpen, 0),
+      searchMode: searchMode ?? null,
       invitePolicy: flags === undefined ? null : decodeMemberInvitePolicy(flags),
       newMemberHistory:
         fields.groupFlagExt4 === undefined
@@ -321,12 +333,10 @@ export class GroupModerationService {
     if (settings[change.key] === null) throw new Error('服务端未返回对应设置，请刷新后重试');
     if (settings[change.key] === change.value) return;
     switch (change.key) {
-      case 'searchByName':
-        return SetGroupSearch.invoke(this.nt, pid, { groupId, noFingerOpen: change.value ? 0 : 1 });
-      case 'searchByNumber':
+      case 'searchMode':
         return SetGroupSearch.invoke(this.nt, pid, {
           groupId,
-          noCodeFingerOpen: change.value ? 0 : 1,
+          ...GROUP_SEARCH_FLAGS[change.value],
         });
       case 'newMemberHistory':
         return SetGroupHistoryVisibility.invoke(this.nt, pid, { groupId, visible: change.value });
