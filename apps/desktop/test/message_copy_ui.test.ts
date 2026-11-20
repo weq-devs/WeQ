@@ -109,6 +109,26 @@ async function copyMenu(target: Element) {
   await act(async () => copy!.click());
 }
 describe('聊天内容复制交互', () => {
+  it('表情弹射与文字同发时，两者都显示在气泡里', () => {
+    const f = mount(false, [
+      { type: 'text', data: { textContent: '一起发送的文字' } },
+      {
+        type: 'emojiBounce',
+        data: {
+          emojiBounceId: 182,
+          emojiBounceName: '笑哭',
+          emojiBounceTextSummary: '弹射了10个[笑哭]',
+        },
+      },
+    ]);
+    try {
+      expect(f.host.textContent).toContain('一起发送的文字');
+      expect(f.host.textContent).toContain('×10');
+    } finally {
+      f.close();
+    }
+  });
+
   it('右键复制卡片包含类型、标题、描述和链接，不是旧的卡片占位文字', async () => {
     const f = mount(false, [
       {

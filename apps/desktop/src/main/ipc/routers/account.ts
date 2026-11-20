@@ -79,6 +79,7 @@ import {
   prepareExportDestination,
 } from './export_save';
 import { mergeRoamingTimeline, timelineRowKey } from '../../../shared/roaming_timeline';
+import { SPECIAL_MESSAGE_KINDS } from '@weqbot/protocol/message-fallbacks';
 import {
   PROJECT_GROUP_CODE,
   PROJECT_GROUP_NAME,
@@ -5563,6 +5564,14 @@ export const accountRouter = router({
           conv: z.string().min(1),
           startSeq: z.number().int().min(0),
           endSeq: z.number().int().min(0),
+          specialMessage: z
+            .object({
+              type: z.enum(SPECIAL_MESSAGE_KINDS),
+              senderUid: z.string(),
+              senderUin: z.string(),
+              sendTime: z.string().regex(/^[1-9]\d*$/),
+            })
+            .optional(),
         })
         .merge(exportAccountBindingInput),
     )
@@ -5576,6 +5585,7 @@ export const accountRouter = router({
         input.conv,
         input.startSeq,
         input.endSeq,
+        { specialMessage: input.specialMessage },
       );
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services

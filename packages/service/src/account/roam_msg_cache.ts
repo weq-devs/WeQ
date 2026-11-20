@@ -230,6 +230,28 @@ export class RoamMsgCacheDb {
     return rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
   }
 
+  async matchingMessage(
+    kind: 'c2c' | 'group',
+    conv: string,
+    seq: number,
+    project: (message: GapFetchedMessage) => GapFetchedMessage | undefined,
+  ): Promise<GapFetchedMessage[]> {
+    return this.query(
+      kind,
+      conv,
+      seq,
+      seq,
+      kind === 'c2c',
+      2000,
+      true,
+      false,
+      undefined,
+      false,
+      undefined,
+      project,
+    );
+  }
+
   /** 读一段缓存，输出始终按 seq 升序；descending 决定限额前选最新还是最旧的行。 */
   async query(
     kind: 'c2c' | 'group',
@@ -243,6 +265,7 @@ export class RoamMsgCacheDb {
     cursor?: { msgSeq: number; sendTime: number; msgId: string },
     metadataOnly = false,
     timeRange?: { start: number; end: number },
+    project?: (message: GapFetchedMessage) => GapFetchedMessage | undefined,
   ): Promise<GapFetchedMessage[]> {
     if (startSeq > endSeq) return [];
     if (metadataOnly) {
@@ -336,13 +359,17 @@ export class RoamMsgCacheDb {
        ${verifiedOnly ? 'AND nt_seq_verified=1' : ''} ${keyset("json_extract(payload,'$.sendTime')")} ${order("json_extract(payload,'$.sendTime')")} LIMIT ?)`,
       [...params, ...params, ...params],
     );
-    const messages = combineCache(
-      rows.filter((row) => Number(row[0]) === 0).map((row) => rowToMessage(row.slice(2))),
-      rows.filter((row) => Number(row[0]) === 1).map((row) => nativeRow([row[1]!])),
-      rows
-        .filter((row) => Number(row[0]) === 2)
-        .map((row) => parseJson<GapFetchedMessage>(String(row[1]))),
-    )
+    const legacy = rows
+      .filter((row) => Number(row[0]) === 0)
+      .map((row) => rowToMessage(row.slice(2)));
+    const native = rows.filter((row) => Number(row[0]) === 1).map((row) => nativeRow([row[1]!]));
+    const protocol = rows
+      .filter((row) => Number(row[0]) === 2)
+      .map((row) => parseJson<GapFetchedMessage>(String(row[1])));
+    // 特殊消息按正文命中：在来源去重前筛选，以免原生纯文本盖住同一条协议正文。
+    const resolve = (messages: GapFetchedMessage[]) =>
+      project ? messages.map(project).filter((row) => row !== undefined) : messages;
+    const messages = combineCache(resolve(legacy), resolve(native), resolve(protocol))
       .sort((a, b) => {
         const order = compareMessageOrder(a, b);
         return descending ? -order : order;
