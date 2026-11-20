@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { DressManifest } from '@weq/service';
+import type { DressMallItem, DressManifest } from '@weq/service';
 import { DressUpDialog } from '../src/renderer/src/components/DressUpDialog';
 vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
   useDevelopmentDressTools: () => fixture.developmentTools,
@@ -12,6 +12,14 @@ vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
 const fixture = vi.hoisted(() => ({
   developmentTools: true,
   activate: vi.fn(),
+  setCallBackground: vi.fn(),
+  rankItems: [] as DressMallItem[],
+  callBackground: {
+    itemId: 44,
+    name: 'QQ 同款通话背景',
+    imageUrl: 'https://example.test/call-background.jpg',
+    videoUrl: 'https://example.test/call-background.mp4',
+  },
   download: vi.fn(),
   invalidate: vi.fn(),
   manifest: {
@@ -51,18 +59,19 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                 fontName: 'QQ 同款字体',
                 widgetId: 33,
                 widgetName: 'QQ 同款挂件',
-                callBgId: 44,
-                callBgName: 'QQ 同款通话背景',
-                callBgUrl: 'https://example.test/call-background.jpg',
-                callBgVideoUrl: 'https://example.test/call-background.mp4',
+                callBgId: fixture.callBackground.itemId,
+                callBgName: fixture.callBackground.name,
+                callBgUrl: fixture.callBackground.imageUrl,
+                callBgVideoUrl: fixture.callBackground.videoUrl,
               },
               manifest: fixture.manifest,
             },
           }),
         },
-        rank: { useQuery: () => ({ data: { items: [] } }) },
+        rank: { useQuery: () => ({ data: { items: fixture.rankItems } }) },
         search: { useQuery: () => ({ data: { items: [] } }) },
         widgets: { useQuery: () => ({ data: [] }) },
+        setCallBackground: { useMutation: () => ({ mutateAsync: fixture.setCallBackground }) },
         ...Object.fromEntries(
           [
             'installBubble',
@@ -73,7 +82,6 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             'pickBackground',
             'setBackground',
             'setWidget',
-            'setCallBackground',
             'setBackgroundOpacity',
             'setWidgetOpacity',
           ].map((name) => [name, { useMutation: () => ({ mutateAsync: fixture.activate }) }]),
@@ -96,6 +104,7 @@ vi.mock('../src/renderer/src/views/export/MarketEmojiBrowserLightbox', () => ({
 afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
   fixture.developmentTools = true;
+  fixture.rankItems = [];
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.manifest = {
     bubbles: [],
@@ -110,6 +119,17 @@ beforeEach(() => {
     backgroundOpacity: 1,
     widgetOpacity: 1,
   } as DressManifest;
+  fixture.callBackground = {
+    itemId: 44,
+    name: 'QQ 同款通话背景',
+    imageUrl: 'https://example.test/call-background.jpg',
+    videoUrl: 'https://example.test/call-background.mp4',
+  };
+  fixture.setCallBackground
+    .mockReset()
+    .mockImplementation(async ({ itemId, name = '', imageUrl = '', videoUrl = '' }) => {
+      fixture.callBackground = { itemId, name, imageUrl, videoUrl };
+    });
   fixture.activate
     .mockReset()
     .mockImplementation(
@@ -224,6 +244,47 @@ it('通话背景的单个下载按钮保存原视频，不把背景 ID 当作气
       ],
       'callbg:44',
     );
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it('热门通话背景用专用接口保存，使用中可查看并取消', async () => {
+  fixture.rankItems = [
+    {
+      appId: 17,
+      itemId: 41136,
+      name: '星雨戏水喵',
+      previewUrl: 'https://example.test/star-small.jpg',
+      previewLargeUrl: 'https://example.test/star.jpg',
+      videoUrl: 'https://example.test/star.mp4',
+      labels: [],
+      price: 0,
+      mallName: '',
+    },
+  ];
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(createElement(DressUpDialog, { initialKind: 'callbg', onClose: () => {} })),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('.weq-dress-use')!.click());
+    expect(fixture.setCallBackground).toHaveBeenCalledWith({
+      itemId: 41136,
+      name: '星雨戏水喵',
+      imageUrl: 'https://example.test/star.jpg',
+      videoUrl: 'https://example.test/star.mp4',
+    });
+    expect(fixture.activate).not.toHaveBeenCalled();
+    const usageTab = host.querySelector<HTMLButtonElement>('[role="tab"]:last-child')!;
+    await act(async () => usageTab.click());
+    expect(host.textContent).toContain('星雨戏水喵');
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="取消使用通话背景"]')!.click(),
+    );
+    expect(fixture.setCallBackground).toHaveBeenLastCalledWith({ itemId: 0 });
+    expect(host.textContent).not.toContain('星雨戏水喵');
   } finally {
     act(() => root.unmount());
   }

@@ -407,7 +407,6 @@ export const dressupRouter = router({
       return requireServices().dressInstall.setBackground(input.source);
     }),
 
-  /** 背景不透明度。服务端再 clamp 一次,不信前端的滑块范围。 */
   /**
    * 选定通话背景。
    *
@@ -430,8 +429,15 @@ export const dressupRouter = router({
       if (input.itemId) requireDevelopmentDressTools();
       const services = requireServices();
       const record = services.accountConfig.getRecord();
-      const dress = record?.homeDress;
-      if (!dress) throw new Error('还没有装扮快照，请先打开过一次账号');
+      if (!record) throw new Error('账号配置不可用，请重新打开账号');
+      // 热门目录可离线浏览，直接使用时可能还没有 QQ 装扮快照。
+      const dress = record.homeDress ?? {
+        widgetUrl: '',
+        cardUrl: '',
+        cardVideoUrl: '',
+        screenUrl: '',
+        tags: [],
+      };
       services.accountConfig.setHomeDress({
         ...dress,
         callBgId: input.itemId || undefined,
@@ -444,6 +450,7 @@ export const dressupRouter = router({
       return services.accountConfig.getRecord()?.homeDress ?? null;
     }),
 
+  /** 背景不透明度由服务端限制在 0–1。 */
   setBackgroundOpacity: procedure.input(z.object({ opacity: z.number() })).mutation(({ input }) => {
     return requireServices().dressInstall.setBackgroundOpacity(input.opacity);
   }),

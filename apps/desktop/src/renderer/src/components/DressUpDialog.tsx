@@ -119,7 +119,7 @@ const mallBrowseSchema = z.record(
 );
 
 /** 通话背景没有「安装」概念,选中即用(远程 url 直接给通话窗口引)。 */
-const isCallBg = (kind: MallKind): boolean => kind === 'callbg';
+const isCallBg = (kind: MallKind): kind is 'callbg' => kind === 'callbg';
 
 const SCOPES: Array<{ id: DressScope; label: string; hint: string }> = [
   { id: 'mine', label: '仅自己', hint: '仅覆盖自己发出的消息' },
@@ -456,6 +456,18 @@ export function DressUpDialog({
         // nameForManifest 与卡片上显示的名字可以不同 ——「QQ 正在用的X」那种占位串
         // 显示可以,落盘不行(存进清单就洗不掉,列表会永远显示占位名)。
         const name = nameForManifest;
+        if (isCallBg(mallKind)) {
+          const imageUrl = item.previewLargeUrl || item.previewUrl;
+          if (!imageUrl && !item.videoUrl) throw new Error('这款通话背景没有可用素材');
+          await setCallBackground.mutateAsync({
+            itemId: item.itemId,
+            name,
+            imageUrl,
+            videoUrl: item.videoUrl,
+          });
+          await refresh();
+          return;
+        }
         if (mallKind === 'bubble') {
           // 只带 itemId —— 后端走本地离线 bundle → protocol 唯一下载链(见 dressup 路由)。
           // name/previewUrl 同理:装完只剩 itemId,商城没有按 id 查详情的接口。
@@ -470,7 +482,7 @@ export function DressUpDialog({
             name,
             previewUrl: item.previewLargeUrl || item.previewUrl,
           });
-        } else if (mallKind === 'widget') {
+        } else {
           await installWidget.mutateAsync({
             itemId: item.itemId,
             name,
@@ -478,7 +490,7 @@ export function DressUpDialog({
           });
         }
         const manifest = await setActive.mutateAsync({
-          kind: mallKind as Exclude<MallKind, 'callbg'>,
+          kind: mallKind,
           itemId: item.itemId,
         });
         // setActive 回的就是新清单,直接拿它注入,不必等 refetch 往返。
@@ -513,7 +525,7 @@ export function DressUpDialog({
           return;
         }
         const manifest = await setActive.mutateAsync({
-          kind: target as Exclude<MallKind, 'callbg'>,
+          kind: target,
           itemId: 0,
         });
         await syncDressSkinPreloaded(manifest);
