@@ -42,6 +42,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -280,6 +281,10 @@ export function ConversationList({
   const createAssistantDirectly = view === 'assistant';
   const createLabel = createAssistantDirectly ? '新建 WeQ 助手会话' : '添加会话';
   const ViewIcon = VIEW_ICONS[view];
+  const searchReturnView = directory?.searchReturnView;
+  const backView = searchReturnView ?? (directory?.returnToRegular ? 'regular' : undefined);
+  const backLabel = backView ? `返回${CONVERSATION_VIEW_LABELS[backView]}` : undefined;
+  const onBack = searchReturnView ? directory?.onReturnToSearchView : directory?.onReturnToRegular;
   const setView = directory?.onViewChange ?? setLocalView;
   const [queries, setQueries] = useState<Partial<Record<ConversationView, string>>>({});
   const keyword = queries[view] ?? '';
@@ -314,6 +319,17 @@ export function ConversationList({
   const showPreview = preferenceValue('showConversationPreview');
   const account = useViewState((state) => state.openedUin);
   const listKey = `${account}:${view}:${keyword}`;
+  useImperativeHandle(
+    directory?.captureListPosition,
+    () => () => {
+      const top = scrollPositions.current.get(listKey) ?? 0;
+      return () => {
+        scrollPositions.current.set(listKey, top);
+        setKeyword(keyword);
+      };
+    },
+    [listKey, keyword, setKeyword],
+  );
   const [pointerInside, setPointerInside] = useState(false);
   useEffect(() => {
     const clear = () => setPointerInside(false);
@@ -700,26 +716,23 @@ export function ConversationList({
         <div className="weq-directory-scope" ref={menuRef}>
           <button
             type="button"
-            title={
-              directory?.returnToRegular
-                ? '返回常规视图'
-                : `会话视图：${CONVERSATION_VIEW_LABELS[view]}`
-            }
-            aria-label={directory?.returnToRegular ? '返回常规视图' : '会话视图'}
-            aria-haspopup={directory?.returnToRegular ? undefined : 'menu'}
-            aria-expanded={directory?.returnToRegular ? undefined : scopeOpen}
+            title={backLabel ?? `会话视图：${CONVERSATION_VIEW_LABELS[view]}`}
+            aria-label={backLabel ?? '会话视图'}
+            aria-haspopup={backLabel ? undefined : 'menu'}
+            aria-expanded={backLabel ? undefined : scopeOpen}
             onClick={() => {
               setCreateOpen(false);
-              if (directory?.returnToRegular) {
-                directory.onReturnToRegular?.();
+              if (backLabel) {
+                setScopeOpen(false);
+                onBack?.();
                 return;
               }
               setScopeOpen(!scopeOpen);
             }}
           >
-            {directory?.returnToRegular ? <ArrowLeft size={16} /> : <ViewIcon size={16} />}
+            {backLabel ? <ArrowLeft size={16} /> : <ViewIcon size={16} />}
           </button>
-          {scopeOpen ? (
+          {scopeOpen && !backLabel ? (
             <div role="menu" className="weq-directory-scope-menu" aria-label="会话视图">
               {VIEW_OPTIONS.map(({ id: item, Icon: ItemIcon }) => (
                 <button

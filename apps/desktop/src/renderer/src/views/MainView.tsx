@@ -419,6 +419,7 @@ import {
   aggregatePinPreferences,
   conversationViewRows,
   conversationViewForTarget,
+  conversationViewForSearchTarget,
   conversationRowName,
   type ActiveDirectoryConversation,
   type ConversationView,
@@ -1279,10 +1280,26 @@ function MainWorkspace(): ReactElement {
     'regular',
     z.enum(CONVERSATION_VIEWS),
   );
-  const [returnToRegular, setReturnToRegular] = useState(false);
+  const [viewOpenedFromAggregate, setViewOpenedFromAggregate] = useState<ConversationView | null>(
+    null,
+  );
+  const [searchViewOrigin, setSearchViewOrigin] = useState<{
+    scope: string;
+    query: string;
+    view: ConversationView;
+    restoreList?: () => void;
+    selection: { id: string; restore: () => void } | null;
+  } | null>(null);
+  const captureConversationListPosition = useRef<(() => () => void) | null>(null);
+  const searchReturnView =
+    searchViewOrigin?.scope === messageScope && searchViewOrigin.view !== conversationView
+      ? searchViewOrigin.view
+      : undefined;
+  const returnToRegular = !searchReturnView && viewOpenedFromAggregate === conversationView;
   const changeConversationView = useCallback(
     (view: ConversationView, fromAggregate = false) => {
-      setReturnToRegular(fromAggregate && conversationView === 'regular');
+      setSearchViewOrigin(null);
+      setViewOpenedFromAggregate(fromAggregate && conversationView === 'regular' ? view : null);
       setConversationView(view);
     },
     [conversationView, setConversationView],
@@ -1339,16 +1356,77 @@ function MainWorkspace(): ReactElement {
       shell.switchView('messages');
     },
   );
-  const locateConversationInView = useCallback(
-    (id: string, preferred?: ConversationView) => {
+  const locateConversationInView = useStableCallback(
+    (id: string, preferred?: ConversationView, fromSearch = false) => {
       const directory = conversationViewsRef.current;
-      const view = preferred ?? conversationViewForTarget(directory, id);
-      setReturnToRegular(false);
+      const view = fromSearch
+        ? conversationViewForSearchTarget(
+            directory,
+            conversationView,
+            allConversationOptions,
+            id,
+            preferred,
+          )
+        : (preferred ?? conversationViewForTarget(directory, id));
+      if (!fromSearch) {
+        setSearchViewOrigin(null);
+        setViewOpenedFromAggregate(null);
+      } else if (
+        searchViewOrigin?.scope !== messageScope ||
+        searchViewOrigin.query !== searchQuery
+      ) {
+        setSearchViewOrigin({
+          scope: messageScope,
+          query: searchQuery,
+          view: conversationView,
+          restoreList: captureConversationListPosition.current?.(),
+          selection: activeDirectoryConversation && {
+            id: activeDirectoryConversation.id,
+            restore: () => {
+              setSpecialChat(specialChat);
+              setArkFeedState(arkFeedState);
+              setAssistantSessionId(assistantSessionId);
+              setAssistantSearchTarget(assistantSearchTarget);
+              setGuildSearchTarget(guildSearchTarget);
+              setVirtualOpen(virtualOpen);
+              setCloneSearchTarget(cloneSearchTarget);
+              if (shell.view === 'agentlab') shell.switchView('agentlab');
+              else shell.switchView('messages');
+              shell.setActiveConversationId(shell.activeConversationId);
+            },
+          },
+        });
+        if (searchReturnView) setViewOpenedFromAggregate(null);
+      }
       setConversationView(view);
-      setConversationLocate({ id, revision: Date.now() });
+      setConversationLocate((previous) => ({
+        id,
+        revision: Math.max(Date.now(), (previous?.revision ?? 0) + 1),
+      }));
     },
-    [setConversationView],
   );
+  const returnToSearchView = useStableCallback(() => {
+    if (!searchViewOrigin || !searchReturnView) return;
+    const { selection, restoreList } = searchViewOrigin;
+    setConversationLocate(null);
+    restoreList?.();
+    if (
+      selection &&
+      conversationViewRows(conversationViews, searchReturnView, allConversationOptions).some(
+        (row) => row.id === selection.id && row.type !== 'merged',
+      )
+    ) {
+      flushAllDirtyDrafts();
+      setSearchViewOrigin(null);
+      setConversationView(searchReturnView);
+      selection.restore();
+    } else {
+      switchConversationView(searchReturnView);
+      if (viewOpenedFromAggregate === searchReturnView)
+        setViewOpenedFromAggregate(searchReturnView);
+    }
+    if (mobileLayout) setMobileConversationList(true);
+  });
   useClientPreferences((state) => state.tick);
   const interactionBadges = useConversationInteractionBadges(
     pinSession.binding,
@@ -5777,7 +5855,7 @@ function MainWorkspace(): ReactElement {
       toastOnMissingSeq = false,
       record?: ChatMsgWire,
       messageId?: string,
-      preferredView?: ConversationView,
+      searchTarget?: { preferredView?: ConversationView },
     ): void => {
       setSearchDismissed(true);
       if (!conv) return;
@@ -5791,7 +5869,11 @@ function MainWorkspace(): ReactElement {
       ].find((row) => row.id === conv || (row.type === 'direct' && row.otherUser.id === conv));
       setSpecialChat(null);
       if (feed && (feed.directoryKind === 'official' || feed.directoryKind === 'service')) {
-        locateConversationInView(feed.id);
+        locateConversationInView(
+          feed.id,
+          searchTarget ? feed.directoryKind : undefined,
+          Boolean(searchTarget),
+        );
         setArkFeedState({
           kind: feed.directoryKind,
           conversationId: feed.id,
@@ -5801,7 +5883,7 @@ function MainWorkspace(): ReactElement {
         shell.switchView('messages');
         return;
       }
-      locateConversationInView(conv, preferredView);
+      locateConversationInView(conv, searchTarget?.preferredView, Boolean(searchTarget));
       setArkFeedState(null);
       if (messageId && messagesTabActive && selectionRef.current?.id === conv) {
         const exact = findTimelineMessageById(loadedRef.current, messageId, seq);
@@ -5838,6 +5920,18 @@ function MainWorkspace(): ReactElement {
     },
   );
 
+  const jumpToSearchConversation = useCallback(
+    (
+      kind: 'group' | 'c2c',
+      id: string,
+      seq?: string,
+      messageId?: string,
+      toastOnMissingSeq = false,
+      preferredView?: ConversationView,
+    ) => jumpToConvSeq(kind, id, seq, toastOnMissingSeq, undefined, messageId, { preferredView }),
+    [jumpToConvSeq],
+  );
+
   const handleOpenGroupFiles = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
       const group = { code: conversation.id, name: conversation.group.name };
@@ -5870,7 +5964,7 @@ function MainWorkspace(): ReactElement {
       if ((hit.category === 'contact' || hit.category === 'group') && hit.target) {
         if (hit.target.kind === 'guild') {
           setMobileConversationList(false);
-          locateConversationInView(`guild:${hit.target.nodeId}`, 'guild');
+          locateConversationInView(`guild:${hit.target.nodeId}`, 'guild', true);
           setSpecialChat('guild');
           setArkFeedState(null);
           setGuildSearchTarget({
@@ -5882,7 +5976,11 @@ function MainWorkspace(): ReactElement {
           });
           shell.switchView('messages');
         } else {
-          changeConversationView('clone');
+          locateConversationInView(
+            `virtual:${hit.target.kind}:${hit.target.ownerId}`,
+            'clone',
+            true,
+          );
           setMobileConversationList(false);
           setSpecialChat(null);
           setCloneSearchTarget(null);
@@ -5928,7 +6026,7 @@ function MainWorkspace(): ReactElement {
             break;
           case 'guildMessage':
             setMobileConversationList(false);
-            locateConversationInView(`guild:${target.nodeId}`, 'guild');
+            locateConversationInView(`guild:${target.nodeId}`, 'guild', true);
             setSpecialChat('guild');
             setArkFeedState(null);
             setGuildSearchTarget({ ...target, revision });
@@ -5952,14 +6050,13 @@ function MainWorkspace(): ReactElement {
       if (isGeneratedSearchHit(hit)) {
         setSearchDismissed(true);
         if (hit.category === 'assistantMessage' && hit.sessionId) {
-          changeConversationView('assistant');
+          locateConversationInView(`assistant:${hit.sessionId}`, 'assistant', true);
           openAssistantConversation(hit.sessionId, { ...hit });
         } else {
-          changeConversationView('clone');
+          locateConversationInView(`virtual:${hit.kind}:${hit.ownerId}`, 'clone', true);
           setMobileConversationList(false);
           setSpecialChat(null);
           setCloneSearchTarget({ ...hit });
-          setConversationLocate({ id: `virtual:${hit.kind}:${hit.ownerId}`, revision: Date.now() });
           shell.switchView('agentlab');
         }
         return;
@@ -5973,8 +6070,8 @@ function MainWorkspace(): ReactElement {
               : hit.chatType === 118
                 ? 'service'
                 : hit.conversationView;
-          locateConversationInView(id, preferred);
           if (hit.chatType === 103 || hit.chatType === 118) {
+            locateConversationInView(id, preferred, true);
             setSpecialChat(null);
             setArkFeedState({
               kind: hit.chatType === 103 ? 'official' : 'service',
@@ -6016,7 +6113,7 @@ function MainWorkspace(): ReactElement {
                   },
                 },
               }));
-            jumpToConvSeq('c2c', id, undefined, false, undefined, undefined, preferred);
+            jumpToSearchConversation('c2c', id, undefined, undefined, false, preferred);
           }
           return;
         }
@@ -6076,13 +6173,12 @@ function MainWorkspace(): ReactElement {
                   },
                 },
           );
-        jumpToConvSeq(
+        jumpToSearchConversation(
           'group',
           hit.groupCode,
           undefined,
+          undefined,
           false,
-          undefined,
-          undefined,
           hit.conversationView,
         );
         return;
@@ -6108,14 +6204,13 @@ function MainWorkspace(): ReactElement {
               ? hit.groupCode
               : hit.targetUid;
       if (hit.category === 'file') {
-        jumpToConvSeq(kind, conv, hit.msgSeq || undefined, true, undefined, hit.msgId);
+        jumpToSearchConversation(kind, conv, hit.msgSeq || undefined, hit.msgId, true);
       } else {
-        jumpToConvSeq(kind, conv);
+        jumpToSearchConversation(kind, conv);
       }
     },
     [
-      jumpToConvSeq,
-      searchQuery,
+      jumpToSearchConversation,
       shell,
       user.identityValue,
       conversations,
@@ -6123,7 +6218,6 @@ function MainWorkspace(): ReactElement {
       deletedConversationsById,
       setSettingsOpen,
       setDressUpOpen,
-      changeConversationView,
       locateConversationInView,
       openAssistantConversation,
     ],
@@ -9218,12 +9312,10 @@ function MainWorkspace(): ReactElement {
                   groupMembers={memberMapForGroup}
                   resolveGroupMembers={resolveRecordsMembers}
                   onJumpMessage={({ source, targetUid, msgSeq, msgId }) =>
-                    jumpToConvSeq(
+                    jumpToSearchConversation(
                       source === 'group' ? 'group' : 'c2c',
                       targetUid,
                       msgSeq,
-                      false,
-                      undefined,
                       msgId,
                     )
                   }
@@ -9241,7 +9333,7 @@ function MainWorkspace(): ReactElement {
                             target={{ ...target, ...binding }}
                             onClose={onBack}
                             onJump={(group, seq) =>
-                              jumpToConvSeq('group', group, String(seq), true)
+                              jumpToSearchConversation('group', group, String(seq), undefined, true)
                             }
                           />
                         );
@@ -9282,7 +9374,7 @@ function MainWorkspace(): ReactElement {
                             initialFolderId={target.folderId}
                             initialFileId={target.fileId}
                             onJumpToMessage={(seq, msgId) =>
-                              jumpToConvSeq('group', target.groupCode, seq, false, undefined, msgId)
+                              jumpToSearchConversation('group', target.groupCode, seq, msgId)
                             }
                             onClose={onBack}
                           />
@@ -9516,6 +9608,7 @@ function MainWorkspace(): ReactElement {
                               id: `virtual:${target.kind}:${target.id}`,
                               revision: Date.now(),
                             });
+                            setSearchViewOrigin(null);
                             setConversationView('clone');
                           }}
                           onBackToDirectory={() => {
@@ -10637,8 +10730,11 @@ function MainWorkspace(): ReactElement {
                             rows: currentViewRows,
                             interactionBadges: interactionBadges.byConversation,
                             returnToRegular,
+                            searchReturnView,
+                            captureListPosition: captureConversationListPosition,
                             onViewChange: switchConversationView,
                             onReturnToRegular: () => switchConversationView('regular'),
+                            onReturnToSearchView: returnToSearchView,
                             onAssistant: (id) => openAssistantConversation(id),
                             onCreateAssistant: () => void createAssistantConversation(),
                             onDelete: deleteAiConversations,

@@ -21,10 +21,15 @@ import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelec
 import { useViewState } from '../src/renderer/src/state/view';
 import type { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
 import type { ChatSidebarContent } from '../src/renderer/src/im-template/template/chatSidebarContent';
+import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
+import type { GroupSearchHit } from '../src/renderer/src/components/search/types';
 import type { MessagePageStage } from '../src/shared/message_read';
 import { publishQQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 import type { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
-import { GapMessagesModal as LazyGapMessagesModal } from '../src/renderer/src/components/lazyMainPanels';
+import {
+  GapMessagesModal as LazyGapMessagesModal,
+  SearchResultsPanel,
+} from '../src/renderer/src/components/lazyMainPanels';
 import * as replyPreview from '../src/renderer/src/lib/replyPreview';
 import * as conversationOrder from '@weq/service/conversation-order';
 import * as conversationRows from '../src/renderer/src/lib/conversationListOrder';
@@ -95,6 +100,7 @@ const f = vi.hoisted(() => ({
     customLabels: Array<{ content: string }>;
     directory: { memberCount: number; role: 'member'; notifyLevel: number };
   }>,
+  searchGroups: [] as GroupSearchHit[],
   headEnabled: false,
   unreadReads: [] as UnreadInput[],
   unreadFailures: 0,
@@ -227,6 +233,16 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (input?: UnreadInput & { beforeSeq?: string; afterSeq?: string }) => {
+            if (path.at(-1) === 'searchQuick')
+              return { conversations: [], friends: [], groupMembers: [], groups: f.searchGroups };
+            if (path.at(-1) === 'searchSlow')
+              return {
+                chatRecords: [],
+                files: [],
+                collections: [],
+                cloneMessages: [],
+                assistantMessages: [],
+              };
             if (key === 'query' && path.at(-1) === 'listRecentContacts')
               return { items: f.recent, total: f.recent.length };
             if (path.at(-1) === 'peerQqShow') return null;
@@ -333,6 +349,9 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
   ChatShell: ({
     mainContent,
     sidebarContent,
+    searchPanel,
+    onSearchFocus,
+    onQueryChange,
     children,
     messageBadgeCount,
     onViewChange,
@@ -340,6 +359,9 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
   }: {
     mainContent: ReactNode;
     sidebarContent: ReactNode;
+    searchPanel: ReactNode;
+    onSearchFocus: () => void;
+    onQueryChange: (query: string) => void;
     children: ReactNode;
     messageBadgeCount: number;
     onViewChange: (view: 'messages' | 'contacts') => void;
@@ -351,6 +373,20 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
       h('button', { 'data-messages': true, onClick: () => onViewChange('messages') }, '消息'),
       h('button', { 'data-contacts': true, onClick: () => onViewChange('contacts') }, '联系人'),
       h('button', { 'data-locate-unread': true, onClick: () => onMessageBadgeClick() }, '定位未读'),
+      f.searchGroups.length
+        ? h(
+            'button',
+            {
+              'data-workspace-search': true,
+              onClick: () => {
+                onQueryChange('合成');
+                onSearchFocus();
+              },
+            },
+            '搜索',
+          )
+        : null,
+      searchPanel,
       sidebarContent,
       mainContent,
       children,
@@ -359,6 +395,15 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
 vi.mock('../src/renderer/src/im-template/template/chatSidebarContent', () => ({
   ChatSidebarContent: (props: ComponentProps<typeof ChatSidebarContent>) => {
     const directory = useContext(ConversationDirectoryContext);
+    if (f.searchGroups.length && props.view === 'messages')
+      return h(ConversationList, {
+        active: props.active,
+        conversations: props.conversations,
+        activeConversationId: props.activeConversationId,
+        preferences: props.conversationPrefs,
+        drafts: props.drafts,
+        onSelect: props.onSelectConversation,
+      });
     return h(
       'nav',
       { 'data-list-view': directory?.view },
@@ -492,6 +537,7 @@ afterEach(() => {
   f.freshPreview = false;
   f.previewTarget = null;
   f.groups = [];
+  f.searchGroups = [];
   f.headEnabled = false;
   f.unreadReads.length = 0;
   f.unreadFailures = 0;
@@ -1139,6 +1185,105 @@ it('等值删除标记迟到不重复贴底，真实标记增删和正文更新�
     act(() => root.unmount());
     finishDeleted?.([]);
     finishHidden?.([]);
+    client.clear();
+    host.remove();
+  }
+});
+
+it('全局搜索优先留在当前会话视图，跨视图连续查看后返回出发位置', async () => {
+  await SearchResultsPanel.preload();
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.groups = [
+    {
+      groupCode: '10001',
+      groupName: '合成折叠群',
+      remark: '',
+      memberCount: 2,
+      maxMemberCount: 500,
+      customLabels: [],
+      directory: { memberCount: 2, role: 'member', notifyLevel: 2 },
+    },
+  ];
+  f.searchGroups = (
+    [
+      { groupCode: '10001', name: '合成折叠群', conversationView: 'groupAssistant' },
+      { groupCode: '10002', name: '合成普通群', conversationView: 'regular' },
+    ] as const
+  ).map(
+    (row): GroupSearchHit => ({
+      ...row,
+      category: 'group',
+      remark: '',
+      inDirectory: true,
+      hasConversation: true,
+      aliases: [],
+    }),
+  );
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const click = (selector: string) =>
+    act(async () => host.querySelector<HTMLButtonElement>(selector)!.click());
+  const search = async (name: string) => {
+    await click('[data-workspace-search]');
+    await act(async () => vi.advanceTimersByTimeAsync(250));
+    const row = [
+      ...document.querySelectorAll<HTMLButtonElement>('[data-search-category="group"]'),
+    ].find((button) => button.textContent?.includes(name));
+    expect(row, name).toBeDefined();
+    await act(async () => row!.click());
+  };
+  const viewButton = () => host.querySelector<HTMLButtonElement>('[aria-label="会话视图"]');
+  const switchView = async (label: string) => {
+    await click('[aria-label="会话视图"]');
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+        .find((button) => button.textContent === label)!
+        .click(),
+    );
+  };
+  const scroll = () => host.querySelector<HTMLElement>('[data-weq-windowed-list]')!;
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await click('[data-messages]');
+    await click('[data-conversation-id="u_peer"]');
+    await act(async () => {
+      scroll().scrollTop = 42;
+      scroll().dispatchEvent(new Event('scroll'));
+    });
+    await search('合成折叠群');
+    expect(host.querySelector('[data-conversation-id="10001"]')).not.toBeNull();
+    expect(viewButton()).toBeNull();
+    await search('合成普通群');
+    expect(viewButton()?.title).toBe('会话视图：常规视图');
+    await search('合成折叠群');
+    await click('[aria-label="返回常规视图"]');
+    expect(viewButton()?.title).toBe('会话视图：常规视图');
+    expect(scroll().scrollTop).toBe(42);
+    expect(f.reads.at(-1)?.conv).toBe('u_peer');
+
+    await switchView('克隆会话');
+    await search('合成折叠群');
+    const back = '[aria-label="返回克隆会话"]';
+    expect(host.querySelector<HTMLButtonElement>(back)?.title).toBe('返回克隆会话');
+    await search('合成普通群');
+    await click(back);
+    expect(viewButton()?.title).toBe('会话视图：克隆会话');
+
+    await switchView('全部会话');
+    await search('合成折叠群');
+    expect(viewButton()?.title).toBe('会话视图：全部会话');
+    expect(host.querySelector('[data-conversation-id="10001"].is-locate-target')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
     client.clear();
     host.remove();
   }

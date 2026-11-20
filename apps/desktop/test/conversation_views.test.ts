@@ -5,6 +5,7 @@ import {
   activeConversationBelongsToView,
   conversationViewRows,
   conversationViewForTarget,
+  conversationViewForSearchTarget,
   conversationSupportsAction,
   conversationViewActions,
   splitConversationAction,
@@ -166,6 +167,33 @@ const directory: ConversationViewDirectory = {
 const options = { includeHidden: false, includeDeleted: false };
 
 describe('会话视图的平铺集合', () => {
+  it('搜索按当前视图的收录范围定位，未加载的分类目标也遵守全部会话的开关', () => {
+    for (const row of [group, official, service, clone, assistant]) {
+      expect(conversationViewForSearchTarget(directory, 'all', options, row.id)).toBe('all');
+    }
+    expect(
+      conversationViewForSearchTarget(directory, 'all', options, 'virtual:persona:later', 'clone'),
+    ).toBe('all');
+    expect(conversationViewForSearchTarget(directory, 'all', options, hidden.id)).toBe('hidden');
+    expect(conversationViewForSearchTarget(directory, 'all', options, group.id, 'hidden')).toBe(
+      'all',
+    );
+    expect(conversationViewForSearchTarget(directory, 'all', options, 'u_later', 'deleted')).toBe(
+      'deleted',
+    );
+    expect(
+      conversationViewForSearchTarget(
+        directory,
+        'all',
+        { ...options, includeDeleted: true },
+        'u_later',
+        'deleted',
+      ),
+    ).toBe('all');
+    expect(conversationViewForSearchTarget(directory, 'clone', options, group.id)).toBe(
+      'groupAssistant',
+    );
+  });
   it('全局命中按真实目录归类，不受当前视图及全部会话开关限制', () => {
     expect(conversationViewForTarget(directory, hidden.id)).toBe('hidden');
     expect(conversationViewForTarget(directory, deleted.id)).toBe('deleted');
