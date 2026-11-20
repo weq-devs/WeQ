@@ -3,6 +3,7 @@ import { CONTEXT_FEATURES, DRESS_FEATURES, EXPORT_FEATURES, WORKSPACE_FEATURES }
 import type { FeatureDefinition, FeatureDomain, FeatureKind } from './model';
 import { NAVIGATION_FEATURES } from './navigation';
 import { SETTING_FEATURES, SETTINGS_PAGE_FEATURES } from './settings';
+import { CONTACT_GROUP_FEATURES } from './contacts';
 import {
   CONVERSATION_CALENDAR_FEATURE,
   CONVERSATION_VIEW_FEATURES,
@@ -29,6 +30,7 @@ const catalog: readonly FeatureDefinition[] = [
   ...EXPORT_FEATURES,
   ...DRESS_FEATURES,
   ...CONTEXT_FEATURES,
+  ...CONTACT_GROUP_FEATURES,
   CONVERSATION_CALENDAR_FEATURE,
   ...Object.values(CONVERSATION_VIEW_FEATURES),
   ...MESSAGE_FEATURES,

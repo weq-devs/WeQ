@@ -36,6 +36,8 @@ export type AppSearchTarget =
   | { kind: 'conversation-directory'; scope: ConversationScope }
   | { kind: 'conversation-view'; view: keyof typeof CONVERSATION_VIEW_FEATURES }
   | { kind: 'conversation-calendar' }
+  | { kind: 'contact-notice'; notice: 'friend' | 'group' }
+  | { kind: 'contact-overview' }
   | { kind: 'tool'; tool: SearchableTool; exportMode?: ExportMode }
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
@@ -107,6 +109,10 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
       return FEATURE_ICONS.messages;
     case 'conversation-calendar':
       return CalendarDays;
+    case 'contact-notice':
+      return target.notice === 'friend' ? FEATURE_ICONS.friendNotice : FEATURE_ICONS.groupNotice;
+    case 'contact-overview':
+      return APP_NAVIGATION['group-intersection'].icon;
     case 'view':
       return (
         Object.values(APP_NAVIGATION).find(
@@ -117,10 +123,8 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
 }
 
 const appSearchEntries: readonly AppSearchEntry[] = [
-  ...navigationEntries('search', true).flatMap(({ featureId, label, target, keywords }) =>
-    target.kind === 'contact-notice' || target.kind === 'contact-overview'
-      ? []
-      : [feature({ id: featureId, label, aliases: keywords }, target)],
+  ...navigationEntries('search', true).map(({ featureId, label, target, keywords }) =>
+    feature({ id: featureId, label, aliases: keywords }, target),
   ),
   feature(CONVERSATION_CALENDAR_FEATURE, { kind: 'conversation-calendar' }),
   ...(

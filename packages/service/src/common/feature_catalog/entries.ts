@@ -95,6 +95,7 @@ export const CONTEXT_FEATURES = [
   defineFeature('groups.albums', 'groups', '群相册', [], {
     summary: '从指定群查看群相册及其媒体。',
     context: ['account', 'group'],
+    navigation: 'context',
     operation: 'album-list',
     tools: ['get_group_albums'],
     docs: ['guide/album-qzone.md#feature-groups.albums'],
@@ -103,6 +104,7 @@ export const CONTEXT_FEATURES = [
     parentId: NAVIGATION_FEATURES.messages.id,
     summary: '用当前数据源的会话与消息身份打开原消息。',
     context: ['account', 'message'],
+    navigation: 'context',
     tools: ['get_message_details'],
   }),
   defineFeature('messages.image.preview', 'messages', '预览聊天图片', ['查看图片'], {

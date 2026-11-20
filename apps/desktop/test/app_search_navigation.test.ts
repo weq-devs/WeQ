@@ -85,6 +85,28 @@ function navigationContext() {
 
 describe('功能搜索实际导航', () => {
   it.each([
+    ['好友申请', 'friend'],
+    ['入群申请', 'group'],
+    ['群成员重合', null],
+  ] as const)('按 %s 打开原联系人入口并拦截旧来源结果', (query, notice) => {
+    const messageScope = '10001:source-a';
+    const context = {
+      ...navigationContext(),
+      messageScope,
+      messageScopeRef: { current: messageScope },
+      shell: { openContactNotice: vi.fn(), openContactOverview: vi.fn() },
+    };
+    const entry = searchAppEntries(query)[0]!;
+    const open = searchHandler(context);
+    open(entry);
+    if (notice) expect(context.shell.openContactNotice).toHaveBeenCalledWith(notice);
+    else expect(context.shell.openContactOverview).toHaveBeenCalledOnce();
+    context.messageScopeRef.current = '10001:source-b';
+    open(entry);
+    expect(context.shell.openContactNotice).toHaveBeenCalledTimes(notice ? 1 : 0);
+    expect(context.shell.openContactOverview).toHaveBeenCalledTimes(notice ? 0 : 1);
+  });
+  it.each([
     ['全部会话', 'all'],
     ['群助手', 'groupAssistant'],
     ['公众号', 'official'],

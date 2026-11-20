@@ -6,7 +6,7 @@ import {
 } from '../../../shared/feature_access';
 
 type Request =
-  | { id: 'groups.albums'; group?: { code: string; name: string } }
+  | { id: 'groups.albums' | 'groups.files'; group?: { code: string; name: string } }
   | { id: 'messages.locate'; message?: { conversation: string; seq?: string; msgId?: string } }
   | { id: 'contacts.self-profile.edit' };
 
@@ -21,7 +21,8 @@ export function resolveWorkspaceFeature(
   const context: FeatureAccessFacts['context'] = {
     account: !source ? 'missing' : source !== currentSource ? 'stale' : 'ready',
   };
-  if (request.id === 'groups.albums') context.group = request.group?.code ? 'ready' : 'missing';
+  if (request.id === 'groups.albums' || request.id === 'groups.files')
+    context.group = request.group?.code ? 'ready' : 'missing';
   if (request.id === 'messages.locate') {
     const message = request.message;
     context.message = message?.conversation && (message.seq || message.msgId) ? 'ready' : 'missing';

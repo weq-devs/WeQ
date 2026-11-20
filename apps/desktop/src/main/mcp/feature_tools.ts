@@ -47,12 +47,7 @@ export async function listFeatureDefinitions({
 }
 
 function hasNavigation(feature: FeatureDefinition): boolean {
-  return (
-    canLinkToFeature(feature) ||
-    feature.navigation === 'context' ||
-    feature.id === 'messages.locate' ||
-    feature.id === 'groups.albums'
-  );
+  return canLinkToFeature(feature) || feature.navigation === 'context';
 }
 
 export async function getFeatureDefinition({ id, client }: z.infer<typeof getFeatureInput>) {

@@ -33,6 +33,19 @@ describe('功能入口和业务条件', () => {
     expect(resolveWorkspaceFeature(request, 'a:db1', 'a:db1')).toEqual({ status: 'available' });
   });
 
+  it('群文件入口必须属于当前数据源的指定群，目录不推断文件管理权限', () => {
+    const request = { id: 'groups.files', group: { code: '12345678', name: '原群' } } as const;
+    expect(resolveWorkspaceFeature(request, 'a:db1', 'a:db1').status).toBe('available');
+    expect(resolveWorkspaceFeature(request, 'a:db1', 'a:db2').status).toBe('unavailable');
+    const manage = findFeature('groups.files.manage')!;
+    expect(
+      describeFeatureAccess(manage, {
+        entryKnown: true,
+        context: { account: 'ready', group: 'ready' },
+      }).operation.status,
+    ).toBe('unknown');
+  });
+
   it('本地消息导航、已有图片和默认模型各自使用自己的事实', () => {
     const message = { conversation: 'u_peer', msgId: '123' };
     expect(resolveWorkspaceFeature({ id: 'messages.locate', message }, 'a:db', 'a:db')).toEqual({

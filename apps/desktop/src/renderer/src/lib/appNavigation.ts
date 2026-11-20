@@ -201,19 +201,19 @@ export const APP_NAVIGATION = {
     ...navigationMetadata('friend-notice'),
     icon: FEATURE_ICONS.friendNotice,
     target: { kind: 'contact-notice', notice: 'friend' },
-    placements: {},
+    placements: { search: 19 },
   },
   'group-notice': {
     ...navigationMetadata('group-notice'),
     icon: FEATURE_ICONS.groupNotice,
     target: { kind: 'contact-notice', notice: 'group' },
-    placements: {},
+    placements: { search: 20 },
   },
   'group-intersection': {
     ...navigationMetadata('group-intersection'),
     icon: Waypoints,
     target: { kind: 'contact-overview' },
-    placements: {},
+    placements: { search: 21 },
   },
 } satisfies Record<string, Omit<AppNavigationEntry, 'id'>>;
 

@@ -9,7 +9,12 @@ export const NAVIGATION_FEATURES = {
     tools: ['list_conversations', 'get_messages'],
     docs: ['guide/chat-view.md#feature-messages.inbox'],
   }),
-  contacts: defineFeature('contacts.directory', 'contacts', '联系人', ['好友', '群聊']),
+  contacts: defineFeature('contacts.directory', 'contacts', '联系人', ['好友', '群聊'], {
+    summary: '从好友和群目录查找已有联系人。',
+    context: ['account'],
+    navigation: 'search',
+    tools: ['list_buddies', 'list_groups', 'find_contact'],
+  }),
   collections: defineFeature('collections.inbox', 'collections', '收藏'),
   qzone: defineFeature('qzone.timeline', 'qzone', 'QQ 空间', ['说说', '相册']),
   mail: defineFeature('mail.inbox', 'mail', 'QQ 邮箱', ['邮件']),
@@ -40,10 +45,23 @@ export const NAVIGATION_FEATURES = {
   }),
   tools: defineFeature('general.workspace', 'general', '应用'),
   more: defineFeature('general.more', 'general', '更多'),
-  'friend-notice': defineFeature('contacts.friend-notices', 'contacts', '好友通知'),
-  'group-notice': defineFeature('groups.notices', 'groups', '群通知'),
-  'group-intersection': defineFeature('groups.intersection', 'groups', '群交集', [
-    '群成员重合',
-    '关系图谱',
-  ]),
+  'friend-notice': defineFeature('contacts.friend-notices', 'contacts', '好友通知', ['好友申请'], {
+    context: ['account'],
+    navigation: 'search',
+  }),
+  'group-notice': defineFeature('groups.notices', 'groups', '群通知', ['入群申请'], {
+    context: ['account'],
+    navigation: 'search',
+  }),
+  'group-intersection': defineFeature(
+    'groups.intersection',
+    'groups',
+    '群交集',
+    ['群成员重合', '关系图谱'],
+    {
+      context: ['account'],
+      navigation: 'search',
+      docs: ['guide/relation-graph.md#feature-groups.intersection'],
+    },
+  ),
 };

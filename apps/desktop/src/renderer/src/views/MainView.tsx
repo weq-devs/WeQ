@@ -5971,16 +5971,25 @@ function MainWorkspace(): ReactElement {
 
   const handleOpenGroupFiles = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
+      const group = { code: conversation.id, name: conversation.group.name };
+      if (
+        resolveWorkspaceFeature(
+          { id: 'groups.files', group },
+          messageScope,
+          messageScopeRef.current,
+        ).status !== 'available'
+      )
+        return;
       setGroupSidebarPopover(null);
       openGroupResourceWindow({
         kind: 'files',
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
+        groupCode: group.code,
+        groupName: group.name,
         onJumpToMessage: (sequence, messageId) =>
           jumpToConvSeq('group', conversation.id, sequence, false, undefined, messageId),
       });
     },
-    [openGroupResourceWindow, jumpToConvSeq],
+    [messageScope, messageScopeRef, openGroupResourceWindow, jumpToConvSeq],
   );
 
   // Click a search hit: resolve conversation key + kind,
@@ -8830,7 +8839,9 @@ function MainWorkspace(): ReactElement {
   const openAppSearchEntryNow = (entry: AppSearchEntry) => {
     if (
       (entry.target.kind === 'conversation-view' ||
-        entry.target.kind === 'conversation-calendar') &&
+        entry.target.kind === 'conversation-calendar' ||
+        entry.target.kind === 'contact-notice' ||
+        entry.target.kind === 'contact-overview') &&
       (!messageScope || messageScope !== messageScopeRef.current)
     )
       return;
@@ -8861,6 +8872,10 @@ function MainWorkspace(): ReactElement {
           revision: Date.now(),
         });
       setSettingsOpen(true);
+    } else if (target.kind === 'contact-notice') {
+      shell.openContactNotice(target.notice);
+    } else if (target.kind === 'contact-overview') {
+      shell.openContactOverview();
     } else if (target.kind === 'conversation-calendar') {
       // 全局功能搜索词是入口名；会话日历仍采用当前会话视图。
       setOverviewCalendar({ query: '' });
