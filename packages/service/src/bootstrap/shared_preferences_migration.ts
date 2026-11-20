@@ -29,6 +29,7 @@ const dressKeys = [
   'activeFont',
   'activeWidget',
   'scope',
+  'scopes',
   'background',
   'backgroundFile',
   'widgetId',

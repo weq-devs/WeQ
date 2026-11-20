@@ -408,13 +408,21 @@ const ForwardRow = memo(function ForwardRow({
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const decorationEnabled = useContext(MsgDecorationEnabledContext);
   // 转发行都是「对方」样式，替代无装扮仍依据原始 ID 判断。
-  const { widget: activeWidget, scope: activeScope, bubbleActive, fontActive } = useActiveWidget();
+  const {
+    widget: activeWidget,
+    scope: activeScope,
+    scopes,
+    bubbleActive,
+    fontActive,
+  } = useActiveWidget();
   const decoration = record.decoration;
   const activeFontFx = useActiveFontFx();
   const localBubble =
-    bubbleActive && localDressApplies(activeScope, false, Boolean(decoration?.bubbleId));
+    bubbleActive &&
+    localDressApplies(scopes?.bubble ?? activeScope, false, Boolean(decoration?.bubbleId));
   const localFont =
-    fontActive && localDressApplies(activeScope, false, Boolean(decoration?.fontId));
+    fontActive &&
+    localDressApplies(scopes?.font ?? activeScope, false, Boolean(decoration?.fontId));
   const localWidget = localDressApplies(activeScope, false, Boolean(decoration?.widgetId))
     ? activeWidget
     : null;

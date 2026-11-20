@@ -7,7 +7,13 @@
  */
 
 import { useEffect, useInsertionEffect } from 'react';
-import type { DressManifest, InstalledFont, ResolvedWidget } from '@weq/service';
+import type {
+  DressConversation,
+  DressConversationEntry,
+  DressManifest,
+  InstalledFont,
+  ResolvedWidget,
+} from '@weq/service';
 import { trpc } from '../trpc/client';
 import {
   applyDressSkin,
@@ -91,7 +97,12 @@ function fontSkinCss(font: InstalledFont) {
 export function syncDressSkin(manifest: DressManifest | undefined): void {
   if (!manifest) return;
   const { bubble, font } = activeSkins(manifest);
-  applyDressSkin(bubble, font, activeWidgetFromManifest(manifest), manifest.scope);
+  applyDressSkin(
+    bubble,
+    font,
+    activeWidgetFromManifest(manifest),
+    manifest.scopes ?? manifest.scope,
+  );
 }
 
 /**
@@ -103,7 +114,12 @@ export function syncDressSkin(manifest: DressManifest | undefined): void {
 export function syncDressSkinPreloaded(manifest: DressManifest | undefined): Promise<void> {
   if (!manifest) return Promise.resolve();
   const { bubble, font } = activeSkins(manifest);
-  return applyDressSkinPreloaded(bubble, font, activeWidgetFromManifest(manifest), manifest.scope);
+  return applyDressSkinPreloaded(
+    bubble,
+    font,
+    activeWidgetFromManifest(manifest),
+    manifest.scopes ?? manifest.scope,
+  );
 }
 
 /** 进主界面就读清单并注入。装扮页共用同一份 query,所以两边不会重复请求。 */
@@ -120,8 +136,9 @@ export function useDressSkin(): void {
   // 不听这个推送的话,界面会拿着空清单一直等到 staleTime 过期 —— 表现为「已装 0」
   // 且聊天页没气泡,而清单其实早就写好了。
   trpc.account.dressup.onChanged.useSubscription(undefined, {
-    onData: () => {
+    onData: (event) => {
       void utils.account.dressup.getState.invalidate();
+      if (event.appearanceOnly) return;
       // 逐条消息（40801）的装扮也在 react-query 里（staleTime: Infinity）——升级后
       // 字体产物被就地重做时，那些条目还挂着旧的派生版本号，不重解析就会一直用旧 ttf。
       // 服务侧对这些 itemId 有内存缓存，重复解析不会重新下载/转换。
@@ -145,17 +162,32 @@ export function useDressSkin(): void {
  * 背景分图片与视频两条:`imageUrl` 当底图画,`videoUrl` 交给 `<video>` 循环播。二者
  * 互斥 —— 一个背景不会既是图又是视频,调用方不必在两份都非空时做取舍。
  */
-export function useChatBackdrop() {
+export function useChatBackdrop(conversation?: DressConversation) {
   const state = trpc.account.dressup.getState.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
 
-  return resolveChatBackdrop(state.data?.manifest, state.data?.own.chatBgUrl ?? '');
+  const overrides = conversation
+    ? state.data?.conversationOverrides?.[`${conversation.kind}:${conversation.conv}`]
+    : undefined;
+  return resolveChatBackdrop(state.data?.manifest, state.data?.own.chatBgUrl ?? '', overrides);
 }
 
-export function resolveChatBackdrop(manifest: DressManifest | undefined, qqBackground: string) {
-  const source = manifest?.background ?? 'none';
+export function resolveChatBackdrop(
+  manifest: DressManifest | undefined,
+  qqBackground: string,
+  override?: DressConversationEntry,
+) {
+  const background = override?.background;
+  const screen = override?.screen;
+  const source = background === 'off' ? 'none' : (background?.source ?? manifest?.background);
+  const file =
+    background && background !== 'off'
+      ? background.source === 'custom'
+        ? background.file
+        : ''
+      : manifest?.backgroundFile;
 
   let imageUrl = '';
   let videoUrl = '';
@@ -163,19 +195,25 @@ export function resolveChatBackdrop(manifest: DressManifest | undefined, qqBackg
     // QQ 同款走 CDN 代理(主进程落盘缓存),不占本地空间,换了手机上的背景这边跟着变。
     // QQ 那边的聊天背景只有图,所以永远进 imageUrl。
     imageUrl = dressUrl(qqBackground);
-  } else if (source === 'custom' && manifest?.backgroundFile) {
+  } else if (source === 'custom' && file) {
     // 文件名固定,所以拿路径当 stamp 穿透浏览器缓存(见 dressBackgroundUrl)。
     // `backgroundFile` 在清单里是**绝对路径**,后缀即真实格式。
-    const url = dressBackgroundUrl(manifest.backgroundFile);
-    if (isVideoBackground(manifest.backgroundFile)) videoUrl = url;
+    const url = dressBackgroundUrl(
+      file,
+      override && background ? { kind: override.kind, conv: override.conv } : undefined,
+    );
+    if (isVideoBackground(file)) videoUrl = url;
     else imageUrl = url;
   }
 
   return {
     imageUrl,
     videoUrl,
-    widgetId: manifest?.widgetId ?? '',
-    backgroundOpacity: manifest?.backgroundOpacity ?? 1,
-    widgetOpacity: manifest?.widgetOpacity ?? 1,
+    widgetId: screen === 'off' ? '' : (screen?.widgetId ?? manifest?.widgetId ?? ''),
+    backgroundOpacity:
+      (background && background !== 'off' ? background.opacity : manifest?.backgroundOpacity) ?? 1,
+    widgetOpacity: (screen && screen !== 'off' ? screen.opacity : manifest?.widgetOpacity) ?? 1,
+    backgroundFollowsGlobal: background === undefined,
+    widgetFollowsGlobal: screen === undefined,
   };
 }

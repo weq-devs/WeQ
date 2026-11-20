@@ -77,7 +77,7 @@
  * 又不会糊住字。完整时间轴待原生对照，缺失帧延迟时使用手机包装层的 50ms 下限。
  */
 
-import type { DressScope, FontFx, ResolvedWidget } from '@weq/service';
+import type { DressScope, DressScopes, FontFx, ResolvedWidget } from '@weq/service';
 import { fontFaces, type FontLease } from './fontFaces';
 import { manageDecorationAnimation, validDecorationFrames } from './decorationResources';
 import {
@@ -937,9 +937,10 @@ export function applyDressSkin(
   bubble: BubbleSkinCss | null,
   font: FontSkinCss | null,
   widget: ResolvedWidget | null,
-  scope: DressScope = 'mine',
+  scope: DressScope | DressScopes = 'mine',
 ): void {
-  const key = JSON.stringify([bubble, font, widget, scope]);
+  const scopes = typeof scope === 'string' ? { bubble: scope, font: scope, widget: scope } : scope;
+  const key = JSON.stringify([bubble, font, widget, scopes]);
   if (key === appliedKey && !appliedFailed) return;
   appliedKey = key;
   appliedFailed = false;
@@ -962,9 +963,9 @@ export function applyDressSkin(
 
   const css = (animated: boolean) =>
     [
-      bubble ? bubbleRules(bubble, scope, animated) : '',
-      font ? fontRules(font, scope, animated) : '',
-      widget ? widgetPendantRules(widget, scope, animated) : '',
+      bubble ? bubbleRules(bubble, scopes.bubble, animated) : '',
+      font ? fontRules(font, scopes.font, animated) : '',
+      widget ? widgetPendantRules(widget, scopes.widget, animated) : '',
     ]
       .filter(Boolean)
       .join('\n\n');
@@ -997,7 +998,7 @@ export async function applyDressSkinPreloaded(
   bubble: BubbleSkinCss | null,
   font: FontSkinCss | null,
   widget: ResolvedWidget | null,
-  scope: DressScope = 'mine',
+  scope: DressScope | DressScopes = 'mine',
 ): Promise<void> {
   applyDressSkin(bubble, font, widget, scope);
   await Promise.all([appliedFrames?.ready, registeredFace?.ready]);

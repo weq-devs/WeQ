@@ -41,6 +41,10 @@ import {
 } from './backup_settings';
 import { weqAccountSettingPath } from './backup_accounts';
 import {
+  dressConversationBackgroundFiles,
+  isDressConversationEntries,
+} from '../account/dress_conversations';
+import {
   WEQ_ACCOUNT_SETTING_FILES,
   isWeqBackgroundName,
   type WeqAccountSettingFile,
@@ -800,6 +804,15 @@ function prepare(
   };
   let config = configPlan(currentConfig, bundle.files, pending.choice, result.skipped);
   const accountFiles = bundle.files.filter((file) => file.path.startsWith('accounts/'));
+  const conversationBackgrounds = new Set<string>();
+  for (const file of accountFiles) {
+    if (!file.path.endsWith('/dress-conversations.json')) continue;
+    const entries = parseWeqBackupJson(file.data);
+    if (!isDressConversationEntries(entries)) throw new Error('会话装扮配置无效');
+    const source = weqAccountBackupScope(file.path);
+    for (const name of dressConversationBackgroundFiles(entries))
+      conversationBackgrounds.add(`accounts/${source}/background/${name}`);
+  }
   const hasClones = bundle.files.some((file) => file.path.startsWith('clones/'));
   const existingConfig = config ?? currentConfig;
   const client = bundle.files.find((file) => file.path === 'settings/client.json');
@@ -886,6 +899,7 @@ function prepare(
             activeFont: 0,
             activeWidget: 0,
             scope: 'mine',
+            scopes: { bubble: 'mine', font: 'mine', widget: 'mine' },
             background: 'none',
             backgroundFile: '',
             widgetId: '',
@@ -916,7 +930,16 @@ function prepare(
     } else {
       const setting =
         parts[2] === 'background' ? 'background' : (parts[2] as WeqAccountSettingFile);
-      if (setting === 'dress.json' || setting === 'background') continue;
+      if (setting === 'dress.json') continue;
+      if (setting === 'background') {
+        if (conversationBackgrounds.has(file.path)) {
+          const name = parts[3]!;
+          if (!name.startsWith(`bg-${digest(file.data)}.`))
+            throw new Error('会话背景内容与文件名不匹配');
+          add('account-setting', [{ path: '', data: file.data }], scope, { setting, file: name });
+        }
+        continue;
+      }
       let data =
         setting === 'client-state.json'
           ? Buffer.from(

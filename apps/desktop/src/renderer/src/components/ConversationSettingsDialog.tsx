@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { accountBinding } from '../lib/clientPreferences';
 import { useNotificationPolicy } from '../lib/notificationPolicy';
-import { BellRing, BrainCircuit, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
+import { BellRing, BrainCircuit, Palette, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog.shared';
 import { Card, Row, Toggle } from './settings/controls';
@@ -22,6 +22,8 @@ import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
 import { ConversationSettingsFrame } from './ConversationSettingsFrame';
 import { QQConversationControls } from './QQConversationControls';
 import { NotificationMethodSelect } from './settings/NotificationMethodSelect';
+import { ConversationDressSettings } from './ConversationDressSettings';
+import type { ConversationSettingsRequest } from '../lib/conversationSettingsNavigation';
 import '../styles/conversation-settings.css';
 
 function errMsg(e: unknown): string {
@@ -29,7 +31,7 @@ function errMsg(e: unknown): string {
 }
 
 /** 会话偏好与意图感知面向好友／群聊；群管理与关键词仅限群聊。 */
-type SectionId = 'qq' | 'group-management' | 'antirecall' | 'keyword' | 'intentsense';
+type SectionId = 'qq' | 'group-management' | 'antirecall' | 'keyword' | 'intentsense' | 'dress';
 
 export function ConversationSettingsDialog({
   kind,
@@ -39,6 +41,7 @@ export function ConversationSettingsDialog({
   onClose,
   anchor,
   initialSection,
+  initialDressSlot,
 }: {
   /** 与后端 AntiRecallKind 对齐（数据线单独一张表，不能并到私聊）。 */
   kind: 'c2c' | 'group' | 'dataline';
@@ -50,7 +53,8 @@ export function ConversationSettingsDialog({
   members?: KeywordMember[];
   onClose: () => void;
   anchor?: HTMLElement;
-  initialSection?: 'qq' | 'group-management';
+  initialSection?: ConversationSettingsRequest['initialSection'];
+  initialDressSlot?: ConversationSettingsRequest['initialDressSlot'];
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
@@ -187,17 +191,19 @@ export function ConversationSettingsDialog({
       value={section}
       onValueChange={setSection}
       sectionDescription={
-        section === 'group-management'
-          ? '加群方式与分类标签'
-          : section === 'qq'
-            ? kind === 'group'
-              ? '置顶、消息接收与本群身份'
-              : '置顶、免打扰与特别关心'
-            : section === 'intentsense'
-              ? '本会话的消息意图与互动画像'
-              : section === 'keyword'
-                ? '命中即提醒；每个词可单独限定发言人'
-                : '保留对方撤回的消息'
+        section === 'dress'
+          ? '当前会话在 WeQ 中的背景和挂件'
+          : section === 'group-management'
+            ? '加群方式与分类标签'
+            : section === 'qq'
+              ? kind === 'group'
+                ? '置顶、消息接收与本群身份'
+                : '置顶、免打扰与特别关心'
+              : section === 'intentsense'
+                ? '本会话的消息意图与互动画像'
+                : section === 'keyword'
+                  ? '命中即提醒；每个词可单独限定发言人'
+                  : '保留对方撤回的消息'
       }
       sections={[
         ...(kind !== 'dataline'
@@ -205,6 +211,9 @@ export function ConversationSettingsDialog({
           : []),
         ...(kind === 'group'
           ? [{ id: 'group-management' as const, label: '群管理', icon: <UsersRound size={16} /> }]
+          : []),
+        ...(kind !== 'dataline'
+          ? [{ id: 'dress' as const, label: '装扮', icon: <Palette size={16} /> }]
           : []),
         { id: 'antirecall', label: '防撤回', icon: <ShieldCheck size={16} /> },
         ...(kind !== 'dataline'
@@ -215,7 +224,16 @@ export function ConversationSettingsDialog({
           : []),
       ]}
     >
-      {(section === 'qq' || section === 'group-management') && kind !== 'dataline' ? (
+      {section === 'dress' && kind !== 'dataline' ? (
+        <div className="weq-cvs-body-scroll">
+          <ConversationDressSettings
+            kind={kind}
+            conv={conv}
+            title={title}
+            initialSlot={initialDressSlot}
+          />
+        </div>
+      ) : (section === 'qq' || section === 'group-management') && kind !== 'dataline' ? (
         <div className="weq-cvs-body-scroll">
           <QQConversationControls
             key={`${kind}:${conv}:${section}`}

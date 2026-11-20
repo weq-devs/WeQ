@@ -3,6 +3,7 @@ export const WEQ_ACCOUNT_SETTING_FILES = [
   'intent.json',
   'tolerance.json',
   'dress.json',
+  'dress-conversations.json',
   'client-state.json',
 ] as const;
 export type WeqAccountSettingFile = (typeof WEQ_ACCOUNT_SETTING_FILES)[number];

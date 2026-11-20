@@ -3,8 +3,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { DressMallItem, DressManifest } from '@weq/service';
+import type { DressMallItem, DressManifest, DressScopeKind } from '@weq/service';
 import { DressUpDialog } from '../src/renderer/src/components/DressUpDialog';
+import { resolveChatBackdrop } from '../src/renderer/src/hooks/useDressSkin';
 vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
   useDevelopmentDressTools: () => fixture.developmentTools,
 }));
@@ -133,9 +134,19 @@ beforeEach(() => {
   fixture.activate
     .mockReset()
     .mockImplementation(
-      async (input: { scope?: DressManifest['scope']; kind?: string; itemId?: number }) => {
-        if (input.scope) fixture.manifest = { ...fixture.manifest, scope: input.scope };
-        if (input.kind === 'bubble')
+      async (input: { scope?: DressManifest['scope']; kind?: DressScopeKind; itemId?: number }) => {
+        if (input.scope && input.kind)
+          fixture.manifest = {
+            ...fixture.manifest,
+            scopes: {
+              bubble: 'mine',
+              font: 'mine',
+              widget: 'mine',
+              ...fixture.manifest.scopes,
+              [input.kind]: input.scope,
+            },
+          };
+        if (input.itemId !== undefined && input.kind === 'bubble')
           fixture.manifest = { ...fixture.manifest, activeBubble: input.itemId ?? 0 };
         return fixture.manifest;
       },
@@ -160,20 +171,23 @@ it('默认打开使用页，三档范围保存并可取消当前气泡，商城�
     await act(async () => root.render(createElement(DressUpDialog, { onClose: () => {} })));
     expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('使用中');
     expect(host.querySelector('[role="tab"]:last-child')?.textContent).toBe('使用中');
-    expect(host.getElementsByTagName('input')).toHaveLength(3);
+
     expect(host.textContent).toContain('本地气泡');
     expect(host.querySelector('[data-bubble-preview="11"]')).not.toBeNull();
     expect(host.querySelector('.weq-dress-search')).toBeNull();
     expect(host.querySelector('.weq-dress-toolbar')).toBeNull();
-    expect(
-      Array.from(
-        host.querySelectorAll('input[type="radio"]'),
-        (node) => (node as HTMLInputElement).value,
-      ),
-    ).toEqual(['mine', 'fallback', 'all']);
-    await act(async () => host.querySelector<HTMLInputElement>('input[value="fallback"]')!.click());
-    expect(fixture.activate).toHaveBeenLastCalledWith({ scope: 'fallback' });
-    expect(host.querySelector<HTMLInputElement>('input[value="fallback"]')?.checked).toBe(true);
+    const card = host.querySelector('article[aria-label="聊天气泡"]')!;
+    const select = card.querySelector('select')!;
+    await act(async () => {
+      select.value = 'fallback';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(fixture.activate).toHaveBeenLastCalledWith({ kind: 'bubble', scope: 'fallback' });
+    expect(select.value).toBe('fallback');
+    expect(host.querySelector('article[aria-label="聊天字体"] select')).toHaveProperty(
+      'value',
+      'mine',
+    );
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="取消使用聊天气泡"]')!.click(),
     );
@@ -184,12 +198,50 @@ it('默认打开使用页，三档范围保存并可取消当前气泡，商城�
       host.querySelector<HTMLButtonElement>('[aria-label="选择聊天气泡"]')!.click(),
     );
     expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('聊天气泡');
-    expect(host.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(host.querySelector('[aria-label="聊天气泡渲染范围"]')).toBeNull();
     expect(host.querySelector('.weq-dress-local-note')).toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();
   }
+});
+
+it('会话背景和浮屏独立处理跟随、单独选款及明确关闭', () => {
+  const global = {
+    ...fixture.manifest,
+    background: 'qq' as const,
+    backgroundOpacity: 0.6,
+    widgetId: '1',
+    widgetOpacity: 0.7,
+  };
+  const qq = 'https://example.test/background.png';
+  const conversation = { kind: 'group', conv: '42', title: '项目讨论' } as const;
+  expect(resolveChatBackdrop(global, qq, { ...conversation, background: 'off' })).toMatchObject({
+    imageUrl: '',
+    videoUrl: '',
+    widgetId: '1',
+    widgetOpacity: 0.7,
+    backgroundFollowsGlobal: false,
+    widgetFollowsGlobal: true,
+  });
+  const selected = resolveChatBackdrop(global, qq, {
+    ...conversation,
+    background: { source: 'custom', file: 'bg-fixture.mp4', opacity: 0.3 },
+    screen: { widgetId: '3', opacity: 0 },
+  });
+  expect(selected).toMatchObject({
+    imageUrl: '',
+    backgroundOpacity: 0.3,
+    widgetId: '3',
+    widgetOpacity: 0,
+    widgetFollowsGlobal: false,
+  });
+  expect(selected.videoUrl).toContain('kind=group&conv=42');
+  expect(resolveChatBackdrop(global, qq, { ...conversation, screen: 'off' })).toMatchObject({
+    imageUrl: expect.stringContaining('background.png'),
+    backgroundOpacity: 0.6,
+    widgetId: '',
+  });
 });
 
 it('普通模式只保留聊天背景，商城直达不显示安装、覆盖或密钥工具', async () => {
@@ -205,7 +257,7 @@ it('普通模式只保留聊天背景，商城直达不显示安装、覆盖或�
     ]);
     expect(host.querySelector('.weq-dress-search')).toBeNull();
     expect(host.querySelector('.weq-dress-use')).toBeNull();
-    expect(host.querySelector('[aria-label="装扮渲染范围"]')).toBeNull();
+    expect(host.querySelector('[aria-label="聊天气泡渲染范围"]')).toBeNull();
     expect(host.textContent).not.toContain('商城表情');
     expect(fixture.activate).not.toHaveBeenCalled();
     const layout = process.env.WEQ_DRESS_LAYOUT;

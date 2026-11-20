@@ -67,19 +67,26 @@ try {
         await page.getByRole('tab', { name: '使用中', exact: true }).getAttribute('aria-selected'),
         'true',
       );
-      assert.equal(await page.getByRole('radio').count(), 3);
       assert.equal(await page.locator('.weq-dress-current').count(), 6);
-      await page.getByRole('radio', { name: '替代无装扮', exact: true }).check();
-      await page
-        .getByRole('radio', { name: '替代无装扮', exact: true })
-        .isChecked()
-        .then((checked) => assert.equal(checked, true));
+      const bubbleScope = page.getByRole('combobox', { name: '聊天气泡渲染范围' });
+      await bubbleScope.click();
+      await page.getByRole('option', { name: '替代无装扮', exact: true }).click();
+      await page.waitForFunction(
+        () =>
+          document.querySelector('[aria-label="聊天气泡渲染范围"]').dataset.value === 'fallback',
+      );
+      assert.equal(
+        await page.getByRole('combobox', { name: '聊天字体渲染范围' }).getAttribute('data-value'),
+        'mine',
+      );
       await page.locator('.weq-dress-applying').waitFor({ state: 'detached' });
-      await page.getByRole('radio', { name: '仅自己', exact: true }).check();
-      await page.locator('.weq-dress-applying').waitFor({ state: 'detached' });
-      await page.getByRole('radio', { name: '仅自己', exact: true }).focus();
-      await page.keyboard.press('ArrowRight');
-      await page.waitForFunction(() => document.querySelector('input[value="fallback"]').checked);
+      await bubbleScope.focus();
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(
+        () => document.querySelector('[aria-label="聊天气泡渲染范围"]').dataset.value === 'all',
+      );
       await page.locator('.weq-dress-applying').waitFor({ state: 'detached' });
       assert.equal(await page.locator('.weq-dress-search').count(), 0);
       assert.equal(
@@ -101,13 +108,27 @@ try {
         .waitFor({ state: 'detached' });
       await page.getByRole('button', { name: '选择聊天气泡', exact: true }).click();
       await page.getByRole('tab', { name: '聊天气泡', exact: true }).waitFor();
-      assert.equal(await page.getByRole('radio').count(), 0);
+      assert.equal(await page.getByRole('combobox', { name: '聊天气泡渲染范围' }).count(), 0);
       assert.equal(await page.locator('.weq-dress-local-note').count(), 0);
       await page.getByRole('button', { name: '使用', exact: true }).click();
       await page.getByRole('button', { name: '使用中', exact: true }).waitFor();
       await page.getByRole('tab', { name: '使用中', exact: true }).click();
       await page.getByRole('button', { name: '取消使用聊天气泡', exact: true }).waitFor();
     }
+  await page.setViewportSize({ width: 1200, height: 850 });
+  await page.goto(`${url}?tools=1&exceptions=1&backdrop=1`);
+  const background = page.getByRole('article', { name: '聊天背景' });
+  await background.getByRole('slider', { name: '聊天背景不透明度' }).waitFor();
+  await background.getByText('1 个会话单独设置').click();
+  await background.getByRole('button', { name: /项目讨论.*不使用/ }).click();
+  const mode = page.getByRole('combobox', { name: '本会话聊天背景' });
+  await mode.waitFor();
+  assert.equal(await mode.getAttribute('data-value'), 'off');
+  await page.screenshot({ path: resolve(output, 'conversation-override.png'), fullPage: true });
+  await mode.click();
+  await page.getByRole('option', { name: '跟随全局' }).click();
+  await background.getByText('1 个会话单独设置').waitFor({ state: 'detached' });
+
   await page.goto(`${url}?empty=1&tools=1`);
   await page.getByRole('heading', { name: '使用中的装扮' }).waitFor();
   assert.equal(await page.getByText('未使用', { exact: true }).count(), 6);
@@ -186,7 +207,7 @@ try {
     }
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: 开发工具 8 组深浅色/宽窄屏、三档切换、键盘单选、取消/使用、原始装扮 CSS；普通模式 6 组仅保留背景',
+    'PASS: 开发工具 8 组深浅色/宽窄屏、三档切换、键盘选择、会话例外定位与恢复跟随、取消/使用、原始装扮 CSS；普通模式 6 组仅保留背景',
   );
 } finally {
   await browser?.close();

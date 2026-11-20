@@ -1,7 +1,7 @@
 import { ClientStateStore, validateClientState } from './client_state';
 import { isDefaultModelSelection } from '@weq/agentlab';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import {
   INTENT_TUNING_KEYS,
   isIntentTuningValue,
@@ -12,8 +12,13 @@ import {
   isWeqBackgroundName,
   type WeqAccountSettingFile,
 } from '../common/backup_account_paths';
-import { parseWeqBackupJson, type WeqBackupFile } from './backup_bundle';
+import { parseWeqBackupJson, validateWeqBackground, type WeqBackupFile } from './backup_bundle';
 import { readWeqBackupFile } from './backup_clones';
+import { isDressScope } from '../account/dress_config';
+import {
+  dressConversationBackgroundFiles,
+  isDressConversationEntries,
+} from '../account/dress_conversations';
 
 function fail(name: string): never {
   throw new Error(`账号偏好备份无效：${name}`);
@@ -36,7 +41,7 @@ export function weqAccountSettingPath(
   scope: string,
   name: WeqAccountSettingFile,
 ): string {
-  if (name === 'dress.json' || name === 'client-state.json')
+  if (name === 'dress.json' || name === 'dress-conversations.json' || name === 'client-state.json')
     return join(root, 'config', 'accounts', scope, name);
   const category =
     name === 'anti-recall.json'
@@ -50,6 +55,10 @@ export function weqAccountSettingPath(
 export function validateWeqAccountPreference(name: WeqAccountSettingFile, value: unknown): void {
   if (name === 'client-state.json') {
     validateClientState(value);
+    return;
+  }
+  if (name === 'dress-conversations.json') {
+    if (!isDressConversationEntries(value)) fail(name);
     return;
   }
   const input = record(value, name);
@@ -147,7 +156,11 @@ export function validateWeqAccountPreference(name: WeqAccountSettingFile, value:
           for (const field of ['name', 'previewUrl'])
             if (entry[field] !== undefined && typeof entry[field] !== 'string') fail(name);
         }
-    if (input.scope !== undefined && input.scope !== 'mine' && input.scope !== 'all') fail(name);
+    if (input.scope !== undefined && !isDressScope(input.scope)) fail(name);
+    if (input.scopes !== undefined) {
+      const scopes = record(input.scopes, name);
+      if (['bubble', 'font', 'widget'].some((kind) => !isDressScope(scopes[kind]))) fail(name);
+    }
     if (
       input.background !== undefined &&
       !['none', 'qq', 'custom'].includes(String(input.background))
@@ -198,6 +211,17 @@ export function snapshotWeqAccountPreferences(
       delete (input.records as Record<string, unknown>).order;
     validateWeqAccountPreference(name, input);
     files.push({ path: `accounts/${scope}/${name}`, data: Buffer.from(JSON.stringify(input)) });
+    if (name === 'dress-conversations.json' && isDressConversationEntries(input))
+      for (const file of dressConversationBackgroundFiles(input)) {
+        const source = join(root, 'config', 'accounts', scope, file);
+        try {
+          const data = readWeqBackupFile(source);
+          validateWeqBackground(data, extname(file));
+          files.push({ path: `accounts/${scope}/background/${file}`, data });
+        } catch {
+          warnings.push('有会话自定义背景无法备份，已保留装扮选择。');
+        }
+      }
   }
   return { files, warnings };
 }

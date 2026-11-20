@@ -227,6 +227,12 @@ export type { BubbleSkin, BubbleSlice, MessageBubbleSkin } from './account/bubbl
 export { DressService, createDressService } from './account/dress_service';
 export { DressConfigService } from './account/dress_config';
 export {
+  DressConversationStore,
+  type DressConversation,
+  type DressConversationEntry,
+  type DressConversationSlot,
+} from './account/dress_conversations';
+export {
   DRESS_DERIVE_VERSION,
   DressSharedCache,
   fontFamilyFor,
@@ -248,7 +254,12 @@ export type {
   DressManifest,
   InstalledFont,
 } from './account/dress_service';
-export type { DressScope, DressBackgroundSource } from './account/dress_config';
+export type {
+  DressScope,
+  DressScopeKind,
+  DressScopes,
+  DressBackgroundSource,
+} from './account/dress_config';
 export type {
   BubbleSidecar,
   FontDerived,

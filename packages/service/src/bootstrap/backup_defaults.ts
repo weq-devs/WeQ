@@ -47,6 +47,7 @@ export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice
     activeFont: 0,
     activeWidget: 0,
     scope: 'mine',
+    scopes: { bubble: 'mine', font: 'mine', widget: 'mine' },
     background: 'none',
     backgroundFile: '',
     widgetId: '',

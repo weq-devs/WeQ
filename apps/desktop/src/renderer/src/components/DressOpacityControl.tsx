@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { useRenderDocument } from '../lib/renderDocument';
 import { DRESS_OPACITY_PREVIEW, type DressOpacityKind } from './ChatBackdrop.shared';
 import { FormRange } from './FormRange';
@@ -11,13 +11,15 @@ const LABELS: Record<DressOpacityKind, string> = {
 export function DressOpacityControl({
   kind,
   value,
-  summary = false,
+  previewRef,
   onCommit,
+  disabled,
 }: {
   kind: DressOpacityKind;
   value: number;
-  summary?: boolean;
+  previewRef?: RefObject<HTMLElement | null>;
   onCommit: (value: number) => Promise<void>;
+  disabled?: boolean;
 }) {
   const document = useRenderDocument();
   const [draft, setDraft] = useState<number | null>(null);
@@ -28,13 +30,13 @@ export function DressOpacityControl({
 
   useLayoutEffect(() => {
     if (draft === null) return;
-    const root = document.documentElement.style;
+    const root = (previewRef?.current ?? document.documentElement).style;
     const variable = DRESS_OPACITY_PREVIEW[kind];
     root.setProperty(variable, String(draft));
     return () => {
       root.removeProperty(variable);
     };
-  }, [document, kind, draft]);
+  }, [document, kind, draft, previewRef]);
 
   function reset() {
     pending.current = null;
@@ -67,13 +69,14 @@ export function DressOpacityControl({
 
   return (
     <label className="weq-dress-opacity">
-      <span>{summary ? LABELS[kind] : '不透明度'}</span>
+      <span>不透明度</span>
       <FormRange
         aria-label={`${LABELS[kind]}不透明度`}
         aria-valuetext={`${percent}%`}
         min={0}
         max={1}
         step={0.01}
+        disabled={disabled}
         value={draft ?? value}
         onChange={(event) => {
           const next = Number(event.currentTarget.value);

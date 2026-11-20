@@ -7,6 +7,7 @@ import type { Platform } from '@weq/platform';
 import { AgentLabStore } from '@weq/agentlab';
 import { accountConfigId } from '../src/account/user_config';
 import { DressConfigService } from '../src/account/dress_config';
+import { DressConversationStore } from '../src/account/dress_conversations';
 import { DbToleranceService } from '../src/account/db_tolerance';
 import { IntentSenseService } from '../src/account/intent_sense';
 import { UserConfigService, DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_config';
@@ -138,6 +139,19 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
   dress.setBackgroundOpacity(0.4);
   dress.setWidgetOpacity(0.35);
   dress.setActive('bubble', 123);
+  dress.setScope('fallback', 'font');
+  const conversation = { kind: 'group', conv: '12345', title: '会话' } as const;
+  const conversationDress = new DressConversationStore(
+    join(f.root, 'config', 'accounts', f.source),
+  );
+  conversationDress.setBackgroundFile(conversation, outside);
+  conversationDress.set(conversation, { slot: 'screen', value: 'off' });
+  const background = conversationDress.get(conversation)?.background;
+  if (!background || background === 'off' || background.source !== 'custom')
+    throw new Error('缺少测试背景');
+  expect(
+    conversationDress.backgroundFile({ ...conversation, conv: '99999' }, background.file),
+  ).toBeNull();
   const original = readFileSync(weqAccountSettingPath(f.root, f.cache, f.source, 'dress.json'));
   f.config.migrateSharedAccountPreferences(f.source);
   const snapshot = f.service.snapshot(
@@ -145,7 +159,10 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
     {},
   );
   const bundle = readWeqBackup(snapshot.archive);
-  expect(bundle.files).toHaveLength(WEQ_ACCOUNT_SETTING_FILES.length + 3);
+  expect(bundle.files).toHaveLength(WEQ_ACCOUNT_SETTING_FILES.length + 4);
+  expect(
+    bundle.files.some(({ path }) => path === `accounts/${f.source}/background/${background.file}`),
+  ).toBe(true);
   expect(bundle.files.some((file) => file.path === `accounts/${f.source}/dress.json`)).toBe(false);
   expect(bundle.files.filter((file) => file.path.startsWith('settings/background/'))).toHaveLength(
     1,
@@ -203,9 +220,17 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
     activeBubble: 123,
     backgroundOpacity: 0.4,
     widgetOpacity: 0.35,
+    scopes: { bubble: 'mine', font: 'fallback', widget: 'mine' },
   });
   expect(restoredDress.getBackgroundFile()).toMatch(/bg-[0-9a-f]{64}\.png$/);
   expect(readFileSync(restoredDress.getBackgroundFile()!)).toEqual(png);
+  const restoredConversation = new DressConversationStore(
+    join(f.root, 'config', 'accounts', f.local),
+  );
+  expect(restoredConversation.get(conversation)).toEqual(conversationDress.get(conversation));
+  expect(readFileSync(restoredConversation.backgroundFile(conversation, background.file)!)).toEqual(
+    png,
+  );
   expect(readFileSync(join(f.localDir, 'nt_msg.db'), 'utf8')).toBe('synthetic original QQ bytes');
 });
 

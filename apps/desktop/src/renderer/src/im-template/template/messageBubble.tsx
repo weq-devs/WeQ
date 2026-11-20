@@ -316,13 +316,20 @@ function MessageBubbleBody({
     message.decoration ??
     (mine && message.optimistic ? { bubbleId: selfBubbleId, fontId: 0, widgetId: 0 } : undefined);
   // 本地生效装扮按作用范围覆盖消息记录，未覆盖的种类仍使用记录里的装扮。
-  const { widget: activeWidget, scope: activeScope, fontActive, bubbleActive } = useActiveWidget();
+  const {
+    widget: activeWidget,
+    scope: activeScope,
+    scopes,
+    fontActive,
+    bubbleActive,
+  } = useActiveWidget();
   const activeFontFx = useActiveFontFx();
   const recordWidget = Boolean(decoration?.widgetId || (mine && pendantUrl));
   const localFontOverride =
-    fontActive && localDressApplies(activeScope, mine, Boolean(decoration?.fontId));
+    fontActive && localDressApplies(scopes?.font ?? activeScope, mine, Boolean(decoration?.fontId));
   const localBubbleOverride =
-    bubbleActive && localDressApplies(activeScope, mine, Boolean(decoration?.bubbleId));
+    bubbleActive &&
+    localDressApplies(scopes?.bubble ?? activeScope, mine, Boolean(decoration?.bubbleId));
   const localWidget =
     activeWidget && localDressApplies(activeScope, mine, recordWidget) ? activeWidget : null;
   const msgDec = useMsgDecoration(

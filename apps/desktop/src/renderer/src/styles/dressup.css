@@ -215,60 +215,6 @@
   opacity: 0.75;
 }
 
-/* 三档共用同一行，原生单选保留方向键与焦点行为。 */
-.weq-dress-scope {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: min(100%, 390px);
-  padding: 2px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 8px;
-  background: var(--weq-bg-subtle);
-}
-
-.weq-dress-scope-btn {
-  position: relative;
-  display: grid;
-  min-width: 0;
-  min-height: 34px;
-  place-items: center;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    color 0.15s;
-}
-
-.weq-dress-scope-btn input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
-.weq-dress-scope-btn:has(input:focus-visible),
-.weq-dress-current-action:focus-visible,
-.weq-dress-kind:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
-
-.weq-dress-scope-btn:has(input:disabled) {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.weq-dress-scope-btn.is-active {
-  background: var(--weq-accent-solid);
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-  font-weight: 600;
-}
-
 .weq-dress-notice {
   display: flex;
   gap: 7px;
@@ -314,46 +260,64 @@
   }
 }
 
-/* ===== 当前使用：不与商城筛选混排 ===== */
+/* ===== 当前使用 ===== */
 .weq-dress-usage {
-  max-width: 900px;
+  container: dress-usage / inline-size;
   padding: 4px 0 16px;
 }
 
-.weq-dress-usage h3 {
-  margin: 0 0 14px;
-  font-size: 14px;
+.weq-dress-usage-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 14px;
+}
+
+.weq-dress-usage-heading h3,
+.weq-dress-usage-heading p {
+  margin: 0;
+}
+
+.weq-dress-usage-heading h3 {
+  font-size: 15px;
   font-weight: 600;
 }
 
 .weq-dress-current-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 28px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .weq-dress-current {
   display: flex;
   min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-dress-current-head {
+  display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--weq-border-subtle);
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.weq-dress-current-head h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .weq-dress-current .weq-dress-card-preview {
-  flex: 0 0 112px;
-  height: 80px;
-  border-radius: 6px;
-}
-
-.weq-dress-current-info {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  gap: 5px;
-  overflow-wrap: anywhere;
+  height: clamp(88px, 13cqi, 172px);
+  aspect-ratio: auto;
+  border-radius: 8px;
 }
 
 .weq-dress-current-empty {
@@ -362,12 +326,24 @@
   color: var(--weq-fg-secondary);
 }
 
-.weq-dress-current-info > span,
+.weq-dress-current-empty svg {
+  width: 23px;
+  height: 23px;
+}
+
+.weq-dress-current-info {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  overflow-wrap: anywhere;
+}
+
 .weq-dress-current-info > small,
 .weq-dress-local-note {
   color: var(--weq-fg-secondary);
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .weq-dress-current-info > strong {
@@ -376,16 +352,34 @@
   font-weight: 500;
 }
 
-.weq-dress-current-actions {
+.weq-dress-current-actions,
+.weq-dress-current-scope {
   display: flex;
   flex: none;
-  gap: 2px;
+  align-items: center;
+  gap: 6px;
+}
+
+.weq-dress-current-scope {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.weq-dress-current-options {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.weq-dress-current-options .weq-dress-opacity {
+  margin: 0;
 }
 
 .weq-dress-current-action {
   display: grid;
-  width: 30px;
-  height: 34px;
+  width: 28px;
+  height: 32px;
   place-items: center;
   border: 0;
   border-radius: 6px;
@@ -404,32 +398,93 @@
   cursor: not-allowed;
 }
 
-.weq-dress-usage-opacity,
-.weq-dress-usage-scope {
-  margin-top: 28px;
+.weq-dress-current-exceptions {
+  padding-top: 6px;
+  border-top: 1px solid var(--weq-border-subtle);
+  font-size: 12px;
 }
 
-.weq-dress-usage-opacity {
-  max-width: 460px;
+.weq-dress-current-exceptions summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  cursor: pointer;
+  list-style: none;
 }
 
-.weq-dress-usage-opacity .weq-dress-opacity > span:first-child {
-  min-width: 4em;
+.weq-dress-current-exceptions summary::-webkit-details-marker {
+  display: none;
 }
 
-.weq-dress-local-note {
-  margin: 12px 0 0;
+.weq-dress-current-exceptions:not([open]) summary svg {
+  rotate: -90deg;
 }
 
-@media (max-width: 700px) {
+.weq-dress-current-exceptions ul {
+  max-height: 216px;
+  overflow: auto;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.weq-dress-current-exceptions li > :is(button, div) {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 6px;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.weq-dress-current-exceptions li > button {
+  cursor: pointer;
+}
+
+.weq-dress-current-exceptions li > button:hover {
+  background: var(--weq-bg-hover);
+}
+
+.weq-dress-current-exceptions li span {
+  flex: 1;
+  min-width: 0;
+}
+
+.weq-dress-current-exceptions li small {
+  max-width: 50%;
+  color: var(--weq-fg-secondary);
+  font-size: inherit;
+}
+
+.weq-dress-current-exceptions li svg {
+  flex: none;
+}
+
+.weq-dress-current :is(button, summary):focus-visible,
+.weq-dress-kind:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: 2px;
+}
+
+@container dress-usage (max-width: 680px) {
   .weq-dress-current-list {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 360px) {
+@container dress-usage (max-width: 410px) {
+  .weq-dress-current-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .weq-dress-current .weq-dress-card-preview {
-    flex-basis: 84px;
+    height: 108px;
   }
 }
 

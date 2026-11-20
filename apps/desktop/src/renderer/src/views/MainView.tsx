@@ -10238,6 +10238,7 @@ function MainWorkspace(): ReactElement {
               initialKind={dressUpTarget?.kind}
               initialEmojiPackId={dressUpTarget?.pack?.id}
               initialEmojiPackName={dressUpTarget?.pack?.name}
+              onOpenConversationSettings={openProfileConversationSettings}
               onClose={() => {
                 setDressUpOpen(false);
                 setDressUpTarget(null);
@@ -10313,8 +10314,9 @@ function MainWorkspace(): ReactElement {
           ) : null}
           {convSettings && convSettings.ownerKey === messageScope ? (
             <ConversationSettingsDialog
-              key={`${convSettings.ownerKey}:${convSettings.kind}:${convSettings.conv}:${convSettings.initialSection ?? 'qq'}`}
+              key={`${convSettings.ownerKey}:${convSettings.kind}:${convSettings.conv}:${convSettings.initialSection ?? 'qq'}:${convSettings.initialDressSlot ?? ''}`}
               initialSection={convSettings.initialSection}
+              initialDressSlot={convSettings.initialDressSlot}
               kind={convSettings.kind}
               conv={convSettings.conv}
               title={convSettings.title}

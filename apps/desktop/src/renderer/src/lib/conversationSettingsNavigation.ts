@@ -1,4 +1,5 @@
 import { createContext } from 'react';
+import type { DressConversationSlot } from '@weq/service';
 import type { GroupConversation } from '../im-template/template/types';
 import type { GroupResourceRequest } from '../hooks/useGroupResourceWindows';
 
@@ -7,7 +8,8 @@ export interface ConversationSettingsRequest {
   conv: string;
   title: string;
   anchor?: HTMLElement;
-  initialSection?: 'qq' | 'group-management';
+  initialSection?: 'qq' | 'group-management' | 'dress';
+  initialDressSlot?: DressConversationSlot;
   groupConversation?: GroupConversation;
 }
 

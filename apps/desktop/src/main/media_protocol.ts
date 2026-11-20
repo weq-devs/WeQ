@@ -907,7 +907,16 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
     // 用户自选的聊天背景:已拷进本账号的装扮目录,路径由清单给 —— 不接受 url 传路径,
     // 免得变成一个能读任意本地文件的口子。
     if (kind === 'dressbg') {
-      const path = services.dressInstall.backgroundFile();
+      const conv = q.get('conv');
+      const conversationKind = q.get('kind');
+      const path = conv
+        ? conversationKind === 'group' || conversationKind === 'c2c'
+          ? services.dressConversations.backgroundFile(
+              { kind: conversationKind, conv },
+              q.get('v') ?? '',
+            )
+          : null
+        : services.dressInstall.backgroundFile();
       return path ? fileResponse(path) : notFound('custom background not set');
     }
 

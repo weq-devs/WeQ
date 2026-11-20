@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { DressManifest } from '@weq/service';
+import type { DressConversationEntry, DressManifest, DressScopeKind } from '@weq/service';
 
 const empty = new URLSearchParams(location.search).has('empty');
 const dressTools = new URLSearchParams(location.search).has('tools');
@@ -28,7 +28,7 @@ let manifest: DressManifest = {
   activeFont: empty ? 0 : 22,
   activeWidget: empty ? 0 : 33,
   scope: 'mine',
-  background: 'none',
+  background: new URLSearchParams(location.search).has('backdrop') ? 'qq' : 'none',
   backgroundFile: '',
   widgetId: '',
   backgroundOpacity: 1,
@@ -40,8 +40,22 @@ const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
 };
-const own = { callBgId: 0, callBgName: '', callBgUrl: '' };
-const snapshot = () => ({ manifest, qqOnline: true, own });
+const own = {
+  callBgId: 0,
+  callBgName: '',
+  callBgUrl: '',
+  chatBgUrl: 'https://example.test/background.png',
+};
+let conversationOverrides: Record<string, DressConversationEntry> = new URLSearchParams(
+  location.search,
+).has('exceptions')
+  ? { 'group:42': { kind: 'group', conv: '42', title: '项目讨论', background: 'off' } }
+  : {};
+const snapshot = () => ({ manifest, qqOnline: true, own, conversationOverrides });
+function refresh() {
+  revision++;
+  for (const listener of listeners) listener();
+}
 const proxy = (path = ''): unknown =>
   new Proxy(() => undefined, {
     get(_target, key) {
@@ -75,20 +89,33 @@ const proxy = (path = ''): unknown =>
             isInitialLoading: false,
           };
         };
-      if (key === 'invalidate')
-        return async () => {
-          revision++;
-          for (const listener of listeners) listener();
-        };
+      if (key === 'invalidate') return async () => refresh();
+      if (key === 'setData') return () => refresh();
       if (key === 'useMutation')
         return () => ({
           mutateAsync: async (input: {
             scope?: DressManifest['scope'];
-            kind?: string;
+            kind?: DressScopeKind | 'group';
+            conv?: string;
             itemId?: number;
+            value?: null;
           }) => {
-            if (path === 'account.dressup.setScope' && input.scope)
-              manifest = { ...manifest, scope: input.scope };
+            if (path === 'account.dressup.setScope' && input.scope && input.kind)
+              manifest = {
+                ...manifest,
+                scopes: {
+                  bubble: 'mine',
+                  font: 'mine',
+                  widget: 'mine',
+                  ...manifest.scopes,
+                  [input.kind]: input.scope,
+                },
+              };
+            if (path === 'account.dressup.setConversationOverride' && input.value === null) {
+              conversationOverrides = { ...conversationOverrides };
+              delete conversationOverrides[`${input.kind}:${input.conv}`];
+              return conversationOverrides;
+            }
             if (path === 'account.dressup.setActive')
               manifest = {
                 ...manifest,

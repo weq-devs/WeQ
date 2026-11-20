@@ -247,8 +247,11 @@ export function dressPendantFrameUrl(itemId: number, frame: number): string {
  * 视频与图片共用这一条:`dressbg` 主进程按文件后缀定 Content-Type(file_response 的
  * MIME 表已含 mp4/webm/mov)并支持 Range,`<video>` 能直接播、也能拖动进度。
  */
-export function dressBackgroundUrl(stamp: string): string {
-  return mediaUrl('dressbg', { v: stamp });
+export function dressBackgroundUrl(
+  stamp: string,
+  conversation?: { kind: 'c2c' | 'group'; conv: string },
+): string {
+  return mediaUrl('dressbg', { v: stamp, ...conversation });
 }
 
 /**

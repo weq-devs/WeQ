@@ -141,6 +141,7 @@ import {
   createDressService,
   migrateDressData,
   DressConfigService,
+  DressConversationStore,
   MsgDecorationCacheService,
   TokenUsageStore,
   warmupSigner,
@@ -1248,6 +1249,7 @@ export interface AccountServices {
   redbag: RedBagService;
   /** 个性装扮（气泡/字体/背景）— 新架构：config 账号隔离，cache 全局共享。 */
   dressInstall: import('@weq/service').DressService;
+  dressConversations: DressConversationStore;
   /** 逐条消息装扮解析缓存（来自 DB 列 40801）。同一 itemId 永不重查。 */
   msgDecoration: MsgDecorationCacheService;
 }
@@ -2184,6 +2186,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
+        dressConversations: new DressConversationStore(
+          join(platform.appDataRoot(), 'config', 'accounts', exportConfigId),
+        ),
         msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,
         mediaDownload,
@@ -3134,6 +3139,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
+        dressConversations: new DressConversationStore(
+          join(platform.appDataRoot(), 'config', 'accounts', exportConfigId),
+        ),
         msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,
         mediaDownload,

@@ -40,6 +40,8 @@ export function ChatBackdrop({
   widgetId,
   backgroundOpacity,
   widgetOpacity,
+  backgroundFollowsGlobal = true,
+  widgetFollowsGlobal = true,
 }: {
   /** 底图 url。空串 = 不画底图(但挂件仍可单独生效)。 */
   imageUrl: string;
@@ -49,12 +51,16 @@ export function ChatBackdrop({
   widgetId: string;
   backgroundOpacity: number;
   widgetOpacity: number;
+  backgroundFollowsGlobal?: boolean;
+  widgetFollowsGlobal?: boolean;
 }): ReactElement | null {
   if (!imageUrl && !videoUrl && !widgetId) return null;
 
   const style = {
     '--weq-chat-backdrop-opacity': backgroundOpacity,
     '--weq-chat-widget-opacity': widgetOpacity,
+    '--weq-preview-background-opacity': backgroundFollowsGlobal ? undefined : 'initial',
+    '--weq-preview-widget-opacity': widgetFollowsGlobal ? undefined : 'initial',
   } as CSSProperties;
 
   return (

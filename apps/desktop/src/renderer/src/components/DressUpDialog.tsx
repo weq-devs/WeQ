@@ -36,11 +36,22 @@ import {
   Trophy,
   X,
   ChevronRight,
+  ChevronDown,
 } from 'lucide-react';
-import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
+import type {
+  BubbleSkin,
+  DressBackgroundSource,
+  DressMallItem,
+  DressScope,
+  DressScopeKind,
+  DressConversationEntry,
+} from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { DressOpacityControl } from './DressOpacityControl';
+import { FormSelect } from './FormSelect';
+import { conversationDressLabel } from '../lib/conversationDress';
+import type { ConversationSettingsRequest } from '../lib/conversationSettingsNavigation';
 import {
   dressBackgroundUrl,
   dressFontUrl,
@@ -293,12 +304,14 @@ export function DressUpDialog({
   initialKind,
   initialEmojiPackId,
   initialEmojiPackName,
+  onOpenConversationSettings,
 }: {
   onClose: () => void;
   /** 从全局搜索等入口直达某个页签（表情页签会带上要定位的表情包）。 */
   initialKind?: DressKind;
   initialEmojiPackId?: string;
   initialEmojiPackName?: string;
+  onOpenConversationSettings?: (request: ConversationSettingsRequest) => void;
 }): ReactElement {
   const mobile = useMobileWebLayout();
   const developmentDressTools = useDevelopmentDressTools();
@@ -345,7 +358,6 @@ export function DressUpDialog({
   const state = trpc.account.dressup.getState.useQuery();
   const online = state.data?.qqOnline ?? false;
   const manifest = state.data?.manifest;
-  const scope = manifest?.scope ?? 'mine';
   const backdrop = resolveChatBackdrop(manifest, state.data?.own.chatBgUrl ?? '');
   const hasBackground = Boolean(backdrop.imageUrl || backdrop.videoUrl);
   const backgroundSection = useRef<HTMLElement>(null);
@@ -540,11 +552,10 @@ export function DressUpDialog({
   );
 
   const changeScope = useCallback(
-    async (next: DressScope): Promise<void> => {
-      if (next === scope) return;
+    async (kind: DressScopeKind, next: DressScope): Promise<void> => {
       setScoping(true);
       try {
-        const manifest = await setScope.mutateAsync({ scope: next });
+        const manifest = await setScope.mutateAsync({ kind, scope: next });
         await syncDressSkinPreloaded(manifest);
         await refresh();
       } catch (e) {
@@ -553,7 +564,7 @@ export function DressUpDialog({
         setScoping(false);
       }
     },
-    [scope, setScope, refresh, dialog],
+    [setScope, refresh, dialog],
   );
 
   /**
@@ -606,12 +617,11 @@ export function DressUpDialog({
     }
   }
 
-  function renderOpacity(kind: DressOpacityKind, summary = false) {
+  function renderOpacity(kind: DressOpacityKind) {
     if (kind === 'background' ? !hasBackground : !backdrop.widgetId) return null;
     return (
       <DressOpacityControl
         kind={kind}
-        summary={summary}
         value={kind === 'background' ? backdrop.backgroundOpacity : backdrop.widgetOpacity}
         onCommit={(value) => commitOpacity(kind, value)}
       />
@@ -867,6 +877,7 @@ export function DressUpDialog({
       name?: string;
       preview?: ReactElement;
       imageSrc?: string;
+      videoSrc?: string;
     }> = [
       {
         kind: 'bubble',
@@ -895,6 +906,7 @@ export function DressUpDialog({
         value: state.data?.own.callBgId ?? 0,
         name: state.data?.own.callBgName,
         imageSrc: dressUrl(state.data?.own.callBgUrl ?? ''),
+        videoSrc: dressUrl(state.data?.own.callBgVideoUrl ?? ''),
       },
       {
         kind: 'background',
@@ -928,106 +940,144 @@ export function DressUpDialog({
       else void clear(target);
     }
 
+    const overrides = Object.values(state.data?.conversationOverrides ?? {}).sort((left, right) =>
+      left.title.localeCompare(right.title, 'zh-CN'),
+    );
     return (
-      <div className="weq-dress-usage">
-        <section aria-labelledby="weq-dress-current-title">
+      <section className="weq-dress-usage" aria-labelledby="weq-dress-current-title">
+        <header className="weq-dress-usage-heading">
           <h3 id="weq-dress-current-title">使用中的装扮</h3>
-          <div className="weq-dress-current-list">
-            {current.map((item) => (
-              <div className="weq-dress-current" key={item.kind}>
+          <p className="weq-dress-local-note">全局默认 · 仅影响 WeQ 本地显示</p>
+        </header>
+        <div className="weq-dress-current-list">
+          {current.map((item) => {
+            const { kind, label, value, name } = item;
+            const hasScope = kind === 'bubble' || kind === 'font' || kind === 'widget';
+            const exceptions: DressConversationEntry[] = hasScope
+              ? []
+              : overrides.filter((entry) => entry[kind] !== undefined);
+            return (
+              <article className="weq-dress-current" key={kind} aria-label={label}>
+                <header className="weq-dress-current-head">
+                  <h4>{label}</h4>
+                  <div className="weq-dress-current-actions">
+                    {value ? (
+                      <button
+                        type="button"
+                        className="weq-dress-current-action"
+                        disabled={applying}
+                        title={`取消使用${label}`}
+                        aria-label={`取消使用${label}`}
+                        onClick={() => clearCurrent(kind)}
+                      >
+                        <X size={16} />
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-sm"
+                      disabled={applying}
+                      aria-label={`选择${label}`}
+                      onClick={() => chooseCurrent(kind)}
+                    >
+                      {value ? '更换' : '选择'}
+                    </button>
+                  </div>
+                </header>
                 <DressCardPreview
-                  slotKey={`current:${item.kind}`}
-                  imageSrc={item.value ? (item.imageSrc ?? '') : ''}
-                  alt={item.name || item.label}
+                  slotKey={`current:${kind}`}
+                  imageSrc={value ? (item.imageSrc ?? '') : ''}
+                  videoSrc={value ? item.videoSrc : undefined}
+                  alt={name || label}
                 >
-                  {item.value ? (
+                  {value ? (
                     item.preview
                   ) : (
                     <span className="weq-dress-current-empty" aria-hidden>
-                      {item.kind === 'screen' ? (
-                        <Sparkles size={14} />
+                      {kind === 'screen' ? (
+                        <Sparkles size={24} />
                       ) : (
-                        KINDS.find((entry) => entry.id === item.kind)?.icon
+                        KINDS.find((entry) => entry.id === kind)?.icon
                       )}
                     </span>
                   )}
                 </DressCardPreview>
                 <div className="weq-dress-current-info">
-                  <span>{item.label}</span>
                   <strong>
-                    {item.value
-                      ? item.name || (
-                          <>
-                            {item.label}{' '}
-                            <span className="weq-number weq-number-inherit">{item.value}</span>
-                          </>
-                        )
-                      : '未使用'}
+                    {value ? name || `${kind === 'screen' ? '挂件' : label} ${value}` : '未使用'}
                   </strong>
-                  {!item.value &&
-                  (item.kind === 'bubble' || item.kind === 'font' || item.kind === 'widget') ? (
-                    <small>按消息记录还原</small>
+                  {!value && hasScope ? <small>按消息记录还原</small> : null}
+                </div>
+                <div className="weq-dress-current-options">
+                  {hasScope ? (
+                    <label className="weq-dress-current-scope">
+                      <span>渲染范围</span>
+                      <FormSelect
+                        aria-label={`${label}渲染范围`}
+                        value={manifest?.scopes?.[kind] ?? manifest?.scope ?? 'mine'}
+                        disabled={applying || !manifest}
+                        onChange={(event) =>
+                          void changeScope(kind, event.target.value as DressScope)
+                        }
+                      >
+                        {SCOPES.map((option) => (
+                          <option key={option.id} value={option.id} title={option.hint}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </FormSelect>
+                    </label>
+                  ) : null}
+                  {kind === 'background' ? renderOpacity('background') : null}
+                  {kind === 'screen' ? renderOpacity('widget') : null}
+                  {!hasScope && exceptions.length ? (
+                    <details className="weq-dress-current-exceptions">
+                      <summary>
+                        <ChevronDown size={14} aria-hidden />
+                        {exceptions.length} 个会话单独设置
+                      </summary>
+                      <ul>
+                        {exceptions.map((entry) => {
+                          const name = entry.title || entry.conv;
+                          const selection = conversationDressLabel(entry, kind);
+                          return (
+                            <li key={`${entry.kind}:${entry.conv}`}>
+                              {onOpenConversationSettings ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) =>
+                                    onOpenConversationSettings({
+                                      kind: entry.kind,
+                                      conv: entry.conv,
+                                      title: name,
+                                      anchor: event.currentTarget,
+                                      initialSection: 'dress',
+                                      initialDressSlot: kind,
+                                    })
+                                  }
+                                >
+                                  <span>{name}</span>
+                                  <small>{selection}</small>
+                                  <ChevronRight size={14} aria-hidden />
+                                </button>
+                              ) : (
+                                <div>
+                                  <span>{name}</span>
+                                  <small>{selection}</small>
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </details>
                   ) : null}
                 </div>
-                <div className="weq-dress-current-actions">
-                  {item.value ? (
-                    <button
-                      type="button"
-                      className="weq-dress-current-action"
-                      disabled={applying}
-                      title={`取消使用${item.label}`}
-                      aria-label={`取消使用${item.label}`}
-                      onClick={() => clearCurrent(item.kind)}
-                    >
-                      <X size={16} />
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="weq-dress-current-action"
-                    disabled={applying}
-                    title={`选择${item.label}`}
-                    aria-label={`选择${item.label}`}
-                    onClick={() => chooseCurrent(item.kind)}
-                  >
-                    <ChevronRight size={18} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-        {hasBackground || backdrop.widgetId ? (
-          <section className="weq-dress-usage-opacity" aria-labelledby="weq-dress-opacity-title">
-            <h3 id="weq-dress-opacity-title">不透明度</h3>
-            {renderOpacity('background', true)}
-            {renderOpacity('widget', true)}
-          </section>
-        ) : null}
-        <section className="weq-dress-usage-scope" aria-labelledby="weq-dress-scope-title">
-          <h3 id="weq-dress-scope-title">渲染范围</h3>
-          <div className="weq-dress-scope" role="radiogroup" aria-label="装扮渲染范围">
-            {SCOPES.map((option) => (
-              <label
-                key={option.id}
-                className={`weq-dress-scope-btn${scope === option.id ? ' is-active' : ''}`}
-                title={option.hint}
-              >
-                <input
-                  type="radio"
-                  name="dress-scope"
-                  value={option.id}
-                  checked={scope === option.id}
-                  disabled={applying || !manifest}
-                  onChange={() => void changeScope(option.id)}
-                />
-                <span>{option.label}</span>
-              </label>
-            ))}
-          </div>
-          <p className="weq-dress-local-note">“使用”仅影响 WeQ 本地显示，不影响实际发送。</p>
-        </section>
-      </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
     );
   }
 

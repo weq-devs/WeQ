@@ -43,7 +43,8 @@ export function ActiveWidgetProvider({
     <ActiveWidgetContext.Provider
       value={{
         widget: manifest ? activeWidgetFromManifest(manifest) : null,
-        scope: manifest?.scope ?? 'mine',
+        scope: manifest?.scopes?.widget ?? manifest?.scope ?? 'mine',
+        scopes: manifest?.scopes,
         fontActive: Boolean(manifest?.fonts.some((font) => font.itemId === manifest.activeFont)),
         bubbleActive: Boolean(
           manifest?.bubbles.some((bubble) => bubble.itemId === manifest.activeBubble),

@@ -85,3 +85,104 @@ html[data-theme='dark'] .weq-conversation-settings-pane .weq-cvs-dialog {
     flex-wrap: wrap;
   }
 }
+
+.weq-cvs-dress {
+  display: grid;
+  gap: 16px;
+}
+
+.weq-cvs-dress-row {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-cvs-dress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  width: 100%;
+  gap: 6px 12px;
+}
+
+.weq-cvs-dress-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.weq-cvs-dress-head small {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-cvs-dress-preview {
+  position: relative;
+  width: 100%;
+  height: 108px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--weq-bg-subtle);
+}
+
+.weq-cvs-dress-preview :is(img, video) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weq-cvs-dress-row > .weq-dress-opacity {
+  width: 100%;
+  margin: 0;
+}
+
+.weq-cvs-dress-pick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.weq-cvs-dress-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(88px, 100%), 1fr));
+  width: 100%;
+  max-height: 230px;
+  overflow: auto;
+  gap: 6px;
+  padding: 2px;
+}
+
+.weq-cvs-dress-options button {
+  overflow: hidden;
+  padding: 4px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: var(--weq-bg-subtle);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.weq-cvs-dress-options button:hover:not(:disabled) {
+  background: var(--weq-bg-hover);
+}
+
+.weq-cvs-dress-options button:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.weq-cvs-dress-options :is(img, .weq-cvs-dress-widget) {
+  display: block;
+  width: 100%;
+  height: 54px;
+  border-radius: 4px;
+  object-fit: cover;
+}

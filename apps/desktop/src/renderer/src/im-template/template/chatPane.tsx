@@ -841,7 +841,15 @@ export function ChatPane({
   const mediaSave = useMediaSave();
   // 复用 replyJump 的跳转能力（含翻页/重建窗口），供群精华消息跳转使用。
   const parentJumpToSeq = useContext(ReplyJumpContext);
-  const backdrop = useChatBackdrop();
+  const backdrop = useChatBackdrop(
+    conversation && !restrictedSource && !dataLine
+      ? conversation.type === 'group'
+        ? { kind: 'group', conv: conversation.group.identityValue }
+        : conversation.type === 'direct'
+          ? { kind: 'c2c', conv: conversation.otherUser.id }
+          : undefined
+      : undefined,
+  );
   const tabActive = useTabActive();
   useClientPreferences((state) => state.tick);
   const autoFetchGaps = tabActive && preferenceValue('autoFetchMissingMessages');
