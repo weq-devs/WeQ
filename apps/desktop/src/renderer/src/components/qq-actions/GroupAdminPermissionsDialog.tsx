@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { KICK_MEMBER_PER_DAY_CHOICES } from '@weqbot/protocol';
 import { client, trpc } from '../../trpc/client';
 import { EditorDialog } from '../EditorDialog';
 import { FormSelect } from '../FormSelect';
@@ -52,6 +51,7 @@ function GroupAdminPermissionsEditor({
   }
   const [draft, setDraft] = useState<Draft>({});
   const before = query.data;
+  const quotaChoices = before?.kickMemberPerDayChoices ?? [];
   const recall = draft.recall ?? before?.recallMemberMessage;
   const kick = draft.kick ?? before?.kickMember;
   const quota = draft.quota ?? before?.kickMemberPerDay;
@@ -60,9 +60,7 @@ function GroupAdminPermissionsEditor({
     kick !== before?.kickMember || (kick === true && quota !== before?.kickMemberPerDay);
   const changed = recallChanged || kickChanged;
   const disabled = action.disabled || !before || query.isFetching || query.isError;
-  const validQuota =
-    kick !== true ||
-    (quota != null && KICK_MEMBER_PER_DAY_CHOICES.some((limit) => limit === quota));
+  const validQuota = kick !== true || quotaChoices.some((limit) => limit === quota);
 
   function save() {
     if (disabled || !changed || (kickChanged && !validQuota)) return;
@@ -161,7 +159,7 @@ function GroupAdminPermissionsEditor({
                 <option value="" disabled>
                   请选择上限
                 </option>
-                {KICK_MEMBER_PER_DAY_CHOICES.map((limit) => (
+                {quotaChoices.map((limit) => (
                   <option key={limit} value={limit}>
                     {limit === 0 ? '不限' : limit}
                   </option>

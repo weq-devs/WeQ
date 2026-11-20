@@ -1059,6 +1059,9 @@ describe('在线管理员权限', () => {
       adminKickAllowed: false,
     });
     f.s.groupInfo.operationContext.mockResolvedValue({ role: 'owner', targetRole: 'admin' });
+    expect(await f.caller.groupAdminPermissions({ ...group, targetUid: 'u_test' })).toMatchObject({
+      kickMemberPerDayChoices: [0, 5, 10, 20, 50, 100, 200],
+    });
     await f.caller.setGroupAdminReceiveVerify({ ...group, targetUid: 'u_test', enable: false });
     expect(f.s.groupModeration.setAdminReceiveVerify).toHaveBeenCalledWith(
       123,

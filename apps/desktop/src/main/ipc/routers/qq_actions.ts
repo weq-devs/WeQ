@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import { z } from 'zod';
 import { observeUpload, transferIdInput } from './transfer_progress';
 import {
+  KICK_MEMBER_PER_DAY_CHOICES,
   parseCustomFaceId,
   PROFILE_LIKE_MAX_PER_REQUEST,
   type GroupRequest,
@@ -518,7 +519,8 @@ export function createQQActionsRouter(
     groupAdminPermissions: procedure.input(group.extend({ targetUid: uid })).query(({ input: i }) =>
       read(i, async (s) => {
         const userId = await adminTarget(s, i.groupId, i.targetUid);
-        return s.groupInfo.adminPermissions(i.groupId, userId);
+        const permissions = await s.groupInfo.adminPermissions(i.groupId, userId);
+        return { ...permissions, kickMemberPerDayChoices: KICK_MEMBER_PER_DAY_CHOICES };
       }),
     ),
     setGroupAdminPermissions: procedure
