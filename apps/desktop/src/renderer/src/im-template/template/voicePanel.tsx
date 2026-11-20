@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from './classNames';
+import { voiceModeContext } from './voicePanel.shared';
 import { pcm16Samples, startRemoteMedia, needsNativeRemoteMedia } from '../../lib/remoteMedia';
 import { decodeRecordingToWav, encodePcmWav } from './composerSend';
 import {
@@ -623,12 +624,6 @@ function VoiceReviewWave({ levels }: { levels: number[] }) {
 
 type RecordingOwner = { id: string; label: string };
 type RecordingInput = 'button' | 'space';
-const VoiceModeContext = createContext<{
-  open: boolean;
-  setOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  returnId: string | null;
-  setReturnId: React.Dispatch<React.SetStateAction<string | null>>;
-} | null>(null);
 const VoiceCaptureContext = createContext<{
   recorder: ReturnType<typeof useVoiceRecorder>;
   owner: RecordingOwner | null;
@@ -636,10 +631,6 @@ const VoiceCaptureContext = createContext<{
   start: (owner: RecordingOwner, input: RecordingInput) => void;
   registerInline: (id: string) => () => void;
 } | null>(null);
-
-export function useVoiceMode() {
-  return useContext(VoiceModeContext);
-}
 
 /** Recorder lifetime follows the workspace and account. Chat pages can mount independently. */
 export function VoiceWorkspace({
@@ -683,7 +674,7 @@ export function VoiceWorkspace({
   }, [endRecord, input, phase]);
   const showBubble = owner && phase !== 'idle' && (obscured || inline?.id !== owner.id);
   return (
-    <VoiceModeContext.Provider value={mode}>
+    <voiceModeContext.Provider value={mode}>
       <VoiceCaptureContext.Provider value={{ recorder, owner, input, start, registerInline }}>
         {children}
       </VoiceCaptureContext.Provider>
@@ -699,7 +690,7 @@ export function VoiceWorkspace({
           onReturn?.(owner.id);
         }}
       />
-    </VoiceModeContext.Provider>
+    </voiceModeContext.Provider>
   );
 }
 

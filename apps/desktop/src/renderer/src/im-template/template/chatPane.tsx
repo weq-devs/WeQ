@@ -190,7 +190,8 @@ import {
   ComposerSuperEmojiStage,
 } from './composerMediaStage';
 import { collectFiles } from './composerMediaStage.shared';
-import { VoicePanel, VoiceWorkspace, useVoiceMode, type TtsSpeechResult } from './voicePanel';
+import { VoicePanel, VoiceWorkspace, type TtsSpeechResult } from './voicePanel';
+import { useVoiceMode } from './voicePanel.shared';
 import { FlashComposer, type FlashSendPayload } from './flashComposer';
 
 /**
