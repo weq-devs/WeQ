@@ -27,6 +27,7 @@ import {
   FolderOpen,
   KeyRound,
   Radio,
+  RefreshCcw,
   RefreshCw,
   Smartphone,
   Trash2,
@@ -629,7 +630,11 @@ export function AccountBasicsSection({
               </p>
             ) : null}
           </Card>
-          <Card title="本机 QQ 同步" resetId="qq-client-sync">
+          <Card
+            title="本机 QQ 同步"
+            icon={<RefreshCcw size={15} strokeWidth={1.8} />}
+            resetId="qq-client-sync"
+          >
             <Row
               settingId="qq-client-sync"
               desc="在 QQ 登录页设置 HTTP 代理 127.0.0.1:19081 后生效。已读同步沿用上方的上报设置。"
