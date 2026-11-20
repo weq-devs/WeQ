@@ -382,17 +382,24 @@ export class RoamMsgCacheDb {
     return descending ? messages.reverse() : messages;
   }
 
-  /** 只读身份和时间列，隐藏记录与未确认的私聊不进入分析对象目录。 */
-  async calendarConversations(): Promise<Array<{ kind: 'c2c' | 'group'; conv: string }>> {
-    if (!existsSync(this.dbPath)) return [];
+  /** 只查日历当前范围内的会话，按现有索引判断有无缓存。 */
+  async calendarConversations(kind: 'c2c' | 'group', convs: readonly string[]): Promise<string[]> {
+    if (!convs.length || !existsSync(this.dbPath)) return [];
     const qq = new QqDb(this.nt as NtHelperBinding, { dbPath: this.dbPath });
-    const rows = await qq.query(
-      `SELECT kind,conv FROM ${TABLE} UNION SELECT kind,conv FROM ${NATIVE_TABLE} WHERE accepted=1 UNION SELECT kind,conv FROM ${PROTOCOL_TABLE} LIMIT 12001`,
-    );
-    if (rows.length > 12000) throw new Error('漫游缓存会话过多，请缩小统计范围');
-    return rows
-      .filter((row) => row[0] === 'c2c' || row[0] === 'group')
-      .map((row) => ({ kind: row[0] as 'c2c' | 'group', conv: String(row[1]) }));
+    const matches: string[] = [];
+    // 每批独立进入后台读取队列，避免会话范围大时占满一个读取时间片。
+    const batchSize = 128;
+    for (let offset = 0; offset < convs.length; offset += batchSize) {
+      const rows = await qq.query(
+        `SELECT candidate.value FROM json_each(?) AS candidate
+         WHERE EXISTS (SELECT 1 FROM ${TABLE} WHERE kind=? AND conv=candidate.value)
+            OR EXISTS (SELECT 1 FROM ${NATIVE_TABLE} WHERE kind=? AND conv=candidate.value AND accepted=1)
+            OR EXISTS (SELECT 1 FROM ${PROTOCOL_TABLE} WHERE kind=? AND conv=candidate.value)`,
+        [JSON.stringify(convs.slice(offset, offset + batchSize)), kind, kind, kind],
+      );
+      for (const [conv] of rows) matches.push(String(conv));
+    }
+    return matches;
   }
 
   /** 只读身份和时间列，隐藏记录与未确认的私聊不进入分析对象目录。 */

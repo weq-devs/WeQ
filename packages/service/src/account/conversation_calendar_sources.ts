@@ -234,11 +234,9 @@ export function createCalendarSources(
     const getCachedTargets = () => {
       if (!cachedTargets)
         cachedTargets = value.services.gapHistory
-          .calendarConversations()
-          .then((rows) => {
-            const ids = new Set(
-              rows.filter((row) => row.kind === cacheKind).map((row) => row.conv),
-            );
+          .calendarConversations(cacheKind, convs)
+          .then((conversations) => {
+            const ids = new Set(conversations);
             return targets.filter((target) => ids.has(target.conv));
           })
           .catch((error: unknown) => {

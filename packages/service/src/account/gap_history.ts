@@ -378,8 +378,8 @@ export class GapHistoryService {
   hasCalendarCache(): boolean {
     return existsSync(this.cache.dbPath);
   }
-  calendarConversations() {
-    return this.cache.calendarConversations();
+  calendarConversations(kind: 'c2c' | 'group', convs: readonly string[]) {
+    return this.cache.calendarConversations(kind, convs);
   }
   calendarPage(
     kind: 'c2c' | 'group',
