@@ -563,7 +563,7 @@ export function createQQActionsRouter(
           const userId = await adminTarget(s, i.groupId, i.targetUid);
           const before = await s.groupModeration.adminReceiveVerify(i.groupId, userId, i.targetUid);
           current();
-          if (before === null) throw new Error('服务端未返回收取入群验证状态');
+          if (before === null) throw new Error('服务端未返回接收验证消息的状态');
           if (before !== i.enable)
             await s.groupModeration.setAdminReceiveVerify(i.groupId, userId, i.targetUid, i.enable);
         }),

@@ -78,8 +78,8 @@ export const CONTACT_GROUP_FEATURES = [
   }),
   group(
     'admin-verification',
-    '收取入群验证',
-    '群主可在管理员权限里调整单个管理员收取入群验证的状态。',
+    '接收验证消息',
+    '群主可在管理员权限里为单个管理员开启或关闭接收验证消息。',
   ),
   group('management', '群管理', '在当前群的会话设置查看适用的管理操作。'),
   group('nickname', '我的群昵称与头衔', '在当前群资料或会话设置中查看和编辑可操作的字段。'),

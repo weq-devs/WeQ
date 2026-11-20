@@ -182,7 +182,7 @@ function GroupAdminPermissionsEditor({
           }}
         >
           <Row
-            label="收取入群验证"
+            label="接收验证消息"
             control={
               verification.data == null ? (
                 <span className="weq-admin-permissions-status">
@@ -194,10 +194,10 @@ function GroupAdminPermissionsEditor({
                 </span>
               ) : (
                 <SegmentedControl
-                  label="收取入群验证"
+                  label="接收验证消息"
                   value={verification.data ? 'receive' : 'off'}
                   options={[
-                    { value: 'receive', label: '收取' },
+                    { value: 'receive', label: '接收' },
                     { value: 'off', label: '关闭' },
                   ]}
                   disabled={action.disabled || verification.isFetching || verification.isError}
@@ -209,23 +209,23 @@ function GroupAdminPermissionsEditor({
           {verification.error ? <p role="alert">{verification.error.message}</p> : null}
           <div className="weq-admin-permissions-member-actions">
             <Row
-              label="撤回群成员消息"
-              control={switchControl('撤回群成员消息', recall, (value) =>
+              label="撤回成员消息"
+              control={switchControl('撤回成员消息', recall, (value) =>
                 setDraft((old) => ({ ...old, recall: value })),
               )}
             />
             <Row
-              label="踢出群成员"
-              control={switchControl('踢出群成员', kick, (value) =>
+              label="移除群成员"
+              control={switchControl('移除群成员', kick, (value) =>
                 setDraft((old) => ({ ...old, kick: value })),
               )}
             />
             {kick === true ? (
               <Row
-                label="每日踢人上限"
+                label="每日可移除人数上限"
                 control={
                   <FormSelect
-                    aria-label="每日踢人上限"
+                    aria-label="每日可移除人数上限"
                     value={quota ?? ''}
                     disabled={disabled}
                     onChange={(event) =>
