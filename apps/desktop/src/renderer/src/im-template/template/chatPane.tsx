@@ -21,7 +21,6 @@ import {
   conversationSourceLabel,
 } from '../../lib/conversationActions';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
-import { GroupCallComingSoon } from '../../components/GroupCallComingSoon';
 import {
   GiftMallPanel,
   GroupGiftPanel,
@@ -52,7 +51,6 @@ import { IS_WEB } from '../../lib/target.shared';
 import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import '../../styles/unified-conversation.css';
-import '../../styles/group-call-soon.css';
 import { GroupProfileDialog, CloneMemberProfileCard } from '../../components/lazyMainPanels';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
 import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
@@ -550,11 +548,10 @@ export type ChatPaneProps = {
   ) => Promise<RepeatElement[]>;
   onSearchMentionMembers?: (query: string, conversation: Conversation) => Promise<GroupMember[]>;
   /**
-   * 发起通话（语音 / 视频）。只支持私聊 —— 群通话要先进房间再邀请，协议路径不同。
-   * 应用层负责拿 peerUin / 头像，这里只把会话与媒体类型透上去。
+   * 应用层根据会话打开通话窗或群成员邀请界面。
    */
   onStartCall?: (
-    conversation: Extract<Conversation, { type: 'direct' }>,
+    conversation: Extract<Conversation, { type: 'direct' | 'group' }>,
     media: 'audio' | 'video',
   ) => Promise<void>;
   /**
@@ -1090,8 +1087,6 @@ export function ChatPane({
   });
   /** 通话按钮的选择菜单（语音 / 视频）。锚点是被点的那个按钮。 */
   const [callMenu, setCallMenu] = useState<{ x: number; y: number } | null>(null);
-  /** 群聊通话入口的「敬请期待」面板。 */
-  const [groupCallSoon, setGroupCallSoon] = useState(false);
   const callButtonRef = useRef<HTMLButtonElement | null>(null);
   // 右键消息 → 「贴表情」打开的表情面板（仅群聊可用）。
   const [reactionPicker, setReactionPicker] = useState<{
@@ -4136,10 +4131,9 @@ export function ChatPane({
 
   /**
    * 发起语音通话：独立动作，不动输入框内容。
-   * 群聊暂不支持（协议侧要先进群房间，见 `@weqbot/protocol` 的 group 信令）。
    */
   async function startCall(media: 'audio' | 'video') {
-    if (conversation?.type !== 'direct' || !onStartCall) return;
+    if ((conversation?.type !== 'direct' && conversation?.type !== 'group') || !onStartCall) return;
     if (currentPreference.blocked) return;
     try {
       await onStartCall(conversation, media);
@@ -7080,7 +7074,6 @@ export function ChatPane({
                 <AiOutlineRedEnvelope size={21} />
               </button>
             ) : null}
-            {/* 通话：私聊走真实链路；群聊的协议还在收尾，先给「敬请期待」面板。 */}
             {(conversation?.type === 'direct' || conversation?.type === 'group') &&
             onStartCall &&
             !restrictedSource ? (
@@ -7092,10 +7085,6 @@ export function ChatPane({
                 aria-label="通话"
                 disabled={readOnly || restrictedSource || currentPreference.blocked}
                 onClick={(event) => {
-                  if (conversation?.type === 'group') {
-                    setGroupCallSoon(true);
-                    return;
-                  }
                   const rect = event.currentTarget.getBoundingClientRect();
                   setCallMenu({ x: rect.left, y: rect.top - 8 });
                 }}
@@ -7954,7 +7943,6 @@ export function ChatPane({
           ]}
         />
       ) : null}
-      <GroupCallComingSoon open={groupCallSoon} onClose={() => setGroupCallSoon(false)} />
       {callMenu ? (
         <ConversationActionsMenu
           x={callMenu.x}

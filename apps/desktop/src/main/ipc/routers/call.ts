@@ -17,7 +17,8 @@ import { observable } from '@trpc/server/observable';
 import { ensureCallBackground, getLogger } from '@weq/service';
 import { procedure, router } from '../trpc';
 import { getAppContext, requireAttachEnabled } from '../../context/app_context';
-import { callManagerFor, findCallManager } from '../../call_registry';
+import { callManagerFor, findCallManager, withCallStart } from '../../call_registry';
+import { hasGroupCall } from '../../group_call';
 import {
   CallRecordingStore,
   recordingsRootFor,
@@ -47,54 +48,58 @@ export const callRouter = router({
         media: z.enum(['audio', 'video']).optional(),
       }),
     )
-    .mutation(async ({ input }) => {
-      requireAttachEnabled();
-      const ctx = getAppContext();
-      const session = ctx.account;
-      if (!session) throw new Error('未打开账号');
+    .mutation(({ input }) =>
+      withCallStart(async () => {
+        requireAttachEnabled();
+        if (hasGroupCall()) throw new Error('当前已有群通话，请先退出');
+        const ctx = getAppContext();
+        const session = ctx.account;
+        if (!session) throw new Error('未打开账号');
 
-      const selfUin = session.context.uin;
-      const selfUid = session.selfUid;
-      if (!selfUid) throw new Error('读不到本账号的 uid，无法发起通话');
+        const selfUin = session.context.uin;
+        const selfUid = session.selfUid;
+        if (!selfUid) throw new Error('读不到本账号的 uid，无法发起通话');
 
-      // 对端 uid 必须走这个会话的 uid 表：协议层只认 `u_...` 形态。
-      const peerUid = session.uidMap.uidByUin(BigInt(input.peerUin)) ?? '';
-      if (!peerUid) throw new Error(`找不到 ${input.peerUin} 的 uid（先和对方有过会话再试）`);
+        // 对端 uid 必须走这个会话的 uid 表：协议层只认 `u_...` 形态。
+        const peerUid = session.uidMap.uidByUin(BigInt(input.peerUin)) ?? '';
+        if (!peerUid) throw new Error(`找不到 ${input.peerUin} 的 uid（先和对方有过会话再试）`);
 
-      const pid = ctx.platform?.resolveQqPid(selfUin);
-      if (!pid) throw new Error('QQ 当前不在线，通话需要借用在线实例的凭据');
+        const pid = ctx.platform?.resolveQqPid(selfUin);
+        if (!pid) throw new Error('QQ 当前不在线，通话需要借用在线实例的凭据');
 
-      // 通话背景是装饰：取不到就直接用默认底图，绝不因为它拖慢或挡住拨号。
-      // `ensureCallBackground` 自己有缓存策略 —— 快照里查过这一项就不会再联网。
-      const background = await ensureCallBackground(
-        ctx.platform!.native.ntHelper,
-        session,
-        // 会话级服务里就是当前账号的配置服务。
-        ctx.services!.accountConfig,
-        pid,
-      ).catch(() => null);
+        // 通话背景是装饰：取不到就直接用默认底图，绝不因为它拖慢或挡住拨号。
+        // `ensureCallBackground` 自己有缓存策略 —— 快照里查过这一项就不会再联网。
+        const background = await ensureCallBackground(
+          ctx.platform!.native.ntHelper,
+          session,
+          // 会话级服务里就是当前账号的配置服务。
+          ctx.services!.accountConfig,
+          pid,
+        ).catch(() => null);
+        if (getAppContext().account !== session) throw new Error('账号已切换');
 
-      const manager = callManagerFor(ctx.platform!, pid);
-      const call = await manager.start({
-        pid,
-        selfUin,
-        selfUid,
-        kind: 'c2c',
-        media: input.media ?? 'audio',
-        conv: peerUid,
-        peerUin: input.peerUin,
-        peerUid,
-        peerName: input.peerName,
-        peerAvatar: input.peerAvatar,
-        backgroundUrl: background?.imageUrl,
-        backgroundVideoUrl: background?.videoUrl,
-        recordingConfig: ctx.bootstrap?.userConfig.getSettings().callRecording,
-        // 排障开关：禁止 P2P、强制走中继（设置 → 通话与录音 → 禁用 P2P 直连）。
-        disableP2P: ctx.bootstrap?.userConfig.getSettings().callDisableP2P === true,
-      });
-      logger.info('发起通话', { peer: input.peerUin, room: call.roomId });
-      return call;
-    }),
+        const manager = callManagerFor(ctx.platform!, pid);
+        const call = await manager.start({
+          pid,
+          selfUin,
+          selfUid,
+          kind: 'c2c',
+          media: input.media ?? 'audio',
+          conv: peerUid,
+          peerUin: input.peerUin,
+          peerUid,
+          peerName: input.peerName,
+          peerAvatar: input.peerAvatar,
+          backgroundUrl: background?.imageUrl,
+          backgroundVideoUrl: background?.videoUrl,
+          recordingConfig: ctx.bootstrap?.userConfig.getSettings().callRecording,
+          // 排障开关：禁止 P2P、强制走中继（设置 → 通话与录音 → 禁用 P2P 直连）。
+          disableP2P: ctx.bootstrap?.userConfig.getSettings().callDisableP2P === true,
+        });
+        logger.info('发起通话', { peer: input.peerUin, room: call.roomId });
+        return call;
+      }),
+    ),
 
   /** 挂断当前通话。没有通话时是空操作。 */
   hangup: procedure.mutation(async () => {

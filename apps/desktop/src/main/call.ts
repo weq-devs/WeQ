@@ -208,7 +208,7 @@ class NodeUdpTransport implements UdpTransport {
 // ─────────────────────────── 编解码 ───────────────────────────
 
 /** nt_helper 侧的 Opus 编解码，转成 `CallSession` 要的异步形状。 */
-class NativeCallCodec implements CallAudioCodec {
+export class NativeCallCodec implements CallAudioCodec {
   constructor(
     private readonly nt: NtHelperBinding,
     private readonly modulesDir: string,
@@ -361,6 +361,10 @@ export class CallManager extends EventEmitter {
   /** 当前通话（没有则 null）。 */
   current(): ActiveCallInfo | null {
     return this.info;
+  }
+
+  get busy(): boolean {
+    return this.session !== null;
   }
 
   /**

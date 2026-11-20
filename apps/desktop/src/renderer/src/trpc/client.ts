@@ -40,7 +40,7 @@ export const trpc: CreateTRPCReact<AppRouter, unknown, null> = createTRPCReact<A
  * `@transport` resolves per build target: IPC in Electron, HTTP + WebSocket in
  * the browser (see each app's vite alias).
  */
-export const trpcClient = trpc.createClient({
+export const trpcClient: ReturnType<typeof trpc.createClient> = trpc.createClient({
   links: createLinks(),
   transformer: superjson,
 });

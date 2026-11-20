@@ -1228,6 +1228,18 @@ export interface NtHelperBinding {
   /** 新版 native 显式按 QQ 进程号发送；旧发布构建仍使用同名主入口。 */
   sendPacketByPid?: NtHelperBinding['sendPacket'];
   sendOidbPacketByPid?: NtHelperBinding['sendOidbPacket'];
+  sendPacketBySession?: NtHelperBinding['sendPacket'];
+  openSession?(options: {
+    mode: 1;
+    session: SsoSessionConfig;
+    wrapperPath?: string | null;
+  }): Promise<{ sessionId: number }>;
+  closeSession?(sessionId: number): Promise<boolean>;
+  attachPushSink?(
+    sessionId: number,
+    sink: (error: Error | null, frame: { command: string; body: Buffer }) => void,
+  ): Promise<void>;
+  detachPushSink?(sessionId: number): Promise<boolean>;
 
   // --- 语音通话的媒体编码 ---
   /**

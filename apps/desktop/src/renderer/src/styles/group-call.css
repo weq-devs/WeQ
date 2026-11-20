@@ -1,0 +1,316 @@
+.weq-group-call-window {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  overflow: auto;
+}
+
+.weq-group-call-inline {
+  height: min(580px, 92dvh);
+  overflow: hidden;
+}
+
+.weq-group-call-inline .weq-group-call-window {
+  position: relative;
+}
+
+.weq-group-call-window[hidden],
+.weq-group-call-stage [hidden] {
+  display: none;
+}
+
+.weq-group-call-heading,
+.weq-group-call-list-heading,
+.weq-group-call-footer,
+.weq-group-call-pages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.weq-group-call-heading h2,
+.weq-group-call-invite h2 {
+  font-size: 19px;
+  font-weight: 650;
+  margin: 0 0 4px;
+}
+
+.weq-group-call-heading > div {
+  min-width: 0;
+}
+
+.weq-group-call-heading h2,
+.weq-group-call-notice {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-group-call-notice {
+  max-width: 42%;
+}
+
+.weq-group-call-heading p,
+.weq-group-call-window small,
+.weq-group-call-avatar-stage span {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  margin: 0;
+}
+
+.weq-group-call-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 250px);
+  gap: 14px;
+  min-height: 220px;
+  flex: 1;
+}
+
+.weq-group-call-stage {
+  min-height: 220px;
+  overflow: hidden;
+  position: relative;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
+  border: 1px solid var(--weq-border-subtle);
+}
+
+.weq-group-call-stage canvas {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #111318;
+}
+
+.weq-group-call-stage video {
+  z-index: 1;
+  position: absolute;
+  inset: auto 12px 12px auto;
+  width: min(27%, 132px);
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  transform: scaleX(-1);
+}
+
+.weq-group-call-stage-name {
+  z-index: 1;
+  position: absolute;
+  inset: auto auto 12px 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: white;
+  background: rgb(0 0 0 / 65%);
+}
+
+.weq-group-call-avatar-stage {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+}
+
+.weq-group-call-people {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.weq-group-call-list-heading .weq-set-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.weq-group-call-people ul {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 2px;
+}
+
+.weq-group-call-people li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.weq-group-call-people li.is-selected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
+.weq-group-call-member {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  border-radius: 6px;
+}
+
+.weq-group-call-member:not(:disabled),
+.weq-group-call-member-action {
+  cursor: pointer;
+}
+
+.weq-group-call-member:focus-visible,
+.weq-group-call-member-action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.weq-group-call-choice > span:not(.weq-avatar-fallback),
+.weq-group-call-member > span:not(.weq-avatar-fallback),
+.weq-group-call-waiting li > span:last-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-group-call-choice small,
+.weq-group-call-member small {
+  display: block;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-group-call-member :is(img, svg, .weq-avatar-fallback),
+.weq-group-call-choice :is(img, svg, .weq-avatar-fallback),
+.weq-group-call-waiting :is(img, .weq-avatar-fallback) {
+  flex-shrink: 0;
+}
+
+.weq-group-call-member-action {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--weq-fg-secondary);
+  background: transparent;
+}
+
+.weq-group-call-member-action:hover,
+.weq-group-call-member-action[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-group-call-waiting {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-group-call-window .weq-call-actions {
+  position: static;
+  flex: 0 0 auto;
+  transform: none;
+  justify-content: center;
+  align-self: center;
+  padding: 0;
+}
+
+.weq-group-call-invite {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.weq-group-call-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--weq-border-subtle);
+  padding: 7px 10px;
+  border-radius: 8px;
+}
+
+.weq-group-call-search input {
+  width: 100%;
+  background: transparent;
+  color: inherit;
+  border: 0;
+}
+
+.weq-group-call-choices {
+  max-height: min(310px, 43vh);
+  overflow: auto;
+}
+
+.weq-group-call-choice {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.weq-group-call-choice:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-group-call-choice input {
+  accent-color: var(--weq-accent-effective);
+}
+
+.weq-group-call-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 80px;
+  overflow: auto;
+}
+
+.weq-group-call-footer {
+  justify-content: flex-end;
+}
+
+.weq-group-call-error {
+  border-left: 2px solid var(--weq-danger-solid-background);
+  padding-left: 8px;
+  margin: 0;
+}
+
+@media (max-width: 660px) {
+  .weq-group-call-window {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .weq-group-call-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(160px, 1fr) minmax(92px, 150px);
+    min-height: 266px;
+  }
+
+  .weq-group-call-stage {
+    min-height: 160px;
+  }
+}
