@@ -1,3 +1,4 @@
+import { OnlineSystemFacesDialog } from '../../components/OnlineSystemFacesDialog';
 import { Languages } from 'lucide-react';
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
 import type { ConversationInteraction } from '../../../../shared/conversation_interaction';
@@ -933,6 +934,7 @@ export function ChatPane({
   const [toolsOpen, setToolsOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
+  const [onlineFacesOpen, setOnlineFacesOpen] = useState(false);
   const [arkOpen, setArkOpen] = useState(false);
   // 「AI 声聊」面板：输入文字 + 选声线 + 试听，合成后**单独发送**（仅群聊）。
   const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
@@ -7275,6 +7277,14 @@ export function ChatPane({
                 canInsertCustomEmoji ? (file) => void addFiles([file], 'emoji') : undefined
               }
               textOnly={restrictedSource}
+              onOpenOnlineCatalog={
+                sendAvailable && !restrictedSource
+                  ? () => {
+                      setEmojiOpen(false);
+                      setOnlineFacesOpen(true);
+                    }
+                  : undefined
+              }
             />
           ) : null}
           {voicePanelActive ? (
@@ -7691,6 +7701,14 @@ export function ChatPane({
                   canInsertCustomEmoji ? (file) => void addFiles([file], 'emoji') : undefined
                 }
                 textOnly={restrictedSource}
+                onOpenOnlineCatalog={
+                  sendAvailable && !restrictedSource
+                    ? () => {
+                        setEmojiOpen(false);
+                        setOnlineFacesOpen(true);
+                      }
+                    : undefined
+                }
               />
             ) : null}
             {redPacketOpen ? (
@@ -7715,6 +7733,9 @@ export function ChatPane({
           onCancel={() => setClearMessagesConfirmOpen(false)}
           onConfirm={clearConversationMessagesLocally}
         />
+      ) : null}
+      {onlineFacesOpen && !restrictedSource ? (
+        <OnlineSystemFacesDialog onClose={() => setOnlineFacesOpen(false)} />
       ) : null}
       {mediaSave.prompt}
       {contextMenu ? (

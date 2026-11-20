@@ -184,6 +184,12 @@ export function createQQActionsRouter(
       throw new Error('当前账号没有此相册操作权限，请刷新相册后重试');
   }
   return router({
+    onlineSystemFaces: procedure
+      .input(binding)
+      .query(({ input: i }) => read(i, (s) => s.emoji.onlineSystemFaces())),
+    onlineSystemFace: procedure
+      .input(binding.extend({ faceId: z.number().int().min(0).max(0xffffffff) }))
+      .query(({ input: i }) => read(i, (s) => s.emoji.onlineSystemFace(i.faceId))),
     onlineDirectory: procedure
       .input(binding)
       .query(({ input: i }) => read(i, (s) => s.accountWrite.onlineDirectory())),

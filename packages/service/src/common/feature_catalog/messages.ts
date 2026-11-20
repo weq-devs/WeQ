@@ -47,6 +47,15 @@ export const CONVERSATION_CALENDAR_FEATURE = defineFeature(
 
 export const MESSAGE_FEATURES = [
   messageFeature(
+    'system-emoji-catalog',
+    '在线系统表情目录',
+    '从表情面板查看 QQ 在线目录或查询单个表情。',
+    {
+      context: ['account', 'conversation'],
+      navigation: 'context',
+    },
+  ),
+  messageFeature(
     'ai-voice-catalog',
     '群聊在线声线',
     '在群聊 AI 声聊面板浏览当前群的声线、试听并发送。',
