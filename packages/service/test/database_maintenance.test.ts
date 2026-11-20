@@ -254,6 +254,7 @@ it('持锁进程意外退出会结束维护，旧报告保留，旧结果不能�
   const h = fixture();
   await h.maintenance.scan(scope, h.targets, 'scan');
   h.lease.abort(new Error('synthetic lock process exited'));
+  expect(() => h.maintenance.scan(scope, h.targets, 'checkup')).toThrow('持续维护锁已中断');
   for (let count = 0; count < 10; count++) await Promise.resolve();
   expect(h.maintenance.current(scope)).toMatchObject({
     state: 'ended',
@@ -262,6 +263,7 @@ it('持锁进程意外退出会结束维护，旧报告保留，旧结果不能�
   });
   expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('扫描');
   expect(h.scan).toHaveBeenCalledTimes(3);
+  expect(h.deep).not.toHaveBeenCalled();
   expect(h.reports.list()).toHaveLength(1);
 });
 
@@ -358,12 +360,15 @@ it('打开状态不扫描；全账号先锁定，扫描结果在等待和继续�
   const h = fixture();
   expect(h.maintenance.current(scope)).toBeNull();
   expect(h.scan).not.toHaveBeenCalled();
-  await h.maintenance.scan(scope, h.targets, 'scan');
-  expect(h.maintenance.current(scope)).toMatchObject({ state: 'waiting', locked: true });
+  const quick = await h.maintenance.scan(scope, h.targets, 'scan');
+  expect(quick).toMatchObject({ state: 'waiting', locked: true });
   expect(h.release).not.toHaveBeenCalled();
   expect(h.scan).toHaveBeenCalledTimes(3);
-  await h.maintenance.scan(scope, h.targets, 'checkup');
+  const deep = await h.maintenance.scan(scope, h.targets, 'checkup');
+  expect(deep).toMatchObject({ id: quick.id, state: 'waiting', locked: true });
   expect(h.scan).toHaveBeenCalledTimes(3);
+  expect(h.deep).toHaveBeenCalledTimes(3);
+  expect(h.release).not.toHaveBeenCalled();
   expect(h.reports.list()).toHaveLength(2);
   expect(
     h.reports.list().find((report) => report.operation.kind === 'scan')?.databases[0]?.integrity,

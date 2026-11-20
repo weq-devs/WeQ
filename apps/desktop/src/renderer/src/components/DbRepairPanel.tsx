@@ -517,7 +517,16 @@ export function DbRepairPanel({
   const waiting = live?.state === 'waiting' && !ending;
   const paused =
     waiting && live?.operation?.kind !== 'repair' && live?.operation?.status === 'cancelled';
-  const rescanning = !!live?.operation && !paused;
+  const continuing =
+    paused ||
+    (waiting &&
+      locked &&
+      scanKind === 'checkup' &&
+      live?.operation?.kind === 'scan' &&
+      live.databases.some(
+        (row) => row.scanStatus === 'completed' && row.deepStatus !== 'completed',
+      ));
+  const rescanning = !!live?.operation && !continuing;
   const databases =
     view?.databases ??
     status.data?.databases
@@ -672,7 +681,7 @@ export function DbRepairPanel({
           onClick={() => void startScan(scanKind)}
         >
           {rescanning ? <RefreshCw size={14} /> : <Play size={14} />}
-          {paused ? '继续扫描' : rescanning ? '重新扫描' : '开始扫描'}
+          {continuing ? '继续扫描' : rescanning ? '重新扫描' : '开始扫描'}
         </button>
       )}
     </div>

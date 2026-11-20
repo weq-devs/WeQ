@@ -73,8 +73,20 @@ try {
   };
   await checkScanAlignment();
   await capture('scan-controls-desktop');
-  await page.getByRole('radio', { name: '深度体检', exact: true }).click();
   await page.getByRole('button', { name: '开始扫描', exact: true }).click();
+  await page.getByRole('button', { name: '暂停扫描', exact: true }).waitFor();
+  await page.evaluate(() => window.maintenanceQa.complete());
+  await page.getByRole('button', { name: '重新扫描', exact: true }).waitFor();
+  await page.getByRole('radio', { name: '深度体检', exact: true }).click();
+  await page.getByRole('button', { name: '继续扫描', exact: true }).click();
+  await page.getByRole('button', { name: '暂停扫描', exact: true }).waitFor();
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      kinds: window.maintenanceQa.calls.scan.map((call) => call.kind),
+      end: window.maintenanceQa.calls.end,
+    })),
+    { kinds: ['scan', 'checkup'], end: 0 },
+  );
   assert.equal(await page.getByRole('radio', { name: '快速体检', exact: true }).isEnabled(), false);
   await page.evaluate(() => window.maintenanceQa.structure());
   await page.getByText('检查页结构与引用', { exact: true }).waitFor();
@@ -101,7 +113,7 @@ try {
   await historyPane.getByRole('button', { name: '关闭', exact: true }).click();
   await page.getByRole('button', { name: '数据库修复设置', exact: true }).click();
   const settingsPane = page.getByRole('dialog', { name: '数据库修复设置' });
-  await settingsPane.getByText('重建缓存位置', { exact: true }).waitFor();
+  await settingsPane.getByText('/synthetic/cache', { exact: true }).waitFor();
   await capture('cache-settings-desktop');
   await settingsPane.getByRole('button', { name: '关闭', exact: true }).click();
   await page.setViewportSize({ width: 680, height: 780 });
