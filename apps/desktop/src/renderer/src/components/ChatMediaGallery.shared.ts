@@ -20,11 +20,16 @@ export type GalleryOpen = (
   clicked?: Partial<PreviewMedia>,
 ) => boolean;
 export const GalleryContext = createContext<GalleryOpen | null>(null);
+export const GalleryItemsContext = createContext<readonly PreviewMedia[]>([]);
 export const MediaItemKeyContext = createContext('');
 export const MediaItemIndexContext = createContext(0);
 export const MediaMessageKeyContext = createContext('');
 export function useChatMediaOpen() {
   return useContext(GalleryContext);
+}
+
+export function useChatMediaItems() {
+  return useContext(GalleryItemsContext);
 }
 
 export function chatImagePreviewSources(

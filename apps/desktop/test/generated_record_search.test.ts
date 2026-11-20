@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatRecordsModal } from '../src/renderer/src/components/search/ChatRecordsModal';
@@ -9,6 +9,8 @@ import {
 } from '../src/renderer/src/views/agentlab/cloneChatAdapter';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
+import { changeInput, chooseFormOption } from './support/form-controls';
+import { usePreviews } from '../src/renderer/src/components/mediaPreviewStore.shared';
 
 const nativeReads = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/trpc/client', async () => {
@@ -278,3 +280,194 @@ function nativeRecords() {
     onJumpMessage: vi.fn(),
   });
 }
+
+it('跳到原消息后重新打开搜索，恢复筛选、已加载页及滚动位置', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const cursor = { time: 1794528000, rowId: '2' };
+  const item = (id: string) => ({
+    msgId: id,
+    msgSeq: id,
+    senderUid: 'fixture',
+    senderUin: '',
+    senderName: '',
+    sendTime: '1794528000',
+    content: `记录 ${id}`,
+  });
+  const browse = vi.fn(async (input: { cursor?: typeof cursor }) => ({
+    items: input.cursor ? [item('1')] : [item('2')],
+    cursor: input.cursor ? null : cursor,
+    hasMore: !input.cursor,
+  }));
+  const jump = vi.fn();
+  nativeReads.mockImplementation((path: string, input: { cursor?: typeof cursor }) =>
+    path === 'account.browseConversation' ? browse(input) : undefined,
+  );
+  const { props } = nativeRecords();
+  function Fixture() {
+    const [suspended, setSuspended] = useState(false);
+    return h(
+      'div',
+      null,
+      h('button', { id: 'reopen', onClick: () => setSuspended(false) }, '重新打开'),
+      h(ChatRecordsModal, {
+        ...props,
+        suspended,
+        onJumpMessage: jump,
+        onSuspend: () => setSuspended(true),
+      }),
+    );
+  }
+  // 浮层内容走 Portal，重开按钮保留在原宿主。
+  const host = document.createElement('div');
+  document.body.append(host);
+  const page = createRoot(host);
+  const input = () => document.querySelector<HTMLInputElement>('.weq-search-more-input')!;
+  const category = () => document.querySelector<HTMLButtonElement>('[aria-label="消息类型"]')!;
+  const results = () => document.querySelector<HTMLDivElement>('.weq-chatrecords-msgs')!;
+  try {
+    await act(async () => page.render(h(Fixture)));
+    await act(async () => changeInput(input(), '站点'));
+    await act(async () => chooseFormOption(category(), 'link'));
+    Object.defineProperties(results(), {
+      clientHeight: { value: 300 },
+      scrollHeight: { value: 1000 },
+    });
+    results().scrollTop = 700;
+    await act(async () => results().dispatchEvent(new Event('scroll')));
+    expect(results().textContent).toContain('记录 1');
+    expect(browse.mock.lastCall?.[0]).toMatchObject({
+      filter: { category: 'link', keyword: '站点' },
+      cursor,
+    });
+    const queries = browse.mock.calls.length;
+    act(() => results().querySelector<HTMLButtonElement>('.weq-chatrecords-msg')!.click());
+    expect(jump).toHaveBeenCalledWith(expect.objectContaining({ msgId: '2', targetUid: '12345' }));
+    expect(results()).toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('#reopen')!.click());
+    expect(input().value).toBe('站点');
+    expect(category().dataset.value).toBe('link');
+    expect(results().textContent).toContain('记录 1');
+    expect(results().scrollTop).toBe(700);
+    expect(browse).toHaveBeenCalledTimes(queries);
+  } finally {
+    act(() => page.unmount());
+    host.remove();
+  }
+});
+
+it('共享媒体使用原筛选分页，缩略图预览与定位原消息分别操作', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  const { props } = nativeRecords();
+  const jump = vi.fn();
+  const item = (category: string) => ({
+    msgId: '4',
+    msgSeq: '4',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    senderName: '成员',
+    sendTime: '1794528000',
+    content: `${category} 正文`,
+    elements: [
+      {
+        type: category === 'image' ? 'pic' : category,
+        data: {
+          fileName: category === 'video' ? 'preview.webm' : `fixture-${category}`,
+          fileToken: 'media-token',
+        },
+      },
+      ...(category === 'video' ? [{ type: 'pic', data: { fileName: '同消息配图.jpg' } }] : []),
+    ],
+  });
+  nativeReads.mockImplementation((path: string, input: { filter: { category: string } }) =>
+    path === 'account.browseConversation'
+      ? { items: [item(input.filter.category)], cursor: null, hasMore: false }
+      : undefined,
+  );
+  const labeled = (label: string) =>
+    document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+  try {
+    await act(async () =>
+      root.render(
+        h(ChatRecordsModal, {
+          ...props,
+          initialKeyword: '',
+          sharedMedia: true,
+          onJumpMessage: jump,
+        }),
+      ),
+    );
+    const buttons = [
+      ...document.querySelectorAll<HTMLButtonElement>('.weq-record-media-categories button'),
+    ];
+    expect(buttons.map((button) => button.textContent)).toEqual(['图片', '视频', '文件']);
+    await act(async () => labeled('查看图片：fixture-image').click());
+    expect(usePreviews.getState().sessions.get(document)?.items[0]?.kind).toBe('image');
+    expect(jump).not.toHaveBeenCalled();
+
+    await act(async () => buttons[1]!.click());
+    await act(async () => labeled('查看视频：preview.webm').click());
+    expect(
+      usePreviews
+        .getState()
+        .sessions.get(document)
+        ?.items.map(({ kind }) => kind),
+    ).toEqual(['video']);
+    expect(jump).not.toHaveBeenCalled();
+    await act(async () => labeled('定位原消息：preview.webm').click());
+    expect(jump).toHaveBeenCalledWith(expect.objectContaining({ msgId: '4', msgSeq: '4' }));
+
+    await act(async () => buttons[2]!.click());
+    expect(document.querySelector('.weq-record-media-grid')).toBeNull();
+    expect(document.querySelector('.weq-chatrecords-msg')).not.toBeNull();
+    expect(
+      nativeReads.mock.calls
+        .filter(([path]) => path === 'account.browseConversation')
+        .map(([, input]) => input.filter.category),
+    ).toEqual(['image', 'video', 'file']);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it('发送者可选群昵称、备注或号码，使用身份筛选并保留账号绑定', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers();
+  const root = createRoot(document.createElement('div'));
+  const { props } = nativeRecords();
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source' };
+  nativeReads.mockImplementation((path: string) =>
+    path === 'account.searchGroupMembers'
+      ? { members: [{ uid: 'u_peer', uin: '20001', nick: '昵称样本', card: '群名片' }], total: 1 }
+      : { items: [], cursor: null, hasMore: false },
+  );
+  try {
+    await act(async () => root.render(h(ChatRecordsModal, { ...props, accountBinding: binding })));
+    const input = document.querySelector<HTMLInputElement>('[aria-label="发送者"]')!;
+    await act(async () => changeInput(input, '昵称样本'));
+    await act(async () => vi.advanceTimersByTime(180));
+    expect(nativeReads).toHaveBeenCalledWith(
+      'account.searchGroupMembers',
+      expect.objectContaining({
+        ...binding,
+        groupCode: '12345',
+        keyword: '昵称样本',
+      }),
+      expect.anything(),
+    );
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((element) =>
+      element.textContent?.includes('昵称样本'),
+    )!;
+    await act(async () => option.click());
+    expect(nativeReads).toHaveBeenCalledWith(
+      'account.browseConversation',
+      expect.objectContaining({
+        ...binding,
+        filter: expect.objectContaining({ sender: '20001' }),
+      }),
+      expect.anything(),
+    );
+  } finally {
+    act(() => root.unmount());
+  }
+});

@@ -7,6 +7,7 @@ import {
   galleryMedia,
   type GalleryOpen,
   GalleryContext,
+  GalleryItemsContext,
 } from './ChatMediaGallery.shared';
 
 type GalleryFilter = Parameters<typeof client.account.mediaPreviewPage.query>[0]['filter'];
@@ -17,6 +18,7 @@ export function ChatMediaGallery({
   conv = '',
   kind = 'c2c',
   filter,
+  mediaKind,
   carrier,
   paged = false,
   scopeKey = conv,
@@ -26,6 +28,7 @@ export function ChatMediaGallery({
   conv?: string;
   kind?: 'c2c' | 'group';
   filter?: GalleryFilter;
+  mediaKind?: 'image' | 'video';
   carrier?: import('../state/messageContext').ForwardCarrier;
   paged?: boolean;
   scopeKey?: string;
@@ -35,10 +38,14 @@ export function ChatMediaGallery({
   bindingRef.current = policy.binding;
   const identity = `${policy.binding?.expectedAccountConfigId}:${policy.binding?.expectedAccountUin}:${scopeKey}`;
   const handle = useRef<ReturnType<typeof openMediaPreview> | null>(null);
-  const items = useMemo(
-    () => galleryMedia(messages, conv, kind, carrier),
-    [messages, conv, kind, carrier],
+  const mediaFor = useCallback(
+    (rows: GalleryMessage[]) => {
+      const all = galleryMedia(rows, conv, kind, carrier);
+      return mediaKind ? all.filter((item) => item.kind === mediaKind) : all;
+    },
+    [conv, kind, carrier, mediaKind],
   );
+  const items = useMemo(() => mediaFor(messages), [messages, mediaFor]);
   const latest = useRef(items);
   latest.current = items;
   useEffect(() => {
@@ -95,14 +102,18 @@ export function ChatMediaGallery({
                 );
                 cursors[direction] = page.cursor;
                 const ordered = direction === 'older' ? [...page.items].reverse() : page.items;
-                return { items: galleryMedia(ordered, conv, kind), hasMore: page.hasMore };
+                return { items: mediaFor(ordered), hasMore: page.hasMore };
               }
             : undefined,
       });
       return true;
     },
-    [conv, kind, paged, filter, identity],
+    [conv, kind, paged, filter, identity, mediaFor],
   );
-  return <GalleryContext.Provider value={open}>{children}</GalleryContext.Provider>;
+  return (
+    <GalleryContext.Provider value={open}>
+      <GalleryItemsContext.Provider value={items}>{children}</GalleryItemsContext.Provider>
+    </GalleryContext.Provider>
+  );
 }
 export type { GalleryMessage } from './ChatMediaGallery.shared';

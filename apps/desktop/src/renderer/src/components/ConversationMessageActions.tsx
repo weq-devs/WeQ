@@ -3,6 +3,7 @@ import {
   Bug,
   CirclePlus,
   Ellipsis,
+  Images,
   ListFilter,
   ListRestart,
   ListX,
@@ -45,6 +46,7 @@ export function ConversationMessageActions({
   onAdd,
   compact = false,
   onSearch,
+  onMedia,
   onImportant,
   onGroupInfo,
   onSettings,
@@ -59,6 +61,7 @@ export function ConversationMessageActions({
   onAdd?: (conversation: Conversation) => void;
   compact?: boolean;
   onSearch?: () => void;
+  onMedia?: () => void;
   onImportant?: () => void;
   onGroupInfo?: (anchor: HTMLButtonElement) => void;
   onSettings?: (anchor: HTMLButtonElement) => void;
@@ -210,6 +213,7 @@ export function ConversationMessageActions({
         ]
       : []),
     ...(onSearch ? [{ label: '搜索', icon: <Search size={18} />, action: onSearch }] : []),
+    ...(onMedia ? [{ label: '共享媒体', icon: <Images size={18} />, action: onMedia }] : []),
     ...(messages.length
       ? [{ label: '消息', icon: <MessageSquareText size={18} />, children: messages }]
       : []),
@@ -219,7 +223,8 @@ export function ConversationMessageActions({
       : []),
   ];
   // 没有宿主能力的虚拟对象不单独显示空工具栏。
-  if (!onSearch && !onSettings && !messages.length && !tools.length && !onBug) return null;
+  if (!onSearch && !onMedia && !onSettings && !messages.length && !tools.length && !onBug)
+    return null;
   const menuActions =
     menu && (compact ? actions : actions.find((item) => item.label === menu.label)?.children);
   const open = (button: HTMLButtonElement, label: string) => {

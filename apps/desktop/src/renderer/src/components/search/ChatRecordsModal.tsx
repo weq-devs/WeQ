@@ -4,7 +4,7 @@ import { eventTimeFormatter } from '@weq/time';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { CalendarDays, Download, X, SearchX } from 'lucide-react';
+import { CalendarDays, Download, LocateFixed, Play, X, SearchX } from 'lucide-react';
 import { ChatRecordsHeader } from './ChatRecordsHeader';
 import { ConversationCalendar } from './ConversationCalendar';
 import { TimeRangePicker } from '../../views/export/TimeRangePicker';
@@ -18,6 +18,7 @@ import { client } from '../../trpc/client';
 import { preflightExportEstimate } from '../../views/export/preflight';
 import { useExportReportDialog } from '../../views/export/ExportReportControl.shared';
 import { useAppDialog } from '../../lib/dialogUtils';
+import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import {
   ConvContext,
   ForwardKindContext,
@@ -26,6 +27,8 @@ import {
 } from '../../state/messageContext';
 import { closeForwardWindows } from '../../state/forwardWindow';
 import { ChatMediaGallery } from '../ChatMediaGallery';
+import { useChatMediaItems, useChatMediaOpen } from '../ChatMediaGallery.shared';
+import { ShimmerImage } from '../ShimmerImage';
 import { MessageBubble } from '../../im-template/template/messageBubble';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
@@ -40,12 +43,28 @@ import type { MessageCategory } from '@weq/service';
 
 const noop = (): void => {};
 type BrowseCursor = { time: number; rowId: string };
+const categoryLabels: Record<MessageCategory, string> = {
+  text: '文字',
+  image: '图片',
+  video: '视频',
+  voice: '语音',
+  file: '文件',
+  link: '链接',
+  emoji: '表情',
+  system: '系统',
+  other: '其他',
+};
+const sharedCategories = ['image', 'video', 'file'] as const;
 
 export function ChatRecordsModal({
   initialHit,
   initialKeyword,
   fixed = false,
+  sharedMedia = false,
+  accountBinding,
+  suspended = false,
   onClose,
+  onSuspend,
   onJumpMessage,
   renderers,
   user,
@@ -70,7 +89,12 @@ export function ChatRecordsModal({
    * 列表，结果列表占满整个宽度，跳转目标始终是当前会话。
    */
   fixed?: boolean;
+  sharedMedia?: boolean;
+  accountBinding?: QQWriteBinding;
+  suspended?: boolean;
   onClose: () => void;
+  /** 跳原消息时关闭浮层，保留这次搜索会话。 */
+  onSuspend?: () => void;
   /** Jump to a conversation + seq (like a file hit). */
   onJumpMessage: (hit: {
     source: 'buddy' | 'group';
@@ -83,7 +107,7 @@ export function ChatRecordsModal({
   user?: User;
   groupMembers?: (groupCode: string) => ReadonlyMap<string, GroupMember>;
   resolveGroupMembers?: (groupCode: string, uids: string[]) => void;
-}): ReactElement {
+}): ReactElement | null {
   const dialog = useAppDialog();
   const requestExport = useRequestContentExport();
   const [localKeyword, setKeyword] = useState(initialKeyword);
@@ -94,8 +118,19 @@ export function ChatRecordsModal({
   const [startDay, setStartDay] = useState('');
   const [endDay, setEndDay] = useState('');
   const [sender, setSender] = useState('');
+  const [senderMatches, setSenderMatches] = useState<{
+    query: string;
+    options: { value: string; label: string }[];
+  }>();
+  const senderQuery = sender.trim();
+  const senderIdentity =
+    !senderQuery || localSource || /^(?:[1-9]\d*|u_[\w-]+)$/.test(senderQuery)
+      ? senderQuery || undefined
+      : undefined;
+  const expectedAccountUin = accountBinding?.expectedAccountUin;
+  const expectedAccountConfigId = accountBinding?.expectedAccountConfigId;
   const [ownUin, setOwnUin] = useState('');
-  const [category, setCategory] = useState<MessageCategory | ''>('');
+  const [category, setCategory] = useState<MessageCategory | ''>(sharedMedia ? 'image' : '');
   const [exportFormat, setExportFormat] = useState<
     'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html'
   >('jsonl');
@@ -109,13 +144,13 @@ export function ChatRecordsModal({
   const localMatches = useRef<ConversationRecordHit[]>([]);
   const filter = useMemo(
     () => ({
-      sender: sender.trim() || undefined,
+      sender: senderIdentity,
       keyword: keyword.trim() || undefined,
       category: category || undefined,
       start: startDay ? Math.floor(Date.parse(`${startDay}T00:00:00+08:00`) / 1000) : undefined,
       end: endDay ? Math.floor(Date.parse(`${endDay}T23:59:59+08:00`) / 1000) : undefined,
     }),
-    [sender, keyword, category, startDay, endDay],
+    [senderIdentity, keyword, category, startDay, endDay],
   );
   useEffect(() => {
     let active = true;
@@ -148,11 +183,81 @@ export function ChatRecordsModal({
   const [msgLimited, setMsgLimited] = useState(false);
   const msgRunRef = useRef<{ controller: AbortController; loadingMore: boolean } | null>(null);
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
+  const savedScrollTop = useRef<number | null>(null);
+  const bindMsgScroll = useCallback((element: HTMLDivElement | null) => {
+    msgScrollRef.current = element;
+    if (!element || savedScrollTop.current === null) return;
+    element.scrollTop = savedScrollTop.current;
+    savedScrollTop.current = null;
+  }, []);
   const isGroup = selected.source === 'group';
   const members = useMemo(
     () => (isGroup && !localSource ? groupMembers?.(selected.targetUid) : undefined),
     [isGroup, localSource, groupMembers, selected.targetUid],
   );
+  useEffect(() => {
+    if (!fixed || !isGroup || localSource || suspended || !senderQuery || senderIdentity) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void client.account.searchGroupMembers
+        .query(
+          {
+            groupCode: selected.targetUid,
+            keyword: senderQuery,
+            limit: 30,
+            expectedAccountUin,
+            expectedAccountConfigId,
+          },
+          { signal: controller.signal },
+        )
+        .then(({ members }) => {
+          if (controller.signal.aborted) return;
+          setSenderMatches({
+            query: senderQuery,
+            options: members.map((member) => ({
+              value: member.uin && member.uin !== '0' ? member.uin : member.uid,
+              label: [...new Set([member.card, member.nick].filter(Boolean))].join(' · '),
+            })),
+          });
+        })
+        .catch(() => undefined);
+    }, 170);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    fixed,
+    isGroup,
+    localSource,
+    suspended,
+    senderIdentity,
+    senderQuery,
+    selected.targetUid,
+    expectedAccountUin,
+    expectedAccountConfigId,
+  ]);
+  const senderOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const message of messages) {
+      const value =
+        message.senderUin && message.senderUin !== '0' ? message.senderUin : message.senderUid;
+      if (value) options.set(value, message.senderName);
+    }
+    if (!isGroup && selected.targetUid) options.set(selected.targetUid, selected.name);
+    for (const member of members?.values() ?? []) {
+      const value = member.uin && member.uin !== '0' ? member.uin : member.id;
+      if (!value) continue;
+      const label = [
+        ...new Set([member.remark, member.card, member.nick, member.displayName].filter(Boolean)),
+      ].join(' · ');
+      options.set(value, label || options.get(value) || '');
+    }
+    if (senderMatches?.query === senderQuery)
+      for (const { value, label } of senderMatches.options)
+        if (value && !options.has(value)) options.set(value, label);
+    return [...options].map(([value, label]) => ({ value, label }));
+  }, [messages, isGroup, selected.name, selected.targetUid, members, senderMatches, senderQuery]);
   useEffect(() => {
     if (!isGroup || localSource || !resolveGroupMembers) return;
     const uids = new Set<string>();
@@ -204,6 +309,8 @@ export function ChatRecordsModal({
             kind: selected.source === 'group' ? 'group' : 'c2c',
             conv: selected.targetUid,
             filter,
+            expectedAccountUin,
+            expectedAccountConfigId,
             cursor: cursor ?? undefined,
             limit: 30,
           },
@@ -225,7 +332,7 @@ export function ChatRecordsModal({
           return { items: page.items, total: undefined, limited: false };
       }
     },
-    [fixed, selected, filter],
+    [fixed, selected, filter, expectedAccountUin, expectedAccountConfigId],
   );
 
   // Fetch messages for the selected conversation.
@@ -362,7 +469,7 @@ export function ChatRecordsModal({
     const observer = new ResizeObserver(onMsgScroll);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [fixed, browseHasMore, msgLoading, msgLoadingMore, msgError, onMsgScroll]);
+  }, [fixed, browseHasMore, msgLoading, msgLoadingMore, msgError, onMsgScroll, suspended]);
 
   const jumpTo = useCallback(
     (msg: Pick<ConversationRecordHit, 'msgSeq' | 'msgId'>) => {
@@ -380,7 +487,11 @@ export function ChatRecordsModal({
         setMsgError('该消息没有可定位的原生序号。');
         return;
       }
-      // 跳转进会话时自动关闭聊天记录模态。
+      if (onSuspend) {
+        savedScrollTop.current = msgScrollRef.current?.scrollTop ?? null;
+        setCalendarOpen(false);
+        setRangeCalendarOpen(false);
+      }
       closeForwardWindows();
       onJumpMessage({
         source: selected.source,
@@ -388,9 +499,9 @@ export function ChatRecordsModal({
         msgSeq: msg.msgSeq,
         msgId: msg.msgId,
       });
-      onClose();
+      (onSuspend ?? onClose)();
     },
-    [onJumpMessage, onClose, selected, localSource],
+    [onJumpMessage, onClose, onSuspend, selected, localSource],
   );
 
   const jumpToReply = useCallback(
@@ -424,8 +535,21 @@ export function ChatRecordsModal({
 
   const convKey = isGroup ? selected.targetUid : '';
   const browseRecords = fixed && !localSource;
+  const mediaKind = sharedMedia && (category === 'image' || category === 'video') ? category : null;
+  const messageList = mediaKind ? [] : messages;
   const searchingRecords = browseRecords && (msgLoading || msgLoadingMore);
   const progress = scannedDay ? `已查到 ${scannedDay}` : '';
+  const galleryMessages = useMemo(
+    () =>
+      messages.map((message) => ({
+        msgId: message.msgId,
+        msgSeq: message.msgSeq,
+        sendTime: message.sendTime,
+        elements: message.elements ?? [],
+      })),
+    [messages],
+  );
+  if (suspended) return null;
 
   const content = (
     <>
@@ -434,6 +558,7 @@ export function ChatRecordsModal({
         {embedded ? null : (
           <ChatRecordsHeader
             conversationName={fixed ? initialHit.name : undefined}
+            title={sharedMedia ? '共享媒体' : undefined}
             onClose={onClose}
           />
         )}
@@ -456,6 +581,21 @@ export function ChatRecordsModal({
           />
         )}
         <div className="weq-record-calendar-actions">
+          {sharedMedia ? (
+            <div className="weq-record-media-categories" role="group" aria-label="共享媒体类型">
+              {sharedCategories.map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  className="weq-set-btn"
+                  aria-pressed={category === kind}
+                  onClick={() => setCategory(kind)}
+                >
+                  {categoryLabels[kind]}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {fixed ? (
             <button type="button" onClick={() => setRangeCalendarOpen(true)}>
               <CalendarDays size={15} />
@@ -513,19 +653,11 @@ export function ChatRecordsModal({
             <label>
               发送者
               <FormSuggestions
-                placeholder="QQ 号或 UID"
+                aria-label="发送者"
+                placeholder="昵称、备注或 QQ 号"
                 value={sender}
                 onValueChange={setSender}
-                options={[
-                  ...new Map(
-                    messages.map((m) => [
-                      m.senderUin && m.senderUin !== '0' ? m.senderUin : m.senderUid,
-                      m.senderName,
-                    ]),
-                  ).entries(),
-                ]
-                  .filter(([id]) => !!id)
-                  .map(([value, label]) => ({ value, label }))}
+                options={senderOptions}
               />
             </label>
             <label className="weq-record-self">
@@ -537,29 +669,21 @@ export function ChatRecordsModal({
               />
               我
             </label>
-            <FormSelect
-              aria-label="消息类型"
-              disabled={Boolean(localSource)}
-              value={category}
-              onChange={(e) => setCategory(e.target.value as typeof category)}
-            >
-              <option value="">全部类型</option>
-              {Object.entries({
-                text: '文字',
-                image: '图片',
-                video: '视频',
-                voice: '语音',
-                file: '文件',
-                link: '链接',
-                emoji: '表情',
-                system: '系统',
-                other: '其他',
-              }).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </FormSelect>
+            {!sharedMedia ? (
+              <FormSelect
+                aria-label="消息类型"
+                disabled={Boolean(localSource)}
+                value={category}
+                onChange={(e) => setCategory(e.target.value as typeof category)}
+              >
+                <option value="">全部类型</option>
+                {Object.entries(categoryLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </FormSelect>
+            ) : null}
             <FormSelect
               aria-label="导出格式"
               disabled={Boolean(localSource)}
@@ -680,7 +804,7 @@ export function ChatRecordsModal({
               )}
             </div>
           ) : null}
-          <div className="weq-chatrecords-msgs" ref={msgScrollRef} onScroll={onMsgScroll}>
+          <div className="weq-chatrecords-msgs" ref={bindMsgScroll} onScroll={onMsgScroll}>
             <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
               <ConvContext.Provider value={convKey}>
                 <ChatMediaGallery
@@ -689,13 +813,9 @@ export function ChatRecordsModal({
                   conv={selected?.targetUid ?? ''}
                   kind={isGroup ? 'group' : 'c2c'}
                   filter={filter}
+                  mediaKind={mediaKind ?? undefined}
                   paged={!localSource}
-                  messages={messages.map((message) => ({
-                    msgId: message.msgId,
-                    msgSeq: message.msgSeq,
-                    sendTime: message.sendTime,
-                    elements: message.elements ?? [],
-                  }))}
+                  messages={galleryMessages}
                 >
                   <ReplyJumpContext.Provider value={jumpToReply}>
                     {msgLoading ? (
@@ -708,9 +828,20 @@ export function ChatRecordsModal({
                       )
                     ) : (
                       <>
-                        {messages.map((msg) => {
+                        {mediaKind ? (
+                          <SharedRecordMedia mediaKind={mediaKind} onLocate={jumpTo} />
+                        ) : null}
+                        {messageList.map((msg) => {
                           // 能取到原消息 40800 正文的，渲染真实气泡；找不到的回退纯文本行。
-                          if (msg.elements?.length && conversation) {
+                          const elements = sharedMedia
+                            ? msg.elements?.filter(
+                                ({ type }) =>
+                                  type === 'file' ||
+                                  type === 'onlineFile' ||
+                                  type === 'onlineFolder',
+                              )
+                            : msg.elements;
+                          if (elements?.length && conversation) {
                             const message =
                               localSource?.messages.find((message) => message.id === msg.msgId) ??
                               messageFromHit(
@@ -718,13 +849,13 @@ export function ChatRecordsModal({
                                 conversation,
                                 user
                                   ? enrichReplyElements(
-                                      msg.elements,
+                                      elements,
                                       conversation,
                                       user,
                                       members,
                                       replyIndex,
                                     )
-                                  : msg.elements,
+                                  : elements,
                               );
                             const mine = localSource
                               ? message.senderId === localSource.user.id
@@ -743,7 +874,16 @@ export function ChatRecordsModal({
                                 className="weq-chatrecords-msg is-bubble"
                                 role="button"
                                 tabIndex={0}
-                                onClick={() => jumpTo(msg)}
+                                onClick={(event) => {
+                                  if (
+                                    event.defaultPrevented ||
+                                    (event.target instanceof Element &&
+                                      event.target !== event.currentTarget &&
+                                      event.target.closest('button, a[href], input, video, audio'))
+                                  )
+                                    return;
+                                  jumpTo(msg);
+                                }}
                                 onKeyDown={(event) => {
                                   if (
                                     event.target === event.currentTarget &&
@@ -847,6 +987,53 @@ export function ChatRecordsModal({
     >
       {content}
     </Modal>
+  );
+}
+
+function SharedRecordMedia({
+  mediaKind,
+  onLocate,
+}: {
+  mediaKind: 'image' | 'video';
+  onLocate: (message: Pick<ConversationRecordHit, 'msgSeq' | 'msgId'>) => void;
+}) {
+  const open = useChatMediaOpen();
+  const items = useChatMediaItems();
+  if (!items.length) return <EmptyState compact icon={<SearchX />} title="没有可浏览的媒体" />;
+  return (
+    <div className="weq-record-media-grid" role="list" aria-label={categoryLabels[mediaKind]}>
+      {items.map((item) => (
+        <div className="weq-record-media-tile" role="listitem" key={item.key}>
+          <button
+            type="button"
+            className="weq-record-media-thumbnail"
+            aria-label={`查看${categoryLabels[mediaKind]}：${item.title}`}
+            onClick={(event) => open?.(item.key, event.currentTarget.ownerDocument)}
+          >
+            <ShimmerImage
+              className="qq-media-image"
+              src={item.kind === 'video' ? item.poster : item.src}
+              alt=""
+              loading="lazy"
+            />
+            {item.kind === 'video' ? (
+              <Play className="weq-record-media-play" size={17} aria-hidden />
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className="weq-set-btn"
+            aria-label={`定位原消息：${item.title}`}
+            onClick={() =>
+              onLocate({ msgId: item.order?.rawId ?? '', msgSeq: item.order?.sequence ?? '' })
+            }
+          >
+            <LocateFixed size={14} aria-hidden />
+            定位原消息
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 

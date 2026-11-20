@@ -2,16 +2,18 @@ import { Search, X } from 'lucide-react';
 
 export function ChatRecordsHeader({
   conversationName,
+  title = '聊天记录',
   onClose,
 }: {
   conversationName?: string;
+  title?: string;
   onClose: () => void;
 }) {
   return (
     <div className="weq-chatrecords-head" data-window-drag-handle>
       <div className="weq-chatrecords-title-wrap">
         <h3 id="weq-chatrecords-title" className="weq-search-more-title">
-          聊天记录
+          {title}
         </h3>
         {conversationName ? (
           <span className="weq-chatrecords-fixed-conv" title={conversationName}>

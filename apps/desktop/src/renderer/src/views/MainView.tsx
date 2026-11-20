@@ -2406,11 +2406,14 @@ function MainWorkspace(): ReactElement {
   }, []);
 
   // 聊天顶栏「搜索聊天记录」：把当前会话固化为搜索目标，打开单会话版聊天记录模态。
-  const handleSearchChatRecords = useCallback((conversation: Conversation) => {
-    if (conversation.type === 'group') {
-      const code = conversation.group.id;
-      setChatRecordsTarget({
-        hit: {
+  const handleSearchChatRecords = useCallback(
+    (conversation: Conversation, view?: 'media') => {
+      const scope = messageScopeRef.current;
+      if (!scope) return;
+      let hit: ChatRecordSearchHit;
+      if (conversation.type === 'group') {
+        const code = conversation.group.id;
+        hit = {
           category: 'chatRecord',
           source: 'group',
           partition: code,
@@ -2418,17 +2421,11 @@ function MainWorkspace(): ReactElement {
           targetUin: '0',
           name: conversation.group.name || code,
           count: 0,
-        },
-        keyword: '',
-        fixed: true,
-      });
-      return;
-    }
-    if (conversation.type === 'direct') {
-      const { otherUser } = conversation;
-      const uin = otherUser.username || otherUser.identityValue || '';
-      setChatRecordsTarget({
-        hit: {
+        };
+      } else if (conversation.type === 'direct') {
+        const { otherUser } = conversation;
+        const uin = otherUser.username || otherUser.identityValue || '';
+        hit = {
           category: 'chatRecord',
           source: 'buddy',
           partition: otherUser.id,
@@ -2436,12 +2433,19 @@ function MainWorkspace(): ReactElement {
           targetUin: uin,
           name: otherUser.displayName || uin || otherUser.id,
           count: 0,
-        },
-        keyword: '',
-        fixed: true,
-      });
-    }
-  }, []);
+        };
+      } else return;
+      setChatRecordsTarget((previous) =>
+        previous?.scope === scope &&
+        previous.view === view &&
+        previous.hit.source === hit.source &&
+        previous.hit.targetUid === hit.targetUid
+          ? { ...previous, suspended: false }
+          : { hit, scope, view, suspended: false },
+      );
+    },
+    [messageScopeRef],
+  );
 
   const handleAnalyzeConversation = useCallback((conversation: Conversation) => {
     const target = conversationAnalysisTarget(conversation);
@@ -2556,10 +2560,13 @@ function MainWorkspace(): ReactElement {
   // instead of leaving the view pinned to the latest.
   const [chatRecordsTarget, setChatRecordsTarget] = useState<{
     hit: ChatRecordSearchHit;
-    keyword: string;
-    /** 顶栏搜索按钮进入：固定在该会话内搜索（隐藏左侧会话列表）。 */
-    fixed?: boolean;
+    scope: string;
+    view?: 'media';
+    suspended: boolean;
   } | null>(null);
+  useEffect(() => {
+    setChatRecordsTarget((previous) => (previous?.scope === messageScope ? previous : null));
+  }, [messageScope]);
 
   // 统一的 profile 内存缓存：listProfiles 预热 + 缺失项按需批量补全，所有消费方
   // （好友列表 / 通知 / 搜索）共用这一个 Map。补全在下方的解析 effect 触发。
@@ -6023,12 +6030,12 @@ function MainWorkspace(): ReactElement {
       toastOnMissingSeq = false,
       record?: ChatMsgWire,
       messageId?: string,
-      searchTarget?: { preferredView?: ConversationView },
+      searchTarget?: { preferredView?: ConversationView; retainChatRecords?: boolean },
     ): void => {
       setSearchDismissed(true);
       if (!conv) return;
       closeForwardWindows();
-      setChatRecordsTarget(null);
+      if (!searchTarget?.retainChatRecords) setChatRecordsTarget(null);
       setGroupSidebarPopover(null);
       setMobileConversationList(false);
       const feed = [
@@ -10676,16 +10683,25 @@ function MainWorkspace(): ReactElement {
               onLocate={locateCalendarMessage}
             />
           ) : null}
-          {chatRecordsTarget ? (
+          {chatRecordsTarget?.scope === messageScope ? (
             <ChatRecordsModal
+              key={`${chatRecordsTarget.scope}:${chatRecordsTarget.hit.source}:${chatRecordsTarget.hit.targetUid}:${chatRecordsTarget.view ?? 'search'}`}
               initialHit={chatRecordsTarget.hit}
-              initialKeyword={chatRecordsTarget.keyword}
-              fixed={chatRecordsTarget.fixed}
+              initialKeyword=""
+              fixed
+              accountBinding={pinSession.binding ?? undefined}
+              sharedMedia={chatRecordsTarget.view === 'media'}
+              suspended={chatRecordsTarget.suspended}
               renderers={messageRenderers}
               user={user}
               groupMembers={memberMapForGroup}
               resolveGroupMembers={resolveRecordsMembers}
               onClose={() => setChatRecordsTarget(null)}
+              onSuspend={() =>
+                setChatRecordsTarget((previous) =>
+                  previous ? { ...previous, suspended: true } : null,
+                )
+              }
               onJumpMessage={({ source, targetUid, msgSeq, msgId }) =>
                 jumpToConvSeq(
                   source === 'group' ? 'group' : 'c2c',
@@ -10694,6 +10710,7 @@ function MainWorkspace(): ReactElement {
                   false,
                   undefined,
                   msgId,
+                  { retainChatRecords: true },
                 )
               }
             />
