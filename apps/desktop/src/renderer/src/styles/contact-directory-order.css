@@ -81,6 +81,11 @@
 .weq-directory-filter-row > span {
   color: var(--weq-fg-secondary);
 }
+.weq-directory-filter-row > .weq-segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
 @media (pointer: coarse) {
   .weq-directory-order-buttons .weq-directory-menu-button {
     min-height: 38px;
