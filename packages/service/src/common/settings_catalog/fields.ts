@@ -121,6 +121,7 @@ export const CLIENT_SETTING_FIELDS = (
     ['theme-background', 'background', 'theme-background', '界面背景'],
     ['theme-components', 'componentStyle', 'component-style', '组件风格'],
     ['theme-components', 'density', 'interface-density', '界面密度'],
+    ['theme-font', 'specialNumberFont', 'special-number-font', '数字字体'],
     ['privacy-mode', 'privacyMode', 'privacy-mode', '隐私模式'],
     ['privacy-mode', 'capturePrivacy', 'privacy-menu-capture', '截图临时隐私模式'],
     ['web-notifications', 'webNotifications', 'web-notifications', '网页通知'],

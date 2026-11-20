@@ -367,6 +367,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   { id: 'component-style', section: 'appearance', label: '组件风格', from: ['appearance'] },
   { id: 'interface-density', section: 'appearance', label: '界面密度', from: ['appearance'] },
   {
+    id: 'special-number-font',
+    section: 'appearance',
+    label: '数字字体',
+    aliases: ['特殊数字字体', '跟随界面字体', '数字排版'],
+    from: ['appearance'],
+  },
+  {
     id: 'windows-style-controls',
     section: 'appearance',
     label: '使用仿 Windows 窗口按钮',

@@ -72,6 +72,7 @@ export function mirrorCompositionStyles(
       'data-theme',
       'data-background',
       'data-component-style',
+      'data-special-number-font',
       'data-privacy',
       'style',
       'lang',

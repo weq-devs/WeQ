@@ -96,7 +96,8 @@ try {
             label,
           );
           for (const value of values) {
-            assert.equal(value.family, value.labelFamily, label);
+            assert.match(value.family, /DIN Alternate/, label);
+            assert.doesNotMatch(value.labelFamily, /DIN Alternate/, label);
             assert.equal(value.size, value.labelSize, label);
             assert.equal(value.weight, '500', label);
             assert.equal(value.numeric, 'tabular-nums', label);

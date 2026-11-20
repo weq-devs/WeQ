@@ -8,6 +8,7 @@ export const SETTINGS_RESET_CARDS = [
   ['appearance', 'theme-accent', '主题色'],
   ['appearance', 'theme-background', '界面背景'],
   ['appearance', 'theme-components', '组件风格'],
+  ['appearance', 'theme-font', '字体'],
   ['appearance', 'window-appearance', '窗口外观'],
   ['global', 'toast', '应用内横幅提醒'],
   ['global', 'notification-events', '事件通知'],

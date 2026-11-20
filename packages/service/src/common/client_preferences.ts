@@ -49,6 +49,7 @@ export const preferenceDefaults = {
   background: 'plain',
   componentStyle: 'qqnt',
   density: 'comfortable',
+  specialNumberFont: true,
   mailListWidth: 360,
   showMessageBubble: true,
   showMessageFont: true,

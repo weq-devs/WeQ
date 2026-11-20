@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from 'react';
-import { Check, LayoutGrid, Palette, Search } from 'lucide-react';
+import { Check, LayoutGrid, Palette, Search, Type } from 'lucide-react';
 import { componentStyles, useThemeStore, type ThemeComponentStyle } from '../../state/theme';
 import { Card } from './controls';
 import { SegmentedControl } from '../SegmentedControl';
@@ -66,8 +66,10 @@ export function ComponentStylePreview({ style }: { style: ThemeComponentStyle })
 export function ComponentAppearance() {
   const style = useThemeStore((state) => state.componentStyle);
   const density = useThemeStore((state) => state.density);
+  const specialNumberFont = useThemeStore((state) => state.specialNumberFont);
   const setStyle = useThemeStore((state) => state.setComponentStyle);
   const setDensity = useThemeStore((state) => state.setDensity);
+  const setSpecialNumberFont = useThemeStore((state) => state.setSpecialNumberFont);
   return (
     <>
       <Card
@@ -128,6 +130,56 @@ export function ComponentAppearance() {
             { value: 'compact', label: '紧凑' },
           ]}
         />
+      </Card>
+      <Card
+        title="字体"
+        desc="选择时间、编号与统计读数的数字字体"
+        icon={<Type size={15} strokeWidth={1.8} />}
+        resetId="theme-font"
+        settingId="special-number-font"
+      >
+        <div
+          className="weq-style-options weq-number-font-options"
+          role="radiogroup"
+          aria-label="数字字体"
+          onKeyDown={navigateOptions}
+        >
+          {[
+            { enabled: true, label: '特殊数字字体' },
+            { enabled: false, label: '跟随界面字体' },
+          ].map(({ enabled, label }) => (
+            <button
+              type="button"
+              className="weq-style-option"
+              key={label}
+              role="radio"
+              aria-label={label}
+              aria-checked={specialNumberFont === enabled}
+              tabIndex={specialNumberFont === enabled ? 0 : -1}
+              onClick={() => setSpecialNumberFont(enabled)}
+            >
+              <span
+                className="weq-number-font-preview"
+                data-number-font-preview={enabled ? 'special' : 'interface'}
+                aria-hidden="true"
+              >
+                <span>
+                  消息 <strong>1,024</strong>
+                </span>
+                <span>
+                  时间 <strong>12:34</strong>
+                </span>
+                <span>
+                  进度 <strong>78%</strong>
+                </span>
+              </span>
+              <span className="weq-style-option-label">
+                <span>{label}</span>
+                {specialNumberFont === enabled && <Check size={14} aria-hidden="true" />}
+              </span>
+            </button>
+          ))}
+        </div>
       </Card>
     </>
   );

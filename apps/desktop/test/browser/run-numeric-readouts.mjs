@@ -15,6 +15,10 @@ const server = await createServer({
   plugins: [react(), tailwind()],
   resolve: {
     alias: [
+      {
+        find: /^.*\/trpc\/client$/,
+        replacement: resolve(root, 'test/browser/settings-autosave.stub.ts'),
+      },
       { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
       { find: '@resources', replacement: resolve(root, '../../resources') },
       { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
@@ -54,13 +58,19 @@ try {
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 1100 });
     for (const theme of ['light', 'dark']) {
-      for (const accent of ['#006d50', '#df5878']) {
+      for (const specialNumberFont of [true, false]) {
         await page.evaluate(
-          ({ theme, accent }) => {
-            document.documentElement.dataset.theme = theme;
-            document.documentElement.style.setProperty('--weq-accent-effective', accent);
+          ({ theme, specialNumberFont }) => {
+            const root = document.documentElement;
+            root.dataset.theme = theme;
+            if (specialNumberFont) delete root.dataset.specialNumberFont;
+            else root.dataset.specialNumberFont = 'off';
+            root.style.setProperty(
+              '--weq-accent-effective',
+              specialNumberFont ? '#006d50' : '#df5878',
+            );
           },
-          { theme, accent },
+          { theme, specialNumberFont },
         );
         const result = await page.evaluate(() => {
           const bodyFamily = getComputedStyle(document.querySelector('[data-body]')).fontFamily;
@@ -131,8 +141,13 @@ try {
         });
         assert.ok(result.readouts.length >= 25);
         for (const readout of result.readouts) {
-          assert.equal(readout.family, readout.parentFamily, JSON.stringify(readout));
-          assert.equal(readout.sizeAdjust, readout.parentSizeAdjust, JSON.stringify(readout));
+          if (specialNumberFont) {
+            assert.match(readout.family, /DIN Alternate/, JSON.stringify(readout));
+            assert.equal(readout.sizeAdjust, 'cap-height 0.75', JSON.stringify(readout));
+          } else {
+            assert.equal(readout.family, readout.parentFamily, JSON.stringify(readout));
+            assert.equal(readout.sizeAdjust, readout.parentSizeAdjust, JSON.stringify(readout));
+          }
           assert.ok(readout.numeric.includes('tabular-nums'), JSON.stringify(readout));
           if (readout.expectedWeight)
             assert.equal(readout.weight, readout.expectedWeight, JSON.stringify(readout));
@@ -153,17 +168,68 @@ try {
         assert.equal(result.performanceTextFont, result.bodyFamily);
         assert.equal(result.svgSpans, 0);
         assert.equal(result.svgNumbers, 2);
+        if (output)
+          await page.screenshot({
+            path: resolve(
+              output,
+              `${width}-${theme}-${specialNumberFont ? 'special' : 'system'}.png`,
+            ),
+            fullPage: true,
+          });
         cases++;
       }
-      if (output)
-        await page.screenshot({ path: resolve(output, `${width}-${theme}.png`), fullPage: true });
     }
   }
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/settings-autosave.html`,
+  );
+  await page.getByRole('button', { name: 'appearance', exact: true }).click();
+  const fontPicker = page.getByRole('radiogroup', { name: '数字字体', exact: true });
+  const specialFont = fontPicker.getByRole('radio', { name: '特殊数字字体' });
+  const interfaceFont = fontPicker.getByRole('radio', { name: '跟随界面字体' });
+  const previews = () =>
+    fontPicker.locator('.weq-number-font-preview strong').evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const { fontFamily, fontSize } = getComputedStyle(node);
+        return { fontFamily, fontSize, value: node.textContent };
+      }),
+    );
+  assert.equal(await specialFont.getAttribute('aria-checked'), 'true');
+  const samples = await previews();
+  assert.deepEqual(
+    samples.map((sample) => sample.fontSize),
+    ['24px', '16px', '12px', '24px', '16px', '12px'],
+  );
+  assert.deepEqual(
+    samples.slice(0, 3).map((sample) => sample.value),
+    samples.slice(3).map((sample) => sample.value),
+  );
+  assert.ok(samples.slice(0, 3).every((sample) => sample.fontFamily.includes('DIN Alternate')));
+  assert.ok(samples.slice(3).every((sample) => !sample.fontFamily.includes('DIN Alternate')));
+  await interfaceFont.click();
+  await page.waitForFunction(() => window.autosaveQa.preferences.specialNumberFont === false);
+  assert.equal(await interfaceFont.getAttribute('aria-checked'), 'true');
+  assert.equal(await page.locator('html').getAttribute('data-special-number-font'), 'off');
+  assert.deepEqual(await previews(), samples);
+  await page.reload();
+  await page.getByRole('button', { name: 'appearance', exact: true }).click();
+  assert.equal(await interfaceFont.getAttribute('aria-checked'), 'true');
+  await interfaceFont.press('ArrowLeft');
+  await page.waitForFunction(() => window.autosaveQa.preferences.specialNumberFont === true);
+  assert.equal(await specialFont.getAttribute('aria-checked'), 'true');
+  if (output) await fontPicker.screenshot({ path: resolve(output, 'number-font-setting.png') });
+  await page.setViewportSize({ width: 320, height: 900 });
+  const specialBox = await specialFont.boundingBox();
+  const interfaceBox = await interfaceFont.boundingBox();
+  assert.ok(specialBox && interfaceBox && specialBox.x + specialBox.width <= interfaceBox.x);
+  assert.ok(interfaceBox.x + interfaceBox.width <= 320);
+  if (output)
+    await fontPicker.screenshot({ path: resolve(output, 'number-font-setting-narrow.png') });
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({
       cases,
-      contextualFonts: true,
+      bothNumberFonts: true,
       weightsPreserved: true,
       proseAndReportUnchanged: true,
       tabularDigits: true,

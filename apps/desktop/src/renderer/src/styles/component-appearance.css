@@ -629,6 +629,42 @@ html:where([data-weq-layout='single'])[data-density='compact']
 .weq-style-option-default {
   white-space: nowrap;
 }
+.weq-number-font-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.weq-number-font-preview {
+  display: grid;
+  gap: 5px;
+  padding: 8px;
+  border: var(--weq-skin-border-width) solid var(--weq-skin-border);
+  border-radius: var(--weq-skin-radius);
+  background: var(--weq-chat-bg);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+.weq-number-font-preview > span {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  column-gap: 6px;
+}
+.weq-number-font-preview strong {
+  color: var(--weq-fg-primary);
+  font-weight: 600;
+}
+.weq-number-font-preview > span:first-child strong {
+  font-size: 24px;
+}
+.weq-number-font-preview > span:nth-child(2) strong {
+  font-size: 16px;
+}
+.weq-number-font-preview[data-number-font-preview='special'] strong {
+  font-family: var(--weq-font-number);
+  font-size-adjust: cap-height var(--weq-number-cap-height);
+}
 .weq-style-preview {
   display: grid;
   grid-template-rows: 26px 1fr 24px;
