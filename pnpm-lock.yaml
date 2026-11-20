@@ -861,12 +861,18 @@ importers:
 
   vendor/weqbot/packages/protocol:
     dependencies:
+      '@babel/parser':
+        specifier: 7.29.7
+        version: 7.29.7
       '@weqbot/common':
         specifier: workspace:*
         version: link:../common
       '@weqbot/wire':
         specifier: workspace:*
         version: link:../wire
+      parse5:
+        specifier: 8.0.1
+        version: 8.0.1
     devDependencies:
       '@types/node':
         specifier: ^26.6.6

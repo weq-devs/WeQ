@@ -176,9 +176,9 @@ describe('collector original file/video download application', () => {
   it('retains service rejection without reflecting private response text', async () => {
     await expect(
       applyCollectionFileDownload(cred, 'cid', file, '7.0.2-53644', {
-        transport: async () => response({}, -10003),
+        transport: async () => response({}, -10003, { retMsg: 'synthetic private response' }),
       }),
-    ).rejects.toThrow('代码 -10003');
+    ).rejects.toThrow(/^收藏附件下载申请失败（代码 -10003）。$/);
   });
   it('does not accept an empty response operation', async () => {
     const bytes = encodeEnvelope(
