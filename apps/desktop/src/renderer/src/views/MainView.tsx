@@ -445,6 +445,7 @@ import {
 import { conversationListSearchText } from '../lib/conversationListSearchText';
 import { calendarCloneRevision, calendarAssistantRevision } from '../lib/calendarSourceRevision';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
+import { MailCardNavigationContext, type MailOpenTarget } from '../lib/mailNavigation';
 import {
   findLinkedAppEntry,
   type AppSearchEntry,
@@ -1577,9 +1578,7 @@ function MainWorkspace(): ReactElement {
     pack?: { id: string; name: string };
     revision: string | number;
   } | null>(null);
-  const [mailSearchTarget, setMailSearchTarget] = useState<
-    (Extract<ContentSearchTarget, { kind: 'mailMessage' }> & { revision: string }) | null
-  >(null);
+  const [mailOpenTarget, setMailOpenTarget] = useState<MailOpenTarget | null>(null);
   const [guildSearchTarget, setGuildSearchTarget] = useState<
     (Extract<ContentSearchTarget, { kind: 'guildMessage' }> & { revision: string }) | null
   >(null);
@@ -6171,7 +6170,7 @@ function MainWorkspace(): ReactElement {
             shell.switchView('qzone');
             break;
           case 'mailMessage':
-            setMailSearchTarget({ ...target, revision });
+            setMailOpenTarget({ id: target.id, folderId: target.folderId, revision });
             shell.switchView('mail');
             break;
           case 'guildMessage':
@@ -6422,8 +6421,7 @@ function MainWorkspace(): ReactElement {
         return;
       if (notice.kind === 'mail') {
         if (notice.mail)
-          setMailSearchTarget({
-            kind: 'mailMessage',
+          setMailOpenTarget({
             ...notice.mail,
             revision: String(Date.now()),
           });
@@ -9155,11 +9153,10 @@ function MainWorkspace(): ReactElement {
             target.msgId,
           );
         } else if (target.kind === 'mail') {
-          setMailSearchTarget({
-            kind: 'mailMessage',
+          setMailOpenTarget({
             id: target.mailId,
             folderId: target.folderId,
-            revision: String(Date.now()),
+            revision: crypto.randomUUID(),
           });
           openMailView();
         } else if (target.kind === 'contact') {
@@ -9240,6 +9237,9 @@ function MainWorkspace(): ReactElement {
     },
   );
   useEffect(() => onNotificationNavigation(openNotificationTarget), [openNotificationTarget]);
+  const openMailCard = useStableCallback((mailId: string) => {
+    if (!useAppLock.getState().locked) openNotificationTarget({ kind: 'mail', mailId });
+  });
 
   useMobileBack(
     mobileLayout &&
@@ -9709,7 +9709,7 @@ function MainWorkspace(): ReactElement {
                     mailPreferences.isFetchedAfterMount ? mailPreferences.data : undefined
                   }
                   onOpenRequested={openMailView}
-                  searchTarget={mailSearchTarget}
+                  searchTarget={mailOpenTarget}
                 />
                 {shell.view === 'qzone' ? (
                   <QzoneWorkspace
@@ -11160,7 +11160,9 @@ function MainWorkspace(): ReactElement {
                                             settingsOpen || Boolean(maintenanceTool) || dressUpOpen
                                           }
                                         >
-                                          {chatContent}
+                                          <MailCardNavigationContext.Provider value={openMailCard}>
+                                            {chatContent}
+                                          </MailCardNavigationContext.Provider>
                                         </VoiceWorkspace>
                                       </GroupSpeechPreviewContext.Provider>
                                     </GroupMessagePreviewContext.Provider>

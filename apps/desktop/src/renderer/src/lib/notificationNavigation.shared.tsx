@@ -17,7 +17,7 @@ export type NotificationTarget =
       seq?: string;
       msgId?: string;
     }
-  | { kind: 'mail'; folderId: number; mailId: string }
+  | { kind: 'mail'; folderId?: number; mailId: string }
   | { kind: 'task'; id: string }
   | { kind: 'contact'; id: string; tab?: ContactWorkspaceTab }
   | { kind: 'group'; id: string; section?: GroupWorkspaceTab }

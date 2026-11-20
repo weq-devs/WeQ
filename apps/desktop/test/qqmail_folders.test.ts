@@ -15,6 +15,7 @@ import {
   pushMobileBack,
 } from '../src/renderer/src/hooks/useMobileNavigation';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import type { MailOpenTarget } from '../src/renderer/src/lib/mailNavigation';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -134,11 +135,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-async function mount(
-  api: MailApi,
-  searchTarget?: { id: string; folderId: number; revision: string },
-  scope = crypto.randomUUID(),
-) {
+async function mount(api: MailApi, searchTarget?: MailOpenTarget, scope = crypto.randomUUID()) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -169,7 +166,7 @@ async function mount(
           ),
         ),
       ),
-    search: (target: { id: string; folderId: number; revision: string }) =>
+    search: (target: MailOpenTarget) =>
       act(async () =>
         root.render(
           createElement(
@@ -318,6 +315,28 @@ describe('邮箱文件夹重复选择', () => {
       expect(api.read).not.toHaveBeenCalledWith('fixture-mail', expect.anything());
       await view.search({ id: '@opaque-mail-id', folderId: 5, revision: 'search-again' });
       expect(api.read).toHaveBeenCalledTimes(2);
+    } finally {
+      view.close();
+    }
+  });
+  it('没有文件夹的邮件入口直接打开正文并保留当前列表', async () => {
+    const { api, list } = fixture();
+    const id = 'ZC_fixture~opaque';
+    vi.mocked(api.read).mockResolvedValue({
+      ...page('提醒对应的邮件').items[0]!,
+      id,
+      html: '<p>合成正文</p>',
+      replyTo: null,
+      attachments: [],
+    });
+    const view = await mount(api);
+    try {
+      await view.search({ id, revision: 'mail-card' });
+      expect(api.read).toHaveBeenCalledOnce();
+      expect(api.read).toHaveBeenCalledWith(id, expect.any(AbortSignal));
+      expect(view.host.textContent).toContain('提醒对应的邮件');
+      expect(view.host.textContent).toContain('合成收件箱邮件');
+      expect(list).toHaveBeenCalledOnce();
     } finally {
       view.close();
     }
