@@ -25,6 +25,7 @@ import {
   type ControlEnvelope,
   type ControlOneBotConfig,
   type ControlOneBotState,
+  type ControlObservedMessage,
   type ControlPeer,
   type ControlStatus,
 } from '@weqbot/control';
@@ -69,6 +70,8 @@ export interface OpenAttachParams {
 
 export class BotRuntime {
   private readonly daemons = new Map<string, DaemonHandle>();
+  private readonly starting = new Map<string, Promise<DaemonHandle>>();
+  private readonly stopping = new Map<string, Promise<void>>();
   private readonly listeners = new Set<OneBotEventListener>();
   private readonly resolvePaths: typeof resolveDaemonPaths;
   private readonly connectTimeoutMs: number;
@@ -96,9 +99,24 @@ export class BotRuntime {
    * 不重新 spawn —— 那会把正在线的 bot 踢掉。
    */
   async ensure(uin: string): Promise<DaemonHandle> {
+    const stopping = this.stopping.get(uin);
+    if (stopping) await stopping;
     const existing = this.daemons.get(uin);
-    if (existing) return existing;
+    if (existing && !existing.peer.closed) return existing;
+    if (existing) this.daemons.delete(uin);
+    const pending = this.starting.get(uin);
+    if (pending) return pending;
 
+    const start = this.connect(uin);
+    this.starting.set(uin, start);
+    try {
+      return await start;
+    } finally {
+      this.starting.delete(uin);
+    }
+  }
+
+  private async connect(uin: string): Promise<DaemonHandle> {
     const paths = this.resolvePaths({ uin });
 
     // 先试连接：WeQ 重启后 socket 上可能还挂着一个活着的 daemon。
@@ -124,7 +142,7 @@ export class BotRuntime {
     return handle.peer.request('login', params);
   }
 
-  /** 有头模式（mode 1）：借运行中 QQ 的会话。**只发不收**，见 embedding.md。 */
+  /** 有头模式借运行中 QQ 的会话，不申请 QQ 服务端推送。 */
   async attach(uin: string, params: OpenAttachParams): Promise<ControlStatus> {
     const handle = await this.ensure(uin);
     return handle.peer.request('attach', { ...params, uin });
@@ -140,6 +158,17 @@ export class BotRuntime {
     return handle.peer.request('onebot.set', { config });
   }
 
+  async status(uin: string): Promise<ControlStatus> {
+    const handle = await this.ensure(uin);
+    return handle.peer.request('status', {});
+  }
+
+  async observeMessage(uin: string, sessionId: number, message: ControlObservedMessage) {
+    const handle = this.daemons.get(uin);
+    if (!handle) return false;
+    return (await handle.peer.request('onebot.observeMessage', { sessionId, message })).accepted;
+  }
+
   /**
    * 关账号：让 daemon 优雅下线（发 `UnRegister`）并退出。
    *
@@ -147,15 +176,37 @@ export class BotRuntime {
    * 连接，bot 继续在线。
    */
   async shutdown(uin: string, reason?: string): Promise<void> {
-    const handle = this.daemons.get(uin);
+    const pending = this.stopping.get(uin);
+    if (pending) return pending;
+    const stopping = this.stop(uin, reason);
+    this.stopping.set(uin, stopping);
+    try {
+      await stopping;
+    } finally {
+      this.stopping.delete(uin);
+    }
+  }
+
+  private async stop(uin: string, reason?: string): Promise<void> {
+    const handle = this.daemons.get(uin) ?? (await this.starting.get(uin)?.catch(() => undefined));
     this.daemons.delete(uin);
     if (!handle) return;
     try {
       await handle.peer.request('shutdown', reason ? { reason } : {}, { timeoutMs: 10_000 });
+      // ack 先到，退出时才关闭监听。不能在这期间把旧进程接管为新会话。
+      const deadline = Date.now() + 10_000;
+      while (
+        !handle.peer.closed ||
+        (process.platform !== 'win32' && existsSync(handle.paths.socketPath))
+      ) {
+        if (Date.now() >= deadline) throw new Error('等待 OneBot daemon 退出超时');
+        await delay(25);
+      }
     } catch (cause) {
       logger.warn('daemon shutdown 请求失败，直接断开', { uin, cause });
+    } finally {
+      handle.peer.close();
     }
-    handle.peer.close();
   }
 
   /**

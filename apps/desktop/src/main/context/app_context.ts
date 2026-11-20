@@ -52,6 +52,8 @@ import {
 import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { botRuntime } from '../bot_runtime';
 import { resolveOneBotAppid } from '../bot_runtime/appid';
+import { watchObservedMessages } from '../bot_runtime/observed_messages';
+import type { ControlOneBotConfig } from '@weqbot/control';
 import { startLogRetention } from '../log_retention';
 import { assistantResourceServer } from '../weq_assistant/server';
 import { publishWeqAssistantDocroot } from '../weq_assistant/publish';
@@ -788,82 +790,169 @@ function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platfor
  * open so the user can continue browsing.
  */
 
-/**
- * 账号打开后启动它的 OneBot 面。
- *
- * 两条路（互斥，由 QQ 的在线状态决定）：
- *
- *   - **QQ 在线** → daemon 用 `attach` 走 mode 1（借 QQ 的会话）。⚠️ 只发不收：
- *     action 全部可用，但**没有事件**。需要事件的用户自己接 SSE 推送。
- *   - **QQ 离线** → 用户显式「以 bot 方式上线」才走 `login`（mode 2）。这里不
- *     自动做 —— 自建上线会让账号在 QQ 之外多一个在线端，必须由用户决定。
- *
- * 会话物料（a2 / d2 / d2Key / secToken）由 `AccountMonitorService` 采到
- * `AccountConfig.session`；刚打开账号时可能还没采好，所以只用现成的。采不到就
- * 只保持 daemon 待命（配置已下发），等物料齐全或用户手动上线。
- */
-/**
- * 账号关闭 / 切号时停掉它的 OneBot daemon。
- *
- * 这里**必须**让 daemon 下线（`shutdown` → `UnRegister`），而不是只断开 WeQ
- * 这边的连接：关账号的语义是「这个号不再由 WeQ 托管」，bot 继续在线会让用户
- * 以为没关掉。「关窗口但 bot 继续跑」是另一条路径，走 `botRuntime.disconnectAll()`。
- */
-function shutdownAccountOneBot(ctx: AppContext): void {
-  const uin = ctx.account?.context.uin;
-  if (!uin) return;
-  void botRuntime.shutdown(String(uin), 'account-closed').catch((cause) => {
+let accountOneBot:
+  | {
+      session: AccountSession;
+      pending: Promise<unknown>;
+      configured: boolean;
+      observer?: { sessionId: number; handle: DbWatchHandle };
+    }
+  | undefined;
+const closingOneBotAccounts = new WeakSet<AccountSession>();
+const closingOneBotDaemons = new Map<string, Promise<void>>();
+
+/** 关账号时先取消数据库观察，再结束 daemon；退出应用仍只断开控制连接。 */
+async function shutdownAccountOneBot(ctx: AppContext): Promise<void> {
+  const session = ctx.account;
+  if (!session) return;
+  const uin = String(session.context.uin);
+  closingOneBotAccounts.add(session);
+  const binding = accountOneBot;
+  accountOneBot = undefined;
+  binding?.observer?.handle.unmount();
+  const pending = closingOneBotDaemons.get(uin);
+  if (pending) return pending;
+  const close = (async () => {
+    await binding?.pending;
+    await botRuntime.shutdown(uin, 'account-closed');
+  })().catch((cause) => {
     getLogger().warn('停止 OneBot daemon 失败', { accountUin: uin, ...logErrorContext(cause) });
   });
+  closingOneBotDaemons.set(uin, close);
+  await close;
+  if (closingOneBotDaemons.get(uin) === close) closingOneBotDaemons.delete(uin);
 }
 
-async function startAccountOneBot(ctx: AppContext, uin: string): Promise<void> {
-  try {
-    const config = ctx.bootstrap?.userConfig.oneBotConfigOnAccountOpen(uin);
+/** 账号打开、凭据就绪及保存配置共用同一队列；单独上线的 bot 继续消费协议推送。 */
+export async function syncAccountOneBot(
+  ctx: AppContext,
+  session: AccountSession,
+  saved?: ControlOneBotConfig,
+) {
+  if (
+    ctx.account !== session ||
+    closingOneBotAccounts.has(session) ||
+    ctx.accountIsStatic ||
+    !ctx.services ||
+    !ctx.platform
+  )
+    return;
+  if (accountOneBot && accountOneBot.session !== session) return;
+  const { accountConfig, profile } = ctx.services;
+  const platform = ctx.platform;
+  const uin = String(session.context.uin);
+  accountOneBot ??= { session, configured: false, pending: Promise.resolve() };
+  const binding = accountOneBot;
+  const previousShutdown = closingOneBotDaemons.get(uin);
+  const current = () => ctx.account === session && accountOneBot === binding;
+  const stopObservation = () => {
+    binding.observer?.handle.unmount();
+    binding.observer = undefined;
+  };
+  const task = binding.pending.then(async () => {
+    await previousShutdown;
+    if (!current()) return;
+    const config = saved ?? ctx.bootstrap?.userConfig.oneBotConfigOnAccountOpen(uin);
     if (!config) return;
-    await botRuntime.ensure(uin);
-    await botRuntime.setOneBot(uin, config);
-  } catch (cause) {
-    getLogger().error('OneBot daemon 启动失败', { accountUin: uin, ...logErrorContext(cause) });
-    return;
-  }
+    const enabled = Object.values(config.networks).some((rows) =>
+      rows.some((row) => row.enabled !== false),
+    );
+    if (!enabled && !binding.configured && !saved) return;
+    let update = saved || !binding.configured ? await botRuntime.setOneBot(uin, config) : undefined;
+    binding.configured = true;
+    if (!current()) return;
+    const record = accountConfig.getRecord();
+    const material = record?.session;
+    const pid = record?.qqPid;
+    if (
+      !enabled ||
+      !fullModeAllowed(ctx, session) ||
+      !record?.qqOnline ||
+      !pid ||
+      !material?.a2 ||
+      !material.d2 ||
+      !material.d2Key ||
+      (material.pid !== undefined && material.pid !== pid) ||
+      !record.guid ||
+      !record.uid
+    ) {
+      stopObservation();
+      return update;
+    }
 
-  const record = ctx.services?.accountConfig.getRecord();
-  const material = record?.session;
-  const pid = record?.qqPid;
-  if (!material?.a2 || !material.d2 || !material.d2Key || !pid || !record?.guid || !record.uid) {
-    getLogger().info('OneBot daemon 已就绪；QQ 不在线或物料未采齐，暂不接入', { accountUin: uin });
-    return;
-  }
+    let status = await botRuntime.status(uin);
+    if (!current()) return;
+    if (status.mode === 'standalone') return update;
+    if (status.mode === 'attached' && status.attachedPid !== pid) {
+      stopObservation();
+      await botRuntime.shutdown(uin, 'qq-process-changed');
+      if (!current()) return;
+      update = await botRuntime.setOneBot(uin, config);
+      if (!current()) return;
+      status = await botRuntime.status(uin);
+      if (!current()) return;
+    }
+    if (status.state !== 'online') {
+      if (!update) {
+        update = await botRuntime.setOneBot(uin, config);
+        if (!current()) return;
+      }
+      const appid = resolveOneBotAppid(platform, platform.native.ntHelper);
+      if (!appid) return update;
+      status = await botRuntime.attach(uin, {
+        pid,
+        uid: record.uid,
+        guid: record.guid,
+        a2: material.a2,
+        d2: material.d2,
+        d2Key: material.d2Key,
+        ...(material.secToken ? { secToken: material.secToken } : {}),
+        subAppId: appid.subAppId,
+        ...(appid.clientVersion ? { clientVersion: appid.clientVersion } : {}),
+        ...(appid.qua ? { qua: appid.qua } : {}),
+        ...(appid.wrapperPath ? { wrapperPath: appid.wrapperPath } : {}),
+      });
+    }
+    if (!current()) return;
+    const { sessionId } = status;
+    if (status.mode !== 'attached' || status.state !== 'online' || sessionId === null)
+      return update;
+    if (binding.observer?.sessionId !== sessionId) {
+      stopObservation();
+      const canPublish = () => {
+        if (
+          !current() ||
+          !fullModeAllowed(ctx, session) ||
+          binding.observer?.sessionId !== sessionId
+        )
+          return false;
+        const latest = accountConfig.getRecord();
+        return latest?.qqOnline === true && latest.qqPid === pid;
+      };
+      binding.observer = {
+        sessionId,
+        handle: watchObservedMessages(
+          dbWatch,
+          session,
+          canPublish,
+          async (uid) => (await profile.getProfile(uid))?.nick,
+          (message) => botRuntime.observeMessage(uin, sessionId, message),
+        ),
+      };
+    }
+    return update ? botRuntime.getOneBot(uin) : undefined;
+  });
+  binding.pending = task.catch(() => undefined);
+  return task;
+}
 
-  const appid = resolveOneBotAppid(ctx.platform!, ctx.platform!.native.ntHelper);
-  if (!appid) {
-    getLogger().warn('读不到 major.node，跳过 OneBot 有头模式', { accountUin: uin });
-    return;
-  }
-
-  try {
-    await botRuntime.attach(uin, {
-      pid,
-      uid: record.uid,
-      guid: record.guid,
-      a2: material.a2,
-      d2: material.d2,
-      d2Key: material.d2Key,
-      ...(material.secToken ? { secToken: material.secToken } : {}),
-      subAppId: appid.subAppId,
-      ...(appid.clientVersion ? { clientVersion: appid.clientVersion } : {}),
-      ...(appid.qua ? { qua: appid.qua } : {}),
-      ...(appid.wrapperPath ? { wrapperPath: appid.wrapperPath } : {}),
-    });
-    getLogger().info('OneBot 有头模式已接入（只发不收）', { accountUin: uin, pid });
-  } catch (cause) {
-    getLogger().error('OneBot 有头模式接入失败', {
-      accountUin: uin,
-      pid,
+function startAccountOneBot(ctx: AppContext, session: AccountSession): void {
+  void syncAccountOneBot(ctx, session).catch((cause) => {
+    getLogger().error('OneBot 会话启动失败', {
+      accountUin: session.context.uin,
       ...logErrorContext(cause),
     });
-  }
+  });
 }
 
 function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: Platform): void {
@@ -1613,7 +1702,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();
-      shutdownAccountOneBot(this);
+      await shutdownAccountOneBot(this);
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
@@ -2479,6 +2568,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           }
           accountEventBus.emit('onlineCredentialsReady', { at: Date.now() });
           mail.credentialsAvailable();
+          startAccountOneBot(this, session);
         },
       );
       accountMonitor.start();
@@ -2551,7 +2641,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // Start it now if enabled; live toggling is handled by `applyMcp`.
       startConfiguredMcp();
 
-      void startAccountOneBot(this, String(session.context.uin));
+      startAccountOneBot(this, session);
 
       // WeQ 助手 is account-bound too: ensure the fabricated conversation exists
       // + start the loopback server when enabled. Live toggling → applyWeqAssistant.
@@ -2597,7 +2687,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();
-      shutdownAccountOneBot(this);
+      await shutdownAccountOneBot(this);
       void stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       void disposeExternalMcp();
@@ -3433,7 +3523,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // ExportTaskManager.
       this.scheduler?.stop();
       this.scheduler = null;
-      shutdownAccountOneBot(this);
+      const oneBotClosed = shutdownAccountOneBot(this);
       const mcpClosed = stopMcpServer();
       setWeqStats(null); // drop the 群数据周报 snapshot so it can't leak across accounts
       const externalMcpClosed = disposeExternalMcp();
@@ -3469,6 +3559,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       if (waitForPending) uidRegistry.clear();
       const closing = Promise.allSettled([
         waitForCalendarWrites(),
+        oneBotClosed,
         contactsClosed,
         mcpClosed,
         externalMcpClosed,

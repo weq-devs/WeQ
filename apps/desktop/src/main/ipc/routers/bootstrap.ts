@@ -74,6 +74,7 @@ import {
   isSsePushActive,
   rememberAccountUid,
   awaitSignerWarmup,
+  syncAccountOneBot,
   rescanSigner as rescanSignerImpl,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
@@ -1769,8 +1770,8 @@ export const bootstrapRouter = router({
 
       if (ctx.account && !ctx.accountIsStatic) {
         try {
-          const state = await botRuntime.setOneBot(uin, validated);
-          return { config: validated, listeners: state.listeners, daemonCheck: null };
+          const state = await syncAccountOneBot(ctx, ctx.account, validated);
+          return { config: validated, listeners: state?.listeners ?? [], daemonCheck: null };
         } catch (cause) {
           const message = cause instanceof Error ? cause.message : String(cause);
           return { config: validated, listeners: [], daemonCheck: message };
