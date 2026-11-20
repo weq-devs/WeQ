@@ -209,7 +209,7 @@ jobs:
       # `@weq/service` 那种桶文件，Windows runner 上会把打包卡死（v2.7.1 踩过）。
       - name: Check packaging preparation graph
         if: matrix.suite == 'core'
-        run: node --test scripts/prepare-enhancement-engines.test.mjs
+        run: node --test scripts/prepare-enhancement-engines.test.mjs scripts/build-weqbot-daemon.test.mjs
 
       - name: Summarize test results
         if: always() && matrix.suite != 'core'

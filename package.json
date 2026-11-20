@@ -11,7 +11,7 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "pnpm run build:bot && pnpm run build:weqbot-daemon && pnpm --filter @weq/desktop build",
+    "build": "pnpm run build:bot && pnpm --filter @weq/desktop build",
     "build:bot": "node scripts/build-bot.mjs",
     "build:weqbot-daemon": "node scripts/build-weqbot-daemon.mjs",
     "typecheck": "pnpm -r typecheck",

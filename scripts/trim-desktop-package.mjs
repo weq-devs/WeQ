@@ -174,6 +174,9 @@ export function trimDesktopPackage(context) {
       : join(context.appOutDir, 'resources');
   verifyPackagedRemoteNetwork(context, resources);
   verifyPackagedDressResources(join(resources, 'resources'));
+  const daemon = join(resources, 'resources', 'weqbot', 'weqbot-daemon.mjs');
+  const artifact = lstatSync(daemon, { throwIfNoEntry: false });
+  if (!artifact?.isFile() || artifact.size === 0) throw new Error(`缺少 OneBot daemon：${daemon}`);
   for (const candidate of ['arm64', 'x64']) {
     if (platform === 'darwin' && (candidate === arch || arch === 'universal')) continue;
     rmSync(
