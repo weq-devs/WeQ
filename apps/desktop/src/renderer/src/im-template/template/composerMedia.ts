@@ -61,8 +61,8 @@ export type VoiceClip = {
 /** 一次最多挂多少个附件（跟 QQ 的量级对齐，也防手滑拖进来一整个目录）。 */
 export const MAX_COMPOSER_ATTACHMENTS = 20;
 
-/** 单个附件大小上限（QQ 普通文件上限 100MB，这里只做前端提示）。 */
-export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+/** 内联图片和需要整段读取的媒体保留此上限。 */
+export const MAX_BUFFERED_COMPOSER_MEDIA_BYTES = 100 * 1024 * 1024;
 
 const IMAGE_MIME = /^image\//;
 const VIDEO_MIME = /^video\//;

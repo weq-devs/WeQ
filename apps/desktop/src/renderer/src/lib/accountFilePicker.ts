@@ -1,7 +1,10 @@
 import { client } from '../trpc/client';
 import { IS_WEB } from './target.shared';
 import { useViewState } from '../state/view';
-import { BROWSER_FILE_CHUNK_BYTES } from '../../../shared/browser_file_upload';
+import {
+  BROWSER_FILE_CHUNK_BYTES,
+  PICKED_BROWSER_FILE_MAX_BYTES,
+} from '../../../shared/browser_file_upload';
 
 export type AccountFileKind = 'image' | 'record' | 'video' | 'file';
 type FileBinding = { expectedAccountUin: string; expectedAccountConfigId: string };
@@ -83,7 +86,8 @@ export async function stageAccountFile(
   onProgress?: (received: number, total: number) => void,
 ) {
   signal?.throwIfAborted();
-  if (!file.size || file.size > 2 * 1024 ** 3) throw new Error('请选择 2 GiB 以内的非空文件');
+  if (!file.size || file.size > PICKED_BROWSER_FILE_MAX_BYTES)
+    throw new Error('请选择 2 GiB 以内的非空文件');
   const config = expected
     ? { uin: expected.expectedAccountUin, configId: expected.expectedAccountConfigId }
     : await client.account.getAccountConfig.query();

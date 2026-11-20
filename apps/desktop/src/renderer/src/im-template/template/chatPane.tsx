@@ -3,6 +3,7 @@ import { Languages } from 'lucide-react';
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
 import { ChatTimeline } from './chatTimeline';
 import type { ConversationInteraction } from '../../../../shared/conversation_interaction';
+import { PICKED_BROWSER_FILE_MAX_BYTES } from '../../../../shared/browser_file_upload';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import {
   searchSlashEmojis,
@@ -166,6 +167,7 @@ import {
   writeComposerClipboard,
 } from './composerClipboard';
 import {
+  attachmentKindOf,
   attachmentToken,
   clipboardFiles,
   createAttachment,
@@ -175,7 +177,7 @@ import {
   formatFileSize,
   isImageFile,
   isUnsupportedImageFile,
-  MAX_ATTACHMENT_BYTES,
+  MAX_BUFFERED_COMPOSER_MEDIA_BYTES,
   MAX_COMPOSER_ATTACHMENTS,
   releaseAttachment,
   voiceClipToken,
@@ -4689,23 +4691,34 @@ export function ChatPane({
     sendAs?: 'file' | 'emoji',
     sourceConversation?: string,
   ) {
-    const oversized: string[] = [];
-    const usable = files.filter((file) => {
-      if (file.size > MAX_ATTACHMENT_BYTES) {
-        oversized.push(file.name);
-        return false;
+    let sizeError: string | null = null;
+    const usable: { file: File; sendAs?: 'file' | 'emoji' }[] = [];
+    for (const file of files) {
+      if (file.size <= MAX_BUFFERED_COMPOSER_MEDIA_BYTES) {
+        usable.push({ file, sendAs });
+        continue;
       }
-      return true;
-    });
+      if (sendAs === 'emoji') {
+        sizeError ??= `${file.name} 超过 100 MB，已跳过`;
+        continue;
+      }
+      const path = window.weq?.pathForFile?.(file);
+      if (!path && file.size > PICKED_BROWSER_FILE_MAX_BYTES) {
+        sizeError ??= `${file.name} 超过 2 GiB，已跳过`;
+        continue;
+      }
+      // 本机视频可按路径流式发送；其他大媒体走普通文件，避免按图片保存或整段读入内存。
+      const keepVideo = !sendAs && path && attachmentKindOf(file) === 'video';
+      usable.push({ file, sendAs: keepVideo ? undefined : 'file' });
+    }
     if (usable.length === 0) {
-      setAttachmentError(`${oversized[0] ?? '文件'} 超过 100MB，已跳过`);
+      setAttachmentError(sizeError);
       return;
     }
 
     // SVG 之类的「看起来是图、服务端不收」的文件按普通文件发：用户是拖着它 / 选了它
     // 要发出去，转成文件附件至少能到对面手里；直接当图片发只会在上传时失败。
-    const svgFiles = sendAs ? [] : usable.filter(isUnsupportedImageFile);
-    if (svgFiles.length > 0) {
+    if (!sendAs && usable.some(({ file }) => isUnsupportedImageFile(file))) {
       pushToast({
         tone: 'warning',
         title: 'SVG 按文件发送',
@@ -4722,7 +4735,7 @@ export function ChatPane({
     }
 
     const created = await Promise.all(
-      usable.slice(0, room).map((file) => createAttachment(file, sendAs)),
+      usable.slice(0, room).map((item) => createAttachment(item.file, item.sendAs)),
     );
     if (
       sendAs === 'emoji' &&
@@ -4783,11 +4796,10 @@ export function ChatPane({
       insertInlineImage(item);
     }
     setAttachmentError(
-      oversized.length > 0
-        ? `${oversized[0]} 超过 100MB，已跳过`
-        : usable.length > room
+      sizeError ??
+        (usable.length > room
           ? `最多只能添加 ${MAX_COMPOSER_ATTACHMENTS} 项附件，多余的已忽略`
-          : null,
+          : null),
     );
   }
 

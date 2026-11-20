@@ -56,6 +56,7 @@ import { webNotices, type WebNotice } from '../../web/notices';
 import {
   BROWSER_FILE_CHUNK_BYTES,
   BROWSER_FILE_MAX_BYTES,
+  PICKED_BROWSER_FILE_MAX_BYTES,
 } from '../../../shared/browser_file_upload';
 import {
   assertEmbeddingModelIdentity,
@@ -1445,11 +1446,7 @@ export const accountRouter = router({
   pickedFileStart: procedure
     .input(
       browserFileBinding.extend({
-        size: z
-          .number()
-          .int()
-          .positive()
-          .max(2 * 1024 ** 3),
+        size: z.number().int().positive().max(PICKED_BROWSER_FILE_MAX_BYTES),
         name: z.string().min(1).max(255),
       }),
     )

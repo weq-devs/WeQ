@@ -23,7 +23,7 @@
 
 import { parseMessageParts, type EmojiItem } from './emojiPacks';
 import { elementPreviewSrc, tokenToElement } from './draftElements';
-import { MAX_ATTACHMENT_BYTES } from './composerMedia';
+import { MAX_BUFFERED_COMPOSER_MEDIA_BYTES } from './composerMedia';
 import { repeatNeedsStickerCatalog, repeatSendPlan } from '../../lib/messageRepeat';
 import { plainElementText } from '@weq/service/message-plain-text';
 
@@ -81,10 +81,13 @@ export async function resolveComposerMedia(
       // 只通过已有资源代理读宿主草稿，不把草稿中的路径字符串直接交给上传器。
       const response = await fetch(previewUrl);
       const unavailable = () => new Error(`草稿图片「${name}」不可用，请检查原图或重新添加。`);
-      if (!response.ok || Number(response.headers.get('content-length')) > MAX_ATTACHMENT_BYTES)
+      if (
+        !response.ok ||
+        Number(response.headers.get('content-length')) > MAX_BUFFERED_COMPOSER_MEDIA_BYTES
+      )
         throw unavailable();
       const blob = await response.blob();
-      if (!blob.size || blob.size > MAX_ATTACHMENT_BYTES) throw unavailable();
+      if (!blob.size || blob.size > MAX_BUFFERED_COMPOSER_MEDIA_BYTES) throw unavailable();
       return { key, name, bytes: new Uint8Array(await blob.arrayBuffer()), previewUrl };
     }),
   ]);
