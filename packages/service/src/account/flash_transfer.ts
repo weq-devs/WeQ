@@ -5,7 +5,7 @@
  * 在线 pid 上发包。QQ 离线 / 风控失败原样上抛，由 router 统一转成用户提示。
  *
  * 通用路径（sendFlashTransfer）的时序是「**封面传完才发、主文件后台传**」：申请 fileset
- * → commit/complete → 上传封面并确认可以读回 → 0x93d7 发消息 →
+ * → commit/complete → 封面（缩略图）prepare/apply/分片 **传完** → 0x93d7 发消息 →
  * 主文件字节在后台传。
  *
  * 封面必须在 0x93d7 **之前**就绪 —— 实机抓包（2026-10-10，含时间线）里 QQ 是「传完才
@@ -15,16 +15,11 @@
  * 对端靠 commit 的元数据就能看到文件清单。上传结果只写日志（进度另走
  * FlashTransferFilesService）。群反馈路径（uploadBundleToGroup）复用同一条。
  */
-import { readFile } from 'node:fs/promises';
-import { setTimeout as delay } from 'node:timers/promises';
 import type { AccountSession } from '@weq/account';
-import { isDatalineUid } from '@weq/codec';
 import type { NtHelperBinding } from '@weq/native';
-import { bounded } from '@weq/network';
+import { isDatalineUid } from '@weq/codec';
 import {
   createFlashFileset,
-  FLASH_APPID_JPG_THUMB,
-  FLASH_APPID_PNG_THUMB,
   GetFilesetDetail,
   SendFlashMsg,
   SendTuwenArk,
@@ -36,25 +31,8 @@ import {
   type SendTuwenArkResult,
 } from '@weqbot/protocol';
 import { getLogger } from '../common/logger';
-import { webRequestBytes, WebRequestError } from './web/http';
 
 const logger = getLogger().child({ scope: 'flash-transfer' });
-
-function coverDownloadUrl(value: string): string | undefined {
-  const url = URL.parse(value);
-  if (
-    url?.origin !== 'https://multimedia.qfile.qq.com' ||
-    url.pathname !== '/download' ||
-    url.username ||
-    url.password
-  ) {
-    return undefined;
-  }
-  const appId = url.searchParams.get('appid');
-  return appId === String(FLASH_APPID_JPG_THUMB) || appId === String(FLASH_APPID_PNG_THUMB)
-    ? url.href
-    : undefined;
-}
 
 export class FlashTransferService {
   constructor(
@@ -67,7 +45,7 @@ export class FlashTransferService {
    * 发一条闪传（fileset）消息给私聊 / 群聊 —— 输入框「闪传」用的通用路径。
    *
    * 时序（**封面传完才发、主文件后台传**）：申请 fileset（0x93cf）→ commit/complete
-   * （0x93d0/0x93db）→ 上传并读回封面 → 0x93d7 发消息 →
+   * （0x93d0/0x93db）→ 封面缩略图（0x12a9 三段 + 分片）**传完** → 0x93d7 发消息 →
    * **立刻返回**；只有主文件分片上传在返回后于后台跑。
    *
    * 封面必须排在 0x93d7 之前：对端一收到消息就拉 fileset，封面没登记就只会显示默认
@@ -96,7 +74,6 @@ export class FlashTransferService {
     ) => void;
   }): Promise<{ filesetUuid: string; shareUrl: string; uploaded: Promise<void> }> {
     const pid = this.resolvePid();
-    const cover = params.thumbPath ? await readFile(params.thumbPath) : undefined;
     const pending = await createFlashFileset(this.nt, pid, params.files, {
       ...(params.name?.trim() ? { name: params.name.trim() } : {}),
       ...(params.thumbPath ? { thumbPath: params.thumbPath } : {}),
@@ -107,7 +84,6 @@ export class FlashTransferService {
     // 封面 prepare/apply/分片）。两步都必须在 0x93d7 之前：前者让对端点开就有文件
     // 清单，后者让卡片一到就有封面而不是默认图（见类注释的实机时序）。
     await stageFlashFileset(this.nt, pid, pending);
-    if (cover) await this.confirmCover(pid, pending.filesetUuid, cover);
 
     if (params.peerType === 'group') {
       const groupId = Number(params.targetId.trim());
@@ -145,50 +121,6 @@ export class FlashTransferService {
     });
 
     return { filesetUuid: pending.filesetUuid, shareUrl: pending.shareUrl, uploaded };
-  }
-
-  /** 上传回执成功后，仍需证实 QQ 已关联且可取回本次上传的封面。 */
-  private async confirmCover(pid: number, filesetUuid: string, cover: Buffer): Promise<void> {
-    const signal = AbortSignal.timeout(6000);
-    let problem = '暂未取得文件集详情';
-    for (let attempt = 0; attempt < 2 && !signal.aborted; attempt++) {
-      try {
-        // 服务端关联可能稍晚可查，重新读一次详情以获取当前的下载地址。
-        if (attempt > 0) await delay(350, undefined, { signal });
-        const entries = await bounded(
-          GetFilesetDetail.invoke(this.nt, pid, { filesetUuid }),
-          signal,
-        );
-        const urls = new Set(
-          entries
-            .map((entry) => coverDownloadUrl(entry.downloadUrl))
-            .filter((url) => url !== undefined),
-        );
-        problem = 'QQ 未返回封面下载地址';
-        for (const url of urls) {
-          if (signal.aborted) break;
-          try {
-            const bytes = await webRequestBytes(url, {
-              cookie: '',
-              redirect: 'error',
-              signal,
-              timeoutMs: 2000,
-              maxResponseBytes: cover.byteLength,
-            });
-            if (cover.equals(bytes)) return;
-            problem = '下载内容与本次上传的封面不一致';
-          } catch (error) {
-            problem =
-              error instanceof WebRequestError && error.status
-                ? `封面下载返回 HTTP ${error.status}`
-                : '封面下载失败';
-          }
-        }
-      } catch {
-        problem = '读取 QQ 文件集详情失败';
-      }
-    }
-    throw new Error(`闪传封面验证失败，卡片未发送。${problem}，请重试。`);
   }
 
   /** 分享已有文件集；与 Android 的转发入口相同，不下载、重传或自行拼 Markdown。 */
