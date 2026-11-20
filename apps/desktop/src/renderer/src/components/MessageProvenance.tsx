@@ -29,11 +29,7 @@ export function SystemMessageContent({
   const showTime = useContext(ShowMessageTimeContext);
   const full = showDate || showTime ? formatDateTime(message.createdAt, 'second') : '';
   return (
-    <div
-      className="weq-system-message-content"
-      title={full ? `${full}（北京时间）` : undefined}
-      tabIndex={full ? 0 : undefined}
-    >
+    <div className="weq-system-message-content" title={full ? `${full}（北京时间）` : undefined}>
       {children}
       <MessageProvenance message={message} system />
     </div>
@@ -84,7 +80,7 @@ export function MessageProvenance({
         </span>
       ) : null}
       {day || time ? (
-        <TimeLabel value={message.createdAt} precision={precision}>
+        <TimeLabel value={message.createdAt} precision={precision} tabbable={false}>
           {[day, time].filter(Boolean).join(' ')}
         </TimeLabel>
       ) : null}

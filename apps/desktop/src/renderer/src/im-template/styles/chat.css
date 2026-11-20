@@ -679,6 +679,20 @@ html[data-theme='dark'] .weq-chat-backdrop {
   -webkit-user-select: none;
 }
 
+/* 焦点跟随头像或 QQ 秀的绘制尺寸，按钮的行内留白和挂件不参与描边。 */
+html[data-theme] .message-line > .message-avatar-button:focus-visible {
+  outline: none;
+}
+
+.message-avatar-button:focus-visible :is(.avatar, .weq-qqshow-avatar:not([hidden])) {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-fg-primary));
+  outline-offset: 0;
+}
+
+.message-avatar-button:focus-visible .weq-qqshow-avatar {
+  border-radius: 6px;
+}
+
 /*
  * 头像挂件（设置 → 个性显示，仅自己的头像）。
  *

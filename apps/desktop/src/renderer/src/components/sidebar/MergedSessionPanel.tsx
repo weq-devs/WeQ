@@ -771,7 +771,9 @@ export function MergedSessionPanel({
                           {pinned ? (
                             <Pin size={12} aria-label="置顶" className="row-pinned" />
                           ) : null}
-                          <TimeLabel value={conv.updatedAt}>{time}</TimeLabel>
+                          <TimeLabel value={conv.updatedAt} tabbable={false}>
+                            {time}
+                          </TimeLabel>
                         </>
                       }
                       status={
@@ -791,7 +793,9 @@ export function MergedSessionPanel({
                         <div className="weq-merged-popover-item-name">{name}</div>
                         {time && (
                           <div className="weq-merged-popover-item-time">
-                            <TimeLabel value={conv.updatedAt}>{time}</TimeLabel>
+                            <TimeLabel value={conv.updatedAt} tabbable={false}>
+                              {time}
+                            </TimeLabel>
                           </div>
                         )}
                       </div>
