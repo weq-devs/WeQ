@@ -29,13 +29,7 @@ export class MailAttachmentRegistry {
   private readonly images = new Map<string, URL>();
 
   registerImage(url: URL): string {
-    if (
-      url.protocol !== 'https:' ||
-      !isMailDownloadHost(url.hostname) ||
-      url.username ||
-      url.password ||
-      url.port
-    )
+    if (url.protocol !== 'https:' || url.username || url.password || url.port)
       throw new MailFailure('business', '邮箱图片地址无效。');
     if (this.images.size >= 500) {
       const first = this.images.keys().next().value;

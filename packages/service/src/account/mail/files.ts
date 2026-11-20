@@ -15,12 +15,14 @@ import {
   PIC_FORMAT_GIF,
   PIC_FORMAT_WEBP,
 } from '@weqbot/protocol';
+import { fetchPublicImageBytes } from '../../bootstrap/link_preview';
 import type { MailAuth } from './auth';
 import type { MailAttachmentRegistry } from './attachments';
 import { MailFailure, type MailAttachment } from './types';
-import { MAIL_PART_SIZE, items, object, text } from './wire';
+import { MAIL_PART_SIZE, isMailDownloadHost, items, object, text } from './wire';
 
 export const MAIL_MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024;
+const MAIL_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export interface MailPart {
   start: number;
   endOffset: number;
@@ -65,7 +67,14 @@ export async function loadMailInlineImage(
   signal: AbortSignal,
   request: MailDownloadRequest = requestMailDownload,
 ): Promise<{ mime: string; base64: string }> {
-  const credentials = await auth.downloadCredentials(registry.imageUrl(id), false, signal);
+  const source = registry.imageUrl(id);
+  if (!isMailDownloadHost(source.hostname)) {
+    const bytes = await fetchPublicImageBytes(source, MAIL_MAX_IMAGE_BYTES, signal);
+    signal.throwIfAborted();
+    if (!bytes) throw new MailFailure('business', '邮箱图片暂时无法加载。');
+    return mailImageData(bytes);
+  }
+  const credentials = await auth.downloadCredentials(source, false, signal);
   let url = mailStorageUrl(credentials.url);
   for (let hop = 0; hop < 5; hop++) {
     signal.throwIfAborted();
@@ -93,7 +102,7 @@ export async function loadMailInlineImage(
       for await (const chunk of response) {
         const bytes = Buffer.from(chunk as Uint8Array);
         size += bytes.length;
-        if (size > 10 * 1024 * 1024) {
+        if (size > MAIL_MAX_IMAGE_BYTES) {
           response.destroy();
           throw new MailFailure('business', '邮箱图片超过大小上限。');
         }
@@ -103,19 +112,22 @@ export async function loadMailInlineImage(
       signal.removeEventListener('abort', abort);
     }
     signal.throwIfAborted();
-    const bytes = Buffer.concat(chunks),
-      image = detectImageFormat(bytes);
-    const mime = new Map([
-      [PIC_FORMAT_PNG, 'image/png'],
-      [PIC_FORMAT_JPEG, 'image/jpeg'],
-      [PIC_FORMAT_GIF, 'image/gif'],
-      [PIC_FORMAT_WEBP, 'image/webp'],
-    ]).get(image.format);
-    if (!mime || image.width <= 0 || image.height <= 0 || image.width * image.height > 25_000_000)
-      throw new MailFailure('business', '邮箱图片格式无效或尺寸过大。');
-    return { mime, base64: bytes.toString('base64') };
+    return mailImageData(Buffer.concat(chunks));
   }
   throw new MailFailure('business', '邮箱图片跳转次数过多。');
+}
+
+function mailImageData(bytes: Buffer): { mime: string; base64: string } {
+  const image = detectImageFormat(bytes);
+  const mime = new Map([
+    [PIC_FORMAT_PNG, 'image/png'],
+    [PIC_FORMAT_JPEG, 'image/jpeg'],
+    [PIC_FORMAT_GIF, 'image/gif'],
+    [PIC_FORMAT_WEBP, 'image/webp'],
+  ]).get(image.format);
+  if (!mime || image.width <= 0 || image.height <= 0 || image.width * image.height > 25_000_000)
+    throw new MailFailure('business', '邮箱图片格式无效或尺寸过大。');
+  return { mime, base64: bytes.toString('base64') };
 }
 
 export function mailStorageUrl(raw: string | URL): URL {

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MailAuth } from '../src/account/mail/auth';
 import { MailAttachmentRegistry } from '../src/account/mail/attachments';
+import { loadMailInlineImage } from '../src/account/mail/files';
 import { protectMailHtml } from '../src/account/mail/html';
 
 describe('邮箱 HTML 凭据边界', () => {
@@ -18,14 +19,26 @@ describe('邮箱 HTML 凭据边界', () => {
     registry.clear();
     expect(() => registry.imageUrl(id!)).toThrow('已失效');
   });
-  it('容错解析普通 HTML，并不改写公开外部图片为邮箱资源', () => {
+  it('公开外部图片使用独立于邮箱凭据的加载令牌，同一地址只登记一次', () => {
     const registry = new MailAttachmentRegistry();
     const html = protectMailHtml(
-      '<p>正文<img src="https://public.example.invalid/p.png"><p>下一段',
+      '<p>正文<img src="https://public.example.invalid/p.png"><p>下一段<img src="https://public.example.invalid/p.png">',
       registry,
     );
-    expect(html).toContain('public.example.invalid');
-    expect(html).not.toContain('data-mail-inline');
+    const ids = [...html.matchAll(/data-mail-inline="([^"]+)"/g)].map((match) => match[1]!);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe(ids[1]);
+    expect(registry.imageUrl(ids[0]!).href).toBe('https://public.example.invalid/p.png');
+    expect(html).not.toContain('public.example.invalid');
+  });
+  it('外链图不读取邮箱凭据，并拒绝本机地址', async () => {
+    const registry = new MailAttachmentRegistry();
+    const id = registry.registerImage(new URL('https://127.0.0.1/image.png'));
+    const auth = { downloadCredentials: vi.fn() } as unknown as MailAuth;
+    await expect(
+      loadMailInlineImage(auth, registry, id, new AbortController().signal),
+    ).rejects.toThrow('邮箱图片暂时无法加载');
+    expect(auth.downloadCredentials).not.toHaveBeenCalled();
   });
   it('票据文本和百分号编码值也会在跨IPC前脱敏', async () => {
     const auth = new MailAuth(

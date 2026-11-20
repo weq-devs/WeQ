@@ -2,22 +2,32 @@ import { parseFragment, serialize, type DefaultTreeAdapterMap } from 'parse5';
 import type { MailAttachmentRegistry } from './attachments';
 import { MAIL_ORIGIN, isMailDownloadHost } from './wire';
 
-/** 先隐藏邮箱内嵌资源的凭据；HTML 的 XSS 净化另由渲染端 DOMPurify 承担。 */
+/** 图片统一使用令牌，邮箱票据留在主进程。HTML 净化由渲染端 DOMPurify 承担。 */
 export function protectMailHtml(html: string, registry: MailAttachmentRegistry): string {
   const fragment = parseFragment(html);
+  const imageIds = new Map<string, string>();
   const visit = (node: DefaultTreeAdapterMap['node']): void => {
     if ('tagName' in node) {
-      const src = node.attrs.find((attr) => attr.name === 'src')?.value;
-      if (node.tagName === 'img' && src) {
+      if (node.tagName === 'img') {
+        node.attrs = node.attrs.filter(
+          (attr) => !['srcset', 'data-mail-inline'].includes(attr.name),
+        );
+        const src = node.attrs.find((attr) => attr.name === 'src')?.value.trim();
         try {
-          const url = new URL(src, MAIL_ORIGIN);
-          if (isMailDownloadHost(url.hostname) && ['http:', 'https:'].includes(url.protocol)) {
-            url.protocol = 'https:';
-            const id = registry.registerImage(url);
-            node.attrs = node.attrs.filter(
-              (attr) => !['src', 'srcset', 'data-mail-inline'].includes(attr.name),
-            );
-            node.attrs.push({ name: 'data-mail-inline', value: id });
+          if (src) {
+            const url = new URL(src, MAIL_ORIGIN);
+            if (url.protocol === 'http:' && isMailDownloadHost(url.hostname))
+              url.protocol = 'https:';
+            if (url.protocol === 'https:') {
+              const id =
+                imageIds.get(url.href) ??
+                (imageIds.size < 100 ? registry.registerImage(url) : undefined);
+              node.attrs = node.attrs.filter((attr) => attr.name !== 'src');
+              if (id) {
+                imageIds.set(url.href, id);
+                node.attrs.push({ name: 'data-mail-inline', value: id });
+              }
+            }
           }
         } catch {
           node.attrs = node.attrs.filter((attr) => attr.name !== 'src');

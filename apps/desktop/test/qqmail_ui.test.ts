@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { MailDetail } from '@weq/service/mail';
 import {
   draftFromMail,
-  inlineMailImages,
+  mailBodyImages,
   mailBodyFragment,
   mailDocument,
   mailExternalLink,
@@ -91,11 +91,15 @@ describe('原生邮箱界面逻辑', () => {
     expect(fragment.querySelector('script,form,input')).toBeNull();
     expect(fragment.querySelector('a')?.hasAttribute('target')).toBe(false);
     expect(fragment.querySelector('a')?.hasAttribute('ping')).toBe(false);
-    expect(inlineMailImages(input)).toEqual([id]);
+    expect(mailBodyImages(input)).toEqual({ ids: [id], hasImages: true });
     const html = mailDocument(input, false, {});
     expect(html).toContain("script-src 'none'");
     expect(html).toContain('no-referrer');
     expect(html).not.toContain('src="https://tracker.invalid');
+  });
+  it('正文只将实际可加载的图片列为可显示', () => {
+    expect(mailBodyImages('<p>正文</p><img alt="占位">').hasImages).toBe(false);
+    expect(mailBodyImages('<img src="data:image/png;base64,AAAA">').hasImages).toBe(true);
   });
   it('外部链接只接受 HTTP(S)，不允许带身份信息或脚本协议', () => {
     expect(mailExternalLink('https://example.invalid/path')).toBe('https://example.invalid/path');
