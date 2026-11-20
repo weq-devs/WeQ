@@ -65,14 +65,17 @@ describe('收藏表情面板', () => {
     const root = createRoot(host);
     const onSelect = vi.fn();
     const onSelectSuper = vi.fn();
-    try {
+    const renderPanel = (textOnly = false) =>
       act(() =>
-        root.render(h(EmojiPanel, { panelRef: { current: null }, onSelect, onSelectSuper })),
+        root.render(
+          h(EmojiPanel, { panelRef: { current: null }, onSelect, onSelectSuper, textOnly }),
+        ),
       );
-      const defaultTab = host.querySelector<HTMLButtonElement>(
-        '.emoji-tabs button[aria-pressed="true"]',
-      );
-      expect(defaultTab?.getAttribute('aria-label')).toBe('表情');
+    const selectedTab = () =>
+      host.querySelector('.emoji-tabs button[aria-pressed="true"]')?.getAttribute('aria-label');
+    try {
+      renderPanel();
+      expect(selectedTab()).toBe('表情');
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="收藏"]')!.click());
       expect(host.querySelector('[aria-label="导入收藏表情包"]')).not.toBeNull();
       expect(host.querySelector('[aria-label="导出收藏表情包"]')).not.toBeNull();
@@ -82,6 +85,19 @@ describe('收藏表情面板', () => {
         expect.objectContaining({ token: '[[chat:fav:recv:2026-09:ori:aabbccddeeff.gif]]' }),
       );
       expect(onSelectSuper).not.toHaveBeenCalled();
+
+      act(() => root.render(null));
+      renderPanel();
+      expect(selectedTab()).toBe('收藏');
+
+      act(() => root.render(null));
+      renderPanel(true);
+      expect(selectedTab()).toBe('表情');
+      expect(host.querySelector<HTMLButtonElement>('[aria-label="收藏"]')?.disabled).toBe(true);
+
+      act(() => root.render(null));
+      renderPanel();
+      expect(selectedTab()).toBe('收藏');
     } finally {
       act(() => root.unmount());
       host.remove();
