@@ -7,7 +7,6 @@ import type { MessageBubbleSkin, FontDerived, ResolvedWidget } from '@weq/servic
 import { acquireDecorationStyle, validDecorationFrames } from './decorationResources';
 import { fontFaces } from './fontFaces';
 import {
-  dressBubbleUrl,
   dressBubbleFrameUrl,
   dressPendantFrameUrl,
   dressFontUrl,
@@ -26,6 +25,8 @@ import {
   toFontFxSkin,
   fxClipMaskCss,
   bubbleMetrics,
+  fractionalBubbleBase,
+  ninePatchLayer,
   fontTextRules,
 } from './dressSkin';
 
@@ -86,62 +87,20 @@ function fontTheirsLineSel(fontId: number): string {
 }
 
 /**
- * One nine-patch layer as a pseudo-element rule (mirror of dressSkin.ts's
- * `ninePatchLayer`): the static bubble base on `::before`, the bubbleframe
- * animation on `::after`.
- *
- * `bubbleframe/*.9.png` frames are **overlays**, not whole bubbles: their middle
- * is hollow (2116371's 12 frames have 0/4 opaque pixels in the fill region, and
- * 52 of the 55 installed animated bubbles look the same), they only carry the
- * ornaments above/below the bubble. Painting a frame as the base therefore
- * leaves the bubble body completely transparent, which is why the base layer is
- * always the plain `aio_user_bg_nor.9.png`.
- *
- * `isolation: isolate` keeps the animated foreground above its own text,
- * without overlapping other messages or toolbars.
- */
-function layerRule(
-  sel: string,
-  slice: string,
-  width: string,
-  opts: { imageUrl: string; zIndex: number; mirror?: boolean; animation?: string },
-): string {
-  return [
-    `${sel} {`,
-    `  content: "";`,
-    `  position: absolute;`,
-    `  inset: 0;`,
-    `  z-index: ${opts.zIndex};`,
-    `  pointer-events: none;`,
-    `  border-style: solid;`,
-    `  border-width: 0;`,
-    `  border-image-source: url("${opts.imageUrl}");`,
-    `  border-image-slice: ${slice};`,
-    `  border-image-width: ${width};`,
-    `  border-image-repeat: stretch;`,
-    `  border-radius: 0;`,
-    opts.mirror ? `  transform: scaleX(-1);` : '',
-    opts.animation ? `  animation: ${opts.animation};` : '',
-    `}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-/**
  * Inject CSS rules for one bubble skin.  No-op if already injected.
  * Mirror of dressSkin.ts bubbleRules(), but scoped to data-bubble attribute.
  */
 export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
   return acquireDecorationStyle(`bubble:${skin.itemId}${staticOnly ? ':base' : ''}`, (resource) => {
-    const { slice, width, topPad, rightPad, bottomPad, minWidth, minHeight } = bubbleMetrics(skin);
+    const metrics = bubbleMetrics(skin);
+    const { slice, width, topPad, rightPad, bottomPad, minWidth, minHeight, imageUrl } = metrics;
     const sel = bubbleSel(skin.itemId);
     const theirsSel = theirsBubbleSel(skin.itemId);
     // `sel` 是逗号选择器列表,`::after` 不能直接往上拼 —— 那样只会加到最后一项目上,
     // 前面那项会命中真实元素(见 lineContentSel 的历史坑)。用带 suffix 的版本展开。
     const overlaySel = lineContentSel('bubble', skin.itemId, '::after');
 
-    // 动效叠加层:帧图中间镂空,只能叠在静态底图之上(见 layerRule 的说明)。
+    // 动效叠加层的帧图中间通常镂空，静态底图始终单独绘制。
     const frameCount = skin.animationFrameCount ?? 0;
     const frameTimeMs = skin.animationFrameTimeMs ?? 0;
     const hasFrameAnim = validDecorationFrames(frameCount) && frameTimeMs;
@@ -150,9 +109,6 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
         ? bubbleFrameAnimationCss(skin.itemId, frameCount, frameTimeMs, skin.animationRepeat ?? 0)
         : null;
 
-    // local-only:气泡永远是本地九宫格(zip 链下载),没有 CDN 直链分支。
-    // 底图恒为 `aio_user_bg_nor.9.png` 那张 —— 与有没有动效无关。
-    const imageUrl = skin.baseImage ?? dressBubbleUrl(skin.itemId);
     resource.image(imageUrl);
 
     const rules = [
@@ -174,6 +130,7 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
       `  min-height: ${minHeight};`,
       `}`,
       bubbleContentAlignmentCss(sel),
+      fractionalBubbleBase(metrics, sel),
     ];
 
     // 遮罩只作用于独立的字体绘制层，不裁掉气泡前景装饰。
@@ -189,22 +146,19 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
     // 这里先不挂 animation —— 等所有帧图片预加载完再开播,避免第一圈逐帧闪烁。
     if (frameAnim) {
       rules.push(
-        layerRule(overlaySel, slice, width, {
+        ninePatchLayer(metrics, overlaySel, {
           imageUrl: dressBubbleFrameUrl(skin.itemId, 1),
           zIndex: BUBBLE_FRAME_Z_INDEX,
         }),
       );
     }
 
-    // 对方消息镜像：不能对整个 .message-content 做 scaleX(-1)（文字会跟着镜像），
-    // 所以两层贴图都挪到伪元素上翻转，文字留在元素自身不动：底图 ::before
-    // (z-index -2)、前景动效 ::after。与 dressSkin.ts bubbleRules()
-    // 里 scope=all 的那组镜像规则同构。
+    // 对方消息只镜像底图和前景，文字保持正常方向。
     rules.push(
       `${theirsSel} {`,
       `  border-image-source: none;`,
       `}`,
-      layerRule(theirsBubbleSel(skin.itemId, '::before'), slice, width, {
+      ninePatchLayer(metrics, theirsBubbleSel(skin.itemId, '::before'), {
         imageUrl,
         zIndex: -2,
         mirror: true,
@@ -213,7 +167,7 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
 
     if (frameAnim) {
       rules.push(
-        layerRule(theirsBubbleSel(skin.itemId, '::after'), slice, width, {
+        ninePatchLayer(metrics, theirsBubbleSel(skin.itemId, '::after'), {
           imageUrl: dressBubbleFrameUrl(skin.itemId, 1),
           zIndex: BUBBLE_FRAME_Z_INDEX,
           mirror: true,

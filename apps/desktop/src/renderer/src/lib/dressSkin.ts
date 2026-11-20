@@ -9,8 +9,8 @@
  * QQ 的气泡是 Android 九宫格,对应 CSS 的 `border-image`。切片参数由 service 侧探测
  * (见 bubble_skin.ts,那里有 slice 公式的坑),这里只负责换算和拼串。
  *
- * 已实测确认 `border-image` 的输出与手工九宫格(4 角原尺寸 + 4 边单向拉伸 + 中心双向
- * 拉伸)逐像素一致,所以不需要为九宫格铺 9 个 DOM 节点。
+ * 镜像平移和非整数屏幕倍率会让切片交界跨过物理像素。
+ * 聊天气泡单独对齐绘制层，避免拼缝透出底色。
  *
  * 三个必须注意的点:
  *
@@ -480,6 +480,7 @@ interface BubbleMetrics {
   imageUrl: string;
   slice: string;
   width: string;
+  physicalWidth: string;
   topPad: string;
   rightPad: string;
   bottomPad: string;
@@ -500,12 +501,13 @@ export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
   const slice = `${top} ${right} ${bottom} ${left} fill`;
   const horizontal = left + right;
   const vertical = top + bottom;
-  const width = [
-    edge(top, vertical),
-    edge(right, horizontal),
-    edge(bottom, vertical),
-    edge(left, horizontal),
-  ].join(' ');
+  const edges = [
+    [top, vertical],
+    [right, horizontal],
+    [bottom, vertical],
+    [left, horizontal],
+  ] as const;
+  const width = edges.map(([size, sum]) => edge(size, sum)).join(' ');
 
   const frameAnim =
     validDecorationFrames(skin.animationFrameCount) && skin.animationFrameTimeMs
@@ -522,6 +524,13 @@ export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
     imageUrl: bubbleImageUrl(skin),
     slice,
     width,
+    physicalWidth: edges
+      .map(([size, sum]) =>
+        size
+          ? `round(down, min(calc(${px(size * BUBBLE_SCALE)} * var(--weq-bubble-dpr)), ${(100 * size) / sum}%), 1px)`
+          : '0px',
+      )
+      .join(' '),
     rightPad: px(BUBBLE_TEXT_PADDING.horizontal),
     topPad: px(BUBBLE_TEXT_PADDING.vertical),
     bottomPad: px(BUBBLE_TEXT_PADDING.vertical),
@@ -578,19 +587,49 @@ function frameOverlayUrl(itemId: number): string {
   return dressBubbleFrameUrl(itemId, 1);
 }
 
-/**
- * 一层九宫格贴图(静态底图 / 动效叠加层共用;两层几何完全一致,只是层级与贴图不同)。
- *
- * 不镜像的底图直接写在元素本体的 border-image；镜像底图在 ::before，气泡前景在
- * ::after。z-index 锁在当前气泡的层叠上下文中，不覆盖其他消息或操作栏。
- */
-function ninePatchLayer(
+const FRACTIONAL_BUBBLE_DPR = 'data-weq-bubble-fractional-dpr';
+let bubbleResolution: MediaQueryList | undefined;
+
+function watchBubbleResolution() {
+  if (
+    bubbleResolution ||
+    typeof matchMedia !== 'function' ||
+    !globalThis.CSS?.supports('width', 'round(down, 1px, 1px)')
+  )
+    return;
+  const update = () => {
+    const dpr = window.devicePixelRatio || 1;
+    const root = document.documentElement;
+    root.style.setProperty('--weq-bubble-dpr', String(dpr));
+    root.toggleAttribute(FRACTIONAL_BUBBLE_DPR, !Number.isInteger(dpr));
+    bubbleResolution = matchMedia(`(resolution: ${dpr}dppx)`);
+    bubbleResolution.addEventListener('change', update, { once: true });
+  };
+  update();
+}
+
+function fractionalBubbleSelectors(sel: string) {
+  return sel
+    .split(',')
+    .map((part) => `:where(:root[${FRACTIONAL_BUBBLE_DPR}]) ${part.trim()}`)
+    .join(',\n');
+}
+
+/** 静态底图与动效帧共用九宫格；预览保持原尺寸，聊天仅对贴图层做像素对齐。 */
+export function ninePatchLayer(
   m: BubbleMetrics,
   sel: string,
-  opts: { imageUrl: string; zIndex: number; mirror?: boolean; animation?: string },
+  opts: {
+    imageUrl: string;
+    zIndex: number;
+    mirror?: boolean;
+    animation?: string;
+    fractionalOnly?: boolean;
+    preview?: boolean;
+  },
 ): string {
-  return [
-    `${sel} {`,
+  const rule = [
+    `${opts.fractionalOnly ? fractionalBubbleSelectors(sel) : sel} {`,
     `  content: "";`,
     `  position: absolute;`,
     `  inset: 0;`,
@@ -603,12 +642,41 @@ function ninePatchLayer(
     `  border-image-width: ${m.width};`,
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
-    opts.mirror ? `  transform: scaleX(-1);` : '',
+    opts.mirror
+      ? `  transform-origin: left center;
+  transform: translateX(100%) scaleX(-1);
+  transform: translateX(round(nearest, 100%, 1px)) scaleX(-1);`
+      : '',
     opts.animation ? `  animation: ${opts.animation};` : '',
     `}`,
   ]
     .filter(Boolean)
     .join('\n');
+  if (opts.preview) return rule;
+
+  watchBubbleResolution();
+  // 先按整数物理像素拼接，再整体合成。扩大后的绘制盒向上、向左延伸，
+  // 避免撑高聊天区的滚动范围。正文与引用继续使用原有布局盒。
+  return `${rule}
+${fractionalBubbleSelectors(sel)} {
+  inset: auto 0 0 auto;
+  width: calc(100% * var(--weq-bubble-dpr));
+  height: calc(100% * var(--weq-bubble-dpr));
+  border-image-width: ${m.physicalWidth};
+  transform-origin: bottom right;
+  transform: scale(calc(1 / var(--weq-bubble-dpr)))${opts.mirror ? ' translateX(round(nearest, -100%, 1px)) scaleX(-1)' : ''};
+  will-change: transform;
+}`;
+}
+
+/** 未镜像的底图也要在非整数倍率下按物理像素拼接。 */
+export function fractionalBubbleBase(m: BubbleMetrics, sel: string): string {
+  return `${fractionalBubbleSelectors(sel)} { border-image-source: none; }
+${ninePatchLayer(m, appendToSelectors(sel, '::before'), {
+  imageUrl: m.imageUrl,
+  zIndex: -2,
+  fractionalOnly: true,
+})}`;
 }
 
 function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): string {
@@ -616,7 +684,11 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
   const theirsSel = scope !== 'mine' ? theirsBubbleSelector(scope) : null;
   const m = bubbleMetrics(skin);
 
-  const rules = [m.frameAnim?.keyframes ?? '', baseBubbleRule(skin, m, sel)];
+  const rules = [
+    m.frameAnim?.keyframes ?? '',
+    baseBubbleRule(skin, m, sel),
+    fractionalBubbleBase(m, sel),
+  ];
 
   // 只遮罩字体绘制层；气泡动画可继续绘制气泡外的装饰。
   rules.push(
@@ -704,6 +776,7 @@ export function bubblePreviewCss(skin: BubbleSkinCss, sel: string): string {
       ? ninePatchLayer(m, `${sel}::after`, {
           imageUrl: frameOverlayUrl(skin.itemId),
           zIndex: -1,
+          preview: true,
         })
       : '',
   ]
