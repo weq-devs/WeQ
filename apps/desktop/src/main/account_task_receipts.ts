@@ -199,7 +199,9 @@ export function restoreRecordedTasks(
         ...saved,
         // 进程中断后，仍需核对的收藏导入可从已保存回执找回。
         foreground:
-          saved.foreground && !(saved.kind === 'favorite-import' && status !== 'completed'),
+          saved.foreground &&
+          !(saved.kind === 'favorite-import' && status !== 'completed') &&
+          !(saved.kind === 'resource' && abandoned),
         scope,
         status,
         note,

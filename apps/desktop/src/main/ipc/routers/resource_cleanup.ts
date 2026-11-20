@@ -8,7 +8,7 @@
  */
 
 import { z } from 'zod';
-import { getAppContext } from '../../context/app_context';
+import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { backgroundTasks, taskError } from '../../background_tasks';
 import { recordAccountTask } from '../../account_task_receipts';
@@ -18,7 +18,66 @@ import {
   assertResourceSource,
 } from './resource_source';
 
+const runs = new WeakMap<
+  AccountServices,
+  {
+    id: string;
+    save: ReturnType<typeof recordAccountTask>;
+    total: number;
+    processed: number;
+    failed: number;
+    current?: string;
+  }
+>();
+const taskOf = (id: string) => backgroundTasks.snapshot().find((task) => task.id === id);
+
 export const resourceCleanupRouter = router({
+  status: procedure.input(resourceSourceInput.optional()).query(({ input }) => {
+    const run = runs.get(requireResourceSource(input));
+    const task = run && taskOf(run.id);
+    if (!run || !task) return null;
+    const { id, status, statusLabel, note, details, foreground, actions } = task;
+    return {
+      id,
+      status,
+      statusLabel,
+      note,
+      details,
+      foreground,
+      canStop: actions.some((action) => action.id === 'stop'),
+      total: run.total,
+      processed: run.processed,
+      failed: run.failed,
+      current: run.current,
+    };
+  }),
+
+  control: procedure
+    .input(
+      resourceSourceInput.extend({
+        taskId: z.string().uuid(),
+        action: z.enum(['stop', 'background']),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const run = runs.get(requireResourceSource(input));
+      const task = run?.id === input.taskId ? taskOf(run.id) : undefined;
+      if (!run || !task) throw new Error('资源清理批次已改变，请刷新');
+      if (input.action === 'stop') {
+        if (task.status === 'running' && task.actions.some((action) => action.id === 'stop'))
+          await backgroundTasks.act(task.id, 'stop');
+      } else if (task.foreground) {
+        backgroundTasks.setForeground(task.id, false);
+        try {
+          run.save();
+        } catch (error) {
+          backgroundTasks.setForeground(task.id, true);
+          throw error;
+        }
+      }
+      return true;
+    }),
+
   /** Per-target on-disk size (files/bytes + ori/thumb split). Slow — stats every file. */
   listTargets: procedure.input(resourceSourceInput.optional()).query(async ({ input }) => {
     const services = requireResourceSource(input);
@@ -35,6 +94,7 @@ export const resourceCleanupRouter = router({
   cleanup: procedure
     .input(
       resourceSourceInput.extend({
+        foreground: z.boolean().optional(),
         instructions: z.array(
           z.object({
             id: z.string().min(1),
@@ -53,6 +113,9 @@ export const resourceCleanupRouter = router({
         throw new Error('静态账号不提供本地资源清理：这些资源不属于导入的数据库快照。');
       }
       const services = requireResourceSource(input);
+      const previous = runs.get(services);
+      if (previous && taskOf(previous.id)?.status === 'running')
+        throw new Error('正在清理本地资源，请等待本批完成');
       const scope = {
         uin: services.accountConfig.getRecord()!.uin,
         configId: services.accountConfig.getRecord()?.configId,
@@ -62,6 +125,7 @@ export const resourceCleanupRouter = router({
         name: '清理本地资源',
         display: { action: '清理本地资源' },
         scope,
+        foreground: input.foreground,
       });
       const save = recordAccountTask(id, scope);
       const stop = new AbortController();
@@ -69,6 +133,15 @@ export const resourceCleanupRouter = router({
       const selected = [
         ...new Set(input.instructions.map((item) => `${item.id} · ${item.variant}`)),
       ];
+      const run = {
+        id,
+        save,
+        total: selected.length,
+        processed: 0,
+        failed: 0,
+        current: undefined as string | undefined,
+      };
+      runs.set(services, run);
       const completed = new Set<string>();
       const report = (working?: string) => [
         ...details,
@@ -95,14 +168,21 @@ export const resourceCleanupRouter = router({
           signal: stop.signal,
           before: (item) => {
             assertResourceSource(services, input);
-            backgroundTasks.update(id, { details: report(`${item.id} · ${item.variant}`) });
+            run.current = `${item.id} · ${item.variant}`;
+            backgroundTasks.update(id, { details: report(run.current) });
             save();
           },
           after: (row) => {
             const key = `${row.id} · ${row.variant}`;
             completed.add(key);
+            run.current = undefined;
+            run.processed = completed.size;
+            run.failed += row.failed;
             details.push(`${key} · 删除 ${row.removed} · 失败 ${row.failed}`);
-            backgroundTasks.update(id, { details: report() });
+            backgroundTasks.update(id, {
+              progress: run.total ? (run.processed / run.total) * 100 : undefined,
+              details: report(),
+            });
             save();
           },
         });
@@ -119,11 +199,12 @@ export const resourceCleanupRouter = router({
             details: stop.signal.aborted ? report() : details,
           },
         );
-        return result;
+        return { ...result, stopped: stop.signal.aborted };
       } catch (error) {
         backgroundTasks.finish(id, 'failed', { note: taskError(error) });
         throw error;
       } finally {
+        run.current = undefined;
         backgroundTasks.setActions(id, []);
         try {
           save();

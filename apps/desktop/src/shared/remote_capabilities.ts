@@ -40,6 +40,7 @@ const computerProcedures = new Set([
   'account.pickExportBaselineDirectory',
   'account.listExportBaselines',
   'account.resourceCleanup.cleanup',
+  'account.resourceCleanup.control',
   'account.dbExplorer.updateCell',
   'account.dbExplorer.insertRow',
   'account.dbExplorer.deleteRow',

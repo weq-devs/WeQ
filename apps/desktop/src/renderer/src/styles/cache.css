@@ -5171,6 +5171,16 @@ html[data-theme='dark'] .weq-filerow-name {
   font-size: 12.5px;
   color: var(--weq-fg-secondary);
 }
+.weq-clean-running .weq-task-progress-track {
+  width: min(360px, 100%);
+}
+.weq-clean-running ul {
+  max-width: 100%;
+  margin: 0;
+  padding-inline-start: 20px;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
 
 .weq-clean-done-icon {
   color: #2e9c6a;

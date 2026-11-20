@@ -105,3 +105,49 @@ it('清理已按旧来源开始后，换实例不向新来源返回旧回执', a
   await rejected;
   expect(f.cleanup).toHaveBeenCalledOnce();
 });
+
+it('同一清理批次提供逐类进度，并可交接后台或停止余下类别', async () => {
+  const caller = resourceCleanupRouter.createCaller({});
+  const instructions = [
+    { id: 'pic', variant: 'thumb' as const },
+    { id: 'video', variant: 'all' as const },
+  ];
+  const gate = Promise.withResolvers<void>();
+  let signal: AbortSignal | undefined;
+  f.cleanup.mockImplementationOnce(async (_items, options) => {
+    signal = options.signal;
+    options.before(instructions[0]);
+    await gate.promise;
+    const row = { ...instructions[0], removed: 1, failed: 1, freedBytes: 2 };
+    options.after(row);
+    return { freedBytes: 2, perTarget: [row] };
+  });
+  const execution = caller.cleanup({ ...source, foreground: true, instructions });
+  try {
+    await vi.waitFor(() => expect(f.cleanup).toHaveBeenCalledOnce());
+    const task = await caller.status(source);
+    expect(task).toMatchObject({
+      foreground: true,
+      total: 2,
+      processed: 0,
+      current: 'pic · thumb',
+    });
+    await expect(caller.cleanup({ ...source, instructions })).rejects.toThrow('正在清理');
+    await caller.control({ ...source, taskId: task!.id, action: 'background' });
+    expect(await caller.status(source)).toMatchObject({ id: task!.id, foreground: false });
+    await caller.control({ ...source, taskId: task!.id, action: 'stop' });
+    expect(signal?.aborted).toBe(true);
+    expect(await caller.status(source)).toMatchObject({
+      canStop: false,
+      statusLabel: '正在收尾当前类别',
+    });
+  } finally {
+    gate.resolve();
+    await execution;
+  }
+  expect(await caller.status(source)).toMatchObject({
+    status: 'cancelled',
+    processed: 1,
+    failed: 1,
+  });
+});
