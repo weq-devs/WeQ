@@ -1,24 +1,20 @@
 # 贡献指南
 
-感谢你愿意为 WeQ 做出贡献！为了让协作更顺畅、减少来回返工，请在提交 PR 前完整阅读本文档。
-
----
-
 ## 目录
 
 - [开发环境](#开发环境)
 - [提交前检查](#提交前检查)
 - [分支规范](#分支规范)
 - [Commit 规范](#commit-规范)
+- [更新日志](#更新日志)
+- [界面实现](#界面实现)
+- [文档维护](#文档维护)
 - [提交 Pull Request](#提交-pull-request)
 - [提交 Issue](#提交-issue)
 
----
-
 ## 开发环境
 
-- **Node.js** ≥ 22.12.0
-- **包管理器**：[pnpm](https://pnpm.io/)（本仓库锁定 `pnpm@12.8.1`，请勿使用 npm / yarn，以免破坏 `pnpm-lock.yaml`）
+- **Node.js 和 pnpm** 使用 [`package.json`](./package.json) 的 `engines` 与 `packageManager` 声明。依赖和锁文件通过 pnpm 管理。
 - **Go**：用于首次或源码更新时构建远程网络辅助程序，版本要求见 `tools/remote-network/go.mod`。本地 native 源码模式另外需要其平台对应的 Rust/Cargo 和系统编译工具链。
 
 ```bash
@@ -29,70 +25,39 @@ pnpm dev --prepare-only # 只准备开发环境，不启动应用
 更多背景见[开发者入口](./docs/develop/index.md)与[原理文档](./docs/develop/principles/index.md)。
 默认使用锚定的发布版 native；参与 native 开发时在不入库的 `weq.dev.local.json` 中选择 `local` 并设置源码目录。配置、缓存、镜像与失败处理见[一行命令开发启动](./docs/develop/dev-startup.md)。
 
----
-
 ## 提交前检查
 
-日常改动按[最小充分验证](./docs/develop/testing.md#日常开发选择最小充分验证)选择检查，
-不要求每次提交新增测试或运行全量本地 CI。纯文案、图标、局部样式与入口增删通常检查差异即可；
-行为修复先复用现有测试，只有值得长期防回归的变化才新增用例，不强制每个 bug 先红后绿。
-浏览器检查只用于必须依赖真实布局、绘制或交互才能确认的问题，不默认新增自动化或展开组合矩阵。
-在 PR 中简述实际验证范围与结果；CI 全量门禁保持不变。
+日常改动按[最小充分验证](./docs/develop/testing.md#日常开发选择最小充分验证)选择检查，并在 PR 中简述实际验证范围与结果。CI 执行全量门禁。Windows 本地失败时先查清是否为路径、换行、大小写或原生模块差异。
 
-发版前、大改动或需要全量复核时，可运行：
+发版前或需要全量复核时运行 `pnpm ci:local`，一次汇总 lint、格式、类型与测试结果。
 
-```bash
-pnpm ci:local   # 一键跑 CI 的 lint / format / typecheck / test 门禁
-```
-
-`pnpm ci:local` 把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍，
-不 fail-fast —— 那一步红了也继续跑完，最后给一张汇总表。常用参数：
-
-- `pnpm ci:local --fix` —— 先 `pnpm format` + `pnpm lint:fix` 刷平，再跑门禁。
-  用于需要全量整理的场景；日常只格式化本任务文件，不顺带改其他内容。
-- `pnpm ci:local --full` —— 额外跑 web 打包冒烟（≈ CI 的 `build-web` job）。
-- `pnpm ci:local --fail-fast` / `--list` —— 失败即停 / 只打印将跑的步骤。
-
-独立 daemon 已移除；默认发布版 native 模式不需要 Rust 工具链，只有本地 native 源码编译需要。
+- `--fix` 先做全仓格式化和自动修复，适用于全量整理。日常只格式化本任务文件。
+- `--full` 增加 Web 打包冒烟，`--fail-fast` 首次失败即停，`--list` 只列步骤。
 
 需要单独跑某一步时，等价命令是：
 
 ```bash
 pnpm lint         # Biome 代码规范检查
 pnpm format:check # Biome 格式检查
-pnpm typecheck    # 类型检查（CI 强制，不通过会被拦截）
-pnpm test         # 有界并发的全量单测（含 @weq/web），汇总所有失败
-pnpm test:fail-fast # 本地全量范围，首个失败后尽早停止
-pnpm test:changed # 全工作区 Git 改动相关测试，并非本任务选择器；Web 仍跑完整服务端断言
-pnpm check        # Biome 的 lint + format 汇总检查
+pnpm typecheck    # 类型检查
+pnpm check        # Biome lint 和格式检查
 pnpm --filter @weq/web build
-
 ```
 
-Actions 将 desktop / service 全量测试分片并行，其余包及 Web 服务端断言独立运行，
-由 `test` 汇总全部结果。类型检查分为桌面主进程、桌面渲染、Web 服务端和基础包四组，
-缓存增量编译信息但每次仍执行检查，由 `typecheck` 汇总结果。
-分片复现、成本报告和缓存说明见[测试约定](./docs/develop/testing.md#ci-分片)。
+[测试约定](./docs/develop/testing.md#单测-test)列出了定向与全量测试命令，并说明分片复现和类型检查。
 
 > 桌面端打包（`electron-vite build` + `electron-builder`）不在 PR 门禁里，
 > 由 release 流水线兜底。改动打包链路时本地用
 > `pnpm --filter @weq/desktop build:unpack` 单独验一遍即可。
 
----
-
 ## 分支规范
+
+以下步骤用于准备公开 PR。
 
 - **所有 PR 必须以 `dev` 分支为基础分支（base branch）提交，这是硬性要求。**
   - `main` 为发布分支，只接受来自 `dev` 的合并，**不接受**直接对 `main` 的 PR。
   - 请从最新的 `dev` 拉出你的功能分支，完成后向 `dev` 发起 PR。
-- **分支命名**：采用 `类型/简短描述` 的形式，类型与 commit 一致，描述用小写短横线连接。例如：
-
-  ```
-  feat/linux-adaptation
-  fix/anti-recall-graytip
-  refactor/test-config-cleanup
-  docs/contributing
-  ```
+- 分支名采用 `类型/简短描述`，类型与 commit 一致，描述用小写短横线连接，如 `feat/linux-adaptation`。
 
 开始一个新分支的典型流程：
 
@@ -102,8 +67,6 @@ git pull
 git checkout -b feat/your-feature
 ```
 
----
-
 ## Commit 规范
 
 本仓库遵循 [Conventional Commits](https://www.conventionalcommits.org/)：
@@ -112,32 +75,7 @@ git checkout -b feat/your-feature
 <类型>(<可选范围>): <简短描述>
 ```
 
-- 描述可用中文。
-- 常用**类型**：
-
-  | 类型       | 用途                                   |
-  | ---------- | -------------------------------------- |
-  | `feat`     | 新功能                                 |
-  | `fix`      | 修复 bug                               |
-  | `refactor` | 重构（不改变外部行为）                 |
-  | `docs`     | 文档改动                               |
-  | `style`    | 代码风格/格式（不影响逻辑）            |
-  | `test`     | 测试相关                               |
-  | `chore`    | 构建、CI、依赖等杂项                   |
-  | `perf`     | 性能优化                               |
-
-- **范围（scope）** 可选，用于标注改动模块，如 `refactor(types):`、`style(lint):`。
-- 示例（取自实际历史）：
-
-  ```
-  feat: revoke viewing && export sysFace
-  fix: 灰条撤回消息显示 bug
-  refactor(types): 消除 4 处 explicit any
-  chore: 接入 Biome lint
-  docs: 文档中心框架
-  ```
-
----
+常用类型为 `feat`、`fix`、`refactor`、`docs`、`style`、`test`、`chore`、`perf`。范围可选，描述可用中文，如 `fix(chat): 修复撤回提示`。
 
 ## 更新日志
 
@@ -156,27 +94,34 @@ git checkout -b feat/your-feature
 2. 将整理后的章节改为 `## <版本号> - <YYYY-MM-DD>`，版本与发布标签一致，日期用北京时间的发布日期。在下方写一个贴合本版主题、延续历史语气的简短 `###` 标题，在上方留出新的 `## Unreleased - 进行中`。
 3. 用 `git diff --shortstat <上一正式版标签> <候选提交>` 实算从上一版到本版的新增和删除行数。在条目后空一行，沿用 `**变更规模**：这是一次规模适中的综合性更新。增加了 6,626 行，删除了 18,537 行。` 的格式；按实际规模和更新性质选词，数字用千位分隔。
 
----
+## 界面实现
+
+- 桌面和共用界面跟随浅深主题、自定义主题色和聊天背景。沿用 [样式入口](./apps/desktop/src/renderer/src/styles/index.css) 的语义 token。高亮、描边、图表与强调色使用 `--weq-accent-effective`，透明色用 `color-mix()` 派生。
+- 普通按钮用中性的 `weq-set-btn`，保存、提交、确认或流程的主要下一步加 `weq-set-btn-primary`。一个操作区通常至多一个主按钮。开关和选中状态沿用各自的样式，`weq-set-btn-soft` 是旧中性用法。
+- 全局恢复、永久删除整段历史和清理不可再生媒体等操作用 `data-danger="solid"`。局部恢复、删除单项配置等用 `data-danger="outline"`，只染文字、图标和已有的描边。菜单只染文字和图标。危险与禁用样式沿用控件尺寸、圆角、描边厚度和阴影。危险色独立于主题色，需兼顾悬停和键盘焦点。
+- 危险等级由实际操作提供，确认框使用 `danger`，QQ 操作和菜单传递同一等级。文案、提示 `tone`、清空搜索或选择、取消、关闭、返回和普通重试均不触发危险样式。
+- 深色差异用 `html[data-theme="dark"]` 覆盖。`dark:` 桥接用于 streamdown。检查硬编码白色遮罩、描边和半透明栏是否适配。聊天浮层与卡片沿用聊天画布的背景处理。
+- 功能样式放在 `apps/desktop/src/renderer/src/styles/<功能>.css`，由组件导入。Web 独立页如 `apps/web/src/server/login_page.ts` 用 `prefers-color-scheme` 和页面变量适配浅深色。视觉验证按改动选代表状态，动效变化检查减少动态效果设置。
+
+## 文档维护
+
+文档站正文位于 WeqDocs 子模块。用户手册放 `docs/guide/`，开发专题与原理放 `docs/develop/`，字段与表结构放 `docs/database/`，计算器放 `docs/tools/`。过程记录放在 [`notes`](./docs/notes/README.md)，由子模块保存供追溯。
+
+- 站内文档引用主仓源码、贡献指南或更新日志时，用 GitHub 的 `blob/dev` 绝对链接。跨仓链接在文档仓独立检出时也应能打开。
+- 提示块使用 VitePress 的 `::: tip`、`::: info`、`::: warning` 或 `::: danger`。尖括号占位符放在反引号中或改用全角括号。
+- 新增进站页时更新 [站点侧栏](./docs/.vitepress/nav.mts)。普通文字改动核对内容和受影响链接。新增进站页、改导航或改构建相关配置时，按改动选用 `pnpm docs:check` 或 `pnpm docs:build`。
+- 文档依赖与应用分开管理。安装、预览及构建命令见 [WeqDocs README](./docs/README.md)。发布主仓子模块指针前，先让对应文档提交能从文档远端取得。
 
 ## 提交 Pull Request
 
 1. **确认基础分支为 `dev`**（见[分支规范](#分支规范)）。
 2. 完成相关[提交前检查](#提交前检查)，说明未运行或未通过的项目；有用户可感知的变化时，按[更新日志](#更新日志)补写 `Unreleased`。
-3. **判断你的改动是否属于「全新功能」**：
-   - **全新功能必须先提 [Issue](../../issues) 讨论并达成一致，再提交 PR。** 未经 Issue 讨论直接提交的新功能 PR 会被关闭（close）。
-   - 这样做是为了在你投入大量精力前对齐方向，避免功能与项目规划冲突而白费工作。
-   - Bug 修复、文档完善、小改进可直接提 PR，无需先开 Issue（但在描述里说明背景会更好）。
+3. 公开贡献全新功能时先在 [Issue](https://github.com/weq-devs/WeQ/issues) 中达成一致，再提交 PR。修复、文档和小改进可直接提 PR。
 4. PR 描述里请说明：**改了什么、为什么改**；若关联 Issue，请注明 `close #<编号>`。
 5. 保持 PR 聚焦单一主题，不要在一个 PR 里混入多个不相关的改动。
 
----
-
 ## 提交 Issue
 
-- 代码问题、bug、功能建议优先在 [Issue](../../issues) 提出。
+- 代码问题、bug、功能建议优先在 [Issue](https://github.com/weq-devs/WeQ/issues) 提出。
 - 提 bug 时请尽量提供：复现步骤、期望行为、实际行为、系统/QQ 版本等信息。
 - 提新功能建议时请说明使用场景，方便讨论是否纳入。
-
----
-
-再次感谢你的贡献！🎉
