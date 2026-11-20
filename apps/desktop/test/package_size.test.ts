@@ -313,17 +313,27 @@ describe('桌面发行包瘦身', () => {
             join(dress, 'index-manifest.json'),
             readFileSync(join(desktop, '../../resources/dress/index-manifest.json')),
           );
-          trimDesktopPackage({
-            appOutDir: directory,
-            electronPlatformName:
-              platform === 'mac' ? 'darwin' : platform === 'win' ? 'win32' : 'linux',
-            arch: Arch[arch],
-            packager: {
-              appInfo: { productFilename: 'weQ' },
-              config,
-              platformSpecificBuildOptions: rawConfig[platform],
-            },
-          });
+          const daemon = join(resources, 'resources/weqbot/weqbot-daemon.mjs');
+          const daemonContent = 'export {};\n';
+          const trim = () =>
+            trimDesktopPackage({
+              appOutDir: directory,
+              electronPlatformName:
+                platform === 'mac' ? 'darwin' : platform === 'win' ? 'win32' : 'linux',
+              arch: Arch[arch],
+              packager: {
+                appInfo: { productFilename: 'weQ' },
+                config,
+                platformSpecificBuildOptions: rawConfig[platform],
+              },
+            });
+          if (platform === 'mac' && arch === 'arm64') {
+            expect(trim).toThrow('缺少 OneBot daemon');
+          }
+          mkdirSync(dirname(daemon), { recursive: true });
+          writeFileSync(daemon, daemonContent);
+          trim();
+          expect(readFileSync(daemon, 'utf8')).toBe(daemonContent);
           if (platform === 'mac')
             expect(readdirSync(frameworkResources).sort()).toEqual([
               'en.lproj',
