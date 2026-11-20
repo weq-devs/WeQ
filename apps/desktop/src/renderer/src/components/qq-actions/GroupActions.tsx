@@ -41,6 +41,11 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
   const a = useQQAction(`group:${groupId}`);
   const permissions = useQQGroupPermissions(groupId, a);
   const canManage = permissions.data?.canManage === true;
+  const isOwner = permissions.data?.role === 'owner';
+  const exitLabel = isOwner ? '解散群聊' : '退出群聊';
+  const exitWarning = isOwner
+    ? `解散 QQ 群 ${groupId}？解散后，所有成员将退出该群。`
+    : `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`;
   const [tag, setTag] = useState('');
   const groupRefresh = useQQAutoRefresh(a.available);
   const info = trpc.account.qqActions.groupJoinSettings.useQuery(
@@ -189,13 +194,13 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
         </Card>
         <Card title="其他操作" icon={<MoreHorizontal size={15} strokeWidth={1.8} />}>
           <Row
-            label="退出群聊"
+            label={exitLabel}
             control={
               <button
                 data-danger="solid"
                 type="button"
                 className="weq-set-btn weq-set-btn-danger"
-                aria-label="退出群聊"
+                aria-label={exitLabel}
                 disabled={a.disabled || permissions.data?.role === null}
                 onClick={() =>
                   void a.perform(
@@ -206,7 +211,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                         action: 'leave',
                       }),
                     undefined,
-                    `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`,
+                    exitWarning,
                     {
                       danger: 'solid',
                       readback: async () => {
@@ -218,7 +223,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
                 }
               >
                 <LogOut size={16} />
-                退出群聊
+                {exitLabel}
               </button>
             }
           />
