@@ -46,6 +46,7 @@ import {
 import { NotificationSourceProvider } from '../../lib/notificationNavigation';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { messageHasIntentText } from '../../lib/intentTimeline';
+import type { MessageGroupPosition } from './chatTimelineModel';
 import '../../styles/chat-interactions.css';
 import '../../styles/message-repeat.css';
 import '../../styles/composer-reedit.css';
@@ -190,6 +191,7 @@ export function MessageBubble(props: Parameters<typeof MessageBubbleBody>[0]) {
 
 function MessageBubbleBody({
   message,
+  groupPosition,
   conversation,
   sender,
   mine,
@@ -224,6 +226,7 @@ function MessageBubbleBody({
   avatarBadge,
 }: {
   message: Message;
+  groupPosition?: MessageGroupPosition;
   conversation: Conversation;
   sender: User & Partial<GroupMember>;
   mine: boolean;
@@ -299,6 +302,7 @@ function MessageBubbleBody({
         (Number(preferenceValue('showGroupMemberTitle')) << 2)
       : 0,
   );
+  const groupContinuation = groupPosition === 'middle' || groupPosition === 'last';
   const senderNameVisible =
     showSenderName && (conversation.type !== 'group' || Boolean(groupDisplay & 1));
   const longPressTimerRef = useRef<number | null>(null);
@@ -564,6 +568,7 @@ function MessageBubbleBody({
         selected && 'is-selected',
       )}
       data-message-id={message.id}
+      data-message-group={msgBubbleId || localBubbleOverride ? undefined : groupPosition}
       data-generated-message-id={
         conversation.generated && !message.generatedPending ? message.id : undefined
       }
@@ -590,7 +595,9 @@ function MessageBubbleBody({
     >
       {selectionMode ? <MessageSelectionMark selected={selected ?? false} /> : null}
       {!mine ? (
-        onAvatarClick ? (
+        groupContinuation ? (
+          <span className="message-avatar-spacer" aria-hidden />
+        ) : onAvatarClick ? (
           <button
             type="button"
             className={cn('message-avatar-button')}
@@ -628,7 +635,11 @@ function MessageBubbleBody({
         onDragStart={(event) => event.preventDefault()}
       >
         <div className="weq-message-heading">
-          {senderNameVisible || (conversation.type === 'group' && Boolean(groupDisplay & 6)) ? (
+          {groupContinuation ? (
+            <span className="sr-only" data-privacy-sensitive>
+              {senderName}
+            </span>
+          ) : senderNameVisible || (conversation.type === 'group' && Boolean(groupDisplay & 6)) ? (
             <span className={cn('message-name')}>
               {conversation.type === 'group' ? (
                 <GroupMessageBadge
@@ -860,29 +871,36 @@ function MessageBubbleBody({
       </div>
       {selectionMode ? null : renderer?.renderTrailing?.(renderContext)}
       {mine ? (
-        <SelfAvatar
-          className={cn(onAvatarClick ? 'message-avatar-button' : 'message-avatar-wrap', 'is-self')}
-          {...(onAvatarClick
-            ? {
-                type: 'button',
-                title: '查看资料',
-                'aria-label': `查看 ${senderName} 的资料`,
-                onClick: handleAvatarClick,
-              }
-            : {})}
-          onContextMenu={
-            onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
-          }
-        >
-          <PendantOverlay
-            name={senderName}
-            uin={sender.identityValue}
-            avatarUrl={senderAvatarUrl}
-            seed={senderSeed}
-            widget={lineWidget}
-            fallbackUrl={decorationEnabled.widget ? pendantUrl : null}
-          />
-        </SelfAvatar>
+        groupContinuation ? (
+          <span className="message-avatar-spacer" aria-hidden />
+        ) : (
+          <SelfAvatar
+            className={cn(
+              onAvatarClick ? 'message-avatar-button' : 'message-avatar-wrap',
+              'is-self',
+            )}
+            {...(onAvatarClick
+              ? {
+                  type: 'button',
+                  title: '查看资料',
+                  'aria-label': `查看 ${senderName} 的资料`,
+                  onClick: handleAvatarClick,
+                }
+              : {})}
+            onContextMenu={
+              onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
+            }
+          >
+            <PendantOverlay
+              name={senderName}
+              uin={sender.identityValue}
+              avatarUrl={senderAvatarUrl}
+              seed={senderSeed}
+              widget={lineWidget}
+              fallbackUrl={decorationEnabled.widget ? pendantUrl : null}
+            />
+          </SelfAvatar>
+        )
       ) : null}
     </div>
   );

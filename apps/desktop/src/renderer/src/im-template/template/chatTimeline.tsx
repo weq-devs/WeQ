@@ -2,9 +2,11 @@ import { useCallback, useLayoutEffect, useMemo, type ReactNode, type RefObject }
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
 import { estimateTimelineRowHeight } from '../../lib/timelinePreload';
 import type { Message } from './types';
+import type { MessageGroupPosition } from './chatTimelineModel';
 
 export function ChatTimeline({
   messages,
+  groupPositions,
   orderedIds,
   scrollRef,
   contentRef,
@@ -14,6 +16,7 @@ export function ChatTimeline({
   children,
 }: {
   messages: Message[];
+  groupPositions?: readonly (MessageGroupPosition | undefined)[];
   orderedIds: string[];
   scrollRef: RefObject<HTMLDivElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
@@ -23,12 +26,21 @@ export function ChatTimeline({
   children: (
     timeline: Pick<ReturnType<typeof useVirtualTimeline>, 'enabled' | 'items' | 'measure'>,
     captureContent: (element: HTMLDivElement | null) => void,
+    rowSpacing: (index: number) => number,
   ) => ReactNode;
 }) {
   const ids = useMemo(() => messages.map(({ id }) => id), [messages]);
+  const rowSpacing = useCallback(
+    (index: number) => {
+      if (index === messages.length - 1) return 0;
+      const position = groupPositions?.[index];
+      return position === 'first' || position === 'middle' ? 4 : 18;
+    },
+    [groupPositions, messages.length],
+  );
   const estimateSize = useCallback(
-    (index: number) => estimateTimelineRowHeight(messages[index]),
-    [messages],
+    (index: number) => estimateTimelineRowHeight(messages[index]) + rowSpacing(index),
+    [messages, rowSpacing],
   );
   const timeline = useVirtualTimeline({ ids, orderedIds, scrollRef, scope, active, estimateSize });
   const { containerRef } = timeline;
@@ -52,5 +64,5 @@ export function ChatTimeline({
       cleanup?.();
     };
   }, [observeMessageVisibility, renderedItems]);
-  return children(timeline, captureContent);
+  return children(timeline, captureContent, rowSpacing);
 }

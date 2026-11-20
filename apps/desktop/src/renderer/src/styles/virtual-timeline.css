@@ -8,7 +8,6 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 18px;
 }
 .weq-virtual-timeline.is-windowed {
   display: block;

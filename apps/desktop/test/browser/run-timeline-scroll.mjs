@@ -15,6 +15,8 @@ const cacheDir = await mkdtemp(resolve(root, 'node_modules/.cache/timeline-scrol
 const baseline = process.env.WEQ_TIMELINE_BASELINE_REF;
 const width = Number(process.env.WEQ_SCROLL_WIDTH ?? 1280);
 const cachedBubbles = process.env.WEQ_SCROLL_CACHED_BUBBLES === '1';
+const grouped = process.env.WEQ_SCROLL_GROUPED === '1';
+const fixtureFlags = `${cachedBubbles ? '&cached-bubbles=1' : ''}${grouped ? '&grouped=1' : ''}`;
 const server = await createServer({
   configFile: false,
   root,
@@ -71,9 +73,32 @@ try {
       : route.abort(),
   );
   await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=25${cachedBubbles ? '&cached-bubbles=1' : ''}`,
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=25${fixtureFlags}`,
   );
   await page.waitForSelector('[data-message-id="row-1001"]');
+  if (grouped && !cachedBubbles) {
+    const layout = await page.evaluate(() => {
+      const first = document.querySelector('[data-message-id="row-1003"]');
+      const last = document.querySelector('[data-message-id="row-1004"]');
+      const upper = first.querySelector('.message-content');
+      const lower = last.querySelector('.message-content');
+      return {
+        firstAvatar: Boolean(first.querySelector('.avatar')),
+        lastAvatar: Boolean(last.querySelector('.avatar')),
+        leftOffset: Math.abs(
+          upper.getBoundingClientRect().left - lower.getBoundingClientRect().left,
+        ),
+        gap: last.getBoundingClientRect().top - first.getBoundingClientRect().bottom,
+        joins: [
+          getComputedStyle(upper).borderEndStartRadius,
+          getComputedStyle(lower).borderStartStartRadius,
+        ],
+      };
+    });
+    assert.ok(layout.firstAvatar && !layout.lastAvatar);
+    assert.ok(layout.leftOffset < 1 && layout.gap >= 3 && layout.gap <= 5, JSON.stringify(layout));
+    assert.deepEqual(layout.joins, ['3px', '3px']);
+  }
   await page.evaluate(() => {
     window.scrollProbe = { active: false, phase: '', samples: [] };
     const sample = () => {
@@ -165,6 +190,7 @@ try {
   const report = {
     width,
     cachedBubbles,
+    grouped,
     baseline: baseline ?? null,
     samples: samples.length,
     blankFrames: samples.filter((sample) => sample.blank),
@@ -207,7 +233,7 @@ try {
       });
     });
     await page.goto(
-      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=180&delay-media`,
+      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=180&delay-media${fixtureFlags}`,
     );
     await page.waitForFunction(() => window.timelineTest?.jump);
     const imageRequest = page.waitForRequest('**/timeline-delayed.svg');

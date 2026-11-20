@@ -1,6 +1,8 @@
 import { Languages } from 'lucide-react';
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
 import { ChatTimeline } from './chatTimeline';
+import { messageGroups } from './chatTimelineModel';
+import { matchesUnreadMessage } from '../../lib/unreadNavigation';
 import type { ConversationInteraction } from '../../../../shared/conversation_interaction';
 import { PICKED_BROWSER_FILE_MAX_BYTES } from '../../../../shared/browser_file_upload';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
@@ -516,6 +518,7 @@ export type ChatPaneProps = {
   user: User;
   conversation: Conversation | undefined;
   messages: Message[];
+  groupConsecutiveMessages?: boolean;
   composerActions?: Partial<ComposerActionRegistry>;
   messageRenderers?: MessageRenderer[];
   loading: boolean;
@@ -737,6 +740,7 @@ function ChatPaneContent({
   user,
   conversation,
   messages,
+  groupConsecutiveMessages = false,
   composerActions,
   messageRenderers,
   loading,
@@ -1449,6 +1453,22 @@ function ChatPaneContent({
     () => hiddenDeletionLookup(messages, hiddenDeletedIds ?? new Set()),
     [messages, hiddenDeletedIds],
   );
+  const groupPositions = useMemo(() => {
+    if (!groupConsecutiveMessages) return undefined;
+    const unread = unreadDock?.stops.find(({ kind }) => kind === 'unread');
+    return messageGroups(visibleMessages, {
+      standalone: (message) => deletedKeys.has(deletionIdentity(message.id)),
+      breakBefore: (previous, message) =>
+        Boolean(unread && matchesUnreadMessage(message, unread.seq, unread.identity)) ||
+        hasHiddenDeletionBetween(previous.msgSeq, message.msgSeq),
+    });
+  }, [
+    groupConsecutiveMessages,
+    visibleMessages,
+    deletedKeys,
+    hasHiddenDeletionBetween,
+    unreadDock,
+  ]);
   const compactHeader = useMobileWebLayout();
   // 分析和回复使用不同目标，自己的消息不触发推荐；跳过灰条、撤回和删除。
   const intentSupported = Boolean(
@@ -6239,6 +6259,7 @@ function ChatPaneContent({
       >
         <ChatTimeline
           messages={visibleMessages}
+          groupPositions={groupPositions}
           orderedIds={selectionOrder}
           scrollRef={messageScrollRef}
           contentRef={timelineContentRef}
@@ -6246,7 +6267,7 @@ function ChatPaneContent({
           active={tabActive}
           observeMessageVisibility={observeMessageVisibility}
         >
-          {(timeline, captureTimelineContent) => (
+          {(timeline, captureTimelineContent, rowSpacing) => (
             <div
               className={cn(
                 'message-scroll',
@@ -6429,6 +6450,7 @@ function ChatPaneContent({
                         ) : null}
                         <MessageRow
                           message={message}
+                          groupPosition={groupPositions?.[index]}
                           conversation={conversation}
                           user={user}
                           sender={sender}
@@ -6543,6 +6565,7 @@ function ChatPaneContent({
                           aria-setsize={visibleMessages.length}
                           key={message.id}
                           data-index={index}
+                          style={{ paddingBlockEnd: rowSpacing(index) }}
                           ref={timeline.measure}
                         >
                           {children}

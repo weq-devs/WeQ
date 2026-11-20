@@ -182,7 +182,6 @@ export function useVirtualTimeline({
     },
     getItemKey: key,
     overscan: TIMELINE_OVERSCAN,
-    gap: 18,
     scrollMargin: margin,
     anchorTo: enabled ? 'end' : 'start',
     followOnAppend: false,

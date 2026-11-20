@@ -327,6 +327,9 @@ export function ChatMainContent({
       user={user}
       conversation={activeConversation}
       messages={messages}
+      groupConsecutiveMessages={
+        activeConversation?.type === 'direct' || activeConversation?.type === 'group'
+      }
       composerActions={composerActions}
       messageRenderers={messageRenderers}
       loading={loadingMessages}

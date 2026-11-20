@@ -288,6 +288,7 @@ function Fixture() {
       user,
       conversation: { ...conversation, id: conversationId },
       messages,
+      groupConsecutiveMessages: params.has('grouped'),
       unreadDock: unreadReady ? (unreadDock ?? null) : undefined,
       readThroughViewport: readProgress,
       confirmedReadSeq: readProgress ? '1000' : undefined,

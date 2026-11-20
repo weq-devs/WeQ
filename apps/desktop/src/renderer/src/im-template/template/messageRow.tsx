@@ -37,6 +37,7 @@ import type { ReactionInteraction } from '../../components/SetEmojiReactions';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 import { type GrayTipMatch, grayTipOf } from './messageRow.shared';
+import type { MessageGroupPosition } from './chatTimelineModel';
 
 /**
  * 一条灰条的**内容**（不含外层容器）。宿主自己决定外面包什么 —— 聊天区包一层带
@@ -120,6 +121,7 @@ export function GrayTipLine({
  */
 export const MessageRow = memo(function MessageRow({
   message,
+  groupPosition,
   conversation,
   user,
   sender,
@@ -153,6 +155,7 @@ export const MessageRow = memo(function MessageRow({
   grayTipClassName,
 }: {
   message: Message;
+  groupPosition?: MessageGroupPosition;
   conversation: Conversation;
   user: User;
   /** 已解析的发送者；不传则本组件自己解析（转发窗口没有 memberMap 时可省）。 */
@@ -260,6 +263,7 @@ export const MessageRow = memo(function MessageRow({
   return (
     <MessageBubble
       message={message}
+      groupPosition={groupPosition}
       conversation={conversation}
       sender={sender ?? user}
       mine={isSelfIdentity(new Set(selfIdentityValues(user)), message.senderId)}
