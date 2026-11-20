@@ -10,7 +10,7 @@
  *    那批装扮资源),商城条目还自带 material,都不需要凭证;本地没有的款点击后由后端
  *    在需要时再尝试换链,失败才报错。所以**不再按 qqOnline 禁用任何安装按钮**。
  *  - **装扮搜索**:必须有在线 QQ 实例(商城搜索接口要用在线实例取凭证)。
- *  - **商城表情搜索**:同一顶部输入框搜索离线目录，不需要在线 QQ。
+ *  - **商城表情搜索**:搜索离线目录，不需要在线 QQ。
  *
  * 聊天背景与浮屏挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,浮屏挂件是 bundle 的)。
  */
@@ -25,7 +25,6 @@ import {
   type ReactElement,
 } from 'react';
 import {
-  Search,
   Loader2,
   Check,
   Download,
@@ -65,6 +64,7 @@ import { ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import { RedPackSkinWall } from './gift/RedPackSkinWall';
+import { DressSearchForm } from './DressSearchForm';
 import '../styles/dressup.css';
 import { ShimmerImage } from './ShimmerImage';
 import { DRESS_KIND_ICONS } from '../lib/featureIcons.shared';
@@ -98,6 +98,14 @@ const KINDS: { id: DressKind; label: string; icon: ReactElement }[] = (
 
 /** 商城那几类共用一套列表 UI;聊天背景和表情包是各自独立的形状。 */
 type MallKind = 'bubble' | 'font' | 'widget' | 'callbg';
+
+interface MallBrowseState {
+  view: 'rank' | 'installed';
+  draft: string;
+  keyword: string;
+}
+
+const DEFAULT_MALL_BROWSE: MallBrowseState = { view: 'rank', draft: '', keyword: '' };
 
 /** 通话背景没有「安装」概念,选中即用(远程 url 直接给通话窗口引)。 */
 const isCallBg = (kind: MallKind): boolean => kind === 'callbg';
@@ -290,13 +298,9 @@ export function DressUpDialog({
 
   const [selectedKind, setKind] = useState<DressKind>(initialKind);
   const kind = developmentDressTools ? selectedKind : 'background';
-  /** 输入框里的草稿。回车提交后才变成 keyword,避免每敲一个字打一次接口。 */
-  const [draft, setDraft] = useState('');
-  const [keyword, setKeyword] = useState('');
+  const [mallBrowsing, setMallBrowsing] = useState<Partial<Record<MallKind, MallBrowseState>>>({});
   const [emojiDraft, setEmojiDraft] = useState('');
   const [emojiKeyword, setEmojiKeyword] = useState('');
-  /** 只看已装的那些 —— 与「搜索」并列的一个筛子,不是独立分页。 */
-  const [mineOnly, setMineOnly] = useState(false);
   /** 正在装的 itemId —— 按钮显示转圈,避免重复点击。 */
   const [busyId, setBusyId] = useState(0);
   /** 「取消当前装扮」/「切换范围」进行中 —— 同样会重排聊天列表,也要盖加载态。 */
@@ -321,7 +325,16 @@ export function DressUpDialog({
           ? 'callbg'
           : 'bubble';
 
-  // 关键词为空 → 排行榜;有关键词 → 搜索。两条 query 互斥启用。
+  const { view, draft, keyword } = mallBrowsing[mallKind] ?? DEFAULT_MALL_BROWSE;
+  const mineOnly = view === 'installed';
+  function updateMallBrowse(patch: Partial<MallBrowseState>) {
+    setMallBrowsing((current) => ({
+      ...current,
+      [mallKind]: { ...(current[mallKind] ?? DEFAULT_MALL_BROWSE), ...patch },
+    }));
+  }
+
+  // 商城目录中，回车提交关键词后从排行榜切到搜索结果。
   const searching = keyword.length > 0;
   const rank = trpc.account.dressup.rank.useQuery(
     { kind: mallKind },
@@ -1035,31 +1048,24 @@ export function DressUpDialog({
 
   function renderList(): ReactElement {
     if (kind === 'usage') return renderUsage();
-    if (kind === 'redpack') return <RedPackSkinWall />;
     if (kind === 'background') return renderBackground();
-    if (kind === 'emoji')
-      return (
-        <MarketEmojiBrowserLightbox
-          embedded
-          searchQuery={emojiKeyword}
-          initialPackId={initialEmojiPackId}
-          initialPackName={initialEmojiPackName}
-        />
-      );
 
     if (mineOnly) {
-      if (mine.length === 0) {
+      const installedItems = keyword
+        ? mine.filter((item) => item.name.toLowerCase().includes(keyword.toLowerCase()))
+        : mine;
+      if (installedItems.length === 0) {
         return (
           <div className="weq-dress-empty">
             <Sparkles size={26} />
-            <p>还没有装扮</p>
-            <span>取消「已装」筛选去挑一款,或直接搜索名字</span>
+            <p>{keyword ? '没有匹配的已装装扮' : '还没有装扮'}</p>
+            {!keyword ? <span>可在排行榜挑选装扮</span> : null}
           </div>
         );
       }
       return (
         <div className="weq-dress-grid">
-          {mine.map((m) => {
+          {installedItems.map((m) => {
             // 「已装」里没有商城预览图的款(旧版 40801 自动装遗留的)—— 预览直接画
             // 气泡 / 字体本体:气泡优先本地持久化 PNG,字体走本地 ttf 排样例文字。
             const localPreview =
@@ -1180,112 +1186,89 @@ export function DressUpDialog({
               </button>
             ))}
           </div>
-
-          {/* 背景不走商城,搜索框对它没有意义 —— 留一个禁用的输入框只会让人以为坏了。 */}
-          {isMall || kind === 'emoji' ? (
-            <form
-              className="weq-dress-search"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const next = (kind === 'emoji' ? emojiDraft : draft).trim();
-                if (kind === 'emoji') {
-                  setEmojiKeyword(next);
-                  return;
-                }
-                if (next && !online) {
-                  dialog.error('需要在线 QQ', '装扮商城搜索需要登录该账号的 QQ 客户端以获取凭证。');
-                  return;
-                }
-                setMineOnly(false);
-                setKeyword(next);
-              }}
-            >
-              <Search size={15} strokeWidth={1.8} />
-              <input
-                value={kind === 'emoji' ? emojiDraft : draft}
-                onChange={(e) => (kind === 'emoji' ? setEmojiDraft : setDraft)(e.target.value)}
-                aria-label={kind === 'emoji' ? '搜索表情包' : '搜索装扮'}
-                placeholder={
-                  kind === 'emoji'
-                    ? '搜索表情包,回车确认'
-                    : online
-                      ? '搜索装扮名,回车确认'
-                      : '搜索需要登录 QQ 客户端'
-                }
-                disabled={kind !== 'emoji' && !online}
-                spellCheck={false}
-              />
-              {(kind === 'emoji' ? emojiDraft : draft) ? (
-                <button
-                  type="button"
-                  className="weq-dress-search-clear"
-                  title="清空"
-                  aria-label="清空搜索"
-                  onClick={() => {
-                    if (kind === 'emoji') {
-                      setEmojiDraft('');
-                      setEmojiKeyword('');
-                    } else {
-                      setDraft('');
-                      setKeyword('');
-                    }
-                  }}
-                >
-                  <X size={13} strokeWidth={2} />
-                </button>
-              ) : null}
-            </form>
-          ) : null}
         </header>
-
-        {isMall ? (
-          <div className="weq-dress-toolbar">
-            <button
-              type="button"
-              className={`weq-dress-chip${mineOnly ? ' is-active' : ''}`}
-              onClick={() => setMineOnly((v) => !v)}
-              title="只看已安装的装扮"
-            >
-              已装
-              <span className="weq-dress-chip-n">
-                <span className="weq-number weq-number-inherit">{mine.length}</span>
-              </span>
-            </button>
-            {!mineOnly && !searching && rank.data?.source === 'static' ? (
-              <span className="weq-dress-hint">离线目录</span>
-            ) : null}
-          </div>
-        ) : null}
-
-        {state.error ? (
-          <div className="weq-dress-notice is-bad">
-            <WifiOff size={14} />
-            <span>读取装扮状态失败：{state.error.message}</span>
-          </div>
-        ) : isMall && !state.isInitialLoading && !online ? (
-          <div className="weq-dress-notice">
-            <WifiOff size={14} />
-            <span>
-              QQ 未在线：排行榜与气泡/字体/挂件安装（本地离线资源优先）都能用；只有商城搜索 需要登录
-              QQ 客户端。
-            </span>
-          </div>
-        ) : isMall && !mineOnly && !searching ? (
-          // 排行榜只取第一页(pageSize=20,见 dress_mall),不翻页。不说明的话
-          // 用户会以为商城就这 20 款。
-          <div className="weq-dress-notice is-info">
-            <Trophy size={14} />
-            <span>以下是装扮排行榜前 20 名。并不包含完整列表，其他装扮可以尝试搜索。</span>
-          </div>
-        ) : null}
 
         <div
           id="weq-dress-panel"
           role="tabpanel"
           aria-labelledby={`weq-dress-tab-${kind}`}
-          className={`weq-dress-body${kind === 'emoji' ? ' is-embedded-market' : ''}`}
+          className="weq-dress-panel"
         >
-          {renderList()}
+          {state.error && (isMall || kind === 'usage' || kind === 'background') ? (
+            <div className="weq-dress-notice is-bad">
+              <WifiOff size={14} />
+              <span>读取装扮状态失败：{state.error.message}</span>
+            </div>
+          ) : null}
+          {isMall ? (
+            <div className="weq-dress-toolbar">
+              <div className="weq-dress-toolbar-leading" role="group" aria-label="装扮列表">
+                <button
+                  type="button"
+                  className={`weq-dress-chip${!mineOnly && !searching ? ' is-active' : ''}`}
+                  aria-pressed={!mineOnly && !searching}
+                  onClick={() => updateMallBrowse(DEFAULT_MALL_BROWSE)}
+                >
+                  排行榜
+                </button>
+                <button
+                  type="button"
+                  className={`weq-dress-chip${mineOnly ? ' is-active' : ''}`}
+                  aria-pressed={mineOnly}
+                  onClick={() => {
+                    if (!mineOnly) updateMallBrowse({ ...DEFAULT_MALL_BROWSE, view: 'installed' });
+                  }}
+                >
+                  已装
+                  <span className="weq-dress-chip-n weq-number weq-number-inherit">
+                    {mine.length}
+                  </span>
+                </button>
+              </div>
+              <div className="weq-dress-toolbar-controls">
+                <DressSearchForm
+                  label={mineOnly ? '搜索已装装扮' : '搜索装扮'}
+                  value={draft}
+                  onChange={(value) => updateMallBrowse({ draft: value })}
+                  onSearch={(value) => updateMallBrowse({ keyword: value })}
+                  disabled={!mineOnly && !online}
+                  maxLength={50}
+                />
+              </div>
+            </div>
+          ) : null}
+          {isMall && !mineOnly && !searching && !state.error ? (
+            <div className="weq-dress-notice is-info">
+              <Trophy size={14} aria-hidden />
+              <span>
+                {rank.data?.source === 'static' ? '离线排行榜 · ' : ''}前 20 名
+                {!state.isInitialLoading && !online ? ' · 商城搜索需要登录 QQ' : ''}
+              </span>
+            </div>
+          ) : null}
+
+          {kind === 'redpack' ? (
+            <RedPackSkinWall />
+          ) : kind === 'emoji' ? (
+            <MarketEmojiBrowserLightbox
+              embedded
+              embeddedSearch={{
+                keyword: emojiKeyword,
+                form: (
+                  <DressSearchForm
+                    label="搜索表情包"
+                    value={emojiDraft}
+                    onChange={setEmojiDraft}
+                    onSearch={setEmojiKeyword}
+                  />
+                ),
+              }}
+              initialPackId={initialEmojiPackId}
+              initialPackName={initialEmojiPackName}
+            />
+          ) : (
+            <div className="weq-dress-body">{renderList()}</div>
+          )}
         </div>
 
         {/* 换装期间盖住整个对话框:样式注入会重排下面的消息列表,期间点别的只会

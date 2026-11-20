@@ -42,7 +42,7 @@
   outline: none;
 }
 
-/* ===== 头部：标题 + 类别切换 + 搜索 ===== */
+/* ===== 头部：标题 + 类别切换 ===== */
 .weq-dress-head {
   display: flex;
   align-items: center;
@@ -103,18 +103,26 @@
 .weq-dress-search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  padding: 5px 10px;
+  flex: 1 1 210px;
+  gap: 7px;
+  width: 210px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--weq-border-strong);
   border-radius: 8px;
   background: var(--weq-bg-subtle);
   color: var(--weq-fg-secondary);
+}
+
+.weq-dress-search > svg {
   flex: none;
 }
 
 .weq-dress-search input {
-  width: 190px;
+  flex: 1;
+  min-width: 0;
+  width: 0;
   border: 0;
   background: transparent;
   color: inherit;
@@ -128,6 +136,7 @@
 
 .weq-dress-search-clear {
   display: grid;
+  flex: none;
   width: 18px;
   height: 18px;
   place-items: center;
@@ -143,35 +152,45 @@
 }
 
 .weq-workspace-page .weq-dress-head,
-.weq-workspace-page .weq-dress-kinds,
-.weq-workspace-page .weq-dress-toolbar {
+.weq-workspace-page .weq-dress-kinds {
   flex-wrap: wrap;
   min-width: 0;
-}
-
-.weq-workspace-page .weq-dress-search {
-  flex: 1 1 220px;
-  min-width: 0;
-  margin-left: 0;
 }
 
 .weq-workspace-page .weq-dress-kinds {
   flex: 1 1 100%;
 }
 
-.weq-workspace-page .weq-dress-search input {
+.weq-dress-panel {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
-  width: 0;
+  min-height: 0;
 }
 
-/* ===== 工具栏：已装筛选 ===== */
+/* ===== 分类页工具栏 ===== */
 .weq-dress-toolbar {
   display: flex;
+  flex: none;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-dress-toolbar-leading,
+.weq-dress-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.weq-dress-toolbar-controls {
+  min-width: 0;
+  margin-inline-start: auto;
 }
 
 .weq-dress-chip {
@@ -257,19 +276,10 @@
   font-weight: 600;
 }
 
-.weq-dress-hint {
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: var(--weq-warn-bg);
-  color: var(--weq-warn-fg);
-  font-size: 11px;
-}
-
-/* 离线提示条：只影响搜索与字体下载，文案要说清楚，别让用户以为整页坏了。 */
 .weq-dress-notice {
   display: flex;
   gap: 7px;
-  margin: 10px 16px 0;
+  margin: 10px 20px 0;
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--weq-warn-solid) 35%, transparent);
   border-radius: 10px;
@@ -305,12 +315,10 @@
   padding: 14px 16px 16px;
 }
 
-/* 商城表情页签自带左右两栏滚动，外层不再整体滚动。 */
-.weq-dress-body.is-embedded-market {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
+@media (max-width: 700px) {
+  .weq-dress-notice {
+    margin-inline: 12px;
+  }
 }
 
 /* ===== 当前使用：不与商城筛选混排 ===== */

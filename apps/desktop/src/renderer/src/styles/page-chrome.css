@@ -259,9 +259,6 @@ html[data-theme] .weq-workspace-page .weq-dress-card.is-active {
 html[data-theme] .weq-workspace-page .weq-dress-kinds {
   flex: 0 1 auto;
 }
-html[data-theme] .weq-workspace-page .weq-dress-search {
-  flex: 1 1 180px;
-}
 html[data-theme]
   .weq-workspace-page
   :is(.weq-dress-card-body small, .weq-dress-scope-label, .weq-dress-card-noimg) {
@@ -416,10 +413,6 @@ html[data-theme]
   color: var(--weq-fg-secondary);
 }
 
-/* 商城表情是装扮页的正文，不再叠加第二套页面标题和带框侧栏。 */
-html[data-theme] .weq-workspace-page .weq-dress-body.is-embedded-market {
-  padding: 0;
-}
 html[data-theme]
   .weq-workspace-page
   .weq-market-browser.is-embedded

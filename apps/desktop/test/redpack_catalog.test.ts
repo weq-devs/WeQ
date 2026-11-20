@@ -10,12 +10,18 @@
  */
 
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { handleMediaRequest } from '../src/main/media_protocol';
 import {
   listRedPackSkins,
   redPackSkinField,
   resourceSkinCover,
 } from '../src/main/redpack_catalog.ts';
+
+const cacheGet = vi.hoisted(() => vi.fn());
+vi.mock('../src/main/context/app_context', () => ({
+  getAppContext: () => ({ bootstrap: { avatarCache: { get: cacheGet } } }),
+}));
 
 test('离线目录命中：返回记录的封面 URL', () => {
   // 2658「生日祝福」的封面在 img/202604/…，不是固定 aio.png 路径。
@@ -88,4 +94,35 @@ test('展柜卡片只列出目录里真有 URL 的图字段', () => {
     Boolean(skin[variant]),
   );
   assert.deepEqual(present, ['preview', 'popup', 'background', 'image']);
+});
+
+test('红包大图优先请求弹层图，CDN 返回 404 时改读目录封面', async () => {
+  const popup = redPackSkinField(1039, 'popup');
+  const preview = redPackSkinField(1039, 'preview');
+  cacheGet.mockReset().mockImplementation(async (src: string) => {
+    if (src === preview) return { data: Buffer.from('cover'), contentType: 'image/png' };
+    throw new Error('HTTP 404');
+  });
+  const result = await handleMediaRequest(
+    new Request('weq-media://redbag?id=1039&v=large&intent=interactive'),
+  );
+  expect(result.status).toBe(200);
+  expect(await result.text()).toBe('cover');
+  expect(cacheGet.mock.calls).toEqual([[popup], [preview]]);
+
+  cacheGet.mockClear();
+  const exact = await handleMediaRequest(new Request('weq-media://redbag?id=1039&v=popup'));
+  expect(exact.status).toBe(404);
+  expect(cacheGet.mock.calls).toEqual([[popup]]);
+});
+
+test('大图地址全部失效时返回 404，展柜只请求目录里的图片', async () => {
+  const popup = redPackSkinField(2658, 'popup');
+  const image = redPackSkinField(2658, 'image');
+  const preview = redPackSkinField(2658, 'preview');
+  const background = redPackSkinField(2658, 'background');
+  cacheGet.mockReset().mockRejectedValue(new Error('HTTP 404'));
+  const result = await handleMediaRequest(new Request('weq-media://redbag?id=2658&v=large'));
+  expect(result.status).toBe(404);
+  expect(cacheGet.mock.calls).toEqual([[popup], [image], [preview], [background]]);
 });

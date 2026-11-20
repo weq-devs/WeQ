@@ -138,12 +138,12 @@ export function qqShowUrl(src: string, revision?: number): string {
 /**
  * 红包封面（个性装扮 → 红包封面展柜）。
  *
- * `variant` 缺省走旧行为（离线目录封面 → 在线现查 → aio 兜底）；展柜里传具体的
- * 字段名表示**只认本地 skins.json**，取不到就 404，由前端回退占位。
+ * `variant` 缺省走消息封面链路。展柜指定字段时只读目录记录，`large` 按目录里的
+ * 弹层图、原始竖图、列表封面和背景图依次尝试。
  */
 export function redPackSkinUrl(
   skinId: number,
-  variant?: 'preview' | 'popup' | 'background' | 'image',
+  variant?: 'preview' | 'popup' | 'background' | 'image' | 'large',
 ): string {
   return mediaUrl('redbag', { id: skinId, ...(variant ? { v: variant } : {}) });
 }

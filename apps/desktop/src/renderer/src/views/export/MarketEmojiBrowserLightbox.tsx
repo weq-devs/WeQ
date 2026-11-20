@@ -10,7 +10,7 @@
 
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { MarketFaceDetail } from '../../components/MarketFaceLightbox';
 import { ArrowLeft, Store, X, RefreshCw, Loader2, Download, SearchX, Sticker } from 'lucide-react';
 import type { MarketPackFeeType, ExportSavePolicy } from '@weq/service';
@@ -281,7 +281,7 @@ interface MarketEmojiBrowserProps {
   initialPackId?: string;
   initialPackName?: string;
   embedded?: boolean;
-  searchQuery?: string;
+  embeddedSearch?: { keyword: string; form: ReactNode };
 }
 
 export function MarketEmojiBrowserLightbox(props: MarketEmojiBrowserProps): ReactElement {
@@ -302,7 +302,7 @@ function DevelopmentMarketEmojiBrowser({
   initialPackId,
   initialPackName,
   embedded = false,
-  searchQuery,
+  embeddedSearch,
 }: MarketEmojiBrowserProps): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
@@ -314,7 +314,7 @@ function DevelopmentMarketEmojiBrowser({
   const pending = useRef(false);
   const [input, setInput] = useState('');
   const [localQuery, setQuery] = useState('');
-  const query = searchQuery ?? localQuery;
+  const query = embeddedSearch?.keyword ?? localQuery;
   const [feeSel, setFeeSel] = useState<Set<MarketPackFeeType>>(new Set());
   const [latest, setLatest] = useState(false);
 
@@ -401,10 +401,10 @@ function DevelopmentMarketEmojiBrowser({
 
   // 防抖：输入停 300ms 落到 query。
   useEffect(() => {
-    if (searchQuery !== undefined) return;
+    if (embeddedSearch) return;
     const t = setTimeout(() => setQuery(input.trim()), 300);
     return () => clearTimeout(t);
-  }, [input, searchQuery]);
+  }, [input, embeddedSearch]);
 
   // query / feeSel 变化 → 重置结果重新拉第一页。
   useEffect(() => {
@@ -503,6 +503,29 @@ function DevelopmentMarketEmojiBrowser({
     setFeeSel(new Set());
   };
 
+  const catalogTotal =
+    loading && entries.length === 0 ? (
+      '搜索中…'
+    ) : (
+      <NumericText>{`共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}</NumericText>
+    );
+  const selectionTools = (
+    <DirectoryToolbar
+      searchEnabled={!embeddedSearch}
+      noun="表情包"
+      query={input}
+      onQuery={setInput}
+      selecting={selection.selectionMode}
+      onSelecting={selection.setSelectionMode}
+      count={selection.selectedIds.size}
+      onSelectAll={() =>
+        selection.setSelectedIds(
+          (current) => new Set([...current, ...entries.map((entry) => entry.id)]),
+        )
+      }
+    />
+  );
+
   const body = (
     <div
       className={`weq-market-browser${selectedId ? ' has-detail' : ''}${embedded ? ' is-embedded' : ''}`}
@@ -515,8 +538,8 @@ function DevelopmentMarketEmojiBrowser({
         <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
       )}
       {embedded ? (
-        <div className="weq-market-summary">
-          {selectedId ? (
+        selectedId && (
+          <div className="weq-market-summary">
             <button
               type="button"
               className="weq-market-back icon-button"
@@ -526,15 +549,9 @@ function DevelopmentMarketEmojiBrowser({
             >
               <ArrowLeft size={18} />
             </button>
-          ) : null}
-          <span className="weq-market-total" role="status">
-            {loading && entries.length === 0 ? (
-              '搜索中…'
-            ) : (
-              <NumericText>{`共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}</NumericText>
-            )}
-          </span>
-        </div>
+            <span className="weq-market-total">{catalogTotal}</span>
+          </div>
+        )
       ) : (
         <header className="weq-market-head">
           {selectedId ? (
@@ -551,15 +568,7 @@ function DevelopmentMarketEmojiBrowser({
           <div className="weq-market-title">
             <Store size={18} strokeWidth={1.9} />
             <h2 id="weq-market-title">商城表情</h2>
-            {total > 0 ? (
-              <span className="weq-market-total">
-                {loading && entries.length === 0 ? (
-                  '搜索中…'
-                ) : (
-                  <NumericText>{`共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}</NumericText>
-                )}
-              </span>
-            ) : null}
+            {total > 0 ? <span className="weq-market-total">{catalogTotal}</span> : null}
           </div>
           <button
             type="button"
@@ -580,21 +589,8 @@ function DevelopmentMarketEmojiBrowser({
 
       <div className="weq-emb-body">
         <div className="weq-market-catalog" hidden={!!selectedId} {...packMulti.rootProps}>
-          <div className="weq-market-catalog-tools">
-            <DirectoryToolbar
-              searchEnabled={searchQuery === undefined}
-              noun="表情包"
-              query={input}
-              onQuery={setInput}
-              selecting={selection.selectionMode}
-              onSelecting={selection.setSelectionMode}
-              count={selection.selectedIds.size}
-              onSelectAll={() =>
-                selection.setSelectedIds(
-                  (current) => new Set([...current, ...entries.map((entry) => entry.id)]),
-                )
-              }
-            />
+          <div className={embedded ? 'weq-dress-toolbar' : 'weq-market-catalog-tools'}>
+            {!embedded ? selectionTools : null}
             <div className="weq-emb-fee-row" {...feeMulti.rootProps}>
               <button
                 type="button"
@@ -627,6 +623,12 @@ function DevelopmentMarketEmojiBrowser({
                 </button>
               ))}
             </div>
+            {embedded ? (
+              <div className="weq-dress-toolbar-controls">
+                {selectionTools}
+                {embeddedSearch?.form}
+              </div>
+            ) : null}
           </div>
           {selection.selectionMode ? (
             <div className="weq-market-selection-actions">
@@ -665,6 +667,11 @@ function DevelopmentMarketEmojiBrowser({
           ) : null}
 
           <div className="weq-market-catalog-scroll">
+            {embedded ? (
+              <div className="weq-market-total weq-market-catalog-total" role="status">
+                {catalogTotal}
+              </div>
+            ) : null}
             {loading && entries.length === 0 ? (
               <div className="weq-emb-pack-list-state">
                 <Loader2 size={16} className="weq-emb-spin" />

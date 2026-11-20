@@ -785,22 +785,26 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
       const cache = getAppContext().bootstrap?.avatarCache;
       if (!cache) return notFound('redbag skin cache unavailable');
 
-      // 「个性装扮 → 红包封面」展柜传 `v=<字段名>`：严格只用本地 skins.json 里记的
-      // 那一条 URL，**不碰在线现查**（需求就是离线目录）。字段缺失直接 404，让前端
-      // 回退到别的图或占位，不会悄悄发一次服务端请求。
       const variant = q.get('v');
-      const localOnly =
+      // 展柜仅使用目录记录的大图及封面。旧皮肤的 popup 可能已从 CDN 下线。
+      let attempts: Array<() => string | null | Promise<string | null>>;
+      if (variant === 'large') {
+        const fields = ['popup', 'image', 'preview', 'background'] as const;
+        attempts = fields.map((field) => () => redPackSkinField(skinId, field));
+      } else if (
         variant === 'preview' ||
         variant === 'popup' ||
         variant === 'background' ||
-        variant === 'image';
-      const attempts: Array<() => Promise<string | null>> = localOnly
-        ? [async () => redPackSkinField(skinId, variant)]
-        : [
-            async () => resourceSkinCover(skinId),
-            () => onlineRedbagCover(skinId),
-            async () => `https://moggy-1251316161.file.myqcloud.com/redpackSkin/${skinId}/aio.png`,
-          ];
+        variant === 'image'
+      ) {
+        attempts = [() => redPackSkinField(skinId, variant)];
+      } else {
+        attempts = [
+          () => resourceSkinCover(skinId),
+          () => onlineRedbagCover(skinId),
+          () => `https://moggy-1251316161.file.myqcloud.com/redpackSkin/${skinId}/aio.png`,
+        ];
+      }
       for (const resolve of attempts) {
         const src = await resolve();
         if (!src) continue;
