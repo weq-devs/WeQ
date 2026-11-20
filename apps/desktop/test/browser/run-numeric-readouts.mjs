@@ -198,14 +198,14 @@ try {
   const samples = await previews();
   assert.deepEqual(
     samples.map((sample) => sample.fontSize),
-    ['24px', '16px', '12px', '24px', '16px', '12px'],
+    ['12px', '16px', '24px', '12px', '12px', '16px', '24px', '12px'],
   );
   assert.deepEqual(
-    samples.slice(0, 3).map((sample) => sample.value),
-    samples.slice(3).map((sample) => sample.value),
+    samples.slice(0, 4).map((sample) => sample.value),
+    samples.slice(4).map((sample) => sample.value),
   );
-  assert.ok(samples.slice(0, 3).every((sample) => sample.fontFamily.includes('DIN Alternate')));
-  assert.ok(samples.slice(3).every((sample) => !sample.fontFamily.includes('DIN Alternate')));
+  assert.ok(samples.slice(0, 4).every((sample) => sample.fontFamily.includes('DIN Alternate')));
+  assert.ok(samples.slice(4).every((sample) => !sample.fontFamily.includes('DIN Alternate')));
   await interfaceFont.click();
   await page.waitForFunction(() => window.autosaveQa.preferences.specialNumberFont === false);
   assert.equal(await interfaceFont.getAttribute('aria-checked'), 'true');
@@ -217,14 +217,34 @@ try {
   await interfaceFont.press('ArrowLeft');
   await page.waitForFunction(() => window.autosaveQa.preferences.specialNumberFont === true);
   assert.equal(await specialFont.getAttribute('aria-checked'), 'true');
-  if (output) await fontPicker.screenshot({ path: resolve(output, 'number-font-setting.png') });
-  await page.setViewportSize({ width: 320, height: 900 });
-  const specialBox = await specialFont.boundingBox();
-  const interfaceBox = await interfaceFont.boundingBox();
-  assert.ok(specialBox && interfaceBox && specialBox.x + specialBox.width <= interfaceBox.x);
-  assert.ok(interfaceBox.x + interfaceBox.width <= 320);
-  if (output)
-    await fontPicker.screenshot({ path: resolve(output, 'number-font-setting-narrow.png') });
+  for (const width of [1280, 600, 570, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const pickerBox = await fontPicker.boundingBox();
+    const specialBox = await specialFont.boundingBox();
+    const interfaceBox = await interfaceFont.boundingBox();
+    assert.ok(pickerBox && specialBox && interfaceBox);
+    const stacked = specialBox.y + specialBox.height <= interfaceBox.y;
+    if (width === 1280) assert.equal(stacked, false);
+    if (width === 320) assert.equal(stacked, true);
+    assert.ok(Math.abs(specialBox.x - pickerBox.x) < 1, `${width}: first card left edge`);
+    assert.ok(
+      Math.abs(interfaceBox.x + interfaceBox.width - pickerBox.x - pickerBox.width) < 1,
+      `${width}: second card right edge`,
+    );
+    assert.ok(Math.abs(specialBox.width - interfaceBox.width) < 1, `${width}: unequal widths`);
+    assert.ok(
+      await fontPicker.locator('.weq-number-font-preview').evaluateAll((nodes) =>
+        nodes.every((node) => {
+          const preview = node.getBoundingClientRect();
+          const card = node.parentElement.getBoundingClientRect();
+          return node.scrollWidth <= node.clientWidth && preview.right <= card.right;
+        }),
+      ),
+      `${width}: preview overflow`,
+    );
+    if (output)
+      await fontPicker.screenshot({ path: resolve(output, `number-font-setting-${width}.png`) });
+  }
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({

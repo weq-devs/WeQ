@@ -163,9 +163,10 @@ export function ComponentAppearance() {
                 data-number-font-preview={enabled ? 'special' : 'interface'}
                 aria-hidden="true"
               >
-                <strong>12</strong>
-                <strong>34</strong>
-                <strong>56</strong>
+                <strong>11/21</strong>
+                <strong>09:41</strong>
+                <strong>1,024</strong>
+                <strong>78%</strong>
               </span>
               <span className="weq-style-option-label">
                 <span>{label}</span>
