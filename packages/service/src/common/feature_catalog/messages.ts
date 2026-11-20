@@ -61,10 +61,52 @@ export const MESSAGE_FEATURES = [
     '在消息菜单请求 QQ 翻译，并在原消息下方查看译文。',
     { navigation: 'context' },
   ),
-  messageFeature('history.search', '搜索聊天记录', '按关键词检索消息内容，也可限定在指定会话。', {
-    context: ['account'],
-    tools: ['search_messages', 'search_in_conversation'],
-    docs: ['guide/chat-view.md#feature-messages.history.search'],
+  messageFeature(
+    'history.search',
+    '搜索聊天记录',
+    '在搜索界面组合关键词、发送者、日期和类型，也可限定在当前会话。',
+    {
+      context: ['account'],
+      tools: [
+        'search_messages',
+        'search_in_conversation',
+        'inspect_timeline',
+        'get_messages_by_date',
+        'fetch_history_window',
+      ],
+      docs: ['guide/chat-view.md#feature-messages.history.search'],
+    },
+  ),
+  messageFeature(
+    'history.shared-media',
+    '共享媒体',
+    '从会话标题栏浏览图片、视频和文件，也可定位原消息。',
+    {
+      context: ['account', 'conversation'],
+      navigation: 'context',
+      docs: ['guide/chat-view.md#feature-messages.history.shared-media'],
+    },
+  ),
+  messageFeature(
+    'timeline.grouping',
+    '连续发言分组',
+    '主聊天按发送者和时间归组，保留每条消息的引用、定位与多选。',
+    {
+      context: ['account', 'conversation'],
+      docs: ['guide/chat-view.md#feature-messages.timeline.grouping'],
+    },
+  ),
+  messageFeature(
+    'timeline.unread-boundary',
+    '聊天内未读分界',
+    '在时间线标出未读起点，浏览历史时显示剩余未读条数。',
+    {
+      context: ['account', 'conversation'],
+      docs: ['guide/chat-view.md#feature-messages.timeline.unread-boundary'],
+    },
+  ),
+  messageFeature('reply.touch', '触屏横滑引用', '从可引用的消息气泡向右滑，将原消息加入输入框。', {
+    docs: ['guide/chat-view.md#feature-messages.reply.touch'],
   }),
   messageFeature(
     'conversation.preview',
@@ -88,6 +130,34 @@ export const MESSAGE_FEATURES = [
   messageFeature('important', '重要消息', '在群聊中查看并定位提及、回复、文件等重要消息。', {
     context: ['account', 'group'],
     navigation: 'context',
+    tools: ['find_people_who_mentioned'],
+  }),
+  messageFeature('send', '发送消息', '从输入区发送文本、媒体、文件和适用的卡片。', {
+    context: ['account', 'conversation'],
+    navigation: 'context',
+    tools: [
+      'send_text_message',
+      'send_media_message',
+      'send_file_message',
+      'send_rich_message',
+      'send_tuwen_ark',
+    ],
+    docs: ['guide/chat-view.md'],
+  }),
+  messageFeature('voice.transcribe', '语音转文字', '从语音消息查看已有文字或发起转写。', {
+    navigation: 'context',
+    tools: ['transcribe_voice_message'],
+    docs: ['guide/voice-transcribe.md'],
+  }),
+  messageFeature('reaction', '表情回应', '在适用的群消息上添加或取消表情回应。', {
+    navigation: 'context',
+    tools: ['set_message_reaction'],
+    docs: ['guide/chat-view.md'],
+  }),
+  messageFeature('poke', '戳一戳', '从会话中的轻互动入口戳指定联系人。', {
+    context: ['account', 'conversation', 'contact'],
+    navigation: 'context',
+    tools: ['send_poke'],
   }),
   messageFeature('forward.inspect', '查看合并转发', '打开聊天记录卡片并查看其中的消息。', {
     navigation: 'context',
@@ -95,6 +165,7 @@ export const MESSAGE_FEATURES = [
   }),
   messageFeature('forward.send', '转发消息', '选择目标后转发，可多选逐条转发或合并转发。', {
     navigation: 'context',
+    tools: ['send_forward_message'],
   }),
   messageFeature('recall', '撤回消息', '在 QQ 在线且有相应权限时撤回适用的消息。', {
     navigation: 'context',

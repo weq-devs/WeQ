@@ -81,10 +81,13 @@ export const WORKSPACE_FEATURES = {
   createCloneGroup: defineFeature('assistant.clone-groups.create', 'assistant', '新建克隆体群聊', [
     '克隆群聊',
   ]),
-  selfProfile: defineFeature('contacts.self-profile', 'contacts', '我的资料', [
-    '本人资料',
-    '个人资料',
-  ]),
+  selfProfile: defineFeature(
+    'contacts.self-profile',
+    'contacts',
+    '我的资料',
+    ['本人资料', '个人资料'],
+    { tools: ['get_self_profile', 'get_self_dress'] },
+  ),
   selfProfileEdit: defineFeature(
     'contacts.self-profile.edit',
     'contacts',

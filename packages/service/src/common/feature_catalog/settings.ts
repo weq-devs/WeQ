@@ -15,7 +15,9 @@ function settingsPageFeatureId(page: SettingsPageId) {
   return `settings.page.${page}`;
 }
 
-const pageDetails: Partial<Record<SettingsPageId, Pick<FeatureDefinition, 'summary' | 'docs'>>> = {
+const pageDetails: Partial<
+  Record<SettingsPageId, Pick<FeatureDefinition, 'summary' | 'docs' | 'tools'>>
+> = {
   'database-management': {
     summary: '设置 QQ 数据库的监听与读取，查看体检和修复入口，浏览或导出数据库。',
     docs: ['guide/settings.md', 'guide/database-view.md'],
@@ -27,6 +29,17 @@ const pageDetails: Partial<Record<SettingsPageId, Pick<FeatureDefinition, 'summa
   mcp: {
     summary: '启停 MCP 服务器，查看连接信息或安装到本机 AI 客户端。',
     docs: ['guide/mcp-server.md'],
+    tools: ['list_features', 'get_feature', 'list_settings'],
+  },
+  accounts: {
+    summary: '查看和切换已配置的 QQ 账号与数据源。',
+    docs: ['guide/settings.md'],
+    tools: ['list_accounts', 'switch_account'],
+  },
+  recognition: {
+    summary: '配置图中文字识别、语音转写及相关模型。',
+    docs: ['guide/settings.md', 'guide/voice-transcribe.md'],
+    tools: ['get_ocr_status', 'ocr_image_text'],
   },
   onebot: {
     summary: '管理当前 QQ 账号的 OneBot 运行状态和网络连接，可接入 cc-connect。',

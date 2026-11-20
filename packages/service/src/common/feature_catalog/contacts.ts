@@ -22,6 +22,13 @@ function group(id: string, label: string, summary: string, details: Details = {}
 }
 
 export const CONTACT_GROUP_FEATURES = [
+  defineFeature('contacts.directory.search', 'contacts', '搜索联系人与群', [], {
+    parentId: 'contacts.directory',
+    summary: '按备注、昵称或号码查找好友和群聊。',
+    context: ['account'],
+    tools: ['search_buddies', 'search_groups'],
+    docs: ['guide/contact-directory.md'],
+  }),
   defineFeature('contacts.directory.order', 'contacts', '联系人排序与分组', [], {
     parentId: 'contacts.directory',
     summary: '分别调整好友和群聊列表的分组及排序。',
@@ -30,7 +37,13 @@ export const CONTACT_GROUP_FEATURES = [
     docs: ['guide/contact-directory.md#feature-contacts.directory.order'],
   }),
   contact('profile', '联系人名片与资料', '先显示本地资料，沿用设置中的名片内容及顺序。', {
-    tools: ['get_user_profile'],
+    tools: [
+      'get_user_profile',
+      'get_peer_stats',
+      'get_friend_mutual_mark',
+      'get_friend_dress',
+      'get_qq_show_url',
+    ],
     docs: ['guide/contact-card.md#feature-contacts.profile'],
   }),
   contact('shared-groups', '共同群', '查看与指定联系人共同加入的群。', {
@@ -69,7 +82,9 @@ export const CONTACT_GROUP_FEATURES = [
     tools: ['get_group_essence'],
     docs: ['guide/album-qzone.md#feature-groups.essence'],
   }),
-  group('sign', '群打卡', '在群聊侧栏打开原有打卡入口。'),
+  group('sign', '群打卡', '在群聊侧栏打开原有打卡入口。', {
+    tools: ['send_group_signup'],
+  }),
   group('files', '群文件', '在绑定当前群的资源窗口浏览文件夹与文件。', {
     docs: ['guide/album-qzone.md#feature-groups.files'],
   }),
