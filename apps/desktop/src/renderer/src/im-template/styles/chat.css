@@ -1065,14 +1065,13 @@ html[data-theme='dark'] .weq-qqshow-avatar {
 .qq-reply-preview-media img,
 .qq-reply-preview-media .qq-media-image,
 .qq-reply-preview-media .qq-media-mface,
+.qq-reply-preview-media .qq-media-missing,
 .qq-reply-preview-media .qq-mface-wrap,
 .qq-reply-preview-media .qq-media-video,
 .qq-reply-preview-media .qq-market-face,
 .qq-reply-preview-media .qq-market-face img {
   max-width: 96px !important;
   max-height: 56px !important;
-  width: auto !important;
-  height: auto !important;
   border-radius: 4px;
   object-fit: cover;
 }

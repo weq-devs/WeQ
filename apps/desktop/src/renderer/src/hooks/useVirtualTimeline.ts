@@ -31,7 +31,6 @@ import { timelineViewportRange } from '../lib/timelinePreload';
 
 export const TIMELINE_VIRTUAL_THRESHOLD = 40;
 export const TIMELINE_OVERSCAN = 6;
-const keepNativeScroll = () => false;
 const observeTimelineRect: typeof observeElementRect = (instance, callback) =>
   observeElementRect(instance, (rect) => {
     // 隐藏视口的零尺寸不回灌范围；重新显示时继续交付真实宽高。
@@ -44,12 +43,14 @@ export function useVirtualTimeline({
   scope,
   active = true,
   orderedIds,
+  estimateSize,
 }: {
   ids: string[];
   scrollRef: RefObject<HTMLDivElement | null>;
   scope: string;
   active?: boolean;
   orderedIds: readonly string[];
+  estimateSize: (index: number) => number;
 }) {
   const mobileWeb = useMobileWebLayout();
   const enabled = ids.length > TIMELINE_VIRTUAL_THRESHOLD;
@@ -72,16 +73,19 @@ export function useVirtualTimeline({
       }),
     [],
   );
-  const previousMode = useRef({ scope, active });
+  const previousMode = useRef({ scope, active, windowed: enabled });
   const suspendedAnchor = useRef<ConversationReadingPosition | undefined>(undefined);
-  // 页面隐藏前只采集已挂载 DOM；阈值切换沿用同一份测量，不重建阅读位置。
+  const thresholdAnchor = useRef<ConversationReadingPosition | undefined>(undefined);
+  // 页面隐藏或从文档流切入虚拟布局前，采集真实可见行的位置。
   if (previousMode.current.scope !== scope) {
     suspendedAnchor.current = undefined;
-  } else {
-    if (previousMode.current.active && !active && scrollRef.current)
-      suspendedAnchor.current = captureReadingPosition(scrollRef.current);
+    thresholdAnchor.current = undefined;
+  } else if (previousMode.current.active && scrollRef.current) {
+    if (!active) suspendedAnchor.current = captureReadingPosition(scrollRef.current);
+    else if (!previousMode.current.windowed && enabled)
+      thresholdAnchor.current = captureReadingPosition(scrollRef.current, { transient: true });
   }
-  previousMode.current = { scope, active };
+  previousMode.current = { scope, active, windowed: enabled };
   const [margin, setMargin] = useState(26);
   const index = useMemo(() => {
     const result = new Map(ids.map((id, position) => [id, position]));
@@ -105,8 +109,12 @@ export function useVirtualTimeline({
           instance?.scrollRect?.height ?? 0,
           (position) => instance?.itemSizeCache.get(ids[position]!),
           instance?.scrollDirection ?? null,
+          (position) => instance?.measurementsCache[position]?.size ?? estimateSize(position),
         ),
       );
+      const anchorId = thresholdAnchor.current?.anchorId;
+      const anchorIndex = anchorId ? index.get(anchorId) : undefined;
+      if (anchorIndex !== undefined) rendered.add(anchorIndex);
       // 正在播放的语音／视频不因滚出视口而中断；其他离屏媒体随虚拟行释放。
       for (const media of scrollRef.current?.querySelectorAll<HTMLElement>(
         '.qq-media-voice.is-playing, video',
@@ -118,7 +126,7 @@ export function useVirtualTimeline({
       }
       return [...rendered].sort((a, b) => a - b);
     },
-    [ids, index, scrollRef],
+    [ids, index, scrollRef, estimateSize],
   );
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: ids.length,
@@ -153,7 +161,7 @@ export function useVirtualTimeline({
         break;
       }
     },
-    estimateSize: () => 96,
+    estimateSize,
     // 保留子像素高度；逐行取整会在短列表切入虚拟布局时积累数像素误差。
     measureElement: (element, entry, instance) => {
       const observed = entry?.borderBoxSize?.[0]?.blockSize;
@@ -186,7 +194,12 @@ export function useVirtualTimeline({
   useLayoutEffect(() => {
     mountedIndexes.current = new Set(virtualItems?.map(({ index }) => index));
   }, [virtualItems]);
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = enabled ? undefined : keepNativeScroll;
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+    if (!enabled) return false;
+    const offset = instance.scrollOffset ?? 0;
+    // 已经完全滚过的行增高时，连同位置一起补偿，向上滚动时也保住正在读的消息。
+    return instance.itemSizeCache.has(item.key) ? item.end <= offset : item.start < offset;
+  };
   const context = useRef({ ids, index, orderedIds, virtualizer, scope, active, windowed: enabled });
   context.current = { ids, index, orderedIds, virtualizer, scope, active, windowed: enabled };
   const command = useRef(0);
@@ -201,12 +214,15 @@ export function useVirtualTimeline({
     measurePadding();
     const resize = new ResizeObserver(measurePadding);
     resize.observe(scroll);
+    let lastInputAt = -Infinity;
     const cancel = () => {
       command.current++;
       context.current.virtualizer.cancelScroll();
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
+      frame.current = undefined;
     };
     const interrupt = () => {
+      lastInputAt = performance.now();
       scrollRevision.current++;
       cancel();
     };
@@ -221,25 +237,68 @@ export function useVirtualTimeline({
     const position = (
       id: string,
       align: 'start' | 'center' | 'end',
-      saved?: ConversationReadingPosition,
-      flash = false,
-      focus = false,
+      {
+        saved,
+        flash,
+        focus,
+        ease,
+      }: { saved?: ConversationReadingPosition; flash?: boolean; focus?: boolean; ease?: boolean },
     ) => {
       const current = context.current;
       if (!current.active) return false;
       const target = current.index.get(id);
       if (target === undefined) return false;
+      const mounted = saved ? messageElement(scroll, id) : undefined;
+      if (saved && mounted) {
+        const rect = mounted.getBoundingClientRect();
+        const bounds = scroll.getBoundingClientRect();
+        const start = scroll.scrollTop;
+        const delta = saved.alignToEnd
+          ? rect.bottom - bounds.top - scroll.clientHeight + (saved.bottomInset ?? 0)
+          : rect.top - bounds.top - (saved.offset ?? 0);
+        const destination = Math.max(
+          0,
+          Math.min(start + delta, scroll.scrollHeight - scroll.clientHeight),
+        );
+        const distance = Math.abs(destination - start);
+        if (distance < 1) return true;
+        cancel();
+        if (
+          ease &&
+          distance >= 12 &&
+          distance <= 72 &&
+          rect.bottom > bounds.top &&
+          rect.top < bounds.bottom &&
+          !current.virtualizer.isScrolling &&
+          performance.now() - lastInputAt >= 180 &&
+          scroll.ownerDocument.defaultView?.matchMedia('(prefers-reduced-motion: no-preference)')
+            .matches
+        ) {
+          // 可见的小幅剩余偏移才用缓动，手势、离屏定位和较大位移由原路径直接处理。
+          const startedAt = performance.now();
+          let previous = start;
+          const step = (now: number) => {
+            frame.current = undefined;
+            if (Math.abs(scroll.scrollTop - previous) > 1) return;
+            const progress = Math.min(1, (now - startedAt) / 120);
+            scroll.scrollTop = start + (destination - start) * (1 - (1 - progress) ** 3);
+            previous = scroll.scrollTop;
+            if (progress < 1) frame.current = requestAnimationFrame(step);
+          };
+          frame.current = requestAnimationFrame(step);
+        } else if (current.windowed) {
+          current.virtualizer.scrollToOffset(destination, { behavior: 'auto' });
+          current.virtualizer.cancelScroll();
+        } else {
+          scroll.scrollTop = destination;
+        }
+        return true;
+      }
       cancel();
       if (!current.windowed) {
         const line = messageElement(scroll, id);
         if (!line) return false;
-        if (saved) {
-          const rect = line.getBoundingClientRect(),
-            bounds = scroll.getBoundingClientRect();
-          scroll.scrollTop += saved.alignToEnd
-            ? rect.bottom - bounds.top - scroll.clientHeight + (saved.bottomInset ?? 0)
-            : rect.top - bounds.top - (saved.offset ?? 0);
-        } else line.scrollIntoView({ block: align });
+        line.scrollIntoView({ block: align });
         if (focus) line.focus({ preventScroll: true });
         if (flash) {
           line.classList.add('weq-reply-target-flash');
@@ -290,15 +349,21 @@ export function useVirtualTimeline({
       capture: () => (context.current.active ? undefined : suspendedAnchor.current),
       scrollTo: (id, options) => {
         scrollRevision.current++;
-        return position(id, options?.align ?? 'center', undefined, options?.flash, options?.focus);
+        return position(id, options?.align ?? 'center', {
+          flash: options?.flash,
+          focus: options?.focus,
+        });
       },
-      restore: (saved) => {
+      restore: (saved, options) => {
         if (!context.current.active) {
           suspendedAnchor.current = saved;
           return true;
         }
         return saved.anchorId
-          ? position(saved.anchorId, saved.alignToEnd ? 'end' : 'start', saved)
+          ? position(saved.anchorId, saved.alignToEnd ? 'end' : 'start', {
+              saved,
+              ease: options?.ease,
+            })
           : false;
       },
       offset: (id) => {
@@ -360,6 +425,13 @@ export function useVirtualTimeline({
       suspendedAnchor.current = undefined;
     }
   }, [active, scope, scrollRef, virtualizer]);
+
+  useLayoutEffect(() => {
+    const saved = thresholdAnchor.current;
+    thresholdAnchor.current = undefined;
+    if (enabled && active && saved?.anchorId && scrollRef.current)
+      restoreReadingPosition(scrollRef.current, saved);
+  }, [enabled, active, scrollRef]);
 
   const containerRef = useCallback(
     (node: HTMLDivElement | null) => {

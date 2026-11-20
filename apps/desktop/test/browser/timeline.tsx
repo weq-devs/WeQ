@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, useState } from 'react';
+import { createElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../support/templateDemoData';
@@ -11,6 +11,7 @@ import {
 import {
   captureReadingPosition,
   restoreReadingPosition,
+  restoreReadingPositionAfterPrepend,
 } from '../../src/renderer/src/lib/conversationReadingPosition';
 import {
   revealTimelineMessage,
@@ -29,6 +30,7 @@ const demo = createTemplateDemoData();
 const params = new URLSearchParams(location.search);
 const entryCount = Number(params.get('count') ?? 3000);
 const delayedEntry = params.has('delayed');
+const delayMedia = params.has('delay-media');
 const unreadFrom = Number(params.get('unread-from'));
 const unreadDock =
   unreadFrom > 1000
@@ -104,9 +106,9 @@ const message = (seq: number): Message => ({
             type: 'pic',
             data: {
               fileName: `fixture-${seq}.png`,
-              localPreviewUrl: image,
-              imgWidth: 300,
-              imgHeight: 180 + (seq % 5) * 80,
+              ...(delayMedia && seq === 1102
+                ? { localPreviewUrl: `${location.origin}/timeline-delayed.svg` }
+                : { localPreviewUrl: image, imgWidth: 300, imgHeight: 180 + (seq % 5) * 80 }),
             },
           },
         ]
@@ -135,6 +137,13 @@ function Fixture() {
   const [messages, setMessages] = useState(() =>
     Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) => message(i + 1001)),
   );
+  const pendingPrepend = useRef<ReturnType<typeof captureReadingPosition>>(undefined);
+  useLayoutEffect(() => {
+    const pending = pendingPrepend.current;
+    if (!pending) return;
+    pendingPrepend.current = undefined;
+    restoreReadingPositionAfterPrepend(scroll(), pending);
+  }, [messages]);
   const [loading, setLoading] = useState(delayedEntry);
   const [jumpRequest, setJumpRequest] = useState<{ messageId: string; revision: number }>();
   useEffect(() => {
@@ -178,9 +187,10 @@ function Fixture() {
     jump: (id: string) => revealTimelineMessage(scroll(), id, true),
     requestJump: (messageId: string) => setJumpRequest({ messageId, revision: Date.now() }),
     capture: () => captureReadingPosition(scroll()),
-    restore: (position: Parameters<typeof restoreReadingPosition>[1]) =>
-      restoreReadingPosition(scroll(), position),
+    restore: (position: Parameters<typeof restoreReadingPosition>[1], ease = false) =>
+      restoreReadingPosition(scroll(), position, { ease }),
     prepend: () => {
+      pendingPrepend.current = captureReadingPosition(scroll(), { transient: true });
       setAtLatest(false);
       setMessages((rows) => [...Array.from({ length: 50 }, (_, i) => message(951 + i)), ...rows]);
     },

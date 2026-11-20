@@ -11,9 +11,16 @@
   grid-area: 1 / 1;
 }
 .qq-media-image-preview-wrap > .qq-media-retry {
-  position: relative;
-  place-self: end;
-  margin: 4px;
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .qq-media-wrap > img,
+  .qq-media-video-poster {
+    transition: opacity 120ms ease-out;
+  }
 }
 button.qq-media-wrap {
   cursor: zoom-in;

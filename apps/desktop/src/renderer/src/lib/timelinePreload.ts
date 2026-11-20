@@ -1,6 +1,33 @@
 import { defaultRangeExtractor, type Range } from '@tanstack/react-virtual';
+import type { Message } from '../im-template/template/types';
+import { messageMediaSize } from './chatMediaSize';
 
 const MAX_PRELOAD_ROWS = 48;
+
+export function estimateTimelineRowHeight(message: Message | undefined): number {
+  if (!message) return 96;
+  let elementsHeight = 0;
+  for (const { type, data } of message.qqElements ?? []) {
+    switch (type) {
+      case 'pic':
+      case 'video':
+      case 'mface':
+        elementsHeight += messageMediaSize(type, data ?? {}).height + 4;
+        break;
+      case 'ark':
+      case 'multiMsg':
+      case 'file':
+        elementsHeight += 96;
+        break;
+      case 'reply':
+      case 'ptt':
+        elementsHeight += 44;
+        break;
+    }
+  }
+  const textHeight = 20 * Math.max(1, Math.ceil(message.body.length / 36));
+  return Math.min(800, 28 + Math.max(textHeight, elementsHeight));
+}
 
 /** 至少保留原预挂载行数，按已测像素预留一屏，滚动方向提前两屏。 */
 export function timelineViewportRange(
@@ -8,6 +35,7 @@ export function timelineViewportRange(
   viewportHeight: number,
   sizeAt: (index: number) => number | undefined,
   direction: 'forward' | 'backward' | null,
+  estimateAt?: (index: number) => number,
 ): number[] {
   if (!(viewportHeight > 0)) return defaultRangeExtractor(range);
   let start = range.startIndex,
@@ -25,7 +53,7 @@ export function timelineViewportRange(
       const index = step < 0 ? start - 1 : end + 1;
       if (index < 0 || index >= range.count || (count >= range.overscan && covered >= pixels))
         break;
-      covered += Math.max(1, sizeAt(index) ?? estimate);
+      covered += Math.max(1, sizeAt(index) ?? estimateAt?.(index) ?? estimate);
       count++;
       if (step < 0) start = index;
       else end = index;

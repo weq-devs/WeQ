@@ -27,6 +27,7 @@ import { mergeRefreshedWindow } from '../../lib/conversationRefresh';
 import {
   captureReadingPosition,
   restoreReadingPosition,
+  restoreReadingPositionAfterPrepend,
 } from '../../lib/conversationReadingPosition';
 import { useConversationRecoveryPosition } from '../../hooks/useConversationRecoveryPosition';
 import type { Conversation } from '../../im-template/template';
@@ -825,19 +826,10 @@ export function useConversationWindowEntry(
       return undefined;
     }
 
-    // 只跟随锚点上方的变化，底部追加和图片展开不能计入向上翻页补偿。
-    restoreReadingPosition(scroll, restore.position);
-    const appliedTop = scroll.scrollTop;
-    const frame = window.requestAnimationFrame(() => {
-      if (pendingScrollRestoreRef.current !== restore) return;
-      // 用户在首帧后继续滚动时，不用旧快照把他拉回。
-      if (isConversationPagingVisible(scroll) && Math.abs(scroll.scrollTop - appliedTop) <= 1)
-        restoreReadingPosition(scroll, restore.position);
-      pendingScrollRestoreRef.current = null;
-      scheduleConversationPagingCheck(scroll);
-    });
-
-    return () => window.cancelAnimationFrame(frame);
+    pendingScrollRestoreRef.current = null;
+    restoreReadingPositionAfterPrepend(scroll, restore.position);
+    scheduleConversationPagingCheck(scroll);
+    return undefined;
   }, [
     messagesTabActive,
     selectedConversation?.id,

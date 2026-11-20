@@ -5,6 +5,7 @@ import { firstUnreadMessage, matchesUnreadMessage } from '../../lib/unreadNaviga
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReplyJump, ReplyJumpTarget } from '../../state/messageContext';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
+import { estimateTimelineRowHeight } from '../../lib/timelinePreload';
 import type { Conversation, Message, UnreadDockStop } from './types';
 import { unreadHighlightKey } from './unreadDock';
 import type { ChatPaneProps } from './chatPane';
@@ -226,6 +227,10 @@ export function useChatTimelineNavigation({
     () => visibleMessages.map((message) => message.id),
     [visibleMessages],
   );
+  const estimateSize = useCallback(
+    (index: number) => estimateTimelineRowHeight(visibleMessages[index]),
+    [visibleMessages],
+  );
 
   const timeline = useVirtualTimeline({
     ids: timelineIds,
@@ -234,6 +239,7 @@ export function useChatTimelineNavigation({
     // 数据源切换由宿主 ChatMainContent 的 messageScope key 重新挂载；不绑定按需加载的撤回资料。
     scope: `${user.id}:${conversation?.id}`,
     active: tabActive,
+    estimateSize,
   });
 
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
