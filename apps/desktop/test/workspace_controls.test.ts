@@ -53,12 +53,13 @@ describe('标题栏全局搜索', () => {
         pointer(button, 'pointerover', { pointerType });
         pointer(button, 'pointerdown', { pointerType });
         expect(button.getAttribute('aria-expanded')).toBe('false');
-        expect(input.disabled).toBe(true);
+        expect(input.hidden).toBe(true);
         expect(document.querySelector('.weq-titlebar-search-results')).toBeNull();
         pointer(button, 'pointerup', { pointerType });
         act(() => button.click());
         pointer(button, 'pointerout', { pointerType });
         expect(button.getAttribute('aria-pressed')).toBe('true');
+        expect(input.hidden).toBe(false);
         expect(document.activeElement).toBe(input);
         const panel = document.querySelector('.weq-titlebar-search-results')!;
         pointer(panel, 'pointerover', { pointerType });
@@ -144,7 +145,7 @@ describe('标题栏全局搜索', () => {
       const button = view.host.querySelector('button')!;
       const input = view.host.querySelector('input')!;
       expect(button.getAttribute('aria-expanded')).toBe('false');
-      expect(input.disabled).toBe(true);
+      expect(input.hidden).toBe(true);
       pointer(area, 'pointerover');
       expect(button.getAttribute('aria-expanded')).toBe('true');
       expect(button.getAttribute('aria-pressed')).toBe('false');

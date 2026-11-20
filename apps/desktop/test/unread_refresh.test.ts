@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { readUnreadInfos } from '../src/renderer/src/views/workspace/useConversationWindowRead';
 import {
   createUnreadRefresh,
   createUnreadTargetRefresh,
@@ -8,6 +9,11 @@ import {
   UNREAD_BATCH_SIZE,
   createUnreadRefreshState,
 } from '../src/renderer/src/lib/unreadRefresh';
+
+const unreadQuery = vi.hoisted(() => vi.fn());
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: { account: { getUnreadInfos: { query: unreadQuery } } },
+}));
 
 afterEach(() => vi.useRealTimers());
 
@@ -30,27 +36,29 @@ describe('未读刷新调度', () => {
     expect(other.changed).toBe(true);
     expect(other.guard).not.toBe(first.guard);
   });
-  it('启动批次并行读取并合并为一次回显，不等首屏消息、不逐会话统计', () => {
-    const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
-    const reads = readFileSync(
-      'src/renderer/src/views/workspace/useConversationWindowRead.ts',
-      'utf8',
-    );
-    const effect = source.slice(
-      source.indexOf('const unreadDirectoryContactsRef'),
-      source.indexOf('const unreadDirectoryKey'),
-    );
-    expect(reads).toMatch(/Promise\.all\(\s*batches\.map\(/);
-    expect(effect).toContain('await readUnreadInfos({ ...binding, targets })');
-    expect(effect).not.toContain('initialized');
-    expect(effect).not.toContain('startupTargets');
-    expect(effect).toContain('applyLive(rows, startedAt)');
-    expect(effect).not.toContain('setInterval');
-    expect(effect).not.toContain('while (isCurrent() && initialMessagesPendingRef.current)');
-    expect(effect).not.toContain('watermarksOnly');
-    expect(effect).toMatch(
-      /if \([^)]*changed[^)]*\) \{\s*setReadUndo\(null\);\s*setUnreadByConv\(\{\}\);/,
-    );
+  it('分批并行读取未读数量，所有批次返回后按原顺序提交结果', async () => {
+    const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+    const targets = Array.from({ length: UNREAD_BATCH_SIZE + 1 }, (_, index) => ({
+      chatType: 2 as const,
+      uid: String(10000 + index),
+    }));
+    const rows = targets.map((target, unreadCount) => ({ ...target, unreadCount }));
+    const { promise: first, resolve } = Promise.withResolvers<typeof rows>();
+    unreadQuery
+      .mockReset()
+      .mockReturnValueOnce(first)
+      .mockResolvedValueOnce(rows.slice(UNREAD_BATCH_SIZE));
+    const settled = vi.fn();
+    const read = readUnreadInfos({ ...binding, targets }).then(settled);
+    expect(unreadQuery.mock.calls).toEqual([
+      [{ ...binding, targets: targets.slice(0, UNREAD_BATCH_SIZE) }],
+      [{ ...binding, targets: targets.slice(UNREAD_BATCH_SIZE) }],
+    ]);
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+    resolve(rows.slice(0, UNREAD_BATCH_SIZE));
+    await read;
+    expect(settled.mock.calls).toEqual([[rows]]);
   });
   it('慢水位轮询执行中不积压重复目标，定向新消息仍可补读一轮', async () => {
     vi.useFakeTimers();

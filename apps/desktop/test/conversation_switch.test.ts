@@ -75,6 +75,7 @@ type UnreadInput = { targets: Array<{ chatType: number; uid: string }>; watermar
 const f = vi.hoisted(() => ({
   refreshing: false,
   readFromFirstUnread: false,
+  showMessageUnreadBadge: true,
   unreadMode: false,
   unreadCounts: {} as Record<string, number>,
   deletedResponse: [] as string[],
@@ -174,6 +175,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 ...empty,
                 data: {
                   readFromFirstUnread: f.readFromFirstUnread,
+                  showMessageUnreadBadge: f.showMessageUnreadBadge,
                   voiceTranscribe: { modelId: '' },
                 },
               };
@@ -332,18 +334,20 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
     mainContent,
     sidebarContent,
     children,
+    messageBadgeCount,
     onViewChange,
     onMessageBadgeClick,
   }: {
     mainContent: ReactNode;
     sidebarContent: ReactNode;
     children: ReactNode;
+    messageBadgeCount: number;
     onViewChange: (view: 'messages' | 'contacts') => void;
     onMessageBadgeClick: () => void;
   }) =>
     h(
       'div',
-      null,
+      { 'data-message-badge-count': messageBadgeCount },
       h('button', { 'data-messages': true, onClick: () => onViewChange('messages') }, '消息'),
       h('button', { 'data-contacts': true, onClick: () => onViewChange('contacts') }, '联系人'),
       h('button', { 'data-locate-unread': true, onClick: () => onMessageBadgeClick() }, '定位未读'),
@@ -461,6 +465,7 @@ afterEach(() => {
   f.reads.length = 0;
   f.refreshing = false;
   f.readFromFirstUnread = false;
+  f.showMessageUnreadBadge = true;
   f.commit = undefined;
   f.unreadMode = false;
   f.unreadCounts = {};
@@ -1125,6 +1130,22 @@ it('返回消息页不重放上一次未读定位，下次点击继续定位下�
     );
     await click('messages');
     await act(async () => vi.advanceTimersByTimeAsync(200));
+    const badge = () =>
+      host.querySelector('[data-message-badge-count]')?.getAttribute('data-message-badge-count');
+    expect(badge()).toBe('5');
+    f.showMessageUnreadBadge = false;
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    expect(badge()).toBe('0');
+    f.showMessageUnreadBadge = true;
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
     await click('locate-unread');
     const first = locateTarget();
     expect(['10001', '10002']).toContain(first);
