@@ -73,6 +73,7 @@ export interface ExternalRkeySource {
 }
 
 const mediaSummary = new Map<string, { count: number; failed: number; durationMs: number }>();
+type MediaProgress = (received: number, total: number) => void;
 let summaryTimer: ReturnType<typeof setTimeout> | undefined;
 function summarizeMedia(source: string, durationMs: number, failed = false): void {
   const entry = mediaSummary.get(source) ?? { count: 0, failed: 0, durationMs: 0 };
@@ -98,7 +99,11 @@ export function flushMediaDownloadLogs(): void {
 process.once('exit', flushMediaDownloadLogs);
 
 export class MediaDownloadService {
-  private readonly downloading = new Map<string, Promise<string | null>>();
+  private readonly downloadingThumbnails = new Map<string, Promise<string | null>>();
+  private readonly downloading = new Map<
+    string,
+    { promise: Promise<string | null>; listeners: Set<MediaProgress>; progress: [number, number] }
+  >();
   private readonly logger = getLogger().child({ scope: 'media-download' });
 
   constructor(
@@ -117,11 +122,10 @@ export class MediaDownloadService {
   /** 仅使用消息真实携带的小图地址，不将 spec=0 原图地址变造为缩图。 */
   async thumbnail(raw: string, localOnly = false): Promise<string | null> {
     if (localOnly) return this.fetchThumbnail(raw, true);
-    const key = `thumbnail:${raw}`;
-    const pending = this.downloading.get(key);
+    const pending = this.downloadingThumbnails.get(raw);
     if (pending) return pending;
-    const work = this.fetchThumbnail(raw).finally(() => this.downloading.delete(key));
-    this.downloading.set(key, work);
+    const work = this.fetchThumbnail(raw).finally(() => this.downloadingThumbnails.delete(raw));
+    this.downloadingThumbnails.set(raw, work);
     return work;
   }
   private async fetchThumbnail(raw: string, localOnly = false): Promise<string | null> {
@@ -163,16 +167,36 @@ export class MediaDownloadService {
    * Download `fileToken` to the cache and return its local path, or null if no
    * usable rkey is available or every attempt failed. Cached on success.
    */
-  async download(fileToken: string, opts: DownloadOptions = {}): Promise<string | null> {
+  async download(
+    fileToken: string,
+    opts: DownloadOptions = {},
+    onProgress?: MediaProgress,
+  ): Promise<string | null> {
     const key = `${fileToken}:${opts.ext ?? ''}`;
-    const existing = this.downloading.get(key);
-    if (existing) return existing;
-    const work = this.runDownload(fileToken, opts).finally(() => this.downloading.delete(key));
-    this.downloading.set(key, work);
-    return work;
+    let task = this.downloading.get(key);
+    if (!task) {
+      const listeners = new Set<MediaProgress>();
+      const progress: [number, number] = [0, 0];
+      const promise = this.runDownload(fileToken, opts, (received, total) => {
+        progress[0] = received;
+        progress[1] = total;
+        for (const listener of listeners) listener(received, total);
+      }).finally(() => this.downloading.delete(key));
+      task = { promise, listeners, progress };
+      this.downloading.set(key, task);
+    }
+    if (onProgress) {
+      task.listeners.add(onProgress);
+      onProgress(...task.progress);
+    }
+    return task.promise;
   }
 
-  private async runDownload(fileToken: string, opts: DownloadOptions): Promise<string | null> {
+  private async runDownload(
+    fileToken: string,
+    opts: DownloadOptions,
+    onProgress: MediaProgress,
+  ): Promise<string | null> {
     if (!fileToken) return null;
     const began = performance.now();
     const mediaId = hashToken(fileToken).slice(0, 16);
@@ -214,7 +238,7 @@ export class MediaDownloadService {
     };
     let source = 'unavailable';
     let externalCandidateCount = 0;
-    const local = await tryEach(urls, this.allowOnline, note, cachePath);
+    const local = await tryEach(urls, this.allowOnline, note, cachePath, onProgress);
     if (!urls.length) note('local-rkey')('no-candidates');
     let bytes = local?.bytes ?? null;
     if (local) source = local.source;
@@ -240,6 +264,7 @@ export class MediaDownloadService {
           this.allowOnline,
           note('external'),
           cachePath,
+          onProgress,
         );
         if (bytes) break;
       }
@@ -319,11 +344,12 @@ async function tryEach(
   urls: Array<{ url: string; source: string }>,
   allowed: () => boolean,
   note: (stage: string) => (reason: string) => void,
-  cachePath?: string,
+  cachePath: string,
+  onProgress: MediaProgress,
 ): Promise<{ bytes: Buffer; source: string } | null> {
   for (const { url, source } of urls) {
     if (!allowed()) return null;
-    const bytes = await tryFetch(url, allowed, note(source), cachePath);
+    const bytes = await tryFetch(url, allowed, note(source), cachePath, onProgress);
     if (bytes) return { bytes, source };
   }
   return null;
@@ -350,10 +376,12 @@ async function tryFetch(
   allowed: () => boolean,
   note: (reason: string) => void,
   cachePath?: string,
+  onProgress?: MediaProgress,
 ): Promise<Buffer | null> {
   for (let attempt = 0; ; attempt += 1) {
     if (!allowed()) return null;
     try {
+      onProgress?.(0, 0);
       const res = await networkFetch(url);
       if (!res.ok) note(`http-${res.status}`);
       if (res.status === 429 || res.status >= 500) {
@@ -392,8 +420,9 @@ async function tryFetch(
           validate: async () => {
             if (!allowed()) throw new Error('账号来源已失活');
           },
-        }).file(url, cachePath, {}, () => {
+        }).file(url, cachePath, {}, (received, total) => {
           if (!allowed()) throw new Error('账号来源已失活');
+          onProgress?.(received, total);
         });
         buf = await readFile(cachePath);
       } else buf = Buffer.from(await res.arrayBuffer());

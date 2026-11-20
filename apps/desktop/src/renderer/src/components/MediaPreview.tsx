@@ -16,7 +16,10 @@ import { mediaZoomKeyDown } from './MediaPreviewControls.shared';
 import { useZoomPan } from './useZoomPan';
 import { PreviewOcr } from './usePreviewOcr';
 import { MediaSourceSave } from './MediaSaveControls';
-import { MediaLoadingRing } from './TransferRing';
+import { MediaLoadingRing, TransferRing } from './TransferRing';
+import { useTransferProgress } from '../lib/transferActivity';
+import { preferenceValue, useClientPreferences } from '../lib/clientPreferences';
+import { useDataSaver } from '../lib/dataSaver';
 import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import { exportMedia } from '../lib/mediaExport';
 import { useToastApi } from './Toast.shared';
@@ -35,6 +38,13 @@ import type { MediaPreviewOptions, PreviewMedia } from './mediaPreviewTypes';
 import { mergePreviewMedia } from './MediaPreview.shared';
 
 export type { PreviewMedia, MediaPreviewOptions } from './mediaPreviewTypes';
+
+type OriginalImageRequest = {
+  key: string;
+  id: string;
+  url: string;
+  phase: 'download' | 'decode' | 'ready' | 'failed';
+};
 
 export function MediaPreview(options: MediaPreviewOptions) {
   const contextDocument = useRenderDocument();
@@ -281,7 +291,11 @@ function MediaPreviewItemBody({
   const [attempt, setAttempt] = useState(0);
   const [sourceIndex, setSourceIndex] = useState(0);
   const [status, setStatus] = useState<MediaLoadState>('loading');
-  const [originalRequest, setOriginalRequest] = useState({ active: false, attempts: 0 });
+  const [request, setRequest] = useState<OriginalImageRequest>();
+  const originalRequest = request?.key === item.key ? request : undefined;
+  const originalProgress = useTransferProgress(originalRequest?.id);
+  const autoOriginal = useClientPreferences(() => preferenceValue('autoDownloadPreviewOriginal'));
+  const dataSaver = useDataSaver((state) => state.enabled);
   const current = resolved?.key === item.key ? resolved : item;
   const original = item.originalImage;
   const sources = [
@@ -291,7 +305,11 @@ function MediaPreviewItemBody({
         .map(interactiveMediaUrl),
     ),
   ];
-  const originalSource = originalRequest.active ? original?.src : undefined;
+  const originalReady = originalRequest?.phase === 'ready';
+  const originalPending =
+    originalRequest?.phase === 'download' || originalRequest?.phase === 'decode';
+  const originalSource = originalReady ? original?.src : undefined;
+  const previewSrc = resourceForRenderDocument(sources[sourceIndex] ?? '', ownerDocument);
   const source = originalSource ?? sources[sourceIndex] ?? '';
   const src = resourceForRenderDocument(source, ownerDocument);
   const zoom = useZoomPan(`${item.key}:${attempt}`, {
@@ -320,8 +338,7 @@ function MediaPreviewItemBody({
   );
   const video = useRef<HTMLVideoElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const requestAttempt = originalSource ? originalRequest.attempts - 1 : attempt;
-  const eventKey = `${item.key}:${current.kind}:${src}:${requestAttempt}`;
+  const eventKey = `${item.key}:${current.kind}:${previewSrc}:${attempt}`;
   const buffering = useVideoBuffering(eventKey, active && current.kind === 'video');
   const latestEvent = useRef(eventKey);
   latestEvent.current = eventKey;
@@ -366,12 +383,39 @@ function MediaPreviewItemBody({
     setSourceIndex(0);
     setDetailError(false);
     setAttempt(0);
-    setOriginalRequest({ active: false, attempts: 0 });
+    setRequest(undefined);
   }, [item.key]);
   const measure = useCallback(() => {
     if (image.current)
       setSize({ width: image.current.offsetWidth, height: image.current.offsetHeight });
   }, []);
+  const startOriginal = useCallback((key: string, source: string, automatic: boolean) => {
+    const id = crypto.randomUUID();
+    const url = new URL(source, document.baseURI);
+    url.searchParams.set('transferId', id);
+    if (automatic) {
+      url.searchParams.set('autoOriginal', '1');
+      url.searchParams.delete('ds');
+    }
+    setRequest({ key, id, url: url.href, phase: 'download' });
+  }, []);
+  const canFetchOriginal = Boolean(original && sourceIndex > 0);
+  useEffect(() => {
+    if (active && autoOriginal && !dataSaver && canFetchOriginal && !originalRequest && original)
+      startOriginal(item.key, original.src, true);
+  }, [
+    active,
+    autoOriginal,
+    dataSaver,
+    canFetchOriginal,
+    originalRequest,
+    original,
+    item.key,
+    startOriginal,
+  ]);
+  useLayoutEffect(() => {
+    if (originalReady) measure();
+  }, [originalReady, measure]);
   useEffect(() => {
     const viewport = ownerDocument.defaultView;
     viewport?.addEventListener('resize', measure);
@@ -389,8 +433,11 @@ function MediaPreviewItemBody({
     setAttempt((value) => value + 1);
     setDetailError(false);
   };
-  const ready = status === 'ready';
-  const usingThumbnail = Boolean(original && sourceIndex > 0 && !originalSource);
+  const displayStatus = originalReady ? 'ready' : status;
+  const ready = displayStatus === 'ready';
+  const usingThumbnail = canFetchOriginal && !originalReady;
+  const decodingOriginal = originalRequest?.phase === 'decode';
+  const originalProgressLabel = decodingOriginal ? '正在解码原图' : '正在下载原图';
   const originalMiB = original?.bytes ? original.bytes / 1024 ** 2 : undefined;
   const originalSize = originalMiB
     ? `（${originalMiB < 0.01 ? '<0.01' : originalMiB.toFixed(2)} MiB）`
@@ -440,20 +487,31 @@ function MediaPreviewItemBody({
           <div className="weq-lightbox-actions">
             <MediaZoomControls zoom={zoom} disabled={!ready} />
             <span ref={setOcrActions} style={{ display: 'contents' }} />
-            {original && sourceIndex > 0 && !(originalSource && ready) ? (
-              <button
-                type="button"
-                className="weq-lightbox-action"
-                disabled={originalRequest.active}
-                onClick={() => {
-                  setOriginalRequest(({ attempts }) => ({ active: true, attempts: attempts + 1 }));
-                  setStatus('loading');
-                  zoom.reset();
-                }}
-              >
-                {originalRequest.active ? '正在加载原图' : '查看原图'}
-                {originalSize}
-              </button>
+            {original && usingThumbnail ? (
+              originalPending ? (
+                <span className="weq-lightbox-action weq-transfer-control">
+                  <TransferRing
+                    size={16}
+                    label={originalProgressLabel}
+                    progress={
+                      decodingOriginal
+                        ? { phase: 'confirming' }
+                        : (originalProgress ?? { phase: 'download' })
+                    }
+                  />
+                  {originalProgressLabel}
+                  {originalSize}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="weq-lightbox-action"
+                  onClick={() => startOriginal(item.key, original.src, false)}
+                >
+                  {originalRequest?.phase === 'failed' ? '重试原图' : '查看原图'}
+                  {originalSize}
+                </button>
+              )
             ) : null}
             {item.saveSource !== null &&
             (!original || ready) &&
@@ -534,8 +592,8 @@ function MediaPreviewItemBody({
       ) : null}
       <div
         className="weq-lightbox-stage"
-        data-media-state={status}
-        aria-busy={status === 'loading'}
+        data-media-state={displayStatus}
+        aria-busy={displayStatus === 'loading'}
         onMouseDown={(event) => event.stopPropagation()}
       >
         {!waiting && current.kind === 'image' ? (
@@ -546,38 +604,64 @@ function MediaPreviewItemBody({
             onMouseDown={zoom.onMouseDown}
             onPointerDown={zoom.onPointerDown}
           >
-            <img
-              key={`${item.key}:${originalSource ?? ''}:${requestAttempt}`}
-              ref={image}
-              className="weq-lightbox-image"
-              src={mediaRetryUrl(src, requestAttempt)}
-              alt={item.title || '图片'}
-              draggable={false}
-              onLoad={() => {
-                if (latestEvent.current !== eventKey) return;
-                setStatus('ready');
-                measure();
-              }}
-              onError={() => {
-                if (latestEvent.current !== eventKey) return;
-                if (originalSource) {
-                  setOriginalRequest(({ attempts }) => ({ active: false, attempts }));
-                  notificationToast.push({ tone: 'error', title: '原图加载失败，可重试' });
-                } else if (sourceIndex + 1 < sources.length) {
-                  setSourceIndex((value) => value + 1);
-                  setStatus('loading');
-                } else if (resolved?.key === item.key && resolved.src !== item.src && item.src) {
-                  setResolved({
-                    key: item.key,
-                    src: item.src,
-                    kind: 'image',
-                    saveSrc: resolved.saveSrc,
-                  });
-                  setSourceIndex(0);
-                  setDetailError(true);
-                } else setStatus('error');
-              }}
-            />
+            {!originalReady ? (
+              <img
+                key={`${item.key}:${attempt}`}
+                ref={image}
+                className="weq-lightbox-image"
+                src={mediaRetryUrl(previewSrc, attempt)}
+                alt={item.title || '图片'}
+                draggable={false}
+                onLoad={() => {
+                  if (latestEvent.current !== eventKey) return;
+                  setStatus('ready');
+                  measure();
+                }}
+                onError={() => {
+                  if (latestEvent.current !== eventKey) return;
+                  if (sourceIndex + 1 < sources.length) {
+                    setSourceIndex((value) => value + 1);
+                    setStatus('loading');
+                  } else if (resolved?.key === item.key && resolved.src !== item.src && item.src) {
+                    setResolved({
+                      key: item.key,
+                      src: item.src,
+                      kind: 'image',
+                      saveSrc: resolved.saveSrc,
+                    });
+                    setSourceIndex(0);
+                    setDetailError(true);
+                  } else setStatus('error');
+                }}
+              />
+            ) : null}
+            {originalRequest && (originalPending || originalReady) ? (
+              <img
+                key={originalRequest.id}
+                ref={originalReady ? image : undefined}
+                className="weq-lightbox-image"
+                style={originalReady ? undefined : { display: 'none' }}
+                src={originalRequest.url}
+                alt={originalReady ? item.title || '图片' : ''}
+                draggable={false}
+                onLoad={(event) => {
+                  if (originalRequest.phase !== 'download') return;
+                  const { id } = originalRequest;
+                  const update = (phase: OriginalImageRequest['phase']) =>
+                    setRequest((current) => (current?.id === id ? { ...current, phase } : current));
+                  update('decode');
+                  void event.currentTarget.decode().then(
+                    () => update('ready'),
+                    () => update('failed'),
+                  );
+                }}
+                onError={() =>
+                  setRequest((current) =>
+                    current?.id === originalRequest.id ? { ...current, phase: 'failed' } : current,
+                  )
+                }
+              />
+            ) : null}
           </div>
         ) : !waiting ? (
           <video
@@ -625,10 +709,10 @@ function MediaPreviewItemBody({
           current.kind === 'video' &&
           status !== 'error' &&
           buffering.waiting && <MediaLoadingRing label="正在缓冲视频" />}
-        {waiting || current.kind === 'image' || status === 'error' ? (
+        {waiting || current.kind === 'image' || displayStatus === 'error' ? (
           <MediaLoadStatus
             kind={current.kind === 'image' ? '图片' : '视频'}
-            status={status}
+            status={displayStatus}
             onRetry={retry}
           />
         ) : null}
@@ -647,7 +731,7 @@ function MediaPreviewItemBody({
       ) : null}
       {current.kind === 'image' && item.ocr && imageFrame && ocrActions ? (
         <PreviewOcr
-          key={eventKey}
+          key={`${eventKey}:${originalSource ?? ''}`}
           src={src}
           context={item.ocr}
           frame={imageFrame}

@@ -69,6 +69,7 @@ import { resolveResource } from './resource';
 import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
 import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
 import { videoPreviewResponse } from './video_preview_response';
+import { observeDownload, transferIdInput } from './ipc/routers/transfer_progress';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
  *  original mp4 now goes through OIDB). ptt tries rkey first and falls back
@@ -609,6 +610,8 @@ export async function resolveChatImageFile(
     return { path: null, variant: 'unknown' as const };
   const restricted = await hostDataSaver(q.get('ds') === '1');
   const behavior = transferBehavior();
+  if (originalOnly && q.get('autoOriginal') === '1' && restricted)
+    return { path: null, variant: 'unknown' as const, deferred: true };
   if (
     q.get('intent') !== 'interactive' &&
     restricted &&
@@ -635,9 +638,19 @@ export async function resolveChatImageFile(
       ? { path: thumbnail, variant: 'thumb' as const }
       : { path: null, variant: 'unknown' as const, deferred: true };
   }
-  const downloaded = await services.mediaDownload.download(q.get('token') ?? '', {
-    originalUrl: q.get('orig') ?? '',
-  });
+  const token = q.get('token') ?? '';
+  const opts = { originalUrl: q.get('orig') ?? '' };
+  const transfer = originalOnly
+    ? transferIdInput.safeParse(q.get('transferId') ?? undefined)
+    : null;
+  const downloaded =
+    transfer?.success && transfer.data
+      ? await observeDownload(services, transfer.data, (update) =>
+          services.mediaDownload.download(token, opts, (received, total) =>
+            update({ phase: 'download', received, total }),
+          ),
+        )
+      : await services.mediaDownload.download(token, opts);
   check();
   return { path: downloaded, variant: 'downloaded' as const };
 }
