@@ -1260,6 +1260,22 @@ export function ConversationList({
   );
 }
 
+const NO_FILTER_MATCHES: string[] = [];
+
+function useFilteredDirectoryIds(
+  tab: 'friends' | 'groups',
+  active: boolean,
+  ids: string[] | undefined,
+) {
+  const update = useContext(ContactDirectoryContext)?.onFilteredIds;
+  useLayoutEffect(() => {
+    if (active) update?.(tab, ids);
+  }, [active, ids, tab, update]);
+  useLayoutEffect(() => {
+    if (active && update) return () => update(tab, undefined);
+  }, [active, tab, update]);
+}
+
 export function GroupList({
   active = true,
   conversations,
@@ -1283,17 +1299,21 @@ export function GroupList({
     x: number;
     y: number;
   } | null>(null);
+  const [membership, setMembership] = useState<'all' | 'member' | 'nonmember'>('all');
+  const hasFilter = membership !== 'all';
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
   const searchable = useMemo(
     () =>
       conversations.filter(
-        (item) =>
-          !needle ||
-          `${conversationTitle(item)} ${conversationSeed(item)} ${item.type === 'group' ? item.group.name : ''}`
-            .toLocaleLowerCase()
-            .includes(needle),
+        (item): item is Extract<Conversation, { type: 'group' }> =>
+          item.type === 'group' &&
+          (membership === 'all' || groupRelationship(item.group, relationships) === membership) &&
+          (!needle ||
+            `${conversationTitle(item)} ${conversationSeed(item)} ${item.group.name}`
+              .toLocaleLowerCase()
+              .includes(needle)),
       ),
-    [conversations, needle],
+    [conversations, membership, needle, relationships],
   );
   const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
   const metricEntities = useMemo(
@@ -1318,7 +1338,7 @@ export function GroupList({
           mode: 'none',
           label: '',
           items: sortGroups(
-            searchable.filter((row) => row.type === 'group'),
+            searchable,
             order.preferences.sort,
             order.preferences.descending,
             order.rows,
@@ -1328,9 +1348,7 @@ export function GroupList({
       ];
     const groups = sortGroups(
       searchable.filter(
-        (conversation) =>
-          conversation.type === 'group' &&
-          groupRelationship(conversation.group, relationships) === 'member',
+        (conversation) => groupRelationship(conversation.group, relationships) === 'member',
       ),
       order.preferences.sort,
       order.preferences.descending,
@@ -1412,20 +1430,13 @@ export function GroupList({
     order.rows,
     order.rawGroupNames,
   ]);
-  const categories = useFrozenDirectory(
-    computedCategories,
-    groupSelection.selectionMode,
-    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}`,
-  );
   const historicalCategory = useMemo(
     () => ({
       mode: 'historical',
       label: '历史群聊',
       items: sortGroups(
         searchable.filter(
-          (conversation) =>
-            conversation.type === 'group' &&
-            groupRelationship(conversation.group, relationships) === 'nonmember',
+          (conversation) => groupRelationship(conversation.group, relationships) === 'nonmember',
         ),
         order.preferences.sort,
         order.preferences.descending,
@@ -1448,9 +1459,7 @@ export function GroupList({
       label: '其他群聊',
       items: sortGroups(
         searchable.filter(
-          (conversation) =>
-            conversation.type === 'group' &&
-            groupRelationship(conversation.group, relationships) === 'unknown',
+          (conversation) => groupRelationship(conversation.group, relationships) === 'unknown',
         ),
         order.preferences.sort,
         order.preferences.descending,
@@ -1467,14 +1476,29 @@ export function GroupList({
       order.rawGroupNames,
     ],
   );
+  const shownCategories = useMemo(
+    () =>
+      basis === 'none'
+        ? computedCategories
+        : [...computedCategories, historicalCategory, unknownCategory],
+    [basis, computedCategories, historicalCategory, unknownCategory],
+  );
+  const categories = useFrozenDirectory(
+    shownCategories,
+    groupSelection.selectionMode,
+    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}:${membership}`,
+  );
+  const selectionIds = useMemo(
+    () => [...new Set(categories.flatMap((category) => category.items.map((row) => row.id)))],
+    [categories],
+  );
+  useFilteredDirectoryIds(
+    'groups',
+    active,
+    hasFilter ? (loading ? NO_FILTER_MATCHES : selectionIds) : undefined,
+  );
   const multi = useMultiSelection({
-    ids: [
-      ...new Set(
-        [...categories, ...(basis === 'none' ? [] : [historicalCategory, unknownCategory])].flatMap(
-          (category) => category.items.map((row) => row.id),
-        ),
-      ),
-    ],
+    ids: selectionIds,
     selected: groupSelection.selectedIds,
     onChange: groupSelection.setSelectedIds,
     anchorRef: groupSelection.anchorRef,
@@ -1484,20 +1508,39 @@ export function GroupList({
   });
 
   if (loading) return <ListSkeleton rows={9} />;
-  if (
-    !categories.some((category) => category.items.length) &&
-    !historicalCategory.items.length &&
-    !unknownCategory.items.length
-  )
-    return <EmptyState title="暂无群聊" body="" icon={<Users />} />;
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
-      <ContactDirectoryOrder order={order} active={active} />
+      <ContactDirectoryOrder
+        order={order}
+        active={active}
+        filtersApplied={hasFilter}
+        filtersDisabled={groupSelection.selectionMode}
+        filters={
+          <SegmentedControl
+            label="群聊关系"
+            value={membership}
+            onChange={setMembership}
+            options={[
+              { value: 'all', label: '全部' },
+              { value: 'member', label: '我在群内' },
+              { value: 'nonmember', label: '我不在群内' },
+            ]}
+          />
+        }
+      />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
+        {!selectionIds.length && (
+          <EmptyState
+            title={hasFilter ? '没有符合条件的群聊' : '暂无群聊'}
+            body={hasFilter ? '可调整筛选条件。' : ''}
+            icon={<Users />}
+          />
+        )}
         {categories.map((category) => (
           <GroupNotificationSection
             key={category.mode}
             category={category}
+            filtered={hasFilter}
             activeConversationId={activeConversationId}
             onSelect={onSelect}
             selection={groupSelection}
@@ -1506,24 +1549,6 @@ export function GroupList({
             order={order}
           />
         ))}
-        <GroupNotificationSection
-          category={basis === 'none' ? { ...historicalCategory, items: [] } : historicalCategory}
-          activeConversationId={activeConversationId}
-          onSelect={onSelect}
-          selection={groupSelection}
-          multi={multi}
-          onMenu={setActionMenu}
-          order={order}
-        />
-        <GroupNotificationSection
-          category={basis === 'none' ? { ...unknownCategory, items: [] } : unknownCategory}
-          activeConversationId={activeConversationId}
-          onSelect={onSelect}
-          selection={groupSelection}
-          multi={multi}
-          onMenu={setActionMenu}
-          order={order}
-        />
       </div>
       {groupSelection.selectionMode ? (
         <ConversationBatchToolbar
@@ -1584,6 +1609,7 @@ export function GroupList({
 
 function GroupNotificationSection({
   category,
+  filtered,
   activeConversationId,
   onSelect,
   selection,
@@ -1596,9 +1622,11 @@ function GroupNotificationSection({
   const containsActive = category.items.some(
     (conversation) => conversation.id === activeConversationId,
   );
-  const [open, setOpen] = useState(containsActive);
+  const expansion = filtered ? 'filtered' : 'all';
+  const [openByMode, setOpenByMode] = useState({ all: containsActive, filtered: true });
+  const open = openByMode[expansion];
   useEffect(() => {
-    if (containsActive) setOpen(true);
+    if (containsActive) setOpenByMode({ all: true, filtered: true });
   }, [containsActive]);
   const expanded =
     category.mode === 'none' || open || Boolean(directory?.query) || selection.selectionMode;
@@ -1611,7 +1639,7 @@ function GroupNotificationSection({
         className="contact-cat-header"
         hidden={category.mode === 'none'}
         aria-expanded={expanded}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => setOpenByMode((current) => ({ ...current, [expansion]: !open }))}
       >
         <ChevronRight className={cn('contact-cat-caret', open && 'is-open')} size={15} />
         <span className="contact-cat-name">{category.label}</span>
@@ -2191,14 +2219,11 @@ const ContactListContent = memo(function ContactListContent({
   );
   const selectionIds = useMemo(() => [...selectionRows.keys()], [selectionRows]);
   const getSelectionId = useCallback((id: string) => selectionRows.get(id)!, [selectionRows]);
-  const onFilteredIds = directory?.onFilteredIds;
-  useLayoutEffect(() => {
-    if (!active || !onFilteredIds) return;
-    onFilteredIds(hasFilters ? [...new Set(loading ? [] : selectionRows.values())] : undefined);
-  }, [active, loading, hasFilters, onFilteredIds, selectionRows]);
-  useLayoutEffect(() => {
-    if (active && onFilteredIds) return () => onFilteredIds(undefined);
-  }, [active, onFilteredIds]);
+  const filteredIds = useMemo(
+    () => (hasFilters ? [...new Set(loading ? [] : selectionRows.values())] : undefined),
+    [hasFilters, loading, selectionRows],
+  );
+  useFilteredDirectoryIds('friends', active, filteredIds);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const multi = useMultiSelection({

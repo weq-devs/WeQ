@@ -364,7 +364,7 @@ it('好友关系和在线状态可组合，历史联系人参与筛选，未知�
 
   await choose('在线状态', '离线');
   expect(visible()).toEqual([stranger.displayName]);
-  expect(onFilteredIds).toHaveBeenLastCalledWith([stranger.id]);
+  expect(onFilteredIds).toHaveBeenLastCalledWith('friends', [stranger.id]);
   await choose('在线状态', '全部');
   expect(new Set(visible())).toEqual(new Set([stranger.displayName, unknown.displayName]));
 });
@@ -414,6 +414,65 @@ it('克隆与我的设备不显示真实 QQ 关系', () => {
     ),
   );
   expect(host.querySelector('.weq-relationship-status')).toBeNull();
+});
+
+it('群聊按入群状态筛选，未知群聊保留在全部，全选范围使用当前结果', () => {
+  const conversations = ['20001', '20002', '20003'].map((id) => ({
+    ...group,
+    id,
+    group: { ...group.group, id, identityValue: id, name: `合成群 ${id}` },
+  }));
+  const onFilteredIds = vi.fn();
+  const { host, render } = mount(
+    h(
+      ContactDirectoryContext.Provider,
+      {
+        value: {
+          query: '',
+          onQuery: vi.fn(),
+          ids: conversations.map((row) => row.id),
+          onFilteredIds,
+        },
+      },
+      h(GroupList, { conversations, activeConversationId: null, onSelect: vi.fn() }),
+    ),
+  );
+  const filter = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent === '筛选',
+  )!;
+  act(() => filter.click());
+  const choose = (label: string) => {
+    const choices = document.querySelector('[role="radiogroup"][aria-label="群聊关系"]')!;
+    const option = [...choices.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+      (button) => button.textContent === label,
+    )!;
+    act(() => option.click());
+  };
+  const names = () =>
+    [...host.querySelectorAll('.contact-row .row-title-text')].map((node) => node.textContent);
+
+  choose('我在群内');
+  expect(names()).toEqual(['合成群 20001']);
+  expect(onFilteredIds).toHaveBeenLastCalledWith('groups', ['20001']);
+
+  choose('我不在群内');
+  expect(names()).toEqual(['合成群 20002']);
+  expect(onFilteredIds).toHaveBeenLastCalledWith('groups', ['20002']);
+
+  render({ ...directory, groups: new Map([['20001', { listed: true }]]) });
+  expect(names()).toEqual([]);
+  expect(host.textContent).toContain('没有符合条件的群聊');
+  expect(onFilteredIds).toHaveBeenLastCalledWith('groups', []);
+
+  choose('全部');
+  act(() => {
+    for (const header of host.querySelectorAll<HTMLButtonElement>(
+      '.contact-cat-header[aria-expanded="false"]',
+    ))
+      header.click();
+  });
+  expect(new Set(names())).toEqual(new Set(conversations.map((row) => row.group.name)));
+  expect(onFilteredIds).toHaveBeenLastCalledWith('groups', undefined);
 });
 
 it.each(['20001', '20002', '20003'])('群列表 %s 不显示入群提示，仍可查看所有群', (code) => {

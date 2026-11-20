@@ -85,7 +85,7 @@ export const ContactDirectoryContext = createContext<{
   query: string;
   onQuery: (value: string) => void;
   ids: string[];
-  onFilteredIds?: (ids: string[] | undefined) => void;
+  onFilteredIds?: (tab: 'friends' | 'groups', ids: string[] | undefined) => void;
 } | null>(null);
 
 export interface GuildConversationSession {

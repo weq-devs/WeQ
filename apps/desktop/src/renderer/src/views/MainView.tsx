@@ -10396,30 +10396,39 @@ function MainWorkspace(): ReactElement {
   useLayoutEffect(() => {
     previousDirectoryIds.current = contactDirectoryIds;
   }, [contactDirectoryIds]);
-  const [filteredContactIds, setFilteredContactIds] = useState<string[]>();
-  const updateFilteredContactIds = useCallback((ids: string[] | undefined) => {
-    setFilteredContactIds((current) =>
-      current && ids && current.length === ids.length && current.every((id, i) => id === ids[i])
-        ? current
-        : ids,
-    );
-  }, []);
+  const [filteredDirectory, setFilteredDirectory] = useState<{
+    tab: typeof shell.contactTab;
+    ids: string[];
+  }>();
+  const updateFilteredIds = useCallback(
+    (tab: typeof shell.contactTab, ids: string[] | undefined) => {
+      setFilteredDirectory((current) => {
+        if (!ids) return current?.tab === tab ? undefined : current;
+        if (
+          current?.tab === tab &&
+          current.ids.length === ids.length &&
+          current.ids.every((id, index) => id === ids[index])
+        )
+          return current;
+        return { tab, ids };
+      });
+    },
+    [],
+  );
   const contactDirectoryValue = useMemo(
     () => ({
       query: contactDirectoryQuery,
       onQuery: setContactDirectoryQuery,
       ids:
-        shell.contactTab === 'friends'
-          ? (filteredContactIds ?? contactDirectoryIds)
-          : contactDirectoryIds,
-      onFilteredIds: updateFilteredContactIds,
+        filteredDirectory?.tab === shell.contactTab ? filteredDirectory.ids : contactDirectoryIds,
+      onFilteredIds: updateFilteredIds,
     }),
     [
       contactDirectoryQuery,
       contactDirectoryIds,
       shell.contactTab,
-      filteredContactIds,
-      updateFilteredContactIds,
+      filteredDirectory,
+      updateFilteredIds,
     ],
   );
   const profileNavigation = useCallback<
