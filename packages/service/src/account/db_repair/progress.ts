@@ -1,6 +1,8 @@
 import type { DatabaseProgress } from '@weq/native';
 
 export type DatabaseWorkProgress = DatabaseProgress & {
+  /** 结构体检中，当前索引所属的表。旧报告可能没有此字段。 */
+  tableName?: string;
   status?: 'running' | 'completed' | 'incomplete' | 'failed' | 'skipped';
   /** 执行结束不等于检查正常；只有实际检查结果才能给出结论。 */
   outcome?: 'normal' | 'abnormal' | 'unverified';

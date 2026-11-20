@@ -23,6 +23,7 @@ export async function inspectDatabase(
     error: '本次常规扫描不执行额外结构体检。',
   };
   let checkingStructure = true;
+  let integrityTable: string | undefined;
   if (mode !== 'scan') {
     onProgress({ step: 'integrity', message: '检查数据库整体结构' });
     try {
@@ -38,21 +39,29 @@ export async function inspectDatabase(
               };
             })()
           : await nt.checkDatabaseHealth(target.dbPath, target.key, target.algo, (error, tick) => {
-              if (!error && checkingStructure)
-                onProgress({
-                  ...tick,
-                  // 只有整库已返回异常才会进入这一定位分支，不根据进度百分比猜结论。
-                  ...(tick.step === 'integrity-tables' && tick.message === '逐表定位结构异常'
-                    ? { outcome: 'abnormal' as const }
-                    : {}),
-                  ...(tick.step === 'integrity-unverified'
-                    ? {
-                        status: 'skipped' as const,
-                        outcome: 'unverified' as const,
-                        detail: 'QQ 专用分词器不可用，相关虚拟表未完成核验。',
-                      }
-                    : {}),
-                });
+              if (error || !checkingStructure) return;
+              // SQLite 先回报每张表的记录检查，再核对属于该表的各个索引。
+              // 在步骤快照被裁剪前记录归属，历史报告也能使用。
+              const isIndex = tick.step.startsWith('integrity-index-');
+              if (!isIndex)
+                integrityTable = tick.step.startsWith('integrity-records-')
+                  ? tick.objectName
+                  : undefined;
+              onProgress({
+                ...tick,
+                ...(isIndex && integrityTable ? { tableName: integrityTable } : {}),
+                // 只有整库已返回异常才会进入这一定位分支，不根据进度百分比猜结论。
+                ...(tick.step === 'integrity-tables' && tick.message === '逐表定位结构异常'
+                  ? { outcome: 'abnormal' as const }
+                  : {}),
+                ...(tick.step === 'integrity-unverified'
+                  ? {
+                      status: 'skipped' as const,
+                      outcome: 'unverified' as const,
+                      detail: 'QQ 专用分词器不可用，相关虚拟表未完成核验。',
+                    }
+                  : {}),
+              });
             });
       checkingStructure = false;
       onProgress({

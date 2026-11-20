@@ -95,6 +95,24 @@ try {
     (800 / 2048) * 100,
   );
   await capture('deep-active-desktop');
+  await page.evaluate(() => window.maintenanceQa.tableStructure());
+  await page.getByText('lookup_12', { exact: true }).waitFor();
+  const completedTable = page.getByText('table_11', { exact: true });
+  const completedIndex = page.getByText('lookup_11', { exact: true });
+  assert.equal(await completedIndex.isVisible(), false);
+  await capture('deep-tables-desktop');
+  await completedTable.locator('..').focus();
+  await page.keyboard.press('Enter');
+  await completedIndex.waitFor();
+  await page.keyboard.press('Enter');
+  await completedIndex.waitFor({ state: 'hidden' });
+  const progressCard = page.locator('.weq-dbm-process-body');
+  await progressCard.hover();
+  await progressCard.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await page.mouse.wheel(0, 120);
+  await page.waitForFunction(() => document.querySelector('.weq-dbm-process-body').scrollTop > 0);
   await page.getByRole('button', { name: '暂停扫描', exact: true }).click();
   assert.equal(await page.getByRole('radio', { name: '快速体检', exact: true }).isEnabled(), true);
   await checkScanAlignment();

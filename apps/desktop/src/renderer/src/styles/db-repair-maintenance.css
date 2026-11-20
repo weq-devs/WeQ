@@ -811,8 +811,12 @@ html[data-theme='dark'] .weq-dbm {
 }
 
 .weq-dbm-process-body {
+  max-height: min(48dvh, 360px);
+  overflow-y: auto;
   padding: 0 12px 6px;
   border-top: 1px solid var(--dbm-hair);
+  scrollbar-color: var(--weq-border-strong) transparent;
+  scrollbar-width: thin;
 }
 
 .weq-dbm-process-body .weq-db-progress {

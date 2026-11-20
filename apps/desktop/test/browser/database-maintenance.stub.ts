@@ -286,6 +286,31 @@ export const maintenanceQa = {
     live.progress = live.databases[0]!.progress;
     publish();
   },
+  tableStructure() {
+    if (!live) return;
+    for (let table = 1; table <= 12; table++) {
+      const tableName = `table_${table}`;
+      tracker.update('checkup', {
+        step: `integrity-records-${table}`,
+        message: '检查记录与索引对应',
+        objectName: tableName,
+        completed: 2000,
+        total: 2000,
+        unit: 'records',
+      });
+      live.progress = tracker.update('checkup', {
+        step: `integrity-index-${table + 12}`,
+        message: '核对索引条目数量',
+        objectName: `lookup_${table}`,
+        tableName,
+        completed: table === 12 ? 15 : 30,
+        total: 30,
+        unit: 'pages',
+      });
+    }
+    live.databases[0]!.progress = live.progress;
+    publish();
+  },
   repair(phase = 'Repair') {
     if (!live?.operation) return;
     const name = live.operation.currentDb!;

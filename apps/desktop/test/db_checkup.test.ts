@@ -151,6 +151,21 @@ it('体检持续回报真实页数，并分别保留结构与页检查的结束�
         unit: 'records',
         objectName: 'synthetic_table',
       });
+      callback(null, {
+        step: 'integrity-index-3',
+        message: '核对索引条目数量',
+        objectName: 'unrelated_index_name',
+      });
+      callback(null, {
+        step: 'integrity-records-4',
+        message: '检查记录与索引对应',
+        objectName: 'next_table',
+      });
+      callback(null, {
+        step: 'integrity-index-5',
+        message: '核对索引条目数量',
+        objectName: 'synthetic_table_like_index',
+      });
       return { healthy: true, corruptedTables: [] };
     }),
     scanBadPages: vi.fn(async (_path, _key, _algo, callback) => {
@@ -169,6 +184,14 @@ it('体检持续回报真实页数，并分别保留结构与页检查的结束�
       objectName: 'synthetic_table',
     }),
   );
+  expect(
+    events
+      .filter((event) => event.tableName)
+      .map(({ objectName, tableName }) => [objectName, tableName]),
+  ).toEqual([
+    ['unrelated_index_name', 'synthetic_table'],
+    ['synthetic_table_like_index', 'next_table'],
+  ]);
   expect(events).toContainEqual(
     expect.objectContaining({ step: 'pages', completed: 4, total: 4, status: 'completed' }),
   );
