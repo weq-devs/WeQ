@@ -4,6 +4,8 @@ import { classifyChatType } from '@weq/codec';
 import {
   normalizeNotificationScope,
   NOTIFICATION_LABELS,
+  NOTIFICATION_SCOPE_OPTIONS,
+  type NotificationScopeMode,
   type ScopedNotificationEvent,
 } from '@weq/service/notification-settings';
 import { trpc } from '../../trpc/client';
@@ -28,7 +30,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
   useClientPreferences((state) => state.tick);
   const hasAccount = Boolean(useViewState((state) => state.openedUin));
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<'all' | 'selected'>('selected');
+  const [mode, setMode] = useState<NotificationScopeMode>('all');
   const [selected, setSelected] = useState(new Set<string>());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -39,7 +41,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
   useEffect(() => {
     if (!active || locked || sourceKey !== JSON.stringify(source.current)) setOpen(false);
   }, [active, locked, sourceKey]);
-  const saved = normalizeNotificationScope(event, sharedAccountRecords('notifications')[event]);
+  const saved = normalizeNotificationScope(sharedAccountRecords('notifications')[event]);
   const query = trpc.account.listConversationsWithCount.useQuery(undefined, {
     enabled: open && hasAccount && active && !locked,
     refetchOnWindowFocus: false,
@@ -129,10 +131,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
                   <SegmentedControl
                     label="提醒会话范围"
                     value={mode}
-                    options={[
-                      { value: 'all', label: '全部适用会话' },
-                      { value: 'selected', label: '指定会话' },
-                    ]}
+                    options={NOTIFICATION_SCOPE_OPTIONS}
                     onChange={setMode}
                   />
                   {error && <p role="alert">{error}</p>}

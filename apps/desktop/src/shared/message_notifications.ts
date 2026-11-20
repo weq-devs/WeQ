@@ -1,3 +1,7 @@
+import { RedbagType } from '@weq/codec';
+import type { PlainElement } from '@weq/service/message-plain-text';
+import type { ScopedNotificationEvent } from '@weq/service/notification-settings';
+
 export interface IncomingNoticeMessage {
   kind: 'c2c' | 'group';
   conv: string;
@@ -8,8 +12,8 @@ export interface IncomingNoticeMessage {
   sendTime: string;
   source?: string;
 }
-/** 使用与本地实时未读一致的时间窗口；旧导入和自身发送不产生普通通知。 */
-export function ordinaryNoticeEligible(
+/** 普通和重点消息共用实时窗口及前台阅读判断。 */
+export function incomingNoticeEligible(
   message: IncomingNoticeMessage,
   options: {
     selfUin: string;
@@ -17,7 +21,6 @@ export function ordinaryNoticeEligible(
     openedAt: number;
     observedAt: number;
     freshSeconds: number;
-    muted: boolean;
     reading: boolean;
   },
 ) {
@@ -27,7 +30,6 @@ export function ordinaryNoticeEligible(
       message.msgId &&
       /^[1-9]\d*$/.test(message.msgSeq) &&
       message.source !== 'roaming' &&
-      !options.muted &&
       !options.reading &&
       message.senderUin !== options.selfUin &&
       (!options.selfUid || message.senderUid !== options.selfUid) &&
@@ -36,6 +38,43 @@ export function ordinaryNoticeEligible(
       time >= Math.max(options.openedAt, options.observedAt) - options.freshSeconds &&
       time <= options.observedAt + options.freshSeconds,
   );
+}
+
+const redPacketTypes = new Set<number>([
+  RedbagType.NORMAL,
+  RedbagType.LUCKY,
+  RedbagType.PASSWORD,
+  RedbagType.VOICE,
+]);
+
+/** QQ 的未读标记可能后到，优先使用新消息中可确认的身份和元素类型。 */
+export function incomingImportantEvents(
+  elements: readonly PlainElement[],
+  selfUin: string,
+  selfUid: string | undefined,
+): Set<ScopedNotificationEvent> {
+  const events = new Set<ScopedNotificationEvent>();
+  for (const element of elements) {
+    const data = (element.data ?? {}) as Record<string, unknown>;
+    if (element.type === 'reply') {
+      if (
+        (selfUid && data.origSenderUid === selfUid) ||
+        String(data.origSenderUin ?? '') === selfUin
+      )
+        events.add('replyMe');
+    } else if (element.type === 'at') {
+      if (data.atTargetUid === 'all') events.add('mentionAll');
+      else if (selfUid && data.atTargetUid === selfUid) events.add('mentionMe');
+    } else if (element.type === 'wallet') {
+      const type = Number(data.walletRedbagType);
+      if (
+        redPacketTypes.has(type) ||
+        (type === RedbagType.DESIGNATED && String(data.walletDesignatedUin ?? '') === selfUin)
+      )
+        events.add('redPacket');
+    }
+  }
+  return events;
 }
 
 /** Windows 任务栏使用平台原生像素格式；从 nativeImage 取得颜色像素后绘制数字角标。 */

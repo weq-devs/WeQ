@@ -5,6 +5,7 @@ import { useNotificationPolicy } from '../src/renderer/src/lib/notificationPolic
 import { useMessageNotifications } from '../src/renderer/src/hooks/useMessageNotifications';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import type { NewMessagesWire } from '../src/main/ipc/routers/account';
+import type { NotificationScope } from '@weq/service/notification-settings';
 
 const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
 
@@ -12,8 +13,9 @@ const f = vi.hoisted(() => ({
   web: false,
   values: { messageNotifications: false, applicationBadge: true, privacyMode: false },
   locked: false,
+  replyScope: undefined as NotificationScope | undefined,
   receive: undefined as undefined | ((batch: NewMessagesWire) => void),
-  notify: vi.fn(async () => true),
+  notify: vi.fn(async (_input: { conv: string; reasons: string[] }) => true),
   browserNotify: vi.fn(() => true),
   badge: vi.fn(async () => true),
   unsubscribe: vi.fn(),
@@ -58,7 +60,7 @@ vi.mock('../src/renderer/src/lib/clientPreferences', () => ({
   preferenceValue: (key: keyof typeof f.values) => f.values[key],
   accountBinding: () => ({ expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' }),
   isAccountStateReady: () => true,
-  sharedAccountRecords: () => ({ mentionMe: { mode: 'all', targets: [] } }),
+  sharedAccountRecords: () => ({ replyMe: f.replyScope }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -88,6 +90,7 @@ afterEach(() => {
   f.values.applicationBadge = true;
   f.values.privacyMode = false;
   f.locked = false;
+  f.replyScope = undefined;
   f.receive = undefined;
   f.notify.mockClear();
   f.browserNotify.mockClear();
@@ -261,6 +264,60 @@ it('系统仅提醒 @我而横幅提醒普通消息时，各渠道定位自己�
     await act(async () => root.unmount());
   }
 });
+
+it.each([
+  { scope: undefined, expected: ['10003', '10004', '10005'] },
+  { scope: { mode: 'nonGroupAssistant', targets: [] }, expected: ['10003', '10005'] },
+  { scope: { mode: 'nonMuted', targets: [] }, expected: ['10005'] },
+  { scope: { mode: 'selected', targets: ['group:10004'] }, expected: ['10004'] },
+] satisfies { scope: NotificationScope | undefined; expected: string[] }[])(
+  '按 $scope 筛选回复，免打扰会话的普通消息保持静默',
+  async ({ scope, expected }) => {
+    f.replyScope = scope;
+    const events = useNotificationPolicy.getState().events;
+    act(() =>
+      useNotificationPolicy.getState().setEvents({
+        ...events,
+        groupMessage: { banner: false, system: true },
+        replyMe: { banner: false, system: true },
+      }),
+    );
+    const root = createRoot(document.createElement('div'));
+    const group = conversations.find((row) => row.type === 'group')!;
+    try {
+      await act(async () =>
+        root.render(
+          createElement(Probe, {
+            conversations: [...conversations, { ...group, id: '10004' }, { ...group, id: '10005' }],
+            preferences: { '10003': { muted: true } } as Options['preferences'],
+            groupAssistantIds: new Set(['10004']),
+          }),
+        ),
+      );
+      await act(async () => {
+        f.receive?.(batch('70', { kind: 'group', conv: '10003' }));
+        f.receive?.(batch('71', { kind: 'group', conv: '10004' }));
+        expect(f.notify).not.toHaveBeenCalled();
+        // 模拟引用消息先于 QQ 未读标记到达。
+        for (const conv of ['10003', '10004', '10005']) {
+          f.receive?.(
+            batch('72', {
+              kind: 'group',
+              conv,
+              elements: [{ type: 'reply', data: { origSenderUid: 'self' } }],
+            }),
+          );
+        }
+      });
+      const replies = f.notify.mock.calls
+        .map(([input]) => input)
+        .filter((input) => input.reasons.includes('replyMe'));
+      expect(replies.map((input) => input.conv)).toEqual(expected);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  },
+);
 it('发送者解析期间锁定后不泄露群名、发送者或正文', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   setMessageNotifications(true);

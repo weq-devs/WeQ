@@ -136,19 +136,14 @@ it('通知配置保存重开保留，单列更新不覆盖其他渠道，未触�
   expect(f.open().getSettings().notificationEvents.runtime.banner).toBe(false);
   expect(f.open().getSettings().notificationEvents.recall.system).toBe(true);
 });
-it('未配置的提及和回复默认全部，红包及显式空名单维持原样', () => {
-  for (const event of ['mentionMe', 'mentionAll', 'replyMe'] as const)
-    expect(normalizeNotificationScope(event, undefined)).toEqual({ mode: 'all', targets: [] });
-  expect(normalizeNotificationScope('redPacket', undefined)).toEqual({
-    mode: 'selected',
-    targets: [],
-  });
-  expect(normalizeNotificationScope('mentionMe', { mode: 'selected', targets: [] })).toEqual({
+it('未配置的提醒范围默认全部，保留显式空名单', () => {
+  expect(normalizeNotificationScope(undefined)).toEqual({ mode: 'all', targets: [] });
+  expect(normalizeNotificationScope({ mode: 'selected', targets: [] })).toEqual({
     mode: 'selected',
     targets: [],
   });
   expect(
-    normalizeNotificationScope('replyMe', {
+    normalizeNotificationScope({
       mode: 'all',
       targets: ['group:123', 'group:123', 123],
     }),
@@ -160,14 +155,30 @@ it('范围按数据源持久保存，写其他事件不覆盖已有名单，非�
   const second = new ClientStateStore(join(f.root, 'source-b.json'));
   first.records('notifications', { mentionMe: { mode: 'selected', targets: ['group:20001'] } });
   first.records('notifications', { mentionAll: { mode: 'all', targets: [] } });
+  first.records('notifications', {
+    replyMe: { mode: 'nonGroupAssistant', targets: ['group:20002'] },
+    redPacket: { mode: 'nonMuted', targets: [] },
+  });
   const reopened = new ClientStateStore(first.path).snapshot();
   expect(reopened.records.notifications).toEqual({
     mentionMe: { mode: 'selected', targets: ['group:20001'] },
     mentionAll: { mode: 'all', targets: [] },
+    replyMe: { mode: 'nonGroupAssistant', targets: ['group:20002'] },
+    redPacket: { mode: 'nonMuted', targets: [] },
   });
+  expect(normalizeNotificationScope(reopened.records.notifications?.replyMe)).toEqual({
+    mode: 'nonGroupAssistant',
+    targets: ['group:20002'],
+  });
+  expect(normalizeNotificationScope(reopened.records.notifications?.redPacket).mode).toBe(
+    'nonMuted',
+  );
   expect(second.snapshot().records.notifications).toBeUndefined();
   expect(() =>
     first.records('notifications', { mentionMe: { mode: 'selected', targets: [1] } }),
+  ).toThrow('无效的通知会话范围');
+  expect(() =>
+    first.records('notifications', { replyMe: { mode: 'unknown', targets: [] } }),
   ).toThrow('无效的通知会话范围');
   expect(new ClientStateStore(first.path).snapshot().records.notifications).toEqual(
     reopened.records.notifications,

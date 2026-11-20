@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ordinaryNoticeEligible,
+  incomingImportantEvents,
+  incomingNoticeEligible,
   applicationBadgeBitmap,
 } from '../src/shared/message_notifications';
+import { RedbagType } from '@weq/codec';
 import { preferenceDefaults, validatePreferencePatch } from '@weq/service/client-preferences';
 import { NEW_CONV_FRESH_SEC } from '@weq/service/live-message';
 
@@ -21,7 +23,6 @@ const options = {
   openedAt: 990,
   observedAt: 1000,
   freshSeconds: NEW_CONV_FRESH_SEC,
-  muted: false,
   reading: false,
 };
 describe('普通消息通知与应用角标', () => {
@@ -33,8 +34,36 @@ describe('普通消息通知与应用角标', () => {
     ).not.toThrow();
     expect(() => validatePreferencePatch({ messageNotifications: 'true' })).toThrow();
   });
-  it('只接实时他人消息，排除旧导入、自己、漫游、免打扰与前台阅读', () => {
-    expect(ordinaryNoticeEligible(message, options)).toBe(true);
+  it('从实时消息识别真实提及和红包，排除转账、发给别人的专属红包与引用', () => {
+    expect([
+      ...incomingImportantEvents(
+        [
+          { type: 'text', data: { textContent: '@全体成员' } },
+          { type: 'reply', data: { origSenderUid: 'u_peer' } },
+          { type: 'wallet', data: { walletRedbagType: RedbagType.TRANSFER } },
+          {
+            type: 'wallet',
+            data: { walletRedbagType: RedbagType.DESIGNATED, walletDesignatedUin: 10002 },
+          },
+        ],
+        options.selfUin,
+        options.selfUid,
+      ),
+    ]).toEqual([]);
+    expect([
+      ...incomingImportantEvents(
+        [
+          { type: 'at', data: { atTargetUid: 'all' } },
+          { type: 'at', data: { atTargetUid: options.selfUid } },
+          { type: 'wallet', data: { walletRedbagType: RedbagType.LUCKY } },
+        ],
+        options.selfUin,
+        options.selfUid,
+      ),
+    ]).toEqual(['mentionAll', 'mentionMe', 'redPacket']);
+  });
+  it('只接实时他人消息，排除旧导入、自己、漫游与前台阅读', () => {
+    expect(incomingNoticeEligible(message, options)).toBe(true);
     for (const patch of [
       { sendTime: '900' },
       { senderUin: options.selfUin },
@@ -42,11 +71,10 @@ describe('普通消息通知与应用角标', () => {
       { source: 'roaming' },
       { msgSeq: '0' },
     ])
-      expect(ordinaryNoticeEligible({ ...message, ...patch }, options)).toBe(false);
-    expect(ordinaryNoticeEligible(message, { ...options, muted: true })).toBe(false);
-    expect(ordinaryNoticeEligible(message, { ...options, reading: true })).toBe(false);
-    expect(ordinaryNoticeEligible({ ...message, senderUid: 'unverified' }, options)).toBe(false);
-    expect(ordinaryNoticeEligible({ ...message, kind: 'group', conv: '10003' }, options)).toBe(
+      expect(incomingNoticeEligible({ ...message, ...patch }, options)).toBe(false);
+    expect(incomingNoticeEligible(message, { ...options, reading: true })).toBe(false);
+    expect(incomingNoticeEligible({ ...message, senderUid: 'unverified' }, options)).toBe(false);
+    expect(incomingNoticeEligible({ ...message, kind: 'group', conv: '10003' }, options)).toBe(
       true,
     );
   });

@@ -4,7 +4,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { normalizeSearchPreferences } from '../account/search_policy';
 import { getLogger } from '../common/logger';
-import { SCOPED_NOTIFICATION_EVENTS } from '../common/notification_settings';
+import {
+  isNotificationScopeMode,
+  SCOPED_NOTIFICATION_EVENTS,
+} from '../common/notification_settings';
 import {
   isRecord,
   validReadPosition,
@@ -313,7 +316,7 @@ export class ClientStateStore {
           value !== null &&
           (!SCOPED_NOTIFICATION_EVENTS.some((event) => event === key) ||
             !isRecord(value) ||
-            !['all', 'selected'].includes(String(value.mode)) ||
+            !isNotificationScopeMode(value.mode) ||
             !Array.isArray(value.targets) ||
             value.targets.some(
               (target) => typeof target !== 'string' || !/^(c2c|group|dataline):.+/.test(target),
