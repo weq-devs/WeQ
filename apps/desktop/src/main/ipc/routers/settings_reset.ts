@@ -87,6 +87,8 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     showGroupAssistantMessageCount: () =>
       b.setShowGroupAssistantMessageCount({ enabled: defaults.showGroupAssistantMessageCount }),
     readFromFirstUnread: () => b.setReadFromFirstUnread({ enabled: defaults.readFromFirstUnread }),
+    preserveUnreadUntilRead: () =>
+      b.setPreserveUnreadUntilRead({ enabled: defaults.preserveUnreadUntilRead }),
     jumpToLatestAfterSend: () =>
       b.setJumpToLatestAfterSend({ enabled: defaults.jumpToLatestAfterSend }),
     autoFollowLatestMessages: () =>

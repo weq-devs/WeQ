@@ -120,6 +120,27 @@ it('小表缓存暂时落后时只刷新小表核验，保留请求捕获位置�
   expect((await f.query())[0]).toMatchObject({ readSeq: '112', unreadCount: 3 });
 });
 
+it('视口只推进连续读到的序号，跳转保留中间未读，已确认的减项可以跨过', async () => {
+  const f = fixture();
+  await f.query();
+  f.update([snapshot({ decreasedSeqs: ['103'] })]);
+  f.service.invalidate();
+  const resolve = (seqs: string[]) => f.service.visibleReadSequence(2, target.uid, seqs);
+
+  expect(await resolve(['108', '109', '110'])).toBeUndefined();
+  const first = await resolve(['100', '101', '102', '104', '106', '999']);
+  expect(first).toBe('104');
+  expect(await f.service.markReadAndReport(2, target.uid, first)).toMatchObject({
+    changed: true,
+    report: { state: 'pending', sequence: '104' },
+  });
+  expect(f.markRead).toHaveBeenCalledWith(2, target.uid, '104');
+  expect((await f.query())[0]).toMatchObject({ readSeq: '104', unreadCount: 6 });
+
+  expect(await resolve(['106', '107'])).toBeUndefined();
+  expect(await resolve(['105', '106', '107'])).toBe('107');
+});
+
 it('越界核验读取失败时不写入、不猜测成目标会话的最新位置', async () => {
   const f = fixture();
   await f.query();

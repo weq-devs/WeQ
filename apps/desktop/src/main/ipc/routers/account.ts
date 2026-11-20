@@ -1134,6 +1134,21 @@ function unreadInfoToWire(
   };
 }
 
+function applyConversationRead(
+  services: AccountServices,
+  chatType: number,
+  uid: string,
+  sequence?: string,
+): ReturnType<AccountServices['unreadInfo']['markReadAndReport']> {
+  const ctx = getAppContext();
+  if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup)
+    return services.unreadInfo.markLocalRead(chatType, uid, sequence).then((changed) => ({
+      changed,
+      report: { state: 'unavailable' as const },
+    }));
+  return services.unreadInfo.markReadAndReport(chatType, uid, sequence);
+}
+
 const browserFileBinding = z.object({
   expectedAccountUin: z.string().min(1),
   expectedAccountConfigId: z.string().min(1),
@@ -3636,21 +3651,36 @@ export const accountRouter = router({
         expectedAccountConfigId: z.string().min(1).optional(),
       }),
     )
+    .mutation(({ input }) =>
+      applyConversationRead(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input.chatType,
+        input.uid,
+        input.latestSeq,
+      ),
+    ),
+
+  markViewportRead: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        chatType: z.union([z.literal(1), z.literal(2)]),
+        uid: z.string().min(1),
+        visibleSeqs: z
+          .array(z.string().regex(/^[1-9]\d{0,19}$/))
+          .min(1)
+          .max(512),
+      }),
+    )
     .mutation(async ({ input }) => {
-      // 静态账号（离线快照）的库是死的，QQ 不会读 —— 写进去只是自欺欺人。
-      // Android 备份是可写快照，照常放行（与防撤回同一套判定）。
-      const ctx = getAppContext();
-      if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
-        const changed = await requireExpectedAccount(
-          input.expectedAccountUin,
-          input.expectedAccountConfigId,
-        ).unreadInfo.markLocalRead(input.chatType, input.uid, input.latestSeq);
-        return { changed, report: { state: 'unavailable' as const } };
-      }
-      return requireExpectedAccount(
-        input.expectedAccountUin,
-        input.expectedAccountConfigId,
-      ).unreadInfo.markReadAndReport(input.chatType, input.uid, input.latestSeq);
+      const { chatType, uid, visibleSeqs, expectedAccountUin, expectedAccountConfigId } = input;
+      const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+      const sequence = await services.unreadInfo.visibleReadSequence(chatType, uid, visibleSeqs);
+      if (
+        sequence === undefined ||
+        requireExpectedAccount(expectedAccountUin, expectedAccountConfigId) !== services
+      )
+        return { changed: false, report: { state: 'skipped' as const } };
+      return applyConversationRead(services, chatType, uid, sequence);
     }),
 
   getReadReportStatus: procedure.query(() => requireServices().unreadInfo.getReadReportStatus()),

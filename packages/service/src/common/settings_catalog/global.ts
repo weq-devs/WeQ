@@ -53,6 +53,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   showMessageUnreadBadge: 'preference',
   showContactUnreadCount: 'preference',
   readFromFirstUnread: 'preference',
+  preserveUnreadUntilRead: 'preference',
   jumpToLatestAfterSend: 'preference',
   autoFollowLatestMessages: 'preference',
   showScrollToBottomButton: 'preference',

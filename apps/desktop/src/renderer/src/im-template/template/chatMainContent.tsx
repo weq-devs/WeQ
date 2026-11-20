@@ -48,6 +48,7 @@ export function ChatMainContent({
   latestMessageSeq,
   onPreviewLatest,
   onJumpToLatest,
+  readThroughViewport,
   onReadCurrentConversation,
   pendingInteractions,
   onSeeInteractions,
@@ -140,6 +141,7 @@ export function ChatMainContent({
   | 'onPreviewLatest'
   | 'onJumpToLatest'
   | 'onReadCurrentConversation'
+  | 'readThroughViewport'
   | 'pendingInteractions'
   | 'onSeeInteractions'
   | 'onLoadMoreGroupMembers'
@@ -330,6 +332,7 @@ export function ChatMainContent({
       latestMessageSeq={latestMessageSeq}
       onPreviewLatest={onPreviewLatest}
       onJumpToLatest={onJumpToLatest}
+      readThroughViewport={readThroughViewport}
       onReadCurrentConversation={onReadCurrentConversation}
       pendingInteractions={pendingInteractions}
       onSeeInteractions={onSeeInteractions}

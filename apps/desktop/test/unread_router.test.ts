@@ -10,6 +10,7 @@ const fixture = vi.hoisted(() => ({
   getUnreadInfos: vi.fn(),
   markRead: vi.fn(),
   markLocalRead: vi.fn(),
+  visibleReadSequence: vi.fn(),
   setReadState: vi.fn(),
   undoReadState: vi.fn(),
   clearLocalReadRecords: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('../src/main/context/app_context', async () => {
       getUnreadInfos: fixture.getUnreadInfos,
       markReadAndReport: fixture.markRead,
       markLocalRead: fixture.markLocalRead,
+      visibleReadSequence: fixture.visibleReadSequence,
       setReadState: fixture.setReadState,
       undoReadState: fixture.undoReadState,
       clearLocalReadRecords: fixture.clearLocalReadRecords,
@@ -159,6 +161,28 @@ describe('未读 IPC', () => {
       }),
     ).rejects.toThrow('数据源已切换');
     expect(fixture.markRead).not.toHaveBeenCalled();
+  });
+  it('按视口标已读只提交确认的序号，换数据源后拒绝迟到的结果', async () => {
+    const api = accountRouter.createCaller({});
+    const input = {
+      ...targets[0]!,
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      visibleSeqs: ['11', '13'],
+    };
+    await expect(api.markViewportRead(input)).resolves.toMatchObject({ changed: false });
+    expect(fixture.markRead).not.toHaveBeenCalled();
+
+    fixture.visibleReadSequence.mockResolvedValueOnce('11');
+    await expect(api.markViewportRead(input)).resolves.toMatchObject({ changed: true });
+    expect(fixture.markRead).toHaveBeenCalledWith(2, '777', '11');
+
+    fixture.visibleReadSequence.mockImplementationOnce(async () => {
+      fixture.configId = 'source-b';
+      return '11';
+    });
+    await expect(api.markViewportRead(input)).rejects.toThrow('数据源已切换');
+    expect(fixture.markRead).toHaveBeenCalledOnce();
   });
   it('手动批量标记及撤销强制账号隔离，结果沿用未读序列化', async () => {
     const api = accountRouter.createCaller({});

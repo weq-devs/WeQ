@@ -1385,6 +1385,13 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  setPreserveUnreadUntilRead: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ preserveUnreadUntilRead: input.enabled });
+      return true;
+    }),
+
   setShowContactUnreadCount: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {

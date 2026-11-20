@@ -345,6 +345,30 @@ it('每个消息开关保存失败均保留原值并提示，保存期间不能�
   }
 });
 
+it('首条新消息的未读计数子项默认开启，关闭上级后保留子项的选择', () => {
+  const f = mount();
+  const parent = () => f.toggle('从第一条新消息开始阅读');
+  const child = () => f.toggle('保留尚未读到的消息的未读计数');
+  try {
+    expect(child()).toBeUndefined();
+    act(() => parent().click());
+    f.render();
+    expect(child().getAttribute('aria-checked')).toBe('true');
+    act(() => child().click());
+    f.render();
+    expect(fixture.settings.preserveUnreadUntilRead).toBe(false);
+
+    act(() => parent().click());
+    f.render();
+    expect(child()).toBeUndefined();
+    act(() => parent().click());
+    f.render();
+    expect(child().getAttribute('aria-checked')).toBe('false');
+  } finally {
+    f.close();
+  }
+});
+
 it('共享显示开关走 clientPreferences：改为共享值、失败保留本机值并可重试', async () => {
   let f = mount();
   try {

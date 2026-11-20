@@ -3500,7 +3500,7 @@ function MainWorkspace(): ReactElement {
   );
   initialMessagesPendingRef.current =
     messagesLoading || trackedConversationId !== shell.activeConversationId;
-  const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
+  const requestUnreadRefreshRef = useRef<((target?: UnreadTarget) => void) | null>(null);
   const requestNewDirectoryUnreadRef = useRef<(() => void) | null>(null);
   const refreshArchivedUnread = useStableCallback(() => {
     void utils.account.listHiddenSessions.invalidate();
@@ -3621,7 +3621,10 @@ function MainWorkspace(): ReactElement {
           },
         })
       : null;
-    requestUnreadRefreshRef.current = refresh.request;
+    requestUnreadRefreshRef.current = (target) => {
+      if (target) liveRefresh.request([target]);
+      else refresh.request();
+    };
     requestNewDirectoryUnreadRef.current = () => {
       if (!knownTargets) return;
       const current = new Set<string>();
@@ -5005,9 +5008,7 @@ function MainWorkspace(): ReactElement {
     Boolean(selectedConversation) && messagesLoading && loaded.length === 0;
 
   // ── 未读跳转坞 ──────────────────────────────────────────────────────────
-  // 打开会话时的一次性引导：把 msg_unread_info_table 里的未读/高亮读进内存，
-  // 随即把该会话标记为已读（清表），右上角再按内存副本逐个引导跳转。
-  // 之所以「先读后清」：清表后 48902 就空了，跳转目标只能靠这份内存副本。
+  // 打开会话时记录未读和高亮快照，后续阅读推进时仍可用它引导跳转。
   const [unreadDock, setUnreadDock] = useState<UnreadDock | null>(null);
   const seenUnreadHighlights = useMemo(() => new Set<string>(), [messageScope]);
   // 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时聊天区会在
@@ -5018,7 +5019,27 @@ function MainWorkspace(): ReactElement {
   // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
   const unreadDockRequestRef = useRef<{ convId: string } | null>(null);
   const unreadSnapshotPendingRef = useRef<{ convId: string } | null>(null);
-  const readRequestsRef = useRef(new Map<string, { again: boolean; promise: Promise<void> }>());
+  type AutoRead = {
+    snapshot?: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number];
+    visibleSeqs?: string[];
+  };
+  const readRequestsRef = useRef(new Map<string, { next?: AutoRead; promise: Promise<void> }>());
+  const readSettingsReady = Boolean(displaySettings.data);
+  const preserveUnread = Boolean(
+    displaySettings.data?.readFromFirstUnread &&
+      displaySettings.data.preserveUnreadUntilRead !== false,
+  );
+  const readThroughViewport =
+    preserveUnread &&
+    (selectedConversation?.type === 'group' ||
+      (selectedConversation?.type === 'direct' && (selectedConversation.chatType ?? 1) === 1));
+  const readViewportActive =
+    !settingsOpen &&
+    !dressUpOpen &&
+    !interactionViewportLocked &&
+    (!mobileLayout || !mobileConversationList);
+  const readPolicy = useRef({ readSettingsReady, readThroughViewport, readViewportActive });
+  readPolicy.current = { readSettingsReady, readThroughViewport, readViewportActive };
   useEffect(() => {
     unreadDockRequestRef.current = null;
     unreadSnapshotPendingRef.current = null;
@@ -5044,17 +5065,17 @@ function MainWorkspace(): ReactElement {
     [],
   );
   const markVisibleConversationRead = useCallback(
-    async (
-      conv: Conversation,
-      capturedSnapshot?: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number],
-    ) => {
+    async (conv: Conversation, read: AutoRead = {}) => {
       if (conv.type !== 'direct' && conv.type !== 'group') return;
       const source = messageScopeRef.current;
       const binding = messageBindingRef.current;
       const chatType =
         conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1);
-      const isCurrent = () =>
+      const isCurrent = (visibleSeqs: AutoRead['visibleSeqs']) =>
         Boolean(binding) &&
+        readPolicy.current.readSettingsReady &&
+        readPolicy.current.readThroughViewport === Boolean(visibleSeqs) &&
+        (!visibleSeqs || readPolicy.current.readViewportActive) &&
         messageScopeRef.current === source &&
         messagesTabActiveRef.current &&
         document.visibilityState !== 'hidden' &&
@@ -5062,54 +5083,73 @@ function MainWorkspace(): ReactElement {
         selectionRef.current?.kind === conv.type &&
         !manualReadPendingRef.current.has(conv.id) &&
         useViewState.getState().openedUin === openedUin;
-      if (!isCurrent() || !binding) return;
+      if (!isCurrent(read.visibleSeqs) || !binding) return;
       const key = `${source}:${conv.type}:${conv.id}`;
       const existing = readRequestsRef.current.get(key);
       if (existing) {
-        existing.again = true;
+        existing.next =
+          read.visibleSeqs && existing.next?.visibleSeqs
+            ? {
+                visibleSeqs: [
+                  ...new Set([...existing.next.visibleSeqs, ...read.visibleSeqs]),
+                ].slice(0, 512),
+              }
+            : read;
         return existing.promise;
       }
-      const entry = { again: false, promise: Promise.resolve() };
+      const entry: { next?: AutoRead; promise: Promise<void> } = {
+        next: read,
+        promise: Promise.resolve(),
+      };
       entry.promise = (async () => {
-        do {
-          entry.again = false;
-          if (!isCurrent()) break;
+        while (entry.next) {
+          const { snapshot, visibleSeqs } = entry.next;
+          entry.next = undefined;
+          const stillCurrent = () => isCurrent(visibleSeqs);
+          if (!stillCurrent()) continue;
           const finishUpdate = unreadUpdateGuardRef.current.begin([conv.id]);
           try {
-            // 摘要可能来自乐观更新或漫游；阅读水位只认带目标身份的小表快照。
-            const info =
-              capturedSnapshot ??
-              (await readUnreadInfos({ ...binding, targets: [{ chatType, uid: conv.id }] }))[0];
-            capturedSnapshot = undefined;
-            if (
-              !isCurrent() ||
-              !info ||
-              info.readError ||
-              info.chatType !== chatType ||
-              info.uid !== conv.id ||
-              info.latestSeq === null ||
-              !/^\d{1,20}$/.test(info.latestSeq)
-            )
-              break;
-            // 固定这次打开时的本地水位，重试不会顺带确认后来到达的新消息。
+            if (visibleSeqs && chatType !== 1 && chatType !== 2) continue;
+            let latestSeq: string | undefined;
+            if (!visibleSeqs) {
+              // 摘要可能来自乐观更新或漫游；传统模式固定使用本次捕获的小表最新水位。
+              const info =
+                snapshot ??
+                (await readUnreadInfos({ ...binding, targets: [{ chatType, uid: conv.id }] }))[0];
+              if (
+                !info ||
+                info.readError ||
+                info.chatType !== chatType ||
+                info.uid !== conv.id ||
+                info.latestSeq === null ||
+                !/^\d{1,20}$/.test(info.latestSeq)
+              )
+                continue;
+              latestSeq = info.latestSeq;
+            }
+            if (!stillCurrent()) continue;
             const request = {
               chatType,
               uid: conv.id,
-              latestSeq: info.latestSeq,
-              expectedAccountUin: openedUin ?? undefined,
-              expectedAccountConfigId: binding?.expectedAccountConfigId,
+              ...binding,
             };
             const changed = await retryConversationRead(
-              () => client.account.markConversationRead.mutate(request),
-              isCurrent,
+              () =>
+                visibleSeqs && (chatType === 1 || chatType === 2)
+                  ? client.account.markViewportRead.mutate({ ...request, chatType, visibleSeqs })
+                  : client.account.markConversationRead.mutate({ ...request, latestSeq }),
+              stillCurrent,
             );
-            if (changed !== null && isCurrent()) {
+            if (
+              changed !== null &&
+              (changed.changed || !visibleSeqs || changed.report.state !== 'skipped') &&
+              stillCurrent()
+            ) {
               const rows = await readUnreadInfos({
-                expectedAccountUin: openedUin!,
-                expectedAccountConfigId: binding?.expectedAccountConfigId,
+                ...binding,
                 targets: [{ chatType: request.chatType, uid: conv.id }],
               });
-              if (isCurrent()) applyUnreadRows(rows);
+              if (stillCurrent()) applyUnreadRows(rows);
               if (changed.changed) void utils.account.listRecentContacts.invalidate();
             }
           } catch (error) {
@@ -5117,9 +5157,11 @@ function MainWorkspace(): ReactElement {
           } finally {
             finishUpdate();
             if (useViewState.getState().openedUin === openedUin)
-              requestUnreadRefreshRef.current?.();
+              requestUnreadRefreshRef.current?.(
+                visibleSeqs ? { chatType, uid: conv.id } : undefined,
+              );
           }
-        } while (entry.again && isCurrent());
+        }
       })().finally(() => {
         readRequestsRef.current.delete(key);
       });
@@ -5304,6 +5346,7 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     const conv = selectedConversation;
     if (!messagesTabActive) return undefined;
+    if (!readSettingsReady) return undefined;
     if (!conv || (conv.type !== 'direct' && conv.type !== 'group')) {
       return undefined;
     }
@@ -5361,15 +5404,15 @@ function MainWorkspace(): ReactElement {
         unread,
       });
 
-      // 打开即已读：哪怕一个跳转都不点，也要把 48902 的未读/高亮清掉，
-      // 这样下次进来不会再重复弹跳转、红点也即时消失。
-      await markVisibleConversationRead(conv, info);
+      if (!readPolicy.current.readThroughViewport)
+        await markVisibleConversationRead(conv, { snapshot: info });
       if (!stillCurrent()) return;
       setUnreadDock(dock);
     })();
     return undefined;
   }, [
     messagesTabActive,
+    readSettingsReady,
     selectedConversation,
     messagesLoading,
     loaded,
@@ -9848,10 +9891,18 @@ function MainWorkspace(): ReactElement {
                                 return false;
                               }
                             }}
-                            onReadCurrentConversation={(conv) => {
-                              if (unreadSnapshotPendingRef.current?.convId !== conv.id)
-                                void markVisibleConversationRead(conv);
-                            }}
+                            readThroughViewport={readThroughViewport}
+                            onReadCurrentConversation={
+                              readThroughViewport && !readViewportActive
+                                ? undefined
+                                : (conv, visibleSeqs) => {
+                                    if (
+                                      visibleSeqs ||
+                                      unreadSnapshotPendingRef.current?.convId !== conv.id
+                                    )
+                                      void markVisibleConversationRead(conv, { visibleSeqs });
+                                  }
+                            }
                             pendingInteractions={
                               messagesTabActive &&
                               !settingsOpen &&

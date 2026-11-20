@@ -56,6 +56,12 @@ export const APP_SETTING_FIELDS = (
     ],
     ['notification-badges', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
     ['reading', 'readFromFirstUnread', 'read-first-unread', '从首条未读开始'],
+    [
+      'reading',
+      'preserveUnreadUntilRead',
+      'preserve-unread-until-read',
+      '保留尚未读到的消息的未读计数',
+    ],
     ['conversation-markers', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
     ['reading', 'jumpToLatestAfterSend', 'jump-latest-after-send', '发送后跳到最新'],
     ['reading', 'autoFollowLatestMessages', 'auto-follow-latest-messages', '自动跟随新消息'],

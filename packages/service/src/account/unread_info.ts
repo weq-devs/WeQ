@@ -218,6 +218,31 @@ export class UnreadInfoService {
     return this.session.unreadInfo.getUnreadInfo(chatType, uid);
   }
 
+  /** 视口可能从引用、搜索或提醒跳到后面，只确认从现有水位起连续看到的消息。 */
+  async visibleReadSequence(chatType: number, uid: string, visibleSeqs: readonly string[]) {
+    if (chatType !== 1 && chatType !== 2) return undefined;
+    const [snapshot] = await this.getUnreadInfos([{ chatType, uid }]);
+    if (!snapshot?.readSeq || !snapshot.latestSeq || snapshot.readError) return undefined;
+    const floor = BigInt(snapshot.readSeq);
+    const latest = BigInt(snapshot.latestSeq);
+    if (floor <= 0n) return undefined;
+    const visible = new Set(visibleSeqs);
+    if (floor >= latest) {
+      // 同一水位的手动未读可在重新看到最新消息时取消。
+      return snapshot.unreadCount && visible.has(snapshot.latestSeq)
+        ? snapshot.latestSeq
+        : undefined;
+    }
+    const excluded = new Set([...(snapshot.decreasedSeqs ?? []), ...(snapshot.recalledSeqs ?? [])]);
+    let through: string | undefined;
+    for (let seq = floor + 1n; seq <= latest; seq++) {
+      const position = seq.toString();
+      if (visible.has(position)) through = position;
+      else if (!excluded.has(position)) break;
+    }
+    return through;
+  }
+
   private async readSequence(chatType: number, uid: string, requested?: string) {
     if (this.disposed || (requested !== undefined && !/^\d{1,20}$/.test(requested)))
       return undefined;

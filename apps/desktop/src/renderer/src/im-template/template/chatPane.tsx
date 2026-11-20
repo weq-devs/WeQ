@@ -520,7 +520,8 @@ export type ChatPaneProps = {
   latestMessageSeq?: string;
   onPreviewLatest?: (conversation: Conversation) => void;
   onJumpToLatest?: () => Promise<boolean>;
-  onReadCurrentConversation?: (conversation: Conversation) => void;
+  readThroughViewport?: boolean;
+  onReadCurrentConversation?: (conversation: Conversation, visibleSeqs?: string[]) => void;
   pendingInteractions?: readonly ConversationInteraction[];
   onSeeInteractions?: (ids: string[]) => void;
   preference: ConversationPreference | undefined;
@@ -727,6 +728,7 @@ export function ChatPane({
   latestMessageSeq,
   onPreviewLatest,
   onJumpToLatest,
+  readThroughViewport,
   onReadCurrentConversation,
   pendingInteractions,
   onSeeInteractions,
@@ -1579,6 +1581,7 @@ export function ChatPane({
     timelineSettings: mediaSettings.data,
     messages,
     onJumpToLatest,
+    readThroughViewport,
     onReadCurrentConversation,
     pendingInteractions,
     onSeeInteractions,

@@ -26,6 +26,7 @@ export function useChatTimelineNavigation({
   timelineSettings,
   messages,
   onJumpToLatest,
+  readThroughViewport,
   onReadCurrentConversation,
   pendingInteractions,
   onSeeInteractions,
@@ -49,6 +50,7 @@ export function useChatTimelineNavigation({
     | undefined;
   messages: ChatPaneProps['messages'];
   onJumpToLatest: ChatPaneProps['onJumpToLatest'];
+  readThroughViewport: ChatPaneProps['readThroughViewport'];
   onReadCurrentConversation: ChatPaneProps['onReadCurrentConversation'];
   pendingInteractions?: ChatPaneProps['pendingInteractions'];
   onSeeInteractions?: ChatPaneProps['onSeeInteractions'];
@@ -172,12 +174,18 @@ export function useChatTimelineNavigation({
   );
 
   const lastReadSignal = useRef({ key: '', at: 0 });
+  const lastVisibleRead = useRef('');
+  const viewportReadEnabled = Boolean(readThroughViewport && onReadCurrentConversation);
+  const viewportReadVersion = viewportReadEnabled
+    ? `${conversation?.id}:${conversation?.unreadCount}:${latestMessageSeq ?? ''}`
+    : '';
 
   const readContextRef = useRef({
     tabActive,
     atLatest,
     loading,
     conversation,
+    viewportReadEnabled,
     onReadCurrentConversation,
     lastId: messages.at(-1)?.id,
   });
@@ -187,6 +195,7 @@ export function useChatTimelineNavigation({
     atLatest,
     loading,
     conversation,
+    viewportReadEnabled,
     onReadCurrentConversation,
     lastId: messages.at(-1)?.id,
   };
@@ -583,6 +592,7 @@ export function useChatTimelineNavigation({
     const current = readContextRef.current;
     if (
       !current.onReadCurrentConversation ||
+      readThroughViewport ||
       !current.conversation ||
       current.conversation.id !== conversation?.id ||
       !current.tabActive ||
@@ -849,15 +859,61 @@ export function useChatTimelineNavigation({
       loadingNewer ||
       !scroll ||
       !visibleMessages.length ||
-      (!dockTargets?.size && !interactionTargets?.size)
+      (!dockTargets?.size && !interactionTargets?.size && !viewportReadEnabled)
     )
       return;
     const targets = new Map<Element, string>();
+    const readTargets = new Map<HTMLElement, string>();
     for (const target of scroll.querySelectorAll<HTMLElement>('[data-message-id]')) {
       const id = target.dataset.messageId ?? '';
       if (dockTargets?.has(id) || interactionTargets?.has(id)) targets.set(target, id);
+      if (!viewportReadEnabled || !target.classList.contains('message-line')) continue;
+      const index = target.closest<HTMLElement>('.weq-virtual-timeline-row')?.dataset.index;
+      const message = index === undefined ? undefined : visibleMessages[Number(index)];
+      if (
+        message?.id === id &&
+        message.conversationId === conversation?.id &&
+        message.msgId &&
+        !message.optimistic &&
+        (!message.source || message.ntSeqVerified) &&
+        message.msgSeq &&
+        /^[1-9]\d{0,19}$/.test(message.msgSeq)
+      )
+        readTargets.set(target, message.msgSeq);
     }
-    if (!targets.size) return;
+    if (!targets.size && !readTargets.size) return;
+    let readFrame: number | undefined;
+    const scheduleRead = () => {
+      if (!readTargets.size || readFrame !== undefined) return;
+      readFrame = window.requestAnimationFrame(() => {
+        readFrame = undefined;
+        const current = readContextRef.current;
+        if (
+          !current.viewportReadEnabled ||
+          !current.tabActive ||
+          !current.conversation ||
+          current.conversation.id !== conversation?.id ||
+          document.visibilityState === 'hidden' ||
+          !document.hasFocus()
+        )
+          return;
+        const bounds = scroll.getBoundingClientRect();
+        if (bounds.height <= 0) return;
+        const visible = new Set<string>();
+        for (const [target, seq] of readTargets) {
+          const rect = target.getBoundingClientRect();
+          const shown = Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top);
+          // 长消息至少显示半屏，短消息至少显示一半，排除虚拟列表预挂载和擦边。
+          if (shown > 0 && shown >= Math.min(rect.height, bounds.height) / 2) visible.add(seq);
+        }
+        if (!visible.size) return;
+        const sequences = [...visible].slice(0, 512);
+        const key = `${viewportReadVersion}:${sequences.join(',')}`;
+        if (lastVisibleRead.current === key) return;
+        lastVisibleRead.current = key;
+        current.onReadCurrentConversation?.(current.conversation, sequences);
+      });
+    };
     const report = (rows: string[]) => {
       visitStops(
         navigationKey,
@@ -873,6 +929,7 @@ export function useChatTimelineNavigation({
       if (visible.length) onSeeInteractions?.(visible);
     };
     const probe = () => {
+      scheduleRead();
       const bounds = scroll.getBoundingClientRect();
       if (bounds.height <= 0) return;
       const seen: string[] = [];
@@ -888,23 +945,32 @@ export function useChatTimelineNavigation({
       typeof IntersectionObserver === 'undefined'
         ? undefined
         : new IntersectionObserver(
-            (entries) =>
+            (entries) => {
+              scheduleRead();
               report(
                 entries.flatMap(({ target, intersectionRatio }) => {
                   const id = targets.get(target);
                   return intersectionRatio > 0 && id ? [id] : [];
                 }),
-              ),
-            { root: scroll, threshold: Number.EPSILON },
+              );
+            },
+            {
+              root: scroll,
+              threshold: viewportReadEnabled ? [Number.EPSILON, 0.5] : Number.EPSILON,
+            },
           );
-    for (const target of targets.keys()) observer?.observe(target);
-    if (interactionTargets?.size) {
+    for (const target of new Set([...targets.keys(), ...readTargets.keys()]))
+      observer?.observe(target);
+    if (readTargets.size) scroll.addEventListener('scroll', scheduleRead, { passive: true });
+    if (interactionTargets?.size || readTargets.size) {
       window.addEventListener('focus', probe);
       document.addEventListener('visibilitychange', probe);
     }
     return () => {
       observer?.disconnect();
       observer?.takeRecords();
+      scroll.removeEventListener('scroll', scheduleRead);
+      if (readFrame !== undefined) window.cancelAnimationFrame(readFrame);
       window.removeEventListener('focus', probe);
       document.removeEventListener('visibilitychange', probe);
     };
@@ -912,7 +978,10 @@ export function useChatTimelineNavigation({
     loading,
     loadingNewer,
     navigationKey,
+    conversation?.id,
     tabActive,
+    viewportReadEnabled,
+    viewportReadVersion,
     dockTargets,
     interactionTargets,
     onSeeInteractions,

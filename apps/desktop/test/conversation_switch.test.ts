@@ -108,7 +108,12 @@ const f = vi.hoisted(() => ({
   unreadReads: [] as UnreadInput[],
   unreadFailures: 0,
   unreadReply: undefined as (() => Promise<unknown>) | undefined,
-  markedRead: [] as Array<{ chatType: number; uid: string; latestSeq?: string }>,
+  markedRead: [] as Array<{
+    chatType: number;
+    uid: string;
+    latestSeq?: string;
+    visibleSeqs?: string[];
+  }>,
   readCurrent: undefined as (() => void) | undefined,
   dbChanged: undefined as (() => void) | undefined,
   notificationSubscriptions: { group: [], conversation: [] } as Record<
@@ -276,7 +281,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               f.conversationJumpReply = undefined;
               return reply ? reply() : (f.conversationJumps.shift() ?? null);
             }
-            if (path.at(-1) === 'markConversationRead') {
+            if (path.at(-1) === 'markConversationRead' || path.at(-1) === 'markViewportRead') {
               f.markedRead.push(input as unknown as (typeof f.markedRead)[number]);
               return { changed: true, report: { state: 'disabled' } };
             }
@@ -1100,6 +1105,70 @@ it.each([
     }
   },
 );
+
+it('首条新消息模式只提交聊天视口中看到的序号，打开会话和到达底部均不整批清空', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+  useViewState.getState().setOpenedUin('90001');
+  f.readFromFirstUnread = true;
+  f.unreadMode = true;
+  f.unreadReply = async () => [
+    { uid: '10001', chatType: 2, readSeq: '100', latestSeq: '105', unreadCount: 5 },
+  ];
+  const message = (seq: number): TestMessage => ({
+    msgId: String(seq),
+    msgSeq: String(seq),
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', data: { textContent: `消息 ${seq}` } }],
+  });
+  f.beforeRows = [message(100)];
+  f.afterReply = () => [101, 102, 103, 104, 105].map(message);
+  let offset = 0;
+  const realBounds = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this.classList.contains('message-scroll')) return new DOMRect(0, 0, 400, 100);
+    if (this.classList.contains('message-line'))
+      return new DOMRect(0, (Number(this.dataset.messageId) - 101) * 50 - offset, 400, 50);
+    return realBounds.call(this);
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(32));
+    expect(f.markedRead.map(({ visibleSeqs }) => visibleSeqs)).toEqual([['101', '102']]);
+
+    offset = 200;
+    await act(async () => {
+      host.querySelector('.message-scroll')!.dispatchEvent(new Event('scroll'));
+      f.readCurrent?.();
+      await vi.advanceTimersByTimeAsync(32);
+    });
+    expect(f.markedRead.map(({ visibleSeqs }) => visibleSeqs)).toEqual([['101', '102'], ['105']]);
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
 
 it.each([
   ['10001', false],

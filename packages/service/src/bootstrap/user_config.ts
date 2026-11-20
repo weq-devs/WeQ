@@ -924,6 +924,8 @@ export interface AppSettings {
   showContactUnreadCount: boolean;
   /** 进入会话时恢复阅读位置，从第一条新消息继续阅读。 */
   readFromFirstUnread: boolean;
+  /** 逐步确认前台视口内连续读到的消息，依赖从首条未读开始。 */
+  preserveUnreadUntilRead: boolean;
   /** 停留在消息底部时自动跟随新消息。 */
   autoFollowLatestMessages: boolean;
   /** 发送成功后定位到当前会话的最新消息。 */
@@ -1282,6 +1284,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMessageUnreadBadge: true,
   showContactUnreadCount: false,
   readFromFirstUnread: false,
+  preserveUnreadUntilRead: true,
   jumpToLatestAfterSend: true,
   autoFollowLatestMessages: true,
   showScrollToBottomButton: true,
@@ -2088,6 +2091,7 @@ export class UserConfigService {
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
       showContactUnreadCount: s?.showContactUnreadCount ?? d.showContactUnreadCount,
       readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
+      preserveUnreadUntilRead: s?.preserveUnreadUntilRead ?? d.preserveUnreadUntilRead,
       jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
       autoFollowLatestMessages: s?.autoFollowLatestMessages ?? d.autoFollowLatestMessages,
       showScrollToBottomButton: s?.showScrollToBottomButton ?? d.showScrollToBottomButton,
@@ -2282,6 +2286,7 @@ export class UserConfigService {
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
       showContactUnreadCount: patch.showContactUnreadCount ?? current.showContactUnreadCount,
       readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
+      preserveUnreadUntilRead: patch.preserveUnreadUntilRead ?? current.preserveUnreadUntilRead,
       jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
       autoFollowLatestMessages: patch.autoFollowLatestMessages ?? current.autoFollowLatestMessages,
       showScrollToBottomButton: patch.showScrollToBottomButton ?? current.showScrollToBottomButton,
