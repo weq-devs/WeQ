@@ -72,6 +72,7 @@ export async function getFeatureDefinition({ id, client }: z.infer<typeof getFea
       group: 'missing',
       contact: 'missing',
       conversation: 'missing',
+      content: 'missing',
       message: 'missing',
     },
     qqOnline: record ? Boolean(record.qqOnline && record.qqPid) : undefined,

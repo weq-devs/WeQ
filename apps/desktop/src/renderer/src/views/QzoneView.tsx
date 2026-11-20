@@ -2,6 +2,7 @@
 import { FormSelect } from '../components/FormSelect';
 import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
+import { QZONE_SECTION_FEATURES, type QzoneFeatureSection } from '@weq/service/feature-catalog';
 import {
   useCallback,
   useLayoutEffect,
@@ -118,7 +119,7 @@ import {
 } from '../lib/qzoneRelated';
 
 type OwnerTab = 'space' | 'person-posts';
-type Tab = 'feeds' | 'posts' | OwnerTab | 'related' | 'public';
+type Tab = QzoneFeatureSection | OwnerTab;
 
 function requestedOwnerTab(request: QzoneSpaceRequest): OwnerTab {
   const kind = request.target?.kind;
@@ -415,9 +416,10 @@ export function QzoneView({
   const initialSpace = spaceRequest?.accountUin === selfUin ? spaceRequest : null;
   const initialSection = initialSpace ? requestedOwnerTab(initialSpace) : null;
   const initialTab =
-    initialSection === 'space' && initialSpace?.uin === selfUin
+    initialSpace?.catalog?.section ??
+    (initialSection === 'space' && initialSpace?.uin === selfUin
       ? 'posts'
-      : (initialSection ?? 'feeds');
+      : (initialSection ?? 'feeds'));
   const [tab, setTab] = usePageState<Tab>(
     'tab',
     initialTab,
@@ -555,6 +557,12 @@ export function QzoneView({
     )
       return;
     setHandledRequest(spaceRequest.revision);
+    if (spaceRequest.catalog) {
+      const { section } = spaceRequest.catalog;
+      if (section === 'posts') setHostUin(selfUin);
+      setTab(section);
+      return;
+    }
     const target = spaceRequest.target;
     openSpace(spaceRequest.uin, spaceRequest.nickname, requestedOwnerTab(spaceRequest));
     if (target?.kind === 'album')
@@ -592,6 +600,8 @@ export function QzoneView({
     handledRequest,
     setHandledRequest,
     setPostRequests,
+    setHostUin,
+    setTab,
   ]);
   const currentOwner = tab === 'space' || tab === 'person-posts' ? hostUin : selfUin;
   const linkedTid = tab === 'person-posts' ? postRequests[hostUin]?.tid : undefined;
@@ -678,7 +688,7 @@ export function QzoneView({
               aria-current={tab === 'feeds' ? 'page' : undefined}
               onClick={() => setTab('feeds')}
             >
-              好友动态
+              {QZONE_SECTION_FEATURES.feeds.label}
             </button>
             <button
               type="button"
@@ -688,21 +698,21 @@ export function QzoneView({
                 setTab('posts');
               }}
             >
-              我的空间
+              {QZONE_SECTION_FEATURES.posts.label}
             </button>
             <button
               type="button"
               aria-current={tab === 'related' ? 'page' : undefined}
               onClick={() => setTab('related')}
             >
-              与我相关
+              {QZONE_SECTION_FEATURES.related.label}
             </button>
             <button
               type="button"
               aria-current={tab === 'public' ? 'page' : undefined}
               onClick={() => setTab('public')}
             >
-              空友爱看
+              {QZONE_SECTION_FEATURES.public.label}
             </button>
             {(['space', 'person-posts'] as const).flatMap((section) =>
               (section === 'space' ? spaces : postOwners).map((uin) => {

@@ -45,22 +45,30 @@ function dressFeature<K extends string>(
   kind: K,
   label: string,
   aliases: readonly string[] = [],
+  tools?: readonly string[],
 ) {
   return {
     ...defineFeature(id, 'appearance', label, aliases, {
       parentId: NAVIGATION_FEATURES.dressup.id,
+      tools,
     }),
     dressKind: kind,
   };
 }
 
 export const DRESS_FEATURES = [
-  dressFeature('appearance.bubble', 'bubble', '气泡商城', ['聊天气泡', '气泡']),
-  dressFeature('appearance.font', 'font', '字体商城', ['个性字体', '字体']),
-  dressFeature('appearance.avatar-widget', 'widget', '头像挂件', ['挂件商城']),
+  dressFeature('appearance.bubble', 'bubble', '气泡商城', ['聊天气泡', '气泡'], ['get_dress_mall']),
+  dressFeature('appearance.font', 'font', '字体商城', ['个性字体', '字体'], ['get_dress_mall']),
+  dressFeature('appearance.avatar-widget', 'widget', '头像挂件', ['挂件商城'], ['get_dress_mall']),
   dressFeature('appearance.call-background', 'callbg', '通话背景'),
   dressFeature('appearance.chat-background', 'background', 'QQ 聊天背景', ['聊天背景商城']),
-  dressFeature('appearance.emoji-market', 'emoji', '商城表情', ['表情商城']),
+  dressFeature(
+    'appearance.emoji-market',
+    'emoji',
+    '商城表情',
+    ['表情商城'],
+    ['search_market_emoji', 'get_market_pack_detail'],
+  ),
   dressFeature('appearance.red-packet-cover', 'redpack', '红包封面', ['红包皮肤', '红包']),
 ] as const;
 

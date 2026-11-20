@@ -15,9 +15,21 @@ export const NAVIGATION_FEATURES = {
     navigation: 'search',
     tools: ['list_buddies', 'list_groups', 'find_contact'],
   }),
-  collections: defineFeature('collections.inbox', 'collections', '收藏'),
-  qzone: defineFeature('qzone.timeline', 'qzone', 'QQ 空间', ['说说', '相册']),
-  mail: defineFeature('mail.inbox', 'mail', 'QQ 邮箱', ['邮件']),
+  collections: defineFeature('collections.inbox', 'collections', '收藏', [], {
+    summary: '查看已有本地收藏，页面在有可用票据时补充在线结果。',
+    context: ['account'],
+    navigation: 'search',
+    tools: ['list_collections'],
+  }),
+  qzone: defineFeature('qzone.timeline', 'qzone', 'QQ 空间', ['说说', '相册'], {
+    context: ['account'],
+    navigation: 'search',
+    tools: ['get_qzone_profile'],
+  }),
+  mail: defineFeature('mail.inbox', 'mail', 'QQ 邮箱', ['邮件'], {
+    context: ['account'],
+    navigation: 'search',
+  }),
   channel: defineFeature('channels.inbox', 'channels', 'QQ 频道', ['频道']),
   'guild-direct': defineFeature('channels.direct-messages', 'channels', '频道私聊', [], {
     tools: ['list_guild_direct_sessions', 'get_guild_direct_messages'],

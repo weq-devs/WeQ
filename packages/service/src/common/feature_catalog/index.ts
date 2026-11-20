@@ -4,6 +4,7 @@ import type { FeatureDefinition, FeatureDomain, FeatureKind } from './model';
 import { NAVIGATION_FEATURES } from './navigation';
 import { SETTING_FEATURES, SETTINGS_PAGE_FEATURES } from './settings';
 import { CONTACT_GROUP_FEATURES } from './contacts';
+import { CONTENT_FEATURES, OWN_ALBUM_FEATURE, QZONE_SECTION_FEATURES } from './content';
 import {
   CONVERSATION_CALENDAR_FEATURE,
   CONVERSATION_VIEW_FEATURES,
@@ -21,6 +22,7 @@ export {
 } from './model';
 export { NAVIGATION_FEATURES } from './navigation';
 export { SETTING_FEATURES, SETTINGS_PAGE_FEATURES, settingFeatureId } from './settings';
+export { OWN_ALBUM_FEATURE, QZONE_SECTION_FEATURES, type QzoneFeatureSection } from './content';
 export { CONVERSATION_CALENDAR_FEATURE, CONVERSATION_VIEW_FEATURES } from './messages';
 
 export const FEATURE_CATALOG_VERSION = 1;
@@ -31,6 +33,9 @@ const catalog: readonly FeatureDefinition[] = [
   ...DRESS_FEATURES,
   ...CONTEXT_FEATURES,
   ...CONTACT_GROUP_FEATURES,
+  ...CONTENT_FEATURES,
+  ...Object.values(QZONE_SECTION_FEATURES),
+  OWN_ALBUM_FEATURE,
   CONVERSATION_CALENDAR_FEATURE,
   ...Object.values(CONVERSATION_VIEW_FEATURES),
   ...MESSAGE_FEATURES,

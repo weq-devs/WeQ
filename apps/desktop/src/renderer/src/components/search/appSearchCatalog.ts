@@ -7,6 +7,9 @@ import {
   findFeature,
   CONVERSATION_CALENDAR_FEATURE,
   CONVERSATION_VIEW_FEATURES,
+  QZONE_SECTION_FEATURES,
+  OWN_ALBUM_FEATURE,
+  type QzoneFeatureSection,
   DRESS_FEATURES,
   EXPORT_FEATURES,
   SETTING_FEATURES,
@@ -38,6 +41,8 @@ export type AppSearchTarget =
   | { kind: 'conversation-calendar' }
   | { kind: 'contact-notice'; notice: 'friend' | 'group' }
   | { kind: 'contact-overview' }
+  | { kind: 'qzone-section'; section: QzoneFeatureSection }
+  | { kind: 'self-qzone-albums' }
   | { kind: 'tool'; tool: SearchableTool; exportMode?: ExportMode }
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
@@ -113,6 +118,9 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
       return target.notice === 'friend' ? FEATURE_ICONS.friendNotice : FEATURE_ICONS.groupNotice;
     case 'contact-overview':
       return APP_NAVIGATION['group-intersection'].icon;
+    case 'qzone-section':
+    case 'self-qzone-albums':
+      return APP_NAVIGATION.qzone.icon;
     case 'view':
       return (
         Object.values(APP_NAVIGATION).find(
@@ -133,6 +141,10 @@ const appSearchEntries: readonly AppSearchEntry[] = [
   feature(WORKSPACE_FEATURES.clones, { kind: 'conversation-directory', scope: 'virtual' }),
   feature(WORKSPACE_FEATURES.createClone, { kind: 'clone-create' }),
   feature(WORKSPACE_FEATURES.createCloneGroup, { kind: 'clone-create', group: true }),
+  ...(Object.keys(QZONE_SECTION_FEATURES) as QzoneFeatureSection[]).map((section) =>
+    feature(QZONE_SECTION_FEATURES[section], { kind: 'qzone-section', section }),
+  ),
+  feature(OWN_ALBUM_FEATURE, { kind: 'self-qzone-albums' }),
   ...EXPORT_FEATURES.map((entry) =>
     feature(entry, { kind: 'tool', tool: 'export', exportMode: entry.mode }),
   ),

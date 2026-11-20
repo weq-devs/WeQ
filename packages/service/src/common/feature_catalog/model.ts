@@ -19,7 +19,13 @@ export const FEATURE_DOMAINS = [
 
 export type FeatureDomain = (typeof FEATURE_DOMAINS)[number];
 export type FeatureKind = 'feature' | 'setting' | 'setting-page';
-export type FeatureContext = 'account' | 'group' | 'contact' | 'conversation' | 'message';
+export type FeatureContext =
+  | 'account'
+  | 'group'
+  | 'contact'
+  | 'conversation'
+  | 'message'
+  | 'content';
 export type FeatureOperation = 'album-list' | 'profile-write' | 'default-chat-model' | 'chat-image';
 
 export interface FeatureDefinition {

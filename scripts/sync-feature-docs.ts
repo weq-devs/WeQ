@@ -154,6 +154,7 @@ const contextLabels = {
   group: '群',
   contact: '联系人',
   conversation: '会话',
+  content: '内容项',
   message: '消息',
 };
 const placementLabels = {

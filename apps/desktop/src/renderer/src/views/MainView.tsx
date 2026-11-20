@@ -472,6 +472,7 @@ import {
   QzoneNavigationContext,
   QzoneProfileContext,
   type QzoneSpaceRequest,
+  scopedQzoneRequest,
 } from '../lib/qzoneNavigation';
 import { ChatMainContent } from '../im-template/template/chatMainContent';
 import { ChatShell } from '../im-template/template/chatShell';
@@ -8841,7 +8842,9 @@ function MainWorkspace(): ReactElement {
       (entry.target.kind === 'conversation-view' ||
         entry.target.kind === 'conversation-calendar' ||
         entry.target.kind === 'contact-notice' ||
-        entry.target.kind === 'contact-overview') &&
+        entry.target.kind === 'contact-overview' ||
+        entry.target.kind === 'qzone-section' ||
+        entry.target.kind === 'self-qzone-albums') &&
       (!messageScope || messageScope !== messageScopeRef.current)
     )
       return;
@@ -8876,6 +8879,17 @@ function MainWorkspace(): ReactElement {
       shell.openContactNotice(target.notice);
     } else if (target.kind === 'contact-overview') {
       shell.openContactOverview();
+    } else if (target.kind === 'qzone-section') {
+      setArkFeedState(null);
+      setQzoneSpaceRequest({
+        accountUin: user.identityValue,
+        uin: user.identityValue,
+        revision: crypto.randomUUID(),
+        catalog: { section: target.section, source: messageScope },
+      });
+      shell.switchView('qzone');
+    } else if (target.kind === 'self-qzone-albums') {
+      setQzoneAlbumOpen(true);
     } else if (target.kind === 'conversation-calendar') {
       // 全局功能搜索词是入口名；会话日历仍采用当前会话视图。
       setOverviewCalendar({ query: '' });
@@ -9543,7 +9557,7 @@ function MainWorkspace(): ReactElement {
                     readEnabled={qzonePageReady}
                     selfUin={user.identityValue}
                     nickname={user.displayName}
-                    spaceRequest={qzoneSpaceRequest}
+                    spaceRequest={scopedQzoneRequest(qzoneSpaceRequest, messageScope)}
                     onSpaceChange={setCurrentQzoneUin}
                   />
                 ) : null}
