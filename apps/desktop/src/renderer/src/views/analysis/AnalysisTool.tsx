@@ -1,4 +1,3 @@
-import { FormSelect } from '../../components/FormSelect';
 import { CalendarDateField } from '../../components/CalendarDateField';
 import { TimeLabel } from '../../components/TimeLabel';
 import * as timeFormat from '@weq/time';
@@ -178,52 +177,7 @@ function ObjectPicker({
   );
 }
 
-/**
- * 报告类型选择：横向排列的小号分段控件。
- *
- * 年度报告有独立入口（侧栏），这里只列群聊 / 好友 / 群成员三类。
- */
-function KindTabs({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: AnalysisToolKind;
-  onChange: (kind: AnalysisToolKind) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="weq-analysis-kinds" role="tablist" aria-label="切换报告类型">
-      {/* 隐藏的原生 select 只承担无障碍 / 键盘语义（读屏与自动化都按「报告类型」找它）。 */}
-      <FormSelect
-        className="weq-analysis-kind-native"
-        aria-label="报告类型"
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value as AnalysisToolKind)}
-      >
-        {ANALYSIS_TOOL_KINDS.map((kind) => (
-          <option key={kind} value={kind}>
-            {ANALYSIS_LABELS[kind]}
-          </option>
-        ))}
-      </FormSelect>
-      {ANALYSIS_TOOL_KINDS.map((kind) => (
-        <button
-          key={kind}
-          type="button"
-          role="tab"
-          aria-selected={kind === value}
-          className={kind === value ? 'is-active' : ''}
-          disabled={disabled}
-          onClick={() => onChange(kind)}
-        >
-          {ANALYSIS_LABELS[kind]}
-        </button>
-      ))}
-    </div>
-  );
-}
+const KIND_OPTIONS = ANALYSIS_TOOL_KINDS.map((value) => ({ value, label: ANALYSIS_LABELS[value] }));
 
 export function AnalysisTool({
   onGenerate,
@@ -483,7 +437,9 @@ function AnalysisToolForm({
     <div className="weq-analysis-tool">
       {showKinds ? (
         <header className="weq-analysis-tool-head">
-          <KindTabs
+          <SegmentedControl
+            label="报告类型"
+            options={KIND_OPTIONS}
             value={kind}
             disabled={busy}
             onChange={(next) => {
@@ -516,7 +472,7 @@ function AnalysisToolForm({
             <section className="weq-analysis-card">
               <h3>时间范围</h3>
               <SegmentedControl<'all' | 'dates'>
-                label="时间范围"
+                label="分析时间范围"
                 value={timeMode}
                 onChange={(mode) => {
                   setTimeMode(mode);
@@ -527,15 +483,6 @@ function AnalysisToolForm({
                   { value: 'dates', label: '指定日期' },
                 ]}
               />
-              <FormSelect
-                className="weq-analysis-kind-native"
-                aria-label="分析时间范围"
-                value={timeMode}
-                onChange={(event) => setTimeMode(event.target.value as 'all' | 'dates')}
-              >
-                <option value="all">全部本地历史</option>
-                <option value="dates">指定日期</option>
-              </FormSelect>
               {timeMode === 'dates' ? (
                 <>
                   <p className="weq-analysis-range">

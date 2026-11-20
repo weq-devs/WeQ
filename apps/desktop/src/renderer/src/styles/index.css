@@ -22413,9 +22413,9 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   height: 52px;
-  padding: 0 14px 0 20px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--weq-border-subtle);
   background: var(--weq-bg-surface);
 }

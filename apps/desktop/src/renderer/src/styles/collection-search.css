@@ -1,3 +1,23 @@
+.weq-content-collection {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.weq-content-collection > .weq-collection-dialog,
+html[data-theme='dark'] .weq-content-collection > .weq-collection-dialog {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
 .weq-collection-dialog > .weq-collection-head {
   flex: none;
   flex-direction: row;

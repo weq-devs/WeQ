@@ -23,6 +23,8 @@ export const LOGIN_PAGE = `<!doctype html>
 <style>
   :root {
     --accent: #0099ff;
+    --action: #006cb8;
+    --action-hover: #005b9c;
     --fg: #142235;
     --fg-muted: #5b7d99;
     --field-placeholder: color-mix(in srgb, var(--fg-muted) 88%, var(--fg));
@@ -50,14 +52,13 @@ export const LOGIN_PAGE = `<!doctype html>
 
   * { box-sizing: border-box; }
 
-  html, body { height: 100%; }
-
   body {
     margin: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
     display: grid;
     place-items: center;
-    padding: 24px;
-    overflow: hidden;
+    padding: 24px 20px;
     color: var(--fg);
     font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
     /* Same multi-stop wash as .weq-home-shell in the app. */
@@ -150,7 +151,7 @@ export const LOGIN_PAGE = `<!doctype html>
   form {
     position: relative;
     z-index: 2;
-    width: min(372px, calc(100vw - 40px));
+    width: min(372px, 100%);
     padding: 38px 32px 30px;
     text-align: center;
     background: var(--card);
@@ -234,17 +235,16 @@ export const LOGIN_PAGE = `<!doctype html>
     font-family: inherit;
     letter-spacing: 0.04em;
     color: #fff;
-    background: linear-gradient(120deg, #0099ff 0%, #38b6ff 52%, #0099ff 100%);
-    background-size: 220% 100%;
+    background: var(--action);
     border: 0;
     border-radius: 10px;
     cursor: pointer;
     box-shadow: 0 10px 24px -12px rgba(0, 122, 204, 0.75);
-    transition: transform 160ms ease, box-shadow 220ms ease, background-position 520ms ease;
+    transition: transform 160ms ease, box-shadow 220ms ease, background-color 220ms ease;
   }
   button:hover:not(:disabled) {
     transform: translateY(-1px);
-    background-position: 100% 0;
+    background: var(--action-hover);
     box-shadow: 0 14px 30px -12px rgba(0, 122, 204, 0.85);
   }
   button:active:not(:disabled) { transform: translateY(0); }

@@ -17,42 +17,6 @@
   border-bottom: 1px solid var(--weq-border-subtle);
   overflow-x: auto;
 }
-.weq-analysis-kinds {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
-}
-.weq-analysis-kinds > button {
-  padding: 5px 12px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  font-size: 12.5px;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background-color 130ms ease,
-    color 130ms ease;
-}
-.weq-analysis-kinds > button:hover:not(:disabled) {
-  color: var(--weq-fg-primary);
-}
-.weq-analysis-kinds > button.is-active {
-  background: var(--weq-bg-surface);
-  color: var(--weq-accent-effective);
-  box-shadow: var(--weq-shadow-soft);
-}
-.weq-analysis-kinds > button:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-.weq-analysis-kinds > button:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 1px;
-}
 .weq-analysis-locked {
   min-width: 0;
   overflow: hidden;
@@ -569,28 +533,6 @@ html[data-theme='dark'] .weq-analysis-picker {
   .weq-analysis-foot {
     padding: 10px 12px;
   }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .weq-analysis-kinds > button {
-    transition: none;
-  }
-}
-
-/* 报告类型的原生 select 只服务读屏 / 键盘，不参与视觉布局。 */
-.weq-analysis-kind-native {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  border: 0;
-  white-space: nowrap;
-}
-.weq-analysis-kinds {
-  position: relative;
 }
 
 /* 报告结果页头部：与工具页同一套排版，不再出现重复的大标题。 */

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement } from 'react';
+import { useLayoutEffect, useRef, type ReactElement } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import type { ReportManifest } from '@weq/service';
 import { isAllTimeYear } from '@weq/service/report-time';
@@ -59,10 +59,19 @@ export function AnnualReportEntry({
   const stripRef = useRef<HTMLDivElement>(null);
 
   // 选中的年份自动滚到刻度轨中央。
-  useEffect(() => {
-    const active = stripRef.current?.querySelector<HTMLElement>('[data-active="yes"]');
-    active?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-  }, [selectedYear, availableYears.length]);
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    const active = strip?.querySelector<HTMLElement>('[data-active="yes"]');
+    if (!strip || !active) return;
+    const centerYear = () => {
+      if (!strip.clientWidth) return;
+      strip.scrollLeft = active.offsetLeft + (active.offsetWidth - strip.clientWidth) / 2;
+    };
+    centerYear();
+    const observer = new ResizeObserver(centerYear);
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [selectedYear, availableYears, loading]);
 
   return (
     <div className="weq-entry">

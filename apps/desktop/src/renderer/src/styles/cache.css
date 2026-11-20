@@ -4,6 +4,14 @@
  * html[data-theme="dark"] 覆盖。
  * ────────────────────────────────────────────────────────────────────────── */
 
+.weq-cache-container {
+  container: resource-browser / inline-size;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
 .weq-cache {
   position: relative;
   isolation: isolate;
@@ -27,6 +35,28 @@
 .weq-cache.is-cats-collapsed {
   grid-template-columns: 40px minmax(0, 1fr);
   gap: 10px;
+}
+
+.weq-cache-category-picker {
+  display: none;
+}
+
+@container resource-browser (max-width: 560px) {
+  .weq-cache,
+  .weq-cache.is-cats-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .weq-cache .weq-cache-cats,
+  .weq-cache .weq-cache-cats-rail {
+    display: none;
+  }
+
+  .weq-cache-category-picker {
+    display: block;
+  }
 }
 
 /* ===== 左侧分类栏 ===== */

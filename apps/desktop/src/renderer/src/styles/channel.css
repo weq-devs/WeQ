@@ -64,6 +64,9 @@ html[data-theme='dark'] .weq-channel-direct-trigger {
   .weq-guild-direct.has-selected-session .weq-guild-direct-side {
     display: none;
   }
+  .weq-guild-direct:not(.is-chat-only) .weq-guild-direct-empty[role='status'] {
+    display: none;
+  }
 }
 
 .weq-guild-direct-side-title {

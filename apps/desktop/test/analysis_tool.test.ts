@@ -5,12 +5,7 @@ import { AnalysisTool } from '../src/renderer/src/views/analysis/AnalysisTool';
 import { analysisDateRange } from '../src/renderer/src/views/analysis/model';
 import type { AnalysisTarget } from '../src/renderer/src/views/analysis/model';
 import { useViewState } from '../src/renderer/src/state/view';
-import {
-  changeInput,
-  chooseCalendarDate,
-  chooseFormOption,
-  formOptions,
-} from './support/form-controls';
+import { changeInput, chooseCalendarDate } from './support/form-controls';
 
 const fixture = vi.hoisted(() => ({
   config: vi.fn(),
@@ -152,8 +147,7 @@ function mount(initialTarget?: AnalysisTarget, messageIds?: string[], fixedTarge
       )!;
       act(() => {
         if (field instanceof HTMLInputElement) changeInput(field, value);
-        else if (field.getAttribute('aria-haspopup') === 'dialog') chooseCalendarDate(field, value);
-        else chooseFormOption(field, value);
+        else chooseCalendarDate(field, value);
       });
     },
     chooseObject,
@@ -171,18 +165,19 @@ function mount(initialTarget?: AnalysisTarget, messageIds?: string[], fixedTarge
 it('全局入口只预选当前位置，保留完整报告类型与对象列表并允许更换', async () => {
   const f = mount({ kind: 'group', groupCode: '777' }, undefined, false);
   try {
-    const types = f.host.querySelector<HTMLButtonElement>('[aria-label="报告类型"]');
-    expect(types).not.toBeNull();
-    expect(types!.dataset.value).toBe('group');
+    const types = f.host.querySelector('[role="radiogroup"][aria-label="报告类型"]')!;
+    expect(types.querySelector('[aria-checked="true"]')?.textContent).toBe('群聊分析');
     // 年度报告已挪到侧栏独立入口，分析工具里只剩这三类。
-    expect(formOptions(types!).map((option) => option.value)).toEqual(['group', 'buddy', 'member']);
+    expect(
+      [...types.querySelectorAll('[role="radio"]')].map((option) => option.textContent),
+    ).toEqual(['群聊分析', '好友分析', '群成员分析']);
     expect(f.button('合成群 A').getAttribute('aria-pressed')).toBe('true');
     act(() => f.button('合成群 B').click());
     await act(async () => f.button('生成报告').click());
     expect(f.generate).toHaveBeenLastCalledWith(
       expect.objectContaining({ kind: 'group', groupCode: '888' }),
     );
-    f.select('报告类型', 'buddy');
+    act(() => f.button('好友分析').click());
     expect(f.host.querySelector('[aria-label="搜索分析对象"]')).not.toBeNull();
     expect(f.host.querySelector('[aria-label="报告年份"]')).toBeNull();
   } finally {
@@ -226,12 +221,12 @@ it('群聊与好友都创建真实配置，完整目录可检索末尾且 DOM �
         scope: { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic' },
       }),
     );
-    f.select('报告类型', 'buddy');
+    act(() => f.button('好友分析').click());
     // 选择器保留紧凑预算，主会话列表的大缓冲由宿主显式启用。
     expect(f.host.querySelectorAll('.weq-analysis-choice').length).toBeLessThan(30);
     f.select('搜索分析对象', '合成好友 2500');
     act(() => f.chooseObject('u_friend_2500').click());
-    f.select('分析时间范围', 'dates');
+    act(() => f.button('指定日期').click());
     f.select('开始日期', '2026-10-01');
     f.select('结束日期', '2026-10-18');
     await act(async () => f.button('生成报告').click());
@@ -257,7 +252,7 @@ it('群聊与好友都创建真实配置，完整目录可检索末尾且 DOM �
 it('群成员身份按群隔离，换群不沿用旧成员，非法日期不创建报告', async () => {
   const f = mount();
   try {
-    f.select('报告类型', 'member');
+    act(() => f.button('群成员分析').click());
     act(() => f.chooseObject('777').click());
     act(() => f.chooseObject('uid:u_777').click());
     await act(async () => f.button('生成报告').click());
@@ -268,7 +263,7 @@ it('群成员身份按群隔离，换群不沿用旧成员，非法日期不创�
     act(() => f.button('合成群 B').click());
     expect(f.button('生成报告').disabled).toBe(true);
     act(() => f.button('合成成员 888').click());
-    f.select('分析时间范围', 'dates');
+    act(() => f.button('指定日期').click());
     f.select('开始日期', '2026-10-18');
     f.select('结束日期', '2026-10-01');
     await act(async () => f.button('生成报告').click());
@@ -301,8 +296,8 @@ it('确认身份期间防重复提交，切号销毁草稿并拒绝旧响应', a
     expect(f.generate).not.toHaveBeenCalled();
     // 切号后工具按新账号重建：种类回到默认、上一轮选中的对象不再带过去，
     // 因此要重新选对象才能生成（不是卡在「正在提交」）。
-    expect(f.host.querySelector<HTMLElement>('[aria-label="报告类型"]')!.dataset.value).toBe(
-      'group',
+    expect(f.host.querySelector('[aria-label="报告类型"] [aria-checked="true"]')?.textContent).toBe(
+      '群聊分析',
     );
     expect(f.host.querySelector('[data-analysis-choice][aria-pressed="true"]')).toBeNull();
     expect(f.button('生成报告').disabled).toBe(true);
@@ -434,7 +429,7 @@ it('群成员入口固定对象时用成员 QQ 号显示头像，不回退默认
 it('历史仅号成员以真实 QQ 号生成请求，不将选择器键伪造为 UID', async () => {
   const f = mount();
   try {
-    f.select('报告类型', 'member');
+    act(() => f.button('群成员分析').click());
     act(() => f.button('合成群 A').click());
     act(() => f.button('历史仅号成员').click());
     await act(async () => f.button('生成报告').click());

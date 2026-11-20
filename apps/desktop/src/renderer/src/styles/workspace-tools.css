@@ -524,24 +524,6 @@
   box-shadow: none;
 }
 
-.weq-content-collection {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-}
-
-.weq-content-collection .weq-collection-dialog {
-  width: 100%;
-  max-width: none;
-  height: 100%;
-  max-height: none;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
-}
-
 html[data-theme='dark'] .weq-tools-modal {
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-strong);
