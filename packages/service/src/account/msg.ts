@@ -120,11 +120,7 @@ export interface InsertMsgResult {
  */
 export type DeletedKind = 'weq' | 'qq';
 
-/**
- * Recall marker for a message whose QQ recall was intercepted by the anti-recall
- * trigger. The original row survives untouched (renders normally); this only
- * records that a recall happened and who did it, read from `weq_recall_log`.
- */
+/** Recall marker for a message with preserved original content. */
 export interface RecallInfo {
   /** Uid that performed the recall (from the recall gray-tip; '' if unknown). */
   revokeUid: string;
@@ -132,6 +128,8 @@ export interface RecallInfo {
   sameSender: boolean;
   /** When the recall was intercepted (unix seconds). */
   recallTs: number;
+  /** 正文来自防撤回独立副本（本地数据库快照或实时代理推送）。 */
+  retained?: true;
 }
 
 /** Conversation-level `msgId → recall log entry` map (see AntiRecallService.getRecallMap). */

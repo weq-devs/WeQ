@@ -59,7 +59,8 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
   options: { descending?: boolean; limit?: number; min?: bigint; max?: bigint } = {},
 ): T[] {
   const identity = timelineMessageIdentity;
-  const protectedRows = [...local, ...cached].filter((row) => {
+  const cachedRows = [...local.filter((row) => row.source === 'roaming'), ...cached];
+  const protectedRows = cachedRows.filter((row) => {
     const seq = timelineSeq(row.msgSeq);
     return (
       row.recall &&
@@ -86,11 +87,9 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
       .map((row) => `${row.msgSeq}:${row.msgRandom}:${row.senderUid ?? ''}`),
   );
   const added = new Set<string>();
-  const candidates = [
-    ...protectedRows,
-    ...local.filter((item) => item.source === 'roaming'),
-    ...cached,
-  ].filter((row) => row.recall || !protectedKeys.has(identity(row)));
+  const candidates = [...protectedRows, ...cachedRows].filter(
+    (row) => row.recall || !protectedKeys.has(identity(row)),
+  );
   const syncedIdentities = new Set(
     candidates
       .filter((row) => !row.localSent)

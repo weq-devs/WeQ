@@ -139,15 +139,19 @@ it('未经过代理的原文也能持久留存、覆盖 QQ 撤回提示，并在
   await f.archive.observe([], [f.recall]);
   await f.archive.observe([], [f.recall]);
   expect(f.notify).toHaveBeenCalledTimes(1);
+  expect(f.notify).toHaveBeenCalledWith(
+    expect.objectContaining({ recall: expect.objectContaining({ retained: true }) }),
+  );
   const archived = await f.history.cachedTimeline('c2c', 'u_peer', 1, 50, 20, true);
   const gray = { ...f.original, elements: [{ type: 'grayTipRevoke', data: {} }] };
   const unrelated = { ...gray, msgId: '9002', senderUid: '', msgRandom: '0' };
   const result = mergeRoamingTimeline('c2c', [gray, unrelated], archived);
   expect(result).toHaveLength(2);
   expect(result.find((row) => row.msgId === '9001')?.elements).toEqual(f.original.elements);
+  expect(result.find((row) => row.msgId === '9001')?.recall?.retained).toBe(true);
   await f.archive.close();
   const reopened = new RecallArchive(f.nt, f.path, f.protects, vi.fn());
-  expect((await reopened.list())[0]?.recall?.revokeUid).toBe('u_peer');
+  expect((await reopened.list())[0]?.recall).toMatchObject({ revokeUid: 'u_peer', retained: true });
   expect(await f.history.cachedRecalls()).toHaveLength(1);
   expect((await f.history.cachedForDeletion('c2c', 'u_peer', 42))[0]?.elements).toEqual(
     f.original.elements,

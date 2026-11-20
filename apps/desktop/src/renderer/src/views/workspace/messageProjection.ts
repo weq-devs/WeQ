@@ -11,6 +11,7 @@ import { seedMessageBubbles, messageBubble } from '../../lib/messageBubbles';
 import type { Conversation, GroupMember, Message, User } from '../../im-template/template';
 import type { SetEmojiItem } from '@weq/codec';
 import { flashTransferTitle } from '../../components/QqFlashTransfer.shared';
+import { showsRoamingSource } from '../../components/MessageProvenance.shared';
 import type {
   MessageWire,
   ChatMsgWire,
@@ -235,6 +236,9 @@ export function messageToTemplate(
   // else's message (sameSender === false). Group → memberMap by uid; c2c → the
   // peer (the only other party). Falls back to a generic label in the bubble.
   const recallRevokerName = resolveRecallRevokerName(message, conversation, memberMap);
+  let body = messageBody(message.elements);
+  if (!body && message.sourceFormat)
+    body = showsRoamingSource(message) ? '[漫游空消息或未解析]' : '[消息内容暂未解析]';
   return {
     id: timelineRowKey(message),
     sourceFormat: message.sourceFormat,
@@ -244,7 +248,7 @@ export function messageToTemplate(
     senderUid: message.senderUid,
     sendTime: message.sendTime,
     sender,
-    body: messageBody(message.elements) || (message.sourceFormat ? '[漫游空消息或未解析]' : ''),
+    body,
     // 闪照：本地库只剩一句兜底文案（元素本体从没落库）。打上标记，让聊天窗按需走
     // 协议拉取把真正的元素补回来；拉不到就继续显示这句话。
     ...(isFlashPhotoPlaceholder(message.elements) ? { flashPhotoPlaceholder: true } : {}),
@@ -275,7 +279,6 @@ export function messageToTemplate(
     qqElements: unknown[];
     setEmojiList?: SetEmojiItem[];
     deletedKind?: 'weq' | 'qq';
-    recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
     recallRevokerName?: string;
     msgId: string;
     msgSeq: string;

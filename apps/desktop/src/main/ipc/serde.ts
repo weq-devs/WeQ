@@ -37,6 +37,7 @@ import {
   type FormattedOnlineStatus,
   type RenderC2cMsg,
   type RenderGroupMsg,
+  type RecallInfo,
   type GuildDirectSessionView,
   type RenderGuildDirectMsg,
 } from '@weq/service';
@@ -309,13 +310,8 @@ export interface ChatMsgWire {
    * message. Drives the in-chat veil + whether a restore button shows.
    */
   deletedKind?: 'weq' | 'qq';
-  /**
-   * Recall marker: present when this message's QQ recall was intercepted by the
-   * anti-recall trigger (its original content survives and renders normally).
-   * `sameSender` = author recalled their own message; false = an admin recalled
-   * it. Drives the in-chat 撤回 tag + the 撤回列表 panel. Omitted for a normal message.
-   */
-  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
+  /** Drives the in-chat 撤回 tag and the 撤回列表 panel. */
+  recall?: RecallInfo;
   /**
    * Per-message decoration from column 40801: bubbleId / fontId / widgetId.
    * All three are itemIds (0 = not set). Omitted entirely when the column is

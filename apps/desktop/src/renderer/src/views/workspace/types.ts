@@ -2,7 +2,7 @@ import type { client } from '../../trpc/client';
 import type { FileSyncReceipt } from '../../lib/fileSendReconcile';
 import type { ConversationReadingPosition } from '../../lib/conversationReadingPosition';
 import type { MfCardPreview } from '../../components/mergeForward/model';
-import type { MessageBubbleSkin } from '@weq/service';
+import type { MessageBubbleSkin, RecallInfo } from '@weq/service';
 import type { Message, ProfileExtInfo } from '../../im-template/template';
 import type { SetEmojiItem } from '@weq/codec';
 
@@ -121,8 +121,7 @@ export type MessageWire = {
   setEmojiList?: SetEmojiItem[];
   /** Deleted origin: 'weq' (restorable) or 'qq' (native recall, not). */
   deletedKind?: 'weq' | 'qq';
-  /** Recall marker: message whose QQ recall was intercepted (content intact). */
-  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
+  recall?: RecallInfo;
   /**
    * Per-message decoration from column 40801 (0 = not set).
    * `fontId1Raw` / `fontId2Raw` 是字体两槽位的原始 wire 值（41525 / 41531），
@@ -156,7 +155,7 @@ export type ChatMsgWire = {
   elements: unknown[];
   setEmojiList?: SetEmojiItem[];
   deletedKind?: 'weq' | 'qq';
-  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
+  recall?: RecallInfo;
   decoration?: {
     bubbleId: number;
     fontId: number;

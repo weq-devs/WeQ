@@ -25,6 +25,11 @@ function parse<T>(value: unknown): T {
   ) as T;
 }
 
+/** 来源由存储位置确定，旧留存副本也能在读取时补齐。 */
+function markRetained(message: GapFetchedMessage): GapFetchedMessage {
+  return message.recall ? { ...message, recall: { ...message.recall, retained: true } } : message;
+}
+
 /** 独立于 QQ 库的原文副本。未撤回快照保留七天、最多一万条，已撤回正文持久保留。 */
 export class RecallArchive {
   private ready?: Promise<void>;
@@ -206,7 +211,7 @@ export class RecallArchive {
           'UPDATE recall_snapshot SET payload=?,recalled=1 WHERE kind=? AND conv=? AND msg_id=? AND recalled=0',
           [stringify(message), message.kind, message.conv, message.msgId],
         );
-        this.onRecall(message);
+        this.onRecall(markRetained(message));
       }
       await this.nt.executeSqlWrite(this.path, 'DELETE FROM recall_pending WHERE identity=?', [
         identity!,
@@ -298,7 +303,7 @@ export class RecallArchive {
       `SELECT payload FROM recall_snapshot WHERE recalled=? ${kind ? 'AND kind=?' : ''} ${conv ? 'AND conv=?' : ''}`,
       [recalled ? 1 : 0, ...(kind ? [kind] : []), ...(conv ? [conv] : [])],
     );
-    return rows.map((row) => parse<GapFetchedMessage>(row[0]));
+    return rows.map((row) => markRetained(parse<GapFetchedMessage>(row[0])));
   }
 
   async byKeys(kind: 'c2c' | 'group', conv: string, keys: readonly (readonly [string, string])[]) {
@@ -310,7 +315,7 @@ export class RecallArchive {
       "SELECT payload FROM recall_snapshot WHERE recalled=1 AND kind=? AND conv=? AND (seq || ':' || msg_id) IN (SELECT value FROM json_each(?))",
       [kind, conv, JSON.stringify(keys.map(([seq, id]) => `${seq}:${id}`))],
     );
-    return rows.map((row) => parse<GapFetchedMessage>(row[0]));
+    return rows.map((row) => markRetained(parse<GapFetchedMessage>(row[0])));
   }
 
   async find(msgId: string): Promise<GapFetchedMessage | null> {
@@ -322,7 +327,7 @@ export class RecallArchive {
       'SELECT payload FROM recall_snapshot WHERE recalled=1 AND msg_id=? LIMIT 2',
       [msgId],
     );
-    return rows.length === 1 ? parse<GapFetchedMessage>(rows[0]![0]) : null;
+    return rows.length === 1 ? markRetained(parse<GapFetchedMessage>(rows[0]![0])) : null;
   }
 
   async pendingNativeIds(): Promise<{ kind: 'c2c' | 'group'; id: string; conv: string }[]> {
@@ -379,7 +384,7 @@ export class RecallArchive {
         limit,
       ],
     );
-    return rows.map((row) => parse<GapFetchedMessage>(row[0]));
+    return rows.map((row) => markRetained(parse<GapFetchedMessage>(row[0])));
   }
 
   async close() {
