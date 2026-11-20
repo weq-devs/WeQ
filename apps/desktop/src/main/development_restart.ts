@@ -1,104 +1,26 @@
-import { fork } from 'node:child_process';
-import { access } from 'node:fs/promises';
-import { join } from 'node:path';
-import { manualRestartArgs } from './startup_window';
+// electron-vite 透传 Electron 的退出码，由当前 pnpm dev 会话接手下一轮。
+export const DEVELOPMENT_RESTART_EXIT_CODE = 75;
 
-interface RestartApp {
-  on(
-    event: 'will-quit',
-    listener: (event: { defaultPrevented?: boolean; preventDefault(): void }) => void,
-  ): unknown;
-  removeListener(
-    event: 'will-quit',
-    listener: (event: { defaultPrevented?: boolean; preventDefault(): void }) => void,
-  ): unknown;
-  quit(): void;
-}
+/** 只有窗口放行且退出清理完成，才向开发启动器提交重启。 */
+export function scheduleDevelopmentRestart(
+  app: Pick<Electron.App, 'on' | 'removeListener' | 'exit'>,
+  signal: AbortSignal,
+): void {
+  if (process.env.WEQ_DEV_RESTART_MANAGED !== '1')
+    throw new Error('请先退出 WeQ，并在终端重新运行 pnpm dev 以启用菜单重启。');
+  if (signal.aborted) return;
 
-/** electron-vite 随原 Electron 退出；开发版必须重启整个工具链，而非沿用旧 URL。 */
-export async function prepareDevelopmentRestart(
-  app: RestartApp,
-  options: {
-    appPath: string;
-    argv: readonly string[];
-    logPath: string;
-    nodePath?: string;
-    signal?: AbortSignal;
-    onFailureAfterReady?: () => void;
-  },
-): Promise<void> {
-  if (!options.nodePath)
-    throw new Error('开发版重启需要 pnpm 的 Node 路径，请通过 pnpm 启动 WeQ。');
-  await access(options.nodePath);
-  const worker = join(options.appPath, '../../scripts/restart-desktop-dev.mjs');
-  await access(worker);
-  const { signal } = options;
-  signal?.throwIfAborted();
-  const helper = fork(
-    worker,
-    [
-      JSON.stringify({
-        parentPid: process.pid,
-        appPath: options.appPath,
-        cli: join(options.appPath, 'node_modules/electron-vite/bin/electron-vite.js'),
-        args: manualRestartArgs(options.argv).slice(1),
-        logPath: options.logPath,
-      }),
-    ],
-    {
-      execPath: options.nodePath,
-      detached: true,
-      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
-    },
-  );
-  await new Promise<void>((resolve, reject) => {
-    let ready = false;
-    const cleanup = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', cancel);
-      app.removeListener('will-quit', commit);
-      helper.removeListener('error', fail);
-      helper.removeListener('exit', exited);
-      helper.removeListener('message', message);
-    };
-    const fail = (error: unknown) => {
-      cleanup();
-      helper.kill();
-      if (!ready) reject(error);
-      else if (!signal?.aborted) {
-        options.onFailureAfterReady?.();
-        console.error('开发版重启失败', error);
-      }
-    };
-    const cancel = () => fail(signal?.reason);
-    const exited = () => fail(new Error('开发版重启助手提前退出'));
-    let committing = false;
-    const commit = (event: { defaultPrevented?: boolean; preventDefault(): void }) => {
-      if (event.defaultPrevented) return;
-      event.preventDefault();
-      if (committing) return;
-      committing = true;
-      helper.send({ type: 'commit' }, (error) => {
-        if (error) fail(error);
-      });
-    };
-    const message = (value: unknown) => {
-      const reply = value as { type?: string; message?: string } | null;
-      if (reply?.type === 'ready' && !ready) {
-        ready = true;
-        app.on('will-quit', commit);
-        resolve();
-      } else if (reply?.type === 'committed' && committing) {
-        cleanup();
-        helper.disconnect();
-        helper.unref();
-        app.quit();
-      } else if (reply?.type === 'error') fail(new Error(reply.message));
-    };
-    const timer = setTimeout(() => fail(new Error('开发版重启助手准备或退出超时')), 120_000);
-    helper.once('error', fail);
-    helper.once('exit', exited);
-    helper.on('message', message);
-    signal?.addEventListener('abort', cancel, { once: true });
-  });
+  const restart = (event: Electron.Event) => {
+    if (event.defaultPrevented) return;
+    remove();
+    event.preventDefault();
+    // 等本轮 will-quit 返回后退出，保留已经完成的正常退出清理。
+    setImmediate(() => app.exit(DEVELOPMENT_RESTART_EXIT_CODE));
+  };
+  const remove = () => {
+    app.removeListener('will-quit', restart);
+    signal.removeEventListener('abort', remove);
+  };
+  app.on('will-quit', restart);
+  signal.addEventListener('abort', remove, { once: true });
 }

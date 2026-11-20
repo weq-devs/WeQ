@@ -16,7 +16,7 @@ import { clearStorageAfterExit, clearStorageNow, storageCleanupResult } from './
 import { DialogLocations } from './dialog_locations';
 import { AppAutostart } from './autostart';
 import { manualRestartArgs } from './startup_window';
-import { prepareDevelopmentRestart } from './development_restart';
+import { scheduleDevelopmentRestart } from './development_restart';
 import { networkFetch } from '@weq/network';
 import { scheduleApplicationRelaunch } from './app_quit_lifecycle';
 import { appImageRelaunchCommand } from './linux_window_backend';
@@ -41,14 +41,7 @@ export async function restartApplication(): Promise<void> {
 
   try {
     if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-      await prepareDevelopmentRestart(app, {
-        appPath: app.getAppPath(),
-        argv: process.argv,
-        nodePath: process.env.npm_node_execpath,
-        logPath: join(app.getPath('logs'), 'development-restart.log'),
-        signal,
-        onFailureAfterReady: reset,
-      });
+      scheduleDevelopmentRestart(app, signal);
     } else {
       const args = manualRestartArgs(process.argv);
       const appImage = process.platform === 'linux' ? process.env.APPIMAGE?.trim() : undefined;
