@@ -12,16 +12,17 @@ export function QzoneActionsRow({
   const internalRef = useRef<HTMLDivElement>(null);
   const ref = rowRef ?? internalRef;
   useLayoutEffect(() => {
-    const row = ref.current;
-    if (!row) return;
+    const container = ref.current;
+    const row = container?.firstElementChild;
+    if (!container || !row) return;
     const fit = () => {
-      row.removeAttribute('data-compact');
-      row.toggleAttribute('data-compact', row.scrollWidth > row.clientWidth);
+      container.removeAttribute('data-compact');
+      container.toggleAttribute('data-compact', row.scrollWidth > container.clientWidth);
     };
     // 卡片宽度和异步返回的计数都可能改变文字能否放下。
     const resize = new ResizeObserver(fit);
     const content = new MutationObserver(fit);
-    resize.observe(row);
+    resize.observe(container);
     content.observe(row, { childList: true, characterData: true, subtree: true });
     return () => {
       resize.disconnect();
@@ -29,8 +30,8 @@ export function QzoneActionsRow({
     };
   }, [ref]);
   return (
-    <div ref={ref} className="weq-qzn-actions" data-fit title={title}>
-      {children}
+    <div ref={ref} className="weq-qzn-actions-fit" title={title}>
+      <div className="weq-qzn-actions">{children}</div>
     </div>
   );
 }
