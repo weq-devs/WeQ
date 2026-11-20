@@ -4,6 +4,7 @@ import { useDraftClose } from '../../lib/draftClose';
 import { client, trpc } from '../../trpc/client';
 import { FormSelect } from '../FormSelect';
 import { GroupFeatureSurface } from '../GroupFeatureSurface';
+import { SegmentedControl } from '../SegmentedControl';
 import { Row } from '../settings/controls';
 import { ActionFeedback } from './shared';
 import { useQQAction, withQQAccountScope } from './shared.shared';
@@ -34,6 +35,7 @@ function GroupAdminPermissionsEditor({
     { enabled: action.available, refetchOnWindowFocus: false, retry: false },
   );
   function changeVerification(enable: boolean) {
+    if (verification.data === enable) return;
     void action.perform(
       (binding) =>
         client.account.qqActions.setGroupAdminReceiveVerify.mutate({
@@ -117,15 +119,19 @@ function GroupAdminPermissionsEditor({
         </span>
       );
     return (
-      <FormSelect
-        aria-label={label}
-        value={String(value)}
+      <SegmentedControl
+        label={label}
+        value={value ? 'allow' : 'deny'}
+        options={[
+          { value: 'allow', label: '允许' },
+          { value: 'deny', label: '禁止' },
+        ]}
         disabled={disabled}
-        onChange={(event) => change(event.target.value === 'true')}
-      >
-        <option value="true">允许</option>
-        <option value="false">禁止</option>
-      </FormSelect>
+        onChange={(next) => {
+          const allowed = next === 'allow';
+          if (allowed !== value) change(allowed);
+        }}
+      />
     );
   }
 
@@ -187,15 +193,16 @@ function GroupAdminPermissionsEditor({
                       : '未确认'}
                 </span>
               ) : (
-                <FormSelect
-                  aria-label="收取入群验证"
-                  value={String(verification.data)}
+                <SegmentedControl
+                  label="收取入群验证"
+                  value={verification.data ? 'receive' : 'off'}
+                  options={[
+                    { value: 'receive', label: '收取' },
+                    { value: 'off', label: '关闭' },
+                  ]}
                   disabled={action.disabled || verification.isFetching || verification.isError}
-                  onChange={(event) => changeVerification(event.target.value === 'true')}
-                >
-                  <option value="true">收取</option>
-                  <option value="false">关闭</option>
-                </FormSelect>
+                  onChange={(next) => changeVerification(next === 'receive')}
+                />
               )
             }
           />
