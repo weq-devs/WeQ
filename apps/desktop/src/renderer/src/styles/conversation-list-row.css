@@ -43,6 +43,24 @@ html[data-theme] .conversation-row .row-pinned {
 .weq-conversation-list {
   background: var(--weq-bg-surface);
 }
+.weq-conversation-row-content {
+  grid-column: 2 / -1;
+}
+.weq-conversation-row-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+.weq-conversation-row-line + .weq-conversation-row-line {
+  min-height: 16px;
+}
+.weq-conversation-row-line > :is(strong, .row-preview-line) {
+  flex: 1 1 0;
+}
+.weq-conversation-row-line .row-time-line {
+  align-self: stretch;
+}
 :is(.app-shell, .weq-conversation-list) :is(.conversation-row, .contact-row) {
   box-sizing: border-box;
   display: grid;
@@ -73,12 +91,7 @@ html[data-theme] .conversation-row .row-pinned {
   font-size: 11px;
   line-height: 1.1;
 }
-:is(.app-shell, .weq-conversation-list) .conversation-row .row-unread,
 .app-shell .weq-contact-directory .row-unread {
-  right: 13px;
-  bottom: 10px;
-}
-:is(.app-shell, .weq-conversation-list) .conversation-row .row-muted {
   right: 13px;
   bottom: 10px;
 }

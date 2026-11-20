@@ -56,7 +56,6 @@ html[data-component-style='qqnt'][data-theme] {
   --weq-conversation-row-height: 64px;
   --weq-qqnt-row-avatar: 40px;
   --weq-qqnt-row-padding: 12px;
-  --weq-qqnt-row-content-height: 40px;
   --weq-qqnt-row-title-line: 20px;
   --weq-qqnt-row-preview-line: 16px;
   --background: var(--weq-qqnt-canvas);
@@ -95,7 +94,6 @@ html[data-component-style='qqnt'][data-theme][data-density='compact'] {
   --weq-conversation-row-height: 54px;
   --weq-qqnt-row-avatar: 36px;
   --weq-qqnt-row-padding: 7px 12px;
-  --weq-qqnt-row-content-height: 36px;
   --weq-qqnt-row-title-line: 18px;
   --weq-qqnt-row-preview-line: 14px;
 }
@@ -152,9 +150,6 @@ html[data-component-style='qqnt'][data-theme][data-density]
   :is(.app-shell, .weq-conversation-list)
   .conversation-row
   .row-meta {
-  align-self: center;
-  height: var(--weq-qqnt-row-content-height);
-  padding-top: 0;
   gap: 4px;
   font-size: 11px;
   line-height: var(--weq-qqnt-row-title-line);
@@ -383,7 +378,6 @@ html:where(
 )[data-component-style='qqnt'][data-theme] {
   --weq-qqnt-row-avatar: 50px;
   --weq-qqnt-row-padding: 10px 16px;
-  --weq-qqnt-row-content-height: 44px;
   --weq-qqnt-row-title-line: 22px;
   --weq-qqnt-row-preview-line: 18px;
 }
@@ -394,7 +388,6 @@ html:where(
   --weq-conversation-row-height: 64px;
   --weq-qqnt-row-avatar: 36px;
   --weq-qqnt-row-padding: 7px 12px;
-  --weq-qqnt-row-content-height: 36px;
   --weq-qqnt-row-title-line: 18px;
   --weq-qqnt-row-preview-line: 14px;
 }

@@ -31,6 +31,7 @@ import { useViewState } from '../../state/view';
 import { ConversationBatchToolbar } from '../ConversationBatchToolbar';
 import { DirectoryToolbar } from '../DirectoryToolbar';
 import { useConversationBatchActions } from '../useConversationBatchActions';
+import { ConversationRowContent } from './ConversationRowContent';
 import '../../styles/group-assistant.css';
 
 const emptyPins: GroupAssistantPins = {};
@@ -760,34 +761,30 @@ export function MergedSessionPanel({
                 >
                   <Avatar name={name ?? ''} avatarUrl={avatarUrl} seed={seed ?? conv.id} />
                   {kind === 'groupAssistant' ? (
-                    <>
-                      <span className="row-main">
-                        <strong>
-                          <span className="row-title-text">{name}</span>
-                        </strong>
-                        {showPreview ? (
-                          <span className="row-preview-line">
-                            <span className="row-message-preview">{preview}</span>
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="row-meta">
-                        <span className="row-time-line">
+                    <ConversationRowContent
+                      title={<span className="row-title-text">{name}</span>}
+                      preview={
+                        showPreview ? <span className="row-message-preview">{preview}</span> : null
+                      }
+                      time={
+                        <>
                           {pinned ? (
                             <Pin size={12} aria-label="置顶" className="row-pinned" />
                           ) : null}
                           <TimeLabel value={conv.updatedAt}>{time}</TimeLabel>
-                        </span>
-                        {unreadCount > 0 ? (
+                        </>
+                      }
+                      status={
+                        unreadCount > 0 ? (
                           <ReminderCount
                             count={unreadCount}
                             tone={conv.preference?.muted ? 'muted' : 'notice'}
                             className="row-unread"
                             aria-label={`${unreadCount} 条未读消息`}
                           />
-                        ) : null}
-                      </span>
-                    </>
+                        ) : null
+                      }
+                    />
                   ) : (
                     <div className="weq-merged-popover-item-main">
                       <div className="weq-merged-popover-item-top">
