@@ -52,20 +52,22 @@ export function withFallback<T extends object>(target: T): T {
   const fallback = (): unknown =>
     new Proxy(() => fallback(), {
       get: (_target, key) =>
-        key === 'useQuery'
-          ? () => ({
-              data: undefined,
-              isLoading: false,
-              isFetching: false,
-              refetch: async () => ({ data: undefined }),
-            })
-          : key === 'useMutation'
-            ? () => ({ mutateAsync: async () => undefined })
-            : key === 'query' || key === 'fetch' || key === 'invalidate'
-              ? async () => null
-              : key === 'useSubscription'
-                ? () => undefined
-                : fallback(),
+        key === 'useQueries'
+          ? () => []
+          : key === 'useQuery'
+            ? () => ({
+                data: undefined,
+                isLoading: false,
+                isFetching: false,
+                refetch: async () => ({ data: undefined }),
+              })
+            : key === 'useMutation'
+              ? () => ({ mutateAsync: async () => undefined })
+              : key === 'query' || key === 'fetch' || key === 'invalidate'
+                ? async () => null
+                : key === 'useSubscription'
+                  ? () => undefined
+                  : fallback(),
     });
   for (const value of Object.values(target))
     if (value && typeof value === 'object') withFallback(value);

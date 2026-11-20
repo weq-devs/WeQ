@@ -5360,12 +5360,15 @@ export const accountRouter = router({
           throw new DOMException('账号已切换，已停止操作', 'AbortError');
         return services.msgs.deleteCachedSentMessage(message, input.hideAfterDelete ?? false);
       }
-      return services.msgs.deleteMessage(
+      const deleted = await services.msgs.deleteMessage(
         BigInt(input.msgId),
         input.kind,
         input.conv,
         input.hideAfterDelete ?? false,
       );
+      if (deleted && input.kind === 'group')
+        services.contactDirectory?.prioritizeGroupTimes([input.conv]);
+      return deleted;
     }),
 
   /** Restore a WeQ-deleted message (write the original 40011/40012 back). */
@@ -5387,7 +5390,10 @@ export const accountRouter = router({
         if (!input.kind || !input.conv) throw new Error('恢复缓存消息需要明确的会话目标');
         return services.msgs.restoreCachedSentMessage(input.msgId, input.kind, input.conv);
       }
-      return services.msgs.restoreMessage(BigInt(input.msgId));
+      const restored = await services.msgs.restoreMessage(BigInt(input.msgId));
+      if (restored && input.kind === 'group' && input.conv)
+        services.contactDirectory?.prioritizeGroupTimes([input.conv]);
+      return restored;
     }),
 
   /**

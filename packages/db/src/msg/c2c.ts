@@ -164,7 +164,7 @@ export class C2cMsgDb {
     return this.qq.dbPath;
   }
   directoryTimePage(before?: string) {
-    return directoryTimePage(this.qq, 'c2c_msg_table', before);
+    return directoryTimePage(this.qq, before);
   }
   async calendarMessage(part: C2cPartition, id: bigint): Promise<C2cMsg[]> {
     const { clause, value } = partitionWhere(part);

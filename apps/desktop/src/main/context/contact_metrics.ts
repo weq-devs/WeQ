@@ -21,6 +21,7 @@ import type { AccountSession } from '@weq/account';
 import { classifyChatType } from '@weq/codec';
 import type { AccountServices } from './app_context';
 import { backgroundTasks } from '../background_tasks';
+import { GroupDirectoryTimeCache } from './group_directory_times';
 const validContactUid = (uid: string) => /^u_[A-Za-z0-9_-]+$/.test(uid);
 type RefreshContact = { uid: string; uin: bigint };
 
@@ -152,7 +153,8 @@ export class ContactDirectoryRuntime {
   private groupMeta = new Map<string, Record<string, unknown>>();
   private scope: { uin: string; configId: string };
   private readonly selfUid: string;
-  private readonly timeReaders: Record<'friends' | 'groups', DirectoryTimeReader>;
+  private readonly friendTimes: DirectoryTimeReader;
+  private readonly groupTimes: GroupDirectoryTimeCache;
   private readonly stopProfileWatch?: () => void;
 
   constructor(
@@ -175,18 +177,37 @@ export class ContactDirectoryRuntime {
       { normalize: (value) => z.object({ task: refreshCheckpoint.optional() }).parse(value) },
     );
     this.selfUid = session.selfUid;
-    this.timeReaders = {
-      friends: new DirectoryTimeReader(
-        (cursor) => session.c2cMsgs.directoryTimePage(cursor),
-        this.selfUid,
-        session.context.uin,
-      ),
-      groups: new DirectoryTimeReader(
-        (cursor) => session.groupMsgs.directoryTimePage(cursor),
-        this.selfUid,
-        session.context.uin,
-      ),
-    };
+    this.friendTimes = new DirectoryTimeReader(
+      (cursor) => session.c2cMsgs.directoryTimePage(cursor),
+      this.selfUid,
+      session.context.uin,
+    );
+    const groupSourcePath = session.groupMsgs.sourcePath;
+    const groupSource = createHash('sha256')
+      .update(JSON.stringify([this.scope.uin, this.selfUid, configId, groupSourcePath ?? source]))
+      .digest('hex');
+    const readGroupTimes = <T>(read: () => Promise<T>) =>
+      withDatabasePriority(
+        'background',
+        async () => {
+          this.assertCurrent();
+          const result = await read();
+          this.assertCurrent();
+          return result;
+        },
+        this.lifetime.signal,
+      );
+    this.groupTimes = new GroupDirectoryTimeCache(
+      join(cacheDir, `group-directory-times-${groupSource}.json`),
+      groupSourcePath,
+      (codes) =>
+        readGroupTimes(() =>
+          session.groupMsgs.recentDirectoryTimes(codes, this.selfUid, this.scope.uin),
+        ),
+      (code) =>
+        readGroupTimes(() => session.groupMsgs.directoryTimes(code, this.selfUid, this.scope.uin)),
+      this.lifetime.signal,
+    );
     services.groupInfo.setMemberRosterCache(join(cacheDir, 'group-members'));
     services.groupInfo.setGroupProfileCache(join(cacheDir, 'group-profiles'));
     this.history = new ContactHistoryService(cacheDir);
@@ -242,16 +263,19 @@ export class ContactDirectoryRuntime {
     this.stopProfileWatch = services.intentSense?.onCachedProfilesChanged?.(() => {
       if (this.isCurrent()) this.cache.emit('profilesChanged');
     });
-    if (session.c2cMsgs?.sourcePath)
+    const friendSourcePath = session.c2cMsgs?.sourcePath;
+    for (const dbPath of new Set([friendSourcePath, groupSourcePath])) {
+      if (!dbPath) continue;
       this.watches.push(
         watcher.mount({
-          dbPath: session.c2cMsgs.sourcePath,
+          dbPath,
           onDbFileChangeHook: () => {
-            this.timeReaders.friends.invalidate();
-            this.timeReaders.groups.invalidate();
+            if (dbPath === friendSourcePath) this.friendTimes.invalidate();
+            if (dbPath === groupSourcePath) this.groupTimes.invalidate();
           },
         }),
       );
+    }
     for (const dbPath of new Set([session.profileInfo.dbPath, session.groupMembers.dbPath])) {
       this.watches.push(
         watcher.mount({
@@ -291,15 +315,24 @@ export class ContactDirectoryRuntime {
     };
   }
 
-  async localTimes(kind: 'friends' | 'groups') {
+  async localTimes() {
     this.assertCurrent();
     const result = await withDatabasePriority(
       'background',
-      () => this.timeReaders[kind].read(),
+      () => this.friendTimes.read(),
       this.lifetime.signal,
     );
     this.assertCurrent();
     return result;
+  }
+  async localGroupTimes(groupCodes: readonly string[]) {
+    this.assertCurrent();
+    const result = await this.groupTimes.read([...new Set(groupCodes)]);
+    this.assertCurrent();
+    return result;
+  }
+  prioritizeGroupTimes(groupCodes: readonly string[]) {
+    if (this.isCurrent()) this.groupTimes.prioritize(groupCodes);
   }
   async localGroupMaxSeqs() {
     this.assertCurrent();
@@ -1450,6 +1483,7 @@ export class ContactDirectoryRuntime {
     this.services.groupInfo.disposeGroupProfiles();
     this.disposed = true;
     this.lifetime.abort();
+    this.groupTimes.flush();
     this.stopPreparing = 'cancel';
     this.checkAgain = false;
     this.pendingKinds.clear();

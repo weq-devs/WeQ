@@ -74,6 +74,25 @@ const proxy = (path: string[] = []): unknown =>
     get: (_target, key) => {
       if (key === 'useUtils') return () => proxy();
       if (key === 'useSubscription') return () => undefined;
+      if (key === 'useQueries')
+        return (factory: (rpc: unknown) => unknown) =>
+          factory({
+            account: {
+              contactMetrics: {
+                localGroupTimes: () => ({
+                  data: {
+                    done: true,
+                    failed: [],
+                    rows: {
+                      '20001': { time: 1704038407, mine: 1704038407 },
+                      '20002': { time: 1704038408, mine: null },
+                      '20003': { time: null, mine: null },
+                    },
+                  },
+                }),
+              },
+            },
+          });
       if (key === 'useQuery')
         return () =>
           path.join('.') === 'account.mutualMark.get' &&
@@ -89,8 +108,6 @@ const proxy = (path: string[] = []): unknown =>
                           rows: {
                             u_friend0: { time: 1704038407, mine: null },
                             u_friend1: { time: 1704038408, mine: null },
-                            '20001': { time: 1704038407, mine: 1704038407 },
-                            '20002': { time: 1704038408, mine: null },
                           },
                         }
                       : path.join('.') === 'account.contactMetrics.cachedProfiles'

@@ -80,9 +80,10 @@ export function createContactMetricsRouter(
     }),
     status: procedure.input(binding).query(({ input }) => resolve(input).status()),
     snapshot: procedure.input(binding).query(({ input }) => resolve(input).snapshot()),
-    localTimes: procedure
-      .input(binding.extend({ kind: z.enum(['friends', 'groups']) }))
-      .query(({ input }) => resolve(input).localTimes(input.kind)),
+    localTimes: procedure.input(binding).query(({ input }) => resolve(input).localTimes()),
+    localGroupTimes: procedure
+      .input(binding.extend({ groupCodes: z.array(z.string().regex(/^[1-9]\d{0,14}$/)).max(256) }))
+      .query(({ input }) => resolve(input).localGroupTimes(input.groupCodes)),
     localGroupMaxSeqs: procedure
       .input(binding)
       .query(({ input }) => resolve(input).localGroupMaxSeqs()),

@@ -1,8 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ContactDirectoryRuntime } from '../src/main/context/contact_metrics';
+import { GroupDirectoryTimeCache } from '../src/main/context/group_directory_times';
 import { backgroundTasks } from '../src/main/background_tasks';
 import { backgroundTasksRouter } from '../src/main/ipc/routers/background_tasks';
 import type { AccountServices } from '../src/main/context/app_context';
@@ -103,7 +104,8 @@ async function setup(online = true) {
     selfUid: 'u_self',
     c2cMsgs: { directoryTimePage: vi.fn(async () => ({ items: [], done: true })) },
     groupMsgs: {
-      directoryTimePage: vi.fn(async () => ({ items: [], done: true })),
+      recentDirectoryTimes: vi.fn(async () => ({})),
+      directoryTimes: vi.fn(async () => ({ time: null, mine: null })),
       directoryMaxSeqs: vi.fn(async () => ({ '10001': '42' })),
     },
     profileInfo: { dbPath: '/synthetic/profile.db' },
@@ -226,29 +228,85 @@ it('只刷新本人入群时间也查询直接群资料，不为此拉全群成�
 });
 it('本地时间、群序号、入群和画像摘要在账号切换后拒绝旧读取', async () => {
   const { runtime, services, switchAccount } = await setup();
-  expect(await runtime.localTimes('friends')).toEqual({ rows: {}, done: true });
+  expect(await runtime.localTimes()).toEqual({ rows: {}, done: true });
   expect(await runtime.localJoins()).toEqual({ '10001': 123 });
   expect(await runtime.localGroupMaxSeqs()).toEqual({ '10001': '42' });
   expect(runtime.cachedProfiles()).toEqual([]);
   expect(services.intentSense.cachedProfileSummaries).toHaveBeenCalledOnce();
   switchAccount();
-  await expect(runtime.localTimes('groups')).rejects.toThrow('切换');
+  await expect(runtime.localGroupTimes(['10001'])).rejects.toThrow('切换');
   await expect(runtime.localJoins()).rejects.toThrow('切换');
   await expect(runtime.localGroupMaxSeqs()).rejects.toThrow('切换');
   expect(() => runtime.cachedProfiles()).toThrow('切换');
 });
-it('账号关闭后在途本地时间页不能返回给旧目录', async () => {
+it('账号关闭后在途群会话摘要不能返回给旧目录', async () => {
   const { runtime, session } = await setup();
   const wait = deferred<void>();
-  session.groupMsgs.directoryTimePage.mockImplementationOnce(async () => {
+  session.groupMsgs.recentDirectoryTimes.mockImplementationOnce(async () => {
     await wait.promise;
-    return { items: [], done: true };
+    return { '10001': { time: 100 } };
   });
-  const pending = runtime.localTimes('groups');
+  const pending = runtime.localGroupTimes(['10001']);
   const rejected = expect(pending).rejects.toThrow();
   await runtime.dispose();
   wait.resolve();
   await rejected;
+  expect(session.groupMsgs.directoryTimes).not.toHaveBeenCalled();
+});
+
+it('群时间先返回已核对摘要和落盘结果，并定向重查发生变化的群', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-group-time-cache-'));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, 'messages.db');
+  const path = join(root, 'times.json');
+  await writeFile(source, 'original');
+  const gate = deferred<void>();
+  const readRecent = vi.fn(async () => ({ '10001': { time: 123 } }));
+  const readGroup = vi.fn(async (code: string) => {
+    await gate.promise;
+    return code === '10001' ? { time: 125, mine: 50 } : { time: null, mine: null };
+  });
+  const codes = ['10001', '10002'];
+  const first = new GroupDirectoryTimeCache(
+    path,
+    source,
+    readRecent,
+    readGroup,
+    new AbortController().signal,
+  );
+  expect(await first.read(codes)).toEqual({
+    rows: { '10001': { time: 123 } },
+    done: false,
+    failed: [],
+  });
+  gate.resolve();
+  await waitFor(async () => expect((await first.read(codes)).done).toBe(true));
+  expect(readGroup.mock.calls).toEqual([['10001'], ['10002']]);
+
+  readRecent.mockClear();
+  readGroup.mockClear();
+  const reopened = new GroupDirectoryTimeCache(
+    path,
+    source,
+    readRecent,
+    readGroup,
+    new AbortController().signal,
+  );
+  expect((await reopened.read(codes)).rows).toEqual({
+    '10001': { time: 125, mine: 50 },
+    '10002': { time: null, mine: null },
+  });
+  await waitFor(async () => expect((await reopened.read(codes)).done).toBe(true));
+  expect(readRecent).not.toHaveBeenCalled();
+  expect(readGroup).not.toHaveBeenCalled();
+
+  await writeFile(source, 'changed version');
+  reopened.invalidate();
+  reopened.prioritize(['10001']);
+  readGroup.mockResolvedValueOnce({ time: 100, mine: 50 });
+  expect((await reopened.read(codes)).rows['10001']?.time).toBe(125);
+  await waitFor(async () => expect((await reopened.read(codes)).rows['10001']?.time).toBe(100));
+  expect(readGroup.mock.calls).toEqual([['10001']]);
 });
 function deferred<T>() {
   let resolve!: (value: T) => void;

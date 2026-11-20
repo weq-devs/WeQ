@@ -602,6 +602,9 @@ function mountDbWatch(session: AccountSession): void {
       onNewMessages: async (change: NewMessages) => {
         const ctx = getAppContext();
         if (ctx.account !== session) return;
+        ctx.services?.contactDirectory?.prioritizeGroupTimes(
+          change.group.map((message) => message.targetGroupCode),
+        );
         if (ctx.account === session) {
           try {
             await ctx.services?.unreadInfo.observeNewMessages(change);

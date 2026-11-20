@@ -58,7 +58,7 @@ import {
 } from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
 import { nativeHistoryCursor } from './history';
-import { directoryTimePage } from './directory_times';
+import { groupDirectoryTimes, recentGroupDirectoryTimes } from './directory_times';
 import { listDeletedRefs } from './deleted_refs';
 import { readMessageSourceRows } from './export_source';
 
@@ -143,8 +143,11 @@ export class GroupMsgDb {
   get sourcePath(): string {
     return this.qq.dbPath;
   }
-  directoryTimePage(before?: string) {
-    return directoryTimePage(this.qq, 'group_msg_table', before);
+  directoryTimes(groupCode: string, selfUid: string, selfUin: string) {
+    return groupDirectoryTimes(this.qq, groupCode, selfUid, selfUin);
+  }
+  recentDirectoryTimes(groupCodes: readonly string[], selfUid: string, selfUin: string) {
+    return recentGroupDirectoryTimes(this.qq, groupCodes, selfUid, selfUin);
   }
   async exportSourceRows(conversation: string, ids: readonly string[], full = true) {
     const rows = await readMessageSourceRows(
