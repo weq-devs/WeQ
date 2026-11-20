@@ -221,10 +221,9 @@ export function QzoneAlbumDialog({
     [hostUin],
   );
 
-  // 打开时：先探在线状态，再拉相册列表。
   useEffect(() => {
     if (!open) return;
-    const run = ++runRef.current;
+    runRef.current++;
     setAccess(null);
     setAlbums(null);
     setAlbumNext(null);
@@ -238,56 +237,52 @@ export function QzoneAlbumDialog({
     setMediaLoadingMore(false);
     setMediaError(null);
     setAlbumsError(null);
-    setAlbumsLoading(true);
-    void client.account.getGroupAlbumAccessState
-      .query()
-      .then((state) => {
-        if (run !== runRef.current) return;
-        setAccess({ qqOnline: state.qqOnline, attachEnabled: state.attachEnabled });
-      })
-      .catch(() => {
-        if (run !== runRef.current) return;
-        setAccess({ qqOnline: false, attachEnabled: true });
-      })
-      .finally(() => {
-        if (run !== runRef.current) return;
-        setAlbumsLoading(false);
-      });
+    setAlbumsLoading(false);
     return () => {
       runRef.current += 1;
     };
-  }, [open, hostUin]);
+  }, [open, selfUin, hostUin]);
 
-  // 在线状态落定后拉相册列表。
+  // Remote 可能先挂载页面再允许读取，在线检查和相册首页须一起暂停、恢复。
   useEffect(() => {
-    if (!open || !active || !access?.qqOnline) return;
-    if (albumLoaded.current) return;
-    const run = ++runRef.current;
+    if (!active || albumLoaded.current) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+    setAccess(null);
     setAlbumsLoading(true);
     setAlbumsError(null);
-    void runAlbums((requestId) =>
-      client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: 0 }),
-    )
-      .then((page) => {
-        if (run !== runRef.current) return;
-        setAlbums(page.albums);
-        albumLoaded.current = true;
-        setAlbumNext(page.nextOffset);
-        setAlbumTotal(page.total);
-        setAlbumsError(page.warning);
-        albumPages.current.add(0);
-        setAlbumsLoading(false);
-      })
+    void (async () => {
+      const { qqOnline, attachEnabled } = await client.account.getGroupAlbumAccessState.query(
+        undefined,
+        { signal },
+      );
+      if (signal.aborted) return;
+      setAccess({ qqOnline, attachEnabled });
+      if (!qqOnline) return;
+      const page = await runAlbums((requestId) =>
+        client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: 0 }),
+      );
+      if (signal.aborted) return;
+      setAlbums(page.albums);
+      albumLoaded.current = true;
+      setAlbumNext(page.nextOffset);
+      setAlbumTotal(page.total);
+      setAlbumsError(page.warning);
+      albumPages.current.add(0);
+    })()
       .catch((e: unknown) => {
-        if (run !== runRef.current) return;
-        setAlbumsError(e instanceof Error ? e.message : String(e));
-        setAlbumsLoading(false);
+        if (signal.aborted) return;
+        const detail = e instanceof Error ? e.message : String(e);
+        setAlbumsError(detail || '暂时无法读取空间相册，请稍后重试。');
+      })
+      .finally(() => {
+        if (!signal.aborted) setAlbumsLoading(false);
       });
     return () => {
-      runRef.current += 1;
+      controller.abort();
       cancelAlbums();
     };
-  }, [open, active, selfUin, hostUin, access?.qqOnline, albumRetry, runAlbums, cancelAlbums]);
+  }, [active, selfUin, hostUin, albumRetry, runAlbums, cancelAlbums]);
 
   useEffect(() => {
     if (!active) {
@@ -415,6 +410,10 @@ export function QzoneAlbumDialog({
 
   // Re-entering at the latest edge refreshes in place, without resetting selection or media.
   useEffect(() => {
+    if (!albumLoaded.current) {
+      lastRefresh.current = refreshKey;
+      return;
+    }
     if (
       !open ||
       !active ||
@@ -571,7 +570,7 @@ export function QzoneAlbumDialog({
           </p>
         ) : null}
         {albumsError && albums ? <p className="weq-qzn-status">{albumsError}</p> : null}
-        {access === null ? (
+        {access === null && !albumsError ? (
           <div className="weq-qzone-album-empty">
             <Inbox size={26} />
             <Loader2 size={18} className="weq-spin" />

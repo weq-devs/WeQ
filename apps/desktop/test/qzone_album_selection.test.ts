@@ -1,7 +1,11 @@
 import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { AlbumGridView, MediaView } from '../src/renderer/src/components/QzoneAlbumDialog';
+import {
+  AlbumGridView,
+  MediaView,
+  QzoneAlbumDialog,
+} from '../src/renderer/src/components/QzoneAlbumDialog';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 import { ReferenceExportTool } from '../src/renderer/src/views/export/ReferenceExportTool';
@@ -13,6 +17,10 @@ const save = vi.hoisted(() => ({
     directory: '/srv/qzone-export',
   })),
   toast: vi.fn(),
+}));
+const read = vi.hoisted(() => ({
+  access: vi.fn(async () => ({ qqOnline: true, attachEnabled: true })),
+  page: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
@@ -29,7 +37,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     client: {
       account: {
         startAlbumReferenceExport: { mutate: save.start },
-        qzone: { cancel: { mutate: async () => {} } },
+        getGroupAlbumAccessState: { query: read.access },
+        qzone: { cancel: { mutate: async () => {} }, albumPage: { query: read.page } },
         qzonePublic: { cancel: { mutate: async () => {} } },
       },
       bootstrap: proxy(),
@@ -67,6 +76,68 @@ const albums = ['甲', '乙'].map((name, index) => ({
   createTime: 0,
   priv: 0,
 }));
+
+function albumDialogFixture() {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  read.page.mockResolvedValue({ albums, nextOffset: null, total: albums.length, warning: null });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const render = (active: boolean, refreshKey = 0) =>
+    act(async () =>
+      root.render(
+        createElement(
+          ContentSelectionProvider,
+          null,
+          createElement(QzoneAlbumDialog, {
+            open: true,
+            embedded: true,
+            active,
+            refreshKey,
+            selfUin: '10001',
+            hostUin: '10002',
+            onClose: () => {},
+          }),
+        ),
+      ),
+    );
+  return { host, render, close: () => act(async () => root.unmount()) };
+}
+
+it('Remote 相册在页面恢复读取后能取得首页', async () => {
+  const { host, render, close } = albumDialogFixture();
+  try {
+    await render(false);
+    expect(read.access).not.toHaveBeenCalled();
+    expect(read.page).not.toHaveBeenCalled();
+    await render(true, 1);
+    expect(host.querySelector('[aria-label="选择相册 甲"]')).not.toBeNull();
+    expect(read.access).toHaveBeenCalledOnce();
+    expect(read.page).toHaveBeenCalledOnce();
+    expect(read.page).toHaveBeenCalledWith(
+      expect.objectContaining({ selfUin: '10001', hostUin: '10002', offset: 0 }),
+    );
+  } finally {
+    await close();
+  }
+});
+
+it('在线检查失败后可以在相册页重试', async () => {
+  const { host, render, close } = albumDialogFixture();
+  read.access.mockRejectedValueOnce(new Error('连接中断'));
+  try {
+    await render(true);
+    expect(read.page).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('连接中断');
+    const retry = host.querySelector<HTMLButtonElement>('.weq-retry-button');
+    expect(retry).not.toBeNull();
+    await act(async () => retry!.click());
+    expect(host.querySelector('[aria-label="选择相册 甲"]')).not.toBeNull();
+    expect(read.page).toHaveBeenCalledOnce();
+  } finally {
+    await close();
+  }
+});
+
 function Probe() {
   const [album, setAlbum] = useState<string | null>(null);
   const request = useContentExportRequest();
