@@ -490,6 +490,10 @@ html[data-theme='dark'] .weq-contact-card {
   scrollbar-color: auto !important;
 }
 
+.weq-contact-card-content {
+  display: flow-root;
+}
+
 .weq-contact-card .weq-contact-card-body::-webkit-scrollbar {
   width: 12px;
 }

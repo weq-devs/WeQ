@@ -8,6 +8,7 @@ import {
   type ProfilePerson,
 } from '../hooks/useContactCard';
 import { OverlayLayer } from './OverlayLayer';
+import { ProfileCardBody } from './ProfileCardBody';
 import { ProfileCardControls } from './ProfileCardControls';
 import {
   ContactContent,
@@ -147,7 +148,7 @@ export function MemberProfileCard({
               <>
                 {/* 只有正文滚动，底部操作条是卡片 footer：正文在操作条上方干净裁切，
                     任何滚动位置都不会出现「半截字段行压在按钮上」的观感。 */}
-                <div className="weq-contact-card-body">
+                <ProfileCardBody key={identityKey}>
                   <ContactIdentity
                     key={`identity:${identityKey}`}
                     person={person}
@@ -171,7 +172,7 @@ export function MemberProfileCard({
                       }
                     />
                   ) : null}
-                </div>
+                </ProfileCardBody>
                 <ContactActions
                   key={`actions:${identityKey}`}
                   person={person}

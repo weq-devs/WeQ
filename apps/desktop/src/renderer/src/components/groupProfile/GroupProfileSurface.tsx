@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Eye } from 'lucide-react';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
+import { ProfileCardBody } from '../ProfileCardBody';
 import { ProfileCardControls } from '../ProfileCardControls';
 import type { GroupConversation, User, GroupMember } from '../../im-template/template/types';
 import { ChatNavigationContext, GroupMessagePreviewContext } from '../../lib/chatNavigation';
@@ -184,7 +185,7 @@ function GroupProfileBody({
                   closeLabel="关闭群资料"
                 />
                 {/* 快速名片同样只让正文滚动，操作条做 footer。 */}
-                <div className="weq-contact-card-body">
+                <ProfileCardBody key={`${data.scope}:${conversation.id}`}>
                   <GroupCardIdentity
                     conversation={conversation}
                     metrics={data.metrics}
@@ -206,7 +207,7 @@ function GroupProfileBody({
                     memberCountKnown={data.memberCountKnown}
                     onOpenMember={openMember}
                   />
-                </div>
+                </ProfileCardBody>
               </>
             )}
             {embedded && data.profileError && !previewContent ? (
