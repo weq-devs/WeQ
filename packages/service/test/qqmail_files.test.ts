@@ -85,6 +85,38 @@ describe('邮箱附件协议', () => {
     );
     expect(() => encryptMailPart(bytes, { key: Buffer.alloc(3), iv }, 0)).toThrow('加密参数');
   });
+  it('加密附件建档原样提交邮箱返回的密钥和 IV', async () => {
+    const path = join(await directory(), 'fixture.txt');
+    const bytes = Buffer.from('fixture');
+    await writeFile(path, bytes);
+    const account = auth();
+    const key = Buffer.alloc(32, 0xfb);
+    const iv = Buffer.alloc(16, 0xff);
+    const keyBase64 = key.toString('base64url');
+    const ivBase64 = iv.toString('base64url');
+    const cgi = vi
+      .spyOn(account, 'cgi')
+      .mockResolvedValueOnce({ key_b64: keyBase64, iv_b64: ivBase64 })
+      .mockResolvedValueOnce({
+        fileid: 'fixture-file',
+        dns: 'upload.cstore.qq.com',
+        upload_key: 'fixture-key',
+      });
+    const request = vi.fn<StorageRequest>().mockResolvedValue({ etag: 'fixture-etag' });
+    const cipher = createCipheriv('aes-256-ctr', key, iv);
+    const ciphertext = Buffer.concat([cipher.update(bytes), cipher.final()]);
+    const signal = new AbortController().signal;
+
+    await uploadMailFile(account, new MailAttachmentRegistry(), path, signal, request);
+
+    expect(cgi).toHaveBeenCalledWith(
+      '/attach/create',
+      expect.objectContaining({ enc_key: keyBase64, enc_iv: ivBase64 }),
+      { signal, write: true },
+    );
+    expect(request).toHaveBeenCalledWith(expect.any(URL), 'PUT', ciphertext, signal);
+    account.dispose();
+  });
   it('多片上传的初始化、PUT、ETag和完成确认不混入邮箱 Cookie', async () => {
     const path = join(await directory(), 'fixture.bin');
     await writeFile(path, Buffer.alloc(MAIL_PART_SIZE + 7, 0x5a));

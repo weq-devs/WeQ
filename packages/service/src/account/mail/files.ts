@@ -275,10 +275,12 @@ export async function uploadMailFile(
       { bizid: big ? 2 : 50, size: before.size, md5: hash.md5, filename: name },
       { signal },
     );
-    if (text(key.key_b64) || text(key.iv_b64)) {
+    const encKey = text(key.key_b64),
+      encIv = text(key.iv_b64);
+    if (encKey || encIv) {
       encryption = {
-        key: Buffer.from(text(key.key_b64), 'base64url'),
-        iv: Buffer.from(text(key.iv_b64), 'base64url'),
+        key: Buffer.from(encKey, 'base64url'),
+        iv: Buffer.from(encIv, 'base64url'),
       };
       // 先验证材料，失败时不静默降级为未加密上传。
       encryptMailPart(Buffer.alloc(0), encryption, 0);
@@ -297,8 +299,9 @@ export async function uploadMailFile(
       sys_type: big ? 1 : undefined,
       dir_fileid: big ? '/ftn' : undefined,
       create_from: 'compose',
-      enc_key: encryption?.key.toString('base64'),
-      enc_iv: encryption?.iv.toString('base64'),
+      // 建档沿用邮箱返回的编码原文，解码后的字节只用于本地 AES 加密。
+      enc_key: encryption ? encKey : undefined,
+      enc_iv: encryption ? encIv : undefined,
       enc_sha: encryption ? encoded.sha : undefined,
       enc_size: encryption ? before.size : undefined,
     };
