@@ -141,6 +141,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { ReplyJumpContext } from '../../state/messageContext';
 import { ImportantMessagesPanel } from '../../components/ImportantMessages';
 import { ChatMediaGallery } from '../../components/ChatMediaGallery';
@@ -182,6 +183,7 @@ import {
   releaseAttachment,
   voiceClipToken,
   type ComposerAttachment,
+  type ComposerFileSendMode,
   type VoiceClip,
 } from './composerMedia';
 import {
@@ -195,10 +197,10 @@ import { useVoiceMode } from './voicePanel.shared';
 import { FlashComposer, type FlashSendPayload } from './flashComposer';
 
 /**
- * 闪照「选图即发」的载荷：一张图的本地句柄（路径优先、字节兜底）。
+ * 闪照载荷：一张图的本地句柄（路径优先、字节兜底）。
  *
  * 闪照不进草稿、不内联成图片 —— 它在协议上是独立的一条消息（老式图片上传 +
- * `commonElem{serviceType:3}`），所以和闪传一样走「菜单 → 应用层 → IPC」。
+ * `commonElem{serviceType:3}`），所以单独交给应用层发送。
  */
 export type FlashPhotoSendPayload = {
   file?: File;
@@ -208,7 +210,7 @@ export type FlashPhotoSendPayload = {
 };
 
 /**
- * 泡泡消息「选视频即发」的载荷：一段短视频的本地句柄 + 浏览器读到的元信息。
+ * 泡泡消息载荷：一段短视频的本地句柄及元信息。
  *
  * 泡泡在协议上是「视频 + businessType=14 + 模板名」，与闪照一样不进草稿 ——
  * 它是独立的一条消息，走「菜单 → 应用层 → IPC」这条通路。
@@ -1400,9 +1402,8 @@ function ChatPaneContent({
   const locationMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  // 闪照是「选一张图 → 立刻按闪照发出去」的一条独立通路（不进草稿、不内联成图）。
+  const flashFilesInputRef = useRef<HTMLInputElement | null>(null);
   const flashPhotoInputRef = useRef<HTMLInputElement | null>(null);
-  // 泡泡消息同理：选一段视频 → 立刻按 businessType=14 发出去。
   const bubbleVideoInputRef = useRef<HTMLInputElement | null>(null);
   const mentionMenuRef = useRef<HTMLDivElement | null>(null);
   const composerEditorRef = useRef<HTMLDivElement | null>(null);
@@ -2572,6 +2573,7 @@ function ChatPaneContent({
     releaseInlineImages();
     clearMediaAttachments();
     setPendingSuperEmoji(null);
+    setFlashOpen(false);
     // 引用也跟着会话走：换了会话就不能再引用上一条会话里的消息了。
     setPendingQuote(null);
     setComposerMenu(null);
@@ -3702,6 +3704,7 @@ function ChatPaneContent({
     const out: LocalMediaRef[] = [...extra];
     const attachments = [...inlineImagesRef.current, ...mediaAttachmentRef.current];
     for (const attachment of attachments) {
+      if (attachment.special) continue;
       const key = attachment.kind === 'file' ? attachment.id : (attachment.url ?? attachment.id);
       if (out.some((local) => local.key === key || local.previewUrl === key)) continue;
       const path = window.weq?.pathForFile?.(attachment.file) ?? '';
@@ -3732,6 +3735,7 @@ function ChatPaneContent({
     const editor = currentComposerEditor();
     const draftBody = editor ? serializeComposer(editor) : body;
     const stagedMedia = options.speechOnly ? [] : [...mediaAttachmentRef.current];
+    const sendsSpecialMedia = stagedMedia.some((attachment) => attachment.special);
     const singleToken =
       !options.speechOnly && pendingSuperEmoji ? createEmojiToken(pendingSuperEmoji) : null;
     // 引用元素必须排在最前面（与 service 的 buildTextElements 一致）：
@@ -3741,7 +3745,9 @@ function ChatPaneContent({
       body: draftBody,
       singleToken,
       quoteToken: quote ? composerQuoteToken(quote) : null,
-      options,
+      options: sendsSpecialMedia
+        ? { ...options, text: '', keepBody: true, omitQuote: true }
+        : options,
     });
     if (
       !conversation ||
@@ -3840,12 +3846,19 @@ function ChatPaneContent({
       }
       if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
       // 每项独立交接，某一项失败不会阻断后面的附件；底层仍使用已有有序发送队列。
-      const bodies = [...(!empty ? [payloadBody] : []), ...stagedMedia.map(attachmentToken)];
+      const outgoing = [...(!empty ? [payloadBody] : []), ...stagedMedia];
       const sent = (async () => {
         const failures: unknown[] = [];
         // 每项同步建立本地预览并入队；网络与媒体准备不阻塞下一项回显。
-        for (const value of bodies) {
+        for (const item of outgoing) {
           try {
+            if (typeof item !== 'string' && item.special) {
+              await (item.special === 'flashPhoto'
+                ? sendFlashPhoto(item.file)
+                : sendBubbleVideo(item.file));
+              continue;
+            }
+            const value = typeof item === 'string' ? item : attachmentToken(item);
             const keys = new Set(
               (composerTextToElements(value) as Record<string, unknown>[]).map(localKeyOf),
             );
@@ -3867,7 +3880,7 @@ function ChatPaneContent({
           request.conversationId,
           sentImages.flatMap((image) => (image.draftAssetId ? [image.draftAssetId] : [])),
         ).catch(() => {});
-      if (bodies.length === 1) {
+      if (outgoing.length === 1) {
         composerSendRef.current = null;
         setSending(false);
       }
@@ -3978,10 +3991,7 @@ function ChatPaneContent({
   }
 
   /**
-   * 闪照菜单「闪照」→ 选一张图 → 立刻按闪照发出去。
-   *
-   * 与图片不同，闪照**不进草稿**：它走老式图片上传（`LongConn.OffPicUp` +
-   * `PicUp.DataUp`），发出去是一条独立消息。失败原样抛给调用方 toast。
+   * 闪照按老式图片上传（`LongConn.OffPicUp` + `PicUp.DataUp`）独立发送。
    */
   async function sendFlashPhoto(file: File): Promise<void> {
     if (!conversation || conversation.type === 'merged' || !onSendFlashPhoto) {
@@ -3994,10 +4004,7 @@ function ChatPaneContent({
   }
 
   /**
-   * 泡泡消息菜单「泡泡消息」→ 选一段视频 → 立刻发出去。
-   *
-   * 与普通视频的区别只在协议层：`commonElem.businessType=14` + 模板名，收端会渲染成
-   * 圆形循环的「泡泡」。所以这里复用视频的元信息读取（时长 / 尺寸），不走草稿。
+   * 泡泡消息按 `commonElem.businessType=14` 独立发送。
    */
   async function sendBubbleVideo(file: File): Promise<void> {
     if (!conversation || conversation.type === 'merged' || !onSendBubbleVideo) {
@@ -4282,7 +4289,7 @@ function ChatPaneContent({
         insertComposerLineBreak();
         return;
       }
-      void submitMessage();
+      if (!event.repeat) void submitMessage();
     }
     if (
       event.key === 'Backspace' &&
@@ -4648,14 +4655,14 @@ function ChatPaneContent({
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
-  function addFiles(files: File[], sendAs?: 'file' | 'emoji') {
+  function addFiles(files: File[], sendAs?: ComposerFileSendMode, fromPicker = false) {
     const sourceConversation = conversation?.id;
     if (!files.length || currentPreference.blocked || sending || composerSendRef.current)
       return Promise.resolve();
     setPreparingMedia(true);
     const task = mediaPreparationRef.current.then(async () => {
       if (attachmentConversationRef.current !== sourceConversation) return;
-      await prepareFiles(files, sendAs, sourceConversation);
+      await prepareFiles(files, sendAs, sourceConversation, fromPicker);
     });
     const completed = task
       .catch((error) => {
@@ -4671,13 +4678,19 @@ function ChatPaneContent({
 
   async function prepareFiles(
     files: File[],
-    sendAs?: 'file' | 'emoji',
+    sendAs?: ComposerFileSendMode,
     sourceConversation?: string,
+    fromPicker = false,
   ) {
+    const previousFocus = fromPicker ? document.activeElement : null;
     let sizeError: string | null = null;
-    const usable: { file: File; sendAs?: 'file' | 'emoji' }[] = [];
+    const usable: { file: File; sendAs?: ComposerFileSendMode }[] = [];
     for (const file of files) {
-      if (file.size <= MAX_BUFFERED_COMPOSER_MEDIA_BYTES) {
+      if (
+        file.size <= MAX_BUFFERED_COMPOSER_MEDIA_BYTES ||
+        sendAs === 'flashPhoto' ||
+        sendAs === 'bubbleVideo'
+      ) {
         usable.push({ file, sendAs });
         continue;
       }
@@ -4767,6 +4780,7 @@ function ChatPaneContent({
     setLocationCardOpen(false);
     setArkOpen(false);
     if (media.length && mobileComposerExpanded) closeMobileComposerExpanded();
+    if (fromPicker && images.length > 0 && media.length === 0 && voiceOpen) closeVoicePanel();
     updateMediaAttachments([...mediaAttachmentRef.current, ...media]);
     inlineImagesRef.current = [...inlineImagesRef.current, ...images];
     inlineImageScope.current = {
@@ -4782,6 +4796,19 @@ function ChatPaneContent({
           ? `最多只能添加 ${MAX_COMPOSER_ATTACHMENTS} 项附件，多余的已忽略`
           : null),
     );
+    if (fromPicker) {
+      window.requestAnimationFrame(() => {
+        if (!composerTabActive.current || attachmentConversationRef.current !== sourceConversation)
+          return;
+        const editor = media.length ? composerEditorRef.current : currentComposerEditor();
+        if (!editor?.isConnected) return;
+        const focused = document.activeElement;
+        if (focused !== editor && focused !== document.body && focused !== previousFocus) return;
+        if (focused !== editor) focusComposerEnd(editor);
+        setMentionMenu(null);
+        setSlashMenu(null);
+      });
+    }
   }
 
   function openMediaPicker(kind: 'image' | 'file') {
@@ -4795,10 +4822,9 @@ function ChatPaneContent({
     const files = collectFiles(event.target.files);
     // 清空 value：同一个文件再选一次也要能触发 change。
     event.target.value = '';
-    void addFiles(files, event.target === fileInputRef.current ? 'file' : undefined);
+    void addFiles(files, event.target === fileInputRef.current ? 'file' : undefined, true);
   }
 
-  /** 闪照选择器：选完立刻发，校验失败只 toast、不进草稿。 */
   function handleFlashPhotoPick(event: ReactChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -4809,16 +4835,9 @@ function ChatPaneContent({
       pushToast({ tone: 'warning', durationKind: 'success', message: '闪照只能发送图片' });
       return;
     }
-    void sendFlashPhoto(file).catch((error: unknown) => {
-      pushToast({
-        tone: 'error',
-        message: '闪照发送失败',
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    });
+    void addFiles([file], 'flashPhoto', true);
   }
 
-  /** 泡泡消息选择器：选完立刻发，校验失败只 toast、不进草稿。 */
   function handleBubbleVideoPick(event: ReactChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -4827,13 +4846,7 @@ function ChatPaneContent({
       pushToast({ tone: 'warning', durationKind: 'success', message: '泡泡消息只能发送视频' });
       return;
     }
-    void sendBubbleVideo(file).catch((error: unknown) => {
-      pushToast({
-        tone: 'error',
-        message: '泡泡消息发送失败',
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    });
+    void addFiles([file], 'bubbleVideo', true);
   }
 
   // ── 拖拽投递 ──────────────────────────────────────────────────────────────
@@ -5452,7 +5465,7 @@ function ChatPaneContent({
   /**
    * 闪传文件框：与其余面板互斥，同一时刻只开一个。
    */
-  function toggleFlashPanel() {
+  function openFlashPicker() {
     setContextMenu(null);
     setLocationMenu(null);
     setLocationCardOpen(false);
@@ -5460,7 +5473,9 @@ function ChatPaneContent({
     setEmojiOpen(false);
     setToolsOpen(false);
     setArkOpen(false);
-    setFlashOpen((open) => !open);
+    // 同步挂载文件框，在菜单点击的用户手势内打开系统选择器。
+    flushSync(() => setFlashOpen(true));
+    flashFilesInputRef.current?.click();
   }
 
   /**
@@ -5921,7 +5936,6 @@ function ChatPaneContent({
     {
       label: '闪照',
       icon: <Flame size={16} />,
-      // 闪照是独立的一条消息（老式图片上传 + serviceType=3），不进草稿。
       action: () => flashPhotoInputRef.current?.click(),
       disabled: hasSingleSend,
       reason: hasSingleSend ? singleSendHint : undefined,
@@ -5929,12 +5943,11 @@ function ChatPaneContent({
     {
       label: '泡泡消息',
       icon: <Sparkles size={16} />,
-      // 泡泡 = 视频 + businessType=14 + 模板名，独立的一条消息，不进草稿。
       action: () => bubbleVideoInputRef.current?.click(),
       disabled: hasSingleSend,
       reason: hasSingleSend ? singleSendHint : undefined,
     },
-    { label: 'QQ闪传', icon: <Zap size={16} />, action: toggleFlashPanel },
+    { label: 'QQ闪传', icon: <Zap size={16} />, action: openFlashPicker },
   ];
 
   function runComposerAction(action: ComposerButtonAction) {
@@ -7332,7 +7345,9 @@ function ChatPaneContent({
           ) : null}
           {flashPanelActive ? (
             <FlashComposer
+              key={conversation.id}
               panelRef={flashPanelRef}
+              filesInputRef={flashFilesInputRef}
               canSend={!mediaSendDisabled}
               sendHint={sendTitle}
               onSend={sendFlashTransfer}
@@ -7426,7 +7441,6 @@ function ChatPaneContent({
             hidden
             onChange={handleMediaPickerChange}
           />
-          {/* 闪照：一次一张，选完立刻发送（不进草稿、不 multiple）。 */}
           <input
             ref={flashPhotoInputRef}
             type="file"
@@ -7434,7 +7448,6 @@ function ChatPaneContent({
             accept="image/*"
             onChange={handleFlashPhotoPick}
           />
-          {/* 泡泡消息：一次一段视频，选完立刻发送。 */}
           <input
             ref={bubbleVideoInputRef}
             type="file"

@@ -54,6 +54,8 @@ async function mount(group = false, draft = '') {
   document.body.append(host);
   const root = createRoot(host);
   const send = vi.fn(async (_body: string) => {});
+  const sendFlashPhoto = vi.fn(async () => {});
+  const sendBubbleVideo = vi.fn(async () => {});
   cleanups.push(() => {
     act(() => root.unmount());
     host.remove();
@@ -70,12 +72,14 @@ async function mount(group = false, draft = '') {
         onDraftClear: vi.fn(),
         onBack: vi.fn(),
         onSend: send,
+        onSendFlashPhoto: sendFlashPhoto,
+        onSendBubbleVideo: sendBubbleVideo,
         onStartCall: vi.fn(),
         ...{ onSendWindowShake: vi.fn(async () => {}) },
       }),
     ),
   );
-  return { host, send };
+  return { host, send, sendFlashPhoto, sendBubbleVideo };
 }
 
 function clickTitle(host: ParentNode, title: string) {
@@ -253,11 +257,41 @@ it('发送图片或文件提供五个选项，图片选择发送文件后仍生�
   Object.defineProperty(fileInput, 'files', { configurable: true, value: [image] });
   await act(async () => fileInput.dispatchEvent(new Event('change', { bubbles: true })));
   expect(host.querySelector('.composer-token-image')).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+  await sendWithEnter(host);
   expect(send).toHaveBeenCalledOnce();
   expect(composerTextToElements(send.mock.calls[0]![0])).toEqual([
     expect.objectContaining({ kind: 'file', fileName: 'fixture.png' }),
   ]);
+});
+
+async function sendWithEnter(host: HTMLElement) {
+  await act(async () => new Promise(requestAnimationFrame));
+  const editor = host.querySelector('[aria-label="消息"]')!;
+  expect(document.activeElement).toBe(editor);
+  await act(async () => {
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+}
+
+it.each([
+  ['闪照', 'image/png', 'fixture.png', 'sendFlashPhoto'],
+  ['泡泡消息', 'video/mp4', 'fixture.mp4', 'sendBubbleVideo'],
+] as const)('选择%s后按回车才发送，保留文字草稿', async (label, type, name, callback) => {
+  const chat = await mount(false, '保留草稿');
+  const { host, send } = chat;
+  const picker = vi.spyOn(HTMLInputElement.prototype, 'click');
+  clickTitle(host, '发送图片或文件');
+  choose(label);
+  const input = picker.mock.contexts[0] as HTMLInputElement;
+  const file = new File(['fixture'], name, { type });
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(host.querySelector('[aria-label="待发送附件 1 项"]')?.textContent).toContain(label);
+  expect(chat[callback]).not.toHaveBeenCalled();
+  await sendWithEnter(host);
+  expect(chat[callback]).toHaveBeenCalledWith(expect.anything(), { file, name });
+  expect(send).not.toHaveBeenCalled();
+  expect(host.querySelector('[aria-label="消息"]')?.textContent).toBe('保留草稿');
 });
 
 it.each(['image/png', 'video/mp4'])('强制文件发送不读取媒体预览：%s', async (type) => {
