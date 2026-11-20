@@ -11,7 +11,7 @@ import { dateFormatter } from '@weq/time';
  * 渲染进程不直连 CDN。
  *
  * 布局沿用礼物墙那套观感：头部工具栏 + 卡片网格 + 骨架 / 空态。封面是 2:3 的竖图，
- * 所以卡片固定宽高比 + contain，点开看弹层大图。
+ * 所以卡片固定宽高比 + contain，点开在查看器里放大同一张图。
  */
 
 import { useMemo, type ReactElement } from 'react';
@@ -59,8 +59,7 @@ export function RedPackSkinWall(): ReactElement {
   const total = query.data?.total ?? 0;
   const generatedAt = query.data?.generatedAt ?? 0;
 
-  function open(skin: SkinCard, ownerDocument: Document) {
-    const src = redPackSkinUrl(skin.id, 'large');
+  function open(skin: SkinCard, src: string, ownerDocument: Document) {
     openMediaPreview({
       ownerDocument,
       items: [
@@ -136,19 +135,22 @@ export function RedPackSkinWall(): ReactElement {
           <div className="weq-redpack-wall-grid">
             {skins.map((skin) => {
               const variant = primaryVariant(skin);
+              const src = variant ? redPackSkinUrl(skin.id, variant) : null;
               return (
                 <button
                   key={skin.id}
                   type="button"
                   className="weq-redpack-wall-card"
-                  onClick={(event) => open(skin, event.currentTarget.ownerDocument)}
-                  disabled={!variant}
-                  title={variant ? `${skin.name} · 查看封面` : skin.name}
+                  onClick={
+                    src ? (event) => open(skin, src, event.currentTarget.ownerDocument) : undefined
+                  }
+                  disabled={!src}
+                  title={src ? `${skin.name} · 查看封面` : skin.name}
                 >
                   <span className="weq-redpack-wall-media weq-media-frame">
-                    {variant ? (
+                    {src ? (
                       <ShimmerImage
-                        src={redPackSkinUrl(skin.id, variant)}
+                        src={src}
                         alt={`${skin.name} 红包封面`}
                         loading="lazy"
                         decoding="async"
