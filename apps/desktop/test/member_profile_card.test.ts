@@ -966,30 +966,29 @@ describe('群成员资料卡浮层', () => {
   });
   it('异步编辑区改变高度后重新避让视口，卸载时释放尺寸观察', async () => {
     let height = 80;
-    let resized: (() => void) | undefined;
-    const disconnect = vi.fn();
+    const observers = new Map<Element, { resize: () => void; disconnect: () => void }>();
     vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(288);
     vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(() => height);
     vi.stubGlobal(
       'ResizeObserver',
       class {
-        constructor(callback: () => void) {
-          resized = callback;
+        constructor(private readonly resize: () => void) {}
+        observe(element: Element) {
+          observers.set(element, { resize: this.resize, disconnect: this.disconnect });
         }
-        observe() {}
-        disconnect = disconnect;
+        disconnect = vi.fn();
       },
     );
     await mountCard(() => {});
     const card = layer().querySelector<HTMLElement>('.weq-member-pop')!;
-    expect(resized).toBeTypeOf('function');
+    const observer = observers.get(card)!;
+    expect(observer).toBeDefined();
     height = window.innerHeight - 40;
-    act(() => resized?.());
+    act(() => observer.resize());
     expect(Number.parseFloat(card.style.top) + height).toBeLessThanOrEqual(window.innerHeight - 10);
     expect(Number.parseFloat(card.style.top)).toBeGreaterThanOrEqual(10);
-    const before = disconnect.mock.calls.length;
     act(() => roots.pop()!.unmount());
-    expect(disconnect).toHaveBeenCalledTimes(before + 1);
+    expect(observer.disconnect).toHaveBeenCalledOnce();
   });
   it('窗口缩小后旧锚点超出视口时，也会横向夹回窗口内', async () => {
     vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(288);
