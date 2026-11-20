@@ -24,6 +24,7 @@ import {
   useState,
   type ReactElement,
 } from 'react';
+import { z } from 'zod';
 import {
   Loader2,
   Check,
@@ -63,6 +64,9 @@ import { pickAccountFile } from '../lib/accountFilePicker';
 import { BACKDROP_VEIL_VAR, backdropVeil } from './ChatBackdrop.shared';
 import { ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
+import { usePageState } from './PageSnapshots.shared';
+import { PageScrollSnapshot } from './PageScrollSnapshot';
+import { pageValue } from '../lib/pageSnapshots';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import { RedPackSkinWall } from './gift/RedPackSkinWall';
 import { DressSearchForm } from './DressSearchForm';
@@ -107,6 +111,11 @@ interface MallBrowseState {
 }
 
 const DEFAULT_MALL_BROWSE: MallBrowseState = { view: 'rank', draft: '', keyword: '' };
+const dressKindSchema = z.custom<DressKind>((value) => KINDS.some(({ id }) => id === value));
+const mallBrowseSchema = z.record(
+  z.enum(['bubble', 'font', 'widget', 'callbg']),
+  z.object({ view: z.enum(['rank', 'installed']), draft: z.string(), keyword: z.string() }),
+);
 
 /** 通话背景没有「安装」概念,选中即用(远程 url 直接给通话窗口引)。 */
 const isCallBg = (kind: MallKind): boolean => kind === 'callbg';
@@ -280,7 +289,7 @@ function DressListSkeleton(): ReactElement {
 
 export function DressUpDialog({
   onClose,
-  initialKind = 'usage',
+  initialKind,
   initialEmojiPackId,
   initialEmojiPackName,
 }: {
@@ -296,7 +305,18 @@ export function DressUpDialog({
   const download = useDressDownload();
   const utils = trpc.useUtils();
 
-  const [selectedKind, setSelectedKind] = useState<DressKind>(initialKind);
+  const [selectedKind, setSelectedKind] = usePageState<DressKind>(
+    'dress-up:kind',
+    'usage',
+    dressKindSchema,
+  );
+  const explicitKind = useRef(initialKind);
+  useLayoutEffect(() => {
+    if (explicitKind.current) {
+      setSelectedKind(explicitKind.current);
+      explicitKind.current = undefined;
+    }
+  }, [setSelectedKind]);
   const [selecting, setSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   function setSelectionMode(enabled: boolean) {
@@ -308,10 +328,14 @@ export function DressUpDialog({
     setSelectionMode(false);
     setSelectedKind(next);
   }
-  const kind = developmentDressTools ? selectedKind : 'background';
-  const [mallBrowsing, setMallBrowsing] = useState<Partial<Record<MallKind, MallBrowseState>>>({});
-  const [emojiDraft, setEmojiDraft] = useState('');
-  const [emojiKeyword, setEmojiKeyword] = useState('');
+  const kind = developmentDressTools ? (explicitKind.current ?? selectedKind) : 'background';
+  const [mallBrowsing, setMallBrowsing] = usePageState('dress-up:mall', {}, mallBrowseSchema);
+  const [emojiDraft, setEmojiDraft] = usePageState('dress-up:emoji-draft', '', pageValue.string);
+  const [emojiKeyword, setEmojiKeyword] = usePageState(
+    'dress-up:emoji-keyword',
+    '',
+    pageValue.string,
+  );
   /** 正在装的 itemId —— 按钮显示转圈,避免重复点击。 */
   const [busyId, setBusyId] = useState(0);
   /** 「取消当前装扮」/「切换范围」进行中 —— 同样会重排聊天列表,也要盖加载态。 */
@@ -338,6 +362,7 @@ export function DressUpDialog({
 
   const { view, draft, keyword } = mallBrowsing[mallKind] ?? DEFAULT_MALL_BROWSE;
   const mineOnly = view === 'installed';
+  const listScope = isMall ? JSON.stringify(['dress-up', kind, view, keyword]) : `dress-up:${kind}`;
   function updateMallBrowse(patch: Partial<MallBrowseState>) {
     if (
       (patch.view && patch.view !== view) ||
@@ -1345,7 +1370,9 @@ export function DressUpDialog({
               initialPackName={initialEmojiPackName}
             />
           ) : (
-            <div className="weq-dress-body">{renderList()}</div>
+            <PageScrollSnapshot key={listScope} snapshotKey={listScope} className="weq-dress-body">
+              {renderList()}
+            </PageScrollSnapshot>
           )}
         </div>
 

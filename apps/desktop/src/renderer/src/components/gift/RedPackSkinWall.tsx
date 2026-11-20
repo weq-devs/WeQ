@@ -14,13 +14,16 @@ import { dateFormatter } from '@weq/time';
  * 所以卡片固定宽高比 + contain，点开看弹层大图。
  */
 
-import { useMemo, useState, type ReactElement } from 'react';
+import { useMemo, type ReactElement } from 'react';
 import { Gift as GiftIcon, Wallet, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { redPackSkinUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../ShimmerImage';
 import { DressSearchForm } from '../DressSearchForm';
 import { openMediaPreview } from '../mediaPreviewStore.shared';
+import { usePageState } from '../PageSnapshots.shared';
+import { PageScrollSnapshot } from '../PageScrollSnapshot';
+import { pageValue } from '../../lib/pageSnapshots';
 import '../../styles/redpack-wall.css';
 
 type Variant = 'preview' | 'popup' | 'background' | 'image';
@@ -43,8 +46,9 @@ function primaryVariant(skin: SkinCard): Variant | null {
 }
 
 export function RedPackSkinWall(): ReactElement {
-  const [draft, setDraft] = useState('');
-  const [keyword, setKeyword] = useState('');
+  const [draft, setDraft] = usePageState('redpack:draft', '', pageValue.string);
+  const [keyword, setKeyword] = usePageState('redpack:keyword', '', pageValue.string);
+  const listScope = `redpack:list:${keyword}`;
 
   const query = trpc.account.redpack.catalog.useQuery(
     { keyword },
@@ -101,7 +105,7 @@ export function RedPackSkinWall(): ReactElement {
         </div>
       </div>
 
-      <div className="weq-dress-body">
+      <PageScrollSnapshot key={listScope} snapshotKey={listScope} className="weq-dress-body">
         {query.isInitialLoading ? (
           <div className="weq-redpack-wall-grid" aria-hidden>
             {SKELETON_KEYS.map((key) => (
@@ -166,7 +170,7 @@ export function RedPackSkinWall(): ReactElement {
             })}
           </div>
         )}
-      </div>
+      </PageScrollSnapshot>
     </>
   );
 }

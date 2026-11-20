@@ -42,13 +42,15 @@ export function PageScrollSnapshot({
   style,
   className,
   panel = false,
+  snapshotKey = 'scroll',
 }: {
   children: ReactNode;
   style?: CSSProperties;
   className?: string;
   panel?: boolean;
+  snapshotKey?: string;
 }) {
-  const key = usePageSnapshotKey('scroll');
+  const key = usePageSnapshotKey(snapshotKey);
   const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const container = root.current;

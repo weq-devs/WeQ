@@ -1567,11 +1567,10 @@ function MainWorkspace(): ReactElement {
   const [currentQzoneUin, setCurrentQzoneUin] = useState<string | null>(null);
   /** 频道私聊当前打开的 nodeId（浮动工具按当前位置导出）。 */
   const [activeGuildNodeId, setActiveGuildNodeId] = useState<string | null>(null);
-  const [dressUpSearchKind, setDressUpSearchKind] = useState<DressKind>('usage');
-  const [dressUpEmojiTarget, setDressUpEmojiTarget] = useState<{
-    packId: string;
-    name: string;
-    revision: string;
+  const [dressUpTarget, setDressUpTarget] = useState<{
+    kind: DressKind;
+    pack?: { id: string; name: string };
+    revision: string | number;
   } | null>(null);
   const [mailSearchTarget, setMailSearchTarget] = useState<
     (Extract<ContentSearchTarget, { kind: 'mailMessage' }> & { revision: string }) | null
@@ -6140,7 +6139,11 @@ function MainWorkspace(): ReactElement {
             break;
           case 'marketEmoji':
             // 商城表情已并入个性装扮的「商城表情」页签，搜索直达该页签。
-            setDressUpEmojiTarget({ packId: target.packId, name: hit.title, revision });
+            setDressUpTarget({
+              kind: 'emoji',
+              pack: { id: target.packId, name: hit.title },
+              revision,
+            });
             setSettingsOpen(false);
             setDressUpOpen(true);
             break;
@@ -9029,8 +9032,7 @@ function MainWorkspace(): ReactElement {
     } else if (target.kind === 'composition') compositionWindow.open();
     else if (target.kind === 'announcements') openAnnouncements();
     else if (target.kind === 'dressup') {
-      setDressUpEmojiTarget(null);
-      setDressUpSearchKind(target.dressKind ?? 'usage');
+      setDressUpTarget(target.dressKind ? { kind: target.dressKind, revision: Date.now() } : null);
       setDressUpOpen(true);
     } else {
       if (shell.view === 'messages' && target.view !== 'messages') flushAllDirtyDrafts();
@@ -9402,8 +9404,7 @@ function MainWorkspace(): ReactElement {
             onOpenDressUp={() =>
               settingsNavigation.navigate(() => {
                 setSettingsOpen(false);
-                setDressUpEmojiTarget(null);
-                setDressUpSearchKind('usage');
+                setDressUpTarget(null);
                 setDressUpOpen(true);
               })
             }
@@ -10182,13 +10183,13 @@ function MainWorkspace(): ReactElement {
           />
           {dressUpOpen ? (
             <DressUpDialog
-              key={dressUpEmojiTarget?.revision ?? `dressup:${dressUpSearchKind}`}
-              initialKind={dressUpEmojiTarget ? 'emoji' : dressUpSearchKind}
-              initialEmojiPackId={dressUpEmojiTarget?.packId}
-              initialEmojiPackName={dressUpEmojiTarget?.name}
+              key={dressUpTarget?.revision}
+              initialKind={dressUpTarget?.kind}
+              initialEmojiPackId={dressUpTarget?.pack?.id}
+              initialEmojiPackName={dressUpTarget?.pack?.name}
               onClose={() => {
                 setDressUpOpen(false);
-                setDressUpEmojiTarget(null);
+                setDressUpTarget(null);
               }}
             />
           ) : null}
