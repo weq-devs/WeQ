@@ -1,7 +1,7 @@
 import * as timeFormat from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
 /**
- * 设置 → 帮助 → 日志查看。
+ * 设置 → 关于 WeQ → 日志与性能 → 日志查看。
  *
  * 支持 WeQ 分段日志（JSONL 与 gzip 归档）和 nt_helper / 原生加载日志。
  * 打开默认定位到文件尾部；跟随最新时跟随当前分段的尾部
@@ -17,11 +17,11 @@ import { TimeLabel } from '../TimeLabel';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
-import { ArrowDownToLine, FileText, Loader2, Pause, Play, RefreshCw } from 'lucide-react';
+import { ArrowDownToLine, FileText, Loader2, Pause, Play } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useToast } from '../Toast.shared';
 import { useRenderDocument } from '../../lib/renderDocument';
-import { IconPicker, type IconPickerOption } from '../ui/iconPicker';
+import { IconPicker } from '../ui/iconPicker';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -32,6 +32,7 @@ interface LogLine {
   ts: string | null;
   /** 消息主体（去除时间/级别前缀）。 */
   message: string;
+  scope?: string;
   /** 上下文摘要（JSON 转 key=value，截断）。 */
   context?: string;
   /** 该行在文件内的字节区间。 */
@@ -52,6 +53,28 @@ const TAIL_BYTES = 384 * 1024;
 const MAX_LINES = 24000;
 
 const LEVEL_ORDER: LogLevel[] = ['error', 'warn', 'info', 'debug'];
+const LOG_SOURCES = [
+  { value: 'weq', label: 'WeQ 应用' },
+  { value: 'nt_helper', label: 'nt_helper' },
+  { value: 'native', label: '原生加载器' },
+  { value: 'other', label: '其他来源' },
+] as const;
+const NO_FILES: [] = [];
+
+function logRangeLabel(file: { name: string; start: number | null; end: number | null }): string {
+  const { start, end } = file;
+  if (start === null) return end === null ? file.name : `截至 ${timeFormat.formatDateTime(end)}`;
+  const precision =
+    end !== null && Math.floor(start / 1000) === Math.floor(end / 1000) ? 'millisecond' : 'second';
+  const first = timeFormat.formatDateTime(start, precision);
+  if (end === null) return `${first} 起`;
+  if (start === end) return first;
+  const last =
+    timeFormat.formatDate(start) === timeFormat.formatDate(end)
+      ? timeFormat.formatClock(end, precision)
+      : timeFormat.formatDateTime(end);
+  return `${first} – ${last}`;
+}
 
 function utf8ByteLength(s: string): number {
   return new TextEncoder().encode(s).length;
@@ -93,9 +116,10 @@ function parseLine(raw: string): Omit<LogLine, 'id' | 'byteStart' | 'byteLen'> {
         context?: Record<string, unknown>;
       };
       if (typeof obj.message === 'string') {
-        const ctx = obj.context;
+        const { scope, ...ctx } = obj.context ?? {};
+        if (scope !== undefined && typeof scope !== 'string') ctx.scope = scope;
         const ctxText =
-          ctx && Object.keys(ctx).length > 0
+          Object.keys(ctx).length > 0
             ? Object.entries(ctx)
                 .map(([k, v]) => {
                   const s = typeof v === 'string' ? v : JSON.stringify(v);
@@ -108,6 +132,7 @@ function parseLine(raw: string): Omit<LogLine, 'id' | 'byteStart' | 'byteLen'> {
           level: normalizeLevel(obj.level),
           ts: obj.ts ?? null,
           message: obj.message,
+          scope: typeof scope === 'string' ? scope : undefined,
           context: ctxText,
         };
       }
@@ -121,7 +146,7 @@ function parseLine(raw: string): Omit<LogLine, 'id' | 'byteStart' | 'byteLen'> {
     const millis = Number(nt[1]);
     const ts = Number.isFinite(millis) ? new Date(millis).toISOString() : null;
     const target = nt[3] ?? '';
-    return { level: normalizeLevel(nt[2]), ts, message: nt[4] ?? '', context: target || undefined };
+    return { level: normalizeLevel(nt[2]), ts, message: nt[4] ?? '', scope: target || undefined };
   }
   // native_loader: [iso][scope] message
   const native = raw.match(/^\[([^\]]+)\]\s*\[([^\]]+)\] (.*)$/);
@@ -132,7 +157,7 @@ function parseLine(raw: string): Omit<LogLine, 'id' | 'byteStart' | 'byteLen'> {
       level: normalizeLevel(scope),
       ts,
       message: native[3] ?? '',
-      context: scope || undefined,
+      scope: scope || undefined,
     };
   }
   return { level: 'info', ts: null, message: raw };
@@ -226,10 +251,11 @@ export function LogViewerPanel(): ReactElement {
     refetchOnMount: 'always',
     refetchInterval: active ? 4000 : false,
   });
-  const files = list.data?.files ?? [];
+  const files = list.data?.files ?? NO_FILES;
   const activePath = list.data?.activePath;
 
   const [selectedPath, setSelectedPath] = useState<string>('');
+  const [scope, setScope] = useState('');
   const [levels, setLevels] = useState<Record<LogLevel, boolean>>({
     debug: true,
     info: true,
@@ -245,10 +271,29 @@ export function LogViewerPanel(): ReactElement {
     lines: [],
     partial: '',
   });
-  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const [size, setSize] = useState(0);
   const selectedFile = files.find((file) => file.path === selectedPath);
+  const liveFile = files.find((file) => file.path === activePath);
   const archived = selectedFile?.archived ?? false;
+  const source = selectedFile?.kind;
+  const sources = useMemo(
+    () => LOG_SOURCES.filter(({ value }) => files.some((file) => file.kind === value)),
+    [files],
+  );
+  const fileOptions = useMemo(
+    () =>
+      files
+        .filter((file) => file.kind === source)
+        .map((file) => ({
+          value: file.path,
+          label: logRangeLabel({ ...file, start: file.start ?? null, end: file.end ?? null }),
+          detail: file.path === activePath ? '写入中' : fmtBytes(file.size),
+        })),
+    [files, source, activePath],
+  );
+  const selectFile = (path: string) => {
+    followCurrentFile.current = path === activePath;
+    setSelectedPath(path);
+  };
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const seqRef = useRef({ n: 0 });
@@ -273,14 +318,18 @@ export function LogViewerPanel(): ReactElement {
   // 只在跟随当前 WeQ 分段时自动跨段，保留主动选择的历史文件。
   useEffect(() => {
     if (!active || files.length === 0) return;
-    const live = activePath ? files.find((file) => file.path === activePath) : undefined;
-    if (!selectedPath) {
-      const fallback = live ?? files.find((file) => file.kind === 'weq') ?? files[0];
+    if (!selectedFile) {
+      const fallback = liveFile ?? files.find((file) => file.kind === 'weq') ?? files[0];
       if (fallback) setSelectedPath(fallback.path);
-    } else if (followCurrentFile.current && followTail && live && live.path !== selectedPath) {
-      setSelectedPath(live.path);
+    } else if (
+      followCurrentFile.current &&
+      followTail &&
+      liveFile &&
+      liveFile.path !== selectedPath
+    ) {
+      setSelectedPath(liveFile.path);
     }
-  }, [active, activePath, files, followTail, selectedPath]);
+  }, [active, files, followTail, liveFile, selectedFile, selectedPath]);
 
   /** 载入文件尾部（初始 / 切换文件）。 */
   const loadTail = useCallback(
@@ -294,8 +343,6 @@ export function LogViewerPanel(): ReactElement {
       if (loadedPath.current !== path) {
         loadedPath.current = '';
         setBuffer({ startOffset: 0, endOffset: 0, lines: [], partial: '' });
-        setSize(0);
-        setLastUpdated(null);
       }
       try {
         const info = await client.help.logFileInfo.query({ path });
@@ -318,7 +365,6 @@ export function LogViewerPanel(): ReactElement {
           false,
           seqRef.current,
         );
-        setSize(info.size);
         loadedPath.current = path;
         // 历史游标取首行的真实字节位置，不能用分块末尾的位置。
         setBuffer({
@@ -327,7 +373,6 @@ export function LogViewerPanel(): ReactElement {
           lines,
           partial: nextPartial,
         });
-        setLastUpdated(Date.now());
         if (resetFollow) setFollowTail(true);
       } catch (e) {
         if (!current()) return;
@@ -367,7 +412,6 @@ export function LogViewerPanel(): ReactElement {
       try {
         const info = await client.help.logFileInfo.query({ path });
         if (!current()) return;
-        setSize(info.size);
         const cur = bufferRef.current;
         if (info.size < cur.endOffset) {
           busyRef.current = false;
@@ -414,7 +458,6 @@ export function LogViewerPanel(): ReactElement {
           });
           // 记录本次消费的字节数用于 startOffset 修正
           void consumed;
-          setLastUpdated(Date.now());
         }
       } catch {
         // 轮询失败静默，下个周期再试
@@ -490,7 +533,6 @@ export function LogViewerPanel(): ReactElement {
         const node = scrollRef.current;
         if (node) node.scrollTop = node.scrollHeight - prevHeight;
       });
-      setLastUpdated(Date.now());
     } catch (e) {
       if (!current()) return;
       pushToast({
@@ -520,9 +562,21 @@ export function LogViewerPanel(): ReactElement {
     [loadOlder],
   );
 
-  const visibleLines = useMemo(() => {
-    return buffer.lines.filter((l) => levels[l.level]);
-  }, [buffer.lines, levels]);
+  const moduleOptions = useMemo(() => {
+    const scopes = new Set<string>();
+    if (scope) scopes.add(scope);
+    for (const line of buffer.lines) {
+      if (line.scope) scopes.add(line.scope);
+    }
+    return [
+      { value: '', label: '全部模块' },
+      ...[...scopes].sort().map((value) => ({ value, label: value })),
+    ];
+  }, [buffer.lines, scope]);
+  const visibleLines = useMemo(
+    () => buffer.lines.filter((line) => levels[line.level] && (!scope || line.scope === scope)),
+    [buffer.lines, levels, scope],
+  );
 
   const levelSelection = useMultiSelection({
     ids: LEVEL_ORDER,
@@ -540,71 +594,52 @@ export function LogViewerPanel(): ReactElement {
 
   return (
     <div className="weq-help-log">
-      {/* 工具条：文件选择 + 打开目录 */}
       <div className="weq-help-log-toolbar">
+        <div className="weq-help-log-source">
+          <IconPicker
+            width="100%"
+            ariaLabel="日志来源"
+            placeholder="日志来源"
+            value={source ?? ''}
+            options={sources}
+            disabled={sources.length === 0}
+            onChange={(kind) => {
+              const file =
+                (liveFile?.kind === kind ? liveFile : undefined) ??
+                files.find((entry) => entry.kind === kind);
+              if (!file || file.path === selectedPath) return;
+              setScope('');
+              selectFile(file.path);
+            }}
+          />
+        </div>
         <div className="weq-help-log-file">
           <IconPicker
             width="100%"
             maxHeight={220}
             triggerIcon={<FileText size={14} aria-hidden />}
             ariaLabel="选择日志文件"
-            placeholder={files.length === 0 ? '（暂无日志文件）' : '选择日志文件'}
+            placeholder={list.isLoading ? '正在读取文件列表…' : '暂无日志文件'}
+            disabled={fileOptions.length === 0}
             value={selectedPath}
-            onChange={(path) => {
-              followCurrentFile.current = path === activePath;
-              setSelectedPath(path);
-            }}
-            options={(() => {
-              const opts: IconPickerOption[] = [];
-              for (const kind of ['weq', 'nt_helper', 'native', 'other'] as const) {
-                const group = files
-                  .filter((f) => f.kind === kind)
-                  .sort((a, b) => b.mtime - a.mtime);
-                if (group.length === 0) continue;
-                const label =
-                  kind === 'weq'
-                    ? 'WeQ 日志'
-                    : kind === 'nt_helper'
-                      ? 'nt_helper 日志'
-                      : kind === 'native'
-                        ? '原生加载日志'
-                        : '其它日志';
-                for (const f of group) {
-                  opts.push({
-                    value: f.path,
-                    label: f.name,
-                    detail: fmtBytes(f.size),
-                    group: label,
-                    icon: <FileText size={13} aria-hidden />,
-                  });
-                }
-              }
-              return opts;
-            })()}
+            onChange={selectFile}
+            options={fileOptions}
           />
-        </div>
-        <div className="weq-help-log-toolbar-right">
-          <span
-            className="weq-help-log-meta"
-            title={selectedFile ? (archived ? `${selectedFile.path}.gz` : selectedFile.path) : ''}
-          >
-            {selectedFile ? (
-              <>
-                <span className="weq-number weq-number-inherit">
-                  {fmtBytes(archived ? selectedFile.size : size)}
-                </span>{' '}
-                · {selectedFile.name}
-              </>
-            ) : (
-              ''
-            )}
-            {lastUpdated ? <span className="weq-help-log-live" aria-hidden /> : null}
-          </span>
         </div>
       </div>
 
       {/* 等级筛选 + 跟随开关 */}
       <div className="weq-help-log-tools">
+        <div className="weq-help-log-module">
+          <IconPicker
+            width="100%"
+            ariaLabel="日志模块"
+            options={moduleOptions}
+            value={scope}
+            onChange={setScope}
+            disabled={moduleOptions.length === 1}
+          />
+        </div>
         <div
           className="weq-help-log-levels"
           role="group"
@@ -648,7 +683,6 @@ export function LogViewerPanel(): ReactElement {
           </button>
         </div>
       </div>
-
       {/* 日志内容 */}
       <div className="weq-help-log-view" ref={scrollRef} onScroll={handleScroll}>
         {loadingOlder ? (
@@ -663,7 +697,7 @@ export function LogViewerPanel(): ReactElement {
         ) : null}
         {visibleLines.length === 0 ? (
           <div className="weq-help-log-empty">
-            {loading ? '正在读取日志…' : allOff ? '已关闭全部等级筛选' : '（无日志内容）'}
+            {loading ? '正在读取日志…' : buffer.lines.length ? '当前筛选无匹配记录' : '无日志内容'}
           </div>
         ) : (
           visibleLines.map((line) => (
@@ -679,6 +713,7 @@ export function LogViewerPanel(): ReactElement {
               ) : null}
               <span className="weq-log-lv">{line.level.toUpperCase()}</span>
               <span className="weq-log-msg">
+                {line.scope ? <span className="weq-log-scope">{line.scope} · </span> : null}
                 {line.message}
                 {line.context ? <span className="weq-log-ctx"> · {line.context}</span> : null}
               </span>
@@ -688,10 +723,6 @@ export function LogViewerPanel(): ReactElement {
         {!followTail ? (
           <div className="weq-help-log-scrollhint">已离开最新位置，点击「回到最新」继续跟随</div>
         ) : null}
-      </div>
-
-      <div className="weq-help-log-foot">
-        <RefreshCw size={11} aria-hidden />
       </div>
     </div>
   );

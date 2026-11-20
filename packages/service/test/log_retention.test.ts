@@ -118,8 +118,16 @@ describe('pruneExpiredLogs（真实目录）', () => {
 
   it('明文分段、旧 gzip 和分段 gzip 按同一 UTC 保留窗口清理，临时档不参与', () => {
     const dir = tmpDir();
-    const expired = ['2026-09-19.log.gz', '2026-09-19.123.123456abcdef.0001.log.gz'];
-    const stillCurrent = ['2026-09-20.log.gz', '2026-09-20.123.123456abcdef.0001.log'];
+    const expired = [
+      '2026-09-19.log.gz',
+      '2026-09-19.123.123456abcdef.0001.log.gz',
+      '2026-09-19T23-59-59.000Z.weq.123.123456abcdef.0001.log.gz',
+    ];
+    const stillCurrent = [
+      '2026-09-20.log.gz',
+      '2026-09-20.123.123456abcdef.0001.log',
+      '2026-09-20T00-00-00.000Z.weq.123.123456abcdef.0001.log',
+    ];
     const notLogs = ['2026-09-19.log.gz.123.tmp'];
     for (const name of [...expired, ...stillCurrent, ...notLogs])
       writeFileSync(join(dir, name), 'fixture');

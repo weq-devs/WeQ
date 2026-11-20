@@ -121,6 +121,7 @@ export default function LogPerformanceSettings() {
   return (
     <div className="weq-set weq-log-performance-settings" data-setting-id="logs">
       <SectionHeader title="日志与性能" page="logs" />
+      <LogFileSettings />
       <Card
         title="性能记录"
         icon={<Activity size={15} />}
@@ -301,7 +302,6 @@ export default function LogPerformanceSettings() {
         />
         {status.data?.error && <p role="alert">记录异常：{status.data.error}</p>}
       </Card>
-      <LogFileSettings />
       {message && (
         <p role="status" className="weq-diagnostic-feedback">
           {message}

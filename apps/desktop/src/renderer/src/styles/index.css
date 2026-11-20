@@ -20685,22 +20685,24 @@ html[data-theme='dark'] .weq-search-avatar-fallback {
 .weq-help-log-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
-.weq-help-log-file {
-  display: inline-flex;
-  align-items: center;
-  flex: 1 1 auto;
-  min-width: 0;
+.weq-help-log-source {
+  flex: 0 0 132px;
 }
 
-.weq-help-log-toolbar-right {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
+.weq-help-log-file {
+  flex: 1 1 300px;
+  max-width: 460px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-help-log-module {
+  flex: 0 1 168px;
+  min-width: 0;
 }
 
 /* 底层调试模式开启时的警示条：提醒用户日志会暴涨，别一直开着。 */
@@ -20730,26 +20732,6 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   color: #fcd34d;
 }
 
-.weq-help-log-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #8a93a0;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.weq-help-log-live {
-  width: 7px;
-  height: 7px;
-  flex: none;
-  border-radius: 50%;
-  background: #18a058;
-  box-shadow: 0 0 0 3px color-mix(in srgb, #18a058 20%, transparent);
-  animation: weq-help-pulse 1.6s ease-in-out infinite;
-}
-
 @keyframes weq-help-pulse {
   50% {
     opacity: 0.4;
@@ -20759,7 +20741,6 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 .weq-help-log-tools {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -20914,8 +20895,13 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   color: var(--weq-log-muted);
 }
 
+.weq-log-scope,
 .weq-log-ctx {
   color: var(--weq-log-muted);
+}
+
+.weq-log-scope {
+  font-weight: 600;
 }
 
 .weq-help-log-empty {
@@ -20949,15 +20935,6 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
   font-size: 11px;
   border-top: 1px dashed rgba(255, 255, 255, 0.12);
   background: var(--weq-log-bg);
-}
-
-.weq-help-log-foot {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: #9aa3ad;
-  line-height: 1.5;
 }
 
 /* ── 常见问题 ──────────────────────────────────────────────────────── */
@@ -21541,11 +21518,6 @@ html[data-theme='dark'] .weq-help-tab.is-active {
   background: #222a34;
   color: #8cc4ff;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-}
-
-html[data-theme='dark'] .weq-help-log-meta,
-html[data-theme='dark'] .weq-help-log-foot {
-  color: #7e8b9b;
 }
 
 html[data-theme='dark'] .weq-log-lv-chip {

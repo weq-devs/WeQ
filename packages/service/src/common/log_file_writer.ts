@@ -19,6 +19,7 @@ const PENDING_BYTES = 4 * 1024 * 1024;
 interface Record {
   line: string;
   bytes: number;
+  ts: string;
   day: string;
 }
 
@@ -51,18 +52,18 @@ export class LogFileWriter {
     return this.active?.path ?? null;
   }
 
-  record(line: string, day: string, important: boolean): void {
+  record(line: string, ts: string, important: boolean): void {
     if (this.queuedBytes >= PENDING_BYTES) {
       if (important) {
         // 慢盘积压到上限时优先保留告警，不与在途批次写同一个段。
-        this.writeSync(this.segment(day).path, line);
+        this.writeSync(this.segment(ts).path, line);
       } else {
         this.dropped++;
       }
       return;
     }
     const bytes = Buffer.byteLength(line);
-    this.pending.push({ line, day, bytes });
+    this.pending.push({ line, ts, day: ts.slice(0, 10), bytes });
     this.queuedBytes += bytes;
     if (this.exiting) return;
     if (important || this.queuedBytes >= BATCH_BYTES) void this.flush();
@@ -87,9 +88,10 @@ export class LogFileWriter {
     return this.flushing;
   }
 
-  private segment(day: string): Segment {
+  private segment(ts: string): Segment {
     const sequence = String(++this.part).padStart(4, '0');
-    return { day, path: join(this.dir, `${day}.${this.instanceId}.${sequence}.log`), bytes: 0 };
+    const name = `${ts.replaceAll(':', '-')}.weq.${this.instanceId}.${sequence}.log`;
+    return { day: ts.slice(0, 10), path: join(this.dir, name), bytes: 0 };
   }
 
   private seal(): void {
@@ -110,7 +112,7 @@ export class LogFileWriter {
         }) + EOL;
       this.dropped = 0;
       const bytes = Buffer.byteLength(line);
-      this.pending.push({ line, day: ts.slice(0, 10), bytes });
+      this.pending.push({ line, ts, day: ts.slice(0, 10), bytes });
       this.queuedBytes += bytes;
     }
     const first = this.pending[0];
@@ -120,7 +122,7 @@ export class LogFileWriter {
       (this.active.day !== first.day || this.active.bytes + first.bytes > this.segmentBytes)
     )
       this.seal();
-    this.active ??= this.segment(first.day);
+    this.active ??= this.segment(first.ts);
     const segment = this.active;
     const limit = Math.min(BATCH_BYTES, this.segmentBytes - segment.bytes);
     let bytes = 0;

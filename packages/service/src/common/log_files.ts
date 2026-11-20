@@ -14,11 +14,13 @@ import { pipeline } from 'node:stream/promises';
 import { createGunzip, createGzip } from 'node:zlib';
 
 export type LogFileKind = 'weq' | 'nt_helper' | 'native' | 'other';
-const weqFileName = /^(\d{4}-\d{2}-\d{2})(?:\.(\d+)\.[a-f0-9]{12}\.\d+)?\.log$/;
+const weqFileName =
+  /^(\d{4}-\d{2}-\d{2})(?:(?:T\d{2}-\d{2}-\d{2}\.\d{3}Z\.weq)?\.(\d+)\.[a-f0-9]{12}\.\d+)?\.log$/;
 
 export interface LogFileEntry {
   name: string;
   path: string;
+  identity: string;
   kind: LogFileKind;
   size: number;
   mtime: number;
@@ -44,6 +46,10 @@ function isLogFile(name: string): boolean {
   return name.endsWith('.log') || name.endsWith('.log.gz');
 }
 
+function fileIdentity(source: string, stat: Stats): string {
+  return stat.ino ? `${stat.dev}:${stat.ino}` : source;
+}
+
 export function scanLogFiles(dir: string): LogFileEntry[] {
   const entries = new Map<string, LogFileEntry>();
   try {
@@ -59,6 +65,7 @@ export function scanLogFiles(dir: string): LogFileEntry[] {
           entries.set(path, {
             name: item.name,
             path,
+            identity: fileIdentity(source, stat),
             kind: logKind(basename(path)),
             size: stat.size,
             mtime: stat.mtimeMs,
@@ -173,30 +180,128 @@ async function* inflated(source: string): AsyncGenerator<Buffer> {
   }
 }
 
-const archiveSizes = new Map<string, Promise<number>>();
-function archiveSize(source: string, stat: Stats): Promise<number> {
-  const key = `${source}\0${stat.ino}\0${stat.size}\0${stat.mtimeMs}`;
-  const cached = archiveSizes.get(key);
-  if (cached) return cached;
-  const measured = (async () => {
-    let size = 0;
-    for await (const chunk of inflated(source)) size += chunk.length;
-    return size;
-  })();
-  if (archiveSizes.size >= 32) {
-    const first = archiveSizes.keys().next();
-    if (!first.done) archiveSizes.delete(first.value);
+interface LogFileRange {
+  start: number | null;
+  end: number | null;
+}
+
+const EDGE_BYTES = 64 * 1024;
+// 列表可直接检查普通归档分段。旧版整日 gzip 可能大得多，选中时再完整解压。
+const ARCHIVE_PREVIEW_BYTES = 8 * 1024 * 1024;
+
+function edgeTime(bytes: Buffer, last = false): number | null {
+  const stamps = bytes
+    .toString('utf8')
+    .matchAll(
+      /^(?:\{"ts":"|\[)(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})|\d{13})(?:"|\])/gm,
+    );
+  let time: number | null = null;
+  for (const [, stamp] of stamps) {
+    if (!stamp) continue;
+    const parsed = /^\d{13}$/.test(stamp) ? Number(stamp) : Date.parse(stamp);
+    if (!Number.isFinite(parsed)) continue;
+    if (!last) return parsed;
+    time = parsed;
   }
-  archiveSizes.set(key, measured);
+  return time;
+}
+
+async function inspectArchive(
+  source: string,
+  limit = Infinity,
+): Promise<LogFileRange & { size: number }> {
+  let size = 0;
+  let head = Buffer.alloc(0);
+  const tail: Buffer[] = [];
+  let tailBytes = 0;
+  for await (const chunk of inflated(source)) {
+    size += chunk.length;
+    if (head.length < EDGE_BYTES) head = Buffer.concat([head, chunk]).subarray(0, EDGE_BYTES);
+    if (size > limit) return { size, start: edgeTime(head), end: null };
+    tail.push(chunk);
+    tailBytes += chunk.length;
+    while (tailBytes - tail[0]!.length >= EDGE_BYTES) tailBytes -= tail.shift()!.length;
+  }
+  return {
+    size,
+    start: edgeTime(head),
+    end: edgeTime(Buffer.concat(tail).subarray(-EDGE_BYTES), true),
+  };
+}
+
+function fileVersion(source: string, identity: string, size: number, mtime: number): string {
+  return `${source}\0${identity}\0${size}\0${mtime}`;
+}
+
+const archiveInfos = new Map<string, Promise<LogFileRange & { size: number }>>();
+function archiveInfo(source: string, stat: Stats): Promise<LogFileRange & { size: number }> {
+  const key = fileVersion(source, fileIdentity(source, stat), stat.size, stat.mtimeMs);
+  const cached = archiveInfos.get(key);
+  if (cached) return cached;
+  const measured = inspectArchive(source);
+  if (archiveInfos.size >= 32) {
+    const first = archiveInfos.keys().next();
+    if (!first.done) archiveInfos.delete(first.value);
+  }
+  archiveInfos.set(key, measured);
   void measured.catch(() => {
-    if (archiveSizes.get(key) === measured) archiveSizes.delete(key);
+    if (archiveInfos.get(key) === measured) archiveInfos.delete(key);
   });
   return measured;
 }
 
+async function readPlainRange(path: string, size: number): Promise<LogFileRange> {
+  const file = await open(path, 'r');
+  try {
+    const bytes = Buffer.alloc(Math.min(size, EDGE_BYTES));
+    const head = await file.read(bytes, 0, bytes.length, 0);
+    const start = edgeTime(bytes.subarray(0, head.bytesRead));
+    const tail =
+      size <= bytes.length ? head : await file.read(bytes, 0, bytes.length, size - bytes.length);
+    return { start, end: edgeTime(bytes.subarray(0, tail.bytesRead), true) };
+  } finally {
+    await file.close();
+  }
+}
+
+const previewRanges = new Map<string, Promise<LogFileRange>>();
+const unknownRange: LogFileRange = { start: null, end: null };
+
+export async function readLogFileRange(entry: LogFileEntry): Promise<LogFileRange> {
+  const source = logFileSource(entry);
+  const key = fileVersion(source, entry.identity, entry.size, entry.mtime);
+  const inspection = archiveInfos.get(key);
+  if (inspection) {
+    const { start, end } = await inspection.catch(() => unknownRange);
+    return { start, end };
+  }
+  const cached = previewRanges.get(key);
+  if (cached) return cached;
+  const range = (async () => {
+    try {
+      if (!entry.archived) return await readPlainRange(source, entry.size);
+      const { start, end } = await inspectArchive(
+        source,
+        entry.size > ARCHIVE_PREVIEW_BYTES ? EDGE_BYTES : ARCHIVE_PREVIEW_BYTES,
+      );
+      return { start, end };
+    } catch {
+      // 文件可在扫描后轮转或清理，下次刷新会重新扫描。
+      previewRanges.delete(key);
+      return unknownRange;
+    }
+  })();
+  if (previewRanges.size >= 256) {
+    const first = previewRanges.keys().next();
+    if (!first.done) previewRanges.delete(first.value);
+  }
+  previewRanges.set(key, range);
+  return range;
+}
+
 export async function readLogFileInfo(path: string): Promise<{ size: number; mtime: number }> {
   const { source, stat } = sourceOf(path);
-  const size = source.endsWith('.gz') ? await archiveSize(source, stat) : stat.size;
+  const size = source.endsWith('.gz') ? (await archiveInfo(source, stat)).size : stat.size;
   return { size, mtime: stat.mtimeMs };
 }
 
@@ -210,7 +315,7 @@ export async function readLogFileChunk(
     const { source, stat } = sourceOf(path);
     const archived = source.endsWith('.gz');
     try {
-      const size = archived ? await archiveSize(source, stat) : stat.size;
+      const size = archived ? (await archiveInfo(source, stat)).size : stat.size;
       const start = offset < 0 ? Math.max(0, size + offset) : Math.min(size, offset);
       const length = Math.min(maxBytes, size - start);
       const buf = Buffer.alloc(length);

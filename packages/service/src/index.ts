@@ -1249,7 +1249,13 @@ export {
   planExpiredLogs,
   pruneExpiredLogs,
 } from './common/logger';
-export { logFileSource, readLogFileChunk, readLogFileInfo, scanLogFiles } from './common/log_files';
+export {
+  logFileSource,
+  readLogFileChunk,
+  readLogFileInfo,
+  readLogFileRange,
+  scanLogFiles,
+} from './common/log_files';
 export type { LogFileEntry, LogFileKind } from './common/log_files';
 export type { LogFileCandidate } from './common/logger';
 export { configureConsoleLogger, flushConsoleLogger } from './common/logger';

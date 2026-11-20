@@ -30,10 +30,11 @@ function subscribe(listener: () => void) {
     listeners.delete(listener);
   };
 }
+const logStart = Date.parse('2026-11-16T08:54:40Z');
 const logText =
   Array.from({ length: 160 }, (_, index) =>
     JSON.stringify({
-      ts: new Date(now - (160 - index) * 1000).toISOString(),
+      ts: new Date(logStart + index * 1000).toISOString(),
       level: index % 8 === 0 ? 'warn' : 'info',
       message: `合成日志 ${index}${fixture === 'long-logs' && index === 159 ? ` ${'file:///synthetic/logs/long-unbroken-token-'.repeat(160)}` : ''}`,
       context: { scope: 'fixture' },
@@ -210,6 +211,8 @@ export const trpc = {
                 kind: 'weq',
                 size: logText.length,
                 mtime: now,
+                start: logStart,
+                end: logStart + 159_000,
               },
             ],
           },

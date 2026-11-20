@@ -8,6 +8,7 @@ import {
   archiveLogFile,
   readLogFileChunk,
   readLogFileInfo,
+  readLogFileRange,
   scanLogFiles,
   utcLogDay,
 } from '../src/common/log_files';
@@ -32,9 +33,9 @@ it('按大小和日期封段，保留活动明文，归档路径仍可按原偏�
   const yesterday = utcLogDay(new Date(Date.now() - 86_400_000));
   const today = utcLogDay();
   const writer = new LogFileWriter(dir, 18);
-  writer.record('yesterday\n', yesterday, false);
-  writer.record('first\nsecond\n', today, false);
-  writer.record('third\n', today, false);
+  writer.record('yesterday\n', `${yesterday}T23:59:59.000Z`, false);
+  writer.record('first\nsecond\n', `${today}T00:00:00.001Z`, false);
+  writer.record('third\n', `${today}T00:00:03.456Z`, false);
   await writer.flush();
   await writer.waitForArchives();
   const files = scanLogFiles(dir);
@@ -43,6 +44,7 @@ it('按大小和日期封段，保留活动明文，归档路径仍可按原偏�
   expect(files).toHaveLength(3);
   expect(files.every((entry) => entry.kind === 'weq')).toBe(true);
   expect(active.path).toBe(writer.activePath);
+  expect(active.name.startsWith(`${today}T00-00-03.456Z.weq.`)).toBe(true);
   expect(readFileSync(active.path, 'utf8')).toBe('third\n');
   const sameDay = archives.find((entry) => entry.name.startsWith(today))!;
   expect(existsSync(sameDay.path)).toBe(false);
@@ -72,8 +74,50 @@ it('归档冲突不覆盖也不删明文，旧版多段 gzip 直接回读', asyn
   expect(readFileSync(file, 'utf8')).toBe('original\n');
   expect(readFileSync(archive)).toEqual(previous);
   expect(readdirSync(dir).sort()).toEqual(['2026-09-10.log', '2026-09-10.log.gz']);
+  expect(scanLogFiles(dir)).toMatchObject([{ path: file, archived: false }]);
   rmSync(file);
+  expect(scanLogFiles(dir)).toMatchObject([{ path: file, archived: true }]);
   expect(await readLogFileChunk(file, -7, 7)).toMatchObject({ text: 'second\n', size: 13 });
+});
+
+it('日志时间范围来自真实写入记录，压缩与明文共用同一分段路径', async () => {
+  const dir = tmp();
+  const start = Date.parse('2026-11-20T15:59:59.100Z');
+  const end = Date.parse('2026-11-20T16:00:01.200Z');
+  const file = join(dir, '2026-11-20.log');
+  const native = join(dir, 'nt_helper_2026-11-20.log');
+  const raw = [start, end]
+    .map((ts) => JSON.stringify({ ts: new Date(ts).toISOString(), message: 'WeQ' }) + '\n')
+    .join('');
+  writeFileSync(file, raw);
+  writeFileSync(
+    native,
+    `[${start}][INFO][logger] ready\ncontinued\n[${end}][WARN][module] retry\n`,
+  );
+  for (const entry of scanLogFiles(dir)) {
+    expect(await readLogFileRange(entry)).toEqual({ start, end });
+  }
+  await archiveLogFile(file);
+  const archived = scanLogFiles(dir).find((entry) => entry.path === file)!;
+  expect(archived.archived).toBe(true);
+  expect(await readLogFileRange(archived)).toEqual({ start, end });
+});
+
+it('旧整日大归档初次列出时只读开头，打开后能显示最后一条的时间', async () => {
+  const dir = tmp();
+  const file = join(dir, '2026-11-20.log');
+  const start = '2026-11-20T01:00:00.000Z';
+  const end = '2026-11-20T23:59:59.000Z';
+  const row = (ts: string) => JSON.stringify({ ts, message: 'fixture' }) + '\n';
+  const raw = row(start) + '\n'.repeat(9 * 1024 * 1024) + row(end);
+  writeFileSync(`${file}.gz`, gzipSync(raw));
+  const [entry] = scanLogFiles(dir);
+  expect(await readLogFileRange(entry!)).toEqual({ start: Date.parse(start), end: null });
+  expect(await readLogFileInfo(file)).toMatchObject({ size: raw.length });
+  expect(await readLogFileRange(entry!)).toEqual({
+    start: Date.parse(start),
+    end: Date.parse(end),
+  });
 });
 
 it('启动归档旧整日明文，不碰当天旧版日志或仍在写入的进程分段', async () => {
