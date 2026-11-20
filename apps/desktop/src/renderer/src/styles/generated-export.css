@@ -1,16 +1,25 @@
 .weq-generated-export {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.weq-generated-export-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   gap: 12px;
   min-height: 0;
-  height: 100%;
+  overflow: auto;
+  padding: 12px var(--weq-export-inset, 16px);
 }
 .weq-generated-export-body {
+  flex: 1 0 220px;
   display: grid;
-  grid-template-columns: minmax(180px, 2fr) minmax(0, 3fr);
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
   min-height: 0;
-  flex: 1;
 }
 .weq-generated-export-sessions,
 .weq-generated-export-messages {
@@ -20,10 +29,21 @@
   flex-direction: column;
   gap: 8px;
 }
-.weq-generated-export [data-weq-windowed-list] {
-  min-height: 100px;
-  max-height: 100%;
+.weq-generated-export-sessions [data-weq-windowed-list] {
+  min-height: 0;
   flex: 1;
+}
+
+.weq-generated-export-messages > .weq-empty-state {
+  flex: 1;
+}
+
+.weq-generated-export-content > .weq-export-content-row {
+  flex: none;
+}
+
+.weq-generated-export-content > .weq-export-content-row .weq-segmented {
+  grid-template-columns: repeat(2, minmax(max-content, 1fr));
 }
 
 /* 右侧对话：按聊天样式完整渲染（头像 + 左右分栏 + 表情 / 语音 / 贴纸）。 */
@@ -51,51 +71,19 @@
 .weq-generated-export-bubble.is-selected {
   background: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
 }
-.weq-generated-export-empty {
-  color: var(--weq-fg-muted);
-  font-size: 12.5px;
-  padding: 6px 2px;
-}
 .weq-generated-export-row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
   width: 100%;
   height: 64px;
-  padding: 8px;
+  padding: 6px 10px;
   text-align: left;
   color: var(--weq-fg-primary);
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--weq-border-subtle);
   cursor: pointer;
-}
-button.weq-generated-export-row {
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: center;
-  gap: 3px;
-}
-.weq-generated-export-row > span {
-  min-width: 0;
-}
-.weq-generated-export-row span,
-.weq-generated-export-row strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.weq-generated-export-row span {
-  color: var(--weq-fg-secondary);
-}
-
-/* 会话行：头像 + 两行文字（与导出中心其它列表同款排布）。 */
-.weq-generated-export-row.is-session {
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
 }
 .weq-generated-export-avatar {
   display: grid;
@@ -125,11 +113,25 @@ button.weq-generated-export-row {
   flex: 1;
 }
 .weq-generated-export-session-text strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12.5px;
   font-weight: 550;
 }
-.weq-generated-export-session-text span {
+.weq-generated-export-session-meta {
+  display: flex;
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--weq-fg-secondary);
   font-size: 11.5px;
+}
+.weq-generated-export-session-meta > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-generated-export-session-meta > :last-child {
+  flex: none;
 }
 .weq-generated-export-group-hint {
   display: flex;
@@ -148,25 +150,12 @@ button.weq-generated-export-row {
 .weq-generated-export input {
   accent-color: var(--weq-accent-effective);
 }
-.weq-generated-export-foot {
-  display: flex;
+.weq-export-tool .weq-generated-export-foot {
   flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 12px;
-  border-top: 1px solid var(--weq-border-subtle);
+  justify-content: flex-end;
 }
-.weq-generated-export-foot [role='group'] {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.weq-generated-export-foot label {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  font-size: 12px;
+.weq-generated-export-foot .weq-set-pill-group {
+  flex: 1 1 20rem;
 }
 .weq-generated-export-range {
   display: flex;
@@ -197,22 +186,27 @@ html[data-theme='dark'] .weq-generated-export-row[aria-pressed='true'],
 html[data-theme='dark'] .weq-generated-export-row:has(input:checked) {
   background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
 }
-@media (max-width: 640px) {
+@container (max-width: 640px) {
   .weq-generated-export-body {
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
-  }
-  .weq-generated-export-sessions {
-    flex: 0 0 auto;
+    flex-basis: auto;
   }
   .weq-generated-export-sessions [data-weq-windowed-list] {
     flex: none;
     max-height: 160px;
   }
-  .weq-generated-export-messages {
-    flex: 1;
+  .weq-generated-export-transcript {
     min-height: 220px;
+    max-height: 360px;
+  }
+  .weq-generated-export-messages > .weq-empty-state {
+    min-height: 64px;
+    padding-block: 12px;
+  }
+  .weq-generated-export-content > .weq-export-content-row {
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 8px;
   }
 }
 

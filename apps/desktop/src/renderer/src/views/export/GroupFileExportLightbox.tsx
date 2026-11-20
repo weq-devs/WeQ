@@ -393,11 +393,9 @@ export function GroupFileExportLightbox({
                           ])
                         }
                       >
-                        <ShimmerImage
-                          src={fileIconUrl('folder.png')}
-                          className="group-file-icon"
-                          alt=""
-                        />
+                        <span className="weq-media-icon-frame">
+                          <ShimmerImage src={fileIconUrl('folder.png')} alt="" />
+                        </span>
                         <span className="group-file-main">
                           <strong>{folder.folderName || '未命名文件夹'}</strong>
                           <small>
@@ -444,11 +442,9 @@ export function GroupFileExportLightbox({
                       {...multi.itemProps(`file:${file.fileId}`)}
                       onClick={() => toggleFile(file)}
                     >
-                      <ShimmerImage
-                        src={fileIconUrl(fileExtIcon(file.fileName))}
-                        className="group-file-icon"
-                        alt=""
-                      />
+                      <span className="weq-media-icon-frame">
+                        <ShimmerImage src={fileIconUrl(fileExtIcon(file.fileName))} alt="" />
+                      </span>
                       <span className="group-file-main">
                         <strong title={file.fileName}>{file.fileName}</strong>
                         <small>

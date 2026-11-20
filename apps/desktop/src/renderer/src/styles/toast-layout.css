@@ -43,6 +43,12 @@ html .weq-toast-host {
   display: none;
 }
 
+/* 开发更新常驻等待用户确认，离开导出界面后再显示。 */
+body:has(.weq-export-tool.is-export:not([hidden], [hidden] *), .weq-exp-modal-scrim)
+.weq-toast-slot:has(> [data-toast-key='development-reload']) {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .weq-toast-slot {
     transition: none;

@@ -245,187 +245,201 @@ export function GeneratedExportPane({
   return (
     <section className="weq-generated-export" aria-label="本地生成对话导出">
       {report.dialog}
-      <div className="weq-generated-export-body">
-        <div className="weq-generated-export-sessions">
-          <label className="weq-message-scope-search">
-            <Search size={15} />
-            <input
-              aria-label="查找生成对话"
-              placeholder="查找对话"
-              value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
-            />
-          </label>
-          {sessions.isError || account.isError ? (
-            <div role="alert">
-              对话列表读取失败
-              <button
-                type="button"
-                title="重试读取生成对话"
-                aria-label="重试读取生成对话"
-                onClick={() => {
-                  void account.refetch();
-                  void sessions.refetch();
-                }}
-              >
-                <RefreshCw size={14} aria-hidden />
-              </button>
-            </div>
-          ) : null}
-          {sessions.isLoading && ready ? (
-            <PickerListSkeleton rows={6} />
-          ) : (
-            <WindowedList
-              items={visible}
-              height={420}
-              rowHeight={64}
-              itemKey={generatedContentContainer}
-              label="生成对话列表"
-              scrollToKey={key}
-              resetKey={keyword}
-              renderItem={(session) => {
-                const avatar = avatarFor(session);
-                return (
-                  <button
-                    type="button"
-                    className="weq-generated-export-row is-session"
-                    disabled={busy}
-                    aria-pressed={generatedContentContainer(session) === key}
-                    onClick={() =>
-                      setTarget({
-                        kind: session.kind,
-                        ownerId: session.ownerId,
-                        sessionId: session.sessionId,
-                      })
-                    }
-                  >
-                    <span className="weq-generated-export-avatar" aria-hidden>
-                      {session.kind === 'assistant' ? (
-                        <span className="weq-generated-export-avatar-fb is-assistant">
-                          <Sparkles size={16} strokeWidth={1.9} />
-                        </span>
-                      ) : session.kind === 'group' && (avatar.groupUins?.length ?? 0) > 0 ? (
-                        // 克隆群：成员头像拼合成头像，与真实群会话列表口径一致。
-                        <GroupMosaicAvatar uins={avatar.groupUins!} size={34} />
-                      ) : (
-                        <QqAvatar uin={avatar.uin || null} size={34} />
-                      )}
-                    </span>
-                    <span className="weq-generated-export-session-text">
-                      <strong>{session.title}</strong>
-                      <span>
-                        {session.sessionTitle} ·{' '}
-                        <span className="weq-number weq-number-inherit">{session.count}</span> 条
-                      </span>
-                    </span>
-                  </button>
-                );
-              }}
-            />
-          )}
-          {/*{!sessions.isLoading && !sessions.isError && !visible.length ? (*/}
-          {/*  <p>没有本地生成对话</p>*/}
-          {/*) : null}*/}
-        </div>
-        <div className="weq-generated-export-messages" {...messageMulti.rootProps}>
-          {!target ? null : content.isError ? (
-            <div role="alert">
-              记录读取失败，原选择保留
-              <button
-                type="button"
-                title="重试读取生成记录"
-                aria-label="重试读取生成记录"
-                onClick={() => void content.refetch()}
-              >
-                <RefreshCw size={14} aria-hidden />
-              </button>
-            </div>
-          ) : (
-            <>
-              <header className="weq-generated-export-range">
-                <div className="weq-message-scope-mode">
-                  <CheckPill
-                    disabled={busy}
-                    checked={ids !== undefined}
-                    onChange={(checked) =>
-                      setScopes((current) => {
-                        const next = { ...current };
-                        if (checked) next[key] = [];
-                        else delete next[key];
-                        return next;
-                      })
-                    }
-                  >
-                    {ids === undefined ? '整场持久对话' : `精确选中 ${ids.length} 条消息`}
-                  </CheckPill>
-                </div>
-              </header>
-              <div className="weq-generated-export-transcript">
-                {content.isFetching && rows.length === 0 ? (
-                  <PickerListSkeleton rows={5} />
-                ) : rows.length === 0 ? (
-                  <EmptyState compact icon={<MessagesSquare />} title="这段对话还没有消息。" />
-                ) : null}
-                {rows.map((row, index) => {
-                  const sender = senderOf(row);
-                  const mine = row.role === 'user' || row.senderKind === 'user';
-                  const prevTs = index > 0 ? rows[index - 1]?.ts : undefined;
-                  const personaId =
-                    row.role === 'assistant' && target.kind !== 'assistant'
-                      ? (sender.personaId ??
-                        (target.kind === 'persona' ? target.ownerId : undefined))
-                      : undefined;
-                  // 头像：群成员优先用 senderId 解析到的 uin，私聊克隆体回落到会话对象
-                  // 自己的源好友 uin —— 不能被 QqAvatar 回落成灰色小人。
-                  const rowUin = mine
-                    ? selfProfile.data?.uin
-                    : sender.uin || (target.kind === 'persona' ? cloneUin : undefined);
-                  return (
-                    <div
-                      key={row.id}
-                      {...messageMulti.itemProps(row.id)}
-                      className={`weq-generated-message weq-generated-export-bubble${selected.has(row.id) ? ' is-selected' : ''}`}
-                    >
-                      {shouldShowChatTime(prevTs, row.ts) ? <ChatTimeDivider ts={row.ts} /> : null}
-                      <ChatBubble
-                        mine={mine}
-                        bot={!mine && target.kind === 'assistant'}
-                        name={mine ? selfProfile.data?.nick || '我' : sender.name}
-                        uin={rowUin}
-                        text={row.text}
-                        personaId={personaId}
-                      />
-                    </div>
-                  );
-                })}
+      <div className="weq-generated-export-content">
+        <div className="weq-generated-export-body">
+          <div className="weq-generated-export-sessions">
+            <label className="weq-message-scope-search">
+              <Search size={15} />
+              <input
+                aria-label="查找生成对话"
+                placeholder="查找对话"
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
+              />
+            </label>
+            {sessions.isError || account.isError ? (
+              <div role="alert">
+                对话列表读取失败
+                <button
+                  type="button"
+                  title="重试读取生成对话"
+                  aria-label="重试读取生成对话"
+                  onClick={() => {
+                    void account.refetch();
+                    void sessions.refetch();
+                  }}
+                >
+                  <RefreshCw size={14} aria-hidden />
+                </button>
               </div>
-              {/* 群聊成员数：合成头像本身在会话列表 / 头部展示，这里只补一句成员概览。 */}
-              {supportsGroup ? (
-                <p className="weq-generated-export-group-hint">
-                  <Users size={12} aria-hidden />
-                  <span className="weq-number weq-number-inherit">{groupMemberCount}</span> 位成员
-                </p>
-              ) : null}
-              {missing.length ? (
-                <p role="alert">
-                  <span className="weq-number weq-number-inherit">{missing.length}</span>{' '}
-                  条已选记录不存在或尚未持久化，请稍后重试或重新选择。
-                </p>
-              ) : null}
-            </>
-          )}
+            ) : null}
+            {sessions.isLoading && ready ? (
+              <PickerListSkeleton rows={6} />
+            ) : visible.length === 0 && !sessions.isError ? (
+              <EmptyState
+                compact
+                icon={<MessagesSquare />}
+                title={keyword.trim() ? '没有匹配的对话' : '暂无本地生成对话'}
+              />
+            ) : (
+              <WindowedList
+                items={visible}
+                height={420}
+                rowHeight={64}
+                itemKey={generatedContentContainer}
+                label="生成对话列表"
+                scrollToKey={key}
+                resetKey={keyword}
+                renderItem={(session) => {
+                  const avatar = avatarFor(session);
+                  return (
+                    <button
+                      type="button"
+                      className="weq-generated-export-row"
+                      disabled={busy}
+                      aria-pressed={generatedContentContainer(session) === key}
+                      onClick={() =>
+                        setTarget({
+                          kind: session.kind,
+                          ownerId: session.ownerId,
+                          sessionId: session.sessionId,
+                        })
+                      }
+                    >
+                      <span className="weq-generated-export-avatar" aria-hidden>
+                        {session.kind === 'assistant' ? (
+                          <span className="weq-generated-export-avatar-fb is-assistant">
+                            <Sparkles size={16} strokeWidth={1.9} />
+                          </span>
+                        ) : session.kind === 'group' && (avatar.groupUins?.length ?? 0) > 0 ? (
+                          // 克隆群：成员头像拼合成头像，与真实群会话列表口径一致。
+                          <GroupMosaicAvatar uins={avatar.groupUins!} size={34} />
+                        ) : (
+                          <QqAvatar uin={avatar.uin || null} size={34} />
+                        )}
+                      </span>
+                      <span className="weq-generated-export-session-text">
+                        <strong>{session.title}</strong>
+                        <span className="weq-generated-export-session-meta">
+                          <span title={session.sessionTitle}>{session.sessionTitle}</span>
+                          <span>
+                            · <span className="weq-number weq-number-inherit">{session.count}</span>{' '}
+                            条
+                          </span>
+                        </span>
+                      </span>
+                    </button>
+                  );
+                }}
+              />
+            )}
+          </div>
+          <div className="weq-generated-export-messages" {...messageMulti.rootProps}>
+            {!target ? (
+              visible.length > 0 && (
+                <EmptyState compact icon={<MessagesSquare />} title="选择要导出的对话" />
+              )
+            ) : content.isError ? (
+              <div role="alert">
+                记录读取失败，原选择保留
+                <button
+                  type="button"
+                  title="重试读取生成记录"
+                  aria-label="重试读取生成记录"
+                  onClick={() => void content.refetch()}
+                >
+                  <RefreshCw size={14} aria-hidden />
+                </button>
+              </div>
+            ) : (
+              <>
+                <header className="weq-generated-export-range">
+                  <div className="weq-message-scope-mode">
+                    <CheckPill
+                      disabled={busy}
+                      checked={ids !== undefined}
+                      onChange={(checked) =>
+                        setScopes((current) => {
+                          const next = { ...current };
+                          if (checked) next[key] = [];
+                          else delete next[key];
+                          return next;
+                        })
+                      }
+                    >
+                      {ids === undefined ? '整场持久对话' : `精确选中 ${ids.length} 条消息`}
+                    </CheckPill>
+                  </div>
+                </header>
+                <div className="weq-generated-export-transcript">
+                  {content.isFetching && rows.length === 0 ? (
+                    <PickerListSkeleton rows={5} />
+                  ) : rows.length === 0 ? (
+                    <EmptyState compact icon={<MessagesSquare />} title="这段对话还没有消息。" />
+                  ) : null}
+                  {rows.map((row, index) => {
+                    const sender = senderOf(row);
+                    const mine = row.role === 'user' || row.senderKind === 'user';
+                    const prevTs = index > 0 ? rows[index - 1]?.ts : undefined;
+                    const personaId =
+                      row.role === 'assistant' && target.kind !== 'assistant'
+                        ? (sender.personaId ??
+                          (target.kind === 'persona' ? target.ownerId : undefined))
+                        : undefined;
+                    // 头像：群成员优先用 senderId 解析到的 uin，私聊克隆体回落到会话对象
+                    // 自己的源好友 uin —— 不能被 QqAvatar 回落成灰色小人。
+                    const rowUin = mine
+                      ? selfProfile.data?.uin
+                      : sender.uin || (target.kind === 'persona' ? cloneUin : undefined);
+                    return (
+                      <div
+                        key={row.id}
+                        {...messageMulti.itemProps(row.id)}
+                        className={`weq-generated-message weq-generated-export-bubble${selected.has(row.id) ? ' is-selected' : ''}`}
+                      >
+                        {shouldShowChatTime(prevTs, row.ts) ? (
+                          <ChatTimeDivider ts={row.ts} />
+                        ) : null}
+                        <ChatBubble
+                          mine={mine}
+                          bot={!mine && target.kind === 'assistant'}
+                          name={mine ? selfProfile.data?.nick || '我' : sender.name}
+                          uin={rowUin}
+                          text={row.text}
+                          personaId={personaId}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* 群聊成员数：合成头像本身在会话列表 / 头部展示，这里只补一句成员概览。 */}
+                {supportsGroup ? (
+                  <p className="weq-generated-export-group-hint">
+                    <Users size={12} aria-hidden />
+                    <span className="weq-number weq-number-inherit">{groupMemberCount}</span> 位成员
+                  </p>
+                ) : null}
+                {missing.length ? (
+                  <p role="alert">
+                    <span className="weq-number weq-number-inherit">{missing.length}</span>{' '}
+                    条已选记录不存在或尚未持久化，请稍后重试或重新选择。
+                  </p>
+                ) : null}
+              </>
+            )}
+          </div>
         </div>
+        {error ? <p role="alert">{error}</p> : null}
+        <StructuredExportControls
+          domain="generatedParameters"
+          onRequireJson={() => setFormats((current) => new Set(current).add('json'))}
+          options={structured}
+          formats={[...formats]}
+          disabled={busy}
+          onChange={(value) => setStructured((current) => ({ ...current, ...value }))}
+        />
       </div>
-      {error ? <p role="alert">{error}</p> : null}
-      <StructuredExportControls
-        domain="generatedParameters"
-        onRequireJson={() => setFormats((current) => new Set(current).add('json'))}
-        options={structured}
-        formats={[...formats]}
-        disabled={busy}
-        onChange={(value) => setStructured((current) => ({ ...current, ...value }))}
-      />
-      <footer className="weq-generated-export-foot">
+      <footer className="weq-exp-pane-foot weq-generated-export-foot">
         <CheckPillGroup<BackendFormat>
           options={FORMATS.map((format) => ({ value: format, label: format.toUpperCase() }))}
           selected={[...formats]}

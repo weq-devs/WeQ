@@ -12,6 +12,45 @@
   background: transparent;
 }
 
+.weq-export-tool .weq-exp-pane-foot:has(> .weq-exp-foot-format) {
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+.weq-exp-foot-format {
+  display: grid;
+  flex: 1 1 30rem;
+  gap: 4px;
+  min-width: 0;
+}
+
+.weq-exp-format-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 9px;
+}
+
+.weq-exp-format-choice > .weq-select-trigger {
+  flex: none;
+  width: auto;
+  min-width: 88px;
+}
+
+.weq-exp-format-choice > small {
+  flex: 1 0 170px;
+}
+
+.weq-exp-foot-format > .weq-export-content-row {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  padding-block: 6px 0;
+}
+
+.weq-exp-foot-format .weq-segmented {
+  grid-template-columns: repeat(2, minmax(max-content, 1fr));
+}
+
 .weq-export-execution {
   display: flex;
   flex: none;
@@ -273,16 +312,9 @@ html[data-theme='dark'] .weq-export-tool .weq-exp-sched-card {
     padding: 6px 12px;
   }
   .weq-export-tool .weq-exp-pane-head {
-    padding: 8px 12px;
+    padding-block: 8px;
   }
-  .weq-export-tool .weq-exp-pane-title {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    width: 100%;
-    align-items: center;
-    gap: 8px;
-  }
-  .weq-export-tool .weq-exp-pane-title > span {
+  .weq-export-tool .weq-exp-pane-heading > span {
     display: none;
   }
   .weq-export-tool .weq-exp-contacts-switch {
@@ -307,13 +339,13 @@ html[data-theme='dark'] .weq-export-tool .weq-exp-sched-card {
     overflow-wrap: normal;
   }
   .weq-export-tool .weq-exp-search {
-    margin: 6px 12px;
+    margin-block: 6px;
   }
   .weq-export-tool .weq-exp-tools {
-    margin: 0 12px 6px;
+    margin-bottom: 6px;
   }
   .weq-export-tool .weq-exp-pane-foot {
-    padding: 8px 12px;
+    padding-block: 8px;
   }
 }
 

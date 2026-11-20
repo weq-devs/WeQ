@@ -5,6 +5,18 @@
   min-width: 0;
   color: var(--weq-fg-primary);
 }
+.weq-resource-export-pane.is-persona-bot {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 12px;
+}
+
+.weq-resource-export-pane.is-persona-bot > .weq-persona-form {
+  flex: none;
+  padding-inline: var(--weq-export-inset, 16px);
+}
+
 .weq-qzone-export-content {
   min-width: 0;
   margin: 0;
@@ -16,6 +28,7 @@
   flex-wrap: wrap;
   align-items: end;
   gap: 12px;
+  padding: 12px var(--weq-export-inset, 16px);
 }
 .weq-resource-export-target label {
   display: grid;

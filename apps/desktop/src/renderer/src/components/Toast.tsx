@@ -234,6 +234,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
     <div className={`weq-toast-slot${leaving ? ' is-leaving' : ''}`}>
       <div
         hidden={!visible}
+        data-toast-key={toast.key}
         className={`weq-toast weq-toast-${toast.tone}${shown ? ' show' : ''}${leaving ? ' fade-out' : ''}${expanded ? ' expanded' : ''}`}
         role="status"
         onMouseEnter={() => setPaused(true)}

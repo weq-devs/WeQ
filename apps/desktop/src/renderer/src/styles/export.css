@@ -110,13 +110,6 @@
   background: color-mix(in srgb, #ffffff 30%, transparent);
 }
 
-.weq-exp-foot-format {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-}
-
 .weq-exp-foot-label {
   font-size: 12px;
   color: #6a7280;
