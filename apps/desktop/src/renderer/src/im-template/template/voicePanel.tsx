@@ -1,25 +1,7 @@
 // @ts-nocheck
-/**
- * 消息输入框内联的语音条：按住说话的录音键 + 横向声纹，外加文字转语音。
- *
- * 组件本身是**贴在输入框里**的（占掉正文编辑区那一行），不再是从输入框上沿弹出来的
- * 浮层 —— 位置样式见 composer-media.css 的 `@media (min-width: 761px)` 段。
- *
- * 录音走浏览器原生的 `getUserMedia` + `MediaRecorder`，声纹来自 `AnalyserNode`：
- * 每帧把频谱压成 {@link BAR_COUNT} 根柱子写进一个**固定数组**（原地写，不进 React
- * state），环形组件自己用 rAF 读这个数组直接改 DOM —— 60fps 下不触发任何 React
- * 重渲染，长按录音再久也不会掉帧。
- *
- * 面板本身不进浮层：收起不做按钮（没有外框也没有 ✕），再点一次工具栏那枚麦克风、
- * 或点到输入框外面就关掉它。
- *
- * 「配了才出现」的能力只剩语音转录（设置 → 语音配置里选了离线转录模型）：录音时顺带跑
- * `SpeechRecognition`，松开就把识别文字带出来；回顾态里也能再转一次。
- * 文字转语音与录音共享输入框内的面板，合成与发送复用 `TtsComposer`。
- *
- * 发送只把结果交给上层（`onSendVoice` / `onSendTranscript`），本模块不碰协议。
- */
+/** 输入区语音模式，包含录音、TTS 和群聊 AI 声聊。 */
 
+import { AiVoiceControls, type AiVoiceDraft } from './aiVoicePanel';
 import { FormSelect } from '../../components/FormSelect';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -45,21 +27,8 @@ import {
   type VoiceClip,
 } from './composerMedia';
 
-/** 环绕录音键的声纹柱子数量（360 / 56 ≈ 6.4°，密到看起来是连续的一圈）。 */
 const BAR_COUNT = 56;
-
-/** 每根柱子的角度。静态常量：柱子只按位置存在，顺便给它们一个稳定 key。 */
-const RING_BARS = Array.from({ length: BAR_COUNT }, (_, index) => ({
-  angle: (360 / BAR_COUNT) * index,
-}));
-/**
- * 环形半径（柱子根到圆心的距离，px）。
- *
- * 50 是跟舞台 126px、录音键 70px 一起算好的一组值：柱子最长时（scaleY 1.21，
- * 柱高 20px）外缘到半径 +12，整圈 124px，刚好盛在 126px 的舞台里，而且柱子收起时
- * 空出的内圈（直径 76px）还是比录音键大一圈，不会盖到按钮。
- */
-const RING_RADIUS = 50;
+const WAVE_BARS = Array.from({ length: BAR_COUNT }, (_, index) => `bar-${index}`);
 const MAX_RECORD_MS = 60_000;
 const MIN_RECORD_MS = 700;
 const MAX_TTS_CHARS = 200;
@@ -719,50 +688,39 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
 
 // ── 声纹 ─────────────────────────────────────────────────────────────────────
 
-/**
- * 环绕录音键的一圈声纹。自己跑 rAF 直接改每根柱子的 transform/opacity，
- * 不经过 React 渲染 —— 每帧只做 {@link BAR_COUNT} 次样式写入。
- */
-function VoiceWaveRing({ levels, active }: { levels: number[]; active: boolean }) {
-  // 录音时整圈转成录音红（见 composer-media.css 的 .voice-ring.is-active），
-  // 免得蓝色声纹环配红色录音键。
+/** 声纹逐帧读取采样数组，避免每个采样都触发输入区渲染。 */
+function VoiceLiveWave({ levels, active }: { levels: number[]; active: boolean }) {
   const barRefs = useRef<Array<HTMLSpanElement | null>>([]);
-  const activeRef = useRef(active);
-  activeRef.current = active;
-
   useEffect(() => {
+    if (!active) return;
     let frame = 0;
-    let phase = 0;
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const step = () => {
+      barRefs.current.forEach((bar, index) => {
+        if (bar) bar.style.transform = `scaleY(${0.14 + Math.min(1, levels[index] ?? 0) * 0.86})`;
+      });
       frame = window.requestAnimationFrame(step);
-      phase += 0.06;
-      const bars = barRefs.current;
-      const flow = Math.floor(phase);
-      for (let i = 0; i < bars.length; i++) {
-        const bar = bars[i];
-        if (!bar) continue;
-        const angle = (360 / BAR_COUNT) * i;
-        let value: number;
-        if (activeRef.current) {
-          value = levels[(i + flow) % levels.length] ?? 0;
-        } else {
-          // 待机：极轻的呼吸，让面板不显得僵。
-          value = 0.09 + 0.05 * Math.sin(phase * 1.6 + i * 0.55);
-        }
-        const scale = 0.16 + Math.min(1, value) * 1.05;
-        bar.style.transform = `rotate(${angle}deg) translateY(-${RING_RADIUS}px) scaleY(${scale})`;
-        bar.style.opacity = `${0.3 + Math.min(1, value) * 0.7}`;
-      }
     };
-    frame = window.requestAnimationFrame(step);
-    return () => window.cancelAnimationFrame(frame);
-  }, [levels]);
-
+    function updateMotion() {
+      window.cancelAnimationFrame(frame);
+      if (motion.matches) {
+        for (const bar of barRefs.current) bar?.style.removeProperty('transform');
+      } else {
+        frame = window.requestAnimationFrame(step);
+      }
+    }
+    updateMotion();
+    motion.addEventListener('change', updateMotion);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      motion.removeEventListener('change', updateMotion);
+    };
+  }, [levels, active]);
   return (
-    <div className={cn('voice-ring', active && 'is-active')} aria-hidden="true">
-      {RING_BARS.map((bar, index) => (
+    <div className="voice-live-wave" aria-hidden="true">
+      {WAVE_BARS.map((key, index) => (
         <span
-          key={bar.angle}
+          key={key}
           ref={(node) => {
             barRefs.current[index] = node;
           }}
@@ -802,10 +760,14 @@ export function VoicePanel({
   onSendVoice,
   onSendTranscript,
   onSendAudioFile,
+  onSendTts,
   onBusyChange,
   ttsProviders = [],
   onSynthesizeSpeech,
-  onOpenAiVoice,
+  groupId,
+  text,
+  onTextChange,
+  onSendAiVoice,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
   /** 是否可以发送（QQ 在线且允许注入）。 */
@@ -822,17 +784,29 @@ export function VoicePanel({
    * 相当于内置一个格式转换器，不依赖 ffmpeg。
    */
   onSendAudioFile: (bytes: Uint8Array, fileName: string) => void;
+  onSendTts: (bytes: Uint8Array, fileName: string) => void;
   /** 收起不做按钮：这个面板是内嵌在输入框里的，再点一次工具栏那枚麦克风就行。 */
   onBusyChange: (busy: boolean) => void;
   ttsProviders?: TtsVoiceProvider[];
   onSynthesizeSpeech?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
-  onOpenAiVoice?: () => void;
+  groupId?: number;
+  text: string;
+  onTextChange: (text: string) => void;
+  onSendAiVoice: (draft: AiVoiceDraft) => void;
 }) {
-  const [tab, setTab] = useState<'record' | 'tts'>('record');
+  const [tab, setTab] = useState<'record' | 'tts' | 'ai'>('record');
   const recorder = useVoiceRecorder({ canTranscribe: transcribeEnabled });
   const { phase, beginRecord, endRecord } = recorder;
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const aiSendRef = useRef<HTMLButtonElement | null>(null);
+  const spaceRecording = useRef(false);
   const busy = phase === 'recording' || phase === 'requesting';
+
+  function changeTab(next: typeof tab) {
+    if (busy) return;
+    if (next !== 'record' && recorder.playing) recorder.togglePlay();
+    setTab(next);
+  }
 
   /** 选一个本机音频文件当语音发（解码成 WAV 再转 SILK 的活在上层做）。 */
   async function handlePickAudio(file: File): Promise<void> {
@@ -875,14 +849,18 @@ export function VoicePanel({
         return;
       }
       if (isTypingTarget(event.target)) return;
+      if (event.target instanceof HTMLButtonElement && !event.target.matches('.voice-record-btn'))
+        return;
       if (phase === 'recording' || phase === 'requesting') return;
       event.preventDefault();
+      spaceRecording.current = true;
       void beginRecord();
     }
 
     function onKeyUp(event: KeyboardEvent) {
-      if (event.code !== 'Space' || isTypingTarget(event.target)) return;
+      if (event.code !== 'Space' || !spaceRecording.current) return;
       event.preventDefault();
+      spaceRecording.current = false;
       endRecord();
     }
 
@@ -894,23 +872,6 @@ export function VoicePanel({
     };
   }, [beginRecord, endRecord, phase, tab]);
 
-  // 录音期间的「松手」在 window 上听：录音键在录音中会重渲染（换图标 / 计时器），
-  // 挂在按钮上的 onPointerUp 一旦丢了捕获就收不到 —— 表现就是「按住了却自己断掉」。
-  // window 级监听不依赖捕获，鼠标移出按钮也照样能停。
-  // 只听 pointer，不听 window 的 blur：第一次录音会弹麦克风授权，窗口失焦不该把
-  // 这条正在录的语音掐掉。
-  useEffect(() => {
-    if (phase !== 'recording' && phase !== 'requesting') return;
-
-    const stop = () => endRecord();
-    window.addEventListener('pointerup', stop);
-    window.addEventListener('pointercancel', stop);
-    return () => {
-      window.removeEventListener('pointerup', stop);
-      window.removeEventListener('pointercancel', stop);
-    };
-  }, [endRecord, phase]);
-
   return (
     <div
       className={cn('voice-panel')}
@@ -921,50 +882,86 @@ export function VoicePanel({
       tabIndex={-1}
       aria-label="语音"
     >
-      <div className={cn('voice-panel-head')}>
-        <div className={cn('voice-panel-tabs')} role="tablist" aria-label="语音方式">
+      <div className="voice-mode-switch" role="group" aria-label="语音方式">
+        <button
+          type="button"
+          aria-pressed={tab === 'record'}
+          disabled={busy}
+          onClick={() => changeTab('record')}
+        >
+          <Mic size={16} /> 录音
+        </button>
+        <button
+          type="button"
+          aria-pressed={tab === 'tts'}
+          disabled={busy}
+          onClick={() => changeTab('tts')}
+        >
+          <Type size={16} /> TTS
+        </button>
+        {groupId ? (
           <button
             type="button"
-            role="tab"
-            aria-selected={tab === 'record'}
-            className={cn(tab === 'record' && 'active')}
+            aria-pressed={tab === 'ai'}
             disabled={busy}
-            onClick={() => setTab('record')}
+            onClick={() => changeTab('ai')}
           >
-            <Mic size={14} /> 录音
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'tts'}
-            className={cn(tab === 'tts' && 'active')}
-            disabled={busy}
-            onClick={() => setTab('tts')}
-          >
-            <Type size={14} /> 文字转语音
-          </button>
-        </div>
-        {onOpenAiVoice ? (
-          <button
-            type="button"
-            className={cn('voice-ai-action')}
-            title="AI 声聊"
-            disabled={busy}
-            onClick={onOpenAiVoice}
-          >
-            <Sparkles size={15} />
+            <Sparkles size={16} /> AI 声聊
           </button>
         ) : null}
       </div>
-      {tab === 'tts' ? (
-        <div className={cn('voice-panel-body')}>
-          <TtsComposer
-            providers={ttsProviders}
-            canSend={canSend}
-            sendHint={sendHint}
-            onSendAudio={onSendAudioFile}
-            onSynthesize={onSynthesizeSpeech}
-          />
+      {tab !== 'record' ? (
+        <div className="voice-synthesis">
+          <label className="voice-synthesis-field">
+            <span className="voice-synthesis-label">
+              要说的话
+              <span className="voice-tts-count" aria-hidden="true">
+                {text.length}/{MAX_TTS_CHARS}
+              </span>
+            </span>
+            <textarea
+              className="voice-tts-input"
+              value={text}
+              maxLength={Math.max(MAX_TTS_CHARS, text.length)}
+              placeholder="输入要合成语音的文字"
+              onChange={(event) => onTextChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (
+                  tab === 'ai' &&
+                  event.key === 'Enter' &&
+                  (event.metaKey || event.ctrlKey) &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  aiSendRef.current?.click();
+                }
+              }}
+            />
+            {text.length > MAX_TTS_CHARS ? (
+              <span className="voice-error" role="status">
+                语音文字最多 {MAX_TTS_CHARS} 字，请缩短后发送。
+              </span>
+            ) : null}
+          </label>
+          {tab === 'ai' && groupId ? (
+            <AiVoiceControls
+              groupId={groupId}
+              text={text}
+              disabled={!canSend}
+              disabledHint={sendHint}
+              onSend={onSendAiVoice}
+              sendRef={aiSendRef}
+            />
+          ) : (
+            <TtsComposer
+              text={text}
+              providers={ttsProviders}
+              canSend={canSend}
+              sendHint={sendHint}
+              onSendAudio={onSendTts}
+              onSynthesize={onSynthesizeSpeech}
+            />
+          )}
         </div>
       ) : (
         <div className={cn('voice-panel-body')}>
@@ -988,59 +985,48 @@ export function VoicePanel({
               onSendTranscript={() => onSendTranscript(recorder.transcript.trim())}
             />
           ) : (
-            <div className={cn('voice-stage')}>
-              <div className={cn('voice-pulse', busy && 'active')} aria-hidden="true">
-                <i />
-                <i />
-                <i />
+            <div className={cn('voice-stage', busy && 'is-recording')}>
+              <VoiceLiveWave levels={recorder.levels} active={phase === 'recording'} />
+              <div className="voice-record-track">
+                <button
+                  type="button"
+                  className="voice-record-btn"
+                  title={busy ? '结束录音' : '点击录音（也可长按空格）'}
+                  aria-label={busy ? '结束录音' : '点击录音'}
+                  onKeyDown={(event) => {
+                    if (event.code === 'Space') event.preventDefault();
+                  }}
+                  onClick={() => {
+                    spaceRecording.current = false;
+                    if (busy) endRecord();
+                    else void beginRecord();
+                  }}
+                  onContextMenu={(event) => event.preventDefault()}
+                >
+                  {phase === 'requesting' ? (
+                    <>
+                      <Loader2 size={20} className={cn('voice-spin')} />
+                      <strong>正在打开麦克风…</strong>
+                    </>
+                  ) : busy ? (
+                    <>
+                      <strong className={cn('voice-record-timer')}>
+                        <span className="weq-number weq-number-inherit">
+                          {formatClipDuration(recorder.elapsedMs)}
+                        </span>
+                      </strong>
+                      <em className={cn('voice-record-note')}>
+                        {spaceRecording.current ? '松开结束' : '点击结束'}
+                      </em>
+                    </>
+                  ) : (
+                    <>
+                      <Mic size={22} />
+                      <strong>点击录音</strong>
+                    </>
+                  )}
+                </button>
               </div>
-              <VoiceWaveRing levels={recorder.levels} active={phase === 'recording'} />
-              <button
-                type="button"
-                className={cn(
-                  'voice-record-btn',
-                  busy && 'is-recording',
-                  phase === 'requesting' && 'is-waiting',
-                  recorder.error && 'is-error',
-                )}
-                title="按住说话（也可以长按空格）"
-                aria-label="按住说话"
-                onKeyDown={(event) => {
-                  if (event.code === 'Space' || event.key === 'Enter') event.preventDefault();
-                }}
-                onPointerDown={(event) => {
-                  if (event.button !== 0) return;
-                  event.preventDefault();
-                  void beginRecord();
-                }}
-                onPointerUp={(event) => {
-                  event.preventDefault();
-                  endRecord();
-                }}
-                onContextMenu={(event) => event.preventDefault()}
-              >
-                {phase === 'requesting' ? (
-                  <>
-                    <Loader2 size={20} className={cn('voice-spin')} />
-                    <strong>正在打开麦克风…</strong>
-                  </>
-                ) : busy ? (
-                  <>
-                    {/* 录音中秒数是主角：大号数字占中间，松手提示只留一行小字垫在下面。 */}
-                    <strong className={cn('voice-record-timer')}>
-                      <span className="weq-number weq-number-inherit">
-                        {formatClipDuration(recorder.elapsedMs)}
-                      </span>
-                    </strong>
-                    <em className={cn('voice-record-note')}>松开结束</em>
-                  </>
-                ) : (
-                  <>
-                    <Mic size={22} />
-                    <strong>按住说话</strong>
-                  </>
-                )}
-              </button>
             </div>
           )}
 
@@ -1284,13 +1270,15 @@ const TTS_MIME: Record<string, string> = {
   flac: 'audio/flac',
 };
 
-export function TtsComposer({
+function TtsComposer({
+  text,
   providers,
   canSend,
   sendHint,
   onSendAudio,
   onSynthesize,
 }: {
+  text: string;
   providers: TtsVoiceProvider[];
   canSend: boolean;
   sendHint: string;
@@ -1298,7 +1286,6 @@ export function TtsComposer({
   onSendAudio: (bytes: Uint8Array, fileName: string) => void;
   onSynthesize?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
 }) {
-  const [text, setText] = useState('');
   const [providerId, setProviderId] = useState(providers[0]?.id ?? '');
   const [voice, setVoice] = useState('');
   const [phase, setPhase] = useState<'idle' | 'preview' | 'send'>('idle');
@@ -1308,10 +1295,12 @@ export function TtsComposer({
   const cacheRef = useRef<{ key: string; bytes: Uint8Array; format: string } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
+  const mounted = useRef(false);
 
   const body = text.trim();
   const provider = providers.find((item) => item.id === providerId) ?? providers[0] ?? null;
-  const ready = Boolean(onSynthesize) && provider !== null && body.length > 0;
+  const ready =
+    Boolean(onSynthesize) && provider !== null && body.length > 0 && text.length <= MAX_TTS_CHARS;
   const busy = phase !== 'idle';
   /** 缓存键：文字 / 服务商 / 音色任一变了就得重新合成。 */
   const cacheKey = `${provider?.id ?? ''}|${voice.trim()}|${body}`;
@@ -1322,13 +1311,18 @@ export function TtsComposer({
   }, [providerId]);
 
   // 面板卸载（收起）时把试听中的音频停干净，别留个声音在后面念。
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (audioRef.current) {
+        audioRef.current.onpause = null;
+        audioRef.current.onended = null;
+      }
       audioRef.current?.pause();
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   /** 合成（带缓存）。抛错交给调用方提示。 */
   async function synthesize(): Promise<{ bytes: Uint8Array; format: string } | null> {
@@ -1363,7 +1357,7 @@ export function TtsComposer({
     setPhase('preview');
     try {
       const result = await synthesize();
-      if (!result) return;
+      if (!result || !mounted.current) return;
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       const url = URL.createObjectURL(
         new Blob([result.bytes], { type: TTS_MIME[result.format] ?? 'audio/mpeg' }),
@@ -1404,23 +1398,8 @@ export function TtsComposer({
   }
 
   return (
-    <div className={cn('voice-tts')}>
-      <div className={cn('voice-tts-note')}>
-        <Sparkles size={13} />
-        <span>
-          {provider
-            ? `用「${provider.name}」合成，试听满意再发送；转 SILK 由本机完成。`
-            : '还没有配置 TTS 服务商：设置 → 语音配置 → TTS 服务商。'}
-        </span>
-      </div>
-      <textarea
-        className={cn('voice-tts-input')}
-        rows={3}
-        value={text}
-        maxLength={MAX_TTS_CHARS}
-        placeholder="输入要合成语音的文字，例如：在吗？我马上到。"
-        onChange={(event) => setText(event.target.value)}
-      />
+    <div className={cn('voice-tts', 'voice-synthesis-controls')}>
+      {provider ? null : <p className="voice-tts-note">在「设置 → 语音配置」中添加 TTS 服务商。</p>}
       <div className={cn('voice-tts-row')}>
         <label className={cn('voice-tts-voice')}>
           <span>服务商</span>
@@ -1437,10 +1416,6 @@ export function TtsComposer({
             ))}
           </FormSelect>
         </label>
-        <span className={cn('voice-tts-count')}>
-          <span className="weq-number weq-number-inherit">{text.length}</span>/
-          <span className="weq-number weq-number-inherit">{MAX_TTS_CHARS}</span>
-        </span>
       </div>
       <div className={cn('voice-tts-row')}>
         <label className={cn('voice-tts-voice')}>
@@ -1460,7 +1435,7 @@ export function TtsComposer({
           type="button"
           className={cn('voice-btn ghost')}
           // 试听中仍可点（再点一次 = 停止），只避开正在发送的那一瞬。
-          disabled={!ready || phase === 'send'}
+          disabled={!ready || busy}
           onClick={() => void handlePreview()}
         >
           {phase === 'preview' ? (

@@ -164,7 +164,7 @@ html:root[data-theme][data-component-style] body
   :is(
     input,
     .weq-select-trigger,
-    textarea,
+    textarea:where(:not(.voice-tts-input)),
     .weq-input,
     .weq-set-input,
     .weq-set-select,
@@ -188,8 +188,6 @@ html:root[data-theme][data-component-style] body
     .weq-cache-sql-input,
     .weq-blob-bulk-input,
     .weq-gift-detail-field textarea,
-    .voice-tts-input,
-    .ai-voice-textarea,
     .link-card-field textarea,
     .bounce-input,
     .ark-json,

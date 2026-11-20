@@ -230,8 +230,7 @@ import { composerQuoteToken, quoteBlockReason, quoteFromMessage } from './compos
 import type { LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
 import { GroupAdminPermissionsPopover } from '../../components/qq-actions/GroupAdminPermissionsPopover';
-import { AiVoicePanel, type AiVoiceDraft } from './aiVoicePanel';
-import { aiVoiceToken } from './aiVoicePanel.shared';
+import { aiVoiceToken, type AiVoiceDraft } from './aiVoicePanel.shared';
 import { bounceEmojiToken } from './bounceEmojiPanel.shared';
 import type { BounceEmojiDraft } from './bounceEmojiPanel';
 import type { RedPacketDraft } from './redPacketPanel';
@@ -276,6 +275,8 @@ import {
   replaceComposerTextRange,
   restoreComposer,
   serializeComposer,
+  composerSpeechText,
+  updateComposerSpeechText,
 } from './composer.shared';
 import {
   isComposerActionDisabled,
@@ -945,14 +946,11 @@ export function ChatPane({
     x: number;
     y: number;
   } | null>(null);
-  const [aiVoiceInitialTab, setAiVoiceInitialTab] = useState<'ai' | 'tts'>('tts');
   const [toolsOpen, setToolsOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
   const [onlineFacesOpen, setOnlineFacesOpen] = useState(false);
   const [arkOpen, setArkOpen] = useState(false);
-  // 「AI 声聊」面板：输入文字 + 选声线 + 试听，合成后**单独发送**（仅群聊）。
-  const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
   // 「闪传」文件框：拖文件 / 选文件夹 → 灯箱确认封面 → 走 fileset 发送。
   // 它内联占掉输入框正文那一行（需求就是「输入框变成文件框」），所以与其余面板互斥。
   const [flashOpen, setFlashOpen] = useState(false);
@@ -973,10 +971,10 @@ export function ChatPane({
 
   // 闪传文件框占着输入框正文那一行：别的面板一打开就把它收起来，避免两套东西打架。
   useEffect(() => {
-    if (emojiOpen || toolsOpen || voiceOpen || arkOpen || aiVoiceOpen || redPacketOpen) {
+    if (emojiOpen || toolsOpen || voiceOpen || arkOpen || redPacketOpen) {
       setFlashOpen(false);
     }
-  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, aiVoiceOpen, redPacketOpen]);
+  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, redPacketOpen]);
   // 图片内联进正文；文件和视频在托盘中排队，提交时各自交给现有发送队列。
   const [mediaAttachments, setMediaAttachments] = useState<ComposerAttachment[]>([]);
   const [preparingMedia, setPreparingMedia] = useState(false);
@@ -1372,7 +1370,6 @@ export function ChatPane({
   const voiceBusyRef = useRef(false);
   const arkPanelRef = useRef<HTMLDivElement | null>(null);
   const arkButtonRef = useRef<HTMLButtonElement | null>(null);
-  const aiVoicePanelRef = useRef<HTMLDivElement | null>(null);
   const redPacketPanelRef = useRef<HTMLDivElement | null>(null);
   const redPacketButtonRef = useRef<HTMLButtonElement | null>(null);
   const flashPanelRef = useRef<HTMLDivElement | null>(null);
@@ -2320,9 +2317,19 @@ export function ChatPane({
       if (voiceBusyRef.current) return;
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (voicePanelRef.current?.contains(target) || voiceButtonRef.current?.contains(target)) {
+      const panel = voicePanelRef.current;
+      if (panel?.contains(target) || voiceButtonRef.current?.contains(target)) {
         return;
       }
+      const list = target instanceof Element ? target.closest('.weq-field-options') : null;
+      if (
+        list?.id &&
+        panel &&
+        [...panel.querySelectorAll('[aria-controls]')].some(
+          (control) => control.getAttribute('aria-controls') === list.id,
+        )
+      )
+        return;
       setVoiceOpen(false);
     }
 
@@ -2338,6 +2345,10 @@ export function ChatPane({
       document.removeEventListener('keydown', closeVoiceOnEscape);
     };
   }, [tabActive, voiceOpen]);
+
+  useLayoutEffect(() => {
+    if (!voiceOpen) scheduleMobileComposerMeasureRef.current();
+  }, [voiceOpen]);
 
   // 闪传文件框：点到外面 / Esc 就收起来（与语音 / ark 面板同一套交互）。
   // 灯箱在面板内部，所以点灯箱不会被误判成「点到外面」。
@@ -2411,41 +2422,6 @@ export function ChatPane({
       document.removeEventListener('keydown', closeLinkOnEscape);
     };
   }, [tabActive, arkOpen]);
-
-  useLayoutEffect(() => {
-    if (!tabActive || !aiVoiceOpen) {
-      return;
-    }
-
-    function closeAiVoiceFromOutside(event: globalThis.PointerEvent) {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-      if (
-        aiVoicePanelRef.current?.contains(target) ||
-        voiceButtonRef.current?.contains(target) ||
-        emojiButtonRef.current?.contains(target) ||
-        toolsButtonRef.current?.contains(target)
-      ) {
-        return;
-      }
-      setAiVoiceOpen(false);
-    }
-
-    function closeAiVoiceOnEscape(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setAiVoiceOpen(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', closeAiVoiceFromOutside, true);
-    document.addEventListener('keydown', closeAiVoiceOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeAiVoiceFromOutside, true);
-      document.removeEventListener('keydown', closeAiVoiceOnEscape);
-    };
-  }, [tabActive, aiVoiceOpen]);
 
   useLayoutEffect(() => {
     if (!tabActive || !redPacketOpen) {
@@ -2610,9 +2586,9 @@ export function ChatPane({
     setPendingSuperEmoji(null);
     // 引用也跟着会话走：换了会话就不能再引用上一条会话里的消息了。
     setPendingQuote(null);
-    // AI 声聊 / 弹射表情面板同理：换会话不能把上一会话的面板留在屏幕上。
+    // 换会话时收起语音模式，并释放之前的录音和试听。
     setComposerMenu(null);
-    setAiVoiceOpen(false);
+    setVoiceOpen(false);
     setAttachmentError(null);
     setDropActive(false);
   }, [conversation?.id, releaseInlineImages, clearMediaAttachments]);
@@ -3650,7 +3626,6 @@ export function ChatPane({
     setLocationMenu(null);
     setLocationCardOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     setMentionMenu(null);
     setSlashMenu(null);
   }
@@ -3715,7 +3690,6 @@ export function ChatPane({
     setLocationMenu(null);
     setLocationCardOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
@@ -3767,12 +3741,14 @@ export function ChatPane({
     options: ComposerSubmitOptions & {
       /** 本条第额外本地媒体句柄（如语音条）。 */
       locals?: LocalMediaRef[];
+      speechOnly?: boolean;
     } = {},
   ) {
     const editor = currentComposerEditor();
     const draftBody = editor ? serializeComposer(editor) : body;
-    const stagedMedia = [...mediaAttachmentRef.current];
-    const singleToken = pendingSuperEmoji ? createEmojiToken(pendingSuperEmoji) : null;
+    const stagedMedia = options.speechOnly ? [] : [...mediaAttachmentRef.current];
+    const singleToken =
+      !options.speechOnly && pendingSuperEmoji ? createEmojiToken(pendingSuperEmoji) : null;
     // 引用元素必须排在最前面（与 service 的 buildTextElements 一致）：
     // 它描述的是「本消息在回复哪一条」，不是正文的一部分。
     const quote = options.omitQuote ? null : pendingQuote;
@@ -3861,11 +3837,12 @@ export function ChatPane({
       for (const attachment of stagedMedia) {
         if (attachment.url) retainedSendUrlsRef.current.add(attachment.url);
       }
-      updateMediaAttachments(
-        mediaAttachmentRef.current.filter((item) => !stagedMedia.includes(item)),
-      );
+      if (stagedMedia.length) {
+        updateMediaAttachments(
+          mediaAttachmentRef.current.filter((item) => !stagedMedia.includes(item)),
+        );
+      }
       setVoiceOpen(false);
-      setAiVoiceOpen(false);
       if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
       // 每项独立交接，某一项失败不会阻断后面的附件；底层仍使用已有有序发送队列。
       const bodies = [...(!empty ? [payloadBody] : []), ...stagedMedia.map(attachmentToken)];
@@ -3923,7 +3900,7 @@ export function ChatPane({
   }
 
   /** 语音面板「发送」：语音本身编成 ptt 元素 token；本地 blob 作为字节一并交出。 */
-  async function sendVoiceClip(clip: VoiceClip) {
+  async function sendVoiceClip(clip: VoiceClip, speechOnly = false) {
     const locals: LocalMediaRef[] = [];
     if (clip.blob) {
       try {
@@ -3941,7 +3918,11 @@ export function ChatPane({
         // 读不出字节时让上层报错（不静默丢语音）。
       }
     }
-    await submitMessage({ extraTokens: [voiceClipToken(clip)], locals });
+    await submitMessage({
+      extraTokens: [voiceClipToken(clip)],
+      locals,
+      ...(speechOnly ? { text: '', keepBody: true, omitQuote: true, speechOnly } : {}),
+    });
   }
 
   /**
@@ -3951,7 +3932,8 @@ export function ChatPane({
    * 本地句柄，主链路的 `decodeRecordingToWav` 再用 WebAudio 解码（mp3 / m4a / ogg…
    * 浏览器能解的都能收），所以内置了一个格式转换器、不需要 ffmpeg。
    */
-  async function sendAudioFile(bytes: Uint8Array, _fileName: string) {
+  async function sendAudioFile(bytes: Uint8Array, _fileName: string, speechOnly = false) {
+    if (!conversation || !isActiveConversation(conversation.id)) return;
     const blob = new Blob([bytes.slice().buffer]);
     const url = URL.createObjectURL(blob);
     const clip: VoiceClip = {
@@ -3964,7 +3946,7 @@ export function ChatPane({
       transcript: '',
     };
     try {
-      await sendVoiceClip(clip);
+      await sendVoiceClip(clip, speechOnly);
     } finally {
       // 乐观预览的 blob 要留到发送完成后再释放。
       window.setTimeout(() => releaseObjectUrl(url), 30_000);
@@ -4107,18 +4089,16 @@ export function ChatPane({
    * AI 声聊面板「合成并发送」：这条语音**只能单独发** —— 不带输入框里的文字、
    * 也不带挂着的引用（跟视频 / 文件那套「单独发」同一套互斥）。
    *
-   * 只做前端：这里不碰任何协议（`SendAiVoice` 那条 OIDB 还没接进来），只把
-   * 「文字 + 声线」编成一枚 ptt 元素 token 交给上层；`keepBody` 让用户正在打的
-   * 那段字原样留在输入框里。
+   * 把「文字 + 声线」交给既有语音发送链路，保留当前文字草稿。
    */
   async function sendAiVoice(draft: AiVoiceDraft) {
-    setAiVoiceOpen(false);
-    setPendingQuote(null);
+    setVoiceOpen(false);
     await submitMessage({
       extraTokens: [aiVoiceToken(draft)],
       text: '',
       keepBody: true,
       omitQuote: true,
+      speechOnly: true,
     });
   }
 
@@ -4795,7 +4775,6 @@ export function ChatPane({
     setLocationMenu(null);
     setLocationCardOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     if (media.length && mobileComposerExpanded) closeMobileComposerExpanded();
     updateMediaAttachments([...mediaAttachmentRef.current, ...media]);
     inlineImagesRef.current = [...inlineImagesRef.current, ...images];
@@ -5232,6 +5211,16 @@ export function ChatPane({
     if (!nextIds.size) setRestoringDraftMedia(false);
   }
 
+  function setSpeechDraftText(text: string) {
+    const value = updateComposerSpeechText(bodyRef.current, text);
+    if (value === bodyRef.current) return;
+    for (const editor of [composerEditorRef.current, expandedComposerEditorRef.current]) {
+      if (editor) restoreComposer(editor, value);
+    }
+    composerSelectionRef.current = null;
+    setComposerBody(value);
+  }
+
   async function reeditMessage(message: Message): Promise<boolean> {
     if (
       !conversation ||
@@ -5326,7 +5315,6 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
-    setAiVoiceOpen(false);
     scheduleMobileComposerMeasure();
     window.requestAnimationFrame(() => {
       if (mentionConversation.current === sourceConversation && composerTabActive.current)
@@ -5401,7 +5389,7 @@ export function ChatPane({
     setLocationMenu(null);
     setLocationCardOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
+    setVoiceOpen(false);
     setMobileComposerExpanded(true);
   }
 
@@ -5416,7 +5404,6 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     setEmojiOpen((open) => (toolsOpen ? true : !open));
   }
 
@@ -5429,7 +5416,6 @@ export function ChatPane({
     setEmojiOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
   }
 
@@ -5449,7 +5435,9 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
+    setFlashOpen(false);
+    setMentionMenu(null);
+    setSlashMenu(null);
     setVoiceOpen((open) => !open);
   }
 
@@ -5461,7 +5449,6 @@ export function ChatPane({
     setEmojiOpen(false);
     setToolsOpen(false);
     setVoiceOpen(false);
-    setAiVoiceOpen(false);
     setFlashOpen(false);
     setArkOpen((open) => !open);
   }
@@ -5478,21 +5465,7 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     setFlashOpen((open) => !open);
-  }
-
-  /** AI 声聊面板（仅群聊）：和其余面板互斥，同一时刻只开一个。 */
-  function toggleAiVoicePanel() {
-    setContextMenu(null);
-    setLocationMenu(null);
-    setLocationCardOpen(false);
-    setLocationShareOpen(false);
-    setEmojiOpen(false);
-    setToolsOpen(false);
-    setVoiceOpen(false);
-    setArkOpen(false);
-    setAiVoiceOpen((open) => !open);
   }
 
   /**
@@ -5510,7 +5483,6 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     setComposerMenu(null);
     setRedPacketOpen(false);
     setGiftOpen(false);
@@ -5534,7 +5506,6 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     setRedPacketOpen((open) => !open);
   }
 
@@ -5550,7 +5521,6 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     setGiftOpen(true);
   }
 
@@ -5571,7 +5541,6 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     setRedPacketOpen(false);
     setComposerMenu(null);
     setLocationCardOpen(false);
@@ -5588,7 +5557,6 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     setRedPacketOpen(false);
     setFlashOpen(false);
     setLocationShareOpen(false);
@@ -5608,7 +5576,6 @@ export function ChatPane({
     setToolsOpen(false);
     setVoiceOpen(false);
     setArkOpen(false);
-    setAiVoiceOpen(false);
     setRedPacketOpen(false);
     setFlashOpen(false);
     setLocationCardOpen(false);
@@ -5841,11 +5808,6 @@ export function ChatPane({
   // 占着那一行时仍是浮层，见 flash-composer.css 里那条 media query）。
   const flashPanelActive = flashOpen && !mobileComposerExpanded;
   const flashPanelInline = flashPanelActive && !hasSingleSend;
-  // 「AI 声聊」面板：群聊有「AI 声聊 + 文字转语音」两个页签，私聊只有「文字转语音」
-  //（AI 声聊协议目标字段是群号，服务端不认私聊）。合成出来的语音只能单独发，所以
-  // 面板开着时正文那一行让位。
-  const canUseAiVoice = conversation.type === 'group' || conversation.type === 'direct';
-  const aiVoicePanelActive = canUseAiVoice && aiVoiceOpen && !mobileComposerExpanded;
   // 红包面板：群聊 / 私聊都能发，浮层形态（不占正文那一行）。
   const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
   // 位置共享面板：私聊 / 群聊都能发起，浮层形态。
@@ -5909,7 +5871,6 @@ export function ChatPane({
       setToolsOpen(false);
       setVoiceOpen(false);
       setArkOpen(false);
-      setAiVoiceOpen(false);
       setRedPacketOpen(false);
       setLocationMenu(null);
       setLocationCardOpen(false);
@@ -5946,11 +5907,6 @@ export function ChatPane({
     setComposerMenu((current) =>
       current?.kind === kind ? null : { kind, x: rect.left, y: rect.top - 144 },
     );
-  }
-
-  function openSpeechPanel(tab: 'ai' | 'tts') {
-    setAiVoiceInitialTab(tab);
-    toggleAiVoicePanel();
   }
 
   const specialEmojiProps = {
@@ -7184,14 +7140,10 @@ export function ChatPane({
               <button
                 ref={voiceButtonRef}
                 type="button"
-                className={cn(
-                  'composer-tool',
-                  'composer-desktop-tool',
-                  (voiceOpen || aiVoiceOpen) && 'active',
-                )}
+                className={cn('composer-tool', 'composer-desktop-tool', voiceOpen && 'active')}
                 title={qqUnavailable || (hasSingleSend ? singleSendHint : '语音')}
                 aria-label="语音"
-                aria-expanded={voiceOpen || aiVoiceOpen}
+                aria-expanded={voiceOpen}
                 disabled={
                   readOnly || restrictedSource || currentPreference.blocked || hasSingleSend
                 }
@@ -7366,19 +7318,24 @@ export function ChatPane({
           ) : null}
           {voicePanelActive ? (
             <VoicePanel
+              key={conversation.id}
               panelRef={voicePanelRef}
+              text={composerSpeechText(body)}
+              onTextChange={setSpeechDraftText}
+              groupId={
+                conversation.type === 'group' ? Number(conversation.group.identityValue) : undefined
+              }
+              onSendAiVoice={(draft) => void sendAiVoice(draft)}
               canSend={!mediaSendDisabled}
               sendHint={sendTitle}
               transcribeEnabled={transcribeEnabled}
               onSendVoice={(clip) => void sendVoiceClip(clip)}
               onSendTranscript={(text) => void sendTranscriptText(text)}
               onSendAudioFile={(bytes, fileName) => void sendAudioFile(bytes, fileName)}
+              onSendTts={(bytes, fileName) => void sendAudioFile(bytes, fileName, true)}
               onBusyChange={handleVoiceBusyChange}
               ttsProviders={ttsProviders}
               onSynthesizeSpeech={synthesizeSpeech}
-              onOpenAiVoice={
-                conversation.type === 'group' ? () => openSpeechPanel('ai') : undefined
-              }
             />
           ) : null}
           {flashPanelActive ? (
@@ -7406,32 +7363,6 @@ export function ChatPane({
               }
               onSend={sendArkCard}
               onClose={() => setArkOpen(false)}
-            />
-          ) : null}
-          {aiVoicePanelActive ? (
-            <AiVoicePanel
-              key={conversation.id}
-              groupId={
-                conversation.type === 'group' && !restrictedSource
-                  ? Number(conversation.group.identityValue) || undefined
-                  : undefined
-              }
-              initialTab={aiVoiceInitialTab}
-              panelRef={aiVoicePanelRef}
-              disabled={mediaSendDisabled}
-              disabledHint={sendTitle}
-              allowAiVoice={conversation.type === 'group'}
-              canSend={!mediaSendDisabled}
-              sendHint={sendTitle}
-              ttsProviders={ttsProviders.map((item) => ({
-                id: item.id,
-                name: item.name,
-                ...(item.voice ? { voice: item.voice } : {}),
-              }))}
-              onSendAudioFile={(bytes, fileName) => void sendAudioFile(bytes, fileName)}
-              onSynthesizeSpeech={synthesizeSpeech}
-              onSend={(draft) => void sendAiVoice(draft)}
-              onClose={() => setAiVoiceOpen(false)}
             />
           ) : null}
           {giftOpen && conversation?.type === 'direct' ? (

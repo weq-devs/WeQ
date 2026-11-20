@@ -289,16 +289,9 @@ html[data-weq-layout='single'][data-component-style][data-theme] .composer-plus-
 
 /* 桌面工具浮到聊天画布上；单栏贴边和表情面板中的嵌入内容保留原布局。 */
 html[data-component-style][data-theme]:where(:not([data-weq-layout='single'])) body
-  :is(
-    .emoji-panel,
-    .voice-panel,
-    .ai-voice-panel,
-    .redpacket-panel,
-    .ark-panel,
-    .lbs-panel,
-    .bounce-panel,
-    .poke-panel
-  ):not(:where(.emoji-panel-body > *)) {
+  :is(.emoji-panel, .redpacket-panel, .ark-panel, .lbs-panel, .bounce-panel, .poke-panel):not(
+    :where(.emoji-panel-body > *)
+  ) {
   border: var(--weq-skin-popup-border-width) solid var(--weq-skin-border);
   border-radius: var(--weq-skin-popup-radius);
   background: var(--weq-skin-popup-surface);

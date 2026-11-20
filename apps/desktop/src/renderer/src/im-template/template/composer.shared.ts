@@ -93,6 +93,42 @@ export function serializeComposer(editor: HTMLElement) {
     .join('');
 }
 
+export function composerSpeechText(body: string) {
+  return parseMessageParts(body)
+    .flatMap((part) => (part.type === 'text' ? [part.value] : []))
+    .join('');
+}
+
+/** 应用语音文本的变更区间，保留原稿里不参与朗读的表情和元素。 */
+export function updateComposerSpeechText(body: string, text: string) {
+  const previous = composerSpeechText(body);
+  if (previous === text) return body;
+  let start = 0;
+  while (start < previous.length && start < text.length && previous[start] === text[start]) start++;
+  let end = previous.length;
+  let newEnd = text.length;
+  while (end > start && newEnd > start && previous[end - 1] === text[newEnd - 1]) {
+    end--;
+    newEnd--;
+  }
+  const insertion = text.slice(start, newEnd);
+  let offset = 0;
+  let inserted = false;
+  const result = parseMessageParts(body).map((part) => {
+    if (part.type !== 'text') return part.raw;
+    const from = offset;
+    offset += part.value.length;
+    const insertHere = !inserted && start <= offset;
+    inserted ||= insertHere;
+    return (
+      part.value.slice(0, Math.max(0, start - from)) +
+      (insertHere ? insertion : '') +
+      part.value.slice(Math.max(0, end - from))
+    );
+  });
+  return result.join('') + (inserted ? '' : insertion);
+}
+
 /** 标记真实换行，区别于浏览器删空 contenteditable 后留下的占位 br。 */
 export function createComposerLineBreak() {
   const lineBreak = document.createElement('br');

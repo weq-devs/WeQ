@@ -154,3 +154,37 @@ it('图片恢复失败不发送坏占位，用户移除图片后仍可继续输�
     await f.dispose();
   }
 });
+
+it('TTS 和 AI 声聊同步文字草稿，切回正文保留内联图片', async () => {
+  const f = await fixture();
+  try {
+    await f.finish();
+    const voice = f.host.querySelector<HTMLButtonElement>('button[aria-label="语音"]')!;
+    const selectMode = (mode: string) => {
+      const button = [...f.host.querySelectorAll<HTMLButtonElement>('.voice-panel button')].find(
+        (item) => item.textContent?.trim() === mode,
+      )!;
+      act(() => button.click());
+    };
+    act(() => voice.click());
+    selectMode('TTS');
+    const input = f.host.querySelector<HTMLTextAreaElement>('.voice-panel textarea')!;
+    expect(input.value).toBe('原稿');
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    act(() => {
+      setValue.call(input, '修改草稿');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    selectMode('AI 声聊');
+    expect(f.host.querySelector('.voice-panel textarea')).toBe(input);
+    expect(input.value).toBe('修改草稿');
+    act(() => voice.click());
+    const saved = serializeComposer(f.editor());
+    expect(saved).toContain('修改草稿');
+    expect(f.editor().querySelector('img')?.src).toBe('blob:restored');
+    expect(f.props.onDraftChange).toHaveBeenLastCalledWith(f.props.conversation.id, saved);
+    expect(f.props.onSend).not.toHaveBeenCalled();
+  } finally {
+    await f.dispose();
+  }
+});
