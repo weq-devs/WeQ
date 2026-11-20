@@ -1,5 +1,6 @@
 import {
   Download,
+  ExternalLink,
   FolderOpen,
   Pause,
   Play,
@@ -8,7 +9,7 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useContext, useEffect, useRef, type ReactNode } from 'react';
 import type { ContactMetricsLaneKey } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
@@ -19,6 +20,7 @@ import { IS_WEB } from '../../lib/target.shared';
 import { useDialog } from '../Dialog.shared';
 import type { TaskLogLine } from '../TaskLogConsole';
 import { CalendarTaskDetails } from '../CalendarTaskDetails';
+import { CalendarTaskNavigationContext } from '../../lib/calendarNavigation';
 import { ContactTaskStages } from './ContactTaskStages';
 import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { TaskActivityLog } from './TaskActivityLog';
@@ -88,6 +90,7 @@ function TaskDetails({
   cloneLog?: ReactNode;
 }) {
   const { task } = entry;
+  const openCalendarTask = useContext(CalendarTaskNavigationContext);
   const canManageTask = !IS_WEB || task.kind !== 'update';
   const cache = usePageDataCache();
   const cacheKey = JSON.stringify(['background-task', task.id, scope]);
@@ -99,7 +102,7 @@ function TaskDetails({
   const hostDetails = trpc.backgroundTasks.details.useQuery(
     { id: task.id, scope, updatedAt: task.updatedAt },
     {
-      enabled: entry.source === 'host' && task.kind !== 'contacts',
+      enabled: entry.source === 'host' && task.kind !== 'contacts' && task.kind !== 'calendar',
       cacheTime: 0,
       staleTime: 0,
       refetchOnMount: 'always',
@@ -178,6 +181,14 @@ function TaskDetails({
     if (task.status === 'running') taskActions.push(navigation);
     else taskActions.unshift(navigation);
   }
+  if (task.kind === 'calendar' && openCalendarTask && scope) {
+    taskActions.unshift({
+      id: 'open-calendar',
+      label: '打开会话日历',
+      icon: <ExternalLink size={14} aria-hidden />,
+      run: () => openCalendarTask(task.id),
+    });
+  }
   if (canManageTask && task.status !== 'running') {
     taskActions.push({
       id: 'remove',
@@ -223,6 +234,7 @@ function TaskDetails({
           status={task.status}
           statusLabel={task.statusLabel}
           progress={task.progress}
+          showProgress={task.kind !== 'calendar'}
           note={task.kind === 'contacts' && task.subtasks?.length ? undefined : task.note}
           startedAt={task.startedAt}
           finishedAt={task.finishedAt}
@@ -252,7 +264,7 @@ function TaskDetails({
         taskLogs.error ? (
           <p role="alert">日志读取失败：{taskLogs.error.message}</p>
         ) : null
-      ) : details?.length ? (
+      ) : task.kind !== 'calendar' && details?.length ? (
         <div>
           <ul className="weq-background-task-results">
             {[...new Set(details)].map((line) => (

@@ -436,7 +436,11 @@ import { conversationBatchSelection } from '../../../shared/content_selection';
 import { displayUserName } from '../im-template/template/user';
 import { isDatalineUid } from '@weq/codec';
 import type { CalendarTarget as OverviewCalendarTarget } from '@weq/service/conversation-calendar';
-import { CalendarNavigationContext, type CalendarNavigate } from '../lib/calendarNavigation';
+import {
+  CalendarNavigationContext,
+  type CalendarNavigate,
+  type CalendarTaskOpening,
+} from '../lib/calendarNavigation';
 import { conversationListSearchText } from '../lib/conversationListSearchText';
 import { calendarCloneRevision, calendarAssistantRevision } from '../lib/calendarSourceRevision';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
@@ -8454,10 +8458,24 @@ function MainWorkspace(): ReactElement {
     shell.switchView('agentlab');
   }
   const [cloneGroupRequest, setCloneGroupRequest] = useState(0);
-  const [overviewCalendar, setOverviewCalendar] = useState<{ query: string } | null>(null);
+  const [overviewCalendar, setOverviewCalendar] = useState<{
+    query: string;
+    task?: CalendarTaskOpening & { accountScope: string };
+  } | null>(null);
+  const calendarTask = overviewCalendar?.task;
+  const openCalendarTask = async (taskId: string) => {
+    if (!pinSession.binding || !messageScope) return false;
+    const task = await client.account.calendarOverview.openTask.query({
+      ...pinSession.binding,
+      taskId,
+    });
+    if (messageScopeRef.current !== messageScope) return false;
+    setOverviewCalendar({ query: '', task: { ...task, taskId, accountScope: messageScope } });
+    return true;
+  };
   calendarOpenRef.current = overviewCalendar !== null;
   const overviewCalendarTargets = useMemo(() => {
-    if (!overviewCalendar) return [];
+    if (!overviewCalendar || overviewCalendar.task) return [];
     const targets: OverviewCalendarTarget[] = [];
     for (const row of currentViewRows) {
       if (row.type !== 'merged') targets.push(calendarTargetForConversation(row));
@@ -10157,72 +10175,69 @@ function MainWorkspace(): ReactElement {
             }
           >
             {(controls) => (
-              <CalendarNavigationContext.Provider value={locateCalendarMessage}>
-                <WorkspaceTools
-                  key={messageScope}
-                  accountScope={messageScope}
-                  footerControls={controls}
-                  onOpenAssistant={(target) => {
-                    changeConversationView('assistant');
-                    if (target?.sessionId) openAssistantConversation(target.sessionId, target);
-                    else if (directoryAssistant.data?.[0])
-                      openAssistantConversation(directoryAssistant.data[0].id);
-                    else void createAssistantConversation();
-                  }}
-                  onOpenClone={(id) => {
-                    flushAllDirtyDrafts();
-                    setCloneSearchTarget(null);
-                    setMobileConversationList(false);
-                    setVirtualOpen({ kind: 'persona', id, revision: Date.now() });
-                    if (conversationView !== 'clone') changeConversationView('clone');
-                    setSpecialChat(null);
-                    shell.switchView('agentlab');
-                  }}
-                  currentConversation={
+              <WorkspaceTools
+                key={messageScope}
+                accountScope={messageScope}
+                footerControls={controls}
+                onOpenCalendarTask={openCalendarTask}
+                onOpenAssistant={(target) => {
+                  changeConversationView('assistant');
+                  if (target?.sessionId) openAssistantConversation(target.sessionId, target);
+                  else if (directoryAssistant.data?.[0])
+                    openAssistantConversation(directoryAssistant.data[0].id);
+                  else void createAssistantConversation();
+                }}
+                onOpenClone={(id) => {
+                  flushAllDirtyDrafts();
+                  setCloneSearchTarget(null);
+                  setMobileConversationList(false);
+                  setVirtualOpen({ kind: 'persona', id, revision: Date.now() });
+                  if (conversationView !== 'clone') changeConversationView('clone');
+                  setSpecialChat(null);
+                  shell.switchView('agentlab');
+                }}
+                currentConversation={
+                  shell.view === 'messages' && !specialChat && !arkFeedState
+                    ? activeConversation
+                    : null
+                }
+                workspace={{
+                  view: shell.view,
+                  conversation:
                     shell.view === 'messages' && !specialChat && !arkFeedState
                       ? activeConversation
-                      : null
-                  }
-                  workspace={{
-                    view: shell.view,
-                    conversation:
-                      shell.view === 'messages' && !specialChat && !arkFeedState
-                        ? activeConversation
-                        : null,
-                    specialChat: shell.view === 'messages' ? specialChat : null,
-                    assistantSessionId: specialChat === 'assistant' ? assistantSessionId : null,
-                    officialFeed: shell.view === 'messages' ? arkFeedState : null,
-                    contact: shell.view === 'contacts' ? (shell.selectedContact ?? null) : null,
-                    groupConversation:
-                      shell.view === 'contacts' ? (shell.selectedGroupConversation ?? null) : null,
-                    spaceUin: shell.view === 'qzone' ? currentQzoneUin : null,
-                    virtual:
-                      shell.view === 'agentlab' && virtualOpen
-                        ? {
-                            kind: virtualOpen.kind,
-                            ownerId: virtualOpen.id,
-                            name:
-                              virtualRows.find(
-                                (row) =>
-                                  row.kind === virtualOpen.kind && row.ownerId === virtualOpen.id,
-                              )?.name ?? '',
-                          }
-                        : null,
-                    guildNodeId:
-                      shell.view === 'channel' || specialChat === 'guild'
-                        ? activeGuildNodeId
-                        : null,
-                  }}
-                  analysisRequest={analysisRequest}
-                  roamingRequest={roamingRequest}
-                  onOpenComposition={compositionWindow.open}
-                  assistantSearchTarget={assistantSearchTarget}
-                  searchRequest={toolSearchRequest}
-                  onOpenAnalysis={(request) =>
-                    setAnalysisReports((previous) => [...previous, request])
-                  }
-                />
-              </CalendarNavigationContext.Provider>
+                      : null,
+                  specialChat: shell.view === 'messages' ? specialChat : null,
+                  assistantSessionId: specialChat === 'assistant' ? assistantSessionId : null,
+                  officialFeed: shell.view === 'messages' ? arkFeedState : null,
+                  contact: shell.view === 'contacts' ? (shell.selectedContact ?? null) : null,
+                  groupConversation:
+                    shell.view === 'contacts' ? (shell.selectedGroupConversation ?? null) : null,
+                  spaceUin: shell.view === 'qzone' ? currentQzoneUin : null,
+                  virtual:
+                    shell.view === 'agentlab' && virtualOpen
+                      ? {
+                          kind: virtualOpen.kind,
+                          ownerId: virtualOpen.id,
+                          name:
+                            virtualRows.find(
+                              (row) =>
+                                row.kind === virtualOpen.kind && row.ownerId === virtualOpen.id,
+                            )?.name ?? '',
+                        }
+                      : null,
+                  guildNodeId:
+                    shell.view === 'channel' || specialChat === 'guild' ? activeGuildNodeId : null,
+                }}
+                analysisRequest={analysisRequest}
+                roamingRequest={roamingRequest}
+                onOpenComposition={compositionWindow.open}
+                assistantSearchTarget={assistantSearchTarget}
+                searchRequest={toolSearchRequest}
+                onOpenAnalysis={(request) =>
+                  setAnalysisReports((previous) => [...previous, request])
+                }
+              />
             )}
           </RailAccountFooter>
           {groupResourceWindows}
@@ -10586,15 +10601,23 @@ function MainWorkspace(): ReactElement {
               />
             </Suspense>
           ))}
-          {overviewCalendar ? (
+          {overviewCalendar && (!calendarTask || calendarTask.accountScope === messageScope) ? (
             <ConversationOverviewCalendar
+              key={calendarTask?.taskId}
+              task={calendarTask}
               targets={overviewCalendarTargets}
-              sourceRevision={`${dbRevisionRef.current}:${calendarDataRevision}:${calendarCloneRevision(directoryPersonas.data ?? [], directoryGroups.data ?? [])}:${calendarAssistantRevision(directoryAssistant.data ?? [])}`}
+              sourceRevision={
+                calendarTask
+                  ? undefined
+                  : `${dbRevisionRef.current}:${calendarDataRevision}:${calendarCloneRevision(directoryPersonas.data ?? [], directoryGroups.data ?? [])}:${calendarAssistantRevision(directoryAssistant.data ?? [])}`
+              }
               scope={conversationView}
               query={overviewCalendar.query}
-              ready={currentViewCalendarReady}
+              ready={Boolean(calendarTask) || currentViewCalendarReady}
               directoryError={
-                currentViewError ? `当前视图部分目录读取失败：${currentViewError}` : undefined
+                !calendarTask && currentViewError
+                  ? `当前视图部分目录读取失败：${currentViewError}`
+                  : undefined
               }
               binding={pinSession.binding}
               onClose={() => setOverviewCalendar(null)}

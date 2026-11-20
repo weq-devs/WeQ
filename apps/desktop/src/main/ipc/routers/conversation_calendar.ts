@@ -603,7 +603,11 @@ async function startCalendar(input: z.infer<typeof calendarStartInput>, inspectO
           }
       }
       entry.day = job.day ?? input.day;
-      if (receipt && receipt.status !== 'completed') job.suspend();
+      if (receipt) {
+        if (entry.taskKinds) job.setKinds(entry.taskKinds);
+        else entry.taskKinds = job.snapshot(undefined, 0, false, 0).enabledKinds;
+        if (receipt.status !== 'completed') job.suspend();
+      }
       entry.loaded = true;
     })();
     await entry.ready;
@@ -747,19 +751,21 @@ export const conversationCalendarRouter = router({
     )
     .query(async ({ input }) => {
       const [id, value] = await openCalendarTask(input.taskId, input);
-      if (input.day && !calendarMonthDays(value.job.month).some(({ day }) => day === input.day))
-        throw new OperationError('日期不属于当前月份', 'expected');
-      value.day =
-        input.day ??
-        value.day ??
-        (value.job.month === calendarToday().slice(0, 7)
-          ? calendarToday()
-          : `${value.job.month}-01`);
-      const status = backgroundTasks.snapshot().find((task) => task.id === input.taskId)?.status;
-      if (status === 'running' || (status === 'completed' && input.day)) {
-        if (input.kinds) value.job.setKinds(input.kinds);
-        runJob(value);
-        syncTask(value);
+      if (input.limit > 0) {
+        if (input.day && !calendarMonthDays(value.job.month).some(({ day }) => day === input.day))
+          throw new OperationError('日期不属于当前月份', 'expected');
+        value.day =
+          input.day ??
+          value.day ??
+          (value.job.month === calendarToday().slice(0, 7)
+            ? calendarToday()
+            : `${value.job.month}-01`);
+        const status = backgroundTasks.snapshot().find((task) => task.id === input.taskId)?.status;
+        if (status === 'running' || (status === 'completed' && input.day)) {
+          if (input.kinds) value.job.setKinds(input.kinds);
+          runJob(value);
+          syncTask(value);
+        }
       }
       return {
         id,

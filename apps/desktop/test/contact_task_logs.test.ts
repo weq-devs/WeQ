@@ -6,6 +6,7 @@ import type { BackgroundTaskEntry } from '../src/renderer/src/hooks/useBackgroun
 import type { BackgroundTaskScope, BackgroundTaskKind } from '../src/shared/background_task';
 import type { TaskLogLine } from '../src/renderer/src/components/TaskLogConsole';
 import { BackgroundTaskDetails } from '../src/renderer/src/components/tasks/BackgroundTaskDetails';
+import { CalendarTaskNavigationContext } from '../src/renderer/src/lib/calendarNavigation';
 
 const fixture = vi.hoisted(() => ({
   details: vi.fn(async () => ['重复的过程说明']),
@@ -57,7 +58,10 @@ function logs(count: number): TaskLogLine[] {
     text: `合成群名单日志 ${index + 1}`,
   }));
 }
-function mount(kind: BackgroundTaskKind = 'contacts') {
+function mount(
+  kind: BackgroundTaskKind = 'contacts',
+  openCalendarTask?: (id: string) => Promise<void>,
+) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -87,11 +91,15 @@ function mount(kind: BackgroundTaskKind = 'contacts') {
         h(
           QueryClientProvider,
           { client: queryClient },
-          h(BackgroundTaskDetails, {
-            entry: { ...entry, task: { ...entry.task, id, updatedAt } },
-            scope,
-            refresh: async () => {},
-          }),
+          h(
+            CalendarTaskNavigationContext.Provider,
+            { value: openCalendarTask ?? null },
+            h(BackgroundTaskDetails, {
+              entry: { ...entry, task: { ...entry.task, id, updatedAt } },
+              scope,
+              refresh: async () => {},
+            }),
+          ),
         ),
       );
     });
@@ -106,6 +114,18 @@ function mount(kind: BackgroundTaskKind = 'contacts') {
   });
   return { host, render };
 }
+
+it('会话日历详情把所选任务交给日历入口，仅读取日历进度', async () => {
+  const openCalendarTask = vi.fn(async () => {});
+  const { host, render } = mount('calendar', openCalendarTask);
+  await render(1, 'calendar-task', { uin: 'fixture', configId: 'live' });
+  const open = host.querySelector<HTMLButtonElement>('[aria-label="打开会话日历"]')!;
+  await act(async () => open.click());
+  expect(openCalendarTask).toHaveBeenCalledWith('calendar-task');
+  expect(fixture.details).not.toHaveBeenCalled();
+  expect(fixture.logs).not.toHaveBeenCalled();
+});
+
 it.each<BackgroundTaskKind>([
   'analysis',
   'model',

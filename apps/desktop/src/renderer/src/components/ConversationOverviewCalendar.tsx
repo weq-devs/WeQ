@@ -16,6 +16,7 @@ import { client } from '../trpc/client';
 import { beijingDay } from '../lib/messageCalendar';
 import { calendarTargetsWithHiddenMessages } from '../lib/calendarHiddenMessages';
 import { calendarTargetSetKey } from '../lib/calendarSourceRevision';
+import type { CalendarTaskOpening } from '../lib/calendarNavigation';
 import { Modal } from './Dialog';
 import { MessageCalendar } from './MessageCalendar';
 import { CalendarStatistics } from './CalendarStatistics';
@@ -41,6 +42,7 @@ const calendarKinds: Record<KindFilter, CalendarKind[]> = {
 };
 
 export function ConversationOverviewCalendar({
+  task,
   targets,
   scope,
   query,
@@ -51,6 +53,7 @@ export function ConversationOverviewCalendar({
   onClose,
   onLocate,
 }: {
+  task?: CalendarTaskOpening;
   targets: CalendarTarget[];
   scope: ConversationView;
   query: string;
@@ -61,8 +64,8 @@ export function ConversationOverviewCalendar({
   onClose: () => void;
   onLocate: (target: CalendarTarget, anchor: CalendarAnchor, record?: Located['record']) => void;
 }) {
-  const [month, setMonth] = useState(beijingDay().slice(0, 7));
-  const [day, setDay] = useState(beijingDay());
+  const [month, setMonth] = useState(() => task?.month ?? beijingDay().slice(0, 7));
+  const [day, setDay] = useState(() => task?.day ?? (task ? `${task.month}-01` : beijingDay()));
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [rowLimit, setRowLimit] = useState(50);
   const [snapshot, setSnapshot] = useState<Snapshot>();
@@ -85,14 +88,17 @@ export function ConversationOverviewCalendar({
   const backgroundIds = useRef(new Set<string>());
   const sentRefreshRevision = useRef(0);
   const canFilterKinds =
-    scope === 'regular' || scope === 'all' || scope === 'hidden' || scope === 'deleted';
-  const kinds = calendarKinds[canFilterKinds ? kindFilter : 'all'];
+    !task && (scope === 'regular' || scope === 'all' || scope === 'hidden' || scope === 'deleted');
+  const kinds = task?.kinds ?? calendarKinds[canFilterKinds ? kindFilter : 'all'];
   const latestKinds = useRef(kinds);
   latestKinds.current = kinds;
-  const scopeLabel =
+  const viewLabel =
     scope === 'regular' || scope === 'all'
       ? CONVERSATION_VIEW_LABELS[scope]
       : `${scope === 'assistant' ? '仅 ' : '仅'}${CONVERSATION_VIEW_LABELS[scope]}`;
+  const scopeLabel = task ? (task.scopeLabel ?? '任务范围') : viewLabel;
+  const latestScopeLabel = useRef(scopeLabel);
+  latestScopeLabel.current = scopeLabel;
   useEffect(() => {
     live.current = true;
     return () => {
@@ -108,7 +114,10 @@ export function ConversationOverviewCalendar({
         : null,
     [expectedAccountUin, expectedAccountConfigId],
   );
-  const selected = useMemo(() => filterCalendarTargets(targets, 'all', query), [targets, query]);
+  const selected = useMemo(
+    () => task?.targets ?? filterCalendarTargets(targets, 'all', query),
+    [task, targets, query],
+  );
   const selectionKey = useMemo(() => calendarTargetSetKey(selected), [selected]);
   const selectedByKey = useMemo(
     () => new Map(selected.map((target) => [calendarTargetKey(target), target])),
@@ -119,8 +128,8 @@ export function ConversationOverviewCalendar({
   const latestDay = useRef(day);
   latestDay.current = day;
   const request = useMemo(
-    () => ({ month, selectionKey, binding, ready, active, visible, revision }),
-    [month, selectionKey, binding, ready, active, visible, revision],
+    () => ({ month, selectionKey, binding, ready, active, visible, revision, task }),
+    [month, selectionKey, binding, ready, active, visible, revision, task],
   );
   const [job, setJob] = useState<{ id: string; request: typeof request }>();
   // 渲染切换时便停用旧句柄，不能等 effect 清空 ID 后才阻止旧月份轮询。
@@ -160,7 +169,7 @@ export function ConversationOverviewCalendar({
   useEffect(() => {
     const changed = () => setVisible(document.visibilityState === 'visible');
     const storageChanged = (event: StorageEvent) => {
-      if (event.key?.startsWith('chat-template.hiddenMessages.virtual:clone:'))
+      if (!task && event.key?.startsWith('chat-template.hiddenMessages.virtual:clone:'))
         setRevision((value) => value + 1);
     };
     document.addEventListener('visibilitychange', changed);
@@ -169,7 +178,7 @@ export function ConversationOverviewCalendar({
       document.removeEventListener('visibilitychange', changed);
       window.removeEventListener('storage', storageChanged);
     };
-  }, []);
+  }, [task]);
   useEffect(() => {
     const { month, binding, ready, active, visible } = request;
     setSnapshot(undefined);
@@ -182,11 +191,19 @@ export function ConversationOverviewCalendar({
     let cancelled = false;
     let task: string | undefined;
     const start = async () => {
-      const targets = await calendarTargetsWithHiddenMessages(
-        latestTargets.current,
-        localStorage,
-        () => !cancelled && currentRequest.current === request,
-      );
+      if (request.task?.month === month) {
+        return client.account.calendarOverview.start.mutate({
+          ...binding,
+          taskId: request.task.taskId,
+        });
+      }
+      const targets =
+        request.task?.targets ??
+        (await calendarTargetsWithHiddenMessages(
+          latestTargets.current,
+          localStorage,
+          () => !cancelled && currentRequest.current === request,
+        ));
       if (cancelled || currentRequest.current !== request) return undefined;
       const refresh = request.revision > sentRefreshRevision.current;
       sentRefreshRevision.current = request.revision;
@@ -195,6 +212,7 @@ export function ConversationOverviewCalendar({
         month,
         targets,
         kinds: latestKinds.current,
+        scopeLabel: latestScopeLabel.current,
         refresh,
         day: latestDay.current.startsWith(`${month}-`) ? latestDay.current : undefined,
       });
@@ -204,11 +222,12 @@ export function ConversationOverviewCalendar({
         if (!result) return;
         task = result.id;
         if (result.background) backgroundIds.current.add(result.id);
-        if (cancelled || currentRequest.current !== request)
-          void client.account.calendarOverview.stop
-            .mutate({ ...binding, id: task })
-            .catch(() => {});
-        else {
+        if (cancelled || currentRequest.current !== request) {
+          if (!result.background)
+            void client.account.calendarOverview.stop
+              .mutate({ ...binding, id: task })
+              .catch(() => {});
+        } else {
           if (result.day) setDay(result.day);
           setJob({ id: task, request });
         }
@@ -473,7 +492,6 @@ export function ConversationOverviewCalendar({
             />
           </div>
           <CalendarStatistics
-            showKindSelection={false}
             snapshot={snapshot}
             day={day}
             id={id}

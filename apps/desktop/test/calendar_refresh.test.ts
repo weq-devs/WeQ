@@ -14,6 +14,7 @@ import {
 } from '../src/renderer/src/lib/calendarSourceRevision';
 import { setCalendarKinds } from '../src/renderer/src/hooks/useCalendarKinds';
 import type { ConversationView } from '../src/renderer/src/lib/conversationViews';
+import type { CalendarTaskOpening } from '../src/renderer/src/lib/calendarNavigation';
 import type { CalendarControlState } from '@weq/service/conversation-calendar';
 
 const fixture = vi.hoisted(() => ({
@@ -394,7 +395,11 @@ it('扫描状态和日志连续更新时复用会话数据，不重新渲染列�
     view.close();
   }
 });
-function mount(initialTargets = defaultTargets, initialScope: ConversationView = 'all') {
+function mount(
+  initialTargets = defaultTargets,
+  initialScope: ConversationView = 'all',
+  task?: CalendarTaskOpening,
+) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -402,6 +407,7 @@ function mount(initialTargets = defaultTargets, initialScope: ConversationView =
     act(() =>
       root.render(
         createElement(ConversationOverviewCalendar, {
+          task,
           targets,
           scope,
           query: '',
@@ -423,6 +429,40 @@ function mount(initialTargets = defaultTargets, initialScope: ConversationView =
     },
   };
 }
+
+it('从任务打开保存的月份、日期和类型，切月仍沿用原会话范围', async () => {
+  const task: CalendarTaskOpening = {
+    taskId: 'old-task',
+    month: '2026-09',
+    day: '2026-09-22',
+    targets: [{ kind: 'c2c', conv: '123', name: '任务会话', avatar: null, ancestors: [] }],
+    kinds: ['c2c'],
+    scopeLabel: '仅已隐藏会话',
+  };
+  fixture.start.mockResolvedValueOnce({ id: 'existing', background: true, day: task.day });
+  fixture.poll.mockResolvedValue(snapshot(true, task.month));
+  const view = mount(defaultTargets, 'all', task);
+  try {
+    await tick();
+    expect(view.host.querySelector('h3')?.textContent).toBe('会话日历（仅已隐藏会话）');
+    expect(fixture.start.mock.lastCall?.[0]).toMatchObject({ taskId: task.taskId });
+    expect(fixture.poll.mock.lastCall?.[0]).toMatchObject({
+      id: 'existing',
+      day: task.day,
+      kinds: task.kinds,
+    });
+    nextMonth(view.host);
+    await tick();
+    expect(fixture.start.mock.lastCall?.[0]).toMatchObject({
+      month: '2026-10',
+      targets: task.targets,
+      kinds: task.kinds,
+    });
+    expect(fixture.stop).not.toHaveBeenCalled();
+  } finally {
+    view.close();
+  }
+});
 
 it('切换外部视图时同步更新标题和目标，并停止旧范围任务', async () => {
   const view = mount(defaultTargets, 'regular');

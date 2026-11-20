@@ -49,11 +49,16 @@ it('后台任务重开先恢复原任务，打开详情不扫描，继续后才�
   fixture.read.mockReturnValueOnce(firstRead.promise).mockResolvedValue({ rows: [], done: true });
   const caller = conversationCalendarRouter.createCaller({});
   const scope = { uin: binding.expectedAccountUin, configId: binding.expectedAccountConfigId };
+  const targets = [
+    { kind: 'c2c' as const, conv: '42', name: '测试会话', avatar: null, ancestors: [] },
+  ];
   const { id } = await caller.start({
     ...binding,
     month: '2026-10',
     day: '2026-10-10',
-    targets: [],
+    targets,
+    kinds: ['c2c'],
+    scopeLabel: '常规视图',
   });
   const { taskId } = await caller.background({ ...binding, id });
   await vi.advanceTimersByTimeAsync(100);
@@ -67,8 +72,21 @@ it('后台任务重开先恢复原任务，打开详情不扫描，继续后才�
   expect(backgroundTasks.snapshot().find((task) => task.id === taskId)).toMatchObject({
     status: 'paused',
   });
-  const detail = await caller.task({ ...binding, taskId: taskId! });
+  const taskInput = { ...binding, taskId: taskId! };
+  const detail = await caller.task({ ...taskInput, limit: 0 });
   expect(detail.snapshot.controls.month.state).toBe('paused');
+  await expect(caller.openTask(taskInput)).resolves.toEqual({
+    month: '2026-10',
+    day: '2026-10-10',
+    targets,
+    kinds: ['c2c'],
+    scopeLabel: '常规视图',
+  });
+  await expect(caller.start(taskInput)).resolves.toEqual({
+    id: detail.id,
+    day: '2026-10-10',
+    background: true,
+  });
   expect(fixture.read).toHaveBeenCalledOnce();
   await backgroundTasks.act(taskId!, 'resume');
   await vi.runAllTimersAsync();

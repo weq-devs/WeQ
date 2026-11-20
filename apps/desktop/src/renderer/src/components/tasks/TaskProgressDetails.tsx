@@ -14,6 +14,7 @@ export function TaskProgressDetails({
   status,
   statusLabel,
   progress: rawProgress,
+  showProgress = true,
   note,
   startedAt,
   finishedAt,
@@ -24,6 +25,7 @@ export function TaskProgressDetails({
   status: LongTaskStatus;
   statusLabel?: string;
   progress?: number;
+  showProgress?: boolean;
   note?: string;
   startedAt?: number;
   finishedAt?: number;
@@ -54,21 +56,25 @@ export function TaskProgressDetails({
           {display.context ? <p>{display.context}</p> : null}
         </>
       ) : null}
-      <div className="weq-task-progress-metric">
-        <span>任务进度</span>
-        <strong>
-          {progress !== undefined ? (
-            <NumericText>{`${progress}%`}</NumericText>
-          ) : status === 'running' ? (
-            '处理中'
-          ) : status === 'pending' ? (
-            '等待开始'
-          ) : (
-            '未提供进度'
-          )}
-        </strong>
-      </div>
-      <TaskProgressBar value={progress} label="任务进度" status={status} />
+      {showProgress ? (
+        <>
+          <div className="weq-task-progress-metric">
+            <span>任务进度</span>
+            <strong>
+              {progress !== undefined ? (
+                <NumericText>{`${progress}%`}</NumericText>
+              ) : status === 'running' ? (
+                '处理中'
+              ) : status === 'pending' ? (
+                '等待开始'
+              ) : (
+                '未提供进度'
+              )}
+            </strong>
+          </div>
+          <TaskProgressBar value={progress} label="任务进度" status={status} />
+        </>
+      ) : null}
       {note ? <p role={status === 'failed' ? 'alert' : undefined}>{note}</p> : null}
       {startedAt ? (
         <div className="weq-task-progress-times">
