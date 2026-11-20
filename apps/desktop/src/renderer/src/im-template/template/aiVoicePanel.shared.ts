@@ -160,6 +160,41 @@ export function groupAiVoiceOptions(): Array<{
   })).filter((entry) => entry.items.length > 0);
 }
 
+export function onlineAiVoiceOptions(
+  catalog: readonly {
+    category: string;
+    voices: readonly { voiceId: string; voiceDisplayName: string; voiceExampleUrl: string }[];
+  }[],
+) {
+  const groups = new Map<string, Map<string, { id: string; name: string; sampleUrl?: string }>>();
+  for (const { category, voices } of catalog) {
+    const name = category.trim() || '其他';
+    const options = groups.get(name) ?? new Map();
+    for (const voice of voices) {
+      const id = voice.voiceId.trim();
+      const label = voice.voiceDisplayName.trim();
+      if (!id || !label || options.has(id)) continue;
+      let sampleUrl: string | undefined;
+      try {
+        const url = new URL(voice.voiceExampleUrl);
+        if (url.protocol === 'https:' && !url.username && !url.password) sampleUrl = url.href;
+      } catch {
+        // 目录可能返回没有试听地址的可用声线。
+      }
+      if (!sampleUrl && CATALOG_BY_ID.has(id)) sampleUrl = aiVoiceSampleUrl(id);
+      options.set(id, { id, name: label, sampleUrl });
+    }
+    if (options.size) groups.set(name, options);
+  }
+  return [...groups].map(([group, items]) => ({
+    group,
+    items: [...items.values()].map((option) => ({
+      option,
+      key: JSON.stringify([group, option.id]),
+    })),
+  }));
+}
+
 export type AiVoiceDraft = {
   text: string;
   voiceId: string;

@@ -17,6 +17,7 @@ import { GroupMemberPreviewReader, GROUP_PREVIEW_CANDIDATES } from './group_memb
 import type { NtHelperBinding } from '@weq/native';
 import {
   FetchGroupMemberListPage,
+  GetAdminPermissions,
   GetGroupJoinInfo,
   GetGroupMessagePolicies,
   GetGroupOperationInfo,
@@ -912,6 +913,52 @@ export class GroupInfoService {
     return task;
   }
 
+  async adminPermissions(groupId: number, userId: number) {
+    this.operationGuard?.();
+    const online = this.online;
+    if (!online) throw new Error('需要 QQ 在线能力才能读取管理员权限');
+    const pid = online.resolvePid();
+    const permissions = await GetAdminPermissions.invoke(online.nt, pid, { groupId, userId });
+    this.operationGuard?.();
+    if (online.resolvePid() !== pid) throw new Error('QQ 运行时已切换');
+    return permissions;
+  }
+
+  private ownAdminPermissionCache = new Map<
+    number,
+    { pid: number; at: number; value: Awaited<ReturnType<GroupInfoService['adminPermissions']>> }
+  >();
+
+  async ownAdminRestrictions(
+    groupId: number,
+    role: QQGroupPermissionContext['role'],
+    fresh = false,
+  ) {
+    const userId = Number(this.session.context.uin);
+    if (role !== 'admin' || !Number.isSafeInteger(userId) || userId <= 0) return {};
+    let pid: number | undefined;
+    try {
+      pid = this.online?.resolvePid();
+    } catch {
+      return {};
+    }
+    const cached = this.ownAdminPermissionCache.get(groupId);
+    const permissions =
+      !fresh && cached && cached.pid === pid && Date.now() - cached.at < 60_000
+        ? cached.value
+        : await this.adminPermissions(groupId, userId).catch(() => null);
+    if (permissions && pid !== undefined && permissions !== cached?.value) {
+      this.ownAdminPermissionCache.set(groupId, { pid, at: Date.now(), value: permissions });
+      if (this.ownAdminPermissionCache.size > 64)
+        this.ownAdminPermissionCache.delete(this.ownAdminPermissionCache.keys().next().value!);
+    }
+    this.operationGuard?.();
+    return {
+      recallAllowed: permissions?.recallMemberMessage ?? null,
+      adminKickAllowed: permissions?.kickMember ?? null,
+    };
+  }
+
   async operationContext(
     groupId: string | number,
     targetUid?: string,
@@ -1018,6 +1065,8 @@ export class GroupInfoService {
     }
     const context = await this.operationContext(groupId, uid, true);
     if (action === 'recall' && context.isSelf) return;
+    if (action === 'recall' || action === 'kick' || action === 'kickReject')
+      Object.assign(context, await this.ownAdminRestrictions(Number(groupId), context.role, true));
     if (action === 'essenceRemove' && sequence !== undefined)
       Object.assign(context, await this.essenceOperationPermission(groupId, sequence));
     this.operationGuard?.();

@@ -17,6 +17,8 @@ import {
   ClickInlineKeyboardButton,
   detectImageFormat,
   GetEmojiLikes,
+  GetMiniAppArk,
+  TranslateEnToZh,
   SendGroupJoinRequest,
   SendGroupSignup,
   SendGroupSign,
@@ -117,10 +119,56 @@ export interface SendGroupSignupServiceParams {
 
 export class InteractionService {
   constructor(
-    private readonly nt: Pick<NtHelperBinding, 'sendOidbPacket'>,
+    private readonly nt: Pick<NtHelperBinding, 'sendOidbPacket'> &
+      Partial<Pick<NtHelperBinding, 'sendPacket'>>,
     private readonly session: AccountSession,
     private readonly resolvePid: () => number,
   ) {}
+
+  async translateEnglish(text: string) {
+    const pid = this.resolvePid();
+    const result = await TranslateEnToZh.invoke(this.nt, pid, { words: [text] });
+    if (this.resolvePid() !== pid) throw new Error('QQ 会话已切换');
+    const translation = result.length === 1 ? result[0]?.trim() : undefined;
+    if (!translation) throw new Error('QQ 没有返回可用的译文');
+    return translation;
+  }
+
+  async miniAppCard(input: {
+    type: 'bili' | 'weibo';
+    title: string;
+    desc: string;
+    picUrl: string;
+    jumpUrl: string;
+  }) {
+    const target = new URL(input.jumpUrl);
+    const allowed = input.type === 'bili' ? ['bilibili.com', 'b23.tv'] : ['weibo.com', 'weibo.cn'];
+    if (
+      target.protocol !== 'https:' ||
+      target.username ||
+      target.password ||
+      !allowed.some((host) => target.hostname === host || target.hostname.endsWith(`.${host}`))
+    )
+      throw new Error('请输入对应平台的 HTTPS 链接');
+    if (input.picUrl) {
+      const image = new URL(input.picUrl);
+      if (image.protocol !== 'https:' || image.username || image.password)
+        throw new Error('预览图需要 HTTPS 地址');
+    }
+    const pid = this.resolvePid();
+    const sendPacket = this.nt.sendPacket?.bind(this.nt);
+    if (!sendPacket) throw new Error('当前 QQ 会话不支持生成小程序卡片');
+    const { data } = await GetMiniAppArk.invoke({ sendPacket }, pid, input);
+    if (this.resolvePid() !== pid) throw new Error('QQ 会话已切换');
+    if (
+      typeof data.app !== 'string' ||
+      typeof data.view !== 'string' ||
+      !data.meta ||
+      typeof data.meta !== 'object'
+    )
+      throw new Error('QQ 未返回有效的小程序卡片');
+    return JSON.stringify(data);
+  }
 
   /** 下载报名图片并算出 `{ url, md5, width, height }`；拿不到字节则抛错。 */
   private async resolveSignupImage(url: string): Promise<SendGroupSignupImage> {

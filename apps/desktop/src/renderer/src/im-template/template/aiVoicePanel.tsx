@@ -27,6 +27,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AudioLines, Pause, Play, SendHorizontal, Sparkles, Type, X } from 'lucide-react';
 import type { RefObject } from 'react';
 import { cn } from './classNames';
+import { useQQAction } from '../../components/qq-actions/shared.shared';
+import { trpc } from '../../trpc/client';
 import {
   TtsComposer,
   type TtsSpeechRequest,
@@ -35,9 +37,8 @@ import {
 } from './voicePanel';
 import {
   type AiVoiceDraft,
-  AI_VOICE_CATALOG,
   groupAiVoiceOptions,
-  aiVoiceOption,
+  onlineAiVoiceOptions,
   aiVoiceSampleUrl,
 } from './aiVoicePanel.shared';
 
@@ -46,6 +47,7 @@ export function AiVoicePanel({
   disabled,
   disabledHint,
   allowAiVoice = true,
+  groupId,
   initialTab,
   canSend = true,
   sendHint = '',
@@ -64,6 +66,7 @@ export function AiVoicePanel({
    * 私聊 false —— 协议目标字段是群号，私聊只有「文字转语音」一个页签。
    */
   allowAiVoice?: boolean;
+  groupId?: number;
   initialTab?: 'ai' | 'tts';
   /** TTS 合成等服务商能力是否能发送（QQ 在线且允许注入）。 */
   canSend?: boolean;
@@ -78,7 +81,16 @@ export function AiVoicePanel({
 }) {
   const [tab, setTab] = useState<'ai' | 'tts'>(allowAiVoice ? (initialTab ?? 'ai') : 'tts');
   const [text, setText] = useState('');
-  const [voiceId, setVoiceId] = useState(AI_VOICE_CATALOG[0]?.id ?? '');
+  const [requestedVoiceId, setVoiceId] = useState('');
+  const session = useQQAction(`ai-voice-catalog:${groupId ?? ''}`);
+  const catalog = trpc.account.qqActions.aiVoiceCatalog.useQuery(
+    { ...session.binding!, groupId: groupId ?? 0 },
+    {
+      enabled: session.available && !!groupId && allowAiVoice && tab === 'ai',
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+    },
+  );
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [sampleError, setSampleError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -93,13 +105,26 @@ export function AiVoicePanel({
     };
   }, []);
 
-  const groups = useMemo(() => groupAiVoiceOptions(), []);
-  const selected = aiVoiceOption(voiceId);
+  const groups = useMemo(() => {
+    const online = onlineAiVoiceOptions(catalog.data ?? []);
+    return online.length
+      ? online
+      : groupAiVoiceOptions().map(({ group, items }) => ({
+          group,
+          items: items.map(({ key, option }) => ({
+            key,
+            option: { ...option, sampleUrl: aiVoiceSampleUrl(option.id) },
+          })),
+        }));
+  }, [catalog.data]);
+  const options = groups.flatMap(({ items }) => items.map(({ option }) => option));
+  const selected = options.find((option) => option.id === requestedVoiceId) ?? options[0];
+  const voiceId = selected?.id ?? '';
   const body = text.trim();
-  const canSendAiVoice = body.length > 0 && !disabled;
+  const canSendAiVoice = body.length > 0 && !!voiceId && !disabled;
 
   /** 播 / 停某条声线的样音。同一时刻只留一路。 */
-  function toggleSample(key: string) {
+  function toggleSample(key: string, url: string) {
     const current = audioRef.current;
     if (playingId === key && current) {
       current.pause();
@@ -109,19 +134,18 @@ export function AiVoicePanel({
     }
     current?.pause();
     setSampleError(null);
-    // key 形如 `<分组>:<voiceId>` —— 同一条声线会出现在多个分组，播放态按 key 记，
-    // 但试听地址只跟 voiceId 有关（用目录里的样音文件名拼，见 aiVoiceSampleUrl）。
-    const id = key.slice(key.indexOf(':') + 1);
-    const audio = new Audio(aiVoiceSampleUrl(id));
+    const audio = new Audio(url);
     audio.preload = 'auto';
     audioRef.current = audio;
     audio.onended = () => setPlayingId((value) => (value === key ? null : value));
     audio.onerror = () => {
+      if (audioRef.current !== audio) return;
       setPlayingId((value) => (value === key ? null : value));
       setSampleError('这条声线的样音拉取失败，检查网络后重试。');
     };
     setPlayingId(key);
     void audio.play().catch(() => {
+      if (audioRef.current !== audio) return;
       setPlayingId(null);
       setSampleError('浏览器拦下了自动播放，再点一次试听。');
     });
@@ -250,7 +274,10 @@ export function AiVoicePanel({
                               className={cn('ai-voice-chip-play', playing && 'is-playing')}
                               title={playing ? '停止试听' : `试听「${option.name}」`}
                               aria-label={playing ? '停止试听' : `试听「${option.name}」`}
-                              onClick={() => toggleSample(key)}
+                              disabled={!option.sampleUrl}
+                              onClick={() =>
+                                option.sampleUrl && toggleSample(key, option.sampleUrl)
+                              }
                             >
                               {playing ? (
                                 <Pause size={11} strokeWidth={2.6} />

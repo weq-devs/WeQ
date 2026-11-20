@@ -17,6 +17,7 @@ import {
   type CustomFaceDetail,
   makeSolidPng,
 } from '@weqbot/protocol';
+import type { QQGroupPermissionContext } from '@weq/service/qq-permissions';
 import type { GroupTodoView } from '@weq/service';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
 
@@ -47,10 +48,22 @@ function fixture() {
       ),
     },
     groupInfo: {
-      operationContext: vi.fn(async (groupId: number) => ({
-        role: (await s.groupInfo.listGroupDirectory()).find(
-          (row) => row.groupCode === String(groupId),
-        )?.role as 'owner' | 'admin' | 'member' | null,
+      operationContext: vi.fn(
+        async (groupId: number): Promise<QQGroupPermissionContext> => ({
+          role: (await s.groupInfo.listGroupDirectory()).find(
+            (row) => row.groupCode === String(groupId),
+          )?.role as 'owner' | 'admin' | 'member' | null,
+        }),
+      ),
+      ownAdminRestrictions: vi.fn(async (_groupId: number, _role: unknown) => ({
+        recallAllowed: false,
+        adminKickAllowed: false,
+      })),
+      getMemberInfo: vi.fn(async () => ({ uin: 10002n })),
+      adminPermissions: vi.fn(async () => ({
+        recallMemberMessage: true,
+        kickMember: true,
+        kickMemberPerDay: 20,
       })),
       getGroupTodos: vi.fn(async (_groupCode: bigint): Promise<GroupTodoView[]> => []),
       listGroupDirectory: vi.fn(async () => [{ groupCode: '123', role: 'admin' }]),
@@ -73,6 +86,9 @@ function fixture() {
         remainCountForUin: 2,
       })),
       setTodo: empty(),
+      setAdminPermissions: empty(),
+      adminReceiveVerify: vi.fn(async () => true),
+      setAdminReceiveVerify: empty(),
       getTodoList: vi.fn(async () => []),
       leaveGroup: empty(),
       setAddOption: empty(),
@@ -1017,5 +1033,39 @@ describe('主动操作的账号与参数边界', () => {
     const guard = f.s.groupAlbumMedia.comment.mock.calls[0]![6] as () => void;
     f.record.qqPid = 102;
     expect(guard).toThrow('运行时');
+  });
+});
+
+describe('在线管理员权限', () => {
+  it('只允许群主给当前管理员修改逐项权限，目标号码由服务端解析', async () => {
+    const f = fixture();
+    const targetUid = 'u_test';
+    await expect(
+      f.caller.setGroupAdminPermissions({ ...group, targetUid, recallMemberMessage: false }),
+    ).rejects.toThrow('群主');
+    expect(f.s.groupModeration.setAdminPermissions).not.toHaveBeenCalled();
+    f.s.groupInfo.operationContext.mockResolvedValue({ role: 'owner', targetRole: 'admin' });
+    await expect(
+      f.caller.setGroupAdminPermissions({ ...group, targetUid, recallMemberMessage: false }),
+    ).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.groupModeration.setAdminPermissions).toHaveBeenCalledWith(123, 10002, targetUid, {
+      recallMemberMessage: false,
+    });
+  });
+  it('权限页查询返回本人逐项限制，单成员收取验证另行修改', async () => {
+    const f = fixture();
+    expect(await f.caller.groupPermissions(group)).toMatchObject({
+      recallAllowed: false,
+      adminKickAllowed: false,
+    });
+    f.s.groupInfo.operationContext.mockResolvedValue({ role: 'owner', targetRole: 'admin' });
+    await f.caller.setGroupAdminReceiveVerify({ ...group, targetUid: 'u_test', enable: false });
+    expect(f.s.groupModeration.setAdminReceiveVerify).toHaveBeenCalledWith(
+      123,
+      10002,
+      'u_test',
+      false,
+    );
+    expect(f.s.groupModeration.setAdminPermissions).not.toHaveBeenCalled();
   });
 });

@@ -46,6 +46,10 @@ function GroupFileDialogBody({
   const mediaSave = useMediaSave(),
     save = useExportSavePolicy();
   const report = useExportReportDialog();
+  const [transferTarget, setTransferTarget] = useState<{
+    directory: string;
+    fileId: string;
+  } | null>(null);
   const [locatingFile, setLocatingFile] = useState<GroupFileWire | null>(null);
   const [crumbs, setCrumbs] = useState<Crumb[]>(
     initialFolderId && initialFolderId !== '/'
@@ -79,13 +83,20 @@ function GroupFileDialogBody({
     !!listing &&
     current.id === (initialFolderId ?? '/') &&
     !listing.files.some((file) => file.fileId === initialFileId);
+  const focusFile = transferTarget
+    ? transferTarget.directory === current.id
+      ? transferTarget.fileId
+      : undefined
+    : current.id === (initialFolderId ?? '/')
+      ? initialFileId
+      : undefined;
   useEffect(() => {
-    if (!initialFileId || !listing || current.id !== (initialFolderId ?? '/')) return;
+    if (!focusFile || !listing) return;
     const row = [...(root.current?.querySelectorAll<HTMLElement>('[data-file-id]') ?? [])].find(
-      (element) => element.dataset.fileId === initialFileId,
+      (element) => element.dataset.fileId === focusFile,
     );
     row?.scrollIntoView({ block: 'center' });
-  }, [initialFileId, initialFolderId, current.id, listing]);
+  }, [focusFile, listing]);
   const leave = async (action: () => void) => {
     if ((await navigationGuard.current?.()) ?? true) {
       if (mounted.current) action();
@@ -243,7 +254,11 @@ function GroupFileDialogBody({
             files={listing?.files ?? []}
             folders={listing?.folders ?? []}
             loading={loading || !!error || !a.available}
-            highlightedFileId={current.id === (initialFolderId ?? '/') ? initialFileId : undefined}
+            highlightedFileId={focusFile}
+            onLocateFile={(directory, fileId) => {
+              setTransferTarget({ directory, fileId });
+              if (directory === '/') setCrumbs([ROOT]);
+            }}
             onChanged={refresh}
             onNavigationGuard={setGuard}
             onOpenFolder={(folder) =>

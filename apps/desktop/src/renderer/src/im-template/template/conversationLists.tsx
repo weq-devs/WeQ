@@ -1490,6 +1490,15 @@ export function GroupList({
     <div className="weq-contact-directory" {...multi.rootProps}>
       <ContactDirectoryOrder order={order} />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
+        {friendDirectory?.openOnlineDirectory ? (
+          <button
+            type="button"
+            className="weq-set-btn"
+            onClick={friendDirectory.openOnlineDirectory}
+          >
+            在线好友与群
+          </button>
+        ) : null}
         {categories.map((category) => (
           <GroupNotificationSection
             key={category.mode}
@@ -2181,7 +2190,7 @@ const ContactListContent = memo(function ContactListContent({
     return <ListSkeleton rows={9} />;
   }
 
-  if (categories.length === 0 && !friendDirectory?.error) {
+  if (categories.length === 0 && !friendDirectory?.error && !friendDirectory?.openOnlineDirectory) {
     return (
       <EmptyState
         title="暂无联系人"

@@ -46,6 +46,21 @@ export const CONVERSATION_CALENDAR_FEATURE = defineFeature(
 );
 
 export const MESSAGE_FEATURES = [
+  messageFeature(
+    'ai-voice-catalog',
+    '群聊在线声线',
+    '在群聊 AI 声聊面板浏览当前群的声线、试听并发送。',
+    {
+      context: ['account', 'group'],
+      navigation: 'context',
+    },
+  ),
+  messageFeature(
+    'translate-en-zh',
+    '翻译英文消息',
+    '在消息菜单请求 QQ 翻译，并在原消息下方查看译文。',
+    { navigation: 'context' },
+  ),
   messageFeature('history.search', '搜索聊天记录', '按关键词检索消息内容，也可限定在指定会话。', {
     context: ['account'],
     tools: ['search_messages', 'search_in_conversation'],

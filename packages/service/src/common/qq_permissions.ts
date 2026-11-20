@@ -24,6 +24,7 @@ export interface QQGroupPermissionContext {
   isSelf?: boolean;
   owned?: boolean;
   recallAllowed?: boolean | null;
+  adminKickAllowed?: boolean | null;
   temporaryRecall?: boolean;
   allowMemberKick?: boolean | null;
   memberCanRename?: boolean | null;
@@ -61,11 +62,12 @@ export function groupPermission(action: QQGroupOperation, c: QQGroupPermissionCo
       return (
         !c.isSelf &&
         ((owner && lower) ||
-          ((c.role === 'admin' || (c.role === 'member' && c.allowMemberKick === true)) &&
+          (((c.role === 'admin' && c.adminKickAllowed !== false) ||
+            (c.role === 'member' && c.allowMemberKick === true)) &&
             c.targetRole === 'member'))
       );
     case 'kickReject':
-      return !c.isSelf && manager && lower;
+      return !c.isSelf && manager && lower && (owner || c.adminKickAllowed !== false);
     case 'admin':
       return !c.isSelf && owner && lower;
     case 'title':
@@ -93,6 +95,15 @@ export function groupPermission(action: QQGroupOperation, c: QQGroupPermissionCo
         (manager || c.muteAll !== true)
       );
   }
+}
+
+export function isTemporaryGroupFile(file: { fileId: string; busId: number; expireTime: number }) {
+  return (
+    !!file.fileId &&
+    file.busId === 102 &&
+    Number.isSafeInteger(file.expireTime) &&
+    file.expireTime > Date.now() / 1000
+  );
 }
 
 export function qqResourceOwnedBy(

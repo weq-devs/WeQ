@@ -3,6 +3,7 @@ import {
   DeleteGroupFile,
   RenameGroupFile,
   MoveGroupFile,
+  TransGroupFile,
   type GroupFileItem,
 } from '@weqbot/protocol';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -98,4 +99,35 @@ it('未知文件的目录搜索有上限，不因服务端持续返回子目录�
   await expect(f.service.deleteFile(123, 'missing')).rejects.toThrow('parent_directory');
   expect(f.listing.mock.calls.length).toBeLessThan(100);
   expect(f.remove).not.toHaveBeenCalled();
+});
+
+it('转存只写未过期的临时文件，并按服务端目标读回明确的永久文件', async () => {
+  const f = fixture();
+  f.context.mockResolvedValue({ role: 'owner' });
+  const transfer = vi
+    .spyOn(TransGroupFile, 'invoke')
+    .mockResolvedValue({ saveBusId: 102, saveFilePath: 'saved' });
+  const file = {
+    fileId: 'original',
+    fileName: '测试',
+    fileSize: 10,
+    busId: 102,
+    expireTime: Math.ceil(Date.now() / 1000) + 3600,
+    expireTimeKnown: true,
+  } as GroupFileItem;
+  const listing = { targetDirectory: '/', folders: [], files: [file] };
+  f.listing
+    .mockResolvedValueOnce(listing)
+    .mockResolvedValueOnce({ ...listing, files: [{ ...file, fileId: 'saved', expireTime: 0 }] });
+  await expect(f.service.makePermanent(123, 'original', '/', () => {})).resolves.toEqual({
+    state: 'accepted',
+    fileId: 'saved',
+    directory: '/',
+  });
+  expect(transfer).toHaveBeenCalledOnce();
+  f.listing.mockResolvedValue({ ...listing, files: [{ ...file, expireTime: 0 }] });
+  await expect(f.service.makePermanent(123, 'original', '/', () => {})).rejects.toThrow(
+    '临时群文件',
+  );
+  expect(transfer).toHaveBeenCalledOnce();
 });

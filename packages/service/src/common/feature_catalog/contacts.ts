@@ -39,6 +39,8 @@ export const CONTACT_GROUP_FEATURES = [
   contact('profile-history', '联系人资料历史', '查看已有观察记录的字段历史。'),
   contact('signatures', '签名历史', '从签名值查看既有历史记录。'),
   contact('education', '教育经历', '从学校字段查看可取得的完整经历。'),
+  contact('online-directory', '在线好友与群', '在联系人列表手动读取 QQ 在线名册。'),
+  contact('remove-friend', '删除好友', '从好友名片删除关系；本地聊天历史继续可查。'),
   contact('remark', '编辑联系人备注', '通过已有备注行编辑好友备注。'),
   contact('buddy-group', '好友分组', '将选定好友移到已有分组。'),
   group('profile', '群名片与群资料', '查看群基本资料、角色和已有群状态。', {
@@ -64,6 +66,11 @@ export const CONTACT_GROUP_FEATURES = [
   group('files.manage', '群文件管理', '选定文件后，按当前账号和群权限使用已有文件操作。', {
     docs: ['guide/qq-actions.md#feature-groups.files.manage'],
   }),
+  group(
+    'admin-verification',
+    '收取入群验证',
+    '群主可在管理员权限里调整单个管理员收取入群验证的状态。',
+  ),
   group('management', '群管理', '在当前群的会话设置查看适用的管理操作。'),
   group('nickname', '我的群昵称与头衔', '在当前群资料或会话设置中查看和编辑可操作的字段。'),
   group('remark', '编辑群备注', '通过群身份区的备注行提交修改。'),

@@ -92,6 +92,7 @@ type Props = {
   essenceAction?: ReactNode;
   todoAction?: ReactNode;
   intentAction?: ReactNode;
+  translationAction?: ReactNode;
   favoriteEmojiAction?: ReactNode;
   revealAction?: ReactNode;
   forwardVoice?: import('../../hooks/useVoiceTranscription').VoiceTranscriptionInput['forward'];
@@ -456,6 +457,7 @@ export function MessageContextMenu(props: Props) {
                 ),
               ])}
               <div className="message-menu-slot">{props.intentAction}</div>
+              <div className="message-menu-slot">{props.translationAction}</div>
             </div>
             <div className="message-menu-group" role="group" aria-label="群操作">
               <div className="message-menu-slot">{props.essenceAction}</div>

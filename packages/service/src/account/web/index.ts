@@ -62,6 +62,9 @@ import {
   deleteQzonePublicReply,
   forwardQzonePublicFeed,
   getQzonePublicCapabilities,
+  getQzoneHomeFeeds,
+  getQzoneFeedDetail,
+  getQzoneShareArk,
   getQzonePublicComments,
   getQzonePublicFeedDetail,
   getQzonePublicFeeds,
@@ -91,6 +94,12 @@ import {
   type QzoneUploadImageResult,
   type QzoneUgcRight,
 } from './qzone_publish';
+import {
+  getQzoneProfile,
+  setQzoneProfile,
+  deleteQzoneMsg,
+  type QzoneProfilePatch,
+} from '@weqbot/protocol';
 import { setQzoneLike, commentQzoneMsg, type QzoneCommentResult } from './qzone';
 import { replyQzoneMsg, forwardQzoneMsg, type QzoneReplyTarget } from './qzone_write_actions';
 import {
@@ -621,6 +630,58 @@ export class WebQueryService {
     if (available !== true && available !== 1 && available !== '1')
       throw new Error('当前账号的空友爱看入口未开放或暂未读取成功。');
     return this.mediaTypes.setArchive({ ownerUin, tid, time }, selfUin, action, beforeSend, signal);
+  }
+
+  async qzoneHome(targetUin: string, cursor?: string) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneHomeFeeds(cred, targetUin, cursor),
+    );
+  }
+
+  async qzoneSpaceProfile(targetUin: string) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneProfile(cred, cred.uin, targetUin),
+    );
+  }
+
+  async updateQzoneSpaceProfile(
+    targetUin: string,
+    patch: QzoneProfilePatch,
+    beforeSend: () => void,
+  ) {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    if (cred.uin !== targetUin) throw new Error('只能编辑本人空间资料');
+    beforeSend();
+    await setQzoneProfile(cred, targetUin, patch);
+  }
+
+  async qzoneOrdinaryDetail(hostUin: string, tid: string) {
+    if (!/^[\da-f]{24}$/i.test(tid) || String(Buffer.from(tid, 'hex').readUInt32LE(0)) !== hostUin)
+      throw new Error('说说身份无法核对');
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => getQzoneFeedDetail(cred, tid));
+  }
+
+  async qzoneOrdinaryShare(hostUin: string, tid: string) {
+    const detail = await this.qzoneOrdinaryDetail(hostUin, tid);
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    return getQzoneShareArk(cred, detail.feed);
+  }
+
+  async removeQzonePost(hostUin: string, tid: string, current: () => void) {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN);
+    if (cred.uin !== hostUin) throw new Error('只能删除本人空间的说说');
+    await this.qzoneOrdinaryDetail(hostUin, tid);
+    current();
+    await deleteQzoneMsg(cred, hostUin, tid);
+    // 只有旧列表明确走到末页，才把「未见目标」解释为删除已确认。
+    for (let offset = 0; offset < 500; offset += 50) {
+      current();
+      const page = await this.getQzoneMsgList(hostUin, offset, 50).catch(() => null);
+      if (!page || page.list.some((entry) => entry.tid.toLowerCase() === tid.toLowerCase())) break;
+      if (page.totalKnown && offset + page.list.length >= page.total) return true;
+      if (!page.list.length) break;
+    }
+    return false;
   }
 
   /** 某个空间的说说列表;`pos`+`num` 可稳定深翻历史。 */

@@ -93,6 +93,7 @@ import {
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
+import { QzoneSpaceHome } from './QzoneSpaceHome';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
@@ -958,7 +959,7 @@ function SpaceContent({
   const openProfile = useContext(QzoneProfileContext);
   const [ownerLabel] = useState(nickname || hostUin);
   const handledAlbum = useRef<string | null>(null);
-  const [pane, setPane] = useState<'posts' | 'albums'>('posts');
+  const [pane, setPane] = useState<'home' | 'posts' | 'albums'>('home');
   useMobileBack(
     active && pane === 'albums',
     () => setPane('posts'),
@@ -966,7 +967,7 @@ function SpaceContent({
     () => document.querySelector<HTMLElement>('.weq-qzn-owner-space:not([hidden])'),
   );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
-  const [refreshes, setRefreshes] = useState({ posts: 0, albums: 0 });
+  const [refreshes, setRefreshes] = useState({ home: 0, posts: 0, albums: 0 });
   useEffect(() => {
     if (
       !albumRequest ||
@@ -989,10 +990,17 @@ function SpaceContent({
       <nav className="weq-qzn-owner-navigation" aria-label="空间内容">
         <button
           type="button"
+          aria-current={pane === 'home' ? 'page' : undefined}
+          onClick={() => setPane('home')}
+        >
+          主页
+        </button>
+        <button
+          type="button"
           aria-current={pane === 'posts' ? 'page' : undefined}
           onClick={() => setPane('posts')}
         >
-          动态
+          说说
         </button>
         <button
           type="button"
@@ -1012,6 +1020,13 @@ function SpaceContent({
           </div>
         ) : null}
       </nav>
+      <QzonePage active={active && pane === 'home'} refreshKey={refreshes.home}>
+        <QzoneSpaceHome
+          key={`${selfUin}:${hostUin}:${refreshes.home}`}
+          selfUin={selfUin}
+          hostUin={hostUin}
+        />
+      </QzonePage>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts}>
         <div className="weq-qzn-timeline">
           <Posts

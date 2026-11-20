@@ -5,6 +5,12 @@ import { SelfProfileDisplayService } from './profile_display';
 import { ProfileInteractionWrites } from './profile_interactions';
 import {
   ClearFriendRemark,
+  DeleteFriend,
+  FetchGroupList,
+  FetchUserProfile,
+  FetchRobotUinRanges,
+  fetchAllFriends,
+  isRobotUin,
   SetFriendRemark,
   SetGroupRemark,
   SetPeerPin,
@@ -116,6 +122,48 @@ export class AccountWriteService {
     value: number,
   ) {
     return this.profileDisplay.set(field, value);
+  }
+
+  async onlineDirectory() {
+    const pid = this.resolvePid();
+    const [friends, groups, robots] = await Promise.allSettled([
+      fetchAllFriends(this.nt, pid),
+      FetchGroupList.invoke(this.nt, pid),
+      FetchRobotUinRanges.invoke(this.nt, pid),
+    ]);
+    this.assertCurrentPid(pid);
+    return {
+      friends:
+        friends.status === 'fulfilled'
+          ? friends.value.friends.map(({ friend }) => ({
+              uin: String(friend.uin),
+              uid: friend.uid,
+              name: friend.nickname,
+              robotCandidate: robots.status === 'fulfilled' && isRobotUin(robots.value, friend.uin),
+            }))
+          : null,
+      groups:
+        groups.status === 'fulfilled'
+          ? groups.value
+              .filter((group) => group.groupId > 0)
+              .map((group) => ({ id: String(group.groupId), name: group.groupName }))
+          : null,
+      errors: [friends, groups].flatMap((result) =>
+        result.status === 'rejected' ? [String(result.reason)] : [],
+      ),
+    };
+  }
+
+  async onlinePerson(uin: string) {
+    const pid = this.resolvePid();
+    const number = Number(uin);
+    if (!Number.isSafeInteger(number) || number <= 0) throw new Error('QQ 号不合法');
+    const [profile, robots] = await Promise.all([
+      FetchUserProfile.invoke(this.nt, pid, { uin: number }),
+      FetchRobotUinRanges.invoke(this.nt, pid).catch(() => null),
+    ]);
+    this.assertCurrentPid(pid);
+    return { ...profile, robotCandidate: robots !== null && isRobotUin(robots, number) };
   }
 
   async exactProfile(kind: 'user' | 'group', target: string) {
@@ -241,6 +289,23 @@ export class AccountWriteService {
     const buddy = await this.identity.getBuddy(uid);
     if (!buddy) throw new Error('目标不是当前账号的好友');
     return buddy;
+  }
+
+  async deleteFriend(uid: string, beforeSend: () => void): Promise<AccountWriteOutcome> {
+    await this.friend(uid);
+    const pid = this.resolvePid();
+    const baseline = await this.friendRoster(false);
+    if (!baseline.friends.some((row) => row.uid === uid))
+      throw new Error('在线好友名册没有该联系人，请刷新后重试');
+    beforeSend();
+    this.assertCurrentPid(pid);
+    await DeleteFriend.invoke(this.nt, pid, { targetUid: uid, block: false });
+    const after = await this.friendRoster(false).catch(() => null);
+    beforeSend();
+    this.assertCurrentPid(pid);
+    return {
+      state: after && !after.friends.some((row) => row.uid === uid) ? 'confirmed' : 'unconfirmed',
+    };
   }
 
   async friendRemark(uid: string, remark: string): Promise<AccountWriteOutcome> {

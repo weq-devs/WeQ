@@ -27,6 +27,21 @@ import {
   type MuteGroupAllParams,
   RecallGroup,
   RecallPrivate,
+  FetchGroupDetail,
+  FetchGroupExtInfo,
+  ModifyGroupExtInfo,
+  GetAdminReceiveVerify,
+  SetAdminReceiveVerify,
+  SetGroupSearch,
+  SetGroupInvitePolicy,
+  SetGroupHistoryVisibility,
+  SetGroupMemberPermission,
+  decodeGroupHistoryVisibility,
+  decodeGroupMemberPermissions,
+  decodeMemberInvitePolicy,
+  type GroupMemberInvitePolicy,
+  SetAdminPermissions,
+  type GroupAdminPermissionPatch,
   SetGroupAddOption,
   SetGroupAdmin,
   SetGroupMemberCard,
@@ -95,6 +110,24 @@ function requireTargetUid(uid: string): string {
   const text = String(uid ?? '').trim();
   if (!text) throw new Error('目标成员 uid 不能为空。');
   return text;
+}
+
+type GroupSettingSwitch =
+  | 'searchByName'
+  | 'searchByNumber'
+  | 'newMemberHistory'
+  | 'allowMemberUploadAlbum'
+  | 'allowMemberTemporarySession'
+  | 'allowMemberCreateGroup'
+  | 'robotMemberSwitch'
+  | 'robotMemberExamine';
+
+type GroupSettingChange =
+  | { key: GroupSettingSwitch; value: boolean }
+  | { key: 'invitePolicy'; value: GroupMemberInvitePolicy };
+
+function decodeSwitch(value: number | undefined, on = 1) {
+  return value === 0 || value === 1 ? value === on : null;
 }
 
 export class GroupModerationService {
@@ -219,6 +252,112 @@ export class GroupModerationService {
       targetUid: requireTargetUid(params.targetUid),
       enable: params.enable,
     });
+  }
+
+  async setAdminPermissions(
+    groupId: number,
+    userId: number,
+    targetUid: string,
+    patch: GroupAdminPermissionPatch,
+  ) {
+    const pid = await this.permitted('admin', groupId, requireTargetUid(targetUid));
+    try {
+      await SetAdminPermissions.invoke(this.nt, pid, { groupId, userId, ...patch });
+    } catch (error) {
+      if (error instanceof Error && /(?:OIDB error|status error:)\s*319\b/.test(error.message))
+        throw new Error('QQ 拒绝当前客户端修改逐项管理员权限');
+      throw error;
+    }
+  }
+
+  async adminReceiveVerify(groupId: number, userId: number, targetUid: string) {
+    const pid = this.resolvePid();
+    const enabled = await GetAdminReceiveVerify.invoke(this.nt, pid, {
+      groupId,
+      userId,
+      targetUid,
+    });
+    if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请刷新');
+    return enabled;
+  }
+
+  async setAdminReceiveVerify(groupId: number, userId: number, targetUid: string, enable: boolean) {
+    const pid = await this.permitted('admin', groupId, targetUid);
+    await SetAdminReceiveVerify.invoke(this.nt, pid, { groupId, userId, enable });
+  }
+
+  async advancedSettings(groupId: number) {
+    const pid = this.resolvePid();
+    const [detail, robot] = await Promise.all([
+      FetchGroupDetail.invoke(this.nt, pid, { groupId }),
+      FetchGroupExtInfo.invoke(this.nt, pid, { groupId }).catch(() => null),
+    ]);
+    if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请刷新');
+    const fields = detail.settingFields ?? {};
+    const flags = fields.privilegeFlag;
+    const member = flags === undefined ? null : decodeGroupMemberPermissions(flags);
+    return {
+      privilegeFlag: flags ?? null,
+      searchByName: decodeSwitch(fields.noFingerOpen, 0),
+      searchByNumber: decodeSwitch(fields.noCodeFingerOpen, 0),
+      invitePolicy: flags === undefined ? null : decodeMemberInvitePolicy(flags),
+      newMemberHistory:
+        fields.groupFlagExt4 === undefined
+          ? null
+          : decodeGroupHistoryVisibility(fields.groupFlagExt4),
+      allowMemberUploadAlbum: member?.allowMemberUploadAlbum ?? null,
+      allowMemberTemporarySession: member?.allowMemberTemporarySession ?? null,
+      allowMemberCreateGroup: member?.allowMemberCreateGroup ?? null,
+      robotMemberSwitch: decodeSwitch(robot?.settingFields?.robotMemberSwitch),
+      robotMemberExamine: decodeSwitch(robot?.settingFields?.robotMemberExamine),
+    };
+  }
+
+  async setAdvancedSetting(groupId: number, change: GroupSettingChange, beforeSend: () => void) {
+    const pid = await this.permitted('manage', groupId);
+    const settings = await this.advancedSettings(groupId);
+    beforeSend();
+    if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
+    if (settings[change.key] === null) throw new Error('服务端未返回对应设置，请刷新后重试');
+    if (settings[change.key] === change.value) return;
+    switch (change.key) {
+      case 'searchByName':
+        return SetGroupSearch.invoke(this.nt, pid, { groupId, noFingerOpen: change.value ? 0 : 1 });
+      case 'searchByNumber':
+        return SetGroupSearch.invoke(this.nt, pid, {
+          groupId,
+          noCodeFingerOpen: change.value ? 0 : 1,
+        });
+      case 'newMemberHistory':
+        return SetGroupHistoryVisibility.invoke(this.nt, pid, { groupId, visible: change.value });
+      case 'invitePolicy':
+        if (settings.privilegeFlag === null) throw new Error('群邀请设置不可读');
+        return SetGroupInvitePolicy.invoke(this.nt, pid, {
+          groupId,
+          currentPrivilegeFlag: settings.privilegeFlag,
+          policy: change.value,
+        });
+      case 'robotMemberSwitch':
+      case 'robotMemberExamine':
+        return ModifyGroupExtInfo.invoke(this.nt, pid, {
+          groupId,
+          [change.key]: Number(change.value),
+        });
+      default: {
+        const permission = {
+          allowMemberUploadAlbum: 'upload_album',
+          allowMemberTemporarySession: 'temporary_session',
+          allowMemberCreateGroup: 'create_group',
+        } as const;
+        if (settings.privilegeFlag === null) throw new Error('群成员权限不可读');
+        return SetGroupMemberPermission.invoke(this.nt, pid, {
+          groupId,
+          currentPrivilegeFlag: settings.privilegeFlag,
+          permission: permission[change.key],
+          allow: change.value,
+        });
+      }
+    }
   }
 
   /** 退群（OIDB 0x1097_1）。 */
