@@ -18,6 +18,7 @@ export const WEB_AVATAR_LIMITS = {
   diskBytes: 24 * 1024 * 1024,
   concurrent: 4,
 };
+const MISSING_AVATAR_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000] as const;
 
 let database: Promise<IDBDatabase> | undefined;
 function openDatabase(): Promise<IDBDatabase> {
@@ -153,7 +154,7 @@ export function createWebAvatarCache({
     request?: string;
     retryAt: number;
   };
-  type Visibility = { count: number; retried: boolean; timer?: ReturnType<typeof setTimeout> };
+  type Visibility = { count: number; retries: number; timer?: ReturnType<typeof setTimeout> };
   type Job = {
     source: string;
     controller: AbortController;
@@ -205,13 +206,13 @@ export function createWebAvatarCache({
   };
   const scheduleRetry = (key: string, source: string, failed: Entry) => {
     const view = visible.get(key);
-    if (!view || view.retried || view.timer !== undefined) return;
-    // 同一个可见周期最多补试一次，避免持续缺图时周期性请求。
+    if (!view || view.retries >= MISSING_AVATAR_RETRY_DELAYS_MS.length || view.timer !== undefined)
+      return;
     view.timer = setTimeout(
       () => {
         view.timer = undefined;
         if (visible.get(key) !== view || entries.get(key) !== failed) return;
-        view.retried = true;
+        view.retries++;
         void cache.load(key, source, view);
       },
       Math.max(0, failed.retryAt - now()),
@@ -219,7 +220,7 @@ export function createWebAvatarCache({
   };
   const cache = {
     activate(key: string) {
-      const view = visible.get(key) ?? { count: 0, retried: false };
+      const view = visible.get(key) ?? { count: 0, retries: 0 };
       visible.set(key, view);
       view.count++;
       return () => {
@@ -372,10 +373,12 @@ export function createWebAvatarCache({
           if (jobs.get(key) !== job || (!current() && !timedOut)) return;
           if (entry?.value) entry.retryAt = now() + WEB_AVATAR_LIMITS.retryMs;
           else {
+            const retries = visible.get(key)?.retries ?? 0;
+            const delay = MISSING_AVATAR_RETRY_DELAYS_MS[retries] ?? WEB_AVATAR_LIMITS.retryMs;
             const failed = {
               snapshot: { src: undefined, ready: false, failed: true },
               request: source,
-              retryAt: now() + WEB_AVATAR_LIMITS.retryMs,
+              retryAt: now() + delay,
             };
             publish(key, failed);
             scheduleRetry(key, source, failed);

@@ -107,34 +107,55 @@ it('同一可见头像首次失败后自动补试并恢复，多处显示只发�
     });
   });
 
-  f.advance(WEB_AVATAR_LIMITS.retryMs);
-  await vi.advanceTimersByTimeAsync(WEB_AVATAR_LIMITS.retryMs);
+  f.advance(2_000);
+  await vi.advanceTimersByTimeAsync(2_000);
   await recovered;
   expect(f.fetchImage).toHaveBeenCalledTimes(2);
   expect(f.cache.peek(key)?.src).toBe('blob:new');
   secondView();
 });
 
-it('离屏取消补试，重新可见可加载，持续缺图不会循环请求', async () => {
+it('离屏取消补试，重新可见可加载', async () => {
   vi.useFakeTimers();
   const f = fixture();
   const leave = f.cache.activate(key);
   f.fetchImage.mockImplementation(async () => new Response(null, { status: 404 }));
   await f.cache.load(key, source);
   leave();
-  f.advance(WEB_AVATAR_LIMITS.retryMs / 2);
-  await vi.advanceTimersByTimeAsync(WEB_AVATAR_LIMITS.retryMs / 2);
+  f.advance(1_000);
+  await vi.advanceTimersByTimeAsync(1_000);
   expect(f.fetchImage).toHaveBeenCalledTimes(1);
   expect(vi.getTimerCount()).toBe(0);
 
   const leaveAgain = f.cache.activate(key);
   await f.cache.load(key, source);
-  f.advance(WEB_AVATAR_LIMITS.retryMs / 2);
-  await vi.advanceTimersByTimeAsync(WEB_AVATAR_LIMITS.retryMs / 2);
+  f.advance(1_000);
+  await vi.advanceTimersByTimeAsync(1_000);
   expect(f.fetchImage).toHaveBeenCalledTimes(2);
   expect(f.cache.peek(key)?.failed).toBe(true);
-  expect(vi.getTimerCount()).toBe(0);
   leaveAgain();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('持续缺图时拉长补试间隔，耗尽预算后停止', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const leave = f.cache.activate(key);
+  f.fetchImage.mockImplementation(async () => new Response(null, { status: 503 }));
+  await f.cache.load(key, source);
+  expect(f.fetchImage).toHaveBeenCalledTimes(1);
+
+  for (const [index, delay] of [2_000, 5_000, 15_000, 30_000].entries()) {
+    f.advance(delay - 1);
+    await vi.advanceTimersByTimeAsync(delay - 1);
+    expect(f.fetchImage).toHaveBeenCalledTimes(index + 1);
+    f.advance(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.fetchImage).toHaveBeenCalledTimes(index + 2);
+  }
+  expect(f.cache.peek(key)?.failed).toBe(true);
+  expect(vi.getTimerCount()).toBe(0);
+  leave();
 });
 
 it('304 只更新校验时间，不重解码、不换图片地址；换图时成功解码后才替换', async () => {
