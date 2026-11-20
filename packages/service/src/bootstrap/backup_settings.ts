@@ -537,6 +537,9 @@ function assertOneBotConfig(value: unknown, root: string): void {
         if (row.enabled !== undefined && typeof row.enabled !== 'boolean') {
           fail(`${where}.enabled`);
         }
+        if (row.enableCors !== undefined && typeof row.enableCors !== 'boolean') {
+          fail(`${where}.enableCors`);
+        }
         if (row.port !== undefined) number(row.port, `${where}.port`, 1024, 65535);
         strings(row, where, [], ['name', 'token', 'accessToken', 'url']);
       });
@@ -587,6 +590,9 @@ function assertOneBotConfig(value: unknown, root: string): void {
       if (row.port !== undefined) number(row.port, `${where}.port`, 0, 65535);
       if (row.enabled !== undefined && typeof row.enabled !== 'boolean') {
         fail(`${where}.enabled`);
+      }
+      if (row.enableCors !== undefined && typeof row.enableCors !== 'boolean') {
+        fail(`${where}.enableCors`);
       }
       if (typeof row.reportSelfMessage !== 'boolean') fail(`${where}.reportSelfMessage`);
     }

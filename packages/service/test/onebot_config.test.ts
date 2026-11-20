@@ -180,6 +180,7 @@ it('单个账号配置里的旧格式（两组数组）保留端口与令牌', (
   expect(config.networks.httpServers[0]).toMatchObject({
     port: 48767,
     accessToken: 'http-token',
+    enableCors: false,
   });
 });
 
@@ -250,14 +251,20 @@ it('旧全局总开关关闭时，迁移不会重新打开已配置的端口', (
       oneBot: {
         enabled: false,
         webSocketServers: [{ name: 'WS', port: 6700, enabled: true, token: 'ws-token' }],
-        httpServers: [{ name: 'HTTP', port: 6701, enabled: true, token: 'http-token' }],
+        httpServers: [
+          { name: 'HTTP', port: 6701, enabled: true, token: 'http-token', enableCors: true },
+        ],
       },
     },
   });
   saveAccounts(f.root, '10001');
   const config = f.open().oneBotConfigOnAccountOpen('10001');
   expect(config?.networks.wsServers[0]).toMatchObject({ enabled: false, port: 6700 });
-  expect(config?.networks.httpServers[0]).toMatchObject({ enabled: false, port: 6701 });
+  expect(config?.networks.httpServers[0]).toMatchObject({
+    enabled: false,
+    port: 6701,
+    enableCors: true,
+  });
 });
 
 it('已有按账号配置时，旧全局配置不再覆盖', () => {

@@ -567,6 +567,7 @@ function normalizeOneBotConfig(
     enabled: raw.enabled !== false && item.enabled !== false,
     port: typeof item.port === 'number' ? item.port : DEFAULT_SERVICE_PORTS['onebot-http'],
     ...(typeof item.token === 'string' && item.token ? { accessToken: item.token } : {}),
+    enableCors: item.enableCors !== false,
     messageFormat: 'array',
     reportSelfMessage: true,
   }));

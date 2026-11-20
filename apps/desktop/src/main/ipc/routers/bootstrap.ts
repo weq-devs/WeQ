@@ -351,6 +351,13 @@ function validateWeqOneBotConfig(value: unknown, uin: string): OneBotConfig {
         row.messageFormat = 'array';
       }
       if (typeof row.reportSelfMessage !== 'boolean') row.reportSelfMessage = true;
+      if (
+        key === 'httpServers' &&
+        row.enableCors !== undefined &&
+        typeof row.enableCors !== 'boolean'
+      ) {
+        throw new Error(`networks.${key}[${index}].enableCors 必须是布尔值`);
+      }
       if (key === 'wsServers' || key === 'httpServers') {
         if (!Number.isSafeInteger(row.port)) {
           throw new Error(`networks.${key}[${index}].port 必须是整数`);

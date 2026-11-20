@@ -116,6 +116,7 @@ interface NetworkDraft {
   accessToken: string;
   reportSelfMessage: boolean;
   enableWebSocket: boolean;
+  enableCors?: boolean;
   reconnectIntervalMs: string;
   timeoutMs: string;
 }
@@ -135,6 +136,7 @@ const networkDraftSchema = z
     accessToken: z.string(),
     reportSelfMessage: z.boolean(),
     enableWebSocket: z.boolean(),
+    enableCors: z.boolean().optional(),
     reconnectIntervalMs: z.string(),
     timeoutMs: z.string(),
   })
@@ -166,6 +168,7 @@ function draftOf(key: NetworkKey, entry: Record<string, unknown> | null): Networ
     accessToken: typeof server.accessToken === 'string' ? server.accessToken : '',
     reportSelfMessage: server.reportSelfMessage !== false,
     enableWebSocket: server.enableWebSocket === true,
+    enableCors: server.enableCors === true,
     reconnectIntervalMs:
       typeof server.reconnectIntervalMs === 'number' ? String(server.reconnectIntervalMs) : '',
     timeoutMs: typeof server.timeoutMs === 'number' ? String(server.timeoutMs) : '',
@@ -197,7 +200,10 @@ function entryOf(draft: NetworkDraft): Record<string, unknown> {
   if (draft.host.trim()) base.host = draft.host.trim();
   if (draft.path.trim()) base.path = draft.path.trim();
   if (draft.key === 'wsServers') base.role = draft.role;
-  if (draft.key === 'httpServers') base.enableWebSocket = draft.enableWebSocket;
+  if (draft.key === 'httpServers') {
+    base.enableWebSocket = draft.enableWebSocket;
+    base.enableCors = draft.enableCors === true;
+  }
   return base;
 }
 
@@ -702,19 +708,34 @@ export function OneBotSection(): ReactElement {
             </label>
 
             {draft.key === 'httpServers' ? (
-              <div className="weq-onebot-inline-toggle">
-                <span>
-                  <strong>同一端口接受 WebSocket</strong>
-                  <small>省一个端口，客户端可以走 ws:// 连进来</small>
-                </span>
-                <Toggle
-                  checked={draft.enableWebSocket}
-                  label="同一端口接受 WebSocket"
-                  onChange={(enableWebSocket) =>
-                    setDraft((current) => current && { ...current, enableWebSocket })
-                  }
-                />
-              </div>
+              <>
+                <div className="weq-onebot-inline-toggle">
+                  <span>
+                    <strong>同一端口接受 WebSocket</strong>
+                    <small>省一个端口，客户端可以走 ws:// 连进来</small>
+                  </span>
+                  <Toggle
+                    checked={draft.enableWebSocket}
+                    label="同一端口接受 WebSocket"
+                    onChange={(enableWebSocket) =>
+                      setDraft((current) => current && { ...current, enableWebSocket })
+                    }
+                  />
+                </div>
+                <div className="weq-onebot-inline-toggle">
+                  <span>
+                    <strong>允许跨域</strong>
+                    <small>允许其他网站通过浏览器调用此 HTTP 接口</small>
+                  </span>
+                  <Toggle
+                    checked={draft.enableCors === true}
+                    label="允许 HTTP 跨域"
+                    onChange={(enableCors) =>
+                      setDraft((current) => current && { ...current, enableCors })
+                    }
+                  />
+                </div>
+              </>
             ) : null}
 
             {draft.key === 'wsClients' ? (
