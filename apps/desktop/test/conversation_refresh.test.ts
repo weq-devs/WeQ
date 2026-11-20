@@ -89,3 +89,25 @@ it('未截断的完整刷新仍替换整个窗口，空结果不能保留已删�
   expect(mergeRefreshedWindow(current, fresh, 500)).toEqual(fresh);
   expect(mergeRefreshedWindow(current, [], 500)).toEqual([]);
 });
+
+it('分页边界的正式语音接管发送缓存，并保留同序号的其他灰条', () => {
+  const voice = { type: 'ptt', data: { fileName: `${'a'.repeat(32)}.amr` } };
+  const actual = {
+    msgId: 'actual',
+    msgSeq: '5',
+    msgRandom: '2',
+    senderUid: 'author',
+    sendTime: '20',
+    elements: [voice],
+  };
+  const cached = {
+    ...actual,
+    msgId: 'preview',
+    msgRandom: '1',
+    localSent: true,
+    source: 'roaming' as const,
+  };
+  const tip = { msgId: 'gray-tip', msgSeq: '5' };
+  const next = { msgId: 'next', msgSeq: '6' };
+  expect(mergeRefreshedWindow([cached, tip], [actual, next], 2)).toEqual([tip, actual, next]);
+});

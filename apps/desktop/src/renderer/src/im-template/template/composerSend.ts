@@ -115,6 +115,7 @@ export type ComposerSendPlan =
       recording: Uint8Array;
       durationSec: number;
       fileName: string;
+      voiceTranscript?: string;
       /** 变声标记（协议已实现）：勾上就带 true。 */
       voiceChanged?: boolean;
     };
@@ -338,6 +339,9 @@ function mapWireElement(
         durationSec: element.duration !== undefined ? Number(element.duration) : 0,
         fileName:
           typeof element.fileName === 'string' && element.fileName ? element.fileName : local.name,
+        ...(element.source === 'tts' && typeof element.pttTranscript === 'string'
+          ? { voiceTranscript: element.pttTranscript }
+          : {}),
         ...(element.voiceChanged === true ? { voiceChanged: true } : {}),
       };
     }

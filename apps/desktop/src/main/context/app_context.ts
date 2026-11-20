@@ -57,6 +57,7 @@ import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { botRuntime } from '../bot_runtime';
 import { resolveOneBotAppid } from '../bot_runtime/appid';
 import { watchObservedMessages } from '../bot_runtime/observed_messages';
+import { SentVoiceTranscripts } from '../sent_voice_transcripts';
 import type { ControlOneBotConfig } from '@weqbot/control';
 import { startLogRetention } from '../log_retention';
 import { assistantResourceServer } from '../weq_assistant/server';
@@ -1135,6 +1136,7 @@ export interface BootstrapServices {
 export interface AccountServices {
   contactDirectory?: ContactDirectoryRuntime;
   msgs: MsgService;
+  sentVoiceTranscripts?: SentVoiceTranscripts;
   recentContacts: RecentContactService;
   /** QQ 频道私聊会话与消息（guild_msg.db / guild1.db，静态本地读取）。 */
   guildDirect: GuildDirectService;
@@ -1756,6 +1758,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
+      await this.services?.sentVoiceTranscripts?.dispose();
       await this.services?.antiRecall.dispose();
       this.services?.interactionBadges.dispose();
       await waitForUnreadWrites();
@@ -2055,6 +2058,18 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services = {
         qqClientSync,
         msgs,
+        sentVoiceTranscripts: new SentVoiceTranscripts(
+          join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'sent-voice-transcripts.json',
+          ),
+          msgs,
+          session.selfUid ?? '',
+          () => this.account === session,
+        ),
         roamingBackfill,
         interactionBadges: new ConversationInteractionBadges(
           session,
@@ -2820,6 +2835,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
+      await this.services?.sentVoiceTranscripts?.dispose();
       await this.services?.antiRecall.dispose();
       this.services?.interactionBadges.dispose();
       await waitForUnreadWrites();
@@ -3701,6 +3717,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       const agentLabClosed = this.services?.agentLab.close();
       const unreadClosed = this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
+      await this.services?.sentVoiceTranscripts?.dispose();
       await this.services?.antiRecall.dispose();
       this.services?.contentSearch.close();
       this.services?.guildDirect.cancelSearch();

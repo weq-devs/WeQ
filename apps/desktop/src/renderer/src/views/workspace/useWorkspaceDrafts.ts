@@ -28,6 +28,10 @@ import {
   toIpcElements,
 } from '../../im-template/template/draftElements';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
+import {
+  composerSpeechText,
+  updateComposerSpeechText,
+} from '../../im-template/template/composer.shared';
 
 type DraftInput = {
   binding: QQWriteBinding | null;
@@ -362,5 +366,16 @@ export function useWorkspaceDrafts(input: DraftInput) {
     syncDraftsFromPending();
   }, [activeConversationId, syncDraftsFromPending]);
 
-  return { drafts, updateDraft, syncDraftsFromPending, flushAllDirtyDrafts };
+  const clearSentSpeechDraft = useCallback(
+    (conversationId: string, text: string) => {
+      if (!isCurrent()) return;
+      const current = pendingDraftsRef.current[conversationId] ?? drafts[conversationId] ?? '';
+      if (composerSpeechText(current).trim() !== text) return;
+      updateDraft(conversationId, updateComposerSpeechText(current, ''));
+      syncDraftsFromPending();
+      void flushDraftRef.current(conversationId);
+    },
+    [drafts, isCurrent, syncDraftsFromPending, updateDraft],
+  );
+  return { drafts, updateDraft, clearSentSpeechDraft, syncDraftsFromPending, flushAllDirtyDrafts };
 }

@@ -549,7 +549,7 @@ export type ChatPaneProps = {
    * 图片 / 视频 / 语音 / 文件的**本地句柄**（路径优先 / 字节兜底），应用层据此补上
    * 媒体本体再走 IPC。
    */
-  onSend: (body: string, locals?: LocalMediaRef[]) => Promise<void>;
+  onSend: (body: string, locals?: LocalMediaRef[], onAccepted?: () => void) => Promise<void>;
   onRepeatMessage?: (message: Message, conversation: Conversation) => Promise<void>;
   onResolveMentions?: (
     elements: RepeatElement[],
@@ -605,6 +605,7 @@ export type ChatPaneProps = {
   draftScope?: string;
   onDraftChange: (conversationId: string, value: string) => void;
   onDraftClear: (conversationId: string) => void;
+  onSentSpeechDraft?: (conversationId: string, text: string) => void;
   onBack: () => void;
   onEditRaw?: (message: Message) => void;
   onDeleteMessage?: (
@@ -776,6 +777,7 @@ function ChatPaneContent({
   draftScope,
   onDraftChange,
   onDraftClear,
+  onSentSpeechDraft,
   onBack,
   onEditRaw,
   onDeleteMessage,
@@ -3718,6 +3720,7 @@ function ChatPaneContent({
       /** 本条第额外本地媒体句柄（如语音条）。 */
       locals?: LocalMediaRef[];
       speechOnly?: boolean;
+      sentSpeechText?: string;
     } = {},
   ) {
     const editor = currentComposerEditor();
@@ -3757,6 +3760,17 @@ function ChatPaneContent({
     const isCurrentComposer = () =>
       mentionConversation.current === request.conversationId &&
       composerEditorRef.current?.isConnected;
+    const sentSpeechText = options.sentSpeechText;
+    const clearSentSpeech = sentSpeechText
+      ? () => {
+          if (isCurrentComposer()) {
+            if (composerSpeechText(bodyRef.current).trim() === sentSpeechText)
+              setSpeechDraftText('');
+          } else {
+            onSentSpeechDraft?.(request.conversationId, sentSpeechText);
+          }
+        }
+      : undefined;
     const restoreSendFocus = () => {
       if (!isCurrentComposer() || !composerTabActive.current) return;
       const focused = document.activeElement;
@@ -3833,7 +3847,8 @@ function ChatPaneContent({
             const ownLocals = locals?.filter(
               (local) => keys.has(local.key) || (local.previewUrl && keys.has(local.previewUrl)),
             );
-            await onSend(value, ownLocals);
+            if (clearSentSpeech) await onSend(value, ownLocals, clearSentSpeech);
+            else await onSend(value, ownLocals);
           } catch (error) {
             failures.push(error);
           }
@@ -3898,22 +3913,23 @@ function ChatPaneContent({
       extraTokens: [voiceClipToken(clip)],
       locals,
       ...(speechOnly ? { text: '', keepBody: true, omitQuote: true, speechOnly } : {}),
+      ...(clip.source === 'tts' ? { sentSpeechText: clip.transcript } : {}),
     });
   }
 
   /** 将 TTS 合成结果作为独立语音消息发送。 */
-  async function sendTtsAudio(bytes: Uint8Array) {
+  async function sendTtsAudio(bytes: Uint8Array, text: string) {
     if (!conversation || !isActiveConversation(conversation.id)) return;
     const blob = new Blob([bytes.slice().buffer]);
     const url = URL.createObjectURL(blob);
     const clip: VoiceClip = {
       id: createMediaId('audio'),
-      source: 'record',
+      source: 'tts',
       url,
       blob,
       durationMs: 0,
       levels: [],
-      transcript: '',
+      transcript: text,
     };
     try {
       await sendVoiceClip(clip, true);
@@ -4059,7 +4075,7 @@ function ChatPaneContent({
    * AI 声聊面板「合成并发送」：这条语音**只能单独发** —— 不带输入框里的文字、
    * 也不带挂着的引用（跟视频 / 文件那套「单独发」同一套互斥）。
    *
-   * 把「文字 + 声线」交给既有语音发送链路，保留当前文字草稿。
+   * 合成成功后清掉本次用过的文字。
    */
   async function sendAiVoice(draft: AiVoiceDraft) {
     await submitMessage({
@@ -4068,6 +4084,7 @@ function ChatPaneContent({
       keepBody: true,
       omitQuote: true,
       speechOnly: true,
+      sentSpeechText: draft.text,
     });
   }
 
@@ -7296,7 +7313,7 @@ function ChatPaneContent({
               sendHint={sendTitle}
               onSendVoice={(clip) => sendVoiceClip(clip, true)}
               onSendTranscript={sendTranscriptText}
-              onSendTts={(bytes) => void sendTtsAudio(bytes)}
+              onSendTts={sendTtsAudio}
               ttsProviders={ttsProviders}
               onSynthesizeSpeech={synthesizeSpeech}
             />

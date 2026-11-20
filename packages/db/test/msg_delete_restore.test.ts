@@ -107,4 +107,13 @@ describe('GroupMsgDb delete/restore primitives (offline fixture)', () => {
     createFixture();
     expect(await db.readMsgType(12345678901234n)).toBeNull();
   });
+
+  it('语音正文写回保留消息随机数，并拒绝覆盖已经改变的正文', async () => {
+    createFixture();
+    const next = new TextEncoder().encode('transcript');
+    expect(await db.replaceMsgBody(MSG_ID, BODY, next)).toBe(1);
+    expect(await db.replaceMsgBody(MSG_ID, BODY, BODY)).toBe(0);
+    expect((await db.listByMsgIds([MSG_ID]))[0]?.msgRandom).toBe(42n);
+    expect(await db.getMsgBody(MSG_ID)).toEqual(next);
+  });
 });

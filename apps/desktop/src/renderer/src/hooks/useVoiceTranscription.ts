@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useRef } from 'react';
 import { getQueryKey } from '@trpc/react-query';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
@@ -10,7 +11,11 @@ export interface VoiceTranscriptionInput {
   msgId: string;
   forward?: { carrierId: string; kind: 'c2c' | 'group'; conv: string; resId?: string };
 }
-type VoiceTranscriptionResult = Awaited<ReturnType<typeof client.account.transcribeVoice.mutate>>;
+type VoiceTranscriptionResult = Awaited<
+  ReturnType<typeof client.account.transcribeVoice.mutate>
+> & {
+  automatic: boolean;
+};
 
 // 识别会启动独立模型进程；聊天内的多个入口共用队列，避免同时加载多份模型。
 let transcriptionTail: Promise<unknown> = Promise.resolve();
@@ -25,6 +30,7 @@ export function queueVoiceTranscription<T>(signal: AbortSignal, run: () => Promi
 
 /** 气泡、右键菜单与自动识别共用缓存，空识别结果和失败也保留，只有手动操作才重试。 */
 export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic = false) {
+  const manual = useRef(false);
   const accountUin = useViewState((state) => state.openedUin);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -41,15 +47,27 @@ export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic 
   const available = Boolean(binding && modelId && input.name && Number.isFinite(input.t));
   const query = useQuery({
     queryKey: [...getQueryKey(trpc.account), 'voiceTranscription', binding, modelId, input],
-    queryFn: ({ signal }) =>
-      queueVoiceTranscription(signal!, async (): Promise<VoiceTranscriptionResult> => {
+    queryFn: ({ signal }) => {
+      const auto = !manual.current;
+      manual.current = false;
+      return queueVoiceTranscription(signal!, async (): Promise<VoiceTranscriptionResult> => {
         if (!binding || !available) throw new Error('请先在设置中下载本地语音模型');
         try {
-          return await client.account.transcribeVoice.mutate({ ...input, ...binding });
+          const result = await client.account.transcribeVoice.mutate({
+            ...input,
+            ...binding,
+            automatic: auto,
+          });
+          return { ...result, automatic: auto };
         } catch (error) {
-          return { success: false, error: error instanceof Error ? error.message : String(error) };
+          return {
+            success: false,
+            automatic: auto,
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
-      }),
+      });
+    },
     enabled: available && automatic && Boolean(settings.data?.voiceTranscribe.autoTranscribe),
     staleTime: Infinity,
     cacheTime: 5 * 60_000,
@@ -65,7 +83,9 @@ export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic 
     result: query.data,
     error: query.error instanceof Error ? query.error.message : null,
     run: () => {
-      if (available && !query.isFetching) void query.refetch();
+      if (!available || query.isFetching) return;
+      manual.current = true;
+      void query.refetch();
     },
   };
 }

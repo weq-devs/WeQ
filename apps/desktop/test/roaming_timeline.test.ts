@@ -56,6 +56,30 @@ describe('roaming timeline projection', () => {
     const remote = { ...sent, localSent: undefined, msgId: '900000001' };
     expect(mergeRoamingTimeline('group', [sent], [remote])).toEqual([remote]);
   });
+  it('旧版转写改变 random 后，用音频和原消息元数据收掉发送缓存', () => {
+    const voice = { type: 'ptt', data: { fileName: `${'a'.repeat(32)}.amr` } };
+    const actual = row(120, {
+      sendTime: '1234',
+      senderUid: 'u_me',
+      msgRandom: '5678',
+      elements: [voice],
+    });
+    const cached: TimelineRow = {
+      ...actual,
+      msgId: '123',
+      msgRandom: '123',
+      sourceFormat: 'protocol',
+      localSent: true,
+      ntSeqVerified: true,
+    };
+    expect(mergeRoamingTimeline('c2c', [actual], [cached])).toEqual([actual]);
+    expect(mergeRoamingTimeline('c2c', [actual], [{ ...cached, sendTime: '1235' }])).toHaveLength(
+      2,
+    );
+    expect(mergeRoamingTimeline('c2c', [actual], [{ ...cached, localSent: false }])).toHaveLength(
+      2,
+    );
+  });
   it('preserves protocol same-seq IDs across cache projection and exact local deduplication', () => {
     const local = row(2, { msgId: '9007199254740993000' });
     const incoming = [

@@ -920,7 +920,7 @@ export function VoicePanel({
   sendHint: string;
   onSendVoice: (clip: VoiceClip) => Promise<boolean | undefined>;
   onSendTranscript: (text: string) => Promise<boolean | undefined>;
-  onSendTts: (bytes: Uint8Array, fileName: string) => void;
+  onSendTts: (bytes: Uint8Array, text: string) => Promise<void>;
   ttsProviders?: TtsVoiceProvider[];
   onSynthesizeSpeech?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
   groupId?: number;
@@ -1452,7 +1452,7 @@ function TtsComposer({
   canSend: boolean;
   sendHint: string;
   /** 合成好的音频当一条普通语音条发（上层解成 WAV 再转 SILK）。 */
-  onSendAudio: (bytes: Uint8Array, fileName: string) => void;
+  onSendAudio: (bytes: Uint8Array, text: string) => Promise<void>;
   onSynthesize?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
 }) {
   const [providerId, setProviderId] = useState(providers[0]?.id ?? '');
@@ -1555,7 +1555,7 @@ function TtsComposer({
     try {
       const result = await synthesize();
       if (!result) return;
-      onSendAudio(result.bytes, `tts-${provider?.name ?? 'speech'}.${result.format}`);
+      await onSendAudio(result.bytes, body);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

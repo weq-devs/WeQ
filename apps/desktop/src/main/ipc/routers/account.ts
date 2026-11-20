@@ -80,7 +80,11 @@ import {
   saveCompletedExportTask,
   prepareExportDestination,
 } from './export_save';
-import { mergeRoamingTimeline, timelineRowKey } from '../../../shared/roaming_timeline';
+import {
+  mergeRoamingTimeline,
+  timelineRowKey,
+  voiceFileHash,
+} from '../../../shared/roaming_timeline';
 import { SPECIAL_MESSAGE_KINDS } from '@weqbot/protocol/message-fallbacks';
 import {
   PROJECT_GROUP_CODE,
@@ -6803,10 +6807,17 @@ export const accountRouter = router({
         fileName: z.string().min(1).optional(),
         /** 变声标记（协议已实现的 `extBizInfo.ptt.changeVoice`）。 */
         voiceChanged: z.boolean().optional(),
+        voiceTranscript: z.string().max(200).optional(),
+        expectedAccountUin: z.string().optional(),
+        expectedAccountConfigId: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
       const wav = elementsFromEditable(input.wav) as Uint8Array;
       if (!(wav instanceof Uint8Array) || wav.byteLength === 0) {
         throw new Error('语音数据为空，无法发送。');
@@ -6818,7 +6829,8 @@ export const accountRouter = router({
         // 动态 import：voice.ts 依赖 app_context，静态引入会把 wasm 拉进启动路径。
         const { encodeFileToSilk } = await import('../../voice');
         const silk = await encodeFileToSilk(tempPath);
-        return requireServices().messageSend.sendMedia({
+        if (requireServices() !== services) throw new Error('账号已切换，未发送语音。');
+        const outcome = await services.messageSend.sendMedia({
           peerType: input.peerType,
           targetId: input.targetId,
           ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
@@ -6828,7 +6840,21 @@ export const accountRouter = router({
           ...(silk.wav ? { waveform: { wav: silk.wav } } : {}),
           ...(input.fileName ? { fileName: input.fileName } : {}),
           ...(input.voiceChanged ? { voiceChanged: true } : {}),
+          ...(input.voiceTranscript ? { voiceTranscript: input.voiceTranscript } : {}),
         });
+        const seq = input.peerType === 'group' ? outcome.groupSequence : outcome.privateSequence;
+        if (outcome.ok && seq > 0 && input.voiceTranscript) {
+          services.sentVoiceTranscripts?.remember({
+            kind: input.peerType,
+            conv: input.peerType === 'group' ? outcome.targetId : outcome.uid || outcome.targetId,
+            seq: String(seq),
+            random: String(outcome.random),
+            at: Date.now(),
+            hash: '',
+            text: input.voiceTranscript,
+          });
+        }
+        return outcome;
       } finally {
         await unlink(tempPath).catch(() => undefined);
       }
@@ -6954,11 +6980,40 @@ export const accountRouter = router({
    */
   sendAiVoice: outgoingProcedure
     .input(
-      z.object({ groupId: z.string().min(1), voiceId: z.string().min(1), text: z.string().min(1) }),
+      z.object({
+        groupId: z.string().min(1),
+        voiceId: z.string().min(1),
+        text: z.string().min(1),
+        expectedAccountUin: z.string().optional(),
+        expectedAccountConfigId: z.string().optional(),
+      }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      return requireServices().messageSend.sendAiVoice(input);
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      const at = Date.now();
+      const latest = services.sentVoiceTranscripts
+        ? await services.msgs
+            .getGroupLatest(input.groupId, 1, { deferReplyMedia: true })
+            .catch(() => [])
+        : [];
+      if (requireServices() !== services) throw new Error('账号已切换，未发送 AI 声聊。');
+      const outcome = await services.messageSend.sendAiVoice(input);
+      const hash = voiceFileHash({ md5: outcome.fileHash, fileName: outcome.fileName });
+      if (outcome.ok && hash) {
+        services.sentVoiceTranscripts?.remember({
+          kind: 'group',
+          conv: outcome.groupId,
+          seq: String(latest[0]?.msgSeq ?? 0n),
+          at,
+          hash,
+          text: input.text,
+        });
+      }
+      return outcome;
     }),
 
   // ---- Ark 卡片（输入框「Ark 卡片」面板）----
@@ -9472,6 +9527,7 @@ export const accountRouter = router({
         name: z.string(),
         token: z.string().default(''),
         msgId: z.string().default(''),
+        automatic: z.boolean().default(false),
         forward: z
           .object({
             carrierId: z.string(),
@@ -9491,6 +9547,21 @@ export const accountRouter = router({
       if (!boot) return { success: false, error: '原生组件未就绪' };
       if (!services) return { success: false, error: '未打开账号' };
       requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const msgId = !input.forward && /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
+      const readStoredTranscript = async () => {
+        if (msgId === null || !input.automatic) return undefined;
+        const row = await services.msgs.getRawElements(msgId);
+        const voice = row?.elements.find(
+          (element) => element.kind === 'ptt' && element.fileName === input.name,
+        );
+        return voice?.kind === 'ptt' ? voice.pttTranscript : undefined;
+      };
+      await services.sentVoiceTranscripts?.flush();
+      if (ctx.services !== services)
+        return { success: false, error: '账号已切换，已停止语音转写。' };
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const stored = await readStoredTranscript();
+      if (stored) return { success: true, text: stored };
 
       const modelId = boot.userConfig.getLocalModelId('voice');
       if (!modelId) return { success: false, error: '请先下载本地语音模型' };
@@ -9538,14 +9609,21 @@ export const accountRouter = router({
       const text = result.text ?? '';
       if (ctx.services !== services) return { success: false, error: '账号已切换，已停止保存转写' };
       checkSource();
-      if (input.msgId && !input.forward) {
+      if (msgId !== null) {
         // Best-effort: a failed back-write must not lose the text we just got.
         // Only the TEXT goes back to the DB — `pttTranscript` (45923) is the
         // field QQ itself reads, so it must stay a plain string. Emotion and
         // events ride alongside in the response instead.
-        await services.msgs
-          .setPttTranscript(BigInt(input.msgId), input.name, text)
+        const written = await services.msgs
+          .setPttTranscript(msgId, input.name, text, {
+            ifEmpty: input.automatic,
+            current: () => ctx.services === services,
+          })
           .catch(() => false);
+        if (input.automatic && !written) {
+          const currentText = await readStoredTranscript();
+          if (currentText) return { success: true, text: currentText };
+        }
       }
       return {
         success: true,

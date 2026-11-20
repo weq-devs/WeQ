@@ -1,23 +1,28 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { observableToPromise } from '@trpc/server/observable';
-import { VOICE_MODELS } from '@weq/service';
+import { type MsgService, VOICE_MODELS } from '@weq/service';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { bootstrapRouter } from '../src/main/ipc/routers/bootstrap';
+import { SentVoiceTranscripts } from '../src/main/sent_voice_transcripts';
 
 const state = vi.hoisted(() => ({
   switched: false,
   downloaded: true,
   infer: vi.fn(),
   write: vi.fn(async () => true),
+  read: vi.fn(),
   find: vi.fn(async () => ({ source: '/synthetic/voice.silk' })),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
     accountConfig: { getRecord: () => ({ configId: 'source-a' }) },
     fileSearch: { findFile: state.find },
-    msgs: { setPttTranscript: state.write },
+    msgs: { setPttTranscript: state.write, getRawElements: state.read },
   };
   const context = {
     account: { context: { uin: '10001' } },
@@ -57,6 +62,8 @@ beforeEach(() => {
   state.switched = false;
   state.downloaded = true;
   state.infer.mockResolvedValue({ success: true, text: '合成识别结果' });
+  state.read.mockReset();
+  state.write.mockResolvedValue(true);
 });
 
 function makeRecordingWav(sampleRate = 16_000) {
@@ -128,7 +135,35 @@ it('取消录音转写会中止识别，已取消的结果不会发布，录音�
 it('识别结果返回并写回原消息，保留原有调用兼容性', async () => {
   const result = await accountRouter.createCaller({}).transcribeVoice(input);
   expect(result).toMatchObject({ success: true, text: '合成识别结果' });
-  expect(state.write).toHaveBeenCalledWith(42n, 'voice.silk', '合成识别结果');
+  expect(state.write).toHaveBeenCalledWith(
+    42n,
+    'voice.silk',
+    '合成识别结果',
+    expect.objectContaining({ ifEmpty: false }),
+  );
+});
+it('已有原文时跳过自动识别，识别中的迟到结果也沿用已保存的原文', async () => {
+  const api = accountRouter.createCaller({});
+  const stored = { elements: [{ kind: 'ptt', fileName: input.name, pttTranscript: '合成原文' }] };
+  state.read.mockResolvedValueOnce(stored);
+  expect(await api.transcribeVoice({ ...input, automatic: true })).toMatchObject({
+    success: true,
+    text: '合成原文',
+  });
+  expect(state.infer).not.toHaveBeenCalled();
+
+  state.read.mockResolvedValueOnce(null).mockResolvedValueOnce(stored);
+  state.write.mockResolvedValueOnce(false);
+  expect(await api.transcribeVoice({ ...input, automatic: true })).toMatchObject({
+    success: true,
+    text: '合成原文',
+  });
+  expect(state.write).toHaveBeenCalledWith(
+    42n,
+    input.name,
+    '合成识别结果',
+    expect.objectContaining({ ifEmpty: true }),
+  );
 });
 it('包内语音有相同消息 ID 时也只返回转写，不写 QQ 消息', async () => {
   const result = await accountRouter.createCaller({}).transcribeVoice({
@@ -160,4 +195,62 @@ it('识别中切换数据源后不写回旧账号', async () => {
     success: false,
   });
   expect(state.write).not.toHaveBeenCalled();
+});
+
+it('合成原文等待 QQ 同步，重启后按音频回执和消息序号定位实际消息', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'weq-sent-voice-'));
+  const path = join(dir, 'sent-voice.json');
+  const hash = 'a'.repeat(32);
+  const fileName = `${hash}.amr`;
+  const row = (msgId: bigint, senderUid: string, md5: string) => ({
+    msgId,
+    msgRandom: 7n,
+    senderUid,
+    sendTime: BigInt(Math.floor(Date.now() / 1000)),
+    elements: [{ type: 'ptt', data: { fileName, isAiVoice: true, md5 } }],
+  });
+  const msgs = {
+    getGroupAfter: vi.fn(),
+    getSentVoiceRows: vi.fn(),
+    getRawElements: state.read,
+    setPttTranscript: state.write,
+  };
+  const open = () =>
+    new SentVoiceTranscripts(path, msgs as unknown as MsgService, 'self', () => true);
+  let queue = open();
+  try {
+    queue.remember({ kind: 'group', conv: '1', at: Date.now(), text: 'AI 原文', hash, seq: '10' });
+    queue.remember({
+      kind: 'c2c',
+      conv: 'peer',
+      at: Date.now(),
+      text: 'TTS 原文',
+      hash: '',
+      seq: '20',
+      random: '7',
+    });
+    await queue.dispose();
+    msgs.getGroupAfter.mockResolvedValue([
+      row(11n, 'other', hash),
+      row(12n, 'self', 'b'.repeat(32)),
+      row(13n, 'self', hash),
+    ]);
+    msgs.getSentVoiceRows.mockResolvedValue([row(20n, 'other', hash), row(21n, 'self', hash)]);
+    state.read.mockResolvedValue({
+      elements: [{ kind: 'ptt', fileName, pttTranscript: '自动结果' }],
+    });
+    queue = open();
+    await queue.flush();
+    expect(msgs.getGroupAfter).toHaveBeenCalledWith('1', 10n, 200, { deferReplyMedia: true });
+    expect(msgs.getSentVoiceRows).toHaveBeenCalledWith('c2c', 'peer', 20n);
+    expect(state.write.mock.calls.map((call) => call.slice(0, 3))).toEqual([
+      [13n, fileName, 'AI 原文'],
+      [21n, fileName, 'TTS 原文'],
+    ]);
+    await queue.flush();
+    expect(state.write).toHaveBeenCalledTimes(2);
+  } finally {
+    await queue.dispose();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

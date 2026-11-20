@@ -247,6 +247,23 @@ describe('语音消息转换入口', () => {
     ).toBe('true');
   });
 
+  it('迟到的自动转写让位给合成原文，用户可从菜单重新转写', async () => {
+    state.automatic = true;
+    state.transcribe.mockResolvedValueOnce({ success: true, text: '自动结果' });
+    render();
+    act(() => state.intersection?.([{ isIntersecting: true }]));
+    await settle();
+    render({ stored: '合成原文' });
+    expect(host.querySelector('.qq-voice-transcript')?.textContent).toBe('合成原文');
+    rightClick();
+    click('重新转文字');
+    await settle();
+    expect(state.transcribe).toHaveBeenLastCalledWith(
+      expect.objectContaining({ automatic: false }),
+    );
+    expect(host.querySelector('.qq-voice-transcript')?.textContent).toBe('合成语音文字');
+  });
+
   it.each(['response', 'exception'])(
     '%s 失败不自动循环重试，气泡允许手动重试，空成功结果也不重复转换',
     async (failure) => {

@@ -19,11 +19,23 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (): unknown =>
     new Proxy(() => proxy(), {
       get: (_target, key) =>
-        key === 'useQuery'
-          ? () => ({ data: undefined, isLoading: false })
-          : key === 'useMutation'
-            ? () => ({ mutate: vi.fn() })
-            : proxy(),
+        key === 'getSettings'
+          ? {
+              useQuery: () => ({
+                data: { voiceTranscribe: { ttsProviders: [{ id: 'fixture', name: '服务商' }] } },
+              }),
+            }
+          : key === 'synthesizeSpeech'
+            ? {
+                useMutation: () => ({
+                  mutateAsync: async () => ({ format: 'wav', audioBase64: 'AQI=' }),
+                }),
+              }
+            : key === 'useQuery'
+              ? () => ({ data: undefined, isLoading: false })
+              : key === 'useMutation'
+                ? () => ({ mutate: vi.fn() })
+                : proxy(),
     });
   return { trpc: proxy(), client: proxy() };
 });
@@ -208,6 +220,52 @@ it('语音区不会因点外面或切换会话关闭，合成文本仍使用各�
     expect(f.host.querySelector<HTMLTextAreaElement>('.voice-panel textarea')?.value).toBe(
       '另一会话的正文',
     );
+  } finally {
+    await f.dispose();
+  }
+});
+
+it.each(['TTS', 'AI 声聊'])('%s 发送成功才清理本次文字，保留随后输入的新文字', async (mode) => {
+  const f = await fixture();
+  const acknowledgements: Array<() => void> = [];
+  const onSend = vi.fn(async (_body, _locals, onAccepted?: () => void) => {
+    if (onAccepted) acknowledgements.push(onAccepted);
+  });
+  try {
+    await f.finish();
+    await f.render({ onSend });
+    const voice = f.host.querySelector<HTMLButtonElement>('button[aria-label="语音"]')!;
+    act(() => voice.click());
+    const select = [...f.host.querySelectorAll<HTMLButtonElement>('.voice-panel button')].find(
+      (item) => item.textContent?.trim() === mode,
+    )!;
+    act(() => select.click());
+    const input = f.host.querySelector<HTMLTextAreaElement>('.voice-panel textarea')!;
+    const send = f.host.querySelector<HTMLButtonElement>(
+      '.voice-panel button[title="合成并发送"]',
+    )!;
+    await act(async () => send.click());
+    expect(acknowledgements).toHaveLength(1);
+    expect(input.value).toBe('原稿');
+    act(() => acknowledgements.shift()!());
+    expect(input.value).toBe('');
+    expect(f.editor().querySelector('img')?.src).toBe('blob:restored');
+
+    const inputText = (text: string) => {
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+          input,
+          text,
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    inputText('第二条');
+    await act(async () => send.click());
+    expect(acknowledgements).toHaveLength(1);
+    inputText('下一条草稿');
+    act(() => acknowledgements.shift()!());
+    expect(input.value).toBe('下一条草稿');
   } finally {
     await f.dispose();
   }

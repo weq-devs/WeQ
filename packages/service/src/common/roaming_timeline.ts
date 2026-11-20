@@ -6,6 +6,7 @@ export interface TimelineRow {
   msgRandom?: string;
   localSent?: boolean;
   senderUid?: string;
+  elements?: readonly unknown[];
   msgId: string;
   msgSeq: string;
   source?: 'roaming';
@@ -33,6 +34,26 @@ export function timelineMessageIdentity(row: TimelineRow): string | null {
   return row.msgRandom && row.msgRandom !== '0' && row.senderUid
     ? `${row.msgSeq}:${row.msgRandom}:${row.senderUid}`
     : null;
+}
+
+export function voiceFileHash(data: {
+  fileName?: unknown;
+  md5?: unknown;
+  md5Bytes?: unknown;
+}): string {
+  for (const hash of [data.md5, data.md5Bytes]) {
+    if (typeof hash === 'string' && /^[a-f0-9]{32}$/i.test(hash)) return hash.toLowerCase();
+  }
+  return /^([a-f0-9]{32})\.amr$/i.exec(String(data.fileName ?? ''))?.[1]?.toLowerCase() ?? '';
+}
+
+/** 旧版语音转写可能改过 QQ 的 random，用原音频核对这类发送缓存。 */
+export function sentVoiceIdentity(row: TimelineRow): string | null {
+  if (!row.senderUid || !row.sendTime || row.elements?.length !== 1) return null;
+  const element = row.elements[0] as { type?: string; data?: Record<string, unknown> } | null;
+  if (element?.type !== 'ptt' || !element.data) return null;
+  const hash = voiceFileHash(element.data);
+  return hash ? `${row.msgSeq}:${row.sendTime}:${row.senderUid}:${hash}` : null;
 }
 
 /** Fill the currently loaded window without extending it or re-anchoring history to latest. */
@@ -81,6 +102,7 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
   const localSeqs = new Set(result.map((row) => row.msgSeq));
   const localIds = new Set(result.map((row) => row.msgId));
   const localIdentities = new Set(result.map(identity).filter(Boolean));
+  const localVoices = new Set(result.map(sentVoiceIdentity).filter(Boolean));
   const nativeRandoms = new Set(
     [...local, ...cached]
       .filter((row) => row.sourceFormat && row.msgRandom && row.msgRandom !== '0')
@@ -108,8 +130,8 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
         (row.sourceFormat
           ? localIds.has(row.msgId) ||
             (row.sourceFormat === 'protocol' &&
-              identity(row) !== null &&
-              localIdentities.has(identity(row)))
+              (localIdentities.has(identity(row)) ||
+                (row.localSent && localVoices.has(sentVoiceIdentity(row)))))
           : localSeqs.has(row.msgSeq) ||
             nativeRandoms.has(
               `${row.msgSeq}:${row.msgRandom || row.msgId}:${row.senderUid ?? ''}`,

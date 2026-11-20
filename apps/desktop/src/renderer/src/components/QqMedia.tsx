@@ -1139,9 +1139,10 @@ export function QqVoice({
     active && visible && !storedTranscript && !localPreviewUrl && !localPath,
   );
   const canTranscribe = transcribe.available && !localPreviewUrl && !localPath;
-  const result = transcribe.result;
+  const result = storedTranscript && transcribe.result?.automatic ? undefined : transcribe.result;
   const transcribeError =
-    transcribe.error ?? (result && !result.success ? (result.error ?? '识别失败') : null);
+    (storedTranscript ? null : transcribe.error) ??
+    (result && !result.success ? (result.error ?? '识别失败') : null);
   const emotion = result?.emotion ?? null;
   const events = (result?.events ?? []).map(
     (event) => `${event.emoji ? `${event.emoji} ` : ''}${event.label}`,
@@ -1300,9 +1301,12 @@ export function QqVoice({
               ))}
             </div>
           ) : null}
-          <span data-privacy-sensitive={Boolean(shownTranscript) || undefined}>
-            {transcribeError ?? (shownTranscript ? shownTranscript : '（未识别到内容）')}
-          </span>
+          {shownTranscript !== null ? (
+            <span data-privacy-sensitive={Boolean(shownTranscript) || undefined}>
+              {shownTranscript || '（未识别到内容）'}
+            </span>
+          ) : null}
+          {transcribeError ? <span role="status">{transcribeError}</span> : null}
         </div>
       ) : null}
     </div>

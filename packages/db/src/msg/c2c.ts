@@ -610,6 +610,15 @@ export class C2cMsgDb {
     ]);
   }
 
+  /** 转写只更新正文，并检测期间发生的并发修改。 */
+  async replaceMsgBody(msgId: bigint, before: Uint8Array, after: Uint8Array): Promise<number> {
+    return this.qq.write(`UPDATE ${this.table} SET "40800" = ? WHERE "40001" = ? AND "40800" = ?`, [
+      after,
+      msgId,
+      before,
+    ]);
+  }
+
   /**
    * Read a message's type columns (40011 msgType / 40012 subType) by msgId, or
    * null if this table doesn't hold it. QQ itself rewrites these to `(1,1)` on

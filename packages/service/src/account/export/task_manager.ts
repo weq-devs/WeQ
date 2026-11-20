@@ -3855,7 +3855,9 @@ export class ExportTaskManager extends EventEmitter {
             async (ref, text) => {
               // Cache the result on the element (wire tag 45923) so this clip is
               // skipped on any later export — and shows up in chat right away.
-              await this.msgsFor(task).setPttTranscript(BigInt(ref.msgId), ref.fileName, text);
+              await this.msgsFor(task).setPttTranscript(BigInt(ref.msgId), ref.fileName, text, {
+                ifEmpty: true,
+              });
             },
             (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
             useOnline ? onlineTranscribe : undefined,

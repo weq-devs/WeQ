@@ -39,6 +39,26 @@ import {
   elementsToComposerText,
 } from '../src/renderer/src/im-template/template/draftElements';
 import { buildSendElems, type SendElement } from '@weqbot/protocol';
+import { voiceClipToken } from '../src/renderer/src/im-template/template/composerMedia';
+
+it('TTS 语音发送计划带上合成原文，普通录音沿用已有发送参数', () => {
+  const clip = {
+    id: 'voice',
+    source: 'tts' as const,
+    blob: null,
+    url: null,
+    durationMs: 1000,
+    levels: [],
+    transcript: '合成原文',
+  };
+  const fileName = 'voice-voice.silk';
+  const locals = [{ key: fileName, name: fileName, bytes: new Uint8Array([1]) }];
+  const build = (body: string) => buildComposerSendPlan({ body, locals, superStickers: new Map() });
+  expect(build(voiceClipToken(clip))).toMatchObject({ kind: 'voice', voiceTranscript: '合成原文' });
+  expect(build(voiceClipToken({ ...clip, source: 'record' }))).not.toHaveProperty(
+    'voiceTranscript',
+  );
+});
 
 it('设备文件计划保留 File 句柄，不要求整个文件预读成字节', () => {
   const file = new File(['fixture'], 'fixture.bin');

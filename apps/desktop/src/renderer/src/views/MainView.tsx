@@ -132,6 +132,7 @@ import {
   mergeRoamingTimeline,
   mergeRoamingWindow,
   timelineRowKey,
+  voiceFileHash,
 } from '../../../shared/roaming_timeline';
 import { useViewState } from '../state/view';
 import { resolveDraftSave } from '../lib/draftPersistence';
@@ -2723,16 +2724,17 @@ function MainWorkspace(): ReactElement {
     history: shellHistory,
   });
 
-  const { drafts, updateDraft, syncDraftsFromPending, flushAllDirtyDrafts } = useWorkspaceDrafts({
-    binding: pinSession.binding,
-    messageScope,
-    openedUin,
-    activeConversationId: shell.activeConversationId,
-    resolveConversation: (id) =>
-      conversations.find((row) => row.id === id) ??
-      hiddenConversationsById.get(id) ??
-      deletedConversationsById.get(id),
-  });
+  const { drafts, updateDraft, clearSentSpeechDraft, syncDraftsFromPending, flushAllDirtyDrafts } =
+    useWorkspaceDrafts({
+      binding: pinSession.binding,
+      messageScope,
+      openedUin,
+      activeConversationId: shell.activeConversationId,
+      resolveConversation: (id) =>
+        conversations.find((row) => row.id === id) ??
+        hiddenConversationsById.get(id) ??
+        deletedConversationsById.get(id),
+    });
   useEffect(() => {
     setContactsPageOpen(shell.view === 'contacts');
   }, [shell.view]);
@@ -4505,6 +4507,20 @@ function MainWorkspace(): ReactElement {
         : new Map<string, string>(),
     [optimisticForwards, loadedMessageWires, selectedConversation, user],
   );
+  const visibleGeneratedMatches = useMemo(() => {
+    if (
+      !selectedConversation ||
+      !optimisticMessages.some((item) => item.awaitingAiVoice || item.signatures?.length)
+    )
+      return new Map<string, string>();
+    return matchGeneratedMessages(
+      optimisticMessages,
+      loadedMessageWires.filter((wire) => isMineMessage(wire, selectedConversation, user)),
+      selectedConversation.id,
+      consumedGeneratedMessages.current,
+      true,
+    );
+  }, [optimisticMessages, loadedMessageWires, selectedConversation, user]);
 
   const templateContext = messageTemplateContext(selectedConversation);
   const sentPictureEchoes = useMemo(() => {
@@ -4635,7 +4651,9 @@ function MainWorkspace(): ReactElement {
     const pendingMessages = optimisticMessages
       .filter(
         (item) =>
-          item.convId === selectedConversation.id && !sentPictureEchoes.outgoingIds.has(item.id),
+          item.convId === selectedConversation.id &&
+          !sentPictureEchoes.outgoingIds.has(item.id) &&
+          !visibleGeneratedMatches.has(item.id),
       )
       .map((item) => optimisticMessageToTemplate(item, selectedConversation, optimisticSender));
     // 确认过的序号按原规则插入；失败按创建时间定位，其余无可靠位置的占位仍留在末尾。
@@ -4661,6 +4679,7 @@ function MainWorkspace(): ReactElement {
     optimisticMessages,
     sentPictureEchoes,
     forwardMatches,
+    visibleGeneratedMatches,
     messageTemplateCache,
     messageIdentityRevision,
     messageReplyIndex,
@@ -6805,7 +6824,11 @@ function MainWorkspace(): ReactElement {
     );
   }
 
-  async function sendComposerMessage(body: string, locals?: LocalMediaRef[]): Promise<void> {
+  async function sendComposerMessage(
+    body: string,
+    locals?: LocalMediaRef[],
+    onAccepted?: () => void,
+  ): Promise<void> {
     const conversation = selectedConversation;
     if (!conversation) return;
     const account = openedUin;
@@ -6869,6 +6892,7 @@ function MainWorkspace(): ReactElement {
         );
         throw error;
       }
+      if (submission.accepted && isCurrent()) onAccepted?.();
     });
   }
 
@@ -6953,6 +6977,8 @@ function MainWorkspace(): ReactElement {
       groupSequence?: number;
       privateSequence?: number;
       random?: number;
+      fileHash?: string;
+      fileName?: string;
     };
     try {
       const superStickers = new Map<string, ComposerSuperSticker>();
@@ -7056,6 +7082,8 @@ function MainWorkspace(): ReactElement {
         const wav = await decodeRecordingToWav(plan.recording);
         outcome = await client.account.sendVoice.mutate({
           ...outgoingReceipt(optimisticId),
+          expectedAccountUin: user.identityValue,
+          expectedAccountConfigId,
           peerType: target.peerType,
           targetId: target.targetId,
           ...(target.tempGroupCode ? { tempGroupCode: target.tempGroupCode } : {}),
@@ -7063,6 +7091,7 @@ function MainWorkspace(): ReactElement {
           ...(plan.durationSec ? { durationSec: plan.durationSec } : {}),
           ...(plan.voiceChanged ? { voiceChanged: true } : {}),
           fileName: plan.fileName,
+          voiceTranscript: plan.voiceTranscript,
         });
       } else if (plan.kind === 'aiVoice') {
         if (target.peerType !== 'group') {
@@ -7074,8 +7103,11 @@ function MainWorkspace(): ReactElement {
           });
           throw new Error('ai voice requires group');
         }
+        patchOptimistic({ awaitingAiVoice: true, generatedExistingMsgIds: fileExistingMsgIds });
         outcome = await client.account.sendAiVoice.mutate({
           ...outgoingReceipt(optimisticId),
+          expectedAccountUin: user.identityValue,
+          expectedAccountConfigId,
           groupId: target.targetId,
           voiceId: plan.voiceId,
           text: plan.text,
@@ -7144,11 +7176,20 @@ function MainWorkspace(): ReactElement {
       return;
     }
     if (plan.kind === 'aiVoice' || plan.kind === 'flashTransfer') {
-      // 两者均由服务端生成消息，没有 PbSendMsg 的 random / seq，不伪造普通消息对账。
+      // AI 声聊回执提供音频哈希，QQ 的正式语音元素也携带该文件标识。
+      const hash =
+        plan.kind === 'aiVoice'
+          ? voiceFileHash({ md5: outcome.fileHash, fileName: outcome.fileName })
+          : '';
+      if (plan.kind === 'aiVoice' && !hash) {
+        setOptimisticMessages((current) => current.filter((item) => item.id !== optimisticId));
+        return;
+      }
       patchOptimistic({
         state: 'sent',
+        awaitingAiVoice: false,
         generatedExistingMsgIds: fileExistingMsgIds,
-        signatures: [plan.kind === 'aiVoice' ? `aiVoice:${plan.text}` : `flash:${plan.fileSetId}`],
+        signatures: [plan.kind === 'aiVoice' ? `aiVoice:${hash}` : `flash:${plan.fileSetId}`],
       });
       return;
     }
@@ -10041,6 +10082,7 @@ function MainWorkspace(): ReactElement {
                             onSendBubbleVideo={sendBubbleVideo}
                             onSendRedPacket={sendRedPacket}
                             onDraftChange={updateDraft}
+                            onSentSpeechDraft={clearSentSpeechDraft}
                             onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                             onBackConversation={shell.backConversation}
                             onEditRaw={handleEditRaw}

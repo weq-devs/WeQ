@@ -219,6 +219,8 @@ export interface SendMediaParams {
   waveform?: PttWaveformSource;
   /** 语音：变声标记（缺省 false = 原声）。 */
   voiceChanged?: boolean;
+  /** TTS 合成原文，作为本机语音回显的转写。 */
+  voiceTranscript?: string;
   /** 视频：封面（不给则按 width/height 合成一张纯色 PNG）。 */
   thumb?: MediaSource;
   /** 收端显示的文件名（图片/视频；缺省按 md5 + 扩展名）。 */
@@ -242,6 +244,7 @@ export interface SendElementsParams {
   tempGroupCode?: GroupTempSource;
   /** 至少一个元素；媒体元素会自动走上传（需 uid）。 */
   elements: SendElement[];
+  voiceTranscript?: string;
   /** 随这条消息一起带出的装扮；⚠️ 服务端不收，见 SendDress。缺省不带。 */
   dress?: SendDress;
   /** 发送前已解析的字体快照；null 表示本次不带字体，避免预览与请求二次解析漂移。 */
@@ -876,6 +879,9 @@ export class MessageSendService {
       targetId: params.targetId,
       ...(params.tempGroupCode !== undefined ? { tempGroupCode: params.tempGroupCode } : {}),
       elements: [element],
+      ...(params.kind === 'record' && params.voiceTranscript
+        ? { voiceTranscript: params.voiceTranscript }
+        : {}),
       ...(params.dress ? { dress: params.dress } : {}),
     });
   }
@@ -1224,6 +1230,8 @@ export class MessageSendService {
         );
         // 特殊互动元素尚未被收侧解码器支持时，保留原来的乐观预览等待 QQ 同步。
         if (message.elements.length < elements.length) return outcome;
+        const voice = params.voiceTranscript && message.elements.find((el) => el.type === 'ptt');
+        if (voice && voice.type === 'ptt') voice.data.pttTranscript = params.voiceTranscript;
         await this.retainSent({
           ...message,
           ...(previewBubbleId || (currentFontId !== undefined && fontRaw !== undefined)

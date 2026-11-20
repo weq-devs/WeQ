@@ -426,12 +426,13 @@ export type OptimisticMessage = {
   /**
    * 内容签名（cid / seq 都拿不到时的对账兜底，如 AI 声聊 0x929b_0 回执、闪传
    * 0x93d7 回执）。**任意一个**命中就收掉；每个签名各自按出现次数消耗。
-   *   · AI 声聊：`aiVoice:<合成原文>`。
+   *   · AI 声聊：`aiVoice:<回执音频哈希>`。
    *   · 闪传：`flash:<filesetUuid>`（Windows / 安卓收到的真卡片）或
    *     `flash:<分享短码>`（Linux / 鸿蒙收到的降级纯文本）—— 两者互斥，哪条先
    *     回来都能把乐观卡片收掉。
    */
   signatures?: string[];
+  awaitingAiVoice?: boolean;
   generatedExistingMsgIds?: string[];
   /** 文件发布没有普通消息序号，按文件 ID 与发送前的消息快照对账。 */
   fileSync?: FileSyncReceipt;
