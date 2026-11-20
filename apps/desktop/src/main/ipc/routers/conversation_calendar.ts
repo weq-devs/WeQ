@@ -90,6 +90,7 @@ interface Entry {
   taskId?: string;
   day?: string;
   scopeLabel?: string;
+  taskKinds?: CalendarKind[];
   retiring?: boolean;
   receiptStore?: CalendarReceipts;
   job: ConversationCalendarJob;
@@ -228,7 +229,7 @@ function runInBackground(value: Entry) {
     () =>
       withDatabaseReadBudget(
         10,
-        () => value.job.continueInBackground(),
+        () => value.job.continueInBackground(value.day),
         (ms) => value.job.observeRead(ms),
         () => value.job.noteWaiting(),
         (state) => value.job.observeState(state),
@@ -563,6 +564,7 @@ async function startCalendar(input: z.infer<typeof calendarStartInput>, inspectO
     job,
     day: input.day,
     scopeLabel: receipt?.request.scopeLabel ?? input.scopeLabel,
+    taskKinds: receipt?.request.kinds,
     loaded: true,
     taskId: receipt?.id,
     receiptStore,
@@ -638,6 +640,7 @@ export const conversationCalendarRouter = router({
     .mutation(async ({ input }) => {
       if (!('taskId' in input)) return startCalendar(input);
       const [id, value] = await openCalendarTask(input.taskId, input);
+      value.job.setKinds(value.taskKinds ?? [...CALENDAR_SOURCE_ORDER]);
       return { id, day: value.day, background: true };
     }),
   openTask: procedure.input(calendarTaskInput).query(async ({ input }) => {
@@ -647,6 +650,7 @@ export const conversationCalendarRouter = router({
       day: value.day,
       targets: value.targets,
       scopeLabel: value.scopeLabel,
+      kinds: value.taskKinds ?? [...CALENDAR_SOURCE_ORDER],
     };
   }),
   background: procedure.input(requestInput).mutation(({ input }) => {
@@ -662,6 +666,7 @@ export const conversationCalendarRouter = router({
           configId: value.services.accountConfig.getRecord()?.configId,
         },
       });
+      value.taskKinds = value.job.snapshot(undefined, 0, false, 0).enabledKinds;
       const store = value.receiptStore;
       if (store) {
         const id = value.taskId;
@@ -685,6 +690,7 @@ export const conversationCalendarRouter = router({
             targets: value.targets,
             day: value.day,
             scopeLabel: value.scopeLabel,
+            kinds: value.taskKinds,
             refresh: false,
           },
         };
@@ -786,9 +792,17 @@ export const conversationCalendarRouter = router({
         });
       }
       value.job.control(input.scope, input.action, input.day);
-      runJob(value);
-      syncTask(value);
-      void value.job.settled().then(() => syncTask(value));
+      if (
+        input.action !== 'pause' &&
+        value.taskId &&
+        backgroundTasks.snapshot().some((task) => task.id === value.taskId)
+      ) {
+        runInBackground(value);
+      } else {
+        runJob(value);
+        syncTask(value);
+        void value.job.settled().then(() => syncTask(value));
+      }
       await value.store?.flush();
       return value.job.snapshot(value.day);
     }),

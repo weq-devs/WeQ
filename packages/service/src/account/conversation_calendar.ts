@@ -879,12 +879,13 @@ export class ConversationCalendarJob {
       }
     this.start();
   }
-  continueInBackground(): void {
+  continueInBackground(day = this.selectedDay): void {
     if (this.controller.signal.aborted) throw new Error('日历任务已停止，请重新打开日历');
-    this.background = true;
-    clearTimeout(this.leaseTimer);
-    this.log('info', 'task', `${this.month} 统计转入后台，继续为前台读取让路`);
-    this.start();
+    if (!this.background) {
+      this.background = true;
+      this.log('info', 'task', `${this.month} 统计转入后台，继续为前台读取让路`);
+    }
+    this.keepAlive(day);
   }
   cancel(): void {
     if (this.controller.signal.aborted) return;
