@@ -301,6 +301,16 @@ export class ContactDirectoryRuntime {
     this.assertCurrent();
     return result;
   }
+  async localGroupMaxSeqs() {
+    this.assertCurrent();
+    const result = await withDatabasePriority(
+      'background',
+      () => this.session.groupMsgs.directoryMaxSeqs(),
+      this.lifetime.signal,
+    );
+    this.assertCurrent();
+    return result;
+  }
   cachedProfiles() {
     this.assertCurrent();
     return this.services.intentSense.cachedProfileSummaries();

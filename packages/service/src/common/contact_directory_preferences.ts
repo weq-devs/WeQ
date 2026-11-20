@@ -38,6 +38,7 @@ export const GROUP_SORTS = {
   createTime: '创建时间',
   friendCount: '群内好友数',
   lastMessageAt: '最近消息时间',
+  maxSeq: '最大 seq',
   lastSpokeAt: '我最近发言',
   joinedAt: '我的入群时间',
 };

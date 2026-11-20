@@ -83,6 +83,9 @@ export function createContactMetricsRouter(
     localTimes: procedure
       .input(binding.extend({ kind: z.enum(['friends', 'groups']) }))
       .query(({ input }) => resolve(input).localTimes(input.kind)),
+    localGroupMaxSeqs: procedure
+      .input(binding)
+      .query(({ input }) => resolve(input).localGroupMaxSeqs()),
     cachedProfiles: procedure.input(binding).query(({ input }) => resolve(input).cachedProfiles()),
     localJoins: procedure.input(binding).query(({ input }) => resolve(input).localJoins()),
     groupFriendSources: procedure

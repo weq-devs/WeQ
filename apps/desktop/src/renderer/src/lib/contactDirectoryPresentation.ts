@@ -178,6 +178,14 @@ export function groupSortDetail(
     const date = dateLabel(Date.parse(group.createTime ?? ''));
     return { text: date ? `创建于 ${date}` : '创建时间未读取' };
   }
+  if (sort === 'maxSeq') {
+    const cell = rows[`group:${group.id}`]?.maxSeq;
+    if (cell?.state === 'ready' && cell.value === undefined) return { text: '无本地群消息序号' };
+    return metricDetail('最大 seq', cell, (value) => {
+      const seq = typeof value === 'string' ? directoryNumber(value) : null;
+      return seq ? `最大 seq：${numbers.format(BigInt(seq))}` : null;
+    });
+  }
   if (sort === 'lastMessageAt' || sort === 'lastSpokeAt' || sort === 'joinedAt') {
     const label = {
       lastMessageAt: '最近消息',

@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   timeQuery: vi.fn(),
   profileQuery: vi.fn(),
   joinQuery: vi.fn(),
+  maxSeqQuery: vi.fn(),
   contactOrder: {} as Record<string, unknown>,
 }));
 vi.mock('../src/renderer/src/state/view', () => ({
@@ -55,6 +56,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             return { data: undefined };
           },
         },
+        localGroupMaxSeqs: {
+          useQuery: (...args: unknown[]) => state.maxSeqQuery(...args),
+        },
         changed: { useSubscription: () => {} },
       },
       qqWrite: { profileRegions: { useQuery: () => ({}) } },
@@ -77,6 +81,7 @@ beforeEach(() => {
   state.timeQuery.mockClear();
   state.profileQuery.mockClear();
   state.joinQuery.mockClear();
+  state.maxSeqQuery.mockReset().mockReturnValue({});
   preferences({});
 });
 afterEach(() => {
@@ -131,6 +136,23 @@ it('新增读取只在所选依据启用，画像仅请求批量缓存摘要，�
   preferences({ groups: { grouping: 'none', sort: 'lastSpokeAt', descending: true } });
   mount('groups', [], true);
   expect(state.timeQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+});
+
+it('最大 seq 只在群聊选择该依据时读取，并为无本地序号的群保留空值', () => {
+  const groups = mount('groups', [['group:12345'], ['group:67890']]);
+  expect(state.maxSeqQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+  state.maxSeqQuery.mockReturnValue({ data: { '12345': '9007199254740993' } });
+  groups.change({ sort: 'maxSeq' });
+  expect(state.maxSeqQuery.mock.calls.at(-1)).toMatchObject([
+    { expectedAccountUin: state.uin, expectedAccountConfigId: state.config?.configId },
+    { enabled: true },
+  ]);
+  expect(state.timeQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+  expect(groups.order().rows['group:12345']?.maxSeq?.value).toBe('9007199254740993');
+  expect(groups.order().rows['group:67890']?.maxSeq).toMatchObject({ state: 'ready' });
+  expect(groups.order().rows['group:67890']?.maxSeq?.value).toBeUndefined();
+  mount('groups', [['group:12345']], true);
+  expect(state.maxSeqQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
 });
 
 it.each(['running', 'paused'])(

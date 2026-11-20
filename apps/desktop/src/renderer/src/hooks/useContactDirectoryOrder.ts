@@ -91,6 +91,7 @@ export function useContactDirectoryOrder(
   const preferences = saved?.key === storageKey ? saved.value : storedPreferences;
   const activity = useQQReadActivity(enabled && !freeze, { onlineOnly: false });
   const needsTimes = ['lastMessageAt', 'lastSpokeAt'].includes(preferences.sort);
+  const needsMaxSeq = kind === 'groups' && preferences.sort === 'maxSeq';
   const seeds = useMemo<DirectoryRows>(
     () => (needsTimes ? seedTimes() : EMPTY_ROWS),
     [needsTimes, seedTimes],
@@ -103,6 +104,11 @@ export function useContactDirectoryOrder(
       refetchInterval: (data) => (data?.done ? 5000 : 250),
     },
   );
+  const maxSeqs = trpc.account.contactMetrics.localGroupMaxSeqs.useQuery(binding, {
+    enabled: activity.enabled && needsMaxSeq,
+    keepPreviousData: false,
+    refetchInterval: 5000,
+  });
   const profiles = trpc.account.contactMetrics.cachedProfiles.useQuery(binding, {
     enabled: activity.enabled && kind === 'friends' && preferences.sort === 'affinity',
     keepPreviousData: false,
@@ -114,7 +120,7 @@ export function useContactDirectoryOrder(
     staleTime: 5000,
   });
   const projectedRows = useMemo<DirectoryRows>(() => {
-    if (!needsTimes && !['affinity', 'joinedAt'].includes(preferences.sort))
+    if (!needsTimes && !needsMaxSeq && !['affinity', 'joinedAt'].includes(preferences.sort))
       return snapshot.data?.rows ?? EMPTY_ROWS;
     const rows: DirectoryRows = { ...(snapshot.data?.rows ?? EMPTY_ROWS) };
     if (needsTimes)
@@ -147,6 +153,20 @@ export function useContactDirectoryOrder(
         };
       }
     }
+    if (needsMaxSeq && (maxSeqs.data || maxSeqs.error)) {
+      for (const [key] of entities) {
+        if (!key?.startsWith('group:')) continue;
+        rows[key] = {
+          ...rows[key],
+          maxSeq: {
+            value: maxSeqs.data?.[key.slice('group:'.length)],
+            state: maxSeqs.error ? 'failed' : 'ready',
+            error: maxSeqs.error?.message,
+            attemptedAt: 0,
+          },
+        };
+      }
+    }
     if (kind === 'friends' && preferences.sort === 'affinity')
       for (const profile of profiles.data ?? [])
         rows[`friend:${profile.uid}`] = {
@@ -163,6 +183,9 @@ export function useContactDirectoryOrder(
     snapshot.data?.rows,
     needsTimes,
     times.data,
+    needsMaxSeq,
+    maxSeqs.data,
+    maxSeqs.error,
     profiles.data,
     joins.data,
     kind,
@@ -224,11 +247,13 @@ export function useContactDirectoryOrder(
       snapshot.error?.message ??
       (needsTimes
         ? times.error?.message
-        : preferences.sort === 'affinity'
-          ? profiles.error?.message
-          : preferences.sort === 'joinedAt'
-            ? joins.error?.message
-            : undefined),
+        : needsMaxSeq
+          ? maxSeqs.error?.message
+          : preferences.sort === 'affinity'
+            ? profiles.error?.message
+            : preferences.sort === 'joinedAt'
+              ? joins.error?.message
+              : undefined),
     progress: snapshot.data?.progress,
     needsOnline,
     refreshRequest: refreshRequest?.scope === storageKey ? refreshRequest : null,

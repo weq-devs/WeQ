@@ -11,6 +11,7 @@ import {
   FRIEND_SORTS,
   GROUP_SORTS,
   friendMetric,
+  type DirectoryRows,
   type FriendSort,
   type GroupSort,
 } from '../src/renderer/src/lib/contactListOrder';
@@ -44,7 +45,7 @@ const group: GroupConversation['group'] = {
 };
 const ready = (value: number) => ({ value, state: 'ready' as const, attemptedAt: 1 });
 afterEach(() => vi.useRealTimers());
-const rows: ContactMetricRows = {
+const rows: DirectoryRows = {
   'friend:12345': {
     level: ready(64),
     likeCount: ready(12580),
@@ -52,7 +53,11 @@ const rows: ContactMetricRows = {
     commonFriends: ready(12),
     commonGroups: { ...ready(0), value: [] },
   },
-  'group:67890': { activityScore: ready(78), friendCount: ready(16) },
+  'group:67890': {
+    activityScore: ready(78),
+    friendCount: ready(16),
+    maxSeq: { ...ready(1), value: '9007199254740993' },
+  },
 };
 
 it('机器人和企业用户不展示获赞排序详情，也不使用旧获赞缓存排序', () => {
@@ -148,6 +153,7 @@ it.each([
   ['activityScore', '活跃度：78'],
   ['createTime', '创建于 2018-06-12'],
   ['friendCount', '群内好友：16 / 328 人'],
+  ['maxSeq', '最大 seq：9,007,199,254,740,993'],
 ] as const)('群聊 %s 显示对应值', (sort, expected) => {
   expect(groupSortDetail(group, sort, rows)?.text).toBe(expected);
 });

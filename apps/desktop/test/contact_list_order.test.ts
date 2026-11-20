@@ -8,6 +8,7 @@ import {
   GROUP_SORTS,
   zodiac,
   defaultDescending,
+  type DirectoryRows,
   type FriendSort,
   type GroupSort,
 } from '../src/renderer/src/lib/contactListOrder';
@@ -336,8 +337,12 @@ it.each(Object.keys(FRIEND_SORTS) as FriendSort[])('好友全部排序依据可�
   ).toBe('a');
 });
 it.each(Object.keys(GROUP_SORTS) as GroupSort[])('群全部排序依据可用且空值沉底：%s', (sort) => {
-  const metrics: ContactMetricRows = {
-    'group:a': { activityScore: ready(1), friendCount: ready(0) },
+  const metrics: DirectoryRows = {
+    'group:a': {
+      activityScore: ready(1),
+      friendCount: ready(0),
+      maxSeq: { ...ready(1), value: '1' },
+    },
   };
   expect(
     sortGroups(
@@ -356,6 +361,28 @@ it.each(Object.keys(GROUP_SORTS) as GroupSort[])('群全部排序依据可用且
       metrics,
     )[0]?.id,
   ).toBe('a');
+});
+
+it('最大 seq 按完整整数排，升降序均将缺少序号的群置后', () => {
+  const items = ['a', 'b', 'c', 'missing'].map((id) => group(id));
+  const rows: DirectoryRows = {
+    'group:a': { maxSeq: { ...ready(1), value: '9007199254740993' } },
+    'group:b': { maxSeq: { ...ready(1), value: '9007199254740992' } },
+    'group:c': { maxSeq: { ...ready(1), value: '9' } },
+  };
+  expect(defaultDescending('maxSeq')).toBe(true);
+  expect(sortGroups(items, 'maxSeq', true, rows).map((row) => row.id)).toEqual([
+    'a',
+    'b',
+    'c',
+    'missing',
+  ]);
+  expect(sortGroups(items, 'maxSeq', false, rows).map((row) => row.id)).toEqual([
+    'c',
+    'b',
+    'a',
+    'missing',
+  ]);
 });
 
 it('QQ 号和群号按数值而非字典序排列，不转换为浮点数，未知号码双向沉底', () => {
