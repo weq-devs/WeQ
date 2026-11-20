@@ -188,3 +188,27 @@ it('TTS 和 AI 声聊同步文字草稿，切回正文保留内联图片', async
     await f.dispose();
   }
 });
+
+it('语音区不会因点外面或切换会话关闭，合成文本仍使用各自草稿', async () => {
+  const f = await fixture();
+  try {
+    const voice = f.host.querySelector<HTMLButtonElement>('button[aria-label="语音"]')!;
+    act(() => voice.click());
+    act(() => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+    expect(voice.getAttribute('aria-expanded')).toBe('true');
+    await f.render({
+      conversation: { ...f.props.conversation, id: 'other-chat' },
+      draft: '另一会话的正文',
+    });
+    expect(voice.getAttribute('aria-expanded')).toBe('true');
+    const tts = [...f.host.querySelectorAll<HTMLButtonElement>('.voice-panel button')].find(
+      (item) => item.textContent?.trim() === 'TTS',
+    )!;
+    act(() => tts.click());
+    expect(f.host.querySelector<HTMLTextAreaElement>('.voice-panel textarea')?.value).toBe(
+      '另一会话的正文',
+    );
+  } finally {
+    await f.dispose();
+  }
+});

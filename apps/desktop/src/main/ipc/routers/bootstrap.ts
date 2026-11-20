@@ -96,6 +96,7 @@ import {
   fetchHomeDress,
   getHost,
   getLogger,
+  getVoiceModel,
   logErrorContext,
   type KeyEvent,
   type VoiceDownloadProgress,
@@ -2046,6 +2047,47 @@ export const bootstrapRouter = router({
   }),
 
   // ---- voice transcription models (设置 → 语音转录) ----
+
+  transcribeRecording: procedure
+    .input(
+      z.object({
+        wav: z.instanceof(Uint8Array).refine((value) => {
+          if (value.byteLength <= 44 || value.byteLength > 44 + 16_000 * 2 * 62) return false;
+          const wav = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+          return (
+            wav.toString('ascii', 0, 4) === 'RIFF' &&
+            wav.readUInt32LE(4) === wav.length - 8 &&
+            wav.toString('ascii', 8, 16) === 'WAVEfmt ' &&
+            wav.readUInt32LE(16) === 16 &&
+            wav.readUInt16LE(20) === 1 &&
+            wav.readUInt16LE(22) === 1 &&
+            wav.readUInt32LE(24) === 16_000 &&
+            wav.readUInt16LE(34) === 16 &&
+            wav.toString('ascii', 36, 40) === 'data' &&
+            wav.readUInt32LE(40) === wav.length - 44 &&
+            wav.length % 2 === 0
+          );
+        }, '录音格式或时长无效'),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const boot = requireBootstrap();
+      const modelId = boot.userConfig.getLocalModelId('voice');
+      const model = getVoiceModel(modelId);
+      if (!model || !boot.voiceTranscribe.getModelStatus(modelId)?.downloaded)
+        return { success: false, error: '请先在「设置 → 增强功能 → 增强包」准备本地语音转写' };
+      const { model: modelPath, tokens } = boot.voiceTranscribe.resolveModelPaths(modelId);
+      if (!modelPath || !tokens) return { success: false, error: '本地语音模型文件缺失' };
+      const { transcribeWav } = await import('../../transcribe/engine');
+      return transcribeWav(
+        Buffer.from(input.wav),
+        { model: modelPath, tokens },
+        {
+          engine: model.engine,
+          languages: model.languages,
+        },
+      );
+    }),
 
   setRecognitionConcurrency: procedure
     .input(

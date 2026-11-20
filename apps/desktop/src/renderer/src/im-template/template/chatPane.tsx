@@ -190,7 +190,7 @@ import {
   ComposerSuperEmojiStage,
 } from './composerMediaStage';
 import { collectFiles } from './composerMediaStage.shared';
-import { VoicePanel, type TtsSpeechResult } from './voicePanel';
+import { VoicePanel, VoiceWorkspace, useVoiceMode, type TtsSpeechResult } from './voicePanel';
 import { FlashComposer, type FlashSendPayload } from './flashComposer';
 
 /**
@@ -719,7 +719,17 @@ export type ChatPaneProps = {
   resolvedGapIds?: ReadonlySet<string>;
 };
 
-export function ChatPane({
+export function ChatPane(props: ChatPaneProps) {
+  const voice = useVoiceMode();
+  if (voice) return <ChatPaneContent {...props} />;
+  return (
+    <VoiceWorkspace>
+      <ChatPaneContent {...props} />
+    </VoiceWorkspace>
+  );
+}
+
+function ChatPaneContent({
   user,
   conversation,
   messages,
@@ -947,7 +957,7 @@ export function ChatPane({
     y: number;
   } | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [voiceOpen, setVoiceOpen] = useState(false);
+  const { open: voiceOpen, setOpen: setVoiceOpen, returnId, setReturnId } = useVoiceMode()!;
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
   const [onlineFacesOpen, setOnlineFacesOpen] = useState(false);
   const [arkOpen, setArkOpen] = useState(false);
@@ -971,10 +981,10 @@ export function ChatPane({
 
   // 闪传文件框占着输入框正文那一行：别的面板一打开就把它收起来，避免两套东西打架。
   useEffect(() => {
-    if (emojiOpen || toolsOpen || voiceOpen || arkOpen || redPacketOpen) {
+    if (emojiOpen || toolsOpen || arkOpen || redPacketOpen) {
       setFlashOpen(false);
     }
-  }, [emojiOpen, toolsOpen, voiceOpen, arkOpen, redPacketOpen]);
+  }, [emojiOpen, toolsOpen, arkOpen, redPacketOpen]);
   // 图片内联进正文；文件和视频在托盘中排队，提交时各自交给现有发送队列。
   const [mediaAttachments, setMediaAttachments] = useState<ComposerAttachment[]>([]);
   const [preparingMedia, setPreparingMedia] = useState(false);
@@ -1048,14 +1058,12 @@ export function ChatPane({
     staleTime: 5 * 60_000,
   });
   const pushToast = useToast((state) => state.push);
-  // 语音 / TTS 能力由「设置 → 语音配置」决定：没配转录模型就没有转文字，没配 TTS
-  // 服务商时文字转语音显示未配置状态。
+  // 没配 TTS 服务商时，文字转语音显示未配置状态。
   const mediaSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
   const ttsProviders = mediaSettings.data?.voiceTranscribe?.ttsProviders ?? [];
-  const transcribeEnabled = Boolean(mediaSettings.data?.voiceTranscribe?.modelId);
   const synthesizeSpeechMutation = trpc.bootstrap.synthesizeSpeech.useMutation();
 
   /**
@@ -1365,9 +1373,6 @@ export function ChatPane({
 
   const toolsPanelRef = useRef<HTMLDivElement | null>(null);
   const toolsButtonRef = useRef<HTMLButtonElement | null>(null);
-  const voicePanelRef = useRef<HTMLDivElement | null>(null);
-  const voiceButtonRef = useRef<HTMLButtonElement | null>(null);
-  const voiceBusyRef = useRef(false);
   const arkPanelRef = useRef<HTMLDivElement | null>(null);
   const arkButtonRef = useRef<HTMLButtonElement | null>(null);
   const redPacketPanelRef = useRef<HTMLDivElement | null>(null);
@@ -2092,7 +2097,6 @@ export function ChatPane({
     setMobileComposerExpanded(false);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setMentionMenu(null);
   }, [conversation?.id, tabActive, compactHeader]);
 
@@ -2308,47 +2312,16 @@ export function ChatPane({
   }, [tabActive, toolsOpen]);
 
   useLayoutEffect(() => {
-    if (!tabActive || !voiceOpen) {
-      return;
-    }
-
-    // 正在录音（含请求麦克风）时不能因为点到外面就把这条丢掉。
-    function closeVoiceFromOutside(event: globalThis.PointerEvent) {
-      if (voiceBusyRef.current) return;
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      const panel = voicePanelRef.current;
-      if (panel?.contains(target) || voiceButtonRef.current?.contains(target)) {
-        return;
-      }
-      const list = target instanceof Element ? target.closest('.weq-field-options') : null;
-      if (
-        list?.id &&
-        panel &&
-        [...panel.querySelectorAll('[aria-controls]')].some(
-          (control) => control.getAttribute('aria-controls') === list.id,
-        )
-      )
-        return;
-      setVoiceOpen(false);
-    }
-
-    function closeVoiceOnEscape(event: globalThis.KeyboardEvent) {
-      if (event.key !== 'Escape' || voiceBusyRef.current) return;
-      setVoiceOpen(false);
-    }
-
-    document.addEventListener('pointerdown', closeVoiceFromOutside, true);
-    document.addEventListener('keydown', closeVoiceOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeVoiceFromOutside, true);
-      document.removeEventListener('keydown', closeVoiceOnEscape);
-    };
-  }, [tabActive, voiceOpen]);
-
-  useLayoutEffect(() => {
     if (!voiceOpen) scheduleMobileComposerMeasureRef.current();
   }, [voiceOpen]);
+
+  useLayoutEffect(() => {
+    if (!tabActive || !returnId || conversation?.id !== returnId) return;
+    setComposerCollapsed(false);
+    setMobileComposerExpanded(false);
+    setFlashOpen(false);
+    setReturnId(null);
+  }, [conversation?.id, returnId, setReturnId, tabActive]);
 
   // 闪传文件框：点到外面 / Esc 就收起来（与语音 / ark 面板同一套交互）。
   // 灯箱在面板内部，所以点灯箱不会被误判成「点到外面」。
@@ -2586,9 +2559,7 @@ export function ChatPane({
     setPendingSuperEmoji(null);
     // 引用也跟着会话走：换了会话就不能再引用上一条会话里的消息了。
     setPendingQuote(null);
-    // 换会话时收起语音模式，并释放之前的录音和试听。
     setComposerMenu(null);
-    setVoiceOpen(false);
     setAttachmentError(null);
     setDropActive(false);
   }, [conversation?.id, releaseInlineImages, clearMediaAttachments]);
@@ -3622,7 +3593,6 @@ export function ChatPane({
     setAttachmentError(null);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setLocationMenu(null);
     setLocationCardOpen(false);
     setArkOpen(false);
@@ -3686,7 +3656,6 @@ export function ChatPane({
     // 引用条要占正文上面那一行，表情 / 语音 / 更多 / 链接面板先收起来。
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setLocationMenu(null);
     setLocationCardOpen(false);
     setArkOpen(false);
@@ -3842,7 +3811,6 @@ export function ChatPane({
           mediaAttachmentRef.current.filter((item) => !stagedMedia.includes(item)),
         );
       }
-      setVoiceOpen(false);
       if (singleToken || options.keepBody) window.requestAnimationFrame(restoreSendFocus);
       // 每项独立交接，某一项失败不会阻断后面的附件；底层仍使用已有有序发送队列。
       const bodies = [...(!empty ? [payloadBody] : []), ...stagedMedia.map(attachmentToken)];
@@ -3877,6 +3845,7 @@ export function ChatPane({
       }
       await sent;
       if (isCurrentComposer() && readAfterSend) requestReadAtBottom();
+      return true;
     } catch (error) {
       // 失败通过原消息重试，不回填或覆盖下一条草稿。
       if (restrictedSource && clearsBody && isCurrentComposer() && !bodyRef.current) {
@@ -3918,7 +3887,7 @@ export function ChatPane({
         // 读不出字节时让上层报错（不静默丢语音）。
       }
     }
-    await submitMessage({
+    return submitMessage({
       extraTokens: [voiceClipToken(clip)],
       locals,
       ...(speechOnly ? { text: '', keepBody: true, omitQuote: true, speechOnly } : {}),
@@ -3956,7 +3925,7 @@ export function ChatPane({
   /** 语音面板「发送文字」：只把识别 / 合成的文字发出去。 */
   async function sendTranscriptText(text: string) {
     if (!text) return;
-    await submitMessage({ text });
+    return submitMessage({ text, keepBody: true, omitQuote: true, speechOnly: true });
   }
 
   /**
@@ -4092,7 +4061,6 @@ export function ChatPane({
    * 把「文字 + 声线」交给既有语音发送链路，保留当前文字草稿。
    */
   async function sendAiVoice(draft: AiVoiceDraft) {
-    setVoiceOpen(false);
     await submitMessage({
       extraTokens: [aiVoiceToken(draft)],
       text: '',
@@ -4771,7 +4739,6 @@ export function ChatPane({
     if (media.length) setPendingQuote(null);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setLocationMenu(null);
     setLocationCardOpen(false);
     setArkOpen(false);
@@ -5314,7 +5281,6 @@ export function ChatPane({
     setMobileComposerExpanded(false);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     scheduleMobileComposerMeasure();
     window.requestAnimationFrame(() => {
       if (mentionConversation.current === sourceConversation && composerTabActive.current)
@@ -5389,12 +5355,10 @@ export function ChatPane({
     setLocationMenu(null);
     setLocationCardOpen(false);
     setArkOpen(false);
-    setVoiceOpen(false);
     setMobileComposerExpanded(true);
   }
 
   function toggleEmojiPanel() {
-    if (voiceBusyRef.current) return;
     if (isMobileWebComposer() && (!emojiOpen || toolsOpen)) currentComposerEditor()?.blur();
     setComposerMenu(null);
     setContextMenu(null);
@@ -5402,7 +5366,6 @@ export function ChatPane({
     setLocationCardOpen(false);
     setLocationShareOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setArkOpen(false);
     setEmojiOpen((open) => (toolsOpen ? true : !open));
   }
@@ -5414,7 +5377,6 @@ export function ChatPane({
     setLocationCardOpen(false);
     setLocationShareOpen(false);
     setEmojiOpen(false);
-    setVoiceOpen(false);
     setArkOpen(false);
     setToolsOpen((open) => (emojiOpen ? true : !open));
   }
@@ -5426,7 +5388,6 @@ export function ChatPane({
   }
 
   function toggleVoicePanel() {
-    if (voiceBusyRef.current) return;
     setComposerMenu(null);
     setContextMenu(null);
     setLocationMenu(null);
@@ -5448,7 +5409,6 @@ export function ChatPane({
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setFlashOpen(false);
     setArkOpen((open) => !open);
   }
@@ -5463,7 +5423,6 @@ export function ChatPane({
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setArkOpen(false);
     setFlashOpen((open) => !open);
   }
@@ -5481,7 +5440,6 @@ export function ChatPane({
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setArkOpen(false);
     setComposerMenu(null);
     setRedPacketOpen(false);
@@ -5504,7 +5462,6 @@ export function ChatPane({
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setArkOpen(false);
     setRedPacketOpen((open) => !open);
   }
@@ -5519,7 +5476,6 @@ export function ChatPane({
     setLocationShareOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setArkOpen(false);
     setGiftOpen(true);
   }
@@ -5532,14 +5488,12 @@ export function ChatPane({
    * + 两项菜单后，「发一个地点」与「一起看彼此位置」才分得清。
    */
   function openLocationMenu(event: ReactMouseEvent<HTMLButtonElement>) {
-    if (voiceBusyRef.current) return;
     const rect = event.currentTarget.getBoundingClientRect();
     // 已经开着菜单 / 任一个位置面板时，再点这个按钮就是收起（与其它工具栏按钮一致）。
     const alreadyOpen = locationMenu !== null || locationCardOpen || locationShareOpen;
     setContextMenu(null);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setArkOpen(false);
     setRedPacketOpen(false);
     setComposerMenu(null);
@@ -5555,7 +5509,6 @@ export function ChatPane({
     setContextMenu(null);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setArkOpen(false);
     setRedPacketOpen(false);
     setFlashOpen(false);
@@ -5574,17 +5527,12 @@ export function ChatPane({
     setContextMenu(null);
     setEmojiOpen(false);
     setToolsOpen(false);
-    setVoiceOpen(false);
     setArkOpen(false);
     setRedPacketOpen(false);
     setFlashOpen(false);
     setLocationCardOpen(false);
     setLocationShareOpen(true);
   }
-
-  const handleVoiceBusyChange = useCallback((busy: boolean) => {
-    voiceBusyRef.current = busy;
-  }, []);
 
   function closeMobileComposerExpanded() {
     const editor = expandedComposerEditorRef.current;
@@ -5613,7 +5561,7 @@ export function ChatPane({
   }
 
   /**
-   * 收起 / 展开输入区。收起来时把挂在输入区上的浮层一并关掉（表情 / 语音 / 更多 /
+   * 收起 / 展开输入区。收起来时把挂在输入区上的浮层一并关掉（表情 / 更多 /
    * @ 菜单）—— 它们都锚在输入区上，输入区没了就会悬在半空。
    */
   function toggleComposerCollapsed() {
@@ -5624,7 +5572,6 @@ export function ChatPane({
     if (next) {
       setEmojiOpen(false);
       setToolsOpen(false);
-      setVoiceOpen(false);
       setMentionMenu(null);
     }
   }
@@ -5802,12 +5749,18 @@ export function ChatPane({
     moderationBlockedReason ||
     (!recallBinding ? '账号信息尚未就绪' : null);
   const contextRecallInfo = contextMenu ? recallAvailability(contextMenu.message) : null;
-  // 语音条只在真的内联显示时才占位（移动端展开态仍然不显示它）。
-  const voicePanelActive = voiceOpen && !mobileComposerExpanded && !hasSingleSend;
   // 闪传文件框同样是**内联**的：占掉正文编辑区那一行（小屏与「只能单独发」的卡片
   // 占着那一行时仍是浮层，见 flash-composer.css 里那条 media query）。
   const flashPanelActive = flashOpen && !mobileComposerExpanded;
   const flashPanelInline = flashPanelActive && !hasSingleSend;
+  const voicePanelActive =
+    voiceOpen &&
+    tabActive &&
+    !readOnly &&
+    !restrictedSource &&
+    !mobileComposerExpanded &&
+    !hasSingleSend &&
+    !flashPanelInline;
   // 红包面板：群聊 / 私聊都能发，浮层形态（不占正文那一行）。
   const redPacketPanelActive = redPacketOpen && !mobileComposerExpanded;
   // 位置共享面板：私聊 / 群聊都能发起，浮层形态。
@@ -5869,7 +5822,6 @@ export function ChatPane({
       setContextMenu(null);
       setEmojiOpen(false);
       setToolsOpen(false);
-      setVoiceOpen(false);
       setArkOpen(false);
       setRedPacketOpen(false);
       setLocationMenu(null);
@@ -5900,7 +5852,6 @@ export function ChatPane({
   const hasPlusActions = composerActionRegistry.plusPanel.length > 0;
 
   function openComposerMenu(kind: 'file', event: ReactMouseEvent<HTMLButtonElement>) {
-    if (voiceBusyRef.current) return;
     const rect = event.currentTarget.getBoundingClientRect();
     composerActionContext.closePanels();
     setFlashOpen(false);
@@ -7138,7 +7089,6 @@ export function ChatPane({
             ) : null}
             {!restrictedSource ? (
               <button
-                ref={voiceButtonRef}
                 type="button"
                 className={cn('composer-tool', 'composer-desktop-tool', voiceOpen && 'active')}
                 title={qqUnavailable || (hasSingleSend ? singleSendHint : '语音')}
@@ -7319,7 +7269,8 @@ export function ChatPane({
           {voicePanelActive ? (
             <VoicePanel
               key={conversation.id}
-              panelRef={voicePanelRef}
+              conversationId={conversation.id}
+              conversationLabel={chatHeaderTitle(conversation)}
               text={composerSpeechText(body)}
               onTextChange={setSpeechDraftText}
               groupId={
@@ -7328,12 +7279,10 @@ export function ChatPane({
               onSendAiVoice={(draft) => void sendAiVoice(draft)}
               canSend={!mediaSendDisabled}
               sendHint={sendTitle}
-              transcribeEnabled={transcribeEnabled}
-              onSendVoice={(clip) => void sendVoiceClip(clip)}
-              onSendTranscript={(text) => void sendTranscriptText(text)}
+              onSendVoice={(clip) => sendVoiceClip(clip, true)}
+              onSendTranscript={sendTranscriptText}
               onSendAudioFile={(bytes, fileName) => void sendAudioFile(bytes, fileName)}
               onSendTts={(bytes, fileName) => void sendAudioFile(bytes, fileName, true)}
-              onBusyChange={handleVoiceBusyChange}
               ttsProviders={ttsProviders}
               onSynthesizeSpeech={synthesizeSpeech}
             />

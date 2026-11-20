@@ -161,6 +161,7 @@ import { useMessageLocateFeedback } from '../hooks/useMessageLocateFeedback';
 import { onOpenSettingsRequest } from '../lib/callSettingsBridge';
 import { useUnreadMarkers } from '../lib/unreadMarkers';
 import { TabActivity } from '../components/RetainedTabs';
+import { VoiceWorkspace } from '../im-template/template/voicePanel';
 import {
   OPEN_NOTIFICATION_SETTINGS,
   type NotificationSettingsRequest,
@@ -9372,6 +9373,15 @@ function MainWorkspace(): ReactElement {
     }),
   );
   const replyJump = useStableCallback(jumpToSeq);
+  const returnToRecording = useStableCallback((id: string) => {
+    setSpecialChat(null);
+    setArkFeedState(null);
+    setSettingsOpen(false);
+    setMaintenanceTool(null);
+    setDressUpOpen(false);
+    setMobileConversationList(false);
+    shell.openConversation(id);
+  });
   const chatContent = (
     <ReplyJumpContext.Provider value={replyJump}>
       <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
@@ -11143,7 +11153,15 @@ function MainWorkspace(): ReactElement {
                                           },
                                         })}
                                       >
-                                        {chatContent}
+                                        <VoiceWorkspace
+                                          key={messageScope || user.identityValue}
+                                          onReturn={returnToRecording}
+                                          obscured={
+                                            settingsOpen || Boolean(maintenanceTool) || dressUpOpen
+                                          }
+                                        >
+                                          {chatContent}
+                                        </VoiceWorkspace>
                                       </GroupSpeechPreviewContext.Provider>
                                     </GroupMessagePreviewContext.Provider>
                                   </RelationshipDirectoryContext.Provider>
