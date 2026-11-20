@@ -272,6 +272,7 @@ export function WorkspaceTools({
     setExpanded(false);
   };
   const close = () => setOpen(false);
+  const toolPage = mobile && tool !== 'analysis-reports';
   const ctx: WorkspaceContext = workspace ?? {
     view: 'messages',
     conversation: currentConversation ?? null,
@@ -549,8 +550,8 @@ export function WorkspaceTools({
         ) : null}
       </Modal>
       <Modal
-        presentation={mobile ? 'page' : 'modal'}
-        mobileChrome={mobile}
+        presentation={toolPage ? 'page' : 'modal'}
+        mobileChrome={toolPage}
         title={APP_NAVIGATION[tool].label}
         dismissOnOutside={false}
         open={open && tool !== 'backfill'}

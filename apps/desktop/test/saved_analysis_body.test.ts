@@ -1,6 +1,9 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
+import { WorkspaceContent, WorkspacePages } from '../src/renderer/src/components/WorkspacePages';
+import { useViewState } from '../src/renderer/src/state/view';
+import { AnalysisReportPage } from '../src/renderer/src/views/analysis/AnalysisReportPage';
 import { SavedAnalysisBody } from '../src/renderer/src/views/analysis/SavedAnalysisBody';
 import type { SavedAnalysisReport } from '../../../packages/service/src/account/analysis_reports';
 import { chooseFormOption, formOptions, formSelectSelector } from './support/form-controls';
@@ -52,10 +55,73 @@ vi.mock('../src/renderer/src/components/GroupAnalyticsDialog', () => ({
 vi.mock('../src/renderer/src/components/MemberAnalyticsDialog', () => ({
   MemberAnalyticsDialog: () => null,
 }));
+vi.mock('../src/renderer/src/views/annual-report/AnnualReportView', () => ({
+  AnnualReportView: () => null,
+}));
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   f.versions = [];
+});
+it('报告完成时在遮罩内显示结果，底层工作区切换不关闭或重建报告', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const account = useViewState.getState().openedUin;
+  const request = {
+    id: 'report-completion',
+    kind: 'buddy' as const,
+    name: '合成好友',
+    peerUid: 'peer',
+    period: '全部',
+    scope: { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' },
+  };
+  useViewState.setState({ openedUin: request.scope.expectedAccountUin });
+  f.saved = {
+    request,
+    status: 'running',
+    results: {},
+    pending: {},
+    completed: [],
+    logs: [],
+    revision: 1,
+    resultRevision: 0,
+    position: 0,
+    updatedAt: 1,
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onClose = vi.fn();
+  const render = (navigationKey: string) =>
+    root.render(
+      createElement(
+        WorkspacePages,
+        { navigationKey },
+        createElement(WorkspaceContent, null, '分析配置'),
+        createElement(AnalysisReportPage, { request, onClose }),
+      ),
+    );
+  try {
+    await act(async () => render('messages'));
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('正在分析');
+    f.saved = {
+      ...f.saved,
+      status: 'completed',
+      results: { report: { count: 7 } },
+      completed: ['report'],
+      resultRevision: 1,
+      updatedAt: 2,
+    };
+    await act(async () => render('messages:peer'));
+    const dialog = document.querySelector('[aria-modal="true"]');
+    expect(dialog?.querySelector('[role="status"]')?.textContent).toBe('分析完成');
+    expect(dialog?.textContent).toContain('已保存图表');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(f.create).toHaveBeenCalledOnce();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    useViewState.setState({ openedUin: account });
+  }
 });
 it('只有一个结果时隐藏版本控件，多版本不重复最新项，加载历史仍保留已显示结果', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
