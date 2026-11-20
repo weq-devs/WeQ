@@ -266,7 +266,8 @@ html[data-theme='dark'] .weq-contact-card {
   display: inline-grid;
   place-items: center;
   overflow: visible;
-  margin-inline: calc(64px * 0.26);
+  /* 在身份区内为挂件四周留出空间，避免滚动容器裁切。 */
+  margin: calc(64px * 0.26);
   border-radius: 50%;
 }
 
