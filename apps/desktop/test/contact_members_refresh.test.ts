@@ -42,6 +42,7 @@ async function setup(existingRoot?: string) {
       context: { uin: '99999' },
       profileInfo: { dbPath: '/synthetic/profile.db' },
       groupMembers: { dbPath: '/synthetic/groups.db' },
+      groupMsgs: { sourcePath: '/synthetic/group-msg.db' },
     } as unknown as AccountSession,
     root,
     { mount: () => ({ unmount() {} }) } as unknown as DbWatchService,
@@ -228,17 +229,20 @@ it('成员读取达到100%仍等待计算，轻量状态在计算成功后才发
   );
   const caller = createContactMetricsRouter(() => runtime).createCaller({});
   const binding = { expectedAccountUin: '99999', expectedAccountConfigId: 'synthetic' };
-  const id = await caller.rebuild({ ...binding, target: 'groupMembers' });
+  const id = await caller.rebuild({ ...binding, target: 'groupMembers', foreground: true });
   await vi.waitFor(() => expect(release).toBeDefined());
   const snapshot = vi.spyOn(runtime.cache, 'snapshot');
   expect(await caller.status(binding)).toMatchObject({
     taskId: id,
     target: 'groupMembers',
+    foreground: true,
     relationGraphRevision: 0,
-    progress: { status: 'running', done: 2, total: 2 },
+    progress: { status: 'running', done: 2, total: 2, phase: '重新计算群交集' },
   });
   expect(snapshot).not.toHaveBeenCalled();
   expect(backgroundTasks.snapshot().find((task) => task.id === id)?.status).toBe('running');
+  await caller.backgroundRefresh({ ...binding, taskId: id! });
+  expect(await caller.status(binding)).toMatchObject({ taskId: id, foreground: false });
   release();
   await vi.waitFor(() => expect(runtime.status().progress.status).toBe('completed'));
   expect(await caller.status(binding)).toMatchObject({ relationGraphRevision: 1 });

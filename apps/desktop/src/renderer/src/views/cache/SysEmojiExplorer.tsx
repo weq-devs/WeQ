@@ -25,11 +25,11 @@ import type { SysEmojiEntry } from '@weq/service';
 import { trpc, client } from '../../trpc/client';
 import { emojiUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../../components/ShimmerImage';
-import { useAppDialog } from '../../lib/dialogUtils';
 import { BlobDialog, GridFooter } from './CacheShared';
 import { CURSOR_PAGE, useCursorPaged } from './CacheShared.shared';
 import { GridSkeleton } from './CacheSkeleton';
 import { useTabActive } from '../../components/RetainedTabs.shared';
+import { TaskProgressBar } from '../../components/tasks/TaskProgressBar';
 
 /** weq-asset URL for one face's file in a given format dir. */
 function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): string {
@@ -38,9 +38,10 @@ function faceUrl(name: string, fmt: 'png' | 'apng' | 'lottie', file: string): st
 
 export function SysEmojiExplorer(): ReactElement {
   const visible = useTabActive();
-  const dialog = useAppDialog();
   const [preview, setPreview] = useState<SysEmojiEntry | null>(null);
   const [filling, setFilling] = useState(false);
+  const [fillError, setFillError] = useState('');
+  const fillPending = useRef(false);
 
   const fetchPage = useCallback(
     (cursor: string | null) =>
@@ -58,24 +59,38 @@ export function SysEmojiExplorer(): ReactElement {
   });
   const status = statusQuery.data;
   const missing = status ? Math.max(0, status.available - status.present) : 0;
+  const progressQuery = trpc.account.sysEmoji.downloadProgress.useQuery(undefined, {
+    enabled: visible,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: (progress) =>
+      filling || progress?.phase === 'running' || progress?.phase === 'preparing' ? 1000 : false,
+  });
+  const progress = progressQuery.data;
+  const running = progress?.phase === 'preparing' || progress?.phase === 'running';
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (wasRunning.current && !running && !fillPending.current)
+      void Promise.all([statusQuery.refetch(), reload()]).catch(() => undefined);
+    wasRunning.current = running;
+  }, [running, statusQuery, reload]);
 
   /** Fetch every missing face, then restart paging so the grid picks them up. */
   const fillMissing = useCallback(async (): Promise<void> => {
+    if (fillPending.current || running) return;
+    fillPending.current = true;
     setFilling(true);
+    setFillError('');
     try {
-      const result = await client.account.sysEmoji.downloadAll.mutate();
-      await Promise.all([statusQuery.refetch(), reload()]);
-      dialog.success(
-        '系统表情补全完成',
-        `新下载 ${result.downloaded} 个，已有 ${result.skipped} 个` +
-          (result.failed > 0 ? `，失败 ${result.failed} 个` : ''),
-      );
+      await client.account.sysEmoji.downloadAll.mutate();
     } catch (e) {
-      dialog.error('系统表情补全失败', e instanceof Error ? e.message : String(e));
+      setFillError(e instanceof Error ? e.message : String(e));
     } finally {
+      await Promise.allSettled([statusQuery.refetch(), progressQuery.refetch(), reload()]);
+      fillPending.current = false;
       setFilling(false);
     }
-  }, [dialog, statusQuery, reload]);
+  }, [running, statusQuery, progressQuery, reload]);
 
   if (error && entries.length === 0) {
     return <div className="weq-cache-grid-state is-error">{error}</div>;
@@ -91,19 +106,51 @@ export function SysEmojiExplorer(): ReactElement {
           {status && !status.qqRoot ? ' · QQ 资源目录缺失，已改用下载补全' : ''}
           {status?.usingFallback ? ' · emoji.db 无表情数据，用内置地址表兜底' : ''}
         </span>
-        {missing > 0 ? (
+        {missing > 0 || filling || running ? (
           <button
             type="button"
             className="weq-cache-sysemoji-fill"
             onClick={() => void fillMissing()}
-            disabled={filling}
+            disabled={filling || running}
             title="从官方 CDN 下载缺失的内置表情"
           >
-            {filling ? <RefreshCw size={13} className="is-spin" /> : <Download size={13} />}
-            <NumericText>{filling ? '补全中…' : `补全 ${missing} 个`}</NumericText>
+            {filling || running ? (
+              <RefreshCw size={13} className="is-spin" />
+            ) : (
+              <Download size={13} />
+            )}
+            <NumericText>{filling || running ? '补全中…' : `补全 ${missing} 个`}</NumericText>
           </button>
         ) : null}
       </div>
+
+      {filling || running ? (
+        <div className="weq-cache-sysemoji-progress">
+          <div role="status">
+            {progress?.phase === 'running' ? (
+              <NumericText>{`已检查 ${progress.done} / ${progress.total} 个表情`}</NumericText>
+            ) : (
+              '正在准备系统表情补全'
+            )}
+          </div>
+          <TaskProgressBar
+            label="系统表情补全进度"
+            value={
+              progress?.phase === 'running' && progress.total
+                ? (progress.done / progress.total) * 100
+                : undefined
+            }
+          />
+        </div>
+      ) : fillError || progress?.phase === 'failed' ? (
+        <p className="weq-cache-sysemoji-progress" role="alert">
+          {fillError || (progress?.phase === 'failed' && progress.error)}
+        </p>
+      ) : progress?.phase === 'finished' ? (
+        <p className="weq-cache-sysemoji-progress" role="status">
+          <NumericText>{`补全结束 · 新下载 ${progress.result.downloaded} 个 · 已有 ${progress.result.skipped} 个 · 失败 ${progress.result.failed} 个`}</NumericText>
+        </p>
+      ) : null}
 
       {loading && entries.length === 0 ? (
         <GridSkeleton />

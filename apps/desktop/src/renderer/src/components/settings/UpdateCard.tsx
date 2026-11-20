@@ -8,13 +8,24 @@
  */
 
 import { NumericText } from '../NumericText';
-import { CheckCircle2, Download, Gauge, Loader2, RefreshCw, RotateCw } from 'lucide-react';
+import {
+  CheckCircle2,
+  Download,
+  Gauge,
+  ListTodo,
+  Loader2,
+  Pause,
+  Play,
+  RefreshCw,
+  RotateCw,
+} from 'lucide-react';
 import { AutoSave } from './AutoSave';
 import type { ReactElement } from 'react';
 import { useNumericSettingDraft } from './useNumericSettingDraft';
 import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { useAppUpdate } from '../../hooks/useAppUpdate';
 import { Card, Row, Toggle } from './controls';
+import { TaskProgressBar } from '../tasks/TaskProgressBar';
 import '../../styles/update-settings.css';
 
 function fmtBytes(bytes: number): string {
@@ -43,6 +54,9 @@ export function UpdateCard(): ReactElement {
     latest,
     current,
     progress,
+    downloadTask,
+    controllingDownload,
+    controlDownload,
     mirrorName,
     mirrorCount,
     isDev,
@@ -50,7 +64,7 @@ export function UpdateCard(): ReactElement {
     check,
     download,
     install,
-  } = useAppUpdate();
+  } = useAppUpdate(true);
   const [intervalValue, setIntervalDraft] = useNumericSettingDraft(
     'update:interval',
     intervalReady ? intervalMinutes : undefined,
@@ -61,9 +75,17 @@ export function UpdateCard(): ReactElement {
   const hasNew =
     phase === 'available' ||
     phase === 'downloading' ||
+    phase === 'paused' ||
+    (phase === 'error' && downloadTask?.status === 'failed') ||
     phase === 'downloaded' ||
     phase === 'installing';
   const pct = progress ? Math.round(progress.percent) : 0;
+  const canPause =
+    phase === 'downloading' && downloadTask?.actions.some((action) => action.id === 'pause');
+  const canContinue =
+    phase === 'paused' && downloadTask?.actions.some((action) => action.id === 'continue');
+  const canRetry =
+    phase === 'error' && downloadTask?.actions.some((action) => action.id === 'retry');
 
   const label = hasNew ? '有可用更新' : phase === 'uptodate' ? '已是最新版本' : null;
 
@@ -111,7 +133,8 @@ export function UpdateCard(): ReactElement {
             label="检查测试版"
             checked={includePrerelease}
             disabled={
-              changingPrerelease || ['checking', 'downloading', 'installing'].includes(phase)
+              changingPrerelease ||
+              ['checking', 'downloading', 'paused', 'installing'].includes(phase)
             }
             onChange={(enabled) => void setPrerelease(enabled)}
           />
@@ -134,7 +157,18 @@ export function UpdateCard(): ReactElement {
             <NumericText>{`当前 v${current || '—'}${isDev ? '（开发版）' : ''}${hasNew && latest ? ` → v${latest}` : ''}`}</NumericText>
           </span>
         </div>
-        <div className="weq-set-row-ctrl">
+        <div className="weq-set-row-ctrl weq-update-actions">
+          {downloadTask?.foreground && (phase === 'downloading' || phase === 'paused') ? (
+            <button
+              type="button"
+              className="weq-set-btn"
+              disabled={controllingDownload}
+              onClick={() => void controlDownload('background')}
+            >
+              <ListTodo size={14} aria-hidden />
+              后台进行
+            </button>
+          ) : null}
           {phase === 'installing' ? (
             <button
               type="button"
@@ -154,10 +188,28 @@ export function UpdateCard(): ReactElement {
               <RotateCw size={14} strokeWidth={1.8} aria-hidden />
               重启并安装
             </button>
+          ) : canPause || canContinue || canRetry ? (
+            <button
+              type="button"
+              className="weq-set-btn"
+              disabled={controllingDownload || isDev || isManaged}
+              onClick={() =>
+                void controlDownload(canPause ? 'pause' : canContinue ? 'continue' : 'retry')
+              }
+            >
+              {canPause ? (
+                <Pause size={14} aria-hidden />
+              ) : canContinue ? (
+                <Play size={14} aria-hidden />
+              ) : (
+                <RefreshCw size={14} aria-hidden />
+              )}
+              {canPause ? '暂停下载' : canContinue ? '继续下载' : '重试下载'}
+            </button>
           ) : phase === 'downloading' ? (
             <button type="button" className="weq-set-btn weq-set-btn-primary" disabled>
               <Loader2 size={14} strokeWidth={2} className="weq-spin" aria-hidden />
-              下载中…
+              {downloadTask?.statusLabel ?? '下载中…'}
             </button>
           ) : phase === 'available' ? (
             <button
@@ -199,22 +251,49 @@ export function UpdateCard(): ReactElement {
               )}
             </button>
           )}
+          {canRetry ? (
+            <button
+              type="button"
+              className="weq-set-btn"
+              onClick={() => void check()}
+              disabled={controllingDownload}
+            >
+              检查更新
+            </button>
+          ) : null}
         </div>
       </div>
 
-      {phase === 'downloading' && progress ? (
+      {phase === 'downloading' || phase === 'paused' ? (
         <div className="weq-set-progress">
-          <div className="weq-set-progress-track">
-            <div className="weq-set-progress-fill" style={{ width: `${pct}%` }} />
-          </div>
+          <TaskProgressBar
+            value={progress?.total ? pct : undefined}
+            status={phase === 'paused' ? 'paused' : 'running'}
+            label="更新下载进度"
+          />
           <div className="weq-set-progress-meta weq-number">
-            <span>{pct}%</span>
-            <span>
-              {fmtBytes(progress.transferred)} / {fmtBytes(progress.total)}
-              {progress.bytesPerSecond > 0 ? ` · ${fmtSpeed(progress.bytesPerSecond)}` : ''}
+            <span role="status">
+              {phase === 'paused'
+                ? (downloadTask?.statusLabel ?? '已暂停')
+                : progress?.total
+                  ? `${pct}%`
+                  : '正在准备下载'}
             </span>
+            {progress?.total ? (
+              <span>
+                {fmtBytes(progress.transferred)} / {fmtBytes(progress.total)}
+                {phase === 'downloading' && progress.bytesPerSecond > 0
+                  ? ` · ${fmtSpeed(progress.bytesPerSecond)}`
+                  : ''}
+              </span>
+            ) : null}
           </div>
         </div>
+      ) : null}
+      {phase === 'error' && downloadTask?.status === 'failed' && downloadTask.note ? (
+        <p className="weq-set-note" role="alert">
+          {downloadTask.note}
+        </p>
       ) : null}
 
       {/* 自动选择是黑盒 —— 把测速结果和选中的加速站显式展示出来。 */}

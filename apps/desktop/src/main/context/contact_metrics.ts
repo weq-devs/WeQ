@@ -61,6 +61,7 @@ const refreshCheckpoint = z.object({
   startedAt: z.number(),
   updatedAt: z.number(),
   status: z.enum(['running', 'paused', 'completed', 'failed', 'cancelled']),
+  foreground: z.boolean().optional(),
   plan: z.record(z.string(), z.array(z.string())).optional(),
   done: z.array(z.string()),
   graphDone: z.boolean(),
@@ -363,18 +364,27 @@ export class ContactDirectoryRuntime {
 
   /** 进度校准不复制整份联系人指标缓存。 */
   status() {
+    const task = backgroundTasks.snapshot().find((item) => item.id === this.taskId);
+    const groupGraph = this.target === 'groupMembers' && this.cache.progress.phase === '整理结果';
     return {
       taskId: this.taskId,
       target: this.target,
+      foreground: task?.foreground,
+      actions: task?.actions ?? [],
+      statusLabel: task?.statusLabel,
       relationGraphRevision: this.relationGraphRevision,
       progress: this.preparing
         ? { ...this.cache.progress, status: 'running' as const, phase: '本地资料' }
-        : { ...this.cache.progress },
+        : {
+            ...this.cache.progress,
+            phase: groupGraph ? '重新计算群交集' : this.cache.progress.phase,
+          },
     };
   }
 
   private refreshPresentation({ missingOnly, target }: RefreshOptions) {
     return {
+      destination: target === 'groupMembers' ? ('group-intersection' as const) : undefined,
       name:
         target === 'groupMembers'
           ? '更新全部群成员并重算群交集'
@@ -421,6 +431,7 @@ export class ContactDirectoryRuntime {
         id: saved.id,
         kind: 'contacts',
         scope: this.scope,
+        foreground: saved.foreground,
         startedAt: saved.startedAt,
         updatedAt: saved.updatedAt,
         status,
@@ -450,6 +461,23 @@ export class ContactDirectoryRuntime {
       });
     this.checkpointWrite = write;
     return write;
+  }
+
+  async backgroundRefresh(id: string) {
+    const refresh = this.refresh;
+    this.assertCurrent();
+    if (refresh?.id !== id || refresh.options.target !== 'groupMembers')
+      throw new Error('群成员更新批次已改变，请刷新');
+    if (!refresh.foreground) return;
+    refresh.foreground = false;
+    try {
+      await this.persistRefresh();
+    } catch (error) {
+      refresh.foreground = true;
+      throw error;
+    }
+    backgroundTasks.setForeground(id, false);
+    this.cache.emit('changed');
   }
 
   private saveRefreshSoon() {
@@ -904,6 +932,7 @@ export class ContactDirectoryRuntime {
     fields?: ContactMetric[],
     range: 'all' | 'older24h' = 'all',
     target: 'metrics' | 'groupMembers' = 'metrics',
+    foreground = false,
   ) {
     if (this.disposed || !this.current()) throw new Error('账号已切换');
     if (
@@ -916,6 +945,7 @@ export class ContactDirectoryRuntime {
       return this.taskId;
     }
     const options = { missingOnly, fields, range, target };
+    const showInPage = target === 'groupMembers' && foreground;
     this.target = target;
     this.needsRebuild = true;
     this.completed = new Set();
@@ -929,6 +959,7 @@ export class ContactDirectoryRuntime {
       ...this.refreshPresentation(options),
       kind: 'contacts',
       scope: this.scope,
+      foreground: showInPage,
       statusLabel: '本地资料',
       progress: 0,
     });
@@ -940,6 +971,7 @@ export class ContactDirectoryRuntime {
       startedAt: now,
       updatedAt: now,
       status: 'running',
+      foreground: showInPage,
       done: [],
       graphDone: false,
       failures: [],

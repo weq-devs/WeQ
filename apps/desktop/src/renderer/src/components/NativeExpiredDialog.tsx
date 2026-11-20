@@ -56,6 +56,8 @@ export function NativeExpiredDialog({
     latest,
     current,
     progress,
+    controllingDownload,
+    controlDownload,
     mirrorName,
     mirrorCount,
     isDev,
@@ -131,6 +133,15 @@ export function NativeExpiredDialog({
                   >
                     <RotateCw size={14} strokeWidth={1.8} aria-hidden />
                     重启并安装
+                  </button>
+                ) : phase === 'paused' ? (
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    disabled={controllingDownload}
+                    onClick={() => void controlDownload('continue')}
+                  >
+                    继续下载
                   </button>
                 ) : phase === 'downloading' ? (
                   <button type="button" className="weq-set-btn weq-set-btn-primary" disabled>

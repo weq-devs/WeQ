@@ -12,6 +12,7 @@ const fixture = vi.hoisted(() => ({
   setInterval: vi.fn(async ({ minutes }: { minutes: number }) => minutes),
   setPrerelease: vi.fn(async ({ enabled }: { enabled: boolean }) => enabled),
   download: vi.fn(),
+  control: vi.fn(async (_input: unknown) => true),
   showError: vi.fn(),
   state: {
     current: '1.0.0',
@@ -46,6 +47,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
   client: {
     update: {
+      controlDownload: { mutate: fixture.control },
       onEvent: {
         subscribe: (_input: unknown, callbacks: { onData(event: UpdateEvent): void }) => {
           fixture.event = callbacks.onData;
@@ -74,6 +76,8 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.install.mockReset().mockResolvedValue(true);
   fixture.showError.mockClear();
+  fixture.download.mockReset().mockResolvedValue(true);
+  fixture.control.mockClear();
   fixture.state = {
     current: '1.0.0',
     latest: '1.1.0',
@@ -105,6 +109,52 @@ async function downloaded(kind: 'settings' | 'expired') {
 }
 
 describe('重启并安装反馈', () => {
+  it('版本与更新原位暂停、继续、转后台和重试同一下载', async () => {
+    await act(async () => root.render(createElement(UpdateCard)));
+    const button = (text: string) =>
+      [...document.querySelectorAll('button')].find((item) => item.textContent?.trim() === text);
+    await act(async () => button('立即更新')!.click());
+    expect(fixture.download).toHaveBeenCalledWith({ foreground: true });
+    const task = { id: 'task', foreground: true, version: '1.1.0' };
+    await act(async () =>
+      fixture.event?.({
+        kind: 'download-task',
+        task: { ...task, status: 'running', actions: [{ id: 'pause', label: '暂停' }] },
+      }),
+    );
+    await act(async () => button('暂停下载')!.click());
+    await act(async () =>
+      fixture.event?.({
+        kind: 'download-task',
+        task: {
+          ...task,
+          status: 'paused',
+          statusLabel: '已暂停',
+          actions: [{ id: 'continue', label: '继续' }],
+        },
+      }),
+    );
+    await act(async () => button('继续下载')!.click());
+    await act(async () => button('后台进行')!.click());
+    await act(async () =>
+      fixture.event?.({
+        kind: 'download-task',
+        task: {
+          ...task,
+          foreground: false,
+          status: 'failed',
+          note: '合成下载失败',
+          actions: [{ id: 'retry', label: '重试' }],
+        },
+      }),
+    );
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('合成下载失败');
+    expect(button('后台进行')).toBeUndefined();
+    await act(async () => button('重试下载')!.click());
+    expect(fixture.control.mock.calls).toEqual(
+      ['pause', 'continue', 'background', 'retry'].map((action) => [{ id: 'task', action }]),
+    );
+  });
   it('自动检查失败后恢复手动检查按钮，不弹出后台失败提示', async () => {
     fixture.state = { ...fixture.state, hasUpdate: false, latest: null };
     await act(async () => root.render(createElement(UpdateCard)));

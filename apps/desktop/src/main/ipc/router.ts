@@ -33,7 +33,7 @@ import { settingsResetRouter } from './routers/settings_reset';
 import { sharedSettingsRouter } from './routers/shared_settings';
 import { performanceMonitorRouter } from './routers/performance_monitor';
 
-export const appRouter = router({
+const utilityRoutes = {
   settings: sharedSettingsRouter,
   clientState: clientStateRouter,
   performanceMonitor: performanceMonitorRouter,
@@ -45,8 +45,6 @@ export const appRouter = router({
   /** 语音通话（仅主动发起）。 */
   call: callRouter,
   mail: mailRouter,
-  bootstrap: bootstrapRouter,
-  account: accountRouter,
   update: updateRouter,
   announcements: announcementsRouter,
   help: helpRouter,
@@ -61,6 +59,16 @@ export const appRouter = router({
   dbRepair: dbRepairRouter,
   /** 「合成聊天记录」草稿的本地持久化（合并转发发送由另一分支接入）。 */
   mergeForward: mergeForwardRouter,
-});
+};
 
-export type AppRouter = typeof appRouter;
+// 引用两组大型路由的类型，避免在总路由声明中展开全部业务契约。
+type AppRoutes = typeof utilityRoutes & {
+  bootstrap: typeof bootstrapRouter;
+  account: typeof accountRouter;
+};
+export type AppRouter = ReturnType<typeof router<AppRoutes>>;
+export const appRouter: AppRouter = router({
+  ...utilityRoutes,
+  bootstrap: bootstrapRouter,
+  account: accountRouter,
+});

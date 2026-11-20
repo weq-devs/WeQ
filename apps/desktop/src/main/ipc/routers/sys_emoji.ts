@@ -16,6 +16,20 @@ import { z } from 'zod';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 
+type DownloadResult = Awaited<ReturnType<AccountServices['sysEmojiDownload']['ensureAll']>>;
+type DownloadProgress =
+  | { phase: 'preparing' }
+  | { phase: 'running'; done: number; total: number }
+  | { phase: 'finished'; result: DownloadResult }
+  | { phase: 'failed'; error: string };
+const bulkDownloads = new WeakMap<
+  AccountServices,
+  {
+    progress: DownloadProgress;
+    work?: Promise<DownloadResult>;
+  }
+>();
+
 function requireServices(): AccountServices {
   const ctx = getAppContext();
   if (!ctx.services) {
@@ -78,13 +92,37 @@ export const sysEmojiRouter = router({
 
   /** Whether QQ's own face directory exists, and how many faces are on disk. */
   downloadStatus: procedure.query(() => requireServices().sysEmojiDownload.status()),
+  downloadProgress: procedure.query(() => bulkDownloads.get(requireServices())?.progress ?? null),
 
   /** Fetch every downloadable face from the CDN into the mirror cache. */
-  downloadAll: procedure.mutation(async () => {
+  downloadAll: procedure.mutation(() => {
     const services = requireServices();
-    const result = await services.sysEmojiDownload.ensureAll();
-    // The browser caches its directory listing; new faces won't show otherwise.
-    services.sysEmoji.invalidate();
-    return result;
+    const active = bulkDownloads.get(services)?.work;
+    if (active) return active;
+    const download: NonNullable<ReturnType<typeof bulkDownloads.get>> = {
+      progress: { phase: 'preparing' },
+    };
+    bulkDownloads.set(services, download);
+    const work = services.sysEmojiDownload
+      .ensureAll((done, total) => {
+        download.progress = { phase: 'running', done, total };
+      })
+      .then((result) => {
+        services.sysEmoji.invalidate();
+        download.progress = { phase: 'finished', result };
+        return result;
+      })
+      .catch((error: unknown) => {
+        download.progress = {
+          phase: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+        };
+        throw error;
+      })
+      .finally(() => {
+        download.work = undefined;
+      });
+    download.work = work;
+    return work;
   }),
 });

@@ -20,6 +20,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { procedure, router } from '../trpc';
+import { backgroundTasks } from '../../background_tasks';
 import {
   getUpdateActions,
   getUpdateState,
@@ -64,13 +65,30 @@ export const updateRouter = router({
    * state arrive over `onProgress` / `onEvent`; failures surface as an `error`
    * event (so we swallow the rejection here).
    */
-  download: desktop.mutation((): boolean => {
-    const actions = getUpdateActions();
-    if (!actions.supported) throw new Error('当前宿主不支持应用更新');
-    actions.assertDownloadAvailable?.();
-    void actions.startDownload().catch(() => {});
-    return true;
-  }),
+  download: desktop
+    .input(z.object({ foreground: z.boolean().optional() }).optional())
+    .mutation(({ input }): boolean => {
+      const actions = getUpdateActions();
+      if (!actions.supported) throw new Error('当前宿主不支持应用更新');
+      actions.assertDownloadAvailable?.();
+      void actions.startDownload(input?.foreground).catch(() => {});
+      return true;
+    }),
+
+  controlDownload: desktop
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        action: z.enum(['pause', 'continue', 'retry', 'background']),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const actions = getUpdateActions();
+      if (actions.getDownloadTask?.()?.id !== input.id) throw new Error('更新下载已改变，请刷新');
+      if (input.action === 'background') actions.backgroundDownload?.(input.id);
+      else await backgroundTasks.act(input.id, input.action);
+      return true;
+    }),
 
   /** Quit, install the downloaded update silently, relaunch. */
   install: desktop.mutation((): boolean => {
@@ -94,6 +112,8 @@ export const updateRouter = router({
     return observable<UpdateEvent>((emit) => {
       const handler = (e: UpdateEvent): void => emit.next(e);
       updateBus.on('event', handler);
+      const task = getUpdateActions().getDownloadTask?.();
+      if (task) handler({ kind: 'download-task', task });
       return () => {
         updateBus.off('event', handler);
       };

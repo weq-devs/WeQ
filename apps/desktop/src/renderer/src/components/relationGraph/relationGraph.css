@@ -202,6 +202,25 @@
   backdrop-filter: blur(8px);
 }
 
+.weq-group-refresh-progress {
+  display: grid;
+  gap: 7px;
+  max-width: min(100%, 360px);
+  padding: 9px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  pointer-events: auto;
+}
+
+.weq-group-refresh-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
 .weq-graph-tooltip {
   position: absolute;
   z-index: 3;

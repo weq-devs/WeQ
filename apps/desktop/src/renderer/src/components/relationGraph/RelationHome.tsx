@@ -20,6 +20,7 @@ export function RelationHome({
   loading,
   refreshing = false,
   refreshReady = true,
+  refreshDetails,
   onEnter,
   onRefresh,
 }: {
@@ -27,6 +28,7 @@ export function RelationHome({
   loading: boolean;
   refreshing?: boolean;
   refreshReady?: boolean;
+  refreshDetails?: import('react').ReactNode;
   onEnter: () => void;
   onRefresh: () => void;
 }) {
@@ -93,6 +95,8 @@ export function RelationHome({
           </button>
         </div>
 
+        {refreshDetails}
+
         {stats ? (
           <dl className="weq-relhome-stats">
             <div>
@@ -133,9 +137,7 @@ export function RelationHome({
 
         <p className="weq-relhome-hint">
           <ScanLine size={12} />
-          {refreshing
-            ? '群成员更新进度可在任务列表查看'
-            : '优先使用已更新的成员名单，缺少时读取本地群资料库'}
+          优先使用已更新的成员名单，缺少时读取本地群资料库
         </p>
       </div>
     </section>

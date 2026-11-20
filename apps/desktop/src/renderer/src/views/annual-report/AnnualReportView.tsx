@@ -103,7 +103,7 @@ function slideStyle(pageIndex: number, index: number): CSSProperties {
 }
 
 /**
- * 整页等待态 —— 一个带完成百分比的大进度圈。年份可选列表出现之后，剩下的
+ * 整页等待态 —— 展示已完成的页数。年份可选列表出现之后，剩下的
  * “等待”基本都发生在某一页的统计上：已完成页数 / 总页数就是能稳定给出的进度，
  * 正在算的那页再由 {@link computationDescription} 告诉用户具体在扫什么。
  */
@@ -113,52 +113,26 @@ function ReportPageLoading({
   readyCount,
   total,
   queued,
-  active,
 }: {
   page: ReportManifest['pages'][number];
   order: number;
   readyCount: number;
   total: number;
   queued: boolean;
-  active: boolean;
 }): ReactElement {
-  const realPercent = total > 0 ? Math.round((readyCount / total) * 100) : 0;
-  /**
-   * 真实进度只在「某一页统计完成」的瞬间才前进；第一页常常要在主进程里扫十几秒，
-   * 这期间 0/12 的环一动不动，根本看不出是进度条。所以叠一层**模拟进度**：从当前
-   * 真实进度起步，向 92% 渐近爬升（永远到不了 100%，不会假装算完），真实进度一旦
-   * 追上来就取真实值 —— 展示值 = max(真实, 模拟)。只在当前页可见时才跑动画。
-   */
-  const [simulated, setSimulated] = useState(realPercent);
-  useEffect(() => {
-    if (!active) return;
-    let raf = 0;
-    let last = performance.now();
-    const tick = (now: number) => {
-      const dt = Math.min((now - last) / 1000, 0.1);
-      last = now;
-      // 每帧把模拟值向 92% 逼近一截：约 0.6s 到 10%、3.5s 到 50%、8s 到 80%，
-      // 再长也不会假满。环本身有 700ms 的 stroke-dashoffset 过渡，看起来是顺滑推进。
-      setSimulated((current) => Math.min(92, current + (92 - current) * (1 - Math.exp(-dt * 0.2))));
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [active]);
-
-  const percent = Math.max(realPercent, Math.round(simulated));
   const radius = 44;
   const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference * (1 - percent / 100);
+  const dashOffset = circumference * (1 - (total > 0 ? readyCount / total : 0));
   return (
     <div className="weq-report-page-status is-progress" role="status" aria-live="polite">
       <div
         className="weq-report-page-ring"
         role="progressbar"
         aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-        aria-label={`年度报告已生成 ${percent}%`}
+        aria-valuemax={total}
+        aria-valuenow={readyCount}
+        aria-label="年度报告统计进度"
+        aria-valuetext={`已完成 ${readyCount} / ${total} 页`}
       >
         <svg viewBox="0 0 104 104" aria-hidden>
           <circle className="weq-report-page-ring-track" cx="52" cy="52" r={radius} />
@@ -172,18 +146,15 @@ function ReportPageLoading({
             transform="rotate(-90 52 52)"
           />
         </svg>
-        <span className="weq-report-page-ring-percent weq-number">
-          {percent}
-          <i>%</i>
+        <span className="weq-report-page-ring-count weq-number">
+          {readyCount}
+          <small>/{total}</small>
         </span>
       </div>
       <p className="weq-report-page-status-title">
         {queued ? '排队等待统计' : '正在整理'}第 {order} 页 · {page.title}
       </p>
-      <p className="weq-report-page-status-desc">{computationDescription(page.id)}</p>
-      <p className="weq-report-page-status-meta">
-        已完成 {readyCount} / {total} 页 · 全部在本机计算
-      </p>
+      {!queued && <p className="weq-report-page-status-desc">{computationDescription(page.id)}</p>}
     </div>
   );
 }
@@ -589,6 +560,7 @@ function ReportDeckView({
 
   /** 第 0 页（年份选择海报）是否正在画面上：是的话 chrome 与刻度轨让位。 */
   const onEntry = entry && index === 0;
+  const readyCount = pages.filter((page) => states[page.id]?.status === 'ok').length;
 
   return (
     <div
@@ -683,10 +655,9 @@ function ReportDeckView({
                   <ReportPageLoading
                     page={page}
                     order={pageIndex + 1}
-                    readyCount={pages.filter((item) => states[item.id]?.status === 'ok').length}
+                    readyCount={readyCount}
                     total={pages.length}
                     queued={state.status === 'idle'}
-                    active={active}
                   />
                 ) : null}
                 {state.status === 'error' ? (

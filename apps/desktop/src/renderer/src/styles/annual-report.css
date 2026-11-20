@@ -5942,11 +5942,14 @@ html[data-theme='dark'] .weq-echo {
     stroke 260ms ease;
 }
 
-.weq-report-page-ring-percent {
+.weq-report-page-ring-count {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  align-content: center;
+  flex-wrap: wrap;
   color: var(--rp-ink);
   font-family: var(--rp-serif-base);
   font-size: 31px;
@@ -5955,9 +5958,8 @@ html[data-theme='dark'] .weq-echo {
   line-height: 1;
 }
 
-.weq-report-page-ring-percent i {
-  align-self: center;
-  margin-left: 2px;
+.weq-report-page-ring-count small {
+  margin-inline-start: 2px;
   color: var(--rp-ink-muted);
   font-family: var(--rp-sans);
   font-size: 12px;
@@ -5979,12 +5981,6 @@ html[data-theme='dark'] .weq-echo {
   font-size: 12px;
   letter-spacing: 0.04em;
   line-height: 1.8;
-}
-
-.weq-report-page-status-meta {
-  color: var(--rp-ink-faint);
-  font-size: 10px;
-  letter-spacing: 0.16em;
 }
 
 .weq-report-unknown code {

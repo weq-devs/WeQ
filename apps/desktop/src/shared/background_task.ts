@@ -31,7 +31,7 @@ export interface BackgroundTask {
   ownerId?: string;
   /** 业务仍在运行或保留回执，交给后台后才在统一列表显示。 */
   foreground?: boolean;
-  destination?: 'db-checkup' | 'enhancement-packs';
+  destination?: 'db-checkup' | 'enhancement-packs' | 'group-intersection';
   status: BackgroundTaskStatus;
   statusLabel?: string;
   progress?: number;
