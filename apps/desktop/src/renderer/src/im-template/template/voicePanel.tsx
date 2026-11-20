@@ -564,7 +564,9 @@ function useVoiceRecorder() {
       if (clipRef.current === clip) setPlaying(true);
     };
     audio.onpause = () => {
-      if (clipRef.current === clip) setPlaying(false);
+      if (clipRef.current !== clip) return;
+      updateTime();
+      setPlaying(false);
     };
     audio.onended = () => {
       if (clipRef.current !== clip) return;
@@ -614,6 +616,11 @@ function useVoiceRecorder() {
     },
     [playbackAudio],
   );
+
+  const readPlaybackMs = useCallback(() => {
+    const audio = audioRef.current;
+    return audio && audio.src === clipRef.current?.url ? audio.currentTime * 1000 : 0;
+  }, []);
 
   const cancelTranscription = useCallback(() => {
     transcriptionRef.current?.abort();
@@ -721,6 +728,7 @@ function useVoiceRecorder() {
     playbackMs,
     playbackDurationMs,
     playbackReady: clip !== null && preparedSegmentsRef.current === segmentsRef.current,
+    readPlaybackMs,
     seekPlayback,
     beginRecord,
     importAudio,
@@ -739,7 +747,12 @@ function useVoiceRecorder() {
 
 // ── 声纹 ─────────────────────────────────────────────────────────────────────
 
-/** 录音与回顾共用同一组柱子，阶段切换只移动和缩放波形。 */
+function waveBarTransform(levels: readonly number[], index: number) {
+  const value = levels[Math.floor((index / BAR_COUNT) * levels.length)] ?? 0;
+  return `scaleY(${0.14 + Math.min(1, value) * 0.86})`;
+}
+
+/** 录音与回顾共用同一组柱子，已播放部分由播放位置裁切。 */
 function VoiceWave({
   levels,
   active,
@@ -747,16 +760,22 @@ function VoiceWave({
 }: {
   levels: readonly number[];
   active: boolean;
-  playback?: { positionMs: number; durationMs: number; seek: (timeMs: number) => void };
+  playback?: {
+    positionMs: number;
+    durationMs: number;
+    playing: boolean;
+    readPositionMs: () => number;
+    seek: (timeMs: number) => void;
+  };
 }) {
+  const waveRef = useRef<HTMLDivElement | null>(null);
   const barRefs = useRef<Array<HTMLSpanElement | null>>([]);
   useLayoutEffect(() => {
     let timer: number | undefined;
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const draw = () => {
       barRefs.current.forEach((bar, index) => {
-        const value = levels[Math.floor((index / BAR_COUNT) * levels.length)] ?? 0;
-        if (bar) bar.style.transform = `scaleY(${0.14 + Math.min(1, value) * 0.86})`;
+        if (bar) bar.style.transform = waveBarTransform(levels, index);
       });
     };
     const updateMotion = () => {
@@ -771,29 +790,58 @@ function VoiceWave({
       motion.removeEventListener('change', updateMotion);
     };
   }, [levels, active]);
-  const progress = playback ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
+  const { positionMs, durationMs, playing, readPositionMs } = playback ?? {};
+  useLayoutEffect(() => {
+    const wave = waveRef.current;
+    if (!wave || !durationMs || typeof positionMs !== 'number') return;
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let frame = 0;
+    const paint = (timeMs: number) => {
+      const progress = Math.min(1, Math.max(0, timeMs / durationMs));
+      wave.style.setProperty('--voice-wave-progress', `${progress * 100}%`);
+    };
+    const tick = () => {
+      paint(readPositionMs?.() ?? positionMs);
+      frame = window.requestAnimationFrame(tick);
+    };
+    const updateMotion = () => {
+      window.cancelAnimationFrame(frame);
+      if (playing && !motion.matches) tick();
+      else paint(positionMs);
+    };
+    updateMotion();
+    motion.addEventListener('change', updateMotion);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      motion.removeEventListener('change', updateMotion);
+    };
+  }, [durationMs, playing, positionMs, readPositionMs]);
   return (
     <div
       className={cn('voice-wave', playback && 'is-seekable')}
       aria-hidden={playback ? undefined : true}
+      ref={waveRef}
     >
-      {WAVE_BARS.map((key, index) => (
-        <span
-          key={key}
-          className={index < progress * BAR_COUNT ? 'is-played' : undefined}
-          aria-hidden="true"
-          ref={(node) => {
-            barRefs.current[index] = node;
-          }}
-        />
-      ))}
+      <div className="voice-wave-bars" aria-hidden="true">
+        {WAVE_BARS.map((key, index) => (
+          <span
+            key={key}
+            ref={(node) => {
+              barRefs.current[index] = node;
+            }}
+          />
+        ))}
+      </div>
       {playback ? (
         <>
-          <div
-            className="voice-wave-playhead"
-            style={{ left: `${progress * 100}%` }}
-            aria-hidden="true"
-          />
+          <div className="voice-wave-progress" aria-hidden="true">
+            <div className="voice-wave-bars">
+              {WAVE_BARS.map((key, index) => (
+                <span key={key} style={{ transform: waveBarTransform(levels, index) }} />
+              ))}
+            </div>
+          </div>
+          <div className="voice-wave-playhead" aria-hidden="true" />
           <input
             className="voice-wave-seek"
             type="range"
@@ -1069,6 +1117,8 @@ export function VoicePanel({
       ? {
           positionMs: recorder.playbackMs,
           durationMs: recorder.playbackDurationMs,
+          playing: recorder.playing,
+          readPositionMs: recorder.readPlaybackMs,
           seek: recorder.seekPlayback,
         }
       : undefined;

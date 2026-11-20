@@ -389,14 +389,12 @@ button.composer-single-thumb {
 }
 
 .voice-wave {
+  --voice-wave-progress: 0%;
   position: absolute;
   z-index: 1;
   top: var(--voice-wave-center);
   right: var(--voice-control-gutter);
   left: 0;
-  display: flex;
-  align-items: center;
-  gap: clamp(1px, 0.4vw, 3px);
   height: var(--voice-wave-height);
   color: var(--media-record);
   opacity: 0;
@@ -429,7 +427,14 @@ button.composer-single-thumb {
   right: 42px;
 }
 
-.voice-wave span {
+.voice-wave-bars {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: clamp(1px, 0.4vw, 3px);
+}
+
+.voice-wave-bars > span {
   flex: 1 1 0;
   height: 100%;
   border-radius: 2px;
@@ -447,18 +452,29 @@ button.composer-single-thumb {
   outline-offset: -2px;
 }
 
-.voice-wave .is-played,
-.voice-wave-playhead {
-  background: var(--weq-accent-effective);
+.voice-wave-progress {
+  position: absolute;
+  inset: 0;
+  color: var(--weq-accent-effective);
+  clip-path: inset(0 calc(100% - var(--voice-wave-progress)) 0 0);
+  pointer-events: none;
 }
 
 .voice-wave-playhead {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform: translateX(var(--voice-wave-progress));
+}
+
+.voice-wave-playhead::before {
   position: absolute;
   top: 50%;
   width: 2px;
   height: 24px;
   border-radius: 2px;
-  pointer-events: none;
+  background: var(--weq-accent-effective);
+  content: '';
   transform: translate(-50%, -50%);
 }
 
