@@ -18,7 +18,7 @@ export function Avatar({
   resolution?: 'small' | 'original';
 }) {
   const resolved = useAvatarUrl(avatarUrl, true, resolution === 'small' ? 'small' : 'big');
-  const image = useAvatarImage(resolved);
+  const image = useAvatarImage(resolved, resolution === 'small' ? avatarUrl : null);
   const hasImage = Boolean(resolved) && !image.failed;
   const showShimmer = hasImage && !image.loaded;
 

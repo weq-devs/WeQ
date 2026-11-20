@@ -67,6 +67,24 @@ it('新鲜的持久头像解码后直接复用，卸载重进不再读取磁盘�
   expect(f.prepare).toHaveBeenCalledTimes(1);
 });
 
+it('缩略图失败时显示已加载的原图，缩略图恢复后仍优先使用缩略图', async () => {
+  const f = fixture();
+  const original = source.replace('v=small', 'v=big');
+  const originalKey = webAvatarKey('account-a', original)!;
+  f.fetchImage.mockResolvedValueOnce(new Response(null, { status: 503 }));
+  await f.cache.load(key, source);
+  expect(f.cache.peek(key, originalKey)?.failed).toBe(true);
+
+  f.fetchImage.mockResolvedValueOnce(response('original'));
+  await f.cache.load(originalKey, original);
+  expect(f.cache.peek(key, originalKey)?.src).toBe('blob:original');
+  expect(f.fetchImage).toHaveBeenCalledTimes(2);
+
+  f.advance(2_000);
+  await f.cache.load(key, source);
+  expect(f.cache.peek(key, originalKey)?.src).toBe('blob:new');
+});
+
 it('过期头像在慢请求完成前先显示旧图，刷新失败保持旧图并退避', async () => {
   const f = fixture({ key, blob: blob('old'), etag: '"old"', updatedAt: 0 });
   let reject!: (error: Error) => void;
@@ -155,6 +173,17 @@ it('持续缺图时拉长补试间隔，耗尽预算后停止', async () => {
   }
   expect(f.cache.peek(key)?.failed).toBe(true);
   expect(vi.getTimerCount()).toBe(0);
+
+  const offscreen = `${source}&scopeFixture=other`;
+  const offscreenKey = webAvatarKey('account-a', offscreen)!;
+  await f.cache.load(offscreenKey, offscreen);
+  f.fetchImage.mockResolvedValueOnce(response('reconnected'));
+  f.cache.retryFailedVisible();
+  f.cache.retryFailedVisible();
+  await f.cache.load(key, source);
+  expect(f.cache.peek(key)?.src).toBe('blob:reconnected');
+  expect(f.cache.peek(offscreenKey)?.failed).toBe(true);
+  expect(f.fetchImage).toHaveBeenCalledTimes(7);
   leave();
 });
 

@@ -7807,10 +7807,15 @@ function MainWorkspace(): ReactElement {
   const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery(undefined, onlineOptions);
   useCloneTaskRefresh();
   const directoryGroups = trpc.account.listAgentLabGroups.useQuery(undefined, onlineOptions);
+  // Remote 消息页的助手入口和未读一起加载，避免排在完整目录和 QQ 在线查询之后。
+  const assistantDirectoryReady = IS_WEB
+    ? Boolean(pinSession.binding) && (firstContactsReady || Boolean(recentHead.data))
+    : onlineReady;
   const directoryAssistant = trpc.account.listAssistantSessions.useQuery(undefined, {
-    ...onlineOptions,
+    ...directoryOptions,
+    enabled: assistantDirectoryReady,
     refetchInterval:
-      onlineReady &&
+      assistantDirectoryReady &&
       (conversationView === 'assistant' || conversationView === 'all' || assistantVisited)
         ? 2500
         : false,

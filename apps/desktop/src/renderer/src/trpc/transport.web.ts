@@ -32,6 +32,7 @@ const wsClient = createWSClient({
 
 const independentReads = new Set([
   'account.listRecentContacts',
+  'account.listAssistantSessions',
   // 可见行按需补全不能等待同批完整目录或在线接口。
   'account.getProfilesByUids',
   'account.getGroupMembersByUids',

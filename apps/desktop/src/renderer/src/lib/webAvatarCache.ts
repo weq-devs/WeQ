@@ -233,8 +233,20 @@ export function createWebAvatarCache({
         trim();
       };
     },
-    peek(key: string) {
-      return entries.get(key)?.snapshot;
+    peek(key: string, fallbackKey?: string | null) {
+      const preferred = entries.get(key)?.snapshot;
+      if (preferred?.ready || !fallbackKey) return preferred;
+      const fallback = entries.get(fallbackKey)?.snapshot;
+      return fallback?.ready ? fallback : preferred;
+    },
+    retryFailedVisible() {
+      for (const [key, view] of visible) {
+        const entry = entries.get(key);
+        if (!entry?.snapshot.failed || !entry.request || jobs.has(key)) continue;
+        entry.retryAt = 0;
+        view.retries = 0;
+        void cache.load(key, entry.request, view);
+      }
     },
     subscribe(key: string, listener: () => void) {
       let group = listeners.get(key);
