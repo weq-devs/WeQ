@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { setTimeout as wait } from 'node:timers/promises';
 import { z } from 'zod';
 import { observeUpload, transferIdInput } from './transfer_progress';
 import {
@@ -17,7 +18,13 @@ import type { QQWriteBinding } from './qq_write';
 import { exportSavePolicyInput } from './export_save';
 import { AlbumVideoStaging } from './album_video_staging';
 import { backgroundTasks, taskError } from '../../background_tasks';
-import { recordAccountTask } from '../../account_task_receipts';
+import { runtimeMaintenance } from '../../runtime_maintenance';
+import {
+  albumVideoPublished,
+  lastAlbumVideoTask,
+  recordAccountTask,
+  type AlbumVideoReceipt,
+} from '../../account_task_receipts';
 import { updateFavoriteImportTask } from '../../favorite_import_task';
 import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 import { runResumableExport } from '../../resumable_exports';
@@ -44,6 +51,18 @@ const sequence = z
   );
 const uid = z.string().regex(/^u_[A-Za-z0-9_-]+$/);
 const album = group.extend({ albumId: id });
+const videoInput = album.extend({
+  uploadId: z.string().uuid().optional(),
+  path: z.string().min(1).optional(),
+  coverBase64: z.string().min(1),
+  fileName: z.string().min(1).max(255),
+  durationMs: z.number().int().safe().positive(),
+  width: z.number().int().safe().positive(),
+  height: z.number().int().safe().positive(),
+});
+const oneVideo = (value: { path?: string; uploadId?: string }) =>
+  Boolean(value.path) !== Boolean(value.uploadId);
+const videoTaskInput = album.extend({ taskId: z.string().uuid() });
 const media = album.extend({ mediaId: id, batchId: z.string().regex(/^\d+$/) });
 const accepted = { state: 'accepted' as const };
 export type QQActionServices = Pick<
@@ -192,6 +211,150 @@ export function createQQActionsRouter(
     if (!page.capabilities?.[operation])
       throw new Error('当前账号没有此相册操作权限，请刷新相册后重试');
   }
+  async function uploadAlbumVideo(input: z.infer<typeof videoInput>, sending?: () => void) {
+    let videoId: string | null = null;
+    await write(input, async (services, current) => {
+      const path = input.uploadId
+        ? videoStaging.acquire(services, input.uploadId)
+        : await services.fileResource.resolveLocalFile(input.path!);
+      try {
+        current();
+        if (!path) throw new Error('视频文件未授权或已不可用，请重新选择');
+        const albums = await services.webQuery.getGroupAlbumList(String(input.groupId), current);
+        const selected = albums.find((row) => row.id === input.albumId);
+        if (!selected) throw new Error('目标相册不存在或不可见');
+        await albumPermission(services, input.groupId, input.albumId, 'upload', current);
+        const cover = Buffer.from(input.coverBase64, 'base64');
+        if (cover.toString('base64') !== input.coverBase64) throw new Error('媒体编码无效');
+        current();
+        sending?.();
+        const result = await services.webQuery.uploadGroupAlbumVideo({
+          groupId: String(input.groupId),
+          albumId: input.albumId,
+          albumName: selected.title,
+          fileName: input.fileName,
+          video: path,
+          cover,
+          durationMs: input.durationMs,
+          width: input.width,
+          height: input.height,
+          beforeSend: current,
+        });
+        videoId = result.videoId;
+      } finally {
+        if (input.uploadId)
+          await videoStaging
+            .discard(services, input.uploadId, true)
+            .catch((error: unknown) => console.warn('[群相册] 清理视频暂存失败', error));
+      }
+    });
+    return videoId as string | null;
+  }
+
+  const albumScope = (input: QQWriteBinding) => ({
+    uin: input.expectedAccountUin,
+    configId: input.expectedAccountConfigId,
+  });
+  const albumTask = (input: z.infer<typeof album>) => {
+    resolveStatus(input);
+    return lastAlbumVideoTask(albumScope(input), String(input.groupId), input.albumId);
+  };
+
+  function startAlbumVideo(input: z.infer<typeof videoInput> & { requestId: string }) {
+    const previous = albumTask(input);
+    if (previous?.ownerId === input.requestId) return previous.id;
+    if (previous?.status === 'running') throw new Error('这个相册正在上传视频');
+    assertWritable?.(input);
+    const services = resolve(input);
+    if (busy.has(services)) throw new Error('请等待当前 QQ 操作完成');
+    const scope = albumScope(input);
+    const groupAlbum = { groupCode: String(input.groupId), albumId: input.albumId };
+    const receipt: AlbumVideoReceipt = {
+      ...groupAlbum,
+      requestId: input.requestId,
+      submitted: false,
+    };
+    const taskId = backgroundTasks.start({
+      kind: 'album-upload',
+      scope,
+      groupAlbum,
+      ownerId: input.requestId,
+      foreground: true,
+      name: input.fileName,
+      display: {
+        action: '上传群相册视频',
+        subject: input.fileName,
+        context: `群 ${input.groupId} · 相册 ${input.albumId}`,
+        fileName: true,
+      },
+      statusLabel: '正在准备上传',
+    });
+    const save = recordAccountTask(taskId, scope);
+    const current = () => {
+      if (resolve(input) !== services) throw new Error('请回到原账号和数据源核对');
+    };
+    const complete = () => {
+      backgroundTasks.resume(taskId);
+      backgroundTasks.finish(taskId, 'completed', { note: '视频已发布到群相册并读回确认' });
+      backgroundTasks.setActions(taskId, []);
+      try {
+        save(receipt);
+      } catch (error) {
+        console.warn('[群相册] 上传回执保存失败', error);
+      }
+    };
+    const verify = async () => {
+      current();
+      if (!(await albumVideoPublished(services, scope, receipt, current)))
+        throw new Error('暂未在该相册读到原视频，可稍后继续核对。');
+      complete();
+    };
+    void (async () => {
+      try {
+        save(receipt);
+        const videoId = await runtimeMaintenance.operation(
+          () =>
+            uploadAlbumVideo(input, () => {
+              save({ ...receipt, submitted: true });
+              receipt.submitted = true;
+              backgroundTasks.update(taskId, { statusLabel: '正在上传到 QQ 并发布' });
+            }),
+          '上传群相册视频',
+        );
+        receipt.videoId = videoId ?? undefined;
+        backgroundTasks.update(taskId, { statusLabel: '正在核对群相册结果' });
+        save(receipt);
+        const signal = AbortSignal.timeout(15000);
+        for (const delay of [0, 350, 1000, 2500]) {
+          if (delay) await wait(delay, undefined, { signal });
+          current();
+          if (
+            await albumVideoPublished(services, scope, receipt, current, signal).catch(() => false)
+          ) {
+            complete();
+            return;
+          }
+        }
+        throw new Error('暂未在该相册读到原视频，可稍后继续核对。');
+      } catch (error) {
+        backgroundTasks.finish(taskId, receipt.submitted ? 'paused' : 'failed', {
+          statusLabel: receipt.submitted ? '上传结果待核对' : undefined,
+          note: taskError(error),
+        });
+        if (receipt.videoId)
+          backgroundTasks.setActions(taskId, [
+            { id: 'verify', label: '核对上传结果', run: verify },
+          ]);
+        try {
+          save(receipt);
+        } catch (failure) {
+          console.warn('[群相册] 上传回执保存失败', failure);
+        }
+      }
+    })();
+    return taskId;
+  }
+
   return router({
     onlineSystemFaces: procedure
       .input(binding)
@@ -344,55 +507,48 @@ export function createQQActionsRouter(
     albumVideoDiscard: procedure
       .input(binding.extend({ uploadId: z.string().uuid() }))
       .mutation(({ input }) => videoStaging.discard(resolveStatus(input), input.uploadId)),
-    albumVideoUpload: procedure
-      .input(
-        album
-          .extend({
-            uploadId: z.string().uuid().optional(),
-            path: z.string().min(1).optional(),
-            coverBase64: z.string().min(1),
-            fileName: z.string().min(1).max(255),
-            durationMs: z.number().int().safe().positive(),
-            width: z.number().int().safe().positive(),
-            height: z.number().int().safe().positive(),
-          })
-          .refine((value) => Boolean(value.path) !== Boolean(value.uploadId)),
-      )
-      .mutation(async ({ input: i }) => {
-        let videoId: string | null = null;
-        await write(i, async (s, current) => {
-          const albums = await s.webQuery.getGroupAlbumList(String(i.groupId), current);
-          const selected = albums.find((row) => row.id === i.albumId);
-          if (!selected) throw new Error('目标相册不存在或不可见');
-          await albumPermission(s, i.groupId, i.albumId, 'upload', current);
-          for (const value of [i.coverBase64])
-            if (Buffer.from(value, 'base64').toString('base64') !== value)
-              throw new Error('媒体编码无效');
-          const path = i.uploadId
-            ? videoStaging.acquire(s, i.uploadId)
-            : await s.fileResource.resolveLocalFile(i.path!);
-          try {
-            current();
-            if (!path) throw new Error('视频文件未授权或已不可用，请重新选择');
-            const result = await s.webQuery.uploadGroupAlbumVideo({
-              groupId: String(i.groupId),
-              albumId: i.albumId,
-              albumName: selected.title,
-              fileName: i.fileName,
-              video: path,
-              cover: Buffer.from(i.coverBase64, 'base64'),
-              durationMs: i.durationMs,
-              width: i.width,
-              height: i.height,
-              beforeSend: current,
-            });
-            videoId = result.videoId;
-          } finally {
-            if (i.uploadId) await videoStaging.discard(s, i.uploadId, true);
-          }
-        });
-        return { state: 'unconfirmed' as const, videoId };
-      }),
+    albumVideoUpload: procedure.input(videoInput.refine(oneVideo)).mutation(async ({ input }) => ({
+      state: 'unconfirmed' as const,
+      videoId: await uploadAlbumVideo(input),
+    })),
+    albumVideoPublish: procedure
+      .input(videoInput.extend({ requestId: z.string().uuid() }).refine(oneVideo))
+      .mutation(({ input }) => startAlbumVideo(input)),
+    albumVideoStatus: procedure.input(album).query(({ input }) => {
+      const task = albumTask(input);
+      if (!task) return null;
+      const { id, ownerId, name, status, statusLabel, note, foreground, actions } = task;
+      return {
+        id,
+        requestId: ownerId,
+        name,
+        status,
+        statusLabel,
+        note,
+        foreground,
+        canVerify: actions.some((action) => action.id === 'verify'),
+      };
+    }),
+    albumVideoBackground: procedure.input(videoTaskInput).mutation(({ input }) => {
+      const task = albumTask(input);
+      if (task?.id !== input.taskId) throw new Error('上传批次已改变，请刷新相册');
+      if (!task.foreground) return false;
+      backgroundTasks.setForeground(task.id, false);
+      try {
+        recordAccountTask(task.id, albumScope(input))();
+      } catch (error) {
+        backgroundTasks.setForeground(task.id, true);
+        throw error;
+      }
+      return true;
+    }),
+    albumVideoVerify: procedure.input(videoTaskInput).mutation(async ({ input }) => {
+      const task = albumTask(input);
+      if (task?.id !== input.taskId) throw new Error('上传批次已改变，请刷新相册');
+      if (task.status === 'completed') return true;
+      await backgroundTasks.act(task.id, 'verify');
+      return true;
+    }),
     qzoneFriendPermissionList: procedure
       .input(binding.extend({ kind: z.enum(['blocked', 'hidden']) }))
       .query(({ input }) =>

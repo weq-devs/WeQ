@@ -43,8 +43,7 @@ function GroupFileDialogBody({
   onJumpToMessage,
 }: Props) {
   const a = useQQAction(`group-file-window:${groupCode}`);
-  const mediaSave = useMediaSave(),
-    save = useExportSavePolicy();
+  const save = useExportSavePolicy();
   const report = useExportReportDialog();
   const [transferTarget, setTransferTarget] = useState<{
     directory: string;
@@ -69,6 +68,7 @@ function GroupFileDialogBody({
     };
   }, []);
   const current = crumbs.at(-1) ?? ROOT;
+  const mediaSave = useMediaSave({ foreground: true, ownerKey: current.id });
   const read = trpc.account.listGroupFiles.useQuery(
     { ...a.binding!, groupCode, folderId: current.id },
     useQQAutoRefresh(a.available),
@@ -106,8 +106,19 @@ function GroupFileDialogBody({
     const result = await read.refetch();
     if (result.error) throw result.error;
   };
+  const fileSource = (file: GroupFileWire) => ({
+    kind: 'group-file' as const,
+    groupCode,
+    fileId: file.fileId,
+    fileName: file.fileName,
+    busId: file.busId,
+  });
   async function saveSelected(files: GroupFileWire[], folders: GroupFolderWire[]) {
     if (!listing || !a.binding || !save.binding) throw new Error('账号或目录尚未就绪');
+    if (files.length === 1 && folders.length === 0) {
+      await mediaSave.run(fileSource(files[0]!));
+      return;
+    }
     const binding = { ...a.binding };
     const isCurrent = () => mounted.current && save.isCurrent();
     const path = crumbs
@@ -284,13 +295,7 @@ function GroupFileDialogBody({
                 )}
                 <MediaSaveControls
                   save={mediaSave}
-                  source={{
-                    kind: 'group-file',
-                    groupCode,
-                    fileId: file.fileId,
-                    fileName: file.fileName,
-                    busId: file.busId,
-                  }}
+                  source={fileSource(file)}
                   className="icon-button"
                   label={`保存 ${file.fileName}`}
                   iconOnly

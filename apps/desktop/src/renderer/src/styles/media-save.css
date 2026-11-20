@@ -1,6 +1,14 @@
 .weq-media-save-controls {
   max-width: 100%;
 }
+.weq-media-save-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  color: var(--weq-danger);
+  overflow-wrap: anywhere;
+}
 .weq-lightbox-actions {
   flex-wrap: wrap;
   justify-content: center;

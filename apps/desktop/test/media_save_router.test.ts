@@ -212,6 +212,64 @@ it('群文件取消位置不换链或建任务，实际下载固定 fileId 与 b
   expect(state.groupUrl).toHaveBeenCalledWith(123, 'selected-id', 7, 'report.txt');
   expect(readFileSync(task.filePath!, 'utf8')).toBe('raw-file');
 });
+it('单件媒体只在交接后进入当前任务，交接不重复下载且位置偏好保留', async () => {
+  let release!: (response: Response) => void;
+  state.fetch.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const caller = api();
+  const source = {
+    kind: 'group-file' as const,
+    groupCode: '123',
+    fileId: 'foreground',
+    fileName: 'report.txt',
+    busId: 7,
+  };
+  const taskId = (await caller.save({
+    ...binding,
+    foreground: true,
+    source,
+    savePolicy: { mode: 'before', directory: root },
+  }))!;
+  try {
+    await vi.waitFor(() => expect(release).toBeDefined());
+    expect(manager.listTasks(true)).toEqual([]);
+    expect(manager.getTask(taskId)?.foreground).toBe(true);
+    expect(await caller.background({ ...binding, taskId })).toBe(true);
+    expect(manager.listTasks(true)).toMatchObject([
+      { id: taskId, foreground: false, autoOpenTaskList: false },
+    ]);
+  } finally {
+    release?.(new Response('report'));
+    await completed(taskId);
+  }
+  expect(state.groupUrl).toHaveBeenCalledOnce();
+  expect(state.fetch).toHaveBeenCalledOnce();
+  const restored = new ExportTaskManager({} as MsgService, join(root, 'tasks'));
+  expect(restored.listTasks(true)).toMatchObject([
+    { id: taskId, status: 'completed', save: { status: 'saved' } },
+  ]);
+});
+it('重启后还能取回已保存但尚未交给浏览器的单件媒体', async () => {
+  const task = await completed(
+    await api().save({
+      ...binding,
+      source: image,
+      foreground: true,
+      browserOutput: true,
+      savePolicy: { mode: 'before', directory: root },
+    }),
+  );
+  const cache = join(root, 'tasks');
+  expect(manager.listTasks(true)).toEqual([]);
+  const interrupted = new ExportTaskManager({} as MsgService, cache);
+  expect(interrupted.listTasks(true)).toMatchObject([{ id: task.id, status: 'completed' }]);
+  manager.browserOutputTaken(task.id);
+  expect(new ExportTaskManager({} as MsgService, cache).listTasks(true)).toEqual([]);
+});
 it('本地文件只复制既有缓存，保留无后缀文件和原件，不要求在线换链', async () => {
   const sourcePath = join(root, 'README');
   writeFileSync(sourcePath, 'personal-cache');

@@ -43,6 +43,8 @@ const state = vi.hoisted(() => ({
     async (_input: unknown): Promise<{ url: string } | null> => ({ url: '/_download/fixture' }),
   ),
   cancel: vi.fn(async (_input: unknown) => true),
+  background: vi.fn(async (_input: unknown) => true),
+  openSaved: vi.fn(async (_input: unknown) => true),
   toast: vi.fn(),
   accepted: vi.fn(),
   open: vi.fn(),
@@ -145,7 +147,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       listGroupFiles: { query: state.files },
       startGroupFileExport: { mutate: state.exportFiles },
-      mediaSave: { save: { mutate: state.save }, cancel: { mutate: state.cancel } },
+      mediaSave: {
+        save: { mutate: state.save },
+        cancel: { mutate: state.cancel },
+        background: { mutate: state.background },
+      },
+      openSavedExportOutput: { mutate: state.openSaved },
       transfers: {
         watch: {
           subscribe: (_: unknown, handlers: { onData: (value: ActiveTransfer[]) => void }) => {
@@ -246,6 +253,8 @@ beforeEach(() => {
   state.receipt.mockReset().mockResolvedValue({ status: 'completed', error: undefined });
   state.download.mockClear();
   state.cancel.mockClear();
+  state.background.mockClear();
+  state.openSaved.mockClear();
   state.toast.mockClear();
   state.accepted.mockClear();
   state.open.mockClear();
@@ -354,7 +363,7 @@ function capture(node: HTMLElement, name: string) {
     `<!doctype html><html lang="zh-CN"><meta charset="utf-8">${styles}<style>html,body{margin:0;height:100%;font-family:system-ui;background:var(--background);color:var(--foreground)}*,*::before,*::after{box-sizing:border-box}.qa-chat{display:grid;gap:24px;padding:16px;max-width:380px}.qa-chat .weq-lightbox-actions{width:max-content}</style><body>${clone.outerHTML}</body></html>`,
   );
 }
-it('主动作沿用公共偏好，排队只提示受理，不直接写盘或打开浏览器', async () => {
+it('预览保存沿用公共偏好，在原页展示成品而不创建全局提示', async () => {
   const view = await mount();
   await click(view.host, '保存图片');
   expect(state.save).toHaveBeenCalledWith({
@@ -362,12 +371,41 @@ it('主动作沿用公共偏好，排队只提示受理，不直接写盘或打�
     expectedAccountConfigId: 'source-a',
     source: { kind: 'url', url: 'weq-media://pic?name=photo.jpg', name: 'photo.jpg' },
     savePolicy: { mode: 'preset', directory: '/saved' },
+    foreground: true,
   });
   expect(state.prepare).not.toHaveBeenCalled();
   expect(state.download).not.toHaveBeenCalled();
-  expect(state.accepted).toHaveBeenCalledWith('media-task', '正在保存媒体');
+  expect(state.accepted).not.toHaveBeenCalled();
+  await click(view.host, '打开已保存文件');
+  expect(state.openSaved).toHaveBeenCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    taskId: 'media-task',
+  });
   expect(state.toast).not.toHaveBeenCalled();
 });
+it.each(['handoff', 'close'])(
+  '预览离开或交接时将同一个未完成文件转到后台（%s）',
+  async (action) => {
+    state.receipt.mockResolvedValueOnce({ status: 'running', error: undefined });
+    const view = await mount();
+    await click(view.host, '保存图片');
+    expect(state.accepted).not.toHaveBeenCalled();
+    expect(view.host.querySelector('[aria-label="后台进行"]')).not.toBeNull();
+    if (action === 'handoff') await click(view.host, '后台进行');
+    else view.close();
+    await vi.waitFor(() => {
+      expect(state.background).toHaveBeenCalledOnce();
+      expect(state.background).toHaveBeenCalledWith({
+        expectedAccountUin: '10001',
+        expectedAccountConfigId: 'source-a',
+        taskId: 'media-task',
+        ...(action === 'close' ? { unfinishedOnly: true } : {}),
+      });
+    });
+    expect(state.save).toHaveBeenCalledOnce();
+  },
+);
 it('Remote 原位保存默认下载到设备，不弹电脑目录或使用电脑预设', async () => {
   state.web = true;
   state.remote = true;
@@ -413,11 +451,12 @@ it('单按钮保存取消，不修改偏好、不退出控件或清理原资源'
   expect(view.host.querySelector('[aria-label="保存图片"]')).not.toBeNull();
   expect(state.toast).not.toHaveBeenCalled();
 });
-it('Web 通用保存只提供一个按钮，专用下载 hook 仍等待完整任务', async () => {
+it('Web 保存和取回成品分开，专用下载 hook 仍等待完整任务', async () => {
   state.web = true;
   const view = await mount();
-  await click(view.host, '保存图片');
   expect(view.host.querySelectorAll('button')).toHaveLength(1);
+  await click(view.host, '保存图片');
+  expect(view.host.querySelector('[aria-label="下载到此设备"]')).not.toBeNull();
   expect(state.prepare).toHaveBeenCalledWith(undefined, { kind: 'bundle', name: 'photo.jpg' });
   state.prepare.mockClear();
   state.save.mockClear();
@@ -435,6 +474,24 @@ it('Web 通用保存只提供一个按钮，专用下载 hook 仍等待完整任
     expectedAccountConfigId: 'source-a',
     taskId: 'media-task',
   });
+});
+it('Web 成品还没交给浏览器时关预览，任务列表仍可取回', async () => {
+  state.web = true;
+  const view = await mount();
+  await click(view.host, '保存图片');
+  expect(state.save).toHaveBeenCalledWith(
+    expect.objectContaining({ foreground: true, browserOutput: true }),
+  );
+  expect(state.download).not.toHaveBeenCalled();
+  view.close();
+  await vi.waitFor(() =>
+    expect(state.background).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      taskId: 'media-task',
+      unfinishedOnly: false,
+    }),
+  );
 });
 it('浏览器下载等待可停止，不再触发下载链接，已生成结果不删除', async () => {
   state.web = true;
@@ -660,6 +717,21 @@ it('群文件列表单个保存固定文件身份，不交给未经保存策略�
     savePolicy: { mode: 'preset', directory: '/saved' },
   });
 });
+it('群文件只勾选一个文件时仍走原位单件保存，批量导出保持独立', async () => {
+  const view = await mount(
+    h(GroupFileDialog, { groupCode: '123', groupName: '合成群', onClose: vi.fn() }),
+  );
+  act(() => view.host.querySelector<HTMLInputElement>('[aria-label="选择当前可见项目"]')!.click());
+  await click(view.host, '保存所选项目');
+  expect(state.save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      foreground: true,
+      source: expect.objectContaining({ fileId: 'file-a' }),
+    }),
+  );
+  expect(state.exportFiles).not.toHaveBeenCalled();
+  expect(view.host.querySelector('[aria-label="打开已保存文件"]')).not.toBeNull();
+});
 it('独立 Web 窗口的同源绝对媒体地址还原成已有挂载路径', async () => {
   state.web = true;
   const url = new URL('/_media/pic?name=photo.jpg', window.location.href).href;
@@ -830,6 +902,7 @@ it.each(['photoWall', 'qzone'] as const)('%s 缓存原有灯箱保存复用公�
       expectedAccountConfigId: 'source-a',
       source: { kind: 'url', url: localMediaUrl(kind, 'ab/photo'), name: 'photo' },
       savePolicy: { mode: 'preset', directory: '/saved' },
+      foreground: true,
     });
     expect(view.host.querySelector('.weq-media-save-controls')).toBeNull();
   } finally {

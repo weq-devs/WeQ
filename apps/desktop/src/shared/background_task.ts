@@ -45,6 +45,7 @@ export interface BackgroundTask {
   subtasks?: Array<{ label: string; done: number; total: number; failed: number }>;
   download?: { url: string; name: string };
   reportId?: string;
+  groupAlbum?: { groupCode: string; albumId: string };
   clonePersonaId?: string;
   actions: { id: string; label: string }[];
   startedAt: number;
@@ -138,7 +139,14 @@ export class BackgroundTaskRegistry {
   start(
     input: Pick<
       BackgroundTask,
-      'name' | 'kind' | 'scope' | 'destination' | 'ownerId' | 'display' | 'foreground'
+      | 'name'
+      | 'kind'
+      | 'scope'
+      | 'destination'
+      | 'ownerId'
+      | 'display'
+      | 'foreground'
+      | 'groupAlbum'
     > &
       TaskPatch,
   ) {

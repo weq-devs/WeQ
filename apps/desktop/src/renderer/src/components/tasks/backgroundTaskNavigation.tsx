@@ -10,6 +10,29 @@ import {
 import type { TaskQuickAction } from './TaskQuickActions';
 
 export function backgroundTaskNavigation(task: BackgroundTask): TaskQuickAction | null {
+  if (task.groupAlbum) {
+    const { groupCode, albumId } = task.groupAlbum;
+    return {
+      id: 'open-group-album',
+      label: '打开群相册',
+      icon: <ExternalLink size={14} />,
+      run: () =>
+        openNotificationSource(
+          notificationSource(
+            {
+              kind: 'group-resource',
+              request: {
+                kind: 'albums',
+                groupCode,
+                groupName: groupCode,
+                initialAlbumId: albumId,
+              },
+            },
+            '打开群相册',
+          ),
+        ),
+    };
+  }
   if (task.destination === 'group-intersection')
     return {
       id: 'open-group-intersection',

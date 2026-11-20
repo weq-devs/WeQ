@@ -388,6 +388,9 @@ export interface ExportTask {
   networkOverride?: boolean;
   /** 自动调度等后台任务保留记录，但不在创建时展开任务列表。 */
   autoOpenTaskList?: boolean;
+  /** 由保存原页展示，直到交给统一任务列表。 */
+  foreground?: boolean;
+  foregroundBrowserOutput?: boolean;
   content?: ExportContentPolicy;
   completeAvatar?: boolean;
   resourceArchive?: ArchiveOptions;
@@ -889,6 +892,14 @@ export class ExportTaskManager extends EventEmitter {
           t.status = 'failed';
           t.error = '上次资源处理已中断，原来源无法重新定位，请回到发起处重新选择。';
         }
+        // 进程退出后没有原页接管未结束的保存。
+        if (
+          t.foreground &&
+          (t.status === 'paused' ||
+            t.status === 'failed' ||
+            (t.status === 'completed' && (t.save?.status !== 'saved' || t.foregroundBrowserOutput)))
+        )
+          t.foreground = false;
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
         if (t.save?.status === 'saving') {
           t.save.status = 'interrupted';
@@ -1295,8 +1306,9 @@ export class ExportTaskManager extends EventEmitter {
     return saving;
   }
 
-  listTasks(): ExportTaskView[] {
+  listTasks(visibleOnly = false): ExportTaskView[] {
     return [...this.tasks.values()]
+      .filter((task) => !visibleOnly || !task.foreground)
       .sort((a, b) => b.createdAt - a.createdAt)
       .map((task): ExportTaskView => {
         const canResume = this.canResume(task);
@@ -1359,6 +1371,40 @@ export class ExportTaskManager extends EventEmitter {
 
   getTask(id: string): ExportTask | null {
     return this.tasks.get(id) ?? null;
+  }
+
+  backgroundResourceTask(id: string, unfinishedOnly = false): boolean {
+    const task = this.tasks.get(id);
+    if (!task?.resource || !task.foreground) return false;
+    if (
+      unfinishedOnly &&
+      (task.status === 'cancelled' ||
+        (task.status === 'completed' && task.save?.status === 'saved'))
+    )
+      return false;
+    const updatedAt = task.updatedAt;
+    task.foreground = false;
+    task.updatedAt = Date.now();
+    if (!this.saveTasks()) {
+      task.foreground = true;
+      task.updatedAt = updatedAt;
+      throw new Error('无法保存后台任务记录，请重试。');
+    }
+    this.emit('progress', {
+      taskId: id,
+      status: task.status,
+      progress: task.progress,
+      current: task.current,
+      message: '已交给后台',
+    });
+    return true;
+  }
+
+  browserOutputTaken(id: string) {
+    const task = this.tasks.get(id);
+    if (!task?.foregroundBrowserOutput) return;
+    task.foregroundBrowserOutput = false;
+    if (!this.saveTasks()) task.foregroundBrowserOutput = true;
   }
 
   subscribeResourceTransfers(listener: () => void): () => void {
@@ -1959,6 +2005,8 @@ export class ExportTaskManager extends EventEmitter {
     archive?: ArchiveOptions;
     name: string;
     includeIntegrityReport?: boolean;
+    foreground?: boolean;
+    foregroundBrowserOutput?: boolean;
     kind: NonNullable<ExportTask['resource']>['kind'];
     savePolicy?: ExportSavePolicy;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
@@ -2016,6 +2064,8 @@ export class ExportTaskManager extends EventEmitter {
           : {}),
       },
       includeIntegrityReport: opts.includeIntegrityReport,
+      ...(opts.foreground ? { foreground: true, autoOpenTaskList: false } : {}),
+      ...(opts.foreground && opts.foregroundBrowserOutput ? { foregroundBrowserOutput: true } : {}),
       status: 'pending',
       progress: 0,
       current: 0,

@@ -1,4 +1,4 @@
-import { Download, X } from 'lucide-react';
+import { AlertCircle, Check, Download, ListTodo, Play, X } from 'lucide-react';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { IS_WEB } from '../lib/target.shared';
 import { useRemoteClient } from '../lib/remoteClient';
@@ -25,14 +25,51 @@ export function MediaSaveControls({
   const remote = useRemoteClient();
   const transfer = useTransferProgress(mediaTransferTarget(source));
   const working = save.isBusy(source);
-  const progress = transfer ?? (working ? { phase: 'preparing' as const } : undefined);
+  const record = save.recordFor?.(source);
+  const paused = !working && record?.status === 'paused';
+  const saved = !working && (record?.status === 'saved' || record?.status === 'downloaded');
+  const progress =
+    saved || paused
+      ? undefined
+      : (transfer ?? (working ? { phase: 'preparing' as const } : undefined));
   return (
     <div
       className="weq-save-action-group weq-media-save-controls"
       onClick={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
     >
-      {progress ? (
+      {saved ? (
+        <button
+          type="button"
+          className={className}
+          title={IS_WEB ? '下载到此设备' : '打开已保存文件'}
+          aria-label={IS_WEB ? '下载到此设备' : '打开已保存文件'}
+          onClick={() => void save.control(source, 'open')}
+        >
+          {IS_WEB && record.status === 'saved' ? <Download size={15} /> : <Check size={15} />}
+          {iconOnly ? null : (
+            <span>
+              {record.status === 'downloaded'
+                ? '已交给浏览器'
+                : IS_WEB
+                  ? '下载到此设备'
+                  : '打开已保存文件'}
+            </span>
+          )}
+        </button>
+      ) : paused ? (
+        <button
+          type="button"
+          className={className}
+          disabled={working}
+          title={record.error ?? '继续下载'}
+          aria-label="继续下载"
+          onClick={() => void save.control(source, 'resume')}
+        >
+          <Play size={15} />
+          {iconOnly ? null : <span>继续下载</span>}
+        </button>
+      ) : progress ? (
         <span className={`${className} weq-transfer-control`}>
           <TransferRing progress={progress} size={19} />
           {iconOnly ? null : <span>{remote ? '下载' : IS_WEB ? '保存到服务器' : '保存'}</span>}
@@ -50,13 +87,49 @@ export function MediaSaveControls({
           {iconOnly ? null : <span>{remote ? '下载' : IS_WEB ? '保存到服务器' : '保存'}</span>}
         </button>
       )}
-      {save.downloading && working && (
+      {saved && (
+        <button
+          type="button"
+          className={className}
+          title={label}
+          aria-label={label}
+          disabled={save.disabled}
+          onClick={() => void save.run(source)}
+        >
+          <Download size={15} aria-hidden />
+          {iconOnly ? null : <span>{remote ? '再次下载' : '再次保存'}</span>}
+        </button>
+      )}
+      {record?.status === 'failed' && (
+        <span
+          className="weq-media-save-error"
+          role="status"
+          title={record.error}
+          aria-label={`保存失败：${record.error ?? '请重试'}`}
+        >
+          <AlertCircle size={15} aria-hidden />
+          {!iconOnly && record.error}
+        </span>
+      )}
+      {record && (record.status === 'running' || paused) && (
+        <button
+          type="button"
+          className={className}
+          title="后台进行"
+          aria-label="后台进行"
+          onClick={() => void save.control(source, 'background')}
+        >
+          <ListTodo size={15} aria-hidden />
+          {iconOnly ? null : <span>后台进行</span>}
+        </button>
+      )}
+      {(((save.downloading || save.foreground) && working) || paused) && (
         <button
           type="button"
           className={className}
           title="停止本次下载"
           aria-label="停止本次下载"
-          onClick={() => void save.cancel()}
+          onClick={() => void save.cancel(source)}
         >
           <X size={15} />
         </button>
@@ -73,7 +146,7 @@ function SourceSave({
   label?: string;
   iconOnly?: boolean;
 }) {
-  const save = useMediaSave();
+  const save = useMediaSave({ foreground: true });
   return (
     <>
       <MediaSaveControls {...props} source={source} save={save} />

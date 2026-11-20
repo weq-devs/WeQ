@@ -8902,7 +8902,7 @@ export const accountRouter = router({
     .query(({ input }) => requireServices().exportManager.preflight(input)),
 
   listExportTasks: procedure.query(() => {
-    return requireServices().exportManager.listTasks();
+    return requireServices().exportManager.listTasks(true);
   }),
 
   pickExportBaselineDirectory: procedure.mutation(() =>
@@ -9002,17 +9002,20 @@ export const accountRouter = router({
   exportTaskDownload: procedure
     .input(exportAccountBindingInput.extend({ taskId: z.string().min(1) }))
     .mutation(({ input }) => {
-      const task = requireExpectedAccount(
+      const manager = requireExpectedAccount(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
-      ).exportManager.getTask(input.taskId);
+      ).exportManager;
+      const task = manager.getTask(input.taskId);
       if (task?.status !== 'completed') throw new Error('导出结果尚未完成。');
       const path = task.bundleDir || task.filePath;
       if (!path) throw new Error('导出结果不存在。');
       const register = getHost().registerDownload;
       if (!register) return null;
       const name = exportDownloadName(task);
-      return register(path, name, task.bundleDir ? 'directory' : 'file');
+      const download = register(path, name, task.bundleDir ? 'directory' : 'file');
+      if (download && task.foregroundBrowserOutput) manager.browserOutputTaken(task.id);
+      return download;
     }),
 
   /** Pause a running task. */
@@ -9127,7 +9130,9 @@ export const accountRouter = router({
   onExportProgress: procedure.subscription(() => {
     return observable<import('@weq/service').TaskProgress>((emit) => {
       const manager = requireServices().exportManager;
-      const handler = (progress: import('@weq/service').TaskProgress) => emit.next(progress);
+      const handler = (progress: import('@weq/service').TaskProgress) => {
+        if (!manager.getTask(progress.taskId)?.foreground) emit.next(progress);
+      };
       manager.on('progress', handler);
       return () => {
         manager.off('progress', handler);

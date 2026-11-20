@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { TaskProgressBar } from '../tasks/TaskProgressBar';
-import { Film, Upload, X } from 'lucide-react';
-import { client } from '../../trpc/client';
+import { Film, ListTodo, RefreshCw, Square, Upload, X } from 'lucide-react';
+import { client, trpc } from '../../trpc/client';
+import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { useDraftProtection } from '../../lib/draftClose';
 import { ActionIcon } from './shared';
 import { useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared.shared';
-import { localBackgroundTasks, rememberWindowTask } from '../../state/backgroundTasks';
 
 interface VideoDraft {
   fileName: string;
@@ -71,6 +71,33 @@ async function prepareVideo(source: string, fileName: string): Promise<VideoDraf
     video.load();
   }
 }
+function readVideoChunk(chunk: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('视频文件读取失败'));
+    reader.onload = () =>
+      typeof reader.result === 'string'
+        ? resolve(reader.result.split(',')[1] ?? '')
+        : reject(new Error('视频文件读取失败'));
+    reader.readAsDataURL(chunk);
+  });
+}
+
+async function leaveUploadRunning(attempt: {
+  input: QQWriteBinding & { groupId: number; albumId: string };
+  requestId: string;
+  taskId?: string;
+}) {
+  const task = await client.account.qqActions.albumVideoStatus.query(attempt.input);
+  if (task?.requestId !== attempt.requestId || (attempt.taskId && attempt.taskId !== task.id))
+    return;
+  if (task.foreground && (task.status === 'running' || task.status === 'paused'))
+    await client.account.qqActions.albumVideoBackground.mutate({
+      ...attempt.input,
+      taskId: task.id,
+    });
+}
+
 function GroupAlbumVideoUploadBody({
   groupId,
   albumId,
@@ -80,29 +107,159 @@ function GroupAlbumVideoUploadBody({
   albumId: string;
   onChanged: () => void;
 }) {
-  const a = useQQAction(`album-video:${groupId}:${albumId}`);
+  const a = useQQAction(`album-video:${groupId}:${albumId}`, 'failure-only');
   const permissions = useQQAlbumPermissions(groupId, albumId, a);
   const uploadAllowed = permissions.data?.upload === true && !permissions.error;
   const fileInput = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<VideoDraft | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  useDraftProtection(submitted ? null : draft, a.busy || preparing);
+  const [requestId, setRequestId] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
+  const [acting, setActing] = useState(false);
   const generation = useRef(0);
-  useEffect(
-    () => () => {
+  const mounted = useRef(true);
+  const stopping = useRef(false);
+  const attempt = useRef<{
+    input: QQWriteBinding & { groupId: number; albumId: string };
+    requestId: string;
+    taskId?: string;
+  } | null>(null);
+  const refreshed = useRef('');
+  const input = { ...a.binding!, groupId, albumId };
+  const status = trpc.account.qqActions.albumVideoStatus.useQuery(input, {
+    enabled: Boolean(a.binding),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: (row) =>
+      row?.status === 'running' || (a.busy && Boolean(requestId) && row?.requestId !== requestId)
+        ? 1000
+        : false,
+  });
+  const task = !requestId || requestId === status.data?.requestId ? status.data : undefined;
+  const pendingHost = Boolean(requestId && !task);
+  const running = task?.status === 'running';
+  const submitted = Boolean(requestId) || running;
+  useDraftProtection(submitted ? null : draft, a.busy || preparing);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
       generation.current++;
-    },
-    [],
-  );
+      const current = attempt.current;
+      if (!current) return;
+      queueMicrotask(() => {
+        if (!mounted.current) void leaveUploadRunning(current).catch(() => undefined);
+      });
+    };
+  }, []);
+  useEffect(() => {
+    if (task?.status !== 'completed' || refreshed.current === task.id) return;
+    refreshed.current = task.id;
+    setDraft(null);
+    onChanged();
+  }, [task, onChanged]);
+
+  function publish(draft: VideoDraft) {
+    if (submitted) return;
+    setError('');
+    void a.perform(
+      async (binding) => {
+        stopping.current = false;
+        let uploadId: string | undefined;
+        let submittedToHost = false;
+        const captured = generation.current;
+        const assertCurrent = () => {
+          if (stopping.current || captured !== generation.current)
+            throw new DOMException('已停止传输视频到宿主', 'AbortError');
+        };
+        try {
+          if (draft.file) {
+            setProgress(0);
+            const stage = await client.account.qqActions.albumVideoStart.mutate({
+              ...binding,
+              size: draft.file.size,
+            });
+            uploadId = stage.id;
+            for (let offset = 0; offset < draft.file.size; ) {
+              assertCurrent();
+              const chunk = draft.file.slice(offset, offset + 1024 * 1024);
+              const base64 = await readVideoChunk(chunk);
+              assertCurrent();
+              const result = await client.account.qqActions.albumVideoChunk.mutate({
+                ...binding,
+                uploadId,
+                offset,
+                base64,
+              });
+              if (result.offset !== offset + chunk.size)
+                throw new Error('宿主视频暂存偏移异常，已停止传输');
+              offset = result.offset;
+              if (mounted.current) setProgress(Math.round((offset / draft.file.size) * 100));
+            }
+          }
+          assertCurrent();
+          const requestId = globalThis.crypto.randomUUID();
+          const current: NonNullable<typeof attempt.current> = {
+            input: { ...binding, groupId, albumId },
+            requestId,
+          };
+          attempt.current = current;
+          submittedToHost = true;
+          setRequestId(requestId);
+          setProgress(null);
+          const { file: _file, path, ...metadata } = draft;
+          current.taskId = await client.account.qqActions.albumVideoPublish.mutate({
+            ...current.input,
+            ...metadata,
+            requestId,
+            path,
+            uploadId,
+          });
+          if (!mounted.current) await leaveUploadRunning(current);
+          else await status.refetch();
+          return { state: 'accepted' };
+        } catch (reason) {
+          if (mounted.current) {
+            if (reason instanceof DOMException && reason.name === 'AbortError')
+              setError(reason.message);
+            else setError(reason instanceof Error ? reason.message : String(reason));
+          }
+          return { state: 'unchanged' };
+        } finally {
+          if (uploadId && !submittedToHost)
+            await client.account.qqActions.albumVideoDiscard
+              .mutate({ ...binding, uploadId })
+              .catch(() => undefined);
+          if (mounted.current) setProgress(null);
+        }
+      },
+      undefined,
+      '将视频和封面上传到当前群相册？',
+      { refreshCaches: false },
+    );
+  }
+  async function control(action: 'background' | 'verify') {
+    if (!a.binding || !task || acting) return;
+    setActing(true);
+    setError('');
+    try {
+      const ref = { ...input, taskId: task.id };
+      if (action === 'background') await client.account.qqActions.albumVideoBackground.mutate(ref);
+      else await client.account.qqActions.albumVideoVerify.mutate(ref);
+      await status.refetch();
+    } catch (reason) {
+      if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      if (mounted.current) setActing(false);
+    }
+  }
   return (
     <div className="weq-qq-actions">
       <div className="weq-qq-action-bar">
         <ActionIcon
           label="选择视频"
-          disabled={a.disabled || !uploadAllowed || preparing}
+          disabled={a.disabled || !uploadAllowed || preparing || running}
           onClick={() => {
             if (import.meta.env.VITE_WEQ_TARGET === 'web') {
               fileInput.current?.click();
@@ -122,7 +279,7 @@ function GroupAlbumVideoUploadBody({
                 );
                 if (captured === generation.current) {
                   setDraft({ ...value, path: picked.path });
-                  setSubmitted(false);
+                  setRequestId(null);
                 }
               })
               .catch((cause: unknown) => {
@@ -154,7 +311,7 @@ function GroupAlbumVideoUploadBody({
               .then((value) => {
                 if (generation.current === captured) {
                   setDraft({ ...value, file });
-                  setSubmitted(false);
+                  setRequestId(null);
                 }
               })
               .catch((cause: unknown) => {
@@ -173,186 +330,7 @@ function GroupAlbumVideoUploadBody({
             <ActionIcon
               label="上传视频"
               disabled={a.disabled || !uploadAllowed || submitted || preparing}
-              onClick={() => {
-                let videoId: string | null = null;
-                let matched = false;
-                let taskId: string | null = null;
-                let stopped = false;
-                let submittedToQQ = false;
-                const remember = () => {
-                  if (taskId)
-                    rememberWindowTask(taskId, {
-                      submitted: submittedToQQ,
-                      groupCode: String(groupId),
-                      albumId,
-                      videoId: videoId ?? undefined,
-                    });
-                };
-                void a
-                  .perform(
-                    async (binding) => {
-                      taskId = localBackgroundTasks.start({
-                        kind: 'album-upload',
-                        name: draft.fileName,
-                        display: {
-                          action: '上传群相册视频',
-                          subject: draft.fileName,
-                          context: `群 ${groupId} · 相册 ${albumId}`,
-                          fileName: true,
-                        },
-                        scope: {
-                          uin: binding.expectedAccountUin,
-                          configId: binding.expectedAccountConfigId,
-                        },
-                        note: draft.file ? '正在传输视频到宿主' : '准备上传到群相册',
-                        details: [`群：${groupId}`, `相册：${albumId}`],
-                      });
-                      remember();
-                      setSubmitted(true);
-                      const captured = generation.current;
-                      const assertTransfer = () => {
-                        if (stopped) throw new Error('视频传输已停止');
-                        if (generation.current !== captured)
-                          throw new Error('账号或相册已切换，视频传输已停止');
-                      };
-                      let uploadId: string | undefined;
-                      if (draft.file)
-                        localBackgroundTasks.setActions(taskId, [
-                          {
-                            id: 'stop',
-                            label: '停止传输到宿主',
-                            run: () => {
-                              stopped = true;
-                              localBackgroundTasks.update(taskId!, { statusLabel: '停止收尾中' });
-                            },
-                          },
-                        ]);
-                      try {
-                        if (draft.file) {
-                          const start = await client.account.qqActions.albumVideoStart.mutate({
-                            ...binding,
-                            size: draft.file.size,
-                          });
-                          uploadId = start.id;
-                          for (let offset = 0; offset < draft.file.size; ) {
-                            assertTransfer();
-                            const chunk = draft.file.slice(offset, offset + 1024 * 1024);
-                            const base64 = await new Promise<string>((resolve, reject) => {
-                              const reader = new FileReader();
-                              reader.onerror = () => reject(new Error('视频文件读取失败'));
-                              reader.onload = () =>
-                                typeof reader.result === 'string'
-                                  ? resolve(reader.result.split(',')[1] ?? '')
-                                  : reject(new Error('视频文件读取失败'));
-                              reader.readAsDataURL(chunk);
-                            });
-                            assertTransfer();
-                            const result = await client.account.qqActions.albumVideoChunk.mutate({
-                              ...binding,
-                              uploadId,
-                              offset,
-                              base64,
-                            });
-                            if (result.offset !== offset + chunk.size)
-                              throw new Error('宿主视频暂存偏移异常，已停止传输');
-                            offset = result.offset;
-                            localBackgroundTasks.update(taskId, {
-                              progress: (offset / draft.file.size) * 100,
-                              note: '正在传输视频到宿主，尚未上传到群相册',
-                            });
-                            if (generation.current === captured)
-                              setProgress(Math.round((offset / draft.file.size) * 100));
-                          }
-                        }
-                        assertTransfer();
-                        localBackgroundTasks.setActions(taskId, []);
-                        localBackgroundTasks.update(taskId, {
-                          progress: undefined,
-                          note: '正在上传到群相册',
-                        });
-                        const { file: _file, path, ...metadata } = draft;
-                        submittedToQQ = true;
-                        remember();
-                        const result = await client.account.qqActions.albumVideoUpload.mutate({
-                          ...binding,
-                          groupId,
-                          albumId,
-                          ...metadata,
-                          path,
-                          uploadId,
-                        });
-                        videoId = result.videoId;
-                        localBackgroundTasks.update(taskId, { note: '已提交，正在核对群相册结果' });
-                        remember();
-                        return result;
-                      } catch (error) {
-                        localBackgroundTasks.finish(
-                          taskId,
-                          submittedToQQ
-                            ? 'paused'
-                            : stopped || generation.current !== captured
-                              ? 'cancelled'
-                              : 'failed',
-                          {
-                            statusLabel: submittedToQQ ? '上传结果待核对' : undefined,
-                            note: error instanceof Error ? error.message : String(error),
-                          },
-                        );
-                        remember();
-                        throw error;
-                      } finally {
-                        localBackgroundTasks.setActions(taskId, []);
-                        if (uploadId)
-                          await client.account.qqActions.albumVideoDiscard
-                            .mutate({ ...binding, uploadId })
-                            .catch(() => {});
-                        if (generation.current === captured) setProgress(null);
-                      }
-                    },
-                    async () => {
-                      if (matched) {
-                        onChanged();
-                        setDraft(null);
-                        setSubmitted(false);
-                      }
-                    },
-                    '将视频和封面上传到当前群相册？',
-                    {
-                      requireReadback: true,
-                      readbackSuccessText: '视频已发布到群相册',
-                      readback: async () => {
-                        if (!videoId) return false;
-                        const rows = await client.account.listGroupAlbumMedia.query({
-                          groupCode: String(groupId),
-                          albumId,
-                        });
-                        matched = rows.some(
-                          (row) =>
-                            row.video?.id === videoId &&
-                            row.uploader === a.binding?.expectedAccountUin,
-                        );
-                        return matched;
-                      },
-                    },
-                  )
-                  .then(() => {
-                    if (taskId)
-                      localBackgroundTasks.finish(taskId, matched ? 'completed' : 'paused', {
-                        statusLabel: matched ? undefined : '上传结果待核对',
-                        note: matched
-                          ? '视频已发布到群相册并读回确认'
-                          : '已提交上传，请在群相册核对结果；不会自动重复上传',
-                      });
-                    remember();
-                  })
-                  .catch((error: unknown) => {
-                    if (taskId)
-                      localBackgroundTasks.finish(taskId, submittedToQQ ? 'paused' : 'failed', {
-                        note: error instanceof Error ? error.message : String(error),
-                      });
-                    remember();
-                  });
-              }}
+              onClick={() => publish(draft)}
             >
               <Upload size={16} />
             </ActionIcon>
@@ -374,9 +352,59 @@ function GroupAlbumVideoUploadBody({
         />
       )}
       {error && <p role="alert">{error}</p>}
-      {progress !== null && <TaskProgressBar value={progress} label="视频传到宿主的进度" />}
-      {submitted && !a.busy && (
-        <p role="status">本次上传已尝试，请在相册中核对结果后再选择其他视频。</p>
+      {progress !== null && (
+        <>
+          <TaskProgressBar value={progress} label="视频传到宿主的进度" />
+          <ActionIcon
+            label="停止传输到宿主"
+            text="停止传输"
+            onClick={() => {
+              stopping.current = true;
+            }}
+          >
+            <Square size={14} />
+          </ActionIcon>
+        </>
+      )}
+      {pendingHost && (
+        <div className="weq-qq-action-bar">
+          <p role="status">{a.busy ? '正在确认宿主是否受理上传…' : '宿主受理结果待核对'}</p>
+          {!a.busy && (
+            <ActionIcon
+              label="重新读取上传状态"
+              text="重新读取状态"
+              onClick={() => void status.refetch()}
+            >
+              <RefreshCw size={14} />
+            </ActionIcon>
+          )}
+        </div>
+      )}
+      {task && progress === null && (
+        <div className="weq-qq-action-bar">
+          <p role="status">{task.statusLabel ?? task.note ?? '正在处理视频上传'}</p>
+          {task.statusLabel && task.note && <p>{task.note}</p>}
+          {task.foreground && (running || task.status === 'paused') && (
+            <ActionIcon
+              label="在后台继续上传视频"
+              text="后台进行"
+              disabled={acting}
+              onClick={() => void control('background')}
+            >
+              <ListTodo size={14} />
+            </ActionIcon>
+          )}
+          {task.canVerify && (
+            <ActionIcon
+              label="核对上传结果"
+              text="核对上传结果"
+              disabled={acting || !a.available}
+              onClick={() => void control('verify')}
+            >
+              <RefreshCw size={14} />
+            </ActionIcon>
+          )}
+        </div>
       )}
     </div>
   );

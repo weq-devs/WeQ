@@ -66,7 +66,22 @@ const sourceInput = z.discriminatedUnion('kind', [
 const saveInput = exportAccountBindingInput.extend({
   source: sourceInput,
   savePolicy: exportSavePolicyInput.optional(),
+  foreground: z.boolean().optional(),
+  browserOutput: z.boolean().optional(),
 });
+
+const mediaTaskRef = exportAccountBindingInput.extend({ taskId: z.string().min(1) });
+function resolveMediaTask(input: z.infer<typeof mediaTaskRef>) {
+  const context = getAppContext();
+  bindExportSaveRequest(input, () => ({
+    uin: context.account?.context.uin.toString(),
+    configId: context.services?.accountConfig.getRecord()?.configId,
+    services: context.services,
+  }))();
+  const manager = context.services?.exportManager;
+  const task = manager?.getTask(input.taskId);
+  return task?.resource?.kind === 'media' && manager ? { manager, task } : null;
+}
 
 const MIME_EXT: Record<string, string> = {
   'image/png': 'png',
@@ -501,6 +516,8 @@ export const mediaSaveRouter = router({
       : undefined;
     return services.exportManager.startResourceExport({
       kind: 'media',
+      foreground: selected.foreground,
+      foregroundBrowserOutput: selected.browserOutput,
       resume,
       sourceKey: savedMediaSourceKey(selected.source),
       transferTarget: mediaTransferTarget(selected.source),
@@ -531,20 +548,23 @@ export const mediaSaveRouter = router({
         ),
     });
   }),
-  cancel: procedure
-    .input(exportAccountBindingInput.extend({ taskId: z.string().min(1) }))
-    .mutation(({ input }) => {
-      const ctx = getAppContext(),
-        services = ctx.services;
-      bindExportSaveRequest(input, () => ({
-        uin: getAppContext().account?.context.uin.toString(),
-        configId: getAppContext().services?.accountConfig.getRecord()?.configId,
-        services: getAppContext().services,
-      }))();
-      const task = services?.exportManager.getTask(input.taskId);
-      if (task?.resource?.kind !== 'media') return false;
-      return ['pending', 'running'].includes(task.status)
-        ? services!.exportManager.cancelTask(input.taskId)
-        : false;
-    }),
+  background: procedure
+    .input(mediaTaskRef.extend({ unfinishedOnly: z.boolean().optional() }))
+    .mutation(
+      ({ input }) =>
+        resolveMediaTask(input)?.manager.backgroundResourceTask(
+          input.taskId,
+          input.unfinishedOnly,
+        ) ?? false,
+    ),
+  resume: procedure.input(mediaTaskRef).mutation(({ input }) => {
+    const entry = resolveMediaTask(input);
+    return entry?.task.status === 'paused' ? entry.manager.resumeTask(input.taskId) : false;
+  }),
+  cancel: procedure.input(mediaTaskRef).mutation(({ input }) => {
+    const entry = resolveMediaTask(input);
+    return entry && ['pending', 'running', 'paused'].includes(entry.task.status)
+      ? entry.manager.cancelTask(input.taskId)
+      : false;
+  }),
 });
