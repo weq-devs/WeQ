@@ -187,7 +187,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
     }
   }
 
-  private emitTask(task: FlashDownloadTask): void {
+  private recordTaskLog(task: FlashDownloadTask): void {
     const previous = task.logs?.at(-1);
     const stage = task.status;
     const pct = task.fileSize > 0 ? Math.floor((task.downloadedBytes / task.fileSize) * 10) : 0;
@@ -219,6 +219,10 @@ export class FlashTransferDownloadManager extends EventEmitter {
         },
       ];
     }
+  }
+
+  private emitTask(task: FlashDownloadTask): void {
+    this.recordTaskLog(task);
     this.emit('task', task);
   }
 
@@ -517,6 +521,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
     const abort = new AbortController();
     const partialPath = `${task.targetPath}.weq-part-${task.id}`;
     this.aborts.set(task.id, abort);
+    let finished = false;
     try {
       // 取消竞态：cancel() 可能在 pump 调度后才生效，这里每次推进前复查。
       if (abort.signal.aborted || (task.status as FlashTaskStatus) === 'cancelled') return;
@@ -545,7 +550,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       task.status = 'done';
       task.downloadedBytes = task.fileSize || task.downloadedBytes;
       task.finishedAt = Date.now();
-      this.emitTask(task);
+      finished = true;
     } catch (error) {
       if (abort.signal.aborted) {
         task.status = task.interrupted ? 'failed' : 'cancelled';
@@ -554,14 +559,17 @@ export class FlashTransferDownloadManager extends EventEmitter {
         task.error = error instanceof Error ? error.message : String(error);
       }
       task.finishedAt = Date.now();
-      this.emitTask(task);
+      finished = true;
     } finally {
       this.publishing.delete(task.id);
       await rm(partialPath, { force: true }).catch((error: unknown) =>
         logger.warn('清理闪传临时文件失败', { error: String(error) }),
       );
       this.aborts.delete(task.id);
+      // 结束通知应在临时文件收尾及任务记录保存之后交付。
+      if (finished) this.recordTaskLog(task);
       await this.persist();
+      if (finished) this.emit('task', task);
     }
   }
 }
