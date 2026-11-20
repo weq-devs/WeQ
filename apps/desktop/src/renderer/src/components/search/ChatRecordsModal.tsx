@@ -835,10 +835,13 @@ export function ChatRecordsModal({
                           // 能取到原消息 40800 正文的，渲染真实气泡；找不到的回退纯文本行。
                           const elements = sharedMedia
                             ? msg.elements?.filter(
-                                ({ type }) =>
-                                  type === 'file' ||
-                                  type === 'onlineFile' ||
-                                  type === 'onlineFolder',
+                                (element) =>
+                                  !!element &&
+                                  typeof element === 'object' &&
+                                  'type' in element &&
+                                  (element.type === 'file' ||
+                                    element.type === 'onlineFile' ||
+                                    element.type === 'onlineFolder'),
                               )
                             : msg.elements;
                           if (elements?.length && conversation) {
