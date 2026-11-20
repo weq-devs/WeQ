@@ -468,7 +468,7 @@ export async function decodeRecordingsToWav(
 }
 
 /** 用 WebAudio 把一个 ArrayBuffer 解成 AudioBuffer。 */
-async function decodeAudio(buffer: ArrayBuffer): Promise<AudioBuffer> {
+export async function decodeAudio(buffer: ArrayBuffer): Promise<AudioBuffer> {
   const Context = (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext;
   if (!Context) throw new Error('当前环境不支持音频解码（没有 AudioContext），无法发送录音。');
   const context = new Context();

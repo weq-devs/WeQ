@@ -37,7 +37,12 @@ import type { ReactNode } from 'react';
 import { cn } from './classNames';
 import { voiceModeContext } from './voicePanel.shared';
 import { pcm16Samples, startRemoteMedia, needsNativeRemoteMedia } from '../../lib/remoteMedia';
-import { decodeRecordingToWav, decodeRecordingsToWav, encodePcmWav } from './composerSend';
+import {
+  decodeAudio,
+  decodeRecordingToWav,
+  decodeRecordingsToWav,
+  encodePcmWav,
+} from './composerSend';
 import { topSurface } from '../../lib/surfaceEscape';
 import {
   createMediaId,
@@ -124,6 +129,7 @@ function useVoiceRecorder() {
   const stopTargetRef = useRef<StopTarget>('review');
   const segmentDurationRef = useRef<number | null>(null);
   const segmentsRef = useRef<Blob[]>([]);
+  const importedAudioRef = useRef(false);
   const completedDurationRef = useRef(0);
   const peaksRef = useRef<number[]>([]);
   const lastPeakAtRef = useRef(0);
@@ -167,10 +173,43 @@ function useVoiceRecorder() {
     if (stream) for (const track of stream.getTracks()) track.stop();
   }, []);
 
+  const importAudio = useCallback(
+    async (file: File) => {
+      if (phaseRef.current !== 'idle') return;
+      if (!file.size) {
+        setError('音频文件为空');
+        return;
+      }
+      const segments = segmentsRef.current;
+      setError(null);
+      setPhaseSafe('finalizing');
+      try {
+        const bytes = await file.arrayBuffer();
+        const blob = new Blob([bytes], { type: file.type });
+        const audio = await decodeAudio(bytes);
+        if (unmountedRef.current || segmentsRef.current !== segments) return;
+        if (!Number.isFinite(audio.duration) || audio.duration <= 0) throw new Error();
+        const duration = audio.duration * 1000;
+        segmentsRef.current = [blob];
+        importedAudioRef.current = true;
+        completedDurationRef.current = duration;
+        peaksRef.current = [];
+        levels.fill(0);
+        setElapsedMs(duration);
+        setPhaseSafe('paused');
+      } catch {
+        if (unmountedRef.current || segmentsRef.current !== segments) return;
+        setError('无法读取此音频，请选择可播放的音频文件');
+        setPhaseSafe('idle');
+      }
+    },
+    [levels, setPhaseSafe],
+  );
+
   const reviewRecording = useCallback(async () => {
     const segments = segmentsRef.current;
     const duration = completedDurationRef.current;
-    if (duration < MIN_RECORD_MS || segments.length === 0) {
+    if (segments.length === 0 || (!importedAudioRef.current && duration < MIN_RECORD_MS)) {
       setPhaseSafe(segments.length ? 'paused' : 'idle');
       setError('录音太短，请录久一点再结束');
       return;
@@ -454,6 +493,7 @@ function useVoiceRecorder() {
       if (expectedClipId && clipRef.current?.id !== expectedClipId) return;
       audioRef.current?.pause();
       segmentsRef.current = [];
+      importedAudioRef.current = false;
       completedDurationRef.current = 0;
       levels.fill(0);
       cleanupAudio();
@@ -617,6 +657,7 @@ function useVoiceRecorder() {
     transcribeError,
     playing,
     beginRecord,
+    importAudio,
     endRecord,
     pauseRecord,
     releaseHeldRecord,
@@ -680,6 +721,7 @@ const VoiceCaptureContext = createContext<{
   owner: RecordingOwner | null;
   input: RecordingInput;
   start: (owner: RecordingOwner, input: RecordingInput) => void;
+  loadAudio: (owner: RecordingOwner, file: File) => void;
   registerInline: (id: string) => () => void;
 } | null>(null);
 
@@ -717,12 +759,17 @@ export function VoiceWorkspace({
     setInline(panel);
     return () => setInline((current) => (current === panel ? null : current));
   }, []);
-  const { beginRecord, releaseHeldRecord, phase } = recorder;
+  const { beginRecord, importAudio, releaseHeldRecord, phase } = recorder;
   function start(nextOwner: RecordingOwner, nextInput: RecordingInput) {
     if (phase !== 'idle' && owner?.id !== nextOwner.id) return;
     setOwner(nextOwner);
     setInput(nextInput);
     void beginRecord();
+  }
+  function loadAudio(nextOwner: RecordingOwner, file: File) {
+    if (phase !== 'idle') return;
+    setOwner(nextOwner);
+    void importAudio(file);
   }
   useEffect(() => {
     if (input !== 'space' || (phase !== 'recording' && phase !== 'requesting')) return;
@@ -745,7 +792,9 @@ export function VoiceWorkspace({
     owner && phase !== 'idle' && (phase === 'paused' || obscured || inline?.id !== owner.id);
   return (
     <voiceModeContext.Provider value={mode}>
-      <VoiceCaptureContext.Provider value={{ recorder, owner, input, start, registerInline }}>
+      <VoiceCaptureContext.Provider
+        value={{ recorder, owner, input, start, loadAudio, registerInline }}
+      >
         {children}
       </VoiceCaptureContext.Provider>
       <RecordingBubble
@@ -854,7 +903,6 @@ export function VoicePanel({
   sendHint,
   onSendVoice,
   onSendTranscript,
-  onSendAudioFile,
   onSendTts,
   ttsProviders = [],
   onSynthesizeSpeech,
@@ -872,13 +920,6 @@ export function VoicePanel({
   sendHint: string;
   onSendVoice: (clip: VoiceClip) => Promise<boolean | undefined>;
   onSendTranscript: (text: string) => Promise<boolean | undefined>;
-  /**
-   * 选了一个本机音频文件（mp3 / m4a / wav / ogg…）当语音条发。
-   *
-   * 字节原样交给上层，由它在渲染层用 WebAudio 解成 24k WAV、再转 SILK 发送 ——
-   * 相当于内置一个格式转换器，不依赖 ffmpeg。
-   */
-  onSendAudioFile: (bytes: Uint8Array, fileName: string) => void;
   onSendTts: (bytes: Uint8Array, fileName: string) => void;
   ttsProviders?: TtsVoiceProvider[];
   onSynthesizeSpeech?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
@@ -891,7 +932,8 @@ export function VoicePanel({
 }) {
   const [tab, setTab] = useState<'record' | 'tts' | 'ai'>('record');
   const tabActive = useTabActive();
-  const { recorder, owner, input, start, registerInline } = useContext(VoiceCaptureContext)!;
+  const { recorder, owner, input, start, loadAudio, registerInline } =
+    useContext(VoiceCaptureContext)!;
   const ownsRecording = owner?.id === conversationId;
   const phase = ownsRecording ? recorder.phase : 'idle';
   const foreignRecording = !!owner && !ownsRecording && recorder.phase !== 'idle';
@@ -932,17 +974,6 @@ export function VoicePanel({
     if (!tabActive) return;
     return registerInline(conversationId);
   }, [conversationId, registerInline, tabActive]);
-
-  /** 选一个本机音频文件当语音发（解码成 WAV 再转 SILK 的活在上层做）。 */
-  async function handlePickAudio(file: File): Promise<void> {
-    try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      if (bytes.byteLength === 0) return;
-      onSendAudioFile(bytes, file.name || 'audio');
-    } catch {
-      // 读不出字节时静默：不打断录音流程。
-    }
-  }
 
   // 面板自己抢焦点，这样空格长按不会落进正文（正文聚焦时空格就是打字）。
   useEffect(() => {
@@ -1183,18 +1214,12 @@ export function VoicePanel({
                   </>
                 )}
               </span>
-              {/* 「选择音频」只在**录制态**出现。进入回顾 / 发送界面后底部已经被试听 +
-              发送按钮占满，这颗胶囊再挤进来就会和它们叠在一起，所以直接收掉 ——
-              要重选音频就退回录制态（点一下麦克风）再选。 */}
               {paused ? (
                 <button type="button" className="voice-btn ghost" onClick={endRecord}>
                   结束录音
                 </button>
-              ) : phase !== 'finalizing' ? (
-                <label
-                  className={cn('voice-pick-audio')}
-                  title="选择本机音频文件当语音发送（自动转成 SILK）"
-                >
+              ) : phase === 'idle' ? (
+                <label className={cn('voice-pick-audio')} title="将本机音频导入录音">
                   <FileAudio size={13} />
                   选择音频
                   <input
@@ -1204,7 +1229,7 @@ export function VoicePanel({
                     onChange={(event) => {
                       const file = event.target.files?.[0];
                       event.target.value = '';
-                      if (file) void handlePickAudio(file);
+                      if (file) loadAudio({ id: conversationId, label: conversationLabel }, file);
                     }}
                   />
                 </label>
@@ -1523,10 +1548,7 @@ function TtsComposer({
     }
   }
 
-  /**
-   * 合成并发送：字节交给上层的**既有音频链路**（WebAudio 解码 → 24k WAV → SILK），
-   * 与「选择音频文件」走同一条路 —— 乐观预览 / 时长 / 波形都由那条链路自己处理。
-   */
+  /** 合成并发送，沿用语音发送时的 WebAudio 解码与 SILK 转码。 */
   async function handleSend(): Promise<void> {
     if (!ready || !canSend) return;
     setPhase('send');

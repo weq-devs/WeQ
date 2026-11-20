@@ -3901,14 +3901,8 @@ function ChatPaneContent({
     });
   }
 
-  /**
-   * 语音面板「选择音频」：把一个本机音频文件当语音条发。
-   *
-   * 字节原样交给 {@link sendVoiceClip} —— 它会把 blob 读成 bytes 塞进 ptt 元素的
-   * 本地句柄，主链路的 `decodeRecordingToWav` 再用 WebAudio 解码（mp3 / m4a / ogg…
-   * 浏览器能解的都能收），所以内置了一个格式转换器、不需要 ffmpeg。
-   */
-  async function sendAudioFile(bytes: Uint8Array, _fileName: string, speechOnly = false) {
+  /** 将 TTS 合成结果作为独立语音消息发送。 */
+  async function sendTtsAudio(bytes: Uint8Array) {
     if (!conversation || !isActiveConversation(conversation.id)) return;
     const blob = new Blob([bytes.slice().buffer]);
     const url = URL.createObjectURL(blob);
@@ -3922,7 +3916,7 @@ function ChatPaneContent({
       transcript: '',
     };
     try {
-      await sendVoiceClip(clip, speechOnly);
+      await sendVoiceClip(clip, true);
     } finally {
       // 乐观预览的 blob 要留到发送完成后再释放。
       window.setTimeout(() => releaseObjectUrl(url), 30_000);
@@ -7302,8 +7296,7 @@ function ChatPaneContent({
               sendHint={sendTitle}
               onSendVoice={(clip) => sendVoiceClip(clip, true)}
               onSendTranscript={sendTranscriptText}
-              onSendAudioFile={(bytes, fileName) => void sendAudioFile(bytes, fileName)}
-              onSendTts={(bytes, fileName) => void sendAudioFile(bytes, fileName, true)}
+              onSendTts={(bytes) => void sendTtsAudio(bytes)}
               ttsProviders={ttsProviders}
               onSynthesizeSpeech={synthesizeSpeech}
             />
