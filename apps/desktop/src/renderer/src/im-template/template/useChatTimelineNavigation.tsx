@@ -791,6 +791,7 @@ export function useChatTimelineNavigation({
         .filter((event) => event.kind === kind && event.conv === interactionConversationId)
         .map((event) => [`${event.action}:${event.msgId}`, conversationInteractionId(event)]),
     );
+    if (!pending.size) return;
     const targets = new Map<string, string[]>();
     for (const message of visibleMessages) {
       if (!message.msgId || message.conversationId !== interactionConversationId) continue;
@@ -809,10 +810,33 @@ export function useChatTimelineNavigation({
         ids.push(poke);
       if (ids.length) targets.set(message.id, ids);
     }
+    const latest =
+      atLatest && !loadError
+        ? visibleMessages.findLast(
+            (message) =>
+              message.conversationId === interactionConversationId &&
+              message.msgId &&
+              !message.optimistic &&
+              (!message.source || message.ntSeqVerified),
+          )
+        : undefined;
+    const loadedSeq = latest?.msgSeq;
+    const knownLatestSeq =
+      latestMessageSeq && /^[1-9]\d*$/.test(latestMessageSeq) ? BigInt(latestMessageSeq) : 0n;
+    // 命中实时尾页的最新消息时，确认当时收到的互动，包括未加载的撤回原文。
+    if (
+      latest &&
+      (knownLatestSeq === 0n ||
+        (loadedSeq && /^\d+$/.test(loadedSeq) && BigInt(loadedSeq) >= knownLatestSeq))
+    )
+      targets.set(latest.id, [...pending.values()]);
     return targets;
   }, [
+    atLatest,
     interactionConversationId,
     interactionConversationType,
+    latestMessageSeq,
+    loadError,
     pendingInteractions,
     visibleMessages,
   ]);
