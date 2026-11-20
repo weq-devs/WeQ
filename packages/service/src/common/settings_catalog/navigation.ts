@@ -817,6 +817,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['storage', 'remote', 'resource-loading'],
   },
   {
+    id: 'auto-download-preview-original',
+    section: 'resource-loading',
+    label: '预览时自动获取原图',
+    aliases: ['自动下载原图', '聊天图片预览'],
+    from: ['resource-loading'],
+  },
+  {
     id: 'data-saver',
     section: 'resource-loading',
     label: '省流量模式',

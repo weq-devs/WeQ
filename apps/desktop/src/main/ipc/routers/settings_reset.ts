@@ -318,11 +318,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       '无临时设置',
       async () => dataSaverSession.clearTemporary('settings'),
     );
-    const saverDefaults = {
-      dataSaverMode: 'auto' as const,
-      autoDownloadPreviewOriginal: false,
-      ...dataSaverBehaviorDefaults,
-    };
+    const saverDefaults = { dataSaverMode: 'auto' as const, ...dataSaverBehaviorDefaults };
     const saverCurrent = config.getSharedPreference('client');
     bind(
       'data-saver:preferences',

@@ -119,6 +119,12 @@ export const CLIENT_SETTING_FIELDS = (
     ['privacy-mode', 'capturePrivacy', 'privacy-menu-capture', '截图临时隐私模式'],
     ['web-notifications', 'webNotifications', 'web-notifications', '网页通知'],
     [
+      'chat-image-preview',
+      'autoDownloadPreviewOriginal',
+      'auto-download-preview-original',
+      '预览时自动获取原图',
+    ],
+    [
       'conversation-order',
       'keepConversationPositionOnHover',
       'keep-conversation-position-on-hover',

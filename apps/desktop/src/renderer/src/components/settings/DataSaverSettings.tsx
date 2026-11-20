@@ -115,7 +115,6 @@ export function DataSaverSettings() {
             aria-label="恢复省流量默认设置"
             onClick={() => {
               void changePreference('dataSaverMode', 'auto');
-              void changePreference('autoDownloadPreviewOriginal', false);
               for (const [key, value] of Object.entries(dataSaverBehaviorDefaults))
                 void changePreference(key as keyof DataSaverBehavior, value);
             }}
@@ -140,17 +139,6 @@ export function DataSaverSettings() {
       {preferenceValue('dataSaverMode') === 'auto' ? (
         <BooleanRow name="dataSaverOnMetered" label="使用流量时自动启用" />
       ) : null}
-      <Row
-        label="预览时自动获取原图"
-        desc="省流量模式关闭时，打开聊天图片会自动下载缺失的原图。"
-        control={
-          <Toggle
-            label="预览时自动获取原图"
-            checked={preferenceValue('autoDownloadPreviewOriginal')}
-            onChange={(value) => void changePreference('autoDownloadPreviewOriginal', value)}
-          />
-        }
-      />
       <div className="weq-data-saver-behavior">
         <h4>省流量模式下的行为</h4>
         <p>仅在省流量模式生效时应用，已有缓存照常使用。</p>

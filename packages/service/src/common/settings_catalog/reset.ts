@@ -66,6 +66,7 @@ export const SETTINGS_RESET_CARDS = [
   ['accounts', 'auto-enter', '现有配置'],
   ['resource-loading', 'external-chatpic', '外部安卓图片缓存'],
   ['resource-loading', 'cdn', '加载来源'],
+  ['resource-loading', 'chat-image-preview', '聊天图片'],
   ['resource-loading', 'data-saver', '省流量模式'],
   ['resource-loading', 'qqshow-cache', 'QQ 秀缓存'],
   ['credentials', 'rkey', '外部 rKey 服务器'],
