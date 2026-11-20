@@ -259,7 +259,6 @@ export function QQConversationControls({
               ) : (
                 <QQWriteSelectRow
                   label="消息接收"
-                  segmented
                   icon={<BellOff size={14} strokeWidth={1.8} />}
                   autoSave
                   initial={policySnapshot.data?.rawPolicy ?? null}

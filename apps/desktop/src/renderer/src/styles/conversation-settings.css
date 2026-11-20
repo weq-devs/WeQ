@@ -67,11 +67,6 @@
 .weq-conversation-settings-pane .weq-qq-write-input {
   padding: 6px 8px;
 }
-/* 输入框、保存按钮都收到 30px —— 与 `.weq-ar-tab` 同高，行高不再忽大忽小。 */
-.weq-conversation-settings-pane .weq-qq-write-field > button {
-  width: 30px;
-  height: 30px;
-}
 html[data-theme='dark'] .weq-conversation-settings-pane .weq-cvs-dialog {
   background: var(--weq-bg-surface);
 }
