@@ -3,19 +3,46 @@ import { editMenuLabels, EMPTY_EDIT_MENU } from '../shared/edit_menu';
 
 export function nativeMenuLabels(locale: string) {
   return /^zh(?:-|_|$)/i.test(locale)
-    ? { file: '文件', newWindow: '新建窗口', showWindow: '显示主窗口', quit: '退出 WeQ' }
-    : { file: 'File', newWindow: 'New Window', showWindow: 'Show Main Window', quit: 'Quit WeQ' };
+    ? {
+        file: '文件',
+        newWindow: '新建窗口',
+        showWindow: '显示主窗口',
+        restart: '重启 WeQ',
+        quit: '退出 WeQ',
+      }
+    : {
+        file: 'File',
+        newWindow: 'New Window',
+        showWindow: 'Show Main Window',
+        restart: 'Restart WeQ',
+        quit: 'Quit WeQ',
+      };
 }
 
 export function macApplicationMenu(
   openMainWindow: () => void,
+  restart: () => void,
   locale = 'en',
   undo?: () => void,
   redo?: () => void,
 ): MenuItemConstructorOptions[] {
   const labels = nativeMenuLabels(locale);
   return [
-    { role: 'appMenu' },
+    {
+      role: 'appMenu',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { label: labels.restart, click: restart },
+        { role: 'quit' },
+      ],
+    },
     {
       label: labels.file,
       submenu: [

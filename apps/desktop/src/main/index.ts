@@ -132,7 +132,12 @@ import {
   type ExportSavePolicy,
   type WindowCloseBehavior,
 } from '@weq/service';
-import { electronHost, migrateLegacyAutostart } from './host';
+import {
+  cancelApplicationRestart,
+  electronHost,
+  migrateLegacyAutostart,
+  restartApplication,
+} from './host';
 import { mediaSaveRouter } from './ipc/routers/media_save';
 import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
@@ -252,6 +257,13 @@ function resolveCloseBehavior(): WindowCloseBehavior {
   }
 }
 
+function restartFromMenu(): void {
+  void restartApplication().catch((error) => {
+    logger.error('failed to restart WeQ from menu', { error: String(error) });
+    dialog.showErrorBox('无法重启 WeQ', String(error));
+  });
+}
+
 /** 创建一次系统托盘，点击时复用主窗口的显示/重建入口。 */
 function buildTray(): void {
   if (tray) return;
@@ -259,6 +271,7 @@ function buildTray(): void {
     tray = createSystemTray({
       locale: app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
       openMainWindow,
+      restart: restartFromMenu,
       quit: () => app.quit(),
     });
     logger.info('system tray created', { event: 'tray-create' });
@@ -1048,6 +1061,7 @@ void app.whenReady().then(async () => {
       cancelled: () => {
         isQuitting = false;
         resetQuitPreparation();
+        cancelApplicationRestart();
       },
     });
   });
@@ -1085,6 +1099,7 @@ void app.whenReady().then(async () => {
       Menu.buildFromTemplate(
         macApplicationMenu(
           openMainWindow,
+          restartFromMenu,
           app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
           undoFocusedContent,
           redoFocusedContent,
@@ -1136,6 +1151,7 @@ guardDatabaseMaintenanceQuit(app, {
   cancelled: () => {
     isQuitting = false;
     resetQuitPreparation();
+    cancelApplicationRestart();
   },
   failed: (error) => {
     logger.error('failed to stop database repair on quit', { error: String(error) });
@@ -1147,6 +1163,7 @@ guardDatabaseMaintenanceQuit(app, {
     });
   },
 });
+autoUpdater.on('before-quit-for-update', cancelApplicationRestart);
 // 只放行窗口关闭；未保存内容仍可能取消退出，暂不停止服务或销毁托盘。
 // 退出不再弹「确认 / 最小化到托盘」：用户选的就是退出，后台服务随 `will-quit`
 // 统一释放，「会停掉哪些服务」的信息在关窗确认框展示。

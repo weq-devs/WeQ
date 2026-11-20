@@ -50,9 +50,10 @@ beforeEach(() => {
 
 function setup(platform: NodeJS.Platform = 'darwin', locale = 'zh-CN') {
   const openMainWindow = vi.fn();
+  const restart = vi.fn();
   const quit = vi.fn();
-  const tray = createSystemTray({ platform, locale, openMainWindow, quit });
-  return { tray, openMainWindow, quit };
+  const tray = createSystemTray({ platform, locale, openMainWindow, restart, quit });
+  return { tray, openMainWindow, restart, quit };
 }
 
 describe('系统托盘', () => {
@@ -93,18 +94,22 @@ describe('系统托盘', () => {
     expect(quit).not.toHaveBeenCalled();
   });
 
-  it.each(['zh-CN', 'en-US'])('菜单保留显示窗口和直接退出入口（%s）', (locale) => {
-    const { openMainWindow, quit } = setup('darwin', locale);
+  it.each(['zh-CN', 'en-US'])('菜单分别调用显示窗口、重启和退出（%s）', (locale) => {
+    const { openMainWindow, restart, quit } = setup('darwin', locale);
     const items = mocks.buildFromTemplate.mock.calls[0]![0] as MenuItemConstructorOptions[];
     expect(items.map((item) => item.label ?? item.type)).toEqual(
       locale === 'zh-CN'
-        ? ['显示主窗口', 'separator', '退出 WeQ']
-        : ['Show Main Window', 'separator', 'Quit WeQ'],
+        ? ['显示主窗口', 'separator', '重启 WeQ', '退出 WeQ']
+        : ['Show Main Window', 'separator', 'Restart WeQ', 'Quit WeQ'],
     );
     const show = items[0]!.click as () => void;
-    const exit = items[2]!.click as () => void;
+    const relaunch = items[2]!.click as () => void;
+    const exit = items[3]!.click as () => void;
     show();
     expect(openMainWindow).toHaveBeenCalledTimes(1);
+    expect(restart).not.toHaveBeenCalled();
+    relaunch();
+    expect(restart).toHaveBeenCalledOnce();
     expect(quit).not.toHaveBeenCalled();
     exit();
     expect(quit).toHaveBeenCalledTimes(1);

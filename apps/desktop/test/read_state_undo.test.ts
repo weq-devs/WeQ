@@ -9,7 +9,7 @@ afterEach(() => vi.unstubAllGlobals());
 it('系统编辑菜单按桥接状态控制撤销和重做，保留原生剪贴板操作', () => {
   const undo = vi.fn();
   const redo = vi.fn();
-  const edit = macApplicationMenu(vi.fn(), 'zh-CN', undo, redo).find(
+  const edit = macApplicationMenu(vi.fn(), vi.fn(), 'zh-CN', undo, redo).find(
     (item) => item.label === '编辑',
   )!;
   const items = edit.submenu as import('electron').MenuItemConstructorOptions[];

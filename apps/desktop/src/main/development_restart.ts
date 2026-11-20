@@ -18,13 +18,22 @@ interface RestartApp {
 /** electron-vite 随原 Electron 退出；开发版必须重启整个工具链，而非沿用旧 URL。 */
 export async function prepareDevelopmentRestart(
   app: RestartApp,
-  options: { appPath: string; argv: readonly string[]; logPath: string; nodePath?: string },
+  options: {
+    appPath: string;
+    argv: readonly string[];
+    logPath: string;
+    nodePath?: string;
+    signal?: AbortSignal;
+    onFailureAfterReady?: () => void;
+  },
 ): Promise<void> {
   if (!options.nodePath)
     throw new Error('开发版重启需要 pnpm 的 Node 路径，请通过 pnpm 启动 WeQ。');
   await access(options.nodePath);
   const worker = join(options.appPath, '../../scripts/restart-desktop-dev.mjs');
   await access(worker);
+  const { signal } = options;
+  signal?.throwIfAborted();
   const helper = fork(
     worker,
     [
@@ -46,17 +55,22 @@ export async function prepareDevelopmentRestart(
     let ready = false;
     const cleanup = () => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
       app.removeListener('will-quit', commit);
       helper.removeListener('error', fail);
       helper.removeListener('exit', exited);
       helper.removeListener('message', message);
     };
-    const fail = (error: Error) => {
+    const fail = (error: unknown) => {
       cleanup();
       helper.kill();
       if (!ready) reject(error);
-      else console.error('开发版重启失败', error);
+      else if (!signal?.aborted) {
+        options.onFailureAfterReady?.();
+        console.error('开发版重启失败', error);
+      }
     };
+    const cancel = () => fail(signal?.reason);
     const exited = () => fail(new Error('开发版重启助手提前退出'));
     let committing = false;
     const commit = (event: { defaultPrevented?: boolean; preventDefault(): void }) => {
@@ -85,5 +99,6 @@ export async function prepareDevelopmentRestart(
     helper.once('error', fail);
     helper.once('exit', exited);
     helper.on('message', message);
+    signal?.addEventListener('abort', cancel, { once: true });
   });
 }

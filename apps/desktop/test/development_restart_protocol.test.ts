@@ -12,7 +12,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function fixture() {
+async function fixture(signal?: AbortSignal) {
   vi.useFakeTimers();
   const child = Object.assign(new EventEmitter(), {
     kill: vi.fn(),
@@ -27,6 +27,7 @@ async function fixture() {
     argv: ['electron', '.', '--user-data-dir=fixture'],
     logPath: '/fixture/log',
     nodePath: '/fixture/node',
+    signal,
   });
   await Promise.resolve();
   await Promise.resolve();
@@ -51,6 +52,19 @@ it('助手就绪才注册提交，已被退出清理阻止的 will-quit 不提�
   expect(app.quit).toHaveBeenCalledOnce();
   expect(child.disconnect).toHaveBeenCalledOnce();
   expect(child.unref).toHaveBeenCalledOnce();
+  expect(app.listenerCount('will-quit')).toBe(0);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('取消退出后终止已就绪的助手，之后普通退出不再提交重启', async () => {
+  const request = new AbortController();
+  const { child, app, preparing } = await fixture(request.signal);
+  child.emit('message', { type: 'ready' });
+  await preparing;
+  request.abort();
+  app.emit('will-quit', { defaultPrevented: false, preventDefault: vi.fn() });
+  expect(child.kill).toHaveBeenCalledOnce();
+  expect(child.send).not.toHaveBeenCalled();
   expect(app.listenerCount('will-quit')).toBe(0);
   expect(vi.getTimerCount()).toBe(0);
 });

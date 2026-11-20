@@ -133,9 +133,12 @@ test('activation during shutdown cannot create or reveal windows', () => {
 
 test('the macOS File menu restores the one main window through the same lifecycle', () => {
   const { lifecycle, created } = fixture();
-  const menu = macApplicationMenu(() => {
-    lifecycle.open();
-  });
+  const menu = macApplicationMenu(
+    () => {
+      lifecycle.open();
+    },
+    () => {},
+  );
   assert.deepEqual(
     menu.map((item) => item.role ?? item.label),
     ['appMenu', 'File', 'editMenu', 'viewMenu', 'windowMenu'],
@@ -153,14 +156,38 @@ test('the macOS File menu restores the one main window through the same lifecycl
   assert.equal(file[2]!.role, 'close');
 });
 
+test('the macOS application menu restarts WeQ and keeps native quit available', () => {
+  let restarts = 0;
+  const [appMenu] = macApplicationMenu(
+    () => {},
+    () => {
+      restarts++;
+    },
+  );
+  const items = appMenu!.submenu;
+  assert.ok(Array.isArray(items));
+  assert.equal(items.at(-1)?.role, 'quit');
+  const restart = items.at(-2)?.click as () => void;
+  restart();
+  assert.equal(restarts, 1);
+});
+
 test('custom native menu labels follow the system language without mixed Chinese in English', () => {
   assert.deepEqual(nativeMenuLabels('en-US'), {
     file: 'File',
     newWindow: 'New Window',
     showWindow: 'Show Main Window',
+    restart: 'Restart WeQ',
     quit: 'Quit WeQ',
   });
   assert.equal(nativeMenuLabels('zh-Hans-CN').file, '文件');
   assert.equal(nativeMenuLabels('zh_TW').newWindow, '新建窗口');
-  assert.equal(macApplicationMenu(() => {}, 'zh-CN')[1]!.label, '文件');
+  assert.equal(
+    macApplicationMenu(
+      () => {},
+      () => {},
+      'zh-CN',
+    )[1]!.label,
+    '文件',
+  );
 });
