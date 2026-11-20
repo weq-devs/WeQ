@@ -49,7 +49,7 @@ import type {
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
 import { DressOpacityControl } from './DressOpacityControl';
-import { FormSelect } from './FormSelect';
+import { SegmentedControl } from './SegmentedControl';
 import { conversationDressLabel } from '../lib/conversationDress';
 import type { ConversationSettingsRequest } from '../lib/conversationSettingsNavigation';
 import {
@@ -132,10 +132,10 @@ const mallBrowseSchema = z.record(
 /** 通话背景没有「安装」概念,选中即用(远程 url 直接给通话窗口引)。 */
 const isCallBg = (kind: MallKind): kind is 'callbg' => kind === 'callbg';
 
-const SCOPES: Array<{ id: DressScope; label: string; hint: string }> = [
-  { id: 'mine', label: '仅自己', hint: '仅覆盖自己发出的消息' },
-  { id: 'fallback', label: '替代无装扮', hint: '仅替代原本没有对应装扮的消息，保留已有装扮' },
-  { id: 'all', label: '覆盖全部', hint: '覆盖自己和他人消息的对应装扮' },
+const SCOPES: ReadonlyArray<{ value: DressScope; label: string; title: string }> = [
+  { value: 'mine', label: '仅自己', title: '仅覆盖自己发出的消息' },
+  { value: 'fallback', label: '替代无装扮', title: '仅替代原本没有对应装扮的消息，保留已有装扮' },
+  { value: 'all', label: '覆盖全部', title: '覆盖自己和他人消息的对应装扮' },
 ];
 
 /** 排行 / 搜索首屏的骨架卡片数 —— 与一屏可见的卡片量相当,不用撑满整份列表。 */
@@ -953,6 +953,7 @@ export function DressUpDialog({
           {current.map((item) => {
             const { kind, label, value, name } = item;
             const hasScope = kind === 'bubble' || kind === 'font' || kind === 'widget';
+            const scope = hasScope ? (manifest?.scopes?.[kind] ?? manifest?.scope ?? 'mine') : null;
             const exceptions: DressConversationEntry[] = hasScope
               ? []
               : overrides.filter((entry) => entry[kind] !== undefined);
@@ -1010,23 +1011,21 @@ export function DressUpDialog({
                 </div>
                 <div className="weq-dress-current-options">
                   {hasScope ? (
-                    <label className="weq-dress-current-scope">
-                      <span>渲染范围</span>
-                      <FormSelect
-                        aria-label={`${label}渲染范围`}
-                        value={manifest?.scopes?.[kind] ?? manifest?.scope ?? 'mine'}
+                    <div className="weq-dress-current-scope">
+                      <div className="weq-dress-current-scope-head">
+                        <span>渲染范围</span>
+                        {!value ? <small>选用装扮后生效</small> : null}
+                      </div>
+                      <SegmentedControl
+                        label={`${label}渲染范围`}
+                        value={scope}
+                        options={SCOPES}
                         disabled={applying || !manifest}
-                        onChange={(event) =>
-                          void changeScope(kind, event.target.value as DressScope)
-                        }
-                      >
-                        {SCOPES.map((option) => (
-                          <option key={option.id} value={option.id} title={option.hint}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </FormSelect>
-                    </label>
+                        onChange={(next) => {
+                          if (next !== scope) void changeScope(kind, next);
+                        }}
+                      />
+                    </div>
                   ) : null}
                   {kind === 'background' ? renderOpacity('background') : null}
                   {kind === 'screen' ? renderOpacity('widget') : null}

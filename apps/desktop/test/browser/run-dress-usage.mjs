@@ -73,25 +73,17 @@ try {
         'true',
       );
       assert.equal(await page.locator('.weq-dress-current').count(), 6);
-      const bubbleScope = page.getByRole('combobox', { name: '聊天气泡渲染范围' });
-      await bubbleScope.click();
-      await page.getByRole('option', { name: '替代无装扮', exact: true }).click();
-      await page.waitForFunction(
-        () =>
-          document.querySelector('[aria-label="聊天气泡渲染范围"]').dataset.value === 'fallback',
-      );
-      assert.equal(
-        await page.getByRole('combobox', { name: '聊天字体渲染范围' }).getAttribute('data-value'),
-        'mine',
-      );
+      const bubbleScope = page.getByRole('radiogroup', { name: '聊天气泡渲染范围' });
+      await bubbleScope.getByRole('radio', { name: '替代无装扮' }).click();
+      const fallback = bubbleScope.getByRole('radio', { name: '替代无装扮', checked: true });
+      await fallback.waitFor();
+      await page
+        .getByRole('radiogroup', { name: '聊天字体渲染范围' })
+        .getByRole('radio', { name: '仅自己', checked: true })
+        .waitFor();
       await page.locator('.weq-dress-applying').waitFor({ state: 'detached' });
-      await bubbleScope.focus();
-      await page.keyboard.press('ArrowDown');
-      await page.keyboard.press('ArrowDown');
-      await page.keyboard.press('Enter');
-      await page.waitForFunction(
-        () => document.querySelector('[aria-label="聊天气泡渲染范围"]').dataset.value === 'all',
-      );
+      await fallback.press('ArrowRight');
+      await bubbleScope.getByRole('radio', { name: '覆盖全部', checked: true }).waitFor();
       await page.locator('.weq-dress-applying').waitFor({ state: 'detached' });
       assert.equal(await page.locator('.weq-dress-search').count(), 0);
       assert.equal(
@@ -113,7 +105,7 @@ try {
         .waitFor({ state: 'detached' });
       await page.getByRole('button', { name: '选择聊天气泡', exact: true }).click();
       await page.getByRole('tab', { name: '聊天气泡', exact: true }).waitFor();
-      assert.equal(await page.getByRole('combobox', { name: '聊天气泡渲染范围' }).count(), 0);
+      assert.equal(await bubbleScope.count(), 0);
       assert.equal(await page.locator('.weq-dress-local-note').count(), 0);
       await page.getByRole('button', { name: '使用', exact: true }).click();
       await page.getByRole('button', { name: '使用中', exact: true }).waitFor();

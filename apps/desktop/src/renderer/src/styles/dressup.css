@@ -340,6 +340,7 @@
 }
 
 .weq-dress-current-info > small,
+.weq-dress-current-scope-head > small,
 .weq-dress-local-note {
   color: var(--weq-fg-secondary);
   font-size: 12px;
@@ -352,8 +353,7 @@
   font-weight: 500;
 }
 
-.weq-dress-current-actions,
-.weq-dress-current-scope {
+.weq-dress-current-actions {
   display: flex;
   flex: none;
   align-items: center;
@@ -361,9 +361,21 @@
 }
 
 .weq-dress-current-scope {
+  display: grid;
+  gap: 6px;
+}
+
+.weq-dress-current-scope-head {
+  display: flex;
+  align-items: baseline;
   justify-content: space-between;
   flex-wrap: wrap;
+  gap: 4px 8px;
   font-size: 12px;
+}
+
+.weq-dress-current-scope .weq-segmented > button {
+  padding-inline: 4px;
 }
 
 .weq-dress-current-options {

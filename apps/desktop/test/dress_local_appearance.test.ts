@@ -179,23 +179,23 @@ it('默认打开第一个页签，使用中可保存三档范围并取消当前�
     expect(host.querySelector('.weq-dress-search')).toBeNull();
     expect(host.querySelector('.weq-dress-toolbar')).toBeNull();
     const card = host.querySelector('article[aria-label="聊天气泡"]')!;
-    const select = card.querySelector('select')!;
-    await act(async () => {
-      select.value = 'fallback';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    const fallback = Array.from(card.querySelectorAll<HTMLButtonElement>('[role="radio"]')).find(
+      (option) => option.textContent === '替代无装扮',
+    )!;
+    await act(async () => fallback.click());
     expect(fixture.activate).toHaveBeenLastCalledWith({ kind: 'bubble', scope: 'fallback' });
-    expect(select.value).toBe('fallback');
-    expect(host.querySelector('article[aria-label="聊天字体"] select')).toHaveProperty(
-      'value',
-      'mine',
-    );
+    expect(fallback.getAttribute('aria-checked')).toBe('true');
+    expect(
+      host.querySelector('[aria-label="聊天字体渲染范围"] [aria-checked="true"]')?.textContent,
+    ).toBe('仅自己');
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="取消使用聊天气泡"]')!.click(),
     );
     expect(fixture.activate).toHaveBeenLastCalledWith({ kind: 'bubble', itemId: 0 });
     expect(host.querySelector('[aria-label="取消使用聊天气泡"]')).toBeNull();
     expect(host.textContent).toContain('按消息记录还原');
+    expect(card.textContent).toContain('选用装扮后生效');
+    expect(fallback.getAttribute('aria-checked')).toBe('true');
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="选择聊天气泡"]')!.click(),
     );
