@@ -337,6 +337,7 @@ button.composer-single-thumb {
 }
 
 .voice-panel-body {
+  --voice-wave-height: 44px;
   position: relative;
   display: grid;
   grid-template-rows: minmax(66px, 1fr) auto;
@@ -392,7 +393,7 @@ button.composer-single-thumb {
   align-items: center;
   gap: clamp(1px, 0.4vw, 3px);
   width: clamp(0px, calc(100% - 138px), 320px);
-  height: 44px;
+  height: var(--voice-wave-height);
   color: var(--media-record);
   opacity: 0;
   contain: layout paint;
@@ -402,7 +403,6 @@ button.composer-single-thumb {
     top 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
     left 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
     width 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
-    height 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
     transform 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
     opacity 140ms ease;
 }
@@ -417,10 +417,9 @@ button.composer-single-thumb {
 }
 
 .voice-panel-body[data-wave-phase='review'] .voice-wave {
-  top: 17px;
+  top: calc(var(--voice-wave-height) / 2);
   left: 42px;
   width: calc(100% - 82px);
-  height: 34px;
   transform: translate(0, -50%);
 }
 
@@ -577,6 +576,7 @@ button.composer-single-thumb {
 .voice-review-head {
   grid-row: 1;
   display: flex;
+  min-height: var(--voice-wave-height);
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -661,10 +661,30 @@ button.composer-single-thumb {
   grid-row: 3;
 }
 
+.voice-review-actions > .voice-btn {
+  box-sizing: border-box;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  justify-content: center;
+  padding-block: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.voice-review-actions > .voice-btn.primary:hover:not(:disabled) {
+  transform: none;
+}
+
 @container (max-width: 430px) {
+  .voice-review-actions {
+    gap: 4px;
+  }
+
   .voice-review-actions .voice-btn {
+    min-width: 28px;
     gap: 3px;
-    padding-inline: 5px;
+    padding-inline: 4px;
   }
 
   .voice-review-actions .voice-btn[aria-label='原声'] span,

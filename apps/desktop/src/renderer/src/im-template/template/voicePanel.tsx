@@ -987,9 +987,7 @@ export function VoicePanel({
         <div
           className="voice-panel-body"
           data-wave-phase={phase}
-          data-wave-compact={
-            phase === 'review' && (recorder.transcribing || recorder.transcriptReady)
-          }
+          data-wave-compact={phase === 'review' && recorder.transcriptReady}
         >
           {foreignRecording ? null : (
             <VoiceWave
