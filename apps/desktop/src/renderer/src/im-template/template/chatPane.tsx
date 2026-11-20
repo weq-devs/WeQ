@@ -958,7 +958,13 @@ function ChatPaneContent({
     y: number;
   } | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const { open: voiceOpen, setOpen: setVoiceOpen, returnId, setReturnId } = useVoiceMode()!;
+  const {
+    open: voiceOpen,
+    setOpen: setVoiceOpen,
+    returnId,
+    setReturnId,
+    takeTranscriptDraft,
+  } = useVoiceMode()!;
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
   const [onlineFacesOpen, setOnlineFacesOpen] = useState(false);
   const [arkOpen, setArkOpen] = useState(false);
@@ -5189,6 +5195,12 @@ function ChatPaneContent({
     setComposerBody(value);
   }
 
+  function applyTranscriptToEmptyDraft() {
+    if (!conversation) return;
+    const text = takeTranscriptDraft(conversation.id);
+    if (text && !composerSpeechText(bodyRef.current).trim()) setSpeechDraftText(text);
+  }
+
   async function reeditMessage(message: Message): Promise<boolean> {
     if (
       !conversation ||
@@ -5389,6 +5401,7 @@ function ChatPaneContent({
   }
 
   function toggleVoicePanel() {
+    if (voiceOpen) applyTranscriptToEmptyDraft();
     setComposerMenu(null);
     setContextMenu(null);
     setLocationMenu(null);
@@ -7274,6 +7287,7 @@ function ChatPaneContent({
               conversationLabel={chatHeaderTitle(conversation)}
               text={composerSpeechText(body)}
               onTextChange={setSpeechDraftText}
+              onUseTranscriptDraft={applyTranscriptToEmptyDraft}
               groupId={
                 conversation.type === 'group' ? Number(conversation.group.identityValue) : undefined
               }

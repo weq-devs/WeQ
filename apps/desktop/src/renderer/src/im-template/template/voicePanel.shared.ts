@@ -5,6 +5,7 @@ export const voiceModeContext = createContext<{
   setOpen: Dispatch<SetStateAction<boolean>>;
   returnId: string | null;
   setReturnId: Dispatch<SetStateAction<string | null>>;
+  takeTranscriptDraft: (conversationId: string) => string | undefined;
 } | null>(null);
 
 export function useVoiceMode() {

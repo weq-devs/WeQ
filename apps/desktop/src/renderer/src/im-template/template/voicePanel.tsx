@@ -124,6 +124,7 @@ function useVoiceRecorder() {
   const peaksRef = useRef<number[]>([]);
   const lastPeakAtRef = useRef(0);
   const transcriptionRef = useRef<AbortController | null>(null);
+  const transcriptDraft = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const unmountedRef = useRef(false);
 
@@ -255,6 +256,7 @@ function useVoiceRecorder() {
     holdingRef.current = true;
     transcriptionRef.current?.abort();
     transcriptionRef.current = null;
+    transcriptDraft.current = null;
     setTranscribing(false);
     peaksRef.current = [];
     lastPeakAtRef.current = 0;
@@ -424,6 +426,7 @@ function useVoiceRecorder() {
       discardRef.current = true;
       transcriptionRef.current?.abort();
       transcriptionRef.current = null;
+      transcriptDraft.current = null;
       setTranscribing(false);
       const recorder = recorderRef.current;
       if (recorder && recorder.state !== 'inactive') {
@@ -479,11 +482,24 @@ function useVoiceRecorder() {
   }, [ensureAudio]);
 
   const cancelTranscription = useCallback(() => {
-    const controller = transcriptionRef.current;
-    if (!controller) return;
+    transcriptionRef.current?.abort();
     transcriptionRef.current = null;
-    controller.abort();
+    transcriptDraft.current = null;
     setTranscribing(false);
+    setTranscript('');
+    setTranscriptReady(false);
+    setTranscribeError(null);
+  }, []);
+
+  const takeTranscriptDraft = useCallback(() => {
+    const text = transcriptDraft.current;
+    transcriptDraft.current = null;
+    return text?.trim();
+  }, []);
+
+  const editTranscript = useCallback((text: string) => {
+    if (transcriptDraft.current !== null) transcriptDraft.current = text;
+    setTranscript(text);
   }, []);
 
   const transcribeClip = useCallback(async () => {
@@ -515,6 +531,7 @@ function useVoiceRecorder() {
       if (!result?.success) throw new Error(result?.error ?? '本地转写失败');
       const text = result.text?.trim();
       if (!text) throw new Error('没有识别到文字');
+      transcriptDraft.current = text;
       setTranscript(text);
       setTranscriptReady(true);
     } catch (error) {
@@ -575,8 +592,9 @@ function useVoiceRecorder() {
     togglePlay,
     transcribeClip,
     cancelTranscription,
+    takeTranscriptDraft,
     stopPlayback,
-    setTranscript,
+    editTranscript,
   };
 }
 
@@ -650,7 +668,18 @@ export function VoiceWorkspace({
   const [inline, setInline] = useState<{ id: string } | null>(null);
   const recorder = useVoiceRecorder();
   const pages = useContext(PagesContext);
-  const mode = useMemo(() => ({ open, setOpen, returnId, setReturnId }), [open, returnId]);
+  const { takeTranscriptDraft } = recorder;
+  const mode = useMemo(
+    () => ({
+      open,
+      setOpen,
+      returnId,
+      setReturnId,
+      takeTranscriptDraft: (conversationId: string) =>
+        owner?.id === conversationId ? takeTranscriptDraft() : undefined,
+    }),
+    [open, owner?.id, returnId, takeTranscriptDraft],
+  );
   const registerInline = useCallback((id: string) => {
     const panel = { id };
     setInline(panel);
@@ -795,6 +824,7 @@ export function VoicePanel({
   groupId,
   text,
   onTextChange,
+  onUseTranscriptDraft,
   onSendAiVoice,
 }: {
   conversationId: string;
@@ -817,6 +847,7 @@ export function VoicePanel({
   groupId?: number;
   text: string;
   onTextChange: (text: string) => void;
+  onUseTranscriptDraft: () => void;
   onSendAiVoice: (draft: AiVoiceDraft) => void;
 }) {
   const [tab, setTab] = useState<'record' | 'tts' | 'ai'>('record');
@@ -834,7 +865,10 @@ export function VoicePanel({
 
   function changeTab(next: typeof tab) {
     if (busy) return;
-    if (next !== 'record' && ownsRecording) stopPlayback();
+    if (next !== 'record' && ownsRecording) {
+      stopPlayback();
+      if (tab === 'record') onUseTranscriptDraft();
+    }
     setTab(next);
   }
 
@@ -1010,7 +1044,7 @@ export function VoicePanel({
               onTogglePlay={recorder.togglePlay}
               onTranscribe={recorder.transcribeClip}
               onCancelTranscription={recorder.cancelTranscription}
-              onTranscriptChange={recorder.setTranscript}
+              onTranscriptChange={recorder.editTranscript}
               onDiscard={() => recorder.discard()}
               onSendVoice={(voiceChanged) =>
                 void sendReview(() =>
@@ -1038,7 +1072,7 @@ export function VoicePanel({
                   {phase === 'requesting' ? (
                     <>
                       <Loader2 size={20} className={cn('voice-spin')} />
-                      <strong>正在打开麦克风…</strong>
+                      <strong>正在开麦…</strong>
                     </>
                   ) : busy ? (
                     <>
@@ -1139,6 +1173,7 @@ function VoiceReview({
   onSendTranscript: () => void;
 }) {
   const trimmed = transcript.trim();
+  const cancelLabel = transcriptReady ? '取消转文字' : '取消转写';
   const [voiceChanged, setVoiceChanged] = useState(false);
   return (
     <div className={cn('voice-review')}>
@@ -1178,57 +1213,61 @@ function VoiceReview({
       ) : null}
 
       <div className="voice-review-actions">
-        <button
-          data-danger="outline"
-          type="button"
-          className="voice-btn ghost"
-          aria-label="删除录音"
-          title="删除录音"
-          onClick={onDiscard}
-        >
-          <Trash2 size={14} />
-        </button>
+        {transcriptReady ? null : (
+          <button
+            data-danger="outline"
+            type="button"
+            className="voice-btn ghost"
+            aria-label="删除录音"
+            title="删除录音"
+            onClick={onDiscard}
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
         <button
           type="button"
           className="voice-btn ghost voice-transcribe-btn"
-          onClick={transcribing ? onCancelTranscription : onTranscribe}
+          onClick={transcribing || transcriptReady ? onCancelTranscription : onTranscribe}
         >
-          {transcribing ? <X size={14} /> : <Captions size={14} />}
-          <span>{transcribing ? '取消转写' : '转文字'}</span>
+          {transcribing || transcriptReady ? <X size={14} /> : <Captions size={14} />}
+          <span>{transcribing || transcriptReady ? cancelLabel : '转文字'}</span>
         </button>
-        {trimmed ? (
+        {transcriptReady ? (
           <button
             type="button"
-            className={cn('voice-btn ghost')}
-            aria-label="发送文字"
+            className="voice-btn primary"
             title={canSend ? '只发这段文字' : sendHint}
-            disabled={!canSend}
+            disabled={!canSend || !trimmed}
             onClick={onSendTranscript}
           >
-            <Type size={14} /> <span>发送文字</span>
+            <SendHorizontal size={14} /> <span>发送文字</span>
           </button>
-        ) : null}
-        <button
-          type="button"
-          className={cn('voice-btn ghost', voiceChanged && 'is-active')}
-          title={voiceChanged ? '取消发送变声标识' : '发送变声标识'}
-          aria-label="发送变声标识"
-          aria-pressed={voiceChanged}
-          disabled={!canSend}
-          onClick={() => setVoiceChanged((value) => !value)}
-        >
-          <Wand2 size={14} />
-        </button>
-        <button
-          type="button"
-          className={cn('voice-btn primary')}
-          aria-label="发送语音"
-          title={canSend ? '发送这条语音' : sendHint}
-          disabled={!canSend}
-          onClick={() => onSendVoice(voiceChanged)}
-        >
-          <SendHorizontal size={14} /> <span>发送语音</span>
-        </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={cn('voice-btn ghost', voiceChanged && 'is-active')}
+              title={voiceChanged ? '取消发送变声标识' : '发送变声标识'}
+              aria-label="发送变声标识"
+              aria-pressed={voiceChanged}
+              disabled={!canSend}
+              onClick={() => setVoiceChanged((value) => !value)}
+            >
+              <Wand2 size={14} />
+            </button>
+            <button
+              type="button"
+              className="voice-btn primary"
+              aria-label="发送语音"
+              title={canSend ? '发送这条语音' : sendHint}
+              disabled={!canSend}
+              onClick={() => onSendVoice(voiceChanged)}
+            >
+              <SendHorizontal size={14} /> <span>发送语音</span>
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -353,6 +353,10 @@ button.composer-single-thumb {
   scrollbar-width: thin;
 }
 
+.voice-panel-body[data-wave-compact='true'] {
+  --voice-wave-center: calc(var(--voice-wave-height) / 2);
+}
+
 .voice-panel-body:has(> .voice-review) {
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
@@ -406,6 +410,7 @@ button.composer-single-thumb {
   pointer-events: none;
   transform: translate(-50%, -50%);
   transition:
+    top 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
     left 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
     width 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
     transform 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
@@ -575,6 +580,13 @@ button.composer-single-thumb {
   gap: 5px;
   min-width: 0;
   min-height: 0;
+  transition: grid-template-rows 230ms cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-review {
+    transition: none;
+  }
 }
 
 .voice-review-head {
@@ -690,10 +702,6 @@ button.composer-single-thumb {
     min-width: 28px;
     gap: 3px;
     padding-inline: 4px;
-  }
-
-  .voice-review-actions .voice-btn[aria-label='发送文字'] span {
-    display: none;
   }
 }
 
