@@ -1,5 +1,10 @@
 import { useSyncExternalStore } from 'react';
-import type { DressConversationEntry, DressManifest, DressScopeKind } from '@weq/service';
+import type {
+  DressConversationEntry,
+  DressMallItem,
+  DressManifest,
+  DressScopeKind,
+} from '@weq/service';
 
 const empty = new URLSearchParams(location.search).has('empty');
 const dressTools = new URLSearchParams(location.search).has('tools');
@@ -51,6 +56,24 @@ let conversationOverrides: Record<string, DressConversationEntry> = new URLSearc
 ).has('exceptions')
   ? { 'group:42': { kind: 'group', conv: '42', title: '项目讨论', background: 'off' } }
   : {};
+if (new URLSearchParams(location.search).has('picker'))
+  conversationOverrides['c2c:u_preview'] = {
+    kind: 'c2c',
+    conv: 'u_preview',
+    title: '预览会话',
+    callbg: 'off',
+  };
+const callBackgrounds: DressMallItem[] = Array.from({ length: 60 }, (_, index) => ({
+  appId: 17,
+  itemId: index + 1,
+  name: `通话背景 ${index + 1}`,
+  previewUrl: 'https://example.test/portrait.png',
+  previewLargeUrl: '',
+  labels: [],
+  price: 0,
+  mallName: '',
+}));
+const screenWidgets = ['1', '3', '4', '6', '7', '8', '10', '11', '2016'].map((id) => ({ id }));
 const snapshot = () => ({ manifest, qqOnline: true, own, conversationOverrides });
 function refresh() {
   revision++;
@@ -61,7 +84,7 @@ const proxy = (path = ''): unknown =>
     get(_target, key) {
       if (key === 'useUtils') return () => proxy('utils');
       if (key === 'useQuery')
-        return () => {
+        return (input?: { kind?: string }) => {
           useSyncExternalStore(subscribe, () => revision);
           return {
             data:
@@ -70,21 +93,25 @@ const proxy = (path = ''): unknown =>
                 : path === 'account.dressup.getState'
                   ? snapshot()
                   : path === 'account.dressup.rank'
-                    ? {
-                        items: [
-                          {
-                            appId: 2,
-                            itemId: 11,
-                            name: '浅绿聊天气泡',
-                            previewUrl: '',
-                            previewLargeUrl: '',
-                            labels: [],
-                            price: 0,
-                            mallName: '',
-                          },
-                        ],
-                      }
-                    : undefined,
+                    ? input?.kind === 'callbg'
+                      ? { items: callBackgrounds }
+                      : {
+                          items: [
+                            {
+                              appId: 2,
+                              itemId: 11,
+                              name: '浅绿聊天气泡',
+                              previewUrl: '',
+                              previewLargeUrl: '',
+                              labels: [],
+                              price: 0,
+                              mallName: '',
+                            },
+                          ],
+                        }
+                    : path === 'account.dressup.widgets'
+                      ? screenWidgets
+                      : undefined,
             isLoading: false,
             isInitialLoading: false,
           };

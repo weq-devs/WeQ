@@ -35,6 +35,7 @@ const bubble = await sharp({
 })
   .png()
   .toBuffer();
+const portrait = await sharp(bubble).resize(144, 256, { fit: 'fill' }).png().toBuffer();
 const font = await readFile(resolve(root, '../../resources/assistant/fonts/cover.otf'));
 let browser;
 try {
@@ -53,8 +54,12 @@ try {
     const url = new URL(route.request().url());
     if (url.pathname === '/_media/dressfont')
       return route.fulfill({ contentType: 'font/otf', body: font });
+    if (url.pathname === '/_media/dress' && url.searchParams.get('src')?.endsWith('/portrait.png'))
+      return route.fulfill({ contentType: 'image/png', body: portrait });
     if (url.pathname.startsWith('/_media/'))
       return route.fulfill({ contentType: 'image/png', body: bubble });
+    if (url.pathname.startsWith('/_asset/dress/screen/'))
+      return route.fulfill({ path: resolve(root, '../../resources', url.pathname.slice(8)) });
     return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
   });
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/dress-usage.html`;
@@ -130,6 +135,43 @@ try {
   await page.screenshot({ path: resolve(output, 'conversation-override.png'), fullPage: true });
   await mode.getByRole('radio', { name: '跟随全局' }).click();
   await background.getByText('1 个会话单独设置').waitFor({ state: 'detached' });
+
+  await page.goto(`${url}?tools=1&picker=1`);
+  const call = page.getByRole('article', { name: '通话背景' });
+  await call.getByText('1 个会话单独设置').click();
+  await call.getByRole('button', { name: /预览会话.*不使用/ }).click();
+  const callMode = page.getByRole('radiogroup', { name: '本会话通话背景' });
+  await callMode.getByRole('radio', { name: '单独选择' }).click();
+  async function checkVisibleLabel(name) {
+    const option = page.getByRole('button', { name, exact: true });
+    await option.scrollIntoViewIfNeeded();
+    const labelBounds = await option.getByText(name, { exact: true }).boundingBox();
+    const cardBounds = await option.boundingBox();
+    assert.ok(
+      labelBounds.height > 0 &&
+        labelBounds.y + labelBounds.height <= cardBounds.y + cardBounds.height,
+    );
+    return option;
+  }
+  await checkVisibleLabel('通话背景 60');
+  const firstOption = await checkVisibleLabel('通话背景 1');
+  await firstOption.locator('img').waitFor();
+  await page.screenshot({ path: resolve(output, 'conversation-call-picker.png'), fullPage: true });
+  await callMode.getByRole('radio', { name: '跟随全局' }).click();
+  const widgetMode = page.getByRole('radiogroup', { name: '本会话浮屏挂件' });
+  await widgetMode.getByRole('radio', { name: '单独选择' }).click();
+  await checkVisibleLabel('挂件 2016');
+  const firstWidget = await checkVisibleLabel('挂件 1');
+  await firstWidget.locator('svg').waitFor();
+  const widgetRatio = await firstWidget.locator('svg').evaluate((svg) => {
+    const { width, height } = svg.viewBox.baseVal;
+    return width / height;
+  });
+  assert.equal(widgetRatio, 9 / 16);
+  await page.screenshot({
+    path: resolve(output, 'conversation-widget-picker.png'),
+    fullPage: true,
+  });
 
   await page.goto(`${url}?empty=1&tools=1`);
   await page.getByRole('heading', { name: '使用中的装扮' }).waitFor();

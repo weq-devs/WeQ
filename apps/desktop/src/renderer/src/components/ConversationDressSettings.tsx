@@ -90,7 +90,9 @@ function CallBackgroundPicker({
           const image = dressUrl(item.previewLargeUrl || item.previewUrl);
           return (
             <button type="button" key={item.itemId} disabled={busy} onClick={() => onChoose(item)}>
-              {image ? <ShimmerImage src={image} alt="" loading="lazy" /> : null}
+              <span className="weq-cvs-dress-option-preview">
+                {image ? <ShimmerImage src={image} alt="" loading="lazy" /> : null}
+              </span>
               <span>{item.name || `通话背景 ${item.itemId}`}</span>
             </button>
           );
@@ -119,7 +121,7 @@ function ScreenWidgetPicker({
       <div className="weq-cvs-dress-options">
         {(widgets.data ?? []).map(({ id }) => (
           <button type="button" key={id} disabled={busy} onClick={() => onChoose(id)}>
-            <ScreenWidget widgetId={id} className="weq-cvs-dress-widget" />
+            <ScreenWidget widgetId={id} className="weq-cvs-dress-widget" preserveCanvas />
             <span>挂件 {id}</span>
           </button>
         ))}
@@ -238,41 +240,29 @@ function ConversationDressRow({
       ) : null}
       {choosing ? (
         <>
-          <div className="weq-cvs-dress-pick-actions">
-            {slot === 'background' ? (
-              <>
-                <button
-                  type="button"
-                  className="weq-set-btn"
-                  disabled={busy || !qqBackground}
-                  title={qqBackground ? undefined : '该账号尚未设置 QQ 聊天背景'}
-                  onClick={() =>
-                    void save({ slot: 'background', value: { source: 'qq', opacity } })
-                  }
-                >
-                  选择 QQ 同款
-                </button>
-                <button
-                  type="button"
-                  className="weq-set-btn"
-                  disabled={busy}
-                  onClick={async () => {
-                    if (await onPick()) setChoosing(false);
-                  }}
-                >
-                  选择图片或视频
-                </button>
-              </>
-            ) : null}
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={busy}
-              onClick={() => setChoosing(false)}
-            >
-              取消选择
-            </button>
-          </div>
+          {slot === 'background' ? (
+            <div className="weq-cvs-dress-pick-actions">
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={busy || !qqBackground}
+                title={qqBackground ? undefined : '该账号尚未设置 QQ 聊天背景'}
+                onClick={() => void save({ slot: 'background', value: { source: 'qq', opacity } })}
+              >
+                选择 QQ 同款
+              </button>
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={busy}
+                onClick={async () => {
+                  if (await onPick()) setChoosing(false);
+                }}
+              >
+                选择图片或视频
+              </button>
+            </div>
+          ) : null}
           {slot === 'callbg' ? (
             <CallBackgroundPicker
               online={online}

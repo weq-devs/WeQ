@@ -130,10 +130,11 @@ html[data-theme='dark'] .weq-conversation-settings-pane .weq-cvs-dialog {
   background: var(--weq-bg-subtle);
 }
 
-.weq-cvs-dress-preview :is(img, video) {
+.weq-cvs-dress-preview > :is(img, video) {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .weq-cvs-dress-row > .weq-dress-opacity {
@@ -149,7 +150,8 @@ html[data-theme='dark'] .weq-conversation-settings-pane .weq-cvs-dialog {
 
 .weq-cvs-dress-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(88px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(88px, 100%), 1fr));
+  grid-auto-rows: max-content;
   width: 100%;
   max-height: 230px;
   overflow: auto;
@@ -157,15 +159,20 @@ html[data-theme='dark'] .weq-conversation-settings-pane .weq-cvs-dialog {
   padding: 2px;
 }
 
-.weq-cvs-dress-options button {
-  overflow: hidden;
-  padding: 4px;
+.weq-cvs-dress-options > button {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: 4px;
+  padding: 4px 4px 6px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 8px;
   background: var(--weq-bg-subtle);
   color: inherit;
   font: inherit;
   font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
   overflow-wrap: anywhere;
   cursor: pointer;
 }
@@ -179,10 +186,22 @@ html[data-theme='dark'] .weq-conversation-settings-pane .weq-cvs-dialog {
   outline-offset: -2px;
 }
 
-.weq-cvs-dress-options :is(img, .weq-cvs-dress-widget) {
+.weq-cvs-dress-options :is(.weq-cvs-dress-option-preview, .weq-cvs-dress-widget) {
+  position: relative;
+  height: 84px;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.weq-cvs-dress-option-preview img {
   display: block;
   width: 100%;
-  height: 54px;
-  border-radius: 4px;
-  object-fit: cover;
+  height: 100%;
+  object-fit: contain;
+}
+
+.weq-cvs-dress-widget {
+  justify-self: center;
+  aspect-ratio: 9 / 16;
+  max-width: 100%;
 }
