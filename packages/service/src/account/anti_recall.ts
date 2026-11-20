@@ -355,6 +355,20 @@ export class AntiRecallService {
     return this.optimisticStatus();
   }
 
+  /** 修改当前名单中的单个会话，不覆盖其他客户端刚保存的选择。 */
+  async setConversationNotify(
+    target: AntiRecallTarget,
+    enabled: boolean,
+  ): Promise<AntiRecallStatus> {
+    const { kind, id } = normalizeTarget(target);
+    const key = notifyKey(kind, id);
+    const targets = this.config.notifyTargets;
+    if (targets.includes(key) === enabled) return this.optimisticStatus();
+    return this.setNotify({
+      targets: enabled ? [...targets, key] : targets.filter((k) => k !== key),
+    });
+  }
+
   /**
    * Mount the recall monitor (nt_msg.db change watch → drain `weq_recall_log`).
    * Idempotent. Independent of whether protection is currently enabled; the drain

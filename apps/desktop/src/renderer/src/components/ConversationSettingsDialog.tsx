@@ -2,7 +2,7 @@
  * 会话设置窗格 —— 在会话头部设置按钮附近原位打开。
  *
  * 紧凑窗格保留左侧分类导航与右侧内容。
- *   • 防撤回：把「这个会话」加/移出启用集；通知方式就地修改统一设置，名单单独编辑。写操作是乐观的
+ *   • 防撤回：就地设置本会话的保护和提醒；通知方式修改统一设置。保护范围写操作是乐观的
  *     （服务层落配置后立刻返回期望状态），点击即生效，不需要 QQ 在线。防撤回处于
  *     「关闭」时，打开这里的「保护此会话」会自动把启用范围切到「按会话勾选」。
  *   • 群关键词（仅群聊）：把 GroupKeywordEditor 那套关键词 + 成员范围编辑器**内嵌**
@@ -13,6 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { accountBinding } from '../lib/clientPreferences';
+import { useNotificationPolicy } from '../lib/notificationPolicy';
 import { BellRing, BrainCircuit, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog.shared';
@@ -20,7 +21,6 @@ import { Card, Row, Toggle } from './settings/controls';
 import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
 import { ConversationSettingsFrame } from './ConversationSettingsFrame';
 import { QQConversationControls } from './QQConversationControls';
-import { NotificationSettingsLink } from './settings/NotificationSettingsLink';
 import { NotificationMethodSelect } from './settings/NotificationMethodSelect';
 import '../styles/conversation-settings.css';
 
@@ -80,7 +80,18 @@ export function ConversationSettingsDialog({
 
   const setScope = trpc.account.antiRecall.setScope.useMutation();
   const setTargets = trpc.account.antiRecall.setTargets.useMutation();
-  const busy = setScope.isLoading || setTargets.isLoading;
+  const setConversationNotify = trpc.account.antiRecall.setConversationNotify.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.account.antiRecall.getStatus.invalidate(),
+        utils.settings.antiRecall.getStatus.invalidate(),
+      ]);
+    },
+  });
+  const globalRecallMuted = useNotificationPolicy(
+    ({ ready, events }) => ready && !events.recall.banner && !events.recall.system,
+  );
+  const busy = setScope.isLoading || setTargets.isLoading || setConversationNotify.isLoading;
 
   // 意图感知：全局状态（同 key 共享缓存）+ 单会话覆盖写。
   const intentStatus = trpc.account.intentSense.getStatus.useQuery(undefined, {
@@ -100,6 +111,7 @@ export function ConversationSettingsDialog({
   const allProtected = scope === 'all';
   const targets = useMemo(() => status.data?.targets ?? [], [status.data?.targets]);
   const protectedHere = allProtected || targets.some((t) => t.id === conv && t.kind === kind);
+  const notifyHere = status.data?.notifyTargets.includes(`${kind}:${conv}`) ?? false;
 
   const groupKeywords = kind === 'group';
 
@@ -117,6 +129,14 @@ export function ConversationSettingsDialog({
       if (request === verification.current) setObserved(actual.error ? undefined : actual.data);
     } finally {
       if (request === verification.current) setCheckingProtection(false);
+    }
+  }
+
+  async function onToggleRecallNotify(next: boolean): Promise<void> {
+    try {
+      await setConversationNotify.mutateAsync({ ...source.current, kind, id: conv, enabled: next });
+    } catch (e) {
+      if (mounted.current) showError('保存本会话撤回提醒失败', errMsg(e));
     }
   }
 
@@ -273,20 +293,26 @@ export function ConversationSettingsDialog({
               }
             />
             <Row
-              label="撤回通知方式（全局）"
-              control={<NotificationMethodSelect event="recall" />}
+              label="本会话撤回提醒"
+              desc={
+                globalRecallMuted
+                  ? '全局撤回通知已关闭，暂不会提醒。'
+                  : notifyHere && (!enabled || !protectedHere)
+                    ? '本会话未开启防撤回，暂不会提醒。'
+                    : undefined
+              }
+              control={
+                <Toggle
+                  checked={notifyHere}
+                  disabled={busy || !status.data || Boolean(status.error)}
+                  onChange={(next) => void onToggleRecallNotify(next)}
+                  label="本会话撤回提醒"
+                />
+              }
             />
             <Row
-              label="提醒范围"
-              control={
-                <NotificationSettingsLink
-                  settingId="recall-notifications"
-                  conversation={{ kind, conv, title }}
-                  onNavigate={onClose}
-                >
-                  本会话撤回提醒
-                </NotificationSettingsLink>
-              }
+              label="撤回通知方式（全局）"
+              control={<NotificationMethodSelect event="recall" />}
             />
             <Row
               label="实际保护状态"

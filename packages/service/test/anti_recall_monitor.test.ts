@@ -104,12 +104,27 @@ it('统一渠道开启但名单为空不通知；选择后以渠道为准而非�
   insert.run(1, 1);
   await poll();
   expect(f.notify).not.toHaveBeenCalled();
-  await f.service.setNotify({ targets: ['group:123456'] });
+  await f.service.setNotify({ targets: ['c2c:123456', 'group:234567'] });
+  const group = { kind: 'group', id: '123456' } as const;
+  expect(await f.service.setConversationNotify(group, true)).toMatchObject({
+    notifyTargets: ['c2c:123456', 'group:234567', 'group:123456'],
+    enabled: true,
+    mode: 'all',
+    targets: [],
+  });
   insert.run(2, 2);
   await poll();
   expect(f.notify.mock.calls.map(([event]) => event.msgId)).toEqual(['2']);
   enabled = false;
   insert.run(3, 3);
+  await poll();
+  expect(f.notify).toHaveBeenCalledOnce();
+  expect(await f.service.setConversationNotify(group, false)).toMatchObject({
+    notifyEnabled: false,
+    notifyTargets: ['c2c:123456', 'group:234567'],
+  });
+  enabled = true;
+  insert.run(4, 4);
   await poll();
   expect(f.notify).toHaveBeenCalledOnce();
 });
