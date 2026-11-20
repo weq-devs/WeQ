@@ -35,6 +35,7 @@ import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import {
   AnnualReportIndexDb,
+  GroupNotifyStatus,
   MessageReadIndexDb,
   withDatabasePriority,
   waitForDatabaseQuiet,
@@ -535,6 +536,7 @@ function cancelAnnualReportWarmup(): void {
 function mountDbWatch(session: AccountSession): void {
   if (dbWatchHandle) return;
   const isCurrent = () => getAppContext().account === session;
+  let groupRoleNotices: Set<string> | undefined;
   getAppContext().services?.interactionBadges.requestScan();
   contactNoticeWatchHandles = [
     {
@@ -545,13 +547,33 @@ function mountDbWatch(session: AccountSession): void {
     {
       kind: 'group' as const,
       dbPath: session.groupMembers.dbPath,
-      read: async () =>
-        (
-          await Promise.all([
-            session.groupNotifies.listNormal(CONTACT_NOTICE_LIMIT),
-            session.groupNotifies.listDoubt(CONTACT_NOTICE_LIMIT),
-          ])
-        ).flat(),
+      read: async () => {
+        const [normal, doubt] = await Promise.all([
+          session.groupNotifies.listNormal(CONTACT_NOTICE_LIMIT),
+          session.groupNotifies.listDoubt(CONTACT_NOTICE_LIMIT),
+        ]);
+        if (isCurrent()) {
+          const groupInfo = getAppContext().services?.groupInfo;
+          const groups = new Set<number>();
+          const current = new Set<string>();
+          for (const notice of normal) {
+            const groupCode = notice.groupInfo?.groupUin;
+            if (
+              !groupCode ||
+              (notice.status !== GroupNotifyStatus.SetAdmin &&
+                notice.status !== GroupNotifyStatus.RevokeAdmin)
+            )
+              continue;
+            const key = `${groupCode}:${notice.operatedUser?.uid}:${notice.status}:${notice.msgTime}`;
+            current.add(key);
+            if (groupRoleNotices && !groupRoleNotices.has(key)) groups.add(Number(groupCode));
+          }
+          groupRoleNotices = current;
+          for (const groupId of groups)
+            void groupInfo?.syncMemberRoles(groupId, true).catch(() => undefined);
+        }
+        return [...normal, ...doubt];
+      },
     },
   ].map((source) =>
     mountContactNoticeWatch(dbWatch, source, isCurrent, (kind) => {
@@ -1824,6 +1846,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       groupInfo.setOperationGuard(() => {
         if (this.account !== session) throw new Error('账号或数据源已切换，请重新操作');
       });
+      groupInfo.onMemberRolesChanged = () => {
+        if (this.account === session) dbEventBus.emit('group-info-changed', { at: Date.now() });
+      };
       const profile = new ProfileService(session, {
         nt: platform.native.ntHelper,
         resolvePid: resolveOnlinePid,

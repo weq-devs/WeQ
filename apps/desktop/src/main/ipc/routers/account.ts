@@ -10,6 +10,7 @@
  * Messages load as a *seq window* (see MsgService): `listLatest` for the newest
  * page, `listBefore` to page up, `listFrom` to re-read the loaded window live.
  */
+import { setTimeout as delay } from 'node:timers/promises';
 import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
@@ -4795,13 +4796,19 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      const members = await scopedGroupRead(input, (services) =>
-        services.groupInfo.listMembersInGroup(
+      const members = await scopedGroupRead(input, async (services) => {
+        const rows = await services.groupInfo.listMembersInGroup(
           BigInt(input.groupCode),
           input.limit ?? 100,
           input.offset ?? 0,
-        ),
-      );
+        );
+        if (rows.length && !input.offset && /^[1-9]\d{0,9}$/.test(input.groupCode)) {
+          const groupId = Number(input.groupCode);
+          if (groupId <= 0xffffffff)
+            void services.groupInfo.syncMemberRoles(groupId).catch(() => undefined);
+        }
+        return rows;
+      });
       return members.map(groupMemberToWire);
     }),
 
@@ -5933,13 +5940,30 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      await requireServices().groupModeration.setAdmin({
+      const services = requireServices();
+      requireQqOnlineForAlbum(services);
+      await services.groupModeration.setAdmin({
         groupId: input.groupId,
         targetUid: input.targetUid,
         enable: input.enable,
       });
-      return { ok: true };
+      const readRole = async () => {
+        const members = await services.groupInfo.syncMemberRoles(Number(input.groupId), true);
+        const target = members?.find(
+          (member) => member.uid === input.targetUid.trim() && member.uin > 0,
+        );
+        if (!target) return false;
+        return input.enable
+          ? target.permission === 2
+          : target.permission === 0 || target.permission === 4;
+      };
+      let roleSynced = await readRole().catch(() => null);
+      if (roleSynced === false && getAppContext().services === services) {
+        // 服务端写入回执可能先于成员名单更新；仅重读一次。
+        await delay(800);
+        if (getAppContext().services === services) roleSynced = await readRole().catch(() => null);
+      }
+      return { ok: true, roleSynced: roleSynced === true };
     }),
 
   /**
@@ -6055,7 +6079,7 @@ export const accountRouter = router({
       input.expectedAccountConfigId,
     );
     return observable<{ at: number }>((emit) => {
-      const handler = (change: DbChange): void => {
+      const handler = (change: Pick<DbChange, 'at'>): void => {
         if (getAppContext().services === services) emit.next({ at: change.at });
       };
       dbEventBus.on('group-info-changed', handler);

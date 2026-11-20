@@ -3803,10 +3803,21 @@ function MainWorkspace(): ReactElement {
       setGroupInfoRevision((revision) => revision + 1);
       await Promise.all([
         refreshGroupMemberPages(queryClient, messageScope),
+        queryClient.invalidateQueries({
+          queryKey: [
+            'group-card-member-list',
+            `${binding.expectedAccountUin}:${binding.expectedAccountConfigId}`,
+          ],
+        }),
         utils.account.getGroupDetail.invalidate(),
         utils.account.getGroupExt.invalidate(),
         utils.account.getGroupMemberLevelInfo.invalidate(),
         utils.account.listGroupLeftMembers.invalidate(),
+        utils.account.listGroupMembersByLevel.invalidate(),
+        utils.account.groupMemberPreview.invalidate(),
+        utils.account.qqWrite.memberDetails.invalidate(),
+        utils.account.qqWrite.memberState.invalidate(),
+        utils.account.qqActions.groupPermissions.invalidate(),
         utils.account.listAllGroups.invalidate(),
       ]);
       return true;

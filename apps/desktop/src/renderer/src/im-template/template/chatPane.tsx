@@ -3484,8 +3484,12 @@ export function ChatPane({
     setGroupAdmin.mutate(
       { groupId: conversation.group.identityValue, targetUid, enable },
       {
-        onSuccess: () =>
-          pushToast({ tone: 'success', message: enable ? '已设为管理员' : '已取消管理员' }),
+        onSuccess: ({ roleSynced }) =>
+          pushToast(
+            roleSynced
+              ? { tone: 'success', message: enable ? '已设为管理员' : '已取消管理员' }
+              : { tone: 'info', message: 'QQ 已接受操作，群成员身份暂未同步' },
+          ),
         onError: (error) =>
           pushToast({
             tone: 'error',
