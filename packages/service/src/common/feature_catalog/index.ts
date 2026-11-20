@@ -8,6 +8,8 @@ export { DRESS_FEATURES, EXPORT_FEATURES, WORKSPACE_FEATURES } from './entries';
 export {
   FEATURE_DOMAINS,
   type FeatureDefinition,
+  type FeatureContext,
+  type FeatureOperation,
   type FeatureDomain,
   type FeatureKind,
 } from './model';

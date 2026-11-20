@@ -8,6 +8,7 @@ import {
   type AppSearchEntry,
 } from '../src/renderer/src/components/search/appSearchCatalog';
 import type { ExportMode } from '../src/renderer/src/views/export/types';
+import { resolveWorkspaceFeature } from '../src/renderer/src/lib/workspaceFeature';
 
 // 执行真实处理器，避免只验证目录目标而漏掉页面状态切换。
 function sourceHandler<T>(relative: string, name: string, context: Record<string, unknown>): T {
@@ -83,6 +84,31 @@ function navigationContext() {
 }
 
 describe('功能搜索实际导航', () => {
+  it('编辑本人资料落在真实编辑页，数据源切换后旧搜索结果不打开新账号的资料', () => {
+    const user = { id: 'self:10001', identityValue: '10001', displayName: '本人' };
+    const currentScope = { current: '10001:source-a' };
+    const context = {
+      ...navigationContext(),
+      user,
+      shell: { view: 'contacts', openContactDetails: vi.fn() },
+      setMemberCard: vi.fn(),
+      setPrivatePreview: vi.fn(),
+      resolveWorkspaceFeature,
+      messageScope: currentScope.current,
+      messageScopeRef: currentScope,
+    };
+    const entry = searchAppEntries('编辑本人资料')[0]!;
+    expect(entry.id).toBe('contacts.self-profile.edit');
+    const open = searchHandler(context);
+    open(entry);
+    expect(context.shell.openContactDetails).toHaveBeenCalledWith(
+      { ...user, createdAt: '' },
+      'edit',
+    );
+    currentScope.current = '10001:source-b';
+    open(entry);
+    expect(context.shell.openContactDetails).toHaveBeenCalledOnce();
+  });
   it.each([
     ['礼物墙', 'giftwall'],
     ['我的资料', undefined],

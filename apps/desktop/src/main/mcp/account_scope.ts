@@ -3,6 +3,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface ToolExecutionOptions {
   permissionMode?: 'sandbox' | 'unrestricted';
   signal?: AbortSignal;
+  visibleToolNames?: readonly string[];
+  featureLinks?: boolean;
 }
 type ToolRunner = (
   name: string,
@@ -15,6 +17,9 @@ const executionScope = new AsyncLocalStorage<ToolExecutionOptions>();
 
 export function toolExecutionOptions(): ToolExecutionOptions {
   return executionScope.getStore() ?? {};
+}
+export function withToolExecutionOptions<T>(options: ToolExecutionOptions, run: () => T): T {
+  return executionScope.run(options, run);
 }
 const closedAccounts = new WeakSet<object>();
 
@@ -37,7 +42,7 @@ export function bindAccountTools(
       throw new Error('助手任务所属账号已关闭或切换。');
   };
   return (name, args, options) =>
-    executionScope.run(options ?? {}, () =>
+    withToolExecutionOptions(options ?? {}, () =>
       accountScope.run(check, async () => {
         check();
         const result = await run(name, args, options);

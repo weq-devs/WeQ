@@ -9,6 +9,8 @@
  */
 const READ_ONLY_TOOLS = new Set([
   'list_settings',
+  'list_features',
+  'get_feature',
   'list_accounts',
   'switch_account',
   'search_messages',

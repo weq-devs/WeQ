@@ -74,6 +74,17 @@ export const WORKSPACE_FEATURES = {
     '本人资料',
     '个人资料',
   ]),
+  selfProfileEdit: defineFeature(
+    'contacts.self-profile.edit',
+    'contacts',
+    '编辑我的资料',
+    ['编辑本人资料'],
+    {
+      parentId: 'contacts.self-profile',
+      context: ['account'],
+      operation: 'profile-write',
+    },
+  ),
   giftWall: defineFeature('contacts.self-gift-wall', 'contacts', '礼物墙', ['我的礼物墙', '礼物'], {
     parentId: 'contacts.self-profile',
   }),
@@ -84,8 +95,21 @@ export const CONTEXT_FEATURES = [
   defineFeature('groups.albums', 'groups', '群相册', [], {
     summary: '从指定群查看群相册及其媒体。',
     context: ['account', 'group'],
+    operation: 'album-list',
     tools: ['get_group_albums'],
     docs: ['guide/album-qzone.md#_4-群相册'],
+  }),
+  defineFeature('messages.locate', 'messages', '定位原消息', [], {
+    parentId: NAVIGATION_FEATURES.messages.id,
+    summary: '用当前数据源的会话与消息身份打开原消息。',
+    context: ['account', 'message'],
+    tools: ['get_message_details'],
+  }),
+  defineFeature('messages.image.preview', 'messages', '预览聊天图片', ['查看图片'], {
+    parentId: NAVIGATION_FEATURES.messages.id,
+    summary: '打开消息中的图片，可以使用已经缓存的原图。',
+    context: ['account', 'message'],
+    operation: 'chat-image',
   }),
   defineFeature('maintenance.message-performance', 'maintenance', '消息性能快照', [], {
     summary: '读取消息库排队和耗时统计。',

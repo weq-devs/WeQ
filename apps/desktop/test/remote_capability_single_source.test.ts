@@ -1,6 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
+import { findSettingDefinition } from '@weq/service/settings-catalog';
 import {
   APP_SEARCH_ENTRIES,
   searchAppEntries,
@@ -82,16 +83,17 @@ it('搜索按能力表逐项过滤：表里每一项都不会被 Remote 搜到',
   }
 });
 
-it('每条设置搜索结果都满足能力表：可见 ⇔ 未被表禁止', () => {
+it('Remote 设置搜索同时满足 Web 宿主限制和 Remote 能力表', () => {
   state.remote = true;
   for (const entry of APP_SEARCH_ENTRIES) {
     if (entry.target.kind !== 'setting') continue;
     const resolved = searchAppEntries(entry.title).find((row) => row.id === entry.id);
-    const allowed = remoteSettingAvailable(
-      entry.target.section ?? '',
-      entry.target.settingId,
-      entry.target.item,
-    );
+    const allowed =
+      remoteSettingAvailable(
+        entry.target.section ?? '',
+        entry.target.settingId,
+        entry.target.item,
+      ) && !(entry.target.settingId && findSettingDefinition(entry.target.settingId)?.desktopOnly);
     expect(Boolean(resolved), `${entry.id} 可见性与能力表不一致`).toBe(allowed);
   }
 });

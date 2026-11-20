@@ -3,8 +3,8 @@ import type { MainView } from '../../im-template/template/types';
 import type { ExportMode } from '../../views/export/types';
 import type { DressKind } from '../DressUpDialog';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
-import { findSettingDefinition } from '@weq/service/settings-catalog';
 import {
+  findFeature,
   DRESS_FEATURES,
   EXPORT_FEATURES,
   SETTING_FEATURES,
@@ -12,7 +12,8 @@ import {
   WORKSPACE_FEATURES,
 } from '@weq/service/feature-catalog';
 import { isRemoteClient } from '../../lib/remoteClient';
-import { remoteSettingAvailable } from '../../../../shared/remote_capabilities';
+import { settingFeatureAllowed } from '../../../../shared/feature_access';
+import { canLinkToFeature } from '../../../../shared/feature_links';
 import { APP_NAVIGATION, navigationEntries, type NavigationTool } from '../../lib/appNavigation';
 import { ContactRound, Gift, UsersRound } from 'lucide-react';
 import { DRESS_KIND_ICONS, EXPORT_MODE_ICONS, FEATURE_ICONS } from '../../lib/featureIcons.shared';
@@ -120,6 +121,7 @@ const appSearchEntries: readonly AppSearchEntry[] = [
     feature(entry, { kind: 'tool', tool: 'export', exportMode: entry.mode }),
   ),
   feature(WORKSPACE_FEATURES.selfProfile, { kind: 'self-profile' }),
+  feature(WORKSPACE_FEATURES.selfProfileEdit, { kind: 'self-profile', tab: 'edit' }),
   feature(
     WORKSPACE_FEATURES.giftWall,
     { kind: 'self-profile', tab: 'giftwall' },
@@ -130,11 +132,10 @@ const appSearchEntries: readonly AppSearchEntry[] = [
   ...SETTING_FEATURES.map(settingEntry),
 ].filter((entry) => {
   const target = entry.target;
-  return !(
-    import.meta.env.VITE_WEQ_TARGET === 'web' &&
-    target.kind === 'setting' &&
-    target.settingId &&
-    findSettingDefinition(target.settingId)?.desktopOnly
+  return (
+    import.meta.env.VITE_WEQ_TARGET !== 'web' ||
+    target.kind !== 'setting' ||
+    settingFeatureAllowed(target, 'web')
   );
 });
 
@@ -151,9 +152,7 @@ export function searchAppEntries(keyword: string, developmentDressTools = false)
     .filter((entry) => entry.target.kind !== 'dressup' || developmentDressTools)
     .filter((entry) => {
       if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
-      const target = resolveSettingsTarget(entry.target);
-      // 页面 / settingId / 行名三种禁项都在 shared/remote_capabilities 里，这里只消费。
-      return remoteSettingAvailable(target.section, target.settingId, target.item);
+      return settingFeatureAllowed(entry.target, 'remote');
     })
     .map((entry, index) => ({
       entry,
@@ -163,6 +162,19 @@ export function searchAppEntries(keyword: string, developmentDressTools = false)
     .filter(({ rank }) => rank > 0)
     .sort((a, b) => b.rank - a.rank || a.index - b.index)
     .map(({ entry }) => entry);
+}
+
+export function findLinkedAppEntry(featureId: string): AppSearchEntry | undefined {
+  const feature = findFeature(featureId);
+  if (!feature || !canLinkToFeature(feature)) return undefined;
+  const entry = appSearchEntries.find((candidate) => candidate.id === featureId);
+  if (
+    entry?.target.kind === 'setting' &&
+    isRemoteClient() &&
+    !settingFeatureAllowed(entry.target, 'remote')
+  )
+    return undefined;
+  return entry;
 }
 
 export { appSearchEntries as APP_SEARCH_ENTRIES };

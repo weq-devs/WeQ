@@ -365,6 +365,7 @@ import type { GroupLeftMemberRow } from '../components/GroupLeftMembersDialog';
 import type { CompositionBinding } from '../components/mergeForward/workspaceModel';
 import { useCompositionWindow } from '../hooks/useCompositionWindow';
 import { useGroupResourceWindows } from '../hooks/useGroupResourceWindows.shared';
+import { resolveWorkspaceFeature } from '../lib/workspaceFeature';
 import {
   cleanNtPath,
   codecElementToSeg,
@@ -442,7 +443,13 @@ import { CalendarNavigationContext, type CalendarNavigate } from '../lib/calenda
 import { conversationListSearchText } from '../lib/conversationListSearchText';
 import { calendarCloneRevision, calendarAssistantRevision } from '../lib/calendarSourceRevision';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
-import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
+import {
+  findLinkedAppEntry,
+  type AppSearchEntry,
+  type ToolSearchRequest,
+} from '../components/search/appSearchCatalog';
+import { OPEN_FEATURE_EVENT } from '../../../shared/feature_links';
+import { useAppLock } from '../state/lock';
 import type { DressKind } from '../components/DressUpDialog';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
@@ -1920,14 +1927,23 @@ function MainWorkspace(): ReactElement {
 
   const handleOpenGroupAlbums = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
+      const group = { code: conversation.id, name: conversation.group.name };
+      if (
+        resolveWorkspaceFeature(
+          { id: 'groups.albums', group },
+          messageScope,
+          messageScopeRef.current,
+        ).status !== 'available'
+      )
+        return;
       setGroupSidebarPopover(null);
       openGroupResourceWindow({
         kind: 'albums',
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
+        groupCode: group.code,
+        groupName: group.name,
       });
     },
-    [openGroupResourceWindow],
+    [messageScope, messageScopeRef, openGroupResourceWindow],
   );
 
   const handleOpenGroupAnnouncements = useCallback(
@@ -8812,6 +8828,16 @@ function MainWorkspace(): ReactElement {
 
   const openAnnouncements = useOpenAnnouncement();
   const openAppSearchEntryNow = (entry: AppSearchEntry) => {
+    if (
+      entry.target.kind === 'self-profile' &&
+      entry.target.tab === 'edit' &&
+      resolveWorkspaceFeature(
+        { id: 'contacts.self-profile.edit' },
+        messageScope,
+        messageScopeRef.current,
+      ).status !== 'available'
+    )
+      return;
     setSearchDismissed(true);
     setSearchFocused(false);
     setSettingsOpen(false);
@@ -8890,6 +8916,17 @@ function MainWorkspace(): ReactElement {
     if (entry.target.kind === 'setting') openAppSearchEntryNow(entry);
     else settingsNavigation.navigate(() => openAppSearchEntryNow(entry));
   };
+
+  const openFeatureLink = useStableCallback((event: Event) => {
+    const id: unknown = (event as CustomEvent<unknown>).detail;
+    if (typeof id !== 'string' || useAppLock.getState().locked) return;
+    const entry = findLinkedAppEntry(id);
+    if (entry) openAppSearchEntry(entry);
+  });
+  useEffect(() => {
+    window.addEventListener(OPEN_FEATURE_EVENT, openFeatureLink);
+    return () => window.removeEventListener(OPEN_FEATURE_EVENT, openFeatureLink);
+  }, [openFeatureLink]);
 
   const openNotificationTarget = useStableCallback(
     (target: import('../lib/notificationNavigation').NotificationTarget) => {
@@ -9076,6 +9113,17 @@ function MainWorkspace(): ReactElement {
       });
       shell.switchView('messages');
     } else {
+      if (
+        resolveWorkspaceFeature(
+          {
+            id: 'messages.locate',
+            message: { conversation: target.conv, seq: anchor.seq, msgId: anchor.id },
+          },
+          messageScope,
+          messageScopeRef.current,
+        ).status !== 'available'
+      )
+        return;
       jumpToConvSeq(
         target.kind === 'group' ? 'group' : 'c2c',
         target.conv,

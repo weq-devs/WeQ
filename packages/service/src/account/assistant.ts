@@ -92,7 +92,12 @@ export interface AssistantTools {
   run: (
     name: string,
     args: Record<string, unknown>,
-    options?: { permissionMode?: 'sandbox' | 'unrestricted'; signal?: AbortSignal },
+    options?: {
+      permissionMode?: 'sandbox' | 'unrestricted';
+      signal?: AbortSignal;
+      visibleToolNames?: readonly string[];
+      featureLinks?: boolean;
+    },
   ) => Promise<unknown>;
   /** 由宿主确认不会改变业务状态的工具；不可按模型给出的信息或工具名前缀推断。 */
   isReadOnly?: (name: string, permissionMode: 'sandbox' | 'unrestricted') => boolean;
@@ -1646,10 +1651,8 @@ export class AssistantService {
           (spec) => permissionMode === 'unrestricted' || !spec.function.name.startsWith('mcp__'),
         ),
       ];
-      const capabilityGuidance = assistantCapabilityGuidance(
-        specs.map((spec) => spec.function.name),
-        permissionMode,
-      );
+      const visibleToolNames = specs.map((spec) => spec.function.name);
+      const capabilityGuidance = assistantCapabilityGuidance(visibleToolNames, permissionMode);
       const toolTokens = estimateContextTokens(JSON.stringify(specs));
       const preparedImages = new WeakMap<ApiMessage, string>();
       const attachmentIds = new WeakMap<ApiMessage, string[]>();
@@ -1860,7 +1863,12 @@ export class AssistantService {
                         args,
                         signal,
                       )
-                    : tools.run(name, args, { permissionMode, signal }),
+                    : tools.run(name, args, {
+                        permissionMode,
+                        signal,
+                        visibleToolNames,
+                        featureLinks: true,
+                      }),
                 TOOL_TIMEOUT_MS,
                 `工具 ${name} 执行`,
                 ac.signal,
@@ -2217,6 +2225,7 @@ export class AssistantService {
         : '',
       '',
       '【工作方式】',
+      '- 遇到 WeQ 功能、设置位置或各端支持的问题，先用 list_features 查目录，再用 get_feature 核实身份及条件。有 navigation.url 时可用它写点击入口，原样保留链接。分别说明入口和执行条件。',
       '- 把用户的每个问题都当成一个需要主动完成的任务，需要数据就调用工具，能查就查，别把活儿甩回给用户。',
       '- 提到某个人名/群名（如"小枳壳"）时，先用 find_contact 把名字解析成会话（私聊对方 uid 或群号），再用 get_messages / search_in_conversation 在该会话里查；不要把人名本身当关键词去全文搜索。',
       '- search_messages 一次没命中，要换同义词/更短的关键词/不同 scope 多试几次；也可以直接 get_messages 把相关会话最近的消息读出来自己判断。',

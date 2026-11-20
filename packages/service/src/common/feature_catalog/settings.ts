@@ -23,6 +23,7 @@ export const SETTINGS_PAGE_FEATURES = (Object.keys(SETTINGS_PAGE_LABELS) as Sett
       domain: 'settings',
       label: SETTINGS_PAGE_LABELS[page],
       aliases: [page, ...(SETTINGS_PAGE_ALIASES[page] ?? [])],
+      settingsPage: page,
       page,
       path: ['设置', settingsGroupFor(page).label, SETTINGS_PAGE_LABELS[page]],
     }) satisfies FeatureDefinition & { page: SettingsPageId; path: string[] },
@@ -38,9 +39,11 @@ export const SETTING_FEATURES = SETTINGS_CATALOG.map(
       aliases: setting.aliases,
       parentId: settingsPageFeatureId(setting.section),
       settingId: setting.id,
+      settingsPage: setting.section,
       page: setting.section,
       path: setting.path,
       desktopOnly: setting.desktopOnly === true,
+      ...(setting.id === 'llm-default-model' ? { operation: 'default-chat-model' as const } : {}),
     }) satisfies FeatureDefinition & {
       settingId: string;
       page: SettingsPageId;
