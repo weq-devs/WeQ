@@ -56,7 +56,7 @@ it.each([
   ['components/settings/RemotePanel.tsx', 'onDecide(request.id, true)'],
   ['components/tasks/ScheduleSettings.tsx', '保存设置'],
   ['components/qq-actions/GroupJoinSettings.tsx', '保存加群方式'],
-  ['views/agentlab/NewGroupModal.tsx', 'onCreate('],
+  ['views/agentlab/NewGroupModal.tsx', 'type="submit"'],
   ['views/agentlab/NewCloneModal.tsx', 'onStartClick'],
 ])('提交和流程主动作显式声明主题色：%s', (file, marker) => {
   expect(buttonClass(file!, marker!)).toContain('weq-set-btn-primary');
