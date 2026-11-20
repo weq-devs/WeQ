@@ -9,6 +9,8 @@ import {
   CONVERSATION_VIEW_FEATURES,
   QZONE_SECTION_FEATURES,
   OWN_ALBUM_FEATURE,
+  TASK_PANEL_FEATURES,
+  type TaskPanelTab,
   type QzoneFeatureSection,
   DRESS_FEATURES,
   EXPORT_FEATURES,
@@ -32,6 +34,7 @@ export interface ToolSearchRequest {
   scope: string;
   tool: SearchableTool;
   exportMode?: ExportMode;
+  taskTab?: TaskPanelTab;
   revision: number;
 }
 export type AppSearchTarget =
@@ -43,6 +46,7 @@ export type AppSearchTarget =
   | { kind: 'contact-overview' }
   | { kind: 'qzone-section'; section: QzoneFeatureSection }
   | { kind: 'self-qzone-albums' }
+  | { kind: 'task-tab'; tab: TaskPanelTab }
   | { kind: 'tool'; tool: SearchableTool; exportMode?: ExportMode }
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
@@ -121,6 +125,8 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
     case 'qzone-section':
     case 'self-qzone-albums':
       return APP_NAVIGATION.qzone.icon;
+    case 'task-tab':
+      return APP_NAVIGATION.tasks.icon;
     case 'view':
       return (
         Object.values(APP_NAVIGATION).find(
@@ -145,6 +151,9 @@ const appSearchEntries: readonly AppSearchEntry[] = [
     feature(QZONE_SECTION_FEATURES[section], { kind: 'qzone-section', section }),
   ),
   feature(OWN_ALBUM_FEATURE, { kind: 'self-qzone-albums' }),
+  ...(Object.keys(TASK_PANEL_FEATURES) as TaskPanelTab[]).map((tab) =>
+    feature(TASK_PANEL_FEATURES[tab], { kind: 'task-tab', tab }),
+  ),
   ...EXPORT_FEATURES.map((entry) =>
     feature(entry, { kind: 'tool', tool: 'export', exportMode: entry.mode }),
   ),

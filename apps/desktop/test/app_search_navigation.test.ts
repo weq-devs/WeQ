@@ -86,6 +86,33 @@ function navigationContext() {
 
 describe('功能搜索实际导航', () => {
   it.each([
+    ['当前任务', 'tasks'],
+    ['定时任务', 'schedules'],
+  ] as const)('按 %s 打开指定任务标签，定时导出继续进入配置', (query, tab) => {
+    const messageScope = '10001:source-a';
+    const context = {
+      ...navigationContext(),
+      messageScope,
+      messageScopeRef: { current: messageScope },
+      setToolSearchRequest: vi.fn(),
+    };
+    const entry = searchAppEntries(query)[0]!;
+    expect(entry.target).toEqual({ kind: 'task-tab', tab });
+    searchHandler(context)(entry);
+    const update = context.setToolSearchRequest.mock.calls[0]![0];
+    expect(update(undefined)).toEqual({
+      scope: messageScope,
+      tool: 'tasks',
+      taskTab: tab,
+      revision: 1,
+    });
+    expect(searchAppEntries('定时导出')[0]?.target).toEqual({
+      kind: 'tool',
+      tool: 'export',
+      exportMode: 'scheduled',
+    });
+  });
+  it.each([
     ['好友动态', 'feeds'],
     ['我的空间', 'posts'],
     ['与我相关', 'related'],

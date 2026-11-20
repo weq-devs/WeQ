@@ -41,6 +41,9 @@ it('lists the real registry without exposing SQL writes, messaging, wallet, cred
     expect(group.entry).toEqual({ status: 'needs-context', missing: ['group'] });
     expect(group.tools).toEqual([{ name: 'get_group_albums', exposed: true }]);
     expect(group.navigation).not.toHaveProperty('url');
+    const report = await featureCall('get_feature', { id: 'assistant.report-artifact' });
+    expect(report.tools).toEqual([{ name: 'write_report', exposed: false }]);
+    expect(names).not.toContain('write_report');
     expect(
       (await featureCall('get_feature', { id: 'maintenance.message-performance' })).navigation,
     ).toBeNull();

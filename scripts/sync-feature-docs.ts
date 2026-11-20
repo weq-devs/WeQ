@@ -11,6 +11,10 @@ import {
   type FeatureDomain,
 } from '../packages/service/src/common/feature_catalog';
 import { featureUnsupported } from '../apps/desktop/src/shared/feature_access';
+import {
+  ASSISTANT_BASE_SPECS,
+  ANALYZE_ATTACHED_IMAGE_SPEC,
+} from '../packages/service/src/account/assistant_local_tools';
 import type { APP_NAVIGATION } from '../apps/desktop/src/renderer/src/lib/appNavigation';
 import type { AppSearchEntry } from '../apps/desktop/src/renderer/src/components/search/appSearchCatalog';
 
@@ -242,11 +246,12 @@ function renderReference(
 
 async function main() {
   const features = listFeatures();
-  verifyFeatureReferences(
-    features,
-    readRegisteredTools(readFileSync(join(ROOT, 'apps/desktop/src/main/mcp/tools.ts'), 'utf8')),
-    readDocs(),
+  const tools = readRegisteredTools(
+    readFileSync(join(ROOT, 'apps/desktop/src/main/mcp/tools.ts'), 'utf8'),
   );
+  for (const spec of [...ASSISTANT_BASE_SPECS, ANALYZE_ATTACHED_IMAGE_SPEC])
+    tools.add(spec.function.name);
+  verifyFeatureReferences(features, tools, readDocs());
   const [desktop, web] = await Promise.all([
     navigationSnapshot('desktop'),
     navigationSnapshot('web'),

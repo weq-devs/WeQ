@@ -5,6 +5,7 @@ import { NAVIGATION_FEATURES } from './navigation';
 import { SETTING_FEATURES, SETTINGS_PAGE_FEATURES } from './settings';
 import { CONTACT_GROUP_FEATURES } from './contacts';
 import { CONTENT_FEATURES, OWN_ALBUM_FEATURE, QZONE_SECTION_FEATURES } from './content';
+import { OPERATION_FEATURES, TASK_PANEL_FEATURES } from './operations';
 import {
   CONVERSATION_CALENDAR_FEATURE,
   CONVERSATION_VIEW_FEATURES,
@@ -23,6 +24,7 @@ export {
 export { NAVIGATION_FEATURES } from './navigation';
 export { SETTING_FEATURES, SETTINGS_PAGE_FEATURES, settingFeatureId } from './settings';
 export { OWN_ALBUM_FEATURE, QZONE_SECTION_FEATURES, type QzoneFeatureSection } from './content';
+export { TASK_PANEL_FEATURES, type TaskPanelTab } from './operations';
 export { CONVERSATION_CALENDAR_FEATURE, CONVERSATION_VIEW_FEATURES } from './messages';
 
 export const FEATURE_CATALOG_VERSION = 1;
@@ -36,6 +38,8 @@ const catalog: readonly FeatureDefinition[] = [
   ...CONTENT_FEATURES,
   ...Object.values(QZONE_SECTION_FEATURES),
   OWN_ALBUM_FEATURE,
+  ...Object.values(TASK_PANEL_FEATURES),
+  ...OPERATION_FEATURES,
   CONVERSATION_CALENDAR_FEATURE,
   ...Object.values(CONVERSATION_VIEW_FEATURES),
   ...MESSAGE_FEATURES,

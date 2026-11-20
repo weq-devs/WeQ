@@ -8844,7 +8844,8 @@ function MainWorkspace(): ReactElement {
         entry.target.kind === 'contact-notice' ||
         entry.target.kind === 'contact-overview' ||
         entry.target.kind === 'qzone-section' ||
-        entry.target.kind === 'self-qzone-albums') &&
+        entry.target.kind === 'self-qzone-albums' ||
+        entry.target.kind === 'task-tab') &&
       (!messageScope || messageScope !== messageScopeRef.current)
     )
       return;
@@ -8890,6 +8891,13 @@ function MainWorkspace(): ReactElement {
       shell.switchView('qzone');
     } else if (target.kind === 'self-qzone-albums') {
       setQzoneAlbumOpen(true);
+    } else if (target.kind === 'task-tab') {
+      setToolSearchRequest((previous) => ({
+        scope: messageScope,
+        tool: 'tasks',
+        taskTab: target.tab,
+        revision: (previous?.revision ?? 0) + 1,
+      }));
     } else if (target.kind === 'conversation-calendar') {
       // 全局功能搜索词是入口名；会话日历仍采用当前会话视图。
       setOverviewCalendar({ query: '' });

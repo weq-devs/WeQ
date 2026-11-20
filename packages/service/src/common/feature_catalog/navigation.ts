@@ -37,16 +37,33 @@ export const NAVIGATION_FEATURES = {
   }),
   annual: defineFeature('analysis.annual-report', 'analysis', '年度报告', ['年度总结']),
   dressup: defineFeature('appearance.catalog', 'appearance', '个性装扮', ['装扮商城']),
-  tasks: defineFeature('export.tasks', 'export', '任务', ['导出进度', '下载任务']),
+  tasks: defineFeature('export.tasks', 'export', '任务', ['导出进度', '下载任务'], {
+    context: ['account'],
+    navigation: 'search',
+  }),
   assistant: defineFeature('assistant.chat', 'assistant', 'WeQ 助手', ['AI 助手', '智能助手']),
-  analysis: defineFeature('analysis.workspace', 'analysis', '分析', ['聊天分析', '统计']),
-  'analysis-reports': defineFeature('analysis.saved-reports', 'analysis', '分析报告', [
-    '历史报告',
-    '已保存报告',
-    '查看分析结果',
-  ]),
-  export: defineFeature('export.workspace', 'export', '导出', ['导出聊天记录', '备份聊天']),
-  viewer: defineFeature('export.viewer', 'export', '导出查看器', ['打开导出', 'JSON', 'JSONL']),
+  analysis: defineFeature('analysis.workspace', 'analysis', '分析', ['聊天分析', '统计'], {
+    context: ['account'],
+    navigation: 'search',
+  }),
+  'analysis-reports': defineFeature(
+    'analysis.saved-reports',
+    'analysis',
+    '分析报告',
+    ['历史报告', '已保存报告', '查看分析结果'],
+    {
+      context: ['account'],
+      navigation: 'search',
+      docs: ['guide/saved-reports-and-content-export.md#feature-analysis.saved-reports'],
+    },
+  ),
+  export: defineFeature('export.workspace', 'export', '导出', ['导出聊天记录', '备份聊天'], {
+    context: ['account'],
+    navigation: 'search',
+  }),
+  viewer: defineFeature('export.viewer', 'export', '导出查看器', ['打开导出', 'JSON', 'JSONL'], {
+    navigation: 'search',
+  }),
   composition: defineFeature('messages.composition', 'messages', '合成聊天记录', ['合并转发']),
   backfill: defineFeature('messages.history-backfill', 'messages', '拉取漫游消息', [
     '漫游消息',

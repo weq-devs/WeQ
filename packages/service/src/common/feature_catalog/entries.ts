@@ -6,11 +6,13 @@ function exportFeature<M extends string>(
   mode: M,
   label: string,
   aliases: readonly string[],
-  details: Pick<FeatureDefinition, 'summary' | 'docs'> = {},
+  details: Pick<FeatureDefinition, 'summary' | 'docs' | 'tools'> = {},
 ) {
   return {
     ...defineFeature(id, 'export', label, aliases, {
       parentId: NAVIGATION_FEATURES.export.id,
+      context: ['account'],
+      navigation: 'search',
       ...details,
     }),
     mode,
@@ -21,6 +23,7 @@ export const EXPORT_FEATURES = [
   exportFeature('export.chat-history', 'full', '聊天消息导出', ['完整消息导出'], {
     summary: '从要导出的会话和范围开始，生成聊天记录文件。',
     docs: ['guide/export.md#feature-export.chat-history'],
+    tools: ['export_conversation'],
   }),
   exportFeature('export.schedule', 'scheduled', '定时导出', ['定时任务', '自动备份']),
   exportFeature('export.channel-direct-messages', 'guild', '频道私聊数据', ['导出频道私聊']),

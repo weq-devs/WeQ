@@ -1,4 +1,5 @@
 import { FormSelect } from '../components/FormSelect';
+import { TASK_PANEL_FEATURES, type TaskPanelTab } from '@weq/service/feature-catalog';
 import { NumericText } from '../components/NumericText';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
 import * as timeFormat from '@weq/time';
@@ -398,6 +399,8 @@ function ExportToolBody({
   onAuthorizationChange,
   taskLayout = 'inline',
   onTaskExpand,
+  taskTabRequest,
+  onTaskTabRequestApplied,
   taskToolbarAction,
   onNewSchedule,
   databaseTarget,
@@ -405,6 +408,8 @@ function ExportToolBody({
   surface?: 'export' | 'tasks';
   taskLayout?: 'inline' | 'compact' | 'split';
   onTaskExpand?: () => void;
+  taskTabRequest?: TaskPanelTab;
+  onTaskTabRequestApplied?: () => void;
   taskToolbarAction?: ReactNode;
   onNewSchedule?: () => void;
   initialSelection?: ContentSelection;
@@ -497,11 +502,16 @@ function ExportToolBody({
     'posts',
     z.enum(['posts', 'both', 'albums']),
   );
-  const [taskTab, setTaskTab] = usePageState<'tasks' | 'schedules'>(
+  const [taskTab, setTaskTab] = usePageState<TaskPanelTab>(
     'export:task-tab',
     'tasks',
     z.enum(['tasks', 'schedules']),
   );
+  useEffect(() => {
+    if (!active || surface !== 'tasks' || !taskTabRequest || taskLayout === 'compact') return;
+    setTaskTab(taskTabRequest);
+    onTaskTabRequestApplied?.();
+  }, [active, surface, taskLayout, taskTabRequest, setTaskTab, onTaskTabRequestApplied]);
   const [selectedSchedule, setSelectedSchedule] = usePageState<string | null>(
     'export:schedule',
     null,
@@ -2613,13 +2623,13 @@ function ExportToolBody({
         <div className={`weq-task-workspace is-${taskLayout}`}>
           {taskLayout !== 'compact' ? (
             <div className="weq-task-workspace-tabs">
-              <SegmentedControl<'tasks' | 'schedules'>
+              <SegmentedControl<TaskPanelTab>
                 label="任务视图"
                 value={taskTab}
                 onChange={setTaskTab}
                 options={[
-                  { value: 'tasks', label: '当前任务' },
-                  { value: 'schedules', label: '定时任务' },
+                  { value: 'tasks', label: TASK_PANEL_FEATURES.tasks.label },
+                  { value: 'schedules', label: TASK_PANEL_FEATURES.schedules.label },
                 ]}
               />
             </div>
