@@ -15,6 +15,7 @@
 import { OperationError, developmentDressToolsEnabled } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
+import { ensureQqSyncProxy, qqSyncStatus, qqSyncRequest } from '../../qq_sync/runtime';
 import {
   consumeNotificationClick,
   notificationClickEvents,
@@ -980,6 +981,27 @@ export const bootstrapRouter = router({
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ reportReadEnabled: input.enabled });
       if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
+      return true;
+    }),
+
+  getQqClientSyncStatus: procedure.query(async () => {
+    const ctx = getAppContext();
+    const status = await qqSyncStatus(requirePlatform().appDataRoot());
+    return { ...status, tasks: ctx.services?.qqClientSync?.status() ?? null };
+  }),
+
+  setQqClientSyncEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(async ({ input }) => {
+      const ctx = getAppContext();
+      const root = requirePlatform().appDataRoot();
+      if (input.enabled) await ensureQqSyncProxy(root);
+      requireBootstrap().userConfig.setSettings({ qqClientSyncEnabled: input.enabled });
+      if (!input.enabled && ctx.account)
+        await qqSyncRequest(root, { op: 'forget', uin: String(ctx.account.context.uin) }).catch(
+          () => undefined,
+        );
+      ctx.services?.qqClientSync?.refresh();
       return true;
     }),
 

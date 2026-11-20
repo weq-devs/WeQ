@@ -154,6 +154,17 @@ export function AccountBasicsSection({
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
   const setRestrictedIndicator = trpc.bootstrap.setRestrictedModeIndicatorEnabled.useMutation();
   const setReadSyncEnabled = trpc.bootstrap.setReadSyncEnabled.useMutation();
+  const qqSyncStatus = trpc.bootstrap.getQqClientSyncStatus.useQuery(undefined, {
+    enabled: active && page === 'account' && settings.data?.qqClientSyncEnabled === true,
+    refetchInterval: active && page === 'account' ? 3000 : false,
+  });
+  const setQqClientSync = trpc.bootstrap.setQqClientSyncEnabled.useMutation({
+    onSuccess: () => {
+      void settings.refetch();
+      void qqSyncStatus.refetch();
+    },
+    onError: (error) => showError('QQ 同步启动失败', error.message),
+  });
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
 
@@ -617,6 +628,37 @@ export function AccountBasicsSection({
                 {reportRead ? '仅自动阅读上报，沿用原设置' : '仅手动标记上报，沿用原设置'}
               </p>
             ) : null}
+          </Card>
+          <Card title="本机 QQ 同步" resetId="qq-client-sync">
+            <Row
+              settingId="qq-client-sync"
+              desc="在 QQ 登录页设置 HTTP 代理 127.0.0.1:19081 后生效。已读同步沿用上方的上报设置。"
+              control={
+                <Toggle
+                  checked={settings.data?.qqClientSyncEnabled ?? false}
+                  disabled={settingsLoading || setQqClientSync.isPending}
+                  onChange={(enabled) => setQqClientSync.mutate({ enabled })}
+                  label="自动同步本人消息与已读"
+                />
+              }
+            />
+            {settings.data?.qqClientSyncEnabled && (
+              <p className="weq-set-note">
+                {qqSyncStatus.data?.running
+                  ? qqSyncStatus.data.accounts.length > 0
+                    ? 'QQ 已连接同步代理'
+                    : '等待 QQ 通过代理连接'
+                  : qqSyncStatus.data?.error || '正在检查代理'}
+                {qqSyncStatus.data?.tasks?.pending
+                  ? ` · 待同步 ${qqSyncStatus.data.tasks.pending} 项`
+                  : ''}
+                {qqSyncStatus.data?.tasks?.error ? ` · ${qqSyncStatus.data.tasks.error}` : ''}
+              </p>
+            )}
+            <p className="weq-set-note">
+              代理独立保持运行，WeQ 重启后自动接续。关闭自动同步会保留转发；停用代理前请先恢复 QQ
+              的网络设置。
+            </p>
           </Card>
           <LongTermAuthorizationSection />
         </>

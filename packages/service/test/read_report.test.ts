@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
-import { decode } from '@weqbot/protocol';
+import { decode, encode, ReadedReport } from '@weqbot/protocol';
 import { ReportRead } from '@weqbot/protocol';
 import { UnreadInfoService } from '../src/account/unread_info';
 import { ssoWorkState } from '../src/account/sso_lifecycle';
@@ -18,6 +18,7 @@ function setup() {
         Buffer.alloc(0),
     ),
   };
+  const acknowledged = vi.fn();
   const markRead = vi.fn(async () => true);
   const listFrom = vi.fn(async () => [{ msgSeq: 50n, clientSeq: 999n, sendTime: 123n }]);
   const snapshot = (target: { chatType: number; uid: string }) => ({
@@ -40,9 +41,11 @@ function setup() {
     enabled: () => enabled,
     manualEnabled: () => manualEnabled,
     resolvePid: () => pid,
+    onAcknowledged: acknowledged,
   });
   return {
     service,
+    acknowledged,
     nt,
     markRead,
     listFrom,
@@ -68,6 +71,30 @@ async function settled(service: UnreadInfoService, state = 'acknowledged') {
 }
 
 describe('已读上报服务', () => {
+  it('结构化回包达到本次水位后通知本机同步，落后的回包保持未确认', async () => {
+    const f = setup();
+    f.nt.sendPacket.mockResolvedValueOnce(
+      Buffer.from(
+        encode(ReadedReport.respSchema, {
+          groupList: [{ groupUin: 100, resultCode: 0, readSeq: 50, latestSeq: 60 }],
+        }),
+      ),
+    );
+    await f.service.markReadAndReport(2, '100', '50');
+    await settled(f.service);
+    expect(f.acknowledged).toHaveBeenLastCalledWith({ kind: 'group', groupUin: 100, sequence: 50 });
+    f.nt.sendPacket.mockResolvedValueOnce(
+      Buffer.from(
+        encode(ReadedReport.respSchema, {
+          groupList: [{ groupUin: 100, resultCode: 0, readSeq: 50, latestSeq: 60 }],
+        }),
+      ),
+    );
+    await f.service.markReadAndReport(2, '100', '60');
+    await settled(f.service, 'unconfirmed');
+    expect(f.acknowledged).toHaveBeenCalledTimes(1);
+  });
+
   it('手动上报默认关闭，开启后独立于自动阅读开关且不重复写本地库', async () => {
     const f = setup();
     const options = { manual: true, write: false } as const;

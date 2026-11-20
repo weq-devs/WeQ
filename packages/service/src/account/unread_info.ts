@@ -37,6 +37,7 @@ export interface ReadReportOptions {
   manualEnabled?(): boolean;
   /** 只返回已存在的在线会话，不读内存、不提权，不为自动上报启动登录。 */
   resolvePid(): number | null;
+  onAcknowledged?(target: ReadReportParams): void;
 }
 
 interface PendingReport {
@@ -809,15 +810,15 @@ export class UnreadInfoService {
         target,
         manual,
       );
-      if (manual) return finish(await report);
-      void report.then(
-        (status) => {
-          finish(status);
-        },
-        () => {
-          finish({ state: 'failed', sequence });
-        },
-      );
+      const complete = (status: ReadReportStatus) => {
+        if (status.state === 'acknowledged' && !this.disposed && this.generation === generation)
+          this.report?.onAcknowledged?.(target);
+        return finish(status);
+      };
+      if (manual) return complete(await report);
+      void report.then(complete, () => {
+        finish({ state: 'failed', sequence });
+      });
       return result;
     } catch {
       return finish({ state: 'failed', sequence });

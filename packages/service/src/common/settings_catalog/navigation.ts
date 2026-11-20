@@ -659,6 +659,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account', 'chat-messages'],
   },
   {
+    id: 'qq-client-sync',
+    section: 'account',
+    label: '自动同步本人消息与已读',
+    aliases: ['本机 QQ 同步', 'QQ 同步代理', '补投本人消息'],
+    from: ['account'],
+  },
+  {
     id: 'qq-debug-copy',
     section: 'account',
     label: 'QQ 调试副本',

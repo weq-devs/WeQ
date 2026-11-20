@@ -19,6 +19,8 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { AccountQqSync } from '../qq_sync/account';
+import { ensureQqSyncProxy } from '../qq_sync/runtime';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { createContactsExportDeps } from './export_contacts';
@@ -1142,6 +1144,7 @@ export interface AccountServices {
   officialAccount: OfficialAccountService;
   serviceAccount: ServiceAccountService;
   unreadInfo: UnreadInfoService;
+  qqClientSync?: AccountQqSync;
   interactionBadges: ConversationInteractionBadges;
   accountConfig: AccountConfigService;
   /** Manifest-first, compile-time annual report page service. */
@@ -1530,6 +1533,10 @@ export function initAppContext(fileRoot?: string): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = files.config;
+  if (userConfig.getSettings().qqClientSyncEnabled)
+    void ensureQqSyncProxy(platform.appDataRoot()).catch((error) =>
+      getLogger().warn('QQ 同步代理启动失败', { error: String(error) }),
+    );
   // 词云 / 常用语的分词优先用 QQ 自带结巴词典，读不到时用随包的
   // resources/jieba（进程级单例）。账号无关、非关键路径，fire-and-forget 即可。
   void warmJiebaDict([platform.jiebaDictDir(), resolveResource('jieba')]);
@@ -1746,6 +1753,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.unifiedSearch.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
+      await this.services?.qqClientSync?.dispose();
       this.services?.interactionBadges.dispose();
       await waitForUnreadWrites();
       await this.services?.contactDirectory?.dispose();
@@ -1998,7 +2006,36 @@ export function initAppContext(fileRoot?: string): AppContext {
       );
       let generatedSources: GeneratedSearchSources | undefined;
       await dressInstall.prepareMessageRendering();
+      const qqClientSync = new AccountQqSync({
+        root: platform.appDataRoot(),
+        path: join(
+          platform.appDataRoot(),
+          'config',
+          'accounts',
+          exportConfigId,
+          'qq-client-sync.json',
+        ),
+        session,
+        nt: platform.native.ntHelper,
+        enabled: () => this.account === session && userConfig.getSettings().qqClientSyncEnabled,
+        readEnabled: () =>
+          userConfig.getSettings().reportReadEnabled ||
+          userConfig.getSettings().manualReadReportEnabled,
+        current: () => {
+          const record = accountConfig.getRecord();
+          return this.account === session &&
+            !this.accountIsStatic &&
+            fullModeAllowed(this, session) &&
+            record?.qqOnline &&
+            record.qqPid &&
+            record.session?.pid === record.qqPid &&
+            record.session.d2Key
+            ? { pid: record.qqPid, key: record.session.d2Key }
+            : null;
+        },
+      });
       this.services = {
+        qqClientSync,
         msgs,
         roamingBackfill,
         interactionBadges: new ConversationInteractionBadges(
@@ -2028,6 +2065,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             nt: platform.native.ntHelper,
             enabled: () => userConfig.getSettings().reportReadEnabled,
             manualEnabled: () => userConfig.getSettings().manualReadReportEnabled,
+            onAcknowledged: (target) => qqClientSync.read(target),
             resolvePid: () => {
               if (
                 this.account !== session ||
@@ -2502,6 +2540,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             await gapHistory.retainForBatch([message]);
             if (getAppContext().account !== session) return;
             this.services?.unreadInfo.invalidateSent(message.kind, message.conv);
+            this.services?.qqClientSync?.sent(message);
             dbEventBus.emit('roaming', {
               session,
               kind: message.kind,
@@ -2751,6 +2790,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.unifiedSearch.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
+      await this.services?.qqClientSync?.dispose();
       this.services?.interactionBadges.dispose();
       await waitForUnreadWrites();
       await this.services?.contactDirectory?.dispose();
@@ -3402,6 +3442,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             await gapHistory.retainForBatch([message]);
             if (getAppContext().account !== session) return;
             this.services?.unreadInfo.invalidateSent(message.kind, message.conv);
+            this.services?.qqClientSync?.sent(message);
             dbEventBus.emit('roaming', {
               session,
               kind: message.kind,
@@ -3615,6 +3656,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.unifiedSearch.dispose();
       const agentLabClosed = this.services?.agentLab.close();
       const unreadClosed = this.services?.unreadInfo.dispose();
+      await this.services?.qqClientSync?.dispose();
       this.services?.contentSearch.close();
       this.services?.guildDirect.cancelSearch();
       const closingAccount = this.account;

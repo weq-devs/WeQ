@@ -25,7 +25,7 @@
  */
 
 import { createTRPCReact, type CreateTRPCReact } from '@trpc/react-query';
-import { createTRPCClientProxy, type CreateTRPCProxyClient } from '@trpc/client';
+import { createTRPCClientProxy, type CreateTRPCProxyClient, type TRPCClient } from '@trpc/client';
 import superjson from 'superjson';
 import { createLinks } from '@transport';
 import type { AppRouter } from '../../../shared/router';
@@ -40,7 +40,7 @@ export const trpc: CreateTRPCReact<AppRouter, unknown, null> = createTRPCReact<A
  * `@transport` resolves per build target: IPC in Electron, HTTP + WebSocket in
  * the browser (see each app's vite alias).
  */
-export const trpcClient = trpc.createClient({
+export const trpcClient: TRPCClient<AppRouter> = trpc.createClient({
   links: createLinks(),
   transformer: superjson,
 });

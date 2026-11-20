@@ -841,6 +841,8 @@ export interface AppSettings {
   startupPage: 'home' | 'messages' | 'last';
   /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认开启。 */
   reportReadEnabled: boolean;
+  /** 通过本机代理同步本人消息及已读到 QQ。 */
+  qqClientSyncEnabled: boolean;
   /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认开启。 */
   manualReadReportEnabled: boolean;
   /**
@@ -1238,6 +1240,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showWindowOnAutostart: false,
   startupPage: 'home',
   reportReadEnabled: true,
+  qqClientSyncEnabled: false,
   manualReadReportEnabled: true,
   autoLockMinutes: 0,
   appLock: { enabled: false, method: 'totp' },
@@ -2057,6 +2060,7 @@ export class UserConfigService {
           ? s.startupPage
           : d.startupPage,
       reportReadEnabled: s?.reportReadEnabled ?? d.reportReadEnabled,
+      qqClientSyncEnabled: s?.qqClientSyncEnabled ?? d.qqClientSyncEnabled,
       manualReadReportEnabled: s?.manualReadReportEnabled ?? d.manualReadReportEnabled,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
@@ -2249,6 +2253,7 @@ export class UserConfigService {
       showWindowOnAutostart: patch.showWindowOnAutostart ?? current.showWindowOnAutostart,
       startupPage: patch.startupPage ?? current.startupPage,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
+      qqClientSyncEnabled: patch.qqClientSyncEnabled ?? current.qqClientSyncEnabled,
       manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {

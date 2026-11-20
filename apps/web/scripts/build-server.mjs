@@ -60,6 +60,7 @@ const NATIVE_DEPS = runtimeSource.manifest.dependencies;
 const ENTRIES = {
   server: join(appRoot, 'src/server/index.ts'),
   imageWorker: join(desktopMain, 'image_worker.ts'),
+  qqSyncWorker: join(desktopMain, 'qq_sync/worker.ts'),
   coverWorker: join(desktopMain, 'cover_worker.ts'),
   analysisReportsWorker: join(repoRoot, 'packages/service/src/account/analysis_reports_worker.mjs'),
   attachWorker: join(desktopMain, 'attach_worker.ts'),

@@ -171,6 +171,10 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   if (!ctx.authorize)
     bind('startup-system:autostart', undefined, false, () => b.setAutostart({ enabled: false }));
 
+  bind('qq-client-sync:enabled', current.qqClientSyncEnabled, defaults.qqClientSyncEnabled, () =>
+    b.setQqClientSyncEnabled({ enabled: defaults.qqClientSyncEnabled }),
+  );
+
   const readSync = (automatic: boolean, manual: boolean) =>
     automatic === manual ? automatic : automatic ? '仅自动阅读上报' : '仅手动标记上报';
   bind(
