@@ -52,7 +52,14 @@ export function NewGroupModal({
       labelledBy="weq-newgroup-title"
       className="weq-clone-dialog"
     >
-      <div className="weq-clone-modal" {...multi.rootProps}>
+      <form
+        className="weq-clone-modal"
+        {...multi.rootProps}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canCreate) onCreate({ name: name.trim(), personaIds: selected });
+        }}
+      >
         <header className="weq-clone-modal-head">
           <span className="weq-clone-modal-icon">
             <Users size={16} />
@@ -119,17 +126,12 @@ export function NewGroupModal({
           <button type="button" className="weq-set-btn weq-set-btn-soft" onClick={requestClose}>
             取消
           </button>
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-primary"
-            disabled={!canCreate}
-            onClick={() => onCreate({ name: name.trim(), personaIds: selected })}
-          >
+          <button type="submit" className="weq-set-btn weq-set-btn-primary" disabled={!canCreate}>
             <Plus size={14} aria-hidden="true" />
             创建群聊
           </button>
         </footer>
-      </div>
+      </form>
     </Modal>
   );
 }

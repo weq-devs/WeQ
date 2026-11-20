@@ -2,6 +2,8 @@ import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { GroupChatPanel } from '../src/renderer/src/views/agentlab/GroupChatPanel';
+import { NewGroupModal } from '../src/renderer/src/views/agentlab/NewGroupModal';
+import { changeInput } from './support/form-controls';
 
 const f = vi.hoisted(() => ({
   confirm: vi.fn(async () => true),
@@ -73,6 +75,47 @@ beforeEach(() => {
   f.confirm.mockResolvedValue(true);
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('新建克隆群聊的默认提交保留名称和双成员校验', () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const create = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        h(NewGroupModal, {
+          personas: [
+            { id: 'alice', name: '合成甲' },
+            { id: 'bob', name: '合成乙' },
+          ],
+          onClose: vi.fn(),
+          onCreate: create,
+        }),
+      ),
+    );
+    const form = document.querySelector<HTMLFormElement>('form.weq-clone-modal')!;
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const input = form.querySelector<HTMLInputElement>('input')!;
+    const members = [...form.querySelectorAll<HTMLButtonElement>('.weq-clone-group-list button')];
+    act(() => changeInput(input, '  合成克隆群  '));
+    act(() => members[0]!.click());
+    expect(submit.disabled).toBe(true);
+    act(() => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(create).not.toHaveBeenCalled();
+    act(() => members[1]!.click());
+    expect(submit.disabled).toBe(false);
+    act(() => form.requestSubmit(submit));
+    expect(create).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledWith({
+      name: '合成克隆群',
+      personaIds: ['alice', 'bob'],
+    });
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 function fixture(sessionId: string | null = 's') {
   const host = document.createElement('div');
