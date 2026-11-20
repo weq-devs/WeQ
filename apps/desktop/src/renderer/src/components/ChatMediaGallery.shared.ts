@@ -44,6 +44,19 @@ export function chatImagePreviewSources(
   };
 }
 
+/** 本端 Blob 只用于显示，已回读的图片仍通过原有保存管线获取 QQ 原图。 */
+export function chatBlobImageSaveSource(
+  src: string,
+  params: Record<string, string | number>,
+): PreviewMedia['saveSource'] {
+  if (!src.startsWith('blob:') || !params.token) return undefined;
+  return {
+    kind: 'url',
+    url: mediaUrl('pic', { ...params, v: 'original', intent: 'interactive' }),
+    name: String(params.name || ''),
+  };
+}
+
 export function galleryMedia(
   messages: GalleryMessage[],
   conv = '',
@@ -124,7 +137,7 @@ export function galleryMedia(
             : src.startsWith('blob:')
               ? data.localPath
                 ? { kind: 'url', url: localFileUrl(String(data.localPath)), name }
-                : null
+                : ((image ? chatBlobImageSaveSource(src, params) : undefined) ?? null)
               : { kind: 'url', url: src, name },
           title: name || (image ? '聊天图片' : '聊天视频'),
           fallbackSources: !preview && src !== proxy ? [proxy] : [],

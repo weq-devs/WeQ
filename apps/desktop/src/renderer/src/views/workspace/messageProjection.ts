@@ -1,6 +1,7 @@
 import { findReplyPreview, type ReplyPreviewIndex } from '../../lib/replyPreview';
 import { timelineRowKey } from '../../../../shared/roaming_timeline';
 import { outgoingSequenceRejected } from '../../lib/outgoingAcknowledgment';
+import type { ComposerSubmission } from '../../lib/localOutgoing';
 import { previewIdentityIds, groupTipText } from '../../lib/conversationPreview';
 import { messageSender, type MemberUinLookup, type SenderProfile } from '../../lib/messageSender';
 import { flashPreviewLabel } from '../../lib/flashShare';
@@ -166,16 +167,24 @@ export function optimisticMessageToTemplate(
   };
 }
 
-export function outgoingPicturePreviews(elements: readonly unknown[]): Array<string | undefined> {
-  return (elements as readonly (RenderElementWire | null)[])
-    .filter((element) => element?.type === 'pic')
-    .map((element) => {
-      const url = element?.data?.localPreviewUrl;
-      return typeof url === 'string' && url ? url : undefined;
-    });
+export function outgoingPicturePreviews(
+  elements: readonly unknown[],
+): ComposerSubmission['pictures'] {
+  const urls: (string | undefined)[] = [];
+  let bytes = 0;
+  for (const element of elements as readonly (RenderElementWire | null)[]) {
+    if (element?.type !== 'pic') continue;
+    const url = element.data?.localPreviewUrl;
+    urls.push(typeof url === 'string' && url ? url : undefined);
+    if (typeof url === 'string' && url.startsWith('blob:')) {
+      const size = Number(element.data?.fileSize);
+      if (Number.isFinite(size) && size > 0) bytes += size;
+    }
+  }
+  return urls.some(Boolean) ? { urls, bytes } : undefined;
 }
 
-/** 发送缓存有消息元数据，但 QQ 可能还没写入图片缓存。 */
+/** QQ 回读更新消息元数据，显示继续使用本端已有的原图。 */
 export function withOutgoingPicturePreviews(
   elements: Message['qqElements'],
   previews: readonly (string | undefined)[],

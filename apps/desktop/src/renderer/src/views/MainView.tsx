@@ -564,6 +564,14 @@ const RelationGraphView = lazy(() =>
 );
 const workspaceLoading = <PanelLoading />;
 
+type SentPicturePreviews = NonNullable<ComposerSubmission['pictures']> & {
+  id: string;
+  convId: string;
+  cid: string;
+};
+const SENT_PICTURE_PREVIEW_LIMIT = 32;
+const SENT_PICTURE_PREVIEW_BYTES = 128 * 1024 * 1024;
+
 const messageRenderers: MessageRenderer[] = composeMessageRenderers({
   prepend: [qqMessageRenderer],
 });
@@ -1740,6 +1748,7 @@ function MainWorkspace(): ReactElement {
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  const [sentPicturePreviews, setSentPicturePreviews] = useState<SentPicturePreviews[]>([]);
   const outgoingReceipt = useOutgoingReceipts(
     messageScope,
     optimisticMessages,
@@ -1764,12 +1773,13 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     const ids = new Set(optimisticMessages.map((item) => item.id));
     outgoingQueue.current.retain(ids);
+    for (const item of sentPicturePreviews) ids.add(item.id);
     for (const [id, releases] of composerPreviewReleases.current) {
       if (ids.has(id)) continue;
       composerPreviewReleases.current.delete(id);
       for (const release of releases) release();
     }
-  }, [optimisticMessages]);
+  }, [optimisticMessages, sentPicturePreviews]);
   useEffect(() => {
     const previews = composerPreviewReleases.current;
     return () => {
@@ -3678,6 +3688,7 @@ function MainWorkspace(): ReactElement {
     onScopeChange: () => {
       setConversationPrefs({});
       setOptimisticMessages([]);
+      setSentPicturePreviews([]);
       setOptimisticForwards([]);
       setOptimisticArks([]);
     },
@@ -4458,49 +4469,30 @@ function MainWorkspace(): ReactElement {
   );
 
   const templateContext = messageTemplateContext(selectedConversation);
-  const cachedPictureEchoes = useMemo(() => {
-    type Previews = ReturnType<typeof outgoingPicturePreviews>;
-    const byId = new Map<string, Previews>();
+  const sentPictureEchoes = useMemo(() => {
+    const byId = new Map<string, SentPicturePreviews['urls']>();
     const outgoingIds = new Set<string>();
     if (!selectedConversation) return { byId, outgoingIds };
-    const outgoing = new Map<string, { id: string; previews: Previews }>();
-    for (const item of optimisticMessages) {
-      if (
-        item.convId !== selectedConversation.id ||
-        item.state !== 'sent' ||
-        !item.cid ||
-        !item.composerDraft
-      )
-        continue;
-      const previews = outgoingPicturePreviews(item.elements);
-      if (previews.some(Boolean)) outgoing.set(item.cid, { id: item.id, previews });
-    }
+    const outgoing = new Map(
+      sentPicturePreviews
+        .filter((item) => item.convId === selectedConversation.id)
+        .map((item) => [item.cid, item]),
+    );
     if (!outgoing.size) return { byId, outgoingIds };
-    // 正式记录已和发送缓存同时到达时，优先使用正式记录。
-    for (const wire of loadedMessageWires) {
-      if (
-        !wire.localSent &&
-        wire.msgRandom &&
-        outgoing.has(wire.msgRandom) &&
-        isMineMessage(wire, selectedConversation, user)
-      )
-        outgoing.delete(wire.msgRandom);
-    }
     for (const wire of loadedMessageWires) {
       const item = outgoing.get(wire.msgRandom ?? '');
       if (
         !item ||
-        !wire.localSent ||
         wire.recall ||
         wire.deletedKind ||
         !isMineMessage(wire, selectedConversation, user)
       )
         continue;
-      byId.set(timelineRowKey(wire), item.previews);
+      byId.set(timelineRowKey(wire), item.urls);
       outgoingIds.add(item.id);
     }
     return { byId, outgoingIds };
-  }, [loadedMessageWires, optimisticMessages, selectedConversation, user]);
+  }, [loadedMessageWires, sentPicturePreviews, selectedConversation, user]);
   const messageTemplateCache = useMemo(
     () => new WeakMap<MessageWire, { message: Message; identityRevision: symbol }>(),
     [templateContext, user],
@@ -4605,13 +4597,13 @@ function MainWorkspace(): ReactElement {
     const pendingMessages = optimisticMessages
       .filter(
         (item) =>
-          item.convId === selectedConversation.id && !cachedPictureEchoes.outgoingIds.has(item.id),
+          item.convId === selectedConversation.id && !sentPictureEchoes.outgoingIds.has(item.id),
       )
       .map((item) => optimisticMessageToTemplate(item, selectedConversation, optimisticSender));
     // 确认过的序号按原规则插入；失败按创建时间定位，其余无可靠位置的占位仍留在末尾。
-    const visible = cachedPictureEchoes.byId.size
+    const visible = sentPictureEchoes.byId.size
       ? real.map((message) => {
-          const previews = cachedPictureEchoes.byId.get(message.id);
+          const previews = sentPictureEchoes.byId.get(message.id);
           if (!previews) return message;
           const elements = withOutgoingPicturePreviews(message.qqElements, previews);
           return elements === message.qqElements ? message : { ...message, qqElements: elements };
@@ -4629,7 +4621,7 @@ function MainWorkspace(): ReactElement {
     optimisticForwards,
     optimisticArks,
     optimisticMessages,
-    cachedPictureEchoes,
+    sentPictureEchoes,
     forwardMatches,
     messageTemplateCache,
     messageIdentityRevision,
@@ -4767,7 +4759,6 @@ function MainWorkspace(): ReactElement {
     }
     for (const item of optimisticMessages) {
       if (item.convId !== openConvId) continue;
-      if (cachedPictureEchoes.outgoingIds.has(item.id)) continue;
       if (item.cid && cids.has(item.cid)) {
         dropIds.add(item.id);
         continue;
@@ -4788,7 +4779,7 @@ function MainWorkspace(): ReactElement {
       const next = current.filter((item) => !dropIds.has(item.id));
       return next.length === current.length ? current : next;
     });
-  }, [loadedMessageWires, optimisticMessages, selectedConversation, user, cachedPictureEchoes]);
+  }, [loadedMessageWires, optimisticMessages, selectedConversation, user]);
 
   // 凭据登记事件可能早于能力轮询，立即刷新以恢复特殊消息补拉。
   useEffect(() => {
@@ -6746,11 +6737,10 @@ function MainWorkspace(): ReactElement {
     }
     const isCurrent = () =>
       useViewState.getState().openedUin === account && messageScopeRef.current === scope;
+    submission.pictures = outgoingPicturePreviews(render.elements);
     // 会话切换时输入框会释放自己的持有，已发气泡仍需要这些 Blob。
     const urls = new Set(
-      outgoingPicturePreviews(render.elements).filter((url): url is string =>
-        Boolean(url?.startsWith('blob:')),
-      ),
+      submission.pictures?.urls.filter((url): url is string => Boolean(url?.startsWith('blob:'))),
     );
     if (urls.size)
       composerPreviewReleases.current.set(submission.id, [...urls].map(retainObjectUrl));
@@ -7073,21 +7063,26 @@ function MainWorkspace(): ReactElement {
       });
       return;
     }
-    patchOptimistic({
-      ...expectedKeysOf({
-        peerType: target.peerType,
-        targetId: target.targetId,
-        ok: outcome.ok,
-        ...(outcome.result !== undefined ? { result: outcome.result } : {}),
-        ...(outcome.groupSequence !== undefined ? { groupSequence: outcome.groupSequence } : {}),
-        ...(outcome.privateSequence !== undefined
-          ? { privateSequence: outcome.privateSequence }
-          : {}),
-        ...(outcome.random !== undefined ? { random: outcome.random } : {}),
-      }),
-      state: 'sent',
-    });
-    if (isSeqRejected({ ...outcome, peerType: target.peerType, targetId: target.targetId })) {
+    const receipt = { ...outcome, peerType: target.peerType, targetId: target.targetId };
+    const keys = expectedKeysOf(receipt);
+    const rejected = isSeqRejected(receipt);
+    if (submission?.pictures && keys.cid && !rejected && isCurrent()) {
+      const entry = {
+        ...submission.pictures,
+        id: submission.id,
+        convId: conversation.id,
+        cid: keys.cid,
+      };
+      setSentPicturePreviews((current) => {
+        const next = [...current, entry].slice(-SENT_PICTURE_PREVIEW_LIMIT);
+        let bytes = next.reduce((total, item) => total + item.bytes, 0);
+        // 单条大图文也需要完整回显，下次发送时优先回收旧条目。
+        while (next.length > 1 && bytes > SENT_PICTURE_PREVIEW_BYTES) bytes -= next.shift()!.bytes;
+        return next;
+      });
+    }
+    patchOptimistic({ ...keys, state: 'sent' });
+    if (rejected) {
       pushToast({
         tone: 'warning',
         message: '这条消息可能未被服务端接收',

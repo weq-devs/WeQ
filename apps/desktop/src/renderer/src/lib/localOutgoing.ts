@@ -189,6 +189,7 @@ export function rejectedOutgoingRemoval(message: Message, convId: string): Outgo
 export interface ComposerSubmission {
   id: string;
   draft: NonNullable<Message['composerDraft']>;
+  pictures?: { urls: (string | undefined)[]; bytes: number };
   started: boolean;
   accepted: boolean;
   afterSeq?: string;

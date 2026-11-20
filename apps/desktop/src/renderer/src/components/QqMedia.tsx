@@ -41,6 +41,7 @@ import { client, trpc } from '@renderer/trpc/client';
 import { openMediaPreview } from './mediaPreviewStore.shared';
 
 import {
+  chatBlobImageSaveSource,
   chatImagePreviewSources,
   MediaItemKeyContext,
   useChatMediaOpen,
@@ -386,6 +387,7 @@ export function QqImage({
                       kind: 'image',
                       src: preview?.src ?? previewSrc,
                       originalImage: preview?.originalImage,
+                      saveSource: chatBlobImageSaveSource(previewSrc, params),
                       title: name || (isAnimatedEmoji ? '[表情]' : '[图片]'),
                       ocr: ocrContext,
                       progressTarget,

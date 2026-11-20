@@ -89,6 +89,21 @@ it('本地图片预览直接加载，加载失败再回退到 QQ 缩略图', asy
   expect(new URL(host.querySelector('img')!.src).searchParams.get('v')).toBe('thumb');
 });
 
+it('已回读的图片点开仍显示本地原图，保存时请求 QQ 原图', async () => {
+  const host = await render({
+    fileName: 'sent.png',
+    fileToken: 'uploaded',
+    localPreviewUrl: 'blob:sent-photo',
+    thumbnailUrl: '/qq-thumb.png',
+  });
+  const image = host.querySelector('img')!;
+  expect(image.src).toBe('blob:sent-photo');
+  await act(async () => image.click());
+  const item = state.open.mock.calls[0]![0].items[0];
+  expect(item.src).toBe('blob:sent-photo');
+  expect(new URL(item.saveSource.url).searchParams.get('v')).toBe('original');
+});
+
 it('缩略图损坏时回退原图，不直接显示缺图', async () => {
   const host = await render({ fileName: 'fixture.png', fileToken: 'fixture' });
   await act(async () => host.querySelector('img')!.dispatchEvent(new Event('error')));

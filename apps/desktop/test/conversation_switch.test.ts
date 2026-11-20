@@ -622,7 +622,7 @@ it('电脑请求不返回时，发送内容仍立即在本端回显且不查询�
   }
 });
 
-it('发送图片在本地发送记录接管后仍显示同一预览，QQ 回读后才交接图片来源', async () => {
+it('发送图片在发送缓存和 QQ 正式记录接管后都保留本地原图', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   useViewState.getState().setOpenedUin('90001');
@@ -673,17 +673,24 @@ it('发送图片在本地发送记录接管后仍显示同一预览，QQ 回读�
     releaseObjectUrl(url);
     expect(revoke).not.toHaveBeenCalledWith(url);
 
-    f.refreshRows = [{ ...sent, msgId: 'qq-11' }];
+    const readbackPicture = { ...picture, thumbnailUrl: '/qq-thumb.png' };
+    f.refreshRows = [
+      { ...sent, msgId: 'qq-11', elements: [{ type: 'pic', data: readbackPicture }] },
+    ];
     await act(async () => f.dbChanged!());
     expect(f.messages).toHaveLength(1);
     expect(f.messages[0]?.msgId).toBe('qq-11');
-    expect(f.messages[0]?.qqElements?.[0]?.data).toEqual(picture);
-    expect(revoke).toHaveBeenCalledWith(url);
+    expect(f.messages[0]?.qqElements?.[0]?.data).toEqual({
+      ...readbackPicture,
+      localPreviewUrl: url,
+    });
+    expect(revoke).not.toHaveBeenCalledWith(url);
   } finally {
     await act(async () => root.unmount());
     client.clear();
     host.remove();
   }
+  expect(revoke).toHaveBeenCalledWith(url);
 });
 
 it.each(['video', 'aiVoice', 'flashTransfer'])(
