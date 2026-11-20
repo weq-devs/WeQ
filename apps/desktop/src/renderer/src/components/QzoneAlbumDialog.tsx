@@ -32,7 +32,7 @@ import { ContentReferenceToolbar } from './ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
 import { qzoneAlbumMediaKey } from '../../../shared/album_media_identity';
 import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
-import { Check, Images, Inbox, Loader2, Play, X, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, Images, Inbox, Loader2, Play, X, RefreshCw } from 'lucide-react';
 import { Modal } from './Dialog';
 import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
@@ -527,8 +527,12 @@ export function QzoneAlbumDialog({
     setMediaLoading(false);
     setMediaLoadingMore(false);
   }, []);
-  useMobileBack(open && requestedActive && Boolean(selected), backToList, 50, () =>
-    document.querySelector<HTMLElement>('.weq-qzone-album'),
+  const surface = useRef<HTMLDivElement>(null);
+  useMobileBack(
+    open && requestedActive && Boolean(selected),
+    backToList,
+    50,
+    () => surface.current,
   );
 
   if (!open) return null;
@@ -538,31 +542,34 @@ export function QzoneAlbumDialog({
   const hasMore = selected ? media.length < mediaTotal : false;
 
   const body = (
-    <div className="weq-qzone-album">
-      <header className="weq-qzone-album-head">
-        <span className="weq-qzone-album-title">
-          <span className="weq-qzone-album-title-icon" aria-hidden="true">
-            <Images size={16} strokeWidth={2} />
+    <div
+      ref={surface}
+      className={embedded ? 'weq-qzn-timeline weq-qzone-album-embedded' : 'weq-qzone-album'}
+    >
+      {!embedded ? (
+        <header className="weq-qzone-album-head">
+          <span className="weq-qzone-album-title">
+            <span className="weq-qzone-album-title-icon" aria-hidden="true">
+              <Images size={16} strokeWidth={2} />
+            </span>
+            <strong id="weq-qzone-album-title">
+              {selected ? selected.name || '相册' : '空间相册'}
+            </strong>
           </span>
-          <strong id="weq-qzone-album-title">
-            {selected ? selected.name || '相册' : '空间相册'}
-          </strong>
-        </span>
-        <span className="weq-qzn-page-count" style={{ flexShrink: 0 }}>
-          （已获取{' '}
-          <span className="weq-number weq-number-inherit">
-            {selected ? mediaPages.current.size : albumPages.current.size}
-          </span>{' '}
-          页）
-        </span>
-        {!embedded ? (
+          <span className="weq-qzn-page-count" style={{ flexShrink: 0 }}>
+            （已获取{' '}
+            <span className="weq-number weq-number-inherit">
+              {selected ? mediaPages.current.size : albumPages.current.size}
+            </span>{' '}
+            页）
+          </span>
           <button type="button" className="weq-compose-x" onClick={onClose} title="关闭">
             <X size={17} />
           </button>
-        ) : null}
-      </header>
+        </header>
+      ) : null}
 
-      <div className="weq-qzone-album-body">
+      <div className={embedded ? undefined : 'weq-qzone-album-body'}>
         {refreshing && albums ? (
           <p className="weq-qzn-loading" role="status">
             <Loader2 size={16} className="weq-spin" />
@@ -606,6 +613,7 @@ export function QzoneAlbumDialog({
           <MediaView
             key={`${hostUin}:${selected.id}`}
             active={active}
+            embedded={embedded}
             photos={media}
             total={mediaTotal}
             loading={mediaLoading}
@@ -633,6 +641,7 @@ export function QzoneAlbumDialog({
               active={active}
               albums={albums}
               hostUin={hostUin}
+              pageCount={embedded ? albumPages.current.size : undefined}
               onOpen={(album) => void openAlbum(album)}
             />
             <div ref={albumSentinel} className="weq-qzal-sentinel">
@@ -640,7 +649,9 @@ export function QzoneAlbumDialog({
                 <button type="button" disabled={albumsLoading} onClick={() => void loadAlbumPage()}>
                   {albumsLoading ? <Loader2 size={13} className="weq-spin" /> : null}
                   {albumsError ? '重试加载相册' : '加载更多相册'}
-                  <NumericText>{`（已获取 ${albumPages.current.size} 页）`}</NumericText>
+                  {!embedded ? (
+                    <NumericText>{`（已获取 ${albumPages.current.size} 页）`}</NumericText>
+                  ) : null}
                 </button>
               ) : (
                 <span className="weq-qzal-sentinel-text">
@@ -676,11 +687,13 @@ export function AlbumGridView({
   active = true,
   albums,
   hostUin,
+  pageCount,
   onOpen,
 }: {
   active?: boolean;
   albums: QzoneAlbumWire[];
   hostUin: string;
+  pageCount?: number;
   onOpen: (album: QzoneAlbumWire) => void;
 }): ReactElement {
   const owner = { kind: 'qzone-albums' as const, container: hostUin };
@@ -711,15 +724,25 @@ export function AlbumGridView({
   });
   const albumKey = (album: QzoneAlbumWire) =>
     contentReferenceKey({ kind: 'qzone-album', uin: hostUin, albumId: album.id });
+  const toolbar = (
+    <ContentReferenceToolbar owner={owner} selection={selection} loaded={[...references.keys()]} />
+  );
 
   return (
     <div className="weq-qzal-album-list">
       <QzoneBatchProgress owner={hostUin} />
-      <ContentReferenceToolbar
-        owner={owner}
-        selection={selection}
-        loaded={[...references.keys()]}
-      />
+      {pageCount === undefined ? (
+        toolbar
+      ) : (
+        <div className="weq-qzal-toolbar weq-qzal-list-toolbar">
+          {!selection.selectionMode ? (
+            <span className="weq-qzn-page-count">
+              <NumericText>{`已获取 ${pageCount} 页`}</NumericText>
+            </span>
+          ) : null}
+          {toolbar}
+        </div>
+      )}
       <div className="weq-qzal-album-grid" {...multi.rootProps}>
         {albums.map((album) => (
           <div
@@ -780,6 +803,7 @@ export function AlbumGridView({
 
 export function MediaView({
   active = true,
+  embedded = false,
   photos,
   total,
   loading,
@@ -795,6 +819,7 @@ export function MediaView({
   onLoadMore,
 }: {
   active?: boolean;
+  embedded?: boolean;
   photos: QzoneAlbumPhotoWire[];
   total: number;
   loading: boolean;
@@ -999,6 +1024,13 @@ export function MediaView({
   function openMedia(photo: QzoneAlbumPhotoWire, _row: string): void {
     setPreview(photos.indexOf(photo));
   }
+  const toolbar = (
+    <ContentReferenceToolbar
+      owner={photoOwner}
+      selection={sharedSelection}
+      loaded={[...photoReferences.keys()]}
+    />
+  );
 
   return (
     <div className="weq-qzal-media-view">
@@ -1014,20 +1046,23 @@ export function MediaView({
         />
       ) : null}
       <div className="weq-qzal-toolbar">
-        <button type="button" className="weq-qzal-back" onClick={onBack}>
-          返回相册
-        </button>
+        {embedded ? (
+          <button type="button" title="返回相册列表" aria-label="返回相册列表" onClick={onBack}>
+            <ArrowLeft size={17} aria-hidden />
+          </button>
+        ) : (
+          <button type="button" className="weq-qzal-back" onClick={onBack}>
+            返回相册
+          </button>
+        )}
         <span className="weq-qzal-count">
-          {albumName} · <NumericText>{countText}</NumericText>
+          {albumName || (embedded ? '未命名相册' : '')} · <NumericText>{countText}</NumericText>
           {total > photos.length ? <NumericText>{` · 共 ${total} 项`}</NumericText> : ''}
         </span>
         <QzoneBatchProgress owner={hostUin} />
+        {embedded && (photos.length > 0 || sharedSelection.selectionMode) ? toolbar : null}
       </div>
-      <ContentReferenceToolbar
-        owner={photoOwner}
-        selection={sharedSelection}
-        loaded={[...photoReferences.keys()]}
-      />
+      {embedded ? null : toolbar}
       {loading ? (
         <MediaGridSkeleton />
       ) : error ? (
