@@ -434,21 +434,35 @@ export function buildComposerSendPlan(input: {
  *
  * 拿不到 WebAudio（非 Electron 环境 / 极老的运行时）时如实报错，不静默发一条空语音。
  */
-export async function decodeRecordingToWav(
+export function decodeRecordingToWav(
   recording: Uint8Array,
   sampleRate: number = VOICE_SAMPLE_RATE,
 ): Promise<Uint8Array> {
-  if (recording.byteLength === 0) throw new Error('录音是空的，无法发送。');
-  // 复制到独立的 ArrayBuffer：`recording` 可能是某个大 buffer 的视图，直接把视图的
-  // buffer 交给 decodeAudioData 会把无关字节也算进去。
-  const bytes = recording.slice();
-  const audioBuffer = await decodeAudio(bytes.buffer as ArrayBuffer);
-  const frames = Math.max(1, Math.ceil(audioBuffer.duration * sampleRate));
+  return decodeRecordingsToWav([recording], sampleRate);
+}
+
+/** 将各次开麦得到的录音段重采样后连续拼接，暂停间隔不进入音频。 */
+export async function decodeRecordingsToWav(
+  recordings: readonly Uint8Array[],
+  sampleRate: number = VOICE_SAMPLE_RATE,
+): Promise<Uint8Array> {
+  const parts: Array<{ buffer: AudioBuffer; frames: number }> = [];
+  for (const recording of recordings) {
+    if (!recording.byteLength) throw new Error('录音是空的，无法发送。');
+    const buffer = await decodeAudio(recording.slice().buffer as ArrayBuffer);
+    parts.push({ buffer, frames: Math.max(1, Math.ceil(buffer.duration * sampleRate)) });
+  }
+  const frames = parts.reduce((total, part) => total + part.frames, 0);
+  if (!frames) throw new Error('录音是空的，无法发送。');
   const offline = createOfflineContext(1, frames, sampleRate);
-  const source = offline.createBufferSource();
-  source.buffer = audioBuffer;
-  source.connect(offline.destination);
-  source.start();
+  let offset = 0;
+  for (const part of parts) {
+    const source = offline.createBufferSource();
+    source.buffer = part.buffer;
+    source.connect(offline.destination);
+    source.start(offset / sampleRate);
+    offset += part.frames;
+  }
   const rendered = await offline.startRendering();
   return encodePcmWav(rendered.getChannelData(0), sampleRate);
 }

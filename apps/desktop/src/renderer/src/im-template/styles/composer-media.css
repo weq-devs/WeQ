@@ -353,7 +353,7 @@ button.composer-single-thumb {
   scrollbar-width: thin;
 }
 
-.voice-panel-body[data-wave-compact='true'] {
+.voice-panel-body[data-transcript-ready='true'] {
   --voice-wave-center: calc(var(--voice-wave-height) / 2);
 }
 
@@ -420,6 +420,8 @@ button.composer-single-thumb {
 .voice-panel-body:is(
     [data-wave-phase='requesting'],
     [data-wave-phase='recording'],
+    [data-wave-phase='paused'],
+    [data-wave-phase='finalizing'],
     [data-wave-phase='review']
   )
   .voice-wave {
@@ -430,10 +432,6 @@ button.composer-single-thumb {
   left: 42px;
   width: calc(100% - 82px);
   transform: translate(0, -50%);
-}
-
-.voice-panel-body[data-wave-compact='true'] .voice-wave {
-  width: calc((100% - 82px) * 0.68);
 }
 
 .voice-wave span {
@@ -702,6 +700,10 @@ button.composer-single-thumb {
     min-width: 28px;
     gap: 3px;
     padding-inline: 4px;
+  }
+
+  .voice-review-actions .voice-resume-btn span {
+    display: none;
   }
 }
 

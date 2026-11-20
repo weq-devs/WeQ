@@ -5400,8 +5400,12 @@ function ChatPaneContent({
     setToolsOpen(false);
   }
 
+  function closeVoicePanel() {
+    applyTranscriptToEmptyDraft();
+    setVoiceOpen(false);
+  }
+
   function toggleVoicePanel() {
-    if (voiceOpen) applyTranscriptToEmptyDraft();
     setComposerMenu(null);
     setContextMenu(null);
     setLocationMenu(null);
@@ -5413,7 +5417,8 @@ function ChatPaneContent({
     setFlashOpen(false);
     setMentionMenu(null);
     setSlashMenu(null);
-    setVoiceOpen((open) => !open);
+    if (voiceOpen) closeVoicePanel();
+    else setVoiceOpen(true);
   }
 
   function toggleArkPanel() {
@@ -7288,6 +7293,7 @@ function ChatPaneContent({
               text={composerSpeechText(body)}
               onTextChange={setSpeechDraftText}
               onUseTranscriptDraft={applyTranscriptToEmptyDraft}
+              onExitVoiceMode={closeVoicePanel}
               groupId={
                 conversation.type === 'group' ? Number(conversation.group.identityValue) : undefined
               }

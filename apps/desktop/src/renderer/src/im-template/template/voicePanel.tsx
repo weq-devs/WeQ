@@ -37,7 +37,8 @@ import type { ReactNode } from 'react';
 import { cn } from './classNames';
 import { voiceModeContext } from './voicePanel.shared';
 import { pcm16Samples, startRemoteMedia, needsNativeRemoteMedia } from '../../lib/remoteMedia';
-import { decodeRecordingToWav, encodePcmWav } from './composerSend';
+import { decodeRecordingToWav, decodeRecordingsToWav, encodePcmWav } from './composerSend';
+import { topSurface } from '../../lib/surfaceEscape';
 import {
   createMediaId,
   formatClipDuration,
@@ -51,7 +52,8 @@ const MAX_RECORD_MS = 60_000;
 const MIN_RECORD_MS = 700;
 const MAX_TTS_CHARS = 200;
 
-type RecorderPhase = 'idle' | 'requesting' | 'recording' | 'review';
+type RecorderPhase = 'idle' | 'requesting' | 'recording' | 'paused' | 'finalizing' | 'review';
+type StopTarget = 'paused' | 'review';
 
 function pickRecorderMime(): string {
   const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
@@ -118,9 +120,11 @@ function useVoiceRecorder() {
   const timerRef = useRef<number | null>(null);
   const maxTimerRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
-  const holdingRef = useRef(false);
-  const wantStopRef = useRef(false);
-  const discardRef = useRef(false);
+  const captureRequestRef = useRef<symbol | null>(null);
+  const stopTargetRef = useRef<StopTarget>('review');
+  const segmentDurationRef = useRef<number | null>(null);
+  const segmentsRef = useRef<Blob[]>([]);
+  const completedDurationRef = useRef(0);
   const peaksRef = useRef<number[]>([]);
   const lastPeakAtRef = useRef(0);
   const transcriptionRef = useRef<AbortController | null>(null);
@@ -134,6 +138,7 @@ function useVoiceRecorder() {
   }, []);
 
   const cleanupAudio = useCallback(() => {
+    captureRequestRef.current = null;
     nativeStopRef.current?.();
     nativeStopRef.current = null;
     nativeControllerRef.current?.abort();
@@ -160,74 +165,110 @@ function useVoiceRecorder() {
     const stream = streamRef.current;
     streamRef.current = null;
     if (stream) for (const track of stream.getTracks()) track.stop();
-    if (levels) for (let i = 0; i < levels.length; i++) levels[i] = 0;
-  }, [levels]);
+  }, []);
 
-  const finalizeRecording = useCallback(() => {
-    if (discardRef.current) {
-      discardRef.current = false;
-      chunksRef.current = [];
-      return;
-    }
-    const duration = performance.now() - startedAtRef.current;
-    const chunks = chunksRef.current;
-    chunksRef.current = [];
-    cleanupAudio();
-
-    if (duration < MIN_RECORD_MS) {
-      setElapsedMs(0);
-      setPhaseSafe('idle');
+  const reviewRecording = useCallback(async () => {
+    const segments = segmentsRef.current;
+    const duration = completedDurationRef.current;
+    if (duration < MIN_RECORD_MS || segments.length === 0) {
+      setPhaseSafe(segments.length ? 'paused' : 'idle');
       setError('录音太短，请录久一点再结束');
       return;
     }
-
-    const blob = new Blob(chunks, {
-      type: recorderRef.current?.mimeType || chunks[0]?.type || 'audio/webm',
-    });
-    const url = URL.createObjectURL(blob);
-    const next: VoiceClip = {
-      id: createMediaId('voice'),
-      source: 'record',
-      url,
-      blob,
-      durationMs: duration,
-      levels: downsamplePeaks(peaksRef.current),
-      transcript: '',
-    };
-    releaseVoiceClip(clipRef.current);
-    clipRef.current = next;
-    setClip(next);
-    setElapsedMs(duration);
-    setPhaseSafe('review');
-  }, [cleanupAudio, setPhaseSafe]);
-
-  const endRecord = useCallback(() => {
-    holdingRef.current = false;
-    if (nativeStopRef.current) {
-      nativeStopRef.current();
-      nativeStopRef.current = null;
-      const parts = nativeSamplesRef.current;
-      const samples = new Float32Array(parts.reduce((sum, part) => sum + part.length, 0));
-      let offset = 0;
-      for (const part of parts) {
-        samples.set(part, offset);
-        offset += part.length;
+    setError(null);
+    setPhaseSafe('finalizing');
+    try {
+      let blob = segments[0];
+      if (segments.length > 1) {
+        const recordings = await Promise.all(
+          segments.map(async (part) => new Uint8Array(await part.arrayBuffer())),
+        );
+        const wav = await decodeRecordingsToWav(recordings);
+        blob = new Blob([wav], { type: 'audio/wav' });
       }
-      chunksRef.current = [new Blob([encodePcmWav(samples, 16000)], { type: 'audio/wav' })];
-      finalizeRecording();
-      return;
+      if (unmountedRef.current || segmentsRef.current !== segments) return;
+      const next: VoiceClip = {
+        id: createMediaId('voice'),
+        source: 'record',
+        url: URL.createObjectURL(blob),
+        blob,
+        durationMs: duration,
+        levels: downsamplePeaks(peaksRef.current),
+        transcript: '',
+      };
+      releaseVoiceClip(clipRef.current);
+      clipRef.current = next;
+      setClip(next);
+      setPhaseSafe('review');
+    } catch (error) {
+      if (unmountedRef.current || segmentsRef.current !== segments) return;
+      setError(error instanceof Error ? error.message : '录音拼接失败');
+      setPhaseSafe('paused');
     }
-    const recorder = recorderRef.current;
-    if (recorder && recorder.state !== 'inactive') {
-      try {
-        recorder.stop();
-      } catch {}
-      return;
-    }
-    if (phaseRef.current === 'requesting') {
-      wantStopRef.current = true;
-    }
-  }, [finalizeRecording]);
+  }, [setPhaseSafe]);
+
+  const completeSegment = useCallback(
+    (blob: Blob) => {
+      const duration = segmentDurationRef.current ?? performance.now() - startedAtRef.current;
+      const target = stopTargetRef.current;
+      chunksRef.current = [];
+      cleanupAudio();
+      if (blob.size) {
+        segmentsRef.current = [...segmentsRef.current, blob];
+        completedDurationRef.current = Math.min(
+          MAX_RECORD_MS,
+          completedDurationRef.current + duration,
+        );
+      }
+      setElapsedMs(completedDurationRef.current);
+      if (target === 'paused') setPhaseSafe(segmentsRef.current.length ? 'paused' : 'idle');
+      else void reviewRecording();
+    },
+    [cleanupAudio, reviewRecording, setPhaseSafe],
+  );
+
+  const stopCapture = useCallback(
+    (target: StopTarget) => {
+      const phase = phaseRef.current;
+      if (phase === 'requesting') {
+        cleanupAudio();
+        setPhaseSafe(segmentsRef.current.length ? 'paused' : 'idle');
+        return;
+      }
+      if (phase === 'paused' && target === 'review') {
+        void reviewRecording();
+        return;
+      }
+      if (phase !== 'recording') return;
+      stopTargetRef.current = target;
+      segmentDurationRef.current = performance.now() - startedAtRef.current;
+      setPhaseSafe('finalizing');
+      if (nativeStopRef.current) {
+        const parts = nativeSamplesRef.current;
+        const samples = new Float32Array(nativeSampleCountRef.current);
+        let offset = 0;
+        for (const part of parts) {
+          samples.set(part, offset);
+          offset += part.length;
+        }
+        completeSegment(
+          samples.length
+            ? new Blob([encodePcmWav(samples, 16000)], { type: 'audio/wav' })
+            : new Blob(),
+        );
+        return;
+      }
+      const recorder = recorderRef.current;
+      if (recorder?.state !== 'inactive') recorder?.stop();
+    },
+    [cleanupAudio, completeSegment, reviewRecording, setPhaseSafe],
+  );
+
+  const endRecord = useCallback(() => stopCapture('review'), [stopCapture]);
+  const pauseRecord = useCallback(() => stopCapture('paused'), [stopCapture]);
+  const releaseHeldRecord = useCallback(() => {
+    if (phaseRef.current === 'recording' || phaseRef.current === 'requesting') endRecord();
+  }, [endRecord]);
 
   const appendLevel = useCallback(
     (size: number) => {
@@ -240,6 +281,7 @@ function useVoiceRecorder() {
   );
 
   const tick = useCallback(() => {
+    if (phaseRef.current !== 'recording') return;
     const analyser = analyserRef.current;
     const data = timeDomainRef.current;
     if (!analyser || !data) return;
@@ -250,24 +292,50 @@ function useVoiceRecorder() {
   }, [appendLevel]);
 
   const beginRecord = useCallback(async () => {
-    if (phaseRef.current === 'recording' || phaseRef.current === 'requesting') return;
-    discardRef.current = false;
-    wantStopRef.current = false;
-    holdingRef.current = true;
-    transcriptionRef.current?.abort();
-    transcriptionRef.current = null;
-    transcriptDraft.current = null;
-    setTranscribing(false);
-    peaksRef.current = [];
+    const phase = phaseRef.current;
+    if (phase !== 'idle' && phase !== 'paused' && phase !== 'review') return;
+    if (
+      transcriptReady ||
+      transcriptionRef.current ||
+      completedDurationRef.current >= MAX_RECORD_MS
+    )
+      return;
+    const request = Symbol('microphone');
+    captureRequestRef.current = request;
+    const current = () => !unmountedRef.current && captureRequestRef.current === request;
+    const fail = (message: string) => {
+      if (!current()) return;
+      cleanupAudio();
+      setElapsedMs(completedDurationRef.current);
+      setError(message);
+      setPhaseSafe(segmentsRef.current.length ? 'paused' : 'idle');
+    };
+    const startClock = () => {
+      startedAtRef.current = performance.now();
+      setPhaseSafe('recording');
+      timerRef.current = window.setInterval(() => {
+        setElapsedMs(
+          Math.min(
+            MAX_RECORD_MS,
+            completedDurationRef.current + performance.now() - startedAtRef.current,
+          ),
+        );
+      }, 100);
+      maxTimerRef.current = window.setTimeout(
+        endRecord,
+        MAX_RECORD_MS - completedDurationRef.current,
+      );
+    };
+    if (phase === 'idle') {
+      levels.fill(0);
+      peaksRef.current = [];
+    }
+    stopTargetRef.current = 'review';
+    segmentDurationRef.current = null;
     lastPeakAtRef.current = 0;
+    audioRef.current?.pause();
     setError(null);
     setTranscribeError(null);
-    setTranscript('');
-    setTranscriptReady(false);
-    releaseVoiceClip(clipRef.current);
-    clipRef.current = null;
-    setClip(null);
-    setElapsedMs(0);
     setPhaseSafe('requesting');
 
     if (needsNativeRemoteMedia()) {
@@ -276,17 +344,18 @@ function useVoiceRecorder() {
       nativeSampleCountRef.current = 0;
       const controller = new AbortController();
       nativeControllerRef.current = controller;
+      const maxSamples = Math.floor((MAX_RECORD_MS - completedDurationRef.current) * 16);
       try {
         const stop = await startRemoteMedia(
           { audio: true },
           {
             audio: (bytes) => {
-              if (controller.signal.aborted || phaseRef.current !== 'recording') return;
-              const samples = pcm16Samples(bytes);
-              if (nativeSampleCountRef.current < 16000 * 60) {
-                nativeSamplesRef.current.push(samples);
-                nativeSampleCountRef.current += samples.length;
-              }
+              if (!current() || phaseRef.current !== 'recording') return;
+              const remaining = maxSamples - nativeSampleCountRef.current;
+              if (remaining <= 0) return;
+              const samples = pcm16Samples(bytes).subarray(0, remaining);
+              nativeSamplesRef.current.push(samples);
+              nativeSampleCountRef.current += samples.length;
               const now = performance.now();
               if (samples.length && now - lastPeakAtRef.current >= 68) {
                 lastPeakAtRef.current = now;
@@ -294,136 +363,100 @@ function useVoiceRecorder() {
                 appendLevel(Math.sqrt(power / samples.length));
               }
             },
-            error: (message) => {
-              cleanupAudio();
-              setError(message);
-              setPhaseSafe('idle');
-            },
+            error: fail,
           },
           controller.signal,
         );
-        if (unmountedRef.current || !holdingRef.current || controller.signal.aborted) {
+        if (!current()) {
           stop();
-          setPhaseSafe('idle');
           return;
         }
         nativeStopRef.current = stop;
-        startedAtRef.current = performance.now();
-        setPhaseSafe('recording');
-        timerRef.current = window.setInterval(
-          () => setElapsedMs(performance.now() - startedAtRef.current),
-          100,
-        );
-        maxTimerRef.current = window.setTimeout(endRecord, MAX_RECORD_MS);
+        startClock();
       } catch (error) {
-        if (!unmountedRef.current) {
-          setError(error instanceof Error ? error.message : '开始录音失败');
-          setPhaseSafe('idle');
-        }
+        fail(error instanceof Error ? error.message : '开始录音失败');
       }
       return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      holdingRef.current = false;
-      setPhaseSafe('idle');
-      setError('当前环境不支持录音');
+      fail('当前环境不支持录音');
       return;
     }
-
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true },
       });
-    } catch (err) {
-      holdingRef.current = false;
-      setPhaseSafe('idle');
-      setError(describeMicError(err));
+    } catch (error) {
+      fail(describeMicError(error));
       return;
     }
-
-    if (unmountedRef.current || !holdingRef.current) {
+    if (!current()) {
       for (const track of stream.getTracks()) track.stop();
-      setPhaseSafe('idle');
       return;
     }
-
     streamRef.current = stream;
-
     const AudioCtor = window.AudioContext ?? window.webkitAudioContext;
     if (AudioCtor) {
       try {
         const ctx = new AudioCtor();
+        ctxRef.current = ctx;
         await ctx.resume();
-        if (unmountedRef.current || !holdingRef.current) {
-          void ctx.close().catch(() => {});
-          cleanupAudio();
-          setPhaseSafe('idle');
-          return;
-        }
+        if (!current()) return;
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 1024;
         ctx.createMediaStreamSource(stream).connect(analyser);
-        ctxRef.current = ctx;
         analyserRef.current = analyser;
         timeDomainRef.current = new Uint8Array(analyser.fftSize);
       } catch {
-        // 画不出声纹也要能录 —— 声纹只是装饰。
+        if (!current()) return;
       }
     }
 
-    const mime = pickRecorderMime();
-    let recorder: MediaRecorder;
     try {
-      recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-    } catch {
-      cleanupAudio();
-      holdingRef.current = false;
-      setPhaseSafe('idle');
-      setError('开始录音失败');
-      return;
-    }
-
-    recorderRef.current = recorder;
-    chunksRef.current = [];
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunksRef.current.push(event.data);
-    };
-    recorder.onstop = finalizeRecording;
-    recorder.onerror = () => {
-      cleanupAudio();
-      holdingRef.current = false;
-      setPhaseSafe('idle');
-      setError('录音出错');
-    };
-
-    startedAtRef.current = performance.now();
-    try {
+      const mime = pickRecorderMime();
+      const recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (current() && event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        if (!current()) return;
+        const chunks = chunksRef.current;
+        completeSegment(
+          new Blob(chunks, { type: recorder.mimeType || chunks[0]?.type || 'audio/webm' }),
+        );
+      };
+      recorder.onerror = () => fail('录音出错');
       recorder.start(120);
+      startClock();
+      levelTimerRef.current = window.setInterval(tick, 68);
     } catch {
-      cleanupAudio();
-      holdingRef.current = false;
-      setPhaseSafe('idle');
-      setError('开始录音失败');
-      return;
+      fail('开始录音失败');
     }
-
-    setPhaseSafe('recording');
-    levelTimerRef.current = window.setInterval(tick, 68);
-    timerRef.current = window.setInterval(() => {
-      setElapsedMs(performance.now() - startedAtRef.current);
-    }, 100);
-    maxTimerRef.current = window.setTimeout(() => endRecord(), MAX_RECORD_MS);
-    if (wantStopRef.current) endRecord();
-  }, [appendLevel, cleanupAudio, endRecord, finalizeRecording, setPhaseSafe, tick]);
+  }, [
+    appendLevel,
+    cleanupAudio,
+    completeSegment,
+    endRecord,
+    levels,
+    setPhaseSafe,
+    tick,
+    transcriptReady,
+  ]);
 
   const discard = useCallback(
     (expectedClipId?: string) => {
       if (expectedClipId && clipRef.current?.id !== expectedClipId) return;
       audioRef.current?.pause();
-      holdingRef.current = false;
-      discardRef.current = true;
+      segmentsRef.current = [];
+      completedDurationRef.current = 0;
+      levels.fill(0);
+      cleanupAudio();
       transcriptionRef.current?.abort();
       transcriptionRef.current = null;
       transcriptDraft.current = null;
@@ -434,7 +467,6 @@ function useVoiceRecorder() {
           recorder.stop();
         } catch {}
       }
-      cleanupAudio();
       releaseVoiceClip(clipRef.current);
       clipRef.current = null;
       setClip(null);
@@ -446,7 +478,7 @@ function useVoiceRecorder() {
       setPlaying(false);
       setPhaseSafe('idle');
     },
-    [cleanupAudio, setPhaseSafe],
+    [cleanupAudio, levels, setPhaseSafe],
   );
 
   const ensureAudio = useCallback(() => {
@@ -553,11 +585,9 @@ function useVoiceRecorder() {
     // 置 true，之后每次 beginRecord 都会在 getUserMedia 返回后直接放弃：表现就是
     // 「一按就断、不到一秒自己回到待机」。
     unmountedRef.current = false;
-    discardRef.current = false;
-
     return () => {
       unmountedRef.current = true;
-      discardRef.current = true;
+      captureRequestRef.current = null;
       transcriptionRef.current?.abort();
       const recorder = recorderRef.current;
       if (recorder && recorder.state !== 'inactive') {
@@ -588,6 +618,8 @@ function useVoiceRecorder() {
     playing,
     beginRecord,
     endRecord,
+    pauseRecord,
+    releaseHeldRecord,
     discard,
     togglePlay,
     transcribeClip,
@@ -685,7 +717,7 @@ export function VoiceWorkspace({
     setInline(panel);
     return () => setInline((current) => (current === panel ? null : current));
   }, []);
-  const { beginRecord, endRecord, phase } = recorder;
+  const { beginRecord, releaseHeldRecord, phase } = recorder;
   function start(nextOwner: RecordingOwner, nextInput: RecordingInput) {
     if (phase !== 'idle' && owner?.id !== nextOwner.id) return;
     setOwner(nextOwner);
@@ -697,11 +729,11 @@ export function VoiceWorkspace({
     function release(event: KeyboardEvent) {
       if (event.code !== 'Space') return;
       event.preventDefault();
-      endRecord();
+      releaseHeldRecord();
     }
     window.addEventListener('keyup', release, true);
     return () => window.removeEventListener('keyup', release, true);
-  }, [endRecord, input, phase]);
+  }, [input, phase, releaseHeldRecord]);
   const openRecording = useCallback(() => {
     if (!owner) return;
     setOpen(true);
@@ -709,7 +741,8 @@ export function VoiceWorkspace({
     pages?.select(null);
     onReturn?.(owner.id);
   }, [onReturn, owner, pages]);
-  const showBubble = owner && phase !== 'idle' && (obscured || inline?.id !== owner.id);
+  const showBubble =
+    owner && phase !== 'idle' && (phase === 'paused' || obscured || inline?.id !== owner.id);
   return (
     <voiceModeContext.Provider value={mode}>
       <VoiceCaptureContext.Provider value={{ recorder, owner, input, start, registerInline }}>
@@ -718,11 +751,15 @@ export function VoiceWorkspace({
       <RecordingBubble
         owner={showBubble ? owner : null}
         status={
-          phase === 'review'
-            ? '待发送'
-            : phase === 'requesting'
-              ? '准备中'
-              : formatClipDuration(recorder.elapsedMs)
+          phase === 'paused'
+            ? '已暂停'
+            : phase === 'finalizing'
+              ? '整理中'
+              : phase === 'review'
+                ? '待发送'
+                : phase === 'requesting'
+                  ? '准备中'
+                  : formatClipDuration(recorder.elapsedMs)
         }
         onOpen={openRecording}
       />
@@ -825,6 +862,7 @@ export function VoicePanel({
   text,
   onTextChange,
   onUseTranscriptDraft,
+  onExitVoiceMode,
   onSendAiVoice,
 }: {
   conversationId: string;
@@ -848,6 +886,7 @@ export function VoicePanel({
   text: string;
   onTextChange: (text: string) => void;
   onUseTranscriptDraft: () => void;
+  onExitVoiceMode: () => void;
   onSendAiVoice: (draft: AiVoiceDraft) => void;
 }) {
   const [tab, setTab] = useState<'record' | 'tts' | 'ai'>('record');
@@ -856,12 +895,16 @@ export function VoicePanel({
   const ownsRecording = owner?.id === conversationId;
   const phase = ownsRecording ? recorder.phase : 'idle';
   const foreignRecording = !!owner && !ownsRecording && recorder.phase !== 'idle';
-  const { endRecord, stopPlayback } = recorder;
+  const { endRecord, pauseRecord, stopPlayback } = recorder;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const aiSendRef = useRef<HTMLButtonElement | null>(null);
   const sendingReview = useRef(false);
   const [reviewSending, setReviewSending] = useState(false);
-  const busy = phase === 'recording' || phase === 'requesting';
+  const paused = phase === 'paused';
+  const busy = phase === 'recording' || phase === 'requesting' || phase === 'finalizing';
+  const canResume =
+    recorder.elapsedMs < MAX_RECORD_MS && !recorder.transcribing && !recorder.transcriptReady;
+  const resumeByClick = () => start({ id: conversationId, label: conversationLabel }, 'button');
 
   function changeTab(next: typeof tab) {
     if (busy) return;
@@ -906,6 +949,30 @@ export function VoicePanel({
     rootRef.current?.focus({ preventScroll: true });
   }, []);
 
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!tabActive || !root) return;
+    const document = root.ownerDocument;
+    function handleEscape(event: KeyboardEvent) {
+      if (
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229
+      )
+        return;
+      const top = topSurface(document);
+      if (top && !top.contains(root)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.repeat || phase === 'finalizing') return;
+      if (phase === 'recording' || phase === 'requesting') pauseRecord();
+      else onExitVoiceMode();
+    }
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [onExitVoiceMode, pauseRecord, phase, tabActive]);
+
   // 空格由录音所在页面启动，释放由工作区监听，切页时也能结束录音。
   function startWithSpace(event: React.KeyboardEvent) {
     if (
@@ -924,7 +991,7 @@ export function VoicePanel({
     )
       return;
     event.preventDefault();
-    if (!busy && !foreignRecording && !reviewSending)
+    if (!busy && !foreignRecording && !reviewSending && (phase === 'idle' || canResume))
       start({ id: conversationId, label: conversationLabel }, 'space');
   }
 
@@ -1021,7 +1088,7 @@ export function VoicePanel({
         <div
           className="voice-panel-body"
           data-wave-phase={phase}
-          data-wave-compact={phase === 'review' && recorder.transcriptReady}
+          data-transcript-ready={phase === 'review' && recorder.transcriptReady}
         >
           {foreignRecording ? null : (
             <VoiceWave
@@ -1046,6 +1113,7 @@ export function VoicePanel({
               onCancelTranscription={recorder.cancelTranscription}
               onTranscriptChange={recorder.editTranscript}
               onDiscard={() => recorder.discard()}
+              onResume={canResume && !reviewSending ? resumeByClick : undefined}
               onSendVoice={(voiceChanged) =>
                 void sendReview(() =>
                   onSendVoice({ ...recorder.clip, transcript: recorder.transcript, voiceChanged }),
@@ -1056,16 +1124,17 @@ export function VoicePanel({
               }
             />
           ) : (
-            <div className={cn('voice-stage', busy && 'is-recording')}>
+            <div className={cn('voice-stage', (busy || paused) && 'is-recording')}>
               <div className="voice-record-track">
                 <button
                   type="button"
                   className="voice-record-btn"
-                  title={busy ? '结束录音' : '点击录音（也可长按空格）'}
-                  aria-label={busy ? '结束录音' : '点击录音'}
+                  title={paused ? '继续录音' : busy ? '结束录音' : '点击录音（也可长按空格）'}
+                  aria-label={paused ? '继续录音' : busy ? '结束录音' : '点击录音'}
+                  disabled={phase === 'finalizing' || (paused && !canResume)}
                   onClick={() => {
                     if (busy) endRecord();
-                    else start({ id: conversationId, label: conversationLabel }, 'button');
+                    else resumeByClick();
                   }}
                   onContextMenu={(event) => event.preventDefault()}
                 >
@@ -1073,6 +1142,13 @@ export function VoicePanel({
                     <>
                       <Loader2 size={20} className={cn('voice-spin')} />
                       <strong>正在开麦…</strong>
+                    </>
+                  ) : phase === 'finalizing' ? (
+                    <Loader2 size={20} className="voice-spin" />
+                  ) : paused ? (
+                    <>
+                      <Play size={18} />
+                      <strong>继续录音</strong>
                     </>
                   ) : busy ? (
                     <>
@@ -1099,12 +1175,22 @@ export function VoicePanel({
           {!foreignRecording && phase !== 'review' ? (
             <div className={cn('voice-panel-foot')}>
               <span className={cn('voice-hint')}>
-                <kbd>空格</kbd> 长按录音 · 最长 60 秒
+                {paused ? (
+                  <>已暂停 · {formatClipDuration(recorder.elapsedMs)}</>
+                ) : (
+                  <>
+                    <kbd>空格</kbd> 长按录音 · 最长 60 秒
+                  </>
+                )}
               </span>
               {/* 「选择音频」只在**录制态**出现。进入回顾 / 发送界面后底部已经被试听 +
               发送按钮占满，这颗胶囊再挤进来就会和它们叠在一起，所以直接收掉 ——
               要重选音频就退回录制态（点一下麦克风）再选。 */}
-              {phase !== 'review' ? (
+              {paused ? (
+                <button type="button" className="voice-btn ghost" onClick={endRecord}>
+                  结束录音
+                </button>
+              ) : phase !== 'finalizing' ? (
                 <label
                   className={cn('voice-pick-audio')}
                   title="选择本机音频文件当语音发送（自动转成 SILK）"
@@ -1152,6 +1238,7 @@ function VoiceReview({
   onCancelTranscription,
   onTranscriptChange,
   onDiscard,
+  onResume,
   onSendVoice,
   onSendTranscript,
 }: {
@@ -1168,6 +1255,7 @@ function VoiceReview({
   onCancelTranscription: () => void;
   onTranscriptChange: (text: string) => void;
   onDiscard: () => void;
+  onResume?: () => void;
   /** 发送语音；带上「变声标识」勾选态（协议已实现 `extBizInfo.ptt.changeVoice`）。 */
   onSendVoice: (voiceChanged: boolean) => void;
   onSendTranscript: () => void;
@@ -1245,6 +1333,17 @@ function VoiceReview({
           </button>
         ) : (
           <>
+            {onResume ? (
+              <button
+                type="button"
+                className="voice-btn ghost voice-resume-btn"
+                aria-label="继续录音"
+                title="继续录音"
+                onClick={onResume}
+              >
+                <Mic size={14} /> <span>继续录音</span>
+              </button>
+            ) : null}
             <button
               type="button"
               className={cn('voice-btn ghost', voiceChanged && 'is-active')}
