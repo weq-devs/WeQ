@@ -29,6 +29,12 @@ export function timelineRowKey(row: TimelineRow): string {
     : row.msgId;
 }
 
+export function timelineMessageIdentity(row: TimelineRow): string | null {
+  return row.msgRandom && row.msgRandom !== '0' && row.senderUid
+    ? `${row.msgSeq}:${row.msgRandom}:${row.senderUid}`
+    : null;
+}
+
 /** Fill the currently loaded window without extending it or re-anchoring history to latest. */
 export function mergeRoamingWindow<T extends TimelineRow>(
   kind: 'c2c' | 'group',
@@ -52,10 +58,7 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
   cached: T[],
   options: { descending?: boolean; limit?: number; min?: bigint; max?: bigint } = {},
 ): T[] {
-  const identity = (row: T): string | null =>
-    row.msgRandom && row.msgRandom !== '0' && row.senderUid
-      ? `${row.msgSeq}:${row.msgRandom}:${row.senderUid}`
-      : null;
+  const identity = timelineMessageIdentity;
   const protectedRows = [...local, ...cached].filter((row) => {
     const seq = timelineSeq(row.msgSeq);
     return (

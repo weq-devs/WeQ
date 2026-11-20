@@ -164,7 +164,7 @@ describe('系统消息共用行', () => {
       vi.unstubAllGlobals();
     }
   });
-  it('灰条时间仅作悬停或聚焦提示，不再接在正文右侧，也不输出 seq', () => {
+  it('灰条保留完整时间提示，不增加独立键盘停靠点或输出 seq', () => {
     const system = {
       ...message,
       qqElements: [
@@ -187,7 +187,7 @@ describe('系统消息共用行', () => {
     expect(line?.querySelector('.weq-graytip')).not.toBeNull();
     expect(line?.querySelector('time')).toBeNull();
     expect(line?.getAttribute('title')).toBe('2026-10-17 07:35:11（北京时间）');
-    expect(line?.getAttribute('tabindex')).toBe('0');
+    expect(line?.getAttribute('tabindex')).toBeNull();
     expect(line?.hasAttribute('data-time-detail')).toBe(false);
     expect(doc.querySelector('.weq-message-seq')).toBeNull();
   });
@@ -205,7 +205,7 @@ describe('系统消息共用行', () => {
         .parseFromString(html, 'text/html')
         .querySelector('.weq-system-message-content');
       expect(line?.hasAttribute('title')).toBe(showDate);
-      expect(line?.getAttribute('tabindex')).toBe(showDate ? '0' : null);
+      expect(line?.getAttribute('tabindex')).toBeNull();
       expect(line?.querySelector('time')).toBeNull();
     }
   });

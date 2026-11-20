@@ -14,7 +14,7 @@ import {
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('设置覆盖基础页时卸载旧组件，返回时从磁盘恢复草稿与滚动', async () => {
+it('设置覆盖基础页时卸载旧组件，返回时从磁盘恢复草稿与滚动', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -26,7 +26,12 @@ it('设置覆盖基础页时卸载旧组件，返回时从磁盘恢复草稿与�
     const [draft, setDraft] = usePageState('draft', '草稿', pageValue.string, true);
     return h(
       'div',
-      { 'data-scroll': true },
+      {
+        'data-scroll': true,
+        ref: (element: HTMLDivElement | null) => {
+          if (element) Object.defineProperty(element, 'scrollHeight', { value: 1000 });
+        },
+      },
       h('input', {
         'data-active': String(active),
         value: draft,
@@ -70,10 +75,6 @@ it('设置覆盖基础页时卸载旧组件，返回时从磁盘恢复草稿与�
     expect(restored.value).toBe('未发送草稿');
     expect(restored.dataset.active).toBe('true');
     const restoredScroll = host.querySelector<HTMLElement>('[data-scroll]')!;
-    Object.defineProperty(restoredScroll, 'scrollHeight', { value: 1000 });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 30));
-    });
     expect(restoredScroll.scrollTop).toBe(75);
   } finally {
     act(() => root.unmount());

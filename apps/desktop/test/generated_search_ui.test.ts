@@ -105,7 +105,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               fixture.sessionless,
               fixture.messageId,
             ]);
-            if (!cache.has(key)) cache.set(key, data(name));
+            if (!cache.has(key))
+              cache.set(
+                key,
+                path.at(-2) === 'dressup' && name === 'getState'
+                  ? { own: { chatBgUrl: '' } }
+                  : data(name),
+              );
             return {
               data: options?.enabled === false || failed ? undefined : cache.get(key),
               isLoading: false,

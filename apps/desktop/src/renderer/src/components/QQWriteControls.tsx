@@ -8,6 +8,7 @@ import '../styles/qq-write.css';
 import { useSelfProfileSave } from './SelfProfileField.shared';
 import { ProfileEditorRow, ProfileEditorAction } from './ProfileFieldEditor';
 import { ProfileFieldEditorContext } from './ProfileFieldEditor.shared';
+import { SegmentedControl } from './SegmentedControl';
 
 export function QQWriteResult({ result }: { result: { text: string; error: boolean } | null }) {
   const target = useContext(MessageMenuFeedbackContext);
@@ -189,6 +190,7 @@ export function QQWriteSelectRow({
   unlistedLabel,
   autoSave = false,
   renderEditor,
+  segmented = false,
 }: {
   label: string;
   icon?: ReactNode;
@@ -200,6 +202,7 @@ export function QQWriteSelectRow({
   unlistedLabel?: (value: number) => string;
   autoSave?: boolean;
   renderEditor?: (value: number | null) => ReactNode;
+  segmented?: boolean;
 }) {
   const saveField = useSelfProfileSave();
   const inlineEditor = useContext(ProfileFieldEditorContext);
@@ -241,24 +244,41 @@ export function QQWriteSelectRow({
         control={
           <div className={preview ? 'weq-qq-write-select-preview' : undefined}>
             <div className="weq-qq-write-field" data-qq-action>
-              <FormSelect
-                className="weq-qq-write-input"
-                aria-label={label}
-                value={value}
-                disabled={disabled || saving}
-                onChange={(event) => choose(event.target.value)}
-              >
-                {!options.some((option) => String(option.value) === value) && (
-                  <option value={value}>
-                    {value ? (unlistedLabel?.(Number(value)) ?? `未识别 (${value})`) : '尚未读取'}
-                  </option>
-                )}
-                {options.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </FormSelect>
+              {segmented ? (
+                <>
+                  <SegmentedControl
+                    label={label}
+                    value={value === '' ? null : Number(value)}
+                    disabled={disabled || saving}
+                    options={options}
+                    onChange={(next) => choose(String(next))}
+                  />
+                  {!options.some((option) => String(option.value) === value) && (
+                    <span role="status">
+                      {value ? (unlistedLabel?.(Number(value)) ?? `未识别 (${value})`) : '尚未读取'}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <FormSelect
+                  className="weq-qq-write-input"
+                  aria-label={label}
+                  value={value}
+                  disabled={disabled || saving}
+                  onChange={(event) => choose(event.target.value)}
+                >
+                  {!options.some((option) => String(option.value) === value) && (
+                    <option value={value}>
+                      {value ? (unlistedLabel?.(Number(value)) ?? `未识别 (${value})`) : '尚未读取'}
+                    </option>
+                  )}
+                  {options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </FormSelect>
+              )}
               {!autoSave && !editor ? (
                 <ProfileEditorAction>
                   <button

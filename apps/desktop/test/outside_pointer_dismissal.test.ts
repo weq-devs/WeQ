@@ -110,7 +110,6 @@ function mountChat(props: Partial<ComponentProps<typeof ChatPane>> = {}) {
 
 it.each([
   ['表情', '.emoji-panel'],
-  ['语音', '.voice-panel'],
   ['发送 Ark 卡片', '.ark-panel'],
 ])('点击框选空白区关闭%s面板，内部和触发按钮不误关', async (title, selector) => {
   const { host, scroll } = mountChat();
@@ -156,12 +155,10 @@ it.each([
   ['红包 / 礼物', '红包', '.redpacket-panel'],
   ['位置', '发送位置', '.location-card-panel'],
   ['位置', '共享位置', '.lbs-panel'],
-  ['语音', 'AI 声聊', '.ai-voice-panel'],
 ])('点击框选空白区关闭%s中的%s面板', async (title, action, selector) => {
   const { host, scroll } = mountChat();
   await clickTitle(host, title);
-  if (action === 'AI 声聊') await clickTitle(host, action);
-  else await choose(action);
+  await choose(action);
   const panel = host.querySelector(selector)!;
   expect(panel).not.toBeNull();
   press(panel);
@@ -193,10 +190,22 @@ it('请求麦克风期间点击消息空白区仍保留录音面板', async () =
   const getUserMedia = vi.fn(() => new Promise<MediaStream>(() => {}));
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
   await clickTitle(host, '语音');
-  await act(async () => press(host.querySelector('[aria-label="按住说话"]')!));
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="点击录音"]')!.click());
   expect(getUserMedia).toHaveBeenCalledOnce();
   press(scroll);
   expect(host.querySelector('.voice-panel')).not.toBeNull();
+});
+
+it('输入区的 AI 声聊在消息空白区按下后仍保留在语音方式内', async () => {
+  const { host, scroll } = mountChat();
+  await clickTitle(host, '语音');
+  const ai = [...host.querySelectorAll<HTMLButtonElement>('[aria-label="语音方式"] button')].find(
+    (button) => button.textContent?.trim() === 'AI 声聊',
+  )!;
+  await act(async () => ai.click());
+  expect(host.querySelector('.ai-voice-controls')).not.toBeNull();
+  press(scroll);
+  expect(host.querySelector('.ai-voice-controls')).not.toBeNull();
 });
 
 it.each(['mouse', 'touch', 'pen'])('贴表情在%s外部按下被拦截冒泡时仍关闭', (pointerType) => {

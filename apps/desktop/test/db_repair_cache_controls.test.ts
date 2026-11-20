@@ -120,12 +120,11 @@ it('重新扫描需确认，取消保留结果和维护锁，确认后结束旧�
   expect(maintenanceQa.snapshot()).toBe(previous);
   expect(maintenanceQa.snapshot()?.locked).toBe(true);
   expect(choice('nt_msg.db').checked).toBe(true);
-  await act(async () => button('深度体检').click());
   await act(async () => button('重新扫描').click());
   await confirm(true);
   expect(maintenanceQa.calls.end).toBe(1);
   expect(maintenanceQa.calls.scan).toEqual([
-    { uin: account.uin, configId: account.configId, kind: 'checkup' },
+    { uin: account.uin, configId: account.configId, kind: 'scan' },
   ]);
   expect(maintenanceQa.snapshot()?.state).toBe('scanning');
 });

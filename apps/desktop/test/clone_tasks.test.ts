@@ -221,8 +221,9 @@ it('统一任务列表按账号展示克隆任务，完成后可打开克隆体�
       .click(),
   );
   expect(open).toHaveBeenCalledWith('克隆甲');
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.click());
   act(() =>
-    [...host.querySelectorAll<HTMLButtonElement>('button')]
+    [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
       .find((button) => button.textContent?.includes('移除任务'))!
       .click(),
   );

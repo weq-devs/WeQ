@@ -1,5 +1,10 @@
 import type { AccountServices } from '../../context/app_context';
-import { mergeRoamingTimeline, timelineRowKey } from '../../../shared/roaming_timeline';
+import {
+  mergeRoamingTimeline,
+  timelineMessageIdentity,
+  timelineRowKey,
+  timelineSeq,
+} from '../../../shared/roaming_timeline';
 import { roamingMsgToWire } from '../roaming_message_wire';
 import { c2cMsgToWire, groupMsgToWire, type ChatMsgWire } from '../serde';
 
@@ -50,7 +55,24 @@ export async function readMessageHistoryPage(
       cached.length ? undefined : limit + 1,
       cached.length ? undefined : localBefore,
     );
-    const merged = mergeRoamingTimeline<(typeof local)[number] | ChatMsgWire>(kind, local, cached);
+    // 保留已核实的缓存原文。通用时间线会优先用同步记录替换本机发送回显，
+    // 但这里的原库条目可能只剩撤回灰条，不能覆盖已保存的原文。
+    const bodyRows = cached.filter(
+      (row) =>
+        row.recall && timelineSeq(row.msgSeq) !== null && (kind === 'group' || row.ntSeqVerified),
+    );
+    const bodyIds = new Set(bodyRows.map((row) => `${row.msgSeq}:${row.msgId}`));
+    const bodyIdentities = new Set(bodyRows.map(timelineMessageIdentity).filter(Boolean));
+    const localRefs = local.filter(
+      (row) =>
+        !bodyIds.has(`${row.msgSeq}:${row.msgId}`) &&
+        !bodyIdentities.has(timelineMessageIdentity(row)),
+    );
+    const merged = mergeRoamingTimeline<(typeof local)[number] | ChatMsgWire>(
+      kind,
+      localRefs,
+      cached,
+    );
     const content = new Map(cached.map((row) => [timelineRowKey(row), row]));
     candidates = merged.map((row) => candidate(row, content.get(timelineRowKey(row))));
   } else {

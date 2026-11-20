@@ -1893,7 +1893,7 @@ describe('QQ 主动操作的实际界面', () => {
   it('群分类直接展示，普通成员的退群操作独立可见', async () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector('[aria-label="群分类标签"]')).not.toBeNull();
-    expect(f.button('退出群聊')).not.toBeNull();
+    expect(f.button('退出群聊')?.getAttribute('data-danger')).toBe('outline');
     expect(f.button('群管理菜单')).toBeNull();
     expect(f.host.textContent).toContain('其他操作');
     expect(state.mutate).not.toHaveBeenCalled();

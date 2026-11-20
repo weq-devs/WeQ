@@ -65,7 +65,11 @@ describe('qzone msglist raw response capture', () => {
 
   it('keeps old calls and default paging behavior compatible', async () => {
     web.reply({ text: '{"code":0,"total":0,"msglist":[]}' });
-    expect(await getQzoneMsgList(CREDENTIAL, '10001')).toEqual({ total: 0, list: [] });
+    expect(await getQzoneMsgList(CREDENTIAL, '10001')).toEqual({
+      total: 0,
+      totalKnown: true,
+      list: [],
+    });
     const url = new URL(web.at(0).url);
     expect(url.searchParams.get('pos')).toBe('0');
     expect(url.searchParams.get('num')).toBe('20');
@@ -81,7 +85,11 @@ describe('qzone msglist raw response capture', () => {
         usrinfo: { uin: 10001 },
       }),
     });
-    expect(await getQzoneMsgList(CREDENTIAL, '10001', 42)).toEqual({ total: 0, list: [] });
+    expect(await getQzoneMsgList(CREDENTIAL, '10001', 42)).toEqual({
+      total: 0,
+      totalKnown: true,
+      list: [],
+    });
   });
 
   it('keeps the server total when hidden or private posts leave the tail empty', async () => {
@@ -96,7 +104,11 @@ describe('qzone msglist raw response capture', () => {
         usrinfo: { uin: 10001 },
       }),
     });
-    expect(await getQzoneMsgList(CREDENTIAL, '10001', 42)).toEqual({ total: 3, list: [] });
+    expect(await getQzoneMsgList(CREDENTIAL, '10001', 42)).toEqual({
+      total: 3,
+      totalKnown: true,
+      list: [],
+    });
   });
 
   it.each([

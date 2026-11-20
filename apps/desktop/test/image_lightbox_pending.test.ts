@@ -4,7 +4,6 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
 import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 import { QqImage } from '../src/renderer/src/components/QqMedia';
-import { interactiveMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import {
   releaseAttachment,
   type ComposerAttachment,
@@ -81,22 +80,26 @@ it('上传未完成时直接打开本地 Blob，不等待本机路径或服务�
 
 it('原图尚未就绪时回退到气泡缩略图', async () => {
   await mount({ fileName: 'image.png', fileToken: 'synthetic-token' });
-  const thumbnail = host.querySelector('img')!.src;
   await act(async () => {
     host.querySelector('img')!.click();
     await vi.dynamicImportSettled();
   });
-  expect(new URL(preview().src).searchParams.has('v')).toBe(false);
+  const cached = new URL(preview().src).searchParams;
+  expect(cached.get('v')).toBe('original');
+  expect(cached.get('localOnly')).toBe('1');
   await act(async () => {
     preview().dispatchEvent(new Event('error'));
     await vi.dynamicImportSettled();
   });
-  expect(preview().src).toBe(interactiveMediaUrl(thumbnail));
+  const thumbnail = preview().src;
+  const params = new URL(thumbnail).searchParams;
+  expect(params.get('v')).toBe('thumb');
+  expect(params.get('token')).toBe('synthetic-token');
   await act(async () => {
     preview().dispatchEvent(new Event('load'));
     await vi.dynamicImportSettled();
   });
-  expect(preview().src).toBe(interactiveMediaUrl(thumbnail));
+  expect(preview().src).toBe(thumbnail);
 });
 
 it('缩略图在点击过程中失败，保留原按钮和独立的原图预览', async () => {
@@ -119,7 +122,8 @@ it('缩略图在点击过程中失败，保留原按钮和独立的原图预览'
   const source = new URL(preview().src);
   expect(source.searchParams.get('token')).toBe('slow-thumbnail');
   expect(source.searchParams.get('intent')).toBe('interactive');
-  expect(source.searchParams.has('v')).toBe(false);
+  expect(source.searchParams.get('v')).toBe('original');
+  expect(source.searchParams.get('localOnly')).toBe('1');
 });
 
 it('发送完成或切换会话释放附件时，已打开的预览保留 Blob 到关闭', async () => {
