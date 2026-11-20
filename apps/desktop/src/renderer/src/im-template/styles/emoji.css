@@ -886,10 +886,9 @@ html[data-theme='dark'] .emoji-lb {
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
 }
 
-/* 自己那一行：强调色底 + 左侧色条（起手就把「我也贴了」标出来）。 */
+/* 用浅色底突出本人所在行。 */
 .reaction-likers-row.is-self {
   background: color-mix(in srgb, var(--likers-accent) 12%, transparent);
-  box-shadow: inset 2px 0 0 var(--likers-accent);
 }
 
 .reaction-likers-row.is-self:hover {
