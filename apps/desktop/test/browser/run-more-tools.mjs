@@ -181,7 +181,7 @@ try {
   await page.evaluate(() => window.moreToolsQa.openDressUp());
   await page.locator('.weq-dress-dialog').waitFor();
   await chrome();
-  await page.locator('.weq-dress-close').click();
+  await page.locator('[data-mobile-tab="messages"]').click();
   await page.locator('.weq-dress-dialog').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.weq-mobile-header').isVisible(), false);
   await page.setViewportSize({ width: 1180, height: 844 });

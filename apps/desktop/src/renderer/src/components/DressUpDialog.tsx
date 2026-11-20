@@ -1224,10 +1224,6 @@ export function DressUpDialog({
     <WorkspacePage title="个性装扮" onClose={onClose} standalone mobileChrome={mobile}>
       {download.prompt}
       <div className="weq-dress-dialog" role="region" aria-labelledby="weq-dress-title">
-        <button className="weq-dress-close" onClick={onClose} title="关闭" type="button">
-          <X size={18} strokeWidth={2} />
-        </button>
-
         <header className="weq-dress-head">
           <div className="weq-dress-title-row">
             <Palette size={18} strokeWidth={1.9} />

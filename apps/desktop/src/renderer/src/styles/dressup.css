@@ -19,35 +19,12 @@
   font-size: 13px;
 }
 
-.weq-dress-close {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 2;
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-  cursor: pointer;
-}
-
-.weq-dress-close:hover,
-.weq-dress-close:focus-visible {
-  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
-  color: var(--weq-fg-primary);
-  outline: none;
-}
-
 /* ===== 头部：标题 + 类别切换 ===== */
 .weq-dress-head {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 52px 12px 16px;
+  padding: 14px 16px 12px;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 
