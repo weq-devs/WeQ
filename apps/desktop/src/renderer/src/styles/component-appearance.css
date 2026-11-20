@@ -633,32 +633,26 @@ html:where([data-weq-layout='single'])[data-density='compact']
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .weq-number-font-preview {
-  display: grid;
-  gap: 5px;
-  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 4px;
   border: var(--weq-skin-border-width) solid var(--weq-skin-border);
   border-radius: var(--weq-skin-radius);
   background: var(--weq-chat-bg);
-  color: var(--weq-fg-secondary);
+  color: var(--weq-fg-primary);
   font-size: 12px;
   line-height: 1.25;
   font-variant-numeric: tabular-nums;
 }
-.weq-number-font-preview > span {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  column-gap: 6px;
-}
 .weq-number-font-preview strong {
-  color: var(--weq-fg-primary);
   font-weight: 600;
 }
-.weq-number-font-preview > span:first-child strong {
+.weq-number-font-preview > strong:first-child {
   font-size: 24px;
 }
-.weq-number-font-preview > span:nth-child(2) strong {
+.weq-number-font-preview > strong:nth-child(2) {
   font-size: 16px;
 }
 .weq-number-font-preview[data-number-font-preview='special'] strong {
