@@ -1962,6 +1962,8 @@ export class ExportTaskManager extends EventEmitter {
     kind: NonNullable<ExportTask['resource']>['kind'];
     savePolicy?: ExportSavePolicy;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
+    /** 先选目录，待资源生成后用实际文件名与扩展名保存。 */
+    fileNameFromResult?: boolean;
     sourceKey?: string;
     transferTarget?: string | readonly string[];
     run(context: ResourceExportRunContext): Promise<ResourceExportSummary>;
@@ -1971,6 +1973,8 @@ export class ExportTaskManager extends EventEmitter {
     if (opts.resume && resourceResumeKind(opts.resume) !== opts.kind)
       throw new Error('资源续作类型与导出任务不匹配。');
     const output = opts.output ? structuredClone(opts.output) : undefined;
+    if (opts.fileNameFromResult && (!output || opts.savePolicy?.filePath))
+      throw new Error('自动识别文件格式的下载需要先选择文件夹。');
     if (
       opts.archive?.formats?.length === 0 &&
       Object.values(opts.archive.extra ?? {}).some(Boolean)
@@ -2046,7 +2050,9 @@ export class ExportTaskManager extends EventEmitter {
     if (tracksResourceTransfer(task)) this.beginResourceTransfer(task);
     this.saveTasks();
     const run = opts.run;
-    this.networkRunners.set(id, () => this.runResourceTask(task, run, opts.onPublished));
+    this.networkRunners.set(id, () =>
+      this.runResourceTask(task, run, opts.onPublished, opts.fileNameFromResult),
+    );
     this.enqueue(this.networkRunners.get(id)!, id);
     return id;
   }
@@ -2055,6 +2061,7 @@ export class ExportTaskManager extends EventEmitter {
     task: ExportTask,
     run: (context: ResourceExportRunContext) => Promise<ResourceExportSummary>,
     onPublished?: (directory: string) => void,
+    fileNameFromResult = false,
   ): Promise<void> {
     if (this.deferForNetwork(task.id)) return;
     if (this.tasks.get(task.id) !== task || task.status !== 'pending') return;
@@ -2151,6 +2158,18 @@ export class ExportTaskManager extends EventEmitter {
           !lstatSync(join(directory, summary.fileName)).isFile()
         )
           throw new Error('单文件资源缺失或包含额外产物，未发布结果。');
+        if (fileNameFromResult) {
+          const actual = this.getOutputShape({
+            kind: 'file',
+            name: task.name,
+            fileName: summary.fileName,
+          });
+          if (actual.kind !== 'file') throw new Error('资源输出形态无效。');
+          const policy = task.save?.policy;
+          if (policy?.uniqueFileName && policy.filePath)
+            policy.filePath = join(dirname(policy.filePath), exportOutputFileName(actual));
+          task.resource!.output = actual;
+        }
       } else if (
         task.resource?.kind !== 'mail-messages' &&
         task.resourceArchive?.formats?.length !== 0

@@ -549,7 +549,12 @@ function DevelopmentMarketEmojiBrowser({
             >
               <ArrowLeft size={18} />
             </button>
-            <span className="weq-market-total">{catalogTotal}</span>
+            <span className="weq-market-total" role="status">
+              {catalogTotal}
+            </span>
+            {embeddedSearch ? (
+              <div className="weq-dress-toolbar-controls">{embeddedSearch.form}</div>
+            ) : null}
           </div>
         )
       ) : (
@@ -626,7 +631,7 @@ function DevelopmentMarketEmojiBrowser({
             {embedded ? (
               <div className="weq-dress-toolbar-controls">
                 {selectionTools}
-                {embeddedSearch?.form}
+                {!selectedId ? embeddedSearch?.form : null}
               </div>
             ) : null}
           </div>

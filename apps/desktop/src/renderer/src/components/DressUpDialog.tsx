@@ -55,8 +55,9 @@ import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useVideoPlaybackSlot } from '../hooks/useVideoPlaybackSlot';
 import { fontFaces } from '../lib/fontFaces';
 import { acquireDecorationStyle } from '../lib/decorationResources';
-import { useDecorationSave } from './DecorationSaveControls.shared';
-import { useMediaSave } from './MediaSaveControls.shared';
+import { useDressDownload } from '../hooks/useDressDownload';
+import { useMultiSelection } from '../hooks/useMultiSelection';
+import { DirectoryToolbar } from './DirectoryToolbar';
 import { IS_WEB } from '../lib/target.shared';
 import { pickAccountFile } from '../lib/accountFilePicker';
 import { BACKDROP_VEIL_VAR, backdropVeil } from './ChatBackdrop.shared';
@@ -292,11 +293,21 @@ export function DressUpDialog({
   const mobile = useMobileWebLayout();
   const developmentDressTools = useDevelopmentDressTools();
   const dialog = useAppDialog();
-  const decorationSave = useDecorationSave();
-  const mediaSave = useMediaSave();
+  const download = useDressDownload();
   const utils = trpc.useUtils();
 
-  const [selectedKind, setKind] = useState<DressKind>(initialKind);
+  const [selectedKind, setSelectedKind] = useState<DressKind>(initialKind);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  function setSelectionMode(enabled: boolean) {
+    setSelecting(enabled);
+    if (!enabled) setSelectedIds(new Set());
+  }
+  function setKind(next: DressKind) {
+    if (next === kind) return;
+    setSelectionMode(false);
+    setSelectedKind(next);
+  }
   const kind = developmentDressTools ? selectedKind : 'background';
   const [mallBrowsing, setMallBrowsing] = useState<Partial<Record<MallKind, MallBrowseState>>>({});
   const [emojiDraft, setEmojiDraft] = useState('');
@@ -328,6 +339,12 @@ export function DressUpDialog({
   const { view, draft, keyword } = mallBrowsing[mallKind] ?? DEFAULT_MALL_BROWSE;
   const mineOnly = view === 'installed';
   function updateMallBrowse(patch: Partial<MallBrowseState>) {
+    if (
+      (patch.view && patch.view !== view) ||
+      (patch.keyword !== undefined && patch.keyword !== keyword)
+    ) {
+      setSelectedIds(new Set());
+    }
     setMallBrowsing((current) => ({
       ...current,
       [mallKind]: { ...(current[mallKind] ?? DEFAULT_MALL_BROWSE), ...patch },
@@ -666,6 +683,40 @@ export function DressUpDialog({
     return installed;
   }, [manifest, mallKind, state.data]);
 
+  const catalog = searching ? search : rank;
+  const catalogItems = (searching && !online) || catalog.error ? [] : (catalog.data?.items ?? []);
+  const installedItems = mine
+    .filter((item) => item.name.toLowerCase().includes(keyword.toLowerCase()))
+    .map((item) => ({
+      ...item,
+      videoUrl: mallKind === 'callbg' ? state.data?.own.callBgVideoUrl || undefined : undefined,
+      previewLargeUrl: '',
+    }));
+  const downloadable = isMall
+    ? (mineOnly ? installedItems : catalogItems)
+        .map((item) => ({
+          itemId: item.itemId,
+          name: item.name,
+          mediaUrl:
+            mallKind === 'callbg'
+              ? item.videoUrl || item.previewLargeUrl || item.previewUrl
+              : undefined,
+        }))
+        .filter((item) => mallKind !== 'callbg' || Boolean(item.mediaUrl))
+    : [];
+  const downloadIds = downloadable.map((item) => item.itemId);
+  const downloadsById = new Map(downloadable.map((item) => [item.itemId, item]));
+  const selectedDownloads = downloadable.filter((item) => selectedIds.has(item.itemId));
+  const allSelected = downloadIds.length > 0 && selectedDownloads.length === downloadIds.length;
+  const multi = useMultiSelection({
+    ids: downloadIds,
+    selected: selectedIds,
+    onChange: setSelectedIds,
+    enabled: isMall && selecting,
+    onStart: () => setSelectionMode(true),
+    onExit: () => setSelectionMode(false),
+  });
+
   /**
    * @param previewSrc 已经解析好的预览图 src(可直接进 `<img>`)。空串 = 无预览。
    *                   由调用方给,因为商城条目要经 `weq-media://dress` 代理,而走
@@ -681,22 +732,18 @@ export function DressUpDialog({
   ): ReactElement {
     const isActive = item.itemId === activeId;
     const busy = busyId === item.itemId;
-    const backgroundUrl = isCallBg(mallKind)
-      ? item.videoUrl || item.previewLargeUrl || item.previewUrl
-      : '';
-    const backgroundSource = {
-      kind: 'url' as const,
-      url: backgroundUrl,
-      name: item.name || `通话背景 ${item.itemId}`,
-    };
-    const downloading = isCallBg(mallKind)
-      ? mediaSave.isBusy(backgroundSource)
-      : decorationSave.savingKey === `${mallKind}:${item.itemId}`;
+    const target = downloadsById.get(item.itemId);
+    const key = `${mallKind}:${item.itemId}`;
+    const downloading = download.savingKey === key;
+    const selected = selecting && selectedIds.has(item.itemId);
     // 安装不再按 qqOnline 禁用:资源先走本地离线 bundle(QQ 自带那批装扮资源,
     // 见 nt_helper 的 queryDressResourceUrl),只有本地没有时才需要在线实例去换外链,
     // 那一步的失败由后端在点击时如实报错。离线也能装的款不再被按钮拦住。
     return (
-      <div key={item.itemId} className={`weq-dress-card${isActive ? ' is-active' : ''}`}>
+      <div
+        key={item.itemId}
+        className={`weq-dress-card${isActive ? ' is-active' : ''}${selected ? ' is-selected' : ''}`}
+      >
         <DressCardPreview
           slotKey={`${mallKind}:${item.itemId}`}
           imageSrc={previewSrc}
@@ -714,58 +761,50 @@ export function DressUpDialog({
             )}
           </small>
         </div>
-        <div className="weq-dress-card-actions">
+        {selecting ? (
           <button
             type="button"
-            className="weq-dress-use"
-            title="仅影响 WeQ 本地显示，不影响实际发送"
-            disabled={busy || isActive || applying}
-            onClick={() => void use(item, nameForManifest ?? item.name)}
-          >
-            {busy ? (
-              <Loader2 size={14} className="weq-dress-spin" />
-            ) : isActive ? (
-              <Check size={14} />
-            ) : (
-              <Sparkles size={14} />
-            )}
-            <span>{isActive ? '使用中' : busy ? '装扮中' : '使用'}</span>
-          </button>
-          <button
-            type="button"
-            className="weq-dress-save"
-            title={IS_WEB ? '下载到浏览器' : '下载到所选位置'}
-            aria-label={`下载 ${item.name || item.itemId}`}
-            disabled={
-              applying ||
-              (isCallBg(mallKind) ? mediaSave.disabled || !backgroundUrl : decorationSave.disabled)
-            }
-            onClick={() => {
-              if (mallKind === 'callbg') {
-                void mediaSave.run(backgroundSource, undefined, IS_WEB);
-                return;
-              }
-              void decorationSave.run(
-                {
-                  bubbleId: mallKind === 'bubble' ? item.itemId : 0,
-                  fontId: mallKind === 'font' ? item.itemId : 0,
-                  widgetId: mallKind === 'widget' ? item.itemId : 0,
-                  kind: mallKind,
-                },
-                `${mallKind}:${item.itemId}`,
-                undefined,
-                IS_WEB,
-              );
-            }}
-          >
-            {downloading ? (
-              <Loader2 size={14} className="weq-dress-spin" />
-            ) : (
-              <Download size={14} />
-            )}
-            <span>下载</span>
-          </button>
-        </div>
+            className="weq-dress-card-select"
+            aria-label={`选择 ${item.name || item.itemId}`}
+            aria-pressed={selected}
+            {...multi.itemProps(item.itemId, !target)}
+            disabled={!target}
+          />
+        ) : (
+          <div className="weq-dress-card-actions">
+            <button
+              type="button"
+              className="weq-dress-use"
+              title="仅影响 WeQ 本地显示，不影响实际发送"
+              disabled={busy || isActive || applying}
+              onClick={() => void use(item, nameForManifest ?? item.name)}
+            >
+              {busy ? (
+                <Loader2 size={14} className="weq-dress-spin" />
+              ) : isActive ? (
+                <Check size={14} />
+              ) : (
+                <Sparkles size={14} />
+              )}
+              <span>{isActive ? '使用中' : busy ? '装扮中' : '使用'}</span>
+            </button>
+            <button
+              type="button"
+              className="weq-dress-save"
+              title="创建下载任务"
+              aria-label={`下载 ${item.name || item.itemId}`}
+              disabled={applying || download.disabled || !target}
+              onClick={() => target && void download.run(mallKind, [target], key)}
+            >
+              {downloading ? (
+                <Loader2 size={14} className="weq-dress-spin" />
+              ) : (
+                <Download size={14} />
+              )}
+              <span>下载</span>
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -948,25 +987,23 @@ export function DressUpDialog({
         <section className="weq-dress-bg-section">
           <div className="weq-dress-bg-head">
             <h3>背景图 / 视频</h3>
-            <button
-              type="button"
-              className="weq-dress-pick"
-              onClick={() => void chooseCustomFile()}
-            >
-              <Upload size={13} />
-              {hasCustom ? '重新选择' : '选择图片 / 视频…'}
-            </button>
           </div>
           <div className="weq-dress-bg-row">
             {options.map((o) => (
-              <button
+              <div
                 key={o.id}
-                type="button"
                 className={`weq-dress-bg-card${source === o.id ? ' is-active' : ''}`}
-                disabled={o.disabled}
-                title={o.hint}
-                onClick={() => void chooseBackground(o.id)}
+                data-unavailable={o.id === 'qq' && o.disabled}
               >
+                <button
+                  type="button"
+                  className="weq-dress-bg-select"
+                  aria-label={o.label}
+                  aria-pressed={source === o.id}
+                  disabled={o.disabled}
+                  title={o.hint}
+                  onClick={() => void chooseBackground(o.id)}
+                />
                 <div className="weq-dress-bg-preview weq-media-frame">
                   {o.preview ? (
                     o.video ? (
@@ -976,9 +1013,20 @@ export function DressUpDialog({
                     ) : (
                       <ShimmerImage src={o.preview} alt={o.label} loading="lazy" />
                     )
-                  ) : (
+                  ) : o.id !== 'custom' ? (
                     <span className="weq-dress-bg-none">{o.id === 'none' ? '无' : '未设置'}</span>
-                  )}
+                  ) : null}
+                  {o.id === 'custom' ? (
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-sm weq-dress-pick"
+                      aria-label={hasCustom ? '更换背景图片或视频' : '选择背景图片或视频'}
+                      onClick={() => void chooseCustomFile()}
+                    >
+                      <Upload size={13} aria-hidden />
+                      {hasCustom ? '更换' : '选择'}
+                    </button>
+                  ) : null}
                   {source === o.id ? (
                     <span className="weq-dress-bg-check">
                       <Check size={13} strokeWidth={2.5} />
@@ -987,7 +1035,7 @@ export function DressUpDialog({
                 </div>
                 <strong>{o.label}</strong>
                 <small>{o.hint}</small>
-              </button>
+              </div>
             ))}
           </div>
 
@@ -1051,15 +1099,12 @@ export function DressUpDialog({
     if (kind === 'background') return renderBackground();
 
     if (mineOnly) {
-      const installedItems = keyword
-        ? mine.filter((item) => item.name.toLowerCase().includes(keyword.toLowerCase()))
-        : mine;
       if (installedItems.length === 0) {
         return (
           <div className="weq-dress-empty">
             <Sparkles size={26} />
             <p>{keyword ? '没有匹配的已装装扮' : '还没有装扮'}</p>
-            {!keyword ? <span>可在排行榜挑选装扮</span> : null}
+            {!keyword ? <span>可在「热门」挑选装扮</span> : null}
           </div>
         );
       }
@@ -1091,10 +1136,8 @@ export function DressUpDialog({
                 // 原样带上 —— use() 会把这两个字段写进清单,置空的话装完又会退回
                 // 「气泡 <id>」+ 空预览(「QQ 正在用的那款」点使用时正好走这条)。
                 previewUrl: m.previewUrl,
-                previewLargeUrl: '',
-                ...(mallKind === 'callbg'
-                  ? { videoUrl: state.data?.own.callBgVideoUrl || undefined }
-                  : {}),
+                previewLargeUrl: m.previewLargeUrl,
+                videoUrl: m.videoUrl,
                 labels: m.installed ? [] : ['QQ 同款'],
                 price: 0,
                 mallName: '',
@@ -1118,28 +1161,26 @@ export function DressUpDialog({
         <div className="weq-dress-empty is-warn">
           <WifiOff size={26} />
           <p>搜索需要登录 QQ 客户端</p>
-          <span>商城搜索要用在线实例取凭证。清空关键词可离线浏览排行榜。</span>
+          <span>登录 QQ 后可搜索商城装扮，也可以清空关键词浏览热门目录。</span>
         </div>
       );
     }
 
-    const query = searching ? search : rank;
     // 用 isInitialLoading 而不是 isLoading:react-query v4 里 disabled 的 query 也是
     // isLoading=true,拿它判断会永远停在「加载中」。首屏等待期用与卡片同构的骨架屏
     // 占位,免得排行榜 / 搜索结果出来时整页从「转圈」跳到「卡片」跳版。
-    if (query.isInitialLoading) {
+    if (catalog.isInitialLoading) {
       return <DressListSkeleton />;
     }
-    if (query.error) {
+    if (catalog.error) {
       return (
         <div className="weq-dress-empty is-error">
           <WifiOff size={26} />
-          <p>{query.error.message}</p>
+          <p>{catalog.error.message}</p>
         </div>
       );
     }
-    const items = searching ? (search.data?.items ?? []) : (rank.data?.items ?? []);
-    if (items.length === 0) {
+    if (catalogItems.length === 0) {
       return (
         <div className="weq-dress-empty">
           <Sparkles size={26} />
@@ -1149,15 +1190,14 @@ export function DressUpDialog({
     }
     return (
       <div className="weq-dress-grid">
-        {items.map((it) => renderCard(it, dressUrl(it.previewLargeUrl || it.previewUrl)))}
+        {catalogItems.map((it) => renderCard(it, dressUrl(it.previewLargeUrl || it.previewUrl)))}
       </div>
     );
   }
 
   return (
     <WorkspacePage title="个性装扮" onClose={onClose} standalone mobileChrome={mobile}>
-      {decorationSave.prompt}
-      {mediaSave.prompt}
+      {download.prompt}
       <div className="weq-dress-dialog" role="region" aria-labelledby="weq-dress-title">
         <button className="weq-dress-close" onClick={onClose} title="关闭" type="button">
           <X size={18} strokeWidth={2} />
@@ -1193,6 +1233,7 @@ export function DressUpDialog({
           role="tabpanel"
           aria-labelledby={`weq-dress-tab-${kind}`}
           className="weq-dress-panel"
+          {...(isMall ? multi.rootProps : {})}
         >
           {state.error && (isMall || kind === 'usage' || kind === 'background') ? (
             <div className="weq-dress-notice is-bad">
@@ -1209,7 +1250,7 @@ export function DressUpDialog({
                   aria-pressed={!mineOnly && !searching}
                   onClick={() => updateMallBrowse(DEFAULT_MALL_BROWSE)}
                 >
-                  排行榜
+                  热门
                 </button>
                 <button
                   type="button"
@@ -1226,6 +1267,17 @@ export function DressUpDialog({
                 </button>
               </div>
               <div className="weq-dress-toolbar-controls">
+                <DirectoryToolbar
+                  searchEnabled={false}
+                  noun="装扮"
+                  query=""
+                  onQuery={() => {}}
+                  selecting={selecting}
+                  onSelecting={setSelectionMode}
+                  count={selectedDownloads.length}
+                  allSelected={allSelected}
+                  onSelectAll={() => setSelectedIds(new Set(allSelected ? [] : downloadIds))}
+                />
                 <DressSearchForm
                   label={mineOnly ? '搜索已装装扮' : '搜索装扮'}
                   value={draft}
@@ -1235,14 +1287,40 @@ export function DressUpDialog({
                   maxLength={50}
                 />
               </div>
+              {selecting ? (
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-primary weq-dress-download-selection"
+                  disabled={download.disabled || applying || !selectedDownloads.length}
+                  onClick={async () => {
+                    if (await download.run(mallKind, selectedDownloads, 'selection'))
+                      setSelectedIds((current) => (current === selectedIds ? new Set() : current));
+                  }}
+                >
+                  {download.savingKey === 'selection' ? (
+                    <Loader2 size={14} className="weq-dress-spin" aria-hidden />
+                  ) : (
+                    <Download size={14} aria-hidden />
+                  )}
+                  下载选中
+                </button>
+              ) : null}
             </div>
           ) : null}
           {isMall && !mineOnly && !searching && !state.error ? (
             <div className="weq-dress-notice is-info">
               <Trophy size={14} aria-hidden />
               <span>
-                {rank.data?.source === 'static' ? '离线排行榜 · ' : ''}前 20 名
-                {!state.isInitialLoading && !online ? ' · 商城搜索需要登录 QQ' : ''}
+                {mallKind === 'callbg'
+                  ? '这里展示热门通话背景。'
+                  : rank.data?.source === 'static'
+                    ? '这里展示本地收录的热门装扮。'
+                    : '这里展示当前热门装扮。'}
+                {online
+                  ? '想找其他款式，可以按名称搜索。'
+                  : !state.isInitialLoading
+                    ? '登录 QQ 后可按名称搜索商城。'
+                    : ''}
               </span>
             </div>
           ) : null}

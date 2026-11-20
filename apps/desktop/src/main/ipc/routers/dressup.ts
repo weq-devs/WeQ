@@ -52,6 +52,7 @@ import { fullModeAllowed } from '../../context/full_mode';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { buildDecorationBundle, buildDecorationFile } from './dressup_export';
+import { runDressDownload } from './dressup_download';
 import {
   bindExportSaveRequest,
   exportAccountBindingInput,
@@ -503,6 +504,84 @@ export const dressupRouter = router({
       const resolved = await services.msgDecoration.resolve(input);
       const cached = services.dressInstall.messageBubble?.(input.bubbleId);
       return cached ? { ...resolved, bubble: cached } : resolved;
+    }),
+
+  /** 先选装扮下载目录，再由任务获取素材并按实际格式命名。 */
+  download: procedure
+    .input(
+      exportAccountBindingInput.extend({
+        kind: kindInput,
+        items: z
+          .array(
+            z.object({
+              itemId: z.number().int().positive(),
+              name: z.string().max(512),
+              mediaUrl: z
+                .string()
+                .url()
+                .max(4096)
+                .regex(/^https?:\/\//i)
+                .optional(),
+            }),
+          )
+          .min(1),
+        savePolicy: exportSavePolicyInput.optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireDevelopmentDressTools();
+      const { kind } = input;
+      const services = requireServices(input);
+      const items = [...new Map(input.items.map((item) => [item.itemId, item])).values()];
+      if (kind === 'callbg' && items.some((item) => !item.mediaUrl))
+        throw new Error('通话背景素材地址不可用');
+      const check = bindExportSaveRequest(
+        {
+          expectedAccountUin:
+            input.expectedAccountUin ?? getAppContext().account?.context.uin.toString(),
+          expectedAccountConfigId:
+            input.expectedAccountConfigId ?? services.accountConfig.getRecord()?.configId,
+        },
+        () => {
+          const ctx = getAppContext();
+          return {
+            uin: ctx.account?.context.uin.toString(),
+            configId: ctx.services?.accountConfig.getRecord()?.configId,
+            services: ctx.services,
+          };
+        },
+      );
+      const label = {
+        bubble: '聊天气泡',
+        font: '聊天字体',
+        widget: '头像挂件',
+        callbg: '通话背景',
+      }[kind];
+      const batch = items.length > 1;
+      const name = batch ? `${label} · ${items.length} 款` : items[0]!.name || label;
+      const bundleName = `WeQ-${label}-${items.length}款.zip`;
+      const settings = getAppContext().bootstrap?.userConfig.getSettings();
+      const policy = await prepareExportDestination(
+        input.savePolicy ?? { mode: settings?.exportSaveMode ?? 'before' },
+        settings?.defaultExportDir,
+        getHost(),
+        { kind: 'directory' },
+        check,
+        'dressup:download',
+        '选择装扮下载文件夹',
+      );
+      if (!policy) return null;
+      check();
+      return services.exportManager.startResourceExport({
+        kind: 'decoration',
+        name,
+        display: { action: '下载装扮', subject: name },
+        output: { kind: 'file', name, extension: '' },
+        fileNameFromResult: true,
+        networkTransfer: { batch },
+        savePolicy: policy,
+        run: (context) => runDressDownload(services, kind, items, bundleName, context, check),
+      });
     }),
 
   /**

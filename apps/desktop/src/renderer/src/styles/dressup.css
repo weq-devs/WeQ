@@ -193,6 +193,22 @@
   margin-inline-start: auto;
 }
 
+.weq-dress-toolbar-controls > .weq-directory-toolbar {
+  flex: none;
+  width: auto;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  white-space: nowrap;
+}
+
+.weq-dress-download-selection {
+  flex: none;
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
 .weq-dress-chip {
   display: flex;
   align-items: center;
@@ -438,6 +454,7 @@
 }
 
 .weq-dress-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--weq-border-subtle);
@@ -449,6 +466,32 @@
 .weq-dress-card.is-active {
   border-color: var(--weq-accent-effective);
   box-shadow: 0 0 0 1px var(--weq-accent-effective) inset;
+}
+
+.weq-dress-card-select,
+.weq-dress-bg-select {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-dress-card-select:disabled,
+.weq-dress-bg-select:disabled {
+  cursor: default;
+}
+
+.weq-dress-card-select[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  box-shadow: inset 0 0 0 2px var(--weq-accent-effective);
+}
+
+.weq-dress-card-select:focus-visible,
+.weq-dress-bg-select:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
 }
 
 .weq-dress-card-preview {
@@ -814,23 +857,14 @@ html[data-theme='dark'] .weq-dress-save {
   font-size: 12px;
 }
 
-.weq-dress-pick {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  padding: 5px 11px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.weq-dress-pick:hover {
-  border-color: var(--weq-accent-effective);
-  color: var(--weq-accent-effective);
+.weq-dress-bg-preview > .weq-dress-pick {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  padding-inline: 8px;
+  translate: -50% -50%;
+  white-space: nowrap;
 }
 
 .weq-dress-bg-row {
@@ -840,11 +874,9 @@ html[data-theme='dark'] .weq-dress-save {
 }
 
 .weq-dress-bg-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  /* 卡片是 <button>,UA 样式里的 align-items 会让子项按内容宽度居中(不拉伸),预览框
-   * 因而永远只有自身那点宽。显式 stretch,预览/标题/说明都按卡片整宽排。 */
-  align-items: stretch;
   gap: 3px;
   padding: 0 0 10px;
   overflow: hidden;
@@ -852,16 +884,14 @@ html[data-theme='dark'] .weq-dress-save {
   border-radius: 10px;
   background: transparent;
   color: inherit;
-  cursor: pointer;
   text-align: left;
 }
 
-.weq-dress-bg-card:disabled {
-  cursor: not-allowed;
+.weq-dress-bg-card[data-unavailable='true'] {
   opacity: 0.45;
 }
 
-.weq-dress-bg-card:not(:disabled):hover {
+.weq-dress-bg-card:has(button:enabled:hover) {
   border-color: var(--weq-accent-effective);
 }
 

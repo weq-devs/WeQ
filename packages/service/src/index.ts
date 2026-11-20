@@ -1290,7 +1290,7 @@ export {
   safeRelSegments,
   type SanitizeSegmentOpts,
 } from './common/path_sanitize';
-export { buildZip, extractFromZip, readZipEntries } from './common/zip';
+export { buildZip, extractFromZip, readZipEntries, writeZipFile } from './common/zip';
 export type { ZipEntry, ZipWriteEntry } from './common/zip';
 export {
   TtsService,

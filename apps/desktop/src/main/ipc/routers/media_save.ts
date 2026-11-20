@@ -131,8 +131,10 @@ async function probeMedia(
   raw: string,
   name: string | undefined,
   check: () => void,
+  signal?: AbortSignal,
 ): Promise<string> {
-  const response = await openUrl(raw, AbortSignal.timeout(120_000), check);
+  const timeout = AbortSignal.timeout(120_000);
+  const response = await openUrl(raw, signal ? AbortSignal.any([signal, timeout]) : timeout, check);
   try {
     check();
     assertCompleteResponse(response);
@@ -356,6 +358,31 @@ async function copyResponse(
 }
 
 type MediaResumeRequest = Extract<ResumableResourceRequest, { type: 'media-file' }>;
+
+/** URL 媒体在任务内部识别格式，并以原始格式写入任务暂存目录。 */
+export async function downloadUrlMedia(
+  url: string,
+  name: string,
+  { directory, signal }: Pick<ResourceExportRunContext, 'directory' | 'signal'>,
+  check: () => void,
+): Promise<string> {
+  const probed = await probeMedia(url, name, check, signal);
+  const output = describeExportOutput(
+    { kind: 'file', name, fileName: probed },
+    { avatar: false, transcribe: false, ocr: false, dress: false },
+  );
+  if (output.kind !== 'file') throw new Error('媒体保存形态无效');
+  const fileName = exportOutputFileName(output);
+  signal.throwIfAborted();
+  const response = await openUrl(url, signal, check);
+  try {
+    check();
+    await copyResponse(response, join(directory, fileName), signal, output.extension);
+    return fileName;
+  } finally {
+    await closeResponse(response);
+  }
+}
 
 export async function runResumableMediaFile(
   services: AccountServices,
