@@ -21,6 +21,7 @@ import {
   ChevronRight,
   FolderOpen,
   HardDrive,
+  Image as ImageIcon,
   Loader2,
   Shirt,
   RotateCcw,
@@ -48,6 +49,7 @@ import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
 import '../../styles/storage-management.css';
 import { DataSaverSettings } from './DataSaverSettings';
 import { QqShowSettings } from './QqShowSettings';
+import { SharedDisplayToggle } from './SharedDisplayToggle';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -523,6 +525,21 @@ export function GlobalSettingsSection({
                 disabled={settings.isLoading || setPreferCdnMut.isLoading}
                 onChange={(next) => void onSetPreferCdn(next)}
                 label="优先直连 QQ 加载图片"
+              />
+            }
+          />
+        </Card>
+      )}
+      {section === 'network' && (
+        <Card resetId="chat-image-preview" icon={<ImageIcon size={15} strokeWidth={1.8} />}>
+          <Row
+            settingId="auto-download-preview-original"
+            desc="省流量模式未生效时，打开聊天图片会自动下载缺失的原图。"
+            control={
+              <SharedDisplayToggle
+                name="autoDownloadPreviewOriginal"
+                label="预览时自动获取原图"
+                fallback={false}
               />
             }
           />

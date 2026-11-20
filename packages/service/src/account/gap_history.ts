@@ -19,9 +19,10 @@
 import type { AccountSession } from '@weq/account';
 import { measureMessageWork } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
-import { type decodeMessage, fetchC2cHistoryRaw, fetchGroupHistoryRaw } from '@weqbot/protocol';
+import { decodeMessage, fetchC2cHistoryRaw, fetchGroupHistoryRaw } from '@weqbot/protocol';
+import type { SpecialMessageKind } from '@weqbot/protocol/message-fallbacks';
 import { toRenderElements, type RenderElement } from './msg_view';
-import { RoamMsgCacheDb } from './roam_msg_cache';
+import { RoamMsgCacheDb, type UnreadSentRange } from './roam_msg_cache';
 import type { DeletedMsgStore } from './deleted_msgs';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 import { withRoamingRequest } from '../common/roaming_request_queue';
@@ -85,6 +86,50 @@ export type GapFetchResult =
       networkRequested?: boolean;
       networkDurationMs?: number;
     };
+
+export interface SpecialMessageLookup {
+  type: SpecialMessageKind;
+  senderUid: string;
+  senderUin: string;
+  sendTime: string;
+}
+
+function hasSpecialElement(elements: RenderElement[], type: SpecialMessageKind): boolean {
+  switch (type) {
+    case 'emojiBounce':
+      return elements.some((element) => element.type === 'emojiBounce');
+    case 'pokeEmoji':
+      return elements.some((element) => element.type === 'face' && element.data.subType === 5);
+    case 'flashPhoto':
+      return elements.some(
+        (element) => element.type === 'pic' && element.data.fileToken?.startsWith('/'),
+      );
+  }
+}
+
+function projectSpecialMessage(
+  message: GapFetchedMessage,
+  lookup: SpecialMessageLookup,
+): GapFetchedMessage | undefined {
+  if (message.recall || message.sendTime !== lookup.sendTime) return undefined;
+  const sameSender =
+    message.senderUid && lookup.senderUid
+      ? message.senderUid === lookup.senderUid
+      : message.senderUin !== '0' &&
+        message.senderUin !== '' &&
+        message.senderUin === lookup.senderUin;
+  if (!sameSender) return undefined;
+  if (hasSpecialElement(message.elements, lookup.type)) return message;
+  if (message.sourceFormat !== 'protocol' || !message.protocolRaw) return undefined;
+  // 旧版本可能保存了完整协议包，同时在投影时丢掉了特殊元素。
+  try {
+    const decoded = decodeMessage(Buffer.from(message.protocolRaw, 'base64'));
+    const elements = renderDecodedElements(decoded.elements);
+    if (hasSpecialElement(elements, lookup.type)) return { ...message, elements };
+  } catch {
+    // 缓存里没有可用正文时走正常漫游请求。
+  }
+}
 
 /**
  * 把 decodeMessage 产出的 codec 风格元素提升为渲染视图。
@@ -234,6 +279,10 @@ export class GapHistoryService {
 
   async latestSent(): Promise<GapFetchedMessage[]> {
     return (await this.cache.latestSent()).filter((row) => !this.deleted?.isHiddenCached(row));
+  }
+
+  unreadSentSequences(ranges: UnreadSentRange[]): Promise<Map<string, string[]>> {
+    return this.cache.unreadSentSequences(this.session.selfUid, ranges);
   }
 
   /** 原文可能仅在 WeQ 发送缓存里；先读快照，只有服务端确认撤回后才落标记。 */
@@ -406,6 +455,7 @@ export class GapHistoryService {
       intervalMs?: number;
       strictIdentity?: boolean;
       beforeRequest?: () => void;
+      specialMessage?: SpecialMessageLookup;
     } = {},
   ): Promise<GapFetchResult> {
     if (
@@ -413,16 +463,24 @@ export class GapHistoryService {
       !Number.isSafeInteger(endSeq) ||
       startSeq < 1 ||
       startSeq > endSeq ||
+      (options.specialMessage !== undefined && startSeq !== endSeq) ||
       endSeq > 0xffffffff
     )
       return { ok: false, reason: 'error', networkRequested: false, message: 'SSO 历史窗口无效。' };
     const windowEnd = Math.min(endSeq, startSeq + SERVER_MAX_WINDOW - 1);
+    const specialMessage = options.specialMessage;
+    const readCache = () =>
+      specialMessage
+        ? this.cache.matchingMessage(kind, conv, startSeq, (row) =>
+            projectSpecialMessage(row, specialMessage),
+          )
+        : this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c');
     const complete = (rows: GapFetchedMessage[]) =>
       new Set(rows.map((row) => row.msgSeq)).size === windowEnd - startSeq + 1;
     const nextStartSeq = windowEnd < endSeq ? windowEnd + 1 : null;
     let cached: GapFetchedMessage[] = [];
     try {
-      cached = await this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c');
+      cached = await readCache();
     } catch (error) {
       return {
         ok: false,
@@ -451,7 +509,7 @@ export class GapHistoryService {
     let networkDurationMs = 0;
     try {
       const result = await withRoamingRequest(async () => {
-        cached = await this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c');
+        cached = await readCache();
         if (complete(cached)) return { cached: true as const };
         options.signal?.throwIfAborted();
         try {
@@ -500,7 +558,7 @@ export class GapHistoryService {
           ];
           return {
             cached: false as const,
-            messages: await this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c'),
+            messages: await readCache(),
             fetched: decoded.messages.length,
             unresolvedRecords: decoded.observations.length,
             examinedStart: observed.length ? Math.min(...observed) : startSeq,

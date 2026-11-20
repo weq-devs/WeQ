@@ -32,6 +32,7 @@ export function ChatShell({
   mainOpen,
   messageBadgeCount,
   onMessageBadgeClick,
+  messageBadgeActionLabel,
   contactBadgeCount,
   mailBadgeCount,
   showTools = true,
@@ -76,6 +77,7 @@ export function ChatShell({
   mainOpen: boolean;
   messageBadgeCount: number;
   onMessageBadgeClick?: () => void;
+  messageBadgeActionLabel?: string;
   contactBadgeCount: number;
   mailBadgeCount?: number;
   showTools?: boolean;
@@ -223,6 +225,7 @@ export function ChatShell({
           onOpenQzoneAlbum={onOpenQzoneAlbum}
           messageBadgeCount={messageBadgeCount}
           onMessageBadgeClick={onMessageBadgeClick}
+          messageBadgeActionLabel={messageBadgeActionLabel}
           contactBadgeCount={contactBadgeCount}
           mailBadgeCount={mailBadgeCount}
           showTools={showTools}

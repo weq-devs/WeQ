@@ -23,7 +23,8 @@ function MosaicImg({ uin }: { uin: string }): ReactElement {
   // 导出 / 合成记录等独立 document 里，本地桥是相对路径，得按主文档 base 补全。
   const src = raw ? resourceForRenderDocument(raw, ownerDocument) : null;
   const image = useAvatarImage(src);
-  if (!src || image.failed) return <span className="weq-group-mosaic-fallback" aria-hidden />;
+  if (!src || image.failed)
+    return <span ref={image.observeRef} className="weq-group-mosaic-fallback" aria-hidden />;
   return <img ref={image.ref} src={image.src} alt="" loading="lazy" onError={image.onError} />;
 }
 

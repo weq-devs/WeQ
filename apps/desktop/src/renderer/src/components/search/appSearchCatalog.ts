@@ -3,20 +3,30 @@ import type { MainView } from '../../im-template/template/types';
 import type { ExportMode } from '../../views/export/types';
 import type { DressKind } from '../DressUpDialog';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
-import { SETTINGS_CATALOG, SETTINGS_PAGE_ALIASES } from '@weq/service/settings-catalog';
+import {
+  findFeature,
+  CONVERSATION_CALENDAR_FEATURE,
+  CONVERSATION_VIEW_FEATURES,
+  QZONE_SECTION_FEATURES,
+  OWN_ALBUM_FEATURE,
+  TASK_PANEL_FEATURES,
+  type TaskPanelTab,
+  type QzoneFeatureSection,
+  DRESS_FEATURES,
+  EXPORT_FEATURES,
+  SETTING_FEATURES,
+  SETTINGS_PAGE_FEATURES,
+  WORKSPACE_FEATURES,
+} from '@weq/service/feature-catalog';
 import { isRemoteClient } from '../../lib/remoteClient';
-import { remoteSettingAvailable } from '../../../../shared/remote_capabilities';
+import { settingFeatureAllowed } from '../../../../shared/feature_access';
+import { canLinkToFeature } from '../../../../shared/feature_links';
 import { APP_NAVIGATION, navigationEntries, type NavigationTool } from '../../lib/appNavigation';
-import { ContactRound, Gift, UsersRound } from 'lucide-react';
+import { CalendarDays, ContactRound, Gift, UsersRound } from 'lucide-react';
 import { DRESS_KIND_ICONS, EXPORT_MODE_ICONS, FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import type { FeatureIcon } from '../../lib/featureIcons';
 import { SETTINGS_PAGE_ICONS } from '../settings/pageIcons.shared';
-import {
-  SETTINGS_PAGE_LABELS,
-  resolveSettingsTarget,
-  settingsGroupFor,
-  type SectionId,
-} from '../settings/navigation';
+import { resolveSettingsTarget, type SectionId } from '../settings/navigation';
 export { SETTINGS_PAGE_LABELS } from '../settings/navigation';
 
 export type SearchableTool = NavigationTool;
@@ -24,11 +34,19 @@ export interface ToolSearchRequest {
   scope: string;
   tool: SearchableTool;
   exportMode?: ExportMode;
+  taskTab?: TaskPanelTab;
   revision: number;
 }
 export type AppSearchTarget =
   | { kind: 'view'; view: MainView }
   | { kind: 'conversation-directory'; scope: ConversationScope }
+  | { kind: 'conversation-view'; view: keyof typeof CONVERSATION_VIEW_FEATURES }
+  | { kind: 'conversation-calendar' }
+  | { kind: 'contact-notice'; notice: 'friend' | 'group' }
+  | { kind: 'contact-overview' }
+  | { kind: 'qzone-section'; section: QzoneFeatureSection }
+  | { kind: 'self-qzone-albums' }
+  | { kind: 'task-tab'; tab: TaskPanelTab }
   | { kind: 'tool'; tool: SearchableTool; exportMode?: ExportMode }
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
@@ -47,28 +65,33 @@ export interface AppSearchEntry {
 
 // 这里只保存公开的界面名称与入口，不读取设置值、账号资料或凭据。
 
-function settingEntry(section: SectionId, item?: string, keywords: string[] = []): AppSearchEntry {
-  const resolved = resolveSettingsTarget({ section, item });
-  const page = SETTINGS_PAGE_LABELS[resolved.section];
+function settingEntry(
+  definition: (typeof SETTING_FEATURES)[number] | (typeof SETTINGS_PAGE_FEATURES)[number],
+): AppSearchEntry {
+  const { id, label, aliases, page, path } = definition;
+  const target =
+    'settingId' in definition
+      ? resolveSettingsTarget({ section: page, item: label, settingId: definition.settingId })
+      : resolveSettingsTarget({ section: page });
   return {
-    id: `setting:${resolved.section}:${resolved.settingId ?? item ?? ''}`,
-    title: item ? (resolved.item ?? item) : page,
-    path: ['设置', settingsGroupFor(resolved.section).label, page].join(' / '),
-    keywords: [...keywords, ...(item ? [item] : (SETTINGS_PAGE_ALIASES[resolved.section] ?? []))],
-    target: { kind: 'setting', ...resolved },
+    id,
+    title: label,
+    path: path.join(' / '),
+    keywords: 'settingId' in definition ? [...aliases, label] : aliases,
+    target: { kind: 'setting', ...target },
   };
 }
 
 const feature = (
-  title: string,
+  { id, label, aliases }: { id: string; label: string; aliases: readonly string[] },
   target: AppSearchTarget,
-  ...keywords: string[]
+  path = '功能',
 ): AppSearchEntry => ({
-  id: `feature:${title}`,
-  title,
-  path: '功能',
+  id,
+  title: label,
+  path,
   target,
-  keywords,
+  keywords: aliases,
 });
 
 export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
@@ -91,6 +114,19 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
       return target.group ? UsersRound : FEATURE_ICONS.clone;
     case 'conversation-directory':
       return target.scope === 'virtual' ? FEATURE_ICONS.clone : FEATURE_ICONS.messages;
+    case 'conversation-view':
+      return FEATURE_ICONS.messages;
+    case 'conversation-calendar':
+      return CalendarDays;
+    case 'contact-notice':
+      return target.notice === 'friend' ? FEATURE_ICONS.friendNotice : FEATURE_ICONS.groupNotice;
+    case 'contact-overview':
+      return APP_NAVIGATION['group-intersection'].icon;
+    case 'qzone-section':
+    case 'self-qzone-albums':
+      return APP_NAVIGATION.qzone.icon;
+    case 'task-tab':
+      return APP_NAVIGATION.tasks.icon;
     case 'view':
       return (
         Object.values(APP_NAVIGATION).find(
@@ -100,77 +136,43 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
   }
 }
 
-function uniqueEntries(entries: AppSearchEntry[]): AppSearchEntry[] {
-  const unique = new Map<string, AppSearchEntry>();
-  for (const entry of entries) {
-    const previous = unique.get(entry.id);
-    unique.set(
-      entry.id,
-      previous ? { ...previous, keywords: [...previous.keywords, ...entry.keywords] } : entry,
-    );
-  }
-  return [...unique.values()];
-}
-
-const appSearchEntries: readonly AppSearchEntry[] = uniqueEntries([
-  ...navigationEntries('search', true).flatMap(({ label, target, keywords }) =>
-    target.kind === 'contact-notice' || target.kind === 'contact-overview'
-      ? []
-      : [feature(label, target, ...keywords)],
+const appSearchEntries: readonly AppSearchEntry[] = [
+  ...navigationEntries('search', true).map(({ featureId, label, target, keywords }) =>
+    feature({ id: featureId, label, aliases: keywords }, target),
   ),
-  feature('好友克隆', { kind: 'conversation-directory', scope: 'virtual' }, '克隆聊天'),
-  feature('新建好友克隆', { kind: 'clone-create' }, '创建克隆'),
-  feature('新建克隆体群聊', { kind: 'clone-create', group: true }, '克隆群聊'),
+  feature(CONVERSATION_CALENDAR_FEATURE, { kind: 'conversation-calendar' }),
   ...(
-    [
-      ['聊天消息导出', 'full', '完整消息导出'],
-      ['定时导出', 'scheduled', '定时任务', '自动备份'],
-      ['频道私聊数据', 'guild', '导出频道私聊'],
-      ['克隆与助手对话', 'generated', '导出克隆对话', '导出助手会话'],
-      ['QQ 空间导出', 'qzone', '导出说说'],
-      ['导出联系人', 'contacts', '好友名单', '群成员名单', 'vCard'],
-      ['导出收藏', 'collection', '收藏导出'],
-      ['邮件导出', 'mail', '导出邮件'],
-      ['导出表情包', 'emojipack', '表情包导出'],
-      ['群相册导出', 'album', '群相册'],
-      ['群文件导出', 'groupfile', '群文件'],
-      ['明文数据库', 'database', '数据库导出'],
-      ['克隆体机器人', 'persona-bot', '克隆机器人导出'],
-      ['个人空间相册', 'qzone', '空间相册导出'],
-    ] as const
-  ).map(([title, exportMode, ...aliases]) =>
-    feature(title, { kind: 'tool', tool: 'export', exportMode }, ...aliases),
+    Object.keys(CONVERSATION_VIEW_FEATURES) as Array<keyof typeof CONVERSATION_VIEW_FEATURES>
+  ).map((view) => feature(CONVERSATION_VIEW_FEATURES[view], { kind: 'conversation-view', view })),
+  feature(WORKSPACE_FEATURES.clones, { kind: 'conversation-directory', scope: 'virtual' }),
+  feature(WORKSPACE_FEATURES.createClone, { kind: 'clone-create' }),
+  feature(WORKSPACE_FEATURES.createCloneGroup, { kind: 'clone-create', group: true }),
+  ...(Object.keys(QZONE_SECTION_FEATURES) as QzoneFeatureSection[]).map((section) =>
+    feature(QZONE_SECTION_FEATURES[section], { kind: 'qzone-section', section }),
   ),
-  feature('我的资料', { kind: 'self-profile' }, '本人资料', '个人资料'),
-  {
-    ...feature('礼物墙', { kind: 'self-profile', tab: 'giftwall' }, '我的礼物墙', '礼物'),
-    path: '我的资料 / 礼物墙',
-  },
-  ...(
-    [
-      ['气泡商城', 'bubble', '聊天气泡', '气泡'],
-      ['字体商城', 'font', '个性字体', '字体'],
-      ['头像挂件', 'widget', '挂件商城'],
-      ['通话背景', 'callbg'],
-      ['QQ 聊天背景', 'background', '聊天背景商城'],
-      ['商城表情', 'emoji', '表情商城'],
-      ['红包封面', 'redpack', '红包皮肤', '红包'],
-    ] as const
-  ).map(([title, dressKind, ...aliases]) =>
-    feature(title, { kind: 'dressup', dressKind }, ...aliases),
+  feature(OWN_ALBUM_FEATURE, { kind: 'self-qzone-albums' }),
+  ...(Object.keys(TASK_PANEL_FEATURES) as TaskPanelTab[]).map((tab) =>
+    feature(TASK_PANEL_FEATURES[tab], { kind: 'task-tab', tab }),
   ),
-  ...Object.keys(SETTINGS_PAGE_LABELS).map((section) =>
-    settingEntry(section as keyof typeof SETTINGS_PAGE_LABELS, undefined, [section]),
+  ...EXPORT_FEATURES.map((entry) =>
+    feature(entry, { kind: 'tool', tool: 'export', exportMode: entry.mode }),
   ),
-  ...SETTINGS_CATALOG.map((item) =>
-    settingEntry(item.section, item.label, [...(item.aliases ?? [])]),
+  feature(WORKSPACE_FEATURES.selfProfile, { kind: 'self-profile' }),
+  feature(WORKSPACE_FEATURES.selfProfileEdit, { kind: 'self-profile', tab: 'edit' }),
+  feature(
+    WORKSPACE_FEATURES.giftWall,
+    { kind: 'self-profile', tab: 'giftwall' },
+    [WORKSPACE_FEATURES.selfProfile.label, WORKSPACE_FEATURES.giftWall.label].join(' / '),
   ),
-]).filter((entry) => {
+  ...DRESS_FEATURES.map((entry) => feature(entry, { kind: 'dressup', dressKind: entry.dressKind })),
+  ...SETTINGS_PAGE_FEATURES.map(settingEntry),
+  ...SETTING_FEATURES.map(settingEntry),
+].filter((entry) => {
   const target = entry.target;
-  return !(
-    import.meta.env.VITE_WEQ_TARGET === 'web' &&
-    target.kind === 'setting' &&
-    SETTINGS_CATALOG.some((item) => item.id === target.settingId && item.desktopOnly)
+  return (
+    import.meta.env.VITE_WEQ_TARGET !== 'web' ||
+    target.kind !== 'setting' ||
+    settingFeatureAllowed(target, 'web')
   );
 });
 
@@ -187,9 +189,7 @@ export function searchAppEntries(keyword: string, developmentDressTools = false)
     .filter((entry) => entry.target.kind !== 'dressup' || developmentDressTools)
     .filter((entry) => {
       if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
-      const target = resolveSettingsTarget(entry.target);
-      // 页面 / settingId / 行名三种禁项都在 shared/remote_capabilities 里，这里只消费。
-      return remoteSettingAvailable(target.section, target.settingId, target.item);
+      return settingFeatureAllowed(entry.target, 'remote');
     })
     .map((entry, index) => ({
       entry,
@@ -199,6 +199,19 @@ export function searchAppEntries(keyword: string, developmentDressTools = false)
     .filter(({ rank }) => rank > 0)
     .sort((a, b) => b.rank - a.rank || a.index - b.index)
     .map(({ entry }) => entry);
+}
+
+export function findLinkedAppEntry(featureId: string): AppSearchEntry | undefined {
+  const feature = findFeature(featureId);
+  if (!feature || !canLinkToFeature(feature)) return undefined;
+  const entry = appSearchEntries.find((candidate) => candidate.id === featureId);
+  if (
+    entry?.target.kind === 'setting' &&
+    isRemoteClient() &&
+    !settingFeatureAllowed(entry.target, 'remote')
+  )
+    return undefined;
+  return entry;
 }
 
 export { appSearchEntries as APP_SEARCH_ENTRIES };

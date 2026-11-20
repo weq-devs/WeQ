@@ -20,7 +20,6 @@ import {
   RadioTower,
   RefreshCw,
   Save,
-  Server,
   Trash2,
   Upload,
   X,
@@ -34,6 +33,7 @@ import { useDraftClose } from '../../lib/draftClose';
 import { z } from 'zod';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
+import { SETTINGS_PAGE_LABELS } from './navigation';
 import '../../styles/settings-onebot.css';
 
 /**
@@ -116,6 +116,7 @@ interface NetworkDraft {
   accessToken: string;
   reportSelfMessage: boolean;
   enableWebSocket: boolean;
+  enableCors?: boolean;
   reconnectIntervalMs: string;
   timeoutMs: string;
 }
@@ -135,6 +136,7 @@ const networkDraftSchema = z
     accessToken: z.string(),
     reportSelfMessage: z.boolean(),
     enableWebSocket: z.boolean(),
+    enableCors: z.boolean().optional(),
     reconnectIntervalMs: z.string(),
     timeoutMs: z.string(),
   })
@@ -166,6 +168,7 @@ function draftOf(key: NetworkKey, entry: Record<string, unknown> | null): Networ
     accessToken: typeof server.accessToken === 'string' ? server.accessToken : '',
     reportSelfMessage: server.reportSelfMessage !== false,
     enableWebSocket: server.enableWebSocket === true,
+    enableCors: server.enableCors === true,
     reconnectIntervalMs:
       typeof server.reconnectIntervalMs === 'number' ? String(server.reconnectIntervalMs) : '',
     timeoutMs: typeof server.timeoutMs === 'number' ? String(server.timeoutMs) : '',
@@ -197,7 +200,10 @@ function entryOf(draft: NetworkDraft): Record<string, unknown> {
   if (draft.host.trim()) base.host = draft.host.trim();
   if (draft.path.trim()) base.path = draft.path.trim();
   if (draft.key === 'wsServers') base.role = draft.role;
-  if (draft.key === 'httpServers') base.enableWebSocket = draft.enableWebSocket;
+  if (draft.key === 'httpServers') {
+    base.enableWebSocket = draft.enableWebSocket;
+    base.enableCors = draft.enableCors === true;
+  }
   return base;
 }
 
@@ -361,13 +367,11 @@ export function OneBotSection(): ReactElement {
   );
 
   const draftMeta = draft ? NETWORKS.find((meta) => meta.key === draft.key) : null;
-  const wsServers = (config?.networks.wsServers ?? []) as ControlWsServer[];
-  const firstWs = wsServers.find((server) => server.enabled !== false);
 
   return (
     <div className="weq-set weq-set-onebot">
       <SectionHeader
-        title="OneBot / cc-connect"
+        title={SETTINGS_PAGE_LABELS.onebot}
         page="onebot"
         desc="网络配置按账号保存，由 weqbot daemon 执行。端口被占用时直接报错、不会自动顺延 —— 客户端里写死的就是这个端口。"
       />
@@ -532,30 +536,6 @@ export function OneBotSection(): ReactElement {
           </Card>
         );
       })}
-
-      <Card title="cc-connect 配置" icon={<Server size={15} strokeWidth={1.8} />}>
-        <Row
-          label="正向 WebSocket"
-          desc={firstWs ? `使用「${firstWs.name}」。` : '启用任意一个正向 WebSocket 后即可生成。'}
-          control={
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={!firstWs}
-              onClick={() => {
-                if (!firstWs) return;
-                const url = endpointOf('wsServers', firstWs as unknown as Record<string, unknown>);
-                void copy(
-                  `[[projects.platforms]]\ntype = "qq"\n[projects.platforms.options]\nws_url = "${url}"\ntoken = "${firstWs.accessToken ?? ''}"\nallow_from = "填写你的 QQ 号"\ngroup_require_mention = true\n`,
-                );
-              }}
-            >
-              <Copy size={14} />
-              复制配置
-            </button>
-          }
-        />
-      </Card>
 
       {draft && draftMeta ? (
         <EditorDialog
@@ -728,19 +708,34 @@ export function OneBotSection(): ReactElement {
             </label>
 
             {draft.key === 'httpServers' ? (
-              <div className="weq-onebot-inline-toggle">
-                <span>
-                  <strong>同一端口接受 WebSocket</strong>
-                  <small>省一个端口，客户端可以走 ws:// 连进来</small>
-                </span>
-                <Toggle
-                  checked={draft.enableWebSocket}
-                  label="同一端口接受 WebSocket"
-                  onChange={(enableWebSocket) =>
-                    setDraft((current) => current && { ...current, enableWebSocket })
-                  }
-                />
-              </div>
+              <>
+                <div className="weq-onebot-inline-toggle">
+                  <span>
+                    <strong>同一端口接受 WebSocket</strong>
+                    <small>省一个端口，客户端可以走 ws:// 连进来</small>
+                  </span>
+                  <Toggle
+                    checked={draft.enableWebSocket}
+                    label="同一端口接受 WebSocket"
+                    onChange={(enableWebSocket) =>
+                      setDraft((current) => current && { ...current, enableWebSocket })
+                    }
+                  />
+                </div>
+                <div className="weq-onebot-inline-toggle">
+                  <span>
+                    <strong>允许跨域</strong>
+                    <small>允许其他网站通过浏览器调用此 HTTP 接口</small>
+                  </span>
+                  <Toggle
+                    checked={draft.enableCors === true}
+                    label="允许 HTTP 跨域"
+                    onChange={(enableCors) =>
+                      setDraft((current) => current && { ...current, enableCors })
+                    }
+                  />
+                </div>
+              </>
             ) : null}
 
             {draft.key === 'wsClients' ? (

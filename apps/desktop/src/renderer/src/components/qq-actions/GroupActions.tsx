@@ -33,6 +33,7 @@ import '../../styles/qq-management.css';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh, useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { GroupJoinSettings } from './GroupJoinSettings';
+import { GroupAdvancedSettings } from './GroupAdvancedSettings';
 import { ActionFeedback, ActionIcon } from './shared';
 import { useQQAction, useQQGroupPermissions, withQQAccountScope } from './shared.shared';
 
@@ -64,6 +65,7 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
       <div className="weq-qq-action-form">
         <Card title="加群方式" icon={<UsersRound size={15} strokeWidth={1.8} />}>
           <GroupJoinSettings key={groupId} groupId={groupId} />
+          {canManage ? <GroupAdvancedSettings groupId={groupId} /> : null}
         </Card>
         <Card title="分类标签" icon={<Tags size={15} strokeWidth={1.8} />}>
           <section className="weq-group-tags" aria-label="群分类标签">

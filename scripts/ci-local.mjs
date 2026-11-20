@@ -55,6 +55,8 @@ function step(name, cmd, cwd) {
 const steps = [
   step('Biome lint', 'pnpm lint'),
   step('Biome 格式检查', 'pnpm format:check'),
+  step('设置项参考', 'pnpm settings:docs:check'),
+  step('功能参考与引用', 'pnpm features:docs:check'),
   step('TypeScript 类型检查 (pnpm -r typecheck)', 'pnpm -r typecheck'),
   step('工作区单元测试（含 desktop + web）', FAIL_FAST ? 'pnpm test:fail-fast' : 'pnpm test'),
 ];

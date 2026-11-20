@@ -8,6 +8,7 @@
  */
 
 import { useEffect, type ReactElement, type ReactNode } from 'react';
+import { FormSelect } from '../../components/FormSelect';
 import { usePageState } from '../../components/PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
@@ -203,90 +204,109 @@ export function CacheView({
 
   return (
     <ResourceRevisionContext.Provider value={revision}>
-      <div className={`weq-cache${catsCollapsed ? ' is-cats-collapsed' : ''}`}>
-        {/* 左侧分类栏（可收起） */}
-        {catsCollapsed ? (
-          <div className="weq-cache-cats-rail">
-            <button
-              type="button"
-              className="weq-cache-collapse-btn"
-              onClick={() => setCatsCollapsed(false)}
-              title="展开资源列表"
-              aria-label="展开资源列表"
+      <div className="weq-cache-container">
+        <div className={`weq-cache${catsCollapsed ? ' is-cats-collapsed' : ''}`}>
+          <div className="weq-cache-category-picker">
+            <FormSelect
+              aria-label="资源分类"
+              value={activeCategory.id}
+              onChange={(event) => setActive(event.target.value)}
             >
-              <PanelLeftOpen size={16} />
-            </button>
+              {groups.map((group) => (
+                <optgroup key={group.name} label={group.name}>
+                  {group.items.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </FormSelect>
           </div>
-        ) : (
-          <nav className="weq-cache-cats" aria-label="缓存资源分类">
-            <div className="weq-cache-cats-head">
-              <span className="weq-cache-cats-title">资源</span>
+          {/* 左侧分类栏（可收起） */}
+          {catsCollapsed ? (
+            <div className="weq-cache-cats-rail">
               <button
                 type="button"
                 className="weq-cache-collapse-btn"
-                onClick={() => setCatsCollapsed(true)}
-                title="收起资源列表"
-                aria-label="收起资源列表"
+                onClick={() => setCatsCollapsed(false)}
+                title="展开资源列表"
+                aria-label="展开资源列表"
               >
-                <PanelLeftClose size={16} />
+                <PanelLeftOpen size={16} />
               </button>
             </div>
-            <div className="weq-cache-cats-body">
-              {groups.map((group) => (
-                <div className="weq-cache-cat-group" key={group.name}>
-                  <span className="weq-cache-cat-group-label">{group.name}</span>
-                  {group.items.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={`weq-cache-cat${c.id === active ? ' is-active' : ''}`}
-                      onClick={() => setActive(c.id)}
-                    >
-                      <span className="weq-cache-cat-icon">{c.icon}</span>
-                      <span className="weq-cache-cat-text">
-                        <strong>{c.label}</strong>
-                        <small>{c.desc}</small>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </nav>
-        )}
-
-        {/* 右侧内容区 */}
-        <section className="weq-cache-pane">
-          {activeCategory.id === 'avatar' ? (
-            <AvatarExplorer />
-          ) : activeCategory.id === 'sysEmoji' ? (
-            <SysEmojiExplorer />
-          ) : activeCategory.id === 'marketEmoji' ? (
-            <MarketEmojiExplorer />
-          ) : activeCategory.id === 'marketPack' ? (
-            <MarketPackExplorer />
-          ) : activeCategory.id === 'customEmoji' ? (
-            <CustomEmojiExplorer />
-          ) : activeCategory.id === 'relatedEmoji' ? (
-            <RelatedEmojiExplorer />
-          ) : activeCategory.id === 'fileDir' ? (
-            <FileDirExplorer />
-          ) : activeCategory.id === 'downloadFile' ? (
-            <DownloadFileExplorer />
-          ) : activeCategory.id === 'album' ? (
-            <FlatMediaExplorer key="album" kind="photoWall" />
-          ) : activeCategory.id === 'qzone' ? (
-            <FlatMediaExplorer key="qzone" kind="qzone" />
-          ) : activeCategory.id === 'image' ? (
-            <MonthMediaExplorer key="image" kind="pic" />
-          ) : activeCategory.id === 'video' ? (
-            <MonthMediaExplorer key="video" kind="video" />
-          ) : activeCategory.id === 'voice' ? (
-            <VoiceExplorer key="voice" />
           ) : (
-            <CachePlaceholder label={activeCategory.label} />
+            <nav className="weq-cache-cats" aria-label="缓存资源分类">
+              <div className="weq-cache-cats-head">
+                <span className="weq-cache-cats-title">资源</span>
+                <button
+                  type="button"
+                  className="weq-cache-collapse-btn"
+                  onClick={() => setCatsCollapsed(true)}
+                  title="收起资源列表"
+                  aria-label="收起资源列表"
+                >
+                  <PanelLeftClose size={16} />
+                </button>
+              </div>
+              <div className="weq-cache-cats-body">
+                {groups.map((group) => (
+                  <div className="weq-cache-cat-group" key={group.name}>
+                    <span className="weq-cache-cat-group-label">{group.name}</span>
+                    {group.items.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={`weq-cache-cat${c.id === active ? ' is-active' : ''}`}
+                        onClick={() => setActive(c.id)}
+                      >
+                        <span className="weq-cache-cat-icon">{c.icon}</span>
+                        <span className="weq-cache-cat-text">
+                          <strong>{c.label}</strong>
+                          <small>{c.desc}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </nav>
           )}
-        </section>
+
+          {/* 右侧内容区 */}
+          <section className="weq-cache-pane">
+            {activeCategory.id === 'avatar' ? (
+              <AvatarExplorer />
+            ) : activeCategory.id === 'sysEmoji' ? (
+              <SysEmojiExplorer />
+            ) : activeCategory.id === 'marketEmoji' ? (
+              <MarketEmojiExplorer />
+            ) : activeCategory.id === 'marketPack' ? (
+              <MarketPackExplorer />
+            ) : activeCategory.id === 'customEmoji' ? (
+              <CustomEmojiExplorer />
+            ) : activeCategory.id === 'relatedEmoji' ? (
+              <RelatedEmojiExplorer />
+            ) : activeCategory.id === 'fileDir' ? (
+              <FileDirExplorer />
+            ) : activeCategory.id === 'downloadFile' ? (
+              <DownloadFileExplorer />
+            ) : activeCategory.id === 'album' ? (
+              <FlatMediaExplorer key="album" kind="photoWall" />
+            ) : activeCategory.id === 'qzone' ? (
+              <FlatMediaExplorer key="qzone" kind="qzone" />
+            ) : activeCategory.id === 'image' ? (
+              <MonthMediaExplorer key="image" kind="pic" />
+            ) : activeCategory.id === 'video' ? (
+              <MonthMediaExplorer key="video" kind="video" />
+            ) : activeCategory.id === 'voice' ? (
+              <VoiceExplorer key="voice" />
+            ) : (
+              <CachePlaceholder label={activeCategory.label} />
+            )}
+          </section>
+        </div>
       </div>
     </ResourceRevisionContext.Provider>
   );

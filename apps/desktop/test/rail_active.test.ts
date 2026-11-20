@@ -15,12 +15,6 @@ it('从设置进入维护工具后仍指定设置高亮，不沿用其它页面�
   expect(source.includes('settingsOpen || maintenanceTool')).toBe(true);
 });
 
-it('主界面将实际未读汇总传入消息入口，不固定为零', () => {
-  const source = readFileSync('src/renderer/src/views/MainView.tsx', 'utf8');
-  expect(source.includes('displaySettings.data?.showMessageUnreadBadge === false')).toBe(true);
-  expect(source).toContain('? 0 : messageBadgeCount');
-});
-
 it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧高亮', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');

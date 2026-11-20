@@ -166,10 +166,13 @@ describe('feature_search', () => {
         }),
       );
     });
-    it('SSE 旧正文名称保留为搜索别名，统一定位最终页面名', () => {
-      const entry = searchAppEntries('SSE 消息推送')[0]!;
-      expect(entry.title).toBe('SSE 推送');
-      expect(entry.target).toEqual({ kind: 'setting', section: 'sse' });
+    it.each([
+      ['SSE 消息推送', 'SSE 推送', 'sse'],
+      ['cc-connect', 'OneBot', 'onebot'],
+    ])('%s 作为搜索别名定位到 %s', (query, title, section) => {
+      const entry = searchAppEntries(query)[0]!;
+      expect(entry.title).toBe(title);
+      expect(entry.target).toEqual({ kind: 'setting', section });
     });
     it.each([
       ['存储占用', '占用概览', 'qq-storage-analysis'],

@@ -121,7 +121,7 @@ try {
       assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
         'Web 与 Remote',
         'MCP 服务器',
-        'OneBot / cc-connect',
+        'OneBot',
         'SSE 推送',
         'QQ 公众号推送',
       ]);
@@ -230,7 +230,7 @@ try {
       if (output)
         await page.screenshot({ path: resolve(output, `external-chatpic-${width}-${theme}.png`) });
       await openCategory('WeQ 服务');
-      await page.getByRole('button', { name: 'OneBot / cc-connect', exact: true }).click();
+      await page.getByRole('button', { name: 'OneBot', exact: true }).click();
       await page.getByRole('button', { name: 'WebSocket', exact: true }).click();
       const editor = page.getByRole('dialog', { name: '新建 WebSocket 服务器', exact: true });
       const name = editor.getByLabel('OneBot 服务器名称', { exact: true });

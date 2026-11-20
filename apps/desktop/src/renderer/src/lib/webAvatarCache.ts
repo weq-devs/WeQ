@@ -18,6 +18,7 @@ export const WEB_AVATAR_LIMITS = {
   diskBytes: 24 * 1024 * 1024,
   concurrent: 4,
 };
+const MISSING_AVATAR_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000] as const;
 
 let database: Promise<IDBDatabase> | undefined;
 function openDatabase(): Promise<IDBDatabase> {
@@ -153,10 +154,16 @@ export function createWebAvatarCache({
     request?: string;
     retryAt: number;
   };
-  type Job = { source: string; controller: AbortController; promise: Promise<void> };
+  type Visibility = { count: number; retries: number; timer?: ReturnType<typeof setTimeout> };
+  type Job = {
+    source: string;
+    controller: AbortController;
+    promise: Promise<void>;
+    retryView?: Visibility;
+  };
   const entries = new Map<string, Entry>();
   const listeners = new Map<string, Set<() => void>>();
-  const visible = new Map<string, number>();
+  const visible = new Map<string, Visibility>();
   const jobs = new Map<string, Job>();
   const queue: (() => void)[] = [];
   let active = 0;
@@ -193,18 +200,53 @@ export function createWebAvatarCache({
       if (active < WEB_AVATAR_LIMITS.concurrent) start();
       else queue.push(start);
     });
-  return {
+  const cancelRetry = (view: Visibility) => {
+    clearTimeout(view.timer);
+    view.timer = undefined;
+  };
+  const scheduleRetry = (key: string, source: string, failed: Entry) => {
+    const view = visible.get(key);
+    if (!view || view.retries >= MISSING_AVATAR_RETRY_DELAYS_MS.length || view.timer !== undefined)
+      return;
+    view.timer = setTimeout(
+      () => {
+        view.timer = undefined;
+        if (visible.get(key) !== view || entries.get(key) !== failed) return;
+        view.retries++;
+        void cache.load(key, source, view);
+      },
+      Math.max(0, failed.retryAt - now()),
+    );
+  };
+  const cache = {
     activate(key: string) {
-      visible.set(key, (visible.get(key) ?? 0) + 1);
+      const view = visible.get(key) ?? { count: 0, retries: 0 };
+      visible.set(key, view);
+      view.count++;
       return () => {
-        const remaining = (visible.get(key) ?? 1) - 1;
-        if (remaining) visible.set(key, remaining);
-        else visible.delete(key);
+        if (--view.count === 0) {
+          cancelRetry(view);
+          const job = jobs.get(key);
+          if (job?.retryView === view) job.controller.abort();
+          visible.delete(key);
+        }
         trim();
       };
     },
-    peek(key: string) {
-      return entries.get(key)?.snapshot;
+    peek(key: string, fallbackKey?: string | null) {
+      const preferred = entries.get(key)?.snapshot;
+      if (preferred?.ready || !fallbackKey) return preferred;
+      const fallback = entries.get(fallbackKey)?.snapshot;
+      return fallback?.ready ? fallback : preferred;
+    },
+    retryFailedVisible() {
+      for (const [key, view] of visible) {
+        const entry = entries.get(key);
+        if (!entry?.snapshot.failed || !entry.request || jobs.has(key)) continue;
+        entry.retryAt = 0;
+        view.retries = 0;
+        void cache.load(key, entry.request, view);
+      }
     },
     subscribe(key: string, listener: () => void) {
       let group = listeners.get(key);
@@ -222,7 +264,7 @@ export function createWebAvatarCache({
         }
       };
     },
-    load(key: string, source: string): Promise<void> {
+    load(key: string, source: string, retryView?: Visibility): Promise<void> {
       const existing = jobs.get(key);
       if (existing?.source === source && !existing.controller.signal.aborted)
         return existing.promise;
@@ -234,13 +276,16 @@ export function createWebAvatarCache({
         (cached.retryAt > now() ||
           (cached.value && now() - cached.value.updatedAt < WEB_AVATAR_LIMITS.freshMs))
       ) {
+        if (cached.snapshot.failed) scheduleRetry(key, source, cached);
         entries.delete(key);
         entries.set(key, cached);
         return Promise.resolve();
       }
+      const view = visible.get(key);
+      if (view) cancelRetry(view);
       existing?.controller.abort();
       const controller = new AbortController();
-      const job: Job = { source, controller, promise: Promise.resolve() };
+      const job: Job = { source, controller, promise: Promise.resolve(), retryView };
       jobs.set(key, job);
       const current = () => !controller.signal.aborted && jobs.get(key) === job;
       job.promise = run(async () => {
@@ -339,12 +384,17 @@ export function createWebAvatarCache({
         } catch {
           if (jobs.get(key) !== job || (!current() && !timedOut)) return;
           if (entry?.value) entry.retryAt = now() + WEB_AVATAR_LIMITS.retryMs;
-          else
-            publish(key, {
+          else {
+            const retries = visible.get(key)?.retries ?? 0;
+            const delay = MISSING_AVATAR_RETRY_DELAYS_MS[retries] ?? WEB_AVATAR_LIMITS.retryMs;
+            const failed = {
               snapshot: { src: undefined, ready: false, failed: true },
               request: source,
-              retryAt: now() + WEB_AVATAR_LIMITS.retryMs,
-            });
+              retryAt: now() + delay,
+            };
+            publish(key, failed);
+            scheduleRetry(key, source, failed);
+          }
         } finally {
           clearTimeout(timeout);
         }
@@ -355,6 +405,7 @@ export function createWebAvatarCache({
       return job.promise;
     },
   };
+  return cache;
 }
 
 export const webAvatarCache = createWebAvatarCache();

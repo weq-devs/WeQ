@@ -18,6 +18,7 @@ import {
   openSync,
   readFileSync,
   readSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -33,6 +34,7 @@ import {
   logFileSource,
   readLogFileChunk,
   readLogFileInfo,
+  readLogFileRange,
   scanLogFiles,
   type LogFileEntry,
 } from '@weq/service';
@@ -43,8 +45,15 @@ import { procedure, router } from '../trpc';
 
 const logger = getLogger().child({ scope: 'help-router' });
 
-const logRootKey = (path: string): string =>
-  process.platform === 'win32' ? path.toLowerCase() : path;
+function logRootKey(path: string): string {
+  let canonical = path;
+  try {
+    canonical = realpathSync.native(path);
+  } catch {
+    // 日志目录可在首次写入时才创建。
+  }
+  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+}
 
 /** 归一化日志目录集合（WeQ 与原生可能指向同一目录；Windows 路径大小写不敏感）。 */
 function logRoots(): string[] {
@@ -119,12 +128,24 @@ async function tailText(files: LogFileEntry[], maxBytes: number): Promise<string
 export const helpRouter = router({
   // ── 日志查看 ─────────────────────────────────────────────────────────────
 
-  /** 日志目录 + 全部日志文件（含种类 / 大小 / 修改时间）。 */
-  listLogFiles: procedure.query(() => {
+  /** 日志文件与实际记录的时间区间。逐个读取，避免一次打开全部归档。 */
+  listLogFiles: procedure.query(async () => {
     const dirs = logRoots();
-    const files = dirs.flatMap(scanLogFiles).sort((a, b) => b.mtime - a.mtime);
     const current = getActiveLogPath();
-    return { dirs, files, activePath: current ? resolve(current) : null };
+    const activePath = current ? resolve(current) : null;
+    const entries = dirs.flatMap(scanLogFiles);
+    const activeIdentity = entries.find((file) => file.path === activePath)?.identity;
+    const seen = new Set<string>();
+    const files = [];
+    for (const entry of entries) {
+      const { identity, ...file } = entry;
+      if (identity === activeIdentity && file.path !== activePath) continue;
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      files.push({ ...file, ...(await readLogFileRange(entry)) });
+    }
+    files.sort((a, b) => (b.end ?? b.mtime) - (a.end ?? a.mtime));
+    return { dirs, files, activePath };
   }),
 
   /** 单个日志文件的元信息（轮询尾部时用）。 */

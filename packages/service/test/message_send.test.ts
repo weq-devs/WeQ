@@ -1054,7 +1054,7 @@ describe('MessageSendService.sendText（离线集成）', () => {
     expect(native.calls).toHaveLength(0);
   });
 
-  it('收侧尚不支持的混合互动消息不会覆盖成残缺的持久气泡', async () => {
+  it('发送成功后用实际协议正文持久保留文字和表情弹射', async () => {
     const saved: unknown[] = [];
     const svc = new MessageSendService(
       fakeNative() as never,
@@ -1073,7 +1073,18 @@ describe('MessageSendService.sendText（离线集成）', () => {
         { kind: 'emojiBounce', faceId: 182, count: 10, name: '笑哭' },
       ],
     });
-    expect(saved).toEqual([]);
+    expect(saved).toMatchObject([
+      {
+        localSent: true,
+        elements: [
+          { type: 'text', data: { textContent: '正文' } },
+          {
+            type: 'emojiBounce',
+            data: { emojiBounceId: 182, emojiBounceTextSummary: '弹射了10个[笑哭]' },
+          },
+        ],
+      },
+    ]);
   });
   it.each([
     { result: 79, groupSequence: 42 },

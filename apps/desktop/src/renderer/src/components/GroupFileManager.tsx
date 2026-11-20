@@ -1,3 +1,4 @@
+import { isTemporaryGroupFile } from '@weq/service/qq-permissions';
 import { NumericText } from './NumericText';
 import {
   useCallback,
@@ -96,6 +97,7 @@ interface Props {
   folders: GroupFolderWire[];
   onChanged: () => void | Promise<void>;
   onOpenFolder?: (folder: GroupFolderWire) => void | Promise<void>;
+  onLocateFile?: (directory: string, fileId: string) => void;
   onSaveSelected?: (files: GroupFileWire[], folders: GroupFolderWire[]) => void | Promise<void>;
   renderFileAction?: (file: GroupFileWire) => ReactNode;
   highlightedFileId?: string;
@@ -124,6 +126,7 @@ function GroupFileManagerBody({
   folders,
   onChanged,
   onOpenFolder,
+  onLocateFile,
   onSaveSelected,
   renderFileAction,
   highlightedFileId,
@@ -638,6 +641,10 @@ function GroupFileManagerBody({
     }
   }
   const menuRows = all.filter((row) => menu?.keys.includes(row.key));
+  const selectedFile =
+    menuRows.length === 1 && menuRows[0]?.kind === 'file' ? menuRows[0].file : null;
+  const temporaryFile =
+    manager && selectedFile && isTemporaryGroupFile(selectedFile) ? selectedFile : null;
   const menuManageable = menuRows.length > 0 && menuRows.every((row) => manageable(row));
   return (
     <section
@@ -1296,6 +1303,45 @@ function GroupFileManagerBody({
                     icon: <Download size={16} />,
                     disabled: saving || batchActive || loading || !menuRows.length,
                     action: () => void saveRows(menu.keys),
+                  },
+                ]
+              : []),
+            ...(temporaryFile
+              ? [
+                  {
+                    label: '转为永久群文件',
+                    icon: <FolderInput size={16} />,
+                    disabled: locked,
+                    action: () => {
+                      let destination: { directory: string; fileId: string } | null = null;
+                      void a
+                        .perform(
+                          async (binding) => {
+                            if (!current()) throw new Error('账号、群或目录已切换');
+                            const result =
+                              await client.account.qqActions.makeGroupFilePermanent.mutate({
+                                ...binding,
+                                groupId,
+                                directory,
+                                fileId: temporaryFile.fileId,
+                              });
+                            if (result.directory && result.fileId)
+                              destination = { directory: result.directory, fileId: result.fileId };
+                            return result;
+                          },
+                          refresh,
+                          `将「${temporaryFile.fileName}」转为永久群文件？`,
+                          {
+                            requireReadback: true,
+                            readback: async () => destination !== null,
+                            readbackSuccessText: '已转为永久群文件',
+                          },
+                        )
+                        .then((done) => {
+                          if (done && current() && destination)
+                            onLocateFile?.(destination.directory, destination.fileId);
+                        });
+                    },
                   },
                 ]
               : []),

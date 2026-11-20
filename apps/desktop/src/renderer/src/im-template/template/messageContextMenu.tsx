@@ -84,7 +84,7 @@ type Props = {
   onDownloadImage?: (url: string, message: Message) => void;
   onSaveMedia?: () => void;
   downloadDisabled?: boolean;
-  onReact?: (message: Message) => void;
+  onReact?: (message: Message, returnFocusTo: HTMLElement | null) => void;
   showReactions?: boolean;
   onSetReaction?: (message: Message, code: string, isSet: boolean) => void;
   reactBlockedReason?: string | null;
@@ -92,6 +92,7 @@ type Props = {
   essenceAction?: ReactNode;
   todoAction?: ReactNode;
   intentAction?: ReactNode;
+  translationAction?: ReactNode;
   favoriteEmojiAction?: ReactNode;
   revealAction?: ReactNode;
   forwardVoice?: import('../../hooks/useVoiceTranscription').VoiceTranscriptionInput['forward'];
@@ -118,6 +119,7 @@ export function MessageContextMenu(props: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
   const focusedIndex = useRef(0);
   const restoreFocus = useRef(true);
+  const returnFocusTo = useRef<HTMLElement | null>(null);
   const [feedbackHost, setFeedbackHost] = useState<HTMLDivElement | null>(null);
   const [reactionCapacity, setReactionCapacity] = useState(0);
   const showReactions = (props.showReactions ?? true) && Boolean(props.onReact);
@@ -135,6 +137,15 @@ export function MessageContextMenu(props: Props) {
     if (!tabActive) return;
     restoreFocus.current = true;
     const menu = menuRef.current;
+    const previous = document.activeElement;
+    // 右键按下也可能让消息行获得焦点。只恢复打开菜单前已显示的焦点。
+    const previousFocus =
+      previous instanceof window.HTMLElement &&
+      previous.matches(':focus-visible') &&
+      !menu?.contains(previous)
+        ? previous
+        : null;
+    returnFocusTo.current = previousFocus;
     const first =
       menu?.querySelector<HTMLButtonElement>('.message-menu-main button') ?? buttons()[0];
     first?.focus({ preventScroll: true });
@@ -151,12 +162,12 @@ export function MessageContextMenu(props: Props) {
         if (
           restoreFocus.current &&
           document.activeElement === document.body &&
-          originElement?.isConnected
+          previousFocus?.isConnected
         )
-          originElement.focus({ preventScroll: true });
+          previousFocus.focus({ preventScroll: true });
       });
     };
-  }, [message.id, originElement, buttons, document, tabActive]);
+  }, [message.id, originElement, buttons, document, window, tabActive]);
 
   useLayoutEffect(() => {
     const el = menuRef.current;
@@ -192,7 +203,7 @@ export function MessageContextMenu(props: Props) {
       event.preventDefault();
       event.stopPropagation();
       restoreFocus.current = false;
-      let next = state.originElement;
+      let next = returnFocusTo.current;
       if (event.key === 'Tab') {
         const order = [
           ...document.querySelectorAll<HTMLElement>(
@@ -205,7 +216,7 @@ export function MessageContextMenu(props: Props) {
             !menuRef.current?.contains(el) &&
             el.getClientRects().length > 0,
         );
-        const origin = next;
+        const origin = state.originElement;
         const direction = event.shiftKey
           ? Node.DOCUMENT_POSITION_PRECEDING
           : Node.DOCUMENT_POSITION_FOLLOWING;
@@ -351,7 +362,7 @@ export function MessageContextMenu(props: Props) {
                   aria-label="更多表情"
                   title={props.reactBlockedReason || '更多表情'}
                   disabled={Boolean(props.reactBlockedReason)}
-                  onClick={() => props.onReact?.(message)}
+                  onClick={() => props.onReact?.(message, returnFocusTo.current)}
                 >
                   <SmilePlus {...icon} />
                 </MessageMenuButton>
@@ -446,6 +457,7 @@ export function MessageContextMenu(props: Props) {
                 ),
               ])}
               <div className="message-menu-slot">{props.intentAction}</div>
+              <div className="message-menu-slot">{props.translationAction}</div>
             </div>
             <div className="message-menu-group" role="group" aria-label="群操作">
               <div className="message-menu-slot">{props.essenceAction}</div>

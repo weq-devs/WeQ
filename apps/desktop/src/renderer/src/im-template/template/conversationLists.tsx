@@ -1,7 +1,8 @@
 // @ts-nocheck
 import { NumericText } from '../../components/NumericText';
 import { TimeLabel } from '../../components/TimeLabel';
-import { ReminderCount } from '../../components/ReminderBadge';
+import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
+import { ConversationRowContent } from '../../components/sidebar/ConversationRowContent';
 import { useUnreadMarkers } from '../../lib/unreadMarkers';
 import { occupationText } from '@weqbot/protocol/profile-values';
 import {
@@ -940,107 +941,125 @@ export function ConversationList({
                     seed={conversationSeed(conversation)}
                   />
                 )}
-                <span className={cn('row-main')}>
-                  <strong>
-                    <span className={cn('row-title-text')}>{conversationTitle(conversation)}</span>
-                    {virtualRow ? (
-                      <small
-                        className={cn(
-                          'weq-conversation-virtual',
-                          virtualRow.kind === 'group' ? 'is-group' : 'is-persona',
-                        )}
-                        title={virtualRow.kind === 'group' ? '克隆群聊' : '克隆体'}
-                        aria-label="虚拟会话"
-                      >
-                        {virtualRow.kind === 'group' ? (
-                          <FEATURE_ICONS.cloneGroup size={11} aria-hidden />
-                        ) : (
-                          <FEATURE_ICONS.clone size={11} aria-hidden />
-                        )}
-                      </small>
-                    ) : null}
-                    {isBotConversation(conversation) ? (
-                      <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                        <Bot size={12} strokeWidth={2.4} />
-                      </small>
-                    ) : null}
-                  </strong>
-                  {showPreviewLine ? (
-                    <span className={cn('row-preview-line')}>
-                      {hasDraft ? (
-                        <span className={cn('row-draft')}>
-                          <PenLine size={15} />
-                          <span className={cn('row-draft-text')}>
-                            {conversation.generated ? draft : formatDraftPreview(draft)}
+                <ConversationRowContent
+                  title={
+                    <>
+                      <span className={cn('row-title-text')}>
+                        {conversationTitle(conversation)}
+                      </span>
+                      {virtualRow ? (
+                        <small
+                          className={cn(
+                            'weq-conversation-virtual',
+                            virtualRow.kind === 'group' ? 'is-group' : 'is-persona',
+                          )}
+                          title={virtualRow.kind === 'group' ? '克隆群聊' : '克隆体'}
+                          aria-label="虚拟会话"
+                        >
+                          {virtualRow.kind === 'group' ? (
+                            <FEATURE_ICONS.cloneGroup size={11} aria-hidden />
+                          ) : (
+                            <FEATURE_ICONS.clone size={11} aria-hidden />
+                          )}
+                        </small>
+                      ) : null}
+                      {isBotConversation(conversation) ? (
+                        <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                          <Bot size={12} strokeWidth={2.4} />
+                        </small>
+                      ) : null}
+                    </>
+                  }
+                  preview={
+                    !showPreviewLine ? null : hasDraft ? (
+                      <span className={cn('row-draft')}>
+                        <PenLine size={15} />
+                        <span className={cn('row-draft-text')}>
+                          {conversation.generated ? draft : formatDraftPreview(draft)}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className={cn('row-message-preview')}>
+                        {showSpecialCare ? (
+                          <span className={cn('row-specialcare-alert')}>[特别关心]</span>
+                        ) : null}
+                        {showMentionAlert ? (
+                          <span className={cn('row-mention-alert')}>[有人@我]</span>
+                        ) : null}
+                        {showAtAll ? (
+                          <span className={cn('row-mention-alert')}>[@全体]</span>
+                        ) : null}
+                        {showReplyMe ? (
+                          <span className={cn('row-mention-alert')}>[有人回复我]</span>
+                        ) : null}
+                        {showGroupKeyword ? (
+                          <span className={cn('row-mention-alert')}>
+                            {groupKeywordWords.length > 0
+                              ? `[群提醒词·${groupKeywordWords.join('、')}]`
+                              : '[群提醒词]'}
                           </span>
-                        </span>
-                      ) : (
-                        <span className={cn('row-message-preview')}>
-                          {showSpecialCare ? (
-                            <span className={cn('row-specialcare-alert')}>[特别关心]</span>
-                          ) : null}
-                          {showMentionAlert ? (
-                            <span className={cn('row-mention-alert')}>[有人@我]</span>
-                          ) : null}
-                          {showAtAll ? (
-                            <span className={cn('row-mention-alert')}>[@全体]</span>
-                          ) : null}
-                          {showReplyMe ? (
-                            <span className={cn('row-mention-alert')}>[有人回复我]</span>
-                          ) : null}
-                          {showGroupKeyword ? (
-                            <span className={cn('row-mention-alert')}>
-                              {groupKeywordWords.length > 0
-                                ? `[群提醒词·${groupKeywordWords.join('、')}]`
-                                : '[群提醒词]'}
-                            </span>
-                          ) : null}
-                          {showNewFile ? (
-                            <span className={cn('row-newfile-alert')}>[新文件]</span>
-                          ) : null}
-                          {showGroupAnnouncement ? (
-                            <span className={cn('row-newfile-alert')}>[群公告]</span>
-                          ) : null}
-                          {showRedPacket ? (
-                            <span className={cn('row-redpacket-alert')}>[红包]</span>
-                          ) : null}
-                          {preview.length ? <PreviewNodes nodes={preview} /> : null}
-                        </span>
-                      )}
-                    </span>
-                  ) : null}
-                  {!unreadCount && muted ? <BellOff className={cn('row-muted')} size={15} /> : null}
-                </span>
-                <span className={cn('row-meta')}>
-                  <span className={cn('row-time-line')}>
-                    {pinned ? (
-                      <Pin
-                        className={cn('row-pinned')}
-                        size={12}
-                        aria-label="置顶"
-                        title="置顶会话"
+                        ) : null}
+                        {showNewFile ? (
+                          <span className={cn('row-newfile-alert')}>[新文件]</span>
+                        ) : null}
+                        {showGroupAnnouncement ? (
+                          <span className={cn('row-newfile-alert')}>[群公告]</span>
+                        ) : null}
+                        {showRedPacket ? (
+                          <span className={cn('row-redpacket-alert')}>[红包]</span>
+                        ) : null}
+                        {preview.length ? <PreviewNodes nodes={preview} /> : null}
+                      </span>
+                    )
+                  }
+                  time={
+                    <>
+                      {pinned ? (
+                        <Pin
+                          className={cn('row-pinned')}
+                          size={12}
+                          aria-label="置顶"
+                          title="置顶会话"
+                        />
+                      ) : null}
+                      {conversation.hidden ? (
+                        <EyeOff
+                          className={cn('row-hidden')}
+                          size={12}
+                          aria-label="隐藏会话"
+                          title="隐藏会话"
+                        />
+                      ) : null}
+                      <TimeLabel value={updatedAt} tabbable={false}>
+                        {formatConversationTime(updatedAt)}
+                      </TimeLabel>
+                    </>
+                  }
+                  status={
+                    unreadCount &&
+                    (conversation.type !== 'merged' ||
+                      markers.aggregates[conversation.mergedKind]) ? (
+                      <ReminderCount
+                        count={unreadCount}
+                        tone={muted ? 'muted' : 'notice'}
+                        className="row-unread"
                       />
-                    ) : null}
-                    {conversation.hidden ? (
-                      <EyeOff
-                        className={cn('row-hidden')}
-                        size={12}
-                        aria-label="隐藏会话"
-                        title="隐藏会话"
+                    ) : !unreadCount &&
+                      conversation.type !== 'merged' &&
+                      directory?.interactionBadges?.has(
+                        `${conversation.type === 'group' ? 'group' : 'c2c'}:${conversation.id}`,
+                      ) ? (
+                      <ReminderDot
+                        className="row-unread"
+                        role="img"
+                        aria-label="有新互动"
+                        title="有新互动"
                       />
-                    ) : null}
-                    <TimeLabel value={updatedAt}>{formatConversationTime(updatedAt)}</TimeLabel>
-                  </span>
-                  {unreadCount &&
-                  (conversation.type !== 'merged' ||
-                    markers.aggregates[conversation.mergedKind]) ? (
-                    <ReminderCount
-                      count={unreadCount}
-                      tone={muted ? 'muted' : 'notice'}
-                      className="row-unread"
-                    />
-                  ) : null}
-                </span>
+                    ) : !unreadCount && muted ? (
+                      <BellOff className="row-muted" size={15} />
+                    ) : null
+                  }
+                />
               </button>
             );
           }}
@@ -1471,6 +1490,15 @@ export function GroupList({
     <div className="weq-contact-directory" {...multi.rootProps}>
       <ContactDirectoryOrder order={order} />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
+        {friendDirectory?.openOnlineDirectory ? (
+          <button
+            type="button"
+            className="weq-set-btn"
+            onClick={friendDirectory.openOnlineDirectory}
+          >
+            在线好友与群
+          </button>
+        ) : null}
         {categories.map((category) => (
           <GroupNotificationSection
             key={category.mode}
@@ -2162,7 +2190,7 @@ const ContactListContent = memo(function ContactListContent({
     return <ListSkeleton rows={9} />;
   }
 
-  if (categories.length === 0 && !friendDirectory?.error) {
+  if (categories.length === 0 && !friendDirectory?.error && !friendDirectory?.openOnlineDirectory) {
     return (
       <EmptyState
         title="暂无联系人"
@@ -2210,28 +2238,27 @@ const ContactListContent = memo(function ContactListContent({
               }
               onDragOver={(event) => {
                 const source = dragging.current;
+                const id = category.id;
                 if (
-                  typeof category.id !== 'number' ||
+                  typeof id !== 'number' ||
                   !source ||
                   !friendDirectory?.available ||
                   friendDirectory.busy ||
-                  source.category === category.id
+                  source.category === id
                 ) {
                   setDragTarget(null);
                   return;
                 }
                 event.preventDefault();
                 event.dataTransfer.dropEffect = 'move';
-                const rect = event.currentTarget.getBoundingClientRect();
-                setDragTarget({
-                  id: category.id,
-                  position:
-                    source.category === undefined
-                      ? 'inside'
-                      : event.clientY < rect.top + rect.height / 2
-                        ? 'before'
-                        : 'after',
-                });
+                let position: 'inside' | 'before' | 'after' = 'inside';
+                if (source.category !== undefined) {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                }
+                setDragTarget((current) =>
+                  current?.id === id && current.position === position ? current : { id, position },
+                );
               }}
               onDragLeave={(event) => {
                 if (

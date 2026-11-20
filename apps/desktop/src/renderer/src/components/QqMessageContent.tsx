@@ -1,9 +1,6 @@
 /**
  * Renders a QQ message's elements as React nodes, upgrading `face` elements to
- * <FaceEmoji>. Plugs into the im-template via a MessageRenderer that claims every
- * element kind in HANDLED_KINDS — text included. Only kinds we don't draw
- * (emojiBounce / qqDynamic / unrecognized-but-has-body) fall through to the
- * template's plain-text fallback.
+ * <FaceEmoji>. Plugs into the im-template via a MessageRenderer.
  *
  * Sizing rules:
  *   - Face mixed with other elements → text-sized, inline with the text.
@@ -82,9 +79,18 @@ export interface CallConv {
 }
 
 /** Element kinds that render as standalone, borderless media (no bubble). */
-const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface', 'bubbleVideo']);
+const BORDERLESS_MEDIA = new Set(['pic', 'video', 'mface', 'bubbleVideo', 'emojiBounce']);
 /** Element kinds handled by a dedicated media component. */
-const MEDIA_KINDS = new Set(['pic', 'video', 'file', 'ptt', 'mface', 'onlineFile', 'onlineFolder']);
+const MEDIA_KINDS = new Set([
+  'pic',
+  'video',
+  'file',
+  'ptt',
+  'mface',
+  'onlineFile',
+  'onlineFolder',
+  'emojiBounce',
+]);
 
 /** Box size for a lone sticker face (FaceSubType !== 1); 1.5× the old 90px. */
 const STICKER_SIZE = 135;
@@ -246,6 +252,15 @@ function MediaBody({
       );
     case 'mface':
       return <QqMarketFace data={data} />;
+    case 'emojiBounce':
+      return (
+        <QqEmojiBounce
+          emojiBounceId={data.emojiBounceId as number | undefined}
+          name={data.emojiBounceName as string | undefined}
+          textSummary={data.emojiBounceTextSummary as string | undefined}
+          pcText={data.emojiBouncePcText as string | undefined}
+        />
+      );
     case 'onlineFile':
       return <QqOnlineFile data={data} kind="file" />;
     case 'onlineFolder':
@@ -280,6 +295,7 @@ const BLOCK_MEDIA_KINDS = new Set([
   'video',
   'bubbleVideo',
   'mface',
+  'emojiBounce',
   'file',
   'onlineFile',
   'onlineFolder',
@@ -916,22 +932,6 @@ function QqMessageContentBody({
     return (
       <div className={cn('message-content', 'qq-card-only')}>
         <QqDynamic {...qqDynamicElementProps(d)} />
-      </div>
-    );
-  }
-
-  // 表情弹射 (elementType=27) — a sticker, so it gets the borderless treatment.
-  const emojiBounceElement = elements.find((element) => element.type === 'emojiBounce');
-  if (emojiBounceElement) {
-    const d = (emojiBounceElement.data ?? {}) as Record<string, unknown>;
-    return (
-      <div className={cn('message-content', 'sticker-only')}>
-        <QqEmojiBounce
-          emojiBounceId={d.emojiBounceId as number | undefined}
-          name={d.emojiBounceName as string | undefined}
-          textSummary={d.emojiBounceTextSummary as string | undefined}
-          pcText={d.emojiBouncePcText as string | undefined}
-        />
       </div>
     );
   }

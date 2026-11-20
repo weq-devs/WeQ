@@ -22,6 +22,8 @@ import {
   DeleteCustomFace,
   FetchCustomFaceDetail,
   FetchCustomFaceList,
+  FetchSysFaces,
+  FetchSysFace,
   ModifyCustomFace,
   OrderCustomFace,
   parseCustomFaceId,
@@ -241,6 +243,25 @@ export class EmojiService {
     favoriteCacheDir?: string,
   ) {
     this.favoriteCache = new FavoriteEmojiCache(favoriteCacheDir);
+  }
+
+  async onlineSystemFaces() {
+    const online = this.online;
+    if (!online) throw new Error('需要 QQ 在线能力才能读取系统表情目录');
+    const pid = online.resolvePid();
+    const packs = await FetchSysFaces.invoke(online.nt, pid);
+    if (online.resolvePid() !== pid) throw new Error('QQ 会话已切换');
+    return packs;
+  }
+
+  async onlineSystemFace(faceId: number) {
+    const online = this.online;
+    if (!online) throw new Error('需要 QQ 在线能力才能读取系统表情');
+    const pid = online.resolvePid();
+    const item = await FetchSysFace.invoke(online.nt, pid, { faceId });
+    if (online.resolvePid() !== pid) throw new Error('QQ 会话已切换');
+    if (item && item.qSid !== String(faceId)) throw new Error('表情回包与查询目标不一致');
+    return item;
   }
 
   private requireOnline(): EmojiOnlineDeps {

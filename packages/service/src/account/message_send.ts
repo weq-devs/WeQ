@@ -48,6 +48,7 @@ import {
   SEND_MESSAGE_REQUEST,
   sendPrivateFile,
   sendDatalineFile,
+  FetchAiVoiceList,
   SendAiVoice,
   SendLocationArk,
   type ContactArkKind,
@@ -810,6 +811,13 @@ export class MessageSendService {
       elements: buildTextElements(params),
       ...(params.dress ? { dress: params.dress } : {}),
     });
+  }
+
+  async aiVoiceCatalog(groupId: number) {
+    const pid = this.resolvePid();
+    const catalog = await FetchAiVoiceList.invoke(this.nt, pid, { groupId, chatType: 1 });
+    if (this.resolvePid() !== pid) throw new Error('QQ 运行时已切换，请重新打开声线面板');
+    return catalog;
   }
 
   /**

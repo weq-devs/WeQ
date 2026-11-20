@@ -24,6 +24,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { getLogger, logErrorContext, logRequest, withLogOperation } from '@weq/service';
 import { AI_TOOLS } from './tools';
 import { isReadOnlyTool } from './tool_permissions';
+import { withToolExecutionOptions } from './account_scope';
 import { runtimeMaintenance } from '../runtime_maintenance';
 
 const logger = getLogger().child({ scope: 'mcp-server' });
@@ -52,16 +53,19 @@ export function runningMcpConfig(): McpServerOptions | null {
 /** Build a fresh MCP server with every tool registered. */
 function buildMcpServer(): McpServer {
   const server = new McpServer({ name: 'weq', version: '0.1.0' });
-  for (const t of AI_TOOLS) {
-    // 外部 MCP 面板保持严格只读：带副作用的工具（assistantOnly）只给内置助手用。
-    if (t.assistantOnly || !isReadOnlyTool(t.name)) continue;
+  const tools = AI_TOOLS.filter((tool) => !tool.assistantOnly && isReadOnlyTool(tool.name));
+  const visibleToolNames = tools.map((tool) => tool.name);
+  for (const t of tools) {
     server.registerTool(
       t.name,
       { description: t.description, inputSchema: t.input.shape },
       async (args: unknown) => {
         try {
           const data = await logRequest('mcp-server', t.name, 'tool', async () =>
-            runtimeMaintenance.operation(async () => t.run(args as never), `MCP ${t.name}`),
+            runtimeMaintenance.operation(
+              () => withToolExecutionOptions({ visibleToolNames }, () => t.run(args as never)),
+              `MCP ${t.name}`,
+            ),
           );
           return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
         } catch (error) {

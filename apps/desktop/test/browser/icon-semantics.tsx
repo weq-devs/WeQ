@@ -21,15 +21,15 @@ const noop = () => {};
 const selected: string[] = [];
 const QzoneIcon = FEATURE_ICONS.qzone;
 const entries = [
-  '主页',
-  'QQ 空间',
-  'QQ 邮箱',
-  '频道私聊',
-  '年度报告',
-  'WeQ 助手',
-  '导出',
-  '拉取漫游消息',
-].map((title) => APP_SEARCH_ENTRIES.find((entry) => entry.id === `feature:${title}`)!);
+  'general.home',
+  'qzone.timeline',
+  'mail.inbox',
+  'channels.direct-messages',
+  'analysis.annual-report',
+  'assistant.chat',
+  'export.workspace',
+  'messages.history-backfill',
+].map((id) => APP_SEARCH_ENTRIES.find((entry) => entry.id === id)!);
 ensureThemeInitialized();
 
 function Fixture() {

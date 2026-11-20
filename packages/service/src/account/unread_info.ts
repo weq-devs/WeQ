@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import type { ManualReadChange } from './local_unread';
 import type { UnreadCountSource } from './unread_count_source';
 import { ImportantMessageStore } from './important_messages';
+import type { UnreadSentRange } from './roam_msg_cache';
 
 export type ReadReportState =
   | 'disabled'
@@ -61,6 +62,8 @@ export class UnreadInfoService {
   private readonly snapshots = new Map<string, UnreadInfoSnapshot>();
   private readonly results = new Map<string, ResolvedUnreadInfo>();
   private readonly targets = new Map<string, UnreadInfoTarget>();
+  private readonly confirmedSent = new Map<string, string[]>();
+  private readonly sentRefreshes = new Map<string, symbol>();
   private loading?: Promise<void>;
   private updatedAt = 0;
   private dirty = true;
@@ -85,7 +88,11 @@ export class UnreadInfoService {
   constructor(
     private readonly session: AccountSession,
     private readonly report?: ReadReportOptions,
-    private readonly localOptions?: { statePath: string; readOnly?: boolean },
+    private readonly localOptions?: {
+      statePath: string;
+      readOnly?: boolean;
+      unreadSentSequences?: (ranges: UnreadSentRange[]) => Promise<Map<string, string[]>>;
+    },
     private readonly countSource?: UnreadCountSource,
   ) {
     this.local = new LocalUnreadStore(localOptions?.statePath, session.selfUid, (chatType) =>
@@ -136,6 +143,13 @@ export class UnreadInfoService {
   }
 
   async observeNewMessages(_change: NewMessages): Promise<void> {
+    this.invalidate();
+  }
+
+  /** 发送缓存写入后，即使 QQ 小表未变也重算对应会话。 */
+  invalidateSent(kind: 'c2c' | 'group', uid: string): void {
+    if (this.disposed || !this.localOptions?.unreadSentSequences) return;
+    this.sentRefreshes.set(this.key({ chatType: kind === 'group' ? 2 : 1, uid }), Symbol());
     this.invalidate();
   }
 
@@ -251,7 +265,7 @@ export class UnreadInfoService {
   ): Promise<number | undefined> {
     const [snapshot] = await this.getUnreadInfos([{ chatType, uid }]);
     if (!snapshot || snapshot.readError) return undefined;
-    return this.local.resolve({ ...snapshot, latestSeq: snapshot.latestSeq ?? latestSeq ?? null })
+    return this.resolve({ ...snapshot, latestSeq: snapshot.latestSeq ?? latestSeq ?? null })
       .unreadCount;
   }
 
@@ -293,8 +307,66 @@ export class UnreadInfoService {
   private project(targets: UnreadInfoTarget[]): void {
     for (const target of targets) {
       const row = this.snapshots.get(this.key(target));
-      if (row && !row.readError) this.results.set(row.peer, this.local.resolve(row));
+      if (row && !row.readError) this.results.set(row.peer, this.resolve(row));
     }
+  }
+
+  private resolve(row: UnreadInfoSnapshot): ResolvedUnreadInfo {
+    return this.local.resolve(row, this.confirmedSent.get(row.peer));
+  }
+
+  private async applySnapshots(
+    rows: UnreadInfoSnapshot[],
+    accepts: (row: UnreadInfoSnapshot) => boolean,
+  ): Promise<void> {
+    const versions = new Map(rows.map(({ peer }) => [peer, this.sentRefreshes.get(peer)]));
+    const ranges: UnreadSentRange[] = [];
+    const readSent = this.localOptions?.unreadSentSequences;
+    if (readSent) {
+      for (const { chatType, uid, peer, msgSeq, localReadSeq, latestSeq } of rows) {
+        if ((chatType !== 1 && chatType !== 2) || latestSeq === null) continue;
+        const serverRead = BigInt(msgSeq ?? 0);
+        const localRead = BigInt(localReadSeq ?? '0');
+        const after = serverRead > localRead ? serverRead : localRead;
+        const through = BigInt(latestSeq);
+        if (after > 0n && through > after)
+          ranges.push({ peer, kind: chatType === 1 ? 'c2c' : 'group', conv: uid, after, through });
+      }
+    }
+    const sent =
+      ranges.length && readSent
+        ? await withDatabasePriority(
+            'interactive',
+            () => readSent(ranges),
+            this.reads.signal,
+          ).catch(() => undefined)
+        : new Map<string, string[]>();
+    if (this.disposed) return;
+    const pending = new Set(sent ? [] : ranges.map(({ peer }) => peer));
+    const changed: UnreadInfoTarget[] = [];
+    for (const row of rows) {
+      if (!accepts(row) || versions.get(row.peer) !== this.sentRefreshes.get(row.peer)) continue;
+      if (pending.has(row.peer)) this.sentRefreshes.set(row.peer, Symbol());
+      else {
+        this.sentRefreshes.delete(row.peer);
+        const sequences = sent?.get(row.peer);
+        if (sequences?.length) this.confirmedSent.set(row.peer, sequences);
+        else this.confirmedSent.delete(row.peer);
+      }
+      const previous = this.results.get(row.peer);
+      const result = this.resolve(row);
+      if (
+        previous?.unreadCount === result.unreadCount &&
+        previous?.readSeq === result.readSeq &&
+        JSON.stringify(this.snapshots.get(row.peer)) === JSON.stringify(row)
+      )
+        continue;
+      this.important.observe(row);
+      this.snapshots.set(row.peer, row);
+      this.results.set(row.peer, result);
+      changed.push(row);
+    }
+    this.publish(changed);
   }
 
   private async refreshSnapshots(): Promise<void> {
@@ -321,22 +393,24 @@ export class UnreadInfoService {
           this.invalidate();
           return;
         }
-        const changed: UnreadInfoTarget[] = [];
         const present = new Set(rows.map((row) => row.peer));
         // 两张小表均无行也是有效快照；目录中缺行的目标不能让每次读取都重查全库。
         for (const [peer, target] of this.targets)
           if (!present.has(peer)) rows.push({ ...target, peer, latestSeq: null });
-        for (const row of rows) {
-          if (row.readError) continue;
-          this.important.observe(row);
-          const before = this.snapshots.get(row.peer);
-          if (JSON.stringify(before) === JSON.stringify(row)) continue;
-          changed.push(row);
-          this.snapshots.set(row.peer, row);
-          this.results.set(row.peer, this.local.resolve(row));
+        await this.applySnapshots(
+          rows.filter(
+            (row) =>
+              !row.readError &&
+              (this.sentRefreshes.has(row.peer) ||
+                JSON.stringify(this.snapshots.get(row.peer)) !== JSON.stringify(row)),
+          ),
+          () => revision === this.manualRevision,
+        );
+        if (revision !== this.manualRevision) {
+          this.invalidate();
+          return;
         }
         this.updatedAt = Date.now();
-        this.publish(changed);
         void this.local.flush().catch((error) => console.error('[unread] 操作保存失败', error));
         void this.important
           .flush()
@@ -376,21 +450,17 @@ export class UnreadInfoService {
         this.reads.signal,
       );
       if (this.disposed) return;
-      const changed = rows.filter((row) => {
-        const previous = before.get(row.peer);
-        return (
-          !row.readError &&
-          previous &&
-          previous.version === this.targetVersions.get(row.peer) &&
-          previous.snapshot === this.snapshots.get(row.peer)
-        );
-      });
-      for (const row of changed) {
-        this.important.observe(row);
-        this.snapshots.set(row.peer, row);
-      }
-      this.project(changed);
-      this.publish(changed);
+      await this.applySnapshots(
+        rows.filter((row) => !row.readError),
+        (row) => {
+          const previous = before.get(row.peer);
+          return (
+            previous !== undefined &&
+            previous.version === this.targetVersions.get(row.peer) &&
+            previous.snapshot === this.snapshots.get(row.peer)
+          );
+        },
+      );
     } catch {
       // 已确认的写入不重复执行；共享刷新会补上回读失败的结果。
       this.invalidate();
@@ -487,7 +557,7 @@ export class UnreadInfoService {
     this.manualRevision++;
     this.cancelReports();
     const changes: ManualReadEntry[] = snapshots.map((raw) => {
-      const snapshot = this.local.resolve(raw);
+      const snapshot = this.resolve(raw);
       const throughSeq = snapshot.latestSeq ?? snapshot.readSeq ?? '0';
       return {
         chatType: snapshot.chatType,

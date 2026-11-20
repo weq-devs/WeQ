@@ -9,6 +9,19 @@ html[data-theme]
   grid-template-columns: minmax(0, 1fr);
 }
 
+.weq-settings-dialog :where(.weq-set-card) > .weq-set-row:has(> .weq-set-row-ctrl) {
+  min-height: 36px;
+  padding-block: 2px;
+}
+
+html[data-density='compact']
+  .weq-settings-dialog
+  :where(.weq-set-card)
+  > .weq-set-row:has(> .weq-set-row-ctrl) {
+  min-height: 32px;
+  padding-block: 2px;
+}
+
 html[data-theme='light'] .weq-settings-dialog :is(.weq-set-card, .weq-settings-appearance-card),
 html[data-theme='dark'] .weq-settings-dialog :is(.weq-set-card, .weq-settings-appearance-card) {
   gap: 10px;

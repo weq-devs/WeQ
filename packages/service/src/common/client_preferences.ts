@@ -19,6 +19,7 @@ export const MAX_SHARED_DRAFT_IMAGE_BYTES = 32 * 1024 * 1024;
 export const preferenceDefaults = {
   ...dataSaverBehaviorDefaults,
   dataSaverMode: 'auto' as import('./data_saver').DataSaverMode,
+  autoDownloadPreviewOriginal: false,
   contactOrder: {} as Record<string, unknown>,
   preference: 'system',
   privacyMode: false,
@@ -27,6 +28,7 @@ export const preferenceDefaults = {
   messageNotifications: false,
   applicationBadge: true,
   showMessageUnreadBadge: true,
+  showInteractionBadge: false,
   showContactUnreadCount: false,
   showGroupAssistantMessageCount: false,
   showOfficialUnreadBadge: false,

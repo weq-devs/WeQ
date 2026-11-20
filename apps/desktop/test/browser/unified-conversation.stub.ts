@@ -49,7 +49,7 @@ const queue = {
 };
 const data: Record<string, unknown> = {
   getAccountConfig: { uin: '10000', configId: 'synthetic' },
-  getSelfProfile: { uin: '10000', uid: 'u_self', nick: '我' },
+  getSelfProfile: null,
   getAssistantConfig: {
     sendMode: DEFAULT_ASSISTANT_SEND_MODE,
     model: { useDefault: true },

@@ -1,4 +1,5 @@
 import { createContext } from 'react';
+import type { QzoneFeatureSection } from '@weq/service/feature-catalog';
 
 export interface QzoneSpaceRequest {
   accountUin: string;
@@ -6,6 +7,11 @@ export interface QzoneSpaceRequest {
   nickname?: string;
   revision: string;
   target?: QzoneCardTarget;
+  catalog?: { section: QzoneFeatureSection; source: string };
+}
+
+export function scopedQzoneRequest(request: QzoneSpaceRequest | null, source: string) {
+  return request?.catalog && request.catalog.source !== source ? null : request;
 }
 
 export type QzoneCardTarget =

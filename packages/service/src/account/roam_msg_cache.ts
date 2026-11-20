@@ -23,6 +23,16 @@ const TABLE = 'gap_msg';
 const NATIVE_TABLE = 'native_gap_msg';
 const PROTOCOL_TABLE = 'protocol_gap_msg';
 const OBSERVATION_TABLE = 'protocol_gap_observation';
+const CONFIRMED_SENT =
+  "json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)";
+
+export interface UnreadSentRange {
+  peer: string;
+  kind: 'c2c' | 'group';
+  conv: string;
+  after: bigint;
+  through: bigint;
+}
 
 /** SQLite 存不了 bigint 字段值，渲染元素里又有 elementId/origMsgId 等 bigint，JSON 序列化时包一层。 */
 function serializeJson(value: unknown): string {
@@ -146,17 +156,60 @@ export class RoamMsgCacheDb {
   /** 每个会话最近一次已确认发送，用于 QQ 尚未同步时的会话摘要。 */
   async latestSent(): Promise<GapFetchedMessage[]> {
     await this.ensureSchema();
-    const eligible =
-      "json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)";
     const rows = await this.nt.executeSql(
       this.dbPath,
-      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE ${eligible}
+      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE ${CONFIRMED_SENT}
        AND (kind,conv,msg_seq) IN (
-         SELECT kind,conv,MAX(msg_seq) FROM ${PROTOCOL_TABLE} WHERE ${eligible} GROUP BY kind,conv
+         SELECT kind,conv,MAX(msg_seq) FROM ${PROTOCOL_TABLE} WHERE ${CONFIRMED_SENT} GROUP BY kind,conv
        )`,
       null,
     );
     return rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
+  }
+
+  /** 只按发送索引读取未读区间内已确认的自发序号。 */
+  async unreadSentSequences(
+    selfUid: string,
+    ranges: UnreadSentRange[],
+  ): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>();
+    if (!selfUid || !ranges.length || !existsSync(this.dbPath)) return result;
+    await this.ensureSchema();
+    for (let offset = 0; offset < ranges.length; offset += 128) {
+      const batch = ranges.slice(offset, offset + 128);
+      const rows = await scheduleDatabase(
+        this.dbPath,
+        () =>
+          this.nt.executeSql(
+            this.dbPath,
+            `WITH targets(peer, chat_kind, target_conv, after_seq, through_seq) AS
+          (VALUES ${batch.map(() => '(?,?,?,?,?)').join(',')})
+         SELECT DISTINCT t.peer, s.msg_seq FROM targets t
+         CROSS JOIN ${PROTOCOL_TABLE} s INDEXED BY protocol_sent_preview
+         WHERE s.kind=t.chat_kind AND s.conv=t.target_conv
+           AND s.msg_seq>t.after_seq AND s.msg_seq<=t.through_seq
+           AND ${CONFIRMED_SENT} AND json_extract(s.payload,'$.senderUid')=?`,
+            [
+              ...batch.flatMap(({ peer, kind, conv, after, through }) => [
+                peer,
+                kind,
+                conv,
+                after,
+                through,
+              ]),
+              selfUid,
+            ],
+          ),
+        this.nt,
+      );
+      for (const [peer, seq] of rows) {
+        const key = String(peer);
+        const sequences = result.get(key) ?? [];
+        sequences.push(String(seq));
+        result.set(key, sequences);
+      }
+    }
+    return result;
   }
 
   /** 独立读取发送快照，不能被同身份的空漫游观察遮住。 */
@@ -169,13 +222,34 @@ export class RoamMsgCacheDb {
     await this.ensureSchema();
     const rows = await this.nt.executeSql(
       this.dbPath,
-      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE json_extract(payload,'$.localSent')=1
-       AND (kind='group' OR nt_seq_verified=1)
+      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE ${CONFIRMED_SENT}
        ${recalledOnly ? "AND json_type(payload,'$.recall')='object'" : ''}
        ${kind ? 'AND kind=?' : ''} ${conv ? 'AND conv=?' : ''} ${seq !== undefined ? 'AND msg_seq=?' : ''}`,
       [...(kind ? [kind] : []), ...(conv ? [conv] : []), ...(seq !== undefined ? [seq] : [])],
     );
     return rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
+  }
+
+  async matchingMessage(
+    kind: 'c2c' | 'group',
+    conv: string,
+    seq: number,
+    project: (message: GapFetchedMessage) => GapFetchedMessage | undefined,
+  ): Promise<GapFetchedMessage[]> {
+    return this.query(
+      kind,
+      conv,
+      seq,
+      seq,
+      kind === 'c2c',
+      2000,
+      true,
+      false,
+      undefined,
+      false,
+      undefined,
+      project,
+    );
   }
 
   /** 读一段缓存，输出始终按 seq 升序；descending 决定限额前选最新还是最旧的行。 */
@@ -191,6 +265,7 @@ export class RoamMsgCacheDb {
     cursor?: { msgSeq: number; sendTime: number; msgId: string },
     metadataOnly = false,
     timeRange?: { start: number; end: number },
+    project?: (message: GapFetchedMessage) => GapFetchedMessage | undefined,
   ): Promise<GapFetchedMessage[]> {
     if (startSeq > endSeq) return [];
     if (metadataOnly) {
@@ -284,13 +359,17 @@ export class RoamMsgCacheDb {
        ${verifiedOnly ? 'AND nt_seq_verified=1' : ''} ${keyset("json_extract(payload,'$.sendTime')")} ${order("json_extract(payload,'$.sendTime')")} LIMIT ?)`,
       [...params, ...params, ...params],
     );
-    const messages = combineCache(
-      rows.filter((row) => Number(row[0]) === 0).map((row) => rowToMessage(row.slice(2))),
-      rows.filter((row) => Number(row[0]) === 1).map((row) => nativeRow([row[1]!])),
-      rows
-        .filter((row) => Number(row[0]) === 2)
-        .map((row) => parseJson<GapFetchedMessage>(String(row[1]))),
-    )
+    const legacy = rows
+      .filter((row) => Number(row[0]) === 0)
+      .map((row) => rowToMessage(row.slice(2)));
+    const native = rows.filter((row) => Number(row[0]) === 1).map((row) => nativeRow([row[1]!]));
+    const protocol = rows
+      .filter((row) => Number(row[0]) === 2)
+      .map((row) => parseJson<GapFetchedMessage>(String(row[1])));
+    // 特殊消息按正文命中：在来源去重前筛选，以免原生纯文本盖住同一条协议正文。
+    const resolve = (messages: GapFetchedMessage[]) =>
+      project ? messages.map(project).filter((row) => row !== undefined) : messages;
+    const messages = combineCache(resolve(legacy), resolve(native), resolve(protocol))
       .sort((a, b) => {
         const order = compareMessageOrder(a, b);
         return descending ? -order : order;
@@ -698,7 +777,7 @@ export class RoamMsgCacheDb {
     await this.nt.executeSqlWrite(
       this.dbPath,
       `CREATE INDEX IF NOT EXISTS protocol_sent_preview ON ${PROTOCOL_TABLE}(kind,conv,msg_seq)
-       WHERE json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)`,
+       WHERE ${CONFIRMED_SENT}`,
       null,
     );
     const columns = await this.nt.executeSql(

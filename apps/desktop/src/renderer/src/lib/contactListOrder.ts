@@ -7,7 +7,12 @@ import { constellationFromBirthday } from './contactConstellation';
 import { occupationText, profileTimeSeconds } from '@weqbot/protocol/profile-values';
 import { personRelationship, type RelationshipDirectory } from './contactRelationship';
 
-export type DirectoryMetric = ContactMetric | 'lastMessageAt' | 'lastSpokeAt' | 'affinity';
+export type DirectoryMetric =
+  | ContactMetric
+  | 'lastMessageAt'
+  | 'lastSpokeAt'
+  | 'affinity'
+  | 'maxSeq';
 export type DirectoryRows = Record<
   string,
   Partial<
@@ -197,6 +202,7 @@ export function sortGroups(
       return time > 0 ? time : null;
     }
     const result = metricValue(rows, `group:${group.id}`, sort);
+    if (sort === 'maxSeq') return typeof result === 'string' ? directoryNumber(result) : null;
     if (sort === 'joinedAt' && (typeof result !== 'number' || result <= 1 || result > 0xffffffff))
       return null;
     return typeof result === 'number' ? result : null;

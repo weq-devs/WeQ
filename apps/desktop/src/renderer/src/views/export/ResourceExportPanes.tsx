@@ -14,7 +14,7 @@ export function PersonaBotExportPane() {
   const [id, setId] = useState<string | null>(null);
   const selected = personas.data?.find((item) => item.id === id);
   return (
-    <section className="weq-resource-export-pane" aria-label="克隆体机器人导出">
+    <section className="weq-resource-export-pane is-persona-bot" aria-label="克隆体机器人导出">
       {personas.isError ? (
         <p role="alert">
           克隆体加载失败{' '}

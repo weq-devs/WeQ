@@ -99,17 +99,23 @@ try {
       cases++;
     }
   }
-  await page.setViewportSize({ width: 1280, height: 900 });
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.evaluate(() => window.notificationQa.reset(true));
-  await page.getByRole('button', { name: '打开这封邮件' }).click();
+  const openMail = page.getByRole('button', { name: '打开这封邮件' });
+  await openMail.waitFor();
+  const stackBottomBefore = await page
+    .locator('.weq-toast-host')
+    .evaluate((stack) => stack.getBoundingClientRect().bottom);
+  await openMail.click();
   const mail = await page.evaluate(() => ({
     arrived: !document.querySelector('.weq-mail-retained').hidden,
     bannerVisible: Boolean(document.querySelector('[aria-label="打开这封邮件"]')),
-    stackBottom: getComputedStyle(document.querySelector('.weq-toast-host')).bottom,
+    stackBottom: document.querySelector('.weq-toast-host').getBoundingClientRect().bottom,
   }));
-  if (!mail.arrived || mail.stackBottom !== '76px' || mail.bannerVisible)
+  if (!mail.arrived || mail.bannerVisible)
     throw Error(`打开邮箱时应立即收起已点的通知：${JSON.stringify(mail)}`);
+  if (mail.stackBottom !== stackBottomBefore)
+    throw Error(`进入邮箱后其他横幅的底边移动：${stackBottomBefore}px → ${mail.stackBottom}px`);
   if (errors.length) throw Error(errors.join('\n'));
   console.log(
     JSON.stringify({

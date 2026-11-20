@@ -128,24 +128,6 @@
 }
 .weq-monitor-panel .weq-help-log-toolbar {
   flex: none;
-  flex-wrap: wrap;
-}
-.weq-monitor-panel .weq-help-log-file {
-  max-width: 480px;
-}
-.weq-monitor-panel .weq-help-log-toolbar-right {
-  flex: 1;
-  justify-content: flex-end;
-  min-width: 0;
-}
-.weq-monitor-panel .weq-help-log-meta {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.weq-monitor-panel .weq-help-log-live,
-.weq-monitor-panel .weq-help-log-foot {
-  display: none;
 }
 .weq-monitor-panel .weq-help-log-tools {
   flex: none;

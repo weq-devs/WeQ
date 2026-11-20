@@ -102,7 +102,10 @@ async function setup(online = true) {
     context: { uin: '99999' },
     selfUid: 'u_self',
     c2cMsgs: { directoryTimePage: vi.fn(async () => ({ items: [], done: true })) },
-    groupMsgs: { directoryTimePage: vi.fn(async () => ({ items: [], done: true })) },
+    groupMsgs: {
+      directoryTimePage: vi.fn(async () => ({ items: [], done: true })),
+      directoryMaxSeqs: vi.fn(async () => ({ '10001': '42' })),
+    },
     profileInfo: { dbPath: '/synthetic/profile.db' },
     groupMembers: {
       dbPath: '/synthetic/groups.db',
@@ -221,15 +224,17 @@ it('只刷新本人入群时间也查询直接群资料，不为此拉全群成�
   await waitFor(() => expect(runtime.cache.progress.status).toBe('completed'));
   expect(services.groupInfo.fetchOnlineMembers).not.toHaveBeenCalled();
 });
-it('本地时间、入群和画像摘要在账号切换后拒绝旧读取', async () => {
+it('本地时间、群序号、入群和画像摘要在账号切换后拒绝旧读取', async () => {
   const { runtime, services, switchAccount } = await setup();
   expect(await runtime.localTimes('friends')).toEqual({ rows: {}, done: true });
   expect(await runtime.localJoins()).toEqual({ '10001': 123 });
+  expect(await runtime.localGroupMaxSeqs()).toEqual({ '10001': '42' });
   expect(runtime.cachedProfiles()).toEqual([]);
   expect(services.intentSense.cachedProfileSummaries).toHaveBeenCalledOnce();
   switchAccount();
   await expect(runtime.localTimes('groups')).rejects.toThrow('切换');
   await expect(runtime.localJoins()).rejects.toThrow('切换');
+  await expect(runtime.localGroupMaxSeqs()).rejects.toThrow('切换');
   expect(() => runtime.cachedProfiles()).toThrow('切换');
 });
 it('账号关闭后在途本地时间页不能返回给旧目录', async () => {

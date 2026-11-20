@@ -12,6 +12,7 @@ import {
 import type { AuthGate } from './auth';
 import { developmentStartupProgress } from './development_progress';
 import { acceptsGzip } from './compression';
+import { lockRemoteViewport } from './remote_viewport';
 
 /** 仅开发入口显式启用；页面、模块与 HMR 都经原宿主认证，客户端无需访问环回端口。 */
 export class DevelopmentWebProxy {
@@ -210,6 +211,7 @@ function developmentHtml(html: string, remote: boolean): string {
   };
   visit(document);
   if (remote && head) {
+    lockRemoteViewport(head);
     const progress = defaultTreeAdapter.createElement('script', htmlNames.NS.HTML, [
       { name: 'data-weq-development-progress', value: '' },
     ]);

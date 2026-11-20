@@ -638,12 +638,11 @@
 }
 
 :where(html[data-weq-layout='single']) .row-meta {
-  padding-top: 6px;
   color: #c5c8cf;
   font-size: 13px;
 }
 
-:where(html[data-weq-layout='single']) .row-unread {
+:where(html[data-weq-layout='single']) .contact-row .row-unread {
   position: absolute;
   right: auto;
   bottom: auto;
@@ -652,9 +651,6 @@
 }
 
 :where(html[data-weq-layout='single']) .row-muted {
-  position: absolute;
-  right: 20px;
-  bottom: 14px;
   color: #c6c9d0;
 }
 

@@ -11,6 +11,7 @@ import { CalendarNavigationContext } from '../lib/calendarNavigation';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
 import type { ToolSearchRequest } from './search/appSearchCatalog';
+import type { TaskPanelTab } from '@weq/service/feature-catalog';
 import { ShieldAlert, X, Maximize2, Minimize2 } from 'lucide-react';
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
@@ -110,6 +111,9 @@ export function WorkspaceTools({
   const [exportAuthorization, setExportAuthorization] =
     useState<ExportAuthorizationIndicatorState | null>(null);
   const [tool, setTool] = useState<Tool>('export');
+  const [taskTabRequest, setTaskTabRequest] = useState<{ scope: string; tab: TaskPanelTab } | null>(
+    null,
+  );
   const [analysisTarget, setAnalysisTarget] = useState<AnalysisTarget | undefined>();
   const [analysisMessageIds, setAnalysisMessageIds] = useState<string[] | undefined>();
   const [analysisFixedTarget, setAnalysisFixedTarget] = useState(false);
@@ -399,6 +403,10 @@ export function WorkspaceTools({
     } else if (searchRequest.tool === 'tasks') {
       setOpen(false);
       closeMenu();
+      if (searchRequest.taskTab) useWorkspaceMenu.setState({ taskFocusId: null });
+      setTaskTabRequest(
+        searchRequest.taskTab ? { scope: searchRequest.scope, tab: searchRequest.taskTab } : null,
+      );
       setExpanded(true);
     } else selectRef.current(searchRequest.tool, searchRequest.exportMode);
   }, [searchRequest, closeMenu, accountScope, onOpenAssistant]);
@@ -489,6 +497,14 @@ export function WorkspaceTools({
                   surface="tasks"
                   taskLayout={expanded ? 'split' : 'compact'}
                   onTaskExpand={() => setExpanded(true)}
+                  taskTabRequest={
+                    taskTabRequest && taskTabRequest.scope === accountScope
+                      ? taskTabRequest.tab
+                      : undefined
+                  }
+                  onTaskTabRequestApplied={() =>
+                    setTaskTabRequest((current) => (current === taskTabRequest ? null : current))
+                  }
                   taskToolbarAction={
                     !expanded && !mobile ? (
                       <button

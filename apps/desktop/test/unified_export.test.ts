@@ -326,6 +326,25 @@ function mount(props: Parameters<typeof ExportTool>[0] = {}) {
     },
   };
 }
+
+it('任务面板使用一次性的定时任务标签请求，随后仍可手动切换', () => {
+  const applied = vi.fn();
+  const f = mount({
+    surface: 'tasks',
+    taskLayout: 'split',
+    taskTabRequest: 'schedules',
+    onTaskTabRequestApplied: applied,
+  });
+  try {
+    expect(f.host.querySelector('.weq-schedule-workspace')).not.toBeNull();
+    expect(applied).toHaveBeenCalledOnce();
+    act(() => click(f.host, '当前任务'));
+    expect(f.host.querySelector('.weq-schedule-workspace')).toBeNull();
+    expect(applied).toHaveBeenCalledOnce();
+  } finally {
+    f.close();
+  }
+});
 afterEach(() => {
   vi.unstubAllGlobals();
   fixture.realPicker = false;

@@ -35,7 +35,7 @@ it.each([
   ['components/settings/ResourceManagementSection.tsx', "setView('browse')"],
   ['components/settings/RemotePanel.tsx', 'onClick={onCopy}'],
   ['components/settings/McpServerSection.tsx', 'copiedConfig'],
-  ['components/settings/OneBotSection.tsx', '复制配置'],
+  ['components/settings/OneBotSection.tsx', '复制地址'],
   ['components/settings/BackupSection.tsx', 'setPreview(null)}'],
   ['components/QqDebugCopyPermissions.tsx', 'onClick={onClose}'],
   ['components/RestrictedQqAction.tsx', 'setSettingsOpen(true)'],

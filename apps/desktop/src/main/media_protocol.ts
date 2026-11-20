@@ -69,6 +69,7 @@ import { resolveResource } from './resource';
 import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
 import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
 import { videoPreviewResponse } from './video_preview_response';
+import { observeDownload, transferIdInput } from './ipc/routers/transfer_progress';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
  *  original mp4 now goes through OIDB). ptt tries rkey first and falls back
@@ -584,19 +585,33 @@ export async function resolveChatImageFile(
     q.get('md5') ?? undefined,
   );
   check();
-  const path =
-    q.get('v') === 'thumb'
+  const originalOnly = q.get('v') === 'original' && picType !== 'emoji';
+  const previewOnly = q.get('preview') === '1' && picType === 'pic';
+  const path = previewOnly
+    ? thumb
+    : q.get('v') === 'thumb'
       ? (thumb ?? source)
-      : q.get('v') === 'original' && picType !== 'emoji'
+      : originalOnly
         ? source
         : (source ?? thumb);
   if (path) return { path, variant: path === source ? ('original' as const) : ('thumb' as const) };
-  const backup = resolveChatpicFallback(q.get('md5') ?? '', q.get('v') === 'original');
+  const backup = resolveChatpicFallback(q.get('md5') ?? '', originalOnly);
   if (backup) return { path: backup, variant: 'unknown' as const };
+  if (previewOnly) {
+    const small = q.get('small');
+    const thumbnail =
+      small && small !== q.get('orig') ? await services.mediaDownload.thumbnail?.(small) : null;
+    check();
+    return { path: thumbnail ?? null, variant: 'thumb' as const };
+  }
   const cached = services.mediaDownload.cachedFile(q.get('token') ?? '');
   if (cached) return { path: cached, variant: 'downloaded' as const };
+  if (originalOnly && q.get('localOnly') === '1')
+    return { path: null, variant: 'unknown' as const };
   const restricted = await hostDataSaver(q.get('ds') === '1');
   const behavior = transferBehavior();
+  if (originalOnly && q.get('autoOriginal') === '1' && restricted)
+    return { path: null, variant: 'unknown' as const, deferred: true };
   if (
     q.get('intent') !== 'interactive' &&
     restricted &&
@@ -623,9 +638,19 @@ export async function resolveChatImageFile(
       ? { path: thumbnail, variant: 'thumb' as const }
       : { path: null, variant: 'unknown' as const, deferred: true };
   }
-  const downloaded = await services.mediaDownload.download(q.get('token') ?? '', {
-    originalUrl: q.get('orig') ?? '',
-  });
+  const token = q.get('token') ?? '';
+  const opts = { originalUrl: q.get('orig') ?? '' };
+  const transfer = originalOnly
+    ? transferIdInput.safeParse(q.get('transferId') ?? undefined)
+    : null;
+  const downloaded =
+    transfer?.success && transfer.data
+      ? await observeDownload(services, transfer.data, (update) =>
+          services.mediaDownload.download(token, opts, (received, total) =>
+            update({ phase: 'download', received, total }),
+          ),
+        )
+      : await services.mediaDownload.download(token, opts);
   check();
   return { path: downloaded, variant: 'downloaded' as const };
 }

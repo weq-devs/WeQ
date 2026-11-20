@@ -8,6 +8,7 @@ import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
   groupPermission,
+  isTemporaryGroupFile,
   qqResourceOwnedBy,
   type QQGroupOperation,
   type QQGroupPermissionContext,
@@ -22,6 +23,7 @@ import {
   MoveGroupFile,
   RenameGroupFile,
   RenameGroupFolder,
+  TransGroupFile,
   type CreatedGroupFolder,
   type GroupFileCount,
   type GroupFileItem,
@@ -152,6 +154,46 @@ export class GroupFileService {
   }
 
   // ───────────────────────── 文件 / 文件夹写操作 ─────────────────────────
+
+  async makePermanent(
+    groupId: number,
+    fileId: string,
+    directory: string,
+    beforeRequest: () => void,
+  ) {
+    const pid = this.resolvePid();
+    const check = () => {
+      beforeRequest();
+      if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
+    };
+    await this.permitted('manage', groupId);
+    const listing = await this.list(groupId, directory, { beforeRequest: check });
+    const matches = listing.files.filter((file) => file.fileId === fileId);
+    const file = matches[0];
+    if (matches.length !== 1 || !file || !isTemporaryGroupFile(file))
+      throw new Error('该文件不是可确认的未过期临时群文件，请刷新目录');
+    check();
+    const result = await TransGroupFile.invoke(this.nt, pid, { groupId, fileId });
+    check();
+    const folders = directory === '/' ? ['/'] : [directory, '/'];
+    for (const folder of folders) {
+      const refreshed = await this.list(groupId, folder, { beforeRequest: check }).catch(
+        () => null,
+      );
+      check();
+      const saved = refreshed?.files.find(
+        (item) =>
+          (item.fileId === result.saveFilePath || item.fileId === fileId) &&
+          item.busId === result.saveBusId &&
+          item.expireTimeKnown === true &&
+          item.expireTime === 0 &&
+          item.fileName === file.fileName &&
+          item.fileSize === file.fileSize,
+      );
+      if (saved) return { state: 'accepted' as const, fileId: saved.fileId, directory: folder };
+    }
+    return { state: 'unconfirmed' as const, fileId: null, directory: null };
+  }
 
   /** 删除单个群文件（OIDB 0x6D6_3）。 */
   async deleteFile(groupId: number, fileId: string, directory?: string): Promise<void> {

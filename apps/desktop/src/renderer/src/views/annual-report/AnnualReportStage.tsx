@@ -17,9 +17,8 @@ const STAGE_INSET = 0.92;
  * 锁长了则「滚一下、翻一页」变得很滞涩。所以判定不看时间长短，而看**一次手势的
  * 边界**：
  *   - 同方向的 deltaY 累加，越过 {@link WHEEL_THRESHOLD} 才翻一页、清零累积；
- *   - 翻页的同时置 `fired`，此后这一甩剩下的所有事件一律只吃掉、不再翻页 ——
- *     惯性尾巴无论多长多急，都只能带出这一页；
- *   - 直到滚轮**停下** {@link WHEEL_IDLE_MS} 毫秒，才认为手势结束、解除 `fired`。
+ *   - 翻页后，本次手势的惯性尾巴不再翻页；在阅读模式内开始滚动也会保持这一手势用途；
+ *   - 直到滚轮**停下** {@link WHEEL_IDLE_MS} 毫秒，才认为手势结束。
  * 于是「一甩一页」是结构上成立的，而「滚一下、停一下」仍是一页页顺畅地翻。
  */
 const WHEEL_THRESHOLD = 90;
@@ -56,13 +55,13 @@ export function AnnualReportStage({
   const tabActive = useTabActive();
   const hostRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<{
+    x: number;
     y: number;
     pointerId: number;
-    moved: boolean;
     captured: boolean;
   } | null>(null);
-  /** 滚轮手势状态：累积量、上次事件时刻，以及「这一甩已经翻过一页了」。 */
-  const wheelRef = useRef({ acc: 0, lastAt: 0, fired: false });
+  /** 滚轮手势状态：累积量、上次事件时刻与当前手势用途。 */
+  const wheelRef = useRef({ acc: 0, lastAt: 0, mode: null as 'scroll' | 'turn' | null });
   const [scale, setScale] = useState(1);
   const [reading, setReading] = useState(false);
   /** 守卫存在 ref 里：`move` 是 useCallback，不能让它随每次 guard 重建而失效。 */
@@ -75,8 +74,7 @@ export function AnnualReportStage({
   );
   const move = useCallback(
     (delta: number) => {
-      // 守卫先看：它吃掉这次手势时不翻页（滚轮的 `fired` 仍照常落下，
-      // 免得一甩的惯性尾巴在守卫释放后立刻把页翻走）。
+      // 当前页消费翻页动作后，滚轮的手势锁仍保留到惯性结束。
       if (delta !== 0 && guardRef.current?.(delta > 0 ? 1 : -1)) return;
       onIndexChange(clampIndex(index + delta));
     },
@@ -112,8 +110,16 @@ export function AnnualReportStage({
   useEffect(() => {
     const host = hostRef.current;
     if (!host || !tabActive) return undefined;
-    function onWheel(event: WheelEvent): void {
-      if (event.defaultPrevented || reportHasOverlay(host!)) return;
+    const onWheel = (event: WheelEvent): void => {
+      const { deltaMode, deltaX, deltaY } = event;
+      if (
+        event.defaultPrevented ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        Math.abs(deltaY) <= Math.abs(deltaX) ||
+        reportHasOverlay(host)
+      )
+        return;
       if (!reportGestureTarget(event.target)) return;
       const now = performance.now();
       const wheel = wheelRef.current;
@@ -121,35 +127,43 @@ export function AnnualReportStage({
       // 停够久 → 上一甩（连同它的惯性尾巴）结束了，解锁下一次翻页。
       if (now - wheel.lastAt > WHEEL_IDLE_MS) {
         wheel.acc = 0;
-        wheel.fired = false;
+        wheel.mode = null;
       }
       wheel.lastAt = now;
 
+      if (wheel.mode === 'scroll') return;
       if (
         reading &&
-        event.target instanceof Element &&
-        !reportCanTurn(event.target, host!, event.deltaY > 0 ? 1 : -1)
+        !wheel.mode &&
+        !wheel.acc &&
+        !reportCanTurn(event.target, host, deltaY > 0 ? 1 : -1)
       ) {
-        wheel.fired = true;
+        wheel.mode = 'scroll';
         return;
       }
       event.preventDefault();
 
       // 这一甩已经翻过了：惯性尾巴照单全吃，不再翻第二页。
-      if (wheel.fired) return;
+      if (wheel.mode === 'turn') return;
 
-      // 换方向也重新开始 —— 一甩往下、紧接着往上，应当各算一次。
-      if (wheel.acc !== 0 && Math.sign(event.deltaY) !== Math.sign(wheel.acc)) wheel.acc = 0;
-      wheel.acc += event.deltaY;
+      // 尚未达到阈值时，反向滚动重置累积量。
+      if (wheel.acc !== 0 && Math.sign(deltaY) !== Math.sign(wheel.acc)) wheel.acc = 0;
+      wheel.acc +=
+        deltaY *
+        (deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 40
+          : deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? host.clientHeight
+            : 1);
 
       if (Math.abs(wheel.acc) < WHEEL_THRESHOLD) return;
 
-      // 先定方向再清零：`fired` 让这一甩的尾巴只能带出这一页。
+      // 锁定这一手势，等惯性结束再允许继续翻页。
       const direction = wheel.acc > 0 ? 1 : -1;
       wheel.acc = 0;
-      wheel.fired = true;
+      wheel.mode = 'turn';
       move(direction);
-    }
+    };
     host.addEventListener('wheel', onWheel, { passive: false });
     return () => host.removeEventListener('wheel', onWheel);
   }, [move, tabActive, reading]);
@@ -189,12 +203,16 @@ export function AnnualReportStage({
         gesture = null;
         return;
       }
-      if (Math.abs(dy) > 8) {
+      if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx) * 1.5) {
         if (!(dy < 0 ? gesture.up : gesture.down)) {
           gesture = null;
           return;
         }
-        if (event.cancelable) event.preventDefault();
+        if (!event.cancelable) {
+          gesture = null;
+          return;
+        }
+        event.preventDefault();
       }
     };
     const end = (event: TouchEvent) => {
@@ -274,14 +292,20 @@ export function AnnualReportStage({
   }, [count, move, onIndexChange, tabActive, reading]);
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
-    if (reading || event.pointerType !== 'mouse' || !reportGestureTarget(event.target)) return;
+    if (
+      reading ||
+      event.pointerType !== 'mouse' ||
+      event.button !== 0 ||
+      !reportGestureTarget(event.target)
+    )
+      return;
     // 刻意不在 pointerdown 就 setPointerCapture：捕获会把后续 pointerup 重定向到
     // 舞台宿主，叠在它上面的 click 事件就到不了页面里的按钮 —— 年份刻度、CTA、
     // 重试全都「点了没反应、控制台无报错」。捕获推迟到手势真正成立的那一刻。
     gestureRef.current = {
+      x: event.clientX,
       y: event.clientY,
       pointerId: event.pointerId,
-      moved: false,
       captured: false,
     };
   }
@@ -292,7 +316,10 @@ export function AnnualReportStage({
       return;
     }
     const gesture = gestureRef.current;
-    if (!gesture || Math.abs(event.clientY - gesture.y) < 24) return;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const dx = Math.abs(event.clientX - gesture.x);
+    const dy = Math.abs(event.clientY - gesture.y);
+    if (dy < 24 || dy < dx * 1.5 || window.getSelection()?.isCollapsed === false) return;
     if (!gesture.captured) {
       // 拖拽跨过阈值、确认是翻页手势，才把这一指的剩余事件接管给舞台。
       // 捕获可能失败：那根手指可能已被系统手势/别的元素截走（报 NotFoundError），
@@ -305,14 +332,21 @@ export function AnnualReportStage({
         gesture.captured = false;
       }
     }
-    gesture.moved = true;
   }
 
   function onPointerUp(event: React.PointerEvent<HTMLDivElement>): void {
     const gesture = gestureRef.current;
     gestureRef.current = null;
-    if (reading || !gesture?.moved) return;
-    move(event.clientY < gesture.y ? 1 : -1);
+    if (
+      reading ||
+      !gesture ||
+      gesture.pointerId !== event.pointerId ||
+      window.getSelection()?.isCollapsed === false
+    )
+      return;
+    const dx = Math.abs(event.clientX - gesture.x);
+    const dy = event.clientY - gesture.y;
+    if (Math.abs(dy) >= 24 && Math.abs(dy) >= dx * 1.5) move(dy < 0 ? 1 : -1);
   }
 
   return (

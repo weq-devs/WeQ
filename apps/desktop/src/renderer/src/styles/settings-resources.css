@@ -143,9 +143,6 @@
   border-radius: 6px;
   overflow: hidden;
 }
-.weq-resource-browser > .weq-cache {
-  min-width: 0;
-}
 html[data-theme='dark'] .weq-resource-management .weq-ra-head {
   background: transparent;
 }
@@ -167,13 +164,5 @@ html[data-theme='dark'] .weq-resource-management .weq-clean-go.is-danger {
   }
   .weq-resource-browser {
     height: max(720px, calc(100dvh - 240px));
-  }
-  .weq-resource-browser .weq-cache:not(.is-cats-collapsed) {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 180px minmax(0, 1fr);
-  }
-  .weq-resource-browser .weq-cache-cats {
-    border-right: 0;
-    border-bottom: 1px solid var(--weq-border-subtle);
   }
 }

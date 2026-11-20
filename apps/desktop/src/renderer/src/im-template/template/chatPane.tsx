@@ -1,4 +1,7 @@
+import { OnlineSystemFacesDialog } from '../../components/OnlineSystemFacesDialog';
+import { Languages } from 'lucide-react';
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
+import type { ConversationInteraction } from '../../../../shared/conversation_interaction';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import {
   searchSlashEmojis,
@@ -223,6 +226,7 @@ import { ComposerQuoteBar, type ComposerQuote } from './composerQuote';
 import { composerQuoteToken, quoteBlockReason, quoteFromMessage } from './composerQuote.shared';
 import type { LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
+import { GroupAdminPermissionsDialog } from '../../components/qq-actions/GroupAdminPermissionsDialog';
 import { AiVoicePanel, type AiVoiceDraft } from './aiVoicePanel';
 import { aiVoiceToken } from './aiVoicePanel.shared';
 import { bounceEmojiToken } from './bounceEmojiPanel.shared';
@@ -516,6 +520,8 @@ export type ChatPaneProps = {
   onPreviewLatest?: (conversation: Conversation) => void;
   onJumpToLatest?: () => Promise<boolean>;
   onReadCurrentConversation?: (conversation: Conversation) => void;
+  pendingInteractions?: readonly ConversationInteraction[];
+  onSeeInteractions?: (ids: string[]) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
   onAddGroupMember?: () => void;
@@ -721,6 +727,8 @@ export function ChatPane({
   onPreviewLatest,
   onJumpToLatest,
   onReadCurrentConversation,
+  pendingInteractions,
+  onSeeInteractions,
   preference,
   onLoadMoreGroupMembers,
   onAddGroupMember,
@@ -926,6 +934,7 @@ export function ChatPane({
   const [toolsOpen, setToolsOpen] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
+  const [onlineFacesOpen, setOnlineFacesOpen] = useState(false);
   const [arkOpen, setArkOpen] = useState(false);
   // 「AI 声聊」面板：输入文字 + 选声线 + 试听，合成后**单独发送**（仅群聊）。
   const [aiVoiceOpen, setAiVoiceOpen] = useState(false);
@@ -1055,6 +1064,11 @@ export function ChatPane({
   }
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null);
   // 右键头像 → 「@他 / 戳一戳」轻互动菜单。
+  const [adminEditor, setAdminEditor] = useState<{
+    groupId: number;
+    uid: string;
+    name: string;
+  } | null>(null);
   const [avatarMenu, setAvatarMenu] = useState<AvatarContextMenuState | null>(null);
   const unmuteMember =
     avatarMenu && conversation?.type === 'group'
@@ -1105,6 +1119,7 @@ export function ChatPane({
       (conversation?.type === 'group' ||
         selectionMode ||
         Boolean(contextMenu) ||
+        arkOpen ||
         (tabActive && preferenceValue('slashEmojiEnabled'))) &&
       !restrictedSource,
     staleTime: 0,
@@ -1117,6 +1132,31 @@ export function ChatPane({
           expectedAccountConfigId: recallAccount.data.configId,
         }
       : null;
+  const [translation, setTranslation] = useState<{
+    scope: string;
+    id: string;
+    value: string | null;
+  } | null>(null);
+  const translationScope = JSON.stringify([recallBinding, conversation?.id]);
+  async function translateMessage(message: Message) {
+    if (!recallBinding) return;
+    setContextMenu(null);
+    const pending = { scope: translationScope, id: message.id, value: null };
+    setTranslation(pending);
+    try {
+      const value = await client.account.qqActions.translateEnglish.mutate({
+        ...recallBinding,
+        text: message.body.trim(),
+      });
+      setTranslation((current) => (current === pending ? { ...pending, value } : current));
+    } catch (error) {
+      setTranslation((current) =>
+        current === pending
+          ? { ...pending, value: error instanceof Error ? error.message : 'QQ 翻译失败' }
+          : current,
+      );
+    }
+  }
   const groupOperations = trpc.account.qqActions.groupPermissions.useQuery(
     { ...recallBinding!, groupId: Number(conversation?.id) || 0 },
     {
@@ -1537,6 +1577,8 @@ export function ChatPane({
     messages,
     onJumpToLatest,
     onReadCurrentConversation,
+    pendingInteractions,
+    onSeeInteractions,
     parentJumpToSeq,
     selectionOrder,
     tabActive,
@@ -2953,7 +2995,7 @@ export function ChatPane({
   }
 
   /** 右键消息「贴表情」：把表情面板锜在这条消息下面。 */
-  function openReactionPicker(message: Message) {
+  function openReactionPicker(message: Message, returnFocusTo: HTMLElement | null) {
     setContextMenu(null);
     if (messageReactionBlockedReason(message)) return;
     const idSelector = message.id.replace(/["\\]/g, '\\$&');
@@ -2963,7 +3005,7 @@ export function ChatPane({
     const rect = el?.getBoundingClientRect();
     setReactionPicker({
       message,
-      originElement: el,
+      originElement: returnFocusTo,
       x: rect
         ? Math.min(rect.left, Math.max(8, window.innerWidth - 336))
         : window.innerWidth / 2 - 160,
@@ -4897,9 +4939,10 @@ export function ChatPane({
 
   function handleTimelineKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
     if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+    const focused = timelineFocusedRow();
+    if (event.target !== event.currentTarget && event.target !== focused) return;
     const ids = visibleMessages.map((message) => message.id);
     if (!ids.length) return;
-    const focused = timelineFocusedRow();
     const currentId = focused?.dataset.messageId;
 
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -6369,10 +6412,7 @@ export function ChatPane({
                       sender={sender}
                       renderers={messageRenderers}
                       showSenderName={showSenderNames}
-                      active={
-                        contextMenu?.message.id === message.id ||
-                        jumpRequest?.messageId === message.id
-                      }
+                      active={contextMenu?.message.id === message.id}
                       deleted={deletedKeys.has(deletionIdentity(message.id))}
                       deletedKind={message.deletedKind}
                       recallRevokerName={message.recallRevokerName}
@@ -6447,6 +6487,18 @@ export function ChatPane({
                       }
                       onAvatarContextMenu={!selectionMode ? rowAvatarMenu : undefined}
                     />
+                    {translation?.scope === translationScope && translation.id === message.id ? (
+                      <div className="mx-8 mb-2 flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-sm text-foreground">
+                        <span role="status">{translation.value ?? '正在翻译…'}</span>
+                        <button
+                          type="button"
+                          className="weq-set-btn ml-auto"
+                          onClick={() => setTranslation(null)}
+                        >
+                          收起
+                        </button>
+                      </div>
+                    ) : null}
                   </Fragment>,
                 );
                 {
@@ -7225,6 +7277,14 @@ export function ChatPane({
                 canInsertCustomEmoji ? (file) => void addFiles([file], 'emoji') : undefined
               }
               textOnly={restrictedSource}
+              onOpenOnlineCatalog={
+                sendAvailable && !restrictedSource
+                  ? () => {
+                      setEmojiOpen(false);
+                      setOnlineFacesOpen(true);
+                    }
+                  : undefined
+              }
             />
           ) : null}
           {voicePanelActive ? (
@@ -7255,17 +7315,30 @@ export function ChatPane({
           ) : null}
           {arkOpen && !mobileComposerExpanded ? (
             <ArkPanel
+              miniAppScope={translationScope}
               panelRef={arkPanelRef}
               disabled={mediaSendDisabled}
               disabledHint={sendTitle}
               contacts={arkContacts}
               defaultSignupGroupCode={defaultSignupGroupCode}
+              onPrepareMiniApp={
+                recallBinding && !restrictedSource
+                  ? (input) =>
+                      client.account.qqActions.miniAppCard.mutate({ ...recallBinding, ...input })
+                  : undefined
+              }
               onSend={sendArkCard}
               onClose={() => setArkOpen(false)}
             />
           ) : null}
           {aiVoicePanelActive ? (
             <AiVoicePanel
+              key={conversation.id}
+              groupId={
+                conversation.type === 'group' && !restrictedSource
+                  ? Number(conversation.group.identityValue) || undefined
+                  : undefined
+              }
               initialTab={aiVoiceInitialTab}
               panelRef={aiVoicePanelRef}
               disabled={mediaSendDisabled}
@@ -7628,6 +7701,14 @@ export function ChatPane({
                   canInsertCustomEmoji ? (file) => void addFiles([file], 'emoji') : undefined
                 }
                 textOnly={restrictedSource}
+                onOpenOnlineCatalog={
+                  sendAvailable && !restrictedSource
+                    ? () => {
+                        setEmojiOpen(false);
+                        setOnlineFacesOpen(true);
+                      }
+                    : undefined
+                }
               />
             ) : null}
             {redPacketOpen ? (
@@ -7653,6 +7734,9 @@ export function ChatPane({
           onConfirm={clearConversationMessagesLocally}
         />
       ) : null}
+      {onlineFacesOpen && !restrictedSource ? (
+        <OnlineSystemFacesDialog onClose={() => setOnlineFacesOpen(false)} />
+      ) : null}
       {mediaSave.prompt}
       {contextMenu ? (
         <MessageContextMenu
@@ -7667,6 +7751,23 @@ export function ChatPane({
                 mediaLabel={contextMenu.mediaTarget?.label}
                 onClose={() => setContextMenu(null)}
               />
+            ) : null
+          }
+          translationAction={
+            !restrictedSource &&
+            sendAvailable &&
+            recallBinding &&
+            !grayTipOf(contextMenu.message) &&
+            !isLocalOutgoingMessage(contextMenu.message) &&
+            /\b[A-Za-z]{2,}\b/.test(contextMenu.message.body) &&
+            contextMenu.message.body.trim().length <= 4096 ? (
+              <MessageMenuButton
+                type="button"
+                onClick={() => void translateMessage(contextMenu.message)}
+              >
+                <Languages size={17} />
+                <span>翻译成中文</span>
+              </MessageMenuButton>
             ) : null
           }
           intentAction={
@@ -7905,6 +8006,14 @@ export function ChatPane({
             })
           }
           onToggleAdmin={toggleAvatarAdmin}
+          onAdminPermissions={(member) => {
+            if (conversation?.type !== 'group') return;
+            const uid = groupTargetUid(member);
+            const groupId = Number(conversation.group.identityValue);
+            if (!uid || !Number.isSafeInteger(groupId) || groupId <= 0) return;
+            setAvatarMenu(null);
+            setAdminEditor({ groupId, uid, name: displayUserName(member) });
+          }}
           showChangeCard={!restrictedSource && (avatarMenuFlags?.showChangeCard ?? false)}
           showChangeTitle={
             !restrictedSource &&
@@ -7932,6 +8041,16 @@ export function ChatPane({
                 : undefined
               : moderationBlockedReason
           }
+        />
+      ) : null}
+      {adminEditor &&
+      conversation?.type === 'group' &&
+      adminEditor.groupId === Number(conversation.group.identityValue) ? (
+        <GroupAdminPermissionsDialog
+          groupId={adminEditor.groupId}
+          targetUid={adminEditor.uid}
+          name={adminEditor.name}
+          onClose={() => setAdminEditor(null)}
         />
       ) : null}
       {reactionPicker ? (

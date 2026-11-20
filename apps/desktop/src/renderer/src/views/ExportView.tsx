@@ -1,4 +1,5 @@
 import { FormSelect } from '../components/FormSelect';
+import { TASK_PANEL_FEATURES, type TaskPanelTab } from '@weq/service/feature-catalog';
 import { NumericText } from '../components/NumericText';
 import { useDbRepairWindow } from '../state/dbRepairWindow';
 import * as timeFormat from '@weq/time';
@@ -398,6 +399,8 @@ function ExportToolBody({
   onAuthorizationChange,
   taskLayout = 'inline',
   onTaskExpand,
+  taskTabRequest,
+  onTaskTabRequestApplied,
   taskToolbarAction,
   onNewSchedule,
   databaseTarget,
@@ -405,6 +408,8 @@ function ExportToolBody({
   surface?: 'export' | 'tasks';
   taskLayout?: 'inline' | 'compact' | 'split';
   onTaskExpand?: () => void;
+  taskTabRequest?: TaskPanelTab;
+  onTaskTabRequestApplied?: () => void;
   taskToolbarAction?: ReactNode;
   onNewSchedule?: () => void;
   initialSelection?: ContentSelection;
@@ -497,11 +502,16 @@ function ExportToolBody({
     'posts',
     z.enum(['posts', 'both', 'albums']),
   );
-  const [taskTab, setTaskTab] = usePageState<'tasks' | 'schedules'>(
+  const [taskTab, setTaskTab] = usePageState<TaskPanelTab>(
     'export:task-tab',
     'tasks',
     z.enum(['tasks', 'schedules']),
   );
+  useEffect(() => {
+    if (!active || surface !== 'tasks' || !taskTabRequest || taskLayout === 'compact') return;
+    setTaskTab(taskTabRequest);
+    onTaskTabRequestApplied?.();
+  }, [active, surface, taskLayout, taskTabRequest, setTaskTab, onTaskTabRequestApplied]);
   const [selectedSchedule, setSelectedSchedule] = usePageState<string | null>(
     'export:schedule',
     null,
@@ -1870,7 +1880,6 @@ function ExportToolBody({
   const activeMode = MODES.find((m) => m.id === mode)!;
   // 底部格式 chips 只保留给不走灯箱的导出收藏；
   // 完整消息 / QQ 空间 / 定时的格式选择已移入灯箱多选。
-  const showFormatChips = mode === 'collection';
   const formatOptions = COLLECTION_FORMATS;
   // QQ 空间导出只列目标空间（自己 + 好友）；其余多选模式用全部会话。
   const pickerItems = mode === 'qzone' ? friendItems : convItems;
@@ -2029,7 +2038,7 @@ function ExportToolBody({
         />
       ) : null}
       {surface === 'export' && ((!lightbox && !fixedMessages) || editingList) ? (
-        <div className="weq-exp-top is-single">
+        <div className="weq-exp-top">
           {fixedMessages && initialSelection ? (
             <div className="weq-exp-source" role="status">
               <span className="weq-exp-source-glyph" aria-hidden>
@@ -2501,33 +2510,33 @@ function ExportToolBody({
                       '请先选择至少一个会话'
                     )}
                   </span>
-                ) : showFormatChips ? (
+                ) : mode === 'collection' ? (
                   <div className="weq-exp-foot-format">
-                    <span className="weq-exp-foot-label">格式</span>
-                    <FormSelect
-                      className="weq-set-input"
-                      aria-label="导出格式"
-                      value={format}
-                      onChange={(event) => setFormat(event.target.value as ExportFormat)}
-                    >
-                      {formatOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </FormSelect>
-                    <small>
-                      {format === 'csv' || format === 'xlsx'
-                        ? '适合表格查看和筛选。'
-                        : format === 'txt'
-                          ? '适合直接阅读纯文本内容。'
-                          : '保留结构化收藏信息，适合程序处理。'}
-                    </small>
+                    <div className="weq-exp-format-choice">
+                      <span className="weq-exp-foot-label">格式</span>
+                      <FormSelect
+                        className="weq-set-input"
+                        aria-label="导出格式"
+                        value={format}
+                        onChange={(event) => setFormat(event.target.value as ExportFormat)}
+                      >
+                        {formatOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </FormSelect>
+                      <small>
+                        {format === 'csv' || format === 'xlsx'
+                          ? '适合表格查看和筛选。'
+                          : format === 'txt'
+                            ? '适合直接阅读纯文本内容。'
+                            : '保留结构化收藏信息，适合程序处理。'}
+                      </small>
+                    </div>
                     <StructuredExportControls
                       onRequireJson={() => setFormat('json')}
-                      domain={
-                        mode === 'collection' ? 'collectionProperties' : 'directoryProperties'
-                      }
+                      domain="collectionProperties"
                       options={collectionStructured}
                       formats={[format]}
                       disabled={submitting}
@@ -2613,13 +2622,13 @@ function ExportToolBody({
         <div className={`weq-task-workspace is-${taskLayout}`}>
           {taskLayout !== 'compact' ? (
             <div className="weq-task-workspace-tabs">
-              <SegmentedControl<'tasks' | 'schedules'>
+              <SegmentedControl<TaskPanelTab>
                 label="任务视图"
                 value={taskTab}
                 onChange={setTaskTab}
                 options={[
-                  { value: 'tasks', label: '当前任务' },
-                  { value: 'schedules', label: '定时任务' },
+                  { value: 'tasks', label: TASK_PANEL_FEATURES.tasks.label },
+                  { value: 'schedules', label: TASK_PANEL_FEATURES.schedules.label },
                 ]}
               />
             </div>

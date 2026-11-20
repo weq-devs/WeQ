@@ -118,7 +118,7 @@ export function useZoomPan(
   /** 滚轮一档：以 (clientX, clientY) 为锚点缩放。 */
   const wheelAt = useCallback(
     (clientX: number, clientY: number, deltaY: number): void => {
-      if (!el) return;
+      if (!el || !deltaY) return;
       const rect = el.getBoundingClientRect();
       const factor = deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
       zoomAt(clientX, clientY, ref.current.scale * factor, rect);
@@ -130,6 +130,7 @@ export function useZoomPan(
   useEffect(() => {
     if (!el) return;
     const onWheel = (event: WheelEvent): void => {
+      if (!event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
       event.preventDefault();
       wheelAt(event.clientX, event.clientY, event.deltaY);
     };

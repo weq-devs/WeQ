@@ -158,6 +158,14 @@ export const antiRecallSettingsProcedures = {
 export const antiRecallRouter = router({
   ...antiRecallSettingsProcedures,
 
+  /** 仅增删当前会话的提醒规则，不修改全局渠道或保护范围。 */
+  setConversationNotify: procedure
+    .input(z.object({ ...target.shape, enabled: z.boolean(), ...optionalAccountBinding }))
+    .mutation(({ input }) => {
+      assertAccountBinding(input);
+      return requireServices().antiRecall.setConversationNotify(input, input.enabled);
+    }),
+
   /**
    * 某个会话已记录的撤回（最新在前）—— 撤回记录面板用。只读，不依赖 QQ 在线。
    */

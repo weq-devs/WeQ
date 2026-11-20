@@ -404,6 +404,28 @@ export class GroupMsgDb {
     return toBigint(rows[0]?.[0]);
   }
 
+  /** 逐群跳到复合索引的下一分区，再取该分区的最大正序号。 */
+  async directoryMaxSeqs(): Promise<Record<string, string>> {
+    const rows = await this.qq.query(
+      `WITH RECURSIVE groups(code) AS (
+         SELECT MIN("40027") FROM group_msg_table
+         UNION ALL
+         SELECT (SELECT MIN("40027") FROM group_msg_table WHERE "40027" > groups.code)
+         FROM groups WHERE code IS NOT NULL
+       )
+       SELECT CAST(code AS TEXT), CAST((
+         SELECT MAX("40003") FROM group_msg_table WHERE "40027" = groups.code AND "40003" > 0
+       ) AS TEXT)
+       FROM groups WHERE code IS NOT NULL`,
+    );
+    const result: Record<string, string> = {};
+    for (const [code, seq] of rows) {
+      if (typeof code !== 'string' || !/^[1-9]\d*$/.test(code)) continue;
+      if (typeof seq === 'string' && /^[1-9]\d*$/.test(seq)) result[code] = seq;
+    }
+    return result;
+  }
+
   /**
    * 损坏时的容错续读（导出用）：从 `afterSeq` 起按 seq 窗口把消息**流式**读完。
    *

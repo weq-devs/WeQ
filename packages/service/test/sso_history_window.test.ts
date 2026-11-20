@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSqliteStub, closeAllFixtureDbs } from '@weq/testkit';
 import { decode, encode, GetGroupHistory, GetC2cHistory } from '@weqbot/protocol';
+import { FLASH_PHOTO_FALLBACK_TEXT } from '@weqbot/protocol/message-fallbacks';
 import { GapHistoryService } from '../src/account/gap_history';
 import { RoamingBackfillManager, type RoamingTarget } from '../src/account/roaming_backfill';
 import * as atomic from '../src/common/atomic_write';
@@ -29,7 +30,12 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const group: RoamingTarget = { kind: 'group', conv: '12345', name: 'Synthetic protocol group' };
-function fixture(target = group, duplicateAt?: number, twinAt?: number) {
+function fixture(
+  target = group,
+  duplicateAt?: number,
+  twinAt?: number,
+  elems: Record<string, unknown>[] = [{ text: { str: 'Synthetic protocol history' } }],
+) {
   const root = mkdtempSync(join(tmpdir(), 'weq-sso-window-'));
   roots.push(root);
   const sql = createSqliteStub();
@@ -65,7 +71,7 @@ function fixture(target = group, duplicateAt?: number, twinAt?: number) {
             msgId: seq + 10 + (seq === twinAt ? 0 : id),
             timestamp: 1700000000,
           },
-          body: { richText: { elems: [{ text: { str: 'Synthetic protocol history' } }] } },
+          body: { richText: { elems } },
         })),
       )
       .slice(-30);
@@ -282,6 +288,118 @@ describe('shared SSO physical windows', () => {
     f.sendPacket.mockClear();
     expect(await f.fetch(1, 500)).toMatchObject({ networkRequested: false, nextStartSeq: 31 });
     expect(f.sendPacket).not.toHaveBeenCalled();
+  });
+  it('recovers emoji bounce from a retained wire packet when old views only have the fallback', async () => {
+    const text = '[表情弹射]请使用最新版本手机QQ体验新功能';
+    const f = fixture(group, undefined, undefined, [
+      {
+        commonElem: {
+          serviceType: 23,
+          businessType: 13,
+          // 安卓协议样本：笑哭（182）×10。
+          pbElem: Buffer.from(
+            '080d100a1a06e7ac91e593ad321308b6011206e7ac91e593ad1a06e7ac91e593ad',
+            'hex',
+          ),
+        },
+      },
+      { text: { str: text } },
+    ]);
+    const response = await f.fetch(1, 1);
+    if (!response.ok) throw Error(response.message);
+    const [row] = response.messages;
+    expect(row?.elements).toMatchObject([
+      {
+        type: 'emojiBounce',
+        data: { emojiBounceId: 182, emojiBounceTextSummary: '弹射了10个[笑哭]' },
+      },
+    ]);
+    await f.history.retainForBatch([
+      { ...row!, elements: [{ type: 'text', data: { textContent: text } }] },
+      { ...row!, sourceFormat: 'native', nativeRaw: { elements: [] } },
+    ]);
+    f.sendPacket.mockClear();
+
+    const lookup = {
+      type: 'emojiBounce' as const,
+      senderUid: 'u_sender',
+      senderUin: '10001',
+      sendTime: '1700000000',
+    };
+    const restored = await f.history.fetch('group', group.conv, 1, 1, { specialMessage: lookup });
+    expect(restored).toMatchObject({ ok: true, networkRequested: false, messages: [row] });
+    expect(f.sendPacket).not.toHaveBeenCalled();
+
+    const wrongSender = await f.history.fetch('group', group.conv, 1, 1, {
+      specialMessage: { ...lookup, senderUid: 'u_other' },
+    });
+    expect(wrongSender).toMatchObject({ ok: true, networkRequested: true, messages: [] });
+  });
+  it('refetches text-only flash photo cache and reuses the downloaded image record', async () => {
+    const target: RoamingTarget = { kind: 'c2c', conv: 'u_peer', name: 'Synthetic private peer' };
+    const f = fixture(target, undefined, undefined, [
+      {
+        commonElem: {
+          serviceType: 3,
+          // 老式下载路径 /123-456-TEST。
+          pbElem: Buffer.from('120f1a0d2f3132332d3435362d54455354', 'hex'),
+        },
+      },
+      { text: { str: FLASH_PHOTO_FALLBACK_TEXT } },
+    ]);
+    const first = await f.fetch(1, 1);
+    if (!first.ok) throw Error(first.message);
+    const [row] = first.messages;
+    await f.history.retainForBatch([
+      {
+        ...row!,
+        protocolRaw: undefined,
+        elements: [{ type: 'text', data: { textContent: FLASH_PHOTO_FALLBACK_TEXT } }],
+      },
+    ]);
+    f.sendPacket.mockClear();
+    const options = {
+      specialMessage: {
+        type: 'flashPhoto' as const,
+        senderUid: target.conv,
+        senderUin: '10001',
+        sendTime: '1700000000',
+      },
+    };
+    expect(await f.history.fetch('c2c', target.conv, 1, 1, options)).toMatchObject({
+      ok: true,
+      networkRequested: true,
+      messages: [
+        { elements: [{ type: 'pic', data: { isFlash: true, fileToken: '/123-456-TEST' } }] },
+      ],
+    });
+    expect(await f.history.fetch('c2c', target.conv, 1, 1, options)).toMatchObject({
+      ok: true,
+      networkRequested: false,
+    });
+    expect(f.sendPacket).toHaveBeenCalledOnce();
+  });
+  it('preserves poke emoji combo and accepts a zero-valued payload', async () => {
+    const text = '[戳一戳]请使用最新版手机QQ体验新功能。';
+    const f = fixture(group, undefined, undefined, [
+      { commonElem: { serviceType: 2, pbElem: Buffer.from('08013802', 'hex') } },
+      { text: { str: text } },
+      { commonElem: { serviceType: 2 } },
+      { text: { str: `旁边显示：${text}` } },
+    ]);
+    const page = await f.fetch(1, 1);
+    expect(page).toMatchObject({
+      ok: true,
+      messages: [
+        {
+          elements: [
+            { type: 'face', data: { faceId: 1, subType: 5, interactiveFaceCombo: 2 } },
+            { type: 'face', data: { faceId: 0, subType: 5, interactiveFaceCombo: 0 } },
+            { type: 'text', data: { textContent: `旁边显示：${text}` } },
+          ],
+        },
+      ],
+    });
   });
   it('retains same-seq different IDs through the ordinary gap path, cache and export', async () => {
     const f = fixture(group, 1);

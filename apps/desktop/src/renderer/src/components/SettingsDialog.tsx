@@ -105,6 +105,7 @@ import LogPerformanceSettings from './settings/LogPerformanceSettings';
 import { useAppLock } from '../state/lock';
 import {
   SETTINGS_GROUPS,
+  SETTINGS_PAGE_LABELS,
   resolveSettingsTarget,
   settingsScopeFor,
   type SectionId,
@@ -305,7 +306,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'onebot',
-    label: 'OneBot / cc-connect',
+    label: SETTINGS_PAGE_LABELS.onebot,
     render: () => <OneBotSection />,
   },
   {

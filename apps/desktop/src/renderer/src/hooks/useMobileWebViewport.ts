@@ -20,6 +20,11 @@ export function observeMobileWebViewport(element: HTMLElement): () => void {
     element.style.removeProperty('--weq-mobile-safe-bottom');
     keyboardOpen = false;
   };
+  const css = (property: string, value: string) => {
+    if (element.style.getPropertyValue(property) === value) return;
+    if (value) element.style.setProperty(property, value);
+    else element.style.removeProperty(property);
+  };
   const update = () => {
     if (viewport && Math.abs(viewport.scale - 1) > 0.01) return;
     const editing = document.activeElement?.matches('input, textarea, [contenteditable="true"]');
@@ -37,13 +42,9 @@ export function observeMobileWebViewport(element: HTMLElement): () => void {
       layoutHeight = Math.max(layoutHeight, window.innerHeight);
     }
     keyboardOpen = !leavingKeyboard && !!(editing || keyboardOpen) && layoutHeight - height > 120;
-    if (keyboardOpen) element.style.setProperty('--weq-mobile-safe-bottom', '0px');
-    else element.style.removeProperty('--weq-mobile-safe-bottom');
-    element.style.setProperty('--weq-mobile-viewport-height', `${height}px`);
-    element.style.setProperty(
-      '--weq-mobile-viewport-top',
-      `${leavingKeyboard ? 0 : (viewport?.offsetTop ?? 0)}px`,
-    );
+    css('--weq-mobile-safe-bottom', keyboardOpen ? '0px' : '');
+    css('--weq-mobile-viewport-height', `${height}px`);
+    css('--weq-mobile-viewport-top', `${leavingKeyboard ? 0 : (viewport?.offsetTop ?? 0)}px`);
   };
   const navigate = () => {
     if (!element.classList.contains('app-shell-root')) return;

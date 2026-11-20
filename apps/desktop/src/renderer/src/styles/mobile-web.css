@@ -453,21 +453,6 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .weq-web-shell .compos
   font-size: 12px;
 }
 
-html:where([data-weq-layout='single'])
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  .conversation-row
-  .row-unread {
-  inset: auto 16px 10px auto;
-}
-
-:where(html[data-weq-layout='single'])
-  :is(.weq-web-shell .app-shell, .weq-conversation-list)
-  .conversation-row
-  .row-meta {
-  align-self: start;
-  padding-top: 2px;
-}
-
 :where(html[data-weq-layout='single']) .weq-web-shell .contact-tab-switch button.active::after {
   background: var(--weq-accent-effective);
 }

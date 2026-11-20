@@ -103,6 +103,7 @@ export interface AntiRecallOptions {
   readOnly?: boolean;
   preferences?: PreferencePersistence<AntiRecallConfig>;
   notificationsEnabled?: () => boolean;
+  onObservedRecall?: (event: RecallNotifyEvent) => void;
   /**
    * Raised for every newly-recorded recall in a conversation whose notification
    * switch is on. Implemented in the Electron main process (native notification
@@ -355,6 +356,20 @@ export class AntiRecallService {
     return this.optimisticStatus();
   }
 
+  /** 修改当前名单中的单个会话，不覆盖其他客户端刚保存的选择。 */
+  async setConversationNotify(
+    target: AntiRecallTarget,
+    enabled: boolean,
+  ): Promise<AntiRecallStatus> {
+    const { kind, id } = normalizeTarget(target);
+    const key = notifyKey(kind, id);
+    const targets = this.config.notifyTargets;
+    if (targets.includes(key) === enabled) return this.optimisticStatus();
+    return this.setNotify({
+      targets: enabled ? [...targets, key] : targets.filter((k) => k !== key),
+    });
+  }
+
   /**
    * Mount the recall monitor (nt_msg.db change watch → drain `weq_recall_log`).
    * Idempotent. Independent of whether protection is currently enabled; the drain
@@ -529,9 +544,8 @@ export class AntiRecallService {
           // 让游标卡在新记录下面、同一行被反复命中（重复弹通知）。
           const rowMsgId = BigInt(row.msgid);
           if (rowMsgId > cursor) cursor = rowMsgId;
-          if (!this.shouldNotify(row)) continue;
           try {
-            this.opts.onRecall?.({
+            const event = {
               kind: row.kind,
               conv: row.conv,
               msgId: row.msgid,
@@ -539,7 +553,9 @@ export class AntiRecallService {
               revokeUid: row.revokeUid,
               origSeq: row.origSeq,
               recallTs: row.recallTs,
-            });
+            };
+            this.opts.onObservedRecall?.(event);
+            if (this.shouldNotify(row)) this.opts.onRecall?.(event);
           } catch (error) {
             logger.warn('anti-recall notify hook failed', {
               event: 'anti-recall-notify-failed',

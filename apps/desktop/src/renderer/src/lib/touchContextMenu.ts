@@ -1,5 +1,5 @@
 /** 在整个 Web 文档（包括 portal）复用桌面右键入口，不依赖视口宽度或浏览器原生长按。 */
-export function installTouchContextMenu(document: Document): () => void {
+export function installTouchContextMenu(document: Document, selector?: string): () => void {
   const view = document.defaultView;
   if (!view) return () => {};
   let hold: { id: number; target: Element; x: number; y: number } | undefined;
@@ -19,12 +19,13 @@ export function installTouchContextMenu(document: Document): () => void {
   const start = (event: PointerEvent) => {
     cancel();
     suppressUntil = 0;
-    nativeContextUntil = event.pointerType === 'touch' ? Date.now() + 800 : 0;
+    nativeContextUntil = 0;
+    if (event.pointerType !== 'touch' || !(event.target instanceof Element)) return;
+    if (selector && !event.target.closest(selector)) return;
+    nativeContextUntil = Date.now() + 800;
     if (
-      event.pointerType !== 'touch' ||
       !event.isPrimary ||
       event.button !== 0 ||
-      !(event.target instanceof Element) ||
       editable(event.target) ||
       event.target.closest('[data-hover-delay="0"] button')
     )
@@ -72,6 +73,7 @@ export function installTouchContextMenu(document: Document): () => void {
   };
   const context = (event: MouseEvent) => {
     if (event === synthetic || editable(event.target)) return;
+    if (selector && !(event.target instanceof Element && event.target.closest(selector))) return;
     // 某些 WebView 会在自定义计时器前后另发原生 contextmenu，统一消费以免菜单开两次。
     // 手势取消可能早于系统菜单；旧内核的 MouseEvent 没有 pointerType，保留短暂兜底。
     const pointerType = (event as PointerEvent).pointerType;
@@ -103,7 +105,7 @@ export function installTouchContextMenu(document: Document): () => void {
   const leave = (event: PointerEvent) => {
     if (!event.relatedTarget) interrupt();
   };
-  document.documentElement.classList.add('weq-touch-context-menu');
+  if (!selector) document.documentElement.classList.add('weq-touch-context-menu');
   document.addEventListener('pointerdown', start, true);
   document.addEventListener('pointermove', move, { capture: true, passive: true });
   document.addEventListener('pointerup', end, true);
@@ -118,7 +120,7 @@ export function installTouchContextMenu(document: Document): () => void {
   view.addEventListener('blur', interrupt);
   return () => {
     cancel();
-    document.documentElement.classList.remove('weq-touch-context-menu');
+    if (!selector) document.documentElement.classList.remove('weq-touch-context-menu');
     document.removeEventListener('pointerdown', start, true);
     document.removeEventListener('pointermove', move, true);
     document.removeEventListener('pointerup', end, true);

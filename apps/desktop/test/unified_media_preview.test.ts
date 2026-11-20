@@ -15,6 +15,11 @@ import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewSto
 import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
 import { QqMarketFace } from '../src/renderer/src/components/QqMedia';
 import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
+import {
+  TransferActivity,
+  TransferActivityContext,
+} from '../src/renderer/src/lib/transferActivity';
 import { useViewState } from '../src/renderer/src/state/view';
 
 const mocks = vi.hoisted(() => ({
@@ -94,6 +99,100 @@ const key = (name: string) =>
       .dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true })),
   );
 const load = () => act(() => document.querySelector('img')!.dispatchEvent(new Event('load')));
+it('聊天灯箱命中本地原图时不显示下载，缺失时可从缩略图查看原图并重试', async () => {
+  const pic = { type: 'pic', data: { fileToken: 'fixture', fileSize: 197453 } };
+  const chat = galleryMedia([{ msgId: '4', sendTime: 1, elements: [pic, pic] }]);
+  act(() => root.render(h(MediaPreview, { items: chat, onClose: vi.fn() })));
+  const request = () => new URL(document.querySelector('img')!.src).searchParams;
+  const fail = () => act(() => document.querySelector('img')!.dispatchEvent(new Event('error')));
+  const viewOriginal = () =>
+    [...document.querySelectorAll('button')].find((item) =>
+      /(?:查看|重试)原图/.test(item.textContent ?? ''),
+    );
+  expect(request().get('localOnly')).toBe('1');
+  load();
+  expect(viewOriginal()).toBeUndefined();
+  act(() => button('下一项媒体').click());
+  fail();
+  load();
+  expect(request().get('preview')).toBe('1');
+  expect(viewOriginal()?.textContent).toBe('查看原图（0.19 MiB）');
+  act(() => viewOriginal()!.click());
+  const pending = () => document.querySelectorAll('img')[1]!;
+  expect(new URL(pending().src).searchParams.get('v')).toBe('original');
+  expect(new URL(pending().src).searchParams.has('localOnly')).toBe(false);
+  expect(request().get('preview')).toBe('1');
+  const unreadable = pending();
+  unreadable.decode = async () => {
+    throw new Error('test decode error');
+  };
+  await act(async () => unreadable.dispatchEvent(new Event('load')));
+  expect(request().get('preview')).toBe('1');
+  act(() => viewOriginal()!.click());
+  const original = pending();
+  original.decode = async () => {};
+  await act(async () => original.dispatchEvent(new Event('load')));
+  expect(document.querySelector('img')).toBe(original);
+  expect(request().get('v')).toBe('original');
+  expect(viewOriginal()).toBeUndefined();
+});
+it('自动原图遵循省流量，显示字节进度并等到解码成功才替换缩略图', async () => {
+  const previous = useDataSaver.getState().enabled;
+  const transfers = new TransferActivity();
+  const chat = galleryMedia([
+    { msgId: '4', sendTime: 1, elements: [{ type: 'pic', data: { fileToken: 'fixture' } }] },
+  ]);
+  try {
+    act(() => {
+      acceptPreferences(
+        { revision: 1, values: { autoDownloadPreviewOriginal: true }, records: {} },
+        false,
+      );
+      useDataSaver.setState({ enabled: true });
+      root.render(
+        h(
+          TransferActivityContext.Provider,
+          { value: transfers },
+          h(MediaPreview, { items: chat, onClose: vi.fn() }),
+        ),
+      );
+    });
+    act(() => document.querySelector('img')!.dispatchEvent(new Event('error')));
+    load();
+    const thumbnail = document.querySelector('img')!;
+    expect(document.querySelectorAll('img')).toHaveLength(1);
+    act(() => useDataSaver.setState({ enabled: false }));
+    const original = document.querySelectorAll('img')[1]!;
+    const params = new URL(original.src).searchParams;
+    expect(params.get('autoOriginal')).toBe('1');
+    act(() =>
+      transfers.replace([
+        {
+          id: params.get('transferId')!,
+          direction: 'download',
+          phase: 'download',
+          received: 25,
+          total: 100,
+        },
+      ]),
+    );
+    expect(
+      document.querySelector('[aria-label="正在下载原图"]')?.getAttribute('aria-valuenow'),
+    ).toBe('25');
+    const decoding = Promise.withResolvers<void>();
+    original.decode = () => decoding.promise;
+    act(() => original.dispatchEvent(new Event('load')));
+    expect(document.querySelector('img')).toBe(thumbnail);
+    expect(document.querySelector('[aria-label="正在解码原图"]')).not.toBeNull();
+    await act(async () => decoding.resolve());
+    expect(document.querySelector('img')).toBe(original);
+  } finally {
+    act(() => {
+      acceptPreferences({ revision: 2, values: {}, records: {} }, false);
+      useDataSaver.setState({ enabled: previous });
+    });
+  }
+});
 it('图片视频混排，切项后旧事件失效，视频离开时停止播放', () => {
   act(() => root.render(h(MediaPreview, { items, onClose: vi.fn() })));
   load();

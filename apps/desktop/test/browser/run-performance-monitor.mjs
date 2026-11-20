@@ -77,8 +77,8 @@ try {
     await page.goto(url + '?host=' + host);
     await page.getByRole('heading', { name: '日志与性能' }).waitFor();
     assert.deepEqual(await page.locator('.weq-set-card-title').allTextContents(), [
-      '性能记录',
       '应用日志',
+      '性能记录',
     ]);
     assert.equal(await page.locator('.weq-perf-chart').count(), 0);
     assert.equal(await page.getByRole('button', { name: '应用', exact: true }).count(), 0);
@@ -343,7 +343,7 @@ try {
     assert.equal(await logs.getByRole('tab').count(), 0);
     assert.equal(await logs.getByRole('button', { name: '记录设置', exact: true }).count(), 0);
     await logs.getByRole('button', { name: '选择日志文件', exact: true }).click();
-    await logs.getByRole('option', { name: '2026-11-16.log', exact: false }).click();
+    await logs.getByRole('option', { name: /2026-11-16 16:54:40.*16:57:19/ }).click();
     const popupCount = browser.contexts()[0].pages().length;
     await page.getByRole('button', { name: '打开性能监视' }).click();
     await page.getByRole('button', { name: '打开日志查看' }).click();

@@ -22,6 +22,12 @@ import { listSettings } from '@weq/service/settings-catalog';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { fullModeAllowed } from '../context/full_mode';
 import { assertAccountToolScope } from './account_scope';
+import {
+  listFeaturesInput,
+  getFeatureInput,
+  listFeatureDefinitions,
+  getFeatureDefinition,
+} from './feature_tools';
 import { runAssistantTool } from './openai_tools';
 import { hasAccountSwitchSubscriber, pushAccountSwitchRequest } from '../account_switch_bus';
 import {
@@ -664,6 +670,20 @@ function formatCst(unixSeconds: number): string {
 }
 
 export const AI_TOOLS: AiTool[] = [
+  tool({
+    name: 'list_features',
+    description:
+      '按关键词、领域、类别及目标端查询 WeQ 功能目录。用 get_feature 查看具体入口、所需对象和本轮工具。',
+    input: listFeaturesInput,
+    run: listFeatureDefinitions,
+  }),
+  tool({
+    name: 'get_feature',
+    description:
+      '按稳定 ID 查看 WeQ 功能的导航描述、业务条件及本轮是否提供相关工具。返回的是查询结果。',
+    input: getFeatureInput,
+    run: getFeatureDefinition,
+  }),
   tool({
     name: 'list_settings',
     description:

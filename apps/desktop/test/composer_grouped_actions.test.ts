@@ -166,7 +166,7 @@ it.each([false, true])('私聊互动表情保留发送，不再提供窗口抖�
   ).toBeNull();
   clickTitle(toolbar, '表情');
   expect(document.querySelector('[role="menuitem"]')).toBeNull();
-  expect(host.querySelector('[aria-label="表情面板"]')).not.toBeNull();
+  clickTitle(host.querySelector('[aria-label="表情面板"]')!, '表情');
   act(() =>
     host
       .querySelector('button[title="合成微笑"]')!

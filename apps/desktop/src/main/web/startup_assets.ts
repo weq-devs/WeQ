@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
 import { createHash } from 'node:crypto';
+import { lockRemoteViewport } from './remote_viewport';
 import { remoteStartupRecovery } from './startup_recovery';
 import {
   parse,
@@ -129,6 +130,7 @@ export async function startupShell(
   }
   visit(document);
   if (!head || paths.size === 0) return html;
+  lockRemoteViewport(head);
   if (!cached || cached.root !== root || cached.html !== html) {
     const assets = (async () => {
       const built = await builtAssets(root, paths);

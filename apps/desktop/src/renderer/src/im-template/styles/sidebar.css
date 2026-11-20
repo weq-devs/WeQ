@@ -408,9 +408,7 @@
 }
 
 .row-muted {
-  position: absolute;
-  right: 18px;
-  bottom: 17px;
+  flex: none;
   color: var(--weq-fg-muted, #9a9a9a);
 }
 
@@ -526,10 +524,9 @@
 
 .row-meta {
   display: inline-flex;
-  flex-direction: column;
-  align-self: start;
-  align-items: flex-end;
-  justify-content: start;
+  flex: none;
+  align-self: stretch;
+  align-items: center;
   gap: 6px;
   color: var(--weq-fg-secondary);
   font-size: 12px;

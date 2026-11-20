@@ -6,6 +6,7 @@ import {
   MicOff,
   Mic,
   Pencil,
+  ShieldCheck,
   ShieldMinus,
   ShieldPlus,
   Award,
@@ -53,6 +54,7 @@ export function AvatarContextMenu({
   onMute,
   onUnmute,
   onToggleAdmin,
+  onAdminPermissions,
   showChangeCard = false,
   showChangeTitle = false,
   showKick = false,
@@ -81,6 +83,7 @@ export function AvatarContextMenu({
   onUnmute?: (sender: User) => void;
   /** 设置 / 取消管理员（仅群主）。 */
   onToggleAdmin?: (sender: User, enable: boolean) => void;
+  onAdminPermissions?: (sender: User) => void;
   showChangeCard?: boolean;
   showChangeTitle?: boolean;
   showKick?: boolean;
@@ -244,6 +247,17 @@ export function AvatarContextMenu({
         >
           <ShieldPlus size={17} />
           <span>设为管理员</span>
+        </button>
+      ) : null}
+      {showUnsetAdmin && onAdminPermissions ? (
+        <button
+          type="button"
+          disabled={moderationDisabled}
+          title={moderationBlockedReason ?? '管理员权限'}
+          onClick={() => onAdminPermissions(state.sender)}
+        >
+          <ShieldCheck size={17} />
+          <span>管理员权限</span>
         </button>
       ) : null}
       {showUnsetAdmin && onToggleAdmin ? (

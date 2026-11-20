@@ -115,6 +115,15 @@ try {
   const qzone = await page
     .locator('.app-shell .weq-qzn:not([data-qzone-loading-preview])')
     .elementHandle();
+  await page.getByRole('button', { name: '我的空间', exact: true }).click();
+  await page.getByRole('button', { name: '相册', exact: true }).click();
+  const album = page.getByRole('button', { name: /^合成相册/ });
+  await album.waitFor({ timeout: 5000 });
+  await album.click();
+  await page.getByText('合成照片', { exact: true }).waitFor({ timeout: 5000 });
+  await page.getByRole('button', { name: '返回相册列表' }).click();
+  await album.waitFor({ timeout: 5000 });
+  await page.getByRole('button', { name: '动态', exact: true }).click();
   await page
     .locator('.app-shell > .chat-main')
     .dispatchEvent('touchstart', { touches: [{ clientX: 180, clientY: 400 }] });
@@ -153,9 +162,12 @@ try {
       ['messages', 'contacts', 'qzone', 'more'].indexOf(to) >
       ['messages', 'contacts', 'qzone', 'more'].indexOf(from);
     const x = forward ? 280 : 100;
-    await source.dispatchEvent('touchstart', { touches: [{ clientX: x, clientY: 400 }] });
+    await source.dispatchEvent('touchstart', {
+      touches: [{ identifier: 1, clientX: x, clientY: 400 }],
+    });
+    const endTouch = { identifier: 1, clientX: x + (forward ? -195 : 195), clientY: 400 };
     await source.dispatchEvent('touchmove', {
-      touches: [{ clientX: x + (forward ? -195 : 195), clientY: 400 }],
+      touches: [endTouch],
       cancelable: true,
     });
     assert.deepEqual(
@@ -164,7 +176,7 @@ try {
         .evaluateAll((pages) => pages.map((p) => p.dataset.mobileTransitionPage)),
       [from, to],
     );
-    await source.dispatchEvent('touchend', { touches: [] });
+    await source.dispatchEvent('touchend', { touches: [], changedTouches: [endTouch] });
     await settled();
     assert.equal(
       await page.locator(`[data-mobile-tab="${to}"]`).getAttribute('aria-current'),
@@ -236,6 +248,7 @@ try {
       cases,
       retainedLists: true,
       qzoneSettling: true,
+      qzoneAlbums: true,
       gestureCases,
       halfwayPages: half.map((p) => ({ page: p.page, left: p.left, right: p.right })),
       errors,

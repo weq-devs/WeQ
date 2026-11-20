@@ -97,6 +97,28 @@ const data: Record<string, unknown> = {
     hasMore: false,
   },
   'account.qzone.feeds': { feeds: [], hasMore: false },
+  'account.qzone.posts': { list: [], total: 0 },
+  'account.qzone.albumPage': {
+    albums: [{ id: 'fixture-album', name: '合成相册', mediaCount: 1, coverUrl: '', desc: '' }],
+    nextOffset: null,
+    total: 1,
+    warning: null,
+  },
+  'account.qzoneAlbumMedia': {
+    photos: [
+      {
+        id: 'fixture-photo',
+        name: '合成照片',
+        desc: '',
+        url: '',
+        thumbUrl: '',
+        uploadTime: 0,
+        isVideo: false,
+        picKey: 'fixture-photo',
+      },
+    ],
+    totalInAlbum: 1,
+  },
   'mail.status': { state: 'ready', unread: 0, notifications: false, lastSync: null, error: null },
   'mail.folders': [{ id: 1, name: '收件箱', unread: 0, total: 0, locked: false }],
   'mail.list': { items: [], page: 0, total: 0, unread: 0, hasMore: false },
@@ -125,6 +147,8 @@ function proxy(path = ''): unknown {
       if (key === 'useSubscription') return noop;
       if (key === 'subscribe') return () => ({ unsubscribe: noop });
       if (key === 'then') return undefined;
+      if (key === 'query' && ['account.qzone.albumPage', 'account.qzoneAlbumMedia'].includes(path))
+        return () => new Promise((resolve) => setTimeout(() => resolve(data[path]), 250));
       if (key === 'query' || key === 'fetch' || key === 'mutate')
         return async () => data[path] ?? [];
       if (key === 'invalidate') return async () => undefined;

@@ -108,15 +108,14 @@ describe('功能与设置搜索界面', () => {
           `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>body{margin:0;background:var(--background);color:var(--foreground);font-family:system-ui}.weq-titlebar-search-results{left:8px;top:48px;width:min(720px,calc(100vw - 16px));max-height:calc(100dvh - 64px)}</style><body><div class="weq-titlebar-search-results">${host.innerHTML}</div></body></html>`,
         );
       }
-      act(() =>
-        host
-          .querySelector<HTMLButtonElement>(
-            '[data-search-hit-key="app:setting:appearance:theme-mode"]',
-          )!
-          .click(),
-      );
+      const themeResult = [
+        ...host.querySelectorAll<HTMLButtonElement>('.weq-app-search [role="option"]'),
+      ].find((button) => button.querySelector('.weq-search-name')?.textContent === '基础模式');
+      expect(themeResult).toBeDefined();
+      act(() => themeResult!.click());
       expect(select).toHaveBeenCalledWith(
         expect.objectContaining({
+          id: 'setting:theme-mode',
           target: {
             kind: 'setting',
             section: 'appearance',

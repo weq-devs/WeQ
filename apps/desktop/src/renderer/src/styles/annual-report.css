@@ -225,10 +225,11 @@ html[data-theme='dark'] .weq-report-root {
   animation: rp-fade-up 900ms 420ms var(--rp-ease-drop) both;
 }
 
-/* 刻度轨。左右各夹一个 50% 宽的伪元素衬垫，任何一年（含首尾）都能被
-   scrollIntoView 滚到正中；用衬垫而不是 padding-inline: 50% —— 后者的百分比
+/* 刻度轨。左右各夹一个 50% 宽的伪元素衬垫，任何一年（含首尾）都能滚到正中。
+   用衬垫而不是 padding-inline: 50% —— 后者的百分比
    相对自身宽度解析，会把轨道撑成两倍宽并挤爆外层 grid。 */
 .weq-entry-strip {
+  position: relative;
   display: flex;
   align-items: flex-end;
   justify-content: safe center;
@@ -278,7 +279,7 @@ html[data-theme='dark'] .weq-report-root {
 .weq-entry-strip-year[data-active='yes'] {
   color: var(--rp-ink);
   /* 选中态用 scale 而不是改 font-size：字号变化会重排整条轨并让滚动目标每帧
-     漂移，scale 只走合成器，和 scrollIntoView 的平滑滚动互不打架。 */
+     漂移，scale 只走合成器，不改变刻度位置。 */
   transform: translateY(-2px) scale(1.24);
 }
 

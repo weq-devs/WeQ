@@ -134,7 +134,6 @@ export function GuildDirectDialog({
     >
       {!chatOnly ? (
         <header className="weq-guild-direct-head">
-          <strong>频道私聊</strong>
           <button
             type="button"
             className="icon-button"
@@ -144,6 +143,7 @@ export function GuildDirectDialog({
           >
             <ArrowLeft size={18} />
           </button>
+          <strong>频道私聊</strong>
         </header>
       ) : null}
       <div className="weq-guild-direct-body">

@@ -532,11 +532,20 @@ function normalizeOneBotConfig(
     : [];
   const legacyHttp = Array.isArray(raw.httpServers) ? (raw.httpServers as LegacyServer[]) : [];
   const legacySingle = typeof raw.port === 'number' || typeof raw.token === 'string';
+  const wsNames = new Set<string>();
+  const httpNames = new Set<string>();
+  const networkName = (name: unknown, fallback: string, used: Set<string>) => {
+    const base = (typeof name === 'string' && name.trim()) || fallback;
+    let unique = base;
+    for (let suffix = 2; used.has(unique); suffix++) unique = `${base} (${suffix})`;
+    used.add(unique);
+    return unique;
+  };
 
   const wsServers: ControlWsServer[] = legacySingle
     ? [
         {
-          name: typeof raw.name === 'string' ? raw.name : 'WebSocket 服务器',
+          name: networkName(raw.name, 'WebSocket 服务器', wsNames),
           enabled: raw.enabled !== false,
           port: typeof raw.port === 'number' ? raw.port : DEFAULT_SERVICE_PORTS['onebot-ws'],
           accessToken: typeof raw.token === 'string' ? raw.token : undefined,
@@ -545,8 +554,8 @@ function normalizeOneBotConfig(
         },
       ]
     : legacyWs.map((item) => ({
-        name: typeof item.name === 'string' ? item.name : 'WebSocket 服务器',
-        enabled: item.enabled !== false,
+        name: networkName(item.name, 'WebSocket 服务器', wsNames),
+        enabled: raw.enabled !== false && item.enabled !== false,
         port: typeof item.port === 'number' ? item.port : DEFAULT_SERVICE_PORTS['onebot-ws'],
         ...(typeof item.token === 'string' && item.token ? { accessToken: item.token } : {}),
         messageFormat: 'array',
@@ -554,10 +563,11 @@ function normalizeOneBotConfig(
       }));
 
   const httpServers: ControlHttpServer[] = legacyHttp.map((item) => ({
-    name: typeof item.name === 'string' ? item.name : 'HTTP 服务器',
-    enabled: item.enabled !== false,
+    name: networkName(item.name, 'HTTP 服务器', httpNames),
+    enabled: raw.enabled !== false && item.enabled !== false,
     port: typeof item.port === 'number' ? item.port : DEFAULT_SERVICE_PORTS['onebot-http'],
     ...(typeof item.token === 'string' && item.token ? { accessToken: item.token } : {}),
+    enableCors: item.enableCors !== false,
     messageFormat: 'array',
     reportSelfMessage: true,
   }));
@@ -610,8 +620,7 @@ function normalizeNetworkList<T>(value: unknown, label: string): T[] {
  * 按账号的 OneBot 配置。
  *
  * 兼容两代旧格式：
- *   - `oneBot`（全局一份，2026-11-19 之前的唯一形态）→ 迁到 `"legacy"` 键下，
- *     由调用方在打开账号时提升到该账号。
+ *   - 旧版全局 `oneBot` 保存在 `legacy`，等打开唯一已保存的 QQ 账号时迁入。
  *   - 每个值自己的格式迁移走 {@link normalizeOneBotConfig}。
  */
 function normalizeOneBotByUin(
@@ -622,7 +631,7 @@ function normalizeOneBotByUin(
   const out: Record<string, OneBotConfig> = {};
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     for (const [uin, config] of Object.entries(value as Record<string, unknown>)) {
-      if (!/^\d{5,20}$/.test(uin)) continue;
+      if (uin !== 'legacy' && !/^\d{5,20}$/.test(uin)) continue;
       out[uin] = normalizeOneBotConfig(
         config as DeepPartial<OneBotConfig> | LegacyOneBotConfig,
         EMPTY_ONEBOT_CONFIG,
@@ -1847,6 +1856,21 @@ export class UserConfigService {
     } catch {
       return [];
     }
+  }
+
+  /** 旧全局配置没有账号字段。只有已保存账号唯一时才可自动归属。 */
+  oneBotConfigOnAccountOpen(uin: string): OneBotConfig | undefined {
+    const { legacy, ...accounts } = this.getSettings().oneBotByUin;
+    if (accounts[uin] || !legacy) return accounts[uin];
+
+    const savedUins = new Set(this.listAccountConfigs().map((account) => account.uin));
+    if (savedUins.size !== 1 || !savedUins.has(uin)) return undefined;
+
+    return this.setSettings({ oneBotByUin: { ...accounts, [uin]: legacy } }).oneBotByUin[uin];
+  }
+
+  saveAccountOneBotConfig(uin: string, config: OneBotConfig): void {
+    this.setSettings({ oneBotByUin: { ...this.getSettings().oneBotByUin, [uin]: config } });
   }
 
   deleteAccountConfig(configId: string): void {

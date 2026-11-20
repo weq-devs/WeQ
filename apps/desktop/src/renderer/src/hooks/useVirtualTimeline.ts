@@ -37,6 +37,7 @@ const observeTimelineRect: typeof observeElementRect = (instance, callback) =>
     // 隐藏视口的零尺寸不回灌范围；重新显示时继续交付真实宽高。
     if (rect.width > 0 && rect.height > 0) callback(rect);
   });
+
 export function useVirtualTimeline({
   ids,
   scrollRef,
@@ -56,7 +57,7 @@ export function useVirtualTimeline({
   activeRef.current = active;
   const deliveringOffset = useRef(false);
   const committingScroll = useRef(false);
-  const renderedRange = useRef({ start: -1, end: -1, scrolling: false });
+  const mountedIndexes = useRef<ReadonlySet<number>>(new Set());
   const [, commitScrollRange] = useReducer((version: number) => version + 1, 0);
   const observeTimelineOffset: typeof observeElementOffset = useCallback(
     (instance, callback) =>
@@ -131,22 +132,25 @@ export function useVirtualTimeline({
     useFlushSync: false,
     useAnimationFrameWithResizeObserver: mobileWeb,
     onChange: (instance, sync) => {
-      const previous = renderedRange.current;
-      // 滚动范围必须同帧挂载；行高通知只直接更新几何，不在 RO 中提交新行。
       if (
-        sync &&
-        deliveringOffset.current &&
-        !committingScroll.current &&
-        (previous.start !== instance.range?.startIndex ||
-          previous.end !== instance.range?.endIndex ||
-          previous.scrolling !== instance.isScrolling)
-      ) {
+        !enabled ||
+        !sync ||
+        !deliveringOffset.current ||
+        committingScroll.current ||
+        !instance.range
+      )
+        return;
+      const { startIndex, endIndex } = instance.range;
+      for (let index = startIndex; index <= endIndex; index++) {
+        if (mountedIndexes.current.has(index)) continue;
+        // 缓冲能覆盖当前视口时，让普通更新补充下一批行。只有跨出缓冲才同步挂载。
         committingScroll.current = true;
         try {
           flushSync(commitScrollRange);
         } finally {
           committingScroll.current = false;
         }
+        break;
       }
     },
     estimateSize: () => 96,
@@ -178,11 +182,10 @@ export function useVirtualTimeline({
     rangeExtractor,
   });
   instanceRef.current = virtualizer;
-  renderedRange.current = {
-    start: virtualizer.range?.startIndex ?? -1,
-    end: virtualizer.range?.endIndex ?? -1,
-    scrolling: virtualizer.isScrolling,
-  };
+  const virtualItems = enabled ? virtualizer.getVirtualItems() : null;
+  useLayoutEffect(() => {
+    mountedIndexes.current = new Set(virtualItems?.map(({ index }) => index));
+  }, [virtualItems]);
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = enabled ? undefined : keepNativeScroll;
   const context = useRef({ ids, index, orderedIds, virtualizer, scope, active, windowed: enabled });
   context.current = { ids, index, orderedIds, virtualizer, scope, active, windowed: enabled };
@@ -371,15 +374,34 @@ export function useVirtualTimeline({
     [enabled, virtualizer],
   );
 
+  const measure = useCallback(
+    (element: HTMLDivElement | null) => {
+      virtualizer.measureElement(element);
+      const range = virtualizer.range;
+      if (!element?.isConnected || !enabled || !virtualizer.isScrolling || !range) return;
+      const index = virtualizer.indexFromElement(element);
+      if (
+        index < range.startIndex ||
+        index > range.endIndex ||
+        virtualizer.itemSizeCache.has(virtualizer.options.getItemKey(index))
+      )
+        return;
+      // 快速滚动会跳过预挂载范围，首测留到尺寸观察时会用估计高度排出空隙。
+      virtualizer.resizeItem(
+        index,
+        virtualizer.options.measureElement(element, undefined, virtualizer),
+      );
+    },
+    [enabled, virtualizer],
+  );
+
   return {
     enabled,
     virtualizer,
     margin,
-    items: enabled
-      ? virtualizer.getVirtualItems()
-      : ids.map((id, index) => ({ key: id, index, start: 0 })),
+    items: virtualItems ?? ids.map((id, index) => ({ key: id, index, start: 0 })),
     totalSize: enabled ? virtualizer.getTotalSize() : 0,
-    measure: virtualizer.measureElement,
+    measure,
     containerRef,
   };
 }

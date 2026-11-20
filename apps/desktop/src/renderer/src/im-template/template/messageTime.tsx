@@ -17,7 +17,12 @@ export function MessageTimeDivider({
   }
 
   return (
-    <TimeLabel className={cn('message-time-divider')} value={value} precision={precision}>
+    <TimeLabel
+      className={cn('message-time-divider')}
+      value={value}
+      precision={precision}
+      tabbable={false}
+    >
       {label}
     </TimeLabel>
   );

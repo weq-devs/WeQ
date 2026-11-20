@@ -14,7 +14,7 @@ vi.mock('@trpc/client', async (importOriginal) => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('真实 HTTP link 在慢业务批次未结束时仍返回任务所需的账号配置、列表和日志', async () => {
+it('真实 HTTP link 在慢目录未结束时仍返回任务和常规会话列表所需的读取', async () => {
   const requests: string[] = [];
   let release!: () => void;
   const blocked = new Promise<void>((resolve) => {
@@ -27,8 +27,11 @@ it('真实 HTTP link 在慢业务批次未结束时仍返回任务所需的账�
       const url = new URL(String(input), location.origin);
       requests.push(url.pathname);
       const batched = url.searchParams.has('batch');
-      if (url.pathname.includes('account.listBuddies')) await blocked;
-      const results = url.pathname.split(',').map((path) => ({ result: { data: path } }));
+      if (/account\.list(Buddies|AllGroups)/.test(url.pathname)) await blocked;
+      const results = url.pathname
+        .slice('/trpc/'.length)
+        .split(',')
+        .map((path) => ({ result: { data: `/trpc/${path}` } }));
       return new Response(JSON.stringify(batched ? results : results[0]), {
         headers: { 'Content-Type': 'application/json' },
       });
@@ -39,6 +42,7 @@ it('真实 HTTP link 在慢业务批次未结束时仍返回任务所需的账�
   const slow = client.query('account.listBuddies').then(() => {
     slowFinished = true;
   });
+  const slowGroups = client.query('account.listAllGroups');
   const config = client.query('account.getAccountConfig');
   try {
     await vi.waitFor(() => {
@@ -58,10 +62,40 @@ it('真实 HTTP link 在慢业务批次未结束时仍返回任务所需的账�
       '/trpc/account.listExportTasks',
       '/trpc/account.flashDownloadTaskLogs',
     ]);
+    const firstPage = [
+      'account.getUnreadInfos',
+      'account.listRecentContactTargets',
+      'account.listTopContacts',
+      'account.listConversationDraftTimes',
+      'clientState.snapshot',
+      'clientState.accountSnapshot',
+    ];
+    const directory = [
+      'account.listHiddenSessions',
+      'account.listDeletedSessions',
+      'account.listOfficialAccounts',
+      'account.listServiceAccounts',
+      'account.guildDirectListSessions',
+      'account.listAgentLabPersonas',
+      'account.listAgentLabGroups',
+    ];
+    const visibleReads = [
+      ...firstPage,
+      ...directory,
+      'account.listRecentContacts',
+      'account.listAssistantSessions',
+    ];
+    const before = requests.length;
+    expect(await Promise.all(visibleReads.map((path) => client.query(path)))).toEqual(
+      visibleReads.map((path) => `/trpc/${path}`),
+    );
+    const startupRequests = requests.slice(before);
+    expect(startupRequests).toHaveLength(4);
+    expect(startupRequests).toContain(`/trpc/${firstPage.join(',')}`);
+    expect(startupRequests).toContain(`/trpc/${directory.join(',')}`);
     expect(slowFinished).toBe(false);
-    expect(requests.every((path) => !path.includes(','))).toBe(true);
   } finally {
     release();
-    await Promise.all([slow, config]);
+    await Promise.all([slow, slowGroups, config]);
   }
 });

@@ -357,6 +357,7 @@ export type MessageAction = {
 export type Message = {
   id: string;
   deletedKind?: 'weq' | 'qq';
+  recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
   recallRevokerName?: string;
   /** 尚未取得持久身份的生成片段，只显示，不进入导出或多选。 */
   generatedPending?: boolean;

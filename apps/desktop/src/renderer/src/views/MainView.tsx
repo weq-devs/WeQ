@@ -62,6 +62,7 @@ import type {
 } from './workspace/types';
 import { useWorkspaceDrafts } from './workspace/useWorkspaceDrafts';
 import { useWorkspaceDirectory } from './workspace/useWorkspaceDirectory';
+import { useConversationInteractionBadges } from '../hooks/useConversationInteractionBadges';
 import React, {
   lazy,
   Suspense,
@@ -223,18 +224,11 @@ import {
   createUnreadRefreshState,
 } from '../lib/unreadRefresh';
 import { flashShareCodeOfUrl } from '../lib/flashShare';
+import { FLASH_PHOTO_PLACEHOLDER_TEXT } from '../lib/flashPhoto';
 import {
-  classifyFlashPhotoFetch,
-  FLASH_PHOTO_MAX_ATTEMPTS,
-  FLASH_PHOTO_PLACEHOLDER_TEXT,
-  isFlashPhotoPlaceholderText,
-  pickFlashPhotoFetch,
-} from '../lib/flashPhoto';
-import {
-  loadFlashPhotoState,
-  saveFlashPhotoState,
-  type FlashPhotoPatch,
-} from '../lib/flashPhotoPatchStore';
+  messageFallbackKind,
+  useMessageElementPatches,
+} from './workspace/useMessageElementPatches';
 import { unreadChatType } from '@weq/codec';
 import { replaceLoadedMembers, subscribeQQPeerUpdates } from '../lib/qqPeerUpdates';
 import { draftSortTimes } from '@weq/service/conversation-order';
@@ -365,6 +359,7 @@ import type { GroupLeftMemberRow } from '../components/GroupLeftMembersDialog';
 import type { CompositionBinding } from '../components/mergeForward/workspaceModel';
 import { useCompositionWindow } from '../hooks/useCompositionWindow';
 import { useGroupResourceWindows } from '../hooks/useGroupResourceWindows.shared';
+import { resolveWorkspaceFeature } from '../lib/workspaceFeature';
 import {
   cleanNtPath,
   codecElementToSeg,
@@ -442,7 +437,13 @@ import { CalendarNavigationContext, type CalendarNavigate } from '../lib/calenda
 import { conversationListSearchText } from '../lib/conversationListSearchText';
 import { calendarCloneRevision, calendarAssistantRevision } from '../lib/calendarSourceRevision';
 import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
-import type { AppSearchEntry, ToolSearchRequest } from '../components/search/appSearchCatalog';
+import {
+  findLinkedAppEntry,
+  type AppSearchEntry,
+  type ToolSearchRequest,
+} from '../components/search/appSearchCatalog';
+import { OPEN_FEATURE_EVENT } from '../../../shared/feature_links';
+import { useAppLock } from '../state/lock';
 import type { DressKind } from '../components/DressUpDialog';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
@@ -465,6 +466,7 @@ import {
   QzoneNavigationContext,
   QzoneProfileContext,
   type QzoneSpaceRequest,
+  scopedQzoneRequest,
 } from '../lib/qzoneNavigation';
 import { ChatMainContent } from '../im-template/template/chatMainContent';
 import { ChatShell } from '../im-template/template/chatShell';
@@ -655,9 +657,7 @@ function MainWorkspace(): ReactElement {
     staleTime: IS_WEB ? 60_000 : 5 * 60_000,
     refetchOnMount: IS_WEB,
   } as const;
-  const groupOptions = { ...directoryOptions, enabled: groupsReady || contactsPageOpen };
   const profileOptions = { ...directoryOptions, enabled: profilesReady || contactsPageOpen };
-  const secondaryOptions = { ...directoryOptions, enabled: secondaryReady };
   const onlineOptions = { ...directoryOptions, enabled: onlineReady };
   const pushToast = useToast((s) => s.push);
   const confirmReadState = useDialog((s) => s.confirm);
@@ -721,6 +721,18 @@ function MainWorkspace(): ReactElement {
     pendingScrollRestoreRef,
     pendingSearchJumpRef,
   } = messageWindow;
+  const prefetchVisibleConversations = useCallback(
+    (rows: readonly Conversation[]) =>
+      prefetchVisible(
+        rows.filter(
+          (row) =>
+            row.type !== 'merged' &&
+            !row.generated &&
+            (!row.directoryKind || row.directoryKind === 'qq'),
+        ),
+      ),
+    [prefetchVisible],
+  );
   const pinMutation = trpc.account.qqWrite.pin.useMutation();
   useEffect(() => {
     if (pinSession.result)
@@ -742,6 +754,22 @@ function MainWorkspace(): ReactElement {
     visibleConversationIds,
   );
   const firstContactsReady = Boolean(contacts.data) || contacts.isError;
+  // Remote 的常规视图在首批会话可用后就补齐各聚合入口，缓存先显示并立即向宿主校准。
+  const regularDirectoryReady =
+    Boolean(pinSession.binding) && (firstContactsReady || Boolean(recentHead.data));
+  const regularDirectoryOptions = {
+    ...directoryOptions,
+    staleTime: IS_WEB ? 0 : directoryOptions.staleTime,
+    enabled: IS_WEB ? regularDirectoryReady : secondaryReady,
+  };
+  const conversationPagingReady = IS_WEB ? regularDirectoryReady : secondaryReady;
+  const canContinueConversationPaging = useStableCallback(
+    () =>
+      !initialMessagesPendingRef.current &&
+      (IS_WEB
+        ? !recentHead.isFetching && !topContacts.isFetching && !conversationDraftTimes.isFetching
+        : queryClient.isFetching() === 0),
+  );
   const conversationDraftTimes = trpc.account.listConversationDraftTimes.useQuery(
     pinSession.binding ?? undefined,
     { enabled: Boolean(pinSession.binding), keepPreviousData: false, staleTime: 0 },
@@ -753,13 +781,10 @@ function MainWorkspace(): ReactElement {
   // Folder membership must cover older rows too; never classify unobserved groups as folded.
   useEffect(() => {
     if (contacts.hasNextPage && !contacts.isFetching && !contacts.error) {
-      if (!secondaryReady || !contacts.isFetchedAfterMount) return;
-      return scheduleStartupQueryBatch(
-        () => {
-          void contacts.fetchNextPage();
-        },
-        () => !initialMessagesPendingRef.current && queryClient.isFetching() === 0,
-      );
+      if (!conversationPagingReady || !contacts.isFetchedAfterMount) return;
+      return scheduleStartupQueryBatch(() => {
+        void contacts.fetchNextPage();
+      }, canContinueConversationPaging);
     }
   }, [
     contacts.hasNextPage,
@@ -767,13 +792,13 @@ function MainWorkspace(): ReactElement {
     contacts.error,
     contacts.data?.pages.length,
     contacts.fetchNextPage,
-    secondaryReady,
-    queryClient,
+    conversationPagingReady,
+    canContinueConversationPaging,
     contacts.isFetchedAfterMount,
   ]);
   useEffect(() => {
     if (
-      !secondaryReady ||
+      !conversationPagingReady ||
       !contacts.data ||
       contacts.isFetchedAfterMount ||
       contacts.isFetching ||
@@ -782,21 +807,19 @@ function MainWorkspace(): ReactElement {
       return;
     const binding = messageBindingRef.current;
     const source = messageScope;
-    return scheduleStartupQueryBatch(
-      () => {
-        const headInput = { limit: RECENT_HEAD_SIZE, cursor: 0, ...binding };
-        const previousHead = utils.account.listRecentContacts.getData(headInput);
-        void contacts.refetch().then((result) => {
-          if (result.isError || !result.data || messageScopeRef.current !== source) return;
-          // 全目录校准完成后清掉旧页里已删除的会话，不覆盖更晚的实时 head。
-          if (utils.account.listRecentContacts.getData(headInput) !== previousHead) return;
-          utils.account.listRecentContacts.setData(headInput, result.data.pages[0]);
-        });
-      },
-      () => !initialMessagesPendingRef.current && queryClient.isFetching() === 0,
-    );
+    return scheduleStartupQueryBatch(() => {
+      const headInput = { limit: RECENT_HEAD_SIZE, cursor: 0, ...binding };
+      const previousHead = utils.account.listRecentContacts.getData(headInput);
+      void contacts.refetch().then((result) => {
+        if (result.isError || !result.data || messageScopeRef.current !== source) return;
+        // 全目录校准完成后清掉旧页里已删除的会话，不覆盖更晚的实时 head。
+        if (utils.account.listRecentContacts.getData(headInput) !== previousHead) return;
+        utils.account.listRecentContacts.setData(headInput, result.data.pages[0]);
+      });
+    }, canContinueConversationPaging);
   }, [
-    secondaryReady,
+    conversationPagingReady,
+    canContinueConversationPaging,
     contacts.data,
     contacts.isFetchedAfterMount,
     contacts.isFetching,
@@ -804,7 +827,6 @@ function MainWorkspace(): ReactElement {
     recentHead.isFetching,
     utils,
     messageScope,
-    queryClient,
     messageBindingRef,
     messageScopeRef,
   ]);
@@ -867,7 +889,13 @@ function MainWorkspace(): ReactElement {
     previousContactSummaries.current = contactPreviews.summaries;
   }, [contactPreviews]);
   const recentContactsData = contactPreviews.rows;
-  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 }, groupOptions);
+  const allGroups = trpc.account.listAllGroups.useQuery(
+    { limit: 2000 },
+    {
+      ...regularDirectoryOptions,
+      enabled: groupsReady || contactsPageOpen || (IS_WEB && regularDirectoryReady),
+    },
+  );
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
   const previousGroupAssistantIds = useRef(new Set<string>());
   const groupAssistantIds = useMemo(() => {
@@ -901,14 +929,26 @@ function MainWorkspace(): ReactElement {
       void contacts.fetchNextPage();
     }
   };
-  const hiddenSessions = trpc.account.listHiddenSessions.useQuery(undefined, secondaryOptions);
-  const deletedSessions = trpc.account.listDeletedSessions.useQuery(undefined, secondaryOptions);
-  const officialAccounts = trpc.account.listOfficialAccounts.useQuery(undefined, secondaryOptions);
-  const serviceAccounts = trpc.account.listServiceAccounts.useQuery(undefined, secondaryOptions);
+  const hiddenSessions = trpc.account.listHiddenSessions.useQuery(
+    undefined,
+    regularDirectoryOptions,
+  );
+  const deletedSessions = trpc.account.listDeletedSessions.useQuery(
+    undefined,
+    regularDirectoryOptions,
+  );
+  const officialAccounts = trpc.account.listOfficialAccounts.useQuery(
+    undefined,
+    regularDirectoryOptions,
+  );
+  const serviceAccounts = trpc.account.listServiceAccounts.useQuery(
+    undefined,
+    regularDirectoryOptions,
+  );
   // 频道私聊聚合入口：与公众号一样只取「有没有 / 最新一条」，详情在展开面板里拉。
   const guildDirectSessions = trpc.account.guildDirectListSessions.useQuery(
     undefined,
-    secondaryOptions,
+    regularDirectoryOptions,
   );
   const guildConversationRows = useMemo(
     () => (guildDirectSessions.data ?? []).map(guildConversationRow),
@@ -1062,31 +1102,6 @@ function MainWorkspace(): ReactElement {
     anchorId?: string;
   } | null>(null);
 
-  /**
-   * 闪照补拉到的真元素，按**本地** `msgId` 存（补拉那条的 msgId 与本地行不同，
-   * 只有 seq 相同）。不能直接写进 `loaded`：`refreshWindow` 会在消息活动 / SSO
-   * 事件后从本地库整页重读并 `setLoaded(rows)`，把替换冲掉。
-   */
-  const [flashPhotoPatches, setFlashPhotoPatches] = useState(
-    () => new Map<string, FlashPhotoPatch>(),
-  );
-  /** 服务端确认补不回来的本地 msgId（切会话也不丢，见 flashPhotoPatchStore）。 */
-  const [flashPhotoDead, setFlashPhotoDead] = useState(() => new Set<string>());
-  // 写盘要在 setState 的 updater 之外拿「另一个集合」的最新值，用 ref 镜像一份。
-  const flashPhotoPatchesRef = useRef(flashPhotoPatches);
-  const flashPhotoDeadRef = useRef(flashPhotoDead);
-  flashPhotoPatchesRef.current = flashPhotoPatches;
-  flashPhotoDeadRef.current = flashPhotoDead;
-  /** 把当前会话的补丁 + 判死集合写回 sessionStorage。 */
-  const persistFlashPhotoState = useCallback(
-    (conv: string, patches: Map<string, FlashPhotoPatch>, dead: Set<string>): void => {
-      saveFlashPhotoState(conv, {
-        patches: Object.fromEntries(patches),
-        dead: [...dead],
-      });
-    },
-    [],
-  );
   const [calendarDataRevision, setCalendarDataRevision] = useState(0);
   const calendarOpenRef = useRef(false);
 
@@ -1335,6 +1350,11 @@ function MainWorkspace(): ReactElement {
     [setConversationView],
   );
   useClientPreferences((state) => state.tick);
+  const interactionBadges = useConversationInteractionBadges(
+    pinSession.binding,
+    preferenceValue('showInteractionBadge'),
+  );
+  const interactionViewportLocked = useAppLock((state) => state.locked);
   const includeHiddenConversations = preferenceValue('allConversationsIncludeHidden');
   const includeDeletedConversations = preferenceValue('allConversationsIncludeDeleted');
   const allConversationOptions = useMemo(
@@ -1894,14 +1914,23 @@ function MainWorkspace(): ReactElement {
 
   const handleOpenGroupAlbums = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
+      const group = { code: conversation.id, name: conversation.group.name };
+      if (
+        resolveWorkspaceFeature(
+          { id: 'groups.albums', group },
+          messageScope,
+          messageScopeRef.current,
+        ).status !== 'available'
+      )
+        return;
       setGroupSidebarPopover(null);
       openGroupResourceWindow({
         kind: 'albums',
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
+        groupCode: group.code,
+        groupName: group.name,
       });
     },
-    [openGroupResourceWindow],
+    [messageScope, messageScopeRef, openGroupResourceWindow],
   );
 
   const handleOpenGroupAnnouncements = useCallback(
@@ -3312,12 +3341,6 @@ function MainWorkspace(): ReactElement {
     // 换会话后缺口要重新判断：上个会话「确认无消息」的缺口 id 与本会话无关。
     setResolvedGaps(new Set());
     automaticGapAttempts.current.clear();
-    flashPhotoTried.current.clear();
-    flashPhotoAttempts.current.clear();
-    // 补丁按会话号分桶存在 sessionStorage：换回来时直接接着用，不重新发包。
-    const restored = loadFlashPhotoState(selectedUid ?? '');
-    setFlashPhotoPatches(new Map(Object.entries(restored.patches)));
-    setFlashPhotoDead(new Set(restored.dead));
   }, [selectedUid, isDirect, isGroup, messageScope]);
 
   // 补拉成功会解除对应隐藏记录；只同步标记，不再触发时间线重载。
@@ -3348,16 +3371,21 @@ function MainWorkspace(): ReactElement {
 
   // Keep one unread reader alive: DB pings request a refresh, rather than
   // cancelling and restarting an all-conversation scan on every change.
-  const unreadDirectoryContacts = useMemo(
-    () => [
-      ...recentContactsData,
-      ...(hiddenSessions.data ?? []).filter((row) => row.resolvable),
-      ...(deletedSessions.data ?? []).filter((row) => row.resolvable),
-    ],
-    [recentContactsData, hiddenSessions.data, deletedSessions.data],
-  );
-  const unreadDirectoryContactsRef = useRef(unreadDirectoryContacts);
-  unreadDirectoryContactsRef.current = unreadDirectoryContacts;
+  type UnreadTarget = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
+  const unreadDirectoryTargets = useMemo(() => {
+    const targets = new Map<string, UnreadTarget>();
+    const archived = [...(hiddenSessions.data ?? []), ...(deletedSessions.data ?? [])];
+    for (const contact of [...recentContactsData, ...archived.filter((row) => row.resolvable)]) {
+      const chatType = unreadChatType(contact.chatType);
+      if (chatType !== null)
+        targets.set(`${chatType}:${contact.targetUid}`, { chatType, uid: contact.targetUid });
+    }
+    // 群助手成员也加入小表读取，覆盖尚未分页到的群。
+    for (const uid of groupAssistantIds) targets.set(`2:${uid}`, { chatType: 2, uid });
+    return [...targets.values()];
+  }, [recentContactsData, hiddenSessions.data, deletedSessions.data, groupAssistantIds]);
+  const unreadDirectoryTargetsRef = useRef(unreadDirectoryTargets);
+  unreadDirectoryTargetsRef.current = unreadDirectoryTargets;
   const archivedUnreadRef = useRef(new Map<string, number>());
   archivedUnreadRef.current = new Map(
     [...(hiddenSessions.data ?? []), ...(deletedSessions.data ?? [])].flatMap((row) =>
@@ -3369,6 +3397,7 @@ function MainWorkspace(): ReactElement {
   initialMessagesPendingRef.current =
     messagesLoading || trackedConversationId !== shell.activeConversationId;
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
+  const requestNewDirectoryUnreadRef = useRef<(() => void) | null>(null);
   const refreshArchivedUnread = useStableCallback(() => {
     void utils.account.listHiddenSessions.invalidate();
     void utils.account.listDeletedSessions.invalidate();
@@ -3390,13 +3419,13 @@ function MainWorkspace(): ReactElement {
       setHighlightsByConv({});
     }
 
+    const targetKey = ({ chatType, uid }: UnreadTarget) => `${chatType}:${uid}`;
+    let knownTargets: Set<string> | undefined;
     async function loadUnread(): Promise<boolean> {
       if (!isCurrent() || !binding || !openedUin) return true;
       const startedAt = guard.revision();
-      const targets = unreadDirectoryContactsRef.current.flatMap((contact) => {
-        const chatType = unreadChatType(contact.chatType);
-        return chatType === null ? [] : [{ chatType, uid: contact.targetUid }];
-      });
+      const targets = unreadDirectoryTargetsRef.current;
+      knownTargets = new Set(targets.map(targetKey));
       // 共享服务快照一次准备；所有批次返回后只提交一帧角标，不逐会话回填。
       const rows = await readUnreadInfos({ ...binding, targets });
       if (!isCurrent()) return true;
@@ -3405,7 +3434,6 @@ function MainWorkspace(): ReactElement {
     }
 
     const refresh = createUnreadRefresh(loadUnread);
-    type Target = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
     type Rows = Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>;
     const applyLive = (rows: Rows, startedAt: number) => {
       const accepted = rows.filter((row) => !row.readError && guard.accepts(row.uid, startedAt));
@@ -3443,7 +3471,7 @@ function MainWorkspace(): ReactElement {
         return changed ? next : current;
       });
     };
-    const readTargets = async (targets: Target[]) => {
+    const readTargets = async (targets: UnreadTarget[]) => {
       if (!isCurrent() || !binding) return true;
       const startedAt = guard.revision();
       const rows = await readUnreadInfos({ ...binding, targets });
@@ -3451,9 +3479,9 @@ function MainWorkspace(): ReactElement {
       applyLive(rows, startedAt);
       return rows
         .filter((row) => row.readError)
-        .map((row) => ({ chatType: row.chatType as Target['chatType'], uid: row.uid }));
+        .map((row) => ({ chatType: row.chatType as UnreadTarget['chatType'], uid: row.uid }));
     };
-    const liveRefresh = createUnreadTargetRefresh<Target>(
+    const liveRefresh = createUnreadTargetRefresh<UnreadTarget>(
       readTargets,
       refresh.request,
       UNREAD_BATCH_SIZE,
@@ -3490,6 +3518,18 @@ function MainWorkspace(): ReactElement {
         })
       : null;
     requestUnreadRefreshRef.current = refresh.request;
+    requestNewDirectoryUnreadRef.current = () => {
+      if (!knownTargets) return;
+      const current = new Set<string>();
+      const added: UnreadTarget[] = [];
+      for (const target of unreadDirectoryTargetsRef.current) {
+        const key = targetKey(target);
+        current.add(key);
+        if (!knownTargets.has(key)) added.push(target);
+      }
+      knownTargets = current;
+      if (added.length) liveRefresh.request(added, false);
+    };
     const onVisible = () => {
       if (document.visibilityState !== 'hidden') refresh.request();
     };
@@ -3504,6 +3544,7 @@ function MainWorkspace(): ReactElement {
       window.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
       requestUnreadRefreshRef.current = null;
+      requestNewDirectoryUnreadRef.current = null;
     };
   }, [
     openedUin,
@@ -3528,17 +3569,9 @@ function MainWorkspace(): ReactElement {
       void refreshWindow();
     });
   }, [conversationWindows, refreshRecentHead, refreshRecentTargets, refreshWindow]);
-  const unreadDirectoryKey = useMemo(
-    () =>
-      unreadDirectoryContacts
-        .map((row) => `${row.chatType}:${row.targetUid}`)
-        .sort()
-        .join('|'),
-    [unreadDirectoryContacts],
-  );
   useEffect(() => {
-    requestUnreadRefreshRef.current?.();
-  }, [unreadDirectoryKey]);
+    requestNewDirectoryUnreadRef.current?.();
+  }, [unreadDirectoryTargets]);
 
   useConversationWindowSelection(messageWindow, {
     activeConversationId: shell.activeConversationId,
@@ -3886,20 +3919,28 @@ function MainWorkspace(): ReactElement {
     [mapGroupMemberForGroup, selectedUid],
   );
 
-  // `loaded` is already oldest→newest; the template renders in array order.
-  //
-  // 闪照补丁（`flashPhotoPatches`）在这一层套用：`refreshWindow` 会从本地库整页
-  // 重读后直接 `setLoaded(rows)`，把任何写进 `loaded` 的替换冲掉，所以补到的元素
-  // 不能存进 `loaded`，只能钉在「本地 msgId → 真元素」这张表上，读时间线时合并。
+  const messageElementTarget = isGroup || isDirect ? convFetchKey(selectedConversation) : null;
+  const messageElementPatches = useMessageElementPatches(
+    loaded,
+    messageElementTarget?.kind,
+    messageElementTarget?.conv,
+    pinSession.binding,
+    messageWindow.loadedWindow.key === selectedMessageWindowKey &&
+      messagesTabActive &&
+      sendAccess.data?.qqOnline === true &&
+      sendAccess.data.attachEnabled &&
+      sendAccess.data.ssoReady === true,
+  );
+  // 原行负责定位、撤回和对账，补拉只提供正文。窗口刷新也能继续使用已补回的元素。
   const loadedMessageWires = useMemo(
     () =>
       loaded.map((row) => {
-        const patched = flashPhotoPatches.get(row.msgId);
         const base = replyMediaRows.get(row) ?? row;
-        if (!patched) return base;
-        return { ...base, elements: patched.elements, sourceFormat: patched.sourceFormat };
+        const patch = messageElementPatches[row.msgId];
+        if (!patch || !messageFallbackKind(row)) return base;
+        return { ...base, elements: patch.elements, sourceFormat: patch.sourceFormat };
       }),
-    [loaded, replyMediaRows, replyMediaRevision, flashPhotoPatches],
+    [loaded, replyMediaRows, replyMediaRevision, messageElementPatches],
   );
   const messageReplyIndex = useMemo(
     () => createReplyPreviewIndex(loadedMessageWires),
@@ -4588,144 +4629,13 @@ function MainWorkspace(): ReactElement {
     });
   }, [loadedMessageWires, optimisticMessages, selectedConversation, user]);
 
-  // ── 闪照：本地库只剩兜底文案时，按需走协议把真正的元素拉回来 ──────────────
-  //
-  // 本地库 `40800` 里闪照只有一句 `[闪照]请使用新版手机QQ查看闪照。`，
-  // `commonElem(serviceType=3)` 从来没落过库（见 `docs/database/nt_msg/elements/pic.md`）。
-  // 服务端漫游里这条消息仍然带着完整元素，所以按它的 seq 拉一个**单条窗口**就能拿到。
-  //
-  // 约束：
-  //   - 只有 QQ 在线能力（在线 QQ + 附加能力）才拉，在线能力受限保持兜底文案；
-  //   - **还要等 SSO 会话登记好**（`ssoReady`）。QQ 在线 ≠ 能发包：Linux 上要提权读
-  //     内存拿 a2/d2 之后才登记，中间有几十秒空窗，撞进去必然回
-  //     「还没有登记 SSO 会话」，拉一次就白费；
-  //   - 每条消息最多试几次（`flashPhotoTried` / `flashPhotoAttempts`）：失败按瞬时
-  //     / 永久区分，瞬时（SSO 没就绪、网络抖动）放回队列等下一轮，永久（服务端确实
-  //     没有这条）才永久停在兜底文案；
-  //   - 拉到就整条替换进时间线，渲染成真正的闪照气泡。
-  const flashPhotoTried = useRef(new Set<string>());
-  /** 每条消息已经尝试过几次（瞬时失败会放回重试队列，但不能无限重打）。 */
-  const flashPhotoAttempts = useRef(new Map<string, number>());
-
-  // 凭据就绪（SSO 会话刚登记上）时把所有闪照的重试名额清空：之前因为
-  // 「还没有登记 SSO 会话」失败的消息，这时候才真的有可能拉到。同时失效一次
-  // 能力状态 —— 订阅事件可能早于 5 秒轮询，提前刷新能让 effect 立刻再跑一轮。
+  // 凭据登记事件可能早于能力轮询，立即刷新以恢复特殊消息补拉。
   useEffect(() => {
     const sub = client.account.onOnlineCredentialsReady.subscribe(undefined, {
-      onData: () => {
-        flashPhotoTried.current.clear();
-        flashPhotoAttempts.current.clear();
-        void utils.account.getGroupAlbumAccessState.invalidate();
-      },
+      onData: () => void utils.account.getGroupAlbumAccessState.invalidate(),
     });
     return () => sub.unsubscribe();
   }, [utils]);
-  const flashPhotoPlaceholders = useMemo(() => {
-    if (!selectedConversation) return [] as { msgId: string; msgSeq: string }[];
-    return loadedMessageWires
-      .filter((wire) => {
-        const elements = wire.elements ?? [];
-        if (elements.length !== 1) return false;
-        const element = elements[0] as { type?: string; data?: Record<string, unknown> } | null;
-        if (element?.type !== 'text') return false;
-        const text = element.data?.textContent;
-        return typeof text === 'string' && isFlashPhotoPlaceholderText(text);
-      })
-      .map((wire) => ({ msgId: wire.msgId, msgSeq: String(wire.msgSeq ?? '') }))
-      .filter((row) => /^\d+$/.test(row.msgSeq) && Number(row.msgSeq) > 0);
-  }, [loadedMessageWires, selectedConversation]);
-
-  useEffect(() => {
-    if (!selectedConversation) return;
-    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) return;
-    // QQ 在线不代表能发 SSO 包：会话物料要提权读出来才登记。没登记就发包只会拿到
-    // 「还没有登记 SSO 会话」，白白烧掉这条消息的重试名额（见上面的说明）。
-    if (sendAccess.data.ssoReady !== true) return;
-    // 待补 = 时间线里还是兜底文案、且没被服务端判死、也没补丁的。
-    //
-    // `tried` 只用来挡「同一批并发重复入队」，**不能**用来表示放弃：以前把
-    // `attempts >= MAX` 也当成不可再试，可一次 effect 就会给全部待补都 +1，
-    // 一轮跑完剩下的条目已经没名额了 —— 于是「一次只补 4 条」的那 4 条之后的
-    // 消息永远轮不到（实测 6 条闪照只补到第 3、4 条）。
-    const pending = flashPhotoPlaceholders.filter(
-      (row) =>
-        !flashPhotoDead.has(row.msgId) &&
-        !flashPhotoPatches.has(row.msgId) &&
-        (flashPhotoAttempts.current.get(row.msgId) ?? 0) < FLASH_PHOTO_MAX_ATTEMPTS,
-    );
-    if (pending.length === 0) return;
-    const { kind, conv } = convFetchKey(selectedConversation);
-    const selection = selectionRef.current;
-    let cancelled = false;
-    void (async () => {
-      // 一条一条来：全部补完，不再砍成每轮 4 条。串行是为了不打爆服务端，
-      // 也保证「补完这一批」这件事本身是确定的。
-      for (const row of pending) {
-        if (cancelled) return;
-        const seq = Number(row.msgSeq);
-        if (!Number.isSafeInteger(seq) || seq <= 0) continue;
-        flashPhotoAttempts.current.set(
-          row.msgId,
-          (flashPhotoAttempts.current.get(row.msgId) ?? 0) + 1,
-        );
-        try {
-          const result = await client.account.fetchGapMessages.query({
-            kind,
-            conv,
-            startSeq: seq,
-            endSeq: seq,
-          });
-          if (cancelled || selectionRef.current !== selection) return;
-          // 按 seq 挑（不能按 msgId，本地与服务端两套 id），再按结果分类：
-          // 瞬时失败 / 空响应 → 下一轮再试；服务端确实没有 → 判死；拿到 → 回填。
-          const fetched = result.ok ? pickFlashPhotoFetch(result.messages, row.msgSeq) : null;
-          const outcome = classifyFlashPhotoFetch({
-            ok: result.ok,
-            ...(result.ok ? {} : { reason: result.reason, message: result.message }),
-            fetchedRows: result.ok ? result.messages.length : 0,
-            picked: fetched !== null,
-          });
-          if (outcome === 'retry') continue;
-          if (outcome === 'give-up' || !fetched) {
-            // 服务端这一窗确实没有闪照元素：记进 dead，切会话回来也不再白打请求。
-            setFlashPhotoDead((current) => {
-              if (current.has(row.msgId)) return current;
-              const next = new Set(current);
-              next.add(row.msgId);
-              void persistFlashPhotoState(conv, flashPhotoPatchesRef.current, next);
-              return next;
-            });
-            continue;
-          }
-          // 补丁键用**本地** msgId：时间线里的行永远是本地那条，补拉那条只贡献元素。
-          setFlashPhotoPatches((current) => {
-            const next = new Map(current);
-            next.set(row.msgId, {
-              elements: fetched.elements,
-              sourceFormat: fetched.sourceFormat,
-            });
-            void persistFlashPhotoState(conv, next, flashPhotoDeadRef.current);
-            return next;
-          });
-        } catch {
-          // 请求抛错：次数上限（+1 已在发请求前记过）兜着，别变成死循环。
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    flashPhotoPlaceholders,
-    selectedConversation,
-    convFetchKey,
-    sendAccess.data,
-    loaded,
-    flashPhotoDead,
-    flashPhotoPatches,
-    persistFlashPhotoState,
-    selectionRef,
-  ]);
 
   // Server acknowledgement can precede the QQ database write, or its watcher
   // may be disabled. Re-read a small number of times without resending anything.
@@ -5919,16 +5829,25 @@ function MainWorkspace(): ReactElement {
 
   const handleOpenGroupFiles = useCallback(
     (conversation: Extract<Conversation, { type: 'group' }>) => {
+      const group = { code: conversation.id, name: conversation.group.name };
+      if (
+        resolveWorkspaceFeature(
+          { id: 'groups.files', group },
+          messageScope,
+          messageScopeRef.current,
+        ).status !== 'available'
+      )
+        return;
       setGroupSidebarPopover(null);
       openGroupResourceWindow({
         kind: 'files',
-        groupCode: conversation.id,
-        groupName: conversation.group.name,
+        groupCode: group.code,
+        groupName: group.name,
         onJumpToMessage: (sequence, messageId) =>
           jumpToConvSeq('group', conversation.id, sequence, false, undefined, messageId),
       });
     },
-    [openGroupResourceWindow, jumpToConvSeq],
+    [messageScope, messageScopeRef, openGroupResourceWindow, jumpToConvSeq],
   );
 
   // Click a search hit: resolve conversation key + kind,
@@ -7804,13 +7723,20 @@ function MainWorkspace(): ReactElement {
     shell.view === 'mail' ||
     shell.view === 'channel' ||
     shell.view === 'annual';
-  const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery(undefined, onlineOptions);
+  const generatedDirectoryOptions = IS_WEB ? regularDirectoryOptions : onlineOptions;
+  const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery(
+    undefined,
+    generatedDirectoryOptions,
+  );
   useCloneTaskRefresh();
-  const directoryGroups = trpc.account.listAgentLabGroups.useQuery(undefined, onlineOptions);
+  const directoryGroups = trpc.account.listAgentLabGroups.useQuery(
+    undefined,
+    generatedDirectoryOptions,
+  );
   const directoryAssistant = trpc.account.listAssistantSessions.useQuery(undefined, {
-    ...onlineOptions,
+    ...generatedDirectoryOptions,
     refetchInterval:
-      onlineReady &&
+      generatedDirectoryOptions.enabled &&
       (conversationView === 'assistant' || conversationView === 'all' || assistantVisited)
         ? 2500
         : false,
@@ -8769,6 +8695,27 @@ function MainWorkspace(): ReactElement {
 
   const openAnnouncements = useOpenAnnouncement();
   const openAppSearchEntryNow = (entry: AppSearchEntry) => {
+    if (
+      (entry.target.kind === 'conversation-view' ||
+        entry.target.kind === 'conversation-calendar' ||
+        entry.target.kind === 'contact-notice' ||
+        entry.target.kind === 'contact-overview' ||
+        entry.target.kind === 'qzone-section' ||
+        entry.target.kind === 'self-qzone-albums' ||
+        entry.target.kind === 'task-tab') &&
+      (!messageScope || messageScope !== messageScopeRef.current)
+    )
+      return;
+    if (
+      entry.target.kind === 'self-profile' &&
+      entry.target.tab === 'edit' &&
+      resolveWorkspaceFeature(
+        { id: 'contacts.self-profile.edit' },
+        messageScope,
+        messageScopeRef.current,
+      ).status !== 'available'
+    )
+      return;
     setSearchDismissed(true);
     setSearchFocused(false);
     setSettingsOpen(false);
@@ -8786,6 +8733,36 @@ function MainWorkspace(): ReactElement {
           revision: Date.now(),
         });
       setSettingsOpen(true);
+    } else if (target.kind === 'contact-notice') {
+      shell.openContactNotice(target.notice);
+    } else if (target.kind === 'contact-overview') {
+      shell.openContactOverview();
+    } else if (target.kind === 'qzone-section') {
+      setArkFeedState(null);
+      setQzoneSpaceRequest({
+        accountUin: user.identityValue,
+        uin: user.identityValue,
+        revision: crypto.randomUUID(),
+        catalog: { section: target.section, source: messageScope },
+      });
+      shell.switchView('qzone');
+    } else if (target.kind === 'self-qzone-albums') {
+      setQzoneAlbumOpen(true);
+    } else if (target.kind === 'task-tab') {
+      setToolSearchRequest((previous) => ({
+        scope: messageScope,
+        tool: 'tasks',
+        taskTab: target.tab,
+        revision: (previous?.revision ?? 0) + 1,
+      }));
+    } else if (target.kind === 'conversation-calendar') {
+      // 全局功能搜索词是入口名；会话日历仍采用当前会话视图。
+      setOverviewCalendar({ query: '' });
+    } else if (target.kind === 'conversation-view') {
+      setSurfaceNavigation((value) => value + 1);
+      setMobileConversationList(true);
+      switchConversationView(target.view);
+      shell.switchView('messages');
     } else if (target.kind === 'conversation-directory') {
       flushAllDirtyDrafts();
       setSurfaceNavigation((value) => value + 1);
@@ -8847,6 +8824,17 @@ function MainWorkspace(): ReactElement {
     if (entry.target.kind === 'setting') openAppSearchEntryNow(entry);
     else settingsNavigation.navigate(() => openAppSearchEntryNow(entry));
   };
+
+  const openFeatureLink = useStableCallback((event: Event) => {
+    const id: unknown = (event as CustomEvent<unknown>).detail;
+    if (typeof id !== 'string' || useAppLock.getState().locked) return;
+    const entry = findLinkedAppEntry(id);
+    if (entry) openAppSearchEntry(entry);
+  });
+  useEffect(() => {
+    window.addEventListener(OPEN_FEATURE_EVENT, openFeatureLink);
+    return () => window.removeEventListener(OPEN_FEATURE_EVENT, openFeatureLink);
+  }, [openFeatureLink]);
 
   const openNotificationTarget = useStableCallback(
     (target: import('../lib/notificationNavigation').NotificationTarget) => {
@@ -9033,6 +9021,17 @@ function MainWorkspace(): ReactElement {
       });
       shell.switchView('messages');
     } else {
+      if (
+        resolveWorkspaceFeature(
+          {
+            id: 'messages.locate',
+            message: { conversation: target.conv, seq: anchor.seq, msgId: anchor.id },
+          },
+          messageScope,
+          messageScopeRef.current,
+        ).status !== 'available'
+      )
+        return;
       jumpToConvSeq(
         target.kind === 'group' ? 'group' : 'c2c',
         target.conv,
@@ -9057,11 +9056,17 @@ function MainWorkspace(): ReactElement {
       shell.selectGroup(id);
     }),
   );
-  const locateUnreadConversation = useStableCallback(() =>
+  const canLocateUnreadInView = conversationView === 'regular' || conversationView === 'all';
+  const reselectMessages = useStableCallback(() =>
     settingsNavigation.navigate(() => {
+      if (!canLocateUnreadInView) {
+        setConversationLocate(null);
+        switchConversationView('regular');
+        return;
+      }
       const target = unreadConversationCycle.next(
-        conversationViews.regular,
-        regularViewPreferences,
+        currentViewRows,
+        currentViewPreferences,
         unreadMarkers.aggregates,
       );
       if (!target) return;
@@ -9071,7 +9076,6 @@ function MainWorkspace(): ReactElement {
       setDressUpOpen(false);
       shell.switchView('messages');
       setArkFeedState(null);
-      changeConversationView('regular');
       shell.setQuery('');
       if (isMobileShell()) {
         setMobileConversationList(true);
@@ -9113,10 +9117,16 @@ function MainWorkspace(): ReactElement {
                 (shell.view === 'agentlab' && Boolean(virtualOpen || cloneSearchTarget)))
             }
             messageBadgeCount={
-              displaySettings.data?.showMessageUnreadBadge === false ? 0 : messageBadgeCount
+              preferenceValue(
+                'showMessageUnreadBadge',
+                displaySettings.data?.showMessageUnreadBadge,
+              )
+                ? messageBadgeCount
+                : 0
             }
             contactBadgeCount={unreadMarkers.requests ? friendNoticeCount + groupNoticeCount : 0}
-            onMessageBadgeClick={locateUnreadConversation}
+            onMessageBadgeClick={reselectMessages}
+            messageBadgeActionLabel={canLocateUnreadInView ? '定位未读会话' : '返回常规视图'}
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
             railFooterContent={() => <WorkspaceMenuButton />}
@@ -9418,7 +9428,7 @@ function MainWorkspace(): ReactElement {
                     readEnabled={qzonePageReady}
                     selfUin={user.identityValue}
                     nickname={user.displayName}
-                    spaceRequest={qzoneSpaceRequest}
+                    spaceRequest={scopedQzoneRequest(qzoneSpaceRequest, messageScope)}
                     onSpaceChange={setCurrentQzoneUin}
                   />
                 ) : null}
@@ -9663,6 +9673,20 @@ function MainWorkspace(): ReactElement {
                               if (unreadSnapshotPendingRef.current?.convId !== conv.id)
                                 void markVisibleConversationRead(conv);
                             }}
+                            pendingInteractions={
+                              messagesTabActive &&
+                              !settingsOpen &&
+                              !dressUpOpen &&
+                              !interactionViewportLocked &&
+                              (!mobileLayout || !mobileConversationList) &&
+                              selectedConversation &&
+                              selectedConversation.type !== 'merged'
+                                ? interactionBadges.byConversation.get(
+                                    `${selectedConversation.type === 'group' ? 'group' : 'c2c'}:${selectedConversation.id}`,
+                                  )
+                                : undefined
+                            }
+                            onSeeInteractions={interactionBadges.acknowledge}
                             conversationPrefs={conversationPrefs}
                             drafts={drafts}
                             query={shell.query}
@@ -10573,6 +10597,7 @@ function MainWorkspace(): ReactElement {
                             view: conversationView,
                             views: conversationViews,
                             rows: currentViewRows,
+                            interactionBadges: interactionBadges.byConversation,
                             returnToRegular,
                             onViewChange: switchConversationView,
                             onReturnToRegular: () => switchConversationView('regular'),
@@ -10652,15 +10677,7 @@ function MainWorkspace(): ReactElement {
                             onReadState: (rows, unread) =>
                               void changeConversationReadState(rows, unread),
                             readStateBusy,
-                            onVisibleConversations: (rows) =>
-                              prefetchVisible(
-                                rows.filter(
-                                  (row) =>
-                                    row.type !== 'merged' &&
-                                    !row.generated &&
-                                    (!row.directoryKind || row.directoryKind === 'qq'),
-                                ),
-                              ),
+                            onVisibleConversations: prefetchVisibleConversations,
                             onConversationIntent: (row) => {
                               if (
                                 !row.generated &&

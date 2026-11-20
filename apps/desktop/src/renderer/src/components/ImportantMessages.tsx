@@ -135,7 +135,7 @@ export function ImportantMessagesList({
   const list = useRef<HTMLUListElement>(null);
   const scrollTop = useRef(0);
   const initialized = useRef(false);
-  const prepend = useRef<{ seq: string; top: number } | null>(null);
+  const prepend = useRef<{ seq: string; contentTop: number } | null>(null);
   const busy = useRef(false);
   const alive = useRef(true);
   const lastRequest = useRef('');
@@ -199,6 +199,15 @@ export function ImportantMessagesList({
       })
       .then((result) => {
         if (!active) return;
+        const element = list.current;
+        if (!refresh && request.before && element) {
+          const anchor = element.querySelector<HTMLElement>('[data-important-seq]');
+          if (anchor)
+            prepend.current = {
+              seq: anchor.dataset.importantSeq!,
+              contentTop: anchor.getBoundingClientRect().top + element.scrollTop,
+            };
+        }
         setPage((old) => {
           if (
             refresh &&
@@ -283,7 +292,9 @@ export function ImportantMessagesList({
       const anchor = element.querySelector<HTMLElement>(
         `[data-important-seq="${prepend.current.seq}"]`,
       );
-      if (anchor) element.scrollTop += anchor.getBoundingClientRect().top - prepend.current.top;
+      if (anchor)
+        element.scrollTop +=
+          anchor.getBoundingClientRect().top + element.scrollTop - prepend.current.contentTop;
       prepend.current = null;
     } else if (!initialized.current) {
       element.scrollTop = element.scrollHeight;
@@ -403,17 +414,6 @@ export function ImportantMessagesList({
           className="weq-important-more"
           disabled={pending}
           onClick={() => {
-            if (list.current) {
-              const top = list.current.getBoundingClientRect().top;
-              const anchor = [
-                ...list.current.querySelectorAll<HTMLElement>('[data-important-seq]'),
-              ].find((item) => item.getBoundingClientRect().bottom > top);
-              if (anchor)
-                prepend.current = {
-                  seq: anchor.dataset.importantSeq!,
-                  top: anchor.getBoundingClientRect().top,
-                };
-            }
             setRequest((old) => ({ id: old.id + 1, before: page.nextBefore! }));
           }}
         >

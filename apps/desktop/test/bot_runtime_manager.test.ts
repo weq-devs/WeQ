@@ -81,10 +81,10 @@ it('账号打开时拉起 daemon，并能收发 onebot 配置', async () => {
   expect(readBack.config?.networks.wsServers[0]?.name).toBe('client');
 });
 
-it('同 uin 再次 ensure 复用同一个 daemon，不重复 spawn', async () => {
-  await runtime.getOneBot('10002');
-  await runtime.getOneBot('10002');
-  await runtime.getOneBot('10002');
+it('同 uin 并发及后续 ensure 复用同一个 daemon', async () => {
+  const [first, second] = await Promise.all([runtime.ensure('10002'), runtime.ensure('10002')]);
+  expect(second).toBe(first);
+  expect(await runtime.ensure('10002')).toBe(first);
   expect(runtime.size).toBe(1);
 });
 
@@ -95,7 +95,7 @@ it('shutdown 让 daemon 退出并释放 socket', async () => {
 
   await runtime.shutdown('10002', 'test');
   expect(runtime.size).toBe(0);
-  await waitFor(() => !existsSync(path));
+  expect(existsSync(path)).toBe(false);
 });
 
 it('disconnectAll（WeQ 退出）不杀 daemon：socket 仍在，可被重新接管', async () => {

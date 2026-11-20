@@ -1,5 +1,6 @@
 html.weq-touch-context-menu,
-html.weq-touch-context-menu * {
+html.weq-touch-context-menu *,
+[data-weq-touch-context] {
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
@@ -12,7 +13,8 @@ html.weq-touch-context-menu [contenteditable]:not([contenteditable='false']) * {
 
 /* 在触摸开始前禁止正文选择，避免系统选择手势抢先取消自定义长按。 */
 @media (any-pointer: coarse) {
-  html.weq-touch-context-menu * {
+  html.weq-touch-context-menu *,
+  [data-weq-touch-context] {
     user-select: none;
     -webkit-user-select: none;
   }

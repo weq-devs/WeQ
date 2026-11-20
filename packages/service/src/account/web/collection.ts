@@ -11,47 +11,33 @@
  * 输出统一映射成 `@weq/db` 的 `CollectionItem` 形状,让前端 / tRPC serde 零改动。
  */
 
-import {
-  type CollectionCachedContent,
-  type CollectionFileInfo,
-  type CollectionItem,
-  type CollectionKind,
-  type CollectionPicInfo,
-  decodeMessage,
+import type {
+  CollectionCachedContent,
+  CollectionFileInfo,
+  CollectionItem,
+  CollectionKind,
+  CollectionPicInfo,
 } from '@weq/db';
-import { ProtoMsg, type ProtoDecodeStructType } from '@weq/codec';
+import type { ProtoDecodeStructType } from '@weq/codec';
+import type { CollectorRespBody } from '@weq/codec/proto/collection/index';
 import {
-  CollectorReqHead,
-  CollectorReqBody,
-  CollectorRespHead,
-  CollectorRespBody,
-} from '@weq/codec/proto/collection/index';
+  readCollectionDetails,
+  readCollectionPage,
+  WebRequestError as ProtocolWebRequestError,
+  type CollectionHttpRequest,
+  type CollectionNetworkCursor,
+  type CollectionTransport,
+} from '@weqbot/protocol';
 import type { WebCredential } from './credential';
 import { WEB_READ_RETRY, webRequestBytes, WebRequestError } from './http';
 
-const ENDPOINT = 'https://collector.weiyun.com/collector.fcg';
-const HOST = 'collector.weiyun.com';
-const OPERATION_ID = 20_000;
-const CONTENT_OPERATION_ID = 20_001;
-const TICKET_TYPE = 27;
-const APP_ID = 5_004;
-const PAGE_SIZE = 50;
+export { encodeCollectionEnvelope as encodeEnvelope } from '@weqbot/protocol';
+export type { CollectionHttpRequest, CollectionNetworkCursor, CollectionTransport };
+
 const MAX_PAGES = 100;
 const REQUEST_TIMEOUT_MS = 10_000;
 const OPERATION_TIMEOUT_MS = 60_000;
-const CLIENT_VERSION = 0x6105f5e164fn;
-const INITIAL_TIMESTAMP = 0xffff_ffff_ffff_ffffn;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
-const MAX_DETAIL_CIDS = 20;
-const MAGIC = Uint8Array.from([0x20, 0x13, 0x03, 0x29]);
-const VERSION = Uint8Array.from([0x00, 0x01]);
-
-const reqHead = new ProtoMsg(CollectorReqHead);
-const reqBody = new ProtoMsg(CollectorReqBody);
-// 响应解码走 lenient assembler(@weq/db decodeMessage),不用 ProtoMsg.decode:
-// collector 的 body(尤其 picList / locationSummary)带尾部 0x00 填充,strict
-// protobuf-ts 会崩「unterminated group」;lenient walker 解不动就停,免疫填充。
-type RespHead = ProtoDecodeStructType<typeof CollectorRespHead>;
 type RespBody = ProtoDecodeStructType<typeof CollectorRespBody>;
 
 const KIND_BY_TYPE: Record<number, CollectionKind> = {
@@ -69,21 +55,6 @@ export interface NetworkCollectionPage {
   items: CollectionItem[];
   hasMore: boolean;
 }
-
-/** Serializable continuation for a single collector request, safe to checkpoint. */
-export interface CollectionNetworkCursor {
-  timeStamp: string;
-  sequence: number;
-}
-
-export interface CollectionHttpRequest {
-  url: string;
-  headers: Readonly<Record<string, string>>;
-  body: Uint8Array;
-  signal: AbortSignal;
-}
-
-export type CollectionTransport = (request: CollectionHttpRequest) => Promise<Uint8Array>;
 
 export interface CollectionNetworkOptions {
   transport?: CollectionTransport;
@@ -117,85 +88,6 @@ export interface NetworkCollectionCursorPage extends NetworkCollectionPage {
   totalCount: number | null;
   /** Exact collector envelope used to build this page. */
   rawResponse: Uint8Array;
-}
-
-export function encodeEnvelope(head: Uint8Array, body: Uint8Array): Uint8Array {
-  const total = 16 + head.length + body.length;
-  const out = Buffer.allocUnsafe(total);
-  out.set(MAGIC, 0);
-  out.set(VERSION, 4);
-  out.writeUInt32BE(total, 6);
-  out.writeUInt32BE(body.length, 10);
-  out.writeUInt16BE(0, 14);
-  out.set(head, 16);
-  out.set(body, 16 + head.length);
-  return out;
-}
-
-function decodeEnvelope(bytes: Uint8Array): { head: RespHead; body: RespBody } {
-  const input = Buffer.from(bytes);
-  if (input.length <= 16) throw new Error('collection response is too short');
-  if (!input.subarray(0, 4).equals(Buffer.from(MAGIC))) {
-    throw new Error('collection response has invalid magic');
-  }
-  const total = input.readUInt32BE(6);
-  if (total !== input.length) {
-    throw new Error(`collection response length mismatch: ${total} != ${input.length}`);
-  }
-  const bodyLength = input.readUInt32BE(10);
-  if (bodyLength === 0 || bodyLength >= total - 16) {
-    throw new Error('collection response has invalid body length');
-  }
-  const bodyOffset = total - bodyLength;
-  return {
-    head: decodeMessage(input.subarray(16, bodyOffset), CollectorRespHead) as RespHead,
-    body: decodeMessage(input.subarray(bodyOffset), CollectorRespBody) as RespBody,
-  };
-}
-
-function requestHeadBytes(
-  uin: bigint,
-  pskey: string,
-  sequence: number,
-  operationId: number,
-): Uint8Array {
-  return reqHead.encode({
-    uin,
-    sequence,
-    commandType: 1,
-    operationId,
-    clientVersion: CLIENT_VERSION,
-    platform: 4,
-    ticketType: TICKET_TYPE,
-    ticket: pskey,
-    field14: 8,
-    field15: 9,
-  });
-}
-
-function requestBytes(uin: bigint, pskey: string, sequence: number, timeStamp: bigint): Uint8Array {
-  const head = requestHeadBytes(uin, pskey, sequence, OPERATION_ID);
-  // collector 网关严格:多发零值字段会被判「缺少请求参数」(190013)。只发非零字段,
-  // 与 SnowLuma(proto3 省略零值)的字节保持一致。
-  const body = reqBody.encode({
-    operation: {
-      getCollectionList: {
-        timeStamp,
-        orderType: 2,
-        count: PAGE_SIZE,
-        searchDown: 1,
-      },
-    },
-  });
-  return encodeEnvelope(head, body);
-}
-
-function detailRequestBytes(uin: bigint, pskey: string, cids: readonly string[]): Uint8Array {
-  const head = requestHeadBytes(uin, pskey, 1, CONTENT_OPERATION_ID);
-  const body = reqBody.encode({
-    operation: { getCollectionContent: { cidList: [...cids] } },
-  });
-  return encodeEnvelope(head, body);
 }
 
 type WireItem = NonNullable<
@@ -383,10 +275,7 @@ function mapDetail(content: WireDetail): CollectionCachedContent {
   return detail;
 }
 
-async function defaultTransport(
-  request: CollectionHttpRequest,
-  timeoutMs: number,
-): Promise<Uint8Array> {
+function defaultTransport(request: CollectionHttpRequest): Promise<Uint8Array> {
   const { Cookie, ...headers } = request.headers;
   return webRequestBytes(request.url, {
     method: 'POST',
@@ -394,179 +283,57 @@ async function defaultTransport(
     headers,
     body: request.body,
     signal: request.signal,
-    timeoutMs,
+    timeoutMs: request.timeoutMs,
     maxResponseBytes: MAX_RESPONSE_BYTES,
     retry: WEB_READ_RETRY,
   });
 }
 
-export async function postCollector(
-  body: Uint8Array,
-  cred: WebCredential,
-  opts: Pick<CollectionNetworkOptions, 'transport' | 'signal' | 'timeoutMs'>,
-): Promise<Uint8Array> {
-  const timeoutMs = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
-    throw new Error('collection timeout must be a positive integer');
-  }
-  opts.signal?.throwIfAborted();
-  const controller = new AbortController();
-  const abortFromCaller = () => controller.abort(opts.signal?.reason);
-  opts.signal?.addEventListener('abort', abortFromCaller, { once: true });
-  const timer = setTimeout(
-    () => controller.abort(new Error(`collection request timed out after ${timeoutMs}ms`)),
-    timeoutMs,
-  );
-  let rejectOnAbort: (() => void) | undefined;
+/** 保留应用的网络传输、重试和诊断分类。 */
+export async function withCollectionTransport<T>(
+  options: Pick<CollectionNetworkOptions, 'transport' | 'signal' | 'timeoutMs'>,
+  request: (options: {
+    transport: CollectionTransport;
+    signal?: AbortSignal | undefined;
+    timeoutMs?: number | undefined;
+  }) => Promise<T>,
+): Promise<T> {
   try {
-    const request: CollectionHttpRequest = {
-      url: ENDPOINT,
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        Cookie: `uin=${cred.uin};vt=${TICKET_TYPE};vi=${cred.pskey};appid=${APP_ID}`,
-        Host: HOST,
-        Range: 'bytes=0-',
-      },
-      body,
-      signal: controller.signal,
-    };
-    const aborted = new Promise<never>((_resolve, reject) => {
-      rejectOnAbort = () => reject(controller.signal.reason);
-      controller.signal.addEventListener('abort', rejectOnAbort, { once: true });
-    });
-    const response = await Promise.race([
-      opts.transport ? opts.transport(request) : defaultTransport(request, timeoutMs),
-      aborted,
-    ]);
-    controller.signal.throwIfAborted();
-    if (response.length > MAX_RESPONSE_BYTES)
-      throw new Error('collection response exceeds size limit');
-    return response;
+    return await request({ ...options, transport: options.transport ?? defaultTransport });
   } catch (error) {
-    if (controller.signal.aborted) {
-      if (opts.signal?.aborted)
-        throw new WebRequestError('cancelled', '收藏请求已取消。', { cause: opts.signal.reason });
-      throw new WebRequestError('timeout', `collection request timed out after ${timeoutMs}ms`, {
-        cause: error,
-      });
-    }
+    if (error instanceof ProtocolWebRequestError)
+      throw new WebRequestError(error.kind, error.message, error.options);
     throw error;
-  } finally {
-    clearTimeout(timer);
-    if (rejectOnAbort) controller.signal.removeEventListener('abort', rejectOnAbort);
-    opts.signal?.removeEventListener('abort', abortFromCaller);
   }
 }
 
-/** Fetch one bounded batch of full collection bodies (operation 20001). */
 export async function getCollectionDetailsNetwork(
   cred: WebCredential,
   cids: readonly string[],
   opts: CollectionDetailNetworkOptions = {},
 ): Promise<CollectionNetworkDetail[]> {
-  if (!/^[1-9]\d*$/.test(cred.uin)) throw new Error('collection uin must be a positive integer');
-  const uin = BigInt(cred.uin);
-  if (uin > INITIAL_TIMESTAMP) throw new Error('collection uin exceeds uint64');
-  if (!cred.pskey || /[\r\n;]/.test(cred.pskey))
-    throw new Error('collection p_skey is empty or invalid (weiyun.com)');
-  if (cids.length < 1 || cids.length > MAX_DETAIL_CIDS) {
-    throw new Error(`collection detail batch must contain 1-${MAX_DETAIL_CIDS} ids`);
-  }
-  const unique = new Set<string>();
-  for (const cid of cids) {
-    const hasControl = [...cid].some((char) => {
-      const code = char.charCodeAt(0);
-      return code <= 0x1f || code === 0x7f;
-    });
-    if (!cid || cid.length > 256 || hasControl) throw new Error('collection detail cid is invalid');
-    if (unique.has(cid)) throw new Error('collection detail batch contains duplicate ids');
-    unique.add(cid);
-  }
-
-  const response = await postCollector(detailRequestBytes(uin, cred.pskey, cids), cred, opts);
-  await opts.onRawResponse?.({ cids, response });
-  const { head, body } = decodeEnvelope(response);
-  const retCode = head.retCode ?? 0;
-  if (retCode !== 0) {
-    throw new Error(
-      `collection service error ${retCode}: ${head.retMsg || head.promptMsg || 'unknown'}`,
-    );
-  }
-  const contents = body.operation?.getCollectionContent?.contents;
-  if (!contents) throw new Error('collection response is missing operation 20001');
-  if (contents.length !== cids.length) {
-    throw new Error(`collection detail count mismatch: ${contents.length} != ${cids.length}`);
-  }
-  return contents.map((content, index) => ({ cid: cids[index]!, content: mapDetail(content) }));
+  const details = await withCollectionTransport(opts, (transport) =>
+    readCollectionDetails({ ...cred, cids, ...opts, ...transport }),
+  );
+  // 共享解码器使用相同的 collector 字段；这里保留数据库模型所需的原始类型和缺失状态。
+  return details.map(({ cid, content }) => ({ cid, content: mapDetail(content as WireDetail) }));
 }
 
-/**
- * One authenticated POST, with a resumable cursor and no local-db fallback.
- * This endpoint returns list summaries; raw protobuf preserves additional fields,
- * but it does not establish that favorite bodies or attachment originals are complete.
- */
 export async function getCollectionPageNetwork(
   cred: WebCredential,
   cursor: CollectionNetworkCursor | null = null,
   opts: CollectionNetworkOptions = {},
 ): Promise<NetworkCollectionCursorPage> {
-  if (!/^[1-9]\d*$/.test(cred.uin)) throw new Error('collection uin must be a positive integer');
-  const uin = BigInt(cred.uin);
-  if (uin > INITIAL_TIMESTAMP) throw new Error('collection uin exceeds uint64');
-  if (!cred.pskey || /[\r\n;]/.test(cred.pskey))
-    throw new Error('collection p_skey is empty or invalid (weiyun.com)');
-  const timeStampText = cursor?.timeStamp ?? INITIAL_TIMESTAMP.toString();
-  if (!/^\d+$/.test(timeStampText)) throw new Error('collection cursor timestamp is invalid');
-  const timeStamp = BigInt(timeStampText);
-  if (timeStamp <= 0n || timeStamp > INITIAL_TIMESTAMP)
-    throw new Error('collection cursor timestamp exceeds uint64');
-  const sequence = cursor?.sequence ?? 1;
-  if (!Number.isSafeInteger(sequence) || sequence <= 0 || sequence >= 0xffff_ffff) {
-    throw new Error('collection cursor sequence is invalid');
-  }
-  const response = await postCollector(
-    requestBytes(uin, cred.pskey, sequence, timeStamp),
-    cred,
+  const { items, hasMore, nextCursor, totalCount, rawResponse } = await withCollectionTransport(
     opts,
+    (transport) => readCollectionPage({ ...cred, cursor, ...opts, ...transport }),
   );
-  await opts.onRawResponse?.({ sequence, requestTimeStamp: timeStamp.toString(), response });
-  const { head, body } = decodeEnvelope(response);
-  const retCode = head.retCode ?? 0;
-  if (retCode !== 0) {
-    throw new Error(
-      `collection service error ${retCode}: ${head.retMsg || head.promptMsg || 'unknown'}`,
-    );
-  }
-  const page = body.operation?.getCollectionList;
-  if (!page) throw new Error('collection response is missing operation 20000');
-  if (page.reachedBottom !== undefined && ![0, 1, 215000].includes(page.reachedBottom)) {
-    throw new Error('collection response has an invalid reachedBottom flag');
-  }
-  // The real final page returns 215000 (20 remaining items), whereas synthetic
-  // and older responses use one. Unknown nonzero markers remain reviewable.
-  const hasMore = page.reachedBottom !== 1 && page.reachedBottom !== 215000;
-  const wireItems = page.items ?? [];
-  const seen = new Set<string>();
-  const items: CollectionItem[] = [];
-  let nextTimeStamp: bigint | null = null;
-  for (const item of wireItems) {
-    const modifyTime = item.modifyTime ?? 0n;
-    if (nextTimeStamp === null || modifyTime < nextTimeStamp) nextTimeStamp = modifyTime;
-    if (!item.cid) throw new Error('collection response contains an item with no cid');
-    if (!seen.has(item.cid)) {
-      seen.add(item.cid);
-      items.push(mapItem(item));
-    }
-  }
-  if (hasMore && (nextTimeStamp === null || nextTimeStamp <= 0n || nextTimeStamp >= timeStamp)) {
-    throw new Error('collection pagination made no progress while more data was reported');
-  }
   return {
-    items,
+    items: items.map((item) => mapItem(item as WireItem)),
     hasMore,
-    nextCursor: hasMore ? { timeStamp: nextTimeStamp!.toString(), sequence: sequence + 1 } : null,
-    totalCount: page.totalCount === undefined ? null : Number(page.totalCount),
-    rawResponse: response,
+    nextCursor,
+    totalCount,
+    rawResponse,
   };
 }
 

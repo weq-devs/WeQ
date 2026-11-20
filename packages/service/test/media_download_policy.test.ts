@@ -60,6 +60,27 @@ it('未允许时缓存凭据及原始 URL 都不发请求，允许后下载，�
   expect(await f.service.download('123')).toBe(path);
   expect(f.fetch).toHaveBeenCalledOnce();
 });
+it('并发请求复用同一次聊天媒体下载，各自收到真实下载进度', async () => {
+  const f = await fixture();
+  f.allow(true);
+  const upstream = Promise.withResolvers<Response>();
+  f.fetch.mockReturnValueOnce(upstream.promise);
+  const first = vi.fn();
+  const second = vi.fn();
+  const one = f.service.download('synthetic-token', {}, first);
+  const two = f.service.download('synthetic-token', {}, second);
+  upstream.resolve(
+    new Response(new Uint8Array([1, 2, 3]), {
+      headers: { 'Content-Type': 'image/png', 'Content-Length': '3' },
+    }),
+  );
+  const [a, b] = await Promise.all([one, two]);
+  expect(a).toBeTruthy();
+  expect(b).toBe(a);
+  expect(f.fetch).toHaveBeenCalledOnce();
+  expect(first).toHaveBeenLastCalledWith(3, 3);
+  expect(second).toHaveBeenLastCalledWith(3, 3);
+});
 it('小图只请求实际提供的地址，缓存可复用，体积超限不回退原图', async () => {
   const f = await fixture();
   f.allow(true);

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import { AiImageProcessor } from '@weq/agentlab';
-import { AssistantService } from '../src/account/assistant';
+import { AssistantService, type AssistantTools } from '../src/account/assistant';
 import { ConversationStore } from '../src/account/agentlab_conversation';
 import { TokenUsageStore } from '../src/account/agentlab_usage';
 import { IntentSenseService } from '../src/account/intent_sense';
@@ -84,7 +84,7 @@ it('图片偏好与默认视觉模型独立全局保存、备份，旧设置不�
   expect(config.resolveVisionEndpoint()).toBeNull();
 });
 
-function assistantFixture() {
+function assistantFixture(run?: AssistantTools['run']) {
   const root = directory();
   const ocr = vi.fn(async () => ({ text: '合成截图文字' }));
   const processor = new AiImageProcessor({
@@ -99,7 +99,19 @@ function assistantFixture() {
     () => endpoint,
     new TokenUsageStore(join(root, 'usage.json')),
     conversations,
-    { specs: () => [], run: async () => null, images: processor },
+    {
+      specs: () =>
+        run
+          ? [
+              {
+                type: 'function',
+                function: { name: 'get_feature', description: 'fixture', parameters: {} },
+              },
+            ]
+          : [],
+      run: run ?? (async () => null),
+      images: processor,
+    },
   );
   service.setConfig({ model: { providerId: 'fixture', model: 'visual' } });
   const api = service as unknown as {
@@ -193,6 +205,27 @@ it('助手工具循环和纯文字追问复用解读，按问题查看附件时�
   expect(fetch).toHaveBeenCalledTimes(3);
   expect(f.service.getConversation(session.id)[0]?.imageOutcomes?.[0]?.text).toBe('重新读到的描述');
 });
+it('目录工具收到实际发送给模型的工具清单，有附件时包含原图工具', async () => {
+  const run = vi.fn<AssistantTools['run']>(async () => null);
+  const f = assistantFixture(run);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ choices: [{ message: { content: '合成图片' } }] })),
+  );
+  const toolCall = {
+    content: '',
+    toolCalls: [
+      { id: 'tool', type: 'function', function: { name: 'get_feature', arguments: '{}' } },
+    ],
+  };
+  f.calls.mockResolvedValueOnce(toolCall);
+  await f.service.chat(f.service.createSession().id, '查功能');
+  f.calls.mockResolvedValueOnce(toolCall);
+  await f.service.chat(f.service.createSession().id, '查带图功能', undefined, undefined, [image]);
+  expect(run.mock.calls[0]?.[2]?.visibleToolNames).not.toContain('analyze_attached_image');
+  expect(run.mock.calls[1]?.[2]?.visibleToolNames).toContain('analyze_attached_image');
+});
+
 it('商城表情与图片引用保留独立定位，并兼容漫游的十六进制标识', () => {
   const refs = messageImageRefs(
     [

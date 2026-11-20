@@ -57,6 +57,7 @@ export const ConversationDirectoryContext = createContext<{
   /** 主会话列表始终排除这些群，完整目录搜索也不能绕过归属。 */
   groupAssistantIds?: ReadonlySet<string>;
   showContactUnreadCount?: boolean;
+  interactionBadges?: ReadonlyMap<string, unknown>;
   locate?: ConversationLocateRequest | null;
   onListInteraction?: () => void;
   onVirtual: (item: VirtualConversation) => void;

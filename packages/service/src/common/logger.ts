@@ -92,7 +92,7 @@ function writeRecord(
     });
     target.record(
       line + EOL,
-      ts.slice(0, 10),
+      ts,
       level === 'warn' || level === 'error' || context?.event === 'request-failed',
     );
   } catch {

@@ -8,6 +8,8 @@ import {
   type AppSearchEntry,
 } from '../src/renderer/src/components/search/appSearchCatalog';
 import type { ExportMode } from '../src/renderer/src/views/export/types';
+import { resolveWorkspaceFeature } from '../src/renderer/src/lib/workspaceFeature';
+import { scopedQzoneRequest } from '../src/renderer/src/lib/qzoneNavigation';
 
 // 执行真实处理器，避免只验证目录目标而漏掉页面状态切换。
 function sourceHandler<T>(relative: string, name: string, context: Record<string, unknown>): T {
@@ -83,6 +85,171 @@ function navigationContext() {
 }
 
 describe('功能搜索实际导航', () => {
+  it.each([
+    ['当前任务', 'tasks'],
+    ['定时任务', 'schedules'],
+  ] as const)('按 %s 打开指定任务标签，定时导出继续进入配置', (query, tab) => {
+    const messageScope = '10001:source-a';
+    const context = {
+      ...navigationContext(),
+      messageScope,
+      messageScopeRef: { current: messageScope },
+      setToolSearchRequest: vi.fn(),
+    };
+    const entry = searchAppEntries(query)[0]!;
+    expect(entry.target).toEqual({ kind: 'task-tab', tab });
+    searchHandler(context)(entry);
+    const update = context.setToolSearchRequest.mock.calls[0]![0];
+    expect(update(undefined)).toEqual({
+      scope: messageScope,
+      tool: 'tasks',
+      taskTab: tab,
+      revision: 1,
+    });
+    expect(searchAppEntries('定时导出')[0]?.target).toEqual({
+      kind: 'tool',
+      tool: 'export',
+      exportMode: 'scheduled',
+    });
+  });
+  it.each([
+    ['好友动态', 'feeds'],
+    ['我的空间', 'posts'],
+    ['与我相关', 'related'],
+    ['空友爱看', 'public'],
+  ] as const)('按 %s 打开空间已有栏目，请求不跨当前数据源', (query, section) => {
+    const messageScope = '10001:source-a';
+    const context = {
+      ...navigationContext(),
+      messageScope,
+      messageScopeRef: { current: messageScope },
+      user: { identityValue: '10001' },
+      setArkFeedState: vi.fn(),
+      setQzoneSpaceRequest: vi.fn(),
+      shell: { switchView: vi.fn() },
+    };
+    const entry = searchAppEntries(query)[0]!;
+    const open = searchHandler(context);
+    open(entry);
+    expect(context.shell.switchView).toHaveBeenCalledWith('qzone');
+    const request = context.setQzoneSpaceRequest.mock.calls[0]![0];
+    expect(request).toMatchObject({
+      accountUin: '10001',
+      uin: '10001',
+      catalog: { section, source: messageScope },
+    });
+    expect(scopedQzoneRequest(request, messageScope)).toBe(request);
+    expect(scopedQzoneRequest(request, '10001:source-b')).toBeNull();
+    context.messageScopeRef.current = '10001:source-b';
+    open(entry);
+    expect(context.shell.switchView).toHaveBeenCalledOnce();
+  });
+
+  it('浏览我的空间相册复用原窗口，个人空间相册导出仍进入导出工具', () => {
+    const entry = searchAppEntries('浏览我的相册')[0]!;
+    const context = {
+      ...navigationContext(),
+      messageScope: '10001:source-a',
+      messageScopeRef: { current: '10001:source-a' },
+      setQzoneAlbumOpen: vi.fn(),
+    };
+    searchHandler(context)(entry);
+    expect(context.setQzoneAlbumOpen).toHaveBeenCalledWith(true);
+    expect(searchAppEntries('个人空间相册')[0]?.target).toEqual({
+      kind: 'tool',
+      tool: 'export',
+      exportMode: 'qzone',
+    });
+  });
+  it.each([
+    ['好友申请', 'friend'],
+    ['入群申请', 'group'],
+    ['群成员重合', null],
+  ] as const)('按 %s 打开原联系人入口并拦截旧来源结果', (query, notice) => {
+    const messageScope = '10001:source-a';
+    const context = {
+      ...navigationContext(),
+      messageScope,
+      messageScopeRef: { current: messageScope },
+      shell: { openContactNotice: vi.fn(), openContactOverview: vi.fn() },
+    };
+    const entry = searchAppEntries(query)[0]!;
+    const open = searchHandler(context);
+    open(entry);
+    if (notice) expect(context.shell.openContactNotice).toHaveBeenCalledWith(notice);
+    else expect(context.shell.openContactOverview).toHaveBeenCalledOnce();
+    context.messageScopeRef.current = '10001:source-b';
+    open(entry);
+    expect(context.shell.openContactNotice).toHaveBeenCalledTimes(notice ? 1 : 0);
+    expect(context.shell.openContactOverview).toHaveBeenCalledTimes(notice ? 0 : 1);
+  });
+  it.each([
+    ['全部会话', 'all'],
+    ['群助手', 'groupAssistant'],
+    ['公众号', 'official'],
+    ['服务号', 'service'],
+    ['已隐藏会话', 'hidden'],
+    ['已删除会话', 'deleted'],
+  ] as const)('%s 走原会话视图切换，保留其导航保护', (query, view) => {
+    const messageScope = '10001:source-a';
+    const context = {
+      ...navigationContext(),
+      messageScope,
+      messageScopeRef: { current: messageScope },
+      setSurfaceNavigation: vi.fn(),
+      setMobileConversationList: vi.fn(),
+      switchConversationView: vi.fn(),
+      shell: { switchView: vi.fn() },
+    };
+    const entry = searchAppEntries(query)[0]!;
+    expect(entry.target).toEqual({ kind: 'conversation-view', view });
+    const open = searchHandler(context);
+    open(entry);
+    expect(context.switchConversationView).toHaveBeenCalledWith(view);
+    expect(context.shell.switchView).toHaveBeenCalledWith('messages');
+    expect(context.setMobileConversationList).toHaveBeenCalledWith(true);
+    context.messageScopeRef.current = '10001:source-b';
+    open(entry);
+    expect(context.switchConversationView).toHaveBeenCalledOnce();
+  });
+
+  it('会话日历打开原有日历，入口名不会被当成会话过滤词', () => {
+    const context = {
+      ...navigationContext(),
+      messageScope: '10001:source-a',
+      messageScopeRef: { current: '10001:source-a' },
+      setOverviewCalendar: vi.fn(),
+    };
+    const entry = searchAppEntries('会话总日历')[0]!;
+    expect(entry.id).toBe('messages.calendar');
+    searchHandler(context)(entry);
+    expect(context.setOverviewCalendar).toHaveBeenCalledWith({ query: '' });
+  });
+  it('编辑本人资料落在真实编辑页，数据源切换后旧搜索结果不打开新账号的资料', () => {
+    const user = { id: 'self:10001', identityValue: '10001', displayName: '本人' };
+    const currentScope = { current: '10001:source-a' };
+    const context = {
+      ...navigationContext(),
+      user,
+      shell: { view: 'contacts', openContactDetails: vi.fn() },
+      setMemberCard: vi.fn(),
+      setPrivatePreview: vi.fn(),
+      resolveWorkspaceFeature,
+      messageScope: currentScope.current,
+      messageScopeRef: currentScope,
+    };
+    const entry = searchAppEntries('编辑本人资料')[0]!;
+    expect(entry.id).toBe('contacts.self-profile.edit');
+    const open = searchHandler(context);
+    open(entry);
+    expect(context.shell.openContactDetails).toHaveBeenCalledWith(
+      { ...user, createdAt: '' },
+      'edit',
+    );
+    currentScope.current = '10001:source-b';
+    open(entry);
+    expect(context.shell.openContactDetails).toHaveBeenCalledOnce();
+  });
   it.each([
     ['礼物墙', 'giftwall'],
     ['我的资料', undefined],

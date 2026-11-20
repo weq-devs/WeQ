@@ -700,10 +700,11 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .rsnip mark{background:rgba(245,166,35,.5);color:inherit;border-radius:2px;padding:0 1px}
 .rmore{padding:7px 13px;color:var(--sub);font-size:12px;text-align:center}
 .log{padding:16px 18px 64px}
-/* 行距用 padding 而不是 margin：虚拟滚动靠 offsetHeight 按行测高，margin 不计入 offsetHeight，
+/* 行距用 padding 而不是 margin：虚拟滚动按边框盒测高，外边距不计入行高，
    换成 padding 后每行实际高度包含行距，定位才准确。 */
 .day{text-align:center;padding:6px 0 18px}.day span{background:rgba(140,140,140,.18);color:var(--sub);font-size:12px;padding:2px 10px;border-radius:10px}
 .sys{text-align:center;color:var(--sub);font-size:12px;padding:0 0 18px}
+#log-viewport{overflow-anchor:none}
 .msg{display:flex;gap:10px;padding:0 0 18px;border-radius:8px;transition:background .2s}
 .msg.me{flex-direction:row-reverse}
 .flash{animation:flash 1.7s ease}
@@ -785,36 +786,67 @@ const SCRIPT = `
   if(!vp||!rows)return;
   /* 默认行高估计 + 视口缓冲（viewport 的倍数）。 */
   var EST=84,BUF=3;
-  var hei=[],sum=new Float64Array(N+1);
-  var i; sum[0]=0; for(i=0;i<N;i++)sum[i+1]=sum[i]+EST;
-  function setH(k,h){hei[k]=h;for(var j=k+1;j<=N;j++)sum[j]=sum[j-1]+(hei[j-1]||EST);}
-  /* 第一个底 > y 的行下标。 */
-  function idxAt(y){var lo=0,hi=N;while(lo<hi){var mid=(lo+hi)>>1;if(sum[mid+1]>y)hi=mid;else lo=mid+1;}return lo;}
+  var heights=[],deltas=new Float64Array(N+1),topBit=1;
+  while(topBit*2<=N)topBit*=2;
+  /* 树状数组只记录实测高度与估算的差，单行重测不重扫剩余记录。 */
+  function setHeight(k,height){
+    var delta=height-(heights[k]||EST);
+    if(delta===0)return;
+    heights[k]=height;
+    for(var i=k+1;i<=N;i+=i&-i)deltas[i]+=delta;
+  }
+  function offset(count){
+    var pixels=count*EST;
+    for(var i=count;i>0;i-=i&-i)pixels+=deltas[i];
+    return pixels;
+  }
+  /* 找到第一个行底超过 y 的行。 */
+  function idxAt(y){
+    var count=0,delta=0;
+    for(var bit=topBit;bit>=1;bit>>=1){
+      var next=count+bit;
+      if(next<=N&&next*EST+delta+deltas[next]<=y){count=next;delta+=deltas[next];}
+    }
+    return count;
+  }
   var start=0,end=0,nodes={};
   function make(h){var t=document.createElement('div');t.innerHTML=h;var c=t.firstChild;return c||document.createElement('div');}
   var raf=0;
   function render(){
     if(N===0){tsp.style.height='0px';bsp.style.height='0px';return;}
-    var vh=window.innerHeight||500,sy=window.pageYOffset||document.documentElement.scrollTop||0;
-    var rel=sy-(vp.getBoundingClientRect().top+sy);
+    var vh=window.innerHeight||500;
+    var rel=-vp.getBoundingClientRect().top;
     var y0=rel-BUF*vh;if(y0<0)y0=0;
     var y1=rel+(BUF+1)*vh;
-    var a=idxAt(y0),b=idxAt(y1);if(a<0)a=0;if(b>N)b=N;
+    var a=idxAt(y0),b=Math.min(N,idxAt(y1)+1);
+    var anchor=idxAt(rel),anchorTop=offset(anchor);
+    var preserve=rel>=0&&anchor>=start&&anchor<end;
+    var atEnd=window.scrollY>0&&window.scrollY+vh>=document.documentElement.scrollHeight-1;
     /* 移除窗口外的节点。 */
     for(var k=start;k<end;k++){if(k<a||k>=b){var n=nodes[k];if(n&&n.parentNode){n.parentNode.removeChild(n);}delete nodes[k];}}
     /* 补齐窗口内缺失节点，保持文档顺序。 */
-    var bound=b>end?b:end;
-    for(k=a;k<b;k++){if(!nodes[k]){var el=make(ROWS[k].h);var ref=null;for(var j=k+1;j<=bound;j++){if(nodes[j]){ref=nodes[j];break;}}rows.insertBefore(el,ref);nodes[k]=el;}}
-    /* 测高并更新累计高度，再刷新 spacer。 */
-    for(k=a;k<b;k++){var e=nodes[k];if(e){var h=e.offsetHeight||EST;if(!hei[k]||Math.abs(h-hei[k])>1)setH(k,h);}}
-    tsp.style.height=(sum[a]||0)+'px';
-    bsp.style.height=(sum[N]-sum[b])+'px';
+    var ref=rows.firstChild;
+    for(k=a;k<b;k++){
+      if(nodes[k]){ref=nodes[k].nextSibling;}
+      else {var el=make(ROWS[k].h);rows.insertBefore(el,ref);nodes[k]=el;}
+    }
+    for(k=a;k<b;k++)setHeight(k,nodes[k].getBoundingClientRect().height||EST);
+    var top=offset(a)+'px',bottom=(offset(N)-offset(b))+'px';
+    if(tsp.style.height!==top)tsp.style.height=top;
+    if(bsp.style.height!==bottom)bsp.style.height=bottom;
     start=a;end=b;
+    var adjustment=preserve?offset(anchor)-anchorTop:0;
+    if(atEnd&&window.scrollY+vh<document.documentElement.scrollHeight-1)
+      window.scrollTo(0,document.documentElement.scrollHeight);
+    else if(adjustment)window.scrollBy(0,adjustment);
   }
   function schedule(){if(raf)return;raf=requestAnimationFrame(function(){raf=0;render();});}
   window.addEventListener('scroll',schedule,{passive:true});
   window.addEventListener('resize',schedule);
-  if(N){render();window.scrollTo(0,sum[N]);window.addEventListener('load',function(){render();});}
+  rows.addEventListener('load',schedule,true);
+  rows.addEventListener('toggle',schedule,true);
+  if(document.fonts)document.fonts.addEventListener('loadingdone',schedule);
+  if(N){render();window.scrollTo(0,document.documentElement.scrollHeight);render();}
   /* ---- search（索引懒构建，扫描 JSON payload） ---- */
   var q=document.getElementById('q'),results=document.getElementById('results'),qinfo=document.getElementById('qinfo');
   if(!q)return;
@@ -824,9 +856,9 @@ const SCRIPT = `
       var t=d.textContent||'',n=d.querySelector('.name'),tm=d.querySelector('.time');
       index.push({i:k,t:t,low:t.toLowerCase(),name:n?n.textContent:'',time:tm?tm.textContent:''});}}
   function jump(it){results.hidden=true;clearFlash();
-    var y=(sum[it.i]||0)-window.innerHeight/2;if(y<0)y=0;
+    var y=offset(it.i)+vp.getBoundingClientRect().top+window.scrollY-window.innerHeight/2;if(y<0)y=0;
     window.scrollTo(0,y);
-    requestAnimationFrame(function(){render();var el=nodes[it.i];if(el){void el.offsetWidth;el.classList.add('flash');flashed=el;}});}
+    requestAnimationFrame(function(){render();var el=nodes[it.i];if(el){el.scrollIntoView({block:'center'});el.classList.add('flash');flashed=el;}});}
   function snip(text,low,term){var i2=low.indexOf(term);if(i2<0)i2=0;var s=Math.max(0,i2-18);
     var f=document.createDocumentFragment();
     f.appendChild(document.createTextNode((s>0?'…':'')+text.slice(s,i2)));

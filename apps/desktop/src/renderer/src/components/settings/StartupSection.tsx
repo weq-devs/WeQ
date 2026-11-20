@@ -156,6 +156,7 @@ export function StartupSection() {
       </Card>
       <Card
         title="启动时进入"
+        desc={IS_WEB ? '浏览器模式下，窗口关闭行为由浏览器管理。' : undefined}
         icon={<PlayCircle size={15} strokeWidth={1.8} />}
         resetId="startup-page"
       >
@@ -218,11 +219,6 @@ export function StartupSection() {
           />
         </Card>
       </DesktopOnly>
-      {IS_WEB ? (
-        <p className="weq-set-note" role="status">
-          浏览器模式下，窗口关闭行为由浏览器管理。
-        </p>
-      ) : null}
       <div data-setting-id="home-settings">
         <HomeSettingsSection />
       </div>

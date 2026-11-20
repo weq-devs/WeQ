@@ -15,10 +15,23 @@
   flex-wrap: wrap;
 }
 
+.weq-set-row:has(> .weq-set-row-ctrl > .weq-segmented) {
+  row-gap: 8px;
+}
+
+/* 给标签留出基本宽度。容不下整组按钮时，控件换到标签下方。 */
+.weq-set-row > .weq-set-row-main:where(:has(+ .weq-set-row-ctrl > .weq-segmented)) {
+  flex: 1 1 min(100%, 8rem);
+}
+
 .weq-set-row-ctrl:has(.weq-segmented) {
   margin-inline-start: auto;
   min-width: 0;
   max-width: 100%;
+}
+
+.weq-set-row > .weq-set-row-ctrl:has(> .weq-segmented) {
+  flex: none;
 }
 
 .weq-qq-write-field:has(.weq-segmented) {
@@ -42,6 +55,32 @@
   letter-spacing: 0;
   overflow-wrap: anywhere;
   cursor: pointer;
+}
+
+@media (pointer: fine) {
+  .weq-set-row-ctrl > .weq-segmented {
+    display: flex;
+    min-height: 32px;
+    padding-block: 1px;
+  }
+
+  .weq-set-row-ctrl > .weq-segmented > button {
+    min-height: 28px;
+    padding-block: 1px;
+  }
+
+  /* 立体风格的双像素边框占用外框上下留白。 */
+  html[data-component-style='retro'] .weq-set-row-ctrl > .weq-segmented {
+    padding-block: 0;
+  }
+
+  html[data-density='compact'] .weq-set-row-ctrl > .weq-segmented {
+    min-height: 28px;
+  }
+
+  html[data-density='compact'] .weq-set-row-ctrl > .weq-segmented > button {
+    min-height: 24px;
+  }
 }
 
 .weq-segmented > button[aria-checked='true'] {

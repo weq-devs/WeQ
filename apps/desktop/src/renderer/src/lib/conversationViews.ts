@@ -7,6 +7,7 @@ import { conversationListSearchText } from './conversationListSearchText';
 import { conversationRoamingTarget } from './conversationActions';
 import { displayGroupName, displayUserName } from '../im-template/template/user';
 import { defaultConversationPreference } from '../im-template/template/preferences';
+import { CONVERSATION_VIEW_FEATURES } from '@weq/service/feature-catalog';
 
 export const CONVERSATION_VIEWS = [
   'regular',
@@ -23,13 +24,13 @@ export const CONVERSATION_VIEWS = [
 export type ConversationView = (typeof CONVERSATION_VIEWS)[number];
 export const CONVERSATION_VIEW_LABELS: Record<ConversationView, string> = {
   regular: '常规视图',
-  all: '全部会话',
-  groupAssistant: '群助手',
-  official: '公众号',
-  service: '服务号',
+  all: CONVERSATION_VIEW_FEATURES.all.label,
+  groupAssistant: CONVERSATION_VIEW_FEATURES.groupAssistant.label,
+  official: CONVERSATION_VIEW_FEATURES.official.label,
+  service: CONVERSATION_VIEW_FEATURES.service.label,
   guild: '频道私聊',
-  hidden: '已隐藏会话',
-  deleted: '已删除会话',
+  hidden: CONVERSATION_VIEW_FEATURES.hidden.label,
+  deleted: CONVERSATION_VIEW_FEATURES.deleted.label,
   clone: '克隆会话',
   assistant: 'WeQ 助手会话',
 };

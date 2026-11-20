@@ -13,6 +13,21 @@ afterEach(() => {
 });
 // 独立 wire：MsgBody@40800 → elementType@45002=1、textContent@45101。
 const text = Buffer.from('82f6130bd0fc1501ea821603686579', 'hex');
+it('群目录取各群最大的正序号，保留历史群和整数精度', async () => {
+  root = mkdtempSync(join(tmpdir(), 'weq-directory-seqs-'));
+  const path = join(root, 'messages.db');
+  const sql = fixtureDb(path);
+  sql.exec(`CREATE TABLE group_msg_table ("40027" TEXT, "40003" INTEGER, "40050" INTEGER);
+    CREATE INDEX group_partition_seq ON group_msg_table ("40027", "40003");
+    INSERT INTO group_msg_table VALUES
+      ('10001',9007199254740993,100),('10001',9007199254740992,200),
+      ('10002',42,300),('10003',0,400),('10004',NULL,500),(NULL,99,600);`);
+  const db = new GroupMsgDb(createSqliteStub(), { dbPath: path });
+  close.push(() => db.close());
+  expect(await db.directoryMaxSeqs()).toEqual({ '10001': '9007199254740993', '10002': '42' });
+  sql.exec('DELETE FROM group_msg_table');
+  expect(await db.directoryMaxSeqs()).toEqual({});
+});
 it('本人入群时间以 UID 为准，空 UID 仅按本人号码补全，不拿其他人的记录兜底', async () => {
   root = mkdtempSync(join(tmpdir(), 'weq-directory-joins-'));
   const path = join(root, 'members.db');

@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import { z } from 'zod';
 import { observeUpload, transferIdInput } from './transfer_progress';
 import {
+  KICK_MEMBER_PER_DAY_CHOICES,
   parseCustomFaceId,
   PROFILE_LIKE_MAX_PER_REQUEST,
   type GroupRequest,
@@ -160,6 +161,17 @@ export function createQQActionsRouter(
     current();
     if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
   }
+  async function adminTarget(s: QQActionServices, groupId: number, targetUid: string) {
+    const [context, member] = await Promise.all([
+      s.groupInfo.operationContext(groupId, targetUid),
+      s.groupInfo.getMemberInfo(BigInt(groupId), targetUid),
+    ]);
+    if (context.role !== 'owner' || context.targetRole !== 'admin' || context.isSelf)
+      throw new Error('只有群主可以管理该管理员的权限');
+    const userId = Number(member?.uin);
+    if (!Number.isSafeInteger(userId) || userId <= 0) throw new Error('无法核对管理员身份');
+    return userId;
+  }
   async function albumPermission(
     s: QQActionServices,
     groupId: number,
@@ -173,6 +185,50 @@ export function createQQActionsRouter(
       throw new Error('当前账号没有此相册操作权限，请刷新相册后重试');
   }
   return router({
+    onlineSystemFaces: procedure
+      .input(binding)
+      .query(({ input: i }) => read(i, (s) => s.emoji.onlineSystemFaces())),
+    onlineSystemFace: procedure
+      .input(binding.extend({ faceId: z.number().int().min(0).max(0xffffffff) }))
+      .query(({ input: i }) => read(i, (s) => s.emoji.onlineSystemFace(i.faceId))),
+    onlineDirectory: procedure
+      .input(binding)
+      .query(({ input: i }) => read(i, (s) => s.accountWrite.onlineDirectory())),
+    onlinePerson: procedure
+      .input(binding.extend({ uin: z.string().regex(/^[1-9]\d{4,15}$/) }))
+      .query(({ input: i }) => read(i, (s) => s.accountWrite.onlinePerson(i.uin))),
+    deleteFriend: procedure
+      .input(binding.extend({ targetUid: uid }))
+      .mutation(async ({ input: i }) => {
+        const outcome: { state: 'confirmed' | 'unconfirmed' } = { state: 'unconfirmed' };
+        await write(i, async (s, current) => {
+          const result = await s.accountWrite.deleteFriend(i.targetUid, current);
+          if (result.state === 'confirmed') outcome.state = 'confirmed';
+        });
+        return outcome;
+      }),
+    translateEnglish: procedure
+      .input(binding.extend({ text }))
+      .mutation(({ input: i }) => read(i, (s) => s.interaction.translateEnglish(i.text))),
+    miniAppCard: procedure
+      .input(
+        binding.extend({
+          type: z.enum(['bili', 'weibo']),
+          title: z.string().trim().min(1).max(128),
+          desc: z.string().trim().max(512),
+          picUrl: z.string().max(2048),
+          jumpUrl: z.string().url().max(2048),
+        }),
+      )
+      .mutation(({ input: i }) => read(i, (s) => s.interaction.miniAppCard(i))),
+    aiVoiceCatalog: procedure.input(group).query(({ input: i }) =>
+      read(i, async (s) => {
+        const groups = await s.groupInfo.listGroupDirectory();
+        if (!groups.some((entry) => entry.groupCode === String(i.groupId)))
+          throw new Error('当前账号未加入该群');
+        return s.messageSend.aiVoiceCatalog(i.groupId);
+      }),
+    ),
     signatureLike: procedure
       .input(
         binding.extend({
@@ -451,9 +507,110 @@ export function createQQActionsRouter(
         return { ...permissions, quota };
       }),
     ),
-    groupPermissions: procedure
-      .input(group)
-      .query(({ input: i }) => read(i, (s) => groupPermissions(s, i.groupId))),
+    groupPermissions: procedure.input(group).query(({ input: i }) =>
+      read(i, async (s) => {
+        const permissions = await groupPermissions(s, i.groupId);
+        return {
+          ...permissions,
+          ...(await s.groupInfo.ownAdminRestrictions(i.groupId, permissions.role)),
+        };
+      }),
+    ),
+    groupAdminPermissions: procedure.input(group.extend({ targetUid: uid })).query(({ input: i }) =>
+      read(i, async (s) => {
+        const userId = await adminTarget(s, i.groupId, i.targetUid);
+        const permissions = await s.groupInfo.adminPermissions(i.groupId, userId);
+        return { ...permissions, kickMemberPerDayChoices: KICK_MEMBER_PER_DAY_CHOICES };
+      }),
+    ),
+    setGroupAdminPermissions: procedure
+      .input(
+        group.extend({
+          targetUid: uid,
+          recallMemberMessage: z.boolean().optional(),
+          kickMember: z.boolean().optional(),
+          kickMemberPerDay: z.number().int().min(0).max(200).optional(),
+        }),
+      )
+      .mutation(({ input: i }) =>
+        write(i, async (s, current) => {
+          const userId = await adminTarget(s, i.groupId, i.targetUid);
+          const before = await s.groupInfo.adminPermissions(i.groupId, userId);
+          current();
+          if (
+            (i.recallMemberMessage !== undefined && before.recallMemberMessage === null) ||
+            (i.kickMember !== undefined && before.kickMember === null)
+          )
+            throw new Error('服务端未返回对应权限，请刷新后重试');
+          await s.groupModeration.setAdminPermissions(i.groupId, userId, i.targetUid, {
+            ...(i.recallMemberMessage === undefined
+              ? {}
+              : { recallMemberMessage: i.recallMemberMessage }),
+            ...(i.kickMember === undefined ? {} : { kickMember: i.kickMember }),
+            ...(i.kickMemberPerDay === undefined ? {} : { kickMemberPerDay: i.kickMemberPerDay }),
+          });
+        }),
+      ),
+    groupAdminReceiveVerify: procedure
+      .input(group.extend({ targetUid: uid }))
+      .query(({ input: i }) =>
+        read(i, async (s) => {
+          const userId = await adminTarget(s, i.groupId, i.targetUid);
+          return s.groupModeration.adminReceiveVerify(i.groupId, userId, i.targetUid);
+        }),
+      ),
+    setGroupAdminReceiveVerify: procedure
+      .input(group.extend({ targetUid: uid, enable: z.boolean() }))
+      .mutation(({ input: i }) =>
+        write(i, async (s, current) => {
+          const userId = await adminTarget(s, i.groupId, i.targetUid);
+          const before = await s.groupModeration.adminReceiveVerify(i.groupId, userId, i.targetUid);
+          current();
+          if (before === null) throw new Error('服务端未返回收取入群验证状态');
+          if (before !== i.enable)
+            await s.groupModeration.setAdminReceiveVerify(i.groupId, userId, i.targetUid, i.enable);
+        }),
+      ),
+    groupAdvancedSettings: procedure.input(group).query(({ input: i }) =>
+      read(i, async (s) => {
+        await manager(s, i.groupId, () => {});
+        return s.groupModeration.advancedSettings(i.groupId);
+      }),
+    ),
+    setGroupAdvancedSetting: procedure
+      .input(
+        group.extend({
+          change: z.discriminatedUnion('key', [
+            z.object({
+              key: z.enum([
+                'searchByName',
+                'searchByNumber',
+                'newMemberHistory',
+                'allowMemberUploadAlbum',
+                'allowMemberTemporarySession',
+                'allowMemberCreateGroup',
+                'robotMemberSwitch',
+                'robotMemberExamine',
+              ]),
+              value: z.boolean(),
+            }),
+            z.object({
+              key: z.literal('invitePolicy'),
+              value: z.enum([
+                'disabled',
+                'require_approval',
+                'no_approval',
+                'no_approval_under_100',
+              ]),
+            }),
+          ]),
+        }),
+      )
+      .mutation(({ input: i }) =>
+        write(i, (s, current) =>
+          s.groupModeration.setAdvancedSetting(i.groupId, i.change, current),
+        ),
+      ),
     extendedStatuses: procedure
       .input(binding)
       .query(({ input: i }) => read(i, async (s) => s.onlineStatus.editableExtendedStatuses())),
@@ -571,6 +728,19 @@ export function createQQActionsRouter(
           }
         }),
       ),
+    makeGroupFilePermanent: procedure
+      .input(group.extend({ fileId: id, directory: id.default('/') }))
+      .mutation(async ({ input: i }) => {
+        let result: Awaited<ReturnType<QQActionServices['groupFile']['makePermanent']>> = {
+          state: 'unconfirmed',
+          fileId: null,
+          directory: null,
+        };
+        await write(i, async (s, current) => {
+          result = await s.groupFile.makePermanent(i.groupId, i.fileId, i.directory, current);
+        });
+        return result;
+      }),
     folders: procedure
       .input(group.extend({ directory: id.default('/') }))
       .query(({ input: i }) => read(i, (s) => s.groupFile.list(i.groupId, i.directory))),
@@ -1073,6 +1243,60 @@ export function createQQActionsRouter(
     tags: procedure
       .input(binding.extend({ category: z.number().int().min(0).max(0xffffffff) }))
       .query(({ input: i }) => read(i, (s) => s.groupModeration.getCategoryTags(i.category))),
+    qzoneHome: procedure
+      .input(
+        binding.extend({
+          hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
+          cursor: z.string().max(65536).nullish(),
+        }),
+      )
+      .query(({ input: i }) =>
+        read(i, (s) => s.webQuery.qzoneHome(i.hostUin, i.cursor ?? undefined)),
+      ),
+    qzoneSpaceProfile: procedure
+      .input(binding.extend({ hostUin: z.string().regex(/^[1-9]\d{4,19}$/) }))
+      .query(({ input: i }) => read(i, (s) => s.webQuery.qzoneSpaceProfile(i.hostUin))),
+    updateQzoneSpaceProfile: procedure
+      .input(
+        binding.extend({
+          hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
+          name: z.string().max(80).optional(),
+          description: z.string().max(512).optional(),
+        }),
+      )
+      .mutation(({ input: i }) =>
+        write(i, (s, current) => s.webQuery.updateQzoneSpaceProfile(i.hostUin, i, current)),
+      ),
+    qzoneOrdinaryDetail: procedure
+      .input(
+        binding.extend({
+          hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
+          tid: z.string().regex(/^[\da-f]{24}$/i),
+        }),
+      )
+      .query(({ input: i }) => read(i, (s) => s.webQuery.qzoneOrdinaryDetail(i.hostUin, i.tid))),
+    qzoneOrdinaryShare: procedure
+      .input(
+        binding.extend({
+          hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
+          tid: z.string().regex(/^[\da-f]{24}$/i),
+        }),
+      )
+      .mutation(({ input: i }) => read(i, (s) => s.webQuery.qzoneOrdinaryShare(i.hostUin, i.tid))),
+    removeQzonePost: procedure
+      .input(
+        binding.extend({
+          hostUin: z.string().regex(/^[1-9]\d{4,19}$/),
+          tid: z.string().regex(/^[\da-f]{24}$/i),
+        }),
+      )
+      .mutation(async ({ input: i }) => {
+        let confirmed = false;
+        await write(i, async (s, current) => {
+          confirmed = await s.webQuery.removeQzonePost(i.hostUin, i.tid, current);
+        });
+        return { state: confirmed ? ('confirmed' as const) : ('unconfirmed' as const) };
+      }),
     qzone: procedure
       .input(
         binding.extend({

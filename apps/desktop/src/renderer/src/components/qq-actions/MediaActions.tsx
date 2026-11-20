@@ -126,7 +126,8 @@ function LikeAction({
       )}
       {count !== undefined ? (
         <>
-          点赞 <span className="weq-number">{count ?? '?'}</span>
+          <span className="weq-qzn-action-label">点赞</span>{' '}
+          <span className="weq-number">{count ?? '?'}</span>
         </>
       ) : null}
     </button>

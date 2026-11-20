@@ -13,7 +13,7 @@ import { requireResourceSource, resourceSourceInput } from './resource_source';
 const activity = new WeakMap<
   object,
   {
-    uploads: Map<string, ActiveTransfer>;
+    transfers: Map<string, ActiveTransfer>;
     listeners: Set<() => void>;
   }
 >();
@@ -21,35 +21,58 @@ const activity = new WeakMap<
 function accountTransfers(services: object) {
   let state = activity.get(services);
   if (!state) {
-    state = { uploads: new Map(), listeners: new Set() };
+    state = { transfers: new Map(), listeners: new Set() };
     activity.set(services, state);
   }
   return state;
 }
 
-function setUpload(services: object, id: string, progress?: TransferProgress, target?: string) {
-  const { uploads, listeners } = accountTransfers(services);
-  if (progress) uploads.set(id, { ...progress, id, target, direction: 'upload' });
-  else uploads.delete(id);
+function setTransfer(
+  services: object,
+  direction: ActiveTransfer['direction'],
+  id: string,
+  progress?: TransferProgress,
+  target?: string,
+) {
+  const { transfers, listeners } = accountTransfers(services);
+  if (progress) transfers.set(id, { ...progress, id, target, direction });
+  else transfers.delete(id);
   for (const listener of listeners) listener();
 }
 
 export const transferIdInput = z.string().uuid().optional();
 
-export async function observeUpload<T>(
+async function observeTransfer<T>(
   services: object,
+  direction: ActiveTransfer['direction'],
   id: string | undefined,
   run: (update: (progress: TransferProgress) => void) => Promise<T>,
 ) {
   const update = (progress: TransferProgress) => {
-    if (id) setUpload(services, id, progress);
+    if (id) setTransfer(services, direction, id, progress);
   };
   try {
     update({ phase: 'preparing' });
     return await run(update);
   } finally {
-    if (id) setUpload(services, id);
+    if (id) setTransfer(services, direction, id);
   }
+}
+
+export function observeUpload<T>(
+  services: object,
+  id: string | undefined,
+  run: (update: (progress: TransferProgress) => void) => Promise<T>,
+) {
+  return observeTransfer(services, 'upload', id, run);
+}
+
+export function observeDownload<T>(
+  services: object,
+  id: string,
+  run: (update: (progress: TransferProgress) => void) => Promise<T>,
+) {
+  return observeTransfer(services, 'download', id, run);
 }
 
 export function updateFlashUpload(
@@ -62,10 +85,16 @@ export function updateFlashUpload(
 ) {
   for (const alias of [fileset, ...(shortCode ? [shortCode] : [])]) {
     const key = flashFilesetTransferTarget(alias, 'upload');
-    setUpload(services, key, phase === 'done' ? undefined : { phase, received, total }, key);
+    setTransfer(
+      services,
+      'upload',
+      key,
+      phase === 'done' ? undefined : { phase, received, total },
+      key,
+    );
     if (phase === 'failed') {
       // 错误保留一段可见时间供重开会话核对，不落库、不生成任务。
-      setTimeout(() => setUpload(services, key), 5 * 60_000).unref();
+      setTimeout(() => setTransfer(services, 'upload', key), 5 * 60_000).unref();
     }
   }
 }
@@ -130,7 +159,7 @@ function snapshot(services: AccountServices): ActiveTransfer[] {
       });
     }
   }
-  return [...accountTransfers(services).uploads.values(), ...downloads];
+  return [...accountTransfers(services).transfers.values(), ...downloads];
 }
 
 export const transferProgressRouter = router({

@@ -13,6 +13,7 @@ const fixture = vi.hoisted(() => ({
   files: [
     { path: '/synthetic/a.log', name: 'a.log', kind: 'weq', mtime: 2, size: 100 },
     { path: '/synthetic/b.log', name: 'b.log', kind: 'weq', mtime: 1, size: 100 },
+    { path: '/synthetic/native.log', name: 'native.log', kind: 'native', mtime: 1, size: 100 },
   ],
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -45,23 +46,26 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 vi.mock('../src/renderer/src/components/ui/iconPicker', () => ({
   IconPicker: ({
+    ariaLabel,
     value,
     onChange,
     options,
   }: {
+    ariaLabel: string;
     value: string;
     onChange: (value: string) => void;
     options: { value: string; label: string }[];
   }) =>
     h(
       'select',
-      { 'aria-label': '合成日志选择', value, onChange: (event) => onChange(event.target.value) },
+      { 'aria-label': ariaLabel, value, onChange: (event) => onChange(event.target.value) },
       options.map((option) =>
         h('option', { key: option.value, value: option.value }, option.label),
       ),
     ),
 }));
-const line = (message: string) => JSON.stringify({ level: 'info', message }) + '\n';
+const line = (message: string, scope?: string) =>
+  JSON.stringify({ level: 'info', message, context: { scope } }) + '\n';
 const flush = () =>
   act(async () => {
     await Promise.resolve();
@@ -84,6 +88,7 @@ beforeEach(() => {
   fixture.text = new Map([
     ['/synthetic/a.log', line('a-one')],
     ['/synthetic/b.log', line('b-one')],
+    ['/synthetic/native.log', '[2026-11-20T07:30:00Z] [loader] native ready\n'],
   ]);
   fixture.info.mockReset().mockImplementation(async ({ path }: { path: string }) => ({
     size: fixture.text.get(path)!.length,
@@ -128,7 +133,7 @@ describe('日志页保留与活动读取', () => {
       f.render();
       await flush();
       expect(f.host.textContent).toContain('b-one');
-      const select = f.host.querySelector<HTMLSelectElement>('select')!;
+      const select = f.host.querySelector<HTMLSelectElement>('[aria-label="选择日志文件"]')!;
       act(() => {
         select.value = '/synthetic/a.log';
         select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -136,6 +141,32 @@ describe('日志页保留与活动读取', () => {
       await flush();
       expect(f.host.textContent).toContain('a-one');
       expect(select.value).toBe('/synthetic/a.log');
+    } finally {
+      f.dispose();
+    }
+  });
+  it('按来源更换文件，按模块筛选当前日志', async () => {
+    fixture.text.set(
+      '/synthetic/a.log',
+      line('database ready', 'db') + line('worker ready', 'worker'),
+    );
+    const f = mount();
+    const choose = (label: string, value: string) => {
+      const select = f.host.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)!;
+      act(() => {
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    };
+    try {
+      await flush();
+      choose('日志模块', 'db');
+      expect(f.host.textContent).toContain('database ready');
+      expect(f.host.textContent).not.toContain('worker ready');
+      choose('日志来源', 'native');
+      await flush();
+      expect(f.host.textContent).toContain('native ready');
+      expect(f.host.textContent).not.toContain('database ready');
     } finally {
       f.dispose();
     }
@@ -225,7 +256,7 @@ describe('日志页保留与活动读取', () => {
       await flush();
       const nextInfo = deferred<{ size: number }>();
       fixture.info.mockReturnValueOnce(nextInfo.promise);
-      const select = f.host.querySelector<HTMLSelectElement>('select')!;
+      const select = f.host.querySelector<HTMLSelectElement>('[aria-label="选择日志文件"]')!;
       act(() => {
         select.value = '/synthetic/b.log';
         select.dispatchEvent(new Event('change', { bubbles: true }));

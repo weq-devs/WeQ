@@ -56,8 +56,7 @@ test('联系人角标只覆盖布局，配色和尺寸复用消息列表，不�
   assert.match(rule[1]!, /position:\s*static/);
   assert.doesNotMatch(rule[1]!, /(?:background|color|font-size|height|min-width):/);
   const shared = readFileSync('src/renderer/src/styles/conversation-list-row.css', 'utf8');
-  assert.match(
-    shared,
-    /:is\(\.app-shell,\s*\.weq-conversation-list\) \.conversation-row \.row-unread,\s*\.app-shell \.weq-contact-directory \.row-unread\s*\{/,
-  );
+  const contactInset = /\.weq-contact-directory \.row-unread\s*\{([^}]*)\}/.exec(shared);
+  assert.ok(contactInset);
+  assert.doesNotMatch(contactInset[1]!, /(?:background|color|font-size|height|min-width):/);
 });

@@ -12,13 +12,16 @@
 .weq-qzn-composer button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 7px;
   cursor: pointer;
   padding: 7px 10px;
   border-radius: 6px;
   font: inherit;
   font-size: 13px;
+}
+.weq-qzn button:where(:not(.weq-select-trigger)),
+.weq-qzn-composer button:where(:not(.weq-select-trigger)) {
+  justify-content: center;
 }
 .weq-qzn button:hover,
 .weq-qzn-composer button:hover {
@@ -338,14 +341,37 @@
   color: var(--primary);
   margin: 6px 0;
 }
-.weq-qzn .weq-qzone-album {
-  max-width: 1080px;
-  margin: 0 auto;
-  max-height: none;
-  width: 100%;
+.weq-qzone-album-embedded .weq-qzone-album-empty {
+  min-height: 120px;
 }
-.weq-qzn .weq-qzone-album-body {
-  max-height: none;
+.weq-qzone-album-embedded .weq-qzal-toolbar {
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.weq-qzone-album-embedded .weq-qzal-list-toolbar {
+  margin-bottom: 12px;
+}
+.weq-qzone-album-embedded .weq-qzal-count {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-qzone-album-embedded .weq-qzal-toolbar > .weq-reference-toolbar {
+  margin-inline-start: auto;
+  padding: 0;
+}
+.weq-qzone-album-embedded .weq-qzal-toolbar > .weq-reference-toolbar:has(.selection-bar) {
+  flex-basis: 100%;
+}
+.weq-qzone-album-embedded .selection-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+}
+@media (max-width: 420px) {
+  .weq-qzone-album-embedded :is(.weq-qzal-album-grid, .weq-qzal-skel-grid, .weq-qzal-media-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .weq-qzn-composer {
   padding: 22px;

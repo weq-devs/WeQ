@@ -16,6 +16,17 @@
   flex-wrap: wrap;
 }
 
+.weq-resource-export-dialog .weq-media-icon-frame {
+  width: 32px;
+  height: 32px;
+}
+
+.weq-resource-export-dialog .weq-media-icon-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .weq-resource-export-dialog .weq-exp-tool,
 .weq-resource-export-dialog .weq-exp-btn,
 html[data-theme='dark'] .weq-resource-export-dialog .weq-exp-tool,

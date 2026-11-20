@@ -514,7 +514,31 @@ function MessageBubbleBody({
     }
   }
 
+  function handleAvatarClick(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (event.detail) {
+      onAvatarClick?.(sender, { x: event.clientX, y: event.clientY });
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    onAvatarClick?.(sender, { x: rect.left, y: rect.bottom });
+  }
+
   const SelfAvatar = onAvatarClick ? 'button' : 'span';
+  const incomingAvatar = !mine ? (
+    conversation.generated?.kind === 'assistant' ? (
+      <span className="avatar weq-asst-avatar" aria-hidden>
+        <FEATURE_ICONS.assistant />
+      </span>
+    ) : (
+      <PendantOverlay
+        name={senderName}
+        uin={sender.identityValue}
+        avatarUrl={senderAvatarUrl}
+        seed={senderSeed}
+        widget={lineWidget}
+      />
+    )
+  ) : null;
   const renderContext = { message, conversation, sender, mine };
   const renderer = (renderers ?? defaultMessageRenderers).find((item) => item.match(renderContext));
   const content = renderer?.render(renderContext) ?? renderDefaultMessageContent(message);
@@ -563,18 +587,12 @@ function MessageBubbleBody({
             className={cn('message-avatar-button')}
             title="查看资料"
             aria-label={`查看 ${senderName} 的资料`}
-            onClick={(event) => onAvatarClick(sender, { x: event.clientX, y: event.clientY })}
+            onClick={handleAvatarClick}
             onContextMenu={
               onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
             }
           >
-            <PendantOverlay
-              name={senderName}
-              uin={sender.identityValue}
-              avatarUrl={senderAvatarUrl}
-              seed={senderSeed}
-              widget={lineWidget}
-            />
+            {incomingAvatar}
             {avatarBadge}
           </button>
         ) : (
@@ -584,13 +602,7 @@ function MessageBubbleBody({
               onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
             }
           >
-            <PendantOverlay
-              name={senderName}
-              uin={sender.identityValue}
-              avatarUrl={senderAvatarUrl}
-              seed={senderSeed}
-              widget={lineWidget}
-            />
+            {incomingAvatar}
             {avatarBadge}
           </span>
         )
@@ -845,15 +857,7 @@ function MessageBubbleBody({
                 type: 'button',
                 title: '查看资料',
                 'aria-label': `查看 ${senderName} 的资料`,
-                onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  onAvatarClick(
-                    sender,
-                    event.detail
-                      ? { x: event.clientX, y: event.clientY }
-                      : { x: rect.left, y: rect.bottom },
-                  );
-                },
+                onClick: handleAvatarClick,
               }
             : {})}
           onContextMenu={

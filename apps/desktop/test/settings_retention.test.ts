@@ -328,7 +328,7 @@ describe('设置二级页现场与活动生命周期', () => {
     try {
       inputValue(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!, '4567');
       const tab = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')].find(
-        (button) => button.textContent === 'OneBot / cc-connect',
+        (button) => button.textContent === 'OneBot',
       )!;
       act(() => tab.click());
       expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();

@@ -22,6 +22,37 @@ it('lists the real registry without exposing SQL writes, messaging, wallet, cred
     expect(names).toContain('get_messages');
     expect(names).toContain('get_message_performance');
     expect(names).toContain('list_settings');
+    expect(names).toContain('list_features');
+    expect(names).toContain('get_feature');
+    const featureCall = async (name: string, args: Record<string, unknown>) => {
+      const result = await client.callTool({ name, arguments: args });
+      expect(result.isError).not.toBe(true);
+      return JSON.parse((result.content as Array<{ text: string }>)[0]!.text);
+    };
+    const first = await featureCall('list_features', { domain: 'export', limit: 1 });
+    expect(first.entries).toHaveLength(1);
+    const next = await featureCall('list_features', {
+      domain: 'export',
+      limit: 1,
+      offset: first.nextOffset,
+    });
+    expect(next.entries[0].id).not.toBe(first.entries[0].id);
+    const group = await featureCall('get_feature', { id: 'groups.albums', client: 'remote' });
+    expect(group.entry).toEqual({ status: 'needs-context', missing: ['group'] });
+    expect(group.tools).toEqual([{ name: 'get_group_albums', exposed: true }]);
+    expect(group.navigation).not.toHaveProperty('url');
+    const report = await featureCall('get_feature', { id: 'assistant.report-artifact' });
+    expect(report.tools).toEqual([{ name: 'write_report', exposed: false }]);
+    expect(names).not.toContain('write_report');
+    expect(
+      (await featureCall('get_feature', { id: 'maintenance.message-performance' })).navigation,
+    ).toBeNull();
+    const desktopSetting = await featureCall('get_feature', {
+      id: 'setting:startup-enabled',
+      client: 'remote',
+    });
+    expect(desktopSetting.entry.status).toBe('unsupported');
+    expect((await featureCall('get_feature', { id: 'unknown.fixture' })).found).toBe(false);
     const settings = await client.callTool({
       name: 'list_settings',
       arguments: { page: 'appearance', query: '深色' },

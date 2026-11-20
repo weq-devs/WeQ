@@ -8,6 +8,7 @@ import { useViewState } from '../state/view';
 import { useToastApi } from './Toast.shared';
 import { Modal } from './Dialog';
 import '../styles/friend-directory.css';
+import { OnlineContactDirectory } from './OnlineContactDirectory';
 import { FriendDirectoryContext } from './FriendDirectoryControls.shared';
 
 type Operation =
@@ -30,6 +31,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
   const scope = `${view}:${session.binding?.expectedAccountConfigId ?? ''}`;
   const current = useRef(scope);
   current.current = scope;
+  const [onlineScope, setOnlineScope] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -110,6 +112,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
             (roster.data && !categories ? '云端未返回好友分组目录' : undefined))
           : undefined,
         retry: () => void roster.refetch(),
+        openOnlineDirectory: session.available ? () => setOnlineScope(scope) : undefined,
         create: () => edit('create'),
         edit,
         move: (uids, categoryId) => {
@@ -143,6 +146,9 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
       })}
     >
       {children}
+      {onlineScope === scope ? (
+        <OnlineContactDirectory key={scope} onClose={() => setOnlineScope(null)} />
+      ) : null}
       {activeEditor && (
         <Modal
           centered

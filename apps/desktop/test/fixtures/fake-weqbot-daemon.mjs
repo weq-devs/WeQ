@@ -59,6 +59,7 @@ const server = await listenControlSocket({
             return reply({ configured: onebot !== null, config: onebot, listeners: [] });
           case 'shutdown':
             peer.send(controlSuccess(envelope.id, null));
+            await new Promise((resolve) => setTimeout(resolve, 40));
             await server.close();
             finish(0);
             return;

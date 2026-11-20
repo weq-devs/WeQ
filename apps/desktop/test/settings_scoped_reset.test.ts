@@ -417,6 +417,23 @@ describe('分级恢复默认', () => {
     expect(state.settings.qzonePersonClickAction).toBe('profile');
     expect(state.settings.mcp.token).toBe('synthetic-token');
   });
+  it('聊天图片预览和省流量模式各自恢复默认', async () => {
+    state.settings.sharedPreferences.client = {
+      autoDownloadPreviewOriginal: true,
+      dataSaverMode: 'always',
+    };
+    const api = caller();
+    const page = 'resource-loading';
+    const preview = await api.preview({ page, card: 'chat-image-preview' });
+    expect(preview.items).toMatchObject([{ current: true, defaultValue: false }]);
+    await api.restore({ page, card: 'chat-image-preview', source: null });
+    expect(state.settings.sharedPreferences.client.autoDownloadPreviewOriginal).toBe(false);
+    expect(state.settings.sharedPreferences.client.dataSaverMode).toBe('always');
+    state.settings.sharedPreferences.client.autoDownloadPreviewOriginal = true;
+    await api.restore({ page, card: 'data-saver', source: null });
+    expect(state.settings.sharedPreferences.client.dataSaverMode).toBe('auto');
+    expect(state.settings.sharedPreferences.client.autoDownloadPreviewOriginal).toBe(true);
+  });
   it('整页覆盖全部登记配置，自定义目录默认保留，显式选择才还原路径', async () => {
     state.settings.callRecording = {
       mode: 'self',

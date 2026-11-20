@@ -89,3 +89,21 @@ describe('消息撤回时间与身份', () => {
     ).toBeNull();
   });
 });
+
+it('管理员的明确逐项限制不会覆盖群主或普通成员的角色规则', () => {
+  expect(
+    groupPermission('kick', { role: 'admin', targetRole: 'member', adminKickAllowed: false }),
+  ).toBe(false);
+  expect(
+    groupPermission('kickReject', { role: 'admin', targetRole: 'member', adminKickAllowed: false }),
+  ).toBe(false);
+  expect(
+    groupPermission('kick', { role: 'owner', targetRole: 'member', adminKickAllowed: false }),
+  ).toBe(true);
+  expect(
+    groupPermission('kick', { role: 'admin', targetRole: 'member', adminKickAllowed: null }),
+  ).toBe(true);
+  expect(
+    groupPermission('recall', { role: 'admin', targetRole: 'member', recallAllowed: false }),
+  ).toBe(false);
+});

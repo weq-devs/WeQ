@@ -339,6 +339,7 @@ export function useConversationWindowEntry(
       kind: isGroup ? 'group' : 'c2c',
       rows: loaded,
       enabled: messagesTabActive && !loadingInitialMessages && Boolean(messageScope),
+      scrollRef: nativeMessageScrollRef,
     });
   useEffect(() => {
     const binding = messageBindingRef.current,
@@ -780,6 +781,7 @@ export function useConversationWindowEntry(
               const merged = fresh.filter((m) => !seen.has(timelineRowKey(m)));
               return merged.length ? [...cur, ...merged] : cur;
             });
+            commitPaging();
           }
           if (newer.length < PAGE_SIZE) {
             // Reached the tail — fold this window back into the live "latest" view.

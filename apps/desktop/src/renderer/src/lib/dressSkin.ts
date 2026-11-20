@@ -35,8 +35,7 @@
  * ## 右键高亮
  *
  * `chat.css` 的 `.context-active` 靠改 `background` 提示选中,但 border-image 画在
- * background 之上,纯色底会被完全盖住。所以装扮生效时改用一圈 outline 提示 —— 视觉上
- * 仍然明确,又不跟贴图打架。
+ * background 之上，纯色底会被盖住。装扮气泡直接压暗已绘制的气泡，沿用贴图的形状。
  *
  * ## 文字颜色的优先级
  *
@@ -197,6 +196,16 @@ function bubbleSelector(scope: DressScope): string {
  */
 function theirsBubbleSelector(scope: DressScope): string {
   return `.message-line.theirs${scopeFilter(scope, 'bubble')} ${BUBBLE_CONTENT}`;
+}
+
+export function bubbleMenuHighlightCss(line: string, textColor: string): string {
+  const active = '.message-bubble.context-active';
+  return `${line} :is(${active}, ${active} > .weq-repeat-content) > ${BUBBLE_CONTENT} {
+  background: transparent;
+  color: ${textColor};
+  box-shadow: none;
+  filter: brightness(0.86);
+}`;
 }
 
 /** 四舍五入到 2 位小数,避免 0.5 缩放产生一长串浮点尾巴。 */
@@ -668,15 +677,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
     );
   }
 
-  // 右键选中:贴图盖住了 background,改用 outline 提示。
-  const activeLine = bubbleLineSelector(scope);
-  rules.push(
-    `${activeLine} .message-bubble.context-active .message-content {`,
-    `  background: transparent;`,
-    `  outline: 2px solid var(--weq-accent-effective, #12a8ff);`,
-    `  outline-offset: -1px;`,
-    `}`,
-  );
+  rules.push(bubbleMenuHighlightCss(bubbleLineSelector(scope), skin.textColor));
 
   // 文字色受限的气泡：链接 / @提及不再标蓝（会和气泡文字色冲突），改为继承气泡色 + 下划线。
   if (bubbleRestrictsTextColor(skin.textColor) || skin.linkColor) {

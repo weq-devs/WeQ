@@ -70,13 +70,14 @@ import {
   type SignupMethod,
 } from './arkCards';
 
-type ArkTab = 'friend' | 'group' | 'signup' | 'tuwen' | 'json';
+type ArkTab = 'friend' | 'group' | 'signup' | 'tuwen' | 'miniApp' | 'json';
 
 const ARK_TABS: Array<{ id: ArkTab; label: string; icon: typeof UserPlus }> = [
   { id: 'friend', label: '好友', icon: UserPlus },
   { id: 'group', label: '群', icon: Users },
   { id: 'signup', label: '报名', icon: ClipboardList },
   { id: 'tuwen', label: '图文', icon: Newspaper },
+  { id: 'miniApp', label: '小程序', icon: Link2 },
   { id: 'json', label: 'JSON', icon: Braces },
 ];
 
@@ -393,6 +394,8 @@ export function ArkPanel({
   disabledHint,
   contacts,
   defaultSignupGroupCode,
+  onPrepareMiniApp,
+  miniAppScope,
   onSend,
   onClose,
 }: {
@@ -404,6 +407,14 @@ export function ArkPanel({
   contacts?: ArkContactSource;
   /** 「报名」那栏的默认目标群号（在群聊里打开时预填当前群号）。 */
   defaultSignupGroupCode?: string;
+  miniAppScope?: string;
+  onPrepareMiniApp?: (input: {
+    type: 'bili' | 'weibo';
+    title: string;
+    desc: string;
+    picUrl: string;
+    jumpUrl: string;
+  }) => Promise<string>;
   /** 交回应用层发送；**抛出即失败**，面板保留已填内容并显示原因。 */
   onSend: (payload: ArkPayload) => Promise<void>;
   onClose: () => void;
@@ -422,6 +433,53 @@ export function ArkPanel({
   const [signup, setSignup] = useState<SignupDraft>(() => emptySignupDraft(defaultSignupGroupCode));
   // 图文 / JSON
   const [tuwen, setTuwen] = useState<LinkCardDraft>(emptyLinkCardDraft);
+  const [miniPreview, setMiniPreview] = useState<{ key: string; data: string } | null>(null);
+  const miniKey = JSON.stringify([miniAppScope, tuwen]);
+  const miniArk = miniPreview?.key === miniKey ? miniPreview.data : null;
+
+  function miniAppType(value: string): 'bili' | 'weibo' | null {
+    try {
+      const { protocol, hostname } = new URL(value);
+      if (protocol !== 'https:') return null;
+      if (
+        hostname === 'b23.tv' ||
+        hostname === 'bilibili.com' ||
+        hostname.endsWith('.bilibili.com')
+      )
+        return 'bili';
+      if (
+        ['weibo.com', 'weibo.cn'].some((host) => hostname === host || hostname.endsWith(`.${host}`))
+      )
+        return 'weibo';
+    } catch {
+      /* 等用户补全链接。 */
+    }
+    return null;
+  }
+  async function prepareMiniApp() {
+    if (!onPrepareMiniApp || disabled || sending) return;
+    const type = miniAppType(tuwen.jumpUrl.trim());
+    if (!type || !tuwen.title.trim()) {
+      setTouched(true);
+      return;
+    }
+    setSending(true);
+    setError(null);
+    try {
+      const data = await onPrepareMiniApp({
+        type,
+        title: tuwen.title.trim(),
+        desc: tuwen.desc.trim(),
+        picUrl: tuwen.previewUrl.trim(),
+        jumpUrl: tuwen.jumpUrl.trim(),
+      });
+      setMiniPreview({ key: miniKey, data });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'QQ 未能生成小程序卡片');
+    } finally {
+      setSending(false);
+    }
+  }
   const [rawJson, setRawJson] = useState(ARK_JSON_TEMPLATE);
 
   const friendContactId = parsePositiveInt(friendId);
@@ -452,8 +510,9 @@ export function ArkPanel({
     if (tab === 'tuwen') {
       return tuwen.title.trim() || tuwen.jumpUrl.trim() ? buildTuwenArkJson(tuwen) : null;
     }
+    if (tab === 'miniApp') return miniArk;
     return jsonCheck.ok ? jsonCheck.pretty : null;
-  }, [tab, friendContactId, groupContactId, signupGroupCode, signup, tuwen, jsonCheck]);
+  }, [tab, friendContactId, groupContactId, signupGroupCode, signup, tuwen, jsonCheck, miniArk]);
 
   const problems = {
     friend: friendContactId === null ? '需要 QQ 号（纯数字）' : null,
@@ -474,6 +533,11 @@ export function ArkPanel({
                   : null,
     tuwen: !isHttpUrl(tuwen.jumpUrl)
       ? '链接需要 http/https 开头'
+      : !tuwen.title.trim()
+        ? '需要标题'
+        : null,
+    miniApp: !miniAppType(tuwen.jumpUrl.trim())
+      ? '请填写 B 站或微博的 HTTPS 链接'
       : !tuwen.title.trim()
         ? '需要标题'
         : null,
@@ -498,7 +562,8 @@ export function ArkPanel({
       setGroupId('');
     } else if (tab === 'signup') {
       setSignup(emptySignupDraft(defaultSignupGroupCode));
-    } else if (tab === 'tuwen') {
+    } else if (tab === 'tuwen' || tab === 'miniApp') {
+      setMiniPreview(null);
       setTuwen(emptyLinkCardDraft());
     } else {
       setRawJson(ARK_JSON_TEMPLATE);
@@ -548,6 +613,8 @@ export function ArkPanel({
           // 预览图留空时用默认图 —— 服务端会把空值当缺字段，这里先解析好。
           previewUrl: resolvedLinkCardIcon(tuwen),
         };
+      case 'miniApp':
+        return miniArk ? { type: 'ark', arkData: miniArk } : null;
       case 'json':
         return jsonCheck.ok ? { type: 'ark', arkData: jsonCheck.pretty } : null;
       default:
@@ -558,6 +625,10 @@ export function ArkPanel({
   async function submit(): Promise<void> {
     setTouched(true);
     if (!canSend) return;
+    if (tab === 'miniApp' && !miniArk) {
+      await prepareMiniApp();
+      return;
+    }
     const payload = buildPayload();
     if (!payload) return;
     setSending(true);
@@ -607,7 +678,7 @@ export function ArkPanel({
       {/* 没有标题栏：一行 tab 就是全部头部（图标 + 两三个字的标签），关闭按钮贴在行尾。
           面板本来就不高，少一行就少 38px，也少一堆字。 */}
       <nav className={cn('ark-tabs')} role="tablist">
-        {ARK_TABS.map((item) => {
+        {ARK_TABS.filter((item) => item.id !== 'miniApp' || onPrepareMiniApp).map((item) => {
           const Icon = item.icon;
           return (
             <button
@@ -818,7 +889,7 @@ export function ArkPanel({
           </>
         ) : null}
 
-        {tab === 'tuwen' ? (
+        {tab === 'tuwen' || tab === 'miniApp' ? (
           <>
             <Field
               label="链接"
@@ -831,7 +902,9 @@ export function ArkPanel({
                   type="text"
                   value={tuwen.jumpUrl}
                   maxLength={LINK_CARD_MAX_URL_CHARS}
-                  placeholder="https://example.com/page"
+                  placeholder={
+                    tab === 'miniApp' ? 'B 站或微博 HTTPS 链接' : 'https://example.com/page'
+                  }
                   spellCheck={false}
                   onChange={(event) => setTuwen({ ...tuwen, jumpUrl: event.target.value })}
                 />
@@ -933,7 +1006,9 @@ export function ArkPanel({
         <button
           type="button"
           className={cn('link-card-btn', 'primary')}
-          title={disabled ? disabledHint : '发送这张卡片'}
+          title={
+            disabled ? disabledHint : tab === 'miniApp' && !miniArk ? '生成预览' : '发送这张卡片'
+          }
           disabled={disabled || sending}
           onClick={() => void submit()}
         >
@@ -942,7 +1017,7 @@ export function ArkPanel({
           ) : (
             <SendHorizontal size={13} strokeWidth={2.2} />
           )}
-          发送
+          {tab === 'miniApp' && !miniArk ? '生成预览' : '发送'}
         </button>
       </footer>
     </div>

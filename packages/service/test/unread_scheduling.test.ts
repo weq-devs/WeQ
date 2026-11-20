@@ -1,8 +1,14 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { UnreadInfoSnapshot, UnreadReadChange } from '@weq/db';
 import { databaseRequestSignal, withDatabasePriority } from '@weq/db';
+import { closeAllFixtureDbs, createSqliteStub } from '@weq/testkit';
 import { afterEach, expect, it, vi } from 'vitest';
 import { UnreadInfoService } from '../src/account/unread_info';
+import type { GapFetchedMessage } from '../src/account/gap_history';
+import { RoamMsgCacheDb, type UnreadSentRange } from '../src/account/roam_msg_cache';
 
 const services: UnreadInfoService[] = [];
 afterEach(async () => {
@@ -17,7 +23,10 @@ const row = (extra: Partial<UnreadInfoSnapshot> = {}): UnreadInfoSnapshot => ({
   latestSeq: '100',
   ...extra,
 });
-function fixture(readOnly = false) {
+function fixture(
+  readOnly = false,
+  unreadSentSequences?: (ranges: UnreadSentRange[]) => Promise<Map<string, string[]>>,
+) {
   let rows = [row()];
   let original = row();
   const signals: Array<AbortSignal | undefined> = [];
@@ -81,7 +90,7 @@ function fixture(readOnly = false) {
   const service = new UnreadInfoService(
     session,
     undefined,
-    readOnly ? { statePath: '', readOnly: true } : undefined,
+    readOnly || unreadSentSequences ? { statePath: '', readOnly, unreadSentSequences } : undefined,
   );
   services.push(service);
   return {
@@ -164,6 +173,65 @@ it.each([1, 2])('类型 %s 的跨端自发消息在 QQ 减项到达前后都不�
   expect((await query())[0]?.unreadCount).toBe(1);
   expect(f.markRead).not.toHaveBeenCalled();
   expect(f.setReadState).not.toHaveBeenCalled();
+});
+it('戳一戳推进小表时扣除已确认自发序号，并在缓存晚到时重算原快照', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-unread-sent-'));
+  const cache = new RoamMsgCacheDb(createSqliteStub(), join(root, 'cache.db'));
+  const sent: GapFetchedMessage = {
+    kind: 'c2c',
+    conv: 'u_peer',
+    msgId: '64',
+    msgSeq: '18064',
+    senderUid: 'u_self',
+    senderUin: '10001',
+    sendTime: '1700000000',
+    sourceFormat: 'protocol',
+    ntSeqVerified: true,
+    localSent: true,
+    elements: [{ type: 'text', data: { textContent: '原文' } }],
+  };
+  const readSent = vi.fn((ranges: UnreadSentRange[]) =>
+    cache.unreadSentSequences('u_self', ranges),
+  );
+  const direct = { chatType: 1, uid: sent.conv, peer: '1_u_peer' };
+  const f = fixture(false, readSent);
+  const query = () => f.service.getUnreadInfos([direct]);
+  try {
+    await cache.store([
+      sent,
+      { ...sent, msgId: '65', msgSeq: '18065' },
+      { ...sent, msgId: '66', msgSeq: '18066', ntSeqVerified: false },
+      { ...sent, msgId: '166', msgSeq: '18066', senderUid: 'u_other' },
+    ]);
+    f.update([row({ ...direct, msgSeq: 18063, latestSeq: '18065', latestSeqNonMessage: true })]);
+    expect((await query())[0]).toMatchObject({ unreadCount: 0, readSeq: '18063' });
+    f.update([row({ ...direct, msgSeq: 18063, latestSeq: '18066', latestSenderUid: 'u_peer' })]);
+    expect((await query())[0]?.unreadCount).toBe(1);
+    f.update([row({ ...direct, msgSeq: 18063, latestSeq: '18067', latestSenderUid: 'u_peer' })]);
+    expect((await query())[0]?.unreadCount).toBe(2);
+    readSent.mockClear();
+    f.service.invalidate();
+    expect((await query())[0]?.unreadCount).toBe(2);
+    expect(readSent).not.toHaveBeenCalled();
+
+    const changed = vi.fn();
+    const stop = f.service.onCountsChanged(changed);
+    try {
+      await cache.store([{ ...sent, msgId: '66', msgSeq: '18066' }]);
+      f.service.invalidateSent('c2c', sent.conv);
+      await vi.waitFor(() =>
+        expect(changed).toHaveBeenCalledWith([{ chatType: 1, uid: sent.conv }]),
+      );
+      expect((await query())[0]?.unreadCount).toBe(1);
+    } finally {
+      stop();
+    }
+    expect(f.markRead).not.toHaveBeenCalled();
+  } finally {
+    await f.service.dispose();
+    closeAllFixtureDbs();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 it('共享初始化不继承单个页面取消，账号关闭才取消底层读取', async () => {
   const f = fixture();

@@ -42,6 +42,7 @@ import { QqAvatar } from '../components/QqAvatar';
 import { QzonePersonIdentity, QzonePersonHeader } from '../components/QzoneProfileAvatar';
 import { QzoneEmoji } from '../components/QzoneEmoji';
 import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
+import { QzoneActionsRow } from '../components/QzoneActionsRow';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
 import { QzoneUpvoteAction } from '../components/QzoneUpvoteAction';
@@ -726,7 +727,7 @@ function PublicFeedCard({
         </p>
       ) : null}
       <QzoneMediaGrid images={grid.images} videos={grid.videos} />
-      <div className="weq-qzn-actions">
+      <QzoneActionsRow>
         <QzoneLikesPopover
           trigger={
             <button
@@ -742,7 +743,8 @@ function PublicFeedCard({
               ) : (
                 <ThumbsUp size={16} fill={view.liked ? 'currentColor' : 'none'} />
               )}
-              点赞 <span className="weq-number">{countText(view.likeCount)}</span>
+              <span className="weq-qzn-action-label">点赞</span>{' '}
+              <span className="weq-number">{countText(view.likeCount)}</span>
             </button>
           }
         >
@@ -756,7 +758,8 @@ function PublicFeedCard({
         </QzoneLikesPopover>
         <button type="button" aria-expanded={expanded} aria-label="查看评论" onClick={onToggle}>
           <MessageCircle size={16} />
-          评论 <span className="weq-number">{countText(view.commentCount)}</span>
+          <span className="weq-qzn-action-label">评论</span>{' '}
+          <span className="weq-number">{countText(view.commentCount)}</span>
         </button>
         <QzoneForwardAction
           count={view.forwardCount}
@@ -772,9 +775,10 @@ function PublicFeedCard({
         />
         <span className="weq-qzn-views" title="浏览量（非去重访客数）">
           <Eye size={16} />
-          浏览量 <span className="weq-number">{countText(view.viewCount)}</span>
+          <span className="weq-qzn-action-label">浏览量</span>{' '}
+          <span className="weq-number">{countText(view.viewCount)}</span>
         </span>
-      </div>
+      </QzoneActionsRow>
       {error ? (
         <p className="weq-qzn-error" role="alert">
           {error}

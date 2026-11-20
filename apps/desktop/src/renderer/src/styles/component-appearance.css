@@ -381,7 +381,7 @@ html[data-component-style='retro']
   :is(
     .row-main,
     .row-main strong,
-    .row-main span,
+    .row-main span:not(.weq-reminder),
     .row-preview-line,
     .row-meta,
     .row-muted,

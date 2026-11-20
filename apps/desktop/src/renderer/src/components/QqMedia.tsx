@@ -40,7 +40,11 @@ import { cn } from '@renderer/lib/utils';
 import { client, trpc } from '@renderer/trpc/client';
 import { openMediaPreview } from './mediaPreviewStore.shared';
 
-import { MediaItemKeyContext, useChatMediaOpen } from './ChatMediaGallery.shared';
+import {
+  chatImagePreviewSources,
+  MediaItemKeyContext,
+  useChatMediaOpen,
+} from './ChatMediaGallery.shared';
 import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocument';
 import { openMarketFaceLightbox } from '../state/marketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
@@ -354,11 +358,13 @@ export function QqImage({
         onClick={
           openable
             ? (event) => {
+                const preview = isAnimatedEmoji ? undefined : chatImagePreviewSources(data, params);
                 if (
                   galleryOpen?.(previewKey, event.currentTarget.ownerDocument, {
-                    src: previewSrc,
+                    src: preview?.src ?? previewSrc,
+                    originalImage: preview?.originalImage,
                     ocr: ocrContext,
-                    fallbackSources: [originalProxySrc, proxySrc],
+                    fallbackSources: preview ? [] : [originalProxySrc, proxySrc],
                     progressTarget,
                   })
                 )
@@ -368,18 +374,21 @@ export function QqImage({
                     {
                       key: previewSrc,
                       kind: 'image',
-                      src: previewSrc,
+                      src: preview?.src ?? previewSrc,
+                      originalImage: preview?.originalImage,
                       title: name || (isAnimatedEmoji ? '[表情]' : '[图片]'),
                       ocr: ocrContext,
                       progressTarget,
-                      fallbackSources: [
-                        ...candidates
-                          .slice(srcIndex + 1)
-                          .map((candidate) =>
-                            candidate === proxySrc ? originalProxySrc : candidate,
-                          ),
-                        proxySrc,
-                      ],
+                      fallbackSources: preview
+                        ? []
+                        : [
+                            ...candidates
+                              .slice(srcIndex + 1)
+                              .map((candidate) =>
+                                candidate === proxySrc ? originalProxySrc : candidate,
+                              ),
+                            proxySrc,
+                          ],
                     },
                   ],
                   ownerDocument: event.currentTarget.ownerDocument,

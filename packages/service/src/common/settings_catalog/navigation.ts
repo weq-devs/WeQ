@@ -36,7 +36,7 @@ export const SETTINGS_PAGE_LABELS = {
   'resource-loading': '资源加载',
   remote: 'Web 与 Remote',
   mcp: 'MCP 服务器',
-  onebot: 'OneBot / cc-connect',
+  onebot: 'OneBot',
   sse: 'SSE 推送',
   assistant: 'QQ 公众号推送',
   privacy: '隐私',
@@ -698,6 +698,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     [
       ['message-system-notifications', '普通私聊消息', '新消息系统通知', '消息弹窗提醒'],
       ['application-unread-badge', '应用图标未读角标', 'Dock 任务栏 Badge'],
+      ['conversation-interaction-badge', '会话互动红点', '戳一戳红点', '撤回红点'],
     ] as const
   ).map(
     ([id, label, ...aliases]): ItemRedirect => ({
@@ -815,6 +816,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     label: '优先直连 QQ 加载图片',
     aliases: ['优先使用 CDN'],
     from: ['storage', 'remote', 'resource-loading'],
+  },
+  {
+    id: 'auto-download-preview-original',
+    section: 'resource-loading',
+    label: '预览时自动获取原图',
+    aliases: ['自动下载原图', '聊天图片预览'],
+    from: ['resource-loading'],
   },
   {
     id: 'data-saver',

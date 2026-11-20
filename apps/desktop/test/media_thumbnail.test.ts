@@ -31,7 +31,7 @@ async function render(data: Record<string, unknown>) {
   await act(async () => root.render(createElement(QqImage, { data, sendTimeMs: 1000 })));
   return host;
 }
-it('时间线请求缩略图，打开灯箱仍请求原图', async () => {
+it('时间线请求缩略图，灯箱区分本地原图、缩略图和主动下载', async () => {
   const host = await render({
     fileName: 'fixture.png',
     fileToken: 'fixture',
@@ -43,8 +43,14 @@ it('时间线请求缩略图，打开灯箱仍请求原图', async () => {
   expect(image.loading).toBe('lazy');
   expect(image.decoding).toBe('async');
   await act(async () => image.click());
-  const original = new URL(state.open.mock.calls[0]![0].items[0].src);
-  expect(original.searchParams.has('v')).toBe(false);
+  const item = state.open.mock.calls[0]![0].items[0];
+  expect(new URL(item.src).searchParams.get('preview')).toBe('1');
+  const local = new URL(item.originalImage.cachedSrc);
+  expect(local.searchParams.get('v')).toBe('original');
+  expect(local.searchParams.get('localOnly')).toBe('1');
+  const original = new URL(item.originalImage.src);
+  expect(original.searchParams.get('v')).toBe('original');
+  expect(original.searchParams.has('localOnly')).toBe(false);
   expect(original.searchParams.get('token')).toBe('fixture');
 });
 it.each(['fixture.gif', 'fixture.png'])(

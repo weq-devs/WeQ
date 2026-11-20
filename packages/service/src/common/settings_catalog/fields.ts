@@ -119,6 +119,12 @@ export const CLIENT_SETTING_FIELDS = (
     ['privacy-mode', 'capturePrivacy', 'privacy-menu-capture', '截图临时隐私模式'],
     ['web-notifications', 'webNotifications', 'web-notifications', '网页通知'],
     [
+      'chat-image-preview',
+      'autoDownloadPreviewOriginal',
+      'auto-download-preview-original',
+      '预览时自动获取原图',
+    ],
+    [
       'conversation-order',
       'keepConversationPositionOnHover',
       'keep-conversation-position-on-hover',
@@ -138,6 +144,12 @@ export const CLIENT_SETTING_FIELDS = (
     ['emoji-shortcuts', 'slashEmojiEnabled', 'slash-emoji-input', '斜杠表情快捷输入'],
     ['emoji-shortcuts', 'slashEmojiAutoReplace', 'slash-emoji-auto-replace', '无需回车即自动替换'],
     ['notification-badges', 'applicationBadge', 'application-unread-badge', '应用图标未读角标'],
+    [
+      'notification-badges',
+      'showInteractionBadge',
+      'conversation-interaction-badge',
+      '会话互动红点',
+    ],
     ...ENTRY_BADGE_SETTINGS.map(
       ([key, id, label]) => ['notification-badges', key, id, label] as const,
     ),

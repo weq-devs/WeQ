@@ -26,6 +26,24 @@ export function useChatMediaOpen() {
   return useContext(GalleryContext);
 }
 
+export function chatImagePreviewSources(
+  data: Record<string, unknown>,
+  params: Record<string, string | number>,
+): Pick<PreviewMedia, 'src' | 'originalImage'> | undefined {
+  if (data.localPreviewUrl || data.localPath || (!params.token && !params.name && !params.md5))
+    return undefined;
+  const bytes = Number(data.fileSize);
+  const original = { ...params, v: 'original', intent: 'interactive' };
+  return {
+    src: mediaUrl('pic', { ...params, v: 'thumb', preview: 1 }),
+    originalImage: {
+      cachedSrc: mediaUrl('pic', { ...original, localOnly: 1 }),
+      src: mediaUrl('pic', original),
+      bytes: Number.isFinite(bytes) && bytes > 0 ? bytes : undefined,
+    },
+  };
+}
+
 export function galleryMedia(
   messages: GalleryMessage[],
   conv = '',
@@ -58,7 +76,12 @@ export function galleryMedia(
         name,
         token,
         ...(image
-          ? { lookup: 2, orig: String(data.originalUrl ?? ''), md5: String(data.md5 ?? '') }
+          ? {
+              lookup: 2,
+              orig: String(data.originalUrl ?? ''),
+              small: String(data.thumbnailUrl ?? ''),
+              md5: String(data.md5 ?? ''),
+            }
           : {
               msgId: carrier?.msgId ?? message.msgId,
               conv,
@@ -67,9 +90,10 @@ export function galleryMedia(
             }),
       };
       const proxy = mediaUrl(image ? 'pic' : 'video', params);
+      const preview = image ? chatImagePreviewSources(data, params) : undefined;
       const src =
         String(data.localPreviewUrl || '') ||
-        (data.localPath ? localFileUrl(String(data.localPath)) : proxy);
+        (data.localPath ? localFileUrl(String(data.localPath)) : (preview?.src ?? proxy));
       const ttl = Number(data.fileTTL),
         uploaded = Number(data.uploadTimestamp);
       const width = Number(data.imgWidth) || 0,
@@ -94,13 +118,16 @@ export function galleryMedia(
             carrier ? { fwdMsgId: message.msgId, fwdResId: carrier.resId } : undefined,
           ),
           src,
-          saveSource: src.startsWith('blob:')
-            ? data.localPath
-              ? { kind: 'url', url: localFileUrl(String(data.localPath)), name }
-              : null
-            : { kind: 'url', url: src, name },
+          originalImage: preview?.originalImage,
+          saveSource: preview
+            ? undefined
+            : src.startsWith('blob:')
+              ? data.localPath
+                ? { kind: 'url', url: localFileUrl(String(data.localPath)), name }
+                : null
+              : { kind: 'url', url: src, name },
           title: name || (image ? '聊天图片' : '聊天视频'),
-          fallbackSources: src !== proxy ? [proxy] : [],
+          fallbackSources: !preview && src !== proxy ? [proxy] : [],
           poster: image
             ? undefined
             : mediaUrl('video', { t, name, token: String(data.videoToken ?? ''), v: 'thumb' }),

@@ -105,7 +105,7 @@ function FlashCardView({
       }}
     >
       {cover ? (
-        <div className="weq-flash-media-box">
+        <div className="weq-flash-media-box weq-media-frame">
           <ShimmerImage
             className="weq-flash-cover"
             src={coverSrc}

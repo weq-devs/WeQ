@@ -5,6 +5,7 @@ import { useWebConnection } from '../state/webConnection';
 import { useToastApi } from './Toast.shared';
 import { useNotificationPolicy, publishNotificationSystem } from '../lib/notificationPolicy';
 import { notificationSource } from '../lib/notificationNavigation.shared';
+import { webAvatarCache } from '../lib/webAvatarCache';
 import '../styles/web-connection.css';
 
 type RemoteConnectionState = 'connected' | 'network' | 'connection';
@@ -74,6 +75,7 @@ export function WebConnectionStatus() {
       });
     } else if (warned.current || nativeRecovery > previousNativeRecovery.current) {
       warned.current = false;
+      webAvatarCache.retryFailedVisible();
       toast.push({ key: NOTICE_KEY, event: 'connection', tone: 'success', title: '连接已恢复' });
     }
     previousNativeRecovery.current = nativeRecovery;
@@ -89,6 +91,7 @@ export function WebConnectionStatus() {
     previousRecovery.current = recovery;
     // 只补查当前挂载的读取；订阅由 tRPC 恢复，不重放发送等 mutation。
     void queryClient.invalidateQueries({ refetchType: 'active' });
+    webAvatarCache.retryFailedVisible();
   }, [recovery, queryClient]);
 
   useEffect(() => {

@@ -74,6 +74,7 @@ import {
   isSsePushActive,
   rememberAccountUid,
   awaitSignerWarmup,
+  syncAccountOneBot,
   rescanSigner as rescanSignerImpl,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
@@ -351,6 +352,13 @@ function validateWeqOneBotConfig(value: unknown, uin: string): OneBotConfig {
         row.messageFormat = 'array';
       }
       if (typeof row.reportSelfMessage !== 'boolean') row.reportSelfMessage = true;
+      if (
+        key === 'httpServers' &&
+        row.enableCors !== undefined &&
+        typeof row.enableCors !== 'boolean'
+      ) {
+        throw new Error(`networks.${key}[${index}].enableCors 必须是布尔值`);
+      }
       if (key === 'wsServers' || key === 'httpServers') {
         if (!Number.isSafeInteger(row.port)) {
           throw new Error(`networks.${key}[${index}].port 必须是整数`);
@@ -1758,12 +1766,12 @@ export const bootstrapRouter = router({
 
       // 先落盘再下发：下发失败时页面能明确说「配置已保存，但 daemon 起不来」，
       // 而不是「保存失败」，让用户以为白改了。
-      userConfig.setSettings({ oneBotByUin: { [uin]: validated } });
+      userConfig.saveAccountOneBotConfig(uin, validated);
 
       if (ctx.account && !ctx.accountIsStatic) {
         try {
-          const state = await botRuntime.setOneBot(uin, validated);
-          return { config: validated, listeners: state.listeners, daemonCheck: null };
+          const state = await syncAccountOneBot(ctx, ctx.account, validated);
+          return { config: validated, listeners: state?.listeners ?? [], daemonCheck: null };
         } catch (cause) {
           const message = cause instanceof Error ? cause.message : String(cause);
           return { config: validated, listeners: [], daemonCheck: message };

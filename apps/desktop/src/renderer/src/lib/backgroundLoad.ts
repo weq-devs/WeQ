@@ -20,7 +20,8 @@ function clearScheduled() {
 
 function activity() {
   heldUntil = performance.now() + BACKGROUND_INTERACTION_SETTLE_MS;
-  schedule();
+  // 已有计时器醒来后会按最新手势时间重新等待。每次滚动不必遍历任务或重建计时器。
+  if (timer === undefined) schedule();
 }
 
 function visibilityChanged() {

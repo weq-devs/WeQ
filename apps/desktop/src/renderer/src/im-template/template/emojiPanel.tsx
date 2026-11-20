@@ -45,6 +45,9 @@ import { marketFaceItem, systemFaceItem, unicodeFaceItem, type EmojiItem } from 
 
 type TabId = 'face' | 'super' | 'unicode' | 'market' | 'fav' | 'kaomoji' | 'poke' | 'custom';
 
+// 在同一页面内跨面板开关和会话切换保留上次选择。
+let lastSelectedTab: TabId = 'face';
+
 const TABS: Array<{ id: TabId; label: string; icon: typeof Smile }> = [
   { id: 'face', label: '表情', icon: Smile },
   { id: 'super', label: '超级表情', icon: Sticker },
@@ -95,6 +98,7 @@ export function EmojiPanel({
   onSendRandom,
   onInsertCustomEmoji,
   textOnly = false,
+  onOpenOnlineCatalog,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
   /** 普通表情：插进输入框，可以和文字合成一条消息。 */
@@ -110,13 +114,33 @@ export function EmojiPanel({
   onInsertCustomEmoji?: (file: File) => void;
   /** 纯文本会话不展示必须携带 QQ 媒体元素的表情来源。 */
   textOnly?: boolean;
+  onOpenOnlineCatalog?: () => void;
 }) {
-  const [tab, setTab] = useState<TabId>('face');
+  const [selectedTab, setSelectedTab] = useState(() => lastSelectedTab);
   const [bounceFace, setBounceFace] = useState<EmojiItem | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const bounceReturnScroll = useRef(0);
   const [marketPackId, setMarketPackId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  const tabs = TABS.filter(({ id }) => {
+    if (id === 'poke') return Boolean(onSendPoke);
+    if (id === 'custom') return Boolean(onInsertCustomEmoji);
+    return true;
+  }).map((tab) => ({
+    ...tab,
+    disabled: textOnly && !['face', 'unicode', 'kaomoji'].includes(tab.id),
+  }));
+  const tab = tabs.some(({ id, disabled }) => id === selectedTab && !disabled)
+    ? selectedTab
+    : 'face';
+
+  function selectTab(id: TabId) {
+    if (id !== tab) bounceReturnScroll.current = 0;
+    lastSelectedTab = id;
+    setSelectedTab(id);
+    setBounceFace(null);
+  }
 
   const overview = trpc.account.emojiPanel.overview.useQuery(undefined, {
     staleTime: 30_000,
@@ -166,6 +190,11 @@ export function EmojiPanel({
         {!bouncing && tab === 'face' && openBounce ? (
           <span className="emoji-heading-note">弹射：右键 / 长按</span>
         ) : null}
+        {!bouncing && tab === 'face' && onOpenOnlineCatalog ? (
+          <button type="button" className="weq-set-btn" onClick={onOpenOnlineCatalog}>
+            在线目录
+          </button>
+        ) : null}
         {tab === 'fav' ? (
           <FavoriteBundleControls
             onChanged={async () => {
@@ -182,7 +211,7 @@ export function EmojiPanel({
           <div className="emoji-header-actions">
             <ActionIcon
               label="返回表情"
-              onClick={() => (bouncing ? setBounceFace(null) : setTab('face'))}
+              onClick={() => (bouncing ? setBounceFace(null) : selectTab('face'))}
             >
               <X size={16} />
             </ActionIcon>
@@ -265,27 +294,17 @@ export function EmojiPanel({
       </div>
 
       <div className={cn('emoji-tabs')}>
-        {TABS.filter(({ id }) =>
-          id === 'poke'
-            ? Boolean(onSendPoke)
-            : id === 'custom'
-              ? Boolean(onInsertCustomEmoji)
-              : true,
-        ).map(({ id, label, icon: Icon }) => (
+        {tabs.map(({ id, label, icon: Icon, disabled }) => (
           <button
             key={id}
             type="button"
             className={cn(id === tab ? 'active' : '')}
             title={label}
             aria-label={label}
-            disabled={textOnly && !['face', 'unicode', 'kaomoji'].includes(id)}
+            disabled={disabled}
             aria-pressed={id === tab}
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              if (id !== tab) bounceReturnScroll.current = 0;
-              setTab(id);
-              setBounceFace(null);
-            }}
+            onClick={() => selectTab(id)}
           >
             <Icon size={19} />
           </button>

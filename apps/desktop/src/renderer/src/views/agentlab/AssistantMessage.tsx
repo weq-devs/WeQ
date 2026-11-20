@@ -24,14 +24,29 @@ import { memo, useMemo, useRef, type ReactElement } from 'react';
 import { Streamdown, type Components, type AnimateOptions } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { shikiCodeHighlighter } from './shikiHighlighter';
+import { featureIdFromLink, OPEN_FEATURE_EVENT } from '../../../../shared/feature_links';
 
 const COMPONENTS: Components = {
   // 外链新窗打开（与原手写渲染器一致；{...props} 保留 streamdown 的链接 hardening 属性）。
-  a: ({ children, ...props }) => (
-    <a {...props} className="weq-asst-md-link" target="_blank" rel="noreferrer">
-      {children}
-    </a>
-  ),
+  a: ({ children, ...props }) => {
+    const featureId = featureIdFromLink(props.href);
+    return featureId ? (
+      <a
+        {...props}
+        className="weq-asst-md-link"
+        onClick={(event) => {
+          event.preventDefault();
+          window.dispatchEvent(new CustomEvent(OPEN_FEATURE_EVENT, { detail: featureId }));
+        }}
+      >
+        {children}
+      </a>
+    ) : (
+      <a {...props} className="weq-asst-md-link" target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    );
+  },
 };
 
 const REMARK_PLUGINS = [remarkGfm];

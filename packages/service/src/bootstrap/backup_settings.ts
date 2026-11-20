@@ -537,6 +537,9 @@ function assertOneBotConfig(value: unknown, root: string): void {
         if (row.enabled !== undefined && typeof row.enabled !== 'boolean') {
           fail(`${where}.enabled`);
         }
+        if (row.enableCors !== undefined && typeof row.enableCors !== 'boolean') {
+          fail(`${where}.enableCors`);
+        }
         if (row.port !== undefined) number(row.port, `${where}.port`, 1024, 65535);
         strings(row, where, [], ['name', 'token', 'accessToken', 'url']);
       });
@@ -587,6 +590,9 @@ function assertOneBotConfig(value: unknown, root: string): void {
       if (row.port !== undefined) number(row.port, `${where}.port`, 0, 65535);
       if (row.enabled !== undefined && typeof row.enabled !== 'boolean') {
         fail(`${where}.enabled`);
+      }
+      if (row.enableCors !== undefined && typeof row.enableCors !== 'boolean') {
+        fail(`${where}.enableCors`);
       }
       if (typeof row.reportSelfMessage !== 'boolean') fail(`${where}.reportSelfMessage`);
     }
@@ -851,7 +857,7 @@ export function validateWeqApiSettings(
   if (api.oneBotByUin !== undefined) {
     const map = record(api.oneBotByUin, 'api.oneBotByUin');
     for (const [uin, config] of Object.entries(map)) {
-      if (!/^\d{5,20}$/.test(uin)) fail(`api.oneBotByUin.${uin}`);
+      if (uin !== 'legacy' && !/^\d{5,20}$/.test(uin)) fail(`api.oneBotByUin.${uin}`);
       assertOneBotConfig(config, `api.oneBotByUin.${uin}`);
     }
   }

@@ -87,7 +87,7 @@ export function AvatarOrb({
     };
   }, [active, refreshOnFocus, resolved, revision]);
   return (
-    <span className={`weq-orb${widgetUrl ? ' has-widget' : ''}`}>
+    <span ref={image.observeRef} className={`weq-orb${widgetUrl ? ' has-widget' : ''}`}>
       {resolved && failedSource !== resolved && !image.failed ? (
         <img
           key={displayed}

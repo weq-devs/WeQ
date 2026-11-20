@@ -2,6 +2,7 @@
 import { FormSelect } from '../components/FormSelect';
 import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
+import { QZONE_SECTION_FEATURES, type QzoneFeatureSection } from '@weq/service/feature-catalog';
 import {
   useCallback,
   useLayoutEffect,
@@ -92,8 +93,10 @@ import {
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
+import { QzoneSpaceHome } from './QzoneSpaceHome';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
+import { QzoneActionsRow } from '../components/QzoneActionsRow';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
@@ -117,7 +120,7 @@ import {
 } from '../lib/qzoneRelated';
 
 type OwnerTab = 'space' | 'person-posts';
-type Tab = 'feeds' | 'posts' | OwnerTab | 'related' | 'public';
+type Tab = QzoneFeatureSection | OwnerTab;
 
 function requestedOwnerTab(request: QzoneSpaceRequest): OwnerTab {
   const kind = request.target?.kind;
@@ -145,18 +148,23 @@ function withoutOwner<T>(current: Record<string, T>, uin: string): Record<string
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : '加载失败，请重试。';
 
+const QzoneReadsEnabled = createContext(true);
+
 /** 子页离开即卸载，滚动与阅读现场单独保存。 */
 function QzonePage({
   active,
   refreshKey,
+  pauseReadsDuringNavigation = true,
   children,
 }: {
   active: boolean;
   refreshKey: number;
+  pauseReadsDuringNavigation?: boolean;
   children: ReactElement;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
-  const activity = useQQReadActivity(active);
+  const readsEnabled = useContext(QzoneReadsEnabled);
+  const activity = useQQReadActivity(active && (!pauseReadsDuringNavigation || readsEnabled));
   const position = useRef(0);
   const previousActive = useRef(false);
   const [entry, setEntry] = useState({ active, refresh: 0 });
@@ -223,8 +231,9 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
         </PageSnapshotScope>
       </TabActivity>
     );
+  // 暂停数据读取不能撤销返回手势，否则退栈动画会再次暂停读取。
   return active && parentActive && (loaded || readEnabled) ? (
-    <TabActivity active={readEnabled}>
+    <QzoneReadsEnabled.Provider value={readEnabled}>
       <PageSnapshotScope name="qzone">
         <PageScrollSnapshot style={{ height: '100%', minHeight: 0 }}>
           <QzoneView
@@ -237,7 +246,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
           />
         </PageScrollSnapshot>
       </PageSnapshotScope>
-    </TabActivity>
+    </QzoneReadsEnabled.Provider>
   ) : null;
 });
 
@@ -402,14 +411,16 @@ export function QzoneView({
   onSpaceChange?: (uin: string) => void;
   personClickAction?: 'profile' | 'space';
 }): ReactElement {
-  const activity = useQQReadActivity(active);
+  const readsEnabled = useContext(QzoneReadsEnabled);
+  const activity = useQQReadActivity(active && readsEnabled);
   const people = useQzonePeople(selfUin, activity.enabled);
   const initialSpace = spaceRequest?.accountUin === selfUin ? spaceRequest : null;
   const initialSection = initialSpace ? requestedOwnerTab(initialSpace) : null;
   const initialTab =
-    initialSection === 'space' && initialSpace?.uin === selfUin
+    initialSpace?.catalog?.section ??
+    (initialSection === 'space' && initialSpace?.uin === selfUin
       ? 'posts'
-      : (initialSection ?? 'feeds');
+      : (initialSection ?? 'feeds'));
   const [tab, setTab] = usePageState<Tab>(
     'tab',
     initialTab,
@@ -547,6 +558,12 @@ export function QzoneView({
     )
       return;
     setHandledRequest(spaceRequest.revision);
+    if (spaceRequest.catalog) {
+      const { section } = spaceRequest.catalog;
+      if (section === 'posts') setHostUin(selfUin);
+      setTab(section);
+      return;
+    }
     const target = spaceRequest.target;
     openSpace(spaceRequest.uin, spaceRequest.nickname, requestedOwnerTab(spaceRequest));
     if (target?.kind === 'album')
@@ -584,6 +601,8 @@ export function QzoneView({
     handledRequest,
     setHandledRequest,
     setPostRequests,
+    setHostUin,
+    setTab,
   ]);
   const currentOwner = tab === 'space' || tab === 'person-posts' ? hostUin : selfUin;
   const linkedTid = tab === 'person-posts' ? postRequests[hostUin]?.tid : undefined;
@@ -670,7 +689,7 @@ export function QzoneView({
               aria-current={tab === 'feeds' ? 'page' : undefined}
               onClick={() => setTab('feeds')}
             >
-              好友动态
+              {QZONE_SECTION_FEATURES.feeds.label}
             </button>
             <button
               type="button"
@@ -680,21 +699,21 @@ export function QzoneView({
                 setTab('posts');
               }}
             >
-              我的空间
+              {QZONE_SECTION_FEATURES.posts.label}
             </button>
             <button
               type="button"
               aria-current={tab === 'related' ? 'page' : undefined}
               onClick={() => setTab('related')}
             >
-              与我相关
+              {QZONE_SECTION_FEATURES.related.label}
             </button>
             <button
               type="button"
               aria-current={tab === 'public' ? 'page' : undefined}
               onClick={() => setTab('public')}
             >
-              空友爱看
+              {QZONE_SECTION_FEATURES.public.label}
             </button>
             {(['space', 'person-posts'] as const).flatMap((section) =>
               (section === 'space' ? spaces : postOwners).map((uin) => {
@@ -940,7 +959,7 @@ function SpaceContent({
   const openProfile = useContext(QzoneProfileContext);
   const [ownerLabel] = useState(nickname || hostUin);
   const handledAlbum = useRef<string | null>(null);
-  const [pane, setPane] = useState<'posts' | 'albums'>('posts');
+  const [pane, setPane] = useState<'home' | 'posts' | 'albums'>('home');
   useMobileBack(
     active && pane === 'albums',
     () => setPane('posts'),
@@ -948,7 +967,7 @@ function SpaceContent({
     () => document.querySelector<HTMLElement>('.weq-qzn-owner-space:not([hidden])'),
   );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
-  const [refreshes, setRefreshes] = useState({ posts: 0, albums: 0 });
+  const [refreshes, setRefreshes] = useState({ home: 0, posts: 0, albums: 0 });
   useEffect(() => {
     if (
       !albumRequest ||
@@ -971,10 +990,17 @@ function SpaceContent({
       <nav className="weq-qzn-owner-navigation" aria-label="空间内容">
         <button
           type="button"
+          aria-current={pane === 'home' ? 'page' : undefined}
+          onClick={() => setPane('home')}
+        >
+          主页
+        </button>
+        <button
+          type="button"
           aria-current={pane === 'posts' ? 'page' : undefined}
           onClick={() => setPane('posts')}
         >
-          动态
+          说说
         </button>
         <button
           type="button"
@@ -994,6 +1020,13 @@ function SpaceContent({
           </div>
         ) : null}
       </nav>
+      <QzonePage active={active && pane === 'home'} refreshKey={refreshes.home}>
+        <QzoneSpaceHome
+          key={`${selfUin}:${hostUin}:${refreshes.home}`}
+          selfUin={selfUin}
+          hostUin={hostUin}
+        />
+      </QzonePage>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts}>
         <div className="weq-qzn-timeline">
           <Posts
@@ -1006,7 +1039,11 @@ function SpaceContent({
         </div>
       </QzonePage>
       {visitedAlbums ? (
-        <QzonePage active={active && pane === 'albums'} refreshKey={refreshes.albums}>
+        <QzonePage
+          active={active && pane === 'albums'}
+          refreshKey={refreshes.albums}
+          pauseReadsDuringNavigation={false}
+        >
           <QzoneAlbums
             selfUin={selfUin}
             hostUin={hostUin}
@@ -1753,24 +1790,25 @@ function Repost({
         target={{ selfUin, hostUin: original.uin, tid: original.tid, time: original.time ?? 0 }}
       />
       {actions ?? (
-        <div className="weq-qzn-actions">
+        <QzoneActionsRow>
           <span>
             <ThumbsUp size={16} />
-            点赞 ?
+            <span className="weq-qzn-action-label">点赞</span> <span className="weq-number">?</span>
           </span>
           <span>
             <MessageCircle size={16} />
-            评论 ?
+            <span className="weq-qzn-action-label">评论</span> <span className="weq-number">?</span>
           </span>
           <span>
             <Repeat2 size={16} />
-            转发 ?
+            <span className="weq-qzn-action-label">转发</span> <span className="weq-number">?</span>
           </span>
           <span className="weq-qzn-views">
             <Eye size={16} />
-            浏览量 ?
+            <span className="weq-qzn-action-label">浏览量</span>{' '}
+            <span className="weq-number">?</span>
           </span>
-        </div>
+        </QzoneActionsRow>
       )}
     </>
   );
@@ -1964,7 +2002,7 @@ function PostActionsBody({
   );
   const renderActions = (upvote: ReactNode) => (
     <div ref={ref}>
-      <div className="weq-qzn-actions">
+      <QzoneActionsRow>
         <QzoneLikesPopover
           trigger={
             <QzoneWriteActions
@@ -2016,7 +2054,8 @@ function PostActionsBody({
           onClick={() => setExpanded(expanded === 'comments' ? null : 'comments')}
         >
           <MessageCircle size={16} />
-          评论 <span className="weq-number">{commentCount ?? '?'}</span>
+          <span className="weq-qzn-action-label">评论</span>{' '}
+          <span className="weq-number">{commentCount ?? '?'}</span>
         </button>
         <QzoneForwardAction
           key={`${selfUin}:${hostUin}:${post.tid}:${refresh}`}
@@ -2044,9 +2083,10 @@ function PostActionsBody({
         )}
         <span className="weq-qzn-views" title="浏览量（非去重访客数）">
           <Eye size={16} />
-          浏览量 <span className="weq-number">{likes?.reportedViewCount ?? '?'}</span>
+          <span className="weq-qzn-action-label">浏览量</span>{' '}
+          <span className="weq-number">{likes?.reportedViewCount ?? '?'}</span>
         </span>
-      </div>
+      </QzoneActionsRow>
       {likeError && (
         <p className="weq-qzn-status" role="status">
           互动数据暂未校准：{likeError}
@@ -2197,17 +2237,19 @@ function FeedCounts({
     };
   }, [visible, selfUin, appid, body.counterKey, refresh, run, cancel]);
   return (
-    <div ref={ref} className="weq-qzn-actions" title={error || undefined}>
+    <QzoneActionsRow rowRef={ref} title={error || undefined}>
       <span>
-        <ThumbsUp size={16} />赞{' '}
+        <ThumbsUp size={16} />
+        <span className="weq-qzn-action-label">赞</span>{' '}
         <span className="weq-number">{counts?.likeCount ?? body.likeCount ?? '?'}</span>
       </span>
       <span>
         <MessageCircle size={16} />
-        评论 <span className="weq-number">{counts?.commentCount ?? body.commentCount ?? '?'}</span>
+        <span className="weq-qzn-action-label">评论</span>{' '}
+        <span className="weq-number">{counts?.commentCount ?? body.commentCount ?? '?'}</span>
       </span>
       {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
-    </div>
+    </QzoneActionsRow>
   );
 }
 
@@ -2271,7 +2313,7 @@ function FeedLinks({
 function FeedLinkCover({ src, music }: { src?: string; music: boolean }) {
   const [failed, setFailed] = useState(false);
   return (
-    <span className="weq-qzn-feed-link-cover" aria-hidden>
+    <span className="weq-qzn-feed-link-cover weq-media-frame" aria-hidden>
       {src && !failed ? (
         <ShimmerImage
           src={albumMediaUrl(src)}
@@ -2848,10 +2890,9 @@ function FeedTimeline({
             : `${feed.uin}:${feed.appid}:${feed.key || `${feed.time}:${feed.html}`}`;
         const merged = new Map(accumulated.current.map((feed) => [key(feed), feed]));
         const previousSize = merged.size;
-        for (const feed of page.feeds) merged.set(key(feed), feed);
-        const overlaps = page.feeds.some((feed) =>
-          accumulated.current.some((old) => key(old) === key(feed)),
-        );
+        const incoming = page.feeds.map((feed) => [key(feed), feed] as const);
+        const overlaps = incoming.some(([id]) => merged.has(id));
+        for (const [id, feed] of incoming) merged.set(id, feed);
         if (refreshing && previousSize > 0 && !overlaps && page.hasMore && page.nextCursor) {
           if (kind === 'related') seenCursors.current.clear();
           bridgeTail.current ??= {

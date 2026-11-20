@@ -14,11 +14,13 @@ export function TimeLabel({
   precision = 'second',
   children,
   className,
+  tabbable = true,
 }: {
   value: TimeValue;
   precision?: TimePrecision;
   children?: ReactNode;
   className?: string;
+  tabbable?: boolean;
 }) {
   const full = formatDateTime(value, precision);
   if (!full) return <>{children}</>;
@@ -30,7 +32,7 @@ export function TimeLabel({
       dateTime={dateOnly ? full : timeDate(value)?.toISOString()}
       title={`${full}（北京时间）`}
       aria-label={`${full}（北京时间）`}
-      tabIndex={0}
+      tabIndex={tabbable ? 0 : undefined}
       data-time-detail
       data-hover-delay="0"
     >

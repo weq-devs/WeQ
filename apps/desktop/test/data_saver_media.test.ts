@@ -79,6 +79,13 @@ it('省流量缩图缺失不偷偷下载原图，显式点击仍使用现有下�
   );
   expect(state.download).toHaveBeenCalledOnce();
 });
+it('预览自动获取原图仍受宿主的省流量状态约束', async () => {
+  const url = 'weq-media://pic?token=token&v=original&intent=interactive&ds=1';
+  expect((await handleMediaRequest(new Request(`${url}&autoOriginal=1`))).status).toBe(409);
+  expect(state.download).not.toHaveBeenCalled();
+  await handleMediaRequest(new Request(url));
+  expect(state.download).toHaveBeenCalledOnce();
+});
 it('宿主已有原图时自动响应真实小图，原图点击才传原始内容', async () => {
   const root = await mkdtemp(join(tmpdir(), 'weq-data-saver-media-'));
   roots.push(root);

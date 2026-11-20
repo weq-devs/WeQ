@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationSettingsDialog } from '../src/renderer/src/components/ConversationSettingsDialog';
 import { normalizeNotificationEvents } from '@weq/service/notification-settings';
+import { useNotificationPolicy } from '../src/renderer/src/lib/notificationPolicy';
 
 const intent = vi.hoisted(() => ({
   data: {
@@ -25,6 +26,9 @@ const anti = vi.hoisted(() => ({
   },
   refetch: vi.fn(),
   write: vi.fn(),
+  writeNotify: vi.fn(),
+  invalidateAccount: vi.fn(),
+  invalidateSettings: vi.fn(),
 }));
 
 vi.mock('../src/renderer/src/components/WindowSurface', () => ({
@@ -52,10 +56,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       setNotificationEvents: { useMutation: () => ({ mutateAsync: vi.fn() }) },
     },
     useUtils: () => ({
+      settings: { antiRecall: { getStatus: { invalidate: anti.invalidateSettings } } },
       account: {
         intentSense: { getStatus: { setData: vi.fn() } },
         antiRecall: {
           getStatus: {
+            invalidate: anti.invalidateAccount,
             setData: (_input: undefined, data: typeof anti.data) => {
               anti.data = data;
             },
@@ -68,7 +74,14 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         getStatus: { useQuery: () => ({ data: anti.data, refetch: anti.refetch }) },
         setScope: { useMutation: () => ({ mutateAsync: anti.write }) },
         setTargets: { useMutation: () => ({ mutateAsync: anti.write }) },
-        setNotify: { useMutation: () => ({ mutateAsync: anti.write }) },
+        setConversationNotify: {
+          useMutation: ({ onSuccess }: { onSuccess: () => Promise<void> }) => ({
+            mutateAsync: async (input: unknown) => {
+              await anti.writeNotify(input);
+              await onSuccess();
+            },
+          }),
+        },
       },
       intentSense: {
         getStatus: { useQuery: () => ({ data: intent.data }) },
@@ -93,6 +106,10 @@ beforeEach(() => {
   };
   anti.refetch.mockReset();
   anti.write.mockReset();
+  anti.writeNotify.mockReset();
+  anti.invalidateAccount.mockClear();
+  anti.invalidateSettings.mockClear();
+  useNotificationPolicy.setState(useNotificationPolicy.getInitialState());
 });
 
 it('防撤回写入的期望触发器不冒充安装状态，独立回读后显示真实结果', async () => {
@@ -144,6 +161,45 @@ it('防撤回写入的期望触发器不冒充安装状态，独立回读后显�
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.unstubAllGlobals();
+});
+
+it('全局不通知时仍可在当前会话开关提醒，并刷新两个设置入口', async () => {
+  const policy = normalizeNotificationEvents(undefined);
+  policy.recall = { banner: false, system: false };
+  useNotificationPolicy.getState().setEvents(policy);
+  anti.data.notifyTargets = ['c2c:123'];
+  const onClose = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  cleanups.push(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  const render = () =>
+    act(() =>
+      root.render(
+        h(ConversationSettingsDialog, { kind: 'dataline', conv: '123', title: '手机', onClose }),
+      ),
+    );
+  render();
+  const toggle = host.querySelector<HTMLButtonElement>('[aria-label="本会话撤回提醒"]')!;
+  expect(toggle.getAttribute('aria-checked')).toBe('false');
+  expect(toggle.disabled).toBe(false);
+  await act(async () => toggle.click());
+  expect(anti.writeNotify).toHaveBeenLastCalledWith({ kind: 'dataline', id: '123', enabled: true });
+  anti.data.notifyTargets = ['c2c:123', 'dataline:123'];
+  render();
+  expect(toggle.getAttribute('aria-checked')).toBe('true');
+  await act(async () => toggle.click());
+  expect(anti.writeNotify).toHaveBeenLastCalledWith({
+    kind: 'dataline',
+    id: '123',
+    enabled: false,
+  });
+  expect(anti.invalidateAccount).toHaveBeenCalledTimes(2);
+  expect(anti.invalidateSettings).toHaveBeenCalledTimes(2);
+  expect(onClose).not.toHaveBeenCalled();
 });
 
 it.each([

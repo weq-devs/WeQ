@@ -32,6 +32,7 @@ export function QqAvatar({
   if (!resolved || image.failed) {
     return (
       <span
+        ref={image.observeRef}
         className={`weq-avatar-fallback ${className}`}
         style={{ width: size, height: size }}
         aria-hidden

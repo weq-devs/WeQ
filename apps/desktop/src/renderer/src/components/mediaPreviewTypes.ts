@@ -19,6 +19,7 @@ export interface PreviewMedia {
   title?: string;
   isLivePhoto?: boolean;
   fallbackSources?: string[];
+  originalImage?: { cachedSrc: string; src: string; bytes?: number };
   load?: (refresh?: boolean) => Promise<{ src: string; kind: 'image' | 'video' }>;
   saveSource?: MediaSaveSource | null;
   saveLabel?: string;
