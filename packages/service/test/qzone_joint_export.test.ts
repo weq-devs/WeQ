@@ -74,9 +74,18 @@ async function waitForTask(manager: ExportTaskManager, id: string, saved = false
   }
 }
 async function run(
-  opts: { posts?: boolean; otherUrl?: string; repeats?: boolean; video?: boolean } = {},
+  opts: {
+    posts?: boolean;
+    otherUrl?: string;
+    repeats?: boolean;
+    video?: boolean;
+    repost?: QzoneEmotion['repost'];
+  } = {},
 ) {
-  const fetchMsgList = vi.fn(async () => ({ list: [structuredClone(post)], total: 1 }));
+  const fetchMsgList = vi.fn(async () => ({
+    list: [structuredClone({ ...post, repost: opts.repost })],
+    total: 1,
+  }));
   const fetchAlbumPage = vi.fn(async () => ({
     albums: [
       {
@@ -184,6 +193,35 @@ it('空间增量同时更新说说与相册分卷，复用整包媒体根，查�
   expect((await describeViewerFile(album)).root).toBe(saved);
   for (const resource of afterAlbum.resources.filter((resource) => resource.status === 'saved'))
     expect(readFileSync(join(saved, String(resource.path))).length).toBeGreaterThan(0);
+});
+it('转发原帖的配图在正式归档中仍然引用已下载的包内媒体', async () => {
+  const originalImage = 'https://synthetic.invalid/other-repost.png';
+  state.different = true;
+  const { task } = await run({
+    repost: {
+      tid: 'original',
+      uin: '20003',
+      nickname: '原作者',
+      content: '被转发的说说',
+      contentTruncated: false,
+      images: [originalImage],
+      videos: [],
+    },
+  });
+  expect(task.status).toBe('completed');
+  const archive = readArchive(
+    JSON.parse(readFileSync(join(task.bundleDir!, '合成空间.json'), 'utf8')),
+  );
+  const original = archive.records.find((record) => record.data.sourceId === 'original');
+  const resource = archive.resources.find((item) => item.url === originalImage);
+  expect(original?.data.content).toContainEqual({
+    type: 'media',
+    mediaType: 'image',
+    resourceIds: [resource?.id],
+  });
+  expect(resource).toMatchObject({ status: 'saved' });
+  const bytes = readFileSync(join(task.bundleDir!, String(resource?.path)));
+  expect(resource?.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
 });
 it('不同 URL 的相同内容只保留一份文件，不按图片名字或 URL 路径猜相同', async () => {
   const { task } = await run({ otherUrl: 'https://synthetic.invalid/other.png?quality=original' });

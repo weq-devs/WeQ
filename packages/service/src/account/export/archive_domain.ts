@@ -237,6 +237,7 @@ export async function writeQzoneArchive(
           commentNum: null,
           isPrivate: false,
           contentTruncated: original.contentTruncated,
+          localMedia: row.localMedia,
         },
         actor(original.uin, undefined, original.nickname),
         original.uin,
