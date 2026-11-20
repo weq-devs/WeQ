@@ -36,6 +36,9 @@ import {
   CalendarDays,
   ArrowLeft,
   Newspaper,
+  LogOut,
+  UserMinus,
+  UserRoundX,
 } from 'lucide-react';
 import {
   memo,
@@ -94,6 +97,11 @@ import {
 } from '../../lib/contactRelationship';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { SourceGroup } from '../../components/qq-actions/FriendClue';
+import { useQQAction } from '../../components/qq-actions/shared.shared';
+import {
+  useDeleteFriend,
+  useGroupExitActions,
+} from '../../components/qq-actions/relationshipActions.shared';
 import {
   useContentMultiSelect,
   useRequestContentExport,
@@ -1308,6 +1316,8 @@ export function GroupList({
   const directory = useContext(ContactDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
   const batch = useConversationBatchActions(conversations);
+  const groupAction = useQQAction('group-directory', 'all', { passive: true });
+  const groupExits = useGroupExitActions(groupAction);
   const [actionMenu, setActionMenu] = useState<{
     conversation: Conversation;
     ids: string[];
@@ -1331,6 +1341,26 @@ export function GroupList({
     [conversations, membership, needle, relationships],
   );
   const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
+  const menuGroup =
+    !groupSelection.selectionMode &&
+    actionMenu?.ids.length === 1 &&
+    actionMenu.conversation.type === 'group'
+      ? actionMenu.conversation.group
+      : undefined;
+  const menuGroupId = Number(menuGroup?.identityValue);
+  const menuRole =
+    menuGroup && groupRelationship(menuGroup, relationships) === 'member'
+      ? (relationships?.groups.get(menuGroup.identityValue)?.role ??
+        (menuGroup.roleKnown ? menuGroup.role : null))
+      : null;
+  const groupExit =
+    Number.isInteger(menuGroupId) && menuGroupId > 0 && menuGroupId <= 0xffffffff
+      ? menuRole === 'owner'
+        ? groupExits.disband
+        : menuRole === 'member' || menuRole === 'admin'
+          ? groupExits.leave
+          : null
+      : null;
   const metricEntities = useMemo(
     () => conversations.filter((row) => row.type === 'group').map((row) => [`group:${row.id}`]),
     [conversations],
@@ -1614,6 +1644,18 @@ export function GroupList({
               disabled: !batch.exportAvailable || !batch.rosterIds(actionMenu.ids).length,
               action: () => batch.runRoster(actionMenu.ids),
             },
+            ...(groupExit && menuGroup
+              ? [
+                  {
+                    label: groupExit.label,
+                    icon: menuRole === 'owner' ? <UserRoundX size={16} /> : <LogOut size={16} />,
+                    danger: 'outline',
+                    separatorBefore: true,
+                    disabled: groupExit.disabled,
+                    action: () => void groupExit.run(menuGroupId, displayGroupName(menuGroup)),
+                  },
+                ]
+              : []),
           ]}
         />
       ) : null}
@@ -1982,6 +2024,7 @@ const ContactListContent = memo(function ContactListContent({
   const relationships = useContext(RelationshipDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
   const friendDirectory = useFriendDirectory();
+  const deleteFriend = useDeleteFriend('contact-directory', { passive: true });
   const requestExport = useRequestContentExport();
   const [actionMenu, setActionMenu] = useState<{
     x: number;
@@ -2031,6 +2074,14 @@ const ContactListContent = memo(function ContactListContent({
   );
   const batch = useConversationBatchActions(conversationRows);
   const selection = useContentMultiSelect({ kind: 'contacts', container: 'friends' });
+  const menuContact = actionMenu?.contact;
+  const menuUid = menuContact?.uid || menuContact?.id;
+  const canRemoveFriend =
+    !selection.selectionMode &&
+    actionMenu?.ids.length === 1 &&
+    Boolean(menuUid?.startsWith('u_')) &&
+    !menuContact?.clone &&
+    personRelationship(menuContact, relationships) === 'friend';
   const allContacts = useMemo(
     () => [
       ...new Map(
@@ -2566,6 +2617,18 @@ const ContactListContent = memo(function ContactListContent({
           y={actionMenu.y}
           onClose={() => setActionMenu(null)}
           label="联系人操作"
+          removeFriend={
+            canRemoveFriend
+              ? {
+                  label: '删除好友',
+                  icon: <UserMinus size={16} />,
+                  danger: 'outline',
+                  separatorBefore: true,
+                  disabled: deleteFriend.disabled,
+                  action: () => void deleteFriend.run(menuUid, displayUserName(menuContact)),
+                }
+              : undefined
+          }
           friendUid={
             actionMenu.ids.length === 1 && contacts.some((row) => row.id === actionMenu.contact.id)
               ? actionMenu.contact.id

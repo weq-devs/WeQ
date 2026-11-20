@@ -1212,7 +1212,14 @@ export function createQQActionsRouter(
       )
       .mutation(({ input: i }) =>
         write(i, async (s, current) => {
-          if (i.action === 'leave') return s.groupModeration.leaveGroup(i.groupId);
+          if (i.action === 'leave') {
+            const directory = await s.groupInfo.listGroupDirectory();
+            const role = directory.find((row) => row.groupCode === String(i.groupId))?.role;
+            current();
+            if (role === 'owner') throw new Error('请在 QQ 客户端的群设置中解散群聊');
+            if (role !== 'admin' && role !== 'member') throw new Error('无法确认当前入群身份');
+            return s.groupModeration.leaveGroup(i.groupId);
+          }
           if (i.action === 'sign') return s.interaction.sendGroupSign(i.groupId);
           await manager(s, i.groupId, current);
           if (i.action === 'join') {

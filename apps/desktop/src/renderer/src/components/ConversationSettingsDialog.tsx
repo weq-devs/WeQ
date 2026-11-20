@@ -221,6 +221,7 @@ export function ConversationSettingsDialog({
             key={`${kind}:${conv}:${section}`}
             kind={kind}
             conv={conv}
+            title={title}
             section={section === 'group-management' ? 'group-management' : 'conversation'}
           />
         </div>

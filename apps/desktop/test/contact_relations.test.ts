@@ -5,6 +5,9 @@ vi.mock(
   '../src/renderer/src/hooks/useContactDirectoryOrder',
   () => import('./support/contact-order.stub'),
 );
+vi.mock('../src/renderer/src/components/qq-actions/relationshipActions.shared', () => ({
+  useDeleteFriend: () => ({ disabled: true }),
+}));
 import { ContactList } from '../src/renderer/src/im-template/template/conversationLists';
 import type { Contact, Conversation } from '../src/renderer/src/im-template/template/types';
 import { createTemplateDemoData } from './support/templateDemoData';

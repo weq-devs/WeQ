@@ -1060,7 +1060,7 @@ export class GroupInfoService {
     groupId: string | number,
     targetUid?: string,
     refresh = false,
-  ): Promise<QQGroupPermissionContext> {
+  ): Promise<QQGroupPermissionContext & { joined: boolean }> {
     this.operationGuard?.();
     const code = String(groupId);
     const [directory, detail, member, state] = await Promise.all([
@@ -1069,11 +1069,12 @@ export class GroupInfoService {
       targetUid ? this.getMemberInfo(BigInt(code), targetUid) : Promise.resolve(null),
       this.operationState(groupId, refresh),
     ]);
-    const role = directory.find((row) => row.groupCode === code)?.role ?? null;
+    const entry = directory.find((row) => row.groupCode === code);
     this.operationGuard?.();
     return {
       ...state,
-      role,
+      joined: Boolean(entry),
+      role: entry?.role ?? null,
       isSelf:
         targetUid !== undefined &&
         qqResourceOwnedBy(targetUid, { uid: this.session.selfUid, uin: this.session.context.uin }),

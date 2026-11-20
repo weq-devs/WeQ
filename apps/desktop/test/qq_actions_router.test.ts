@@ -553,6 +553,18 @@ describe('主动操作的账号与参数边界', () => {
     );
     expect(f.s.interaction.sendGroupSign).toHaveBeenCalledTimes(2);
   });
+  it('退群提交前复核群主和当前入群身份', async () => {
+    const f = fixture();
+    const input = { ...group, action: 'leave' as const };
+    f.s.groupInfo.listGroupDirectory.mockResolvedValueOnce([{ groupCode: '123', role: 'owner' }]);
+    await expect(f.caller.groupSettings(input)).rejects.toThrow('解散群聊');
+    f.s.groupInfo.listGroupDirectory.mockResolvedValueOnce([{ groupCode: '456', role: 'member' }]);
+    await expect(f.caller.groupSettings(input)).rejects.toThrow('入群身份');
+    expect(f.s.groupModeration.leaveGroup).not.toHaveBeenCalled();
+    await expect(f.caller.groupSettings(input)).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.groupModeration.leaveGroup).toHaveBeenCalledOnce();
+    expect(f.s.groupModeration.leaveGroup).toHaveBeenCalledWith(123);
+  });
   it('普通成员只能管理自己上传的文件，不能管理目录或设置群待办', async () => {
     const f = fixture();
     f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);

@@ -1,6 +1,6 @@
 import { useContext, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart3, Eye, MessageSquareText, MoreHorizontal, UserMinus } from 'lucide-react';
+import { BarChart3, Eye, MessageSquareText } from 'lucide-react';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import {
   ChatNavigationContext,
@@ -14,10 +14,6 @@ import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { PROFILE_QUERY_OPTIONS, type ProfilePerson } from '../../hooks/useContactCard';
 import { MemberAnalyticsDialog } from '../MemberAnalyticsDialog';
 import type { AnalysisTarget } from '../../views/analysis/model';
-
-import { usePersonRelationship } from '../../lib/contactRelationship';
-import { useQQAction } from '../qq-actions/shared.shared';
-import { ConversationActionsMenu } from '../ConversationActionsMenu';
 
 import { EditorDialog } from '../EditorDialog';
 
@@ -84,70 +80,6 @@ function OnlinePersonCard({ uin, onClose }: { uin: string; onClose: () => void }
   );
 }
 
-function FriendActionsMenu({ uid, name }: { uid: string; name: string }) {
-  const action = useQQAction(`delete-friend:${uid}`);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [removed, setRemoved] = useState(false);
-  if (removed) return null;
-  return (
-    <>
-      <button
-        type="button"
-        className="weq-contact-secondary"
-        aria-label="更多好友操作"
-        aria-expanded={!!menu}
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          setMenu({ x: rect.left, y: rect.bottom });
-        }}
-      >
-        <MoreHorizontal size={14} />
-      </button>
-      {menu ? (
-        <ConversationActionsMenu
-          {...menu}
-          dropdown
-          label="好友操作"
-          onClose={() => setMenu(null)}
-          actions={[
-            {
-              label: '删除好友',
-              icon: <UserMinus size={16} />,
-              danger: 'outline',
-              disabled: action.disabled,
-              action: () => {
-                let confirmed = false;
-                void action
-                  .perform(
-                    async (binding) => {
-                      const result = await client.account.qqActions.deleteFriend.mutate({
-                        ...binding,
-                        targetUid: uid,
-                      });
-                      confirmed = result.state === 'confirmed';
-                      return result;
-                    },
-                    undefined,
-                    `删除好友「${name}」？本地聊天记录仍可查看。`,
-                    {
-                      danger: 'outline',
-                      readbackSuccessText: '已删除好友',
-                      requireReadback: true,
-                      readback: async () => confirmed,
-                    },
-                  )
-                  .then((done) => {
-                    if (done) setRemoved(true);
-                  });
-              },
-            },
-          ]}
-        />
-      ) : null}
-    </>
-  );
-}
-
 /** 名片操作全部常驻，窄窗口内沿用操作区的自动换行。 */
 export function ContactActions({
   person,
@@ -168,7 +100,6 @@ export function ContactActions({
   groupOnly?: boolean;
   hideGroup?: boolean;
 }) {
-  const relationship = usePersonRelationship(person);
   const openChat = useContext(ChatNavigationContext);
   const previewSpeech = useContext(GroupSpeechPreviewContext);
   const previewSource = useContext(ProfilePreviewSourceContext);
@@ -277,9 +208,6 @@ export function ContactActions({
             {item.label}
           </button>
         ))}
-        {!groupOnly && !person.clone && relationship === 'friend' && uid ? (
-          <FriendActionsMenu key={uid} uid={uid} name={person.displayName} />
-        ) : null}
       </div>
       {groupView === 'online-profile' && session.available ? (
         <OnlinePersonCard uin={person.identityValue} onClose={() => setGroupView(null)} />

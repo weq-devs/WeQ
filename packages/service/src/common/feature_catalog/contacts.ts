@@ -46,7 +46,11 @@ export const CONTACT_GROUP_FEATURES = [
     navigation: 'context',
     docs: ['guide/contact-directory.md#feature-contacts.directory.filter'],
   }),
-  contact('remove-friend', '删除好友', '从好友名片删除关系；本地聊天历史继续可查。'),
+  contact(
+    'remove-friend',
+    '删除好友',
+    '在会话设置或好友列表右键菜单删除好友；本地聊天历史继续可查。',
+  ),
   contact('remark', '编辑联系人备注', '通过已有备注行编辑好友备注。'),
   contact('buddy-group', '好友分组', '将选定好友移到已有分组。'),
   group('profile', '群名片与群资料', '查看群基本资料、角色和已有群状态。', {

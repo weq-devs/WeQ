@@ -8,6 +8,8 @@ import {
   ConversationList,
 } from '../src/renderer/src/im-template/template/conversationLists';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
 import { createTemplateDemoData } from './support/templateDemoData';
 import {
   ContactDirectoryContext,
@@ -21,7 +23,36 @@ import {
   useContentExportRequest,
 } from '../src/renderer/src/state/contentSelection.shared';
 
-vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {}, client: {} }));
+const relationshipWrites = vi.hoisted(() => ({
+  binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' },
+  deleteFriend: vi.fn(async (_input: unknown) => ({ state: 'confirmed' })),
+  leaveGroup: vi.fn(async (_input: unknown) => ({ state: 'accepted' })),
+  openExternal: vi.fn(async (_url: string) => ({ ok: true })),
+}));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: { useUtils: () => ({}) },
+  client: {
+    account: {
+      qqActions: {
+        deleteFriend: { mutate: relationshipWrites.deleteFriend },
+        groupSettings: { mutate: relationshipWrites.leaveGroup },
+      },
+    },
+  },
+}));
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({
+    binding: relationshipWrites.binding,
+    available: true,
+    run: async (action: (binding: QQWriteBinding) => Promise<QQWriteOutcome>) => {
+      await action(relationshipWrites.binding);
+      return true;
+    },
+  }),
+}));
+vi.mock('../src/renderer/src/lib/openExternalLink', () => ({
+  openExternalLink: relationshipWrites.openExternal,
+}));
 vi.mock('../src/renderer/src/hooks/useContactDirectoryOrder', () => ({
   useFrozenDirectory: (value: unknown) => value,
   useContactDirectoryOrder: (kind: string) => ({
@@ -44,7 +75,128 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  useDialog.getState().close();
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
+});
+
+it.each(['friend', 'member', 'owner', 'historical'] as const)(
+  '联系人目录右键操作仅在匹配的关系下出现，二次确认后才执行（%s）',
+  async (kind) => {
+    const demo = createTemplateDemoData();
+    const friend = {
+      ...demo.contacts[0]!,
+      id: 'u_peer',
+      uid: 'u_peer',
+      displayName: '测试好友',
+      isFriend: true,
+      friendshipKnown: true,
+    };
+    const group = demo.conversations.find((row) => row.type === 'group')!;
+    const row = {
+      ...group,
+      id: '123',
+      group: {
+        ...group.group,
+        id: '123',
+        identityValue: '123',
+        name: '测试群',
+        listed: kind !== 'historical',
+        membershipKnown: true,
+        roleKnown: true,
+        role: kind === 'owner' ? ('owner' as const) : ('member' as const),
+      },
+    };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const expectNoRequest = () => {
+      expect(relationshipWrites.deleteFriend).not.toHaveBeenCalled();
+      expect(relationshipWrites.leaveGroup).not.toHaveBeenCalled();
+      expect(relationshipWrites.openExternal).not.toHaveBeenCalled();
+    };
+    try {
+      act(() =>
+        root.render(
+          h(
+            ContentSelectionProvider,
+            null,
+            kind === 'friend'
+              ? h(ContactList, {
+                  contacts: [friend],
+                  activeContactId: friend.id,
+                  onSelect: vi.fn(),
+                })
+              : h(GroupList, {
+                  conversations: [row],
+                  activeConversationId: row.id,
+                  onSelect: vi.fn(),
+                }),
+          ),
+        ),
+      );
+      if (!host.querySelector('.contact-row'))
+        act(() => host.querySelector<HTMLButtonElement>('.contact-cat-header')!.click());
+      const openMenu = () =>
+        act(() =>
+          host
+            .querySelector('.contact-row')!
+            .dispatchEvent(
+              new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 40 }),
+            ),
+        );
+      const dangerousItems = () =>
+        document.querySelectorAll<HTMLButtonElement>('[role="menuitem"][data-danger="outline"]');
+      openMenu();
+      if (kind === 'historical') {
+        expect(dangerousItems()).toHaveLength(0);
+        expectNoRequest();
+        return;
+      }
+      const label = kind === 'friend' ? '删除好友' : kind === 'owner' ? '解散群聊' : '退出群聊';
+      expect(dangerousItems()).toHaveLength(1);
+      expect(dangerousItems()[0]!.textContent).toBe(label);
+      act(() => dangerousItems()[0]!.click());
+      expect(useDialog.getState().current?.message).toContain(
+        kind === 'friend' ? '本地聊天记录' : '123',
+      );
+      expect(useDialog.getState().current?.confirm?.danger).toBe('outline');
+      await act(async () => useDialog.getState().close());
+      expectNoRequest();
+
+      openMenu();
+      act(() => dangerousItems()[0]!.click());
+      expectNoRequest();
+      await act(async () => {
+        const dialog = useDialog.getState().current!;
+        dialog.confirm!.resolve(true);
+        useDialog.getState().close(dialog.id);
+      });
+      if (kind === 'friend')
+        expect(relationshipWrites.deleteFriend).toHaveBeenCalledWith({
+          ...relationshipWrites.binding,
+          targetUid: friend.uid,
+        });
+      else if (kind === 'member')
+        expect(relationshipWrites.leaveGroup).toHaveBeenCalledWith({
+          ...relationshipWrites.binding,
+          groupId: 123,
+          action: 'leave',
+        });
+      else {
+        expect(relationshipWrites.openExternal).toHaveBeenCalledWith(
+          'mqqapi://card/show_pslcard?src_type=internal&version=1&card_type=group&uin=123',
+          expect.anything(),
+        );
+        expect(relationshipWrites.leaveGroup).not.toHaveBeenCalled();
+      }
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  },
+);
 
 it.each([false, true])('好友 Shift 连选不跳过重复分组中的密友，反向=%s', (reverse) => {
   const base = createTemplateDemoData().contacts[0]!;
