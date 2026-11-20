@@ -168,20 +168,8 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
           setMobileNavigationBusy(false);
           return;
         }
-        const horizontal = direction === 'root' ? 0 : direction === 'back' ? -1 : 1;
-        animate(
-          target,
-          reduced() || !horizontal
-            ? [{ opacity: 0.65 }, { opacity: 1 }]
-            : [
-                {
-                  transform: `translateX(${horizontal * 12}%)`,
-                  opacity: 0.75,
-                },
-                { transform: 'translateX(0)', opacity: 1 },
-              ],
-          direction === 'root' ? 120 : 200,
-        );
+        // 子页可能已经绘制，晚到的返回栈通知不能让它先横移再滑回。
+        animate(target, [{ opacity: 0.9 }, { opacity: 1 }], 120);
       });
     };
     const clickTab = (event: MouseEvent) => {

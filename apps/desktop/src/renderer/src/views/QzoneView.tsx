@@ -2277,7 +2277,7 @@ function FeedLinks({
 function FeedLinkCover({ src, music }: { src?: string; music: boolean }) {
   const [failed, setFailed] = useState(false);
   return (
-    <span className="weq-qzn-feed-link-cover" aria-hidden>
+    <span className="weq-qzn-feed-link-cover weq-media-frame" aria-hidden>
       {src && !failed ? (
         <ShimmerImage
           src={albumMediaUrl(src)}
