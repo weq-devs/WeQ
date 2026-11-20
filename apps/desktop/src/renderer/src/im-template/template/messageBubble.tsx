@@ -220,6 +220,7 @@ function MessageBubbleBody({
   reactionInteraction,
   repeatAction,
   pendingAction,
+  textResult,
   avatarBadge,
 }: {
   message: Message;
@@ -285,6 +286,7 @@ function MessageBubbleBody({
   reactionInteraction?: ReactionInteraction;
   repeatAction?: import('react').ReactNode;
   pendingAction?: import('react').ReactNode;
+  textResult?: import('react').ReactNode;
   /** 本地克隆等展示标识，不改变发送者或 QQ 消息能力。 */
   avatarBadge?: import('react').ReactNode;
 }) {
@@ -684,6 +686,7 @@ function MessageBubbleBody({
         ) : (
           content
         )}
+        {textResult}
         {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
             只有群聊 + 有会话内序号时才可查。 */}
         <SetEmojiReactions

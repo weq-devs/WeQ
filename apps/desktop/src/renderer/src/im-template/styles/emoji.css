@@ -1521,8 +1521,10 @@ html[data-theme='dark'] .qq-flash-cover {
   background: rgba(0, 0, 0, 0.03);
 }
 
-.qq-voice-transcript {
-  max-width: 280px;
+.qq-message-text-result {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: min(100%, 280px);
   padding: 7px 11px;
   border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 4px 12px 12px 12px;
@@ -1536,12 +1538,21 @@ html[data-theme='dark'] .qq-flash-cover {
 
 /* Keep the transcript reading light-on-... it stays a light bubble even under my
    own messages (it's a result panel, not part of the accent strip). */
-.message-line.mine .qq-voice-transcript {
+.message-line.mine .qq-message-text-result {
   align-self: flex-end;
   border-radius: 12px 4px 12px 12px;
 }
 
-.qq-voice-transcript.is-error {
+.message-bubble > .qq-message-text-result {
+  width: fit-content;
+}
+
+.qq-message-text-result:focus-visible {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 2px;
+}
+
+.qq-message-text-result.is-error {
   background: #fdf2f2;
   border-color: rgba(220, 80, 80, 0.25);
   color: #c0392b;

@@ -309,6 +309,7 @@ import { filterMentionMembers, mentionText } from './mentions';
 import { canRepeatMessage, repeatTarget } from '../../lib/messageRepeat';
 import { messageForwardTarget } from '../../lib/messageForwardTarget';
 import { MessageMenuButton } from '../../components/MessageMenuButton';
+import { MessageTextResult } from '../../components/MessageTextResult';
 import { mediaUrl } from '../../lib/resourceUrl';
 import { exportMedia } from '../../lib/mediaExport';
 import {
@@ -1168,6 +1169,7 @@ function ChatPaneContent({
     scope: string;
     id: string;
     value: string | null;
+    error?: boolean;
   } | null>(null);
   const translationScope = JSON.stringify([recallBinding, conversation?.id]);
   async function translateMessage(message: Message) {
@@ -1184,7 +1186,11 @@ function ChatPaneContent({
     } catch (error) {
       setTranslation((current) =>
         current === pending
-          ? { ...pending, value: error instanceof Error ? error.message : 'QQ 翻译失败' }
+          ? {
+              ...pending,
+              value: error instanceof Error ? error.message : 'QQ 翻译失败',
+              error: true,
+            }
           : current,
       );
     }
@@ -6414,6 +6420,25 @@ function ChatPaneContent({
                           user={user}
                           sender={sender}
                           renderers={messageRenderers}
+                          textResult={
+                            translation?.scope === translationScope &&
+                            translation.id === message.id ? (
+                              <MessageTextResult
+                                label="译文"
+                                error={translation.error}
+                                onCollapse={() => setTranslation(null)}
+                              >
+                                <span
+                                  role="status"
+                                  data-privacy-sensitive={
+                                    Boolean(translation.value && !translation.error) || undefined
+                                  }
+                                >
+                                  {translation.value ?? '正在翻译…'}
+                                </span>
+                              </MessageTextResult>
+                            ) : undefined
+                          }
                           showSenderName={showSenderNames}
                           active={contextMenu?.message.id === message.id}
                           deleted={deletedKeys.has(deletionIdentity(message.id))}
@@ -6490,19 +6515,6 @@ function ChatPaneContent({
                           }
                           onAvatarContextMenu={!selectionMode ? rowAvatarMenu : undefined}
                         />
-                        {translation?.scope === translationScope &&
-                        translation.id === message.id ? (
-                          <div className="mx-8 mb-2 flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-sm text-foreground">
-                            <span role="status">{translation.value ?? '正在翻译…'}</span>
-                            <button
-                              type="button"
-                              className="weq-set-btn ml-auto"
-                              onClick={() => setTranslation(null)}
-                            >
-                              收起
-                            </button>
-                          </div>
-                        ) : null}
                       </Fragment>,
                     );
                     {

@@ -54,6 +54,7 @@ import { cdnImageUrl, cdnVideoCoverUrl, flashPicUrl, useCdn } from '@renderer/li
 import { useMediaSave } from './MediaSaveControls.shared';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
+import { MessageTextResult } from './MessageTextResult';
 import { useTabActive } from './RetainedTabs.shared';
 import { useRemoteClient } from '../lib/remoteClient';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
@@ -1205,11 +1206,6 @@ export function QqVoice({
     }
   };
 
-  const runTranscribe = (e: ReactMouseEvent): void => {
-    e.stopPropagation();
-    transcribe.run();
-  };
-
   // Bar count tracks duration (QQ-style: longer clip → longer strip), with a
   // floor so short clips — notably AI 声聊, which are often 1–5s — always show a
   // visible waveform, and a cap so very long clips stay within the bubble (the
@@ -1219,6 +1215,8 @@ export function QqVoice({
   const shownTranscript =
     (result?.success ? (result.text ?? '') : null) ?? (storedTranscript || null);
   const hasResult = shownTranscript !== null || transcribeError !== null;
+  const canExpand = transcribe.collapsed && hasResult;
+  const transcribeLabel = canExpand ? '展开文字' : transcribeError ? '重试转文字' : '转文字';
 
   return (
     <div className="qq-voice-wrap" ref={wrapRef}>
@@ -1260,12 +1258,16 @@ export function QqVoice({
             </span>
           ) : null}
         </button>
-        {canTranscribe && (shownTranscript === null || transcribeError) ? (
+        {canExpand || (canTranscribe && (shownTranscript === null || transcribeError)) ? (
           <button
             type="button"
             className="qq-voice-transcribe-btn"
-            title="转文字"
-            onClick={runTranscribe}
+            title={canExpand ? '展开转文字结果' : '转文字'}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (canExpand) transcribe.setCollapsed(false);
+              else transcribe.run();
+            }}
             disabled={transcribe.busy}
           >
             {transcribe.busy ? (
@@ -1273,7 +1275,7 @@ export function QqVoice({
             ) : (
               <FileText size={13} strokeWidth={2} aria-hidden />
             )}
-            <span>{transcribe.busy ? '转写中' : transcribeError ? '重试转文字' : '转文字'}</span>
+            <span>{transcribe.busy ? '转写中' : transcribeLabel}</span>
           </button>
         ) : null}
       </div>
@@ -1284,8 +1286,12 @@ export function QqVoice({
         </p>
       ) : null}
 
-      {hasResult ? (
-        <div className={cn('qq-voice-transcript', transcribeError && 'is-error')}>
+      {hasResult && !transcribe.collapsed ? (
+        <MessageTextResult
+          label="转文字结果"
+          error={Boolean(transcribeError)}
+          onCollapse={() => transcribe.setCollapsed(true)}
+        >
           {!transcribeError && (emotion || events.length > 0) ? (
             <div className="qq-voice-tone">
               {emotion ? (
@@ -1307,7 +1313,7 @@ export function QqVoice({
             </span>
           ) : null}
           {transcribeError ? <span role="status">{transcribeError}</span> : null}
-        </div>
+        </MessageTextResult>
       ) : null}
     </div>
   );
