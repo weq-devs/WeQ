@@ -227,7 +227,7 @@ import { ComposerQuoteBar, type ComposerQuote } from './composerQuote';
 import { composerQuoteToken, quoteBlockReason, quoteFromMessage } from './composerQuote.shared';
 import type { LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
-import { GroupAdminPermissionsDialog } from '../../components/qq-actions/GroupAdminPermissionsDialog';
+import { GroupAdminPermissionsPopover } from '../../components/qq-actions/GroupAdminPermissionsPopover';
 import { AiVoicePanel, type AiVoiceDraft } from './aiVoicePanel';
 import { aiVoiceToken } from './aiVoicePanel.shared';
 import { bounceEmojiToken } from './bounceEmojiPanel.shared';
@@ -1069,6 +1069,7 @@ export function ChatPane({
     groupId: number;
     uid: string;
     name: string;
+    anchor: HTMLElement | null;
   } | null>(null);
   const [avatarMenu, setAvatarMenu] = useState<AvatarContextMenuState | null>(null);
   const unmuteMember =
@@ -2981,10 +2982,13 @@ export function ChatPane({
     event.stopPropagation();
     setContextMenu(null);
     window.getSelection()?.removeAllRanges();
+    const target = event.currentTarget;
+    const HTMLElementType = target.ownerDocument.defaultView?.HTMLElement;
     setAvatarMenu({
       sender,
       x: Math.min(event.clientX, window.innerWidth - 140),
       y: Math.min(event.clientY, window.innerHeight - 72),
+      anchor: HTMLElementType && target instanceof HTMLElementType ? target : null,
     });
   }
 
@@ -8033,7 +8037,12 @@ export function ChatPane({
             const groupId = Number(conversation.group.identityValue);
             if (!uid || !Number.isSafeInteger(groupId) || groupId <= 0) return;
             setAvatarMenu(null);
-            setAdminEditor({ groupId, uid, name: displayUserName(member) });
+            setAdminEditor({
+              groupId,
+              uid,
+              name: displayUserName(member),
+              anchor: avatarMenu.anchor,
+            });
           }}
           showChangeCard={!restrictedSource && (avatarMenuFlags?.showChangeCard ?? false)}
           showChangeTitle={
@@ -8064,13 +8073,17 @@ export function ChatPane({
           }
         />
       ) : null}
-      {adminEditor &&
+      {tabActive &&
+      adminEditor &&
+      adminEditor.anchor?.isConnected !== false &&
       conversation?.type === 'group' &&
       adminEditor.groupId === Number(conversation.group.identityValue) ? (
-        <GroupAdminPermissionsDialog
+        <GroupAdminPermissionsPopover
+          key={`${adminEditor.groupId}:${adminEditor.uid}`}
           groupId={adminEditor.groupId}
           targetUid={adminEditor.uid}
           name={adminEditor.name}
+          anchor={adminEditor.anchor}
           onClose={() => setAdminEditor(null)}
         />
       ) : null}

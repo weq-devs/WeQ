@@ -22,6 +22,7 @@ export type AvatarContextMenuState = {
   sender: User;
   x: number;
   y: number;
+  anchor: HTMLElement | null;
 };
 
 /** 禁言时长档位（与 QQ 桌面端右键一致）。 */

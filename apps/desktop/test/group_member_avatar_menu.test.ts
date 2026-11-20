@@ -103,6 +103,28 @@ function fixture(
 }
 
 describe('群成员头像菜单', () => {
+  it('从管理员头像打开权限面板，点外收起并继续执行同一次点击', () => {
+    const f = fixture('owner', true, false, 'admin');
+    const background = document.createElement('button');
+    const clicked = vi.fn();
+    background.addEventListener('click', clicked);
+    f.host.append(background);
+
+    f.open('message');
+    act(() => f.button('管理员权限')!.click());
+    const panel = () => document.querySelector('[aria-label="目标成员的管理员权限"]');
+    expect(panel()).not.toBeNull();
+
+    act(() => {
+      background.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, cancelable: true }),
+      );
+      background.click();
+    });
+    expect(panel()).toBeNull();
+    expect(clicked).toHaveBeenCalledOnce();
+  });
+
   it('自己的消息头像可点击打开资料卡，并保留群成员身份', () => {
     const f = fixture('owner', true, true);
     const avatar = f.host.querySelector<HTMLButtonElement>('button.message-avatar-button.is-self');
