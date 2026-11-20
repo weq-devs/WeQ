@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { findFeature } from '@weq/service/feature-catalog';
 import {
   APP_NAVIGATION,
   activateNavigation,
@@ -49,9 +50,11 @@ describe('共用功能导航', () => {
   });
 
   it('搜索与导航展示同名功能并指向相同目标', () => {
-    for (const { label, target } of navigationEntries('search')) {
+    for (const { featureId, label, target } of navigationEntries('search')) {
       const entry = APP_SEARCH_ENTRIES.find((entry) => entry.title === label);
       expect(entry?.target).toEqual(target);
+      expect(entry?.id).toBe(featureId);
+      expect(findFeature(featureId)?.label).toBe(label);
     }
   });
 

@@ -3,7 +3,14 @@ import type { MainView } from '../../im-template/template/types';
 import type { ExportMode } from '../../views/export/types';
 import type { DressKind } from '../DressUpDialog';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
-import { SETTINGS_CATALOG, SETTINGS_PAGE_ALIASES } from '@weq/service/settings-catalog';
+import { findSettingDefinition } from '@weq/service/settings-catalog';
+import {
+  DRESS_FEATURES,
+  EXPORT_FEATURES,
+  SETTING_FEATURES,
+  SETTINGS_PAGE_FEATURES,
+  WORKSPACE_FEATURES,
+} from '@weq/service/feature-catalog';
 import { isRemoteClient } from '../../lib/remoteClient';
 import { remoteSettingAvailable } from '../../../../shared/remote_capabilities';
 import { APP_NAVIGATION, navigationEntries, type NavigationTool } from '../../lib/appNavigation';
@@ -11,12 +18,7 @@ import { ContactRound, Gift, UsersRound } from 'lucide-react';
 import { DRESS_KIND_ICONS, EXPORT_MODE_ICONS, FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import type { FeatureIcon } from '../../lib/featureIcons';
 import { SETTINGS_PAGE_ICONS } from '../settings/pageIcons.shared';
-import {
-  SETTINGS_PAGE_LABELS,
-  resolveSettingsTarget,
-  settingsGroupFor,
-  type SectionId,
-} from '../settings/navigation';
+import { resolveSettingsTarget, type SectionId } from '../settings/navigation';
 export { SETTINGS_PAGE_LABELS } from '../settings/navigation';
 
 export type SearchableTool = NavigationTool;
@@ -47,28 +49,33 @@ export interface AppSearchEntry {
 
 // 这里只保存公开的界面名称与入口，不读取设置值、账号资料或凭据。
 
-function settingEntry(section: SectionId, item?: string, keywords: string[] = []): AppSearchEntry {
-  const resolved = resolveSettingsTarget({ section, item });
-  const page = SETTINGS_PAGE_LABELS[resolved.section];
+function settingEntry(
+  definition: (typeof SETTING_FEATURES)[number] | (typeof SETTINGS_PAGE_FEATURES)[number],
+): AppSearchEntry {
+  const { id, label, aliases, page, path } = definition;
+  const target =
+    'settingId' in definition
+      ? resolveSettingsTarget({ section: page, item: label, settingId: definition.settingId })
+      : resolveSettingsTarget({ section: page });
   return {
-    id: `setting:${resolved.section}:${resolved.settingId ?? item ?? ''}`,
-    title: item ? (resolved.item ?? item) : page,
-    path: ['设置', settingsGroupFor(resolved.section).label, page].join(' / '),
-    keywords: [...keywords, ...(item ? [item] : (SETTINGS_PAGE_ALIASES[resolved.section] ?? []))],
-    target: { kind: 'setting', ...resolved },
+    id,
+    title: label,
+    path: path.join(' / '),
+    keywords: 'settingId' in definition ? [...aliases, label] : aliases,
+    target: { kind: 'setting', ...target },
   };
 }
 
 const feature = (
-  title: string,
+  { id, label, aliases }: { id: string; label: string; aliases: readonly string[] },
   target: AppSearchTarget,
-  ...keywords: string[]
+  path = '功能',
 ): AppSearchEntry => ({
-  id: `feature:${title}`,
-  title,
-  path: '功能',
+  id,
+  title: label,
+  path,
   target,
-  keywords,
+  keywords: aliases,
 });
 
 export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
@@ -100,77 +107,34 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
   }
 }
 
-function uniqueEntries(entries: AppSearchEntry[]): AppSearchEntry[] {
-  const unique = new Map<string, AppSearchEntry>();
-  for (const entry of entries) {
-    const previous = unique.get(entry.id);
-    unique.set(
-      entry.id,
-      previous ? { ...previous, keywords: [...previous.keywords, ...entry.keywords] } : entry,
-    );
-  }
-  return [...unique.values()];
-}
-
-const appSearchEntries: readonly AppSearchEntry[] = uniqueEntries([
-  ...navigationEntries('search', true).flatMap(({ label, target, keywords }) =>
+const appSearchEntries: readonly AppSearchEntry[] = [
+  ...navigationEntries('search', true).flatMap(({ featureId, label, target, keywords }) =>
     target.kind === 'contact-notice' || target.kind === 'contact-overview'
       ? []
-      : [feature(label, target, ...keywords)],
+      : [feature({ id: featureId, label, aliases: keywords }, target)],
   ),
-  feature('好友克隆', { kind: 'conversation-directory', scope: 'virtual' }, '克隆聊天'),
-  feature('新建好友克隆', { kind: 'clone-create' }, '创建克隆'),
-  feature('新建克隆体群聊', { kind: 'clone-create', group: true }, '克隆群聊'),
-  ...(
-    [
-      ['聊天消息导出', 'full', '完整消息导出'],
-      ['定时导出', 'scheduled', '定时任务', '自动备份'],
-      ['频道私聊数据', 'guild', '导出频道私聊'],
-      ['克隆与助手对话', 'generated', '导出克隆对话', '导出助手会话'],
-      ['QQ 空间导出', 'qzone', '导出说说'],
-      ['导出联系人', 'contacts', '好友名单', '群成员名单', 'vCard'],
-      ['导出收藏', 'collection', '收藏导出'],
-      ['邮件导出', 'mail', '导出邮件'],
-      ['导出表情包', 'emojipack', '表情包导出'],
-      ['群相册导出', 'album', '群相册'],
-      ['群文件导出', 'groupfile', '群文件'],
-      ['明文数据库', 'database', '数据库导出'],
-      ['克隆体机器人', 'persona-bot', '克隆机器人导出'],
-      ['个人空间相册', 'qzone', '空间相册导出'],
-    ] as const
-  ).map(([title, exportMode, ...aliases]) =>
-    feature(title, { kind: 'tool', tool: 'export', exportMode }, ...aliases),
+  feature(WORKSPACE_FEATURES.clones, { kind: 'conversation-directory', scope: 'virtual' }),
+  feature(WORKSPACE_FEATURES.createClone, { kind: 'clone-create' }),
+  feature(WORKSPACE_FEATURES.createCloneGroup, { kind: 'clone-create', group: true }),
+  ...EXPORT_FEATURES.map((entry) =>
+    feature(entry, { kind: 'tool', tool: 'export', exportMode: entry.mode }),
   ),
-  feature('我的资料', { kind: 'self-profile' }, '本人资料', '个人资料'),
-  {
-    ...feature('礼物墙', { kind: 'self-profile', tab: 'giftwall' }, '我的礼物墙', '礼物'),
-    path: '我的资料 / 礼物墙',
-  },
-  ...(
-    [
-      ['气泡商城', 'bubble', '聊天气泡', '气泡'],
-      ['字体商城', 'font', '个性字体', '字体'],
-      ['头像挂件', 'widget', '挂件商城'],
-      ['通话背景', 'callbg'],
-      ['QQ 聊天背景', 'background', '聊天背景商城'],
-      ['商城表情', 'emoji', '表情商城'],
-      ['红包封面', 'redpack', '红包皮肤', '红包'],
-    ] as const
-  ).map(([title, dressKind, ...aliases]) =>
-    feature(title, { kind: 'dressup', dressKind }, ...aliases),
+  feature(WORKSPACE_FEATURES.selfProfile, { kind: 'self-profile' }),
+  feature(
+    WORKSPACE_FEATURES.giftWall,
+    { kind: 'self-profile', tab: 'giftwall' },
+    [WORKSPACE_FEATURES.selfProfile.label, WORKSPACE_FEATURES.giftWall.label].join(' / '),
   ),
-  ...Object.keys(SETTINGS_PAGE_LABELS).map((section) =>
-    settingEntry(section as keyof typeof SETTINGS_PAGE_LABELS, undefined, [section]),
-  ),
-  ...SETTINGS_CATALOG.map((item) =>
-    settingEntry(item.section, item.label, [...(item.aliases ?? [])]),
-  ),
-]).filter((entry) => {
+  ...DRESS_FEATURES.map((entry) => feature(entry, { kind: 'dressup', dressKind: entry.dressKind })),
+  ...SETTINGS_PAGE_FEATURES.map(settingEntry),
+  ...SETTING_FEATURES.map(settingEntry),
+].filter((entry) => {
   const target = entry.target;
   return !(
     import.meta.env.VITE_WEQ_TARGET === 'web' &&
     target.kind === 'setting' &&
-    SETTINGS_CATALOG.some((item) => item.id === target.settingId && item.desktopOnly)
+    target.settingId &&
+    findSettingDefinition(target.settingId)?.desktopOnly
   );
 });
 

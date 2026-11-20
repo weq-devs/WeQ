@@ -67,6 +67,8 @@
     "./search-index-retirement": "./src/common/search_index_retirement.ts",
     "./signer-cache": "./src/bootstrap/signer_cache.ts",
     "./settings-catalog": "./src/common/settings_catalog/index.ts",
+    "./feature-catalog": "./src/common/feature_catalog/index.ts",
+    "./feature-catalog/navigation": "./src/common/feature_catalog/navigation.ts",
     "./settings-catalog/navigation": "./src/common/settings_catalog/navigation.ts",
     "./settings-catalog/ai": "./src/common/settings_catalog/ai.ts",
     "./settings-catalog/reset": "./src/common/settings_catalog/reset.ts"

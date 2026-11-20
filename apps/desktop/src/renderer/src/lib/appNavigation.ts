@@ -1,3 +1,4 @@
+import { NAVIGATION_FEATURES } from '@weq/service/feature-catalog/navigation';
 import {
   BarChart3,
   FileStack,
@@ -36,6 +37,7 @@ export type AppNavigationTarget =
 export type NavigationSurface = 'rail' | 'mobile-tabs' | 'mobile-more' | 'workspace' | 'search';
 export interface AppNavigationEntry {
   id: string;
+  featureId: string;
   label: string;
   icon: FeatureIcon;
   target: AppNavigationTarget;
@@ -44,193 +46,173 @@ export interface AppNavigationEntry {
   placements: Partial<Record<NavigationSurface, number>>;
 }
 
-// 布局只决定入口的位置；名称、图标、目标和预加载来源在这里统一维护。
+function navigationMetadata(key: keyof typeof NAVIGATION_FEATURES) {
+  const { id, label, aliases } = NAVIGATION_FEATURES[key];
+  return { featureId: id, label, keywords: aliases };
+}
+
+// 共用目录提供名称与检索信息，客户端在这里维护目标、图标和版位。
 export const APP_NAVIGATION = {
   announcements: {
-    label: '官方公告',
+    ...navigationMetadata('announcements'),
     icon: Megaphone,
     target: { kind: 'announcements' },
-    keywords: [],
     placements: { 'mobile-more': -1, search: 18 },
   },
   home: {
-    label: '主页',
+    ...navigationMetadata('home'),
     icon: House,
     target: { kind: 'view', view: 'home' },
-    keywords: [],
     placements: { 'mobile-more': 0, search: 0 },
   },
   messages: {
-    label: '消息',
+    ...navigationMetadata('messages'),
     icon: FEATURE_ICONS.messages,
     target: { kind: 'view', view: 'messages' },
-    keywords: ['聊天', '会话'],
     placements: { rail: 0, 'mobile-tabs': 0, search: 1 },
   },
   contacts: {
-    label: '联系人',
+    ...navigationMetadata('contacts'),
     icon: FEATURE_ICONS.contacts,
     target: { kind: 'view', view: 'contacts' },
-    keywords: ['好友', '群聊'],
     placements: { rail: 1, 'mobile-tabs': 1, search: 2 },
   },
   collections: {
-    label: '收藏',
+    ...navigationMetadata('collections'),
     icon: FEATURE_ICONS.collections,
     target: { kind: 'view', view: 'collections' },
     workspace: 'collections',
-    keywords: [],
     placements: { rail: 5, 'mobile-more': 4, search: 3 },
   },
   qzone: {
-    label: 'QQ 空间',
+    ...navigationMetadata('qzone'),
     icon: FEATURE_ICONS.qzone,
     target: { kind: 'view', view: 'qzone' },
     workspace: 'qzone',
-    keywords: ['说说', '相册'],
     placements: { rail: 2, 'mobile-tabs': 2, search: 4 },
   },
   mail: {
-    label: 'QQ 邮箱',
+    ...navigationMetadata('mail'),
     icon: FEATURE_ICONS.mail,
     target: { kind: 'view', view: 'mail' },
-    keywords: ['邮件'],
     placements: { rail: 4, 'mobile-more': 1, search: 5 },
   },
   channel: {
-    label: 'QQ 频道',
+    ...navigationMetadata('channel'),
     icon: Hash,
     target: { kind: 'view', view: 'channel' },
     workspace: 'channel',
-    keywords: ['频道'],
     placements: { rail: 3, search: 6 },
   },
   'guild-direct': {
-    label: '频道私聊',
+    ...navigationMetadata('guild-direct'),
     icon: FEATURE_ICONS.guildDirect,
     target: { kind: 'view', view: 'guild-direct' },
     workspace: 'guild-direct',
-    keywords: [],
     placements: { search: 7 },
   },
   annual: {
-    label: '年度报告',
+    ...navigationMetadata('annual'),
     icon: FEATURE_ICONS.annual,
     target: { kind: 'view', view: 'annual' },
     workspace: 'annual',
-    keywords: ['年度总结'],
     placements: { rail: 6, 'mobile-more': 5, search: 8 },
   },
   dressup: {
-    label: '个性装扮',
+    ...navigationMetadata('dressup'),
     icon: FEATURE_ICONS.dressup,
     target: { kind: 'dressup' },
     workspace: 'dressup',
-    keywords: ['装扮商城'],
     placements: { rail: 7, 'mobile-more': 6, search: 9 },
   },
   tasks: {
-    label: '任务',
+    ...navigationMetadata('tasks'),
     icon: ListTodo,
     target: { kind: 'tool', tool: 'tasks' },
-    keywords: ['导出进度', '下载任务'],
     placements: { 'mobile-more': 7, search: 10 },
   },
   assistant: {
-    label: 'WeQ 助手',
+    ...navigationMetadata('assistant'),
     icon: FEATURE_ICONS.assistant,
     target: { kind: 'tool', tool: 'assistant' },
-    keywords: ['AI 助手', '智能助手'],
     placements: { search: 11 },
   },
   analysis: {
-    label: '分析',
+    ...navigationMetadata('analysis'),
     icon: BarChart3,
     target: { kind: 'tool', tool: 'analysis' },
     workspace: 'analysis',
-    keywords: ['聊天分析', '统计'],
     placements: { 'mobile-more': 9, workspace: 0, search: 12 },
   },
   'analysis-reports': {
-    label: '分析报告',
+    ...navigationMetadata('analysis-reports'),
     icon: FileText,
     target: { kind: 'tool', tool: 'analysis-reports' },
     workspace: 'analysis-reports',
-    keywords: ['历史报告', '已保存报告', '查看分析结果'],
     placements: { 'mobile-more': 10, workspace: 1, search: 13 },
   },
   export: {
-    label: '导出',
+    ...navigationMetadata('export'),
     icon: FEATURE_ICONS.export,
     target: { kind: 'tool', tool: 'export' },
     workspace: 'export',
-    keywords: ['导出聊天记录', '备份聊天'],
     placements: { 'mobile-more': 11, workspace: 2, search: 14 },
   },
   viewer: {
-    label: '导出查看器',
+    ...navigationMetadata('viewer'),
     icon: FolderOpen,
     target: { kind: 'tool', tool: 'viewer' },
     workspace: 'viewer',
-    keywords: ['打开导出', 'JSON', 'JSONL'],
     placements: { 'mobile-more': 12, workspace: 3, search: 15 },
   },
   composition: {
-    label: '合成聊天记录',
+    ...navigationMetadata('composition'),
     icon: FileStack,
     target: { kind: 'composition' },
-    keywords: ['合并转发'],
     placements: { 'mobile-more': 13, workspace: 4, search: 16 },
   },
   backfill: {
-    label: '拉取漫游消息',
+    ...navigationMetadata('backfill'),
     icon: FEATURE_ICONS.backfill,
     target: { kind: 'tool', tool: 'backfill' },
     workspace: 'backfill',
-    keywords: ['漫游消息', '补全聊天记录'],
     placements: { search: 17 },
   },
   settings: {
-    label: '设置',
+    ...navigationMetadata('settings'),
     icon: Settings,
     target: { kind: 'setting', section: 'startup' },
     workspace: 'settings',
-    keywords: [],
     placements: { rail: 8, 'mobile-more': 14 },
   },
   tools: {
-    label: '应用',
+    ...navigationMetadata('tools'),
     icon: LayoutGrid,
     target: { kind: 'view', view: 'tools' },
-    keywords: [],
     placements: { rail: 9 },
   },
   more: {
-    label: '更多',
+    ...navigationMetadata('more'),
     icon: Grid2X2,
     target: { kind: 'view', view: 'more' },
-    keywords: [],
     placements: { 'mobile-tabs': 3 },
   },
   'friend-notice': {
-    label: '好友通知',
+    ...navigationMetadata('friend-notice'),
     icon: FEATURE_ICONS.friendNotice,
     target: { kind: 'contact-notice', notice: 'friend' },
-    keywords: [],
     placements: {},
   },
   'group-notice': {
-    label: '群通知',
+    ...navigationMetadata('group-notice'),
     icon: FEATURE_ICONS.groupNotice,
     target: { kind: 'contact-notice', notice: 'group' },
-    keywords: [],
     placements: {},
   },
   'group-intersection': {
-    label: '群交集',
+    ...navigationMetadata('group-intersection'),
     icon: Waypoints,
     target: { kind: 'contact-overview' },
-    keywords: ['群成员重合', '关系图谱'],
     placements: {},
   },
 } satisfies Record<string, Omit<AppNavigationEntry, 'id'>>;
