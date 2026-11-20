@@ -1272,6 +1272,7 @@ export function GroupList({
   const relationships = useContext(RelationshipDirectoryContext);
   const directory = useContext(ContactDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
+  const friendDirectory = useFriendDirectory();
   const batch = useConversationBatchActions(conversations);
   const [actionMenu, setActionMenu] = useState<{
     conversation: Conversation;
