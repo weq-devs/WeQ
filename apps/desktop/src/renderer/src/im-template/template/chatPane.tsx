@@ -1,4 +1,3 @@
-import { OnlineSystemFacesDialog } from '../../components/OnlineSystemFacesDialog';
 import { Languages } from 'lucide-react';
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
 import { ChatTimeline } from './chatTimeline';
@@ -971,7 +970,6 @@ function ChatPaneContent({
     takeTranscriptDraft,
   } = useVoiceMode()!;
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
-  const [onlineFacesOpen, setOnlineFacesOpen] = useState(false);
   const [arkOpen, setArkOpen] = useState(false);
   // 「闪传」文件框：拖文件 / 选文件夹 → 灯箱确认封面 → 走 fileset 发送。
   // 它内联占掉输入框正文那一行（需求就是「输入框变成文件框」），所以与其余面板互斥。
@@ -7311,14 +7309,6 @@ function ChatPaneContent({
                 canInsertCustomEmoji ? (file) => void addFiles([file], 'emoji') : undefined
               }
               textOnly={restrictedSource}
-              onOpenOnlineCatalog={
-                sendAvailable && !restrictedSource
-                  ? () => {
-                      setEmojiOpen(false);
-                      setOnlineFacesOpen(true);
-                    }
-                  : undefined
-              }
             />
           ) : null}
           {voicePanelActive ? (
@@ -7714,14 +7704,6 @@ function ChatPaneContent({
                   canInsertCustomEmoji ? (file) => void addFiles([file], 'emoji') : undefined
                 }
                 textOnly={restrictedSource}
-                onOpenOnlineCatalog={
-                  sendAvailable && !restrictedSource
-                    ? () => {
-                        setEmojiOpen(false);
-                        setOnlineFacesOpen(true);
-                      }
-                    : undefined
-                }
               />
             ) : null}
             {redPacketOpen ? (
@@ -7746,9 +7728,6 @@ function ChatPaneContent({
           onCancel={() => setClearMessagesConfirmOpen(false)}
           onConfirm={clearConversationMessagesLocally}
         />
-      ) : null}
-      {onlineFacesOpen && !restrictedSource ? (
-        <OnlineSystemFacesDialog onClose={() => setOnlineFacesOpen(false)} />
       ) : null}
       {mediaSave.prompt}
       {contextMenu ? (
