@@ -7,7 +7,7 @@ export const NAVIGATION_FEATURES = {
   messages: defineFeature('messages.inbox', 'messages', '消息', ['聊天', '会话'], {
     summary: '浏览会话、定位未读并打开聊天记录。',
     tools: ['list_conversations', 'get_messages'],
-    docs: ['guide/chat-view.md#_1-会话列表'],
+    docs: ['guide/chat-view.md#feature-messages.inbox'],
   }),
   contacts: defineFeature('contacts.directory', 'contacts', '联系人', ['好友', '群聊']),
   collections: defineFeature('collections.inbox', 'collections', '收藏'),

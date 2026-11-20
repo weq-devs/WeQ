@@ -20,7 +20,7 @@ function exportFeature<M extends string>(
 export const EXPORT_FEATURES = [
   exportFeature('export.chat-history', 'full', '聊天消息导出', ['完整消息导出'], {
     summary: '从要导出的会话和范围开始，生成聊天记录文件。',
-    docs: ['guide/export.md#_1-聊天消息导出'],
+    docs: ['guide/export.md#feature-export.chat-history'],
   }),
   exportFeature('export.schedule', 'scheduled', '定时导出', ['定时任务', '自动备份']),
   exportFeature('export.channel-direct-messages', 'guild', '频道私聊数据', ['导出频道私聊']),
@@ -97,7 +97,7 @@ export const CONTEXT_FEATURES = [
     context: ['account', 'group'],
     operation: 'album-list',
     tools: ['get_group_albums'],
-    docs: ['guide/album-qzone.md#_4-群相册'],
+    docs: ['guide/album-qzone.md#feature-groups.albums'],
   }),
   defineFeature('messages.locate', 'messages', '定位原消息', [], {
     parentId: NAVIGATION_FEATURES.messages.id,
@@ -115,6 +115,6 @@ export const CONTEXT_FEATURES = [
     summary: '读取消息库排队和耗时统计。',
     context: ['account'],
     tools: ['get_message_performance'],
-    docs: ['guide/mcp-server.md#_4-消息性能快照'],
+    docs: ['guide/mcp-server.md#feature-maintenance.message-performance'],
   }),
 ] as const;

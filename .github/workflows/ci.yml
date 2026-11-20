@@ -79,6 +79,9 @@ jobs:
       - name: Check generated settings reference
         run: pnpm settings:docs:check
 
+      - name: Check generated feature reference and links
+        run: pnpm features:docs:check
+
   typecheck-suites:
     name: typecheck-${{ matrix.suite }}
     runs-on: ubuntu-latest

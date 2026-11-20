@@ -48,7 +48,9 @@
     "sign:probe": "tsx scripts/probe-sign.ts",
     "versions:refresh": "tsx scripts/refresh-qq-versions.mts",
     "settings:docs": "tsx scripts/sync-settings-docs.ts",
-    "settings:docs:check": "tsx scripts/sync-settings-docs.ts --check"
+    "settings:docs:check": "tsx scripts/sync-settings-docs.ts --check",
+    "features:docs": "tsx scripts/sync-feature-docs.ts",
+    "features:docs:check": "tsx scripts/sync-feature-docs.ts --check && tsx --test scripts/sync-feature-docs.test.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
