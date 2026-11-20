@@ -145,10 +145,7 @@ export class AccountQqSync {
             [sequence],
           );
     return rows.some(
-      (row) =>
-        String(row.msgRandom) === message.msgRandom &&
-        String(row.sendTime) === message.sendTime &&
-        row.senderUid === message.senderUid,
+      (row) => String(row.msgRandom) === message.msgRandom && row.senderUid === message.senderUid,
     );
   }
   private async messageBody(message: SentIdentity, pid: number) {
@@ -172,12 +169,8 @@ export class AccountQqSync {
       throw new Error('服务器历史会话不匹配');
     const index = response.messages.findIndex((row) => {
       const routing = row.responseHead as { fromUid?: string } | undefined;
-      const head = row.contentHead as { msgId?: number; timestamp?: number } | undefined;
-      return (
-        routing?.fromUid === message.senderUid &&
-        String(head?.msgId) === message.msgRandom &&
-        String(head?.timestamp) === message.sendTime
-      );
+      const head = row.contentHead as { msgId?: number } | undefined;
+      return routing?.fromUid === message.senderUid && String(head?.msgId) === message.msgRandom;
     });
     if (index < 0) throw new Error('等待服务器确认原始消息');
     const bytes = extractPath(

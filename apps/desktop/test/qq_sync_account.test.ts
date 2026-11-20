@@ -67,8 +67,9 @@ function fixture(path?: string) {
       online = true;
       service.refresh();
     },
-    setPresent: () => {
+    setPresent: (sendTime = 1700000000n) => {
       present = true;
+      row.sendTime = sendTime;
     },
     disable: () => {
       enabled = false;
@@ -117,6 +118,50 @@ it('重启恢复先查本地接纳，已有消息不重复补投', async () => {
   await vi.waitFor(() => expect(restored.service.status().pending).toBe(0));
   expect(f.request.mock.calls.filter((call) => call[1].op === 'push')).toHaveLength(0);
   expect(f.history).not.toHaveBeenCalled();
+});
+it('回执与服务器时间相差一秒时按消息身份补投，并确认不同时间的入库记录', async () => {
+  const state = fixture();
+  f.history.mockResolvedValue({
+    peer: { friendUid: 'u_peer' },
+    rawResponse: Buffer.alloc(1),
+    messages: [
+      { responseHead: { fromUid: 'u_self' }, contentHead: { msgId: 123, timestamp: 1699999999 } },
+    ],
+  });
+  f.request.mockImplementation(async (_root, request) => {
+    if (request.op === 'push') state.setPresent(1699999999n);
+    return { delivered: true };
+  });
+  state.service.sent({ ...sent, elements: [] });
+  await vi.waitFor(() => expect(state.saved().tasks).toHaveLength(1));
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  state.setOnline();
+  await vi.waitFor(() => expect(state.service.status().pending).toBe(0));
+  expect(state.service.status().completed).toBe(1);
+  expect(f.request.mock.calls.filter((call) => call[1].op === 'push')).toHaveLength(1);
+});
+it.each([
+  { fromUid: 'u_other', msgId: 123 },
+  { fromUid: 'u_self', msgId: 456 },
+])('拒绝发送者或消息随机数不匹配的历史记录', async (identity) => {
+  const state = fixture();
+  f.history.mockResolvedValue({
+    peer: { friendUid: 'u_peer' },
+    rawResponse: Buffer.alloc(1),
+    messages: [
+      {
+        responseHead: { fromUid: identity.fromUid },
+        contentHead: { msgId: identity.msgId, timestamp: 1699999999 },
+      },
+    ],
+  });
+  state.service.sent({ ...sent, elements: [] });
+  await vi.waitFor(() => expect(state.saved().tasks).toHaveLength(1));
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  state.setOnline();
+  await vi.waitFor(() => expect(state.service.status().error).toBe('等待服务器确认原始消息'));
+  expect(state.service.status().pending).toBe(1);
+  expect(f.request.mock.calls.filter((call) => call[1].op === 'push')).toHaveLength(0);
 });
 it('历史请求期间会话变化时停止旧会话补投', async () => {
   const state = fixture();
