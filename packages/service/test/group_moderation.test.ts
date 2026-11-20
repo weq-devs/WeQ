@@ -106,14 +106,24 @@ describe('GroupModerationService', () => {
     },
   );
 
-  it('群搜索回包若只允许关键词搜索，显示未知并阻止提交', async () => {
+  it('群搜索回包若只允许关键词搜索，状态仍为未知', async () => {
     const nt = fakeNative(groupSearchDetail(0, 1));
     const service = makeService(nt);
     expect((await service.advancedSettings(12345)).searchMode).toBeNull();
-    await expect(
-      service.setAdvancedSetting(12345, { key: 'searchMode', value: 'disabled' }, () => {}),
-    ).rejects.toThrow('服务端未返回对应设置');
     expect(nt.oidb.some(({ command }) => command === 0x89a)).toBe(false);
+  });
+
+  it('群详情读回失败时，管理员仍能明确提交一个完整的搜索档位', async () => {
+    const nt = fakeNative(Buffer.from('0a0508b9601048', 'hex'));
+    const service = makeService(nt);
+    await expect(service.advancedSettings(12345)).rejects.toThrow('缺少 groupInfo.results');
+    nt.oidb.length = 0;
+    await service.setAdvancedSetting(12345, { key: 'searchMode', value: 'number_only' }, () => {});
+    expect(nt.oidb.map(({ command, subCommand }) => [command, subCommand])).toEqual([[0x89a, 0]]);
+    expect(decode(SetGroupSearch.reqSchema, nt.oidb[0]!.body)).toMatchObject({
+      groupUin: 12345n,
+      settings: { noFingerOpen: 1, noCodeFingerOpen: 0 },
+    });
   });
 
   it('全员禁言和解除都发送明确的 state', async () => {

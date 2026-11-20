@@ -327,17 +327,23 @@ export class GroupModerationService {
 
   async setAdvancedSetting(groupId: number, change: GroupSettingChange, beforeSend: () => void) {
     const pid = await this.permitted('manage', groupId);
+    const checkCurrent = () => {
+      beforeSend();
+      if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
+    };
+    if (change.key === 'searchMode') {
+      // 三档各自给出完整字段，指定档位无需依赖旧值。
+      checkCurrent();
+      return SetGroupSearch.invoke(this.nt, pid, {
+        groupId,
+        ...GROUP_SEARCH_FLAGS[change.value],
+      });
+    }
     const settings = await this.advancedSettings(groupId);
-    beforeSend();
-    if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
+    checkCurrent();
     if (settings[change.key] === null) throw new Error('服务端未返回对应设置，请刷新后重试');
     if (settings[change.key] === change.value) return;
     switch (change.key) {
-      case 'searchMode':
-        return SetGroupSearch.invoke(this.nt, pid, {
-          groupId,
-          ...GROUP_SEARCH_FLAGS[change.value],
-        });
       case 'newMemberHistory':
         return SetGroupHistoryVisibility.invoke(this.nt, pid, { groupId, visible: change.value });
       case 'invitePolicy':

@@ -1903,13 +1903,11 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.textContent).toContain('其他操作');
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('群搜索方式从读回填充，直接选择三档之一后重新读取', async () => {
+  it('群搜索方式未知时仍可明确选档，并在提交后重新读取', async () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     const select = () => f.host.querySelector<HTMLButtonElement>('[aria-label="群搜索方式"]')!;
-    expect(select().disabled).toBe(true);
-    state.data.groupAdvancedSettings = { searchMode: 'keyword_or_number' };
-    f.update();
-    expect(select().dataset.value).toBe('keyword_or_number');
+    expect(select().disabled).toBe(false);
+    expect(select().dataset.value).toBe('');
 
     state.mutate.mockImplementationOnce(async () => {
       state.data.groupAdvancedSettings = { searchMode: 'number_only' };

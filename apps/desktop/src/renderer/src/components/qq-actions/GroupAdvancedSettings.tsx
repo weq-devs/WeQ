@@ -60,7 +60,7 @@ export function GroupAdvancedSettings({ groupId }: { groupId: number }) {
           <FormSelect
             aria-label="群搜索方式"
             value={query.data?.searchMode ?? ''}
-            disabled={disabled || query.data?.searchMode == null}
+            disabled={action.disabled || query.isFetching}
             onChange={(event) => {
               const value = event.target.value;
               if (Object.hasOwn(searchModes, value))
