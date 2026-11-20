@@ -86,6 +86,9 @@
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
 }
+.weq-directory-filter-row > .weq-segmented > button {
+  padding-inline: 4px;
+}
 @media (pointer: coarse) {
   .weq-directory-order-buttons .weq-directory-menu-button {
     min-height: 38px;
