@@ -138,6 +138,21 @@ it('在线检查失败后可以在相册页重试', async () => {
   }
 });
 
+it('首页尚未返回时暂停相册读取不显示空相册', async () => {
+  const { host, render, close } = albumDialogFixture();
+  let release = () => {};
+  read.page.mockImplementationOnce(() => new Promise<void>((resolve) => (release = resolve)));
+  try {
+    await render(true);
+    expect(read.page).toHaveBeenCalledOnce();
+    await render(false);
+    expect(host.textContent).not.toContain('这个空间还没有相册');
+  } finally {
+    await close();
+    await act(async () => release());
+  }
+});
+
 function Probe() {
   const [album, setAlbum] = useState<string | null>(null);
   const request = useContentExportRequest();

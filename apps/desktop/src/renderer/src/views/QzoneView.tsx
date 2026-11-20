@@ -146,18 +146,23 @@ function withoutOwner<T>(current: Record<string, T>, uin: string): Record<string
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : '加载失败，请重试。';
 
+const QzoneReadsEnabled = createContext(true);
+
 /** 子页离开即卸载，滚动与阅读现场单独保存。 */
 function QzonePage({
   active,
   refreshKey,
+  pauseReadsDuringNavigation = true,
   children,
 }: {
   active: boolean;
   refreshKey: number;
+  pauseReadsDuringNavigation?: boolean;
   children: ReactElement;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
-  const activity = useQQReadActivity(active);
+  const readsEnabled = useContext(QzoneReadsEnabled);
+  const activity = useQQReadActivity(active && (!pauseReadsDuringNavigation || readsEnabled));
   const position = useRef(0);
   const previousActive = useRef(false);
   const [entry, setEntry] = useState({ active, refresh: 0 });
@@ -224,8 +229,9 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
         </PageSnapshotScope>
       </TabActivity>
     );
+  // 暂停数据读取不能撤销返回手势，否则退栈动画会再次暂停读取。
   return active && parentActive && (loaded || readEnabled) ? (
-    <TabActivity active={readEnabled}>
+    <QzoneReadsEnabled.Provider value={readEnabled}>
       <PageSnapshotScope name="qzone">
         <PageScrollSnapshot style={{ height: '100%', minHeight: 0 }}>
           <QzoneView
@@ -238,7 +244,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
           />
         </PageScrollSnapshot>
       </PageSnapshotScope>
-    </TabActivity>
+    </QzoneReadsEnabled.Provider>
   ) : null;
 });
 
@@ -403,7 +409,8 @@ export function QzoneView({
   onSpaceChange?: (uin: string) => void;
   personClickAction?: 'profile' | 'space';
 }): ReactElement {
-  const activity = useQQReadActivity(active);
+  const readsEnabled = useContext(QzoneReadsEnabled);
+  const activity = useQQReadActivity(active && readsEnabled);
   const people = useQzonePeople(selfUin, activity.enabled);
   const initialSpace = spaceRequest?.accountUin === selfUin ? spaceRequest : null;
   const initialSection = initialSpace ? requestedOwnerTab(initialSpace) : null;
@@ -1007,7 +1014,11 @@ function SpaceContent({
         </div>
       </QzonePage>
       {visitedAlbums ? (
-        <QzonePage active={active && pane === 'albums'} refreshKey={refreshes.albums}>
+        <QzonePage
+          active={active && pane === 'albums'}
+          refreshKey={refreshes.albums}
+          pauseReadsDuringNavigation={false}
+        >
           <QzoneAlbums
             selfUin={selfUin}
             hostUin={hostUin}

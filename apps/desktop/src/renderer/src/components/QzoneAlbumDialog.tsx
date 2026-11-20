@@ -593,8 +593,6 @@ export function QzoneAlbumDialog({
                 : '空间相册需要当前账号的 QQ 客户端在线以获取访问凭证（pskey）。请打开并登录 QQ 后重试。'}
             </small>
           </div>
-        ) : albumsLoading && !albums ? (
-          <AlbumListSkeleton />
         ) : albumsError && !albums && !selected ? (
           <div className="weq-qzone-album-empty is-error">
             <Inbox size={26} />
@@ -630,7 +628,9 @@ export function QzoneAlbumDialog({
             }}
             onLoadMore={() => loadMore()}
           />
-        ) : !albums || albums.length === 0 ? (
+        ) : !albums ? (
+          <AlbumListSkeleton />
+        ) : albums.length === 0 ? (
           <div className="weq-qzone-album-empty">
             <Inbox size={26} />
             <span>{albumsError ? '相册清单尚未读取完整' : '这个空间还没有相册'}</span>
