@@ -28,6 +28,7 @@ export function AppRail({
   onOpenInvite,
   messageBadgeCount = 0,
   onMessageBadgeClick,
+  messageBadgeActionLabel = '定位未读会话',
   contactBadgeCount = 0,
   mailBadgeCount = 0,
   showTools = true,
@@ -51,6 +52,7 @@ export function AppRail({
   onOpenQzoneAlbum: () => void;
   messageBadgeCount?: number;
   onMessageBadgeClick?: () => void;
+  messageBadgeActionLabel?: string;
   contactBadgeCount?: number;
   mailBadgeCount?: number;
   showTools?: boolean;
@@ -70,7 +72,8 @@ export function AppRail({
         ? 'settings'
         : undefined;
   const activeView = activePage ?? activeRailItem ?? view;
-  const locateUnread = activeView === 'messages' && !mainPageOpen ? onMessageBadgeClick : undefined;
+  const reselectMessages =
+    activeView === 'messages' && !mainPageOpen ? onMessageBadgeClick : undefined;
   const developmentDressTools = useDevelopmentDressTools();
   const packUpdate = useEnhancementUpdateBadge();
   const settingsButton = (mobile = false) => (
@@ -140,9 +143,9 @@ export function AppRail({
   }
 
   function selectMessages() {
-    if (locateUnread) {
+    if (reselectMessages) {
       setProfileOpen(false);
-      locateUnread();
+      reselectMessages();
     } else selectView('messages');
   }
 
@@ -251,8 +254,8 @@ export function AppRail({
                       count={messageBadgeCount}
                       overlay
                       className="rail-badge rail-message-badge"
-                      title={locateUnread ? '定位未读会话' : label}
-                      aria-label={`${locateUnread ? '定位未读会话' : label}，共 ${messageBadgeCount} 条未读消息`}
+                      title={reselectMessages ? messageBadgeActionLabel : label}
+                      aria-label={`${reselectMessages ? messageBadgeActionLabel : label}，共 ${messageBadgeCount} 条未读消息`}
                       onClick={selectMessages}
                     />
                   )}

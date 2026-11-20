@@ -9056,11 +9056,17 @@ function MainWorkspace(): ReactElement {
       shell.selectGroup(id);
     }),
   );
-  const locateUnreadConversation = useStableCallback(() =>
+  const canLocateUnreadInView = conversationView === 'regular' || conversationView === 'all';
+  const reselectMessages = useStableCallback(() =>
     settingsNavigation.navigate(() => {
+      if (!canLocateUnreadInView) {
+        setConversationLocate(null);
+        switchConversationView('regular');
+        return;
+      }
       const target = unreadConversationCycle.next(
-        conversationViews.regular,
-        regularViewPreferences,
+        currentViewRows,
+        currentViewPreferences,
         unreadMarkers.aggregates,
       );
       if (!target) return;
@@ -9070,7 +9076,6 @@ function MainWorkspace(): ReactElement {
       setDressUpOpen(false);
       shell.switchView('messages');
       setArkFeedState(null);
-      changeConversationView('regular');
       shell.setQuery('');
       if (isMobileShell()) {
         setMobileConversationList(true);
@@ -9120,7 +9125,8 @@ function MainWorkspace(): ReactElement {
                 : 0
             }
             contactBadgeCount={unreadMarkers.requests ? friendNoticeCount + groupNoticeCount : 0}
-            onMessageBadgeClick={locateUnreadConversation}
+            onMessageBadgeClick={reselectMessages}
+            messageBadgeActionLabel={canLocateUnreadInView ? '定位未读会话' : '返回常规视图'}
             mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
             showTools={false}
             railFooterContent={() => <WorkspaceMenuButton />}

@@ -357,14 +357,27 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
     ),
 }));
 vi.mock('../src/renderer/src/im-template/template/chatSidebarContent', () => ({
-  ChatSidebarContent: (props: ComponentProps<typeof ChatSidebarContent>) =>
-    h(
+  ChatSidebarContent: (props: ComponentProps<typeof ChatSidebarContent>) => {
+    const directory = useContext(ConversationDirectoryContext);
+    return h(
       'nav',
-      null,
-      h('span', {
-        'data-list-locate': useContext(ConversationDirectoryContext)?.locate?.id ?? '',
-      }),
+      { 'data-list-view': directory?.view },
+      h('span', { 'data-list-locate': directory?.locate?.id ?? '' }),
       h('span', { 'data-previews': true }, JSON.stringify(props.conversations)),
+      ...(['hidden', 'all'] as const).map((view) =>
+        h(
+          'button',
+          {
+            key: view,
+            'data-list-switch': view,
+            onClick: () => {
+              directory?.onListInteraction?.();
+              directory?.onViewChange(view);
+            },
+          },
+          view,
+        ),
+      ),
       ...f.recent.map((row) =>
         h(
           'button',
@@ -372,7 +385,8 @@ vi.mock('../src/renderer/src/im-template/template/chatSidebarContent', () => ({
           row.targetUid,
         ),
       ),
-    ),
+    );
+  },
 }));
 vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (importOriginal) => {
   const actual =
@@ -1177,6 +1191,60 @@ it('返回消息页不重放上一次未读定位，下次点击继续定位下�
     expect(locateTarget()).toBe('');
     await click('locate-unread');
     expect(locateTarget()).toBe(first === '10001' ? '10002' : '10001');
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
+it.each([0, 3])('有 %i 条未读时，消息入口在分类、常规和全部会话中的行为', async (count) => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.unreadMode = true;
+  f.unreadCounts = { '10001': count };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const click = (selector: string) =>
+    act(async () => host.querySelector<HTMLButtonElement>(selector)!.click());
+  const view = () => host.querySelector('[data-list-view]')?.getAttribute('data-list-view');
+  const locate = () => host.querySelector('[data-list-locate]')?.getAttribute('data-list-locate');
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await click('[data-messages]');
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+    await click('[data-list-switch="hidden"]');
+    expect(view()).toBe('hidden');
+    await click('[data-locate-unread]');
+    expect(view()).toBe('regular');
+    expect(locate()).toBe('');
+    await click('[data-locate-unread]');
+    expect(view()).toBe('regular');
+    expect(locate()).toBe(count ? '10001' : '');
+
+    await click('[data-list-switch="all"]');
+    expect(view()).toBe('all');
+    if (count) {
+      f.unreadCounts = { '10001': 0, '10002': 2 };
+      await act(async () => {
+        f.unreadChanged!([
+          { chatType: 2, uid: '10001' },
+          { chatType: 2, uid: '10002' },
+        ]);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+    await click('[data-locate-unread]');
+    expect(view()).toBe('all');
+    expect(locate()).toBe(count ? '10002' : '');
   } finally {
     await act(async () => root.unmount());
     client.clear();
