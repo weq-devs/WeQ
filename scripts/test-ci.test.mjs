@@ -20,6 +20,7 @@ const { load } = libraryRequire('js-yaml');
 const workflow = load(
   readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'),
 );
+const { scripts } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 test('安装依赖的 CI 与发布任务先检出文档子模块，匹配冻结锁文件', () => {
   const release = load(
@@ -55,7 +56,8 @@ test('文档门禁先验证主仓记录的提交可拉取，再初始化子模�
   const regression = workflow.jobs['test-suites'].steps.find(
     (step) => step.name === 'Check CI orchestration and reports',
   );
-  assert.match(regression.run, /scripts\/check-docs-submodule\.test\.mjs/);
+  assert.equal(regression.run, 'pnpm run test:ci-scripts');
+  assert.match(scripts['test:ci-scripts'], /scripts\/check-docs-submodule\.test\.mjs/);
 });
 
 test('真实开发服务集成测试在三平台安装依赖后执行，不混入无依赖启动检查', () => {
@@ -68,12 +70,14 @@ test('真实开发服务集成测试在三平台安装依赖后执行，不混�
     (step) => step.name === 'Test development server integration',
   );
   assert.ok(bootstrap >= 0 && install > bootstrap && integration > install);
+  assert.equal(steps[bootstrap].run, 'pnpm run test:dev-bootstrap');
+  assert.equal(steps[integration].run, 'pnpm run test:dev-integration');
   for (const file of [
     'scripts/dev-web.integration.test.mjs',
     'scripts/dev-electron.integration.test.mjs',
   ]) {
-    assert.ok(!steps[bootstrap].run.includes(file), `${file} 不属于无依赖检查`);
-    assert.ok(steps[integration].run.includes(file), `${file} 必须实际执行`);
+    assert.ok(!scripts['test:dev-bootstrap'].includes(file), `${file} 不属于无依赖检查`);
+    assert.ok(scripts['test:dev-integration'].includes(file), `${file} 必须实际执行`);
   }
   assert.equal(steps[install].run, 'pnpm install --frozen-lockfile');
   assert.equal(workflow.jobs['dev-bootstrap'].env.ELECTRON_SKIP_BINARY_DOWNLOAD, '1');
@@ -376,12 +380,7 @@ test('大包分片连续无缺口，其他包和 Web 仍完整运行，全部结
     'windows-latest',
     `\${{ (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') && 'macos-15' || 'macos-latest' }}`,
   ]);
-  const bootstrapTest = bootstrap.steps.find(
-    (step) => step.name === 'Test dependency-free development bootstrap',
-  );
-  assert.deepEqual(bootstrapTest.run.trim().split(/\s+/), [
-    'pnpm',
-    'exec',
+  assert.deepEqual(scripts['test:dev-bootstrap'].trim().split(/\s+/), [
     'node',
     '--test',
     'scripts/dev.test.mjs',

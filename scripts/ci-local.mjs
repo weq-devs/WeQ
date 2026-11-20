@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * CI 本地一键跑 —— 把 `.github/workflows/ci.yml` 的门禁在本地按同样顺序复刻一遍，
- * 提交 / 开 PR 之前跑一次，就不用等 CI 跑完才发现挂了。
+ * 在当前工作树运行 `.github/workflows/ci.yml` 的单平台对应检查。
  *
- * 默认覆盖 CI 的快检查门禁（lint / format / typecheck / test），
+ * 默认覆盖 lint、格式、生成文档、类型、工作区单测、开发入口和交付脚本，
  * 边跑边打印每一步的命令；**不 fail-fast**：某一步红了也继续往下跑，最后给一张
  * 汇总表，省得来回「跑一次 → 修一个 → 再跑一次」。
  *
@@ -59,6 +58,10 @@ const steps = [
   step('功能参考与引用', 'pnpm features:docs:check'),
   step('TypeScript 类型检查 (pnpm -r typecheck)', 'pnpm -r typecheck'),
   step('工作区单元测试（含 desktop + web）', FAIL_FAST ? 'pnpm test:fail-fast' : 'pnpm test'),
+  step('开发启动单测', 'pnpm run test:dev-bootstrap'),
+  step('开发服务集成测试', 'pnpm run test:dev-integration'),
+  step('CI 编排及交付脚本测试', 'pnpm run test:ci-scripts'),
+  step('打包准备测试', 'pnpm run test:packaging-scripts'),
 ];
 
 if (FULL) {

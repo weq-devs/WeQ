@@ -47,7 +47,8 @@ function fixture(t) {
     git(parent, 'update-index', '--add', '--cacheinfo', `160000,${sha},docs`);
     git(parent, '-c', 'commit.gpgsign=false', 'commit', '-m', `docs ${sha}`);
   };
-  const check = () => spawnSync(process.execPath, [script], { cwd: parent, encoding: 'utf8', env });
+  const check = (...args) =>
+    spawnSync(process.execPath, [script, ...args], { cwd: parent, encoding: 'utf8', env });
   return { ancestor, tip, unpublished, pointTo, check, git, parent, remote };
 }
 
@@ -70,6 +71,30 @@ test('校验 HEAD 指针，不被暂存区中的另一个未发布指针影响',
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, new RegExp(repo.ancestor));
   assert.equal(repo.git(repo.parent, 'rev-parse', ':docs'), repo.unpublished);
+  const staged = repo.check('--staged');
+  assert.equal(staged.status, 1);
+  assert.match(staged.stderr, new RegExp(repo.unpublished));
+});
+
+test('提交与暂存区各自使用同一份树中的远端和指针', (t) => {
+  const repo = fixture(t);
+  repo.pointTo(repo.ancestor);
+  const first = repo.git(repo.parent, 'rev-parse', 'HEAD');
+  repo.git(repo.parent, 'config', '-f', '.gitmodules', 'submodule.docs.url', 'missing-repo');
+  repo.git(repo.parent, 'add', '.gitmodules');
+  repo.pointTo(repo.tip);
+  repo.git(repo.parent, 'config', '-f', '.gitmodules', 'submodule.docs.url', repo.remote);
+  repo.git(repo.parent, 'add', '.gitmodules');
+  repo.git(repo.parent, 'update-index', '--cacheinfo', `160000,${repo.ancestor},docs`);
+
+  const committed = repo.check();
+  assert.equal(committed.status, 1);
+  assert.match(committed.stderr, new RegExp(repo.tip));
+  for (const target of [first, '--staged']) {
+    const result = repo.check(target);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, new RegExp(repo.ancestor));
+  }
 });
 
 test('未推送的提交失败并给出具体指针和修复办法', (t) => {
