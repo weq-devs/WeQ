@@ -22,6 +22,8 @@ import {
   optimisticToTemplate,
   optimisticArkToTemplate,
   optimisticMessageToTemplate,
+  outgoingPicturePreviews,
+  withOutgoingPicturePreviews,
   messageToTemplate,
   resolveRecallRevokerName,
   enrichReplyElements,
@@ -210,7 +212,7 @@ import { newOutgoingRequestId, useOutgoingReceipts } from '../hooks/useOutgoingR
 import { useTransferActivity } from '../lib/transferActivity';
 import { TransferActivityProvider } from '../components/TransferActivityProvider';
 import { readVideoMeta } from '../im-template/template/composerMedia';
-import { releaseObjectUrl } from '../lib/objectUrl';
+import { releaseObjectUrl, retainObjectUrl } from '../lib/objectUrl';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
 import { useOutgoingConversationPreviews } from '../hooks/useOutgoingConversationPreviews';
 import { reconcileFileMessages } from '../lib/fileSendReconcile';
@@ -1753,14 +1755,28 @@ function MainWorkspace(): ReactElement {
     recentContactsData,
   );
   const outgoingQueue = useRef(new OutgoingQueue());
+  const composerPreviewReleases = useRef(new Map<string, (() => void)[]>());
   useEffect(() => {
     return () => {
       outgoingQueue.current.clear();
     };
   }, [messageScope]);
   useEffect(() => {
-    outgoingQueue.current.retain(new Set(optimisticMessages.map((item) => item.id)));
+    const ids = new Set(optimisticMessages.map((item) => item.id));
+    outgoingQueue.current.retain(ids);
+    for (const [id, releases] of composerPreviewReleases.current) {
+      if (ids.has(id)) continue;
+      composerPreviewReleases.current.delete(id);
+      for (const release of releases) release();
+    }
   }, [optimisticMessages]);
+  useEffect(() => {
+    const previews = composerPreviewReleases.current;
+    return () => {
+      for (const releases of previews.values()) for (const release of releases) release();
+      previews.clear();
+    };
+  }, []);
   /**
    * 当前通话的初始快照。非 null 就渲染通话窗口，窗口自己订阅后续状态并在
    * 结束后回调清空。只做主动发起 —— 来电由 QQ 本体处理，WeQ 收不到那条推送。
@@ -4442,6 +4458,49 @@ function MainWorkspace(): ReactElement {
   );
 
   const templateContext = messageTemplateContext(selectedConversation);
+  const cachedPictureEchoes = useMemo(() => {
+    type Previews = ReturnType<typeof outgoingPicturePreviews>;
+    const byId = new Map<string, Previews>();
+    const outgoingIds = new Set<string>();
+    if (!selectedConversation) return { byId, outgoingIds };
+    const outgoing = new Map<string, { id: string; previews: Previews }>();
+    for (const item of optimisticMessages) {
+      if (
+        item.convId !== selectedConversation.id ||
+        item.state !== 'sent' ||
+        !item.cid ||
+        !item.composerDraft
+      )
+        continue;
+      const previews = outgoingPicturePreviews(item.elements);
+      if (previews.some(Boolean)) outgoing.set(item.cid, { id: item.id, previews });
+    }
+    if (!outgoing.size) return { byId, outgoingIds };
+    // 正式记录已和发送缓存同时到达时，优先使用正式记录。
+    for (const wire of loadedMessageWires) {
+      if (
+        !wire.localSent &&
+        wire.msgRandom &&
+        outgoing.has(wire.msgRandom) &&
+        isMineMessage(wire, selectedConversation, user)
+      )
+        outgoing.delete(wire.msgRandom);
+    }
+    for (const wire of loadedMessageWires) {
+      const item = outgoing.get(wire.msgRandom ?? '');
+      if (
+        !item ||
+        !wire.localSent ||
+        wire.recall ||
+        wire.deletedKind ||
+        !isMineMessage(wire, selectedConversation, user)
+      )
+        continue;
+      byId.set(timelineRowKey(wire), item.previews);
+      outgoingIds.add(item.id);
+    }
+    return { byId, outgoingIds };
+  }, [loadedMessageWires, optimisticMessages, selectedConversation, user]);
   const messageTemplateCache = useMemo(
     () => new WeakMap<MessageWire, { message: Message; identityRevision: symbol }>(),
     [templateContext, user],
@@ -4544,10 +4603,21 @@ function MainWorkspace(): ReactElement {
       .map((item) => optimisticArkToTemplate(item, selectedConversation, optimisticSender));
     // 乐观普通消息（文本 / @ / 表情 / 图片 / 语音 / 文件…）。
     const pendingMessages = optimisticMessages
-      .filter((item) => item.convId === selectedConversation.id)
+      .filter(
+        (item) =>
+          item.convId === selectedConversation.id && !cachedPictureEchoes.outgoingIds.has(item.id),
+      )
       .map((item) => optimisticMessageToTemplate(item, selectedConversation, optimisticSender));
     // 确认过的序号按原规则插入；失败按创建时间定位，其余无可靠位置的占位仍留在末尾。
-    const mapped = mergeOptimisticInto(real, [...pending, ...pendingArks, ...pendingMessages]);
+    const visible = cachedPictureEchoes.byId.size
+      ? real.map((message) => {
+          const previews = cachedPictureEchoes.byId.get(message.id);
+          if (!previews) return message;
+          const elements = withOutgoingPicturePreviews(message.qqElements, previews);
+          return elements === message.qqElements ? message : { ...message, qqElements: elements };
+        })
+      : real;
+    const mapped = mergeOptimisticInto(visible, [...pending, ...pendingArks, ...pendingMessages]);
     recordMessagePhase('mapping', performance.now() - mappingStarted);
     return mapped;
   }, [
@@ -4559,6 +4629,7 @@ function MainWorkspace(): ReactElement {
     optimisticForwards,
     optimisticArks,
     optimisticMessages,
+    cachedPictureEchoes,
     forwardMatches,
     messageTemplateCache,
     messageIdentityRevision,
@@ -4696,6 +4767,7 @@ function MainWorkspace(): ReactElement {
     }
     for (const item of optimisticMessages) {
       if (item.convId !== openConvId) continue;
+      if (cachedPictureEchoes.outgoingIds.has(item.id)) continue;
       if (item.cid && cids.has(item.cid)) {
         dropIds.add(item.id);
         continue;
@@ -4716,7 +4788,7 @@ function MainWorkspace(): ReactElement {
       const next = current.filter((item) => !dropIds.has(item.id));
       return next.length === current.length ? current : next;
     });
-  }, [loadedMessageWires, optimisticMessages, selectedConversation, user]);
+  }, [loadedMessageWires, optimisticMessages, selectedConversation, user, cachedPictureEchoes]);
 
   // 凭据登记事件可能早于能力轮询，立即刷新以恢复特殊消息补拉。
   useEffect(() => {
@@ -6674,6 +6746,14 @@ function MainWorkspace(): ReactElement {
     }
     const isCurrent = () =>
       useViewState.getState().openedUin === account && messageScopeRef.current === scope;
+    // 会话切换时输入框会释放自己的持有，已发气泡仍需要这些 Blob。
+    const urls = new Set(
+      outgoingPicturePreviews(render.elements).filter((url): url is string =>
+        Boolean(url?.startsWith('blob:')),
+      ),
+    );
+    if (urls.size)
+      composerPreviewReleases.current.set(submission.id, [...urls].map(retainObjectUrl));
     setOptimisticMessages((current) => [
       ...current,
       {

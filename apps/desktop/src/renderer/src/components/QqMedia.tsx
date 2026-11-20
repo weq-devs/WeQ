@@ -280,6 +280,7 @@ export function QqImage({
     candidates.push(requested ? originalProxySrc : mediaUrl('pic', params));
   const [srcIndex, setSrcIndex] = useState(0);
   const source = candidates[Math.min(srcIndex, candidates.length - 1)] ?? proxySrc;
+  const usingLocalPreview = source === localPreviewUrl;
   const src = mediaRetryUrl(source, attempt);
   const retry = () => {
     setRequested(true);
@@ -414,7 +415,7 @@ export function QqImage({
         ) : (
           <ShimmerImage
             suspendOffscreen
-            mediaLoading={!isAnimatedEmoji}
+            mediaLoading={!isAnimatedEmoji && !usingLocalPreview}
             className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
             style={w && h ? style : { ...style, objectFit: 'contain' }}
             width={previewSize.size.width}
@@ -422,7 +423,7 @@ export function QqImage({
             src={src}
             alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
             draggable={false}
-            loading="lazy"
+            loading={usingLocalPreview ? 'eager' : 'lazy'}
             decoding="async"
             onLoad={(event) => {
               const { naturalWidth, naturalHeight } = event.currentTarget;

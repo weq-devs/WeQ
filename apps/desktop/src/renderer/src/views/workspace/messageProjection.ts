@@ -166,6 +166,30 @@ export function optimisticMessageToTemplate(
   };
 }
 
+export function outgoingPicturePreviews(elements: readonly unknown[]): Array<string | undefined> {
+  return (elements as readonly (RenderElementWire | null)[])
+    .filter((element) => element?.type === 'pic')
+    .map((element) => {
+      const url = element?.data?.localPreviewUrl;
+      return typeof url === 'string' && url ? url : undefined;
+    });
+}
+
+/** 发送缓存有消息元数据，但 QQ 可能还没写入图片缓存。 */
+export function withOutgoingPicturePreviews(
+  elements: Message['qqElements'],
+  previews: readonly (string | undefined)[],
+): Message['qqElements'] {
+  if (!elements || elements.filter((element) => element.type === 'pic').length !== previews.length)
+    return elements;
+  let index = 0;
+  return elements.map((element) => {
+    if (element.type !== 'pic') return element;
+    const url = previews[index++];
+    return url ? { ...element, data: { ...element.data, localPreviewUrl: url } } : element;
+  });
+}
+
 export function messageToTemplate(
   message: MessageWire,
   conversation: Conversation,
