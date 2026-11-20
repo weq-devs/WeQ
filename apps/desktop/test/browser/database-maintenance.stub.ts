@@ -336,8 +336,8 @@ export const maintenanceQa = {
     live.progress = row.progress;
     publish();
   },
-  lowSpace() {
-    freeBytes = 1;
+  lowSpace(availableBytes = 1) {
+    freeBytes = availableBytes;
     notify();
   },
   disconnect() {
@@ -429,8 +429,8 @@ export const trpc = {
           {
             paths: [cache ?? '/default/cache'],
             freeBytes,
-            requiredBytes: 1_000_000,
-            recommendedBytes: 1_250_000,
+            requiredBytes: dbName === 'profile.db' ? 100_000 : 1_000_000,
+            recommendedBytes: dbName === 'profile.db' ? 125_000 : 1_250_000,
           },
         ],
       })),
