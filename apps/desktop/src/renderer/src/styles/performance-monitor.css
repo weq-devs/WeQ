@@ -39,8 +39,10 @@ html[data-theme='dark'] .weq-perf {
 .weq-perf button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   cursor: pointer;
+}
+.weq-perf button:where(:not(.weq-select-trigger)) {
+  justify-content: center;
 }
 .weq-perf button:hover:not(:disabled),
 .weq-perf button[aria-pressed='true'] {
@@ -64,8 +66,7 @@ html[data-theme='dark'] .weq-perf {
 }
 .weq-perf-toolbar > .weq-select-trigger {
   max-width: 168px;
-  padding: 4px 26px 4px 8px;
-  text-overflow: ellipsis;
+  padding: 4px 8px;
 }
 .weq-perf-toolbar > .weq-select-trigger[aria-label='进程'] {
   width: 146px;

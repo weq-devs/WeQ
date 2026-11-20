@@ -12,13 +12,16 @@
 .weq-qzn-composer button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 7px;
   cursor: pointer;
   padding: 7px 10px;
   border-radius: 6px;
   font: inherit;
   font-size: 13px;
+}
+.weq-qzn button:where(:not(.weq-select-trigger)),
+.weq-qzn-composer button:where(:not(.weq-select-trigger)) {
+  justify-content: center;
 }
 .weq-qzn button:hover,
 .weq-qzn-composer button:hover {

@@ -32,7 +32,7 @@
   display: none;
 }
 .weq-directory-order .weq-select-trigger,
-.weq-directory-order button {
+.weq-directory-order > button {
   height: 30px;
   min-width: 0;
   border: 1px solid var(--weq-border-strong);
@@ -46,15 +46,16 @@
   padding: 0 2px;
   font-size: 11px;
 }
-.weq-directory-order button {
+.weq-directory-order > button {
   display: grid;
   place-items: center;
   width: 30px;
 }
-.weq-directory-order button:hover {
+.weq-directory-order > button:hover {
   color: var(--weq-accent-effective);
 }
-.weq-directory-order :is(.weq-select-trigger, button):focus-visible {
+.weq-directory-order .weq-select-trigger:focus-visible,
+.weq-directory-order > button:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }

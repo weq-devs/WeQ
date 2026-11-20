@@ -21,9 +21,11 @@
 .weq-export-viewer button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 6px;
   cursor: pointer;
+}
+.weq-export-viewer button:where(:not(.weq-select-trigger)) {
+  justify-content: center;
 }
 .weq-export-viewer button:disabled {
   opacity: 0.5;
