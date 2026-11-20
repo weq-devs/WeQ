@@ -14,6 +14,7 @@ import {
 } from '../src/renderer/src/lib/calendarSourceRevision';
 import { setCalendarKinds } from '../src/renderer/src/hooks/useCalendarKinds';
 import type { ConversationView } from '../src/renderer/src/lib/conversationViews';
+import type { CalendarTaskOpening } from '../src/renderer/src/lib/calendarNavigation';
 import type { CalendarControlState } from '@weq/service/conversation-calendar';
 
 const fixture = vi.hoisted(() => ({
@@ -127,8 +128,8 @@ it.each([{ kinds: [] }, { kinds: ['c2c'] }] as const)(
   },
 );
 it.each([
-  ['regular', '所有会话'],
-  ['all', '所有会话'],
+  ['regular', '常规视图'],
+  ['all', '全部会话'],
   ['clone', '仅克隆会话'],
   ['assistant', '仅 WeQ 助手会话'],
   ['groupAssistant', '仅群助手'],
@@ -213,6 +214,57 @@ it('外部类型偏好变更不改变日历范围，重新打开仍统计当前�
     await tick();
     expect(fixture.start.mock.lastCall?.[0].kinds).toEqual(CALENDAR_SOURCE_ORDER);
     expect(view.host.querySelector('[aria-label="统计内容"]')).toBeNull();
+  } finally {
+    view.close();
+  }
+});
+it('切换会话类型复用月度任务，迟到的旧筛选结果不会覆盖当前计数', async () => {
+  let finishFirstPoll!: (result: typeof state) => void;
+  fixture.poll
+    .mockImplementationOnce(
+      () =>
+        new Promise<typeof state>((resolve) => {
+          finishFirstPoll = resolve;
+        }),
+    )
+    .mockImplementation(async ({ kinds }) => {
+      const count = (kinds.includes('c2c') ? 7 : 0) + (kinds.includes('group') ? 35 : 0);
+      const result = snapshot(true);
+      result.enabledKinds = kinds;
+      result.days.find(({ day }) => day === '2026-11-10')!.count = count;
+      return result;
+    });
+  const view = mount([
+    ...defaultTargets,
+    { kind: 'c2c', conv: '43', name: '私聊会话', avatar: null, ancestors: [] },
+  ]);
+  const pick = (label: string) => {
+    const option = [...view.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+      (button) => button.textContent === label,
+    )!;
+    act(() => option.click());
+  };
+  const showsCount = (count: number) =>
+    view.host.querySelector(`[aria-label="2026-11-10，${count} 条消息"]`) !== null;
+  try {
+    await tick();
+    pick('私聊');
+    await tick();
+    expect(fixture.poll.mock.lastCall?.[0]).toMatchObject({ id: 'job-1', kinds: ['c2c'] });
+    expect(showsCount(7)).toBe(true);
+
+    await act(async () => finishFirstPoll(snapshot(true)));
+    expect(showsCount(7)).toBe(true);
+    expect(showsCount(42)).toBe(false);
+
+    pick('群聊');
+    await tick();
+    expect(showsCount(35)).toBe(true);
+    pick('当前视图全部');
+    await tick();
+    expect(showsCount(42)).toBe(true);
+    expect(fixture.start).toHaveBeenCalledOnce();
+    expect(fixture.stop).not.toHaveBeenCalled();
   } finally {
     view.close();
   }
@@ -343,7 +395,11 @@ it('扫描状态和日志连续更新时复用会话数据，不重新渲染列�
     view.close();
   }
 });
-function mount(initialTargets = defaultTargets, initialScope: ConversationView = 'all') {
+function mount(
+  initialTargets = defaultTargets,
+  initialScope: ConversationView = 'all',
+  task?: CalendarTaskOpening,
+) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -351,6 +407,7 @@ function mount(initialTargets = defaultTargets, initialScope: ConversationView =
     act(() =>
       root.render(
         createElement(ConversationOverviewCalendar, {
+          task,
           targets,
           scope,
           query: '',
@@ -372,6 +429,40 @@ function mount(initialTargets = defaultTargets, initialScope: ConversationView =
     },
   };
 }
+
+it('从任务打开保存的月份、日期和类型，切月仍沿用原会话范围', async () => {
+  const task: CalendarTaskOpening = {
+    taskId: 'old-task',
+    month: '2026-09',
+    day: '2026-09-22',
+    targets: [{ kind: 'c2c', conv: '123', name: '任务会话', avatar: null, ancestors: [] }],
+    kinds: ['c2c'],
+    scopeLabel: '仅已隐藏会话',
+  };
+  fixture.start.mockResolvedValueOnce({ id: 'existing', background: true, day: task.day });
+  fixture.poll.mockResolvedValue(snapshot(true, task.month));
+  const view = mount(defaultTargets, 'all', task);
+  try {
+    await tick();
+    expect(view.host.querySelector('h3')?.textContent).toBe('会话日历（仅已隐藏会话）');
+    expect(fixture.start.mock.lastCall?.[0]).toMatchObject({ taskId: task.taskId });
+    expect(fixture.poll.mock.lastCall?.[0]).toMatchObject({
+      id: 'existing',
+      day: task.day,
+      kinds: task.kinds,
+    });
+    nextMonth(view.host);
+    await tick();
+    expect(fixture.start.mock.lastCall?.[0]).toMatchObject({
+      month: '2026-10',
+      targets: task.targets,
+      kinds: task.kinds,
+    });
+    expect(fixture.stop).not.toHaveBeenCalled();
+  } finally {
+    view.close();
+  }
+});
 
 it('切换外部视图时同步更新标题和目标，并停止旧范围任务', async () => {
   const view = mount(defaultTargets, 'regular');

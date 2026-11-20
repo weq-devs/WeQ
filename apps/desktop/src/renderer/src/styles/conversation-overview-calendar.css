@@ -132,6 +132,10 @@
   min-height: 0;
   min-width: 0;
 }
+.weq-overview-calendar-left > .weq-segmented {
+  align-self: flex-start;
+  flex-shrink: 0;
+}
 .weq-overview-calendar-left .weq-density-calendar-status:empty {
   display: none;
 }

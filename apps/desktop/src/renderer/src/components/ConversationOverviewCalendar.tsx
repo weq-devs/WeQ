@@ -6,6 +6,7 @@ import {
   CALENDAR_SOURCE_ORDER,
   calendarTargetKey,
   type CalendarAnchor,
+  type CalendarKind,
   type CalendarTarget,
   type ConversationCalendarJob,
   type CalendarControlAction,
@@ -20,12 +21,25 @@ import { MessageCalendar } from './MessageCalendar';
 import { CalendarStatistics } from './CalendarStatistics';
 import { calendarReadLabel } from './CalendarStatistics.shared';
 import { CalendarStatisticsProgress } from './CalendarStatisticsProgress';
+import { SegmentedControl } from './SegmentedControl';
 import { useTabActive } from './RetainedTabs.shared';
 import '../styles/conversation-overview-calendar.css';
 import { CONVERSATION_VIEW_LABELS, type ConversationView } from '../lib/conversationViews';
 
 type Snapshot = ReturnType<ConversationCalendarJob['snapshot']>;
 type Located = Awaited<ReturnType<typeof client.account.calendarOverview.locate.mutate>>;
+const kindOptions = [
+  { value: 'all', label: '当前视图全部' },
+  { value: 'c2c', label: '私聊' },
+  { value: 'group', label: '群聊' },
+] as const;
+type KindFilter = (typeof kindOptions)[number]['value'];
+const calendarKinds: Record<KindFilter, CalendarKind[]> = {
+  all: [...CALENDAR_SOURCE_ORDER],
+  c2c: ['c2c'],
+  group: ['group'],
+};
+
 export function ConversationOverviewCalendar({
   targets,
   scope,
@@ -49,6 +63,7 @@ export function ConversationOverviewCalendar({
 }) {
   const [month, setMonth] = useState(beijingDay().slice(0, 7));
   const [day, setDay] = useState(beijingDay());
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [rowLimit, setRowLimit] = useState(50);
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState('');
@@ -69,9 +84,14 @@ export function ConversationOverviewCalendar({
   const live = useRef(true);
   const backgroundIds = useRef(new Set<string>());
   const sentRefreshRevision = useRef(0);
+  const canFilterKinds =
+    scope === 'regular' || scope === 'all' || scope === 'hidden' || scope === 'deleted';
+  const kinds = calendarKinds[canFilterKinds ? kindFilter : 'all'];
+  const latestKinds = useRef(kinds);
+  latestKinds.current = kinds;
   const scopeLabel =
     scope === 'regular' || scope === 'all'
-      ? '所有会话'
+      ? CONVERSATION_VIEW_LABELS[scope]
       : `${scope === 'assistant' ? '仅 ' : '仅'}${CONVERSATION_VIEW_LABELS[scope]}`;
   useEffect(() => {
     live.current = true;
@@ -174,7 +194,7 @@ export function ConversationOverviewCalendar({
         ...binding,
         month,
         targets,
-        kinds: [...CALENDAR_SOURCE_ORDER],
+        kinds: latestKinds.current,
         refresh,
         day: latestDay.current.startsWith(`${month}-`) ? latestDay.current : undefined,
       });
@@ -215,9 +235,10 @@ export function ConversationOverviewCalendar({
           day: day.startsWith(month) ? day : undefined,
           limit: rowLimit,
           includeLogs: logOpen,
-          kinds: [...CALENDAR_SOURCE_ORDER],
+          kinds,
         });
-        if (cancelled || currentRequest.current !== request) return;
+        if (cancelled || currentRequest.current !== request || latestKinds.current !== kinds)
+          return;
         setSnapshot((previous) => replaceEqualDeep(previous, result));
         if (
           !result.cancelled &&
@@ -230,7 +251,7 @@ export function ConversationOverviewCalendar({
         )
           timer = setTimeout(() => void poll(), 500);
       } catch (failure) {
-        if (!cancelled && currentRequest.current === request)
+        if (!cancelled && currentRequest.current === request && latestKinds.current === kinds)
           setError(failure instanceof Error ? failure.message : String(failure));
       }
     };
@@ -239,7 +260,19 @@ export function ConversationOverviewCalendar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [id, binding, day, rowLimit, month, visible, active, request, logOpen, controlRevision]);
+  }, [
+    id,
+    binding,
+    day,
+    rowLimit,
+    month,
+    visible,
+    active,
+    request,
+    logOpen,
+    controlRevision,
+    kinds,
+  ]);
   async function control(
     scope: 'month' | 'day',
     action: CalendarControlAction,
@@ -305,6 +338,14 @@ export function ConversationOverviewCalendar({
     setDay(`${value}-01`);
     setRowLimit(50);
   }, []);
+  function changeKindFilter(value: KindFilter) {
+    if (value === kindFilter) return;
+    latestKinds.current = calendarKinds[value];
+    setKindFilter(value);
+    setSnapshot(undefined);
+    setRowLimit(50);
+    setError('');
+  }
   const loadedRows = snapshot?.rows.length ?? 0;
   const totalRows = snapshot?.totalRows ?? 0;
   const loadMore = useCallback(() => {
@@ -369,9 +410,10 @@ export function ConversationOverviewCalendar({
             title="将当月统计加入任务列表，在后台继续"
             disabled={
               !id ||
+              !snapshot ||
               busy ||
-              Boolean(snapshot?.cancelled) ||
-              snapshot?.controls?.month.state === 'empty'
+              snapshot.cancelled ||
+              snapshot.controls?.month.state === 'empty'
             }
             onClick={() => void background()}
           >
@@ -390,6 +432,15 @@ export function ConversationOverviewCalendar({
         </header>
         <div className="weq-overview-calendar-body">
           <div className="weq-overview-calendar-left">
+            {canFilterKinds ? (
+              <SegmentedControl
+                label="会话类型"
+                options={kindOptions}
+                value={kindFilter}
+                onChange={changeKindFilter}
+                disabled={busy}
+              />
+            ) : null}
             <MessageCalendar
               maxDay={today}
               fixedWeekCount={false}
