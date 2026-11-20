@@ -39,7 +39,9 @@ export const CONTACT_GROUP_FEATURES = [
   contact('profile-history', '联系人资料历史', '查看已有观察记录的字段历史。'),
   contact('signatures', '签名历史', '从签名值查看既有历史记录。'),
   contact('education', '教育经历', '从学校字段查看可取得的完整经历。'),
-  contact('online-directory', '在线好友与群', '在联系人列表手动读取 QQ 在线名册。'),
+  contact('directory.filter', '联系人筛选', '在好友列表按好友关系和在线状态组合筛选。', {
+    docs: ['guide/contact-directory.md#feature-contacts.directory.filter'],
+  }),
   contact('remove-friend', '删除好友', '从好友名片删除关系；本地聊天历史继续可查。'),
   contact('remark', '编辑联系人备注', '通过已有备注行编辑好友备注。'),
   contact('buddy-group', '好友分组', '将选定好友移到已有分组。'),

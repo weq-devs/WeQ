@@ -6,10 +6,8 @@ import { ProfileInteractionWrites } from './profile_interactions';
 import {
   ClearFriendRemark,
   DeleteFriend,
-  FetchGroupList,
   FetchUserProfile,
   FetchRobotUinRanges,
-  fetchAllFriends,
   isRobotUin,
   SetFriendRemark,
   SetGroupRemark,
@@ -122,36 +120,6 @@ export class AccountWriteService {
     value: number,
   ) {
     return this.profileDisplay.set(field, value);
-  }
-
-  async onlineDirectory() {
-    const pid = this.resolvePid();
-    const [friends, groups, robots] = await Promise.allSettled([
-      fetchAllFriends(this.nt, pid),
-      FetchGroupList.invoke(this.nt, pid),
-      FetchRobotUinRanges.invoke(this.nt, pid),
-    ]);
-    this.assertCurrentPid(pid);
-    return {
-      friends:
-        friends.status === 'fulfilled'
-          ? friends.value.friends.map(({ friend }) => ({
-              uin: String(friend.uin),
-              uid: friend.uid,
-              name: friend.nickname,
-              robotCandidate: robots.status === 'fulfilled' && isRobotUin(robots.value, friend.uin),
-            }))
-          : null,
-      groups:
-        groups.status === 'fulfilled'
-          ? groups.value
-              .filter((group) => group.groupId > 0)
-              .map((group) => ({ id: String(group.groupId), name: group.groupName }))
-          : null,
-      errors: [friends, groups].flatMap((result) =>
-        result.status === 'rejected' ? [String(result.reason)] : [],
-      ),
-    };
   }
 
   async onlinePerson(uin: string) {

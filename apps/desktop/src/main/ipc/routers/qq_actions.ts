@@ -191,9 +191,6 @@ export function createQQActionsRouter(
     onlineSystemFace: procedure
       .input(binding.extend({ faceId: z.number().int().min(0).max(0xffffffff) }))
       .query(({ input: i }) => read(i, (s) => s.emoji.onlineSystemFace(i.faceId))),
-    onlineDirectory: procedure
-      .input(binding)
-      .query(({ input: i }) => read(i, (s) => s.accountWrite.onlineDirectory())),
     onlinePerson: procedure
       .input(binding.extend({ uin: z.string().regex(/^[1-9]\d{4,15}$/) }))
       .query(({ input: i }) => read(i, (s) => s.accountWrite.onlinePerson(i.uin))),

@@ -71,6 +71,8 @@ import {
 } from '../../lib/contactDirectoryPresentation';
 import { useContactDirectoryOrder, useFrozenDirectory } from '../../hooks/useContactDirectoryOrder';
 import { ContactDirectoryOrder } from '../../components/ContactDirectoryOrder';
+import { FormSelect } from '../../components/FormSelect';
+import { useContactOnlineStatuses } from '../../hooks/useContactOnlineStatuses';
 import { conversationListSearchText } from '../../lib/conversationListSearchText';
 import { formatConversationTime } from '../../lib/conversationTime';
 import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
@@ -1272,7 +1274,6 @@ export function GroupList({
   const relationships = useContext(RelationshipDirectoryContext);
   const directory = useContext(ContactDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
-  const friendDirectory = useFriendDirectory();
   const batch = useConversationBatchActions(conversations);
   const [actionMenu, setActionMenu] = useState<{
     conversation: Conversation;
@@ -1491,15 +1492,6 @@ export function GroupList({
     <div className="weq-contact-directory" {...multi.rootProps}>
       <ContactDirectoryOrder order={order} />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
-        {friendDirectory?.openOnlineDirectory ? (
-          <button
-            type="button"
-            className="weq-set-btn"
-            onClick={friendDirectory.openOnlineDirectory}
-          >
-            在线好友与群
-          </button>
-        ) : null}
         {categories.map((category) => (
           <GroupNotificationSection
             key={category.mode}
@@ -1739,6 +1731,7 @@ type ContactRowEvents = {
 
 const ContactDirectoryRow = memo(function ContactDirectoryRow({
   contact,
+  onlineStatus = contact.onlineStatusObj,
   categoryId,
   active,
   selectionMode,
@@ -1752,6 +1745,7 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
   events,
 }: {
   contact: Contact;
+  onlineStatus?: Contact['onlineStatusObj'];
   categoryId: string | number;
   active: boolean;
   selectionMode: boolean;
@@ -1835,10 +1829,10 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
               </span>
             ) : (
               <>
-                {!own && contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
+                {!own && onlineStatus && onlineStatus.typeName !== '未知' ? (
                   <span className={cn('contact-card-status')}>
-                    <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
-                    <span>[{contact.onlineStatusObj.displayStatus}]</span>
+                    <ContactOnlineStatusIcon status={onlineStatus} />
+                    <span>[{onlineStatus.displayStatus}]</span>
                   </span>
                 ) : null}
                 {contact.kind !== 'bot' &&
@@ -1861,13 +1855,13 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
           />
         ) : null}
       </button>
-      {own && !detail && contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
+      {own && !detail && onlineStatus && onlineStatus.typeName !== '未知' ? (
         <div className="weq-contact-self-status-row">
           <OnlineStatus
             uid={contact.uid || contact.id}
             selfUin={contact.identityValue}
             showBaseStatus
-            fallbackText={contact.onlineStatusObj.displayStatus}
+            fallbackText={onlineStatus.displayStatus}
           />
         </div>
       ) : null}
@@ -1904,7 +1898,14 @@ export function ContactList(props: ComponentProps<typeof ContactListContent>) {
   );
 }
 
+type ContactRelationshipFilter = 'all' | 'friend' | 'nonfriend';
+type ContactPresenceFilter = 'all' | 'online' | 'offline';
+
+const onlineContactStatuses = new Set(['在线', 'Q我吧', '离开', '忙碌', '勿扰']);
+const offlineContactStatuses = new Set(['离线', '隐身']);
+
 const ContactListContent = memo(function ContactListContent({
+  active = true,
   contacts,
   categoryDefinitions = EMPTY_CONTACT_OPTIONS,
   specialSections = EMPTY_CONTACT_OPTIONS,
@@ -1913,6 +1914,7 @@ const ContactListContent = memo(function ContactListContent({
   onSelect,
   loading,
 }: {
+  active?: boolean;
   contacts: Contact[];
   categoryDefinitions?: readonly {
     id: number;
@@ -1927,6 +1929,10 @@ const ContactListContent = memo(function ContactListContent({
   loading?: boolean;
 }) {
   const directory = useContext(ContactDirectoryContext);
+  const [relationshipFilter, setRelationshipFilter] = useState<ContactRelationshipFilter>('all');
+  const [presenceFilter, setPresenceFilter] = useState<ContactPresenceFilter>('all');
+  const hasPresenceFilter = presenceFilter !== 'all';
+  const hasFilters = relationshipFilter !== 'all' || hasPresenceFilter;
   const contactIds = useMemo(() => new Set(contacts.map((contact) => contact.id)), [contacts]);
   const relationships = useContext(RelationshipDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
@@ -2007,13 +2013,59 @@ const ContactListContent = memo(function ContactListContent({
     timeSeeds,
   );
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
-  const matches = useCallback(
+  const matchesSearchAndRelationship = useCallback(
     (contact: Contact) =>
-      !needle ||
-      `${displayUserName(contact)} ${contact.nick ?? ''} ${contact.identityValue} ${occupationText(contact.extInfo?.occupation) ?? ''}`
-        .toLocaleLowerCase()
-        .includes(needle),
-    [needle],
+      (relationshipFilter === 'all' ||
+        (!contact.clone &&
+          contact.identityLabel !== '设备' &&
+          personRelationship(contact, relationships) === relationshipFilter)) &&
+      (!needle ||
+        `${displayUserName(contact)} ${contact.nick ?? ''} ${contact.identityValue} ${occupationText(contact.extInfo?.occupation) ?? ''}`
+          .toLocaleLowerCase()
+          .includes(needle)),
+    [needle, relationshipFilter, relationships],
+  );
+  // 同一联系人可出现在多个分组。按 UID 去重，避免分组和在线状态回填触发重复读取。
+  const presenceTargetKey = useMemo(
+    () =>
+      JSON.stringify(
+        hasPresenceFilter
+          ? [
+              ...new Set(
+                allContacts
+                  .filter(
+                    (contact) =>
+                      !contact.onlineStatusObj &&
+                      !contact.clone &&
+                      contact.identityLabel !== '设备' &&
+                      matchesSearchAndRelationship(contact),
+                  )
+                  .map((contact) => contact.uid || contact.id),
+              ),
+            ]
+          : [],
+      ),
+    [allContacts, hasPresenceFilter, matchesSearchAndRelationship],
+  );
+  const presenceTargets = useMemo(
+    () => (JSON.parse(presenceTargetKey) as string[]).map((uid) => ({ uid })),
+    [presenceTargetKey],
+  );
+  const { statuses: additionalStatuses, loading: presenceLoading } = useContactOnlineStatuses(
+    presenceTargets,
+    active && !loading && hasPresenceFilter && !selection.selectionMode,
+    Infinity,
+  );
+  const matches = useCallback(
+    (contact: Contact) => {
+      if (!matchesSearchAndRelationship(contact)) return false;
+      if (!hasPresenceFilter) return true;
+      if (contact.clone || contact.identityLabel === '设备') return false;
+      const status = contact.onlineStatusObj ?? additionalStatuses[contact.uid || contact.id];
+      const types = presenceFilter === 'online' ? onlineContactStatuses : offlineContactStatuses;
+      return Boolean(status && types.has(status.typeName));
+    },
+    [matchesSearchAndRelationship, hasPresenceFilter, presenceFilter, additionalStatuses],
   );
   const filtered = useMemo(() => contacts.filter(matches), [contacts, matches]);
 
@@ -2113,10 +2165,17 @@ const ContactListContent = memo(function ContactListContent({
     order.rows,
     order.regions,
   ]);
+  const filteredCategories = useMemo(
+    () =>
+      hasFilters
+        ? computedCategories.filter((category) => category.items.length)
+        : computedCategories,
+    [computedCategories, hasFilters],
+  );
   const categories = useFrozenDirectory(
-    computedCategories,
+    filteredCategories,
     selection.selectionMode,
-    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}`,
+    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}:${relationshipFilter}:${presenceFilter}`,
   );
   // 同一好友在特别关心、亲密关系及普通分组中各有独立的范围位置。
   const selectionRows = useMemo(
@@ -2130,9 +2189,16 @@ const ContactListContent = memo(function ContactListContent({
   );
   const selectionIds = useMemo(() => [...selectionRows.keys()], [selectionRows]);
   const getSelectionId = useCallback((id: string) => selectionRows.get(id)!, [selectionRows]);
+  const onFilteredIds = directory?.onFilteredIds;
+  useLayoutEffect(() => {
+    if (!active || !onFilteredIds) return;
+    onFilteredIds(hasFilters ? [...new Set(loading ? [] : selectionRows.values())] : undefined);
+  }, [active, loading, hasFilters, onFilteredIds, selectionRows]);
+  useLayoutEffect(() => {
+    if (active && onFilteredIds) return () => onFilteredIds(undefined);
+  }, [active, onFilteredIds]);
 
-  // 默认全部折叠。
-  const [expanded, setExpanded] = useState<Record<string | number, boolean>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const multi = useMultiSelection({
     ids: selectionIds,
     getSelectionId,
@@ -2191,20 +2257,53 @@ const ContactListContent = memo(function ContactListContent({
     return <ListSkeleton rows={9} />;
   }
 
-  if (categories.length === 0 && !friendDirectory?.error && !friendDirectory?.openOnlineDirectory) {
-    return (
-      <EmptyState
-        title="暂无联系人"
-        body="通过 ID 搜索或邀请链接添加联系人。"
-        icon={<UserRound />}
-      />
-    );
-  }
-
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
-      <ContactDirectoryOrder order={order} />
+      <ContactDirectoryOrder
+        order={order}
+        filters={
+          <fieldset className="weq-directory-filters">
+            <legend>筛选依据</legend>
+            <label>
+              好友关系
+              <FormSelect
+                aria-label="好友关系"
+                value={relationshipFilter}
+                disabled={selection.selectionMode}
+                onChange={(event) =>
+                  setRelationshipFilter(event.target.value as ContactRelationshipFilter)
+                }
+              >
+                <option value="all">全部</option>
+                <option value="friend">好友</option>
+                <option value="nonfriend">非好友</option>
+              </FormSelect>
+            </label>
+            <label>
+              在线状态
+              <FormSelect
+                aria-label="在线状态"
+                value={presenceFilter}
+                disabled={selection.selectionMode}
+                onChange={(event) => setPresenceFilter(event.target.value as ContactPresenceFilter)}
+              >
+                <option value="all">全部</option>
+                <option value="online">在线</option>
+                <option value="offline">离线</option>
+              </FormSelect>
+            </label>
+            {presenceLoading && <small role="status">正在读取在线状态…</small>}
+          </fieldset>
+        }
+      />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
+        {!categories.length && !presenceLoading && !friendDirectory?.error && (
+          <EmptyState
+            title={hasFilters ? '没有符合条件的联系人' : '暂无联系人'}
+            body={hasFilters ? '可调整筛选条件。' : '通过 ID 搜索或邀请链接添加联系人。'}
+            icon={<UserRound />}
+          />
+        )}
         {friendDirectory?.error && (
           <div className="contact-cat-description" role="alert">
             <small>好友分组读取失败：{friendDirectory.error}</small>
@@ -2219,10 +2318,11 @@ const ContactListContent = memo(function ContactListContent({
           </div>
         )}
         {categories.map((category) => {
+          const expansionKey = JSON.stringify([relationshipFilter, presenceFilter, category.id]);
           const open =
             order.preferences.grouping === 'none' ||
-            Boolean(expanded[category.id]) ||
-            Boolean(needle);
+            Boolean(needle) ||
+            (expanded[expansionKey] ?? hasFilters);
           return (
             <div
               className={cn(
@@ -2331,7 +2431,7 @@ const ContactListContent = memo(function ContactListContent({
                 onClick={() =>
                   setExpanded((current) => ({
                     ...current,
-                    [category.id]: !current[category.id],
+                    [expansionKey]: !open,
                   }))
                 }
               >
@@ -2345,7 +2445,11 @@ const ContactListContent = memo(function ContactListContent({
                   {category.name}
                 </span>
                 <span className={cn('contact-cat-count')}>
-                  {category.count === null ? '-' : (category.count ?? category.items.length)}
+                  {hasFilters
+                    ? category.items.length
+                    : category.count === null
+                      ? '-'
+                      : (category.count ?? category.items.length)}
                 </span>
               </button>
               {open && category.description ? (
@@ -2370,6 +2474,9 @@ const ContactListContent = memo(function ContactListContent({
                       <ContactDirectoryRow
                         key={contact.id}
                         contact={contact}
+                        onlineStatus={
+                          contact.onlineStatusObj ?? additionalStatuses[contact.uid || contact.id]
+                        }
                         categoryId={category.id}
                         active={!selection.selectionMode && contact.id === activeContactId}
                         selectionMode={selection.selectionMode}

@@ -9,6 +9,7 @@ vi.mock(
 
 // 名片与资料页现在统一读 bootstrap.getSettings（内容开关）并带 tanstack 查询；
 // 这里只搭一个空壳 trpc 树，不改变本文件断言的关系语义。
+const getOnlineStatus = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/trpc/client', () => {
   const emptyQuery = () => ({
     data: undefined,
@@ -89,7 +90,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       apply: () => undefined,
     });
   return {
-    client: tree(),
+    client: { account: { getOnlineStatus: { query: getOnlineStatus } } },
     trpc: new Proxy(() => {}, {
       get: (_target, key: string) => {
         if (key === 'bootstrap') return settingsTree();
@@ -118,6 +119,7 @@ import {
   ContactProfileDialog,
   GroupProfileDialog,
 } from '../src/renderer/src/im-template/template/profilePanes';
+import { ContactDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { PersonRelationshipStatus } from '../src/renderer/src/components/RelationshipStatus';
 import { ContactList, GroupList } from '../src/renderer/src/im-template/template/conversationLists';
 import type { Contact, GroupConversation } from '../src/renderer/src/im-template/template/types';
@@ -184,6 +186,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.unstubAllGlobals();
+  getOnlineStatus.mockReset();
 });
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -289,9 +292,75 @@ it('联系人列表不显示好友关系标识，保留姓名和签名', () => {
   });
   expect(host.querySelectorAll('.contact-row')).toHaveLength(2);
   expect(host.querySelector('.contact-row [data-relationship]')).toBeNull();
-  expect(host.textContent).not.toContain('非好友');
+  for (const row of host.querySelectorAll('.contact-row'))
+    expect(row.textContent).not.toContain('非好友');
   for (const text of [person.displayName, stranger.displayName, '好友签名', '访客签名'])
     expect(host.textContent).toContain(text);
+});
+
+it('好友关系和在线状态可组合，历史联系人参与筛选，未知状态只在全部中显示', async () => {
+  const friend = { ...person, displayName: '在线好友' };
+  const away = { ...person, id: 'u_away', identityValue: '10002', displayName: '离开好友' };
+  const stranger = { ...person, id: 'u_stranger', identityValue: '10003', displayName: '离线访客' };
+  const unknown = { ...person, id: 'u_unknown', identityValue: '10004', displayName: '未知访客' };
+  const bodies: Record<string, [number, string]> = {
+    [friend.id]: [10, '在线'],
+    [away.id]: [30, '离开'],
+    [stranger.id]: [0, '离线'],
+  };
+  getOnlineStatus.mockImplementation(async ({ uid }: { uid: string }) => {
+    const status = bodies[uid];
+    if (!status) return null;
+    const [type, typeName] = status;
+    return { uid, type, typeName, displayStatus: typeName, subType: 0, subTypeName: '' };
+  });
+  const onFilteredIds = vi.fn();
+  const { host } = mount(
+    h(
+      ContactDirectoryContext.Provider,
+      { value: { query: '', onQuery: vi.fn(), ids: [], onFilteredIds } },
+      h(ContactList, {
+        contacts: [friend, away],
+        trailingSections: [{ id: 'history:test', name: '历史联系人', items: [stranger, unknown] }],
+        activeContactId: null,
+        onSelect: vi.fn(),
+      }),
+    ),
+    {
+      ...directory,
+      friends: new Map([
+        [friend.id, {}],
+        [away.id, {}],
+      ]),
+    },
+  );
+  const visible = () =>
+    [...host.querySelectorAll('.contact-row .row-title-text')].map((node) => node.textContent);
+  async function choose(label: string, value: string) {
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click(),
+    );
+    await act(async () => {
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (node) => node.textContent === value,
+      );
+      expect(option).toBeDefined();
+      option!.click();
+    });
+  }
+
+  expect(getOnlineStatus).not.toHaveBeenCalled();
+  await choose('在线状态', '在线');
+  expect(new Set(visible())).toEqual(new Set([friend.displayName, away.displayName]));
+  await choose('好友关系', '非好友');
+  expect(visible()).toEqual([]);
+  expect(host.textContent).toContain('没有符合条件的联系人');
+
+  await choose('在线状态', '离线');
+  expect(visible()).toEqual([stranger.displayName]);
+  expect(onFilteredIds).toHaveBeenLastCalledWith([stranger.id]);
+  await choose('在线状态', '全部');
+  expect(new Set(visible())).toEqual(new Set([stranger.displayName, unknown.displayName]));
 });
 
 // 完整资料页与快速名片共用同一份身份正文：入群状态与人数都只在身份区出现一次。

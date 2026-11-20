@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { FormSelect } from './FormSelect';
 import { ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react';
 import type { useContactDirectoryOrder } from '../hooks/useContactDirectoryOrder';
@@ -6,12 +7,15 @@ import { ContactCacheRefreshDialog } from './ContactRefreshButton';
 
 export function ContactDirectoryOrder({
   order,
+  filters,
 }: {
   order: ReturnType<typeof useContactDirectoryOrder>;
+  filters?: ReactNode;
 }) {
   return (
     <>
       <div className="weq-directory-order">
+        {filters}
         <label>
           分组依据
           <FormSelect

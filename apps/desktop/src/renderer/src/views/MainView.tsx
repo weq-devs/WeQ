@@ -2348,7 +2348,7 @@ function MainWorkspace(): ReactElement {
       }));
   }, []);
 
-  const onlineStatusByUid = useContactOnlineStatuses(buddies.data, contactsPageOpen);
+  const { statuses: onlineStatusByUid } = useContactOnlineStatuses(buddies.data, contactsPageOpen);
   // Unread count per conversation id (latest msgSeq - last read seq). Filled
   // asynchronously after the recent-contact list loads / refreshes.
   const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
@@ -10385,13 +10385,31 @@ function MainWorkspace(): ReactElement {
   useLayoutEffect(() => {
     previousDirectoryIds.current = contactDirectoryIds;
   }, [contactDirectoryIds]);
+  const [filteredContactIds, setFilteredContactIds] = useState<string[]>();
+  const updateFilteredContactIds = useCallback((ids: string[] | undefined) => {
+    setFilteredContactIds((current) =>
+      current && ids && current.length === ids.length && current.every((id, i) => id === ids[i])
+        ? current
+        : ids,
+    );
+  }, []);
   const contactDirectoryValue = useMemo(
     () => ({
       query: contactDirectoryQuery,
       onQuery: setContactDirectoryQuery,
-      ids: contactDirectoryIds,
+      ids:
+        shell.contactTab === 'friends'
+          ? (filteredContactIds ?? contactDirectoryIds)
+          : contactDirectoryIds,
+      onFilteredIds: updateFilteredContactIds,
     }),
-    [contactDirectoryQuery, contactDirectoryIds],
+    [
+      contactDirectoryQuery,
+      contactDirectoryIds,
+      shell.contactTab,
+      filteredContactIds,
+      updateFilteredContactIds,
+    ],
   );
   const profileNavigation = useCallback<
     NonNullable<React.ContextType<typeof ProfileNavigationContext>>
