@@ -451,15 +451,6 @@ export function ConversationOverviewCalendar({
         </header>
         <div className="weq-overview-calendar-body">
           <div className="weq-overview-calendar-left">
-            {canFilterKinds ? (
-              <SegmentedControl
-                label="会话类型"
-                options={kindOptions}
-                value={kindFilter}
-                onChange={changeKindFilter}
-                disabled={busy}
-              />
-            ) : null}
             <MessageCalendar
               maxDay={today}
               fixedWeekCount={false}
@@ -500,7 +491,17 @@ export function ConversationOverviewCalendar({
             targets={selectedByKey}
             onLocate={locate}
             onLoadMore={loadMore}
-          />
+          >
+            {canFilterKinds ? (
+              <SegmentedControl
+                label="会话类型"
+                options={kindOptions}
+                value={kindFilter}
+                onChange={changeKindFilter}
+                disabled={busy}
+              />
+            ) : null}
+          </CalendarStatistics>
         </div>
         <div className="weq-overview-calendar-errors">
           {[

@@ -1,9 +1,11 @@
+import type { ReactNode } from 'react';
 import { NumericText } from './NumericText';
 import type { CalendarTarget, CalendarAnchor } from '@weq/service/conversation-calendar';
 import { CalendarConversationList } from './CalendarConversationList';
 import type { CalendarSnapshot } from './CalendarStatistics.shared';
 
 export function CalendarStatistics({
+  children,
   snapshot,
   day,
   id,
@@ -13,6 +15,7 @@ export function CalendarStatistics({
   onLocate,
   onLoadMore,
 }: {
+  children?: ReactNode;
   snapshot?: CalendarSnapshot;
   day: string;
   id?: string;
@@ -24,6 +27,7 @@ export function CalendarStatistics({
 }) {
   return (
     <section className="weq-overview-calendar-conversations" aria-label="当天会话">
+      {children}
       <h4 className="weq-calendar-list-date">{day}</h4>
       <p role="status">
         {error ??

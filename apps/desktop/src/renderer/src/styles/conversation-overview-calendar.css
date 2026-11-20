@@ -132,10 +132,6 @@
   min-height: 0;
   min-width: 0;
 }
-.weq-overview-calendar-left > .weq-segmented {
-  align-self: flex-start;
-  flex-shrink: 0;
-}
 .weq-overview-calendar-left .weq-density-calendar-status:empty {
   display: none;
 }
@@ -171,6 +167,10 @@
 }
 .weq-overview-calendar-conversations > :not(.weq-overview-calendar-rows) {
   flex-shrink: 0;
+}
+.weq-overview-calendar-conversations > .weq-segmented {
+  align-self: flex-start;
+  margin-bottom: 12px;
 }
 .weq-overview-calendar-body > .weq-overview-calendar-conversations > .weq-overview-calendar-rows {
   flex: 1;
