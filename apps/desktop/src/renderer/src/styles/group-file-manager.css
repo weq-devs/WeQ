@@ -167,11 +167,14 @@
   font: inherit;
   overflow-wrap: anywhere;
 }
-.weq-file-manager-name-meta {
-  display: none;
+.weq-file-manager-name-meta,
+.weq-file-manager-expiry {
   font-size: 11px;
   color: var(--weq-fg-muted);
   line-height: 1.5;
+}
+.weq-file-manager-name-meta {
+  display: none;
 }
 .weq-file-manager-size-inline {
   display: none;

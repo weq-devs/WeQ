@@ -1179,6 +1179,41 @@ describe('QQ 主动操作的实际界面', () => {
     );
     expect(f.host.querySelectorAll('tbody tr[aria-selected="true"]')).toHaveLength(3);
   });
+  it('群文件更多菜单保留勾选，按所在行决定保存单项或整组', async () => {
+    const fileB = { ...file, fileId: 'file-b', fileName: '文件 B' };
+    const fileC = { ...file, fileId: 'file-c', fileName: '文件 C' };
+    const save = vi.fn();
+    const f = fixture(() =>
+      h(GroupFileManager, {
+        groupId: 123,
+        directory: 'folder-a',
+        files: [file, fileB, fileC],
+        folders: [],
+        onChanged: vi.fn(),
+        onSaveSelected: save,
+      }),
+    );
+    const checkbox = (name: string) =>
+      f.host.querySelector<HTMLInputElement>(`input[aria-label="选择 ${name}"]`)!;
+    act(() => f.button('操作 文件 A').click());
+    expect(checkbox('文件 A').checked).toBe(false);
+    expect(f.button('保存所选项目')).toBeNull();
+    await act(async () => menuButton('保存').click());
+    expect(save).toHaveBeenLastCalledWith([file], []);
+
+    act(() => checkbox('文件 A').click());
+    act(() => checkbox('文件 B').click());
+    act(() => f.button('操作 文件 C').click());
+    await act(async () => menuButton('保存').click());
+    expect(save).toHaveBeenLastCalledWith([fileC], []);
+    expect(checkbox('文件 A').checked).toBe(true);
+    expect(checkbox('文件 B').checked).toBe(true);
+    expect(checkbox('文件 C').checked).toBe(false);
+
+    act(() => f.button('操作 文件 B').click());
+    await act(async () => menuButton('保存所选项目').click());
+    expect(save).toHaveBeenLastCalledWith([file, fileB], []);
+  });
   it('写入一项后切源停止余下批次，不向新账号发请求', async () => {
     const files = [file, { ...file, fileId: 'file-b', fileName: '文件 B' }];
     state.data['listing:folder-a'] = { files, folders: [] };
