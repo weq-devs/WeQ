@@ -209,7 +209,7 @@ try {
                 const slot = row.parentElement;
                 const avatar = row.querySelector('.avatar').getBoundingClientRect();
                 const rowRect = row.getBoundingClientRect();
-                const preview = `[data-component-preview="${value}"]`;
+                const preview = `[data-component-preview="${value}"]:not([data-density-preview])`;
                 const primary = css('.weq-set-btn-primary');
                 const compositeBackground = (selector) => {
                   const nodes = [];
@@ -306,6 +306,11 @@ try {
                     value === 'classic' ||
                     css('.weq-set-toggle-track').borderRadius ===
                       css(`${preview} .weq-style-preview-toggle`).borderRadius,
+                  previewPrimary: ['borderRadius', 'backgroundColor', 'color'].every(
+                    (property) =>
+                      css(`${preview} .weq-style-preview-button.is-primary`)[property] ===
+                      primary[property],
+                  ),
                   primaryContrast:
                     window.appearanceQa.contrastRatio(
                       pixel(primary.color),
@@ -333,9 +338,6 @@ try {
                   qqntContract:
                     value !== 'qqnt' ||
                     (primary.borderRadius === '7px' &&
-                      css(`${preview} .weq-style-preview-button`).borderRadius ===
-                        css('[data-component-preview="classic"] .weq-style-preview-button')
-                          .borderRadius &&
                       css('.weq-input').borderRadius === '8px' &&
                       css('.weq-directory-scope-menu').borderRadius === '8px' &&
                       css('.conversation-row.active').boxShadow ===
@@ -346,15 +348,17 @@ try {
                       node.getBoundingClientRect().height >= 120 &&
                       node.scrollWidth <= node.clientWidth,
                   ),
-                  optionsFit: [...document.querySelectorAll('.weq-style-option')].every(
-                    (option, _, options) => {
-                      const label = option.querySelector('.weq-style-option-label > span');
-                      return (
-                        option.offsetTop === options[0].offsetTop &&
-                        label.scrollWidth <= label.clientWidth
-                      );
-                    },
-                  ),
+                  optionsFit: [
+                    ...document.querySelectorAll(
+                      ':is([data-setting-id="component-style"], [data-setting-id="interface-density"]) .weq-style-option',
+                    ),
+                  ].every((option) => {
+                    const label = option.querySelector('.weq-style-option-label > span');
+                    return (
+                      option.offsetTop === option.parentElement.firstElementChild.offsetTop &&
+                      label.scrollWidth <= label.clientWidth
+                    );
+                  }),
                   disabled: css('button:disabled').backgroundColor !== primary.backgroundColor,
                 };
               },

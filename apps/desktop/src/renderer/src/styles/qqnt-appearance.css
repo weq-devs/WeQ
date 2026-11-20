@@ -32,7 +32,7 @@
   --weq-skin-toggle-radius: 999px;
   --weq-skin-primary-bg: var(--weq-accent-solid);
   --weq-skin-primary-fg: var(--weq-accent-solid-foreground);
-  --weq-skin-primary-border: var(--weq-accent-solid);
+  --weq-skin-primary-border: var(--weq-accent-ink);
 }
 
 html[data-theme='dark'][data-component-style='qqnt'],
@@ -52,12 +52,8 @@ html[data-theme='dark'] [data-component-preview='qqnt'] {
   --weq-qqnt-time: #a8a8a8;
 }
 
-html[data-component-style='qqnt'][data-theme] {
-  --weq-conversation-row-height: 64px;
-  --weq-qqnt-row-avatar: 40px;
-  --weq-qqnt-row-padding: 12px;
-  --weq-qqnt-row-title-line: 20px;
-  --weq-qqnt-row-preview-line: 16px;
+html[data-component-style='qqnt'][data-theme],
+html [data-component-preview='qqnt'] {
   --background: var(--weq-qqnt-canvas);
   --foreground: var(--weq-qqnt-primary);
   --card: var(--weq-qqnt-guest);
@@ -87,6 +83,14 @@ html[data-component-style='qqnt'][data-theme] {
   --weq-chat-mine-ink: var(--weq-qqnt-primary);
   --weq-chat-bubble-active: var(--weq-qqnt-selection);
   --weq-shadow-card: var(--weq-qqnt-popup-shadow);
+}
+
+html[data-component-style='qqnt'][data-theme] {
+  --weq-conversation-row-height: 64px;
+  --weq-qqnt-row-avatar: 40px;
+  --weq-qqnt-row-padding: 12px;
+  --weq-qqnt-row-title-line: 20px;
+  --weq-qqnt-row-preview-line: 16px;
   font-family: var(--im-font-body, system-ui, -apple-system, 'Segoe UI', sans-serif);
 }
 
@@ -336,26 +340,6 @@ html[data-component-style='qqnt'][data-theme]
   border-radius: 8px;
   background: var(--weq-bg-surface);
   box-shadow: none;
-}
-
-[data-component-preview='qqnt'].weq-style-preview {
-  border-radius: 8px;
-  background: var(--weq-qqnt-canvas);
-}
-[data-component-preview='qqnt'] .weq-style-preview-input {
-  border-radius: 8px;
-}
-[data-component-preview='qqnt'] .weq-style-preview-button {
-  border-radius: 6px;
-  border-color: var(--weq-border-strong);
-  background: var(--weq-bg-surface);
-}
-[data-component-preview='qqnt'] .weq-style-preview-button.is-primary {
-  border-color: var(--weq-accent-solid);
-  background: var(--weq-accent-solid);
-}
-[data-component-preview='qqnt'] .weq-style-preview-item {
-  border-radius: 6px;
 }
 
 @media (prefers-reduced-motion: reduce) {

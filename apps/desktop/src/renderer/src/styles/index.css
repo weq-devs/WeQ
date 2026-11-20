@@ -46,7 +46,8 @@
  * ──────────────────────────────────────────────────────────────────── */
 
 :root,
-html[data-theme='light'] {
+html[data-theme='light'],
+[data-component-preview] {
   --background: oklch(0.99 0 0);
   --foreground: oklch(0.2 0 0);
   --card: oklch(1 0 0);
@@ -148,7 +149,8 @@ html[data-theme='light'] {
 }
 
 html[data-theme='dark'],
-.dark {
+.dark,
+:where(html[data-theme='dark']) [data-component-preview] {
   --weq-list-selected-background: color-mix(
     in srgb,
     var(--weq-accent-effective) 18%,
@@ -5154,30 +5156,24 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-cp-hex {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  min-width: 98px;
   height: 30px;
   padding: 0 10px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #6b7785;
   font-family: var(--font-mono);
   font-size: 12px;
 }
 
-.weq-cp-hex:focus-within {
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 52%, transparent);
+.weq-cp-hex > span {
+  color: var(--weq-accent-ink);
 }
 
 .weq-cp-hex input {
-  width: 64px;
-  border: 0;
-  background: transparent;
-  outline: none;
-  color: #1f2933;
+  width: 6ch;
+  padding: 0;
   font: inherit;
+  text-align: center;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .weq-cp-presets {
@@ -6671,16 +6667,6 @@ html[data-theme='dark'] .weq-set-toggle-track {
 
 html[data-theme='dark'] .weq-cp-swatch {
   border-color: rgba(17, 23, 31, 0.92);
-}
-
-html[data-theme='dark'] .weq-cp-hex {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: #141920;
-  color: #99a7b8;
-}
-
-html[data-theme='dark'] .weq-cp-hex input {
-  color: #edf2f7;
 }
 
 html[data-theme='dark'] .weq-cp-preview-hex {

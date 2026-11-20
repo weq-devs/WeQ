@@ -11,7 +11,7 @@ export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
 export type ThemeBackground = 'plain' | 'paper' | 'grid' | 'dots' | 'wash' | 'telegram';
 export const componentStyles = [
-  { value: 'qqnt', label: 'QQ NT（默认）' },
+  { value: 'qqnt', label: 'QQ NT' },
   { value: 'classic', label: '简约' },
   { value: 'retro', label: '立体' },
 ] as const;

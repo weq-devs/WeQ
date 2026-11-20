@@ -78,7 +78,6 @@ html[data-theme]
 
 html[data-theme]
   :is(
-    .weq-cp-hex,
     .weq-settings-subnav-item.is-active,
     .weq-settings-nav-item.is-active,
     .weq-tools-child-menu > button:hover

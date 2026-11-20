@@ -254,6 +254,7 @@ html:root[data-theme][data-component-style] body
 html:root[data-theme][data-component-style] body
   :is(
     .search-box,
+    .weq-cp-hex,
     .weq-dress-search,
     .weq-collection-search,
     .weq-titlebar-search:where(.is-expanded),
