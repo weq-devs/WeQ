@@ -86,3 +86,24 @@ it('旧按 QQ 号保存的恢复稿只迁给首个配置，不覆盖新稿，也
   expect(store.load('["10001","source-b"]')).toEqual({});
   expect(store.load('10001')).toEqual({ peer: '旧稿原件' });
 });
+
+it('清空迁移后的草稿，重新初始化不会再次复制旧快照', () => {
+  const store = createComposerDraftRecovery(localStorage);
+  const scope = '["10001","source-a"]';
+  store.write('10001', 'peer', '待迁移的旧稿');
+  store.migrate('10001', scope);
+  expect(store.load(scope)).toEqual({ peer: '待迁移的旧稿' });
+  store.write(scope, 'peer', '');
+  store.confirm(scope, 'peer', '');
+  const restarted = createComposerDraftRecovery(localStorage);
+  restarted.migrate('10001', scope);
+  expect(restarted.load(scope)).toEqual({});
+});
+
+it('相同正文的新编辑基准不会被旧保存回执确认掉', () => {
+  const store = createComposerDraftRecovery(localStorage);
+  store.write('a', 'peer', '正文', 'old');
+  store.write('a', 'peer', '正文', 'new');
+  store.confirm('a', 'peer', '正文', 'old');
+  expect(store.loadSnapshots('a')).toEqual({ peer: { body: '正文', baseVersion: 'new' } });
+});

@@ -125,13 +125,155 @@ it('迟到的远端草稿不能覆盖本机输入，清空记录也优先于远�
   f.rows = [c.direct, c.group].map((row) => ({
     targetUid: row.id,
     version: 'remote',
-    elements: [{ type: 'text', text: '远端旧稿' }],
+    elements: [{ kind: 'text', textContent: '远端旧稿' }],
   }));
   await c.render();
   expect(c.current.drafts[c.direct.id]).toBe('本机新稿');
   expect(c.current.drafts[c.group.id]).toBeUndefined();
   await c.flush();
   expect(f.save.mock.calls.find(([input]) => input.kind === 'group')?.[0].elements).toEqual([]);
+});
+
+it('清空立即更新回填正文，离开页面时无需等待清空回执', async () => {
+  const c = await fixture();
+  const id = c.direct.id;
+  f.rows = [
+    { targetUid: id, version: 'old', elements: [{ kind: 'text', textContent: '已发送的原稿' }] },
+  ];
+  await c.render();
+  expect(c.current.drafts[id]).toBe('已发送的原稿');
+  let finish!: (value: unknown) => void;
+  f.save.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await c.edit(id, '');
+  await c.flush();
+  expect(f.save.mock.calls[0][0].elements).toEqual([]);
+  expect(c.current.drafts[id]).toBeUndefined();
+  expect(composerDraftRecovery.load(c.input.messageScope)[id]).toBe('');
+  await act(async () => finish({ ok: true, current: { version: 'cleared', value: null } }));
+  expect(composerDraftRecovery.load(c.input.messageScope)[id]).toBeUndefined();
+});
+
+it('本端清空后马上输入，切页时能回填新稿，遇到另一端清空也能保存', async () => {
+  const c = await fixture();
+  const id = c.direct.id;
+  f.rows = [{ targetUid: id, version: 'old', elements: [{ kind: 'text', textContent: '原稿' }] }];
+  await c.render();
+  await c.edit(id, '');
+  await c.edit(id, '新输入');
+
+  let finish!: (value: unknown) => void;
+  f.save.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await c.flush();
+  expect(c.current.drafts[id]).toBe('新输入');
+  await act(async () => finish({ ok: false, current: { version: 'cleared', value: null } }));
+  expect(f.save.mock.calls.map(([input]) => input.expectedVersion)).toEqual([null, 'cleared']);
+  expect(c.current.drafts[id]).toBe('新输入');
+});
+
+it('图片准备比清空晚完成时，过期正文不能再写入 QQ 草稿', async () => {
+  const c = await fixture();
+  const id = c.direct.id;
+  let finish!: () => void;
+  f.share.mockImplementationOnce(
+    (_account, _conversation, body) =>
+      new Promise((resolve) => {
+        finish = () => resolve(body);
+      }),
+  );
+  await c.edit(id, '包含待上传图片的旧稿');
+  await c.flush();
+  expect(f.save).not.toHaveBeenCalled();
+  await c.edit(id, '');
+  await c.flush();
+  await act(async () => finish());
+  expect(f.save).toHaveBeenCalledOnce();
+  expect(f.save.mock.calls[0][0].elements).toEqual([]);
+  expect(c.current.drafts[id]).toBeUndefined();
+});
+
+it('旧稿写入遇到冲突时，排队中的清空使它停止重试', async () => {
+  const c = await fixture();
+  const id = c.direct.id;
+  let finish!: (value: unknown) => void;
+  f.save.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await c.edit(id, '旧稿');
+  await c.flush();
+  expect(f.save).toHaveBeenCalledOnce();
+  await c.edit(id, '');
+  await c.flush();
+  await act(async () =>
+    finish({
+      ok: false,
+      current: { version: 'other', value: [{ kind: 'text', textContent: '另一端' }] },
+    }),
+  );
+  expect(f.save.mock.calls.map(([input]) => input.elements)).toEqual([
+    [{ kind: 'text', textContent: '旧稿' }],
+    [],
+  ]);
+  expect(f.retry).not.toHaveBeenCalled();
+  expect(c.current.drafts[id]).toBeUndefined();
+});
+
+it.each(['', '另一端的新稿'])('侧栏切回时使用已保存草稿的刷新结果 %j', async (remote) => {
+  const c = await fixture();
+  const id = c.direct.id;
+  await c.edit(id, '本端曾保存的旧稿');
+  await c.render({ activeConversationId: c.group.id });
+  expect(c.current.drafts[id]).toBe('本端曾保存的旧稿');
+  f.rows = remote
+    ? [{ targetUid: id, version: 'remote', elements: [{ kind: 'text', textContent: remote }] }]
+    : [];
+  await c.render();
+  await act(async () => c.current.syncDraftsFromPending());
+  await c.render({ activeConversationId: id });
+  expect(c.current.drafts[id]).toBe(remote || undefined);
+});
+
+it('重启后按快照的编辑基准识别另一端清空，清空后新输入仍可保存', async () => {
+  const original = await fixture();
+  const id = original.direct.id;
+  const elements = [{ kind: 'text', textContent: '旧稿' }];
+  f.rows = [{ targetUid: id, version: 'old', elements }];
+  await original.render();
+  await original.edit(id, '旧稿');
+
+  f.rows = [];
+  const reloaded = await fixture();
+  expect(reloaded.current.drafts[id]).toBe('旧稿');
+  const cleared = { version: 'cleared', value: null };
+  f.save.mockResolvedValueOnce({ ok: false, current: cleared });
+  await reloaded.flush();
+  expect(f.save).toHaveBeenCalledOnce();
+  expect(f.save.mock.calls[0][0].expectedVersion).toBe('old');
+  expect(reloaded.current.drafts[id]).toBeUndefined();
+  expect(composerDraftRecovery.load(reloaded.input.messageScope)[id]).toBeUndefined();
+  // 空会话列表随后刷新也不妨碍输入下一稿。
+  f.rows = [];
+  await reloaded.render();
+  f.save.mockResolvedValueOnce({ ok: false, current: cleared });
+  await reloaded.edit(id, '清空后的新稿');
+  await reloaded.flush();
+  expect(f.save.mock.calls.slice(1).map(([input]) => input.expectedVersion)).toEqual([
+    null,
+    'cleared',
+  ]);
+  expect(reloaded.current.drafts[id]).toBe('清空后的新稿');
 });
 
 it.each(['direct', 'group'] as const)(
@@ -177,6 +319,19 @@ it('保存期间继续输入，旧回执不清掉新草稿或它的恢复快照'
   await act(async () => c.current.syncDraftsFromPending());
   expect(c.current.drafts[c.direct.id]).toBe('继续写的新稿');
   await c.flush();
+  expect(f.save).toHaveBeenCalledTimes(2);
+});
+
+it('语音回执到达时以最新已保存的正文为准，保留已经落库的新稿', async () => {
+  const c = await fixture();
+  const id = c.direct.id;
+  await c.edit(id, '用于合成的文字');
+  await c.flush();
+  const onAccepted = c.current.clearSentSpeechDraft;
+  await c.edit(id, '稍后写的新稿');
+  await c.flush();
+  await act(async () => onAccepted(id, '用于合成的文字'));
+  expect(c.current.drafts[id]).toBe('稍后写的新稿');
   expect(f.save).toHaveBeenCalledTimes(2);
 });
 
