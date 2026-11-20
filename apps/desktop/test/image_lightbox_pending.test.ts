@@ -18,6 +18,7 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({}),
     account: {
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       ocrCacheLookup: { useQuery: () => ({ data: undefined }) },

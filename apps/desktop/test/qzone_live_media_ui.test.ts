@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({}),
     account: {
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       ocrCacheLookup: { useQuery: () => ({ data: undefined }) },

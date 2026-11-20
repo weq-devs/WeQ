@@ -24,6 +24,7 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 // 灯箱会拉 tRPC（OCR 能力门禁）——单测不建 ipc 链接，直接给个死数据桩。
 vi.mock('@renderer/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({}),
     account: {
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       ocrCacheLookup: { useQuery: () => ({ data: undefined }) },

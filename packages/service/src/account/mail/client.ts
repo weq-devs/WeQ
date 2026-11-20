@@ -20,7 +20,6 @@ import {
   type MailPage,
   type MailStatus,
   type MailNotice,
-  type MailSummary,
 } from './types';
 import {
   MAIL_PAGE_SIZE,

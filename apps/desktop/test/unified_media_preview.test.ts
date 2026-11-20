@@ -40,6 +40,7 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { mediaPreviewPage: { query: mocks.page } } },
   trpc: {
+    useUtils: () => ({}),
     account: {
       getGroupAlbumAccessState: { useQuery: () => ({ data: { ocrLocalModelId: 'fixture' } }) },
       ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
