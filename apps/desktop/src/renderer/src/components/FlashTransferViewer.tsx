@@ -687,7 +687,9 @@ export function FlashTransferViewer({
                         <summary>
                           <span>
                             {batch.files[0]?.relativePath}
-                            {batch.files.length > 1 ? ` 等 ${batch.files.length} 个文件` : ''}
+                            {batch.files.length > 1 ? (
+                              <NumericText>{` 等 ${batch.files.length} 个文件`}</NumericText>
+                            ) : null}
                           </span>
                           <span>{batch.foreground ? label : `${label} · 后台`}</span>
                         </summary>

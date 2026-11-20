@@ -37,7 +37,7 @@ function Fixture() {
       <h1>数字排版</h1>
       <p data-body>普通正文 12345，保留原有字体。</p>
       <section>
-        <div data-label>原有数字样式</div>
+        <div data-label>数值读数</div>
         <span className="weq-number" data-reference>
           12,345.67
         </span>
@@ -100,8 +100,10 @@ function Fixture() {
         </strong>
         <div data-label>录音计时</div>
         <button type="button" className="voice-record-btn">
-          <strong className="voice-record-timer" data-readout data-weight="600">
-            12:34
+          <strong className="voice-record-timer">
+            <span className="weq-number weq-number-inherit" data-readout>
+              0:59
+            </span>
           </strong>
         </button>
         <div data-label>通话录制</div>

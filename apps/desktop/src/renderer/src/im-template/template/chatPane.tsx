@@ -6085,7 +6085,9 @@ export function ChatPane({
                 {conversation.type === 'group' ? (
                   <>
                     <span data-privacy-sensitive>{displayGroupName(conversation.group)}</span>
-                    {` (${conversation.group.memberCount})`}
+                    <span className="weq-number weq-number-inherit">
+                      {` (${conversation.group.memberCount})`}
+                    </span>
                   </>
                 ) : (
                   <span data-privacy-sensitive>{chatHeaderTitle(conversation)}</span>

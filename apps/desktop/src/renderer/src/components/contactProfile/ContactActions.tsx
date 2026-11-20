@@ -31,7 +31,7 @@ function OnlinePersonCard({ uin, onClose }: { uin: string; onClose: () => void }
       {profile ? (
         <dl>
           <dt>QQ 号</dt>
-          <dd>{profile.uin}</dd>
+          <dd className="weq-number weq-number-inherit">{profile.uin}</dd>
           {profile.nickname ? (
             <>
               <dt>昵称</dt>

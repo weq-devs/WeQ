@@ -76,10 +76,11 @@ export const CalendarConversationList = memo(function CalendarConversationList({
                 <strong title={target.name}>{target.name}</strong>
                 <small>{CALENDAR_SOURCE_LABELS[target.kind]}</small>
               </span>
-              <span title={`${stored.count.toLocaleString('zh-CN')} 条`}>
-                <span className="weq-number weq-number-inherit">
-                  {stored.count.toLocaleString('zh-CN')}
-                </span>
+              <span
+                className="weq-number weq-number-inherit"
+                title={`${stored.count.toLocaleString('zh-CN')} 条`}
+              >
+                {stored.count.toLocaleString('zh-CN')}
                 {complete ? '' : '+'}
               </span>
             </button>

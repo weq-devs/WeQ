@@ -70,10 +70,17 @@ try {
             .evaluateAll((elements) =>
               elements.map((element) => {
                 const style = getComputedStyle(element);
+                const label = element
+                  .closest('.weq-profile-data-row')
+                  .querySelector('.weq-profile-data-label');
+                const labelStyle = getComputedStyle(label);
                 const button = element.querySelector('button');
                 return {
                   text: element.textContent,
                   family: style.fontFamily,
+                  labelFamily: labelStyle.fontFamily,
+                  size: style.fontSize,
+                  labelSize: labelStyle.fontSize,
                   weight: style.fontWeight,
                   numeric: style.fontVariantNumeric,
                   buttonFamily: button ? getComputedStyle(button).fontFamily : null,
@@ -89,7 +96,8 @@ try {
             label,
           );
           for (const value of values) {
-            assert.ok(value.family.includes('SF Pro Display'), `${label}: 未接入编号字体栈`);
+            assert.equal(value.family, value.labelFamily, label);
+            assert.equal(value.size, value.labelSize, label);
             assert.equal(value.weight, '500', label);
             assert.equal(value.numeric, 'tabular-nums', label);
             assert.equal(value.buttonFamily, value.family, `${label}: 复制按钮覆盖字体`);

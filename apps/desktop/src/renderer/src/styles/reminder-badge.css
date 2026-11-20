@@ -39,9 +39,7 @@ html .weq-reminder-count {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  font-family: var(--weq-font-number);
-  font-size-adjust: cap-height var(--weq-number-cap-height);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;

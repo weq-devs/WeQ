@@ -713,7 +713,7 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   border-radius: 999px;
   background: color-mix(in srgb, var(--weq-bg-surface, #ffffff) 34%, transparent);
   color: var(--weq-fg-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   line-height: 1.25;
   user-select: none;

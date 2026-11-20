@@ -567,9 +567,7 @@ html body.weq-tool-window {
   }
 
   .weq-number:not(:where(input)) {
-    font-family: var(--weq-font-number);
     font-weight: 500;
-    letter-spacing: 0;
     font-variant-numeric: tabular-nums;
   }
 

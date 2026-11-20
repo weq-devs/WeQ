@@ -18,7 +18,7 @@
   display: inline-flex;
   margin: 0;
   gap: 8px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
   color: var(--weq-fg-secondary);

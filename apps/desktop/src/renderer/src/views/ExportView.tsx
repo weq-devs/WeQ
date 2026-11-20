@@ -3159,9 +3159,11 @@ function CollectionScope({
             checked={selectedIds !== undefined}
             onChange={(next) => onSelectedIdsChange(next ? [] : undefined)}
           >
-            {selectedIds === undefined
-              ? '导出全部筛选结果'
-              : `精确选中 ${selectedIds.length} 条收藏`}
+            {selectedIds === undefined ? (
+              '导出全部筛选结果'
+            ) : (
+              <NumericText>{`精确选中 ${selectedIds.length} 条收藏`}</NumericText>
+            )}
           </CheckPill>
         </div>
         <div className="weq-exp-search">

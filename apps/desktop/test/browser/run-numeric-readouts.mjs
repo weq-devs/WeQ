@@ -63,7 +63,6 @@ try {
           { theme, accent },
         );
         const result = await page.evaluate(() => {
-          const family = getComputedStyle(document.querySelector('[data-reference]')).fontFamily;
           const bodyFamily = getComputedStyle(document.querySelector('[data-body]')).fontFamily;
           const field = document.querySelector('[data-numeric-input]');
           const fieldStyle = getComputedStyle(field);
@@ -74,13 +73,18 @@ try {
             ),
           ].map((node) => {
             const style = getComputedStyle(node);
+            const parent = getComputedStyle(node.parentElement);
             return {
               text: node.textContent,
               family: style.fontFamily,
+              parentFamily: parent.fontFamily,
+              sizeAdjust: style.fontSizeAdjust,
+              parentSizeAdjust: parent.fontSizeAdjust,
               numeric: style.fontVariantNumeric,
               weight: style.fontWeight,
-              expectedWeight: node.dataset.weight,
-              spacing: style.letterSpacing,
+              expectedWeight: node.classList.contains('weq-number-inherit')
+                ? parent.fontWeight
+                : node.dataset.weight,
             };
           });
           const probe = document.createElement('span');
@@ -93,7 +97,6 @@ try {
           });
           probe.remove();
           return {
-            family,
             bodyFamily,
             inputFamily: fieldStyle.fontFamily,
             inputNumeric: fieldStyle.fontVariantNumeric,
@@ -128,14 +131,13 @@ try {
         });
         assert.ok(result.readouts.length >= 25);
         for (const readout of result.readouts) {
-          assert.equal(readout.family, result.family, JSON.stringify(readout));
+          assert.equal(readout.family, readout.parentFamily, JSON.stringify(readout));
+          assert.equal(readout.sizeAdjust, readout.parentSizeAdjust, JSON.stringify(readout));
           assert.ok(readout.numeric.includes('tabular-nums'), JSON.stringify(readout));
-          assert.ok(['0px', 'normal'].includes(readout.spacing), JSON.stringify(readout));
           if (readout.expectedWeight)
             assert.equal(readout.weight, readout.expectedWeight, JSON.stringify(readout));
         }
         assert.ok(result.labels.every((family) => family === result.bodyFamily));
-        assert.notEqual(result.family, result.bodyFamily);
         assert.equal(result.inputFamily, result.bodyFamily);
         assert.equal(result.inputNumeric, 'tabular-nums');
         assert.equal(result.placeholderFamily, result.bodyFamily);
@@ -161,7 +163,7 @@ try {
   console.log(
     JSON.stringify({
       cases,
-      sharedNumericFont: true,
+      contextualFonts: true,
       weightsPreserved: true,
       proseAndReportUnchanged: true,
       tabularDigits: true,
