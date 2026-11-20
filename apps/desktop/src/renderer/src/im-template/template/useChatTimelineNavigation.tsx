@@ -1,18 +1,14 @@
 import { TIMELINE_VIRTUAL_THRESHOLD } from '../../hooks/useVirtualTimeline';
 import { conversationInteractionId } from '../../../../shared/conversation_interaction';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
-import { firstUnreadMessage, matchesUnreadMessage } from '../../lib/unreadNavigation';
+import { matchesUnreadMessage } from '../../lib/unreadNavigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReplyJump, ReplyJumpTarget } from '../../state/messageContext';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
 import type { Conversation, Message, UnreadDockStop } from './types';
 import { unreadHighlightKey } from './unreadDock';
 import type { ChatPaneProps } from './chatPane';
-import {
-  type UnreadJumpState,
-  type UnreadJumpSeed,
-  countAppendedMessages,
-} from './chatTimelineModel';
+import { countAppendedMessages, unreadTimelineBoundary } from './chatTimelineModel';
 
 type ViewportReadRow = { seq: string; bottom: number };
 const READ_GESTURE_MS = 1000;
@@ -69,8 +65,6 @@ export function useChatTimelineNavigation({
   const [jumpMissing, setJumpMissing] = useState(false);
 
   const locatedJump = useRef<typeof jumpRequest>(undefined);
-
-  const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
 
   const [locatedSeq, setLocatedSeq] = useState<string | null>(null);
   const entryVisibility = useMemo(
@@ -243,12 +237,6 @@ export function useChatTimelineNavigation({
     revision: number | undefined;
   } | null>(null);
 
-  const unreadSeedRef = useRef<UnreadJumpSeed | null>(null);
-
-  const unreadConversationRef = useRef<string | null>(null);
-
-  const unreadScrollFrameRef = useRef<number | null>(null);
-
   // 换会话（或上层重下了新的一份快照）时，跳转坞从第一个跳转点重新开始。
   useEffect(() => {
     setLocatedSeq(null);
@@ -263,50 +251,6 @@ export function useChatTimelineNavigation({
   const scrollMessagesToBottomRef = useRef<() => void>(() => {});
 
   const jumpToBottomAndReadRef = useRef<() => Promise<void>>(async () => {});
-
-  const updateUnreadJumpRemainingRef = useRef<() => void>(() => {});
-
-  useLayoutEffect(() => {
-    const conversationId = conversation?.id ?? null;
-    if (unreadConversationRef.current === conversationId) {
-      return;
-    }
-
-    unreadConversationRef.current = conversationId;
-    setUnreadJump(null);
-    const total = Math.max(0, conversation?.unreadCount ?? 0);
-    unreadSeedRef.current =
-      conversationId && total > 0
-        ? {
-            conversationId,
-            total,
-          }
-        : null;
-  }, [conversation?.id, conversation?.unreadCount]);
-
-  useLayoutEffect(() => {
-    const seed = unreadSeedRef.current;
-    if (
-      !seed ||
-      seed.conversationId !== conversation?.id ||
-      loading ||
-      visibleMessages.length === 0
-    ) {
-      return;
-    }
-
-    const total = Math.min(seed.total, visibleMessages.length);
-    unreadSeedRef.current = null;
-    setUnreadJump(
-      total > 0
-        ? {
-            conversationId: seed.conversationId,
-            remaining: total,
-            total,
-          }
-        : null,
-    );
-  }, [conversation?.id, loading, visibleMessages]);
 
   useLayoutEffect(() => {
     if (!tabActive) return;
@@ -501,29 +445,6 @@ export function useChatTimelineNavigation({
     if (delta > 0) setNewMessagePill((count) => count + Math.min(delta, 100));
   }, [conversation?.id, conversation?.unreadCount, latestMessageSeq, atLatest]);
 
-  // updateUnreadJumpRemaining 会写回 unreadJump.remaining，所以这里只认「换会话 /
-  // 换未读总数」这两个稳定信号，不能整体依赖 unreadJump，否则每次滚动都要多跑一轮。
-  const unreadJumpKey = unreadJump ? `${unreadJump.conversationId}:${unreadJump.total}` : null;
-
-  useLayoutEffect(() => {
-    if (!tabActive || !unreadJumpKey) {
-      return;
-    }
-
-    updateUnreadJumpRemainingRef.current();
-    const frame = window.requestAnimationFrame(() => updateUnreadJumpRemainingRef.current());
-    return () => window.cancelAnimationFrame(frame);
-  }, [tabActive, unreadJumpKey, visibleMessages, loading]);
-
-  useEffect(
-    () => () => {
-      if (unreadScrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(unreadScrollFrameRef.current);
-      }
-    },
-    [],
-  );
-
   useEffect(() => {
     if (!tabActive || !jumpRequest || loading || loadError) {
       setJumpMissing(false);
@@ -679,100 +600,6 @@ export function useChatTimelineNavigation({
     if (bottom && atLatest && newMessagePill > 0) {
       setNewMessagePill(0);
     }
-
-    if (!unreadJump || unreadScrollFrameRef.current !== null) {
-      return;
-    }
-
-    unreadScrollFrameRef.current = window.requestAnimationFrame(() => {
-      unreadScrollFrameRef.current = null;
-      updateUnreadJumpRemaining();
-    });
-  }
-
-  function updateUnreadJumpRemaining() {
-    const scroll = messageScrollRef.current;
-    if (!scroll || !unreadJump) {
-      return;
-    }
-
-    const firstUnread = unreadMessageElements(unreadJump)[0];
-    const unreadId = visibleMessages[Math.max(0, visibleMessages.length - unreadJump.total)]?.id;
-    const virtualOffset = unreadId ? timelineViewport(scroll)?.offset(unreadId) : undefined;
-    if (!firstUnread && virtualOffset === undefined) {
-      setUnreadJump(null);
-      return;
-    }
-
-    const scrollRect = scroll.getBoundingClientRect();
-    const firstUnreadTop =
-      virtualOffset !== undefined
-        ? scrollRect.top + virtualOffset - scroll.scrollTop
-        : (firstUnread?.getBoundingClientRect().top ?? scrollRect.top);
-    const targetScrollTop =
-      unreadJump.targetScrollTop ??
-      Math.max(0, scroll.scrollTop + firstUnreadTop - scrollRect.top - 12);
-    const startScrollTop = unreadJump.startScrollTop ?? scroll.scrollTop;
-
-    if (targetScrollTop >= startScrollTop - 1 || scroll.scrollTop <= targetScrollTop + 1) {
-      setUnreadJump(null);
-      return;
-    }
-
-    const progress = (scroll.scrollTop - targetScrollTop) / (startScrollTop - targetScrollTop);
-    const remaining = Math.max(1, Math.ceil(unreadJump.total * Math.min(1, progress)));
-
-    setUnreadJump((current) => {
-      if (!current || current.conversationId !== unreadJump.conversationId) {
-        return current;
-      }
-      return current.remaining === remaining &&
-        current.startScrollTop === startScrollTop &&
-        current.targetScrollTop === targetScrollTop
-        ? current
-        : {
-            ...current,
-            remaining,
-            startScrollTop,
-            targetScrollTop,
-          };
-    });
-  }
-
-  updateUnreadJumpRemainingRef.current = updateUnreadJumpRemaining;
-
-  function unreadMessageElements(state = unreadJump) {
-    const scroll = messageScrollRef.current;
-    if (!scroll || !state) {
-      return [];
-    }
-
-    const ids = new Set(visibleMessages.slice(-state.total).map((message) => message.id));
-
-    return Array.from(
-      scroll.querySelectorAll<HTMLElement>('.message-line[data-message-id]'),
-    ).filter((element) => ids.has(element.dataset.messageId ?? ''));
-  }
-
-  function jumpToFirstUnreadMessage() {
-    const scroll = messageScrollRef.current;
-    const id =
-      unreadJump && visibleMessages[Math.max(0, visibleMessages.length - unreadJump.total)]?.id;
-    if (scroll && id && timelineViewport(scroll)?.scrollTo(id, { align: 'start' })) {
-      setUnreadJump(null);
-      return;
-    }
-    const firstUnread = unreadMessageElements()[0];
-    if (!firstUnread) {
-      setUnreadJump(null);
-      return;
-    }
-
-    firstUnread.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    });
-    setUnreadJump(null);
   }
 
   // ── 未读跳转坞 ──────────────────────────────────────────────────────────
@@ -793,18 +620,18 @@ export function useChatTimelineNavigation({
     const idsBySeq = new Map<string, string>();
     for (const message of messages) {
       const stop = message.msgSeq ? pendingBySeq.get(message.msgSeq) : undefined;
-      if (stop && !idsBySeq.has(stop.seq) && matchesUnreadMessage(message, stop.seq, stop.identity))
+      if (
+        stop &&
+        stop.kind !== 'unread' &&
+        !idsBySeq.has(stop.seq) &&
+        matchesUnreadMessage(message, stop.seq, stop.identity)
+      )
         idsBySeq.set(stop.seq, message.id);
     }
     const unreadSeq = pending.find((stop) => stop.kind === 'unread')?.seq;
-    if (unreadSeq && !idsBySeq.has(unreadSeq)) {
-      const start = BigInt(unreadSeq);
-      // 只为普通未读补缺号；重要消息必须看到对应原文。
-      const covered = messages.some(
-        ({ msgSeq }) => msgSeq && /^[1-9]\d*$/.test(msgSeq) && BigInt(msgSeq) < start,
-      );
-      const next = covered ? firstUnreadMessage(messages, unreadSeq) : undefined;
-      if (next) idsBySeq.set(unreadSeq, next.id);
+    if (unreadSeq) {
+      const id = unreadTimelineBoundary(visibleMessages, unreadSeq);
+      if (id) idsBySeq.set(unreadSeq, id);
     }
     const seqsById = new Map<string, string[]>();
     for (const [seq, id] of idsBySeq) {
@@ -813,7 +640,7 @@ export function useChatTimelineNavigation({
       else seqsById.set(id, [seq]);
     }
     return seqsById;
-  }, [messages, unreadDock, isVisited]);
+  }, [messages, visibleMessages, unreadDock, isVisited]);
   const interactionConversationId = conversation?.id;
   const interactionConversationType = conversation?.type;
   const interactionTargets = useMemo(() => {
@@ -1158,7 +985,6 @@ export function useChatTimelineNavigation({
     jumpDockStop,
     jumpMissing,
     jumpToBottomAndRead,
-    jumpToFirstUnreadMessage,
     jumpToSeq,
     jumpingToLatest,
     messageScrollRef,
@@ -1169,11 +995,9 @@ export function useChatTimelineNavigation({
       readGestureUntil.current = 0;
     },
     requestReadAtBottom,
-    clearUnreadJump: () => setUnreadJump(null),
     showBottomJump,
     timelineEnabled,
     timelineContentRef,
     observeMessageVisibility,
-    unreadJump,
   };
 }

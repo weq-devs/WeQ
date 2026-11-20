@@ -165,6 +165,8 @@ export type UnreadDockStop = {
  */
 export type UnreadDock = {
   stops: UnreadDockStop[];
+  /** 进入会话时的未读起点，高亮占用同一序号时也保留。 */
+  firstUnreadSeq?: string;
 };
 
 type ConversationBase = {

@@ -425,49 +425,6 @@
   background-clip: padding-box;
 }
 
-.unread-jump-button {
-  position: absolute;
-  z-index: 9;
-  top: calc(var(--chat-header-height) + 20px);
-  right: 24px;
-  display: inline-flex;
-  height: 38px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 17px;
-  border: 0;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--card, #ffffff) 96%, transparent);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  color: var(--weq-accent-effective, #1598ff);
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  user-select: none;
-  transition:
-    background 120ms ease-out,
-    box-shadow 120ms ease-out,
-    transform 120ms ease-out;
-}
-
-.unread-jump-button:hover,
-.unread-jump-button:focus-visible {
-  background: var(--card, #ffffff);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
-  outline: 0;
-  transform: translateY(-1px);
-}
-
-.unread-jump-button svg {
-  flex: 0 0 auto;
-}
-
-.chat-pane.with-group-info:not(.group-info-collapsed) .unread-jump-button {
-  right: calc(var(--group-info-panel-width) + 24px);
-}
-
 /* 未读跳转坞 —— 打开会话时按内存快照逐个引导跳转，跳完自动收起。
  *
  * 贴在会话右上角（顶栏下方），三种色调对应告警 / 内容 / 红包：
@@ -704,6 +661,22 @@ html[data-theme] .message-line > .message-avatar-button:focus-visible {
 
 html[data-theme='dark'] .weq-qqshow-avatar {
   filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.55));
+}
+
+.weq-unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-unread-divider::before,
+.weq-unread-divider::after {
+  content: '';
+  flex: 1 1 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
 }
 
 .message-time-divider {

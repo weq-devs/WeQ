@@ -1,8 +1,7 @@
 import { Languages } from 'lucide-react';
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
 import { ChatTimeline } from './chatTimeline';
-import { messageGroups } from './chatTimelineModel';
-import { matchesUnreadMessage } from '../../lib/unreadNavigation';
+import { messageGroups, unreadTimelineBoundary, unreadTimelineStart } from './chatTimelineModel';
 import type { ConversationInteraction } from '../../../../shared/conversation_interaction';
 import { PICKED_BROWSER_FILE_MAX_BYTES } from '../../../../shared/browser_file_upload';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
@@ -1453,13 +1452,22 @@ function ChatPaneContent({
     () => hiddenDeletionLookup(messages, hiddenDeletedIds ?? new Set()),
     [messages, hiddenDeletedIds],
   );
+  const unreadCount = conversation?.unreadCount;
+  const unreadStartSeq = unreadTimelineStart(
+    unreadDock,
+    readThroughViewport ? unreadCount : undefined,
+    confirmedReadSeq,
+  );
+  const unreadBoundaryId = useMemo(
+    () => (unreadStartSeq ? unreadTimelineBoundary(visibleMessages, unreadStartSeq) : undefined),
+    [visibleMessages, unreadStartSeq],
+  );
   const groupPositions = useMemo(() => {
     if (!groupConsecutiveMessages) return undefined;
-    const unread = unreadDock?.stops.find(({ kind }) => kind === 'unread');
     return messageGroups(visibleMessages, {
       standalone: (message) => deletedKeys.has(deletionIdentity(message.id)),
       breakBefore: (previous, message) =>
-        Boolean(unread && matchesUnreadMessage(message, unread.seq, unread.identity)) ||
+        message.id === unreadBoundaryId ||
         hasHiddenDeletionBetween(previous.msgSeq, message.msgSeq),
     });
   }, [
@@ -1467,7 +1475,7 @@ function ChatPaneContent({
     visibleMessages,
     deletedKeys,
     hasHiddenDeletionBetween,
-    unreadDock,
+    unreadBoundaryId,
   ]);
   const compactHeader = useMobileWebLayout();
   // 分析和回复使用不同目标，自己的消息不触发推荐；跳过灰条、撤回和删除。
@@ -1600,7 +1608,6 @@ function ChatPaneContent({
     jumpDockStop,
     jumpMissing,
     jumpToBottomAndRead,
-    jumpToFirstUnreadMessage,
     jumpToSeq,
     dockJumping,
     jumpingToLatest,
@@ -1609,12 +1616,10 @@ function ChatPaneContent({
     isActiveConversation,
     resetReadGesture,
     requestReadAtBottom,
-    clearUnreadJump,
     showBottomJump,
     timelineEnabled,
     timelineContentRef,
     observeMessageVisibility,
-    unreadJump,
   } = useChatTimelineNavigation({
     atLatest,
     conversation,
@@ -5730,7 +5735,6 @@ function ChatPaneContent({
     saveHiddenMessageIds(conversation.id, next);
     setHiddenMessageIds(next);
     setContextMenu(null);
-    clearUnreadJump();
     setClearMessagesConfirmOpen(false);
   }
 
@@ -5758,6 +5762,9 @@ function ChatPaneContent({
   }
 
   const showSenderNames = conversation.type !== 'direct';
+  const bottomUnreadCount =
+    readThroughViewport && unreadCount !== undefined ? Math.max(0, unreadCount) : newMessagePill;
+  const showNewMessagePill = bottomUnreadCount > 0 && (newMessagePill > 0 || !atLatest);
   const currentPreference = {
     ...defaultConversationPreference,
     ...preference,
@@ -6448,6 +6455,15 @@ function ChatPaneContent({
                             }
                           />
                         ) : null}
+                        {message.id === unreadBoundaryId ? (
+                          <div
+                            className="weq-unread-divider"
+                            role="separator"
+                            aria-label="以下为未读消息"
+                          >
+                            <span aria-hidden>以下为未读消息</span>
+                          </div>
+                        ) : null}
                         <MessageRow
                           message={message}
                           groupPosition={groupPositions?.[index]}
@@ -6617,19 +6633,19 @@ function ChatPaneContent({
         refreshKey={`${conversation.id}:${visibleMessages.length}:${timelineEnabled}`}
       />
 
-      {newMessagePill > 0 ||
+      {showNewMessagePill ||
       (showBottomJump && mediaSettings.data?.showScrollToBottomButton !== false) ? (
         <div
           className="new-message-pill"
           role="group"
-          aria-label={newMessagePill > 0 ? '新消息' : '定位到底部'}
+          aria-label={bottomUnreadCount > 0 ? '新消息' : '定位到底部'}
         >
           {onPreviewLatest ? (
             <button
               className="new-message-preview"
               type="button"
-              title={newMessagePill > 0 ? '预览新消息' : '预览最新消息'}
-              aria-label={newMessagePill > 0 ? '预览新消息' : '预览最新消息'}
+              title={bottomUnreadCount > 0 ? '预览新消息' : '预览最新消息'}
+              aria-label={bottomUnreadCount > 0 ? '预览新消息' : '预览最新消息'}
               onClick={() => onPreviewLatest(conversation)}
             >
               <Eye size={15} />
@@ -6644,33 +6660,16 @@ function ChatPaneContent({
             onClick={() => void jumpToBottomAndRead()}
           >
             {jumpingToLatest ? <Loader2 size={14} /> : <ChevronDown size={14} strokeWidth={2.8} />}
-            {newMessagePill > 0 ? (
+            {bottomUnreadCount > 0 ? (
               <span>
                 <span className="weq-number weq-number-inherit">
-                  {formatUnreadJumpCount(newMessagePill)}
+                  {formatUnreadJumpCount(bottomUnreadCount)}
                 </span>{' '}
                 条新消息
               </span>
             ) : null}
           </button>
         </div>
-      ) : null}
-
-      {/* biome-ignore lint/correctness/noConstantCondition: 暂时禁用的「跳转首条未读」按钮,保留待恢复 */}
-      {false ? (
-        <button
-          className={cn('unread-jump-button')}
-          type="button"
-          onClick={jumpToFirstUnreadMessage}
-        >
-          <ChevronsUp size={21} strokeWidth={2.8} />
-          <span>
-            <span className="weq-number weq-number-inherit">
-              {formatUnreadJumpCount(unreadJump?.remaining ?? 0)}
-            </span>{' '}
-            条新消息
-          </span>
-        </button>
       ) : null}
 
       {/* 未读跳转坞：重要消息与索引共用类型色，普通未读保留原有样式。 */}

@@ -145,10 +145,10 @@ export function buildUnreadDock(input: {
     .filter((stop) => !hasRead || toBig(stop.seq) > read)
     .sort(bySeqDesc);
 
-  const firstUnreadSeq = firstUnread.toString();
-  if (hasRead && unread > 0 && !stops.some((stop) => stop.seq === firstUnreadSeq))
+  const firstUnreadSeq = hasRead && unread > 0 ? firstUnread.toString() : undefined;
+  if (firstUnreadSeq && !stops.some((stop) => stop.seq === firstUnreadSeq))
     stops.push({ kind: 'unread', seq: firstUnreadSeq });
 
   if (stops.length === 0) return null;
-  return { stops };
+  return firstUnreadSeq ? { stops, firstUnreadSeq } : { stops };
 }

@@ -9,7 +9,7 @@
 .chat-pane.with-message-history > .composer {
   grid-column: 1;
 }
-.chat-pane.with-message-history :is(.unread-dock-button, .unread-jump-button) {
+.chat-pane.with-message-history .unread-dock-button {
   right: calc(var(--group-info-panel-width) + 24px);
 }
 .chat-pane.with-message-history > .weq-panel-loading {
@@ -243,9 +243,7 @@ button.weq-history-summary:hover {
 :where(html[data-weq-layout='single']) .chat-pane.with-message-history > .weq-panel-loading {
   display: none;
 }
-:where(html[data-weq-layout='single'])
-  .chat-pane.with-message-history
-  :is(.unread-dock-button, .unread-jump-button) {
+:where(html[data-weq-layout='single']) .chat-pane.with-message-history .unread-dock-button {
   right: 12px;
 }
 html[data-theme='dark'] .weq-important-row:hover,

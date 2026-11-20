@@ -30,6 +30,63 @@ afterEach(() => {
 });
 
 describe('新消息按钮已读行为', () => {
+  it('历史跳转期间按真实已读水位标注起点，回到底部显示服务端剩余未读数', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((item) => item.type === 'direct')!;
+    const row = (seq: number) => ({
+      ...demo.messages[0]!,
+      id: `row-${seq}`,
+      msgSeq: String(seq),
+      msgId: String(seq),
+      conversationId: conversation.id,
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = (sequences: number[], confirmedReadSeq: string, unreadCount: number) =>
+      act(() =>
+        root.render(
+          createElement(ChatPane, {
+            user: demo.user,
+            conversation: { ...conversation, unreadCount },
+            draft: '',
+            atLatest: false,
+            messages: sequences.map(row),
+            loading: false,
+            groupConsecutiveMessages: true,
+            readThroughViewport: true,
+            confirmedReadSeq,
+          }),
+        ),
+      );
+    const marker = () => host.querySelector('[role="separator"][aria-label="以下为未读消息"]');
+    const markedId = () => marker()?.nextElementSibling?.getAttribute('data-message-id');
+    const count = () => host.querySelector('.new-message-bottom')?.textContent;
+    try {
+      render([105, 106], '100', 5);
+      expect(marker()).toBeNull();
+      expect(count()).toContain('5 条新消息');
+      render([100, 105, 106], '100', 5);
+      expect(markedId()).toBe('row-105');
+      render([100, 101, 105, 106], '100', 5);
+      expect(markedId()).toBe('row-101');
+      render([100, 101, 105, 106], '105', 2);
+      expect(markedId()).toBe('row-106');
+      expect(count()).toContain('2 条新消息');
+      render([100, 101, 105, 106], '105', 3);
+      expect(markedId()).toBe('row-106');
+      expect(count()).toContain('3 条新消息');
+      render([100, 101, 105, 106], '106', 0);
+      expect(marker()).toBeNull();
+      expect(count()).toBeUndefined();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
   it.each([
     [true, false],
     [false, false],
