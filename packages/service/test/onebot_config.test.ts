@@ -11,6 +11,8 @@
  * 都能读进来**，以及旧版全局配置不会在升级后凭空消失。
  */
 
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import {
   snapshotWeqApiSettings,
@@ -21,6 +23,14 @@ import { DEFAULT_SERVICE_PORTS } from '../src/common/service_ports';
 import { configFixture } from './support/user_config';
 
 const EMPTY = { networks: { wsServers: [], wsClients: [], httpServers: [], httpClients: [] } };
+
+function saveAccounts(root: string, ...uins: string[]): void {
+  const dir = join(root, 'config', 'accounts');
+  mkdirSync(dir, { recursive: true });
+  for (const uin of uins) {
+    writeFileSync(join(dir, `${uin}.json`), JSON.stringify({ uin, lastLoginAt: 1 }));
+  }
+}
 
 it('默认没有任何账号的配置，且与 MCP 互不影响', () => {
   const f = configFixture({
@@ -195,6 +205,59 @@ it('旧版全局 oneBot 迁移到 legacy 键，不会凭空消失', () => {
       httpClients: [],
     },
   });
+});
+
+it('账号启用 OneBot 时接续唯一账号的旧监听端口和令牌', () => {
+  const f = configFixture({
+    settings: {
+      oneBot: {
+        enabled: true,
+        webSocketServers: [
+          { id: 'legacy-a', name: '主 WS', enabled: true, port: 51234, token: 'legacy-token' },
+          { id: 'legacy-b', name: '主 WS', enabled: true, port: 51235, token: 'other-token' },
+        ],
+      },
+    },
+  });
+  saveAccounts(f.root, '10001');
+  f.open().oneBotConfigOnAccountOpen('10001');
+  const migrated = f.open().getSettings().oneBotByUin;
+  expect(migrated['10001']?.networks.wsServers).toMatchObject([
+    { name: '主 WS', enabled: true, port: 51234, accessToken: 'legacy-token' },
+    { name: '主 WS (2)', enabled: true, port: 51235, accessToken: 'other-token' },
+  ]);
+  expect(Object.keys(migrated)).toEqual(['10001']);
+});
+
+it('多个账号不自动领取旧全局配置，保存新配置时保留其他账号和旧配置', () => {
+  const f = configFixture({
+    settings: { oneBot: { enabled: true, port: 51234, token: 'legacy-token' } },
+  });
+  saveAccounts(f.root, '10001', '10002');
+  const config = f.open();
+  expect(config.oneBotConfigOnAccountOpen('10001')).toBeUndefined();
+  config.saveAccountOneBotConfig('10001', EMPTY);
+  config.saveAccountOneBotConfig('10002', EMPTY);
+  const settings = f.open().getSettings();
+  expect(Object.keys(settings.oneBotByUin)).toEqual(['10001', '10002', 'legacy']);
+  expect(settings.oneBotByUin.legacy?.networks.wsServers[0]?.accessToken).toBe('legacy-token');
+  expect(() => validateWeqApiSettings(snapshotWeqApiSettings(settings))).not.toThrow();
+});
+
+it('旧全局总开关关闭时，迁移不会重新打开已配置的端口', () => {
+  const f = configFixture({
+    settings: {
+      oneBot: {
+        enabled: false,
+        webSocketServers: [{ name: 'WS', port: 6700, enabled: true, token: 'ws-token' }],
+        httpServers: [{ name: 'HTTP', port: 6701, enabled: true, token: 'http-token' }],
+      },
+    },
+  });
+  saveAccounts(f.root, '10001');
+  const config = f.open().oneBotConfigOnAccountOpen('10001');
+  expect(config?.networks.wsServers[0]).toMatchObject({ enabled: false, port: 6700 });
+  expect(config?.networks.httpServers[0]).toMatchObject({ enabled: false, port: 6701 });
 });
 
 it('已有按账号配置时，旧全局配置不再覆盖', () => {

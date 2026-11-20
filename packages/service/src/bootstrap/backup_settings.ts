@@ -851,7 +851,7 @@ export function validateWeqApiSettings(
   if (api.oneBotByUin !== undefined) {
     const map = record(api.oneBotByUin, 'api.oneBotByUin');
     for (const [uin, config] of Object.entries(map)) {
-      if (!/^\d{5,20}$/.test(uin)) fail(`api.oneBotByUin.${uin}`);
+      if (uin !== 'legacy' && !/^\d{5,20}$/.test(uin)) fail(`api.oneBotByUin.${uin}`);
       assertOneBotConfig(config, `api.oneBotByUin.${uin}`);
     }
   }

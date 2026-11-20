@@ -818,11 +818,9 @@ function shutdownAccountOneBot(ctx: AppContext): void {
 }
 
 async function startAccountOneBot(ctx: AppContext, uin: string): Promise<void> {
-  const config = ctx.bootstrap?.userConfig.getSettings().oneBotByUin[uin];
-  // 没配 OneBot 就不拉 daemon：一个常驻进程加一个 socket 不值得。
-  if (!config) return;
-
   try {
+    const config = ctx.bootstrap?.userConfig.oneBotConfigOnAccountOpen(uin);
+    if (!config) return;
     await botRuntime.ensure(uin);
     await botRuntime.setOneBot(uin, config);
   } catch (cause) {

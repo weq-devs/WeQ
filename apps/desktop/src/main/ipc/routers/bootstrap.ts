@@ -1758,7 +1758,7 @@ export const bootstrapRouter = router({
 
       // 先落盘再下发：下发失败时页面能明确说「配置已保存，但 daemon 起不来」，
       // 而不是「保存失败」，让用户以为白改了。
-      userConfig.setSettings({ oneBotByUin: { [uin]: validated } });
+      userConfig.saveAccountOneBotConfig(uin, validated);
 
       if (ctx.account && !ctx.accountIsStatic) {
         try {
