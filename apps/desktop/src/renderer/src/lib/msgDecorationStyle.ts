@@ -20,6 +20,7 @@ import {
   bubbleContentAlignmentCss,
   bubbleFrameAnimationCss,
   bubbleLinkMentionRules,
+  bubbleMenuHighlightCss,
   bubbleRestrictsTextColor,
   fontFxRules,
   toFontFxSkin,
@@ -220,13 +221,8 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
       );
     }
 
-    // context-active highlight (can't rely on background when border-image is set)
     rules.push(
-      `.message-line[data-bubble="${skin.itemId}"] .message-bubble.context-active .message-content {`,
-      `  background: transparent;`,
-      `  outline: 2px solid var(--weq-accent-effective, #12a8ff);`,
-      `  outline-offset: -1px;`,
-      `}`,
+      bubbleMenuHighlightCss(`.message-line[data-bubble="${skin.itemId}"]`, skin.textColor),
     );
 
     // 文字色受限的气泡：链接 / @提及不再标蓝（会和气泡文字色冲突），改为继承气泡色 + 下划线。

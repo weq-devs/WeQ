@@ -514,6 +514,15 @@ function MessageBubbleBody({
     }
   }
 
+  function handleAvatarClick(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (event.detail) {
+      onAvatarClick?.(sender, { x: event.clientX, y: event.clientY });
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    onAvatarClick?.(sender, { x: rect.left, y: rect.bottom });
+  }
+
   const SelfAvatar = onAvatarClick ? 'button' : 'span';
   const incomingAvatar = !mine ? (
     conversation.generated?.kind === 'assistant' ? (
@@ -578,7 +587,7 @@ function MessageBubbleBody({
             className={cn('message-avatar-button')}
             title="查看资料"
             aria-label={`查看 ${senderName} 的资料`}
-            onClick={(event) => onAvatarClick(sender, { x: event.clientX, y: event.clientY })}
+            onClick={handleAvatarClick}
             onContextMenu={
               onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
             }
@@ -848,15 +857,7 @@ function MessageBubbleBody({
                 type: 'button',
                 title: '查看资料',
                 'aria-label': `查看 ${senderName} 的资料`,
-                onClick: (event: ReactMouseEvent<HTMLButtonElement>) => {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  onAvatarClick(
-                    sender,
-                    event.detail
-                      ? { x: event.clientX, y: event.clientY }
-                      : { x: rect.left, y: rect.bottom },
-                  );
-                },
+                onClick: handleAvatarClick,
               }
             : {})}
           onContextMenu={

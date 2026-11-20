@@ -2953,7 +2953,7 @@ export function ChatPane({
   }
 
   /** 右键消息「贴表情」：把表情面板锜在这条消息下面。 */
-  function openReactionPicker(message: Message) {
+  function openReactionPicker(message: Message, returnFocusTo: HTMLElement | null) {
     setContextMenu(null);
     if (messageReactionBlockedReason(message)) return;
     const idSelector = message.id.replace(/["\\]/g, '\\$&');
@@ -2963,7 +2963,7 @@ export function ChatPane({
     const rect = el?.getBoundingClientRect();
     setReactionPicker({
       message,
-      originElement: el,
+      originElement: returnFocusTo,
       x: rect
         ? Math.min(rect.left, Math.max(8, window.innerWidth - 336))
         : window.innerWidth / 2 - 160,
@@ -4897,9 +4897,10 @@ export function ChatPane({
 
   function handleTimelineKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
     if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+    const focused = timelineFocusedRow();
+    if (event.target !== event.currentTarget && event.target !== focused) return;
     const ids = visibleMessages.map((message) => message.id);
     if (!ids.length) return;
-    const focused = timelineFocusedRow();
     const currentId = focused?.dataset.messageId;
 
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -6369,10 +6370,7 @@ export function ChatPane({
                       sender={sender}
                       renderers={messageRenderers}
                       showSenderName={showSenderNames}
-                      active={
-                        contextMenu?.message.id === message.id ||
-                        jumpRequest?.messageId === message.id
-                      }
+                      active={contextMenu?.message.id === message.id}
                       deleted={deletedKeys.has(deletionIdentity(message.id))}
                       deletedKind={message.deletedKind}
                       recallRevokerName={message.recallRevokerName}
