@@ -200,7 +200,7 @@ try {
           await page.screenshot({ path: resolve(output, `repair-${width}-${theme}.png`) });
       }
       await openCategory('WeQ 服务');
-      await page.getByRole('button', { name: 'OneBot / cc-connect', exact: true }).click();
+      await page.getByRole('button', { name: 'OneBot', exact: true }).click();
       await page.getByRole('button', { name: 'WebSocket', exact: true }).click();
       const serverEditor = page.getByRole('dialog', { name: '新建 WebSocket 服务器', exact: true });
       await serverEditor.getByLabel('OneBot 服务器名称', { exact: true }).fill('嵌套编辑草稿');

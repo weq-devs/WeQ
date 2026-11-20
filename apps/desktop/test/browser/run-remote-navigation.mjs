@@ -403,7 +403,7 @@ try {
     .locator('.weq-settings-nav')
     .getByRole('button', { name: 'WeQ 服务', exact: true })
     .click();
-  await page.getByRole('button', { name: 'OneBot / cc-connect', exact: true }).click();
+  await page.getByRole('button', { name: 'OneBot', exact: true }).click();
   await page.getByRole('button', { name: 'WebSocket', exact: true }).click();
   const editor = page.getByRole('dialog', { name: '新建 WebSocket 服务器', exact: true });
   const draft = editor.getByLabel('OneBot 服务器名称', { exact: true });

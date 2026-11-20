@@ -127,6 +127,7 @@ export const SETTINGS_PAGE_ALIASES: Partial<Record<SettingsPageId, readonly stri
   privacy: ['隐私与应用锁', '应用锁', '隐私模式', 'applock'],
   'resource-loading': ['资源下载网络', '加载来源', '网络', 'CDN', '媒体来源', 'media', '媒体目录'],
   assistant: ['公众号推送', 'QQ 公众号'],
+  onebot: ['cc-connect'],
   sse: ['SSE 消息推送'],
   backup: ['设置备份', '备份与恢复'],
 };

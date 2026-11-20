@@ -368,13 +368,7 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual([
-        'Web 与 Remote',
-        'MCP 服务器',
-        'OneBot / cc-connect',
-        'SSE 推送',
-        'QQ 公众号推送',
-      ]);
+      ).toEqual(['Web 与 Remote', 'MCP 服务器', 'OneBot', 'SSE 推送', 'QQ 公众号推送']);
       expect(f.host.textContent).not.toContain('后台服务');
       expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
       f.render('global', {

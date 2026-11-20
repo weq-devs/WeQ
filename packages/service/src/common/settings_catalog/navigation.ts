@@ -36,7 +36,7 @@ export const SETTINGS_PAGE_LABELS = {
   'resource-loading': '资源加载',
   remote: 'Web 与 Remote',
   mcp: 'MCP 服务器',
-  onebot: 'OneBot / cc-connect',
+  onebot: 'OneBot',
   sse: 'SSE 推送',
   assistant: 'QQ 公众号推送',
   privacy: '隐私',

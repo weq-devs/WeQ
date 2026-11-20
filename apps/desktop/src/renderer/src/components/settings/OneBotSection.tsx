@@ -20,7 +20,6 @@ import {
   RadioTower,
   RefreshCw,
   Save,
-  Server,
   Trash2,
   Upload,
   X,
@@ -34,6 +33,7 @@ import { useDraftClose } from '../../lib/draftClose';
 import { z } from 'zod';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
+import { SETTINGS_PAGE_LABELS } from './navigation';
 import '../../styles/settings-onebot.css';
 
 /**
@@ -361,13 +361,11 @@ export function OneBotSection(): ReactElement {
   );
 
   const draftMeta = draft ? NETWORKS.find((meta) => meta.key === draft.key) : null;
-  const wsServers = (config?.networks.wsServers ?? []) as ControlWsServer[];
-  const firstWs = wsServers.find((server) => server.enabled !== false);
 
   return (
     <div className="weq-set weq-set-onebot">
       <SectionHeader
-        title="OneBot / cc-connect"
+        title={SETTINGS_PAGE_LABELS.onebot}
         page="onebot"
         desc="网络配置按账号保存，由 weqbot daemon 执行。端口被占用时直接报错、不会自动顺延 —— 客户端里写死的就是这个端口。"
       />
@@ -532,30 +530,6 @@ export function OneBotSection(): ReactElement {
           </Card>
         );
       })}
-
-      <Card title="cc-connect 配置" icon={<Server size={15} strokeWidth={1.8} />}>
-        <Row
-          label="正向 WebSocket"
-          desc={firstWs ? `使用「${firstWs.name}」。` : '启用任意一个正向 WebSocket 后即可生成。'}
-          control={
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={!firstWs}
-              onClick={() => {
-                if (!firstWs) return;
-                const url = endpointOf('wsServers', firstWs as unknown as Record<string, unknown>);
-                void copy(
-                  `[[projects.platforms]]\ntype = "qq"\n[projects.platforms.options]\nws_url = "${url}"\ntoken = "${firstWs.accessToken ?? ''}"\nallow_from = "填写你的 QQ 号"\ngroup_require_mention = true\n`,
-                );
-              }}
-            >
-              <Copy size={14} />
-              复制配置
-            </button>
-          }
-        />
-      </Card>
 
       {draft && draftMeta ? (
         <EditorDialog
