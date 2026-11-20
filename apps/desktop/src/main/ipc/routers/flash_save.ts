@@ -45,7 +45,12 @@ export async function openFlashDownloadOutput(
 
 /** 目录选择取消时不解析目录、不创建任务；宿主负责分别记忆闪传的保存位置。 */
 export async function startFlashDownloads(
-  input: { filesetName: string; selections: FlashSelection[]; directory?: string },
+  input: {
+    filesetName: string;
+    selections: FlashSelection[];
+    directory?: string;
+    viewFilesetId?: string;
+  },
   manager: Pick<FlashTransferDownloadManager, 'start'>,
   host: Pick<HostBridge, 'exportRoot' | 'pickDirectory' | 'pickSaveTarget'>,
   current: () => void,
@@ -66,6 +71,7 @@ export async function startFlashDownloads(
       input.selections[0]!.filesetId,
       input.selections,
       destination.directory,
+      ...(input.viewFilesetId ? [input.viewFilesetId] : []),
     )),
     cancelled: false,
   };

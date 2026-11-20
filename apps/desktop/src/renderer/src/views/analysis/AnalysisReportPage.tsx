@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useRef } from 'react';
 import { Modal } from '../../components/Dialog';
 import { useViewState } from '../../state/view';
 import { AnnualReportView } from '../annual-report/AnnualReportView';
@@ -26,6 +26,8 @@ export function AnalysisReportPage({
 }) {
   const account = useViewState((state) => state.openedUin);
   const titleId = useId();
+  const closeRequest = useRef<(() => void) | null>(null);
+  const close = () => (closeRequest.current ?? onClose)();
   if (account !== request.scope.expectedAccountUin) return null;
   return (
     <Modal
@@ -34,7 +36,7 @@ export function AnalysisReportPage({
       className="weq-tools-modal"
       labelledBy={titleId}
       dismissOnOutside={false}
-      onClose={onClose}
+      onClose={close}
     >
       <section className="weq-analysis-result">
         <header className="weq-analysis-result-head">
@@ -57,7 +59,7 @@ export function AnalysisReportPage({
           <button
             type="button"
             className="weq-page-close"
-            onClick={onClose}
+            onClick={close}
             title="关闭分析报告"
             aria-label="关闭分析报告"
           >
@@ -72,7 +74,12 @@ export function AnalysisReportPage({
               instanceKey={request.id}
             />
           ) : (
-            <SavedAnalysisBody key={request.id} request={request} onClose={onClose} />
+            <SavedAnalysisBody
+              key={request.id}
+              request={request}
+              onClose={onClose}
+              closeRequest={closeRequest}
+            />
           )}
         </div>
       </section>

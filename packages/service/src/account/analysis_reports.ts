@@ -68,7 +68,10 @@ export class AnalysisReportsService extends EventEmitter {
     number,
     { resolve(value: unknown): void; reject(error: Error): void }
   >();
-  private runs = new Map<string, { controller: AbortController; done: Promise<void> }>();
+  private runs = new Map<
+    string,
+    { controller: AbortController; started: Promise<void>; done: Promise<void> }
+  >();
   private closing = false;
   private closed = false;
   private failure?: Error;
@@ -134,9 +137,9 @@ export class AnalysisReportsService extends EventEmitter {
     if (!report) throw new Error('报告已不存在');
     return normalizedReport(report);
   }
-  private async save(report: SavedAnalysisReport) {
+  private async save(report: SavedAnalysisReport, foreground = false) {
     report.updatedAt = Math.max(Date.now(), report.updatedAt + 1);
-    await this.call('put', report);
+    await this.call('put', { ...report, foreground });
     this.emit('changed', report.request.id);
   }
   async create(request: SavedAnalysisRequest) {
@@ -169,33 +172,49 @@ export class AnalysisReportsService extends EventEmitter {
       resultRevision: 0,
       position: 0,
       updatedAt: Date.now(),
+      taskHidden: true,
     };
     await this.save(report);
     return report;
   }
-  async resume(id: string, refresh = false) {
+  async resume(id: string, refresh = false, foreground = false) {
     if (this.closing) throw new Error('账号正在关闭');
-    if (this.runs.has(id)) return;
+    const active = this.runs.get(id);
+    if (active) return active.started;
     const controller = new AbortController();
-    const done = this.execute(id, controller.signal, refresh)
+    let reportStarted!: () => void;
+    let rejectStart!: (error: unknown) => void;
+    const started = new Promise<void>((resolve, reject) => {
+      reportStarted = resolve;
+      rejectStart = reject;
+    });
+    const done = this.execute(id, controller.signal, refresh, foreground, reportStarted)
       .catch((error: unknown) => {
+        rejectStart(error);
         this.emit('storageError', error);
       })
       .finally(() => this.runs.delete(id));
-    this.runs.set(id, { controller, done });
+    this.runs.set(id, { controller, started, done });
+    return started;
   }
-  private async execute(id: string, signal: AbortSignal, refresh: boolean) {
+  private async execute(
+    id: string,
+    signal: AbortSignal,
+    refresh: boolean,
+    foreground: boolean,
+    started: () => void,
+  ) {
     const report = await this.get(id);
-    if (report.status === 'completed' && !refresh) return;
+    if (report.status === 'completed' && !refresh) return started();
     if (refresh) {
       report.pending = {};
       report.completed = [];
       report.revision++;
     }
     report.status = 'running';
-    report.taskHidden = false;
     delete report.error;
-    await this.save(report);
+    await this.save(report, foreground);
+    started();
     const stages = report.request.kind === 'group' ? ['report', 'batches', 'graph'] : ['report'];
     try {
       for (const stage of stages) {
@@ -260,11 +279,20 @@ export class AnalysisReportsService extends EventEmitter {
   async position(id: string, position: number) {
     await this.call('position', { id, position });
   }
+  async background(id: string) {
+    await this.call('taskVisibility', { id, hidden: false });
+    this.emit('changed', id);
+  }
+  async pauseForeground(id: string) {
+    const active = this.runs.get(id);
+    if (!active) return;
+    await active.started;
+    if ((await this.call<boolean>('taskHidden', { id })) && this.runs.get(id) === active)
+      await this.pause(id);
+  }
   async hideTask(id: string) {
-    const report = await this.get(id);
-    if (report.status === 'running') throw new Error('请先停止分析');
-    report.taskHidden = true;
-    await this.save(report);
+    await this.call('taskVisibility', { id, hidden: true });
+    this.emit('changed', id);
   }
   async revise(id: string, range: { startTime: number; endTime: number }) {
     if (range.startTime > range.endTime) throw new Error('分析日期范围无效');
@@ -273,7 +301,7 @@ export class AnalysisReportsService extends EventEmitter {
     report.request.scope = { ...report.request.scope, ...range };
     report.request.period = analysisPeriod(report.request);
     await this.save(report);
-    await this.resume(id, true);
+    await this.resume(id, true, true);
   }
   async remove(id: string) {
     await this.cancel(id);

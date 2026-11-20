@@ -26,6 +26,7 @@ const receiptSchema = downloadTaskReceipt.extend({
     .optional(),
   details: z.array(z.string()).optional(),
   clonePersonaId: z.string().optional(),
+  foreground: z.boolean().optional(),
   request: z.unknown().optional(),
 });
 type Receipt = z.infer<typeof receiptSchema>;
@@ -76,6 +77,7 @@ export function recordAccountTask(taskId: string, scope?: BackgroundTaskScope, r
       display: task.display,
       details: task.details?.slice(0, 1000),
       clonePersonaId: task.clonePersonaId,
+      foreground: task.foreground,
       request: snapshot ?? request ?? store.data.find((item) => item.id === taskId)?.request,
     };
     const next = [...store.data.filter((item) => item.id !== taskId), receipt];
@@ -195,6 +197,9 @@ export function restoreRecordedTasks(
     backgroundTasks.project(
       {
         ...saved,
+        // 进程中断后，仍需核对的收藏导入可从已保存回执找回。
+        foreground:
+          saved.foreground && !(saved.kind === 'favorite-import' && status !== 'completed'),
         scope,
         status,
         note,

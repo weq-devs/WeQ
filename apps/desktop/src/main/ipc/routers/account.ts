@@ -7485,13 +7485,21 @@ export const accountRouter = router({
         filesetName: z.string().optional().default(''),
         selections: z.array(flashSelectionSchema).min(1),
         directory: z.string().min(1).optional(),
+        viewFilesetId: z.string().min(1).optional(),
+        expectedAccountUin: z.string().optional(),
+        expectedAccountConfigId: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      const svc = requireServices().flashTransferFiles;
+      const current = () =>
+        input.viewFilesetId
+          ? requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId)
+          : requireServices();
+      if (input.viewFilesetId && (!input.expectedAccountUin || !input.expectedAccountConfigId))
+        throw new Error('账号尚未就绪');
+      const svc = current().flashTransferFiles;
       return startFlashDownloads(input, svc.downloads, getHost(), () => {
-        if (requireServices().flashTransferFiles !== svc)
-          throw new Error('账号已切换，请重新开始下载');
+        if (current().flashTransferFiles !== svc) throw new Error('账号已切换，请重新开始下载');
       });
     }),
 
@@ -7501,12 +7509,55 @@ export const accountRouter = router({
     const downloads = services.flashTransferFiles.downloads;
     await downloads.load();
     if (requireServices() !== services) throw new Error('账号已切换');
-    return downloads.list().map(({ logs: _logs, files, ...task }) => ({
-      ...task,
-      logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
-      files: files.map(({ logs: _fileLogs, ...file }) => file),
-    }));
+    return downloads
+      .list((task) => !task.foreground)
+      .map(({ logs: _logs, files, ...task }) => ({
+        ...task,
+        logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
+        files: files.map(({ logs: _fileLogs, ...file }) => file),
+      }));
   }),
+
+  flashViewDownloads: procedure
+    .input(generatedAccountInput.extend({ filesetId: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const current = () =>
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const services = current();
+      const downloads = services.flashTransferFiles.downloads;
+      await downloads.load();
+      if (current() !== services) throw new Error('账号已切换');
+      return downloads
+        .list((file) => file.viewFilesetId === input.filesetId, false)
+        .map((batch) => ({
+          id: batch.id,
+          foreground: batch.foreground === true,
+          status: batch.status,
+          paused: batch.interrupted === true,
+          canRetry: batch.canRetry === true,
+          fileSize: batch.fileSize,
+          downloadedBytes: batch.downloadedBytes,
+          error: batch.error,
+          files: batch.files.map(({ id, relativePath, status, fileSize, downloadedBytes }) => ({
+            id,
+            relativePath,
+            status,
+            fileSize,
+            downloadedBytes,
+          })),
+        }));
+    }),
+
+  flashBackgroundDownload: procedure
+    .input(
+      generatedAccountInput.extend({ taskId: z.string().uuid(), filesetId: z.string().min(1) }),
+    )
+    .mutation(({ input }) =>
+      requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).flashTransferFiles.downloads.background(input.taskId, input.filesetId),
+    ),
 
   flashDownloadTaskLogs: procedure
     .input(generatedAccountInput.extend({ taskId: z.string().min(1), version: z.number() }))
@@ -7520,18 +7571,26 @@ export const accountRouter = router({
 
   /** 取消单个下载任务（进行中的会中断下载）。 */
   flashCancelDownloadTask: procedure
-    .input(z.object({ taskId: z.string().min(1) }))
+    .input(generatedAccountInput.partial().extend({ taskId: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      return requireServices().flashTransferFiles.downloads.cancel(input.taskId);
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).flashTransferFiles.downloads.cancel(input.taskId);
     }),
 
   flashPauseDownloadTask: procedure
-    .input(generatedAccountInput.extend({ taskId: z.string().min(1) }))
+    .input(
+      generatedAccountInput.extend({
+        taskId: z.string().min(1),
+        foregroundOnly: z.boolean().optional(),
+      }),
+    )
     .mutation(({ input }) =>
       requireExpectedAccount(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
-      ).flashTransferFiles.downloads.pause(input.taskId),
+      ).flashTransferFiles.downloads.pause(input.taskId, input.foregroundOnly),
     ),
 
   flashRetryDownloadTask: procedure

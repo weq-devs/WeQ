@@ -236,7 +236,11 @@ export function createAnalysisReportsRouter(
       .query(({ input }) => store(input).version(input.id, input.version)),
     resume: procedure
       .input(ref.extend({ refresh: z.boolean().optional() }))
-      .mutation(({ input }) => store(input).resume(input.id, input.refresh)),
+      .mutation(({ input }) => store(input).resume(input.id, input.refresh, true)),
+    background: procedure.input(ref).mutation(({ input }) => store(input).background(input.id)),
+    pauseForeground: procedure
+      .input(ref)
+      .mutation(({ input }) => store(input).pauseForeground(input.id)),
     revise: procedure
       .input(
         ref.extend({
@@ -246,7 +250,7 @@ export function createAnalysisReportsRouter(
       )
       .mutation(({ input }) => store(input).revise(input.id, input)),
     cancel: procedure.input(ref).mutation(({ input }) => store(input).cancel(input.id)),
-    retry: procedure.input(ref).mutation(({ input }) => store(input).resume(input.id)),
+    retry: procedure.input(ref).mutation(({ input }) => store(input).resume(input.id, false, true)),
     remove: procedure.input(ref).mutation(({ input }) => store(input).remove(input.id)),
     position: procedure
       .input(ref.extend({ position: z.number().nonnegative().finite() }))

@@ -42,7 +42,12 @@ vi.mock('../src/renderer/src/components/Toast.shared', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { account: { searchTargets: { group: { useQuery: () => fixture } } } },
-  client: { account: { flashListFiles: { query: async () => ({ files: [] }) } } },
+  client: {
+    account: {
+      getAccountConfig: { query: async () => null },
+      flashListFiles: { query: async () => ({ files: [] }) },
+    },
+  },
 }));
 
 afterEach(() => {

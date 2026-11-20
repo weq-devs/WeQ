@@ -9,6 +9,8 @@ const entries = [
 ];
 export const client = {
   account: {
+    getAccountConfig: { query: async () => ({ uin: '10001', configId: 'fixture' }) },
+    flashViewDownloads: { query: async () => [] },
     flashListFiles: {
       query: async () => ({
         files: entries.map((file, index) => ({

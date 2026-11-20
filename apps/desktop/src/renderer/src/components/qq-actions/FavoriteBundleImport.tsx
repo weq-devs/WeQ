@@ -6,6 +6,7 @@ import {
   FolderOpen,
   ImageOff,
   ImagePlus,
+  ListTodo,
   Loader2,
   RefreshCw,
   Upload,
@@ -103,10 +104,21 @@ export function FavoriteBundleImport({
         if (mounted.current) setError('导入已结束，但收藏列表刷新失败；请重新读取，不要直接重传');
       });
   }, [stage?.token, stage?.phase]);
-  const publish = async (view: FavoriteEmojiImportPreview | null) => {
+  const publish = async (
+    view: (FavoriteEmojiImportPreview & { backgrounded?: boolean }) | null,
+  ) => {
     if (!binding || !mounted.current) return;
     await utils.account.qqActions.favoriteImportState.cancel(binding);
-    if (mounted.current) utils.account.qqActions.favoriteImportState.setData(binding, view);
+    if (mounted.current)
+      utils.account.qqActions.favoriteImportState.setData(
+        binding,
+        (previous) =>
+          view && {
+            ...view,
+            backgrounded:
+              view.backgrounded ?? (previous?.token === view.token && previous.backgrounded),
+          },
+      );
   };
   async function choose() {
     if (!binding || !available || inFlight.current || running) return;
@@ -217,8 +229,27 @@ export function FavoriteBundleImport({
   }
   function close() {
     if (pending) return;
-    if (stage && (running || stage.phase === 'ready')) void stop(true);
+    if (stage && ((running && !stage.backgrounded) || stage.phase === 'ready')) void stop(true);
     else setOpen(false);
+  }
+  async function background() {
+    if (!binding || !stage || !running || stage.backgrounded || inFlight.current) return;
+    inFlight.current = true;
+    setPending(true);
+    setError('');
+    try {
+      const view = await client.account.qqActions.favoriteImportBackground.mutate({
+        ...binding,
+        token: stage.token,
+      });
+      await publish(view);
+      if (mounted.current) setOpen(false);
+    } catch (reason) {
+      if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setPending(false);
+    }
   }
   async function recheck() {
     if (!binding || !active || inFlight.current) return;
@@ -330,6 +361,16 @@ export function FavoriteBundleImport({
                     onClick={() => void start()}
                   >
                     <Upload size={16} />
+                  </ActionIcon>
+                )}
+                {running && !stage.backgrounded && (
+                  <ActionIcon
+                    text="后台进行"
+                    label="在后台继续导入收藏表情"
+                    disabled={pending || stage.cancelling}
+                    onClick={() => void background()}
+                  >
+                    <ListTodo size={16} />
                   </ActionIcon>
                 )}
                 {running && (

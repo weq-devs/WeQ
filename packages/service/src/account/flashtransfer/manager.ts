@@ -223,8 +223,11 @@ export class FlashTransferDownloadManager extends EventEmitter {
   }
 
   /** 按下载操作归并，文件明细保留在 files 中，新的在前。 */
-  list(): FlashDownloadBatch[] {
-    return groupFlashDownloads(this.tasks)
+  list(filter?: (task: FlashDownloadTask) => boolean, withLogs = true): FlashDownloadBatch[] {
+    const tasks = filter ? this.tasks.filter(filter) : this.tasks;
+    return groupFlashDownloads(
+      withLogs ? tasks : tasks.map((task) => ({ ...task, logs: undefined })),
+    )
       .map((task) => ({
         ...task,
         canRetry:
@@ -291,10 +294,33 @@ export class FlashTransferDownloadManager extends EventEmitter {
     filesetId: string,
     selections: FlashSelection[],
     directory: string,
+    viewFilesetId?: string,
   ): Promise<{ started: number; errors: string[]; taskId?: string }> {
     const request = this.startQueue.then(() =>
-      this.enqueue(filesetName, filesetId, selections, directory),
+      this.enqueue(filesetName, filesetId, selections, directory, viewFilesetId),
     );
+    this.startQueue = request.catch(() => {});
+    return request;
+  }
+
+  background(taskId: string, viewFilesetId: string): Promise<boolean> {
+    const request = this.startQueue.then(async () => {
+      await this.loading;
+      const batch = this.tasks.filter(
+        (file) => file.batchId === taskId && file.viewFilesetId === viewFilesetId,
+      );
+      if (!batch.length) return false;
+      const foreground = batch.filter((file) => file.foreground);
+      if (!foreground.length) return true;
+      for (const file of foreground) file.foreground = false;
+      try {
+        await this.persist(true);
+      } catch (error) {
+        for (const file of foreground) file.foreground = true;
+        throw error;
+      }
+      return true;
+    });
     this.startQueue = request.catch(() => {});
     return request;
   }
@@ -304,6 +330,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
     filesetId: string,
     selections: FlashSelection[],
     directory: string,
+    viewFilesetId?: string,
   ) {
     await this.loading;
     if (!isAbsolute(directory) || !(await lstat(directory)).isDirectory())
@@ -340,6 +367,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       newTasks.push({
         id: randomUUID(),
         batchId,
+        ...(viewFilesetId ? { viewFilesetId, foreground: true } : {}),
         filesetId: f.filesetId || filesetId,
         filesetName: filesetName || '闪传下载',
         name: f.name,
@@ -367,12 +395,13 @@ export class FlashTransferDownloadManager extends EventEmitter {
     return { started: newTasks.length, errors, taskId: newTasks.length ? batchId : undefined };
   }
 
-  /** 取消整次下载操作，已完成的文件保留。 */
-  async pause(taskId: string): Promise<boolean> {
+  /** 暂停整次下载操作，已完成的文件保留。 */
+  async pause(taskId: string, foregroundOnly = false): Promise<boolean> {
     await this.loading;
     const files = this.tasks.filter(
       (task) =>
         (task.batchId ?? task.id) === taskId &&
+        (!foregroundOnly || task.foreground) &&
         !this.publishing.has(task.id) &&
         ['pending', 'resolving', 'downloading'].includes(task.status),
     );

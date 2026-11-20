@@ -109,6 +109,14 @@ export function createQQActionsRouter(
   assertWritable?: (input: QQWriteBinding) => void,
 ) {
   const busy = new WeakSet<QQActionServices>();
+  const favoriteImports = new WeakMap<
+    QQActionServices,
+    {
+      token: string;
+      id: string;
+      save: ReturnType<typeof recordAccountTask>;
+    }
+  >();
   const videoStaging = new AlbumVideoStaging();
   const pending = new WeakMap<
     QQActionServices,
@@ -911,9 +919,17 @@ export function createQQActionsRouter(
           );
         }),
       ),
-    favoriteImportState: procedure
-      .input(binding)
-      .query(({ input: i }) => resolveStatus(i).favoriteEmojiImport.read()),
+    favoriteImportState: procedure.input(binding).query(({ input: i }) => {
+      const services = resolveStatus(i);
+      const view = services.favoriteEmojiImport.read();
+      const tracked = favoriteImports.get(services);
+      if (!view) return null;
+      const task =
+        tracked?.token === view.token
+          ? backgroundTasks.snapshot().find((task) => task.id === tracked.id)
+          : undefined;
+      return { ...view, backgrounded: Boolean(task && !task.foreground) };
+    }),
     favoriteImportStart: procedure
       .input(
         binding.extend({
@@ -927,6 +943,7 @@ export function createQQActionsRouter(
         const scope = { uin: i.expectedAccountUin, configId: i.expectedAccountConfigId };
         const id = backgroundTasks.start({
           kind: 'favorite-import',
+          foreground: true,
           name: '收藏表情导入',
           display: { action: '导入收藏表情', subject: `${i.keys.length} 张` },
           scope,
@@ -966,6 +983,7 @@ export function createQQActionsRouter(
               },
             },
           ]);
+          favoriteImports.set(s, { token: i.token, id, save });
           return view;
         } catch (error) {
           backgroundTasks.finish(id, 'failed', { note: taskError(error) });
@@ -976,6 +994,32 @@ export function createQQActionsRouter(
           }
           throw error;
         }
+      }),
+    favoriteImportBackground: procedure
+      .input(binding.extend({ token: z.string().uuid() }))
+      .mutation(({ input: i }) => {
+        const services = resolveStatus(i);
+        const view = services.favoriteEmojiImport.read();
+        const tracked = favoriteImports.get(services);
+        if (
+          !tracked ||
+          tracked.token !== i.token ||
+          view?.token !== i.token ||
+          (view.phase !== 'running' && view.phase !== 'finished')
+        )
+          throw new Error('此导入批次已改变，请刷新');
+        const task = backgroundTasks.snapshot().find((candidate) => candidate.id === tracked.id);
+        if (!task) throw new Error('导入进度已失效，请刷新收藏结果');
+        if (task.foreground) {
+          backgroundTasks.setForeground(task.id, false);
+          try {
+            tracked.save();
+          } catch (error) {
+            backgroundTasks.setForeground(task.id, true);
+            throw error;
+          }
+        }
+        return { ...view, backgrounded: true };
       }),
     favoriteImportCancel: procedure
       .input(binding.extend({ token: z.string().uuid() }))

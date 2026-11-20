@@ -29,6 +29,8 @@ export interface BackgroundTask {
   scope?: BackgroundTaskScope;
   /** 页面临时任务的归属标识；不设置时保留正常后台历史。 */
   ownerId?: string;
+  /** 业务仍在运行或保留回执，交给后台后才在统一列表显示。 */
+  foreground?: boolean;
   destination?: 'db-checkup' | 'enhancement-packs';
   status: BackgroundTaskStatus;
   statusLabel?: string;
@@ -134,7 +136,10 @@ export class BackgroundTaskRegistry {
   };
 
   start(
-    input: Pick<BackgroundTask, 'name' | 'kind' | 'scope' | 'destination' | 'ownerId' | 'display'> &
+    input: Pick<
+      BackgroundTask,
+      'name' | 'kind' | 'scope' | 'destination' | 'ownerId' | 'display' | 'foreground'
+    > &
       TaskPatch,
   ) {
     const now = Date.now();
@@ -160,6 +165,12 @@ export class BackgroundTaskRegistry {
     // 已结束记录不能被迟到的进度事件重新改写。
     this.change(id, (task) =>
       task.status === 'running' ? this.record(task, { ...task, ...patch }, patch.logs) : task,
+    );
+  }
+
+  setForeground(id: string, foreground: boolean) {
+    this.change(id, (task) =>
+      Boolean(task.foreground) === foreground ? task : { ...task, foreground },
     );
   }
 

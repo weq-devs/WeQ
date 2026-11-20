@@ -164,3 +164,39 @@ it('暂停闪传收尾前不能启动同一批，收尾后可重试未完成文�
     await rm(dir, { force: true, recursive: true });
   }
 });
+
+it('交给后台只登记选中的下载批次，重开后保留批次身份', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'weq-flash-background-'));
+  const pending = Promise.withResolvers<string>();
+  vi.spyOn(FlashTransferResolver.prototype, 'resolveDownloads').mockResolvedValue({
+    files: [{ name: 'a', relativePath: 'a', physicalId: 'p', fileSize: 10, filesetId: 'zip' }],
+    errors: [],
+  });
+  const urls = vi
+    .spyOn(FlashTransferClient.prototype, 'getDownloadUrl')
+    .mockReturnValue(pending.promise);
+  try {
+    const manager = new FlashTransferDownloadManager(dir);
+    const a = (await manager.start('合成操作', 'zip', [], dir, 'share')).taskId!;
+    const b = (await manager.start('合成操作', 'zip', [], dir, 'share')).taskId!;
+    const visible = (source: FlashTransferDownloadManager) =>
+      source.list((task) => !task.foreground).map((batch) => batch.id);
+    expect(visible(manager)).toEqual([]);
+    expect(await manager.background(a, '另一个分享')).toBe(false);
+    expect(await manager.background(a, 'share')).toBe(true);
+    expect(visible(manager)).toEqual([a]);
+    expect(await manager.pause(a, true)).toBe(false);
+    expect(await manager.pause(b, true)).toBe(true);
+    expect(urls).toHaveBeenCalledTimes(2);
+    await manager.cancel(a);
+    pending.resolve('unused');
+    await vi.waitFor(() => expect(manager.list().every((batch) => batch.canRetry)).toBe(true));
+    const reopened = new FlashTransferDownloadManager(dir);
+    await reopened.load();
+    expect(visible(reopened)).toEqual([a]);
+    expect(reopened.list((task) => task.viewFilesetId === 'share')).toHaveLength(2);
+  } finally {
+    pending.resolve('unused');
+    await rm(dir, { force: true, recursive: true });
+  }
+});

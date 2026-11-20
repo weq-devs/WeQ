@@ -20,6 +20,7 @@ import {
 import type { QQGroupPermissionContext } from '@weq/service/qq-permissions';
 import type { GroupTodoView } from '@weq/service';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
+import { backgroundTasks } from '../src/main/background_tasks';
 
 vi.mock('../src/main/account_task_receipts', () => ({
   recordAccountTask: () => vi.fn(),
@@ -347,6 +348,21 @@ describe('收藏包导入路由', () => {
         keys: [view.items[0]!.key],
       });
       await vi.waitFor(() => expect(add).toHaveBeenCalledOnce());
+      const task = backgroundTasks.snapshot().find((task) => task.kind === 'favorite-import')!;
+      expect(task.foreground).toBe(true);
+      expect((await f.caller.favoriteImportState(binding))?.backgrounded).toBe(false);
+      await expect(
+        f.caller.favoriteImportBackground({
+          ...binding,
+          token: '8f872727-9d76-40ee-bff2-b2dd180b4158',
+        }),
+      ).rejects.toThrow('批次已改变');
+      expect(
+        (await f.caller.favoriteImportBackground({ ...binding, token: view.token })).backgrounded,
+      ).toBe(true);
+      expect(
+        backgroundTasks.snapshot().filter((item) => item.kind === 'favorite-import'),
+      ).toMatchObject([{ id: task.id, foreground: false }]);
       await expect(f.caller.favorite({ ...binding, action: 'delete', emojiId })).rejects.toThrow(
         '等待',
       );

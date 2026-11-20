@@ -5,7 +5,19 @@ import { FlashTransferViewer } from '../src/renderer/src/components/FlashTransfe
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 
 const fixture = vi.hoisted(() => ({
-  start: vi.fn(async () => ({ started: 2, errors: [], cancelled: false })),
+  start: vi.fn(
+    async (
+      _input: unknown,
+    ): Promise<{ started: number; errors: string[]; cancelled: boolean; taskId?: string }> => ({
+      started: 2,
+      errors: [],
+      cancelled: false,
+      taskId: 'batch-a',
+    }),
+  ),
+  list: vi.fn(async (_input: unknown) => [] as unknown[]),
+  background: vi.fn(async (_input: unknown) => true),
+  pause: vi.fn(async (_input: unknown) => true),
   toast: vi.fn(),
 }));
 vi.mock('../src/renderer/src/components/Dialog', () => ({
@@ -26,6 +38,10 @@ vi.mock('../src/renderer/src/lib/resourceUrl', () => ({ fileIconUrl: (name: stri
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
+      getAccountConfig: { query: async () => ({ uin: '10001', configId: 'source' }) },
+      flashViewDownloads: { query: fixture.list },
+      flashBackgroundDownload: { mutate: fixture.background },
+      flashPauseDownloadTask: { mutate: fixture.pause },
       flashListFiles: {
         query: async () => ({
           files: ['a.txt', 'b.txt'].map((name) => ({
@@ -43,6 +59,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 
 afterEach(() => {
   vi.clearAllMocks();
+  fixture.list.mockResolvedValue([]);
   vi.unstubAllGlobals();
 });
 
@@ -67,7 +84,7 @@ it('取消保存目录后保留勾选，不关闭浏览弹窗或打开任务面�
   }
 });
 
-it('多选只提交一次下载操作，成功后进入常规任务入口，不展示独立列表', async () => {
+it('多选只提交一批，页内可交给后台，关闭时只暂停剩余前台批次', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   const root = createRoot(host);
@@ -79,19 +96,57 @@ it('多选只提交一次下载操作，成功后进入常规任务入口，不�
     );
     act(() => host.querySelector<HTMLInputElement>('.weq-ft-select-all input')!.click());
     expect(host.textContent).toContain('已选 2 项');
+    fixture.list.mockResolvedValue([
+      {
+        id: 'batch-a',
+        foreground: true,
+        status: 'downloading',
+        fileSize: 200,
+        downloadedBytes: 60,
+        files: [{ id: 'a', relativePath: 'a.txt', status: 'downloading' }],
+      },
+      {
+        id: 'batch-b',
+        foreground: true,
+        status: 'downloading',
+        fileSize: 200,
+        downloadedBytes: 80,
+        files: [{ id: 'b', relativePath: 'b.txt', status: 'downloading' }],
+      },
+    ]);
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-ft-btn-primary')!.click());
     expect(fixture.start).toHaveBeenCalledOnce();
     expect(fixture.start.mock.calls[0]).toEqual([
       expect.objectContaining({
+        viewFilesetId: 'fixture',
         selections: expect.arrayContaining([
           expect.objectContaining({ name: 'a.txt' }),
           expect.objectContaining({ name: 'b.txt' }),
         ]),
       }),
     ]);
-    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(before + 1);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(before);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(host.querySelectorAll('[aria-label="本批次下载进度"]')).toHaveLength(2);
+    fixture.start.mockResolvedValueOnce({
+      started: 2,
+      errors: [],
+      cancelled: false,
+      taskId: 'batch-b',
+    });
+    act(() => host.querySelector<HTMLInputElement>('.weq-ft-select-all input')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('.weq-ft-btn-primary')!.click());
+    const first = host.querySelector('[aria-label="下载 a.txt"]')!;
+    const backgroundButton = [...first.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('后台进行'),
+    )!;
+    await act(async () => backgroundButton.click());
+    expect(fixture.background).toHaveBeenCalledWith(expect.objectContaining({ taskId: 'batch-a' }));
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click());
     expect(onClose).toHaveBeenCalledOnce();
-    expect(host.textContent).not.toContain('闪传下载任务');
+    expect(fixture.pause.mock.calls).toEqual([
+      [expect.objectContaining({ taskId: 'batch-b', foregroundOnly: true })],
+    ]);
   } finally {
     act(() => root.unmount());
   }
@@ -99,7 +154,7 @@ it('多选只提交一次下载操作，成功后进入常规任务入口，不�
 
 it('无可下载文件时不跳转，也不提示创建成功', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  fixture.start.mockResolvedValueOnce({ started: 0, errors: [] });
+  fixture.start.mockResolvedValueOnce({ started: 0, errors: [], cancelled: false });
   const host = document.createElement('div');
   const root = createRoot(host);
   const onClose = vi.fn();

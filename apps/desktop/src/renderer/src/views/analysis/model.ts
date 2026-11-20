@@ -8,7 +8,7 @@ export interface AnalysisScope {
   endTime?: number;
   messageIds?: string[];
 }
-type RequestBase = { id: string; scope: AnalysisScope; period: string };
+type RequestBase = { id: string; scope: AnalysisScope; period: string; existing?: true };
 /**
  * 报告请求。年度报告有独立入口（侧栏「年度报告」），这里不再产出 `annual`；
  * 旧报告仍可能从已保存的请求里读到该种类，类型上保留以兼容渲染。
@@ -32,12 +32,13 @@ export function restoredAnalysisRequest(
   request: SavedAnalysisRequest,
 ): AnalysisReportRequest | null {
   if (request.kind === 'buddy' && request.peerUid)
-    return { ...request, kind: 'buddy', peerUid: request.peerUid };
+    return { ...request, kind: 'buddy', peerUid: request.peerUid, existing: true };
   if (request.kind === 'group' && request.groupCode)
-    return { ...request, kind: 'group', groupCode: request.groupCode };
+    return { ...request, kind: 'group', groupCode: request.groupCode, existing: true };
   if (request.kind === 'member' && request.groupCode && (request.memberUid || request.memberUin))
     return {
       ...request,
+      existing: true,
       kind: 'member',
       groupCode: request.groupCode,
       groupName: request.groupName ?? request.groupCode,

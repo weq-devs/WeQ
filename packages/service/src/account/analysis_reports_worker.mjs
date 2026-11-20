@@ -31,9 +31,14 @@ parentPort.on('message', ({ id, method, input }) => {
   try {
     let value;
     if (method === 'put') {
-      const { results, pending, ...meta } = input;
+      const { results, pending, foreground, ...meta } = input;
       const previous = db.prepare('SELECT meta FROM reports WHERE id=?').get(input.request.id);
-      if (previous) meta.position = JSON.parse(String(previous.meta)).position;
+      if (previous) {
+        const saved = JSON.parse(String(previous.meta));
+        meta.position = saved.position;
+        meta.taskHidden = foreground || saved.taskHidden;
+        meta.updatedAt = Math.max(meta.updatedAt, saved.updatedAt + 1);
+      }
       db.prepare(
         'INSERT INTO reports VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET meta=excluded.meta,payload=excluded.payload',
       ).run(input.request.id, JSON.stringify(meta), deflateSync(serialize({ results, pending })));
@@ -44,7 +49,7 @@ parentPort.on('message', ({ id, method, input }) => {
           JSON.stringify({
             request: input.request,
             resultRevision: input.resultRevision,
-            updatedAt: input.updatedAt,
+            updatedAt: meta.updatedAt,
           }),
           deflateSync(serialize(results)),
         );
@@ -73,6 +78,17 @@ parentPort.on('message', ({ id, method, input }) => {
         )
         .all()
         .map(readMeta);
+    } else if (method === 'taskHidden' || method === 'taskVisibility') {
+      const row = db.prepare('SELECT meta FROM reports WHERE id=?').get(input.id);
+      if (!row) throw new Error('报告已不存在');
+      const meta = JSON.parse(String(row.meta));
+      if (method === 'taskHidden') value = meta.taskHidden === true;
+      else if (Boolean(meta.taskHidden) !== input.hidden) {
+        if (input.hidden && meta.status === 'running') throw new Error('请先停止分析');
+        meta.taskHidden = input.hidden;
+        meta.updatedAt = Math.max(Date.now(), meta.updatedAt + 1);
+        db.prepare('UPDATE reports SET meta=? WHERE id=?').run(JSON.stringify(meta), input.id);
+      }
     } else if (method === 'position') {
       const row = db.prepare('SELECT meta FROM reports WHERE id=?').get(input.id);
       if (row) {
