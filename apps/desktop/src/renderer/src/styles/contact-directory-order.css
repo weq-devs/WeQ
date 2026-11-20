@@ -51,6 +51,27 @@
   color: var(--weq-fg-primary);
   font-size: 12px;
 }
+.weq-directory-sort-options {
+  position: relative;
+  max-height: min(248px, 50dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.weq-directory-sort-options > button {
+  width: 100%;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: start;
+}
+.weq-directory-sort-options > button:hover,
+.weq-directory-sort-options > button:focus-visible {
+  background: var(--weq-skin-selection, var(--weq-list-selected-background));
+}
+.weq-directory-sort-options > button:focus-visible {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: -2px;
+}
 .weq-directory-filter-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

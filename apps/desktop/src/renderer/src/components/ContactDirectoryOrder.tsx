@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import type { useContactDirectoryOrder } from '../hooks/useContactDirectoryOrder';
 import type { FriendSort, GroupSort } from '../lib/contactListOrder';
 import { useOverlayAnchor } from '../lib/overlayAnchor.shared';
-import { OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
+import { useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 import { ContactCacheRefreshDialog } from './ContactRefreshButton';
 import { FormSelect } from './FormSelect';
@@ -55,6 +55,72 @@ const directions: Record<FriendSort | GroupSort, readonly [string, string]> = {
 const menuLabels = { filter: '筛选', sort: '排序' };
 type Menu = keyof typeof menuLabels;
 
+function SortOptions({
+  options,
+  value,
+  onChange,
+}: {
+  options: Record<string, string>;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const list = useRef<HTMLDivElement>(null);
+  const [focused, setFocused] = useState(value);
+  useLayoutEffect(() => {
+    const element = list.current;
+    const selected = element?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (element && selected)
+      element.scrollTop = Math.max(
+        0,
+        selected.offsetTop + selected.offsetHeight - element.clientHeight,
+      );
+  }, []);
+
+  return (
+    <div
+      ref={list}
+      className="weq-directory-sort-options"
+      role="listbox"
+      aria-label="排序依据"
+      onKeyDown={(event) => {
+        const { key } = event;
+        if (key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'Home' && key !== 'End') return;
+        event.preventDefault();
+        event.stopPropagation();
+        const buttons = [...event.currentTarget.querySelectorAll('button')];
+        const index = buttons.indexOf(event.target as HTMLButtonElement);
+        const next =
+          key === 'Home'
+            ? 0
+            : key === 'End'
+              ? buttons.length - 1
+              : Math.max(0, Math.min(buttons.length - 1, index + (key === 'ArrowUp' ? -1 : 1)));
+        buttons[next]?.focus();
+      }}
+    >
+      {Object.entries(options).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          role="option"
+          className="weq-field-option"
+          aria-selected={value === id}
+          data-value={id}
+          data-active={value === id || undefined}
+          tabIndex={focused === id ? 0 : -1}
+          onFocus={() => setFocused(id)}
+          onClick={() => {
+            if (value !== id) onChange(id);
+          }}
+        >
+          {label}
+          {value === id && <Check size={14} aria-hidden />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function ContactDirectoryOrder({
   order,
   filters,
@@ -75,7 +141,7 @@ export function ContactDirectoryOrder({
   const close = useCallback(() => setMenu(null), []);
   const open = active && menu !== null && (menu.kind !== 'filter' || !filtersDisabled);
   const { position } = useOverlayAnchor(surface, open, true, menu?.anchor);
-  const { layer, scope } = useOverlayLayerScope(open);
+  const layer = useOverlayLayer(open);
   useSurfaceEscapeDismissal(panel, close, open);
 
   useLayoutEffect(() => {
@@ -179,39 +245,28 @@ export function ContactDirectoryOrder({
               aria-label={menuLabels[menu.kind]}
               className="weq-directory-menu"
             >
-              <OverlayLayerContext.Provider value={scope}>
-                {menu.kind === 'filter' ? (
-                  filters
-                ) : (
-                  <>
-                    <FormSelect
-                      className="weq-set-select"
-                      aria-label="排序依据"
-                      value={sort}
-                      onChange={(event) => {
-                        order.change({ sort: event.target.value });
-                      }}
-                    >
-                      {Object.entries(order.sortOptions).map(([id, name]) => (
-                        <option key={id} value={id}>
-                          {name}
-                        </option>
-                      ))}
-                    </FormSelect>
-                    <SegmentedControl
-                      label="排序方向"
-                      value={descending ? 'descending' : 'ascending'}
-                      options={[
-                        { value: 'ascending', label: ascendingLabel },
-                        { value: 'descending', label: descendingLabel },
-                      ]}
-                      onChange={(direction) =>
-                        order.change({ descending: direction === 'descending' })
-                      }
-                    />
-                  </>
-                )}
-              </OverlayLayerContext.Provider>
+              {menu.kind === 'filter' ? (
+                filters
+              ) : (
+                <>
+                  <SortOptions
+                    options={order.sortOptions}
+                    value={sort}
+                    onChange={(sort) => order.change({ sort })}
+                  />
+                  <SegmentedControl
+                    label="排序方向"
+                    value={descending ? 'descending' : 'ascending'}
+                    options={[
+                      { value: 'ascending', label: ascendingLabel },
+                      { value: 'descending', label: descendingLabel },
+                    ]}
+                    onChange={(direction) =>
+                      order.change({ descending: direction === 'descending' })
+                    }
+                  />
+                </>
+              )}
             </section>
           </div>,
           menu.anchor.ownerDocument.body,

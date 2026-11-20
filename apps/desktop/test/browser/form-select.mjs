@@ -13,7 +13,10 @@ async function directorySortMenu(directory) {
 
 export async function chooseDirectorySort(directory, value) {
   const menu = await directorySortMenu(directory);
-  await chooseFormOption(menu.getByRole('combobox', { name: '排序依据', exact: true }), value);
+  await menu
+    .getByRole('listbox', { name: '排序依据', exact: true })
+    .locator(`[role="option"][data-value=${JSON.stringify(String(value))}]`)
+    .click();
 }
 
 export async function chooseDirectorySortDirection(directory, label) {
