@@ -338,11 +338,7 @@ button.composer-single-thumb {
 
 .voice-panel-body {
   --voice-wave-height: 44px;
-  --voice-wave-center: clamp(
-    calc(var(--voice-wave-height) / 2),
-    calc(50% - 14px),
-    calc(100% - 89px)
-  );
+  --voice-wave-center: clamp(32px, calc(50% - 14px), calc(100% - 89px));
   position: relative;
   display: grid;
   grid-template-rows: minmax(66px, 1fr) auto;
@@ -373,7 +369,6 @@ button.composer-single-thumb {
 }
 
 .voice-stage {
-  position: relative;
   display: grid;
   min-height: 66px;
   place-items: center;
@@ -382,16 +377,18 @@ button.composer-single-thumb {
 
 .voice-record-track {
   position: absolute;
-  inset: 0;
+  top: var(--voice-wave-center);
+  inset-inline: 0;
   display: grid;
+  height: 64px;
   place-items: center;
   pointer-events: none;
-  transform: translateX(0);
+  transform: translateY(-50%);
   transition: transform 230ms cubic-bezier(0.2, 0.75, 0.25, 1);
 }
 
 .voice-stage.is-recording .voice-record-track {
-  transform: translateX(calc(50% - 34px));
+  transform: translate(calc(50% - 34px), -50%);
 }
 
 .voice-wave {
@@ -434,6 +431,12 @@ button.composer-single-thumb {
   transform: translate(0, -50%);
 }
 
+.voice-panel-body[data-wave-phase='paused'] .voice-wave {
+  left: 42px;
+  width: max(0px, calc(100% - 118px));
+  transform: translate(0, -50%);
+}
+
 .voice-wave span {
   flex: 1 1 0;
   height: 100%;
@@ -441,6 +444,41 @@ button.composer-single-thumb {
   background: currentColor;
   transform: scaleY(0.14);
   transition: transform 68ms linear;
+}
+
+.voice-wave.is-seekable {
+  pointer-events: auto;
+}
+
+.voice-wave:focus-within {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.voice-wave .is-played,
+.voice-wave-playhead {
+  background: var(--weq-accent-effective);
+}
+
+.voice-wave-playhead {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 24px;
+  border-radius: 2px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.voice-wave-seek {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: ew-resize;
+  touch-action: none;
 }
 
 .voice-panel .voice-record-btn {
@@ -619,6 +657,18 @@ button.composer-single-thumb {
 
 .voice-review-play.is-playing {
   background: var(--weq-accent-hover, var(--weq-accent-effective, #0099ff));
+}
+
+.voice-review-play.voice-stage-play {
+  position: absolute;
+  z-index: 2;
+  top: var(--voice-wave-center);
+  left: 0;
+  transform: translateY(-50%);
+}
+
+.voice-review-play.voice-stage-play:hover {
+  transform: translateY(-50%) scale(1.04);
 }
 
 .voice-review-time {

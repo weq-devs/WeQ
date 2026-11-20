@@ -103,6 +103,8 @@ function useVoiceRecorder() {
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [playbackMs, setPlaybackMs] = useState(0);
+  const [playbackDurationMs, setPlaybackDurationMs] = useState(0);
 
   // 定长的音量历史，最新一条从右侧进入。
   const levelsRef = useRef<number[] | null>(null);
@@ -129,6 +131,7 @@ function useVoiceRecorder() {
   const stopTargetRef = useRef<StopTarget>('review');
   const segmentDurationRef = useRef<number | null>(null);
   const segmentsRef = useRef<Blob[]>([]);
+  const preparedSegmentsRef = useRef<Blob[] | null>(null);
   const importedAudioRef = useRef(false);
   const completedDurationRef = useRef(0);
   const peaksRef = useRef<number[]>([]);
@@ -173,6 +176,26 @@ function useVoiceRecorder() {
     if (stream) for (const track of stream.getTracks()) track.stop();
   }, []);
 
+  const publishClip = useCallback((blob: Blob, durationMs: number) => {
+    const next: VoiceClip = {
+      id: createMediaId('voice'),
+      source: 'record',
+      url: URL.createObjectURL(blob),
+      blob,
+      durationMs,
+      levels: downsamplePeaks(peaksRef.current),
+      transcript: '',
+    };
+    audioRef.current?.pause();
+    releaseVoiceClip(clipRef.current);
+    clipRef.current = next;
+    preparedSegmentsRef.current = segmentsRef.current;
+    setClip(next);
+    setPlaying(false);
+    setPlaybackMs(0);
+    setPlaybackDurationMs(durationMs);
+  }, []);
+
   const importAudio = useCallback(
     async (file: File) => {
       if (phaseRef.current !== 'idle') return;
@@ -196,6 +219,7 @@ function useVoiceRecorder() {
         peaksRef.current = [];
         levels.fill(0);
         setElapsedMs(duration);
+        publishClip(blob, duration);
         setPhaseSafe('paused');
       } catch {
         if (unmountedRef.current || segmentsRef.current !== segments) return;
@@ -203,48 +227,46 @@ function useVoiceRecorder() {
         setPhaseSafe('idle');
       }
     },
-    [levels, setPhaseSafe],
+    [levels, publishClip, setPhaseSafe],
   );
 
-  const reviewRecording = useCallback(async () => {
-    const segments = segmentsRef.current;
-    const duration = completedDurationRef.current;
-    if (segments.length === 0 || (!importedAudioRef.current && duration < MIN_RECORD_MS)) {
-      setPhaseSafe(segments.length ? 'paused' : 'idle');
-      setError('录音太短，请录久一点再结束');
-      return;
-    }
-    setError(null);
-    setPhaseSafe('finalizing');
-    try {
-      let blob = segments[0];
-      if (segments.length > 1) {
-        const recordings = await Promise.all(
-          segments.map(async (part) => new Uint8Array(await part.arrayBuffer())),
-        );
-        const wav = await decodeRecordingsToWav(recordings);
-        blob = new Blob([wav], { type: 'audio/wav' });
+  const prepareRecording = useCallback(
+    async (target: StopTarget) => {
+      const segments = segmentsRef.current;
+      const duration = completedDurationRef.current;
+      if (!segments.length) {
+        setPhaseSafe('idle');
+        if (target === 'review') setError('录音太短，请录久一点再结束');
+        return;
       }
-      if (unmountedRef.current || segmentsRef.current !== segments) return;
-      const next: VoiceClip = {
-        id: createMediaId('voice'),
-        source: 'record',
-        url: URL.createObjectURL(blob),
-        blob,
-        durationMs: duration,
-        levels: downsamplePeaks(peaksRef.current),
-        transcript: '',
-      };
-      releaseVoiceClip(clipRef.current);
-      clipRef.current = next;
-      setClip(next);
-      setPhaseSafe('review');
-    } catch (error) {
-      if (unmountedRef.current || segmentsRef.current !== segments) return;
-      setError(error instanceof Error ? error.message : '录音拼接失败');
-      setPhaseSafe('paused');
-    }
-  }, [setPhaseSafe]);
+      const tooShort = target === 'review' && !importedAudioRef.current && duration < MIN_RECORD_MS;
+      const nextPhase = tooShort ? 'paused' : target;
+      setError(tooShort ? '录音太短，请录久一点再结束' : null);
+      if (preparedSegmentsRef.current === segments && clipRef.current) {
+        setPhaseSafe(nextPhase);
+        return;
+      }
+      setPhaseSafe('finalizing');
+      try {
+        let blob = segments[0];
+        if (segments.length > 1) {
+          const recordings = await Promise.all(
+            segments.map(async (part) => new Uint8Array(await part.arrayBuffer())),
+          );
+          const wav = await decodeRecordingsToWav(recordings);
+          blob = new Blob([wav], { type: 'audio/wav' });
+        }
+        if (unmountedRef.current || segmentsRef.current !== segments) return;
+        publishClip(blob, duration);
+        setPhaseSafe(nextPhase);
+      } catch (error) {
+        if (unmountedRef.current || segmentsRef.current !== segments) return;
+        setError(error instanceof Error ? error.message : '录音拼接失败');
+        setPhaseSafe('paused');
+      }
+    },
+    [publishClip, setPhaseSafe],
+  );
 
   const completeSegment = useCallback(
     (blob: Blob) => {
@@ -260,10 +282,9 @@ function useVoiceRecorder() {
         );
       }
       setElapsedMs(completedDurationRef.current);
-      if (target === 'paused') setPhaseSafe(segmentsRef.current.length ? 'paused' : 'idle');
-      else void reviewRecording();
+      void prepareRecording(target);
     },
-    [cleanupAudio, reviewRecording, setPhaseSafe],
+    [cleanupAudio, prepareRecording],
   );
 
   const stopCapture = useCallback(
@@ -275,7 +296,7 @@ function useVoiceRecorder() {
         return;
       }
       if (phase === 'paused' && target === 'review') {
-        void reviewRecording();
+        void prepareRecording('review');
         return;
       }
       if (phase !== 'recording') return;
@@ -300,7 +321,7 @@ function useVoiceRecorder() {
       const recorder = recorderRef.current;
       if (recorder?.state !== 'inactive') recorder?.stop();
     },
-    [cleanupAudio, completeSegment, reviewRecording, setPhaseSafe],
+    [cleanupAudio, completeSegment, prepareRecording, setPhaseSafe],
   );
 
   const endRecord = useCallback(() => stopCapture('review'), [stopCapture]);
@@ -493,6 +514,7 @@ function useVoiceRecorder() {
       if (expectedClipId && clipRef.current?.id !== expectedClipId) return;
       audioRef.current?.pause();
       segmentsRef.current = [];
+      preparedSegmentsRef.current = null;
       importedAudioRef.current = false;
       completedDurationRef.current = 0;
       levels.fill(0);
@@ -516,42 +538,82 @@ function useVoiceRecorder() {
       setError(null);
       setElapsedMs(0);
       setPlaying(false);
+      setPlaybackMs(0);
+      setPlaybackDurationMs(0);
       setPhaseSafe('idle');
     },
     [cleanupAudio, levels, setPhaseSafe],
   );
 
-  const ensureAudio = useCallback(() => {
-    let audio = audioRef.current;
-    if (!audio) {
-      audio = new Audio();
-      audioRef.current = audio;
-    }
+  const playbackAudio = useCallback(() => {
+    const clip = clipRef.current;
+    if (!clip?.url || preparedSegmentsRef.current !== segmentsRef.current) return;
+    const audio = audioRef.current ?? new Audio();
+    audioRef.current = audio;
+    if (audio.src === clip.url) return audio;
+    const updateTime = () => {
+      if (clipRef.current !== clip) return;
+      const duration =
+        Number.isFinite(audio.duration) && audio.duration > 0
+          ? audio.duration * 1000
+          : clip.durationMs;
+      setPlaybackDurationMs(duration);
+      setPlaybackMs(Math.min(duration, audio.currentTime * 1000));
+    };
+    audio.onplay = () => {
+      if (clipRef.current === clip) setPlaying(true);
+    };
+    audio.onpause = () => {
+      if (clipRef.current === clip) setPlaying(false);
+    };
+    audio.onended = () => {
+      if (clipRef.current !== clip) return;
+      updateTime();
+      setPlaying(false);
+    };
+    audio.ontimeupdate = updateTime;
+    audio.onseeked = updateTime;
+    audio.ondurationchange = updateTime;
+    audio.onerror = () => {
+      if (clipRef.current !== clip) return;
+      setPlaying(false);
+      setError('无法播放这段录音');
+    };
+    audio.src = clip.url;
     return audio;
   }, []);
 
   const stopPlayback = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.onended = null;
-    audio.pause();
+    audioRef.current?.pause();
     setPlaying(false);
   }, []);
 
   const togglePlay = useCallback(() => {
-    const current = clipRef.current;
-    if (!current?.url) return;
-    const audio = ensureAudio();
-    if (audio.src !== current.url) {
-      audio.src = current.url;
-      audio.currentTime = 0;
-    }
-    audio.onplay = () => setPlaying(true);
-    audio.onended = () => setPlaying(false);
-    audio.onpause = () => setPlaying(false);
-    if (audio.paused) void audio.play().catch(() => setPlaying(false));
-    else audio.pause();
-  }, [ensureAudio]);
+    const audio = playbackAudio();
+    if (!audio) return;
+    if (audio.paused) {
+      const clip = clipRef.current;
+      void audio.play().catch(() => {
+        if (clipRef.current === clip) setPlaying(false);
+      });
+    } else audio.pause();
+  }, [playbackAudio]);
+
+  const seekPlayback = useCallback(
+    (timeMs: number) => {
+      const audio = playbackAudio();
+      const clip = clipRef.current;
+      if (!audio || !clip || !Number.isFinite(timeMs)) return;
+      const duration =
+        Number.isFinite(audio.duration) && audio.duration > 0
+          ? audio.duration * 1000
+          : clip.durationMs;
+      const next = Math.min(duration, Math.max(0, timeMs));
+      audio.currentTime = next / 1000;
+      setPlaybackMs(next);
+    },
+    [playbackAudio],
+  );
 
   const cancelTranscription = useCallback(() => {
     transcriptionRef.current?.abort();
@@ -656,6 +718,10 @@ function useVoiceRecorder() {
     transcribing,
     transcribeError,
     playing,
+    playbackMs,
+    playbackDurationMs,
+    playbackReady: clip !== null && preparedSegmentsRef.current === segmentsRef.current,
+    seekPlayback,
     beginRecord,
     importAudio,
     endRecord,
@@ -674,7 +740,15 @@ function useVoiceRecorder() {
 // ── 声纹 ─────────────────────────────────────────────────────────────────────
 
 /** 录音与回顾共用同一组柱子，阶段切换只移动和缩放波形。 */
-function VoiceWave({ levels, active }: { levels: readonly number[]; active: boolean }) {
+function VoiceWave({
+  levels,
+  active,
+  playback,
+}: {
+  levels: readonly number[];
+  active: boolean;
+  playback?: { positionMs: number; durationMs: number; seek: (timeMs: number) => void };
+}) {
   const barRefs = useRef<Array<HTMLSpanElement | null>>([]);
   useLayoutEffect(() => {
     let timer: number | undefined;
@@ -698,17 +772,66 @@ function VoiceWave({ levels, active }: { levels: readonly number[]; active: bool
       motion.removeEventListener('change', updateMotion);
     };
   }, [levels, active]);
+  const progress = playback ? Math.min(1, playback.positionMs / playback.durationMs) : 0;
   return (
-    <div className="voice-wave" aria-hidden="true">
+    <div
+      className={cn('voice-wave', playback && 'is-seekable')}
+      aria-hidden={playback ? undefined : true}
+    >
       {WAVE_BARS.map((key, index) => (
         <span
           key={key}
+          className={index < progress * BAR_COUNT ? 'is-played' : undefined}
+          aria-hidden="true"
           ref={(node) => {
             barRefs.current[index] = node;
           }}
         />
       ))}
+      {playback ? (
+        <>
+          <div
+            className="voice-wave-playhead"
+            style={{ left: `${progress * 100}%` }}
+            aria-hidden="true"
+          />
+          <input
+            className="voice-wave-seek"
+            type="range"
+            min={0}
+            max={playback.durationMs}
+            step="any"
+            value={Math.min(playback.positionMs, playback.durationMs)}
+            aria-label="录音播放进度"
+            aria-valuetext={`${formatClipDuration(playback.positionMs)} / ${formatClipDuration(playback.durationMs)}`}
+            onChange={(event) => playback.seek(Number(event.target.value))}
+          />
+        </>
+      ) : null}
     </div>
+  );
+}
+
+function RecordingPlayButton({
+  playing,
+  onToggle,
+  className,
+}: {
+  playing: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  const label = playing ? '暂停播放' : '播放录音';
+  return (
+    <button
+      type="button"
+      className={cn('voice-review-play', playing && 'is-playing', className)}
+      title={label}
+      aria-label={label}
+      onClick={onToggle}
+    >
+      {playing ? <Pause size={18} /> : <Play size={18} />}
+    </button>
   );
 }
 
@@ -943,6 +1066,16 @@ export function VoicePanel({
   const sendingReview = useRef(false);
   const [reviewSending, setReviewSending] = useState(false);
   const paused = phase === 'paused';
+  const playback =
+    (paused || phase === 'review') && recorder.playbackReady && recorder.playbackDurationMs > 0
+      ? {
+          positionMs: recorder.playbackMs,
+          durationMs: recorder.playbackDurationMs,
+          seek: recorder.seekPlayback,
+        }
+      : undefined;
+  const previewTime =
+    playback && (recorder.playing || playback.positionMs > 0) ? playback.positionMs : undefined;
   const busy = phase === 'recording' || phase === 'requesting' || phase === 'finalizing';
   const canResume =
     recorder.elapsedMs < MAX_RECORD_MS && !recorder.transcribing && !recorder.transcriptReady;
@@ -974,6 +1107,10 @@ export function VoicePanel({
     if (!tabActive) return;
     return registerInline(conversationId);
   }, [conversationId, registerInline, tabActive]);
+
+  useEffect(() => {
+    if (ownsRecording && tabActive) return stopPlayback;
+  }, [ownsRecording, stopPlayback, tabActive]);
 
   // 面板自己抢焦点，这样空格长按不会落进正文（正文聚焦时空格就是打字）。
   useEffect(() => {
@@ -1123,10 +1260,18 @@ export function VoicePanel({
         >
           {foreignRecording ? null : (
             <VoiceWave
-              levels={phase === 'review' ? (recorder.clip?.levels ?? []) : recorder.levels}
+              levels={playback ? (recorder.clip?.levels ?? []) : recorder.levels}
               active={phase === 'recording'}
+              playback={playback}
             />
           )}
+          {paused && playback ? (
+            <RecordingPlayButton
+              className="voice-stage-play"
+              playing={recorder.playing}
+              onToggle={recorder.togglePlay}
+            />
+          ) : null}
           {foreignRecording ? (
             <p className="voice-other-recording">另一个会话有录音，请通过悬浮球返回。</p>
           ) : phase === 'review' && recorder.clip ? (
@@ -1137,6 +1282,7 @@ export function VoicePanel({
               transcribing={recorder.transcribing}
               transcribeError={recorder.transcribeError}
               playing={recorder.playing}
+              previewTime={previewTime}
               canSend={canSend && !reviewSending}
               sendHint={sendHint}
               onTogglePlay={recorder.togglePlay}
@@ -1176,20 +1322,15 @@ export function VoicePanel({
                     </>
                   ) : phase === 'finalizing' ? (
                     <Loader2 size={20} className="voice-spin" />
-                  ) : paused ? (
-                    <>
-                      <Play size={18} />
-                      <strong>继续录音</strong>
-                    </>
-                  ) : busy ? (
+                  ) : busy || paused ? (
                     <>
                       <strong className={cn('voice-record-timer')}>
                         <span className="weq-number weq-number-inherit">
-                          {formatClipDuration(recorder.elapsedMs)}
+                          {formatClipDuration(previewTime ?? recorder.elapsedMs)}
                         </span>
                       </strong>
                       <em className={cn('voice-record-note')}>
-                        {input === 'space' ? '松开结束' : '点击结束'}
+                        {paused ? '继续录音' : input === 'space' ? '松开结束' : '点击结束'}
                       </em>
                     </>
                   ) : (
@@ -1256,6 +1397,7 @@ function VoiceReview({
   transcribing,
   transcribeError,
   playing,
+  previewTime,
   canSend,
   sendHint,
   onTogglePlay,
@@ -1273,6 +1415,7 @@ function VoiceReview({
   transcribing: boolean;
   transcribeError: string | null;
   playing: boolean;
+  previewTime?: number;
   canSend: boolean;
   sendHint: string;
   onTogglePlay: () => void;
@@ -1291,18 +1434,10 @@ function VoiceReview({
   return (
     <div className={cn('voice-review')}>
       <div className={cn('voice-review-head')}>
-        <button
-          type="button"
-          className={cn('voice-review-play', playing && 'is-playing')}
-          title={playing ? '暂停' : '试听'}
-          aria-label={playing ? '暂停' : '试听'}
-          onClick={onTogglePlay}
-        >
-          {playing ? <Pause size={18} /> : <Play size={18} />}
-        </button>
+        <RecordingPlayButton playing={playing} onToggle={onTogglePlay} />
         <span className={cn('voice-review-time')}>
           <span className="weq-number weq-number-inherit">
-            {formatClipDuration(clip.durationMs)}
+            {formatClipDuration(previewTime ?? clip.durationMs)}
           </span>
         </span>
       </div>
