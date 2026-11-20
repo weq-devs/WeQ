@@ -120,6 +120,7 @@ export function ChatSidebarContent({
 
     return (
       <GroupList
+        active={active}
         conversations={conversations}
         activeConversationId={selectedGroupConversationId}
         loading={loading}

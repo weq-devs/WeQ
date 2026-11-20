@@ -336,12 +336,18 @@ it('好友关系和在线状态可组合，历史联系人参与筛选，未知�
   );
   const visible = () =>
     [...host.querySelectorAll('.contact-row .row-title-text')].map((node) => node.textContent);
-  async function choose(label: string, value: string) {
-    await act(async () =>
-      host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click(),
+  act(() => {
+    const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (node) => node.textContent === '筛选',
     );
+    button!.click();
+  });
+  async function choose(label: string, value: string) {
     await act(async () => {
-      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      const row = document.querySelector<HTMLElement>(
+        `[role="radiogroup"][aria-label="${label}"]`,
+      )!;
+      const option = [...row.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
         (node) => node.textContent === value,
       );
       expect(option).toBeDefined();

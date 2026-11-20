@@ -1,4 +1,6 @@
 const config = { uin: '99999', configId: 'contact-order-fixture' };
+let preferenceRevision = 0;
+let contactOrder: Record<string, unknown> = {};
 const ready = (value: unknown) => ({
   value,
   state: 'ready',
@@ -115,6 +117,11 @@ const proxy = (path: string[] = []): unknown =>
           mutateAsync: async () => 'synthetic-task',
           isLoading: false,
         });
+      if (key === 'mutate' && path.join('.') === 'clientState.patch')
+        return async (patch: { contactOrder?: Record<string, unknown> }) => {
+          contactOrder = { ...contactOrder, ...patch.contactOrder };
+          return { revision: ++preferenceRevision, values: { contactOrder }, records: {} };
+        };
       if (key === 'query' && path.join('.') === 'account.getProfile')
         return async ({ uid }: { uid: string }) =>
           (window as unknown as { contactBirthQa?: { profiles: Record<string, unknown> } })

@@ -1,40 +1,75 @@
 .weq-directory-order {
   flex: none;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px;
-  align-items: end;
-  gap: 8px;
-  padding: 10px 8px;
+  padding: 8px;
   border-bottom: 1px solid var(--weq-border-subtle);
   color: var(--weq-fg-secondary);
+}
+.weq-directory-order-buttons {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.weq-directory-order-buttons .weq-directory-menu-button {
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.weq-directory-menu-button[aria-expanded='true'],
+.weq-directory-menu-button[data-active] {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
+.weq-directory-menu-button:focus-visible {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 2px;
+}
+.weq-directory-order > small {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.weq-directory-menu-layer {
+  position: fixed;
+  inset: auto;
+  left: var(--weq-popover-left, -10000px);
+  top: var(--weq-popover-top, -10000px);
+}
+.weq-directory-menu {
+  display: grid;
+  gap: 8px;
+  width: min(250px, calc(100vw - 16px));
+  padding: 8px;
+  border: solid var(--weq-skin-popup-border-width, 1px)
+    var(--weq-skin-border, var(--weq-border-strong));
+  border-radius: var(--weq-skin-popup-radius, 6px);
+  background: var(--weq-skin-popup-surface, var(--weq-bg-surface));
+  box-shadow: var(--weq-skin-popup-shadow);
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+}
+.weq-directory-filter-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.weq-directory-filter-row > span {
+  color: var(--weq-fg-secondary);
+}
+@media (pointer: coarse) {
+  .weq-directory-order-buttons .weq-directory-menu-button {
+    min-height: 38px;
+  }
 }
 .weq-contact-directory-scroll .contact-cat-header {
   position: sticky;
   top: 0;
   z-index: 1;
   background: var(--weq-bg-surface);
-}
-.weq-directory-filters {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  min-inline-size: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.weq-directory-filters legend {
-  margin-bottom: 4px;
-  padding: 0;
-  font-size: 11px;
-  font-weight: 600;
-}
-.weq-directory-order label {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-  font-size: 11px;
 }
 .weq-contact-directory .weq-directory-sort-detail {
   min-width: 0;
@@ -46,43 +81,6 @@
 }
 .weq-contact-directory .contact-cat-header[hidden] {
   display: none;
-}
-.weq-directory-order .weq-select-trigger,
-.weq-directory-order > button {
-  height: 30px;
-  min-width: 0;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 4px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
-  font: inherit;
-}
-.weq-directory-order .weq-select-trigger {
-  width: 100%;
-  padding: 0 2px;
-  font-size: 11px;
-}
-.weq-directory-order > button {
-  display: grid;
-  place-items: center;
-  width: 30px;
-}
-.weq-directory-order > button:hover {
-  color: var(--weq-accent-effective);
-}
-.weq-directory-order .weq-select-trigger:focus-visible,
-.weq-directory-order > button:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
-.weq-directory-order small {
-  grid-column: 1 / -1;
-  overflow-wrap: anywhere;
-  font-size: 11px;
-}
-html[data-theme='dark'] .weq-directory-order {
-  background: var(--weq-bg-surface);
-  border-color: var(--weq-border-subtle);
 }
 .weq-contact-refresh-actions {
   display: flex;

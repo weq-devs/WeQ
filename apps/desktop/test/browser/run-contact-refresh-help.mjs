@@ -1,4 +1,4 @@
-import { chooseFormOption } from './form-select.mjs';
+import { chooseDirectorySort } from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -101,9 +101,8 @@ try {
       );
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
       await dialog.getByRole('button', { name: '取消', exact: true }).click();
-      const sort = page.locator('[data-kind="friends"]').getByLabel('排序依据');
-      await chooseFormOption(sort, 'age');
-      await chooseFormOption(sort, 'likeCount');
+      await chooseDirectorySort(page.locator('[data-kind="friends"]'), 'age');
+      await chooseDirectorySort(page.locator('[data-kind="friends"]'), 'likeCount');
       const stale = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
       await stale.waitFor();
       assert.equal(

@@ -1,4 +1,8 @@
-import { chooseFormOption } from './form-select.mjs';
+import {
+  chooseDirectorySort,
+  chooseDirectorySortDirection,
+  chooseFormOption,
+} from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -90,13 +94,13 @@ try {
     await chooseFormOption(friends.getByLabel('分组依据'), 'none');
     assert.equal(await friends.locator('.contact-cat-header:not([hidden])').count(), 0);
     assert.equal(await friends.locator('.contact-row').count(), 3);
-    await chooseFormOption(friends.getByLabel('排序依据'), 'age');
+    await chooseDirectorySort(friends, 'age');
     assert.deepEqual(await friends.locator('.contact-row .row-title-text').allTextContents(), [
       '阿明',
       '白雪',
       '张同学',
     ]);
-    await friends.getByRole('button', { name: '改为升序', exact: true }).click();
+    await chooseDirectorySortDirection(friends, '年轻的在前');
     assert.deepEqual(await friends.locator('.contact-row .row-title-text').allTextContents(), [
       '张同学',
       '白雪',
@@ -116,7 +120,7 @@ try {
         await dialog.getByRole('button', { name: '取消', exact: true }).click();
     };
     for (const sort of ['energy', 'affinity', 'lastMessageAt']) {
-      await chooseFormOption(friends.getByLabel('排序依据'), sort);
+      await chooseDirectorySort(friends, sort);
       await dismissRefresh();
       assert.deepEqual(await friends.locator('.contact-row .row-title-text').allTextContents(), [
         '白雪',
@@ -156,7 +160,7 @@ try {
     }
     await chooseFormOption(groups.getByLabel('分组依据'), 'none');
     for (const sort of ['lastMessageAt', 'joinedAt']) {
-      await chooseFormOption(groups.getByLabel('排序依据'), sort);
+      await chooseDirectorySort(groups, sort);
       await dismissRefresh();
       assert.deepEqual(await groups.locator('.contact-row .row-title-text').allTextContents(), [
         '朋友们',
@@ -164,7 +168,7 @@ try {
         '长名称群聊用于检查窄屏显示',
       ]);
     }
-    await chooseFormOption(groups.getByLabel('排序依据'), 'lastSpokeAt');
+    await chooseDirectorySort(groups, 'lastSpokeAt');
     assert.equal(
       await groups.locator('.contact-row .row-title-text').first().textContent(),
       '自习组',
@@ -298,7 +302,7 @@ try {
         const samples = [];
         for (let i = 0; i < 5; i++) {
           const start = performance.now();
-          await chooseFormOption(friends.getByLabel('排序依据'), sort);
+          await chooseDirectorySort(friends, sort);
           const refresh = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
           if (await refresh.count())
             await refresh.getByRole('button', { name: '取消', exact: true }).click();

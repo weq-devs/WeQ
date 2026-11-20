@@ -71,7 +71,7 @@ import {
 } from '../../lib/contactDirectoryPresentation';
 import { useContactDirectoryOrder, useFrozenDirectory } from '../../hooks/useContactDirectoryOrder';
 import { ContactDirectoryOrder } from '../../components/ContactDirectoryOrder';
-import { FormSelect } from '../../components/FormSelect';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { useContactOnlineStatuses } from '../../hooks/useContactOnlineStatuses';
 import { conversationListSearchText } from '../../lib/conversationListSearchText';
 import { formatConversationTime } from '../../lib/conversationTime';
@@ -1261,11 +1261,13 @@ export function ConversationList({
 }
 
 export function GroupList({
+  active = true,
   conversations,
   activeConversationId,
   onSelect,
   loading,
 }: {
+  active?: boolean;
   conversations: Conversation[];
   activeConversationId: string | null;
   onSelect: (conversationId: string, event?: React.MouseEvent) => void;
@@ -1490,7 +1492,7 @@ export function GroupList({
     return <EmptyState title="暂无群聊" body="" icon={<Users />} />;
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
-      <ContactDirectoryOrder order={order} />
+      <ContactDirectoryOrder order={order} active={active} />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
         {categories.map((category) => (
           <GroupNotificationSection
@@ -2261,42 +2263,46 @@ const ContactListContent = memo(function ContactListContent({
     <div className="weq-contact-directory" {...multi.rootProps}>
       <ContactDirectoryOrder
         order={order}
+        active={active}
+        filtersApplied={hasFilters}
+        filtersDisabled={selection.selectionMode}
         filters={
-          <fieldset className="weq-directory-filters">
-            <legend>筛选依据</legend>
-            <label>
-              好友关系
-              <FormSelect
-                aria-label="好友关系"
+          <>
+            <div className="weq-directory-filter-row">
+              <span>好友关系</span>
+              <SegmentedControl
+                label="好友关系"
                 value={relationshipFilter}
-                disabled={selection.selectionMode}
-                onChange={(event) =>
-                  setRelationshipFilter(event.target.value as ContactRelationshipFilter)
-                }
-              >
-                <option value="all">全部</option>
-                <option value="friend">好友</option>
-                <option value="nonfriend">非好友</option>
-              </FormSelect>
-            </label>
-            <label>
-              在线状态
-              <FormSelect
-                aria-label="在线状态"
+                onChange={setRelationshipFilter}
+                options={[
+                  { value: 'all', label: '全部' },
+                  { value: 'friend', label: '好友' },
+                  { value: 'nonfriend', label: '非好友' },
+                ]}
+              />
+            </div>
+            <div className="weq-directory-filter-row">
+              <span>在线状态</span>
+              <SegmentedControl
+                label="在线状态"
                 value={presenceFilter}
-                disabled={selection.selectionMode}
-                onChange={(event) => setPresenceFilter(event.target.value as ContactPresenceFilter)}
-              >
-                <option value="all">全部</option>
-                <option value="online">在线</option>
-                <option value="offline">离线</option>
-              </FormSelect>
-            </label>
-            {presenceLoading && <small role="status">正在读取在线状态…</small>}
-          </fieldset>
+                onChange={setPresenceFilter}
+                options={[
+                  { value: 'all', label: '全部' },
+                  { value: 'online', label: '在线' },
+                  { value: 'offline', label: '离线' },
+                ]}
+              />
+            </div>
+          </>
         }
       />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
+        {presenceLoading && (
+          <small className="contact-cat-description" role="status">
+            正在读取在线状态…
+          </small>
+        )}
         {!categories.length && !presenceLoading && !friendDirectory?.error && (
           <EmptyState
             title={hasFilters ? '没有符合条件的联系人' : '暂无联系人'}
