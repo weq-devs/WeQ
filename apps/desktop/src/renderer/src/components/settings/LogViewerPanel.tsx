@@ -63,15 +63,12 @@ const NO_FILES: [] = [];
 
 function logRangeLabel(file: { name: string; start: number | null; end: number | null }): string {
   const { start, end } = file;
-  if (start === null) return end === null ? file.name : `截至 ${timeFormat.formatDateTime(end)}`;
-  const precision =
-    end !== null && Math.floor(start / 1000) === Math.floor(end / 1000) ? 'millisecond' : 'second';
-  const first = timeFormat.formatDateTime(start, precision);
-  if (end === null) return `${first} 起`;
-  if (start === end) return first;
+  if (start === null && end === null) return file.name;
+  const first = start === null ? '起始时间未知' : timeFormat.formatDateTime(start);
+  if (end === null) return `${first} – 结束时间未知`;
   const last =
-    timeFormat.formatDate(start) === timeFormat.formatDate(end)
-      ? timeFormat.formatClock(end, precision)
+    start !== null && timeFormat.formatDate(start) === timeFormat.formatDate(end)
+      ? timeFormat.formatClock(end)
       : timeFormat.formatDateTime(end);
   return `${first} – ${last}`;
 }
