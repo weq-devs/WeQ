@@ -94,7 +94,9 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
   let nativeChrome = nativeBridge?.getSnapshot();
   let frame = 0;
   let stopped = false;
+  let hasCorners = false;
   const targets = new Set<HTMLElement>();
+  const chromeAncestors = new Set<Element>();
   // WKWebView 首次显示时安全区可晚于桥接值到达，且标题栏外框尺寸不一定改变。
   const safeArea = doc.createElement('div');
   safeArea.dataset.weqWindowSafeArea = '';
@@ -127,14 +129,18 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
       bottom: rect.bottom + (viewport?.offsetTop || 0),
     }));
     if (!corners.length) {
+      if (!hasCorners) return;
+      hasCorners = false;
       mutation.disconnect();
       resize?.disconnect();
       safeArea.remove();
       for (const node of targets) clear(node);
       targets.clear();
+      chromeAncestors.clear();
       doc.documentElement.style.removeProperty('--weq-window-header-top');
       return;
     }
+    hasCorners = true;
     if (!safeArea.isConnected) doc.body.append(safeArea);
     resize?.observe(safeArea);
     mutation.observe(doc.body, {
@@ -151,12 +157,19 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
       targets.delete(node);
     }
     let mobileTop = 0;
+    chromeAncestors.clear();
     // 批量读取后再写入，避免每个标题栏分别触发同步布局。
     const changes = [...current].map((node) => {
       if (!targets.has(node)) {
         targets.add(node);
         resize?.observe(node);
       }
+      for (
+        let ancestor: Element | null = node;
+        ancestor && !chromeAncestors.has(ancestor);
+        ancestor = ancestor.parentElement
+      )
+        chromeAncestors.add(ancestor);
       const rect = node.getBoundingClientRect();
       const safeTop =
         Number.parseFloat(win.getComputedStyle(node).getPropertyValue('--weq-window-safe-top')) ||
@@ -175,7 +188,7 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
         if (node.hasAttribute('data-weq-window-chrome')) clear(node);
         continue;
       }
-      node.dataset.weqWindowChrome = '';
+      if (!node.hasAttribute('data-weq-window-chrome')) node.dataset.weqWindowChrome = '';
       for (const side of ['left', 'right', 'top'] as const)
         write(node, `--weq-window-chrome-${side}`, inset[side]);
     }
@@ -192,9 +205,7 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
           (record.target.matches(
             `${chromeSelector}, .app-shell-root, .weq-dialog-layer, .weq-workspace-page`,
           ) ||
-            [...targets].some(
-              (node) => record.target instanceof Element && record.target.contains(node),
-            ))
+            chromeAncestors.has(record.target))
         );
       return [...record.addedNodes, ...record.removedNodes].some(
         (node) =>
@@ -211,7 +222,10 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
   });
   win.addEventListener('resize', schedule);
   win.visualViewport?.addEventListener('resize', schedule);
-  win.visualViewport?.addEventListener('scroll', schedule);
+  const viewportScroll = () => {
+    if (hasCorners) schedule();
+  };
+  win.visualViewport?.addEventListener('scroll', viewportScroll, { passive: true });
   // useLayoutEffect 调用；先补读早到值，首个可见提交已经避让。
   update();
   return () => {
@@ -224,7 +238,7 @@ export function observeRemoteWindowLayout(doc: Document): () => void {
     win.removeEventListener('weq-remote-window-layout', update);
     win.removeEventListener('resize', schedule);
     win.visualViewport?.removeEventListener('resize', schedule);
-    win.visualViewport?.removeEventListener('scroll', schedule);
+    win.visualViewport?.removeEventListener('scroll', viewportScroll);
     for (const node of targets) clear(node);
     doc.documentElement.style.removeProperty('--weq-window-header-top');
     doc.documentElement.removeAttribute('data-weq-inline-native-controls');

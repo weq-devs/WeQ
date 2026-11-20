@@ -2875,10 +2875,9 @@ function FeedTimeline({
             : `${feed.uin}:${feed.appid}:${feed.key || `${feed.time}:${feed.html}`}`;
         const merged = new Map(accumulated.current.map((feed) => [key(feed), feed]));
         const previousSize = merged.size;
-        for (const feed of page.feeds) merged.set(key(feed), feed);
-        const overlaps = page.feeds.some((feed) =>
-          accumulated.current.some((old) => key(old) === key(feed)),
-        );
+        const incoming = page.feeds.map((feed) => [key(feed), feed] as const);
+        const overlaps = incoming.some(([id]) => merged.has(id));
+        for (const [id, feed] of incoming) merged.set(id, feed);
         if (refreshing && previousSize > 0 && !overlaps && page.hasMore && page.nextCursor) {
           if (kind === 'related') seenCursors.current.clear();
           bridgeTail.current ??= {

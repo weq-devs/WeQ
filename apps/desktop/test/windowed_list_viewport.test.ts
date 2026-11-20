@@ -29,6 +29,15 @@ it('预取回调只报告真实可视行，不含虚拟列表预留行', () => {
     });
     expect(visible).toHaveBeenLastCalledWith(['10', '11']);
     expect(host.querySelectorAll('button').length).toBeGreaterThan(2);
+    visible.mockClear();
+    for (const offset of [501, 513, 527]) {
+      act(() => {
+        viewport.scrollTop = offset;
+        viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+      });
+    }
+    expect(visible).toHaveBeenCalledOnce();
+    expect(visible).toHaveBeenCalledWith(['10', '11', '12']);
   } finally {
     act(() => root.unmount());
     vi.unstubAllGlobals();

@@ -50,29 +50,15 @@ export function PageScrollSnapshot({
 }) {
   const key = usePageSnapshotKey('scroll');
   const root = useRef<HTMLDivElement>(null);
-  const positions = useRef<Position[]>([]);
-  const restoring = useRef(false);
-  const flush = useRef(() => {});
-  const capture = (target: HTMLElement) => {
-    const container = root.current;
-    if (!container || restoring.current) return;
-    const path = pathOf(container, target);
-    if (!path) return;
-    const id = path.join('.');
-    const value: Position = { path, top: target.scrollTop, left: target.scrollLeft };
-    if (target.matches('.message-scroll')) value.reading = captureReadingPosition(target);
-    positions.current = [
-      ...positions.current.filter((item) => item.path.join('.') !== id),
-      value,
-    ].slice(-64);
-  };
   useLayoutEffect(() => {
     const container = root.current;
     if (!container || !key) return;
+    const owner = container.ownerDocument.defaultView ?? window;
+    let positions: Position[] = [];
     try {
-      positions.current = pageSnapshots.read(key, positionSchema) ?? [];
+      positions = pageSnapshots.read(key, positionSchema) ?? [];
     } catch {
-      positions.current = [];
+      /* 失效的坐标不影响正文。 */
     }
     const expandedKey = `${key}:details`;
     const expandedSchema = z
@@ -91,11 +77,11 @@ export function PageScrollSnapshot({
     } catch {
       /* 失效的展开坐标不影响正文。 */
     }
-    const pending = new Set(positions.current);
-    restoring.current = pending.size > 0;
+    const pending = new Set(positions);
     let finished = false;
     let frame = 0;
     let saveTimer: ReturnType<typeof setTimeout> | undefined;
+    const scrolled = new Map<HTMLElement, Position>();
     const find = (item: Position): HTMLElement | null => {
       let node: Element | undefined = container;
       for (const index of item.path) node = node?.children[index];
@@ -103,17 +89,63 @@ export function PageScrollSnapshot({
         return container.querySelector('.message-scroll');
       return node instanceof HTMLElement ? node : null;
     };
-    const save = () => {
-      if (!positions.current.length) return;
+    const save = (resample = false) => {
+      clearTimeout(saveTimer);
+      saveTimer = undefined;
+      const recent = new Map(positions.map((item) => [item.path.join('.'), item]));
+      for (const [target, item] of scrolled) {
+        const path = pathOf(container, target);
+        if (path && (target.clientHeight || target.scrollTop || target.scrollLeft)) {
+          item.path = path;
+          item.top = Math.max(0, target.scrollTop);
+          item.left = Math.max(0, target.scrollLeft);
+          if (target.matches('.message-scroll')) item.reading = captureReadingPosition(target);
+        }
+        const id = item.path.join('.');
+        recent.delete(id);
+        recent.set(id, item);
+      }
+      scrolled.clear();
+      positions = [...recent.values()].slice(-64);
+      if (!positions.length) return;
+      if (resample) {
+        for (const item of positions) {
+          if (pending.has(item)) continue;
+          const element = find(item);
+          if (!element?.clientHeight) continue;
+          item.top = Math.max(0, element.scrollTop);
+          item.left = Math.max(0, element.scrollLeft);
+          if (item.reading) item.reading = captureReadingPosition(element);
+        }
+      }
       try {
-        pageSnapshots.write(key, positions.current);
+        pageSnapshots.write(key, positions);
       } catch {
         /* 坐标不影响正文草稿保存。 */
       }
     };
-    flush.current = () => {
-      if (saveTimer) clearTimeout(saveTimer);
+    const onScroll = (event: Event) => {
+      const target = event.target;
+      if (
+        pending.size ||
+        !(target instanceof HTMLElement) ||
+        target.closest('[data-page-snapshot]') !== container
+      )
+        return;
+      const current = scrolled.get(target);
+      const path = current?.path ?? pathOf(container, target);
+      if (!path) return;
+      if (current) scrolled.delete(target);
+      const position = current ?? { path, top: 0, left: 0 };
+      position.top = Math.max(0, target.scrollTop);
+      position.left = Math.max(0, target.scrollLeft);
+      scrolled.set(target, position);
+      clearTimeout(saveTimer);
+      // 滚动停稳后才查消息锚点和写缓存，避免滚动期间强制布局和同步存储。
       saveTimer = setTimeout(save, 150);
+    };
+    const onPageHide = () => {
+      if (scrolled.size) save();
     };
     const restore = () => {
       frame = 0;
@@ -128,12 +160,20 @@ export function PageScrollSnapshot({
               (row) => row.dataset.messageId === item.reading?.anchorId,
             )
           ) {
-            element.scrollTop = item.top;
+            if (
+              element.scrollTop !== item.top &&
+              element.scrollHeight - element.clientHeight >= item.top
+            )
+              element.scrollTop = item.top;
             continue;
           }
           restoreReadingPosition(element, item.reading);
         } else {
-          if (element.scrollHeight - element.clientHeight < item.top) continue;
+          if (
+            element.scrollHeight - element.clientHeight < item.top ||
+            element.scrollWidth - element.clientWidth < item.left
+          )
+            continue;
           element.scrollTop = item.top;
           element.scrollLeft = item.left;
         }
@@ -142,24 +182,24 @@ export function PageScrollSnapshot({
       if (!pending.size) finish();
     };
     const schedule = () => {
-      if (!finished && !frame) frame = requestAnimationFrame(restore);
+      if (!finished && !frame) frame = owner.requestAnimationFrame(restore);
     };
     const observer = new MutationObserver(schedule);
     const resize = new ResizeObserver(schedule);
     function finish() {
+      if (finished) return;
       finished = true;
-      restoring.current = false;
       pending.clear();
       observer.disconnect();
       resize.disconnect();
-      if (frame) cancelAnimationFrame(frame);
+      if (frame) owner.cancelAnimationFrame(frame);
       frame = 0;
     }
     const timer = setTimeout(finish, 5000);
     if (pending.size) {
       observer.observe(container, { subtree: true, childList: true });
       resize.observe(container);
-      schedule();
+      restore();
     }
     container.addEventListener('wheel', finish, { passive: true });
     container.addEventListener('touchstart', finish, { passive: true });
@@ -167,6 +207,8 @@ export function PageScrollSnapshot({
     container.addEventListener('keydown', finish);
     container.addEventListener('weq-page-navigation', finish);
     container.addEventListener('load', schedule, true);
+    container.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    owner.addEventListener('pagehide', onPageHide);
     return () => {
       const details = [...container.querySelectorAll('details')]
         .filter(
@@ -186,26 +228,17 @@ export function PageScrollSnapshot({
           /* 不影响草稿。 */
         }
       }
-      for (const item of positions.current) {
-        if (restoring.current && pending.has(item)) continue;
-        const element = find(item);
-        if (element) {
-          item.top = element.scrollTop;
-          item.left = element.scrollLeft;
-          if (item.reading) item.reading = captureReadingPosition(element);
-        }
-      }
+      save(true);
       finish();
       clearTimeout(timer);
-      if (saveTimer) clearTimeout(saveTimer);
-      save();
-      flush.current = () => {};
       container.removeEventListener('wheel', finish);
       container.removeEventListener('touchstart', finish);
       container.removeEventListener('pointerdown', finish);
       container.removeEventListener('keydown', finish);
       container.removeEventListener('weq-page-navigation', finish);
       container.removeEventListener('load', schedule, true);
+      container.removeEventListener('scroll', onScroll, true);
+      owner.removeEventListener('pagehide', onPageHide);
     };
   }, [key]);
   return (
@@ -215,15 +248,6 @@ export function PageScrollSnapshot({
       data-retained-panel={panel ? '' : undefined}
       className={className}
       style={style}
-      onScrollCapture={(event) => {
-        if (
-          event.target instanceof HTMLElement &&
-          event.target.closest('[data-page-snapshot]') === event.currentTarget
-        ) {
-          capture(event.target);
-          flush.current();
-        }
-      }}
     >
       {children}
     </div>

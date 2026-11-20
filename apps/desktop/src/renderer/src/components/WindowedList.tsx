@@ -44,23 +44,13 @@ export function WindowedList<T>({
   const applied = useRef<string | null>(null);
   const restoredKey = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
-    const viewport = root.current;
-    if (!viewport) return;
-    const syncTop = () => {
-      if (viewport.clientHeight) setTop(Math.max(0, viewport.scrollTop));
-    };
-    const observer = new ResizeObserver(syncTop);
-    observer.observe(viewport);
-    return () => observer.disconnect();
-  }, []);
-  useLayoutEffect(() => {
     // 滚动记录是下次切回列表的恢复值，不在当前手势中反复写回原生滚动位置。
     const changed = restoredKey.current !== resetKey;
     restoredKey.current = resetKey;
     if (changed && resetKey !== undefined && root.current) {
       const next = Math.max(0, restoreScrollTop);
       root.current.scrollTop = next;
-      setTop(next);
+      setTop(root.current.clientHeight ? Math.max(0, root.current.scrollTop) : next);
     }
   }, [resetKey, restoreScrollTop]);
   useLayoutEffect(() => {
@@ -95,33 +85,56 @@ export function WindowedList<T>({
   const range = visibleListRange(items.length, rowHeight, height, top, bufferScreens);
   const renderedRangeRef = useRef(range);
   renderedRangeRef.current = range;
+  const published = useRef<{
+    items: readonly T[];
+    callback: NonNullable<typeof onVisibleItems>;
+    first: number;
+    end: number;
+  } | null>(null);
+  const publishVisible = (offset: number, viewportHeight: number) => {
+    if (!onVisibleItems) {
+      published.current = null;
+      return;
+    }
+    const first = viewportHeight ? Math.min(items.length, Math.floor(offset / rowHeight)) : 0;
+    const end = viewportHeight
+      ? Math.min(items.length, Math.ceil((offset + viewportHeight) / rowHeight))
+      : 0;
+    const previous = published.current;
+    if (
+      previous?.items === items &&
+      previous.callback === onVisibleItems &&
+      previous.first === first &&
+      previous.end === end
+    )
+      return;
+    published.current = { items, callback: onVisibleItems, first, end };
+    onVisibleItems(items.slice(first, end));
+  };
+  const publishRef = useRef(publishVisible);
+  publishRef.current = publishVisible;
   useLayoutEffect(() => {
     const viewport = root.current;
-    // 数据缩短或布局压缩会钳制原生滚动位置，在绘制前同步窗口。
-    if (viewport?.clientHeight) {
-      const next = Math.max(0, viewport.scrollTop);
-      if (next !== top) setTop(next);
-    }
-  }, [items.length, rowHeight, height, top]);
+    if (!viewport) return;
+    const sync = () => {
+      const viewportHeight = viewport.clientHeight;
+      const offset = Math.max(0, viewport.scrollTop);
+      if (viewportHeight) setTop(offset);
+      publishRef.current(offset, viewportHeight);
+    };
+    const observer = new ResizeObserver(sync);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    const viewport = root.current;
+    // 数据缩短会钳制原生滚动位置，在绘制前同步窗口。
+    if (viewport?.clientHeight) setTop(Math.max(0, viewport.scrollTop));
+  }, [items.length, rowHeight, height]);
   useEffect(() => {
     const viewport = root.current;
-    if (!viewport || !onVisibleItems) return;
-    const publish = () => {
-      if (!viewport.clientHeight) {
-        onVisibleItems([]);
-        return;
-      }
-      const offset = Math.max(0, viewport.scrollTop);
-      const first = Math.floor(offset / rowHeight);
-      const end = Math.min(items.length, Math.ceil((offset + viewport.clientHeight) / rowHeight));
-      onVisibleItems(items.slice(first, end));
-    };
-    publish();
-    const observer =
-      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(publish);
-    observer?.observe(viewport);
-    return () => observer?.disconnect();
-  }, [items, rowHeight, top, onVisibleItems]);
+    if (viewport) publishRef.current(Math.max(0, viewport.scrollTop), viewport.clientHeight);
+  }, [items, rowHeight, onVisibleItems, scrollToKey, scrollRevision, resetKey]);
   return (
     <div
       ref={root}
@@ -134,8 +147,9 @@ export function WindowedList<T>({
         // Safari 顶部回弹的负值不属于内容坐标；保留原生回弹，只归一化窗口和记录。
         const offset = Math.max(0, element.scrollTop);
         onScrollTopChange?.(offset);
+        const viewportHeight = element.clientHeight;
         const first = Math.floor(offset / rowHeight);
-        const last = Math.ceil((offset + element.clientHeight) / rowHeight);
+        const last = Math.ceil((offset + viewportHeight) / rowHeight);
         const current = renderedRangeRef.current;
         const next = visibleListRange(items.length, rowHeight, height, offset, bufferScreens);
         // 仅在消耗缓冲时移动窗口；滚动事件内交付新行，不能等普通状态更新补画。
@@ -144,9 +158,9 @@ export function WindowedList<T>({
           (next.start !== current.start || next.end !== current.end)
         )
           flushSync(() => setTop(offset));
-        if (element.clientHeight && onVisibleItems)
-          onVisibleItems(items.slice(Math.max(0, first), Math.min(items.length, last)));
-        if (offset + element.clientHeight >= element.scrollHeight - rowHeight * 8) onNearEnd?.();
+        if (viewportHeight) publishVisible(offset, viewportHeight);
+        if (onNearEnd && offset + viewportHeight >= items.length * rowHeight - rowHeight * 8)
+          onNearEnd();
       }}
     >
       <div style={{ height: items.length * rowHeight, position: 'relative' }}>

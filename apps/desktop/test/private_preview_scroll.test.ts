@@ -193,6 +193,10 @@ it.each(['direct', 'group'])('%s 消息预览初次贴底，向上加载并按�
     });
     expect(more).toHaveBeenCalledOnce();
     act(() => root.render(createElement(GapMessagesModal, { ...props, loadingMore: true })));
+    act(() => {
+      scroll.scrollTop = 320;
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
     height = 3000;
     const older = { ...messages[0]!, id: 'older' };
     act(() =>
@@ -204,7 +208,7 @@ it.each(['direct', 'group'])('%s 消息预览初次贴底，向上加载并按�
         }),
       ),
     );
-    expect(scroll.scrollTop).toBe(1080);
+    expect(scroll.scrollTop).toBe(1320);
     expect(document.querySelector('.weq-gap-history-top')).not.toBeNull();
   } finally {
     act(() => root.unmount());

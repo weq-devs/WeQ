@@ -20808,6 +20808,7 @@ html[data-theme='dark'] .weq-help-log-debug-warn {
 .weq-help-log-view {
   height: 340px;
   overflow-y: auto;
+  overflow-anchor: none;
   border: 1px solid var(--weq-log-border);
   border-radius: 10px;
   background: var(--weq-log-bg);

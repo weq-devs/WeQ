@@ -10,14 +10,13 @@ function copyPage(source: HTMLElement) {
   const copy = source.cloneNode(true) as HTMLElement;
   const originals = [source, ...source.querySelectorAll<HTMLElement>('*')];
   const copies = [copy, ...copy.querySelectorAll<HTMLElement>('*')];
-  const scrolls = originals.map((node, index) => ({
-    node: copies[index]!,
-    top: node.scrollTop,
-    left: node.scrollLeft,
-  }));
+  const scrolls: Array<{ node: HTMLElement; top: number; left: number }> = [];
+  // 先读原页面全部坐标；副本挂载后只恢复实际滚动过的容器。
   originals.forEach((node, index) => {
     const target = copies[index]!;
-    target.removeAttribute('id');
+    const { scrollTop: top, scrollLeft: left } = node;
+    if (top || left) scrolls.push({ node: target, top, left });
+    if (target.id) target.removeAttribute('id');
     if (node instanceof HTMLInputElement && target instanceof HTMLInputElement) {
       target.value = node.value;
       target.checked = node.checked;
@@ -28,10 +27,7 @@ function copyPage(source: HTMLElement) {
   return {
     copy,
     restore: () => {
-      for (const { node, top, left } of scrolls) {
-        node.scrollTop = top;
-        node.scrollLeft = left;
-      }
+      for (const { node, top, left } of scrolls) node.scrollTo({ top, left, behavior: 'instant' });
     },
   };
 }

@@ -339,6 +339,7 @@ export function useConversationWindowEntry(
       kind: isGroup ? 'group' : 'c2c',
       rows: loaded,
       enabled: messagesTabActive && !loadingInitialMessages && Boolean(messageScope),
+      scrollRef: nativeMessageScrollRef,
     });
   useEffect(() => {
     const binding = messageBindingRef.current,

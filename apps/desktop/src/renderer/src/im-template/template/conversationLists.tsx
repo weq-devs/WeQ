@@ -2229,28 +2229,27 @@ const ContactListContent = memo(function ContactListContent({
               }
               onDragOver={(event) => {
                 const source = dragging.current;
+                const id = category.id;
                 if (
-                  typeof category.id !== 'number' ||
+                  typeof id !== 'number' ||
                   !source ||
                   !friendDirectory?.available ||
                   friendDirectory.busy ||
-                  source.category === category.id
+                  source.category === id
                 ) {
                   setDragTarget(null);
                   return;
                 }
                 event.preventDefault();
                 event.dataTransfer.dropEffect = 'move';
-                const rect = event.currentTarget.getBoundingClientRect();
-                setDragTarget({
-                  id: category.id,
-                  position:
-                    source.category === undefined
-                      ? 'inside'
-                      : event.clientY < rect.top + rect.height / 2
-                        ? 'before'
-                        : 'after',
-                });
+                let position: 'inside' | 'before' | 'after' = 'inside';
+                if (source.category !== undefined) {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                }
+                setDragTarget((current) =>
+                  current?.id === id && current.position === position ? current : { id, position },
+                );
               }}
               onDragLeave={(event) => {
                 if (

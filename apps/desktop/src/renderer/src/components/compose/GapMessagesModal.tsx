@@ -128,7 +128,7 @@ export function GapMessagesModal({
   const initialPositioned = useRef(false);
   const followBottom = useRef(true);
   const earlierPending = useRef(false);
-  const anchor = useRef<{ height: number; top: number; first?: string } | null>(null);
+  const anchor = useRef<{ height: number; first?: string } | null>(null);
   const loadMore = useCallback(() => {
     if (!preview) {
       onLoadMore();
@@ -139,7 +139,6 @@ export function GapMessagesModal({
       return;
     anchor.current = {
       height: element.scrollHeight,
-      top: element.scrollTop,
       first: messages[0]?.id,
     };
     earlierPending.current = true;
@@ -161,7 +160,7 @@ export function GapMessagesModal({
       followBottom.current = true;
     } else if (anchor.current && !loadingMore) {
       if (anchor.current.first !== messages[0]?.id)
-        element.scrollTop = anchor.current.top + element.scrollHeight - anchor.current.height;
+        element.scrollTop += element.scrollHeight - anchor.current.height;
       anchor.current = null;
       earlierPending.current = false;
     }

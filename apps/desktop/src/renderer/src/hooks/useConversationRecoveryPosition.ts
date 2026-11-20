@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { z } from 'zod';
 import { usePageSnapshotKey } from '../components/PageSnapshots.shared';
 import { captureReadingPosition } from '../lib/conversationReadingPosition';
@@ -33,11 +33,13 @@ export function useConversationRecoveryPosition({
   kind,
   rows,
   enabled,
+  scrollRef,
 }: {
   conv: string | null;
   kind: 'c2c' | 'group';
   rows: Row[];
   enabled: boolean;
+  scrollRef: RefObject<HTMLDivElement | null>;
 }) {
   const key = usePageSnapshotKey('chat:recovery-position');
   const pending = useRef<{ key: string | null; value?: Snapshot }>({ key: null });
@@ -61,19 +63,14 @@ export function useConversationRecoveryPosition({
   useEffect(() => {
     if (!key || !conv || !enabled || !rows.length) return;
     let value: Snapshot | undefined;
+    let target: HTMLElement | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const save = () => {
-      timer = undefined;
-      if (!value) return;
-      try {
-        pageSnapshots.write(key, value);
-      } catch {
-        // 可重建阅读坐标写入失败不影响独立保存的正文草稿。
-      }
-    };
-    const capture = (scroll: HTMLElement) => {
+    const capture = (scroll: HTMLElement, requireOwnedAnchor: boolean) => {
+      if (!scroll.isConnected || !scroll.clientHeight) return;
       const position = captureReadingPosition(scroll);
       const anchor = rows.find((row) => timelineRowKey(row) === position.anchorId);
+      if (requireOwnedAnchor && !anchor) return;
+      position.scrollTop = Math.max(0, position.scrollTop);
       if (
         anchor &&
         /^[1-9]\d*$/.test(anchor.msgSeq) &&
@@ -84,26 +81,42 @@ export function useConversationRecoveryPosition({
       if (scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop <= 4)
         delete position.anchorSeq;
       value = { conv, kind, position };
-      if (!timer) timer = setTimeout(save, 150);
+    };
+    const save = (requireOwnedAnchor = false) => {
+      clearTimeout(timer);
+      timer = undefined;
+      if (target) capture(target, requireOwnedAnchor);
+      target = null;
+      if (!value) return;
+      try {
+        pageSnapshots.write(key, value);
+        value = undefined;
+      } catch {
+        // 可重建阅读坐标写入失败不影响独立保存的正文草稿。
+      }
+    };
+    const schedule = (scroll: HTMLElement) => {
+      target = scroll;
+      clearTimeout(timer);
+      timer = setTimeout(save, 150);
     };
     const onScroll = (event: Event) => {
-      if (
-        event.target instanceof HTMLElement &&
-        event.target.matches('.weq-readonly-chat .message-scroll')
-      )
-        capture(event.target);
+      const scroll = scrollRef.current;
+      if (scroll && event.target === scroll) schedule(scroll);
     };
     const frame = requestAnimationFrame(() => {
-      const scroll = document.querySelector<HTMLElement>('.weq-readonly-chat .message-scroll');
-      if (scroll) capture(scroll);
+      if (scrollRef.current) schedule(scrollRef.current);
     });
-    document.addEventListener('scroll', onScroll, true);
+    const pageHide = () => save();
+    window.addEventListener('pagehide', pageHide);
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
     return () => {
       cancelAnimationFrame(frame);
-      clearTimeout(timer);
       document.removeEventListener('scroll', onScroll, true);
-      save();
+      window.removeEventListener('pagehide', pageHide);
+      // 清理时可能已复用同一个滚动容器渲染另一段会话。
+      save(true);
     };
-  }, [key, conv, kind, rows, enabled]);
+  }, [key, conv, kind, rows, enabled, scrollRef]);
   return { read, applied };
 }

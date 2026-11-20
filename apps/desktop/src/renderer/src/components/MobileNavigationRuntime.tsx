@@ -57,6 +57,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
           y: number;
           distance: number;
           started: number;
+          origin: Element;
           target: HTMLElement;
           dragging: boolean;
           kind: 'back' | 'tab';
@@ -206,7 +207,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       const entry = mobileBackEntry();
       const backTarget = mobileBackTarget();
       const surface = topSurface(document);
-      let origin = event.target instanceof Element ? event.target : null;
+      const origin = event.target instanceof Element ? event.target : null;
       // Portal 和主页面共用手势入口，但只能操作当前最上层，不能穿过不可关闭的弹窗。
       if (surface) {
         if (!backTarget || !surface.contains(backTarget) || !origin || !surface.contains(origin))
@@ -223,19 +224,11 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       if (!kind || !target) return;
       if (
         document.getSelection()?.isCollapsed === false ||
-        origin?.closest(
+        origin.closest(
           'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], video[controls], audio[controls], [data-no-swipe-back], .weq-mobile-header, .weq-mobile-tabs',
         )
       )
         return;
-      while (origin && origin !== element) {
-        const style = getComputedStyle(origin);
-        // 图片缩放、拖动面板等已声明自己的触摸轴，不与它们同时消费手势。
-        if (style.touchAction === 'none' || /\bpan-x\b/.test(style.touchAction)) return;
-        if (origin.scrollWidth > origin.clientWidth + 1 && /auto|scroll/.test(style.overflowX))
-          return;
-        origin = origin.parentElement;
-      }
       cancelAnimationFrame(frame);
       cancelAnimation();
       swipe = {
@@ -243,6 +236,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
         y: touch.clientY,
         distance: 0,
         started: performance.now(),
+        origin,
         target,
         dragging: false,
         kind,
@@ -272,6 +266,26 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
           return;
         }
         if (Math.abs(dx) < 8 || Math.abs(dx) <= dy) return;
+        if (!event.cancelable) {
+          clearSwipe();
+          return;
+        }
+        // 只有确认为横向拖动时才读取祖先布局。普通上下滚动直接走原生滚动。
+        for (
+          let node: Element | null = swipe.origin;
+          node && node !== element;
+          node = node.parentElement
+        ) {
+          const style = getComputedStyle(node);
+          if (
+            style.touchAction === 'none' ||
+            /\bpan-x\b/.test(style.touchAction) ||
+            (/auto|scroll/.test(style.overflowX) && node.scrollWidth > node.clientWidth + 1)
+          ) {
+            clearSwipe();
+            return;
+          }
+        }
         if (swipe.kind === 'tab' && !adjacentTab(dx < 0 ? 1 : -1)) {
           clearSwipe();
           return;

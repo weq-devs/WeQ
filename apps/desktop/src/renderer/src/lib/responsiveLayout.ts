@@ -105,9 +105,12 @@ const listeners = new Set<() => void>();
 let stopObserving: (() => void) | undefined;
 function update() {
   const html = document.documentElement;
-  html.dataset.weqLayout = isSingleColumnLayout() ? 'single' : 'wide';
-  html.dataset.weqInput = isTouchClient() ? 'touch' : 'pointer';
-  html.dataset.weqMobileClient = String(isMobileClient());
+  const layout = isSingleColumnLayout() ? 'single' : 'wide';
+  const input = isTouchClient() ? 'touch' : 'pointer';
+  const mobile = String(isMobileClient());
+  if (html.dataset.weqLayout !== layout) html.dataset.weqLayout = layout;
+  if (html.dataset.weqInput !== input) html.dataset.weqInput = input;
+  if (html.dataset.weqMobileClient !== mobile) html.dataset.weqMobileClient = mobile;
   for (const notify of listeners) notify();
 }
 
@@ -129,8 +132,8 @@ export function subscribeResponsiveLayout(notify: () => void): () => void {
       pointer?.removeEventListener('change', update);
       stopObserving = undefined;
     };
+    update();
   }
-  update();
   listeners.add(notify);
   return () => {
     listeners.delete(notify);

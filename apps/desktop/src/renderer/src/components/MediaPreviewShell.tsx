@@ -66,6 +66,7 @@ export function MediaPreviewShell({
     const element = root.current;
     if (!active || !element || !onWheelAt) return;
     const wheel = (event: WheelEvent) => {
+      if (!event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
       const target = event.target as HTMLElement;
       if (
         target.closest(

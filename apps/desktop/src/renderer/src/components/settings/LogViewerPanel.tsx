@@ -14,7 +14,15 @@ import { TimeLabel } from '../TimeLabel';
  *   - 其它      原样展示
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { ArrowDownToLine, FileText, Loader2, Pause, Play } from 'lucide-react';
@@ -239,7 +247,7 @@ export function LogViewerPanel(): ReactElement {
   const generation = useRef(0);
   const loadedPath = useRef('');
   const followCurrentFile = useRef(true);
-  const scrollFrame = useRef<number | null>(null);
+  const prepend = useRef<{ row: HTMLElement; contentTop: number } | null>(null);
   const pushToast = useToast((s) => s.push);
   const list = trpc.help.listLogFiles.useQuery(undefined, {
     enabled: active,
@@ -308,7 +316,7 @@ export function LogViewerPanel(): ReactElement {
       activity.current = false;
       generation.current++;
       busyRef.current = false;
-      if (scrollFrame.current !== null) owner.cancelAnimationFrame(scrollFrame.current);
+      prepend.current = null;
     };
   }, [active, selectedPath, owner]);
 
@@ -397,14 +405,15 @@ export function LogViewerPanel(): ReactElement {
 
   /** 轮询追加尾部（跟随模式）。 */
   useEffect(() => {
-    if (!active || !selectedPath || archived) return;
+    if (!active || !selectedPath || archived || !followTail) return;
+    let live = true;
     let timer: number | undefined;
     const tick = async (): Promise<void> => {
       const path = selectedRef.current;
       if (!activity.current || !path || loadedPath.current !== path || busyRef.current) return;
       const request = ++generation.current;
       const current = () =>
-        activity.current && selectedRef.current === path && generation.current === request;
+        live && activity.current && selectedRef.current === path && generation.current === request;
       busyRef.current = true;
       try {
         const info = await client.help.logFileInfo.query({ path });
@@ -465,20 +474,29 @@ export function LogViewerPanel(): ReactElement {
     void tick();
     timer = owner.setInterval(() => void tick(), 1200);
     return () => {
+      live = false;
       if (timer) owner.clearInterval(timer);
     };
-  }, [active, selectedPath, archived, loadTail, owner]);
+  }, [active, selectedPath, archived, followTail, loadTail, owner]);
 
   // 让轮询回调能读到最新 buffer（ref 镜像）
   const bufferRef = useRef(buffer);
   bufferRef.current = buffer;
 
   // 跟随模式：追加后滚动到底部
-  useEffect(() => {
-    if (!active || !followTail) return;
+  useLayoutEffect(() => {
+    if (!active) return;
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [active, buffer.lines.length, followTail]);
+    if (!el) return;
+    const anchor = prepend.current;
+    prepend.current = null;
+    if (followTail) {
+      el.scrollTop = el.scrollHeight;
+    } else if (anchor && el.contains(anchor.row)) {
+      const contentTop = anchor.row.getBoundingClientRect().top + el.scrollTop;
+      el.scrollTop += contentTop - anchor.contentTop;
+    }
+  }, [active, buffer.lines, followTail]);
 
   /** 向上翻页：加载更早的分块。 */
   const loadOlder = useCallback(async (): Promise<void> => {
@@ -490,6 +508,7 @@ export function LogViewerPanel(): ReactElement {
     const current = () =>
       activity.current && selectedRef.current === path && generation.current === request;
     busyRef.current = true;
+    setFollowTail(false);
     setLoadingOlder(true);
     try {
       const readStart = Math.max(0, cur.startOffset - CHUNK_BYTES);
@@ -512,7 +531,9 @@ export function LogViewerPanel(): ReactElement {
         return;
       }
       const el = scrollRef.current;
-      const prevHeight = el?.scrollHeight ?? 0;
+      const row = el?.querySelector<HTMLElement>('.weq-log-line');
+      if (row && el)
+        prepend.current = { row, contentTop: row.getBoundingClientRect().top + el.scrollTop };
       setBuffer((prev) => {
         if (!current()) return prev;
         // 丢弃新分块末尾的残缺行（续接进现有首行）
@@ -523,12 +544,6 @@ export function LogViewerPanel(): ReactElement {
           startOffset: lines[0]?.byteStart ?? readStart,
           lines: merged,
         };
-      });
-      scrollFrame.current = owner.requestAnimationFrame(() => {
-        scrollFrame.current = null;
-        if (!current()) return;
-        const node = scrollRef.current;
-        if (node) node.scrollTop = node.scrollHeight - prevHeight;
       });
     } catch (e) {
       if (!current()) return;
@@ -543,7 +558,7 @@ export function LogViewerPanel(): ReactElement {
         setLoadingOlder(false);
       }
     }
-  }, [loadingOlder, pushToast, owner]);
+  }, [loadingOlder, pushToast]);
 
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>): void => {

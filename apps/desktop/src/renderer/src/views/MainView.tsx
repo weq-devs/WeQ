@@ -721,6 +721,18 @@ function MainWorkspace(): ReactElement {
     pendingScrollRestoreRef,
     pendingSearchJumpRef,
   } = messageWindow;
+  const prefetchVisibleConversations = useCallback(
+    (rows: readonly Conversation[]) =>
+      prefetchVisible(
+        rows.filter(
+          (row) =>
+            row.type !== 'merged' &&
+            !row.generated &&
+            (!row.directoryKind || row.directoryKind === 'qq'),
+        ),
+      ),
+    [prefetchVisible],
+  );
   const pinMutation = trpc.account.qqWrite.pin.useMutation();
   useEffect(() => {
     if (pinSession.result)
@@ -10659,15 +10671,7 @@ function MainWorkspace(): ReactElement {
                             onReadState: (rows, unread) =>
                               void changeConversationReadState(rows, unread),
                             readStateBusy,
-                            onVisibleConversations: (rows) =>
-                              prefetchVisible(
-                                rows.filter(
-                                  (row) =>
-                                    row.type !== 'merged' &&
-                                    !row.generated &&
-                                    (!row.directoryKind || row.directoryKind === 'qq'),
-                                ),
-                              ),
+                            onVisibleConversations: prefetchVisibleConversations,
                             onConversationIntent: (row) => {
                               if (
                                 !row.generated &&
