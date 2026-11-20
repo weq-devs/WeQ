@@ -5969,22 +5969,42 @@ export const accountRouter = router({
   /** 设置 / 取消群管理员（0x1096_1，仅群主）。 */
   setGroupAdmin: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         groupId: z.union([z.string().min(1), z.number().int().positive()]),
         targetUid: z.string().min(1),
         enable: z.boolean(),
       }),
     )
     .mutation(async ({ input }) => {
-      const services = requireServices();
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
       requireQqOnlineForAlbum(services);
-      await services.groupModeration.setAdmin({
-        groupId: input.groupId,
-        targetUid: input.targetUid,
-        enable: input.enable,
-      });
+      const groupId = Number(input.groupId);
+      try {
+        await services.groupModeration.setAdmin({
+          groupId: input.groupId,
+          targetUid: input.targetUid,
+          enable: input.enable,
+        });
+      } catch (error) {
+        if (
+          !input.enable ||
+          !(error instanceof Error) ||
+          !/\bOIDB error 120101004:|\bERR_ADMIN_NUM_LIMIT\b/.test(error.message)
+        )
+          throw error;
+        const members = await scopedGroupRead(input, async (current) =>
+          current === services ? current.groupInfo.syncMemberRoles(groupId, true) : undefined,
+        ).catch(() => undefined);
+        return {
+          ok: false as const,
+          adminCount: members?.filter((member) => member.permission === 2).length ?? null,
+        };
+      }
       const readRole = async () => {
-        const members = await services.groupInfo.syncMemberRoles(Number(input.groupId), true);
+        const members = await services.groupInfo.syncMemberRoles(groupId, true);
         const target = members?.find(
           (member) => member.uid === input.targetUid.trim() && member.uin > 0,
         );
@@ -5999,7 +6019,7 @@ export const accountRouter = router({
         await delay(800);
         if (getAppContext().services === services) roleSynced = await readRole().catch(() => null);
       }
-      return { ok: true, roleSynced: roleSynced === true };
+      return { ok: true as const, roleSynced: roleSynced === true };
     }),
 
   /**

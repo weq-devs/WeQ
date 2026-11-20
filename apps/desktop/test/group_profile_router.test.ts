@@ -5,6 +5,7 @@ import { accountRouter } from '../src/main/ipc/routers/account';
 const rpc = vi.hoisted(() => ({
   uin: '10001',
   configId: 'source-a',
+  qqOnline: false,
   read: vi.fn(),
   preview: vi.fn(),
   detail: vi.fn(),
@@ -12,17 +13,28 @@ const rpc = vi.hoisted(() => ({
   profiles: vi.fn(),
   member: vi.fn(),
   identity: vi.fn(),
+  setAdmin: vi.fn(),
+  syncMemberRoles: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
-    accountConfig: { getRecord: () => ({ configId: rpc.configId, uin: rpc.uin }) },
+    accountConfig: {
+      getRecord: () => ({
+        configId: rpc.configId,
+        uin: rpc.uin,
+        qqOnline: rpc.qqOnline,
+        qqPid: 42,
+      }),
+    },
     groupInfo: {
       getExtendedProfile: rpc.read,
       getMemberPreview: rpc.preview,
       getGroupDetail: rpc.detail,
       listUserGroups: rpc.userGroups,
       getMemberInfo: rpc.member,
+      syncMemberRoles: rpc.syncMemberRoles,
     },
+    groupModeration: { setAdmin: rpc.setAdmin },
     profile: { profilesByUids: rpc.profiles, getIdentity: rpc.identity },
   };
   const bootstrap = () => ({
@@ -46,8 +58,11 @@ vi.mock('../src/main/context/app_context', () => {
 const input = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a', groupId: 123 };
 beforeEach(() => {
   vi.clearAllMocks();
+  rpc.setAdmin.mockReset();
+  rpc.syncMemberRoles.mockReset();
   rpc.uin = '10001';
   rpc.configId = 'source-a';
+  rpc.qqOnline = false;
   rpc.read.mockResolvedValue({
     groupId: 123,
     profile: null,
@@ -55,6 +70,39 @@ beforeEach(() => {
     source: 'empty',
     error: null,
   });
+});
+
+it.each(['OIDB error 120101004: quota reached', 'ERR_ADMIN_NUM_LIMIT'])(
+  '管理员满额后用新读回的在线名单统计人数：%s',
+  async (message) => {
+    rpc.qqOnline = true;
+    rpc.setAdmin.mockRejectedValueOnce(new Error(message));
+    rpc.syncMemberRoles.mockResolvedValueOnce([
+      { permission: 1 }, // 群主
+      { permission: 2 },
+      { permission: 2 },
+      { permission: 0 },
+    ]);
+    await expect(
+      accountRouter.createCaller({}).setGroupAdmin({ ...input, targetUid: 'u_peer', enable: true }),
+    ).resolves.toEqual({ ok: false, adminCount: 2 });
+    expect(rpc.setAdmin).toHaveBeenCalledOnce();
+    expect(rpc.syncMemberRoles).toHaveBeenCalledOnce();
+    expect(rpc.syncMemberRoles).toHaveBeenCalledWith(input.groupId, true);
+  },
+);
+
+it('满额后名单读取失败仍返回满额结果，其他 QQ 错误继续抛出', async () => {
+  rpc.qqOnline = true;
+  const api = accountRouter.createCaller({});
+  const target = { ...input, targetUid: 'u_peer', enable: true };
+  rpc.setAdmin.mockRejectedValueOnce(new Error('OIDB error 120101004: ERR_ADMIN_NUM_LIMIT'));
+  rpc.syncMemberRoles.mockRejectedValueOnce(new Error('名单读取失败'));
+  await expect(api.setGroupAdmin(target)).resolves.toEqual({ ok: false, adminCount: null });
+
+  rpc.setAdmin.mockRejectedValueOnce(new Error('OIDB error 1201010040: other'));
+  await expect(api.setGroupAdmin(target)).rejects.toThrow('OIDB error 1201010040');
+  expect(rpc.syncMemberRoles).toHaveBeenCalledTimes(1);
 });
 it('默认仅查询缓存，刷新选项显式转交服务', async () => {
   const api = accountRouter.createCaller({});

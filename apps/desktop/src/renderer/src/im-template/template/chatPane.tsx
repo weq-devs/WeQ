@@ -1025,6 +1025,7 @@ export function ChatPane({
   const recallMessage = trpc.account.recallMessage.useMutation();
   const muteGroupMember = trpc.account.muteGroupMember.useMutation();
   const setGroupAdmin = trpc.account.setGroupAdmin.useMutation();
+  const adminActionPending = useRef(false);
   // 「随机表情」（骰子 / 包剪锤 / 活动表情）目录：打开表情面板时才拉 —— 来源是
   // 本机资源目录，不内置 faceId 白名单。结果片段变了（QQ 更新）刷新即得。
   const randomFacesQuery = trpc.account.sysEmoji.randomFaces.useQuery(undefined, {
@@ -1635,7 +1636,10 @@ export function ChatPane({
   const rowReaction = useStableCallback(changeMessageReaction);
   const rowAvatar = useStableCallback(effectiveOpenGroupMember);
   const rowAvatarMenu = useStableCallback(openAvatarMenu);
-  const actionScope = useMemo(() => ({}), [conversation?.id, user.id, tabActive]);
+  const actionScope = useMemo(
+    () => ({}),
+    [conversation?.id, user.id, tabActive, recallBinding?.expectedAccountConfigId],
+  );
   const actionScopeRef = useRef<object | null>(actionScope);
   actionScopeRef.current = actionScope;
   useEffect(() => {
@@ -3478,33 +3482,54 @@ export function ChatPane({
   }
 
   /** 群管理：设置 / 取消管理员（仅群主）。 */
-  function toggleAvatarAdmin(sender: User, enable: boolean) {
+  async function toggleAvatarAdmin(sender: User, enable: boolean) {
     setAvatarMenu(null);
-    if (conversation?.type !== 'group') {
-      return;
-    }
+    if (conversation?.type !== 'group' || adminActionPending.current) return;
     const targetUid = groupTargetUid(sender);
     if (!targetUid) {
       pushToast({ tone: 'warning', message: '拿不到该成员的 uid，无法设置管理员' });
       return;
     }
-    setGroupAdmin.mutate(
-      { groupId: conversation.group.identityValue, targetUid, enable },
-      {
-        onSuccess: ({ roleSynced }) =>
-          pushToast(
-            roleSynced
-              ? { tone: 'success', message: enable ? '已设为管理员' : '已取消管理员' }
-              : { tone: 'info', message: 'QQ 已接受操作，群成员身份暂未同步' },
-          ),
-        onError: (error) =>
-          pushToast({
-            tone: 'error',
-            title: enable ? '设置管理员失败' : '取消管理员失败',
-            detail: error instanceof Error ? error.message : String(error),
-          }),
-      },
-    );
+    const name = displayUserName(sender);
+    const action = enable ? '设为管理员' : '取消管理员';
+    const ownerDocument = avatarMenu?.anchor?.ownerDocument;
+    const dialog = useDialog.getState();
+    adminActionPending.current = true;
+    try {
+      const confirmed = await dialog.confirm(
+        action,
+        enable ? `确定将「${name}」设为管理员？` : `确定取消「${name}」的管理员身份？`,
+        { okLabel: action, ownerDocument },
+      );
+      if (!confirmed || actionScopeRef.current !== actionScope) return;
+      const result = await setGroupAdmin.mutateAsync({
+        ...recallBinding,
+        groupId: conversation.group.identityValue,
+        targetUid,
+        enable,
+      });
+      if (actionScopeRef.current !== actionScope) return;
+      if (!result.ok) {
+        const count =
+          result.adminCount === null ? '当前人数暂无法读取' : `当前 ${result.adminCount} 人`;
+        dialog.showError('设置管理员失败', `管理员人数已达到上限（${count}）`, { ownerDocument });
+        return;
+      }
+      pushToast(
+        result.roleSynced
+          ? { tone: 'success', message: enable ? '已设为管理员' : '已取消管理员' }
+          : { tone: 'info', message: 'QQ 已接受操作，群成员身份暂未同步' },
+      );
+    } catch (error) {
+      if (actionScopeRef.current !== actionScope) return;
+      pushToast({
+        tone: 'error',
+        title: enable ? '设置管理员失败' : '取消管理员失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      adminActionPending.current = false;
+    }
   }
 
   function insertComposerLineBreak() {
@@ -8033,7 +8058,7 @@ export function ChatPane({
               if (done) setAvatarMenu(null);
             })
           }
-          onToggleAdmin={toggleAvatarAdmin}
+          onToggleAdmin={(sender, enable) => void toggleAvatarAdmin(sender, enable)}
           onAdminPermissions={(member) => {
             if (conversation?.type !== 'group') return;
             const uid = groupTargetUid(member);
