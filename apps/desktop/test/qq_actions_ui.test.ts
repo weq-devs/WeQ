@@ -55,6 +55,7 @@ const state = vi.hoisted(() => ({
   refreshSigns: vi.fn(async () => {}),
   refreshTodos: vi.fn(async (_input?: unknown) => {}),
   refreshJoin: vi.fn(async () => {}),
+  refreshAdvanced: vi.fn(async () => {}),
   refreshPeerStats: vi.fn(async () => {}),
   data: {} as Record<string, unknown>,
 }));
@@ -111,6 +112,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'request',
     'todo',
     'groupSettings',
+    'setGroupAdvancedSetting',
     'qzone',
     'inputStatus',
     'inlineButton',
@@ -130,6 +132,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'groupPermissions',
     'albumPermissions',
     'groupJoinSettings',
+    'groupAdvancedSettings',
   ];
   return {
     client: {
@@ -232,6 +235,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 error: state.data[`error:${name}`],
                 refetch: async () => {
                   if (name === 'groupJoinSettings') await state.refreshJoin();
+                  if (name === 'groupAdvancedSettings') await state.refreshAdvanced();
                   return { error: null, data: state.data[name] };
                 },
               }),
@@ -321,6 +325,7 @@ beforeEach(() => {
   state.refreshSigns.mockClear();
   state.refreshTodos.mockClear();
   state.refreshJoin.mockClear();
+  state.refreshAdvanced.mockClear();
   state.refreshPeerStats.mockClear();
   state.data = {
     typingStatus: { mode: 'off', hidden: [] },
@@ -1897,6 +1902,30 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.button('群管理菜单')).toBeNull();
     expect(f.host.textContent).toContain('其他操作');
     expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('群搜索方式从读回填充，直接选择三档之一后重新读取', async () => {
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    const select = () => f.host.querySelector<HTMLButtonElement>('[aria-label="群搜索方式"]')!;
+    expect(select().disabled).toBe(true);
+    state.data.groupAdvancedSettings = { searchMode: 'keyword_or_number' };
+    f.update();
+    expect(select().dataset.value).toBe('keyword_or_number');
+
+    state.mutate.mockImplementationOnce(async () => {
+      state.data.groupAdvancedSettings = { searchMode: 'number_only' };
+      return { state: 'accepted' };
+    });
+    await act(async () => chooseFormOption(select(), 'number_only'));
+    expect(state.mutate).toHaveBeenCalledWith(
+      'setGroupAdvancedSetting',
+      expect.objectContaining({
+        groupId: 123,
+        change: { key: 'searchMode', value: 'number_only' },
+      }),
+    );
+    expect(state.refreshAdvanced).toHaveBeenCalledOnce();
+    f.update();
+    expect(select().dataset.value).toBe('number_only');
   });
   it('目录同名且未返回数字身份时按操作名称合并显示数量，不产生重复React键', () => {
     state.data.groupJoinSettings = { groupId: 123, categoryId: 37, categoryName: '合成分类' };
