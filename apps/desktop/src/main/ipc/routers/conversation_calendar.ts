@@ -64,6 +64,7 @@ const calendarStartInput = exportAccountBindingInput.extend({
   targets: z.array(targetInput).max(12000),
   day: dayInput,
   kinds: kindsInput,
+  scopeLabel: z.string().max(128).optional(),
   refresh: z.boolean().default(false),
 });
 const calendarReceipt = z.object({
@@ -88,6 +89,7 @@ interface Entry {
   key: string;
   taskId?: string;
   day?: string;
+  scopeLabel?: string;
   retiring?: boolean;
   receiptStore?: CalendarReceipts;
   job: ConversationCalendarJob;
@@ -445,15 +447,14 @@ async function startCalendar(input: z.infer<typeof calendarStartInput>, inspectO
   const unique = [
     ...new Map(input.targets.map((target) => [calendarTargetKey(target), target])).values(),
   ];
+  const visibility = (target: CalendarTarget) =>
+    Object.entries(target.hiddenIds ?? {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, ids]) => [key, [...ids].sort()]);
   const key = JSON.stringify([
     input.month,
     unique
-      .map((target) => [
-        calendarTargetKey(target),
-        Object.entries(target.hiddenIds ?? {})
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([key, ids]) => [key, [...ids].sort()]),
-      ])
+      .map((target) => [calendarTargetKey(target), visibility(target)])
       .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
   ]);
   const receiptKey = createHash('sha256').update(key).digest('hex');
@@ -464,6 +465,7 @@ async function startCalendar(input: z.infer<typeof calendarStartInput>, inspectO
     await value.ready;
     if (current(input).session !== session) throw new Error('账号或数据源已切换');
     const status = backgroundTasks.snapshot().find((task) => task.id === value.taskId)?.status;
+    if (!value.taskId) value.scopeLabel = input.scopeLabel;
     if (inspectOnly || (!input.refresh && status === 'paused')) {
       if (!inspectOnly && input.kinds) value.job.setKinds(input.kinds);
       return { id, day: value.day, background: value.job.inBackground };
@@ -522,37 +524,82 @@ async function startCalendar(input: z.infer<typeof calendarStartInput>, inspectO
     return true;
   };
   let lastSync = 0;
-  const job = new ConversationCalendarJob(input.month, unique, sources, reserve, () => {
-    if (!tracked?.loaded) return;
-    tracked.store?.schedule();
-    if (tracked?.taskId && Date.now() - lastSync >= 500) {
-      lastSync = Date.now();
-      syncTask(tracked);
-    }
-  });
-  tracked = { ...value, key, job, day: input.day, loaded: true, taskId: receipt?.id, receiptStore };
+  const coverage = new Map(
+    unique.map((target) => {
+      const kind = target.kind;
+      const hidden =
+        kind === 'c2c' || kind === 'group' || kind === 'dataline'
+          ? [
+              ...services.msgs.getHiddenDeletedMsgIds(
+                kind === 'group' ? 'group' : 'c2c',
+                target.conv,
+              ),
+            ].sort()
+          : [];
+      const fingerprint = createHash('sha256')
+        .update(JSON.stringify([visibility(target), hidden]))
+        .digest('hex');
+      return [calendarTargetKey(target), fingerprint];
+    }),
+  );
+  const job = new ConversationCalendarJob(
+    input.month,
+    unique,
+    sources,
+    reserve,
+    () => {
+      if (!tracked?.loaded) return;
+      tracked.store?.schedule();
+      if (tracked.taskId && Date.now() - lastSync >= 500) {
+        lastSync = Date.now();
+        syncTask(tracked);
+      }
+    },
+    coverage,
+  );
+  tracked = {
+    ...value,
+    key,
+    job,
+    day: input.day,
+    scopeLabel: receipt?.request.scopeLabel ?? input.scopeLabel,
+    loaded: true,
+    taskId: receipt?.id,
+    receiptStore,
+  };
   cache.set(id, tracked);
   const entry = tracked;
   const root = accountRuntimeCacheRoot(getAppContext());
   if (root) {
     entry.loaded = false;
+    const sourceScope = [session.context.uin, scope.configId, resolve(session.msgDbPath)];
     const store = new CalendarCheckpointStore(
       root,
-      JSON.stringify([
-        session.context.uin,
-        services.accountConfig.getRecord()?.configId,
-        resolve(session.msgDbPath),
-        key,
-      ]),
+      JSON.stringify([...sourceScope, key]),
       () => job.checkpoint(),
       (message) => {
         job.persistenceError = message;
       },
+      JSON.stringify([...sourceScope, input.month]),
     );
     entry.store = store;
     entry.ready = (async () => {
       const saved = await store.load();
-      if (saved !== undefined && !job.restore(saved)) store.block('统计结果格式无效，原文件已保留');
+      if (saved !== undefined) {
+        if (!job.restore(saved)) store.block('统计结果格式无效，原文件已保留');
+      }
+      if (!input.refresh && !inspectOnly && !job.persistenceError && job.canReuseCompleted) {
+        for (const other of [...pool.values()].reverse()) {
+          if (!job.canReuseCompleted) break;
+          if (other !== entry && other.loaded && other.job.month === input.month)
+            job.reuseCompleted(other.job.checkpoint());
+        }
+        if (job.canReuseCompleted)
+          for await (const related of store.loadRelated()) {
+            job.reuseCompleted(related);
+            if (!job.canReuseCompleted) break;
+          }
+      }
       entry.day = job.day ?? input.day;
       if (receipt && receipt.status !== 'completed') job.suspend();
       entry.loaded = true;
@@ -583,8 +630,25 @@ async function startCalendar(input: z.infer<typeof calendarStartInput>, inspectO
   return { id, day: tracked.day, background: false };
 }
 
+const calendarTaskInput = exportAccountBindingInput.extend({ taskId: z.string().uuid() });
+
 export const conversationCalendarRouter = router({
-  start: procedure.input(calendarStartInput).mutation(({ input }) => startCalendar(input)),
+  start: procedure
+    .input(z.union([calendarTaskInput, calendarStartInput]))
+    .mutation(async ({ input }) => {
+      if (!('taskId' in input)) return startCalendar(input);
+      const [id, value] = await openCalendarTask(input.taskId, input);
+      return { id, day: value.day, background: true };
+    }),
+  openTask: procedure.input(calendarTaskInput).query(async ({ input }) => {
+    const [, value] = await openCalendarTask(input.taskId, input);
+    return {
+      month: value.job.month,
+      day: value.day,
+      targets: value.targets,
+      scopeLabel: value.scopeLabel,
+    };
+  }),
   background: procedure.input(requestInput).mutation(({ input }) => {
     const value = entry(input);
     if (value.job.controller.signal.aborted) throw new Error('日历任务已停止，请重新打开日历');
@@ -620,6 +684,7 @@ export const conversationCalendarRouter = router({
             month: value.job.month,
             targets: value.targets,
             day: value.day,
+            scopeLabel: value.scopeLabel,
             refresh: false,
           },
         };
@@ -667,11 +732,10 @@ export const conversationCalendarRouter = router({
     }),
   task: procedure
     .input(
-      exportAccountBindingInput.extend({
-        taskId: z.string().uuid(),
+      calendarTaskInput.extend({
         day: dayInput,
         kinds: kindsInput,
-        limit: z.number().int().min(1).max(12000).default(50),
+        limit: z.number().int().min(0).max(12000).default(50),
         includeLogs: z.boolean().default(false),
       }),
     )

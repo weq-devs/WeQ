@@ -20,7 +20,10 @@ vi.mock('../src/main/context/app_context', () => ({
   accountRuntimeCacheRoot: () => fixture.root,
   getAppContext: () => ({
     account: fixture.session,
-    services: { accountConfig: { getRecord: () => ({ configId: 'live' }) } },
+    services: {
+      accountConfig: { getRecord: () => ({ configId: 'live' }) },
+      msgs: { getHiddenDeletedMsgIds: () => [] },
+    },
     platform: { native: { ntHelper: { executeSqlBudgeted: () => [] } } },
   }),
   accountEventBus: {
@@ -94,18 +97,25 @@ it('账号关闭保存后，新账号实例打开同一来源恢复结果，不�
   const date = '2026-10-08',
     time = Date.parse(`${date}T00:00:00+08:00`) / 1000;
   const target = { kind: 'c2c' as const, conv: 'peer', name: '测试', avatar: null, ancestors: [] };
+  const second = { ...target, conv: 'another-peer' };
   fixture.read.mockResolvedValue({
     rows: [{ conv: target.conv, time, anchor: { id: '1', seq: '1', time } }],
     done: true,
   });
   const caller = conversationCalendarRouter.createCaller({});
-  const input = { ...binding, month: '2026-10', day: date, targets: [target] };
+  const input = { ...binding, month: '2026-10', day: date, targets: [target, second] };
   const first = await caller.start(input);
   await vi.runAllTimersAsync();
   await caller.stop({ ...binding, id: first.id });
   fixture.closing?.(fixture.session);
   await waitForCalendarWrites();
   fixture.session = { ...fixture.session };
+  const narrowed = await caller.start({ ...input, targets: [target] });
+  const reused = await caller.poll({ ...binding, id: narrowed.id, day: date, includeLogs: true });
+  expect(reused.rows[0]?.count).toBe(1);
+  expect(reused.logs?.some((line) => line.text.includes('复用其他会话范围'))).toBe(true);
+  expect(fixture.read).toHaveBeenCalledTimes(1);
+  await caller.stop({ ...binding, id: narrowed.id });
   const next = await caller.start(input);
   const restored = await caller.poll({ ...binding, id: next.id, day: date });
   expect(restored.rows[0]?.count).toBe(1);
