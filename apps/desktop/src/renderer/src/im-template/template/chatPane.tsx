@@ -4704,7 +4704,7 @@ export function ChatPane({
       }
       const path = window.weq?.pathForFile?.(file);
       if (!path && file.size > PICKED_BROWSER_FILE_MAX_BYTES) {
-        sizeError ??= `${file.name} 超过 2 GiB，已跳过`;
+        sizeError ??= `${file.name} 达到或超过 4 GiB，已跳过`;
         continue;
       }
       // 本机视频可按路径流式发送；其他大媒体走普通文件，避免按图片保存或整段读入内存。

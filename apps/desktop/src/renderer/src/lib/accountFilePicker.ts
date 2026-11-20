@@ -87,7 +87,7 @@ export async function stageAccountFile(
 ) {
   signal?.throwIfAborted();
   if (!file.size || file.size > PICKED_BROWSER_FILE_MAX_BYTES)
-    throw new Error('请选择 2 GiB 以内的非空文件');
+    throw new Error('请选择小于 4 GiB 的非空文件');
   const config = expected
     ? { uin: expected.expectedAccountUin, configId: expected.expectedAccountConfigId }
     : await client.account.getAccountConfig.query();

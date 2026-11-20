@@ -162,7 +162,7 @@ it.each([
     const f = mount();
     try {
       const file = new File(['fixture'], 'large.bin', { type: mime });
-      Object.defineProperty(file, 'size', { value: 100 * 1024 * 1024 + 1 });
+      Object.defineProperty(file, 'size', { value: 4 * 1024 ** 3 - 1 });
       const read = vi.spyOn(file, 'arrayBuffer');
       await f.add([file], source);
       expect(f.host.querySelector('.composer-media-tray')?.textContent).toContain(file.name);
@@ -244,7 +244,7 @@ it('连续添加共用数量上限，超过浏览器暂存上限的文件跳过�
       'picker',
     );
     const huge = new File(['a'], 'huge.bin');
-    Object.defineProperty(huge, 'size', { value: 2 * 1024 ** 3 + 1 });
+    Object.defineProperty(huge, 'size', { value: 4 * 1024 ** 3 });
     await f.add([huge, new File(['a'], 'last.txt'), new File(['a'], 'overflow.txt')], 'picker');
     expect(f.host.querySelectorAll('.composer-media-tray .composer-single-card')).toHaveLength(
       MAX_COMPOSER_ATTACHMENTS,
