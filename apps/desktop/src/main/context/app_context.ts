@@ -26,7 +26,7 @@ import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
 import { ConversationInteractionBadges } from './conversation_interactions';
-import { webNotices, type WebNotice } from '../web/notices';
+import { webNotices, type WebNoticeEvent, type WebNoticePayload } from '../web/notices';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
 import { resolveSignerWrapper } from './signer_target';
@@ -376,7 +376,7 @@ let groupKeywordNotifier: ((hit: GroupKeywordHit) => void | Promise<void>) | nul
  * 由 app 层注入 —— app_context 保持 Electron-free（web 端共用它）。
  */
 let recallNotifier: ((event: RecallNotifyEvent) => void) | null = null;
-function webNotice(session: AccountSession, notice: Omit<WebNotice, 'uin' | 'configId'>): void {
+function webNotice(session: AccountSession, notice: WebNoticePayload): void {
   const ctx = getAppContext();
   const configId = ctx.services?.accountConfig.getRecord()?.configId;
   if (ctx.account !== session || !configId) return;
@@ -384,7 +384,7 @@ function webNotice(session: AccountSession, notice: Omit<WebNotice, 'uin' | 'con
     ...notice,
     uin: String(session.context.uin),
     configId,
-  } satisfies WebNotice);
+  } satisfies WebNoticeEvent);
 }
 function recallNotificationsEnabled(config: UserConfigService): boolean {
   const { banner, system } = config.getSettings().notificationEvents.recall;
@@ -2495,6 +2495,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               userConfig.getSettings().notificationEvents.mail.system,
             allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => notifyMail(session, notice),
+            onRead: (mailIds) => webNotice(session, { kind: 'mail-read', mailIds }),
           },
         ),
         groupAlbumMedia: new GroupAlbumMediaService(
@@ -3422,6 +3423,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               userConfig.getSettings().notificationEvents.mail.system,
             allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => notifyMail(session, notice),
+            onRead: (mailIds) => webNotice(session, { kind: 'mail-read', mailIds }),
           },
         ),
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),

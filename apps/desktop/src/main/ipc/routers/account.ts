@@ -52,7 +52,7 @@ import { openFlashDownloadOutput, startFlashDownloads } from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
 import { pickedBrowserFiles } from '../../browser_files';
 import { saveAnalyticsFromWeb } from '../../analytics_save';
-import { webNotices, type WebNotice } from '../../web/notices';
+import { webNotices, type WebNoticeEvent } from '../../web/notices';
 import {
   BROWSER_FILE_CHUNK_BYTES,
   BROWSER_FILE_MAX_BYTES,
@@ -1399,8 +1399,8 @@ export const accountRouter = router({
       input.expectedAccountUin,
       input.expectedAccountConfigId,
     );
-    return observable<WebNotice>((emit) => {
-      const receive = (notice: WebNotice) => {
+    return observable<WebNoticeEvent>((emit) => {
+      const receive = (notice: WebNoticeEvent) => {
         if (
           getAppContext().services === services &&
           notice.uin === input.expectedAccountUin &&

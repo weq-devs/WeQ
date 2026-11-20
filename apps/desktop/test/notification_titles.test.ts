@@ -3,12 +3,19 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ts from 'typescript';
+import { normalizeNotificationEvents } from '@weq/service/notification-settings';
+import type { WebNoticeEvent } from '../src/main/web/notices';
 import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
+import { WebNotifications } from '../src/renderer/src/components/WebNotifications';
+import { useNotificationPolicy } from '../src/renderer/src/lib/notificationPolicy';
+import { useViewState } from '../src/renderer/src/state/view';
 
+const subscribe = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  trpc: {},
+  trpc: { account: { getAccountConfig: { useQuery: () => ({ data: { configId: 'source-a' } }) } } },
   client: {
+    account: { onWebNotice: { subscribe } },
     bootstrap: { notifyConfiguredEvent: { mutate: vi.fn(async () => true) } },
   },
 }));
@@ -42,12 +49,15 @@ function mailContent() {
 let cleanup = () => {};
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  useViewState.setState({ openedUin: null });
+  useNotificationPolicy.getState().setEvents(normalizeNotificationEvents(undefined));
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
   useToast.getState().setDurations({ successSeconds: -1, failureSeconds: -1 });
 });
 afterEach(() => {
   cleanup();
   cleanup = () => {};
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -68,6 +78,45 @@ it('新邮件事件直接显示在折叠横幅标题，不再只显示邮箱分�
   });
   expect(host.querySelector('.weq-toast-title')?.textContent).toBe('QQ 邮箱收到新邮件');
   expect(host.querySelector('[aria-label="展开详情"]')).toBeNull();
+});
+
+it('已读事件只关闭当前账号和数据源中对应邮件的横幅', async () => {
+  vi.useFakeTimers();
+  useViewState.setState({ openedUin: '10001' });
+  const policy = normalizeNotificationEvents(undefined);
+  policy.mail.banner = true;
+  useNotificationPolicy.getState().setEvents(policy);
+  let deliver!: (notice: WebNoticeEvent) => void;
+  subscribe.mockImplementation((_binding, { onData }) => {
+    deliver = onData;
+    return { unsubscribe: vi.fn() };
+  });
+  const root = createRoot(document.createElement('div'));
+  cleanup = () => act(() => root.unmount());
+  act(() =>
+    root.render([h(WebNotifications, { key: 'notices' }), h(ToastHost, { key: 'toasts' })]),
+  );
+
+  const binding = { uin: '10001', configId: 'source-a' };
+  act(() => {
+    for (const id of ['first', 'second'])
+      deliver({ ...binding, kind: 'mail', title: '新邮件', body: '', mail: { folderId: 1, id } });
+  });
+  const [first, second] = useToast.getState().toasts;
+  expect(first?.source?.target).toMatchObject({ kind: 'mail', mailId: 'first' });
+  expect(second?.source?.target).toMatchObject({ kind: 'mail', mailId: 'second' });
+
+  const read = { ...binding, kind: 'mail-read' as const, mailIds: ['first'] };
+  act(() => deliver({ ...read, configId: 'source-b' }));
+  act(() => deliver({ ...read, uin: '20002' }));
+  expect(useToast.getState().leaving).toEqual([]);
+  await act(async () => {
+    deliver(read);
+  });
+  await act(async () => {
+    await vi.runOnlyPendingTimersAsync();
+  });
+  expect(useToast.getState().toasts).toEqual([second]);
 });
 
 it('操作通知不再用泛称标题折叠实际事件，错误原因和文件路径仍可保留详情', () => {

@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { readFile, access } from 'node:fs/promises';
-import { webNotices, type WebNotice } from '../src/main/web/notices';
+import { webNotices, type WebNotice, type WebNoticeEvent } from '../src/main/web/notices';
 import type { HostBridge } from '@weq/service';
 
 const f = vi.hoisted(() => ({
@@ -89,7 +89,7 @@ describe('群文件管理器 IPC 来源', () => {
   });
   it('Web 提醒只投递订阅的账号与来源，切号停止，取消订阅释放监听', async () => {
     const stream = await accountRouter.createCaller({}).onWebNotice(binding);
-    const received: WebNotice[] = [];
+    const received: WebNoticeEvent[] = [];
     const before = webNotices.listenerCount('notice');
     const sub = stream.subscribe({ next: (notice) => received.push(notice) });
     const notice: WebNotice = {
@@ -99,15 +99,22 @@ describe('群文件管理器 IPC 来源', () => {
       title: '邮件',
       body: '收到新邮件。',
     };
+    const read: WebNoticeEvent = {
+      uin: notice.uin,
+      configId: notice.configId,
+      kind: 'mail-read',
+      mailIds: ['fixture'],
+    };
     try {
       webNotices.emit('notice', { ...notice, uin: '20002' });
       webNotices.emit('notice', { ...notice, configId: 'source-b' });
       expect(received).toHaveLength(0);
       webNotices.emit('notice', notice);
-      expect(received).toEqual([notice]);
+      webNotices.emit('notice', read);
+      expect(received).toEqual([notice, read]);
       f.switched = true;
-      webNotices.emit('notice', notice);
-      expect(received).toHaveLength(1);
+      webNotices.emit('notice', read);
+      expect(received).toHaveLength(2);
     } finally {
       sub.unsubscribe();
     }

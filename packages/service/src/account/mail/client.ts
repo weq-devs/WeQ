@@ -72,6 +72,7 @@ export class QQMailService {
   private readonly totals = new Map<string, number>();
   private readonly transfers = new Set<AbortController>();
   private readonly onNotice?: (notice: MailNotice) => void;
+  private readonly onRead?: (ids: string[]) => void;
   private showUnread = false;
   private backgroundStopped = false;
   private backgroundConnect: Promise<void> | null = null;
@@ -88,6 +89,7 @@ export class QQMailService {
       authFactory?: () => MailAuth;
       notificationsEnabled?: boolean;
       onNotice?: (notice: MailNotice) => void;
+      onRead?: (ids: string[]) => void;
       socketFactory?: (options: WebSocket.ClientOptions) => MailSocket;
       allowOnline?: () => boolean;
     } = {},
@@ -97,6 +99,7 @@ export class QQMailService {
     this.auth = this.makeAuth();
     this.state.notifications = options.notificationsEnabled ?? false;
     this.onNotice = options.onNotice;
+    this.onRead = options.onRead;
     this.socketFactory =
       options.socketFactory ?? ((options) => new WebSocket('wss://wx.mail.qq.com/socket', options));
   }
@@ -358,6 +361,15 @@ export class QQMailService {
     await this.scoped(async (auth) => {
       await auth.cgi('/mgr/mailmgr', { mailid: ids, func: funcs[action] }, { signal, write: true });
     });
+    if (action === 'read') {
+      // 防止排队中的推送或提醒查询再次提示刚读过的邮件。
+      for (const id of ids) this.cursor.remember(id);
+      try {
+        this.onRead?.(ids);
+      } catch {
+        /* 横幅更新失败不影响已确认的标记结果。 */
+      }
+    }
     if (action === 'read' || action === 'unread' || action === 'trash')
       void this.refreshUnread(signal);
     this.events.emit('change', { type: 'changed' });
