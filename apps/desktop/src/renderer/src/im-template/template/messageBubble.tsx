@@ -515,6 +515,21 @@ function MessageBubbleBody({
   }
 
   const SelfAvatar = onAvatarClick ? 'button' : 'span';
+  const incomingAvatar = !mine ? (
+    conversation.generated?.kind === 'assistant' ? (
+      <span className="avatar weq-asst-avatar" aria-hidden>
+        <FEATURE_ICONS.assistant />
+      </span>
+    ) : (
+      <PendantOverlay
+        name={senderName}
+        uin={sender.identityValue}
+        avatarUrl={senderAvatarUrl}
+        seed={senderSeed}
+        widget={lineWidget}
+      />
+    )
+  ) : null;
   const renderContext = { message, conversation, sender, mine };
   const renderer = (renderers ?? defaultMessageRenderers).find((item) => item.match(renderContext));
   const content = renderer?.render(renderContext) ?? renderDefaultMessageContent(message);
@@ -568,13 +583,7 @@ function MessageBubbleBody({
               onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
             }
           >
-            <PendantOverlay
-              name={senderName}
-              uin={sender.identityValue}
-              avatarUrl={senderAvatarUrl}
-              seed={senderSeed}
-              widget={lineWidget}
-            />
+            {incomingAvatar}
             {avatarBadge}
           </button>
         ) : (
@@ -584,13 +593,7 @@ function MessageBubbleBody({
               onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
             }
           >
-            <PendantOverlay
-              name={senderName}
-              uin={sender.identityValue}
-              avatarUrl={senderAvatarUrl}
-              seed={senderSeed}
-              widget={lineWidget}
-            />
+            {incomingAvatar}
             {avatarBadge}
           </span>
         )

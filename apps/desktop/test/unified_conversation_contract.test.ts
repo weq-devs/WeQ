@@ -47,6 +47,12 @@ it('助手控制器复用会话页，默认模型设置及会话覆盖独立保�
       ),
     );
     expect(host.querySelector('.chat-pane .chat-header')?.textContent).toContain('独立助手会话');
+    const selfAvatar = host.querySelector<HTMLImageElement>('[data-message-id="user-1"] img');
+    expect(selfAvatar).not.toBeNull();
+    expect(new URL(selfAvatar!.src).searchParams.get('uin')).toBe('10000');
+    expect(
+      host.querySelector('[data-message-id="answer-1"] .message-avatar-wrap svg.lucide-sparkles'),
+    ).not.toBeNull();
     expect(
       host.querySelector('.chat-pane .composer-editor[contenteditable="true"]'),
     ).not.toBeNull();

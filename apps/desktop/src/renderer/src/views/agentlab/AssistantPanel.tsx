@@ -18,6 +18,7 @@ import { trpc, client } from '../../trpc/client';
 import { ChatPane } from '../../im-template/template/chatPane';
 import type { Message } from '../../im-template/template/types';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
+import { resolveAvatar } from '../../lib/avatarResolver';
 import { cloneChatUser, cloneChatConversation, cloneChatInput } from './cloneChatAdapter';
 import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import { useDirectoryReadPosition } from '../../hooks/useDirectoryReadPosition';
@@ -425,7 +426,15 @@ export function AssistantPanel({
       setSending(false);
     }
   }
-  const user = useMemo(() => cloneChatUser('self', '我', profile.data?.uin), [profile.data?.uin]);
+  const selfUin = account.data?.uin || profile.data?.uin;
+  const selfAvatarUrl = profile.data?.avatarUrl;
+  const user = useMemo(
+    () => ({
+      ...cloneChatUser('self', '我', selfUin),
+      avatarUrl: resolveAvatar({ uin: selfUin, profileAvatarUrl: selfAvatarUrl }),
+    }),
+    [selfUin, selfAvatarUrl],
+  );
   const peer = useMemo(
     () => ({ ...cloneChatUser('assistant', 'WeQ 助手'), kind: 'bot' as const }),
     [],

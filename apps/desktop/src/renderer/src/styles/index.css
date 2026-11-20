@@ -10497,6 +10497,11 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   );
 }
 
+.avatar.weq-asst-avatar > svg {
+  width: 18px;
+  height: 18px;
+}
+
 .weq-asst-content {
   display: flex;
   flex-direction: column;
