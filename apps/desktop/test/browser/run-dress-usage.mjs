@@ -121,12 +121,14 @@ try {
   await background.getByRole('slider', { name: '聊天背景不透明度' }).waitFor();
   await background.getByText('1 个会话单独设置').click();
   await background.getByRole('button', { name: /项目讨论.*不使用/ }).click();
-  const mode = page.getByRole('combobox', { name: '本会话聊天背景' });
+  const mode = page.getByRole('radiogroup', { name: '本会话聊天背景' });
   await mode.waitFor();
-  assert.equal(await mode.getAttribute('data-value'), 'off');
+  assert.equal(
+    await mode.getByRole('radio', { name: '不使用' }).getAttribute('aria-checked'),
+    'true',
+  );
   await page.screenshot({ path: resolve(output, 'conversation-override.png'), fullPage: true });
-  await mode.click();
-  await page.getByRole('option', { name: '跟随全局' }).click();
+  await mode.getByRole('radio', { name: '跟随全局' }).click();
   await background.getByText('1 个会话单独设置').waitFor({ state: 'detached' });
 
   await page.goto(`${url}?empty=1&tools=1`);

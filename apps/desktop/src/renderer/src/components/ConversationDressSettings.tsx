@@ -12,7 +12,7 @@ import { resolveChatBackdrop } from '../hooks/useDressSkin';
 import { ChatBackdrop, ScreenWidget } from './ChatBackdrop';
 import { DressOpacityControl } from './DressOpacityControl';
 import { DressSearchForm } from './DressSearchForm';
-import { FormSelect } from './FormSelect';
+import { SegmentedControl } from './SegmentedControl';
 import { ShimmerImage } from './ShimmerImage';
 import '../styles/dressup.css';
 
@@ -21,6 +21,12 @@ const LABELS = {
   background: '聊天背景',
   screen: '浮屏挂件',
 } satisfies Record<DressConversationSlot, string>;
+
+const MODES = [
+  { value: 'global', label: '跟随全局' },
+  { value: 'custom', label: '单独选择' },
+  { value: 'off', label: '不使用' },
+] as const;
 
 type OverrideInput = Parameters<typeof client.account.dressup.setConversationOverride.mutate>[0];
 type OverrideChange = {
@@ -170,20 +176,17 @@ function ConversationDressRow({
           <h3 id={id}>{label}</h3>
           {selection ? <small>{conversationDressLabel(entry, slot)}</small> : null}
         </div>
-        <FormSelect
-          aria-label={`本会话${label}`}
+        <SegmentedControl
+          label={`本会话${label}`}
           value={mode}
+          options={MODES}
           disabled={busy}
-          onChange={(event) => {
-            const next = event.target.value;
+          onChange={(next) => {
+            if (next === mode) return;
             if (next === 'custom') setChoosing(true);
             else void save({ slot, value: next === 'off' ? 'off' : null });
           }}
-        >
-          <option value="global">跟随全局</option>
-          <option value="custom">单独选择</option>
-          <option value="off">不使用</option>
-        </FormSelect>
+        />
       </div>
       {selection && !choosing ? (
         <>
