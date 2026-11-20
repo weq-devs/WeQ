@@ -803,6 +803,9 @@ export function ConversationList({
             const active = conversation.id === activeConversationId;
             const updatedAt = conversation.updatedAt;
             const unreadCount = conversation.unreadCount ?? 0;
+            const showUnreadCount =
+              unreadCount > 0 &&
+              (conversation.type !== 'merged' || markers.aggregates[conversation.mergedKind]);
             const draft = drafts[conversation.id] ?? conversation.draftPreview;
             const hasDraft = showPreview && !active && Boolean(draft?.trim());
             const lastMessage = conversation.lastMessage;
@@ -865,6 +868,7 @@ export function ConversationList({
                     ...preferences[conversation.id],
                   }.muted,
                 );
+            const reminderTone = muted ? 'muted' : 'notice';
             const pinned = isPinned(conversation, preferences);
             const virtualRow = directory?.virtual.find((item) => item.id === conversation.id);
             const canOpenContextMenu = conversation.type !== 'merged' || Boolean(directory?.onPin);
@@ -1051,21 +1055,19 @@ export function ConversationList({
                     </>
                   }
                   status={
-                    unreadCount &&
-                    (conversation.type !== 'merged' ||
-                      markers.aggregates[conversation.mergedKind]) ? (
+                    showUnreadCount ? (
                       <ReminderCount
                         count={unreadCount}
-                        tone={muted ? 'muted' : 'notice'}
+                        tone={reminderTone}
                         className="row-unread"
                       />
-                    ) : !unreadCount &&
-                      conversation.type !== 'merged' &&
+                    ) : conversation.type !== 'merged' &&
                       directory?.interactionBadges?.has(
                         `${conversation.type === 'group' ? 'group' : 'c2c'}:${conversation.id}`,
                       ) ? (
                       <ReminderDot
                         className="row-unread"
+                        tone={reminderTone}
                         role="img"
                         aria-label="有新互动"
                         title="有新互动"

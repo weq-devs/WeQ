@@ -62,22 +62,24 @@ it('只有群目录、notifyLevel=2 时即显示免打扰；未读数据到达�
 });
 
 it.each([null, mutedGroup.id])(
-  '普通和选中状态下，置顶前后都保留免打扰角标：%s',
+  '普通和选中状态下，置顶前后免打扰数字均优先于互动圆点：%s',
   (activeConversationId) => {
     vi.stubGlobal('localStorage', new Storage());
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
-    function Fixture() {
+    function Fixture({ unreadCount }: { unreadCount: number }) {
       const [pinned, setPinned] = useState(false);
       const preferences = groupAssistantPreferences([mutedGroup], {}, { [mutedGroup.id]: pinned });
+      const conversations = [{ ...mutedGroup, unreadCount }];
       return h(
         ConversationDirectoryContext.Provider,
         {
           value: {
             view: 'groupAssistant',
-            rows: [mutedGroup],
+            rows: conversations,
+            interactionBadges: new Map([[`group:${mutedGroup.id}`, true]]),
             virtual: [],
             onVirtual: () => {},
             onCreate: () => {},
@@ -85,7 +87,7 @@ it.each([null, mutedGroup.id])(
         },
         h('button', { 'data-toggle-pin': '', onClick: () => setPinned((value) => !value) }, '置顶'),
         h(ConversationList, {
-          conversations: [mutedGroup],
+          conversations,
           activeConversationId,
           preferences,
           drafts: {},
@@ -94,13 +96,21 @@ it.each([null, mutedGroup.id])(
       );
     }
     try {
-      act(() => root.render(h(Fixture)));
+      act(() => root.render(h(Fixture, { unreadCount: 7 })));
       const unread = () => host.querySelector('.row-unread');
+      const interaction = () => host.querySelector('[aria-label="有新互动"]');
       expect(unread()?.getAttribute('data-tone')).toBe('muted');
       expect(unread()?.textContent).toBe('7');
+      expect(interaction()).toBeNull();
       act(() => host.querySelector<HTMLButtonElement>('[data-toggle-pin]')!.click());
       expect(unread()?.getAttribute('data-tone')).toBe('muted');
       expect(unread()?.textContent).toBe('7');
+      expect(interaction()).toBeNull();
+      act(() => root.render(h(Fixture, { unreadCount: 0 })));
+      expect(interaction()?.getAttribute('data-tone')).toBe('muted');
+      act(() => root.render(h(Fixture, { unreadCount: 2 })));
+      expect(unread()?.textContent).toBe('2');
+      expect(interaction()).toBeNull();
     } finally {
       act(() => root.unmount());
       host.remove();

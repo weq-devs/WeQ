@@ -48,7 +48,7 @@ html .weq-reminder-count {
   font-variant-numeric: tabular-nums;
 }
 
-html .weq-reminder-count[data-tone='muted'] {
+html .weq-reminder[data-tone='muted'] {
   background: var(--weq-reminder-muted-background);
   color: var(--weq-reminder-muted-foreground);
 }
