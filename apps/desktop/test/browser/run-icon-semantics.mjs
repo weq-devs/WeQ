@@ -76,7 +76,7 @@ try {
         );
       }
       await page.getByRole('option').filter({ hasText: 'QQ 空间' }).click();
-      assert.deepEqual(await page.evaluate(() => window.iconQa.selected), ['feature:QQ 空间']);
+      assert.deepEqual(await page.evaluate(() => window.iconQa.selected), ['qzone.timeline']);
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,
