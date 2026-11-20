@@ -655,9 +655,7 @@ function MainWorkspace(): ReactElement {
     staleTime: IS_WEB ? 60_000 : 5 * 60_000,
     refetchOnMount: IS_WEB,
   } as const;
-  const groupOptions = { ...directoryOptions, enabled: groupsReady || contactsPageOpen };
   const profileOptions = { ...directoryOptions, enabled: profilesReady || contactsPageOpen };
-  const secondaryOptions = { ...directoryOptions, enabled: secondaryReady };
   const onlineOptions = { ...directoryOptions, enabled: onlineReady };
   const pushToast = useToast((s) => s.push);
   const confirmReadState = useDialog((s) => s.confirm);
@@ -742,6 +740,22 @@ function MainWorkspace(): ReactElement {
     visibleConversationIds,
   );
   const firstContactsReady = Boolean(contacts.data) || contacts.isError;
+  // Remote 的常规视图在首批会话可用后就补齐各聚合入口，缓存先显示并立即向宿主校准。
+  const regularDirectoryReady =
+    Boolean(pinSession.binding) && (firstContactsReady || Boolean(recentHead.data));
+  const regularDirectoryOptions = {
+    ...directoryOptions,
+    staleTime: IS_WEB ? 0 : directoryOptions.staleTime,
+    enabled: IS_WEB ? regularDirectoryReady : secondaryReady,
+  };
+  const conversationPagingReady = IS_WEB ? regularDirectoryReady : secondaryReady;
+  const canContinueConversationPaging = useStableCallback(
+    () =>
+      !initialMessagesPendingRef.current &&
+      (IS_WEB
+        ? !recentHead.isFetching && !topContacts.isFetching && !conversationDraftTimes.isFetching
+        : queryClient.isFetching() === 0),
+  );
   const conversationDraftTimes = trpc.account.listConversationDraftTimes.useQuery(
     pinSession.binding ?? undefined,
     { enabled: Boolean(pinSession.binding), keepPreviousData: false, staleTime: 0 },
@@ -753,13 +767,10 @@ function MainWorkspace(): ReactElement {
   // Folder membership must cover older rows too; never classify unobserved groups as folded.
   useEffect(() => {
     if (contacts.hasNextPage && !contacts.isFetching && !contacts.error) {
-      if (!secondaryReady || !contacts.isFetchedAfterMount) return;
-      return scheduleStartupQueryBatch(
-        () => {
-          void contacts.fetchNextPage();
-        },
-        () => !initialMessagesPendingRef.current && queryClient.isFetching() === 0,
-      );
+      if (!conversationPagingReady || !contacts.isFetchedAfterMount) return;
+      return scheduleStartupQueryBatch(() => {
+        void contacts.fetchNextPage();
+      }, canContinueConversationPaging);
     }
   }, [
     contacts.hasNextPage,
@@ -767,13 +778,13 @@ function MainWorkspace(): ReactElement {
     contacts.error,
     contacts.data?.pages.length,
     contacts.fetchNextPage,
-    secondaryReady,
-    queryClient,
+    conversationPagingReady,
+    canContinueConversationPaging,
     contacts.isFetchedAfterMount,
   ]);
   useEffect(() => {
     if (
-      !secondaryReady ||
+      !conversationPagingReady ||
       !contacts.data ||
       contacts.isFetchedAfterMount ||
       contacts.isFetching ||
@@ -782,21 +793,19 @@ function MainWorkspace(): ReactElement {
       return;
     const binding = messageBindingRef.current;
     const source = messageScope;
-    return scheduleStartupQueryBatch(
-      () => {
-        const headInput = { limit: RECENT_HEAD_SIZE, cursor: 0, ...binding };
-        const previousHead = utils.account.listRecentContacts.getData(headInput);
-        void contacts.refetch().then((result) => {
-          if (result.isError || !result.data || messageScopeRef.current !== source) return;
-          // 全目录校准完成后清掉旧页里已删除的会话，不覆盖更晚的实时 head。
-          if (utils.account.listRecentContacts.getData(headInput) !== previousHead) return;
-          utils.account.listRecentContacts.setData(headInput, result.data.pages[0]);
-        });
-      },
-      () => !initialMessagesPendingRef.current && queryClient.isFetching() === 0,
-    );
+    return scheduleStartupQueryBatch(() => {
+      const headInput = { limit: RECENT_HEAD_SIZE, cursor: 0, ...binding };
+      const previousHead = utils.account.listRecentContacts.getData(headInput);
+      void contacts.refetch().then((result) => {
+        if (result.isError || !result.data || messageScopeRef.current !== source) return;
+        // 全目录校准完成后清掉旧页里已删除的会话，不覆盖更晚的实时 head。
+        if (utils.account.listRecentContacts.getData(headInput) !== previousHead) return;
+        utils.account.listRecentContacts.setData(headInput, result.data.pages[0]);
+      });
+    }, canContinueConversationPaging);
   }, [
-    secondaryReady,
+    conversationPagingReady,
+    canContinueConversationPaging,
     contacts.data,
     contacts.isFetchedAfterMount,
     contacts.isFetching,
@@ -804,7 +813,6 @@ function MainWorkspace(): ReactElement {
     recentHead.isFetching,
     utils,
     messageScope,
-    queryClient,
     messageBindingRef,
     messageScopeRef,
   ]);
@@ -867,7 +875,13 @@ function MainWorkspace(): ReactElement {
     previousContactSummaries.current = contactPreviews.summaries;
   }, [contactPreviews]);
   const recentContactsData = contactPreviews.rows;
-  const allGroups = trpc.account.listAllGroups.useQuery({ limit: 2000 }, groupOptions);
+  const allGroups = trpc.account.listAllGroups.useQuery(
+    { limit: 2000 },
+    {
+      ...regularDirectoryOptions,
+      enabled: groupsReady || contactsPageOpen || (IS_WEB && regularDirectoryReady),
+    },
+  );
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
   const previousGroupAssistantIds = useRef(new Set<string>());
   const groupAssistantIds = useMemo(() => {
@@ -901,14 +915,26 @@ function MainWorkspace(): ReactElement {
       void contacts.fetchNextPage();
     }
   };
-  const hiddenSessions = trpc.account.listHiddenSessions.useQuery(undefined, secondaryOptions);
-  const deletedSessions = trpc.account.listDeletedSessions.useQuery(undefined, secondaryOptions);
-  const officialAccounts = trpc.account.listOfficialAccounts.useQuery(undefined, secondaryOptions);
-  const serviceAccounts = trpc.account.listServiceAccounts.useQuery(undefined, secondaryOptions);
+  const hiddenSessions = trpc.account.listHiddenSessions.useQuery(
+    undefined,
+    regularDirectoryOptions,
+  );
+  const deletedSessions = trpc.account.listDeletedSessions.useQuery(
+    undefined,
+    regularDirectoryOptions,
+  );
+  const officialAccounts = trpc.account.listOfficialAccounts.useQuery(
+    undefined,
+    regularDirectoryOptions,
+  );
+  const serviceAccounts = trpc.account.listServiceAccounts.useQuery(
+    undefined,
+    regularDirectoryOptions,
+  );
   // 频道私聊聚合入口：与公众号一样只取「有没有 / 最新一条」，详情在展开面板里拉。
   const guildDirectSessions = trpc.account.guildDirectListSessions.useQuery(
     undefined,
-    secondaryOptions,
+    regularDirectoryOptions,
   );
   const guildConversationRows = useMemo(
     () => (guildDirectSessions.data ?? []).map(guildConversationRow),
@@ -3348,16 +3374,21 @@ function MainWorkspace(): ReactElement {
 
   // Keep one unread reader alive: DB pings request a refresh, rather than
   // cancelling and restarting an all-conversation scan on every change.
-  const unreadDirectoryContacts = useMemo(
-    () => [
-      ...recentContactsData,
-      ...(hiddenSessions.data ?? []).filter((row) => row.resolvable),
-      ...(deletedSessions.data ?? []).filter((row) => row.resolvable),
-    ],
-    [recentContactsData, hiddenSessions.data, deletedSessions.data],
-  );
-  const unreadDirectoryContactsRef = useRef(unreadDirectoryContacts);
-  unreadDirectoryContactsRef.current = unreadDirectoryContacts;
+  type UnreadTarget = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
+  const unreadDirectoryTargets = useMemo(() => {
+    const targets = new Map<string, UnreadTarget>();
+    const archived = [...(hiddenSessions.data ?? []), ...(deletedSessions.data ?? [])];
+    for (const contact of [...recentContactsData, ...archived.filter((row) => row.resolvable)]) {
+      const chatType = unreadChatType(contact.chatType);
+      if (chatType !== null)
+        targets.set(`${chatType}:${contact.targetUid}`, { chatType, uid: contact.targetUid });
+    }
+    // 群助手成员也加入小表读取，覆盖尚未分页到的群。
+    for (const uid of groupAssistantIds) targets.set(`2:${uid}`, { chatType: 2, uid });
+    return [...targets.values()];
+  }, [recentContactsData, hiddenSessions.data, deletedSessions.data, groupAssistantIds]);
+  const unreadDirectoryTargetsRef = useRef(unreadDirectoryTargets);
+  unreadDirectoryTargetsRef.current = unreadDirectoryTargets;
   const archivedUnreadRef = useRef(new Map<string, number>());
   archivedUnreadRef.current = new Map(
     [...(hiddenSessions.data ?? []), ...(deletedSessions.data ?? [])].flatMap((row) =>
@@ -3369,6 +3400,7 @@ function MainWorkspace(): ReactElement {
   initialMessagesPendingRef.current =
     messagesLoading || trackedConversationId !== shell.activeConversationId;
   const requestUnreadRefreshRef = useRef<(() => void) | null>(null);
+  const requestNewDirectoryUnreadRef = useRef<(() => void) | null>(null);
   const refreshArchivedUnread = useStableCallback(() => {
     void utils.account.listHiddenSessions.invalidate();
     void utils.account.listDeletedSessions.invalidate();
@@ -3390,13 +3422,13 @@ function MainWorkspace(): ReactElement {
       setHighlightsByConv({});
     }
 
+    const targetKey = ({ chatType, uid }: UnreadTarget) => `${chatType}:${uid}`;
+    let knownTargets: Set<string> | undefined;
     async function loadUnread(): Promise<boolean> {
       if (!isCurrent() || !binding || !openedUin) return true;
       const startedAt = guard.revision();
-      const targets = unreadDirectoryContactsRef.current.flatMap((contact) => {
-        const chatType = unreadChatType(contact.chatType);
-        return chatType === null ? [] : [{ chatType, uid: contact.targetUid }];
-      });
+      const targets = unreadDirectoryTargetsRef.current;
+      knownTargets = new Set(targets.map(targetKey));
       // 共享服务快照一次准备；所有批次返回后只提交一帧角标，不逐会话回填。
       const rows = await readUnreadInfos({ ...binding, targets });
       if (!isCurrent()) return true;
@@ -3405,7 +3437,6 @@ function MainWorkspace(): ReactElement {
     }
 
     const refresh = createUnreadRefresh(loadUnread);
-    type Target = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
     type Rows = Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>;
     const applyLive = (rows: Rows, startedAt: number) => {
       const accepted = rows.filter((row) => !row.readError && guard.accepts(row.uid, startedAt));
@@ -3443,7 +3474,7 @@ function MainWorkspace(): ReactElement {
         return changed ? next : current;
       });
     };
-    const readTargets = async (targets: Target[]) => {
+    const readTargets = async (targets: UnreadTarget[]) => {
       if (!isCurrent() || !binding) return true;
       const startedAt = guard.revision();
       const rows = await readUnreadInfos({ ...binding, targets });
@@ -3451,9 +3482,9 @@ function MainWorkspace(): ReactElement {
       applyLive(rows, startedAt);
       return rows
         .filter((row) => row.readError)
-        .map((row) => ({ chatType: row.chatType as Target['chatType'], uid: row.uid }));
+        .map((row) => ({ chatType: row.chatType as UnreadTarget['chatType'], uid: row.uid }));
     };
-    const liveRefresh = createUnreadTargetRefresh<Target>(
+    const liveRefresh = createUnreadTargetRefresh<UnreadTarget>(
       readTargets,
       refresh.request,
       UNREAD_BATCH_SIZE,
@@ -3490,6 +3521,18 @@ function MainWorkspace(): ReactElement {
         })
       : null;
     requestUnreadRefreshRef.current = refresh.request;
+    requestNewDirectoryUnreadRef.current = () => {
+      if (!knownTargets) return;
+      const current = new Set<string>();
+      const added: UnreadTarget[] = [];
+      for (const target of unreadDirectoryTargetsRef.current) {
+        const key = targetKey(target);
+        current.add(key);
+        if (!knownTargets.has(key)) added.push(target);
+      }
+      knownTargets = current;
+      if (added.length) liveRefresh.request(added, false);
+    };
     const onVisible = () => {
       if (document.visibilityState !== 'hidden') refresh.request();
     };
@@ -3504,6 +3547,7 @@ function MainWorkspace(): ReactElement {
       window.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
       requestUnreadRefreshRef.current = null;
+      requestNewDirectoryUnreadRef.current = null;
     };
   }, [
     openedUin,
@@ -3528,17 +3572,9 @@ function MainWorkspace(): ReactElement {
       void refreshWindow();
     });
   }, [conversationWindows, refreshRecentHead, refreshRecentTargets, refreshWindow]);
-  const unreadDirectoryKey = useMemo(
-    () =>
-      unreadDirectoryContacts
-        .map((row) => `${row.chatType}:${row.targetUid}`)
-        .sort()
-        .join('|'),
-    [unreadDirectoryContacts],
-  );
   useEffect(() => {
-    requestUnreadRefreshRef.current?.();
-  }, [unreadDirectoryKey]);
+    requestNewDirectoryUnreadRef.current?.();
+  }, [unreadDirectoryTargets]);
 
   useConversationWindowSelection(messageWindow, {
     activeConversationId: shell.activeConversationId,
@@ -7804,18 +7840,20 @@ function MainWorkspace(): ReactElement {
     shell.view === 'mail' ||
     shell.view === 'channel' ||
     shell.view === 'annual';
-  const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery(undefined, onlineOptions);
+  const generatedDirectoryOptions = IS_WEB ? regularDirectoryOptions : onlineOptions;
+  const directoryPersonas = trpc.account.listAgentLabPersonas.useQuery(
+    undefined,
+    generatedDirectoryOptions,
+  );
   useCloneTaskRefresh();
-  const directoryGroups = trpc.account.listAgentLabGroups.useQuery(undefined, onlineOptions);
-  // Remote 消息页的助手入口和未读一起加载，避免排在完整目录和 QQ 在线查询之后。
-  const assistantDirectoryReady = IS_WEB
-    ? Boolean(pinSession.binding) && (firstContactsReady || Boolean(recentHead.data))
-    : onlineReady;
+  const directoryGroups = trpc.account.listAgentLabGroups.useQuery(
+    undefined,
+    generatedDirectoryOptions,
+  );
   const directoryAssistant = trpc.account.listAssistantSessions.useQuery(undefined, {
-    ...directoryOptions,
-    enabled: assistantDirectoryReady,
+    ...generatedDirectoryOptions,
     refetchInterval:
-      assistantDirectoryReady &&
+      generatedDirectoryOptions.enabled &&
       (conversationView === 'assistant' || conversationView === 'all' || assistantVisited)
         ? 2500
         : false,
@@ -9118,7 +9156,12 @@ function MainWorkspace(): ReactElement {
                 (shell.view === 'agentlab' && Boolean(virtualOpen || cloneSearchTarget)))
             }
             messageBadgeCount={
-              displaySettings.data?.showMessageUnreadBadge === false ? 0 : messageBadgeCount
+              preferenceValue(
+                'showMessageUnreadBadge',
+                displaySettings.data?.showMessageUnreadBadge,
+              )
+                ? messageBadgeCount
+                : 0
             }
             contactBadgeCount={unreadMarkers.requests ? friendNoticeCount + groupNoticeCount : 0}
             onMessageBadgeClick={locateUnreadConversation}

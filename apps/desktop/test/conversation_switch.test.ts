@@ -39,9 +39,12 @@ import { elementToToken } from '../src/renderer/src/im-template/template/draftEl
 
 beforeAll(() => LazyGapMessagesModal.preload());
 
-vi.mock('../src/renderer/src/hooks/useRecentContactQueries', async () => {
+vi.mock('../src/renderer/src/hooks/useRecentContactQueries', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../src/renderer/src/hooks/useRecentContactQueries')>();
   const { trpc } = await import('../src/renderer/src/trpc/client');
   return {
+    ...actual,
     useRecentContactQueries: (binding: QQWriteBinding | null, active: boolean) => {
       const input = binding ?? { expectedAccountUin: '', expectedAccountConfigId: '' };
       return {
@@ -222,6 +225,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (input?: UnreadInput & { beforeSeq?: string }) => {
+            if (key === 'query' && path.at(-1) === 'listRecentContacts')
+              return { items: f.recent, total: f.recent.length };
             if (path.at(-1) === 'peerQqShow') return null;
             if (
               [
@@ -1970,6 +1975,18 @@ it('全目录一次获取共享结果，不在前端轮询精算，服务快照�
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   f.unreadMode = true;
+  f.unreadCounts = { '10003': 7 };
+  const olderGroups: typeof f.groups = [
+    {
+      groupCode: '10003',
+      groupName: '尚未分页到的群助手会话',
+      remark: '',
+      memberCount: 1,
+      maxMemberCount: 100,
+      customLabels: [],
+      directory: { memberCount: 1, role: 'member', notifyLevel: 2 },
+    },
+  ];
   useViewState.getState().setOpenedUin('90001');
   const host = document.createElement('div');
   document.body.append(host);
@@ -1977,28 +1994,36 @@ it('全目录一次获取共享结果，不在前端轮询精算，服务快照�
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const advance = (ms: number) => act(async () => vi.advanceTimersByTimeAsync(ms));
   const precise = () => f.unreadReads.filter((read) => !read.watermarksOnly);
+  const render = () =>
+    root.render(h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))));
   try {
-    await act(async () =>
-      root.render(
-        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
-      ),
-    );
+    await act(async () => render());
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
     await advance(200);
     expect(f.unreadReads[0]?.watermarksOnly).toBeUndefined();
     expect(precise()).toHaveLength(1);
     expect(precise()[0]?.targets).toHaveLength(f.recent.length);
+    f.groups = olderGroups;
+    await act(async () => render());
+    await advance(10);
+    expect(precise()).toHaveLength(2);
+    expect(precise()[1]?.targets).toEqual([{ chatType: 2, uid: '10003' }]);
+    const regular = JSON.parse(host.querySelector('[data-previews]')!.textContent!);
+    expect(regular).toContainEqual(
+      expect.objectContaining({ id: 'merged:group-assistant', unreadCount: 7 }),
+    );
     for (let change = 0; change < 3; change++) {
       await act(async () => f.dbChanged?.());
       await advance(15000);
-      expect(precise()).toHaveLength(1);
+      expect(precise()).toHaveLength(2);
     }
     // 无前端精算或周期补扫；纯水位变化由服务端小表快照主动通知。
     await advance(31000);
-    expect(precise()).toHaveLength(1);
+    expect(precise()).toHaveLength(2);
     // 定向消息不等待下一轮低频校准。
     await act(async () => f.unreadChanged?.([{ chatType: 2, uid: '10001' }]));
     await advance(10);
-    expect(precise()).toHaveLength(2);
+    expect(precise()).toHaveLength(3);
     expect(precise().at(-1)?.targets).toEqual([{ chatType: 2, uid: '10001' }]);
   } finally {
     act(() => root.unmount());

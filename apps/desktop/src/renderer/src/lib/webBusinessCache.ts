@@ -25,6 +25,7 @@ const procedures = new Set([
   'botUids',
   'listAgentLabPersonas',
   'listAgentLabGroups',
+  'listAssistantSessions',
 ]);
 const additionalProcedures = [
   'getSystemFaces',

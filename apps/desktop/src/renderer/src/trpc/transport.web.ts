@@ -32,6 +32,8 @@ const wsClient = createWSClient({
 
 const independentReads = new Set([
   'account.listRecentContacts',
+  // 完整群目录单独返回，避免大响应拖住首批的会话摘要和未读。
+  'account.listAllGroups',
   'account.listAssistantSessions',
   // 可见行按需补全不能等待同批完整目录或在线接口。
   'account.getProfilesByUids',
@@ -60,6 +62,27 @@ const independentReads = new Set([
   'account.dressup.resolveMsgDecoration',
 ]);
 
+// 首屏的摘要、未读和设置共用一批，并保留大输入的 URL 长度限制。
+const conversationBatchedReads = new Set([
+  'account.getUnreadInfos',
+  'account.listRecentContactTargets',
+  'account.listTopContacts',
+  'account.listConversationDraftTimes',
+  'clientState.snapshot',
+  'clientState.accountSnapshot',
+]);
+
+// 聚合入口与首屏摘要分别合批，完整联系人和 QQ 在线查询不占用这两批。
+const aggregateDirectoryReads = new Set([
+  'account.listHiddenSessions',
+  'account.listDeletedSessions',
+  'account.listOfficialAccounts',
+  'account.listServiceAccounts',
+  'account.guildDirectListSessions',
+  'account.listAgentLabPersonas',
+  'account.listAgentLabGroups',
+]);
+
 export function createLinks(): TRPCLink<AppRouter>[] {
   const httpOptions = {
     headers: () => ({ 'x-weq-client-id': networkClientId }),
@@ -70,6 +93,20 @@ export function createLinks(): TRPCLink<AppRouter>[] {
       return res;
     },
   };
+  const batchOptions = { ...httpOptions, maxURLLength: HTTP_BATCH_MAX_URL_LENGTH };
+  const reads = splitLink<AppRouter>({
+    condition: (op) => independentReads.has(op.path),
+    true: httpLink(httpOptions),
+    false: splitLink({
+      condition: (op) => conversationBatchedReads.has(op.path),
+      true: httpBatchLink(batchOptions),
+      false: splitLink({
+        condition: (op) => aggregateDirectoryReads.has(op.path),
+        true: httpBatchLink(batchOptions),
+        false: httpBatchLink(batchOptions),
+      }),
+    }),
+  });
   return [
     splitLink({
       condition: (op) => op.type === 'subscription',
@@ -84,11 +121,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
             return res;
           },
         }),
-        false: splitLink({
-          condition: (op) => independentReads.has(op.path),
-          true: httpLink(httpOptions),
-          false: httpBatchLink({ ...httpOptions, maxURLLength: HTTP_BATCH_MAX_URL_LENGTH }),
-        }),
+        false: reads,
       }),
     }),
   ];
