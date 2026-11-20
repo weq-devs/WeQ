@@ -11,7 +11,7 @@
  * page, `listBefore` to page up, `listFrom` to re-read the loaded window live.
  */
 import { setTimeout as delay } from 'node:timers/promises';
-import { OperationError } from '@weq/service';
+import { MESSAGE_CATEGORIES, OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { plainContentText } from '@weq/service/message-plain-text';
@@ -3758,9 +3758,7 @@ export const accountRouter = router({
           end: z.number().int().nonnegative().optional(),
           sender: z.string().max(128).optional(),
           keyword: z.string().max(512).optional(),
-          category: z
-            .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
-            .optional(),
+          category: z.enum(MESSAGE_CATEGORIES).optional(),
         }),
         cursor: z.object({ time: z.number().int(), rowId: z.string().regex(/^-?\d+$/) }).optional(),
         limit: z.number().int().min(1).max(100).default(30),
@@ -3808,9 +3806,7 @@ export const accountRouter = router({
           end: z.number().int().nonnegative().optional(),
           sender: z.string().max(128).optional(),
           keyword: z.string().max(512).optional(),
-          category: z
-            .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
-            .optional(),
+          category: z.enum(MESSAGE_CATEGORIES).optional(),
         }),
         direction: z.enum(['older', 'newer']),
         anchorMsgId: z.string().regex(/^-?\d+$/),
@@ -8704,9 +8700,7 @@ export const accountRouter = router({
               .optional(),
             sender: z.string().max(128).optional(),
             keyword: z.string().max(512).optional(),
-            category: z
-              .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
-              .optional(),
+            category: z.enum(MESSAGE_CATEGORIES).optional(),
           })
           .optional(),
       }),
@@ -8960,9 +8954,7 @@ export const accountRouter = router({
             messageIds: exactMessageIdsInput,
             sender: z.string().max(128).optional(),
             keyword: z.string().max(512).optional(),
-            category: z
-              .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
-              .optional(),
+            category: z.enum(MESSAGE_CATEGORIES).optional(),
           })
           .optional(),
         formats: z

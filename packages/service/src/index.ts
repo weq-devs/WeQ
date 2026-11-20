@@ -23,7 +23,9 @@ export type {
   ForwardCardTarget,
   ForwardExportTarget,
   ForwardRecordTarget,
+  MessageCategory,
 } from './account/message_filter';
+export { MESSAGE_CATEGORIES } from './account/message_filter';
 export { installContentSearchCapture } from './account/content_search_capture';
 export { writeCompositionBundle } from './account/export/composition_export';
 export { fileDigest } from './account/export/archive_resource';

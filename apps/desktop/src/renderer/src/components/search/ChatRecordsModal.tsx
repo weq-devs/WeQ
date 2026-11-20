@@ -36,6 +36,7 @@ import { useRequestContentExport } from '../../state/contentSelection.shared';
 import { createReplyPreviewIndex } from '../../lib/replyPreview';
 import { enrichReplyElements } from '../../views/workspace/messageProjection';
 import type { RenderElement } from '../QqMessageContent.shared';
+import type { MessageCategory } from '@weq/service';
 
 const noop = (): void => {};
 type BrowseCursor = { time: number; rowId: string };
@@ -94,9 +95,7 @@ export function ChatRecordsModal({
   const [endDay, setEndDay] = useState('');
   const [sender, setSender] = useState('');
   const [ownUin, setOwnUin] = useState('');
-  const [category, setCategory] = useState<
-    'text' | 'image' | 'video' | 'voice' | 'file' | 'emoji' | 'system' | 'other' | ''
-  >('');
+  const [category, setCategory] = useState<MessageCategory | ''>('');
   const [exportFormat, setExportFormat] = useState<
     'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html'
   >('jsonl');
@@ -551,6 +550,7 @@ export function ChatRecordsModal({
                 video: '视频',
                 voice: '语音',
                 file: '文件',
+                link: '链接',
                 emoji: '表情',
                 system: '系统',
                 other: '其他',
