@@ -208,6 +208,10 @@ jobs:
         if: matrix.suite == 'core'
         run: pnpm run test:ci-scripts
 
+      - name: Verify the independent archive format contract
+        if: matrix.suite == 'core'
+        run: pnpm run test:export-schema
+
       # 打包前置脚本在 electron-builder 的 beforePack 里跑；它一旦拉进
       # `@weq/service` 那种桶文件，Windows runner 上会把打包卡死（v2.7.1 踩过）。
       - name: Check packaging preparation graph

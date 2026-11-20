@@ -61,6 +61,7 @@ const steps = [
   step('开发启动单测', 'pnpm run test:dev-bootstrap'),
   step('开发服务集成测试', 'pnpm run test:dev-integration'),
   step('CI 编排及交付脚本测试', 'pnpm run test:ci-scripts'),
+  step('正式归档格式独立契约', 'pnpm run test:export-schema'),
   step('打包准备测试', 'pnpm run test:packaging-scripts'),
 ];
 
