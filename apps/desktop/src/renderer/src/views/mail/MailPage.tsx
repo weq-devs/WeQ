@@ -22,12 +22,12 @@ import {
   Folder,
   Forward,
   Inbox,
+  Link,
   LoaderCircle,
   Mail,
   MailOpen,
   Paperclip,
   PenLine,
-  Power,
   RefreshCw,
   Reply,
   ReplyAll,
@@ -36,6 +36,7 @@ import {
   Settings,
   Star,
   Trash2,
+  Unlink,
   X,
 } from 'lucide-react';
 import type {
@@ -669,8 +670,10 @@ export function MailPage({
             >
               {loading || status.state === 'connecting' ? (
                 <LoaderCircle size={17} className="weq-mail-spin" />
-              ) : (
+              ) : ready ? (
                 <RefreshCw size={17} />
+              ) : (
+                <Link size={17} />
               )}
             </button>
           )}
@@ -682,7 +685,7 @@ export function MailPage({
               disabled={composeBusy}
               onClick={() => void disconnect()}
             >
-              <Power size={17} />
+              <Unlink size={17} />
             </button>
           ) : null}
           <button
@@ -735,7 +738,7 @@ export function MailPage({
             {status.state === 'connecting' ? (
               <LoaderCircle size={16} className="weq-mail-spin" />
             ) : (
-              <Power size={16} />
+              <Link size={16} />
             )}
             连接当前 QQ
           </button>
