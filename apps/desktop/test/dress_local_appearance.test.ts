@@ -153,7 +153,7 @@ beforeEach(() => {
     );
 });
 
-it('默认打开使用页，三档范围保存并可取消当前气泡，商城入口不重复显示设置和说明', async () => {
+it('默认打开第一个页签，使用中可保存三档范围并取消当前气泡', async () => {
   fixture.manifest.bubbles = [
     {
       itemId: 11,
@@ -169,8 +169,10 @@ it('默认打开使用页，三档范围保存并可取消当前气泡，商城�
   const root = createRoot(host);
   try {
     await act(async () => root.render(createElement(DressUpDialog, { onClose: () => {} })));
-    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('使用中');
-    expect(host.querySelector('[role="tab"]:last-child')?.textContent).toBe('使用中');
+    expect(host.querySelector('[role="tab"]')?.getAttribute('aria-selected')).toBe('true');
+    const usageTab = host.querySelector<HTMLButtonElement>('#weq-dress-tab-usage')!;
+    await act(async () => usageTab.click());
+    expect(usageTab.getAttribute('aria-selected')).toBe('true');
 
     expect(host.textContent).toContain('本地气泡');
     expect(host.querySelector('[data-bubble-preview="11"]')).not.toBeNull();

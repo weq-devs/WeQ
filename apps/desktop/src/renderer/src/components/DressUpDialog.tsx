@@ -321,7 +321,7 @@ export function DressUpDialog({
 
   const [selectedKind, setSelectedKind] = usePageState<DressKind>(
     'dress-up:kind',
-    'usage',
+    KINDS[0]?.id ?? 'bubble',
     dressKindSchema,
   );
   const explicitKind = useRef(initialKind);

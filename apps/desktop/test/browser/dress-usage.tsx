@@ -17,7 +17,11 @@ function DressUsageFixture() {
   const [settings, setSettings] = useState<ConversationSettingsRequest>();
   return (
     <>
-      <DressUpDialog onClose={() => {}} onOpenConversationSettings={setSettings} />
+      <DressUpDialog
+        initialKind="usage"
+        onClose={() => {}}
+        onOpenConversationSettings={setSettings}
+      />
       {settings ? (
         <ConversationSettingsDialog {...settings} onClose={() => setSettings(undefined)} />
       ) : null}
