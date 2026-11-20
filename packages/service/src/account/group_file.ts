@@ -7,6 +7,7 @@
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
+  GROUP_PERMANENT_FILE_BUS_ID,
   groupPermission,
   isTemporaryGroupFile,
   qqResourceOwnedBy,
@@ -173,7 +174,11 @@ export class GroupFileService {
     if (matches.length !== 1 || !file || !isTemporaryGroupFile(file))
       throw new Error('该文件不是可确认的未过期临时群文件，请刷新目录');
     check();
-    const result = await TransGroupFile.invoke(this.nt, pid, { groupId, fileId });
+    const result = await TransGroupFile.invoke(this.nt, pid, {
+      groupId,
+      fileId,
+      busId: file.busId,
+    });
     check();
     const folders = directory === '/' ? ['/'] : [directory, '/'];
     for (const folder of folders) {
@@ -181,10 +186,11 @@ export class GroupFileService {
         () => null,
       );
       check();
+      // 104 转存的回执可能仍带 104。以目录里同一文件的永久状态为准。
       const saved = refreshed?.files.find(
         (item) =>
           (item.fileId === result.saveFilePath || item.fileId === fileId) &&
-          item.busId === result.saveBusId &&
+          item.busId === GROUP_PERMANENT_FILE_BUS_ID &&
           item.expireTimeKnown === true &&
           item.expireTime === 0 &&
           item.fileName === file.fileName &&
