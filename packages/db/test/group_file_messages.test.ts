@@ -68,3 +68,17 @@ it('候选分页保留同序号的所有消息，不因非文件候选吞掉更�
   expect(second.messages.map((row) => row.msgId)).toEqual([1n]);
   expect(second.nextBefore).toBeNull();
 });
+
+it('转存的新旧文件 ID 共用同群的查询与分页，排除同名的其他文件', async () => {
+  add(1, 10, '/temporary');
+  add(2, 11, '/permanent');
+  add(3, 12, '/temporary', 3, '888');
+  add(4, 13, '/unrelated');
+  for (let id = 5; id <= 53; id++) add(id, 20, '/temporary', 1);
+  const first = await db.findFileMessages('777', '/permanent', undefined, '/temporary');
+  expect(first.messages.map((row) => row.msgId)).toEqual([2n]);
+  expect(first.nextBefore).not.toBeNull();
+  const second = await db.findFileMessages('777', '/permanent', first.nextBefore!, '/temporary');
+  expect(second.messages.map((row) => row.msgId)).toEqual([1n]);
+  expect(second.nextBefore).toBeNull();
+});

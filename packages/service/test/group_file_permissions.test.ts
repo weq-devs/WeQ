@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import {
@@ -14,12 +17,18 @@ import type { QQGroupPermissionContext } from '../src/common/qq_permissions';
 import { GroupFileService } from '../src/account/group_file';
 
 afterEach(() => vi.restoreAllMocks());
-function fixture() {
+function fixture(transferSourcesPath?: string) {
   const context = vi.fn(async (): Promise<QQGroupPermissionContext> => ({ role: 'member' }));
   const session = { context: { uin: '10001' }, selfUid: 'u_self' } as unknown as AccountSession;
   let pid = 1;
   const sendOidbPacket = vi.fn<NtHelperBinding['sendOidbPacket']>();
-  const service = new GroupFileService({ sendOidbPacket }, session, () => pid, context);
+  const service = new GroupFileService(
+    { sendOidbPacket },
+    session,
+    () => pid,
+    context,
+    transferSourcesPath,
+  );
   const listing = vi.spyOn(service, 'list').mockResolvedValue({
     targetDirectory: '/folder',
     folders: [],
@@ -149,6 +158,37 @@ it('省略业务号的旧转存调用仍使用 102', () => {
   expect(TransGroupFile.serialize({ groupId: 123, fileId: 'old' })).toEqual({
     transFile: { groupUin: 123n, appId: 7, busId: 102, fileId: 'old' },
   });
+});
+
+it('目录确认转存后，重开账号仍能按当前群找到原文件 ID', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'weq-group-file-transfers-'));
+  try {
+    const path = join(directory, 'transfers.json');
+    const f = fixture(path);
+    f.context.mockResolvedValue({ role: 'owner' });
+    vi.spyOn(TransGroupFile, 'invoke').mockResolvedValue({ saveBusId: 104, saveFilePath: 'saved' });
+    const file = {
+      fileId: 'temporary',
+      fileName: '测试',
+      fileSize: 3221225472,
+      busId: 104,
+      expireTime: Math.ceil(Date.now() / 1000) + 3600,
+      expireTimeKnown: true,
+    } as GroupFileItem;
+    const listing = { targetDirectory: '/', folders: [], files: [file] };
+    f.listing.mockResolvedValueOnce(listing).mockResolvedValueOnce({
+      ...listing,
+      files: [{ ...file, fileId: 'saved', busId: 102, expireTime: 0 }],
+    });
+    const outcome = await f.service.makePermanent(123, 'temporary', '/', () => {});
+    expect(outcome).toEqual({ state: 'accepted', fileId: 'saved', directory: '/' });
+    const reopened = fixture(path).service;
+    expect(reopened.originalFileId('123', 'saved')).toBe('temporary');
+    expect(reopened.originalFileId('321', 'saved')).toBeUndefined();
+    expect(reopened.originalFileId('123', 'different')).toBeUndefined();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 it('转存回执成功但目录只出现同名同尺寸的其他文件时保留未确认', async () => {

@@ -8100,6 +8100,7 @@ export const accountRouter = router({
       );
       const account = getAppContext().account;
       if (!account) throw new Error('账号已关闭，无法查询原消息');
+      const originalFileId = services.groupFile.originalFileId(input.groupCode, input.fileId);
       const page = await account.groupMsgs.findFileMessages(
         input.groupCode,
         input.fileId,
@@ -8110,6 +8111,7 @@ export const accountRouter = router({
               msgId: BigInt(input.before.msgId),
             }
           : undefined,
+        originalFileId,
       );
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==

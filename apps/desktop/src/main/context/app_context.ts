@@ -2487,6 +2487,13 @@ export function initAppContext(fileRoot?: string): AppContext {
           session,
           resolveOnlinePid,
           (groupId) => groupInfo.operationContext(groupId),
+          join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'group-file-transfers.json',
+          ),
         ),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
         profileExtras: new ProfileExtrasService(
@@ -3394,8 +3401,18 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
         gapHistory,
-        groupFile: new GroupFileService(platform.native.ntHelper, session, livePid, (groupId) =>
-          groupInfo.operationContext(groupId),
+        groupFile: new GroupFileService(
+          platform.native.ntHelper,
+          session,
+          livePid,
+          (groupId) => groupInfo.operationContext(groupId),
+          join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'group-file-transfers.json',
+          ),
         ),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         profileExtras: new ProfileExtrasService(

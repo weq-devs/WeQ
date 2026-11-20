@@ -620,16 +620,21 @@ export class GroupMsgDb {
     targetGroupCode: string,
     fileId: string,
     before?: { msgSeq: bigint; sendTime: bigint; msgId: bigint },
+    originalFileId?: string,
   ) {
     if (!fileId) return { messages: [], nextBefore: null };
+    const fileIds =
+      originalFileId && originalFileId !== fileId ? [fileId, originalFileId] : [fileId];
+    const bodyMatches = fileIds.map(() => 'instr("40800", ?) > 0').join(' OR ');
     const rows = await this.qq.query(
       `SELECT ${SELECT_COLUMNS} FROM group_msg_table
-        WHERE "40027" = ? AND "40003" > 0 AND instr("40800", ?) > 0
+        WHERE "40027" = ? AND "40003" > 0
+        AND (${bodyMatches})
         ${before ? 'AND ("40003", "40050", "40001") < (?, ?, ?)' : ''}
         ${ORDER_NEWEST_FIRST} LIMIT 51`,
       [
         targetGroupCode,
-        Buffer.from(fileId, 'utf8'),
+        ...fileIds.map((id) => Buffer.from(id, 'utf8')),
         ...(before ? [before.msgSeq, before.sendTime, before.msgId] : []),
       ],
     );
@@ -637,7 +642,9 @@ export class GroupMsgDb {
     const last = candidates.at(-1);
     return {
       messages: candidates.filter((row) =>
-        row.elements.some((element) => element.kind === 'file' && element.fileToken === fileId),
+        row.elements.some(
+          (element) => element.kind === 'file' && fileIds.includes(element.fileToken),
+        ),
       ),
       nextBefore:
         rows.length > 50 && last
