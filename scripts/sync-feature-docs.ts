@@ -149,7 +149,13 @@ async function navigationSnapshot(client: 'desktop' | 'web'): Promise<Navigation
 
 const cell = (text: string) =>
   text.replaceAll('|', '\\|').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('\n', ' ');
-const contextLabels = { account: '账号与数据源', group: '群', contact: '联系人', message: '消息' };
+const contextLabels = {
+  account: '账号与数据源',
+  group: '群',
+  contact: '联系人',
+  conversation: '会话',
+  message: '消息',
+};
 const placementLabels = {
   rail: '主导航',
   'mobile-tabs': '手机标签栏',

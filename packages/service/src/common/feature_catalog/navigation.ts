@@ -14,7 +14,10 @@ export const NAVIGATION_FEATURES = {
   qzone: defineFeature('qzone.timeline', 'qzone', 'QQ 空间', ['说说', '相册']),
   mail: defineFeature('mail.inbox', 'mail', 'QQ 邮箱', ['邮件']),
   channel: defineFeature('channels.inbox', 'channels', 'QQ 频道', ['频道']),
-  'guild-direct': defineFeature('channels.direct-messages', 'channels', '频道私聊'),
+  'guild-direct': defineFeature('channels.direct-messages', 'channels', '频道私聊', [], {
+    tools: ['list_guild_direct_sessions', 'get_guild_direct_messages'],
+    docs: ['guide/album-qzone.md#feature-channels.direct-messages'],
+  }),
   annual: defineFeature('analysis.annual-report', 'analysis', '年度报告', ['年度总结']),
   dressup: defineFeature('appearance.catalog', 'appearance', '个性装扮', ['装扮商城']),
   tasks: defineFeature('export.tasks', 'export', '任务', ['导出进度', '下载任务']),

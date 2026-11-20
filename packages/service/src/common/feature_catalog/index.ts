@@ -3,6 +3,11 @@ import { CONTEXT_FEATURES, DRESS_FEATURES, EXPORT_FEATURES, WORKSPACE_FEATURES }
 import type { FeatureDefinition, FeatureDomain, FeatureKind } from './model';
 import { NAVIGATION_FEATURES } from './navigation';
 import { SETTING_FEATURES, SETTINGS_PAGE_FEATURES } from './settings';
+import {
+  CONVERSATION_CALENDAR_FEATURE,
+  CONVERSATION_VIEW_FEATURES,
+  MESSAGE_FEATURES,
+} from './messages';
 
 export { DRESS_FEATURES, EXPORT_FEATURES, WORKSPACE_FEATURES } from './entries';
 export {
@@ -15,6 +20,7 @@ export {
 } from './model';
 export { NAVIGATION_FEATURES } from './navigation';
 export { SETTING_FEATURES, SETTINGS_PAGE_FEATURES, settingFeatureId } from './settings';
+export { CONVERSATION_CALENDAR_FEATURE, CONVERSATION_VIEW_FEATURES } from './messages';
 
 export const FEATURE_CATALOG_VERSION = 1;
 const catalog: readonly FeatureDefinition[] = [
@@ -23,6 +29,9 @@ const catalog: readonly FeatureDefinition[] = [
   ...EXPORT_FEATURES,
   ...DRESS_FEATURES,
   ...CONTEXT_FEATURES,
+  CONVERSATION_CALENDAR_FEATURE,
+  ...Object.values(CONVERSATION_VIEW_FEATURES),
+  ...MESSAGE_FEATURES,
   ...SETTINGS_PAGE_FEATURES,
   ...SETTING_FEATURES,
 ];

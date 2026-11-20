@@ -84,6 +84,48 @@ function navigationContext() {
 }
 
 describe('功能搜索实际导航', () => {
+  it.each([
+    ['全部会话', 'all'],
+    ['群助手', 'groupAssistant'],
+    ['公众号', 'official'],
+    ['服务号', 'service'],
+    ['已隐藏会话', 'hidden'],
+    ['已删除会话', 'deleted'],
+  ] as const)('%s 走原会话视图切换，保留其导航保护', (query, view) => {
+    const messageScope = '10001:source-a';
+    const context = {
+      ...navigationContext(),
+      messageScope,
+      messageScopeRef: { current: messageScope },
+      setSurfaceNavigation: vi.fn(),
+      setMobileConversationList: vi.fn(),
+      switchConversationView: vi.fn(),
+      shell: { switchView: vi.fn() },
+    };
+    const entry = searchAppEntries(query)[0]!;
+    expect(entry.target).toEqual({ kind: 'conversation-view', view });
+    const open = searchHandler(context);
+    open(entry);
+    expect(context.switchConversationView).toHaveBeenCalledWith(view);
+    expect(context.shell.switchView).toHaveBeenCalledWith('messages');
+    expect(context.setMobileConversationList).toHaveBeenCalledWith(true);
+    context.messageScopeRef.current = '10001:source-b';
+    open(entry);
+    expect(context.switchConversationView).toHaveBeenCalledOnce();
+  });
+
+  it('会话日历打开原有日历，入口名不会被当成会话过滤词', () => {
+    const context = {
+      ...navigationContext(),
+      messageScope: '10001:source-a',
+      messageScopeRef: { current: '10001:source-a' },
+      setOverviewCalendar: vi.fn(),
+    };
+    const entry = searchAppEntries('会话总日历')[0]!;
+    expect(entry.id).toBe('messages.calendar');
+    searchHandler(context)(entry);
+    expect(context.setOverviewCalendar).toHaveBeenCalledWith({ query: '' });
+  });
   it('编辑本人资料落在真实编辑页，数据源切换后旧搜索结果不打开新账号的资料', () => {
     const user = { id: 'self:10001', identityValue: '10001', displayName: '本人' };
     const currentScope = { current: '10001:source-a' };

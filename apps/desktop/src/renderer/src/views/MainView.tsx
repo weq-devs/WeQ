@@ -8829,6 +8829,12 @@ function MainWorkspace(): ReactElement {
   const openAnnouncements = useOpenAnnouncement();
   const openAppSearchEntryNow = (entry: AppSearchEntry) => {
     if (
+      (entry.target.kind === 'conversation-view' ||
+        entry.target.kind === 'conversation-calendar') &&
+      (!messageScope || messageScope !== messageScopeRef.current)
+    )
+      return;
+    if (
       entry.target.kind === 'self-profile' &&
       entry.target.tab === 'edit' &&
       resolveWorkspaceFeature(
@@ -8855,6 +8861,14 @@ function MainWorkspace(): ReactElement {
           revision: Date.now(),
         });
       setSettingsOpen(true);
+    } else if (target.kind === 'conversation-calendar') {
+      // 全局功能搜索词是入口名；会话日历仍采用当前会话视图。
+      setOverviewCalendar({ query: '' });
+    } else if (target.kind === 'conversation-view') {
+      setSurfaceNavigation((value) => value + 1);
+      setMobileConversationList(true);
+      switchConversationView(target.view);
+      shell.switchView('messages');
     } else if (target.kind === 'conversation-directory') {
       flushAllDirtyDrafts();
       setSurfaceNavigation((value) => value + 1);

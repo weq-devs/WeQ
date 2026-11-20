@@ -19,7 +19,7 @@ export const FEATURE_DOMAINS = [
 
 export type FeatureDomain = (typeof FEATURE_DOMAINS)[number];
 export type FeatureKind = 'feature' | 'setting' | 'setting-page';
-export type FeatureContext = 'account' | 'group' | 'contact' | 'message';
+export type FeatureContext = 'account' | 'group' | 'contact' | 'conversation' | 'message';
 export type FeatureOperation = 'album-list' | 'profile-write' | 'default-chat-model' | 'chat-image';
 
 export interface FeatureDefinition {
@@ -35,6 +35,8 @@ export interface FeatureDefinition {
   context?: readonly FeatureContext[];
   /** 业务就绪情况单独报告，打开页面无需满足该操作的条件。 */
   operation?: FeatureOperation;
+  /** 目录导航只打开界面；上下文入口还需要当前工作区提供对象。 */
+  navigation?: 'search' | 'context';
   /** 业务工具的已有注册名，目录本身不会执行工具。 */
   tools?: readonly string[];
   /** 产品文档仓内路径与可选锚点。 */

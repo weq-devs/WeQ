@@ -5,6 +5,8 @@ import type { DressKind } from '../DressUpDialog';
 import type { ContactWorkspaceTab } from '../../lib/profileNavigation';
 import {
   findFeature,
+  CONVERSATION_CALENDAR_FEATURE,
+  CONVERSATION_VIEW_FEATURES,
   DRESS_FEATURES,
   EXPORT_FEATURES,
   SETTING_FEATURES,
@@ -15,7 +17,7 @@ import { isRemoteClient } from '../../lib/remoteClient';
 import { settingFeatureAllowed } from '../../../../shared/feature_access';
 import { canLinkToFeature } from '../../../../shared/feature_links';
 import { APP_NAVIGATION, navigationEntries, type NavigationTool } from '../../lib/appNavigation';
-import { ContactRound, Gift, UsersRound } from 'lucide-react';
+import { CalendarDays, ContactRound, Gift, UsersRound } from 'lucide-react';
 import { DRESS_KIND_ICONS, EXPORT_MODE_ICONS, FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import type { FeatureIcon } from '../../lib/featureIcons';
 import { SETTINGS_PAGE_ICONS } from '../settings/pageIcons.shared';
@@ -32,6 +34,8 @@ export interface ToolSearchRequest {
 export type AppSearchTarget =
   | { kind: 'view'; view: MainView }
   | { kind: 'conversation-directory'; scope: ConversationScope }
+  | { kind: 'conversation-view'; view: keyof typeof CONVERSATION_VIEW_FEATURES }
+  | { kind: 'conversation-calendar' }
   | { kind: 'tool'; tool: SearchableTool; exportMode?: ExportMode }
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
   | { kind: 'composition' }
@@ -99,6 +103,10 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
       return target.group ? UsersRound : FEATURE_ICONS.clone;
     case 'conversation-directory':
       return target.scope === 'virtual' ? FEATURE_ICONS.clone : FEATURE_ICONS.messages;
+    case 'conversation-view':
+      return FEATURE_ICONS.messages;
+    case 'conversation-calendar':
+      return CalendarDays;
     case 'view':
       return (
         Object.values(APP_NAVIGATION).find(
@@ -114,6 +122,10 @@ const appSearchEntries: readonly AppSearchEntry[] = [
       ? []
       : [feature({ id: featureId, label, aliases: keywords }, target)],
   ),
+  feature(CONVERSATION_CALENDAR_FEATURE, { kind: 'conversation-calendar' }),
+  ...(
+    Object.keys(CONVERSATION_VIEW_FEATURES) as Array<keyof typeof CONVERSATION_VIEW_FEATURES>
+  ).map((view) => feature(CONVERSATION_VIEW_FEATURES[view], { kind: 'conversation-view', view })),
   feature(WORKSPACE_FEATURES.clones, { kind: 'conversation-directory', scope: 'virtual' }),
   feature(WORKSPACE_FEATURES.createClone, { kind: 'clone-create' }),
   feature(WORKSPACE_FEATURES.createCloneGroup, { kind: 'clone-create', group: true }),

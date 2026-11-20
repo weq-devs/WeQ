@@ -7,6 +7,7 @@ export const OPEN_FEATURE_EVENT = 'weq:open-feature';
 export function canLinkToFeature(feature: FeatureDefinition): boolean {
   return (
     Boolean(feature.settingsPage) ||
+    feature.navigation === 'search' ||
     ['messages.inbox', 'contacts.self-profile.edit', 'export.chat-history'].includes(feature.id)
   );
 }

@@ -48,7 +48,10 @@ export async function listFeatureDefinitions({
 
 function hasNavigation(feature: FeatureDefinition): boolean {
   return (
-    canLinkToFeature(feature) || feature.id === 'messages.locate' || feature.id === 'groups.albums'
+    canLinkToFeature(feature) ||
+    feature.navigation === 'context' ||
+    feature.id === 'messages.locate' ||
+    feature.id === 'groups.albums'
   );
 }
 
@@ -73,6 +76,7 @@ export async function getFeatureDefinition({ id, client }: z.infer<typeof getFea
       account: ctx.account && ctx.services ? 'ready' : 'missing',
       group: 'missing',
       contact: 'missing',
+      conversation: 'missing',
       message: 'missing',
     },
     qqOnline: record ? Boolean(record.qqOnline && record.qqPid) : undefined,
