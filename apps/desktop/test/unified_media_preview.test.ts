@@ -94,6 +94,32 @@ const key = (name: string) =>
       .dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true })),
   );
 const load = () => act(() => document.querySelector('img')!.dispatchEvent(new Event('load')));
+it('聊天灯箱命中本地原图时不显示下载，缺失时可从缩略图查看原图并重试', () => {
+  const pic = { type: 'pic', data: { fileToken: 'fixture', fileSize: 197453 } };
+  const chat = galleryMedia([{ msgId: '4', sendTime: 1, elements: [pic, pic] }]);
+  act(() => root.render(h(MediaPreview, { items: chat, onClose: vi.fn() })));
+  const request = () => new URL(document.querySelector('img')!.src).searchParams;
+  const fail = () => act(() => document.querySelector('img')!.dispatchEvent(new Event('error')));
+  const viewOriginal = () =>
+    [...document.querySelectorAll('button')].find((item) => item.textContent?.includes('查看原图'));
+  expect(request().get('localOnly')).toBe('1');
+  load();
+  expect(viewOriginal()).toBeUndefined();
+  act(() => button('下一项媒体').click());
+  fail();
+  load();
+  expect(request().get('preview')).toBe('1');
+  expect(viewOriginal()?.textContent).toBe('查看原图（0.19 MiB）');
+  act(() => viewOriginal()!.click());
+  expect(request().get('v')).toBe('original');
+  expect(request().has('localOnly')).toBe(false);
+  fail();
+  expect(request().get('preview')).toBe('1');
+  act(() => viewOriginal()!.click());
+  expect(request().get('v')).toBe('original');
+  load();
+  expect(viewOriginal()).toBeUndefined();
+});
 it('图片视频混排，切项后旧事件失效，视频离开时停止播放', () => {
   act(() => root.render(h(MediaPreview, { items, onClose: vi.fn() })));
   load();

@@ -584,17 +584,29 @@ export async function resolveChatImageFile(
     q.get('md5') ?? undefined,
   );
   check();
-  const path =
-    q.get('v') === 'thumb'
+  const originalOnly = q.get('v') === 'original' && picType !== 'emoji';
+  const previewOnly = q.get('preview') === '1' && picType === 'pic';
+  const path = previewOnly
+    ? thumb
+    : q.get('v') === 'thumb'
       ? (thumb ?? source)
-      : q.get('v') === 'original' && picType !== 'emoji'
+      : originalOnly
         ? source
         : (source ?? thumb);
   if (path) return { path, variant: path === source ? ('original' as const) : ('thumb' as const) };
-  const backup = resolveChatpicFallback(q.get('md5') ?? '', q.get('v') === 'original');
+  const backup = resolveChatpicFallback(q.get('md5') ?? '', originalOnly);
   if (backup) return { path: backup, variant: 'unknown' as const };
+  if (previewOnly) {
+    const small = q.get('small');
+    const thumbnail =
+      small && small !== q.get('orig') ? await services.mediaDownload.thumbnail?.(small) : null;
+    check();
+    return { path: thumbnail ?? null, variant: 'thumb' as const };
+  }
   const cached = services.mediaDownload.cachedFile(q.get('token') ?? '');
   if (cached) return { path: cached, variant: 'downloaded' as const };
+  if (originalOnly && q.get('localOnly') === '1')
+    return { path: null, variant: 'unknown' as const };
   const restricted = await hostDataSaver(q.get('ds') === '1');
   const behavior = transferBehavior();
   if (

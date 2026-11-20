@@ -281,13 +281,18 @@ function MediaPreviewItemBody({
   const [attempt, setAttempt] = useState(0);
   const [sourceIndex, setSourceIndex] = useState(0);
   const [status, setStatus] = useState<MediaLoadState>('loading');
+  const [originalRequest, setOriginalRequest] = useState({ active: false, attempts: 0 });
   const current = resolved?.key === item.key ? resolved : item;
+  const original = item.originalImage;
   const sources = [
     ...new Set(
-      [current.src, ...(item.fallbackSources ?? [])].filter(Boolean).map(interactiveMediaUrl),
+      [original?.cachedSrc, current.src, ...(item.fallbackSources ?? [])]
+        .filter((value): value is string => Boolean(value))
+        .map(interactiveMediaUrl),
     ),
   ];
-  const source = sources[sourceIndex] ?? '';
+  const originalSource = originalRequest.active ? original?.src : undefined;
+  const source = originalSource ?? sources[sourceIndex] ?? '';
   const src = resourceForRenderDocument(source, ownerDocument);
   const zoom = useZoomPan(`${item.key}:${attempt}`, {
     clickZoom: current.kind === 'image',
@@ -315,7 +320,8 @@ function MediaPreviewItemBody({
   );
   const video = useRef<HTMLVideoElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const eventKey = `${item.key}:${current.kind}:${src}:${attempt}`;
+  const requestAttempt = originalSource ? originalRequest.attempts - 1 : attempt;
+  const eventKey = `${item.key}:${current.kind}:${src}:${requestAttempt}`;
   const buffering = useVideoBuffering(eventKey, active && current.kind === 'video');
   const latestEvent = useRef(eventKey);
   latestEvent.current = eventKey;
@@ -360,6 +366,7 @@ function MediaPreviewItemBody({
     setSourceIndex(0);
     setDetailError(false);
     setAttempt(0);
+    setOriginalRequest({ active: false, attempts: 0 });
   }, [item.key]);
   const measure = useCallback(() => {
     if (image.current)
@@ -383,6 +390,11 @@ function MediaPreviewItemBody({
     setDetailError(false);
   };
   const ready = status === 'ready';
+  const usingThumbnail = Boolean(original && sourceIndex > 0 && !originalSource);
+  const originalMiB = original?.bytes ? original.bytes / 1024 ** 2 : undefined;
+  const originalSize = originalMiB
+    ? `（${originalMiB < 0.01 ? '<0.01' : originalMiB.toFixed(2)} MiB）`
+    : '';
   async function copy() {
     const result = await exportMedia({ url: src, name: item.title }, 'clipboard', ownerDocument);
     notificationToast.push(
@@ -428,7 +440,23 @@ function MediaPreviewItemBody({
           <div className="weq-lightbox-actions">
             <MediaZoomControls zoom={zoom} disabled={!ready} />
             <span ref={setOcrActions} style={{ display: 'contents' }} />
+            {original && sourceIndex > 0 && !(originalSource && ready) ? (
+              <button
+                type="button"
+                className="weq-lightbox-action"
+                disabled={originalRequest.active}
+                onClick={() => {
+                  setOriginalRequest(({ attempts }) => ({ active: true, attempts: attempts + 1 }));
+                  setStatus('loading');
+                  zoom.reset();
+                }}
+              >
+                {originalRequest.active ? '正在加载原图' : '查看原图'}
+                {originalSize}
+              </button>
+            ) : null}
             {item.saveSource !== null &&
+            (!original || ready) &&
             ((!waiting &&
               (!item.load || resolved?.key === item.key || detailError) &&
               source &&
@@ -437,19 +465,23 @@ function MediaPreviewItemBody({
               <MediaSourceSave
                 key={`${item.key}:${source}`}
                 source={
-                  item.saveSource?.kind === 'url' && item.progressTarget
-                    ? { ...item.saveSource, progressTarget: item.progressTarget }
-                    : (item.saveSource ?? {
+                  originalSource || !item.saveSource
+                    ? {
                         kind: 'url',
-                        url: resolved?.key === item.key ? resolved.saveSrc : source,
+                        url:
+                          originalSource ??
+                          (resolved?.key === item.key ? resolved.saveSrc : source),
                         name: item.title,
                         progressTarget: item.progressTarget,
-                      })
+                      }
+                    : item.saveSource.kind === 'url' && item.progressTarget
+                      ? { ...item.saveSource, progressTarget: item.progressTarget }
+                      : item.saveSource
                 }
                 className="weq-lightbox-action"
                 label={
                   item.saveLabel ??
-                  (detailError && resolved?.key !== item.key
+                  (usingThumbnail || (detailError && resolved?.key !== item.key)
                     ? '保存预览图'
                     : current.kind === 'image'
                       ? '保存图片'
@@ -515,10 +547,10 @@ function MediaPreviewItemBody({
             onPointerDown={zoom.onPointerDown}
           >
             <img
-              key={`${item.key}:${attempt}`}
+              key={`${item.key}:${originalSource ?? ''}:${requestAttempt}`}
               ref={image}
               className="weq-lightbox-image"
-              src={mediaRetryUrl(src, attempt)}
+              src={mediaRetryUrl(src, requestAttempt)}
               alt={item.title || '图片'}
               draggable={false}
               onLoad={() => {
@@ -528,7 +560,10 @@ function MediaPreviewItemBody({
               }}
               onError={() => {
                 if (latestEvent.current !== eventKey) return;
-                if (sourceIndex + 1 < sources.length) {
+                if (originalSource) {
+                  setOriginalRequest(({ attempts }) => ({ active: false, attempts }));
+                  notificationToast.push({ tone: 'error', title: '原图加载失败，可重试' });
+                } else if (sourceIndex + 1 < sources.length) {
                   setSourceIndex((value) => value + 1);
                   setStatus('loading');
                 } else if (resolved?.key === item.key && resolved.src !== item.src && item.src) {

@@ -126,3 +126,38 @@ it('严格原图请求不从安卓备份的 chatimg/chatthumb 降级，仍可使
   writeFileSync(raw, 'synthetic original');
   expect(await (await handleMediaRequest(new Request(url))).text()).toBe('synthetic original');
 });
+
+it('灯箱先查已下载原图，只有缩略图时等到明确请求再下载原图', async () => {
+  state.root = mkdtempSync(join(tmpdir(), 'weq-protocol-original-'));
+  const original = join(state.root, 'original.png');
+  const thumb = join(state.root, 'thumb.png');
+  writeFileSync(original, 'synthetic original');
+  writeFileSync(
+    thumb,
+    await sharp({ create: { width: 40, height: 20, channels: 3, background: '#336699' } })
+      .png()
+      .toBuffer(),
+  );
+  const cachedFile = vi.fn<() => string | null>(() => original);
+  const download = vi.fn(async () => original);
+  const thumbnail = vi.fn(async () => thumb);
+  const findFile = vi.fn<() => Promise<{ source: string | null; thumb: string | null }>>(
+    async () => ({ source: null, thumb }),
+  );
+  state.services = { fileSearch: { findFile }, mediaDownload: { cachedFile, download, thumbnail } };
+  const url = 'weq-media://pic?token=fixture&intent=interactive';
+  const request = (query: string) => handleMediaRequest(new Request(`${url}&${query}`));
+  expect(await (await request('v=original&localOnly=1')).text()).toBe('synthetic original');
+  cachedFile.mockReturnValue(null);
+  expect((await request('v=original&localOnly=1')).status).toBe(404);
+  expect((await request('v=thumb&preview=1')).headers.get('content-type')).toBe('image/webp');
+  findFile.mockResolvedValue({ source: null, thumb: null });
+  expect((await request('v=thumb&preview=1')).status).toBe(404);
+  expect(thumbnail).not.toHaveBeenCalled();
+  const small = '/download?spec=198';
+  expect((await request(`v=thumb&preview=1&small=${encodeURIComponent(small)}`)).ok).toBe(true);
+  expect(thumbnail).toHaveBeenCalledWith(small);
+  expect(download).not.toHaveBeenCalled();
+  expect(await (await request('v=original')).text()).toBe('synthetic original');
+  expect(download).toHaveBeenCalledOnce();
+});
