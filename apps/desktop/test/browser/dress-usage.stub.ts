@@ -32,6 +32,7 @@ let manifest: DressManifest = {
   backgroundFile: '',
   widgetId: '',
   backgroundOpacity: 1,
+  widgetOpacity: 1,
 };
 let revision = 0;
 const listeners = new Set<() => void>();

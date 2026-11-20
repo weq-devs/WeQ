@@ -33,6 +33,7 @@ const dressKeys = [
   'backgroundFile',
   'widgetId',
   'backgroundOpacity',
+  'widgetOpacity',
 ];
 
 /** 仅保存偏好快照，不把账号文件中的密钥、票据或业务内容带进回执。 */

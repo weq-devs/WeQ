@@ -6041,12 +6041,7 @@ export function ChatPane({
         event.preventDefault();
       }}
     >
-      <ChatBackdrop
-        imageUrl={backdrop.imageUrl}
-        videoUrl={backdrop.videoUrl}
-        widgetId={backdrop.widgetId}
-        opacity={backdrop.opacity}
-      />
+      <ChatBackdrop {...backdrop} />
       <ChatHeader
         onBack={onBack}
         title={

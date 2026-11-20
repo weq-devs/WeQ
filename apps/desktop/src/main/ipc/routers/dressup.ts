@@ -448,6 +448,10 @@ export const dressupRouter = router({
     return requireServices().dressInstall.setBackgroundOpacity(input.opacity);
   }),
 
+  setWidgetOpacity: procedure
+    .input(z.object({ opacity: z.number().min(0).max(1) }))
+    .mutation(({ input }) => requireServices().dressInstall.setWidgetOpacity(input.opacity)),
+
   /**
    * 选一款浮屏挂件(空串 = 不叠)。
    *

@@ -32,13 +32,14 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactElement } fr
 import { screenWidgetAssetsPath, screenWidgetUrl } from '../lib/resourceUrl';
 import { widenLottie } from '../lib/widenLottie';
 import { useLottiePlayback } from '../hooks/useLottiePlayback';
-import { BACKDROP_VEIL_VAR, backdropVeil } from './ChatBackdrop.shared';
+import '../styles/chat-backdrop.css';
 
 export function ChatBackdrop({
   imageUrl,
   videoUrl,
   widgetId,
-  opacity,
+  backgroundOpacity,
+  widgetOpacity,
 }: {
   /** 底图 url。空串 = 不画底图(但挂件仍可单独生效)。 */
   imageUrl: string;
@@ -46,31 +47,35 @@ export function ChatBackdrop({
   videoUrl: string;
   /** 浮屏挂件目录名。空串 = 不叠。 */
   widgetId: string;
-  /** 底图强度(0–1)。1 = 最清晰。 */
-  opacity: number;
+  backgroundOpacity: number;
+  widgetOpacity: number;
 }): ReactElement | null {
   if (!imageUrl && !videoUrl && !widgetId) return null;
 
-  const style: CSSProperties = { [BACKDROP_VEIL_VAR as string]: backdropVeil(opacity) };
-  if (imageUrl) style.backgroundImage = `url("${imageUrl}")`;
+  const style = {
+    '--weq-chat-backdrop-opacity': backgroundOpacity,
+    '--weq-chat-widget-opacity': widgetOpacity,
+  } as CSSProperties;
 
   return (
     <div className="weq-chat-backdrop" style={style} aria-hidden="true">
-      {/* 动态背景:静音 + 循环 + 内联播放。Chromium 只放行静音自动播放,所以 `muted`
-          不是可选项 —— 去掉它这块视频就停在第一帧不动(文件本身有音轨的话)。
-
-          层级:视频是普通子元素,磨砂纱是容器的 ::after(生成在子元素之后,画在上层),
-          挂件 z-index 更高 —— 于是视频 < 纱 < 挂件,与图片背景完全同构。 */}
-      {videoUrl ? (
-        <video
-          className="weq-chat-backdrop-video"
-          src={videoUrl}
-          autoPlay
-          loop
-          muted
-          playsInline
-          preload="auto"
-        />
+      {imageUrl || videoUrl ? (
+        <div
+          className="weq-chat-backdrop-media"
+          style={imageUrl ? { backgroundImage: `url("${imageUrl}")` } : undefined}
+        >
+          {videoUrl ? (
+            <video
+              className="weq-chat-backdrop-video"
+              src={videoUrl}
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="auto"
+            />
+          ) : null}
+        </div>
       ) : null}
       {widgetId ? <ScreenWidget widgetId={widgetId} /> : null}
     </div>

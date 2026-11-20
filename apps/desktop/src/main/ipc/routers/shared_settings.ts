@@ -159,6 +159,7 @@ export const sharedSettingsRouter = router({
           background: z.enum(['none', 'qq', 'custom']).optional(),
           backgroundOpacity: z.number().min(0).max(1).optional(),
           widgetId: z.string().optional(),
+          widgetOpacity: z.number().min(0).max(1).optional(),
         }),
       )
       .mutation(({ input }) => {

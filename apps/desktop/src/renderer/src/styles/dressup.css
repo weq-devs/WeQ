@@ -404,8 +404,17 @@
   cursor: not-allowed;
 }
 
+.weq-dress-usage-opacity,
 .weq-dress-usage-scope {
   margin-top: 28px;
+}
+
+.weq-dress-usage-opacity {
+  max-width: 460px;
+}
+
+.weq-dress-usage-opacity .weq-dress-opacity > span:first-child {
+  min-width: 4em;
 }
 
 .weq-dress-local-note {
@@ -961,13 +970,13 @@ html[data-theme='dark'] .weq-dress-save {
 
 .weq-dress-opacity input {
   flex: 1 1 auto;
+  min-width: 0;
   accent-color: var(--weq-accent-effective);
 }
 
-.weq-dress-opacity em {
+.weq-dress-opacity .weq-dress-opacity-value {
   flex: 0 0 38px;
   color: var(--weq-fg-secondary);
-  font-style: normal;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }

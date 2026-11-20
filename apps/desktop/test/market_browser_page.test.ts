@@ -29,7 +29,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => ({ account: { listExportTasks: { invalidate: async () => {} } } }),
     account: {
       dressup: {
-        getState: { useQuery: () => ({ data: { qqOnline: false } }) },
+        getState: { useQuery: () => ({ data: { qqOnline: false, own: { chatBgUrl: '' } } }) },
         rank: { useQuery: () => ({ data: { items: [] } }) },
         search: { useQuery: () => ({ data: { items: [] } }) },
         widgets: { useQuery: () => ({ data: [] }) },
@@ -45,6 +45,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             'setWidget',
             'setCallBackground',
             'setBackgroundOpacity',
+            'setWidgetOpacity',
             'saveMsgDecoration',
           ].map((name) => [name, { useMutation: () => ({}) }]),
         ),

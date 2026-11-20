@@ -145,18 +145,16 @@ export function useDressSkin(): void {
  * 背景分图片与视频两条:`imageUrl` 当底图画,`videoUrl` 交给 `<video>` 循环播。二者
  * 互斥 —— 一个背景不会既是图又是视频,调用方不必在两份都非空时做取舍。
  */
-export function useChatBackdrop(): {
-  imageUrl: string;
-  videoUrl: string;
-  widgetId: string;
-  opacity: number;
-} {
+export function useChatBackdrop() {
   const state = trpc.account.dressup.getState.useQuery(undefined, {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
 
-  const manifest = state.data?.manifest;
+  return resolveChatBackdrop(state.data?.manifest, state.data?.own.chatBgUrl ?? '');
+}
+
+export function resolveChatBackdrop(manifest: DressManifest | undefined, qqBackground: string) {
   const source = manifest?.background ?? 'none';
 
   let imageUrl = '';
@@ -164,7 +162,7 @@ export function useChatBackdrop(): {
   if (source === 'qq') {
     // QQ 同款走 CDN 代理(主进程落盘缓存),不占本地空间,换了手机上的背景这边跟着变。
     // QQ 那边的聊天背景只有图,所以永远进 imageUrl。
-    imageUrl = dressUrl(state.data?.own.chatBgUrl ?? '');
+    imageUrl = dressUrl(qqBackground);
   } else if (source === 'custom' && manifest?.backgroundFile) {
     // 文件名固定,所以拿路径当 stamp 穿透浏览器缓存(见 dressBackgroundUrl)。
     // `backgroundFile` 在清单里是**绝对路径**,后缀即真实格式。
@@ -177,6 +175,7 @@ export function useChatBackdrop(): {
     imageUrl,
     videoUrl,
     widgetId: manifest?.widgetId ?? '',
-    opacity: manifest?.backgroundOpacity ?? 1,
+    backgroundOpacity: manifest?.backgroundOpacity ?? 1,
+    widgetOpacity: manifest?.widgetOpacity ?? 1,
   };
 }

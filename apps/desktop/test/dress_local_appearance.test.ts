@@ -13,7 +13,6 @@ const fixture = vi.hoisted(() => ({
   developmentTools: true,
   activate: vi.fn(),
   download: vi.fn(),
-  mediaDownload: vi.fn(),
   invalidate: vi.fn(),
   manifest: {
     bubbles: [],
@@ -26,10 +25,12 @@ const fixture = vi.hoisted(() => ({
     background: 'none',
     widgetId: '',
     backgroundOpacity: 1,
+    widgetOpacity: 1,
   } as DressManifest,
 }));
 
-vi.mock('../src/renderer/src/hooks/useDressSkin', () => ({
+vi.mock('../src/renderer/src/hooks/useDressSkin', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/hooks/useDressSkin')>()),
   syncDressSkin: vi.fn(),
   syncDressSkinPreloaded: vi.fn(async () => {}),
 }));
@@ -74,25 +75,20 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             'setWidget',
             'setCallBackground',
             'setBackgroundOpacity',
+            'setWidgetOpacity',
           ].map((name) => [name, { useMutation: () => ({ mutateAsync: fixture.activate }) }]),
         ),
       },
     },
   },
 }));
-vi.mock('../src/renderer/src/components/DecorationSaveControls', () => ({
-  useDecorationSave: () => ({ run: fixture.download, disabled: false }),
+vi.mock('../src/renderer/src/hooks/useDressDownload', () => ({
+  useDressDownload: () => ({ run: fixture.download, disabled: false }),
 }));
-vi.mock('../src/renderer/src/components/DecorationSaveControls.shared', () => ({
-  useDecorationSave: () => ({ run: fixture.download, disabled: false }),
+vi.mock('../src/renderer/src/components/ChatBackdrop', () => ({
+  ScreenWidget: () => null,
+  ChatBackdrop: () => null,
 }));
-vi.mock('../src/renderer/src/components/MediaSaveControls', () => ({
-  useMediaSave: () => ({ run: fixture.mediaDownload, disabled: false, isBusy: () => false }),
-}));
-vi.mock('../src/renderer/src/components/MediaSaveControls.shared', () => ({
-  useMediaSave: () => ({ run: fixture.mediaDownload, disabled: false, isBusy: () => false }),
-}));
-vi.mock('../src/renderer/src/components/ChatBackdrop', () => ({ ScreenWidget: () => null }));
 vi.mock('../src/renderer/src/views/export/MarketEmojiBrowserLightbox', () => ({
   MarketEmojiBrowserLightbox: () => null,
 }));
@@ -112,6 +108,7 @@ beforeEach(() => {
     background: 'none',
     widgetId: '',
     backgroundOpacity: 1,
+    widgetOpacity: 1,
   } as DressManifest;
   fixture.activate
     .mockReset()
@@ -141,7 +138,9 @@ it('默认打开使用页，三档范围保存并可取消当前气泡，商城�
   const root = createRoot(host);
   try {
     await act(async () => root.render(createElement(DressUpDialog, { onClose: () => {} })));
-    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('使用');
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('使用中');
+    expect(host.querySelector('[role="tab"]:last-child')?.textContent).toBe('使用中');
+    expect(host.getElementsByTagName('input')).toHaveLength(3);
     expect(host.textContent).toContain('本地气泡');
     expect(host.querySelector('[data-bubble-preview="11"]')).not.toBeNull();
     expect(host.querySelector('.weq-dress-search')).toBeNull();
@@ -202,7 +201,6 @@ it('普通模式只保留聊天背景，商城直达不显示安装、覆盖或�
 
 it('通话背景的单个下载按钮保存原视频，不把背景 ID 当作气泡或字体资源', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  fixture.mediaDownload.mockClear();
   fixture.download.mockClear();
   const host = document.createElement('div');
   const root = createRoot(host);
@@ -210,21 +208,22 @@ it('通话背景的单个下载按钮保存原视频，不把背景 ID 当作气
     await act(async () =>
       root.render(createElement(DressUpDialog, { initialKind: 'callbg', onClose: () => {} })),
     );
-    await act(async () => host.querySelector<HTMLButtonElement>('.weq-dress-chip')!.click());
+    await act(async () => host.querySelectorAll<HTMLButtonElement>('.weq-dress-chip')[1]!.click());
     expect(host.querySelector('.weq-dress-card-actions')?.querySelectorAll('button')).toHaveLength(
       2,
     );
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-dress-save')!.click());
-    expect(fixture.mediaDownload).toHaveBeenCalledWith(
-      {
-        kind: 'url',
-        url: 'https://example.test/call-background.mp4',
-        name: 'QQ 同款通话背景',
-      },
-      undefined,
-      false,
+    expect(fixture.download).toHaveBeenCalledWith(
+      'callbg',
+      [
+        {
+          itemId: 44,
+          name: 'QQ 同款通话背景',
+          mediaUrl: 'https://example.test/call-background.mp4',
+        },
+      ],
+      'callbg:44',
     );
-    expect(fixture.download).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
   }
@@ -246,7 +245,7 @@ it.each([
       await act(async () =>
         root.render(createElement(DressUpDialog, { initialKind: kind, onClose: () => {} })),
       );
-      const installed = host.querySelector<HTMLButtonElement>('.weq-dress-chip')!;
+      const installed = host.querySelectorAll<HTMLButtonElement>('.weq-dress-chip')[1]!;
       expect(installed.textContent).toContain('1');
       await act(async () => installed.click());
       expect(host.textContent).toContain(name);
@@ -277,10 +276,9 @@ it.each([
       fixture.download.mockClear();
       await act(async () => host.querySelector<HTMLButtonElement>('.weq-dress-save')!.click());
       expect(fixture.download).toHaveBeenCalledWith(
-        expect.objectContaining({ kind }),
+        kind,
+        [expect.objectContaining({ name })],
         expect.stringContaining(`${kind}:`),
-        undefined,
-        false,
       );
     } finally {
       act(() => root.unmount());

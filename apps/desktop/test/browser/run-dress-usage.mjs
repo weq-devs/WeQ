@@ -64,11 +64,11 @@ try {
       await page.goto(`${url}?theme=${theme}&tools=1`);
       await page.getByRole('heading', { name: '使用中的装扮' }).waitFor();
       assert.equal(
-        await page.getByRole('tab', { name: '使用', exact: true }).getAttribute('aria-selected'),
+        await page.getByRole('tab', { name: '使用中', exact: true }).getAttribute('aria-selected'),
         'true',
       );
       assert.equal(await page.getByRole('radio').count(), 3);
-      assert.equal(await page.locator('.weq-dress-current').count(), 4);
+      assert.equal(await page.locator('.weq-dress-current').count(), 6);
       await page.getByRole('radio', { name: '替代无装扮', exact: true }).check();
       await page
         .getByRole('radio', { name: '替代无装扮', exact: true })
@@ -105,12 +105,12 @@ try {
       assert.equal(await page.locator('.weq-dress-local-note').count(), 0);
       await page.getByRole('button', { name: '使用', exact: true }).click();
       await page.getByRole('button', { name: '使用中', exact: true }).waitFor();
-      await page.getByRole('tab', { name: '使用', exact: true }).click();
+      await page.getByRole('tab', { name: '使用中', exact: true }).click();
       await page.getByRole('button', { name: '取消使用聊天气泡', exact: true }).waitFor();
     }
   await page.goto(`${url}?empty=1&tools=1`);
   await page.getByRole('heading', { name: '使用中的装扮' }).waitFor();
-  assert.equal(await page.getByText('未使用', { exact: true }).count(), 4);
+  assert.equal(await page.getByText('未使用', { exact: true }).count(), 6);
   assert.equal(await page.getByText('按消息记录还原', { exact: true }).count(), 3);
   await page.screenshot({ path: resolve(output, 'empty.png'), fullPage: true });
 

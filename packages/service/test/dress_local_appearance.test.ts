@@ -88,6 +88,21 @@ describe('本地装扮默认不覆盖消息', () => {
     expect(new DressConfigService(dir).read().activeFont).toBe(0);
   });
 
+  it('旧配置承接背景不透明度，浮屏挂件的值独立保存且支持全透明', () => {
+    const { dir, config } = configFixture();
+    writeFileSync(
+      join(dir, 'dress.json'),
+      JSON.stringify({ backgroundOpacity: 0.4, widgetId: '1' }),
+    );
+    expect(config.read()).toMatchObject({ backgroundOpacity: 0.4, widgetOpacity: 1 });
+    config.setWidgetOpacity(0);
+    config.setBackgroundOpacity(0.65);
+    config.setWidget('');
+    config.setWidget('1');
+    const manifest = new DressService(new DressConfigService(dir), {} as DressSharedCache).read();
+    expect(manifest).toMatchObject({ backgroundOpacity: 0.65, widgetOpacity: 0, widgetId: '1' });
+  });
+
   it('迁移旧资源清单不会重新启用旧版消息覆盖', () => {
     const { dir, config } = configFixture();
     writeFileSync(

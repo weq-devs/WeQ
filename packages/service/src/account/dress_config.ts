@@ -75,6 +75,12 @@ export interface DressConfig {
   widgetId: string;
   /** 背景不透明度（0-1）。 */
   backgroundOpacity: number;
+  /** 浮屏挂件不透明度（0-1）。 */
+  widgetOpacity: number;
+}
+
+function normalizeOpacity(value: number | undefined): number {
+  return value !== undefined && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
 }
 
 /**
@@ -101,7 +107,8 @@ export function normalizeDressConfig(raw: Partial<DressConfig>): DressConfig {
       : 'none',
     backgroundFile: typeof raw.backgroundFile === 'string' ? raw.backgroundFile : '',
     widgetId: typeof raw.widgetId === 'string' ? raw.widgetId : '',
-    backgroundOpacity: typeof raw.backgroundOpacity === 'number' ? raw.backgroundOpacity : 1,
+    backgroundOpacity: normalizeOpacity(raw.backgroundOpacity),
+    widgetOpacity: normalizeOpacity(raw.widgetOpacity),
   };
 }
 
@@ -255,7 +262,13 @@ export class DressConfigService {
    */
   setBackgroundOpacity(opacity: number): void {
     const cfg = this.read();
-    cfg.backgroundOpacity = Math.max(0, Math.min(1, opacity));
+    cfg.backgroundOpacity = normalizeOpacity(opacity);
+    this.write(cfg);
+  }
+
+  setWidgetOpacity(opacity: number): void {
+    const cfg = this.read();
+    cfg.widgetOpacity = normalizeOpacity(opacity);
     this.write(cfg);
   }
 
@@ -295,6 +308,7 @@ export class DressConfigService {
       backgroundFile: '',
       widgetId: '',
       backgroundOpacity: 1,
+      widgetOpacity: 1,
     };
   }
 }

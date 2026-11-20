@@ -62,6 +62,7 @@ export interface DressManifest {
   backgroundFile: string;
   widgetId: string;
   backgroundOpacity: number;
+  widgetOpacity: number;
 }
 
 /**
@@ -144,6 +145,7 @@ export class DressService {
       backgroundFile: this.config.getBackgroundFile() ?? '',
       widgetId: cfg.widgetId,
       backgroundOpacity: cfg.backgroundOpacity,
+      widgetOpacity: cfg.widgetOpacity,
     };
   }
 
@@ -327,6 +329,11 @@ export class DressService {
   /** 设置背景不透明度。 */
   setBackgroundOpacity(opacity: number): DressManifest {
     this.config.setBackgroundOpacity(opacity);
+    return this.read();
+  }
+
+  setWidgetOpacity(opacity: number): DressManifest {
+    this.config.setWidgetOpacity(opacity);
     return this.read();
   }
 

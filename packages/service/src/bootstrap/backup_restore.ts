@@ -890,6 +890,7 @@ function prepare(
             backgroundFile: '',
             widgetId: '',
             backgroundOpacity: 1,
+            widgetOpacity: 1,
           };
         }
         add('account-setting', [{ path: '', data: Buffer.from(JSON.stringify(value)) }], scope, {

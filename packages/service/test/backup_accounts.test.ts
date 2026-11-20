@@ -136,6 +136,7 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
   const dress = new DressConfigService(join(f.root, 'config', 'accounts', f.source));
   dress.setCustomBackground(outside);
   dress.setBackgroundOpacity(0.4);
+  dress.setWidgetOpacity(0.35);
   dress.setActive('bubble', 123);
   const original = readFileSync(weqAccountSettingPath(f.root, f.cache, f.source, 'dress.json'));
   f.config.migrateSharedAccountPreferences(f.source);
@@ -201,6 +202,7 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
     background: 'custom',
     activeBubble: 123,
     backgroundOpacity: 0.4,
+    widgetOpacity: 0.35,
   });
   expect(restoredDress.getBackgroundFile()).toMatch(/bg-[0-9a-f]{64}\.png$/);
   expect(readFileSync(restoredDress.getBackgroundFile()!)).toEqual(png);

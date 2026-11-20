@@ -51,6 +51,7 @@ export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice
     backgroundFile: '',
     widgetId: '',
     backgroundOpacity: 1,
+    widgetOpacity: 1,
   });
   if (!choice.clearApi) {
     settings.voiceTranscribe.ttsProviders = structuredClone(

@@ -160,14 +160,14 @@ export function validateWeqAccountPreference(name: WeqAccountSettingFile, value:
     )
       fail(`${name}.backgroundFile`);
     if (input.widgetId !== undefined && typeof input.widgetId !== 'string') fail(name);
-    if (
-      input.backgroundOpacity !== undefined &&
-      (typeof input.backgroundOpacity !== 'number' ||
-        !Number.isFinite(input.backgroundOpacity) ||
-        input.backgroundOpacity < 0 ||
-        input.backgroundOpacity > 1)
-    )
-      fail(name);
+    for (const key of ['backgroundOpacity', 'widgetOpacity']) {
+      const opacity = input[key];
+      if (
+        opacity !== undefined &&
+        (typeof opacity !== 'number' || !Number.isFinite(opacity) || opacity < 0 || opacity > 1)
+      )
+        fail(`${name}.${key}`);
+    }
   }
 }
 
