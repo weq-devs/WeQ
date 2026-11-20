@@ -13,7 +13,11 @@ import { Modal } from '../Dialog';
 import { LoadingIndicator } from '../LoadingIndicator';
 import { SearchListSkeleton } from './SearchSkeleton';
 import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard.shared';
-import type { ChatRecordSearchHit, ConversationRecordHit } from './types';
+import {
+  MESSAGE_CATEGORY_LABELS,
+  type ChatRecordSearchHit,
+  type ConversationRecordHit,
+} from './types';
 import { client } from '../../trpc/client';
 import { preflightExportEstimate } from '../../views/export/preflight';
 import { useExportReportDialog } from '../../views/export/ExportReportControl.shared';
@@ -40,20 +44,10 @@ import { createReplyPreviewIndex } from '../../lib/replyPreview';
 import { enrichReplyElements } from '../../views/workspace/messageProjection';
 import type { RenderElement } from '../QqMessageContent.shared';
 import type { MessageCategory } from '@weq/service';
+import type { GlobalChatRecordFilter } from '@weq/service/search-policy';
 
 const noop = (): void => {};
 type BrowseCursor = { time: number; rowId: string };
-const categoryLabels: Record<MessageCategory, string> = {
-  text: '文字',
-  image: '图片',
-  video: '视频',
-  voice: '语音',
-  file: '文件',
-  link: '链接',
-  emoji: '表情',
-  system: '系统',
-  other: '其他',
-};
 const sharedCategories = ['image', 'video', 'file'] as const;
 
 export function ChatRecordsModal({
@@ -62,6 +56,7 @@ export function ChatRecordsModal({
   fixed = false,
   sharedMedia = false,
   accountBinding,
+  globalRecordFilter,
   suspended = false,
   onClose,
   onSuspend,
@@ -91,6 +86,7 @@ export function ChatRecordsModal({
   fixed?: boolean;
   sharedMedia?: boolean;
   accountBinding?: QQWriteBinding;
+  globalRecordFilter?: GlobalChatRecordFilter;
   suspended?: boolean;
   onClose: () => void;
   /** 跳原消息时关闭浮层，保留这次搜索会话。 */
@@ -296,6 +292,13 @@ export function ChatRecordsModal({
             keyword: filter.keyword ?? '',
             offset,
             limit: 30,
+            ...(globalRecordFilter
+              ? {
+                  recordFilter: globalRecordFilter,
+                  expectedAccountUin,
+                  expectedAccountConfigId,
+                }
+              : {}),
           },
           { signal },
         );
@@ -332,7 +335,7 @@ export function ChatRecordsModal({
           return { items: page.items, total: undefined, limited: false };
       }
     },
-    [fixed, selected, filter, expectedAccountUin, expectedAccountConfigId],
+    [fixed, selected, filter, expectedAccountUin, expectedAccountConfigId, globalRecordFilter],
   );
 
   // Fetch messages for the selected conversation.
@@ -591,7 +594,7 @@ export function ChatRecordsModal({
                   aria-pressed={category === kind}
                   onClick={() => setCategory(kind)}
                 >
-                  {categoryLabels[kind]}
+                  {MESSAGE_CATEGORY_LABELS[kind]}
                 </button>
               ))}
             </div>
@@ -677,7 +680,7 @@ export function ChatRecordsModal({
                 onChange={(e) => setCategory(e.target.value as typeof category)}
               >
                 <option value="">全部类型</option>
-                {Object.entries(categoryLabels).map(([value, label]) => (
+                {Object.entries(MESSAGE_CATEGORY_LABELS).map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
@@ -1004,13 +1007,17 @@ function SharedRecordMedia({
   const items = useChatMediaItems();
   if (!items.length) return <EmptyState compact icon={<SearchX />} title="没有可浏览的媒体" />;
   return (
-    <div className="weq-record-media-grid" role="list" aria-label={categoryLabels[mediaKind]}>
+    <div
+      className="weq-record-media-grid"
+      role="list"
+      aria-label={MESSAGE_CATEGORY_LABELS[mediaKind]}
+    >
       {items.map((item) => (
         <div className="weq-record-media-tile" role="listitem" key={item.key}>
           <button
             type="button"
             className="weq-record-media-thumbnail"
-            aria-label={`查看${categoryLabels[mediaKind]}：${item.title}`}
+            aria-label={`查看${MESSAGE_CATEGORY_LABELS[mediaKind]}：${item.title}`}
             onClick={(event) => open?.(item.key, event.currentTarget.ownerDocument)}
           >
             <ShimmerImage

@@ -6,6 +6,7 @@ import {
   type SearchMoreSnapshot,
 } from '../src/renderer/src/components/search/UnifiedSearchModal';
 import type { MoreSearchResult } from '../src/renderer/src/components/search/types';
+import type { ComponentProps } from 'react';
 
 const rpc = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -28,7 +29,9 @@ function mount(
   options: {
     initialSnapshot?: SearchMoreSnapshot;
     onNavigate?: (snapshot: SearchMoreSnapshot) => void;
-  } = {},
+  } & Pick<ComponentProps<typeof SearchMoreResults>, 'recordFilter' | 'accountBinding'> & {
+      category?: ComponentProps<typeof SearchMoreResults>['category'];
+    } = {},
 ) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -67,6 +70,25 @@ afterEach(() => {
 });
 
 describe('搜索更多的请求隔离', () => {
+  it('聊天记录第一页及翻页提交相同的消息筛选和账号范围', async () => {
+    vi.useFakeTimers();
+    rpc.query.mockResolvedValueOnce(page('first', true)).mockResolvedValueOnce(page('second'));
+    const recordFilter = { sender: '12345', start: 10, end: 100, category: 'link' as const };
+    const accountBinding = { expectedAccountUin: '10001', expectedAccountConfigId: 'data-source' };
+    const view = mount({ category: 'chatRecord', recordFilter, accountBinding });
+    try {
+      await act(async () => vi.advanceTimersByTimeAsync(250));
+      await act(async () =>
+        view.host.querySelector('.weq-search-more-body')!.dispatchEvent(new Event('scroll')),
+      );
+      expect(rpc.query.mock.calls.map(([input]) => input)).toMatchObject([
+        { category: 'chatRecord', recordFilter, ...accountBinding, offset: 0 },
+        { category: 'chatRecord', recordFilter, ...accountBinding, offset: 1 },
+      ]);
+    } finally {
+      view.close();
+    }
+  });
   it('返回恢复修改后的词、已加载结果、原始游标、滚动与命中焦点，不重取第一页', async () => {
     vi.useFakeTimers();
     rpc.query

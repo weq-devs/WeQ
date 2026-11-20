@@ -548,6 +548,15 @@ function assistantRuntime(binding: {
   return assistant;
 }
 
+const globalRecordFilterInput = z
+  .object({
+    sender: z.string().trim().min(1).max(128).optional(),
+    start: z.number().int().nonnegative().optional(),
+    end: z.number().int().nonnegative().optional(),
+    category: z.enum(MESSAGE_CATEGORIES).optional(),
+  })
+  .optional();
+
 const convInput = z.object({
   kind: z.enum(['c2c', 'group']),
   /** Conversation key: peer uid (c2c) or group code (group). */
@@ -5229,15 +5238,22 @@ export const accountRouter = router({
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
         conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
         sources: z.array(z.enum(SEARCH_SOURCES)).optional(),
+        recordFilter: globalRecordFilterInput,
+        ...exportAccountBindingInput.shape,
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().unifiedSearch.slowSearch(
+      const { unifiedSearch } = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return unifiedSearch.slowSearch(
         input.keyword,
         input.limit,
         input.categories,
         input.conversationScope,
         input.sources,
+        input.recordFilter,
       );
     }),
 
@@ -5261,17 +5277,24 @@ export const accountRouter = router({
         keyword: z.string().trim().min(1),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
+        recordFilter: globalRecordFilterInput,
+        ...exportAccountBindingInput.shape,
       }),
     )
     .query(async ({ input }) => {
+      const { unifiedSearch } = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
       return withDatabaseWorkload('bulk', () =>
-        requireServices().unifiedSearch.moreSearch(
+        unifiedSearch.moreSearch(
           input.category,
           input.keyword,
           input.offset,
           input.limit,
           input.conversationScope,
           input.sources,
+          input.recordFilter,
         ),
       );
     }),
@@ -5285,15 +5308,22 @@ export const accountRouter = router({
         keyword: z.string().trim().min(1),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
+        recordFilter: globalRecordFilterInput,
+        ...exportAccountBindingInput.shape,
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().unifiedSearch.conversationRecords(
+      const { unifiedSearch } = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return unifiedSearch.conversationRecords(
         input.source,
         input.conv,
         input.keyword,
         input.offset,
         input.limit,
+        input.recordFilter,
       );
     }),
   /** Get merged-forward / quote-reply cache for one message. */

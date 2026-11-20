@@ -5,6 +5,22 @@ import type {
   ContentSearchHit,
 } from './content_search';
 
+import type { MessageCategory } from './message_filter';
+
+export interface GlobalChatRecordFilter {
+  sender?: string;
+  start?: number;
+  end?: number;
+  category?: MessageCategory;
+}
+
+export function hasGlobalChatRecordFilter(filter?: GlobalChatRecordFilter): boolean {
+  return Boolean(
+    filter &&
+      (filter.sender || filter.start !== undefined || filter.end !== undefined || filter.category),
+  );
+}
+
 export const QZONE_SEARCH_CATEGORIES = [
   'qzonePost',
   'qzoneAlbum',

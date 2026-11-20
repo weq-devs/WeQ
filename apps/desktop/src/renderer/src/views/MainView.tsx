@@ -388,6 +388,7 @@ import { isGeneratedSearchHit, isContentSearchHit } from '../components/search/t
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchPreferences } from '../hooks/useSearchPreferences';
 import { useSearchReturn } from '../hooks/useSearchReturn';
+import { hasGlobalChatRecordFilter, type GlobalChatRecordFilter } from '@weq/service/search-policy';
 import { useSearchDismissal } from '../hooks/useSearchDismissal';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
 import { restoredAnalysisRequest } from './analysis/model';
@@ -6004,17 +6005,32 @@ function MainWorkspace(): ReactElement {
 
   const searchQuery = shell.query.trim();
   const searchAccountKey = noticeAccountKey || openedUin;
+  const [recordFilterDraft, setRecordFilterDraft] = useState<GlobalChatRecordFilter>();
+  useEffect(() => setRecordFilterDraft(undefined), [searchAccountKey]);
+  const activeRecordFilter = useMemo(() => {
+    if (
+      !searchSources.includes('qq') ||
+      !searchCategories.includes('chatRecord') ||
+      !recordFilterDraft
+    )
+      return undefined;
+    const filter = { ...recordFilterDraft, sender: recordFilterDraft.sender?.trim() || undefined };
+    return hasGlobalChatRecordFilter(filter) ? filter : undefined;
+  }, [recordFilterDraft, searchCategories, searchSources]);
   const globalSearch = useGlobalSearch(
     searchQuery,
     searchCategories,
     searchAccountKey,
     searchSources,
+    activeRecordFilter,
+    pinSession.binding ?? undefined,
   );
   const searchReturn = useSearchReturn(
     searchAccountKey,
     searchQuery,
     searchCategories,
     searchSources,
+    activeRecordFilter,
   );
   useEffect(() => {
     if (searchQuery) setSearchDismissed(false);
@@ -9659,6 +9675,10 @@ function MainWorkspace(): ReactElement {
                   categories={searchCategories}
                   onCategoriesChange={setSearchCategories}
                   sources={searchSources}
+                  recordFilter={recordFilterDraft}
+                  activeRecordFilter={activeRecordFilter}
+                  onRecordFilterChange={setRecordFilterDraft}
+                  accountBinding={pinSession.binding ?? undefined}
                   onSourcesChange={setSearchSources}
                   onRetry={globalSearch.retry}
                   onSelect={openSearchHit}

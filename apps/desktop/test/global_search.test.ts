@@ -3,7 +3,11 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useGlobalSearch } from '../src/renderer/src/hooks/useGlobalSearch';
-import type { ConversationScope, SearchSource } from '@weq/service/search-policy';
+import type {
+  ConversationScope,
+  GlobalChatRecordFilter,
+  SearchSource,
+} from '@weq/service/search-policy';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
 import { contactSearchHit } from './support/search-fixtures';
 import {
@@ -63,13 +67,15 @@ function mountSearch() {
     categories,
     account,
     scope,
+    recordFilter,
   }: {
     query: string;
     categories: SearchCategory[];
     account: string;
     scope: ConversationScope | readonly SearchSource[];
+    recordFilter?: GlobalChatRecordFilter;
   }) => {
-    result = useGlobalSearch(query, categories, account, scope);
+    result = useGlobalSearch(query, categories, account, scope, recordFilter);
     return null;
   };
   return {
@@ -81,8 +87,11 @@ function mountSearch() {
       categories: SearchCategory[] = SEARCH_CATEGORY_ORDER,
       account = 'account-a',
       scope: ConversationScope | readonly SearchSource[] = 'all',
+      recordFilter?: GlobalChatRecordFilter,
     ) {
-      act(() => root.render(createElement(Harness, { query, categories, account, scope })));
+      act(() =>
+        root.render(createElement(Harness, { query, categories, account, scope, recordFilter })),
+      );
     },
     close() {
       act(() => root.unmount());
@@ -98,6 +107,30 @@ afterEach(() => {
 });
 
 describe('全局搜索请求生命周期', () => {
+  it('聊天记录预览按筛选重新请求，筛选不会发送给其他慢来源', async () => {
+    vi.useFakeTimers();
+    rpc.slow.mockResolvedValue(slowResult);
+    const view = mountSearch();
+    const categories: SearchCategory[] = ['chatRecord', 'file'];
+    const filter = { sender: '12345', start: 10, end: 100, category: 'link' as const };
+    try {
+      view.render('匹配词', categories, 'account-a', 'all', filter);
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      expect(
+        rpc.slow.mock.calls.map(([input]) => [input.categories[0], input.recordFilter]),
+      ).toEqual([
+        ['chatRecord', filter],
+        ['file', undefined],
+      ]);
+      const changed = { ...filter, end: 120 };
+      view.render('匹配词', categories, 'account-a', 'all', changed);
+      expect(view.result.slow).toBeNull();
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      expect(rpc.slow.mock.calls[2]?.[0]).toMatchObject({ recordFilter: changed });
+    } finally {
+      view.close();
+    }
+  });
   it('无关父级更新不重新合并已到搜索结果，新分类响应仍即时交付', async () => {
     vi.useFakeTimers();
     let reads = 0;

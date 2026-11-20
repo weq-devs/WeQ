@@ -7,6 +7,7 @@ import type { SearchMoreSnapshot } from '../components/search/UnifiedSearchModal
 import {
   searchCategorySupportsSources,
   type ConversationScope,
+  type GlobalChatRecordFilter,
   type SearchSource,
 } from '@weq/service/search-policy';
 
@@ -17,8 +18,10 @@ export function useSearchReturn(
   keyword: string,
   categories: readonly SearchCategory[],
   scope: ConversationScope | readonly SearchSource[] = 'all',
+  recordFilter?: GlobalChatRecordFilter,
 ) {
-  const key = JSON.stringify([accountKey, keyword, categories, scope]);
+  const filterKey = JSON.stringify(recordFilter ?? null);
+  const key = JSON.stringify([accountKey, keyword, categories, scope, filterKey]);
   const [saved, setSaved] = useState<{ key: string; target: SearchReturnTarget } | null>(null);
   const [expanded, setExpanded] = useState<{
     accountKey: string | null;
@@ -26,9 +29,14 @@ export function useSearchReturn(
     snapshotKey?: string;
     snapshot?: SearchMoreSnapshot;
   } | null>(null);
-  const [detail, setDetail] = useState<{ accountKey: string | null; hit: SearchHit } | null>(null);
+  const [detail, setDetail] = useState<{
+    accountKey: string | null;
+    filterKey: string;
+    hit: SearchHit;
+  } | null>(null);
   const detailHit =
     detail?.accountKey === accountKey &&
+    detail.filterKey === filterKey &&
     keyword.trim() &&
     (categories.includes(detail.hit.category) ||
       categories.includes(searchHitParentCategory(detail.hit))) &&
@@ -66,7 +74,7 @@ export function useSearchReturn(
     expand: (next: SearchCategory) => setExpanded({ accountKey, category: next }),
     back: () => setExpanded(null),
     detail: detailHit,
-    openDetail: (hit: SearchHit) => setDetail({ accountKey, hit }),
+    openDetail: (hit: SearchHit) => setDetail({ accountKey, filterKey, hit }),
     backDetail: () => setDetail(null),
     rememberMore: (snapshot: SearchMoreSnapshot) =>
       setExpanded((previous) =>
