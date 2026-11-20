@@ -719,6 +719,10 @@ button.composer-single-thumb {
   color: var(--weq-fg-secondary, #666666);
 }
 
+.voice-btn.ghost.voice-transcribe-btn:not(:disabled) {
+  color: var(--weq-fg-primary, #111111);
+}
+
 .voice-btn.ghost:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 17%, transparent);
   color: var(--weq-fg-primary, #111111);

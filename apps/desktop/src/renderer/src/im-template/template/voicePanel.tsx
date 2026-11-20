@@ -1180,7 +1180,7 @@ function VoiceReview({
       <div className="voice-review-actions">
         <button
           type="button"
-          className="voice-btn ghost"
+          className="voice-btn ghost voice-transcribe-btn"
           title={transcribing ? '取消转写' : '转文字'}
           aria-label={transcribing ? '取消转写' : '转文字'}
           onClick={transcribing ? onCancelTranscription : onTranscribe}
