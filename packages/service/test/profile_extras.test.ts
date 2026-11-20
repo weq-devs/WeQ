@@ -6,7 +6,7 @@ import {
   getPersonalityPhotos,
   getAnonymousQuestions,
   getEducationHistory,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { ProfileExtrasService } from '../src/account/profile_extras';
 import { ContactMetricsService } from '../src/account/contact_metrics';
 import { mkdtemp, rm } from 'node:fs/promises';

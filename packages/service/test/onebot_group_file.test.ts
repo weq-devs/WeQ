@@ -1,5 +1,5 @@
 import type { AccountSession } from '@weq/account';
-import { ListGroupFiles } from '@weq/protocol';
+import { ListGroupFiles } from '@weqbot/protocol';
 import { afterEach, expect, it, vi } from 'vitest';
 import { GroupFileService } from '../src/account/group_file';
 

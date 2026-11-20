@@ -3,7 +3,7 @@
  *
  * `fork` 出 `ocrWorker.mjs`（electron-vite 的独立入口），把裸 RGB + 模型路径发过去，
  * 拿回逐行结果，再整成与**在线那条线同构**的 `OcrBlock`（`text` / `quad` / `rect` /
- * `parag` / `field2`，见 `@weq/protocol` 的 `OcrImage`）—— 于是前端（灯箱覆盖层、
+ * `parag` / `field2`，见 `@weqbot/protocol` 的 `OcrImage`）—— 于是前端（灯箱覆盖层、
  * `OcrTextPanel`）不用区分结果是从哪来的。
  *
  * 与语音那条线同构的分工：模型的**下载 / 存储 / 选择**在 `@weq/service`（零原生），
@@ -13,7 +13,7 @@
 import { fork } from 'node:child_process';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { OcrBlock } from '@weq/protocol';
+import type { OcrBlock } from '@weqbot/protocol';
 import { localOcrBlocker } from '@weq/service';
 import { resolveChildWorkerPath } from '../worker_path';
 import {

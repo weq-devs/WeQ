@@ -9,7 +9,7 @@ import { assertDatabaseWritable } from '@weq/db';
  *
  * 三层能力，粒度从粗到细：
  *   - {@link sendText}     文本（可带 @ 与引用回复）；
- *   - {@link sendMedia}    图片 / 语音 / 视频（先上传 NTV2，见 @weq/protocol 的 highway）；
+ *   - {@link sendMedia}    图片 / 语音 / 视频（先上传 NTV2，见 @weqbot/protocol 的 highway）；
  *   - {@link sendElements} 逃生舱：直接给元素数组（表情 / 商城表情 / markdown / xml /
  *                          ark 卡片 / 合并转发 / 互动表情 / raw …）。
  *
@@ -34,7 +34,7 @@ import {
   type C2cReadTarget,
   type GroupReadTarget,
   type ReadReportResult,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import {
   isSendUploadElement,
   sendContactArk,
@@ -60,7 +60,7 @@ import {
   type MediaSendContext,
   type SendMessageReceipt,
   type SendScene,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { getLogger } from '../common/logger';
 import { toGapMessage, type GapFetchedMessage } from './gap_history';
 import type { MediaDownloadService } from './media_download';
@@ -68,8 +68,8 @@ import type { MediaDownloadService } from './media_download';
 const logger = getLogger().child({ scope: 'message-send' });
 
 /**
- * 转发 @weq/protocol 的元素相关类型：调用方（MCP 工具 / IPC）只依赖 @weq/service，
- * 不必自己加一条对 @weq/protocol 的依赖（与 media_url.ts 转发 GroupFileDownload 同）。
+ * 转发 @weqbot/protocol 的元素相关类型：调用方（MCP 工具 / IPC）只依赖 @weq/service，
+ * 不必自己加一条对 @weqbot/protocol 的依赖（与 media_url.ts 转发 GroupFileDownload 同）。
  */
 export type {
   MediaSource,
@@ -78,7 +78,7 @@ export type {
   SendElement,
   SendMediaUploadReport,
   SendScene,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 /** 发送目标类型。 */
 export type SendPeerType = 'c2c' | 'group';
@@ -164,7 +164,7 @@ export interface SendTextParams {
  *
  * ⚠️ `0x929b_0` **本身就是一次发送** —— 服务端按 `text` + `voiceId` 合成语音后直接
  * 落到 `groupId` 那个群里，不需要我们再拼一条 ptt 元素手动发一遍（见
- * `@weq/protocol` 的 `SendAiVoice` 与 docs/develop/ai-voice.md）。所以这里只收
+ * `@weqbot/protocol` 的 `SendAiVoice` 与 docs/develop/ai-voice.md）。所以这里只收
  * 「群号 / 声线 / 文字」，没有第二步。
  */
 export interface SendAiVoiceParams {
@@ -325,7 +325,7 @@ export interface SendLocationCardParams {
 /**
  * 位置卡片的发送结果。
  *
- * ⚠️ 该协议的**响应格式还没抓到样本**（见 `@weq/protocol` 的 send-location-ark），
+ * ⚠️ 该协议的**响应格式还没抓到样本**（见 `@weqbot/protocol` 的 send-location-ark），
  * 所以这里只能如实报告「请求已发出 + 回包多少字节」，**不能**断言业务成功。
  * `ok` 的含义是「没有传输层异常」，不是「对方收到了卡片」。
  */
@@ -346,7 +346,7 @@ export interface SendLocationCardOutcome {
 /**
  * 合并转发里的一条子消息（节点）。
  *
- * 元素写法与 `send_rich_message` 完全一样（`@weq/protocol` 的 `SendElement`），
+ * 元素写法与 `send_rich_message` 完全一样（`@weqbot/protocol` 的 `SendElement`），
  * 所以「把收到的消息原样再转发」可以把解码出来的元素直接塞进来。
  */
 export interface SendForwardNodeInput {

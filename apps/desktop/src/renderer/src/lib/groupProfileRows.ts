@@ -1,5 +1,5 @@
 import { eventTimeFormatter } from '@weq/time';
-import type { GroupProfileExtras } from '@weq/protocol';
+import type { GroupProfileExtras } from '@weqbot/protocol';
 
 /**
  * 群扩展资料的行数据。

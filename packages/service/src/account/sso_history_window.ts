@@ -3,7 +3,7 @@ import {
   extractPath,
   type fetchGroupHistoryRaw,
   type fetchC2cHistoryRaw,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { assertRoamingPageIdentity, toGapMessage, type GapFetchedMessage } from './gap_history';
 import type { RoamingTarget } from './roaming_backfill';
 

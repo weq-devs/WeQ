@@ -42,7 +42,7 @@ import {
   type GroupCategoryTag,
   type GroupTodoAction,
   type GroupTodoListItem,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 /** 撤回一条消息的定位参数。 */
 export interface RecallMessageParams {

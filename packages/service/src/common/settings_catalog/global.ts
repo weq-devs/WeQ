@@ -29,7 +29,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   voiceTranscribe: 'preference',
   ocr: 'preference',
   mcp: 'api',
-  oneBot: 'api',
+  oneBotByUin: 'api',
   weqAssistant: 'connection',
   agentLab: 'api',
   aiImages: 'preference',

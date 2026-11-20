@@ -36,7 +36,7 @@ import { cn } from '../../im-template/template/classNames';
 import '../../styles/gift-mall.css';
 import { type GiftItem, uniqueGiftItems } from './GiftMallPanel.shared';
 
-/** 与 `@weq/protocol` 的 GIFT_MALL_TABS 同一套文案（空串 = 全部）。 */
+/** 与 `@weqbot/protocol` 的 GIFT_MALL_TABS 同一套文案（空串 = 全部）。 */
 const TABS = [
   { id: '', label: '全部' },
   { id: '礼品卡', label: '礼品卡' },
@@ -45,7 +45,7 @@ const TABS = [
 
 type TabName = (typeof TABS)[number]['id'];
 
-/** 与 `@weq/protocol` 的 GIFT_MALL_SUBTABS 一致；按分栏分组（服务端只认这些名字）。 */
+/** 与 `@weqbot/protocol` 的 GIFT_MALL_SUBTABS 一致；按分栏分组（服务端只认这些名字）。 */
 const SUBTABS: Record<TabName, readonly string[]> = {
   '': ['最近上新', '鲜花', '玩偶摆件', '礼品卡', '蛋糕'],
   礼品卡: ['音乐会员', '视频会员', '其他会员', 'QQ权益'],

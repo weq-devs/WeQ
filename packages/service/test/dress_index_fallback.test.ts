@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { NtHelperBinding } from '@weq/native';
-import type { TrpcNative } from '@weq/protocol';
+import type { TrpcNative } from '@weqbot/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DressSharedCache } from '../src/account/dress_shared_cache';
 import { ninePatch } from './support/nine_patch';
@@ -14,7 +14,7 @@ import {
 } from '../src/account/dress_index';
 
 const protocol = vi.hoisted(() => ({ bubble: vi.fn(async () => ({ staticZip: { ok: false } })) }));
-vi.mock('@weq/protocol', () => ({
+vi.mock('@weqbot/protocol', () => ({
   getBubbleResources: protocol.bubble,
   getFontResource: vi.fn(),
   getPendantResources: vi.fn(),

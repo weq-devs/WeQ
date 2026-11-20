@@ -49,7 +49,7 @@ import {
   pbVarint,
   videoFrameIndex,
   VideoStateCode,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 // ─────────────────────────── 测试替身 ───────────────────────────
 

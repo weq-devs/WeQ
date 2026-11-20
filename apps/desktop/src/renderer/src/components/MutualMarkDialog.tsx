@@ -19,7 +19,7 @@ import { EmptyState } from './EmptyState';
 import { useTabActive } from './RetainedTabs.shared';
 import { useViewState } from '../state/view';
 import { collectionImageUrl } from '../lib/resourceUrl';
-import { profileCode } from '@weq/protocol/profile-values';
+import { profileCode } from '@weqbot/protocol/profile-values';
 import '../styles/profile-cache.css';
 import { type CachedMark, usableCachedMarks } from './MutualMarkDialog.shared';
 

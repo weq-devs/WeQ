@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSendElems, encode, ELEM } from '@weq/protocol';
+import { buildSendElems, encode, ELEM } from '@weqbot/protocol';
 import {
   codecElementToSeg,
   renderElementsToSegs,

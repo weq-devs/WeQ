@@ -12,7 +12,7 @@
  * 新增的相册管理写入只尝试一次，认证拒绝也不自动换票重放。
  */
 import type { AccountSession } from '@weq/account';
-import { buildGiftMallBuyItemRequest } from '@weq/protocol';
+import { buildGiftMallBuyItemRequest } from '@weqbot/protocol';
 import { WebCredentialProvider, withRetry, type WebNative } from './credential';
 import { getFriendDress, type FriendDress } from './friend_dress';
 import {
@@ -120,7 +120,7 @@ import { getSpecialCare } from './special_care';
 import { fetchVipInfo } from './vip_info';
 import type { VipInfo } from '../vip';
 import { QzoneMediaTypesService } from '../qzone_media_types';
-import type { TrpcNative } from '@weq/protocol';
+import type { TrpcNative } from '@weqbot/protocol';
 import { uploadGroupAlbumVideo, type GroupAlbumVideoUpload } from './group_album_video';
 import {
   getQzonePermissionList,
@@ -153,7 +153,7 @@ import type {
   GiftMallVipInfoResponse,
   GiftMallWallOptions,
   GiftMallWallResponse,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 import { projectQzoneArchive } from '../../common/qzone_archive';
 
@@ -611,7 +611,7 @@ export class WebQueryService {
     tid: string,
     time: number,
     selfUin: string,
-    action: import('@weq/protocol').QzoneArchiveAction,
+    action: import('@weqbot/protocol').QzoneArchiveAction,
     beforeSend: () => void,
     signal?: AbortSignal,
   ) {

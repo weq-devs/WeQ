@@ -2,7 +2,7 @@
  * GapHistoryService — 拉取聊天时间线中「缺失」的远端消息（按 seq 窗口）。
  *
  * 本地 DB 的 seq 跳号只是候选缺口，不证明服务端一定仍有对应消息。
- * 这里直接走 @weq/protocol 的原始 SSO 通道
+ * 这里直接走 @weqbot/protocol 的原始 SSO 通道
  * （SsoGetGroupMsg / SsoGetC2cMsg）按窗口拉取，再用 decodeMessage 把每条消息
  * 解成 codec 风格元素，最后统一提升成渲染视图（{ type, data }），让前端可以
  * 像普通消息一样完整渲染（头像 / 昵称 / 装扮 / 消息体）。
@@ -19,7 +19,7 @@
 import type { AccountSession } from '@weq/account';
 import { measureMessageWork } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
-import { type decodeMessage, fetchC2cHistoryRaw, fetchGroupHistoryRaw } from '@weq/protocol';
+import { type decodeMessage, fetchC2cHistoryRaw, fetchGroupHistoryRaw } from '@weqbot/protocol';
 import { toRenderElements, type RenderElement } from './msg_view';
 import { RoamMsgCacheDb } from './roam_msg_cache';
 import type { DeletedMsgStore } from './deleted_msgs';

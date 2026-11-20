@@ -1,5 +1,17 @@
+/**
+ * QQ web cgi 的有界 HTTP 传输。
+ *
+ * **这份文件是 `@weqbot/protocol` 的 web/http.ts 加上两处宿主接缝**，业务逻辑与
+ * kernel 保持同一份（改逻辑请改 kernel，再同步这里）：
+ *
+ *   1. **`networkFetch`**：WeQ 桌面注入的是 Chromium 传输，还有一个环境代理的
+ *      兜底；kernel 是纯 TS，只能用原生 `fetch`。
+ *   2. **`WebRequestError` 继承 `OperationError`**：WeQ 的请求日志靠
+ *      `diagnostic` 决定「预期内失败」要不要降级成 debug。kernel 不依赖这个基类。
+ *
+ * 空间翻页队列也换成 WeQ 的 `common/qzone_pagination`（kernel 用包内副本）。
+ */
 import { networkFetch } from '@weq/network';
-/** Shared bounded HTTP transport for QQ web cgis. */
 import { isQzonePageRequest, waitForQzonePage } from '../../common/qzone_pagination';
 import { OperationError } from '../../common/operation_error';
 
@@ -40,13 +52,14 @@ export class WebRequestError extends OperationError {
   get status(): number | undefined {
     return this.options.status;
   }
-
   get retryAfterMs(): number | undefined {
     return this.options.retryAfterMs;
   }
-
-  get retryable(): boolean {
-    return this.options.retryable ?? false;
+  get retryable(): boolean | undefined {
+    return this.options.retryable;
+  }
+  get attempt(): number | undefined {
+    return this.options.attempt;
   }
 }
 

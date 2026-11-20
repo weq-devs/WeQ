@@ -7,7 +7,7 @@ import {
   bloodTypeText,
   chineseZodiacText,
   profileTimeText,
-} from '@weq/protocol/profile-values';
+} from '@weqbot/protocol/profile-values';
 import type { ContactCardContent, ContactCardSettings } from '@weq/service/contact-card';
 import { contactCardFieldGroup } from '../../lib/contactCardSections';
 import { Avatar } from '../../im-template/template/primitives';

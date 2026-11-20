@@ -22,7 +22,7 @@
  * 都必须退化成「不显示」而不是抛错，否则一条畸形动态会毁掉整页。
  */
 
-import type { QzoneUpvotePreview } from '@weq/protocol';
+import type { QzoneUpvotePreview } from '@weqbot/protocol';
 
 export type PublicJson = Record<string, unknown>;
 

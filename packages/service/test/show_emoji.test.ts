@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { decode, message } from '@weq/protocol';
+import { decode, message } from '@weqbot/protocol';
 import {
   buildShowEmojiReserve,
   findShowEmojiPack,

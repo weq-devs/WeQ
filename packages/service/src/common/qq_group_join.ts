@@ -12,7 +12,7 @@ import { networkFetch } from '@weq/network';
  *        直接拉起加群页 —— 用户不在群里、也不想走 WeQ 发包时的兜底入口。
  *   3. 入群申请   OIDB 0x11ec_1 的 f5 `authKey`。**就是上面那个 authKey**：
  *        64 个 ASCII 字符的 base64（解出 48 字节），服务端按值校验，无效值会把流程
- *        降级成短信安全验证（见 `@weq/protocol` 的 SendGroupJoinRequest）。
+ *        降级成短信安全验证（见 `@weqbot/protocol` 的 SendGroupJoinRequest）。
  *
  * 抓包样例（2026-10-15，群 1090396070）：
  *   param = 7B2267726F757055696E223A…2261757468223A22227D

@@ -1,7 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { decodeMessage, encode, PUSH_MSG_BODY, UPLOAD_MSG_INFO } from '@weq/protocol';
+import { decodeMessage, encode, PUSH_MSG_BODY, UPLOAD_MSG_INFO } from '@weqbot/protocol';
 import { QqImage } from '../src/renderer/src/components/QqMedia';
 import { buildOptimisticRender } from '../src/renderer/src/im-template/template/composerSend';
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';

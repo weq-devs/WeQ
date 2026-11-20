@@ -1,6 +1,6 @@
 /** QQ 签名探测的离线解析；不加载 native，不连接 QQ。 */
-import { walkProto, type DumpEntry } from '../packages/protocol/src/msg/dump';
-import { protobufSubmessage } from '../packages/protocol/src/oidb/group-album/raw-cells';
+import { walkProto, type DumpEntry } from '../vendor/weqbot/packages/protocol/src/msg/dump';
+import { protobufSubmessage } from '../vendor/weqbot/packages/protocol/src/oidb/group-album/raw-cells';
 import type { CapturedFrame } from '../packages/native/src';
 
 export interface SecInfo {

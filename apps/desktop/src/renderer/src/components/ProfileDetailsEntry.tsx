@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import { ChevronRight, ContactRound, RefreshCw, X } from 'lucide-react';
-import type { ProfileDetailInfo } from '@weq/protocol';
+import type { ProfileDetailInfo } from '@weqbot/protocol';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';

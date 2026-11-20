@@ -6,7 +6,7 @@ import {
   type PacketNative,
   type ProfileDisplayField,
   type ProfileDisplaySetting,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 export interface ProfileDisplayWriteResult {
   targetUin: string;

@@ -20,7 +20,7 @@ export type WeqAppBackupSettings = Omit<
   AppSettings,
   | 'agentLab'
   | 'mcp'
-  | 'oneBot'
+  | 'oneBotByUin'
   | 'externalRkey'
   | 'ssePush'
   | 'voiceTranscribe'
@@ -38,7 +38,7 @@ export interface WeqApiBackupSettings {
   agentLab: AppSettings['agentLab'];
   ttsProviders: AppSettings['voiceTranscribe']['ttsProviders'];
   mcp: AppSettings['mcp'];
-  oneBot: AppSettings['oneBot'];
+  oneBotByUin: AppSettings['oneBotByUin'];
   externalRkey: AppSettings['externalRkey'];
   ssePush: AppSettings['ssePush'];
   sharedAssistant?: AssistantConfig;
@@ -49,7 +49,7 @@ export function snapshotWeqSettings(settings: AppSettings): WeqAppBackupSettings
   const {
     agentLab: _agent,
     mcp: _mcp,
-    oneBot: _oneBot,
+    oneBotByUin: _oneBot,
     externalRkey: _rkey,
     ssePush: _sse,
     voiceTranscribe,
@@ -74,12 +74,17 @@ export function snapshotWeqSettings(settings: AppSettings): WeqAppBackupSettings
   });
 }
 
+/** 备份里的旧 OneBot 形状（两组数组 + 可选单条 port / token）。 */
+function isLegacyOneBotBackup(value: Record<string, unknown>): boolean {
+  return !('networks' in value);
+}
+
 export function snapshotWeqApiSettings(settings: AppSettings): WeqApiBackupSettings {
   return structuredClone({
     agentLab: settings.agentLab,
     ttsProviders: settings.voiceTranscribe.ttsProviders,
     mcp: settings.mcp,
-    oneBot: settings.oneBot,
+    oneBotByUin: settings.oneBotByUin,
     externalRkey: {
       ...settings.externalRkey,
       servers: settings.externalRkey.servers.map(({ id, name, baseUrl, accessToken }) => ({
@@ -494,6 +499,102 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     }
 }
 
+/**
+ * 校验一份 OneBot 配置（单个账号的）。
+ *
+ * 两种历史格式都收：
+ *   - 旧：`{ enabled, port, token }` 或 `{ webSocketServers, httpServers }`；
+ *   - 新：`{ networks: { wsServers, wsClients, httpServers, httpClients } }`。
+ *
+ * 备份是用户资产，不能因为格式升级就拒绝导入。
+ */
+function assertOneBotConfig(value: unknown, root: string): void {
+  const config = record(value, root);
+  if (isLegacyOneBotBackup(config)) {
+    fields(
+      config,
+      root,
+      [],
+      ['enabled', 'port', 'token', 'name', 'webSocketServers', 'httpServers'],
+    );
+    if (config.enabled !== undefined && typeof config.enabled !== 'boolean') {
+      fail(`${root}.enabled`);
+    }
+    if (config.port !== undefined || config.token !== undefined) {
+      number(config.port, `${root}.port`, 1024, 65535);
+      string(config.token, `${root}.token`);
+    }
+    for (const key of ['webSocketServers', 'httpServers'] as const) {
+      if (config[key] === undefined) continue;
+      list(config[key], `${root}.${key}`, (row, where) => {
+        // 旧行的 `id` 是必填的；新格式迁移过来的行没有，这里放宽成可选。
+        fields(
+          row,
+          where,
+          [],
+          ['id', 'name', 'enabled', 'port', 'token', 'accessToken', 'enableCors', 'url'],
+        );
+        if (row.enabled !== undefined && typeof row.enabled !== 'boolean') {
+          fail(`${where}.enabled`);
+        }
+        if (row.port !== undefined) number(row.port, `${where}.port`, 1024, 65535);
+        strings(row, where, [], ['name', 'token', 'accessToken', 'url']);
+      });
+    }
+    return;
+  }
+
+  const networks = record(config.networks, `${root}.networks`);
+  for (const key of ['wsServers', 'wsClients', 'httpServers', 'httpClients'] as const) {
+    if (networks[key] === undefined) continue;
+    // 不能用 `list()`：它要求每行有唯一 `id`，而 kernel 的 DTO 用 `name` 当唯一键。
+    if (!Array.isArray(networks[key])) fail(`${root}.networks.${key}`);
+    const names = new Set<string>();
+    for (const [index, item] of (networks[key] as unknown[]).entries()) {
+      const where = `${root}.networks.${key}[${index}]`;
+      const row = record(item, where);
+      if (typeof row.name !== 'string' || names.has(row.name)) fail(`${where}.name`);
+      names.add(row.name);
+      // 白名单带上旧字段：新版本导出的备份要能被旧机器导入，反过来也一样。
+      fields(
+        row,
+        where,
+        ['name'],
+        [
+          'enabled',
+          'accessToken',
+          'token',
+          'id',
+          'messageFormat',
+          'reportSelfMessage',
+          'host',
+          'port',
+          'path',
+          'role',
+          'url',
+          'enableWebSocket',
+          'enableCors',
+          'reconnectIntervalMs',
+          'timeoutMs',
+        ],
+      );
+      strings(
+        row,
+        where,
+        ['name'],
+        ['accessToken', 'token', 'id', 'messageFormat', 'host', 'path', 'role', 'url'],
+      );
+      if (row.port !== undefined) number(row.port, `${where}.port`, 0, 65535);
+      if (row.enabled !== undefined && typeof row.enabled !== 'boolean') {
+        fail(`${where}.enabled`);
+      }
+      if (typeof row.reportSelfMessage !== 'boolean') fail(`${where}.reportSelfMessage`);
+    }
+  }
+  if (config.qzone !== undefined && typeof config.qzone !== 'boolean') fail(`${root}.qzone`);
+  if (config.qzoneDomain !== undefined) string(config.qzoneDomain, `${root}.qzoneDomain`);
+}
+
 function list(
   value: unknown,
   path: string,
@@ -641,7 +742,16 @@ export function validateWeqApiSettings(
     value,
     'api',
     [],
-    ['agentLab', 'ttsProviders', 'mcp', 'oneBot', 'externalRkey', 'ssePush', 'sharedAssistant'],
+    [
+      'agentLab',
+      'ttsProviders',
+      'mcp',
+      'oneBot',
+      'oneBotByUin',
+      'externalRkey',
+      'ssePush',
+      'sharedAssistant',
+    ],
   );
   if (api.sharedAssistant !== undefined) validateSharedAssistant(api.sharedAssistant);
   if (api.agentLab !== undefined) {
@@ -736,36 +846,17 @@ export function validateWeqApiSettings(
     number(mcp.port, 'api.mcp.port', 1, 65535);
     string(mcp.token, 'api.mcp.token');
   }
-  if (api.oneBot !== undefined) {
-    const config = fields(
-      api.oneBot,
-      'api.oneBot',
-      ['enabled'],
-      ['port', 'token', 'webSocketServers', 'httpServers'],
-    );
-    if (typeof config.enabled !== 'boolean') fail('api.oneBot.enabled');
-    if (config.port !== undefined || config.token !== undefined) {
-      number(config.port, 'api.oneBot.port', 1024, 65535);
-      string(config.token, 'api.oneBot.token');
-    }
-    if (config.webSocketServers !== undefined) {
-      list(config.webSocketServers, 'api.oneBot.webSocketServers', (row, path) => {
-        fields(row, path, ['id', 'name', 'enabled', 'port', 'token']);
-        if (typeof row.enabled !== 'boolean') fail(`${path}.enabled`);
-        number(row.port, `${path}.port`, 1024, 65535);
-        strings(row, path, ['name', 'token']);
-      });
-    }
-    if (config.httpServers !== undefined) {
-      list(config.httpServers, 'api.oneBot.httpServers', (row, path) => {
-        fields(row, path, ['id', 'name', 'enabled', 'port', 'token', 'enableCors']);
-        if (typeof row.enabled !== 'boolean') fail(`${path}.enabled`);
-        if (typeof row.enableCors !== 'boolean') fail(`${path}.enableCors`);
-        number(row.port, `${path}.port`, 1024, 65535);
-        strings(row, path, ['name', 'token']);
-      });
+  // OneBot 配置进 API 分区。旧备份是全局一份（`api.oneBot`），新的是按账号
+  // （`api.oneBotByUin`）；**两种都收** —— 备份是用户资产，不能因为格式升级作废。
+  if (api.oneBotByUin !== undefined) {
+    const map = record(api.oneBotByUin, 'api.oneBotByUin');
+    for (const [uin, config] of Object.entries(map)) {
+      if (!/^\d{5,20}$/.test(uin)) fail(`api.oneBotByUin.${uin}`);
+      assertOneBotConfig(config, `api.oneBotByUin.${uin}`);
     }
   }
+  if (api.oneBot !== undefined) assertOneBotConfig(api.oneBot, 'api.oneBot');
+
   for (const kind of ['externalRkey', 'ssePush'] as const) {
     if (api[kind] === undefined) continue;
     const source = fields(api[kind], `api.${kind}`, [

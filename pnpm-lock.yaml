@@ -235,15 +235,18 @@ importers:
       '@weq/platform':
         specifier: workspace:*
         version: link:../../packages/platform
-      '@weq/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
       '@weq/service':
         specifier: workspace:*
         version: link:../../packages/service
       '@weq/time':
         specifier: workspace:*
         version: link:../../packages/time
+      '@weqbot/control':
+        specifier: workspace:*
+        version: link:../../vendor/weqbot/packages/control
+      '@weqbot/protocol':
+        specifier: workspace:*
+        version: link:../../vendor/weqbot/packages/protocol
       '@xmldom/xmldom':
         specifier: ^0.9.12
         version: 0.9.12
@@ -660,31 +663,6 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)(happy-dom@21.0.1)(jsdom@26.1.0(supports-color@7.2.0))(lightningcss@1.32.0)(supports-color@7.2.0)
 
-  packages/protocol:
-    dependencies:
-      '@weq/native':
-        specifier: workspace:*
-        version: link:../native
-      '@weq/network':
-        specifier: workspace:*
-        version: link:../network
-      '@weq/time':
-        specifier: workspace:*
-        version: link:../time
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.6
-        version: 22.19.20
-      '@weq/testkit':
-        specifier: workspace:*
-        version: link:../testkit
-      tsx:
-        specifier: ^4.19.2
-        version: 4.22.4
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.19.20)(happy-dom@21.0.1)(jsdom@26.1.0(supports-color@7.2.0))(lightningcss@1.32.0)(supports-color@7.2.0)
-
   packages/service:
     dependencies:
       '@babel/parser':
@@ -714,12 +692,15 @@ importers:
       '@weq/platform':
         specifier: workspace:*
         version: link:../platform
-      '@weq/protocol':
-        specifier: workspace:*
-        version: link:../protocol
       '@weq/time':
         specifier: workspace:*
         version: link:../time
+      '@weqbot/control':
+        specifier: workspace:*
+        version: link:../../vendor/weqbot/packages/control
+      '@weqbot/protocol':
+        specifier: workspace:*
+        version: link:../../vendor/weqbot/packages/protocol
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -807,6 +788,111 @@ importers:
       ws:
         specifier: 8.21.0
         version: 8.21.0
+
+  vendor/weqbot/packages/bot:
+    dependencies:
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/onebot':
+        specifier: workspace:*
+        version: link:../onebot
+      '@weqbot/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@weqbot/session':
+        specifier: workspace:*
+        version: link:../session
+      '@weqbot/wire':
+        specifier: workspace:*
+        version: link:../wire
+
+  vendor/weqbot/packages/common:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+
+  vendor/weqbot/packages/control:
+    dependencies:
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/wire':
+        specifier: workspace:*
+        version: link:../wire
+
+  vendor/weqbot/packages/node:
+    dependencies:
+      '@weqbot/bot':
+        specifier: workspace:*
+        version: link:../bot
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/control':
+        specifier: workspace:*
+        version: link:../control
+      '@weqbot/session':
+        specifier: workspace:*
+        version: link:../session
+      '@weqbot/wire':
+        specifier: workspace:*
+        version: link:../wire
+
+  vendor/weqbot/packages/onebot:
+    dependencies:
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@weqbot/session':
+        specifier: workspace:*
+        version: link:../session
+      ws:
+        specifier: ^8.18.3
+        version: 8.21.0
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+
+  vendor/weqbot/packages/protocol:
+    dependencies:
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/wire':
+        specifier: workspace:*
+        version: link:../wire
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+
+  vendor/weqbot/packages/session:
+    dependencies:
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+      '@weqbot/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@weqbot/wire':
+        specifier: workspace:*
+        version: link:../wire
+
+  vendor/weqbot/packages/wire:
+    dependencies:
+      '@weqbot/common':
+        specifier: workspace:*
+        version: link:../common
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
 
 packages:
 
@@ -2262,6 +2348,9 @@ packages:
 
   '@types/node@24.19.2':
     resolution: {integrity: sha512-93d49wCWJkCyN87MxLpNN6KXPCwFw7bVUg79mGUV1OS40JGWwVCr8n61DXCSqz7CV6/VfPkb7xec7uP2M+QHWQ==}
+
+  '@types/node@26.6.6':
+    resolution: {integrity: sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==}
 
   '@types/plist@3.0.5':
     resolution: {integrity: sha512-E6OCaRmAe4WDmWNsL/9RMqdkkzDCY1etutkflWk4c+AcjDU07Pcz1fQwTX0TQz+Pxqn9i4L1TU3UFpjnrcDgxA==}
@@ -5076,6 +5165,9 @@ packages:
   undici-types@7.24.6:
     resolution: {integrity: sha512-WRNW+sJgj5OBN4/0JpHFqtqzhpbnV0GuB+OozA9gCL7a993SmU+1JBZCzLNxYsbMfIeDL+lTsphD5jN5N+n0zg==}
 
+  undici-types@8.9.0:
+    resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
+
   undici@7.30.1:
     resolution: {integrity: sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==}
     engines: {node: '>=20.18.1'}
@@ -6626,6 +6718,10 @@ snapshots:
   '@types/node@24.19.2':
     dependencies:
       undici-types: 7.24.6
+
+  '@types/node@26.6.6':
+    dependencies:
+      undici-types: 8.9.0
 
   '@types/plist@3.0.5':
     dependencies:
@@ -10011,6 +10107,8 @@ snapshots:
   undici-types@6.21.0: {}
 
   undici-types@7.24.6: {}
+
+  undici-types@8.9.0: {}
 
   undici@7.30.1: {}
 

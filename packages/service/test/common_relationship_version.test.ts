@@ -1,10 +1,10 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { PacketNative } from '@weq/protocol';
+import type { PacketNative } from '@weqbot/protocol';
 import type { ContactMetricsService } from '../src/account/contact_metrics';
 
 const groups = vi.hoisted(() => vi.fn(async () => []));
-vi.mock('@weq/protocol', async (original) => ({
-  ...(await original<typeof import('@weq/protocol')>()),
+vi.mock('@weqbot/protocol', async (original) => ({
+  ...(await original<typeof import('@weqbot/protocol')>()),
   getCommonFriendCount: vi.fn(async () => 1),
   getCommonGroups: groups,
 }));

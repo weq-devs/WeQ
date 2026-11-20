@@ -49,8 +49,8 @@ import {
 } from 'node:fs';
 import { join, posix } from 'node:path';
 import { readdir, readFile, stat } from 'node:fs/promises';
-import type { TrpcNative } from '@weq/protocol';
-import { getBubbleResources, getFontResource, getPendantResources } from '@weq/protocol';
+import type { TrpcNative } from '@weqbot/protocol';
+import { getBubbleResources, getFontResource, getPendantResources } from '@weqbot/protocol';
 import type { NtHelperBinding } from '@weq/native';
 import { getHost } from '../common/host';
 import { writeFileAtomic } from '../common/atomic_write';

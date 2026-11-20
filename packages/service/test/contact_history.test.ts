@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { GetGroupJoinInfo, GetGroupMessagePolicies } from '@weq/protocol';
+import { GetGroupJoinInfo, GetGroupMessagePolicies } from '@weqbot/protocol';
 import type { AccountSession } from '@weq/account';
 import { GroupProfileReader } from '../src/account/group_profile';
 import { GroupInfoService } from '../src/account/group_info';

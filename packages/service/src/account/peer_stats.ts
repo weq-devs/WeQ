@@ -13,8 +13,8 @@
 import type { AccountSession } from '@weq/account';
 import type { ContactMetricsService } from './contact_metrics';
 import type { NtHelperBinding } from '@weq/native';
-import { GetProfileLike, GetQqShowUrl, GetUserQqLevel, SendProfileLike } from '@weq/protocol';
-import type { QqShowInfo } from '@weq/protocol';
+import { GetProfileLike, GetQqShowUrl, GetUserQqLevel, SendProfileLike } from '@weqbot/protocol';
+import type { QqShowInfo } from '@weqbot/protocol';
 
 export interface PeerStats {
   /** QQ 等级（0xFE1_2 number-property 105），0 表示未命中/新号。 */

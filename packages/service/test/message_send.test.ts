@@ -34,7 +34,7 @@ import {
   makeSolidPng,
   NTV2_UPLOAD_RESP_TOP,
   type SendImageElement,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import type { AccountSession } from '@weq/account';
 import {
   buildMediaElement,
@@ -1304,7 +1304,7 @@ describe('MessageSendService.sendText（离线集成）', () => {
     ).toHaveLength(2);
   });
 
-  // ⚠️ 装扮是服务端不收的实验开关（真机实测落库全 0，见 @weq/protocol 的 SendDress）：
+  // ⚠️ 装扮是服务端不收的实验开关（真机实测落库全 0，见 @weqbot/protocol 的 SendDress）：
   // 这些用例只断言「报文里带了什么」，不代表收端会看到这些装扮。
   it('带装扮：三个 id 随报文发出（装扮 elem 在正文之前）', async () => {
     const native = fakeNative();

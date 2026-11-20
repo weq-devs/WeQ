@@ -18,7 +18,7 @@
  * 发包，收不到那条推送，所以没有「被邀请加入」这条路径。
  */
 
-import { groupCall } from '@weq/protocol';
+import { groupCall } from '@weqbot/protocol';
 import type { Logger } from '../common/logger';
 
 const {

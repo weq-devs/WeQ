@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
 import { ProfileExtrasService } from '@weq/service';
-import * as protocol from '@weq/protocol';
+import * as protocol from '@weqbot/protocol';
 import { createProfileExtrasRouter } from '../src/main/ipc/routers/profile_extras';
 
 it('本人接口拒绝额外目标参数，来源绑定后才读取', async () => {

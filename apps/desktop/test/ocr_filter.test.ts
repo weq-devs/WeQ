@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { OcrBlock } from '@weq/protocol';
+import type { OcrBlock } from '@weqbot/protocol';
 import { judgeTextBoxes, OCR_FILTER_MAX_BOX_AREA_RATIO } from '../src/main/ocr/filter';
 
 /** 一个只有外接矩形的检测框（筛图只看矩形，不看文字）。 */

@@ -17,7 +17,7 @@
  * 弹窗内容按账号的**实际能力**分三档（由 `account.getGroupJoinState` 的 `mode` 决定），
  * 按钮走对应的加群路径：
  *   1. `inject`     —— QQ 在线且 a2/d2/d2key/guid 齐全：换 authKey 后直接发入群申请
- *                      （OIDB 0x11ec_1，@weq/protocol 的 SendGroupJoinRequest）；
+ *                      （OIDB 0x11ec_1，@weqbot/protocol 的 SendGroupJoinRequest）；
  *   2. `deeplink`   —— QQ 在线但物料不全：换 authKey 后拼 `tencent://groupwpa/`
  *                      深链接，交给系统拉起 QQ 客户端自己发；
  *   3. `browser`    —— QQ 不在线：用系统浏览器打开分享页，手机 QQ 扫码加群。

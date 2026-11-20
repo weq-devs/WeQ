@@ -1,5 +1,10 @@
 import type { AccountSession } from '@weq/account';
-import { DeleteGroupFile, RenameGroupFile, MoveGroupFile, type GroupFileItem } from '@weq/protocol';
+import {
+  DeleteGroupFile,
+  RenameGroupFile,
+  MoveGroupFile,
+  type GroupFileItem,
+} from '@weqbot/protocol';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { QQGroupPermissionContext } from '../src/common/qq_permissions';
 import { GroupFileService } from '../src/account/group_file';

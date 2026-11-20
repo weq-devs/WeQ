@@ -16,8 +16,12 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/main/mcp/server', () => ({ isMcpRunning: () => state.mcp }));
-vi.mock('../src/main/onebot/runtime', () => ({
-  oneBotStatus: () => ({ running: state.onebot, clients: 0 }),
+vi.mock('../src/main/bot_runtime', () => ({
+  botRuntime: {
+    get size() {
+      return state.onebot ? 1 : 0;
+    },
+  },
 }));
 vi.mock('../src/main/weq_assistant/server', () => ({
   assistantResourceServer: { status: () => ({ running: state.assistant, port: 27182 }) },

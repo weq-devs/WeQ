@@ -4,7 +4,7 @@ import type { ContactMetric, ContactMetricRows } from '@weq/service';
 import { intimateRelationOf } from './profileRelations';
 import { birthReference, contactBirth } from './contactBirth';
 import { constellationFromBirthday } from './contactConstellation';
-import { occupationText, profileTimeSeconds } from '@weq/protocol/profile-values';
+import { occupationText, profileTimeSeconds } from '@weqbot/protocol/profile-values';
 import { personRelationship, type RelationshipDirectory } from './contactRelationship';
 
 export type DirectoryMetric = ContactMetric | 'lastMessageAt' | 'lastSpokeAt' | 'affinity';

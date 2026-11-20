@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { encode, FetchDownloadRkeys } from '@weq/protocol';
+import { encode, FetchDownloadRkeys } from '@weqbot/protocol';
 import { fetchClientKey, fetchDownloadRkeys } from '../src/account/online_ticket';
 
 it('同账号进程的 clientKey 在途请求合并，完成后不额外缓存过期票据', async () => {

@@ -1,5 +1,5 @@
 import type { ProfileExtInfo } from '../im-template/template/types';
-import { profileCode } from '@weq/protocol/profile-values';
+import { profileCode } from '@weqbot/protocol/profile-values';
 import '../styles/profile-cache.css';
 
 export type CachedMark = ProfileExtInfo['interactMarks'][number];

@@ -135,8 +135,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
         refresh.push(utils.account.getAssistantConfig.invalidate());
       if (cards.has('performance-recording'))
         refresh.push(utils.performanceMonitor.status.invalidate());
-      if (cards.has('onebot') || cards.has('onebot-servers'))
-        refresh.push(utils.bootstrap.getOneBotStatus.invalidate());
+      if (cards.has('onebot')) refresh.push(utils.bootstrap.getOneBotStatus.invalidate());
       if (cards.has('sse-targets') || cards.has('sse-tuning'))
         refresh.push(utils.bootstrap.getSsePushStatus.invalidate());
       if (cards.has('startup-system'))

@@ -1,4 +1,4 @@
-import type { ProfileSimilarity } from '@weq/protocol';
+import type { ProfileSimilarity } from '@weqbot/protocol';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { trpc } from '../trpc/client';
 import { useTabActive } from './RetainedTabs.shared';

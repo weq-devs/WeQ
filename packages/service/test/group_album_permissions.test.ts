@@ -1,6 +1,6 @@
 import type { AccountSession } from '@weq/account';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GetAlbumMediaList } from '@weq/protocol';
+import { GetAlbumMediaList } from '@weqbot/protocol';
 import { GroupAlbumMediaService } from '../src/account/group_album_media';
 import { albumCapabilities, albumMediaDeleteAllowed } from '../src/common/qq_permissions';
 

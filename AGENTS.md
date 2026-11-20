@@ -12,7 +12,8 @@ WeQ 是 QQ NT 本地聊天记录的解密 / 导出 / 查看 / 年度报告工具
 | --- | --- |
 | `apps/desktop` | Electron 桌面端（主进程 / 渲染进程 / 预加载） |
 | `apps/web` | 浏览器版 WeQ，复用桌面业务界面与后端 |
-| `packages/*` | protocol、db、codec、service、bot、native、testkit 等库 |
+| `packages/*` | db、codec、service、bot、native、testkit 等库 |
+| `vendor/weqbot` | WeqBot 的 submodule；协议实现只在这里（`@weqbot/protocol`），本仓库已无 `packages/protocol` |
 | `native` | nt_helper 原生产物与 pinned 清单（二进制不入库） |
 | `docs/` | 文档中心：`guide` 用户向、`develop` 开发向、`principles` 原理、`database` 表结构 |
 
@@ -69,7 +70,8 @@ pnpm ci:local --full      # 额外跑 web 打包冒烟（≈ CI 的 build-web）
 
 **在这个仓库里，「重复造轮子」比「写得不够漂亮」严重得多。**
 
-- 先搜再写：用 `rg <关键词>` 找现有实现、工具函数、协议定义。同名能力通常已经躺在 `packages/service`、`packages/protocol`、`packages/db`、`packages/codec` 里了。
+- 先搜再写：用 `rg <关键词>` 找现有实现、工具函数、协议定义。同名能力通常已经躺在 `packages/service`、`packages/db`、`packages/codec` 或 `vendor/weqbot/packages/protocol` 里了。
+- **不要再往 protocol 里加东西**：协议只剩 `@weqbot/protocol` 一份，要改就去 WeqBot 改（然后 bump submodule），不要在 WeQ 里重建 `packages/protocol`。
 - 涉及 QQ 侧能力，先看 [docs/develop/nt-helper-interface.md](./docs/develop/nt-helper-interface.md)（原生模块能力总览）和 [docs/develop/](./docs/develop/) 下的专题文档，别绕过已有接口自己碰内存 / 数据库。
 - 表结构和字段看 [docs/database/](./docs/database/)，加解密原理看 [docs/develop/principles/](./docs/develop/principles/)。
 - 找不到现成实现再动手；动手时优先复用已有的类型、常量、工具函数，不要另起一套并行抽象。

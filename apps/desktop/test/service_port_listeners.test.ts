@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { startServer } from '../src/main/web/http';
 import { startMcpServer, stopMcpServer } from '../src/main/mcp/server';
-import { OneBotServer, type OneBotBackend } from '../src/main/onebot/server';
 import { AssistantResourceServer } from '../src/main/weq_assistant/server';
 
 vi.mock('../src/main/mcp/tools', () => ({ AI_TOOLS: [] }));
@@ -56,34 +55,11 @@ it('Web 启动回退不绑定 Remote 入口，并返回真实随机监听端口'
   }
 });
 
-it('MCP 自定义端口回退不占用新 OneBot 范围', async () => {
+it('MCP 自定义端口回退避开它自己的预留段', async () => {
   const attempts = captureAttempts(new Set([48799]));
   const port = await startMcpServer({ port: 48799, token: 'synthetic-only' });
   expect(attempts).toEqual([48799, 48820]);
   expect((await fetch(`http://127.0.0.1:${port}/mcp`)).status).toBe(401);
-});
-
-it('OneBot 回退为后启动的 HTTP 服务器保留其指定端口', async () => {
-  const attempts = captureAttempts(new Set([50000]));
-  const backend: OneBotBackend = {
-    self: async () => ({ user_id: 99, nickname: '合成账号' }),
-    status: () => ({ online: true, good: true }),
-    group: vi.fn(),
-    send: vi.fn(),
-    typing: vi.fn(),
-    subscribe: () => () => {},
-  };
-  const server = new OneBotServer(backend);
-  try {
-    const statuses = await server.startConfigured({
-      webSocketServers: [{ id: 'ws', port: 50000, token: '' }],
-      httpServers: [{ id: 'http', port: 50001, token: '' }],
-    });
-    expect(attempts).toEqual([50000, 50002, 50001]);
-    expect(statuses.every((status) => status.running)).toBe(true);
-  } finally {
-    server.stop();
-  }
 });
 
 it('公众号资源服务自定义端口回退也避开 Web 与 Remote', async () => {

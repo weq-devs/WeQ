@@ -1,7 +1,7 @@
 import type { AccountSession } from '@weq/account';
 import type { MsgCacheRecord } from '@weq/codec';
 import { UidMap, type UserProfile } from '@weq/db';
-import { encode, LONG_MSG_RESULT, RECV_LONG_MSG_RESP } from '@weq/protocol';
+import { encode, LONG_MSG_RESULT, RECV_LONG_MSG_RESP } from '@weqbot/protocol';
 import { gzipSync } from 'node:zlib';
 import { expect, it, vi } from 'vitest';
 import { ForwardMsgService } from '../src/account/forward';

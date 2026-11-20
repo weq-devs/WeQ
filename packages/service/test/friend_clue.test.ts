@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { encode, message } from '@weq/protocol';
+import { encode, message } from '@weqbot/protocol';
 import { AccountWriteService, type AccountWriteIdentity } from '../src/account/account_write';
 
 function fixture() {

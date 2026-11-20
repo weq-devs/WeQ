@@ -29,7 +29,7 @@ import {
   RelayCmd,
   rsDecode,
   rsEncode,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 // ─────────────────────────── 测试替身 ───────────────────────────
 

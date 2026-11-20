@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import type { FavEmoji } from '@weq/db';
-import { AddCustomFace, DeleteCustomFace } from '@weq/protocol';
+import { AddCustomFace, DeleteCustomFace } from '@weqbot/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmojiService } from '../src/account/emoji';
 import { prepareFavoriteEmojiElements } from '../src/account/favorite_emoji_send';

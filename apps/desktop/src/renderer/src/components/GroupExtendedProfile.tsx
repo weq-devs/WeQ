@@ -1,7 +1,7 @@
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import type { GroupProfileExtras } from '@weq/protocol';
+import type { GroupProfileExtras } from '@weqbot/protocol';
 import { trpc } from '../trpc/client';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useGroupReadScope } from '../hooks/useGroupProfile';

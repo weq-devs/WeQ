@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, stat, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { makeSolidPng } from '@weq/protocol';
+import { makeSolidPng } from '@weqbot/protocol';
 import { createFavoriteEmojiBundle } from '../src/account/favorite_emoji_bundle';
 import {
   FavoriteEmojiImportSession,

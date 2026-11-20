@@ -33,7 +33,7 @@
 
 import { readFileSync } from 'node:fs';
 import { loadNative } from '../packages/native/src';
-import { sendOidb, sendPacket } from '../packages/protocol/src/transport';
+import { sendOidb, sendPacket } from '../vendor/weqbot/packages/protocol/src/transport';
 import type { Platform } from '../packages/platform/src';
 import {
   createDarwinPlatform,

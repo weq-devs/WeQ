@@ -1,7 +1,7 @@
 import { formatDate } from '@weq/time';
 import { preciseTimeFormatter as eventTimeFormatter, clockFormatter } from '@weq/time';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
-import { profileTimeText } from '@weq/protocol/profile-values';
+import { profileTimeText } from '@weqbot/protocol/profile-values';
 import type { Contact, GroupConversation } from '../im-template/template/types';
 import { displayGroupName, displayUserName } from '../im-template/template/user';
 import { birthRangeText, contactBirthdayText, contactBirth } from './contactBirth';

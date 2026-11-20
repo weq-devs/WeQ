@@ -12,7 +12,7 @@
  */
 
 /**
- * 闪照的兜底文案 —— 与 `@weq/protocol` 的 `FLASH_PHOTO_FALLBACK_TEXT` 同值。
+ * 闪照的兜底文案 —— 与 `@weqbot/protocol` 的 `FLASH_PHOTO_FALLBACK_TEXT` 同值。
  *
  * 不直接 import：渲染层不能依赖 protocol 包（那边带 node / native 依赖，会被打进
  * 渲染进程的 bundle）。两处都改的话请一起改，协议包有测试钉住这个字面量。

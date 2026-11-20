@@ -19,7 +19,7 @@ import { localMediaUrl } from '../src/renderer/src/lib/resourceUrl';
 import { MessageContextMenu } from '../src/renderer/src/im-template/template/messageContextMenu';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { useViewState } from '../src/renderer/src/state/view';
-import { makeSolidPng } from '@weq/protocol';
+import { makeSolidPng } from '@weqbot/protocol';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const state = vi.hoisted(() => ({

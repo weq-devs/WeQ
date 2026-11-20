@@ -1,4 +1,4 @@
-import type { QzoneArchiveState, QzoneNativeDetail } from '@weq/protocol';
+import type { QzoneArchiveState, QzoneNativeDetail } from '@weqbot/protocol';
 
 /** 与 Android 配置 106890 相同的状态集合；来源保留为默认，不冒称账号实测。 */
 export const QZONE_ARCHIVE_DEFAULTS = {

@@ -22,7 +22,7 @@ import type {
   RedBagDetailResult,
   RedBagDetailSummary,
   RedBagGrabResult,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import {
   prePackRedBag,
   GetRedPackSkin,
@@ -30,7 +30,7 @@ import {
   RedBagGrab,
   RedBagPasswordPool,
   RED_BAG_PSKEY_DOMAIN,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import type { AccountSession } from '@weq/account';
 import { getLogger, logErrorContext } from '../common/logger';
 import { WebCredentialProvider } from './web/credential';
@@ -300,7 +300,7 @@ export class RedBagService {
   /**
    * 查一个红包的领取明细（`hb_pc_detail`）。
    *
-   * 签名与加密算法与发红包完全一致（见 `@weq/protocol` 的 `RedBagDetail`）。
+   * 签名与加密算法与发红包完全一致（见 `@weqbot/protocol` 的 `RedBagDetail`）。
    * 票据失效时换票重试**一次** —— 与 `withRetry` 的取舍一致：新票也被拒说明不是
    * 过期问题，重试也白搭。
    */

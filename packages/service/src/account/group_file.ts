@@ -1,6 +1,6 @@
 /**
  * GroupFileService — 群文件目录列表 (OIDB 0x6D8_1)。协议定义和分发在
- * @weq/protocol,这层只负责分页循环和 uploaderName 的群名片兜底。
+ * @weqbot/protocol,这层只负责分页循环和 uploaderName 的群名片兜底。
  *
  * 下载直链走 MediaUrlService.getGroupFileUrl (0x6D6_2),不在这里重复。
  */
@@ -27,7 +27,7 @@ import {
   type GroupFileItem,
   type GroupFileSpace,
   type GroupFolderItem,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 export type { GroupFileItem, GroupFolderItem };
 

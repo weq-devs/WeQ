@@ -1,3 +1,6 @@
 [submodule "docs"]
 	path = docs
 	url = https://github.com/weq-devs/WeqDocs.git
+[submodule "vendor/weqbot"]
+	path = vendor/weqbot
+	url = https://github.com/weq-devs/WeqBot.git

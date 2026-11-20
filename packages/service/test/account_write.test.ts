@@ -6,7 +6,7 @@ import {
   SetGroupMessagePolicy,
   GetFriendSnsPage,
   MoveFriendCategory,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import { AccountWriteService, type AccountWriteIdentity } from '../src/account/account_write';
 import { OnlineStatusService, OnlineType, ONLINE_TYPE_NAMES } from '../src/account/online_status';
 

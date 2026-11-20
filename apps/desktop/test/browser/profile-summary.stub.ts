@@ -1,5 +1,5 @@
-import { formatQqRegion } from '@weq/protocol/profile-regions';
-import { QQ_PROFESSIONS } from '@weq/protocol/profile-values';
+import { formatQqRegion } from '@weqbot/protocol/profile-regions';
+import { QQ_PROFESSIONS } from '@weqbot/protocol/profile-values';
 import * as base from './contact-card.stub';
 export { useQQWriteSession } from './contact-card.stub';
 

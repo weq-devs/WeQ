@@ -37,7 +37,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { OcrBlock } from '@weq/protocol';
+import type { OcrBlock } from '@weqbot/protocol';
 import type { OcrCacheIds, OcrCacheTextHit, OcrResultCache } from '../../common/ocr_cache';
 import type { MediaRef, MediaScanResult } from './media_scan';
 import type { MediaFailure, MediaStageResult, StageLog, StageProgress } from './media_export';

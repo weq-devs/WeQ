@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { makeSolidPng } from '@weq/protocol';
+import { makeSolidPng } from '@weqbot/protocol';
 import { decorationImageResponse } from '../src/main/decoration_image_response';
 import { DECORATION_IMAGE_CACHE_SECONDS } from '../src/shared/decoration_image';
 

@@ -21,7 +21,7 @@ import {
   parsePttTransPush,
   pttTransCmd,
   sendPacket,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 import {
   getLogger,
   type OnlineTranscribeFn,

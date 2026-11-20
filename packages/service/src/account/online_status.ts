@@ -12,7 +12,7 @@ import {
   SetOnlineStatus,
   type SetOnlineStatusParams,
   type UserOnlineStatus,
-} from '@weq/protocol';
+} from '@weqbot/protocol';
 
 /** 在线写操作 / 实时查询需要的最小原生面。 */
 export interface OnlineStatusOnlineDeps {

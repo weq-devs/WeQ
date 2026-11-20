@@ -3,7 +3,7 @@
  *
  * 收到的戳一戳在本地库里是 `subType=5` 的 FACE 元素：`faceId` 就是表情编号
  * （0..6），`interactiveFaceCombo`（tag 47617）是**连击次数**（0..3）—— 连击越高，
- * 聊天窗口里那枚表情越大。发送侧的协议元素见 `@weq/protocol` 的 pokeEmoji。
+ * 聊天窗口里那枚表情越大。发送侧的协议元素见 `@weqbot/protocol` 的 pokeEmoji。
  */
 
 /** 戳一戳表情的 FACE subType。 */

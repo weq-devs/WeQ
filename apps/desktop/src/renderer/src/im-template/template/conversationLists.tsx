@@ -4,7 +4,7 @@ import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderCount } from '../../components/ReminderBadge';
 import { ConversationRowContent } from '../../components/sidebar/ConversationRowContent';
 import { useUnreadMarkers } from '../../lib/unreadMarkers';
-import { occupationText } from '@weq/protocol/profile-values';
+import { occupationText } from '@weqbot/protocol/profile-values';
 import {
   Bell,
   BellOff,

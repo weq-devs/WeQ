@@ -1,5 +1,5 @@
 import type { AccountSession } from '@weq/account';
-import { decode, SetProfile, SetSelfLongNick } from '@weq/protocol';
+import { decode, SetProfile, SetSelfLongNick } from '@weqbot/protocol';
 import { describe, expect, it, vi } from 'vitest';
 import { ProfileService, type ProfileOnlineDeps } from '../src/account/profile';
 

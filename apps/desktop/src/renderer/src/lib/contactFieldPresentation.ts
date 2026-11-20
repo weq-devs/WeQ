@@ -1,5 +1,5 @@
 import { eventTimeFormatter } from '@weq/time';
-import { bloodTypeText, chineseZodiacText, occupationText } from '@weq/protocol/profile-values';
+import { bloodTypeText, chineseZodiacText, occupationText } from '@weqbot/protocol/profile-values';
 import { educationDegree } from './profileEducation';
 import { relationMeta } from './profileRelations';
 

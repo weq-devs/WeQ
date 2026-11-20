@@ -43,7 +43,7 @@
  * `12` 是旧式 `todoBanner`（redText/text/url/isExposure/isComplete），`13`/`14`
  * 是另外两种横幅变体 —— 样本里都只是空壳，群待办从未在其中放内容。保留建模是为了
  * 字节往返不丢字段，正文统一优先读 `20.commonBanner.ui.text`，读不到再退回 `12.text`
- * （与 `@weq/protocol` 的 `GetGroupTodoList` 解析口径一致）。
+ * （与 `@weqbot/protocol` 的 `GetGroupTodoList` 解析口径一致）。
  */
 
 import { ProtoField, ScalarType } from '../../core';

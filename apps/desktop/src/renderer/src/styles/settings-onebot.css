@@ -305,3 +305,11 @@ html[data-theme='dark'] .weq-onebot-card-link {
     justify-content: flex-start;
   }
 }
+
+/* 四类网络分区里的一句话说明：卡片标题之下，弱化处理。 */
+.weq-onebot-network-desc {
+  margin: 0 0 8px;
+  color: var(--weq-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}

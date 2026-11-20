@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { makeSolidPng } from '@weq/protocol';
+import { makeSolidPng } from '@weqbot/protocol';
 import { MediaCacheService } from '@weq/service';
 import { UNKNOWN_NETWORK } from '@weq/service/data-saver';
 import { updateTransferPolicy } from '@weq/service/transfer-policy';

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { GetGroupJoinInfo, type GroupProfileExtras } from '@weq/protocol';
+import { GetGroupJoinInfo, type GroupProfileExtras } from '@weqbot/protocol';
 import { afterEach, expect, it, vi } from 'vitest';
 import { GroupProfileReader } from '../src/account/group_profile';
 
