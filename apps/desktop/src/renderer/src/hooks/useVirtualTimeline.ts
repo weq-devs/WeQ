@@ -446,19 +446,46 @@ export function useVirtualTimeline({
     [enabled, virtualizer],
   );
 
+  const pendingScrollMeasurements = useRef(
+    new Map<ReturnType<typeof virtualizer.options.getItemKey>, HTMLDivElement>(),
+  );
+  useLayoutEffect(() => {
+    const pending = pendingScrollMeasurements.current;
+    if (!pending.size) return;
+    // 先读完本次提交的高度，再让虚拟列表更新行位置和阅读锚点。
+    const measurements: [index: number, height: number][] = [];
+    for (const [id, element] of pending) {
+      if (
+        element.isConnected &&
+        virtualizer.elementsCache.get(id) === element &&
+        !virtualizer.itemSizeCache.has(id)
+      ) {
+        measurements.push([
+          virtualizer.indexFromElement(element),
+          virtualizer.options.measureElement(element, undefined, virtualizer),
+        ]);
+      }
+    }
+    pending.clear();
+    for (const [index, height] of measurements) {
+      virtualizer.resizeItem(index, height);
+    }
+  });
+
   const measure = useCallback(
     (element: HTMLDivElement | null) => {
       virtualizer.measureElement(element);
       const range = virtualizer.range;
       if (!element?.isConnected || !enabled || !virtualizer.isScrolling || !range) return;
       const index = virtualizer.indexFromElement(element);
-      if (
-        index < range.startIndex ||
-        index > range.endIndex ||
-        virtualizer.itemSizeCache.has(virtualizer.options.getItemKey(index))
-      )
-        return;
+      if (index < range.startIndex || index > range.endIndex) return;
+      const id = virtualizer.options.getItemKey(index);
+      if (virtualizer.itemSizeCache.has(id)) return;
       // 快速滚动会跳过预挂载范围，首测留到尺寸观察时会用估计高度排出空隙。
+      if (committingScroll.current) {
+        pendingScrollMeasurements.current.set(id, element);
+        return;
+      }
       virtualizer.resizeItem(
         index,
         virtualizer.options.measureElement(element, undefined, virtualizer),

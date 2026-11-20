@@ -1,11 +1,10 @@
-import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
+import { TIMELINE_VIRTUAL_THRESHOLD } from '../../hooks/useVirtualTimeline';
 import { conversationInteractionId } from '../../../../shared/conversation_interaction';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { firstUnreadMessage, matchesUnreadMessage } from '../../lib/unreadNavigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReplyJump, ReplyJumpTarget } from '../../state/messageContext';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
-import { estimateTimelineRowHeight } from '../../lib/timelinePreload';
 import type { Conversation, Message, UnreadDockStop } from './types';
 import { unreadHighlightKey } from './unreadDock';
 import type { ChatPaneProps } from './chatPane';
@@ -31,7 +30,6 @@ export function useChatTimelineNavigation({
   pendingInteractions,
   onSeeInteractions,
   parentJumpToSeq,
-  selectionOrder,
   tabActive,
   unreadDock,
   seenUnreadHighlights,
@@ -55,7 +53,6 @@ export function useChatTimelineNavigation({
   pendingInteractions?: ChatPaneProps['pendingInteractions'];
   onSeeInteractions?: ChatPaneProps['onSeeInteractions'];
   parentJumpToSeq: ReplyJump;
-  selectionOrder: string[];
   tabActive: boolean;
   unreadDock: ChatPaneProps['unreadDock'];
   seenUnreadHighlights?: Set<string>;
@@ -223,24 +220,7 @@ export function useChatTimelineNavigation({
     setDockJumping(false);
   }, [conversation?.id, unreadDock]);
 
-  const timelineIds = useMemo(
-    () => visibleMessages.map((message) => message.id),
-    [visibleMessages],
-  );
-  const estimateSize = useCallback(
-    (index: number) => estimateTimelineRowHeight(visibleMessages[index]),
-    [visibleMessages],
-  );
-
-  const timeline = useVirtualTimeline({
-    ids: timelineIds,
-    orderedIds: selectionOrder,
-    scrollRef: messageScrollRef,
-    // 数据源切换由宿主 ChatMainContent 的 messageScope key 重新挂载；不绑定按需加载的撤回资料。
-    scope: `${user.id}:${conversation?.id}`,
-    active: tabActive,
-    estimateSize,
-  });
+  const timelineEnabled = visibleMessages.length > TIMELINE_VIRTUAL_THRESHOLD;
 
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
   // 函数。用 ref 转发拿最新实现，避免把它们塞进依赖导致 effect 每次渲染重跑。
@@ -456,7 +436,7 @@ export function useChatTimelineNavigation({
     observer.observe(scroll);
     // 虚拟行在 RO 内更新父容器高度；父层改用样式通知，避免向上反馈尺寸交付。
     const mutation = new MutationObserver(schedule);
-    if (timeline.enabled)
+    if (timelineEnabled)
       mutation.observe(content, { attributes: true, attributeFilter: ['style'] });
     else observer.observe(content);
     return () => {
@@ -464,7 +444,7 @@ export function useChatTimelineNavigation({
       mutation.disconnect();
       if (frame !== undefined) window.cancelAnimationFrame(frame);
     };
-  }, [tabActive, loading, conversation?.id, visibleMessages.length, timeline.enabled]);
+  }, [tabActive, loading, conversation?.id, visibleMessages.length, timelineEnabled]);
 
   // 历史窗口不追加实时消息；沿用服务端已排除自己的入站未读数，不用序号差猜条数。
   useEffect(() => {
@@ -796,7 +776,6 @@ export function useChatTimelineNavigation({
     }
     return seqsById;
   }, [messages, unreadDock, isVisited]);
-  const renderedTimelineItems = timeline.enabled ? timeline.items : null;
   const interactionConversationId = conversation?.id;
   const interactionConversationType = conversation?.type;
   const interactionTargets = useMemo(() => {
@@ -838,13 +817,14 @@ export function useChatTimelineNavigation({
     visibleMessages,
   ]);
 
-  useLayoutEffect(() => {
+  const observeMessageVisibility = useCallback(() => {
     const scroll = messageScrollRef.current;
     if (
       !tabActive ||
       loading ||
       loadingNewer ||
       !scroll ||
+      !visibleMessages.length ||
       (!dockTargets?.size && !interactionTargets?.size)
     )
       return;
@@ -908,7 +888,6 @@ export function useChatTimelineNavigation({
     loading,
     loadingNewer,
     navigationKey,
-    renderedTimelineItems,
     tabActive,
     dockTargets,
     interactionTargets,
@@ -975,8 +954,9 @@ export function useChatTimelineNavigation({
     requestReadAtBottom,
     clearUnreadJump: () => setUnreadJump(null),
     showBottomJump,
-    timeline,
+    timelineEnabled,
     timelineContentRef,
+    observeMessageVisibility,
     unreadJump,
   };
 }

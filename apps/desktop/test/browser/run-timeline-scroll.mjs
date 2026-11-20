@@ -261,13 +261,36 @@ try {
         }),
     );
     if (Math.abs(drift) > 1) throw new Error(`向上滚动时行高变化移动了锚点 ${drift}px`);
-    await page.waitForTimeout(200);
+    const waitForScrollIdle = () =>
+      page.evaluate(
+        () =>
+          new Promise((resolve, reject) => {
+            const scroll = document.querySelector('.message-scroll');
+            let timer;
+            const finish = (error) => {
+              clearTimeout(timer);
+              clearTimeout(deadline);
+              scroll.removeEventListener('scroll', schedule);
+              if (error) reject(error);
+              else resolve();
+            };
+            const schedule = () => {
+              clearTimeout(timer);
+              timer = setTimeout(finish, 200);
+            };
+            const deadline = setTimeout(() => finish(new Error('滚动未停止')), 3000);
+            // 等最后一次滚动事件交付后再验停滚缓动，包含行高补偿触发的滚动。
+            scroll.addEventListener('scroll', schedule);
+            schedule();
+          }),
+      );
     for (const [reducedMotion, interrupt] of [
       ['no-preference', false],
       ['reduce', false],
       ['no-preference', true],
     ]) {
       await page.emulateMedia({ reducedMotion });
+      await waitForScrollIdle();
       const animation = await page.evaluate((interrupt) => {
         const scroll = document.querySelector('.message-scroll');
         const saved = window.timelineTest.capture();
@@ -309,7 +332,6 @@ try {
         const expected = interrupt ? animation.intermediate : 40;
         assert.ok(Math.abs(animation.final - expected) <= 1, '缓动未收敛或被滚轮打断');
       }
-      await page.waitForTimeout(200);
     }
     await page.evaluate(() => window.timelineTest.jump('row-1175'));
     await media.waitFor({ state: 'detached' });

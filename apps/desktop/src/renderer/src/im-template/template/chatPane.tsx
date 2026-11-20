@@ -1,6 +1,7 @@
 import { OnlineSystemFacesDialog } from '../../components/OnlineSystemFacesDialog';
 import { Languages } from 'lucide-react';
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
+import { ChatTimeline } from './chatTimeline';
 import type { ConversationInteraction } from '../../../../shared/conversation_interaction';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import {
@@ -1561,8 +1562,9 @@ export function ChatPane({
     requestReadAtBottom,
     clearUnreadJump,
     showBottomJump,
-    timeline,
+    timelineEnabled,
     timelineContentRef,
+    observeMessageVisibility,
     unreadJump,
   } = useChatTimelineNavigation({
     atLatest,
@@ -1580,7 +1582,6 @@ export function ChatPane({
     pendingInteractions,
     onSeeInteractions,
     parentJumpToSeq,
-    selectionOrder,
     tabActive,
     unreadDock,
     seenUnreadHighlights,
@@ -1591,13 +1592,6 @@ export function ChatPane({
     messageScrollRef.current = element;
     onTimelineElement?.(element);
   });
-  const captureTimelineContent = useCallback(
-    (element: HTMLDivElement | null) => {
-      timelineContentRef.current = element;
-      timeline.containerRef(element);
-    },
-    [timelineContentRef, timeline.containerRef],
-  );
   const pagingOlder = useStableCallback((element: HTMLElement) => {
     if (hasOlder && !loading && !loadingOlder) void onLoadOlder?.(element);
   });
@@ -6227,332 +6221,355 @@ export function ChatPane({
             : undefined
         }
       >
-        <div
-          className={cn(
-            'message-scroll',
-            timeline.enabled && 'is-virtualized',
-            marquee.dragging && 'is-marquee-selecting',
-          )}
-          ref={captureTimeline}
-          tabIndex={0}
-          aria-label="聊天消息，方向键浏览消息，回车打开消息操作"
-          onKeyDown={handleTimelineKeyDown}
-          onScroll={handleMessageScroll}
-          {...marquee.handlers}
+        <ChatTimeline
+          messages={visibleMessages}
+          orderedIds={selectionOrder}
+          scrollRef={messageScrollRef}
+          contentRef={timelineContentRef}
+          scope={`${user.id}:${conversation.id}`}
+          active={tabActive}
+          observeMessageVisibility={observeMessageVisibility}
         >
-          {timelineNotice}
-          {loadingOlder ? <div role="status">加载更早消息…</div> : null}
-          {jumpMissing && !loadError ? <div role="status">该条记录已不在当前会话中</div> : null}
-          {loadError ? <div role="alert">{loadError}</div> : null}
-          {marquee.box ? (
-            <div className="weq-message-marquee" aria-hidden style={marquee.box} />
-          ) : null}
-          {loading && visibleMessages.length === 0 ? (
-            <>
-              <span className="sr-only" role="status">
-                正在加载消息
-              </span>
-              <ChatMessagesSkeleton />
-            </>
-          ) : visibleMessages.length === 0 && !loadingNewer && !loadError ? (
-            (emptyTimeline ?? (
-              <EmptyState
-                title="还没有消息"
-                body={composerVisible && !readOnly && sendAvailable ? '发出第一条消息。' : ''}
-                icon={<MessageSquareText />}
-              />
-            ))
-          ) : (
-            (() => {
-              // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
-              // 预览用的是同一份实现，所以三处的画法不会再各写一套。
-              const out: React.ReactNode[] = [];
-              timeline.items.forEach((virtualRow) => {
-                const index = virtualRow.index;
-                const message = visibleMessages[index];
-                if (!message) return;
-                const blockStart = out.length;
-                // A hole in the seq run means QQ has messages here that were
-                // never synced locally. Checked for every row (gray tips
-                // included — they occupy a seq too) and emitted before the row
-                // that follows the hole.
-                const previous = visibleMessages[index - 1];
-                const gapPrevious = gapPredecessors[index];
-                const deletedGap =
-                  gapPrevious && hasHiddenDeletionBetween(gapPrevious.msgSeq, message.msgSeq);
-                const gap = restrictedSource
-                  ? 0
-                  : messageGapCount(
-                      gapPrevious,
-                      message,
-                      selectionMode || Boolean(deletedGap) || autoFetchGaps,
-                    );
-                // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
-                // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
-                // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
-                if (
-                  gap === 0 &&
-                  missingJumpSeq &&
-                  gapPrevious &&
-                  conversation &&
-                  onOpenGapMessages &&
-                  isSeqBetween(missingJumpSeq, gapPrevious.msgSeq, message.msgSeq)
-                ) {
-                  out.push(
-                    <MessageGapDivider
-                      key={`missing-jump-${message.id}`}
-                      id={selectionGapId({
-                        previousSeq: String(gapPrevious.msgSeq),
-                        currentSeq: String(message.msgSeq),
-                      })}
-                      selectionMode={selectionMode}
-                      selected={displayedGapSelected({
-                        previousSeq: String(gapPrevious.msgSeq),
-                        currentSeq: String(message.msgSeq),
-                        count: 1,
-                      })}
-                      selectionProps={multi.itemProps(
+          {(timeline, captureTimelineContent) => (
+            <div
+              className={cn(
+                'message-scroll',
+                timeline.enabled && 'is-virtualized',
+                marquee.dragging && 'is-marquee-selecting',
+              )}
+              ref={captureTimeline}
+              tabIndex={0}
+              aria-label="聊天消息，方向键浏览消息，回车打开消息操作"
+              onKeyDown={handleTimelineKeyDown}
+              onScroll={handleMessageScroll}
+              {...marquee.handlers}
+            >
+              {timelineNotice}
+              {loadingOlder ? <div role="status">加载更早消息…</div> : null}
+              {jumpMissing && !loadError ? <div role="status">该条记录已不在当前会话中</div> : null}
+              {loadError ? <div role="alert">{loadError}</div> : null}
+              {marquee.box ? (
+                <div className="weq-message-marquee" aria-hidden style={marquee.box} />
+              ) : null}
+              {loading && visibleMessages.length === 0 ? (
+                <>
+                  <span className="sr-only" role="status">
+                    正在加载消息
+                  </span>
+                  <ChatMessagesSkeleton />
+                </>
+              ) : visibleMessages.length === 0 && !loadingNewer && !loadError ? (
+                (emptyTimeline ?? (
+                  <EmptyState
+                    title="还没有消息"
+                    body={composerVisible && !readOnly && sendAvailable ? '发出第一条消息。' : ''}
+                    icon={<MessageSquareText />}
+                  />
+                ))
+              ) : (
+                (() => {
+                  // 灰条分流 + 气泡组装统一走 messageRow 的 MessageRow —— 转发窗口与合成转发
+                  // 预览用的是同一份实现，所以三处的画法不会再各写一套。
+                  const out: React.ReactNode[] = [];
+                  timeline.items.forEach((virtualRow) => {
+                    const index = virtualRow.index;
+                    const message = visibleMessages[index];
+                    if (!message) return;
+                    const blockStart = out.length;
+                    // A hole in the seq run means QQ has messages here that were
+                    // never synced locally. Checked for every row (gray tips
+                    // included — they occupy a seq too) and emitted before the row
+                    // that follows the hole.
+                    const previous = visibleMessages[index - 1];
+                    const gapPrevious = gapPredecessors[index];
+                    const deletedGap =
+                      gapPrevious && hasHiddenDeletionBetween(gapPrevious.msgSeq, message.msgSeq);
+                    const gap = restrictedSource
+                      ? 0
+                      : messageGapCount(
+                          gapPrevious,
+                          message,
+                          selectionMode || Boolean(deletedGap) || autoFetchGaps,
+                        );
+                    // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
+                    // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
+                    // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
+                    if (
+                      gap === 0 &&
+                      missingJumpSeq &&
+                      gapPrevious &&
+                      conversation &&
+                      onOpenGapMessages &&
+                      isSeqBetween(missingJumpSeq, gapPrevious.msgSeq, message.msgSeq)
+                    ) {
+                      out.push(
+                        <MessageGapDivider
+                          key={`missing-jump-${message.id}`}
+                          id={selectionGapId({
+                            previousSeq: String(gapPrevious.msgSeq),
+                            currentSeq: String(message.msgSeq),
+                          })}
+                          selectionMode={selectionMode}
+                          selected={displayedGapSelected({
+                            previousSeq: String(gapPrevious.msgSeq),
+                            currentSeq: String(message.msgSeq),
+                            count: 1,
+                          })}
+                          selectionProps={multi.itemProps(
+                            selectionGapId({
+                              previousSeq: String(gapPrevious.msgSeq),
+                              currentSeq: String(message.msgSeq),
+                            }),
+                          )}
+                          count={1}
+                          autoFetch={autoFetchGaps}
+                          onOpen={(automatic) =>
+                            onOpenGapMessages(
+                              {
+                                conversation,
+                                previousSeq: String(gapPrevious.msgSeq ?? ''),
+                                currentSeq: String(message.msgSeq ?? ''),
+                                count: 1,
+                              },
+                              automatic,
+                            )
+                          }
+                        />,
+                      );
+                    }
+                    // 本次已确认「服务端这段 seq 本来就没有可渲染消息」的缺口不再显示
+                    // （拉取成功但拿到的是空槽位，见 MainView 的 resolvedGaps）。
+                    const gapResolved =
+                      gapPrevious !== undefined &&
+                      resolvedGapIds?.has(
                         selectionGapId({
                           previousSeq: String(gapPrevious.msgSeq),
                           currentSeq: String(message.msgSeq),
                         }),
-                      )}
-                      count={1}
-                      autoFetch={autoFetchGaps}
-                      onOpen={(automatic) =>
-                        onOpenGapMessages(
-                          {
-                            conversation,
-                            previousSeq: String(gapPrevious.msgSeq ?? ''),
-                            currentSeq: String(message.msgSeq ?? ''),
-                            count: 1,
-                          },
-                          automatic,
-                        )
-                      }
-                    />,
-                  );
-                }
-                // 本次已确认「服务端这段 seq 本来就没有可渲染消息」的缺口不再显示
-                // （拉取成功但拿到的是空槽位，见 MainView 的 resolvedGaps）。
-                const gapResolved =
-                  gapPrevious !== undefined &&
-                  resolvedGapIds?.has(
-                    selectionGapId({
-                      previousSeq: String(gapPrevious.msgSeq),
-                      currentSeq: String(message.msgSeq),
-                    }),
-                  ) === true;
-                if (gap > 0 && !gapResolved) {
-                  out.push(
-                    <MessageGapDivider
-                      key={`gap-${message.id}`}
-                      id={
-                        gapPrevious
-                          ? selectionGapId({
-                              previousSeq: String(gapPrevious.msgSeq),
-                              currentSeq: String(message.msgSeq),
-                            })
-                          : undefined
-                      }
-                      selectionMode={selectionMode}
-                      selected={
-                        gapPrevious
-                          ? displayedGapSelected({
-                              previousSeq: String(gapPrevious.msgSeq),
-                              currentSeq: String(message.msgSeq),
-                              count: gap,
-                            })
-                          : false
-                      }
-                      selectionProps={
-                        gapPrevious
-                          ? multi.itemProps(
-                              selectionGapId({
-                                previousSeq: String(gapPrevious.msgSeq),
-                                currentSeq: String(message.msgSeq),
-                              }),
-                            )
-                          : undefined
-                      }
-                      count={gap}
-                      autoFetch={autoFetchGaps && !deletedGap}
-                      onOpen={
-                        conversation && onOpenGapMessages && gapPrevious
-                          ? (automatic) =>
-                              onOpenGapMessages(
-                                {
-                                  conversation,
-                                  previousSeq: String(gapPrevious.msgSeq ?? ''),
-                                  currentSeq: String(message.msgSeq ?? ''),
+                      ) === true;
+                    if (gap > 0 && !gapResolved) {
+                      out.push(
+                        <MessageGapDivider
+                          key={`gap-${message.id}`}
+                          id={
+                            gapPrevious
+                              ? selectionGapId({
+                                  previousSeq: String(gapPrevious.msgSeq),
+                                  currentSeq: String(message.msgSeq),
+                                })
+                              : undefined
+                          }
+                          selectionMode={selectionMode}
+                          selected={
+                            gapPrevious
+                              ? displayedGapSelected({
+                                  previousSeq: String(gapPrevious.msgSeq),
+                                  currentSeq: String(message.msgSeq),
                                   count: gap,
-                                },
-                                automatic,
-                              )
-                          : undefined
-                      }
-                    />,
-                  );
-                }
-                const sender = resolveMessageSender(message, conversation, user);
-                out.push(
-                  <Fragment key={message.id}>
-                    {shouldShowMessageTime(previous?.createdAt, message.createdAt) ? (
-                      <MessageTimeDivider
-                        value={message.createdAt}
-                        precision={
-                          conversation.generated || message.optimistic ? 'millisecond' : 'second'
-                        }
-                      />
-                    ) : null}
-                    <MessageRow
-                      message={message}
-                      conversation={conversation}
-                      user={user}
-                      sender={sender}
-                      renderers={messageRenderers}
-                      showSenderName={showSenderNames}
-                      active={contextMenu?.message.id === message.id}
-                      deleted={deletedKeys.has(deletionIdentity(message.id))}
-                      deletedKind={message.deletedKind}
-                      recallRevokerName={message.recallRevokerName}
-                      onRestore={rowRestore}
-                      onContextMenu={rowContext}
-                      onLongPress={rowLongPress}
-                      onAction={rowAction}
-                      onReedit={!readOnly && composerVisible ? rowReedit : undefined}
-                      onDismissUnsent={rowDismiss}
-                      onStartOutgoing={
-                        !sendAvailable || currentPreference.blocked ? undefined : rowStart
-                      }
-                      repeatAction={
-                        !selectionMode &&
-                        onRepeatMessage &&
-                        repeatMessage?.id === message.id &&
-                        messageCanRepeat(message) ? (
-                          <button
-                            type="button"
-                            className="weq-message-repeat"
-                            title={
-                              !sendAvailable
-                                ? '在线能力受限，无法复读消息'
-                                : sendGateReason || '发送一条相同的消息'
+                                })
+                              : false
+                          }
+                          selectionProps={
+                            gapPrevious
+                              ? multi.itemProps(
+                                  selectionGapId({
+                                    previousSeq: String(gapPrevious.msgSeq),
+                                    currentSeq: String(message.msgSeq),
+                                  }),
+                                )
+                              : undefined
+                          }
+                          count={gap}
+                          autoFetch={autoFetchGaps && !deletedGap}
+                          onOpen={
+                            conversation && onOpenGapMessages && gapPrevious
+                              ? (automatic) =>
+                                  onOpenGapMessages(
+                                    {
+                                      conversation,
+                                      previousSeq: String(gapPrevious.msgSeq ?? ''),
+                                      currentSeq: String(message.msgSeq ?? ''),
+                                      count: gap,
+                                    },
+                                    automatic,
+                                  )
+                              : undefined
+                          }
+                        />,
+                      );
+                    }
+                    const sender = resolveMessageSender(message, conversation, user);
+                    out.push(
+                      <Fragment key={message.id}>
+                        {shouldShowMessageTime(previous?.createdAt, message.createdAt) ? (
+                          <MessageTimeDivider
+                            value={message.createdAt}
+                            precision={
+                              conversation.generated || message.optimistic
+                                ? 'millisecond'
+                                : 'second'
                             }
-                            aria-label="+1，发送相同消息"
-                            disabled={Boolean(sendGateReason) || sending || repeating}
-                            aria-busy={repeating}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void repeatMessageFor(message);
-                            }}
-                          >
-                            {repeating ? <Loader2 size={15} className="spin" /> : '+1'}
-                          </button>
-                        ) : undefined
-                      }
-                      selectionMode={selectionMode && !message.generatedPending}
-                      selected={
-                        (selectionMode || Boolean(marquee.previewIds)) &&
-                        displayedSelectedIds.has(message.id)
-                      }
-                      onToggleSelect={rowToggle}
-                      onReactionChange={rowReaction}
-                      reactionBlockedReason={messageReactionBlockedReason(message)}
-                      reactionBusy={
-                        setMessageReaction.isLoading || Boolean(reactionFeedback.pending)
-                      }
-                      reactionPending={
-                        reactionFeedback.pending?.messageId === message.id
-                          ? reactionFeedback.pending
-                          : undefined
-                      }
-                      pendingAction={
-                        pendingActions[message.id] ? (
-                          <span
-                            className="weq-message-sending"
-                            role="status"
-                            aria-label={pendingActions[message.id]}
-                            title={pendingActions[message.id]}
-                          >
-                            <Loader2 size={15} />
-                          </span>
-                        ) : undefined
-                      }
-                      onAvatarClick={
-                        !selectionMode &&
-                        (conversation.type === 'group' || conversation.type === 'direct') &&
-                        effectiveOpenGroupMember
-                          ? rowAvatar
-                          : undefined
-                      }
-                      onAvatarContextMenu={!selectionMode ? rowAvatarMenu : undefined}
-                    />
-                    {translation?.scope === translationScope && translation.id === message.id ? (
-                      <div className="mx-8 mb-2 flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-sm text-foreground">
-                        <span role="status">{translation.value ?? '正在翻译…'}</span>
-                        <button
-                          type="button"
-                          className="weq-set-btn ml-auto"
-                          onClick={() => setTranslation(null)}
+                          />
+                        ) : null}
+                        <MessageRow
+                          message={message}
+                          conversation={conversation}
+                          user={user}
+                          sender={sender}
+                          renderers={messageRenderers}
+                          showSenderName={showSenderNames}
+                          active={contextMenu?.message.id === message.id}
+                          deleted={deletedKeys.has(deletionIdentity(message.id))}
+                          deletedKind={message.deletedKind}
+                          recallRevokerName={message.recallRevokerName}
+                          onRestore={rowRestore}
+                          onContextMenu={rowContext}
+                          onLongPress={rowLongPress}
+                          onAction={rowAction}
+                          onReedit={!readOnly && composerVisible ? rowReedit : undefined}
+                          onDismissUnsent={rowDismiss}
+                          onStartOutgoing={
+                            !sendAvailable || currentPreference.blocked ? undefined : rowStart
+                          }
+                          repeatAction={
+                            !selectionMode &&
+                            onRepeatMessage &&
+                            repeatMessage?.id === message.id &&
+                            messageCanRepeat(message) ? (
+                              <button
+                                type="button"
+                                className="weq-message-repeat"
+                                title={
+                                  !sendAvailable
+                                    ? '在线能力受限，无法复读消息'
+                                    : sendGateReason || '发送一条相同的消息'
+                                }
+                                aria-label="+1，发送相同消息"
+                                disabled={Boolean(sendGateReason) || sending || repeating}
+                                aria-busy={repeating}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void repeatMessageFor(message);
+                                }}
+                              >
+                                {repeating ? <Loader2 size={15} className="spin" /> : '+1'}
+                              </button>
+                            ) : undefined
+                          }
+                          selectionMode={selectionMode && !message.generatedPending}
+                          selected={
+                            (selectionMode || Boolean(marquee.previewIds)) &&
+                            displayedSelectedIds.has(message.id)
+                          }
+                          onToggleSelect={rowToggle}
+                          onReactionChange={rowReaction}
+                          reactionBlockedReason={messageReactionBlockedReason(message)}
+                          reactionBusy={
+                            setMessageReaction.isLoading || Boolean(reactionFeedback.pending)
+                          }
+                          reactionPending={
+                            reactionFeedback.pending?.messageId === message.id
+                              ? reactionFeedback.pending
+                              : undefined
+                          }
+                          pendingAction={
+                            pendingActions[message.id] ? (
+                              <span
+                                className="weq-message-sending"
+                                role="status"
+                                aria-label={pendingActions[message.id]}
+                                title={pendingActions[message.id]}
+                              >
+                                <Loader2 size={15} />
+                              </span>
+                            ) : undefined
+                          }
+                          onAvatarClick={
+                            !selectionMode &&
+                            (conversation.type === 'group' || conversation.type === 'direct') &&
+                            effectiveOpenGroupMember
+                              ? rowAvatar
+                              : undefined
+                          }
+                          onAvatarContextMenu={!selectionMode ? rowAvatarMenu : undefined}
+                        />
+                        {translation?.scope === translationScope &&
+                        translation.id === message.id ? (
+                          <div className="mx-8 mb-2 flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-sm text-foreground">
+                            <span role="status">{translation.value ?? '正在翻译…'}</span>
+                            <button
+                              type="button"
+                              className="weq-set-btn ml-auto"
+                              onClick={() => setTranslation(null)}
+                            >
+                              收起
+                            </button>
+                          </div>
+                        ) : null}
+                      </Fragment>,
+                    );
+                    {
+                      const children = out.splice(blockStart);
+                      out.push(
+                        <div
+                          className={cn(
+                            'weq-virtual-timeline-row',
+                            jumpRequest?.messageId === message.id && 'is-search-hit',
+                          )}
+                          role="listitem"
+                          aria-posinset={index + 1}
+                          aria-setsize={visibleMessages.length}
+                          key={message.id}
+                          data-index={index}
+                          ref={timeline.measure}
                         >
-                          收起
-                        </button>
-                      </div>
-                    ) : null}
-                  </Fragment>,
-                );
-                {
-                  const children = out.splice(blockStart);
-                  out.push(
+                          {children}
+                        </div>,
+                      );
+                    }
+                  });
+                  return (
                     <div
-                      className={cn(
-                        'weq-virtual-timeline-row',
-                        jumpRequest?.messageId === message.id && 'is-search-hit',
-                      )}
-                      role="listitem"
-                      aria-posinset={index + 1}
-                      aria-setsize={visibleMessages.length}
-                      key={message.id}
-                      data-index={index}
-                      ref={timeline.measure}
+                      ref={captureTimelineContent}
+                      className={cn('weq-virtual-timeline', timeline.enabled && 'is-windowed')}
+                      role="list"
+                      aria-label="聊天消息"
+                      data-total-items={visibleMessages.length}
                     >
-                      {children}
-                    </div>,
+                      {out}
+                    </div>
                   );
-                }
-              });
-              return (
+                })()
+              )}
+              {loadingNewer ? (
                 <div
-                  ref={captureTimelineContent}
-                  className={cn('weq-virtual-timeline', timeline.enabled && 'is-windowed')}
-                  role="list"
-                  aria-label="聊天消息"
-                  data-total-items={visibleMessages.length}
+                  className="weq-conversation-loading"
+                  role="status"
+                  aria-label="正在加载后续消息"
                 >
-                  {out}
+                  <Loader2 size={18} />
                 </div>
-              );
-            })()
+              ) : null}
+              {pendingActions['timeline:poke'] ? (
+                <div
+                  className="weq-inline-interaction-pending"
+                  role="status"
+                  aria-label="正在戳一戳"
+                >
+                  <span className="weq-message-sending">
+                    <Loader2 size={15} />
+                  </span>
+                </div>
+              ) : null}
+              <div ref={endRef} />
+            </div>
           )}
-          {loadingNewer ? (
-            <div className="weq-conversation-loading" role="status" aria-label="正在加载后续消息">
-              <Loader2 size={18} />
-            </div>
-          ) : null}
-          {pendingActions['timeline:poke'] ? (
-            <div className="weq-inline-interaction-pending" role="status" aria-label="正在戳一戳">
-              <span className="weq-message-sending">
-                <Loader2 size={15} />
-              </span>
-            </div>
-          ) : null}
-          <div ref={endRef} />
-        </div>
+        </ChatTimeline>
       </IntentSenseProvider>
       <OverlayScrollbar
         scrollRef={messageScrollRef}
         className="weq-message-scrollbar"
-        refreshKey={`${conversation.id}:${visibleMessages.length}:${timeline.enabled}`}
+        refreshKey={`${conversation.id}:${visibleMessages.length}:${timelineEnabled}`}
       />
 
       {newMessagePill > 0 ||
