@@ -186,9 +186,13 @@ export class LocalUnreadStore {
     const read = BigInt(row?.readSeq ?? '0') > BigInt(databaseRead) ? row!.readSeq! : databaseRead;
     const floor = BigInt(read);
     const latest = snapshot.latestSeq === null ? null : BigInt(snapshot.latestSeq);
-    const highlights = snapshot.highlights?.filter((hit) => BigInt(hit.msgSeq) > floor);
+    const recalled = snapshot.recalledSeqs;
+    const highlights = snapshot.highlights?.filter(
+      (hit) => BigInt(hit.msgSeq) > floor && !recalled?.includes(String(hit.msgSeq)),
+    );
     const device = classifyChatType(snapshot.chatType) === 'dataline';
-    const decreased = new Set(snapshot.decreasedSeqs ?? []);
+    const decreased = new Set(snapshot.decreasedSeqs);
+    for (const seq of recalled ?? []) decreased.add(seq);
     // QQ 可能先更新最新消息，再补减项。仅暂存小表已确认的自发序号，不抬高阅读水位。
     if (!device) {
       const outgoing = this.pendingOutgoing.get(snapshot.peer) ?? new Set<string>();

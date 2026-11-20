@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
-import { AntiRecallDb, scheduleDatabase, type RecallLogRow } from '@weq/db';
+import { AntiRecallDb, scheduleDatabase, type RecallBaseline, type RecallLogRow } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 import { AntiRecallService } from '../src/account/anti_recall';
 import type { DbChange, DbWatchTask } from '../src/account/db_watch';
@@ -29,6 +29,7 @@ const change: DbChange = {
   at: 1,
 };
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
+const baselineAt = (recallTs: number): RecallBaseline => ({ recallTs, seen: new Set() });
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((yes) => {
@@ -57,6 +58,7 @@ function fixture(notificationsEnabled?: () => boolean) {
   const nt = createSqliteStub();
   const close = vi.spyOn(nt, 'closeDb');
   const notify = vi.fn();
+  const observed = vi.fn();
   const service = new AntiRecallService(
     {
       msgDbPath: path,
@@ -67,10 +69,10 @@ function fixture(notificationsEnabled?: () => boolean) {
       isQqLoggedIn: () => false,
     } as unknown as Platform,
     config,
-    { onRecall: notify, notificationsEnabled },
+    { onRecall: notify, onObservedRecall: observed, notificationsEnabled },
   );
   services.push(service);
-  return { service, nt, path, close, notify };
+  return { service, nt, path, close, notify, observed };
 }
 function rows(count: number, start = 1): RecallLogRow[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -119,6 +121,7 @@ it('统一渠道开启但名单为空不通知；选择后以渠道为准而非�
   insert.run(3, 3);
   await poll();
   expect(f.notify).toHaveBeenCalledOnce();
+  expect(f.observed.mock.calls.map(([event]) => event.msgId)).toEqual(['1', '2', '3']);
   expect(await f.service.setConversationNotify(group, false)).toMatchObject({
     notifyEnabled: false,
     notifyTargets: ['c2c:123456', 'group:234567'],
@@ -129,7 +132,7 @@ it('统一渠道开启但名单为空不通知；选择后以渠道为准而非�
   expect(f.notify).toHaveBeenCalledOnce();
 });
 
-it('撤回监听只读查询复用账号连接，历史不通知且大整数游标不会重复交付', async () => {
+it('撤回监听交付晚到的小 ID 和同秒插入的记录，历史及重复轮询不交付', async () => {
   const f = fixture();
   const old = 9007199254740993n;
   fixtureDb(f.path).exec(`INSERT INTO weq_recall_log VALUES
@@ -139,13 +142,20 @@ it('撤回监听只读查询复用账号连接，历史不通知且大整数游�
   await poll();
   expect(f.notify).not.toHaveBeenCalled();
   fixtureDb(f.path).exec(`INSERT INTO weq_recall_log VALUES
-    (${old + 1n},'123456','group','u_sender','u_revoker',2,2)`);
+    (${old - 1n},'123456','group','u_sender','u_revoker',2,2)`);
+  await poll();
+  fixtureDb(f.path).exec(`INSERT INTO weq_recall_log VALUES
+    (${old - 2n},'123456','group','u_sender','u_revoker',3,2)`);
   await poll();
   await poll();
-  expect(f.notify).toHaveBeenCalledOnce();
+  expect(f.notify.mock.calls.map(([event]) => event.msgId)).toEqual([
+    String(old - 1n),
+    String(old - 2n),
+  ]);
+  expect(f.observed.mock.calls).toEqual(f.notify.mock.calls);
   expect(f.notify.mock.calls[0]![0]).toMatchObject({
     kind: 'group',
-    msgId: String(old + 1n),
+    msgId: String(old - 1n),
     origSeq: '2',
   });
   expect(f.close).not.toHaveBeenCalled();
@@ -153,10 +163,10 @@ it('撤回监听只读查询复用账号连接，历史不通知且大整数游�
 
 it('停止后迟到整页不通知、不补后页，也不关闭新读者共用的连接', async () => {
   const f = fixture();
-  vi.spyOn(AntiRecallDb.prototype, 'latestRecallCursor').mockResolvedValue(0n);
+  vi.spyOn(AntiRecallDb.prototype, 'latestRecallBaseline').mockResolvedValue(baselineAt(0));
   const waiting = deferred<RecallLogRow[]>();
   const page = vi
-    .spyOn(AntiRecallDb.prototype, 'listRecallsAfter')
+    .spyOn(AntiRecallDb.prototype, 'listRecallsSince')
     .mockReturnValueOnce(waiting.promise);
   f.service.startMonitor();
   await turn();
@@ -172,30 +182,30 @@ it('停止后迟到整页不通知、不补后页，也不关闭新读者共用�
 
 it('重启后旧基线迟到返回不能覆盖新游标', async () => {
   const f = fixture();
-  const old = deferred<bigint>();
-  vi.spyOn(AntiRecallDb.prototype, 'latestRecallCursor')
+  const old = deferred<RecallBaseline>();
+  vi.spyOn(AntiRecallDb.prototype, 'latestRecallBaseline')
     .mockReturnValueOnce(old.promise)
-    .mockResolvedValue(2000n);
-  const page = vi.spyOn(AntiRecallDb.prototype, 'listRecallsAfter').mockResolvedValue([]);
+    .mockResolvedValue(baselineAt(2000));
+  const page = vi.spyOn(AntiRecallDb.prototype, 'listRecallsSince').mockResolvedValue([]);
   f.service.startMonitor();
   f.service.stopMonitor();
   f.service.startMonitor();
   await turn();
-  old.resolve(1n);
+  old.resolve(baselineAt(1));
   await turn();
   await poll();
-  expect(page).toHaveBeenLastCalledWith(2000n, 200);
+  expect(page).toHaveBeenLastCalledWith({ recallTs: 2000 });
 });
 
 it('重新启用时换代基线，旧分页不能发通知或覆盖新水位', async () => {
   const f = fixture();
   vi.spyOn(f.service, 'applyTriggers').mockResolvedValue();
-  vi.spyOn(AntiRecallDb.prototype, 'latestRecallCursor')
-    .mockResolvedValueOnce(0n)
-    .mockResolvedValue(2000n);
+  vi.spyOn(AntiRecallDb.prototype, 'latestRecallBaseline')
+    .mockResolvedValueOnce(baselineAt(0))
+    .mockResolvedValue(baselineAt(2000));
   const waiting = deferred<RecallLogRow[]>();
   const page = vi
-    .spyOn(AntiRecallDb.prototype, 'listRecallsAfter')
+    .spyOn(AntiRecallDb.prototype, 'listRecallsSince')
     .mockReturnValueOnce(waiting.promise)
     .mockResolvedValue([]);
   f.service.startMonitor();
@@ -207,20 +217,20 @@ it('重新启用时换代基线，旧分页不能发通知或覆盖新水位', a
   await pending;
   await poll();
   expect(f.notify.mock.calls.length).toBe(0);
-  expect(page).toHaveBeenLastCalledWith(2000n, 200);
+  expect(page).toHaveBeenLastCalledWith({ recallTs: 2000 });
 });
 
 it('基线未完成时的文件变化等待同一基线，不再重复发查询', async () => {
   const f = fixture();
-  const gate = deferred<bigint>();
+  const gate = deferred<RecallBaseline>();
   const baseline = vi
-    .spyOn(AntiRecallDb.prototype, 'latestRecallCursor')
+    .spyOn(AntiRecallDb.prototype, 'latestRecallBaseline')
     .mockReturnValue(gate.promise);
-  vi.spyOn(AntiRecallDb.prototype, 'listRecallsAfter').mockResolvedValue([]);
+  vi.spyOn(AntiRecallDb.prototype, 'listRecallsSince').mockResolvedValue([]);
   f.service.startMonitor();
   const pending = poll();
   expect(baseline).toHaveBeenCalledOnce();
-  gate.resolve(1000n);
+  gate.resolve(baselineAt(1000));
   await pending;
   expect(baseline).toHaveBeenCalledOnce();
 });
@@ -241,9 +251,9 @@ it('基线还排队时停止监听，会撤销尚未执行的原生查询', asyn
 
 it('当前监听正常补齐整页后续记录，游标推进后不重复通知', async () => {
   const f = fixture();
-  vi.spyOn(AntiRecallDb.prototype, 'latestRecallCursor').mockResolvedValue(0n);
+  vi.spyOn(AntiRecallDb.prototype, 'latestRecallBaseline').mockResolvedValue(baselineAt(0));
   const page = vi
-    .spyOn(AntiRecallDb.prototype, 'listRecallsAfter')
+    .spyOn(AntiRecallDb.prototype, 'listRecallsSince')
     .mockResolvedValueOnce(rows(200, 1000))
     .mockResolvedValueOnce(rows(1, 1200))
     .mockResolvedValue([]);
@@ -251,16 +261,18 @@ it('当前监听正常补齐整页后续记录，游标推进后不重复通知'
   await turn();
   await poll();
   expect(f.notify).toHaveBeenCalledTimes(201);
-  expect(page.mock.calls.map(([cursor]) => cursor)).toEqual([0n, 1199n]);
+  expect(page.mock.calls).toEqual([[{ recallTs: 0 }], [{ recallTs: 1, msgId: 1199n }]]);
   await poll();
-  expect(page).toHaveBeenLastCalledWith(1200n, 200);
+  expect(page).toHaveBeenLastCalledWith({ recallTs: 1 });
   expect(f.notify).toHaveBeenCalledTimes(201);
 });
 
 it('监听未启动时更新配置不额外读取通知基线，启动后才建立', async () => {
   const f = fixture();
   vi.spyOn(f.service, 'applyTriggers').mockResolvedValue();
-  const baseline = vi.spyOn(AntiRecallDb.prototype, 'latestRecallCursor').mockResolvedValue(0n);
+  const baseline = vi
+    .spyOn(AntiRecallDb.prototype, 'latestRecallBaseline')
+    .mockResolvedValue(baselineAt(0));
   const status = await f.service.setEnabled(true);
   expect(status.enabled).toBe(true);
   expect(baseline).not.toHaveBeenCalled();

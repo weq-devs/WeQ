@@ -54,6 +54,8 @@ export type {
   AntiRecallTarget,
   AntiRecallTriggerInfo,
   RecallLogRow,
+  RecallBaseline,
+  RecallCursor,
   RecallConvSummary,
 } from './anti_recall';
 

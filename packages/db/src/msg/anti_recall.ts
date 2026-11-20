@@ -130,6 +130,18 @@ export interface RecallLogRow {
   recallTs: number;
 }
 
+export interface RecallCursor {
+  recallTs: number;
+  msgId?: bigint;
+}
+
+export interface RecallBaseline {
+  recallTs: number;
+  seen: Set<string>;
+}
+
+export const RECALL_UNREAD_INDEX = 'weq_recall_by_conversation_seq';
+
 /**
  * One conversation that has recorded recalls — a row of the 「撤回记录」目录
  * (per-conversation summary), not an individual recall.
@@ -557,41 +569,29 @@ export class AntiRecallDb {
     return rows.length > 0;
   }
 
-  /**
-   * Highest recall-log `msgid` currently stored (0 when empty / absent). This is
-   * the monitor's baseline cursor: records at or below it pre-date this run and
-   * must never raise a notification (启动时老记录不通知). `msgid` is the table's
-   * `INTEGER PRIMARY KEY`, i.e. the rowid alias, so it is insert-ordered.
-   *
-   * Returned as a `bigint` on purpose — `msgid` is a 64-bit value past `2^53`
-   * (see {@link toBigIntMsgId}); going through `Number` here is exactly what
-   * used to strand the cursor below the newest row and cause repeat popups.
-   */
-  async latestRecallCursor(): Promise<bigint> {
-    if (!(await this.recallLogExists())) return 0n;
-    const rows = await this.qq.query(`SELECT IFNULL(MAX(msgid), 0) FROM ${RECALL_LOG_TABLE}`);
-    return toBigIntMsgId(rows[0]?.[0]);
+  /** 记录启动时最后一秒已存在的 ID，同一秒迟到的较小消息 ID 仍可被发现。 */
+  async latestRecallBaseline(): Promise<RecallBaseline> {
+    if (!(await this.recallLogExists())) return { recallTs: 0, seen: new Set() };
+    const rows = await this.qq.query(
+      `SELECT recall_ts, msgid FROM ${RECALL_LOG_TABLE}
+       WHERE recall_ts = (SELECT MAX(recall_ts) FROM ${RECALL_LOG_TABLE})`,
+    );
+    return {
+      recallTs: Number(rows[0]?.[0] ?? 0),
+      seen: new Set(rows.map(([, msgId]) => String(toBigIntMsgId(msgId)))),
+    };
   }
 
-  /**
-   * Recall-log rows with `msgid > cursor`, oldest-first (bounded by `limit`) —
-   * the incremental read the recall-notification monitor drains. Callers feed
-   * back the largest returned `msgid` as the next cursor; an empty array (or a
-   * short page) means fully drained.
-   *
-   * `cursor` is a `bigint` (see {@link latestRecallCursor}) so the comparison
-   * stays exact at 64-bit precision; the native binding takes `bigint` params
-   * directly, so there is no lossy round-trip.
-   */
-  async listRecallsAfter(cursor: bigint, limit = 200): Promise<RecallLogRow[]> {
+  /** 按撤回时间分页。原消息 ID 只用于同秒内的精确排序。 */
+  async listRecallsSince({ recallTs, msgId }: RecallCursor, limit = 200): Promise<RecallLogRow[]> {
     if (!(await this.recallLogExists())) return [];
     const rows = await this.qq.query(
       `SELECT msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts
         FROM ${RECALL_LOG_TABLE}
-        WHERE msgid > ?
-        ORDER BY msgid ASC
+        WHERE ${msgId === undefined ? 'recall_ts >= ?' : '(recall_ts, msgid) > (?, ?)'}
+        ORDER BY recall_ts, msgid
         LIMIT ?`,
-      [cursor, BigInt(limit)],
+      msgId === undefined ? [recallTs, BigInt(limit)] : [recallTs, msgId, BigInt(limit)],
     );
     return rows.map(mapRecallRow);
   }
@@ -667,6 +667,13 @@ export class AntiRecallDb {
       }
     }
     await this.qq.write(RECALL_LOG_DDL);
+    await this.qq.write(
+      `CREATE INDEX IF NOT EXISTS weq_recall_by_time ON ${RECALL_LOG_TABLE}(recall_ts)`,
+    );
+    await this.qq.write(
+      `CREATE INDEX IF NOT EXISTS ${RECALL_UNREAD_INDEX}
+       ON ${RECALL_LOG_TABLE}(table_kind, conv, orig_seq)`,
+    );
   }
 
   /** Drop all three anti-recall triggers, whatever the current selection. */

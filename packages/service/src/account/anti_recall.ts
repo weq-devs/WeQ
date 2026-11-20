@@ -42,7 +42,9 @@ import {
   assertDatabaseWritable,
   type AntiRecallTarget,
   type AntiRecallTriggerInfo,
+  type RecallBaseline,
   type RecallConvSummary,
+  type RecallCursor,
   type RecallLogRow,
 } from '@weq/db';
 import { type AccountSession, algoFor } from '@weq/account';
@@ -155,17 +157,8 @@ export class AntiRecallService {
   private monitorGeneration = 0;
   private reconcileAbort = new AbortController();
   private recallBaseline: Promise<void> | null = null;
-  /**
-   * 撤回记录的读取游标（`weq_recall_log` 的最大 msgid）。null = 尚未建立基线，
-   * 下次 drain 只记录当前最大值、不通知 —— 保证启动 / 刚开启保护时不会把历史记录
-   * 当新撤回弹出来。
-   *
-   * 必须是 `bigint`：msgid（QQ 40001）是 7.7e18 量级的 64 位整数，超过
-   * `Number.MAX_SAFE_INTEGER`（2^53）。之前用 `number` 存游标时 `Number(msgid)`
-   * 会向下取整，游标永远停在新记录**下面**，`msgid > cursor` 反复命中同一行 ——
-   * 这就是「同一条撤回过一会儿弹一次」的根因。整条链路（含 db 层比较）都不许碰 Number。
-   */
-  private recallCursor: bigint | null = null;
+  /** 记录最后一秒已交付的撤回，下一次读取仍包含这一秒。 */
+  private lastRecall: RecallBaseline | null = null;
 
   constructor(
     private readonly session: AccountSession,
@@ -399,7 +392,7 @@ export class AntiRecallService {
     this.monitorReads?.abort();
     this.monitorReads = null;
     this.recallBaseline = null;
-    this.recallCursor = null;
+    this.lastRecall = null;
     this.monitorHandle?.unmount();
     this.monitorHandle = null;
     this.monitor = null;
@@ -474,11 +467,10 @@ export class AntiRecallService {
   }
 
   /**
-   * Baseline the recall cursor: the next drain records the current max msgid and
-   * raises nothing. Called on start and whenever protection is (re)enabled.
+   * Capture existing recalls on start and whenever protection is (re)enabled.
    */
   private resetRecallBaseline(): void {
-    this.recallCursor = null;
+    this.lastRecall = null;
     this.monitorReads?.abort();
     this.monitorReads = null;
     this.recallBaseline = null;
@@ -499,8 +491,8 @@ export class AntiRecallService {
   private async initRecallBaseline(reads: AbortController): Promise<void> {
     try {
       const db = this.openDb();
-      const cursor = await db.latestRecallCursor();
-      if (this.monitorCurrent(reads)) this.recallCursor = cursor;
+      const baseline = await db.latestRecallBaseline();
+      if (this.monitorCurrent(reads)) this.lastRecall = baseline;
     } catch (error) {
       if (!this.monitorCurrent(reads)) return;
       // Leave the cursor null — the next drain will baseline instead.
@@ -528,22 +520,24 @@ export class AntiRecallService {
     // 只读包装复用账号连接；close 会关闭同库其他读者的 native 缓存。
     const db = this.openDb();
     try {
-      if (this.recallCursor === null) {
-        const cursor = await db.latestRecallCursor();
-        if (this.monitorCurrent(reads)) this.recallCursor = cursor;
+      const last = this.lastRecall;
+      if (last === null) {
+        await this.initRecallBaseline(reads);
         return;
       }
-      let cursor = this.recallCursor;
-      for (let page = 0; page < 20; page++) {
-        const rows = await db.listRecallsAfter(cursor, 200);
+      let cursor: RecallCursor = { recallTs: last.recallTs };
+      for (;;) {
+        const rows = await db.listRecallsSince(cursor);
         if (!this.monitorCurrent(reads)) return;
-        if (rows.length === 0) break;
         for (const row of rows) {
           if (!this.monitorCurrent(reads)) return;
-          // msgid 是 64 位整数，必须用 BigInt 比较：Number() 会向下取整，
-          // 让游标卡在新记录下面、同一行被反复命中（重复弹通知）。
-          const rowMsgId = BigInt(row.msgid);
-          if (rowMsgId > cursor) cursor = rowMsgId;
+          cursor = { recallTs: row.recallTs, msgId: BigInt(row.msgid) };
+          if (row.recallTs > last.recallTs) {
+            last.recallTs = row.recallTs;
+            last.seen.clear();
+          }
+          if (last.seen.has(row.msgid)) continue;
+          last.seen.add(row.msgid);
           try {
             const event = {
               kind: row.kind,
@@ -565,7 +559,6 @@ export class AntiRecallService {
         }
         if (rows.length < 200) break;
       }
-      if (this.monitorCurrent(reads)) this.recallCursor = cursor;
     } catch (error) {
       if (!this.monitorCurrent(reads)) return;
       logger.debug('anti-recall drain failed', {

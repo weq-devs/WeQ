@@ -14,6 +14,42 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+it('防撤回保留的正文按会话及未读区间从撤回索引查出', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-unread-protected-recall-'));
+  roots.push(root);
+  const path = join(root, 'msg.db');
+  const sql = fixtureDb(path);
+  sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
+    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT,
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER);
+    INSERT INTO recent_contact_v3_table("40021","40003","40010","40020") VALUES ('70001',110,2,'u_peer');
+    CREATE TABLE weq_recall_log(msgid INTEGER PRIMARY KEY, table_kind TEXT, conv TEXT, orig_seq INTEGER);
+    CREATE INDEX weq_recall_by_conversation_seq ON weq_recall_log(table_kind,conv,orig_seq);
+    INSERT INTO weq_recall_log VALUES (1,'group','70001',106),(2,'group','70001',108),
+      (3,'group','70001',108),(4,'group','70001',111),(5,'group','70002',109),
+      (6,'c2c','70001',110);`);
+  sql
+    .prepare('INSERT INTO msg_unread_info_table VALUES (?,?)')
+    .run('2_70001', new ProtoMsg(UnreadInfo).encode({ info: { msgSeq: 105, localReadSeq: 106 } }));
+  const nt = createSqliteStub();
+  const query = vi.spyOn(nt, 'executeSql');
+  const db = new UnreadInfoDb(nt, { dbPath: path });
+  try {
+    const all = await db.getAllUnreadInfos();
+    expect(all[0]?.recalledSeqs).toEqual(['108']);
+    expect(await db.getUnreadInfos([{ chatType: 2, uid: '70001' }])).toEqual(all);
+    const [, statement, params] = query.mock.calls.find(([, text]) =>
+      text.includes('CROSS JOIN weq_recall_log'),
+    )!;
+    const plan = sql.prepare(`EXPLAIN QUERY PLAN ${statement}`).all(...(params ?? []));
+    expect(plan.map((row) => row.detail).join('\n')).toContain(
+      'SEARCH r USING COVERING INDEX weq_recall_by_conversation_seq',
+    );
+  } finally {
+    db.close();
+  }
+});
+
 it('小表直接交付本地水位、减项、标志及最新发送者，不需要消息表', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-unread-small-'));
   roots.push(root);
