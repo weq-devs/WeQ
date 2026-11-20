@@ -27,12 +27,13 @@
  */
 
 import { ProtoMsg, decodePreviewElement, enumName, ChatType } from '@weq/codec';
-import type { PreviewElement } from '@weq/codec';
+import type { Element, PreviewElement } from '@weq/codec';
 import { sanitizeBytes } from '@weq/codec/raw';
 import { RecentContactBody } from '@weq/codec/proto/msg/40051';
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { RecentContact } from './types';
 import { QqDb } from '../qq_db';
+import { decodeBody } from '../msg/util';
 
 const SELECT_COLUMNS = `"40003","40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135","41148","41220","60001","41103","41104"`;
 const contactCodec = new ProtoMsg(RecentContactBody);
@@ -70,6 +71,11 @@ export interface RecentContactSeq {
   msgSeq: bigint;
   /** 40050 — latest message sendTime (unix seconds). */
   sendTime: bigint;
+}
+
+export interface RecentInteractionWindow {
+  latest: Map<string, bigint>;
+  tips: Array<{ seq: bigint; conv: string; msgId: string; sentAt: number; elements: Element[] }>;
 }
 
 export interface ConversationIdentity {
@@ -166,6 +172,54 @@ export class RecentContactDb {
       msgSeq: toBigint(row[2]),
       sendTime: toBigint(row[3]),
     }));
+  }
+
+  /** 走会话和序号索引，包含共用序号的灰条以及近期原位撤回。 */
+  async recentInteractionWindow(
+    kind: 'c2c' | 'group',
+    since: number,
+  ): Promise<RecentInteractionWindow> {
+    const table = kind === 'group' ? 'group_msg_table' : 'c2c_msg_table';
+    const partition = kind === 'group' ? 'CAST("40021" AS INTEGER)' : '"40027"';
+    const types =
+      kind === 'group'
+        ? [ChatType.KCHATTYPEGROUP]
+        : [
+            ChatType.KCHATTYPEC2C,
+            ChatType.KCHATTYPETEMPC2CFROMUNKNOWN,
+            ChatType.KCHATTYPETEMPC2CFROMGROUP,
+            ChatType.KCHATTYPETEMPFRIENDVERIFY,
+          ];
+    const rows = await this.qq.query(
+      `WITH targets(conv, partition, seq) AS MATERIALIZED (
+         SELECT "40021", ${partition}, MAX("40003") FROM recent_contact_v3_table
+         WHERE "40010" IN (${types.join(',')}) AND "40050">=? AND ${partition}>0
+         GROUP BY "40021", ${partition} ORDER BY MAX("40050") DESC LIMIT 128
+       )
+       SELECT t.conv, m."40003", m."40001", m."40050", m."40800"
+       FROM targets t CROSS JOIN ${table} m ON m."40027"=t.partition
+       WHERE m."40003" BETWEEN MAX(0,t.seq-63) AND t.seq
+         AND (m."40011"=5 OR (m."40011"=2 AND m."40012"=1
+           AND instr(substr(m."40800",1,96), X'd0fc1508')>0))
+         AND (instr(m."40800", X'baa517')>0 OR instr(m."40800", X'a0c517a508')>0)
+       UNION ALL SELECT conv, seq, NULL, NULL, NULL FROM targets`,
+      [BigInt(since)],
+    );
+    // 撤回者为 47703，戳一戳详细动作 48212=1061。字节仅预筛，仍解码确认类型和身份。
+    const latest = new Map<string, bigint>();
+    const tips: RecentInteractionWindow['tips'] = [];
+    for (const [conv, seq, msgId, sentAt, body] of rows) {
+      if (msgId == null) latest.set(toStr(conv), toBigint(seq));
+      else
+        tips.push({
+          conv: toStr(conv),
+          seq: toBigint(seq),
+          msgId: toStr(msgId),
+          sentAt: toNum(sentAt),
+          elements: decodeBody(body),
+        });
+    }
+    return { latest, tips };
   }
 
   /**

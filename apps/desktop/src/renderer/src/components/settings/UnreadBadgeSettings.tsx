@@ -105,6 +105,13 @@ export function UnreadBadgeSettings() {
       />
       <MailNotificationSettings kind="unread" />
       <h4 className="weq-badge-group-title">会话列表常规视图</h4>
+      <BadgeSettingRow
+        name="showInteractionBadge"
+        settingId="conversation-interaction-badge"
+        label="会话互动红点"
+        desc="对方戳你或撤回消息时，在会话旁显示红点。"
+        fallback={false}
+      />
       <AggregateBadgeRows />
       <h4 className="weq-badge-group-title">联系人页</h4>
       <ContactBadgeRows />

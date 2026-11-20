@@ -1,4 +1,5 @@
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
+import { conversationInteractionId } from '../../../../shared/conversation_interaction';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { firstUnreadMessage, matchesUnreadMessage } from '../../lib/unreadNavigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -26,6 +27,8 @@ export function useChatTimelineNavigation({
   messages,
   onJumpToLatest,
   onReadCurrentConversation,
+  pendingInteractions,
+  onSeeInteractions,
   parentJumpToSeq,
   selectionOrder,
   tabActive,
@@ -48,6 +51,8 @@ export function useChatTimelineNavigation({
   messages: ChatPaneProps['messages'];
   onJumpToLatest: ChatPaneProps['onJumpToLatest'];
   onReadCurrentConversation: ChatPaneProps['onReadCurrentConversation'];
+  pendingInteractions?: ChatPaneProps['pendingInteractions'];
+  onSeeInteractions?: ChatPaneProps['onSeeInteractions'];
   parentJumpToSeq: ReplyJump;
   selectionOrder: string[];
   tabActive: boolean;
@@ -786,39 +791,112 @@ export function useChatTimelineNavigation({
     return seqsById;
   }, [messages, unreadDock, isVisited]);
   const renderedTimelineItems = timeline.enabled ? timeline.items : null;
+  const interactionConversationId = conversation?.id;
+  const interactionConversationType = conversation?.type;
+  const interactionTargets = useMemo(() => {
+    if (
+      !pendingInteractions?.length ||
+      !interactionConversationId ||
+      interactionConversationType === 'merged'
+    )
+      return;
+    const kind = interactionConversationType === 'group' ? 'group' : 'c2c';
+    const pending = new Map(
+      pendingInteractions
+        .filter((event) => event.kind === kind && event.conv === interactionConversationId)
+        .map((event) => [`${event.action}:${event.msgId}`, conversationInteractionId(event)]),
+    );
+    const targets = new Map<string, string[]>();
+    for (const message of visibleMessages) {
+      if (!message.msgId || message.conversationId !== interactionConversationId) continue;
+      const recall = pending.get(`recall:${message.msgId}`);
+      const poke = pending.get(`poke:${message.msgId}`);
+      const ids: string[] = [];
+      if (
+        recall &&
+        (message.recall || message.qqElements?.some(({ type }) => type === 'grayTipRevoke'))
+      )
+        ids.push(recall);
+      if (
+        poke &&
+        message.qqElements?.some(({ type }) => type === 'grayTipPoke' || type === 'grayTipXml')
+      )
+        ids.push(poke);
+      if (ids.length) targets.set(message.id, ids);
+    }
+    return targets;
+  }, [
+    interactionConversationId,
+    interactionConversationType,
+    pendingInteractions,
+    visibleMessages,
+  ]);
+
   useLayoutEffect(() => {
     const scroll = messageScrollRef.current;
-    if (!tabActive || loading || loadingNewer || !scroll || !dockTargets?.size) return;
-    // 首次检查在绘制前完成；之后只观察候选目标，虚拟列表预挂载不等于可见。
-    const bounds = scroll.getBoundingClientRect();
-    if (bounds.height <= 0) return;
-    const seen: string[] = [];
-    const offscreen = new Map<Element, string[]>();
+    if (
+      !tabActive ||
+      loading ||
+      loadingNewer ||
+      !scroll ||
+      (!dockTargets?.size && !interactionTargets?.size)
+    )
+      return;
+    const targets = new Map<Element, string>();
     for (const target of scroll.querySelectorAll<HTMLElement>('[data-message-id]')) {
-      const seqs = dockTargets.get(target.dataset.messageId ?? '');
-      if (!seqs) continue;
-      const rect = target.getBoundingClientRect();
-      if (rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom)
-        seen.push(...seqs);
-      else offscreen.set(target, seqs);
+      const id = target.dataset.messageId ?? '';
+      if (dockTargets?.has(id) || interactionTargets?.has(id)) targets.set(target, id);
     }
-    visitStops(navigationKey, seen);
-    if (!offscreen.size || typeof IntersectionObserver === 'undefined') return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        visitStops(
-          navigationKey,
-          entries.flatMap((entry) =>
-            entry.intersectionRatio > 0 ? (offscreen.get(entry.target) ?? []) : [],
-          ),
-        );
-      },
-      { root: scroll, threshold: Number.EPSILON },
-    );
-    for (const target of offscreen.keys()) observer.observe(target);
+    if (!targets.size) return;
+    const report = (rows: string[]) => {
+      visitStops(
+        navigationKey,
+        rows.flatMap((id) => dockTargets?.get(id) ?? []),
+      );
+      if (
+        !interactionTargets?.size ||
+        document.visibilityState === 'hidden' ||
+        !document.hasFocus()
+      )
+        return;
+      const visible = rows.flatMap((id) => interactionTargets.get(id) ?? []);
+      if (visible.length) onSeeInteractions?.(visible);
+    };
+    const probe = () => {
+      const bounds = scroll.getBoundingClientRect();
+      if (bounds.height <= 0) return;
+      const seen: string[] = [];
+      for (const [target, id] of targets) {
+        const rect = target.getBoundingClientRect();
+        if (rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom) seen.push(id);
+      }
+      report(seen);
+    };
+    // 虚拟列表预挂载不等于可见，重获焦点时也需要检查。
+    probe();
+    const observer =
+      typeof IntersectionObserver === 'undefined'
+        ? undefined
+        : new IntersectionObserver(
+            (entries) =>
+              report(
+                entries.flatMap(({ target, intersectionRatio }) => {
+                  const id = targets.get(target);
+                  return intersectionRatio > 0 && id ? [id] : [];
+                }),
+              ),
+            { root: scroll, threshold: Number.EPSILON },
+          );
+    for (const target of targets.keys()) observer?.observe(target);
+    if (interactionTargets?.size) {
+      window.addEventListener('focus', probe);
+      document.addEventListener('visibilitychange', probe);
+    }
     return () => {
-      observer.disconnect();
-      observer.takeRecords();
+      observer?.disconnect();
+      observer?.takeRecords();
+      window.removeEventListener('focus', probe);
+      document.removeEventListener('visibilitychange', probe);
     };
   }, [
     loading,
@@ -827,6 +905,8 @@ export function useChatTimelineNavigation({
     renderedTimelineItems,
     tabActive,
     dockTargets,
+    interactionTargets,
+    onSeeInteractions,
     visibleMessages,
     visitStops,
   ]);

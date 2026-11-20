@@ -103,6 +103,7 @@ export interface AntiRecallOptions {
   readOnly?: boolean;
   preferences?: PreferencePersistence<AntiRecallConfig>;
   notificationsEnabled?: () => boolean;
+  onObservedRecall?: (event: RecallNotifyEvent) => void;
   /**
    * Raised for every newly-recorded recall in a conversation whose notification
    * switch is on. Implemented in the Electron main process (native notification
@@ -543,9 +544,8 @@ export class AntiRecallService {
           // 让游标卡在新记录下面、同一行被反复命中（重复弹通知）。
           const rowMsgId = BigInt(row.msgid);
           if (rowMsgId > cursor) cursor = rowMsgId;
-          if (!this.shouldNotify(row)) continue;
           try {
-            this.opts.onRecall?.({
+            const event = {
               kind: row.kind,
               conv: row.conv,
               msgId: row.msgid,
@@ -553,7 +553,9 @@ export class AntiRecallService {
               revokeUid: row.revokeUid,
               origSeq: row.origSeq,
               recallTs: row.recallTs,
-            });
+            };
+            this.opts.onObservedRecall?.(event);
+            if (this.shouldNotify(row)) this.opts.onRecall?.(event);
           } catch (error) {
             logger.warn('anti-recall notify hook failed', {
               event: 'anti-recall-notify-failed',

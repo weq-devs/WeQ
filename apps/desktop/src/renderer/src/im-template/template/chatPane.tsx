@@ -1,4 +1,5 @@
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
+import type { ConversationInteraction } from '../../../../shared/conversation_interaction';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import {
   searchSlashEmojis,
@@ -516,6 +517,8 @@ export type ChatPaneProps = {
   onPreviewLatest?: (conversation: Conversation) => void;
   onJumpToLatest?: () => Promise<boolean>;
   onReadCurrentConversation?: (conversation: Conversation) => void;
+  pendingInteractions?: readonly ConversationInteraction[];
+  onSeeInteractions?: (ids: string[]) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
   onAddGroupMember?: () => void;
@@ -721,6 +724,8 @@ export function ChatPane({
   onPreviewLatest,
   onJumpToLatest,
   onReadCurrentConversation,
+  pendingInteractions,
+  onSeeInteractions,
   preference,
   onLoadMoreGroupMembers,
   onAddGroupMember,
@@ -1537,6 +1542,8 @@ export function ChatPane({
     messages,
     onJumpToLatest,
     onReadCurrentConversation,
+    pendingInteractions,
+    onSeeInteractions,
     parentJumpToSeq,
     selectionOrder,
     tabActive,

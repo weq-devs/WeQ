@@ -144,6 +144,12 @@ export const CLIENT_SETTING_FIELDS = (
     ['emoji-shortcuts', 'slashEmojiEnabled', 'slash-emoji-input', '斜杠表情快捷输入'],
     ['emoji-shortcuts', 'slashEmojiAutoReplace', 'slash-emoji-auto-replace', '无需回车即自动替换'],
     ['notification-badges', 'applicationBadge', 'application-unread-badge', '应用图标未读角标'],
+    [
+      'notification-badges',
+      'showInteractionBadge',
+      'conversation-interaction-badge',
+      '会话互动红点',
+    ],
     ...ENTRY_BADGE_SETTINGS.map(
       ([key, id, label]) => ['notification-badges', key, id, label] as const,
     ),

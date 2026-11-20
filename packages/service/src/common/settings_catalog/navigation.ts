@@ -698,6 +698,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     [
       ['message-system-notifications', '普通私聊消息', '新消息系统通知', '消息弹窗提醒'],
       ['application-unread-badge', '应用图标未读角标', 'Dock 任务栏 Badge'],
+      ['conversation-interaction-badge', '会话互动红点', '戳一戳红点', '撤回红点'],
     ] as const
   ).map(
     ([id, label, ...aliases]): ItemRedirect => ({

@@ -49,6 +49,8 @@ export function ChatMainContent({
   onPreviewLatest,
   onJumpToLatest,
   onReadCurrentConversation,
+  pendingInteractions,
+  onSeeInteractions,
   conversationPrefs,
   drafts,
   draftScope,
@@ -138,6 +140,8 @@ export function ChatMainContent({
   | 'onPreviewLatest'
   | 'onJumpToLatest'
   | 'onReadCurrentConversation'
+  | 'pendingInteractions'
+  | 'onSeeInteractions'
   | 'onLoadMoreGroupMembers'
   | 'groupMembersLoading'
   | 'groupMembersError'
@@ -327,6 +331,8 @@ export function ChatMainContent({
       onPreviewLatest={onPreviewLatest}
       onJumpToLatest={onJumpToLatest}
       onReadCurrentConversation={onReadCurrentConversation}
+      pendingInteractions={pendingInteractions}
+      onSeeInteractions={onSeeInteractions}
       preference={activeConversation ? conversationPrefs[activeConversation.id] : undefined}
       draft={activeConversation ? (drafts[activeConversation.id] ?? '') : ''}
       draftScope={draftScope}

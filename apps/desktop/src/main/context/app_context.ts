@@ -23,6 +23,7 @@ import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
+import { ConversationInteractionBadges } from './conversation_interactions';
 import { webNotices, type WebNotice } from '../web/notices';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
@@ -385,6 +386,10 @@ function recallNotificationsEnabled(config: UserConfigService): boolean {
   const { banner, system } = config.getSettings().notificationEvents.recall;
   return banner || system;
 }
+function observeInteractionRecall(session: AccountSession, event: RecallNotifyEvent): void {
+  const ctx = getAppContext();
+  if (ctx.account === session) ctx.services?.interactionBadges.observeRecall(event);
+}
 function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
   webNotice(session, {
     kind: 'recall',
@@ -530,6 +535,7 @@ function cancelAnnualReportWarmup(): void {
 function mountDbWatch(session: AccountSession): void {
   if (dbWatchHandle) return;
   const isCurrent = () => getAppContext().account === session;
+  getAppContext().services?.interactionBadges.requestScan();
   contactNoticeWatchHandles = [
     {
       kind: 'friend' as const,
@@ -568,6 +574,7 @@ function mountDbWatch(session: AccountSession): void {
       onDbChanged: (file) => {
         if (getAppContext().account !== session) return;
         getAppContext().services?.unreadInfo.invalidate();
+        getAppContext().services?.interactionBadges.requestScan();
         notification.request(file);
       },
       onNewMessages: async (change: NewMessages) => {
@@ -1110,6 +1117,7 @@ export interface AccountServices {
   officialAccount: OfficialAccountService;
   serviceAccount: ServiceAccountService;
   unreadInfo: UnreadInfoService;
+  interactionBadges: ConversationInteractionBadges;
   accountConfig: AccountConfigService;
   /** Manifest-first, compile-time annual report page service. */
   annualReport: AnnualReportService;
@@ -1713,6 +1721,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.unifiedSearch.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
+      this.services?.interactionBadges.dispose();
       await waitForUnreadWrites();
       await this.services?.contactDirectory?.dispose();
       this.account?.dispose();
@@ -1894,6 +1903,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
         {
           onRecall: (event) => notifyRecall(session, event),
+          onObservedRecall: (event) => observeInteractionRecall(session, event),
           notificationsEnabled: () => recallNotificationsEnabled(userConfig),
           preferences: sharedPreferencePersistence(
             userConfig,
@@ -1963,6 +1973,19 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services = {
         msgs,
         roamingBackfill,
+        interactionBadges: new ConversationInteractionBadges(
+          session,
+          join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'interaction-badges.json',
+          ),
+          () =>
+            this.account === session &&
+            userConfig.getSharedPreference('client').showInteractionBadge === true,
+        ),
         recentContacts: new RecentContactService(session, () => gapHistory.latestSent()),
         guildDirect,
         contentSearch,
@@ -2700,6 +2723,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.unifiedSearch.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
+      this.services?.interactionBadges.dispose();
       await waitForUnreadWrites();
       await this.services?.contactDirectory?.dispose();
       this.account?.dispose();
@@ -2857,6 +2881,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         {
           readOnly: !this.accountIsAndroidBackup,
           onRecall: (event) => notifyRecall(session, event),
+          onObservedRecall: (event) => observeInteractionRecall(session, event),
           notificationsEnabled: () => recallNotificationsEnabled(userConfig),
           preferences: sharedPreferencePersistence(
             userConfig,
@@ -2920,6 +2945,19 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services = {
         msgs,
         roamingBackfill,
+        interactionBadges: new ConversationInteractionBadges(
+          session,
+          join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'interaction-badges.json',
+          ),
+          () =>
+            this.account === session &&
+            userConfig.getSharedPreference('client').showInteractionBadge === true,
+        ),
         recentContacts: new RecentContactService(session, () => gapHistory.latestSent()),
         guildDirect,
         contentSearch,
@@ -3536,6 +3574,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       // 这里显式清掉只是不留悬挂的定时器）。
       cancelAnnualReportWarmup();
       unmountDbWatch();
+      this.services?.interactionBadges.dispose();
       ssePush?.stop();
       ssePush = null;
       unmountGroupKeyword();

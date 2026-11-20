@@ -142,6 +142,7 @@ import { createContactMetricsRouter } from './contact_metrics';
 import { createNoticeReadRouter } from './notice_read';
 import { readMessageHistoryPage } from './message_history_page';
 import { mergeNoticeSeen } from '../../../shared/notice_seen';
+import type { ConversationInteraction } from '../../../shared/conversation_interaction';
 import {
   directoryUnreadKey,
   isDirectoryReadKey,
@@ -1329,6 +1330,30 @@ export async function retryRecordedClone(id: string, scope: BackgroundTaskScope,
 export const accountRouter = router({
   outgoing: outgoingRouter,
   transfers: transferProgressRouter,
+  interactionBadges: router({
+    changed: procedure.input(exportAccountBindingInput.required()).subscription(({ input }) => {
+      const { interactionBadges } = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return observable<ConversationInteraction[]>((emit) =>
+        interactionBadges.subscribe((events) => emit.next(events)),
+      );
+    }),
+    acknowledge: procedure
+      .input(
+        exportAccountBindingInput.required().extend({
+          ids: z.array(z.string().max(512)).max(128),
+        }),
+      )
+      .mutation(({ input }) => {
+        const { interactionBadges } = requireExpectedAccount(
+          input.expectedAccountUin,
+          input.expectedAccountConfigId,
+        );
+        interactionBadges.acknowledge(input.ids);
+      }),
+  }),
   noticeRead: createNoticeReadRouter((input) => {
     const config = requireExpectedAccount(
       input.expectedAccountUin,

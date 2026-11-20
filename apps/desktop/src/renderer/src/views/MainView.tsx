@@ -62,6 +62,7 @@ import type {
 } from './workspace/types';
 import { useWorkspaceDrafts } from './workspace/useWorkspaceDrafts';
 import { useWorkspaceDirectory } from './workspace/useWorkspaceDirectory';
+import { useConversationInteractionBadges } from '../hooks/useConversationInteractionBadges';
 import React, {
   lazy,
   Suspense,
@@ -1337,6 +1338,11 @@ function MainWorkspace(): ReactElement {
     [setConversationView],
   );
   useClientPreferences((state) => state.tick);
+  const interactionBadges = useConversationInteractionBadges(
+    pinSession.binding,
+    preferenceValue('showInteractionBadge'),
+  );
+  const interactionViewportLocked = useAppLock((state) => state.locked);
   const includeHiddenConversations = preferenceValue('allConversationsIncludeHidden');
   const includeDeletedConversations = preferenceValue('allConversationsIncludeDeleted');
   const allConversationOptions = useMemo(
@@ -9649,6 +9655,20 @@ function MainWorkspace(): ReactElement {
                               if (unreadSnapshotPendingRef.current?.convId !== conv.id)
                                 void markVisibleConversationRead(conv);
                             }}
+                            pendingInteractions={
+                              messagesTabActive &&
+                              !settingsOpen &&
+                              !dressUpOpen &&
+                              !interactionViewportLocked &&
+                              (!mobileLayout || !mobileConversationList) &&
+                              selectedConversation &&
+                              selectedConversation.type !== 'merged'
+                                ? interactionBadges.byConversation.get(
+                                    `${selectedConversation.type === 'group' ? 'group' : 'c2c'}:${selectedConversation.id}`,
+                                  )
+                                : undefined
+                            }
+                            onSeeInteractions={interactionBadges.acknowledge}
                             conversationPrefs={conversationPrefs}
                             drafts={drafts}
                             query={shell.query}
@@ -10559,6 +10579,7 @@ function MainWorkspace(): ReactElement {
                             view: conversationView,
                             views: conversationViews,
                             rows: currentViewRows,
+                            interactionBadges: interactionBadges.byConversation,
                             returnToRegular,
                             onViewChange: switchConversationView,
                             onReturnToRegular: () => switchConversationView('regular'),

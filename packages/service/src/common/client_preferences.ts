@@ -28,6 +28,7 @@ export const preferenceDefaults = {
   messageNotifications: false,
   applicationBadge: true,
   showMessageUnreadBadge: true,
+  showInteractionBadge: false,
   showContactUnreadCount: false,
   showGroupAssistantMessageCount: false,
   showOfficialUnreadBadge: false,

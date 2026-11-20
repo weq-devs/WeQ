@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { NumericText } from '../../components/NumericText';
 import { TimeLabel } from '../../components/TimeLabel';
-import { ReminderCount } from '../../components/ReminderBadge';
+import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
 import { ConversationRowContent } from '../../components/sidebar/ConversationRowContent';
 import { useUnreadMarkers } from '../../lib/unreadMarkers';
 import { occupationText } from '@weqbot/protocol/profile-values';
@@ -1030,7 +1030,9 @@ export function ConversationList({
                           title="隐藏会话"
                         />
                       ) : null}
-                      <TimeLabel value={updatedAt}>{formatConversationTime(updatedAt)}</TimeLabel>
+                      <TimeLabel value={updatedAt} tabbable={false}>
+                        {formatConversationTime(updatedAt)}
+                      </TimeLabel>
                     </>
                   }
                   status={
@@ -1041,6 +1043,17 @@ export function ConversationList({
                         count={unreadCount}
                         tone={muted ? 'muted' : 'notice'}
                         className="row-unread"
+                      />
+                    ) : !unreadCount &&
+                      conversation.type !== 'merged' &&
+                      directory?.interactionBadges?.has(
+                        `${conversation.type === 'group' ? 'group' : 'c2c'}:${conversation.id}`,
+                      ) ? (
+                      <ReminderDot
+                        className="row-unread"
+                        role="img"
+                        aria-label="有新互动"
+                        title="有新互动"
                       />
                     ) : !unreadCount && muted ? (
                       <BellOff className="row-muted" size={15} />
