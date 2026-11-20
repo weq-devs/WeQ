@@ -134,6 +134,7 @@ export const MessageRow = memo(function MessageRow({
   onRestore,
   onContextMenu,
   onLongPress,
+  onSwipeReply,
   onAction,
   onReedit,
   onDismissUnsent,
@@ -175,6 +176,7 @@ export const MessageRow = memo(function MessageRow({
     target?: EventTarget | null,
   ) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
+  onSwipeReply?: (message: Message) => void;
   onReedit?: (message: Message) => Promise<boolean>;
   /** 「可能未送达」占位的移除（见 MessageBubble 的同名 prop）。 */
   onDismissUnsent?: (message: Message) => void;
@@ -281,6 +283,7 @@ export const MessageRow = memo(function MessageRow({
       onRestore={onRestore}
       onContextMenu={noopContextMenu}
       onLongPress={noopLongPress}
+      onSwipeReply={onSwipeReply}
       onAction={onAction}
       onReedit={onReedit}
       onDismissUnsent={onDismissUnsent}

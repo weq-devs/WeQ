@@ -210,6 +210,7 @@ function MessageBubbleBody({
   onRestore,
   onContextMenu,
   onLongPress,
+  onSwipeReply,
   onAction,
   onReedit,
   onDismissUnsent,
@@ -271,6 +272,7 @@ function MessageBubbleBody({
     target?: EventTarget | null,
   ) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
+  onSwipeReply?: (message: Message) => void;
   onReedit?: (message: Message) => Promise<boolean>;
   /**
    * 「可能未送达」（回执 seq=0）占位的移除出口。这类占位没有可信序号，只能一直挂在
@@ -308,6 +310,13 @@ function MessageBubbleBody({
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
   const longPressAnchorRef = useRef<{ x: number; y: number } | null>(null);
+  const swipeReply = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    started: number;
+    moving: boolean;
+  } | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
@@ -436,6 +445,29 @@ function MessageBubbleBody({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'touch') {
+      swipeReply.current = null;
+      if (
+        onSwipeReply &&
+        event.isPrimary &&
+        event.button === 0 &&
+        event.clientX > 24 &&
+        event.target instanceof Element &&
+        !event.target.closest(
+          'a, button, input, textarea, select, video, audio, pre, [contenteditable], [role="button"], [role="slider"]',
+        ) &&
+        !event.currentTarget.querySelector('pre') &&
+        event.currentTarget.ownerDocument.getSelection()?.isCollapsed !== false
+      ) {
+        swipeReply.current = {
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          started: event.timeStamp,
+          moving: false,
+        };
+      }
+    }
     if (IS_WEB || selectionMode || event.pointerType === 'mouse' || event.button !== 0) {
       return;
     }
@@ -449,6 +481,7 @@ function MessageBubbleBody({
     };
     clearLongPress();
     longPressTimerRef.current = window.setTimeout(() => {
+      swipeReply.current = null;
       const anchorPoint = longPressAnchorRef.current ?? startPoint;
       selectMessageContent();
       onLongPress(anchorPoint, message, target);
@@ -457,6 +490,16 @@ function MessageBubbleBody({
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const swipe = swipeReply.current;
+    if (swipe?.id === event.pointerId) {
+      const dx = event.clientX - swipe.x;
+      const dy = Math.abs(event.clientY - swipe.y);
+      if (dx < -10 || (dy > 10 && dy >= dx)) swipeReply.current = null;
+      else if (dx > 10 && !swipe.moving) {
+        if (event.timeStamp - swipe.started > 450) swipeReply.current = null;
+        else swipe.moving = true;
+      }
+    }
     const point = longPressPointRef.current;
     if (!point) {
       return;
@@ -464,6 +507,24 @@ function MessageBubbleBody({
     if (Math.hypot(event.clientX - point.x, event.clientY - point.y) > 10) {
       clearLongPress();
     }
+  }
+
+  function cancelTouch() {
+    swipeReply.current = null;
+    clearLongPress();
+  }
+
+  function handlePointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const swipe = swipeReply.current;
+    cancelTouch();
+    if (!swipe?.moving || swipe.id !== event.pointerId) return;
+    const dx = event.clientX - swipe.x;
+    if (
+      dx >= 56 &&
+      dx >= Math.abs(event.clientY - swipe.y) * 1.5 &&
+      event.currentTarget.ownerDocument.getSelection()?.isCollapsed !== false
+    )
+      onSwipeReply?.(message);
   }
 
   function selectMessageContent() {
@@ -626,12 +687,17 @@ function MessageBubbleBody({
       <div
         ref={bubbleRef}
         className={cn('message-bubble', active && 'context-active')}
-        onContextMenu={(event) => onContextMenu(event, message)}
+        data-swipe-reply={Boolean(onSwipeReply) || undefined}
+        onContextMenu={(event) => {
+          cancelTouch();
+          onContextMenu(event, message);
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={clearLongPress}
-        onPointerCancel={clearLongPress}
-        onPointerLeave={clearLongPress}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={cancelTouch}
+        onPointerLeave={cancelTouch}
+        onLostPointerCapture={cancelTouch}
         onDragStart={(event) => event.preventDefault()}
       >
         <div className="weq-message-heading">

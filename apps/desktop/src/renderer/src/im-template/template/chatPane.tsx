@@ -1674,6 +1674,11 @@ function ChatPaneContent({
     pagingNewer,
   ]);
   const rowRestore = useStableCallback(onRestoreMessage);
+  const rowSwipeReply = useStableCallback((message: Message) => {
+    setComposerCollapsed(false);
+    startQuote(message);
+    focusComposerEnd(currentComposerEditor());
+  });
   const rowContext = useStableCallback(openMessageMenu);
   const rowLongPress = useStableCallback(
     (point: { x: number; y: number }, message: Message, target?: EventTarget | null) =>
@@ -6498,6 +6503,16 @@ function ChatPaneContent({
                           onRestore={rowRestore}
                           onContextMenu={rowContext}
                           onLongPress={rowLongPress}
+                          onSwipeReply={
+                            composerVisible &&
+                            !readOnly &&
+                            !selectionMode &&
+                            !restrictedSource &&
+                            !outgoingActionBlockReason(message) &&
+                            !quoteBlockReason(message)
+                              ? rowSwipeReply
+                              : undefined
+                          }
                           onAction={rowAction}
                           onReedit={!readOnly && composerVisible ? rowReedit : undefined}
                           onDismissUnsent={rowDismiss}

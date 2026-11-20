@@ -25,7 +25,90 @@ const base = createTemplateDemoData().messages[0]!;
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('消息菜单 +1', () => {
+describe('消息菜单及触屏操作', () => {
+  it('从气泡向右横滑引用，边缘、纵向、短滑、取消及长按都保留输入', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    vi.useFakeTimers();
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((item) => item.type === 'direct')!;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const message = {
+      ...base,
+      id: 'swipe-source',
+      msgSeq: '42',
+      conversationId: conversation.id,
+      body: '待引用的消息',
+      qqElements: [{ type: 'text', data: { textContent: '待引用的消息' } }],
+    };
+    const quote = () => host.querySelector('[aria-label="待发送的引用"]');
+    const pointer = (type: string, x: number, y = 100) =>
+      act(() =>
+        host.querySelector('.message-content')!.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            pointerType: 'touch',
+            pointerId: 1,
+            isPrimary: true,
+            button: 0,
+            clientX: x,
+            clientY: y,
+          }),
+        ),
+      );
+    try {
+      await act(async () =>
+        root.render(
+          createElement(ChatPane, {
+            user: demo.user,
+            conversation,
+            messages: [message],
+            draft: '保留草稿',
+            loading: false,
+            onDraftChange: vi.fn(),
+          }),
+        ),
+      );
+      expect(host.querySelector('[data-swipe-reply]')).not.toBeNull();
+      for (const [start, end, y] of [
+        [24, 110, 100],
+        [100, 145, 100],
+        [100, 120, 175],
+      ]) {
+        pointer('pointerdown', start!);
+        pointer('pointermove', end!, y);
+        pointer('pointerup', end!, y);
+        expect(quote()).toBeNull();
+      }
+      pointer('pointerdown', 100);
+      pointer('pointermove', 175);
+      pointer('pointercancel', 175);
+      pointer('pointerup', 175);
+      expect(quote()).toBeNull();
+
+      pointer('pointerdown', 100);
+      pointer('pointermove', 175);
+      pointer('pointerup', 175);
+      expect(quote()?.textContent).toContain('待引用的消息');
+      expect(host.querySelector('.composer-editor')?.textContent).toContain('保留草稿');
+      expect(document.activeElement).toBe(host.querySelector('.composer-editor'));
+      act(() => quote()!.querySelector('button')!.click());
+
+      pointer('pointerdown', 100);
+      act(() => vi.advanceTimersByTime(470));
+      expect(document.getSelection()?.toString()).toContain('待引用的消息');
+      pointer('pointermove', 175);
+      pointer('pointerup', 175);
+      expect(quote()).toBeNull();
+    } finally {
+      document.getSelection()?.removeAllRanges();
+      act(() => root.unmount());
+      host.remove();
+      vi.useRealTimers();
+    }
+  });
   it('桌面触屏长按保留实际命中元素，不能丢失媒体或卡片目标', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.useFakeTimers();

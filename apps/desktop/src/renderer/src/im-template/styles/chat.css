@@ -704,6 +704,10 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   gap: 5px;
 }
 
+.message-bubble[data-swipe-reply]:not(:has(pre)) {
+  touch-action: pan-y pinch-zoom;
+}
+
 .message-bubble:has(.qq-md pre) {
   max-width: min(75%, 680px);
 }

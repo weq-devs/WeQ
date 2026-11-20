@@ -17,6 +17,7 @@ const width = Number(process.env.WEQ_SCROLL_WIDTH ?? 1280);
 const cachedBubbles = process.env.WEQ_SCROLL_CACHED_BUBBLES === '1';
 const grouped = process.env.WEQ_SCROLL_GROUPED === '1';
 const imageGrid = process.env.WEQ_SCROLL_IMAGE_GRID === '1';
+const touchReply = process.env.WEQ_SCROLL_TOUCH_REPLY === '1';
 const fixtureFlags = [
   cachedBubbles && '&cached-bubbles=1',
   grouped && '&grouped=1',
@@ -27,6 +28,7 @@ const fixtureFlags = [
 const server = await createServer({
   configFile: false,
   root,
+  define: touchReply ? { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') } : undefined,
   cacheDir,
   optimizeDeps: { entries: ['test/browser/timeline.html'] },
   plugins: [
@@ -72,7 +74,11 @@ try {
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
   });
-  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  const page = await browser.newPage({
+    viewport: { width, height: 900 },
+    isMobile: touchReply,
+    hasTouch: touchReply,
+  });
   await page.route('**/*', (route) =>
     new URL(route.request().url()).hostname === '127.0.0.1' ||
     route.request().url().startsWith('data:')
@@ -83,6 +89,45 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=25${fixtureFlags}`,
   );
   await page.waitForSelector('[data-message-id="row-1001"]');
+  if (touchReply) {
+    const cdp = await page.context().newCDPSession(page);
+    const target = page.locator('[data-message-id="row-1003"] .message-content');
+    const swipe = async (dx, dy) => {
+      await target.scrollIntoViewIfNeeded();
+      const bounds = await target.boundingBox();
+      const x = bounds.x + Math.min(20, bounds.width / 2);
+      const y = bounds.y + bounds.height / 2;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (const fraction of [0.25, 0.5, 0.75, 1]) {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [{ x: x + dx * fraction, y: y + dy * fraction }],
+        });
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    };
+    const quote = page.getByLabel('待发送的引用');
+    await target.scrollIntoViewIfNeeded();
+    const before = await page.locator('.message-scroll').evaluate((element) => element.scrollTop);
+    await swipe(0, -100);
+    await page.waitForFunction(
+      (top) => document.querySelector('.message-scroll').scrollTop > top + 5,
+      before,
+    );
+    assert.equal(await quote.count(), 0);
+    await swipe(80, 0);
+    await quote.waitFor();
+    assert.match(await quote.textContent(), /合成消息 1003/);
+    assert.ok(
+      await page
+        .locator('.composer-editor')
+        .first()
+        .evaluate((element) => document.activeElement === element),
+    );
+    await cdp.detach();
+    await page.reload();
+    await page.waitForSelector('[data-message-id="row-1001"]');
+  }
   if (imageGrid) {
     const grid = page.locator('[data-message-id="row-1004"] .qq-image-grid');
     await grid.waitFor();
@@ -226,6 +271,7 @@ try {
     cachedBubbles,
     grouped,
     imageGrid,
+    touchReply,
     baseline: baseline ?? null,
     samples: samples.length,
     blankFrames: samples.filter((sample) => sample.blank),
