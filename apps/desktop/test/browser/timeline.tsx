@@ -90,6 +90,7 @@ const conversation = {
 };
 const message = (seq: number): Message => ({
   id: `row-${seq}`,
+  ...(params.has('read-progress') ? { msgId: String(seq) } : {}),
   conversationId: conversation.id,
   senderId: seq % 3 ? 'u_peer' : user.id,
   senderUid: seq % 3 ? 'u_peer' : 'u_self',
@@ -131,6 +132,9 @@ if (params.has('resize-diagnostics')) {
 function Fixture() {
   const rootRef = useRef<HTMLDivElement>(null);
   const sentBodies = useRef<string[]>([]);
+  const readSequences = useRef(new Set<string>());
+  const [unreadReady, setUnreadReady] = useState(!params.has('delay-unread'));
+  const readProgress = params.has('read-progress');
   const mobileInput = params.has('mobile-input');
   useMobileWebViewport(rootRef, mobileInput);
   const [conversationId, setConversationId] = useState(conversation.id);
@@ -154,7 +158,7 @@ function Fixture() {
     }, 100);
     return () => clearTimeout(timer);
   }, []);
-  const [atLatest, setAtLatest] = useState(true);
+  const [atLatest, setAtLatest] = useState(!params.has('delay-unread'));
   const [active, setActive] = useState(true);
   const [initialPosition, setInitialPosition] = useState(!params.has('entry'));
   const selection = useContentMultiSelect({
@@ -165,6 +169,8 @@ function Fixture() {
   Object.assign(bridge, {
     virtualThreshold: TIMELINE_VIRTUAL_THRESHOLD,
     sentBodies: () => sentBodies.current,
+    readSequences: () => [...readSequences.current],
+    showUnreadDock: () => setUnreadReady(true),
     beginEntry: () => {
       setConversationId((id) => `${id}-loading`);
       setMessages([]);
@@ -282,7 +288,12 @@ function Fixture() {
       user,
       conversation: { ...conversation, id: conversationId },
       messages,
-      unreadDock,
+      unreadDock: unreadReady ? (unreadDock ?? null) : undefined,
+      readThroughViewport: readProgress,
+      confirmedReadSeq: readProgress ? '1000' : undefined,
+      onReadCurrentConversation: (_, seqs) => {
+        for (const seq of seqs ?? []) readSequences.current.add(seq);
+      },
       jumpRequest,
       messageRenderers: [qqMessageRenderer],
       atLatest,

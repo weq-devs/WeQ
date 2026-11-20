@@ -14,6 +14,9 @@ import {
   countAppendedMessages,
 } from './chatTimelineModel';
 
+type ViewportReadRow = { seq: string; bottom: number };
+const READ_GESTURE_MS = 1000;
+
 export function useChatTimelineNavigation({
   atLatest,
   conversation,
@@ -27,6 +30,7 @@ export function useChatTimelineNavigation({
   messages,
   onJumpToLatest,
   readThroughViewport,
+  confirmedReadSeq,
   onReadCurrentConversation,
   pendingInteractions,
   onSeeInteractions,
@@ -51,6 +55,7 @@ export function useChatTimelineNavigation({
   messages: ChatPaneProps['messages'];
   onJumpToLatest: ChatPaneProps['onJumpToLatest'];
   readThroughViewport: ChatPaneProps['readThroughViewport'];
+  confirmedReadSeq: ChatPaneProps['confirmedReadSeq'];
   onReadCurrentConversation: ChatPaneProps['onReadCurrentConversation'];
   pendingInteractions?: ChatPaneProps['pendingInteractions'];
   onSeeInteractions?: ChatPaneProps['onSeeInteractions'];
@@ -68,6 +73,12 @@ export function useChatTimelineNavigation({
   const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
 
   const [locatedSeq, setLocatedSeq] = useState<string | null>(null);
+  const entryVisibility = useMemo(
+    () => ({ ids: new Set<string>(), sequences: new Set<string>() }),
+    [conversation?.id, conversation?.type],
+  );
+  const confirmedWatermark =
+    confirmedReadSeq && /^\d{1,20}$/.test(confirmedReadSeq) ? BigInt(confirmedReadSeq) : undefined;
   const navigationKey = useMemo(
     () => ({ conversationId: conversation?.id, dock: unreadDock, seenUnreadHighlights }),
     [conversation?.id, unreadDock, seenUnreadHighlights],
@@ -97,10 +108,12 @@ export function useChatTimelineNavigation({
   const isVisited = useCallback(
     (stop: UnreadDockStop) =>
       visitedStops?.has(stop.seq) ||
-      (stop.kind !== 'unread' &&
-        navigationKey.conversationId &&
-        seenUnreadHighlights?.has(unreadHighlightKey(navigationKey.conversationId, stop))),
-    [navigationKey, seenUnreadHighlights, visitedStops],
+      (stop.kind === 'unread'
+        ? entryVisibility.sequences.has(stop.seq) ||
+          (confirmedWatermark !== undefined && BigInt(stop.seq) <= confirmedWatermark)
+        : navigationKey.conversationId &&
+          seenUnreadHighlights?.has(unreadHighlightKey(navigationKey.conversationId, stop))),
+    [confirmedWatermark, entryVisibility, navigationKey, seenUnreadHighlights, visitedStops],
   );
   const locateTask = useRef<object | null>(null);
   const [dockJumping, setDockJumping] = useState(false);
@@ -174,11 +187,25 @@ export function useChatTimelineNavigation({
   );
 
   const lastReadSignal = useRef({ key: '', at: 0 });
-  const lastVisibleRead = useRef('');
+  const viewportRead = useMemo(
+    () => ({
+      scrollTop: undefined as number | undefined,
+      visible: new Map<string, ViewportReadRow>(),
+      ready: new Set<string>(),
+      watermark: undefined as bigint | undefined,
+      lastReport: '',
+    }),
+    [conversation?.id, conversation?.type, readThroughViewport],
+  );
   const viewportReadEnabled = Boolean(readThroughViewport && onReadCurrentConversation);
   const viewportReadVersion = viewportReadEnabled
-    ? `${conversation?.id}:${conversation?.unreadCount}:${latestMessageSeq ?? ''}`
+    ? `${confirmedReadSeq ?? ''}:${conversation?.unreadCount}:${latestMessageSeq ?? ''}`
     : '';
+  useLayoutEffect(() => {
+    if (viewportReadEnabled && tabActive) return;
+    viewportRead.visible.clear();
+    viewportRead.scrollTop = undefined;
+  }, [viewportRead, viewportReadEnabled, tabActive]);
 
   const readContextRef = useRef({
     tabActive,
@@ -550,6 +577,7 @@ export function useChatTimelineNavigation({
 
   async function jumpToBottomAndRead() {
     if (jumpingToLatest) return;
+    readGestureUntil.current = 0;
     if (!atLatest) {
       if (!onJumpToLatest) return;
       setJumpingToLatest(true);
@@ -612,7 +640,7 @@ export function useChatTimelineNavigation({
 
   function handleReadGesture(event: { target: EventTarget | null }) {
     if (event.target instanceof Element && event.target.closest('.message-scroll'))
-      readGestureUntil.current = performance.now() + 1000;
+      readGestureUntil.current = performance.now() + READ_GESTURE_MS;
     requestReadAtBottom();
   }
 
@@ -851,68 +879,153 @@ export function useChatTimelineNavigation({
     visibleMessages,
   ]);
 
+  const entryPending = unreadDock === undefined && Boolean(onReadCurrentConversation);
   const observeMessageVisibility = useCallback(() => {
     const scroll = messageScrollRef.current;
     if (
       !tabActive ||
-      loading ||
-      loadingNewer ||
       !scroll ||
       !visibleMessages.length ||
-      (!dockTargets?.size && !interactionTargets?.size && !viewportReadEnabled)
+      (!entryPending && (loading || loadingNewer))
     )
       return;
+    const unreadSeq = unreadDock?.stops.find((stop) => stop.kind === 'unread')?.seq;
+    if (dockTargets && unreadSeq)
+      for (const [id, seqs] of dockTargets)
+        if (entryVisibility.ids.has(id) && seqs.includes(unreadSeq)) {
+          visitStops(navigationKey, [unreadSeq]);
+          break;
+        }
     const targets = new Map<Element, string>();
-    const readTargets = new Map<HTMLElement, string>();
+    const viewportRows = new Map<HTMLElement, { id: string; seq: string; readable: boolean }>();
+    const observeRead = viewportReadEnabled && !loading && !loadingNewer;
     for (const target of scroll.querySelectorAll<HTMLElement>('[data-message-id]')) {
       const id = target.dataset.messageId ?? '';
       if (dockTargets?.has(id) || interactionTargets?.has(id)) targets.set(target, id);
-      if (!viewportReadEnabled || !target.classList.contains('message-line')) continue;
+      if (!entryPending && !observeRead) continue;
       const index = target.closest<HTMLElement>('.weq-virtual-timeline-row')?.dataset.index;
       const message = index === undefined ? undefined : visibleMessages[Number(index)];
       if (
         message?.id === id &&
         message.conversationId === conversation?.id &&
-        message.msgId &&
         !message.optimistic &&
         (!message.source || message.ntSeqVerified) &&
         message.msgSeq &&
         /^[1-9]\d{0,19}$/.test(message.msgSeq)
       )
-        readTargets.set(target, message.msgSeq);
+        viewportRows.set(target, {
+          id,
+          seq: message.msgSeq,
+          readable:
+            observeRead && Boolean(message.msgId) && target.classList.contains('message-line'),
+        });
     }
-    if (!targets.size && !readTargets.size) return;
+    if (!targets.size && !viewportRows.size) return;
+    const clearVisibleRead = () => {
+      viewportRead.visible.clear();
+      viewportRead.scrollTop = undefined;
+    };
+    const sampleViewport = () => {
+      const current = readContextRef.current;
+      if (
+        !current.tabActive ||
+        !current.conversation ||
+        current.conversation.id !== conversation?.id ||
+        document.visibilityState === 'hidden' ||
+        !document.hasFocus()
+      ) {
+        clearVisibleRead();
+        return;
+      }
+      const bounds = scroll.getBoundingClientRect();
+      if (bounds.height <= 0) return;
+      const scrollTop = scroll.scrollTop;
+      const forward =
+        viewportRead.scrollTop !== undefined &&
+        scrollTop > viewportRead.scrollTop &&
+        readGestureUntil.current > performance.now();
+      const atBottom =
+        current.atLatest &&
+        !loadError &&
+        scroll.scrollHeight - scrollTop - scroll.clientHeight <= 2;
+      const previous = viewportRead.visible;
+      const visible = new Map<string, ViewportReadRow>();
+      const { ready } = viewportRead;
+      if (confirmedWatermark !== viewportRead.watermark) {
+        if (
+          viewportRead.watermark !== undefined &&
+          confirmedWatermark !== undefined &&
+          confirmedWatermark < viewportRead.watermark
+        ) {
+          ready.clear();
+          previous.clear();
+        } else if (confirmedWatermark !== undefined) {
+          for (const seq of ready) if (BigInt(seq) <= confirmedWatermark) ready.delete(seq);
+        }
+        viewportRead.watermark = confirmedWatermark;
+      }
+      const confirm = (seq: string) => {
+        if (
+          confirmedWatermark === undefined ||
+          BigInt(seq) > confirmedWatermark ||
+          (seq === confirmedReadSeq &&
+            seq === latestMessageSeq &&
+            Boolean(current.conversation?.unreadCount))
+        )
+          ready.add(seq);
+      };
+      for (const [target, { id, seq, readable }] of viewportRows) {
+        const rect = target.getBoundingClientRect();
+        const shown = Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top);
+        if (entryPending && shown > 0) {
+          entryVisibility.ids.add(id);
+          entryVisibility.sequences.add(seq);
+        }
+        if (!readable || !current.viewportReadEnabled) continue;
+        const seen = previous.get(id)?.seq === seq;
+        previous.delete(id);
+        if (seen && forward && rect.bottom <= bounds.top) confirm(seq);
+        // 看到足够内容后持续追踪，直到整条消息从视口上沿滑出。
+        if (shown > 0 && (seen || shown >= Math.min(rect.height, bounds.height) / 2)) {
+          visible.set(id, { seq, bottom: rect.bottom - bounds.top + scrollTop });
+          if (atBottom) confirm(seq);
+        }
+      }
+      if (!observeRead || !current.viewportReadEnabled) return;
+      if (forward) {
+        // 虚拟列表可能先卸载刚滑出的行，使用上一帧实际测得的下沿。
+        for (const [id, row] of previous)
+          if (
+            row.bottom <= scrollTop &&
+            visibleMessages.some((message) => message.id === id && message.msgSeq === row.seq)
+          )
+            confirm(row.seq);
+      }
+      viewportRead.visible = visible;
+      viewportRead.scrollTop = scrollTop;
+      if (!ready.size) return;
+      const key = `${viewportReadVersion}:${ready.size}`;
+      if (viewportRead.lastReport === key) return;
+      viewportRead.lastReport = key;
+      // 提交最早的已读候选，后续视口可补上跳转留下的缺口。
+      const sequences = [...ready]
+        .sort((a, b) => a.length - b.length || a.localeCompare(b))
+        .slice(0, 512);
+      current.onReadCurrentConversation?.(current.conversation, sequences);
+    };
     let readFrame: number | undefined;
     const scheduleRead = () => {
-      if (!readTargets.size || readFrame !== undefined) return;
+      if (!viewportRows.size || readFrame !== undefined) return;
       readFrame = window.requestAnimationFrame(() => {
         readFrame = undefined;
-        const current = readContextRef.current;
-        if (
-          !current.viewportReadEnabled ||
-          !current.tabActive ||
-          !current.conversation ||
-          current.conversation.id !== conversation?.id ||
-          document.visibilityState === 'hidden' ||
-          !document.hasFocus()
-        )
-          return;
-        const bounds = scroll.getBoundingClientRect();
-        if (bounds.height <= 0) return;
-        const visible = new Set<string>();
-        for (const [target, seq] of readTargets) {
-          const rect = target.getBoundingClientRect();
-          const shown = Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top);
-          // 长消息至少显示半屏，短消息至少显示一半，排除虚拟列表预挂载和擦边。
-          if (shown > 0 && shown >= Math.min(rect.height, bounds.height) / 2) visible.add(seq);
-        }
-        if (!visible.size) return;
-        const sequences = [...visible].slice(0, 512);
-        const key = `${viewportReadVersion}:${sequences.join(',')}`;
-        if (lastVisibleRead.current === key) return;
-        lastVisibleRead.current = key;
-        current.onReadCurrentConversation?.(current.conversation, sequences);
+        sampleViewport();
       });
+    };
+    const onViewportScroll = () => {
+      const now = performance.now();
+      if (observeRead && readGestureUntil.current > now)
+        readGestureUntil.current = now + READ_GESTURE_MS;
+      scheduleRead();
     };
     const report = (rows: string[]) => {
       visitStops(
@@ -929,7 +1042,8 @@ export function useChatTimelineNavigation({
       if (visible.length) onSeeInteractions?.(visible);
     };
     const probe = () => {
-      scheduleRead();
+      if (entryPending && viewportRows.size) sampleViewport();
+      else scheduleRead();
       const bounds = scroll.getBoundingClientRect();
       if (bounds.height <= 0) return;
       const seen: string[] = [];
@@ -956,22 +1070,24 @@ export function useChatTimelineNavigation({
             },
             {
               root: scroll,
-              threshold: viewportReadEnabled ? [Number.EPSILON, 0.5] : Number.EPSILON,
+              threshold: observeRead ? [Number.EPSILON, 0.5] : Number.EPSILON,
             },
           );
-    for (const target of new Set([...targets.keys(), ...readTargets.keys()]))
+    for (const target of new Set([...targets.keys(), ...viewportRows.keys()]))
       observer?.observe(target);
-    if (readTargets.size) scroll.addEventListener('scroll', scheduleRead, { passive: true });
-    if (interactionTargets?.size || readTargets.size) {
+    if (viewportRows.size) scroll.addEventListener('scroll', onViewportScroll, { passive: true });
+    if (interactionTargets?.size || viewportRows.size) {
       window.addEventListener('focus', probe);
+      window.addEventListener('blur', clearVisibleRead);
       document.addEventListener('visibilitychange', probe);
     }
     return () => {
       observer?.disconnect();
       observer?.takeRecords();
-      scroll.removeEventListener('scroll', scheduleRead);
+      scroll.removeEventListener('scroll', onViewportScroll);
       if (readFrame !== undefined) window.cancelAnimationFrame(readFrame);
       window.removeEventListener('focus', probe);
+      window.removeEventListener('blur', clearVisibleRead);
       document.removeEventListener('visibilitychange', probe);
     };
   }, [
@@ -979,7 +1095,15 @@ export function useChatTimelineNavigation({
     loadingNewer,
     navigationKey,
     conversation?.id,
+    confirmedReadSeq,
+    confirmedWatermark,
+    entryPending,
+    entryVisibility,
+    latestMessageSeq,
+    loadError,
     tabActive,
+    unreadDock,
+    viewportRead,
     viewportReadEnabled,
     viewportReadVersion,
     dockTargets,

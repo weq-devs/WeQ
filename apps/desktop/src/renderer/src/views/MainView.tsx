@@ -3475,6 +3475,37 @@ function MainWorkspace(): ReactElement {
   // Keep one unread reader alive: DB pings request a refresh, rather than
   // cancelling and restarting an all-conversation scan on every change.
   type UnreadTarget = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
+  type UnreadRows = Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>;
+  const [activeReadPosition, setActiveReadPosition] = useState<{
+    scope: string;
+    uid: string;
+    chatType: number;
+    readSeq: string;
+  }>();
+  const applyActiveReadPosition = useCallback(
+    (rows: UnreadRows) => {
+      const selection = selectionRef.current;
+      if (!selection) return;
+      const scope = messageScopeRef.current;
+      const row = rows.find(
+        (row) =>
+          row.uid === selection.id &&
+          row.chatType === (selection.kind === 'group' ? 2 : 1) &&
+          !row.readError,
+      );
+      if (!row?.readSeq) return;
+      const { uid, chatType, readSeq } = row;
+      setActiveReadPosition((current) =>
+        current?.scope === scope &&
+        current.uid === uid &&
+        current.chatType === chatType &&
+        current.readSeq === readSeq
+          ? current
+          : { scope, uid, chatType, readSeq },
+      );
+    },
+    [messageScopeRef, selectionRef],
+  );
   const unreadDirectoryTargets = useMemo(() => {
     const targets = new Map<string, UnreadTarget>();
     const archived = [...(hiddenSessions.data ?? []), ...(deletedSessions.data ?? [])];
@@ -3537,13 +3568,13 @@ function MainWorkspace(): ReactElement {
     }
 
     const refresh = createUnreadRefresh(loadUnread);
-    type Rows = Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>;
-    const applyLive = (rows: Rows, startedAt: number) => {
+    const applyLive = (rows: UnreadRows, startedAt: number) => {
       const accepted = rows.filter((row) => !row.readError && guard.accepts(row.uid, startedAt));
       if (!accepted.length) return;
       // 实时结果也推进版本，不能被更早启动的全量扫描回灌。
       const finish = guard.begin(accepted.map((row) => row.uid));
       finish();
+      applyActiveReadPosition(accepted);
       setUnreadByConv((current) => {
         const next = { ...current };
         let changed = false;
@@ -3663,6 +3694,7 @@ function MainWorkspace(): ReactElement {
     messageScopeRef,
     selectionRef,
     refreshArchivedUnread,
+    applyActiveReadPosition,
   ]);
   useEffect(() => {
     if (!IS_WEB) return;
@@ -5007,8 +5039,8 @@ function MainWorkspace(): ReactElement {
     Boolean(selectedConversation) && messagesLoading && loaded.length === 0;
 
   // ── 未读跳转坞 ──────────────────────────────────────────────────────────
-  // 打开会话时记录未读和高亮快照，后续阅读推进时仍可用它引导跳转。
-  const [unreadDock, setUnreadDock] = useState<UnreadDock | null>(null);
+  // undefined 表示等待进会话时的快照，null 表示没有可用跳转点。
+  const [unreadDock, setUnreadDock] = useState<UnreadDock | null>();
   const seenUnreadHighlights = useMemo(() => new Set<string>(), [messageScope]);
   // 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时聊天区会在
   // 最近邻消息旁渲染一条「点击拉取」的缺口条 —— 因为这种单条缺失 seq 差恰好为 1，
@@ -5042,10 +5074,11 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     unreadDockRequestRef.current = null;
     unreadSnapshotPendingRef.current = null;
-    setUnreadDock(null);
+    setUnreadDock(undefined);
   }, [messageScope]);
   const applyUnreadRows = useCallback(
-    (rows: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>) => {
+    (rows: UnreadRows) => {
+      applyActiveReadPosition(rows);
       setUnreadByConv((current) => {
         const next = { ...current };
         for (const row of rows) if (!row.readError) next[row.uid] = row.unreadCount ?? 0;
@@ -5061,7 +5094,7 @@ function MainWorkspace(): ReactElement {
         return next;
       });
     },
-    [],
+    [applyActiveReadPosition],
   );
   const markVisibleConversationRead = useCallback(
     async (conv: Conversation, read: AutoRead = {}) => {
@@ -5338,7 +5371,7 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     unreadDockRequestRef.current = null;
     unreadSnapshotPendingRef.current = null;
-    setUnreadDock(null);
+    setUnreadDock(undefined);
     setMissingJumpSeq(null);
   }, [unreadSelectionId]);
 
@@ -5378,7 +5411,9 @@ function MainWorkspace(): ReactElement {
 
     unreadSnapshotPendingRef.current = request;
     (async () => {
-      let info: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number] | undefined;
+      let info: UnreadRows[number] | undefined;
+      const guard = unreadUpdateGuardRef.current;
+      const startedAt = guard.revision();
       try {
         if (!openedUin) return;
         [info] = await readUnreadInfos({
@@ -5388,11 +5423,15 @@ function MainWorkspace(): ReactElement {
         });
       } catch (err) {
         console.error('[unread-dock] getUnreadInfo failed', err);
-        return;
       } finally {
         if (unreadSnapshotPendingRef.current === request) unreadSnapshotPendingRef.current = null;
       }
-      if (!stillCurrent() || !info || info.readError) return;
+      if (!stillCurrent()) return;
+      if (!info || info.readError) {
+        setUnreadDock(null);
+        return;
+      }
+      if (guard.accepts(convId, startedAt)) applyActiveReadPosition([info]);
 
       const readSeq = info.readSeq ?? null;
       const unread = info.unreadCount ?? 0;
@@ -5420,6 +5459,7 @@ function MainWorkspace(): ReactElement {
     openedUin,
     messageScopeRef,
     messageBindingRef,
+    applyActiveReadPosition,
   ]);
 
   useEffect(() => {
@@ -9893,6 +9933,15 @@ function MainWorkspace(): ReactElement {
                               }
                             }}
                             readThroughViewport={readThroughViewport}
+                            confirmedReadSeq={
+                              readThroughViewport &&
+                              activeReadPosition?.scope === messageScope &&
+                              activeReadPosition.uid === unreadSelectionId &&
+                              activeReadPosition.chatType ===
+                                (selectedConversation?.type === 'group' ? 2 : 1)
+                                ? activeReadPosition.readSeq
+                                : undefined
+                            }
                             onReadCurrentConversation={
                               readThroughViewport && !readViewportActive
                                 ? undefined
@@ -10033,9 +10082,11 @@ function MainWorkspace(): ReactElement {
                               handleRestoreMessage(msgId, selectedConversation)
                             }
                             unreadDock={
-                              unreadDockRequestRef.current?.convId === unreadSelectionId
-                                ? unreadDock
-                                : null
+                              unreadSelectionId === null
+                                ? null
+                                : unreadDockRequestRef.current?.convId === unreadSelectionId
+                                  ? unreadDock
+                                  : undefined
                             }
                             seenUnreadHighlights={seenUnreadHighlights}
                             missingJumpSeq={missingJumpSeq}

@@ -523,6 +523,7 @@ export type ChatPaneProps = {
   onPreviewLatest?: (conversation: Conversation) => void;
   onJumpToLatest?: () => Promise<boolean>;
   readThroughViewport?: boolean;
+  confirmedReadSeq?: string;
   onReadCurrentConversation?: (conversation: Conversation, visibleSeqs?: string[]) => void;
   pendingInteractions?: readonly ConversationInteraction[];
   onSeeInteractions?: (ids: string[]) => void;
@@ -731,6 +732,7 @@ export function ChatPane({
   onPreviewLatest,
   onJumpToLatest,
   readThroughViewport,
+  confirmedReadSeq,
   onReadCurrentConversation,
   pendingInteractions,
   onSeeInteractions,
@@ -1585,6 +1587,7 @@ export function ChatPane({
     messages,
     onJumpToLatest,
     readThroughViewport,
+    confirmedReadSeq,
     onReadCurrentConversation,
     pendingInteractions,
     onSeeInteractions,
@@ -6031,6 +6034,10 @@ export function ChatPane({
         handleReadGesture(event);
       }}
       onTouchMoveCapture={handleReadGesture}
+      onKeyDownCapture={(event) => {
+        if (readThroughViewport && ['ArrowDown', 'PageDown', 'End', ' '].includes(event.key))
+          handleReadGesture(event);
+      }}
       onKeyUpCapture={handleReadGesture}
       onCopyCapture={(event) => {
         if ((event.target as Element).closest('.composer-editor')) return;

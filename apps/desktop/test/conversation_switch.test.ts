@@ -1106,7 +1106,7 @@ it.each([
   },
 );
 
-it('首条新消息模式只提交聊天视口中看到的序号，打开会话和到达底部均不整批清空', async () => {
+it('首条新消息模式在消息滑出上沿或触底时提交已读，并保留跳过的序号', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -1132,7 +1132,13 @@ it('首条新消息模式只提交聊天视口中看到的序号，打开会话�
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
     this: HTMLElement,
   ) {
-    if (this.classList.contains('message-scroll')) return new DOMRect(0, 0, 400, 100);
+    if (this.classList.contains('message-scroll')) {
+      Object.defineProperties(this, {
+        clientHeight: { value: 100, configurable: true },
+        scrollHeight: { value: 300, configurable: true },
+      });
+      return new DOMRect(0, 0, 400, 100);
+    }
     if (this.classList.contains('message-line'))
       return new DOMRect(0, (Number(this.dataset.messageId) - 101) * 50 - offset, 400, 50);
     return realBounds.call(this);
@@ -1154,15 +1160,28 @@ it('首条新消息模式只提交聊天视口中看到的序号，打开会话�
         .click(),
     );
     await act(async () => vi.advanceTimersByTimeAsync(32));
+    expect(f.markedRead).toEqual([]);
+
+    const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+    await act(async () => {
+      scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 100 }));
+      offset = scroll.scrollTop = 100;
+      scroll.dispatchEvent(new Event('scroll'));
+      await vi.advanceTimersByTimeAsync(32);
+    });
     expect(f.markedRead.map(({ visibleSeqs }) => visibleSeqs)).toEqual([['101', '102']]);
 
-    offset = 200;
+    vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 2000);
     await act(async () => {
-      host.querySelector('.message-scroll')!.dispatchEvent(new Event('scroll'));
+      offset = scroll.scrollTop = 200;
+      scroll.dispatchEvent(new Event('scroll'));
       f.readCurrent?.();
       await vi.advanceTimersByTimeAsync(32);
     });
-    expect(f.markedRead.map(({ visibleSeqs }) => visibleSeqs)).toEqual([['101', '102'], ['105']]);
+    expect(f.markedRead.map(({ visibleSeqs }) => visibleSeqs)).toEqual([
+      ['101', '102'],
+      ['101', '102', '105'],
+    ]);
   } finally {
     await act(async () => root.unmount());
     client.clear();
