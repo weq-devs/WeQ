@@ -1,7 +1,9 @@
 import { lazy, Suspense, useEffect, useState, type ComponentProps } from 'react';
 import { createPortal } from 'react-dom';
 import { lazyPanel } from '../lib/lazyPanel';
+import { Modal } from './Dialog';
 import { PanelLoading } from './LoadingIndicator';
+import { ChatRecordsHeader } from './search/ChatRecordsHeader';
 
 const MailContent = lazy(() =>
   import('../views/MailView').then((module) => ({ default: module.MailWorkspace })),
@@ -149,7 +151,22 @@ export const GapMessagesModal = lazyPanel<
 >(() => import('./compose/GapMessagesModal').then((m) => ({ default: m.GapMessagesModal })));
 export const ChatRecordsModal = lazyPanel<
   ComponentProps<typeof import('./search/ChatRecordsModal').ChatRecordsModal>
->(() => import('./search/ChatRecordsModal').then((m) => ({ default: m.ChatRecordsModal })));
+>(
+  () => import('./search/ChatRecordsModal').then((m) => ({ default: m.ChatRecordsModal })),
+  ({ fixed, initialHit, onClose }) => (
+    <Modal presentation="floating" width={960} labelledBy="weq-chatrecords-title" onClose={onClose}>
+      <div className="weq-chatrecords">
+        <ChatRecordsHeader
+          conversationName={fixed ? initialHit.name : undefined}
+          onClose={onClose}
+        />
+        <div className="weq-chatrecords-body is-fixed">
+          <PanelLoading />
+        </div>
+      </div>
+    </Modal>
+  ),
+);
 export const SequentialForwardDialog = lazyPanel<
   ComponentProps<typeof import('./SequentialForwardDialog').SequentialForwardDialog>
 >(() => import('./SequentialForwardDialog').then((m) => ({ default: m.SequentialForwardDialog })));

@@ -17,8 +17,10 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
     new Proxy(() => undefined, {
       get: (_target, key) =>
         key === 'query' || key === 'mutate'
-          ? (input: unknown) => {
-              return Promise.resolve(nativeReads(path.join('.'), input) ?? { items: [], total: 0 });
+          ? (input: unknown, options?: { signal: AbortSignal }) => {
+              return Promise.resolve(
+                nativeReads(path.join('.'), input, options) ?? { items: [], total: 0 },
+              );
             }
           : proxy([...path, String(key)]),
     });
@@ -164,11 +166,15 @@ it('克隆复用普通搜索窗，分页显示但按完整匹配身份导出，�
     });
     expect(exported.scope.ids).toEqual(messages.map((message) => message.id));
     expect(close).toHaveBeenCalledOnce();
-    act(() =>
-      document
-        .querySelector<HTMLButtonElement>('.weq-chatrecords-msgs > .weq-action-soft')!
-        .click(),
-    );
+    const results = document.querySelector<HTMLElement>('.weq-chatrecords-msgs')!;
+    Object.defineProperties(results, {
+      clientHeight: { value: 300 },
+      scrollHeight: {
+        get: () => (results.querySelectorAll('.weq-chatrecords-msg').length / 30) * 1000,
+      },
+    });
+    results.scrollTop = 700;
+    act(() => results.dispatchEvent(new Event('scroll')));
     expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(60);
     expect(nativeReads).not.toHaveBeenCalled();
   } finally {
@@ -176,3 +182,99 @@ it('克隆复用普通搜索窗，分页显示但按完整匹配身份导出，�
     host.remove();
   }
 });
+
+it('会话搜索自动越过空批次，按北京时间显示扫描日期，查完才显示无结果', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  const cursor = { time: Date.parse('2026-11-18T16:30:00Z') / 1000, rowId: '500' };
+  const second = Promise.withResolvers<{ items: []; cursor: null; hasMore: false }>();
+  const browse = vi
+    .fn()
+    .mockResolvedValueOnce({ items: [], cursor, hasMore: true })
+    .mockReturnValueOnce(second.promise);
+  nativeReads.mockImplementation((path: string, input: unknown) =>
+    path === 'account.browseConversation' ? browse(input) : undefined,
+  );
+  try {
+    await act(async () => root.render(nativeRecords()));
+    expect(browse.mock.calls.map(([input]) => input.cursor)).toEqual([undefined, cursor]);
+    expect(document.body.textContent).toContain('已查到 2026-11-19');
+    expect(document.body.textContent).not.toContain('没有找到相关消息');
+
+    await act(async () => second.resolve({ items: [], cursor: null, hasMore: false }));
+    expect(document.body.textContent).toContain('没有找到相关消息');
+    expect(browse).toHaveBeenCalledTimes(2);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it('换关键词时中止旧搜索，迟到的空批次不会继续分页', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  const oldPage = Promise.withResolvers<{
+    items: [];
+    cursor: { time: number; rowId: string };
+    hasMore: true;
+  }>();
+  const browse = vi
+    .fn()
+    .mockReturnValueOnce(oldPage.promise)
+    .mockResolvedValueOnce({
+      items: [
+        {
+          msgId: '1',
+          msgSeq: '1',
+          senderUid: 'fixture',
+          senderUin: '',
+          senderName: '',
+          sendTime: '1794528000',
+          content: '新词命中的正文',
+        },
+      ],
+      cursor: null,
+      hasMore: false,
+    });
+  nativeReads.mockImplementation((path: string, input: unknown, options: unknown) =>
+    path === 'account.browseConversation' ? browse(input, options) : undefined,
+  );
+  try {
+    await act(async () => root.render(nativeRecords()));
+    const input = document.querySelector<HTMLInputElement>('.weq-search-more-input')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        '新词',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(browse.mock.calls[0]?.[1].signal.aborted).toBe(true);
+    expect(browse.mock.calls[1]?.[0]).toMatchObject({ filter: { keyword: '新词' } });
+
+    await act(async () =>
+      oldPage.resolve({ items: [], cursor: { time: 1794528000, rowId: '500' }, hasMore: true }),
+    );
+    expect(browse).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent).toContain('新词命中的正文');
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+function nativeRecords() {
+  return h(ChatRecordsModal, {
+    fixed: true,
+    initialKeyword: '合成',
+    initialHit: {
+      category: 'chatRecord',
+      source: 'group',
+      partition: '12345',
+      targetUid: '12345',
+      targetUin: '12345',
+      name: '合成群',
+      count: 0,
+    },
+    onClose: vi.fn(),
+    onJumpMessage: vi.fn(),
+  });
+}

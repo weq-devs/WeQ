@@ -4,11 +4,13 @@ import { eventTimeFormatter } from '@weq/time';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { CalendarDays, Download, Search, X, SearchX } from 'lucide-react';
+import { CalendarDays, Download, X, SearchX } from 'lucide-react';
+import { ChatRecordsHeader } from './ChatRecordsHeader';
 import { ConversationCalendar } from './ConversationCalendar';
 import { TimeRangePicker } from '../../views/export/TimeRangePicker';
 import { beijingDay, daySeconds } from '../../lib/messageCalendar';
 import { Modal } from '../Dialog';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { SearchListSkeleton } from './SearchSkeleton';
 import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard.shared';
 import type { ChatRecordSearchHit, ConversationRecordHit } from './types';
@@ -36,6 +38,7 @@ import { enrichReplyElements } from '../../views/workspace/messageProjection';
 import type { RenderElement } from '../QqMessageContent.shared';
 
 const noop = (): void => {};
+type BrowseCursor = { time: number; rowId: string };
 
 export function ChatRecordsModal({
   initialHit,
@@ -102,7 +105,8 @@ export function ChatRecordsModal({
   const report = useExportReportDialog();
   const [msgError, setMsgError] = useState('');
   const [browseHasMore, setBrowseHasMore] = useState(false);
-  const browseCursor = useRef<{ time: number; rowId: string } | null>(null);
+  const browseCursor = useRef<BrowseCursor | null>(null);
+  const [scannedDay, setScannedDay] = useState('');
   const localMatches = useRef<ConversationRecordHit[]>([]);
   const filter = useMemo(
     () => ({
@@ -137,11 +141,13 @@ export function ChatRecordsModal({
   }, [fixed, localSource, user]);
   const selected = initialHit;
   const [messages, setMessages] = useState<ConversationRecordHit[]>([]);
-  const [msgLoading, setMsgLoading] = useState(false);
+  const [msgLoading, setMsgLoading] = useState(
+    () => !localSource && (fixed || Boolean(filter.keyword)),
+  );
   const [msgLoadingMore, setMsgLoadingMore] = useState(false);
   const [msgTotal, setMsgTotal] = useState(0);
   const [msgLimited, setMsgLimited] = useState(false);
-  const msgRunRef = useRef(0);
+  const msgRunRef = useRef<{ controller: AbortController; loadingMore: boolean } | null>(null);
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
   const isGroup = selected.source === 'group';
   const members = useMemo(
@@ -176,8 +182,65 @@ export function ChatRecordsModal({
     [selected, localSource],
   );
 
+  const queryMessages = useCallback(
+    async (offset: number, signal: AbortSignal) => {
+      if (!fixed) {
+        return client.account.searchConversationRecords.query(
+          {
+            source: selected.source,
+            conv: selected.targetUid,
+            keyword: filter.keyword ?? '',
+            offset,
+            limit: 30,
+          },
+          { signal },
+        );
+      }
+
+      // 空批次也可能扫描过几千条原始消息。按游标接着查，直到有命中或到达范围末尾。
+      while (!signal.aborted) {
+        const cursor = browseCursor.current;
+        const page = await client.account.browseConversation.query(
+          {
+            kind: selected.source === 'group' ? 'group' : 'c2c',
+            conv: selected.targetUid,
+            filter,
+            cursor: cursor ?? undefined,
+            limit: 30,
+          },
+          { signal },
+        );
+        if (signal.aborted) return;
+        if (
+          page.hasMore &&
+          (!page.cursor ||
+            (page.cursor.time === cursor?.time && page.cursor.rowId === cursor.rowId))
+        )
+          throw new Error('聊天记录搜索进度未推进');
+        browseCursor.current = page.cursor ?? null;
+        if (page.cursor && page.cursor.time > 0) {
+          setScannedDay(beijingDay(new Date(page.cursor.time * 1000)));
+        }
+        setBrowseHasMore(page.hasMore);
+        if (page.items.length || !page.hasMore)
+          return { items: page.items, total: undefined, limited: false };
+      }
+    },
+    [fixed, selected, filter],
+  );
+
   // Fetch messages for the selected conversation.
   useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    msgRunRef.current = { controller, loadingMore: false };
+    const cancel = () => controller.abort();
+    setMsgLoadingMore(false);
+    setMsgLimited(false);
+    setMsgError('');
+    setScannedDay('');
+    browseCursor.current = null;
+    msgScrollRef.current?.scrollTo(0, 0);
     if (localSource) {
       const keyword = (filter.keyword ?? '').toLocaleLowerCase();
       const rows = localSource.messages
@@ -212,71 +275,31 @@ export function ChatRecordsModal({
       setMsgTotal(Math.min(rows.length, 30));
       setMsgLoading(false);
       setBrowseHasMore(rows.length > 30);
-      setMsgError('');
-      return;
+      return cancel;
     }
-    const trimmed = keyword.trim();
-    if ((!trimmed && !fixed) || !selected) {
-      setMessages([]);
-      setMsgTotal(0);
+    setMessages([]);
+    setMsgTotal(0);
+    setBrowseHasMore(false);
+    if (!filter.keyword && !fixed) {
       setMsgLoading(false);
-      setBrowseHasMore(false);
-      setMsgError('');
-      return undefined;
+      return cancel;
     }
-    const run = ++msgRunRef.current;
     setMsgLoading(true);
-    setMsgLoadingMore(false);
-    msgScrollRef.current?.scrollTo(0, 0);
-    setMsgLimited(false);
-    setMsgError('');
-    browseCursor.current = null;
-    const request = fixed
-      ? client.account.browseConversation.query({
-          kind: selected.source === 'group' ? 'group' : 'c2c',
-          conv: selected.targetUid,
-          filter,
-          limit: 30,
-        })
-      : client.account.searchConversationRecords.query({
-          source: selected.source,
-          conv: selected.targetUid,
-          keyword: trimmed,
-          offset: 0,
-          limit: 30,
-        });
-    void request
-      .then((result) => {
-        if (run !== msgRunRef.current) return;
-        const r = result as { items: ConversationRecordHit[]; total: number; limited?: boolean };
+    void queryMessages(0, signal)
+      .then((r) => {
+        if (signal.aborted || !r) return;
         setMsgLimited(Boolean(r.limited));
         setMessages(r.items);
-        if (fixed) {
-          const page = result as {
-            items: ConversationRecordHit[];
-            cursor: { time: number; rowId: string } | null;
-            hasMore: boolean;
-          };
-          browseCursor.current = page.cursor;
-          setBrowseHasMore(page.hasMore);
-          setMsgTotal(page.items.length);
-        } else setMsgTotal(r.total);
-        // 拼音输入会产生大量无结果的中间态，不弹 Toast，界面上的空态提示已足够。
+        setMsgTotal(r.total ?? r.items.length);
       })
       .catch((err) => {
-        if (run === msgRunRef.current) {
-          setMessages([]);
-          setBrowseHasMore(false);
-          setMsgError(String(err));
-        }
+        if (!signal.aborted) setMsgError(String(err));
       })
       .finally(() => {
-        if (run === msgRunRef.current) setMsgLoading(false);
+        if (!signal.aborted) setMsgLoading(false);
       });
-    return () => {
-      if (run === msgRunRef.current) msgRunRef.current++;
-    };
-  }, [selected, keyword, fixed, filter, localSource]);
+    return cancel;
+  }, [fixed, filter, localSource, queryMessages]);
 
   const loadMoreMessages = useCallback(() => {
     if (localSource) {
@@ -286,54 +309,34 @@ export function ChatRecordsModal({
       setBrowseHasMore(next.length < localMatches.current.length);
       return;
     }
-    const trimmed = keyword.trim();
-    if ((!trimmed && !fixed) || !selected || msgLoadingMore || msgLoading) return;
     const run = msgRunRef.current;
+    if (!run || run.loadingMore || msgLoading) return;
+    const { signal } = run.controller;
+    if (signal.aborted) return;
+    run.loadingMore = true;
     setMsgLoadingMore(true);
-    const request = fixed
-      ? client.account.browseConversation.query({
-          kind: selected.source === 'group' ? 'group' : 'c2c',
-          conv: selected.targetUid,
-          filter,
-          cursor: browseCursor.current ?? undefined,
-          limit: 30,
-        })
-      : client.account.searchConversationRecords.query({
-          source: selected.source,
-          conv: selected.targetUid,
-          keyword: trimmed,
-          offset: messages.length,
-          limit: 30,
-        });
-    void request
-      .then((result) => {
-        if (run !== msgRunRef.current) return;
-        const r = result as { items: ConversationRecordHit[]; total: number; limited?: boolean };
+    setMsgError('');
+    void queryMessages(messages.length, signal)
+      .then((r) => {
+        if (signal.aborted || !r) return;
         setMsgLimited(Boolean(r.limited));
         setMessages((prev) => [...prev, ...r.items]);
-        if (fixed) {
-          const page = result as {
-            cursor: { time: number; rowId: string } | null;
-            hasMore: boolean;
-          };
-          browseCursor.current = page.cursor;
-          setBrowseHasMore(page.hasMore);
-          setMsgTotal(messages.length + r.items.length);
-        } else setMsgTotal(r.total);
+        setMsgTotal(r.total ?? messages.length + r.items.length);
       })
       .catch((err) => {
-        if (run === msgRunRef.current) setMsgError(String(err));
+        if (!signal.aborted) setMsgError(String(err));
       })
       .finally(() => {
-        if (run === msgRunRef.current) setMsgLoadingMore(false);
+        if (!signal.aborted) setMsgLoadingMore(false);
+        run.loadingMore = false;
       });
-  }, [keyword, selected, messages.length, msgLoadingMore, msgLoading, fixed, filter, localSource]);
+  }, [messages.length, msgLoading, localSource, queryMessages]);
 
   // Infinite scroll for the message list.
   const onMsgScroll = useCallback(() => {
     const el = msgScrollRef.current;
     if (
-      !el ||
+      !el?.clientHeight ||
       msgLoading ||
       msgLoadingMore ||
       (fixed ? !browseHasMore : messages.length >= msgTotal)
@@ -351,6 +354,16 @@ export function ChatRecordsModal({
     fixed,
     browseHasMore,
   ]);
+
+  // 结果不足一屏时没有滚动事件，填满列表或读完为止。
+  useEffect(() => {
+    const el = msgScrollRef.current;
+    if (!fixed || !browseHasMore || msgLoading || msgLoadingMore || msgError || !el) return;
+    onMsgScroll();
+    const observer = new ResizeObserver(onMsgScroll);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fixed, browseHasMore, msgLoading, msgLoadingMore, msgError, onMsgScroll]);
 
   const jumpTo = useCallback(
     (msg: Pick<ConversationRecordHit, 'msgSeq' | 'msgId'>) => {
@@ -404,35 +417,26 @@ export function ChatRecordsModal({
           // 服务未能精确解析引用时，不用不同语义的序号跳到另一条消息。
         }
       } else if (!isGroup) seq ??= positive(target.seq);
-      if (run !== msgRunRef.current) return;
+      if (run !== msgRunRef.current || run?.controller.signal.aborted) return;
       jumpTo({ msgId: target.msgId ?? '', msgSeq: seq ?? '' });
     },
     [isGroup, jumpTo, localSource, selected.targetUid],
   );
 
   const convKey = isGroup ? selected.targetUid : '';
+  const browseRecords = fixed && !localSource;
+  const searchingRecords = browseRecords && (msgLoading || msgLoadingMore);
+  const progress = scannedDay ? `已查到 ${scannedDay}` : '';
 
   const content = (
     <>
       {report.dialog}
       <div className="weq-chatrecords">
         {embedded ? null : (
-          <div className="weq-chatrecords-head" data-window-drag-handle>
-            <div className="weq-chatrecords-title-wrap">
-              <h3 id="weq-chatrecords-title" className="weq-search-more-title">
-                聊天记录
-              </h3>
-              {fixed ? (
-                <span className="weq-chatrecords-fixed-conv" title={initialHit.name}>
-                  <Search size={13} aria-hidden />
-                  {initialHit.name}
-                </span>
-              ) : null}
-            </div>
-            <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
-              <X size={16} strokeWidth={1.9} aria-hidden />
-            </button>
-          </div>
+          <ChatRecordsHeader
+            conversationName={fixed ? initialHit.name : undefined}
+            onClose={onClose}
+          />
         )}
         {calendarOpen && selected ? (
           <ConversationCalendar
@@ -665,6 +669,17 @@ export function ChatRecordsModal({
           </p>
         ) : null}
         <div className="weq-chatrecords-body is-fixed">
+          {searchingRecords || (browseRecords && browseHasMore && progress) ? (
+            <div className="weq-record-progress" role="status">
+              {searchingRecords ? (
+                <LoadingIndicator>
+                  {progress ? `正在搜索，${progress}` : '正在搜索聊天记录…'}
+                </LoadingIndicator>
+              ) : (
+                progress
+              )}
+            </div>
+          ) : null}
           <div className="weq-chatrecords-msgs" ref={msgScrollRef} onScroll={onMsgScroll}>
             <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
               <ConvContext.Provider value={convKey}>
@@ -684,13 +699,13 @@ export function ChatRecordsModal({
                 >
                   <ReplyJumpContext.Provider value={jumpToReply}>
                     {msgLoading ? (
-                      <SearchListSkeleton rows={4} />
+                      browseRecords ? null : (
+                        <SearchListSkeleton rows={4} />
+                      )
                     ) : messages.length === 0 ? (
-                      <EmptyState
-                        compact
-                        icon={<SearchX />}
-                        title={fixed && browseHasMore ? '本批尚无匹配消息' : '没有找到相关消息'}
-                      />
+                      browseRecords && (msgError || searchingRecords) ? null : (
+                        <EmptyState compact icon={<SearchX />} title="没有找到相关消息" />
+                      )
                     ) : (
                       <>
                         {messages.map((msg) => {
@@ -800,7 +815,7 @@ export function ChatRecordsModal({
                             </button>
                           );
                         })}
-                        {msgLoadingMore ? <SearchListSkeleton rows={2} /> : null}
+                        {msgLoadingMore && !browseRecords ? <SearchListSkeleton rows={2} /> : null}
                         {(fixed ? !browseHasMore : messages.length >= msgTotal) &&
                         messages.length > 0 ? (
                           <div className="weq-search-more-end">
@@ -809,15 +824,6 @@ export function ChatRecordsModal({
                         ) : null}
                       </>
                     )}
-                    {fixed && browseHasMore ? (
-                      <button
-                        className="weq-action-soft"
-                        disabled={msgLoading || msgLoadingMore}
-                        onClick={() => void loadMoreMessages()}
-                      >
-                        {msgLoadingMore ? '加载中...' : '继续加载'}
-                      </button>
-                    ) : null}
                   </ReplyJumpContext.Provider>
                 </ChatMediaGallery>
               </ConvContext.Provider>

@@ -1,3 +1,17 @@
+.weq-chatrecords-body:has(> .weq-record-progress) {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.weq-record-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 6px 12px;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+
 .weq-record-calendar-actions {
   display: flex;
   flex: none;
