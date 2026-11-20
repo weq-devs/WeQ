@@ -338,6 +338,8 @@ button.composer-single-thumb {
 
 .voice-panel-body {
   --voice-wave-height: 44px;
+  --voice-control-size: 64px;
+  --voice-control-gutter: calc(var(--voice-control-size) + 12px);
   --voice-wave-center: clamp(32px, calc(50% - 14px), calc(100% - 89px));
   position: relative;
   display: grid;
@@ -350,7 +352,8 @@ button.composer-single-thumb {
 }
 
 .voice-panel-body[data-transcript-ready='true'] {
-  --voice-wave-center: calc(var(--voice-wave-height) / 2);
+  --voice-control-size: 44px;
+  --voice-wave-center: calc(var(--voice-control-size) / 2);
 }
 
 .voice-panel-body:has(> .voice-review) {
@@ -368,49 +371,42 @@ button.composer-single-thumb {
   --composer-height: max(var(--desktop-composer-height, 220px), 220px) !important;
 }
 
-.voice-stage {
-  display: grid;
-  min-height: 66px;
-  place-items: center;
-  overflow: hidden;
-}
-
 .voice-record-track {
   position: absolute;
   top: var(--voice-wave-center);
-  inset-inline: 0;
+  left: 50%;
   display: grid;
-  height: 64px;
+  width: var(--voice-control-size);
+  height: var(--voice-control-size);
   place-items: center;
   pointer-events: none;
-  transform: translateY(-50%);
-  transition: transform 230ms cubic-bezier(0.2, 0.75, 0.25, 1);
+  transform: translate(-50%, -50%);
+  transition: left 230ms cubic-bezier(0.2, 0.75, 0.25, 1);
 }
 
-.voice-stage.is-recording .voice-record-track {
-  transform: translate(calc(50% - 34px), -50%);
+.voice-record-track.is-at-end {
+  left: calc(100% - var(--voice-control-size) / 2 - 2px);
 }
 
 .voice-wave {
   position: absolute;
   z-index: 1;
   top: var(--voice-wave-center);
-  left: 50%;
+  right: var(--voice-control-gutter);
+  left: 0;
   display: flex;
   align-items: center;
   gap: clamp(1px, 0.4vw, 3px);
-  width: clamp(0px, calc(100% - 138px), 320px);
   height: var(--voice-wave-height);
   color: var(--media-record);
   opacity: 0;
   contain: layout paint;
   pointer-events: none;
-  transform: translate(-50%, -50%);
+  transform: translateY(-50%);
   transition:
     top 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
     left 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
-    width 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
-    transform 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    right 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
     opacity 140ms ease;
 }
 
@@ -425,16 +421,12 @@ button.composer-single-thumb {
   opacity: 1;
 }
 
-.voice-panel-body[data-wave-phase='review'] .voice-wave {
-  left: 42px;
-  width: calc(100% - 82px);
-  transform: translate(0, -50%);
+.voice-panel-body:is([data-wave-phase='paused'], [data-wave-phase='review']) .voice-wave {
+  left: var(--voice-control-gutter);
 }
 
-.voice-panel-body[data-wave-phase='paused'] .voice-wave {
-  left: 42px;
-  width: max(0px, calc(100% - 118px));
-  transform: translate(0, -50%);
+.voice-panel-body[data-transcript-ready='true'] .voice-wave {
+  right: 42px;
 }
 
 .voice-wave span {
@@ -483,8 +475,8 @@ button.composer-single-thumb {
 
 .voice-panel .voice-record-btn {
   display: grid;
-  width: 64px;
-  height: 64px;
+  width: var(--voice-control-size);
+  height: var(--voice-control-size);
   place-content: center;
   justify-items: center;
   gap: 3px;
@@ -498,7 +490,7 @@ button.composer-single-thumb {
   user-select: none;
 }
 
-.voice-stage.is-recording .voice-record-btn {
+.voice-record-track.is-at-end .voice-record-btn {
   border-color: var(--media-record);
 }
 
@@ -544,6 +536,7 @@ button.composer-single-thumb {
 /* ── 面板脚注 ─────────────────────────────────────────────────────────────── */
 
 .voice-panel-foot {
+  grid-row: 2;
   display: flex;
   min-height: 16px;
   align-items: center;
@@ -611,7 +604,7 @@ button.composer-single-thumb {
 
 .voice-review {
   display: grid;
-  grid-template-rows: calc(var(--voice-wave-center) + var(--voice-wave-height) / 2) minmax(0, 1fr) auto;
+  grid-template-rows: calc(var(--voice-wave-center) + var(--voice-control-size) / 2) minmax(0, 1fr) auto;
   gap: 5px;
   min-width: 0;
   min-height: 0;
@@ -624,20 +617,10 @@ button.composer-single-thumb {
   }
 }
 
-.voice-review-head {
-  grid-row: 1;
-  display: flex;
-  min-height: var(--voice-wave-height);
-  align-items: center;
-  align-self: end;
-  justify-content: space-between;
-  gap: 8px;
-}
-
 .voice-review-play {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: var(--voice-control-size);
+  height: var(--voice-control-size);
   flex: 0 0 auto;
   place-items: center;
   border: 0;
@@ -672,10 +655,13 @@ button.composer-single-thumb {
 }
 
 .voice-review-time {
-  flex: 0 0 auto;
+  position: absolute;
+  top: var(--voice-wave-center);
+  right: 2px;
   color: var(--weq-fg-secondary, #666666);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  transform: translateY(-50%);
 }
 
 .voice-transcript-output {
@@ -749,10 +735,6 @@ button.composer-single-thumb {
     min-width: 28px;
     gap: 3px;
     padding-inline: 4px;
-  }
-
-  .voice-review-actions .voice-resume-btn span {
-    display: none;
   }
 }
 

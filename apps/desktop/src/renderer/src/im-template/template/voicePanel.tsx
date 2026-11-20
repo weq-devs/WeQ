@@ -753,11 +753,10 @@ function VoiceWave({
   useLayoutEffect(() => {
     let timer: number | undefined;
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const offset = BAR_COUNT - levels.length;
     const draw = () => {
       barRefs.current.forEach((bar, index) => {
-        if (bar)
-          bar.style.transform = `scaleY(${0.14 + Math.min(1, levels[index - offset] ?? 0) * 0.86})`;
+        const value = levels[Math.floor((index / BAR_COUNT) * levels.length)] ?? 0;
+        if (bar) bar.style.transform = `scaleY(${0.14 + Math.min(1, value) * 0.86})`;
       });
     };
     const updateMotion = () => {
@@ -858,7 +857,6 @@ export function VoiceWorkspace({
   onReturn?: (id: string) => void;
   obscured?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   const [returnId, setReturnId] = useState<string | null>(null);
   const [owner, setOwner] = useState<RecordingOwner | null>(null);
   const [input, setInput] = useState<RecordingInput>('button');
@@ -868,14 +866,12 @@ export function VoiceWorkspace({
   const { takeTranscriptDraft } = recorder;
   const mode = useMemo(
     () => ({
-      open,
-      setOpen,
       returnId,
       setReturnId,
       takeTranscriptDraft: (conversationId: string) =>
         owner?.id === conversationId ? takeTranscriptDraft() : undefined,
     }),
-    [open, owner?.id, returnId, takeTranscriptDraft],
+    [owner?.id, returnId, takeTranscriptDraft],
   );
   const registerInline = useCallback((id: string) => {
     const panel = { id };
@@ -906,7 +902,6 @@ export function VoiceWorkspace({
   }, [input, phase, releaseHeldRecord]);
   const openRecording = useCallback(() => {
     if (!owner) return;
-    setOpen(true);
     setReturnId(owner.id);
     pages?.select(null);
     onReturn?.(owner.id);
@@ -1066,8 +1061,11 @@ export function VoicePanel({
   const sendingReview = useRef(false);
   const [reviewSending, setReviewSending] = useState(false);
   const paused = phase === 'paused';
+  const reviewing = phase === 'review';
+  const canPlayRecording = paused || reviewing;
+  const transcriptReady = reviewing && recorder.transcriptReady;
   const playback =
-    (paused || phase === 'review') && recorder.playbackReady && recorder.playbackDurationMs > 0
+    canPlayRecording && recorder.playbackReady && recorder.playbackDurationMs > 0
       ? {
           positionMs: recorder.playbackMs,
           durationMs: recorder.playbackDurationMs,
@@ -1256,7 +1254,7 @@ export function VoicePanel({
         <div
           className="voice-panel-body"
           data-wave-phase={phase}
-          data-transcript-ready={phase === 'review' && recorder.transcriptReady}
+          data-transcript-ready={transcriptReady}
         >
           {foreignRecording ? null : (
             <VoiceWave
@@ -1265,32 +1263,75 @@ export function VoicePanel({
               playback={playback}
             />
           )}
-          {paused && playback ? (
+          {playback ? (
             <RecordingPlayButton
               className="voice-stage-play"
               playing={recorder.playing}
               onToggle={recorder.togglePlay}
             />
           ) : null}
+          {!foreignRecording && !transcriptReady ? (
+            <div className={cn('voice-record-track', (busy || canPlayRecording) && 'is-at-end')}>
+              <button
+                type="button"
+                className="voice-record-btn"
+                title={
+                  canPlayRecording ? '继续录音' : busy ? '结束录音' : '点击录音（也可长按空格）'
+                }
+                aria-label={canPlayRecording ? '继续录音' : busy ? '结束录音' : '点击录音'}
+                disabled={
+                  phase === 'finalizing' || (canPlayRecording && (!canResume || reviewSending))
+                }
+                onClick={() => {
+                  if (busy) endRecord();
+                  else resumeByClick();
+                }}
+                onContextMenu={(event) => event.preventDefault()}
+              >
+                {phase === 'requesting' ? (
+                  <>
+                    <Loader2 size={20} className="voice-spin" />
+                    <strong>正在开麦…</strong>
+                  </>
+                ) : phase === 'finalizing' ? (
+                  <Loader2 size={20} className="voice-spin" />
+                ) : busy || canPlayRecording ? (
+                  <>
+                    <strong className="voice-record-timer weq-number weq-number-inherit">
+                      {formatClipDuration(previewTime ?? recorder.elapsedMs)}
+                    </strong>
+                    <em className="voice-record-note">
+                      {canPlayRecording ? '继续录音' : input === 'space' ? '松开结束' : '点击结束'}
+                    </em>
+                  </>
+                ) : (
+                  <>
+                    <Mic size={22} />
+                    <strong>点击录音</strong>
+                  </>
+                )}
+              </button>
+            </div>
+          ) : null}
+          {transcriptReady ? (
+            <span className="voice-review-time weq-number weq-number-inherit">
+              {formatClipDuration(previewTime ?? recorder.elapsedMs)}
+            </span>
+          ) : null}
           {foreignRecording ? (
             <p className="voice-other-recording">另一个会话有录音，请通过悬浮球返回。</p>
-          ) : phase === 'review' && recorder.clip ? (
+          ) : reviewing && recorder.clip ? (
             <VoiceReview
-              clip={recorder.clip}
               transcript={recorder.transcript}
-              transcriptReady={recorder.transcriptReady}
+              transcriptReady={transcriptReady}
               transcribing={recorder.transcribing}
               transcribeError={recorder.transcribeError}
-              playing={recorder.playing}
-              previewTime={previewTime}
               canSend={canSend && !reviewSending}
               sendHint={sendHint}
-              onTogglePlay={recorder.togglePlay}
               onTranscribe={recorder.transcribeClip}
               onCancelTranscription={recorder.cancelTranscription}
               onTranscriptChange={recorder.editTranscript}
               onDiscard={() => recorder.discard()}
-              onResume={canResume && !reviewSending ? resumeByClick : undefined}
               onSendVoice={(voiceChanged) =>
                 void sendReview(() =>
                   onSendVoice({ ...recorder.clip, transcript: recorder.transcript, voiceChanged }),
@@ -1300,49 +1341,7 @@ export function VoicePanel({
                 void sendReview(() => onSendTranscript(recorder.transcript.trim()))
               }
             />
-          ) : (
-            <div className={cn('voice-stage', (busy || paused) && 'is-recording')}>
-              <div className="voice-record-track">
-                <button
-                  type="button"
-                  className="voice-record-btn"
-                  title={paused ? '继续录音' : busy ? '结束录音' : '点击录音（也可长按空格）'}
-                  aria-label={paused ? '继续录音' : busy ? '结束录音' : '点击录音'}
-                  disabled={phase === 'finalizing' || (paused && !canResume)}
-                  onClick={() => {
-                    if (busy) endRecord();
-                    else resumeByClick();
-                  }}
-                  onContextMenu={(event) => event.preventDefault()}
-                >
-                  {phase === 'requesting' ? (
-                    <>
-                      <Loader2 size={20} className={cn('voice-spin')} />
-                      <strong>正在开麦…</strong>
-                    </>
-                  ) : phase === 'finalizing' ? (
-                    <Loader2 size={20} className="voice-spin" />
-                  ) : busy || paused ? (
-                    <>
-                      <strong className={cn('voice-record-timer')}>
-                        <span className="weq-number weq-number-inherit">
-                          {formatClipDuration(previewTime ?? recorder.elapsedMs)}
-                        </span>
-                      </strong>
-                      <em className={cn('voice-record-note')}>
-                        {paused ? '继续录音' : input === 'space' ? '松开结束' : '点击结束'}
-                      </em>
-                    </>
-                  ) : (
-                    <>
-                      <Mic size={22} />
-                      <strong>点击录音</strong>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
+          ) : null}
 
           {!foreignRecording && phase !== 'review' ? (
             <div className={cn('voice-panel-foot')}>
@@ -1391,39 +1390,29 @@ export function VoicePanel({
 // ── 回顾 ─────────────────────────────────────────────────────────────────────
 
 function VoiceReview({
-  clip,
   transcript,
   transcriptReady,
   transcribing,
   transcribeError,
-  playing,
-  previewTime,
   canSend,
   sendHint,
-  onTogglePlay,
   onTranscribe,
   onCancelTranscription,
   onTranscriptChange,
   onDiscard,
-  onResume,
   onSendVoice,
   onSendTranscript,
 }: {
-  clip: VoiceClip;
   transcript: string;
   transcriptReady: boolean;
   transcribing: boolean;
   transcribeError: string | null;
-  playing: boolean;
-  previewTime?: number;
   canSend: boolean;
   sendHint: string;
-  onTogglePlay: () => void;
   onTranscribe: () => void;
   onCancelTranscription: () => void;
   onTranscriptChange: (text: string) => void;
   onDiscard: () => void;
-  onResume?: () => void;
   /** 发送语音；带上「变声标识」勾选态（协议已实现 `extBizInfo.ptt.changeVoice`）。 */
   onSendVoice: (voiceChanged: boolean) => void;
   onSendTranscript: () => void;
@@ -1433,15 +1422,6 @@ function VoiceReview({
   const [voiceChanged, setVoiceChanged] = useState(false);
   return (
     <div className={cn('voice-review')}>
-      <div className={cn('voice-review-head')}>
-        <RecordingPlayButton playing={playing} onToggle={onTogglePlay} />
-        <span className={cn('voice-review-time')}>
-          <span className="weq-number weq-number-inherit">
-            {formatClipDuration(previewTime ?? clip.durationMs)}
-          </span>
-        </span>
-      </div>
-
       {transcribeError || transcribing || transcriptReady ? (
         <div className="voice-transcript-output">
           {transcribeError ? (
@@ -1493,17 +1473,6 @@ function VoiceReview({
           </button>
         ) : (
           <>
-            {onResume ? (
-              <button
-                type="button"
-                className="voice-btn ghost voice-resume-btn"
-                aria-label="继续录音"
-                title="继续录音"
-                onClick={onResume}
-              >
-                <Mic size={14} /> <span>继续录音</span>
-              </button>
-            ) : null}
             <button
               type="button"
               className={cn('voice-btn ghost', voiceChanged && 'is-active')}

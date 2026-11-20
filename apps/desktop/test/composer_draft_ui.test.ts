@@ -201,18 +201,20 @@ it('TTS 和 AI 声聊同步文字草稿，切回正文保留内联图片', async
   }
 });
 
-it('语音区不会因点外面或切换会话关闭，合成文本仍使用各自草稿', async () => {
+it('点外面保留语音区，切换会话默认收起并保留各自的合成草稿', async () => {
   const f = await fixture();
   try {
-    const voice = f.host.querySelector<HTMLButtonElement>('button[aria-label="语音"]')!;
-    act(() => voice.click());
+    const voice = () => f.host.querySelector<HTMLButtonElement>('button[aria-label="语音"]')!;
+    act(() => voice().click());
     act(() => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })));
-    expect(voice.getAttribute('aria-expanded')).toBe('true');
+    expect(voice().getAttribute('aria-expanded')).toBe('true');
     await f.render({
       conversation: { ...f.props.conversation, id: 'other-chat' },
       draft: '另一会话的正文',
     });
-    expect(voice.getAttribute('aria-expanded')).toBe('true');
+    expect(voice().getAttribute('aria-expanded')).toBe('false');
+    expect(f.host.querySelector('.voice-panel')).toBeNull();
+    act(() => voice().click());
     const tts = [...f.host.querySelectorAll<HTMLButtonElement>('.voice-panel button')].find(
       (item) => item.textContent?.trim() === 'TTS',
     )!;
@@ -220,6 +222,8 @@ it('语音区不会因点外面或切换会话关闭，合成文本仍使用各�
     expect(f.host.querySelector<HTMLTextAreaElement>('.voice-panel textarea')?.value).toBe(
       '另一会话的正文',
     );
+    await f.render();
+    expect(voice().getAttribute('aria-expanded')).toBe('false');
   } finally {
     await f.dispose();
   }

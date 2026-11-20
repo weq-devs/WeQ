@@ -962,13 +962,10 @@ function ChatPaneContent({
     y: number;
   } | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const {
-    open: voiceOpen,
-    setOpen: setVoiceOpen,
-    returnId,
-    setReturnId,
-    takeTranscriptDraft,
-  } = useVoiceMode()!;
+  const { returnId, setReturnId, takeTranscriptDraft } = useVoiceMode()!;
+  const conversationId = conversation?.id ?? null;
+  const [voiceConversationId, setVoiceConversationId] = useState<string | null>(null);
+  const voiceOpen = conversationId !== null && voiceConversationId === conversationId;
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
   const [arkOpen, setArkOpen] = useState(false);
   // 「闪传」文件框：拖文件 / 选文件夹 → 灯箱确认封面 → 走 fileset 发送。
@@ -2330,12 +2327,17 @@ function ChatPaneContent({
   }, [voiceOpen]);
 
   useLayoutEffect(() => {
-    if (!tabActive || !returnId || conversation?.id !== returnId) return;
+    setVoiceConversationId((current) => (current === conversationId ? current : null));
+  }, [conversationId]);
+
+  useLayoutEffect(() => {
+    if (!tabActive || !returnId || conversationId !== returnId) return;
     setComposerCollapsed(false);
     setMobileComposerExpanded(false);
     setFlashOpen(false);
+    setVoiceConversationId(returnId);
     setReturnId(null);
-  }, [conversation?.id, returnId, setReturnId, tabActive]);
+  }, [conversationId, returnId, setReturnId, tabActive]);
 
   // 闪传文件框：点到外面 / Esc 就收起来（与语音 / ark 面板同一套交互）。
   // 灯箱在面板内部，所以点灯箱不会被误判成「点到外面」。
@@ -5430,7 +5432,7 @@ function ChatPaneContent({
 
   function closeVoicePanel() {
     applyTranscriptToEmptyDraft();
-    setVoiceOpen(false);
+    setVoiceConversationId(null);
   }
 
   function toggleVoicePanel() {
@@ -5446,7 +5448,7 @@ function ChatPaneContent({
     setMentionMenu(null);
     setSlashMenu(null);
     if (voiceOpen) closeVoicePanel();
-    else setVoiceOpen(true);
+    else setVoiceConversationId(conversationId);
   }
 
   function toggleArkPanel() {
