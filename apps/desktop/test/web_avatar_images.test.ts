@@ -90,6 +90,53 @@ it('过期头像在慢请求完成前先显示旧图，刷新失败保持旧图�
   expect(f.cache.peek(key)?.src).toBe('blob:new');
 });
 
+it('同一可见头像首次失败后自动补试并恢复，多处显示只发一个补试请求', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const firstView = f.cache.activate(key);
+  const secondView = f.cache.activate(key);
+  f.fetchImage.mockResolvedValueOnce(new Response(null, { status: 503 }));
+  await f.cache.load(key, source);
+  expect(f.cache.peek(key)?.failed).toBe(true);
+  firstView();
+  const recovered = new Promise<void>((resolve) => {
+    const unsubscribe = f.cache.subscribe(key, () => {
+      if (!f.cache.peek(key)?.ready) return;
+      unsubscribe();
+      resolve();
+    });
+  });
+
+  f.advance(WEB_AVATAR_LIMITS.retryMs);
+  await vi.advanceTimersByTimeAsync(WEB_AVATAR_LIMITS.retryMs);
+  await recovered;
+  expect(f.fetchImage).toHaveBeenCalledTimes(2);
+  expect(f.cache.peek(key)?.src).toBe('blob:new');
+  secondView();
+});
+
+it('离屏取消补试，重新可见可加载，持续缺图不会循环请求', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const leave = f.cache.activate(key);
+  f.fetchImage.mockImplementation(async () => new Response(null, { status: 404 }));
+  await f.cache.load(key, source);
+  leave();
+  f.advance(WEB_AVATAR_LIMITS.retryMs / 2);
+  await vi.advanceTimersByTimeAsync(WEB_AVATAR_LIMITS.retryMs / 2);
+  expect(f.fetchImage).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(0);
+
+  const leaveAgain = f.cache.activate(key);
+  await f.cache.load(key, source);
+  f.advance(WEB_AVATAR_LIMITS.retryMs / 2);
+  await vi.advanceTimersByTimeAsync(WEB_AVATAR_LIMITS.retryMs / 2);
+  expect(f.fetchImage).toHaveBeenCalledTimes(2);
+  expect(f.cache.peek(key)?.failed).toBe(true);
+  expect(vi.getTimerCount()).toBe(0);
+  leaveAgain();
+});
+
 it('304 只更新校验时间，不重解码、不换图片地址；换图时成功解码后才替换', async () => {
   const f = fixture({ key, blob: blob('old'), etag: '"old"', updatedAt: 0 });
   f.fetchImage.mockResolvedValue(new Response(null, { status: 304 }));

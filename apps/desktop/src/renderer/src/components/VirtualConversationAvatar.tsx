@@ -31,7 +31,11 @@ function AvatarImg({
   const image = useAvatarImage(src);
   if (!src || image.failed)
     return (
-      <span className={`weq-virtual-avatar-fallback ${className}`} aria-hidden>
+      <span
+        ref={image.observeRef}
+        className={`weq-virtual-avatar-fallback ${className}`}
+        aria-hidden
+      >
         <Users size={Math.round(size * 0.55)} strokeWidth={1.7} />
       </span>
     );

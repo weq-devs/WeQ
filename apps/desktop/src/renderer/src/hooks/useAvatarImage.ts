@@ -17,6 +17,7 @@ export function useAvatarImage(source: string | null | undefined) {
   const scope = useContext(WebAvatarScope);
   const key = scope && source ? webAvatarKey(scope, source) : null;
   const [image, ref] = useState<HTMLImageElement | null>(null);
+  const [target, observeRef] = useState<HTMLElement | null>(null);
   const [loadedSource, setLoadedSource] = useState<string>();
   const [failedSource, setFailedSource] = useState<string>();
   const subscribe = useCallback(
@@ -38,11 +39,12 @@ export function useAvatarImage(source: string | null | undefined) {
   useLayoutEffect(() => {
     setLoadedSource(image?.complete && image.naturalWidth > 0 ? src : undefined);
   }, [image, src]);
+  const observed = target ?? image;
   useEffect(() => {
-    if (!key || !source || (!image && !snapshot?.failed)) return;
-    const doc = image?.ownerDocument ?? document;
+    if (!key || !source || !observed) return;
+    const doc = observed.ownerDocument;
     const Observer = doc.defaultView?.IntersectionObserver;
-    let visible = !image || !Observer;
+    let visible = !Observer;
     let release: (() => void) | undefined;
     const refresh = () => {
       if (visible && doc.visibilityState !== 'hidden') {
@@ -53,14 +55,13 @@ export function useAvatarImage(source: string | null | undefined) {
         release = undefined;
       }
     };
-    const observer =
-      Observer && image
-        ? new Observer((entries) => {
-            visible = entries.some((entry) => entry.isIntersecting);
-            refresh();
-          })
-        : null;
-    if (image) observer?.observe(image);
+    const observer = Observer
+      ? new Observer((entries) => {
+          visible = entries.some((entry) => entry.isIntersecting);
+          refresh();
+        })
+      : null;
+    observer?.observe(observed);
     doc.addEventListener('visibilitychange', refresh);
     refresh();
     return () => {
@@ -68,10 +69,11 @@ export function useAvatarImage(source: string | null | undefined) {
       doc.removeEventListener('visibilitychange', refresh);
       release?.();
     };
-  }, [key, source, image, snapshot?.failed]);
+  }, [key, source, observed]);
   return {
     src,
     ref,
+    observeRef,
     loaded,
     failed,
     onLoad: () => {

@@ -153,10 +153,16 @@ export function createWebAvatarCache({
     request?: string;
     retryAt: number;
   };
-  type Job = { source: string; controller: AbortController; promise: Promise<void> };
+  type Visibility = { count: number; retried: boolean; timer?: ReturnType<typeof setTimeout> };
+  type Job = {
+    source: string;
+    controller: AbortController;
+    promise: Promise<void>;
+    retryView?: Visibility;
+  };
   const entries = new Map<string, Entry>();
   const listeners = new Map<string, Set<() => void>>();
-  const visible = new Map<string, number>();
+  const visible = new Map<string, Visibility>();
   const jobs = new Map<string, Job>();
   const queue: (() => void)[] = [];
   let active = 0;
@@ -193,13 +199,36 @@ export function createWebAvatarCache({
       if (active < WEB_AVATAR_LIMITS.concurrent) start();
       else queue.push(start);
     });
-  return {
+  const cancelRetry = (view: Visibility) => {
+    clearTimeout(view.timer);
+    view.timer = undefined;
+  };
+  const scheduleRetry = (key: string, source: string, failed: Entry) => {
+    const view = visible.get(key);
+    if (!view || view.retried || view.timer !== undefined) return;
+    // 同一个可见周期最多补试一次，避免持续缺图时周期性请求。
+    view.timer = setTimeout(
+      () => {
+        view.timer = undefined;
+        if (visible.get(key) !== view || entries.get(key) !== failed) return;
+        view.retried = true;
+        void cache.load(key, source, view);
+      },
+      Math.max(0, failed.retryAt - now()),
+    );
+  };
+  const cache = {
     activate(key: string) {
-      visible.set(key, (visible.get(key) ?? 0) + 1);
+      const view = visible.get(key) ?? { count: 0, retried: false };
+      visible.set(key, view);
+      view.count++;
       return () => {
-        const remaining = (visible.get(key) ?? 1) - 1;
-        if (remaining) visible.set(key, remaining);
-        else visible.delete(key);
+        if (--view.count === 0) {
+          cancelRetry(view);
+          const job = jobs.get(key);
+          if (job?.retryView === view) job.controller.abort();
+          visible.delete(key);
+        }
         trim();
       };
     },
@@ -222,7 +251,7 @@ export function createWebAvatarCache({
         }
       };
     },
-    load(key: string, source: string): Promise<void> {
+    load(key: string, source: string, retryView?: Visibility): Promise<void> {
       const existing = jobs.get(key);
       if (existing?.source === source && !existing.controller.signal.aborted)
         return existing.promise;
@@ -234,13 +263,16 @@ export function createWebAvatarCache({
         (cached.retryAt > now() ||
           (cached.value && now() - cached.value.updatedAt < WEB_AVATAR_LIMITS.freshMs))
       ) {
+        if (cached.snapshot.failed) scheduleRetry(key, source, cached);
         entries.delete(key);
         entries.set(key, cached);
         return Promise.resolve();
       }
+      const view = visible.get(key);
+      if (view) cancelRetry(view);
       existing?.controller.abort();
       const controller = new AbortController();
-      const job: Job = { source, controller, promise: Promise.resolve() };
+      const job: Job = { source, controller, promise: Promise.resolve(), retryView };
       jobs.set(key, job);
       const current = () => !controller.signal.aborted && jobs.get(key) === job;
       job.promise = run(async () => {
@@ -339,12 +371,15 @@ export function createWebAvatarCache({
         } catch {
           if (jobs.get(key) !== job || (!current() && !timedOut)) return;
           if (entry?.value) entry.retryAt = now() + WEB_AVATAR_LIMITS.retryMs;
-          else
-            publish(key, {
+          else {
+            const failed = {
               snapshot: { src: undefined, ready: false, failed: true },
               request: source,
               retryAt: now() + WEB_AVATAR_LIMITS.retryMs,
-            });
+            };
+            publish(key, failed);
+            scheduleRetry(key, source, failed);
+          }
         } finally {
           clearTimeout(timeout);
         }
@@ -355,6 +390,7 @@ export function createWebAvatarCache({
       return job.promise;
     },
   };
+  return cache;
 }
 
 export const webAvatarCache = createWebAvatarCache();

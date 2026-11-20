@@ -24,6 +24,7 @@ export function Avatar({
 
   return (
     <span
+      ref={image.observeRef}
       className={cn('avatar', hasImage ? 'has-image' : 'has-default', showShimmer && 'is-loading')}
     >
       {hasImage ? (
