@@ -125,7 +125,7 @@ const f = vi.hoisted(() => ({
   automaticGap: false,
   beforeRows: [] as TestMessage[],
   beforeReply: undefined as ((beforeSeq: string) => TestMessage[]) | undefined,
-  afterReply: undefined as (() => Promise<TestMessage[]>) | undefined,
+  afterReply: undefined as ((afterSeq: string) => Promise<TestMessage[]>) | undefined,
   previewMessages: [] as ComponentProps<typeof GapMessagesModal>['messages'],
   previewMore: undefined as (() => void) | undefined,
   profiles: [] as Array<{ uid: string; uin: string; nick: string; remark: string }>,
@@ -226,7 +226,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return () => ({ mutate: vi.fn(), mutateAsync: refetch, isLoading: false });
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
-          return async (input?: UnreadInput & { beforeSeq?: string }) => {
+          return async (input?: UnreadInput & { beforeSeq?: string; afterSeq?: string }) => {
             if (key === 'query' && path.at(-1) === 'listRecentContacts')
               return { items: f.recent, total: f.recent.length };
             if (path.at(-1) === 'peerQqShow') return null;
@@ -259,7 +259,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
             if (path.at(-1) === 'listBefore')
               return f.beforeReply?.(input?.beforeSeq ?? '') ?? f.beforeRows;
-            if (path.at(-1) === 'listAfter') return f.afterReply?.() ?? [];
+            if (path.at(-1) === 'listAfter') return f.afterReply?.(input?.afterSeq ?? '') ?? [];
             if (path.at(-1) === 'fetchGapMessages') {
               f.gapRequests.push(input);
               return { ok: true, messages: f.gapRows, nextStartSeq: null };
@@ -765,7 +765,7 @@ it.each(['10001', 'u_peer'])(
   },
 );
 
-it.each(['首屏校准完成', '历史整页无可显示内容'])('%s后停在顶部会自动续读', async (scenario) => {
+it.each(['首屏校准', '向上空页', '向下空页'])('%s后停在边缘会自动续读', async (scenario) => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -784,14 +784,25 @@ it.each(['首屏校准完成', '历史整页无可显示内容'])('%s后停在�
     elements: renderable ? [{ type: 'text', text: `消息 ${seq}` }] : [],
   });
   const firstSeq = PAGE_SIZE + 10;
-  const entryPending = scenario === '首屏校准完成';
-  const finalSeq = entryPending ? firstSeq - 1 : firstSeq - PAGE_SIZE - 1;
+  const entryPending = scenario === '首屏校准';
+  const forward = scenario === '向下空页';
+  const targetSeq = firstSeq - 1;
+  const forwardCursors = [targetSeq, targetSeq + PAGE_SIZE, targetSeq + 2 * PAGE_SIZE] as const;
+  const finalSeq = forward ? forwardCursors[2] + 1 : targetSeq - (entryPending ? 0 : PAGE_SIZE);
   const before = vi.fn((cursor: string) => {
+    if (forward) return [row(targetSeq)];
     if (!entryPending && cursor === String(firstSeq))
       return Array.from({ length: PAGE_SIZE }, (_, index) => row(firstSeq - 1 - index, false));
     return [row(finalSeq)];
   });
+  const after = vi.fn(async (cursor: string) => {
+    const seq = Number(cursor);
+    return seq === forwardCursors[2]
+      ? [row(finalSeq)]
+      : Array.from({ length: PAGE_SIZE }, (_, index) => row(seq + index + 1, seq === targetSeq));
+  });
   f.beforeReply = before;
+  if (forward) f.afterReply = after;
   const flushFrames = () => act(async () => vi.advanceTimersByTimeAsync(64));
   try {
     await act(async () =>
@@ -815,6 +826,14 @@ it.each(['首屏校准完成', '历史整页无可显示内容'])('%s后停在�
       }),
     );
     expect(f.messages).toHaveLength(GROUP_INITIAL_PAGE_SIZE);
+    if (forward) {
+      await act(async () => {
+        void f.jump!({ seq: String(targetSeq), index: String(targetSeq) });
+      });
+      await flushFrames();
+      expect(f.atLatest).toBe(false);
+      expect(after.mock.calls.flat()).toEqual([String(targetSeq)]);
+    }
     const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
     Object.defineProperties(scroll, {
       clientHeight: { value: 300 },
@@ -824,21 +843,25 @@ it.each(['首屏校准完成', '历史整页无可显示内容'])('%s后停在�
     const rect = new DOMRect(0, 0, 600, 300);
     vi.spyOn(scroll, 'getClientRects').mockReturnValue(Object.assign([rect], { item: () => rect }));
     act(() => {
-      scroll.scrollTop = 0;
+      scroll.scrollTop = forward ? 900 : 0;
       scroll.dispatchEvent(new Event('scroll'));
     });
     await flushFrames();
     if (entryPending) {
       expect(before).not.toHaveBeenCalled();
       await act(async () => read.show({ complete: true, rows: [], reuseLocal: true }));
-    } else {
+    } else if (!forward) {
       expect(before.mock.calls).toEqual([[String(firstSeq)]]);
       expect(f.messages).toHaveLength(GROUP_INITIAL_PAGE_SIZE);
     }
     await flushFrames();
-    expect(before.mock.calls.flat()).toEqual(
-      entryPending ? [String(firstSeq)] : [String(firstSeq), String(firstSeq - PAGE_SIZE)],
-    );
+    if (forward) {
+      expect(after.mock.calls.flat()).toEqual(forwardCursors.map(String));
+    } else {
+      expect(before.mock.calls.flat()).toEqual(
+        entryPending ? [String(firstSeq)] : [String(firstSeq), String(firstSeq - PAGE_SIZE)],
+      );
+    }
     expect(f.messages.map((message) => message.msgSeq)).toContain(String(finalSeq));
   } finally {
     await act(async () => root.unmount());

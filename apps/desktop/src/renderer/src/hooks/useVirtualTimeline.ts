@@ -374,13 +374,34 @@ export function useVirtualTimeline({
     [enabled, virtualizer],
   );
 
+  const measure = useCallback(
+    (element: HTMLDivElement | null) => {
+      virtualizer.measureElement(element);
+      const range = virtualizer.range;
+      if (!element?.isConnected || !enabled || !virtualizer.isScrolling || !range) return;
+      const index = virtualizer.indexFromElement(element);
+      if (
+        index < range.startIndex ||
+        index > range.endIndex ||
+        virtualizer.itemSizeCache.has(virtualizer.options.getItemKey(index))
+      )
+        return;
+      // 快速滚动会跳过预挂载范围，首测留到尺寸观察时会用估计高度排出空隙。
+      virtualizer.resizeItem(
+        index,
+        virtualizer.options.measureElement(element, undefined, virtualizer),
+      );
+    },
+    [enabled, virtualizer],
+  );
+
   return {
     enabled,
     virtualizer,
     margin,
     items: virtualItems ?? ids.map((id, index) => ({ key: id, index, start: 0 })),
     totalSize: enabled ? virtualizer.getTotalSize() : 0,
-    measure: virtualizer.measureElement,
+    measure,
     containerRef,
   };
 }
