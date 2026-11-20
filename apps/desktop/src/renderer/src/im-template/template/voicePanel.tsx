@@ -5,6 +5,7 @@ import { AiVoiceControls, type AiVoiceDraft } from './aiVoicePanel';
 import { FormSelect } from '../../components/FormSelect';
 import {
   createContext,
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -15,9 +16,11 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { client } from '../../trpc/client';
+import type { TranscribeResult } from '../../../../main/transcribe/engine';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { PagesContext } from '../../components/WorkspacePages.shared';
 import {
+  Captions,
   FileAudio,
   Loader2,
   Mic,
@@ -28,6 +31,7 @@ import {
   Trash2,
   Type,
   Wand2,
+  X,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from './classNames';
@@ -67,7 +71,7 @@ function describeMicError(error: unknown): string {
 }
 
 /** 录音过程中的峰值采样是有上限的，超了按等距抽稀，画出来仍是整段形状。 */
-function downsamplePeaks(peaks: number[], target = 48): number[] {
+function downsamplePeaks(peaks: number[], target = BAR_COUNT): number[] {
   if (peaks.length <= target) return peaks.slice();
   const out: number[] = [];
   for (let i = 0; i < target; i++) {
@@ -470,10 +474,17 @@ function useVoiceRecorder() {
     audio.onplay = () => setPlaying(true);
     audio.onended = () => setPlaying(false);
     audio.onpause = () => setPlaying(false);
-    audio.onplay = () => setPlaying(true);
     if (audio.paused) void audio.play().catch(() => setPlaying(false));
     else audio.pause();
   }, [ensureAudio]);
+
+  const cancelTranscription = useCallback(() => {
+    const controller = transcriptionRef.current;
+    if (!controller) return;
+    transcriptionRef.current = null;
+    controller.abort();
+    setTranscribing(false);
+  }, []);
 
   const transcribeClip = useCallback(async () => {
     const clip = clipRef.current;
@@ -483,15 +494,25 @@ function useVoiceRecorder() {
     setTranscribing(true);
     setTranscribeError(null);
     stopPlayback();
+    let subscription: { unsubscribe: () => void } | undefined;
+    let onAbort: (() => void) | undefined;
     try {
       const wav = await decodeRecordingToWav(new Uint8Array(await clip.blob.arrayBuffer()), 16_000);
       if (controller.signal.aborted) return;
-      const result = await client.bootstrap.transcribeRecording.mutate(
-        { wav },
-        { signal: controller.signal },
-      );
+      const result = await new Promise<TranscribeResult | undefined>((resolve, reject) => {
+        onAbort = () => resolve(undefined);
+        controller.signal.addEventListener('abort', onAbort, { once: true });
+        subscription = client.bootstrap.transcribeRecording.subscribe(
+          { wav },
+          {
+            onData: resolve,
+            onError: reject,
+            onComplete: () => resolve(undefined),
+          },
+        );
+      });
       if (controller.signal.aborted || clipRef.current !== clip) return;
-      if (!result.success) throw new Error(result.error ?? '本地转写失败');
+      if (!result?.success) throw new Error(result?.error ?? '本地转写失败');
       const text = result.text?.trim();
       if (!text) throw new Error('没有识别到文字');
       setTranscript(text);
@@ -500,6 +521,8 @@ function useVoiceRecorder() {
       if (!controller.signal.aborted)
         setTranscribeError(error instanceof Error ? error.message : '本地转写失败');
     } finally {
+      if (onAbort) controller.signal.removeEventListener('abort', onAbort);
+      subscription?.unsubscribe();
       if (transcriptionRef.current === controller) {
         transcriptionRef.current = null;
         setTranscribing(false);
@@ -551,6 +574,7 @@ function useVoiceRecorder() {
     discard,
     togglePlay,
     transcribeClip,
+    cancelTranscription,
     stopPlayback,
     setTranscript,
   };
@@ -558,27 +582,24 @@ function useVoiceRecorder() {
 
 // ── 声纹 ─────────────────────────────────────────────────────────────────────
 
-/** 从左到右显示由旧到新的音量，采样更新时不触发输入区渲染。 */
-function VoiceLiveWave({ levels, active }: { levels: number[]; active: boolean }) {
+/** 录音与回顾共用同一组柱子，阶段切换只移动和缩放波形。 */
+function VoiceWave({ levels, active }: { levels: readonly number[]; active: boolean }) {
   const barRefs = useRef<Array<HTMLSpanElement | null>>([]);
-  useEffect(() => {
-    if (!active) return;
+  useLayoutEffect(() => {
     let timer: number | undefined;
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const step = () => {
+    const offset = BAR_COUNT - levels.length;
+    const draw = () => {
       barRefs.current.forEach((bar, index) => {
-        if (bar) bar.style.transform = `scaleY(${0.14 + Math.min(1, levels[index] ?? 0) * 0.86})`;
+        if (bar)
+          bar.style.transform = `scaleY(${0.14 + Math.min(1, levels[index - offset] ?? 0) * 0.86})`;
       });
     };
-    function updateMotion() {
+    const updateMotion = () => {
       window.clearInterval(timer);
-      if (motion.matches) {
-        for (const bar of barRefs.current) bar?.style.removeProperty('transform');
-      } else {
-        step();
-        timer = window.setInterval(step, 68);
-      }
-    }
+      draw();
+      if (active && !motion.matches) timer = window.setInterval(draw, 68);
+    };
     updateMotion();
     motion.addEventListener('change', updateMotion);
     return () => {
@@ -587,7 +608,7 @@ function VoiceLiveWave({ levels, active }: { levels: number[]; active: boolean }
     };
   }, [levels, active]);
   return (
-    <div className="voice-live-wave" aria-hidden="true">
+    <div className="voice-wave" aria-hidden="true">
       {WAVE_BARS.map((key, index) => (
         <span
           key={key}
@@ -595,26 +616,6 @@ function VoiceLiveWave({ levels, active }: { levels: number[]; active: boolean }
             barRefs.current[index] = node;
           }}
         />
-      ))}
-    </div>
-  );
-}
-
-/** 回顾态的静态声纹（按峰值归一化，小声录的也能看清形状）。 */
-function VoiceReviewWave({ levels }: { levels: number[] }) {
-  const bars = useMemo(() => {
-    const source = levels.length > 0 ? levels : [0.18, 0.42, 0.7, 0.3, 0.55];
-    const peak = Math.max(0.12, ...source);
-    return source.map((value, index) => ({
-      // 柱子只按位置存在：key 由位置派生，而不是直接把 map 的下标丢进 key。
-      id: `peak-${index}`,
-      height: `${Math.max(10, (value / peak) * 100)}%`,
-    }));
-  }, [levels]);
-  return (
-    <div className={cn('voice-review-wave')} aria-hidden="true">
-      {bars.map((bar) => (
-        <i key={bar.id} style={{ height: bar.height }} />
       ))}
     </div>
   );
@@ -672,6 +673,13 @@ export function VoiceWorkspace({
     window.addEventListener('keyup', release, true);
     return () => window.removeEventListener('keyup', release, true);
   }, [endRecord, input, phase]);
+  const openRecording = useCallback(() => {
+    if (!owner) return;
+    setOpen(true);
+    setReturnId(owner.id);
+    pages?.select(null);
+    onReturn?.(owner.id);
+  }, [onReturn, owner, pages]);
   const showBubble = owner && phase !== 'idle' && (obscured || inline?.id !== owner.id);
   return (
     <voiceModeContext.Provider value={mode}>
@@ -680,65 +688,64 @@ export function VoiceWorkspace({
       </VoiceCaptureContext.Provider>
       <RecordingBubble
         owner={showBubble ? owner : null}
-        phase={phase}
-        elapsedMs={recorder.elapsedMs}
-        onOpen={() => {
-          if (!owner) return;
-          setOpen(true);
-          setReturnId(owner.id);
-          pages?.select(null);
-          onReturn?.(owner.id);
-        }}
+        status={
+          phase === 'review'
+            ? '待发送'
+            : phase === 'requesting'
+              ? '准备中'
+              : formatClipDuration(recorder.elapsedMs)
+        }
+        onOpen={openRecording}
       />
     </voiceModeContext.Provider>
   );
 }
 
-function RecordingBubble({
+const RecordingBubble = memo(function RecordingBubble({
   owner,
-  phase,
-  elapsedMs,
+  status,
   onOpen,
 }: {
   owner: RecordingOwner | null;
-  phase: RecorderPhase;
-  elapsedMs: number;
+  status: string;
   onOpen: () => void;
 }) {
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const button = useRef<HTMLButtonElement | null>(null);
+  const position = useRef<{ x: number; y: number } | null>(null);
   const drag = useRef<{ id: number; x: number; y: number; left: number; top: number } | null>(null);
+  const frame = useRef<number | null>(null);
   const moved = useRef(false);
-  const clamp = useCallback(
-    (x: number, y: number) => ({
-      x: Math.max(8, Math.min(window.innerWidth - 68, x)),
-      y: Math.max(8, Math.min(window.innerHeight - 68, y)),
-    }),
-    [],
-  );
-  useEffect(() => {
+  const paint = useCallback(() => {
+    frame.current = null;
+    const current = position.current;
+    if (!current || !button.current) return;
+    const x = Math.max(8, Math.min(window.innerWidth - 68, current.x));
+    const y = Math.max(8, Math.min(window.innerHeight - 68, current.y));
+    position.current = { x, y };
+    button.current.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  }, []);
+  useLayoutEffect(() => {
     if (!owner) return;
-    const resize = () =>
-      setPosition((previous) => (previous ? clamp(previous.x, previous.y) : null));
+    paint();
+    const resize = () => {
+      if (frame.current === null) frame.current = window.requestAnimationFrame(paint);
+    };
     window.addEventListener('resize', resize);
-    resize();
-    return () => window.removeEventListener('resize', resize);
-  }, [clamp, owner]);
+    return () => {
+      window.removeEventListener('resize', resize);
+      if (frame.current !== null) window.cancelAnimationFrame(frame.current);
+      frame.current = null;
+      drag.current = null;
+    };
+  }, [owner, paint]);
   if (!owner) return null;
-  const status =
-    phase === 'review'
-      ? '待发送'
-      : phase === 'requesting'
-        ? '准备中'
-        : formatClipDuration(elapsedMs);
   return createPortal(
     <button
+      ref={button}
       type="button"
       className="voice-recording-bubble"
       title={`返回「${owner.label}」的录音`}
       aria-label={`返回「${owner.label}」的录音`}
-      style={
-        position ? { left: position.x, top: position.y, right: 'auto', bottom: 'auto' } : undefined
-      }
       onPointerDown={(event) => {
         if (event.button !== 0 || !event.isPrimary) return;
         const { left, top } = event.currentTarget.getBoundingClientRect();
@@ -753,7 +760,8 @@ function RecordingBubble({
         const dy = event.clientY - gesture.y;
         if (!moved.current && Math.hypot(dx, dy) < 5) return;
         moved.current = true;
-        setPosition(clamp(gesture.left + dx, gesture.top + dy));
+        position.current = { x: gesture.left + dx, y: gesture.top + dy };
+        if (frame.current === null) frame.current = window.requestAnimationFrame(paint);
       }}
       onLostPointerCapture={() => {
         drag.current = null;
@@ -771,7 +779,7 @@ function RecordingBubble({
     </button>,
     document.body,
   );
-}
+});
 
 export function VoicePanel({
   conversationId,
@@ -976,7 +984,19 @@ export function VoicePanel({
           )}
         </div>
       ) : (
-        <div className={cn('voice-panel-body')}>
+        <div
+          className="voice-panel-body"
+          data-wave-phase={phase}
+          data-wave-compact={
+            phase === 'review' && (recorder.transcribing || recorder.transcriptReady)
+          }
+        >
+          {foreignRecording ? null : (
+            <VoiceWave
+              levels={phase === 'review' ? (recorder.clip?.levels ?? []) : recorder.levels}
+              active={phase === 'recording'}
+            />
+          )}
           {foreignRecording ? (
             <p className="voice-other-recording">另一个会话有录音，请通过悬浮球返回。</p>
           ) : phase === 'review' && recorder.clip ? (
@@ -991,6 +1011,7 @@ export function VoicePanel({
               sendHint={sendHint}
               onTogglePlay={recorder.togglePlay}
               onTranscribe={recorder.transcribeClip}
+              onCancelTranscription={recorder.cancelTranscription}
               onTranscriptChange={recorder.setTranscript}
               onDiscard={() => recorder.discard()}
               onSendVoice={(voiceChanged) =>
@@ -1004,7 +1025,6 @@ export function VoicePanel({
             />
           ) : (
             <div className={cn('voice-stage', busy && 'is-recording')}>
-              <VoiceLiveWave levels={recorder.levels} active={phase === 'recording'} />
               <div className="voice-record-track">
                 <button
                   type="button"
@@ -1097,6 +1117,7 @@ function VoiceReview({
   sendHint,
   onTogglePlay,
   onTranscribe,
+  onCancelTranscription,
   onTranscriptChange,
   onDiscard,
   onSendVoice,
@@ -1112,6 +1133,7 @@ function VoiceReview({
   sendHint: string;
   onTogglePlay: () => void;
   onTranscribe: () => void;
+  onCancelTranscription: () => void;
   onTranscriptChange: (text: string) => void;
   onDiscard: () => void;
   /** 发送语音；带上「变声标识」勾选态（协议已实现 `extBizInfo.ptt.changeVoice`）。 */
@@ -1132,7 +1154,6 @@ function VoiceReview({
         >
           {playing ? <Pause size={18} /> : <Play size={18} />}
         </button>
-        <VoiceReviewWave levels={clip.levels} />
         <span className={cn('voice-review-time')}>
           <span className="weq-number weq-number-inherit">
             {formatClipDuration(clip.durationMs)}
@@ -1161,14 +1182,12 @@ function VoiceReview({
       <div className="voice-review-actions">
         <button
           type="button"
-          className="voice-btn ghost voice-transcribe-btn"
-          title="用本地语音模型转文字"
-          aria-label="转文字"
-          disabled={transcribing}
-          onClick={onTranscribe}
+          className="voice-btn ghost"
+          title={transcribing ? '取消转写' : '转文字'}
+          aria-label={transcribing ? '取消转写' : '转文字'}
+          onClick={transcribing ? onCancelTranscription : onTranscribe}
         >
-          {transcribing ? <Loader2 size={13} className="voice-spin" /> : <Sparkles size={13} />}
-          <span>转文字</span>
+          {transcribing ? <X size={14} /> : <Captions size={14} />}
         </button>
         <button
           data-danger="outline"

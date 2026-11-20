@@ -38,11 +38,11 @@ export function AiVoiceControls({
       refetchOnWindowFocus: false,
     },
   );
-  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
   const [sampleError, setSampleError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // 一打开就把光标放进文本框；试听音频跟面板一起走，关掉就停。
+  // 试听音频跟面板一起走，关掉就停。
   useEffect(() => {
     return () => {
       audioRef.current?.pause();
@@ -68,31 +68,39 @@ export function AiVoiceControls({
   const body = text.trim();
   const canSendAiVoice = body.length > 0 && text.length <= 200 && !!voiceId && !disabled;
 
-  /** 播 / 停某条声线的样音。同一时刻只留一路。 */
-  function toggleSample(key: string, url: string) {
-    const current = audioRef.current;
-    if (playingId === key && current) {
-      current.pause();
-      current.currentTime = 0;
-      setPlayingId(null);
+  function stopSample() {
+    const audio = audioRef.current;
+    audioRef.current = null;
+    audio?.pause();
+    setPlaying(false);
+  }
+
+  function toggleSample() {
+    if (playing) {
+      stopSample();
       return;
     }
-    current?.pause();
+    if (!selected?.sampleUrl) return;
+    stopSample();
     setSampleError(null);
-    const audio = new Audio(url);
-    audio.preload = 'auto';
+    const audio = new Audio(selected.sampleUrl);
     audioRef.current = audio;
-    audio.onended = () => setPlayingId((value) => (value === key ? null : value));
-    audio.onerror = () => {
-      if (audioRef.current !== audio) return;
-      setPlayingId((value) => (value === key ? null : value));
-      setSampleError('这条声线的样音拉取失败，检查网络后重试。');
+    audio.onended = () => {
+      if (audioRef.current === audio) stopSample();
     };
-    setPlayingId(key);
-    void audio.play().catch(() => {
+    function failed(message: string) {
       if (audioRef.current !== audio) return;
-      setPlayingId(null);
-      setSampleError('浏览器拦下了自动播放，再点一次试听。');
+      stopSample();
+      setSampleError(message);
+    }
+    audio.onerror = () => failed('这条声线的样音加载失败，请重试。');
+    setPlaying(true);
+    void audio.play().catch((error: unknown) => {
+      failed(
+        error instanceof DOMException && error.name === 'NotAllowedError'
+          ? '播放未获授权，请再点一次试听。'
+          : '这条声线的样音加载失败，请重试。',
+      );
     });
   }
 
@@ -110,7 +118,6 @@ export function AiVoiceControls({
               <div className={cn('ai-voice-group-items')}>
                 {entry.items.map(({ option, key }) => {
                   const active = option.id === voiceId;
-                  const playing = playingId === key;
                   return (
                     <div className={cn('ai-voice-chip', active && 'is-active')} key={key}>
                       <button
@@ -119,23 +126,15 @@ export function AiVoiceControls({
                         role="radio"
                         aria-checked={active}
                         title={`${option.name}（${option.id}）`}
-                        onClick={() => setVoiceId(option.id)}
+                        onClick={() => {
+                          if (option.id !== voiceId) {
+                            stopSample();
+                            setSampleError(null);
+                          }
+                          setVoiceId(option.id);
+                        }}
                       >
                         {option.name}
-                      </button>
-                      <button
-                        type="button"
-                        className={cn('ai-voice-chip-play', playing && 'is-playing')}
-                        title={playing ? '停止试听' : `试听「${option.name}」`}
-                        aria-label={playing ? '停止试听' : `试听「${option.name}」`}
-                        disabled={!option.sampleUrl}
-                        onClick={() => option.sampleUrl && toggleSample(key, option.sampleUrl)}
-                      >
-                        {playing ? (
-                          <Pause size={11} strokeWidth={2.6} />
-                        ) : (
-                          <Play size={11} strokeWidth={2.6} />
-                        )}
                       </button>
                     </div>
                   );
@@ -151,7 +150,24 @@ export function AiVoiceControls({
           {sampleError}
         </span>
       ) : null}
-      <footer className={cn('ai-voice-foot')}>
+      <footer className="ai-voice-foot">
+        <button
+          type="button"
+          className="voice-btn ghost"
+          title={
+            playing
+              ? '停止试听'
+              : selected?.sampleUrl
+                ? `试听「${selected.name}」的 QQ 样音`
+                : '该声线暂无样音'
+          }
+          aria-label={playing ? '停止试听' : '试听'}
+          disabled={!selected?.sampleUrl && !playing}
+          onClick={toggleSample}
+        >
+          {playing ? <Pause size={14} /> : <Play size={14} />}
+          {playing ? '停止试听' : '试听'}
+        </button>
         <button
           type="button"
           className={cn('ai-voice-btn', 'primary')}

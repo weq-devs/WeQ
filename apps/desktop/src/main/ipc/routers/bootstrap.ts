@@ -15,6 +15,7 @@
 import { OperationError, developmentDressToolsEnabled } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
+import type { TranscribeResult } from '../../transcribe/engine';
 import { ensureQqSyncProxy, qqSyncStatus, qqSyncRequest } from '../../qq_sync/runtime';
 import {
   consumeNotificationClick,
@@ -2070,24 +2071,37 @@ export const bootstrapRouter = router({
         }, '录音格式或时长无效'),
       }),
     )
-    .mutation(async ({ input }) => {
-      const boot = requireBootstrap();
-      const modelId = boot.userConfig.getLocalModelId('voice');
-      const model = getVoiceModel(modelId);
-      if (!model || !boot.voiceTranscribe.getModelStatus(modelId)?.downloaded)
-        return { success: false, error: '请先在「设置 → 增强功能 → 增强包」准备本地语音转写' };
-      const { model: modelPath, tokens } = boot.voiceTranscribe.resolveModelPaths(modelId);
-      if (!modelPath || !tokens) return { success: false, error: '本地语音模型文件缺失' };
-      const { transcribeWav } = await import('../../transcribe/engine');
-      return transcribeWav(
-        Buffer.from(input.wav),
-        { model: modelPath, tokens },
-        {
-          engine: model.engine,
-          languages: model.languages,
-        },
-      );
-    }),
+    .subscription(({ input }) =>
+      observable<TranscribeResult>((emit) => {
+        const controller = new AbortController();
+        const { signal } = controller;
+        void (async (): Promise<TranscribeResult> => {
+          const boot = requireBootstrap();
+          const modelId = boot.userConfig.getLocalModelId('voice');
+          const model = getVoiceModel(modelId);
+          if (!model || !boot.voiceTranscribe.getModelStatus(modelId)?.downloaded)
+            return { success: false, error: '请先在「设置 → 增强功能 → 增强包」准备本地语音转写' };
+          const { model: modelPath, tokens } = boot.voiceTranscribe.resolveModelPaths(modelId);
+          if (!modelPath || !tokens) return { success: false, error: '本地语音模型文件缺失' };
+          const { transcribeWav } = await import('../../transcribe/engine');
+          return transcribeWav(
+            Buffer.from(input.wav),
+            { model: modelPath, tokens },
+            { engine: model.engine, languages: model.languages, signal },
+          );
+        })().then(
+          (result) => {
+            if (signal.aborted) return;
+            emit.next(result);
+            emit.complete();
+          },
+          (error: unknown) => {
+            if (!signal.aborted) emit.error(error);
+          },
+        );
+        return () => controller.abort();
+      }),
+    ),
 
   setRecognitionConcurrency: procedure
     .input(

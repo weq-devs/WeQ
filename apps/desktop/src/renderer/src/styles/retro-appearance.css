@@ -166,7 +166,7 @@ html[data-component-style='retro'][data-theme] body
     .weq-cap-tab[aria-selected='true'] > em,
     .weq-editor-tab.active .weq-editor-tab-index,
     .weq-search-scope > button[aria-pressed='true'] > svg,
-    .ai-voice-chip.is-active > :is(.ai-voice-chip-pick, .ai-voice-chip-play:not(.is-playing)),
+    .ai-voice-chip.is-active > .ai-voice-chip-pick,
     .weq-applock-method[aria-checked='true']:not(:disabled) .weq-applock-method-icon,
     .weq-applock-method[aria-checked='true']:not(:disabled) .weq-applock-method-main > *
   ) {
@@ -180,9 +180,7 @@ html[data-component-style='retro'][data-theme]
   color: var(--weq-fg-secondary);
 }
 
-html[data-component-style='retro'][data-theme]
-  body
-  :is(.weq-applock-method-icon, .ai-voice-chip-play) {
+html[data-component-style='retro'][data-theme] body .weq-applock-method-icon {
   border-radius: var(--weq-skin-radius);
 }
 

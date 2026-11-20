@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
+import { observableToPromise } from '@trpc/server/observable';
 import { VOICE_MODELS } from '@weq/service';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { bootstrapRouter } from '../src/main/ipc/routers/bootstrap';
@@ -78,7 +79,7 @@ function makeRecordingWav(sampleRate = 16_000) {
 it('未发送的录音直接用本地模型转写，缺模型和不合规采样率有明确结果', async () => {
   const api = bootstrapRouter.createCaller({});
   const wav = makeRecordingWav();
-  expect(await api.transcribeRecording({ wav })).toMatchObject({
+  expect(await observableToPromise(await api.transcribeRecording({ wav })).promise).toMatchObject({
     success: true,
     text: '合成识别结果',
   });
@@ -94,8 +95,35 @@ it('未发送的录音直接用本地模型转写，缺模型和不合规采样�
     '录音格式或时长无效',
   );
   state.downloaded = false;
-  expect(await api.transcribeRecording({ wav })).toMatchObject({ success: false });
+  expect(await observableToPromise(await api.transcribeRecording({ wav })).promise).toMatchObject({
+    success: false,
+  });
   expect(state.infer).not.toHaveBeenCalled();
+});
+
+it('取消录音转写会中止识别，已取消的结果不会发布，录音可以再次转写', async () => {
+  const api = bootstrapRouter.createCaller({});
+  const wav = makeRecordingWav();
+  let signal: AbortSignal | undefined;
+  let finish: ((result: { success: boolean; text: string }) => void) | undefined;
+  state.infer.mockImplementationOnce((_wav, _model, options) => {
+    signal = options.signal;
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  const result = await api.transcribeRecording({ wav });
+  const receive = vi.fn();
+  const task = result.subscribe({ next: receive });
+  await vi.waitFor(() => expect(signal).toBeDefined());
+  task.unsubscribe();
+  expect(signal?.aborted).toBe(true);
+  finish?.({ success: true, text: '已取消的结果' });
+  expect(await observableToPromise(await api.transcribeRecording({ wav })).promise).toMatchObject({
+    success: true,
+    text: '合成识别结果',
+  });
+  expect(receive).not.toHaveBeenCalled();
 });
 it('识别结果返回并写回原消息，保留原有调用兼容性', async () => {
   const result = await accountRouter.createCaller({}).transcribeVoice(input);

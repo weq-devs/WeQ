@@ -337,6 +337,7 @@ button.composer-single-thumb {
 }
 
 .voice-panel-body {
+  position: relative;
   display: grid;
   grid-template-rows: minmax(66px, 1fr) auto;
   gap: 5px;
@@ -382,22 +383,52 @@ button.composer-single-thumb {
   transform: translateX(calc(50% - 34px));
 }
 
-.voice-live-wave {
+.voice-wave {
+  position: absolute;
+  z-index: 1;
+  top: calc(50% - 14px);
+  left: 50%;
   display: flex;
   align-items: center;
-  gap: clamp(1px, 0.5vw, 4px);
-  width: min(320px, calc(100% - 138px));
+  gap: clamp(1px, 0.4vw, 3px);
+  width: clamp(0px, calc(100% - 138px), 320px);
   height: 44px;
   color: var(--media-record);
   opacity: 0;
-  transition: opacity 140ms ease;
+  contain: layout paint;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition:
+    top 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    left 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    width 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    height 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    transform 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    opacity 140ms ease;
 }
 
-.voice-stage.is-recording .voice-live-wave {
+.voice-panel-body:is(
+    [data-wave-phase='requesting'],
+    [data-wave-phase='recording'],
+    [data-wave-phase='review']
+  )
+  .voice-wave {
   opacity: 1;
 }
 
-.voice-live-wave span {
+.voice-panel-body[data-wave-phase='review'] .voice-wave {
+  top: 17px;
+  left: 42px;
+  width: calc(100% - 82px);
+  height: 34px;
+  transform: translate(0, -50%);
+}
+
+.voice-panel-body[data-wave-compact='true'] .voice-wave {
+  width: calc((100% - 82px) * 0.68);
+}
+
+.voice-wave span {
   flex: 1 1 0;
   height: 100%;
   border-radius: 2px;
@@ -450,8 +481,8 @@ button.composer-single-thumb {
 
 @media (prefers-reduced-motion: reduce) {
   .voice-record-track,
-  .voice-live-wave,
-  .voice-live-wave span {
+  .voice-wave,
+  .voice-wave span {
     transition: none;
   }
 }
@@ -547,6 +578,7 @@ button.composer-single-thumb {
   grid-row: 1;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
@@ -573,25 +605,6 @@ button.composer-single-thumb {
 
 .voice-review-play.is-playing {
   background: var(--weq-accent-hover, var(--weq-accent-effective, #0099ff));
-}
-
-.voice-review-wave {
-  display: flex;
-  height: 34px;
-  min-width: 0;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 2px;
-  color: var(--weq-accent-effective, #0099ff);
-}
-
-.voice-review-wave i {
-  display: block;
-  min-height: 10%;
-  flex: 1 1 0;
-  border-radius: 2px;
-  background: currentColor;
-  opacity: 0.62;
 }
 
 .voice-review-time {
@@ -646,12 +659,6 @@ button.composer-single-thumb {
 
 .voice-review > .voice-review-actions {
   grid-row: 3;
-}
-
-.voice-review-actions .voice-transcribe-btn {
-  margin-inline-end: auto;
-  gap: 4px;
-  padding-inline: 5px;
 }
 
 @container (max-width: 430px) {
@@ -1258,7 +1265,7 @@ html[data-theme='dark'] .link-card-preview-card {
   gap: 5px;
 }
 
-/* 一枚声线 = 名字键 + 试听键，拼成一个胶囊。 */
+/* 声线选择。 */
 .ai-voice-chip {
   display: inline-flex;
   align-items: center;
@@ -1278,7 +1285,7 @@ html[data-theme='dark'] .link-card-preview-card {
 }
 
 .ai-voice-chip-pick {
-  padding: 4px 4px 4px 10px;
+  padding: 4px 10px;
   border: 0;
   background: transparent;
   color: var(--weq-fg-secondary, #666666);
@@ -1294,41 +1301,6 @@ html[data-theme='dark'] .link-card-preview-card {
   font-weight: 600;
 }
 
-.ai-voice-chip-play {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  margin: 2px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--weq-fg-muted, #858585);
-  cursor: pointer;
-  transition:
-    background 130ms ease,
-    color 130ms ease;
-}
-
-.ai-voice-chip-play:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 16%, transparent);
-  color: var(--weq-accent-effective, #0099ff);
-}
-
-/* 正在播的那条：实心主题色 + 轻微呼吸，扫一眼就知道是哪条在响。 */
-.ai-voice-chip-play.is-playing {
-  background: var(--weq-accent-solid, #0099ff);
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-  animation: ai-voice-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes ai-voice-pulse {
-  50% {
-    opacity: 0.72;
-  }
-}
-
 .ai-voice-error {
   color: var(--media-danger, #f0483e);
   font-size: 11.5px;
@@ -1336,6 +1308,7 @@ html[data-theme='dark'] .link-card-preview-card {
 
 .ai-voice-foot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
@@ -2654,8 +2627,14 @@ html[data-theme='dark'] .redpacket-step {
 .voice-recording-bubble {
   position: fixed;
   z-index: 3600;
-  right: max(16px, env(safe-area-inset-right));
-  bottom: max(18px, env(safe-area-inset-bottom));
+  top: 0;
+  left: 0;
+  transform: translate3d(
+    calc(100dvw - 60px - max(16px, env(safe-area-inset-right, 0px))),
+    calc(100dvh - 60px - max(18px, env(safe-area-inset-bottom, 0px))),
+    0
+  );
+  will-change: transform;
   display: grid;
   place-content: center;
   justify-items: center;
