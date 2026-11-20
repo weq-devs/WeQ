@@ -692,9 +692,22 @@ button.composer-single-thumb {
     padding-inline: 4px;
   }
 
-  .voice-review-actions .voice-btn[aria-label='原声'] span,
-  .voice-review-actions .voice-btn[aria-label='变声'] span,
   .voice-review-actions .voice-btn[aria-label='发送文字'] span {
+    display: none;
+  }
+}
+
+@container (max-width: 320px) {
+  .voice-review-actions {
+    gap: 3px;
+  }
+
+  .voice-review-actions .voice-btn {
+    min-width: 24px;
+    padding-inline: 3px;
+  }
+
+  .voice-review-actions .voice-btn.primary svg {
     display: none;
   }
 }

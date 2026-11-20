@@ -1179,15 +1179,6 @@ function VoiceReview({
 
       <div className="voice-review-actions">
         <button
-          type="button"
-          className="voice-btn ghost voice-transcribe-btn"
-          title={transcribing ? '取消转写' : '转文字'}
-          aria-label={transcribing ? '取消转写' : '转文字'}
-          onClick={transcribing ? onCancelTranscription : onTranscribe}
-        >
-          {transcribing ? <X size={14} /> : <Captions size={14} />}
-        </button>
-        <button
           data-danger="outline"
           type="button"
           className="voice-btn ghost"
@@ -1196,6 +1187,14 @@ function VoiceReview({
           onClick={onDiscard}
         >
           <Trash2 size={14} />
+        </button>
+        <button
+          type="button"
+          className="voice-btn ghost voice-transcribe-btn"
+          onClick={transcribing ? onCancelTranscription : onTranscribe}
+        >
+          {transcribing ? <X size={14} /> : <Captions size={14} />}
+          <span>{transcribing ? '取消转写' : '转文字'}</span>
         </button>
         {trimmed ? (
           <button
@@ -1212,13 +1211,13 @@ function VoiceReview({
         <button
           type="button"
           className={cn('voice-btn ghost', voiceChanged && 'is-active')}
-          title="变声标识：勾选后以变声模式发送（收端显示变声角标）"
-          aria-label={voiceChanged ? '变声' : '原声'}
+          title={voiceChanged ? '取消发送变声标识' : '发送变声标识'}
+          aria-label="发送变声标识"
           aria-pressed={voiceChanged}
           disabled={!canSend}
           onClick={() => setVoiceChanged((value) => !value)}
         >
-          <Wand2 size={14} /> <span>{voiceChanged ? '变声' : '原声'}</span>
+          <Wand2 size={14} />
         </button>
         <button
           type="button"
