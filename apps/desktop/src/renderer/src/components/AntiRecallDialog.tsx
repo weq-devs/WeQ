@@ -1,22 +1,12 @@
-import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
-/**
- * 防撤回：设置来源展示页内摘要，选择与记录按需打开工具。
- *
- * 保护与记录留在防撤回，通知方式与统一通知页共用，提醒名单独立编辑。
- * 非设置来源保留原独立面板的三页：
- *   • 保护：启用范围（关闭 / 按会话勾选 / 永久全选）、启用防撤回的会话选择。
- *   • 通知：就地选择统一通知方式，提醒会话独立编辑。
- *   • 记录：有撤回记录的会话目录（计数 + 最近一次撤回时间）。点一行打开该会话的
- *     撤回列表（聊天区同一套气泡与筛选），所以这里只做目录，不重复渲染消息。
- *
- * 全部读写走 account.antiRecall router。写操作是**乐观**的：服务层落配置后立刻返回
- * 期望状态（触发器重建在后台跑），这里把返回值直接写进查询缓存 —— 点击即生效，不卡 UI，
- * 也不需要 QQ 在线。
- */
+/** 防撤回方式、保护范围与记录；设置页摘要和会话工具共用后端状态。 */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
+  Archive,
+  Database,
+  Network,
+  Power,
   ArrowLeft,
   BellRing,
   ChevronRight,
@@ -56,6 +46,7 @@ import '../styles/anti-recall-settings.css';
 type AntiRecallKind = 'c2c' | 'group' | 'dataline';
 
 /** 启用范围：关闭 / 按会话勾选 / 永久全选（不做会话筛选）。 */
+type AntiRecallMethod = 'off' | 'weq' | 'proxy' | 'database';
 type AntiRecallScope = 'off' | 'selected' | 'all';
 
 type Tab = 'protect' | 'notify' | 'records';
@@ -67,9 +58,35 @@ const TABS: { id: Tab; label: string; icon: typeof ShieldCheck }[] = [
 ];
 
 const SCOPE_OPTIONS: { value: AntiRecallScope; label: string }[] = [
-  { value: 'off', label: '关闭' },
-  { value: 'selected', label: '按会话勾选' },
-  { value: 'all', label: '永久全选' },
+  { value: 'selected', label: '指定会话' },
+  { value: 'all', label: '全部会话' },
+];
+
+const METHODS: {
+  value: AntiRecallMethod;
+  title: string;
+  description: string;
+  icon: typeof ShieldCheck;
+}[] = [
+  { value: 'off', title: '关闭', description: '消息按 QQ 的正常流程撤回。', icon: Power },
+  {
+    value: 'weq',
+    icon: Archive,
+    title: '仅在 WeQ 中保留',
+    description: 'QQ 照常撤回。连接代理时实时留存；未连接时，仅保留 WeQ 及时读到的原文。',
+  },
+  {
+    value: 'proxy',
+    icon: Network,
+    title: '在 WeQ 和本机 QQ 中保留（使用代理）',
+    description: 'WeQ 运行且 QQ 连接代理时生效。',
+  },
+  {
+    value: 'database',
+    icon: Database,
+    title: '在 WeQ 和本机 QQ 中保留（使用数据库触发器）',
+    description: '无需代理。触发器生效后，关闭 WeQ 也会继续保护。',
+  },
 ];
 
 interface Target {
@@ -202,6 +219,7 @@ export function AntiRecallDialog({
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
+    refetchInterval: 3000,
   });
   const conversations = trpc.account.listConversationsWithCount.useQuery(undefined, {
     enabled: hasAccount && active && !locked && (!embedded || editor !== null),
@@ -214,17 +232,22 @@ export function AntiRecallDialog({
   });
   const isStaticPcOnly = (config.data?.static ?? false) && !(config.data?.mobile ?? false);
 
+  const setMethod = trpc.settings.antiRecall.setMethod.useMutation();
   const setScope = trpc.settings.antiRecall.setScope.useMutation();
   const setTargets = trpc.account.antiRecall.setTargets.useMutation();
   const setNotify = trpc.settings.antiRecall.setNotify.useMutation();
-  const busy = setScope.isLoading || setTargets.isLoading || setNotify.isLoading;
+  const busy =
+    setMethod.isLoading || setScope.isLoading || setTargets.isLoading || setNotify.isLoading;
 
   const scope: AntiRecallScope = status.data
     ? status.data.enabled
       ? status.data.mode
       : 'off'
     : 'off';
-  const mode: 'selected' | 'all' = scope === 'all' ? 'all' : 'selected';
+  const method: AntiRecallMethod = status.data?.enabled
+    ? (status.data.method ?? 'database')
+    : 'off';
+  const mode: 'selected' | 'all' = status.data?.mode ?? 'selected';
   const consumedRequest = useRef<number | null>(null);
   useEffect(() => {
     if (
@@ -333,33 +356,100 @@ export function AntiRecallDialog({
       const res = await setScope.mutateAsync({ scope: next });
       if (!current()) return;
       applyStatus(res);
-      if (!hasAccount || isStaticPcOnly) {
-        pushToast({ tone: 'success', title: '已保存防撤回设置' });
-        return;
-      }
-      if (next === 'off') {
-        pushToast({
-          tone: 'info',
-          title: '防撤回已关闭',
-          message: res.qqRunning
-            ? '触发器已卸下。QQ 正在运行，可能要重启 QQ 才彻底停止。'
-            : '触发器已卸下。',
-        });
-      } else if (scope === 'off') {
-        pushToast({
-          tone: 'success',
-          title: '防撤回已开启',
-          message: res.qqRunning
-            ? '触发器已装上。QQ 正在运行，可能要重启 QQ 才真正生效。'
-            : '触发器已装上。',
-        });
-      }
+      void status.refetch();
     } catch (e) {
       if (!current()) return;
       void status.refetch();
       showError(next === 'off' ? '关闭防撤回失败' : '切换启用范围失败', errMsg(e));
     }
   }
+
+  async function onSetMethod(next: AntiRecallMethod) {
+    const current = mutationGuard();
+    if (!current()) return;
+    try {
+      const result = await setMethod.mutateAsync({ method: next });
+      if (!current()) return;
+      applyStatus(result);
+      void status.refetch();
+    } catch (error) {
+      if (current()) showError('切换防撤回方式失败', errMsg(error));
+    }
+  }
+
+  function protectionStatusText(): string {
+    if (!hasAccount) return '打开账号后生效。';
+    if (isStaticPcOnly) return '当前来源为离线快照。';
+    if (status.data?.error) return `应用失败：${status.data.error}`;
+    if (status.data?.applying) return '正在应用保护规则…';
+    if (method === 'off') return installedCount ? '正在卸下数据库触发器。' : '防撤回已关闭。';
+    if (method === 'database') {
+      if (!installedCount) return '尚未安装触发器。';
+      return `已安装 ${installedCount} 张触发器。${qqRunning ? '改动可能需要重启 QQ 后生效。' : ''}`;
+    }
+    if (method === 'proxy')
+      return status.data?.proxyConnected ? 'QQ 已连接代理。' : '等待 QQ 连接代理。';
+    return status.data?.proxyConnected ? '正在通过代理留存原文。' : '正在通过数据库监听留存原文。';
+  }
+
+  const protectionControls = (
+    <>
+      <div className="weq-applock-settings-group">
+        <div className="weq-set-card-title">防撤回方式</div>
+        <div className="weq-applock-methods" role="radiogroup" aria-label="防撤回方式">
+          {METHODS.map((option) => (
+            <button
+              type="button"
+              role="radio"
+              key={option.value}
+              value={option.value}
+              aria-label={option.title}
+              aria-checked={method === option.value}
+              className={cn('weq-applock-method', method === option.value && 'is-active')}
+              disabled={busy || !status.data || locked || !active}
+              onClick={() => void onSetMethod(option.value)}
+            >
+              <span className="weq-applock-method-icon">
+                <option.icon size={18} strokeWidth={1.8} aria-hidden />
+              </span>
+              <span className="weq-applock-method-main">
+                <strong>{option.title}</strong>
+                <small>{option.description}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {method !== 'off' && (
+        <Row
+          label="保护范围"
+          control={
+            <div className="weq-set-seg" role="radiogroup" aria-label="防撤回保护范围">
+              {SCOPE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === option.value}
+                  className={cn('weq-set-seg-item', mode === option.value && 'is-on')}
+                  disabled={busy || !status.data}
+                  onClick={() => void onSetScope(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          }
+        />
+      )}
+      <p className="weq-set-desc" role="status">
+        {protectionStatusText()}
+      </p>
+      {status.data?.restartSuggested && method !== 'database' && (
+        <p className="weq-set-desc">已更新数据库触发器，QQ 可能需要重启后应用变化。</p>
+      )}
+    </>
+  );
 
   async function onSaveTargets(): Promise<void> {
     const current = mutationGuard();
@@ -588,58 +678,7 @@ export function AntiRecallDialog({
             ) : null}
             {section === 'protection' && (
               <>
-                <Row
-                  label="启用范围"
-                  desc={
-                    isStaticPcOnly
-                      ? '静态账号的数据库是导入的离线快照，QQ 不会往里写入，触发器拦不到任何撤回。'
-                      : scope === 'all'
-                        ? '所有会话（含以后新增的）都受保护，不向对方发送任何内容。'
-                        : scope === 'selected'
-                          ? '仅保护下面勾选的会话，不向对方发送任何内容。'
-                          : '不拦截撤回；选择「按会话勾选」或「永久全选」后才会安装触发器。'
-                  }
-                  control={
-                    <div className="weq-set-seg" role="radiogroup" aria-label="防撤回启用范围">
-                      {SCOPE_OPTIONS.map((option) => (
-                        <button
-                          type="button"
-                          role="radio"
-                          key={option.value}
-                          aria-checked={scope === option.value}
-                          className={cn('weq-set-seg-item', scope === option.value && 'is-on')}
-                          disabled={unavailable}
-                          onClick={() => void onSetScope(option.value)}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  }
-                />
-                <Row
-                  label="触发器状态"
-                  desc={
-                    qqRunning
-                      ? 'QQ 正在运行，改动可能要重启 QQ 才真正生效。'
-                      : 'QQ 下次启动会加载最新拦截规则。'
-                  }
-                  control={
-                    <span className="weq-set-row-status">
-                      {!hasAccount ? (
-                        '未打开账号'
-                      ) : isStaticPcOnly ? (
-                        '离线快照'
-                      ) : !status.data ? (
-                        '尚未读取'
-                      ) : installedCount ? (
-                        <NumericText>{`已安装（${installedCount} 张触发器）`}</NumericText>
-                      ) : (
-                        '未安装'
-                      )}
-                    </span>
-                  }
-                />
+                {protectionControls}
                 {scope === 'selected' ? (
                   <Row
                     label="启用防撤回的会话"
@@ -855,56 +894,7 @@ export function AntiRecallDialog({
         {tab === 'protect' ? (
           <>
             <Card title="保护规则" icon={<ListFilter size={15} strokeWidth={1.8} />}>
-              <Row
-                label="启用范围"
-                desc={
-                  isStaticPcOnly
-                    ? '静态账号的数据库是导入的离线快照，QQ 不会往里写入，触发器拦不到任何撤回。'
-                    : scope === 'all'
-                      ? '不做会话筛选：所有会话（含以后新增的）都受保护。'
-                      : scope === 'selected'
-                        ? '只保护下面勾选的会话。'
-                        : '不拦截撤回：关闭后卸下全部触发器，撤回按 QQ 原本逻辑执行。'
-                }
-                control={
-                  <div className="weq-set-seg" role="radiogroup" aria-label="防撤回启用范围">
-                    {SCOPE_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        role="radio"
-                        aria-checked={scope === opt.value}
-                        className={cn('weq-set-seg-item', scope === opt.value && 'is-on')}
-                        disabled={busy || status.isLoading}
-                        onClick={() => void onSetScope(opt.value)}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                }
-              />
-              <Row
-                label={
-                  <span className="weq-set-mcp-state">
-                    <span
-                      className={cn('weq-set-mcp-dot', installedCount > 0 && 'is-on')}
-                      aria-hidden
-                    />
-                    {installedCount > 0 ? (
-                      <NumericText>{`已安装（${installedCount} 张触发器）`}</NumericText>
-                    ) : (
-                      '未安装'
-                    )}
-                  </span>
-                }
-                desc={
-                  qqRunning
-                    ? 'QQ 正在运行：随时可改，但可能要重启 QQ 才真正生效。'
-                    : 'QQ 下次启动会加载最新拦截规则。'
-                }
-                control={<span />}
-              />
+              {protectionControls}
             </Card>
 
             {scope === 'selected' ? (

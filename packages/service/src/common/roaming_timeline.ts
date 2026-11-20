@@ -45,7 +45,7 @@ export function mergeRoamingWindow<T extends TimelineRow>(
   return incoming.length ? mergeRoamingTimeline(kind, local, incoming) : local;
 }
 
-/** Preserve every local row (including gray tips sharing a seq); cache only fills holes. */
+/** 同身份撤回副本优先显示原文，普通缓存补齐缺口，并保留同序号的其他灰条。 */
 export function mergeRoamingTimeline<T extends TimelineRow>(
   kind: 'c2c' | 'group',
   local: T[],
@@ -59,7 +59,6 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
   const protectedRows = [...local, ...cached].filter((row) => {
     const seq = timelineSeq(row.msgSeq);
     return (
-      row.localSent &&
       row.recall &&
       seq !== null &&
       (kind !== 'c2c' || row.ntSeqVerified === true) &&
@@ -67,9 +66,13 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
       (options.max === undefined || seq <= options.max)
     );
   });
+  const protectedIds = new Set(protectedRows.map((row) => `${row.msgSeq}:${row.msgId}`));
   const protectedKeys = new Set(protectedRows.map(identity).filter(Boolean));
   const result = local.filter(
-    (row) => row.source !== 'roaming' && !protectedKeys.has(identity(row)),
+    (row) =>
+      row.source !== 'roaming' &&
+      !protectedKeys.has(identity(row)) &&
+      !protectedIds.has(`${row.msgSeq}:${row.msgId}`),
   );
   const localSeqs = new Set(result.map((row) => row.msgSeq));
   const localIds = new Set(result.map((row) => row.msgId));
@@ -84,7 +87,7 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
     ...protectedRows,
     ...local.filter((item) => item.source === 'roaming'),
     ...cached,
-  ].filter((row) => (row.localSent && row.recall) || !protectedKeys.has(identity(row)));
+  ].filter((row) => row.recall || !protectedKeys.has(identity(row)));
   const syncedIdentities = new Set(
     candidates
       .filter((row) => !row.localSent)
@@ -99,15 +102,16 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
       (kind === 'c2c' && row.ntSeqVerified !== true) ||
       (options.min !== undefined && seq < options.min) ||
       (options.max !== undefined && seq > options.max) ||
-      (row.sourceFormat
-        ? localIds.has(row.msgId) ||
-          (row.sourceFormat === 'protocol' &&
-            identity(row) !== null &&
-            localIdentities.has(identity(row)))
-        : localSeqs.has(row.msgSeq) ||
-          nativeRandoms.has(
-            `${row.msgSeq}:${row.msgRandom || row.msgId}:${row.senderUid ?? ''}`,
-          )) ||
+      (!row.recall &&
+        (row.sourceFormat
+          ? localIds.has(row.msgId) ||
+            (row.sourceFormat === 'protocol' &&
+              identity(row) !== null &&
+              localIdentities.has(identity(row)))
+          : localSeqs.has(row.msgSeq) ||
+            nativeRandoms.has(
+              `${row.msgSeq}:${row.msgRandom || row.msgId}:${row.senderUid ?? ''}`,
+            ))) ||
       added.has(row.sourceFormat ? `${row.msgSeq}:${row.msgId}` : row.msgSeq)
     )
       continue;

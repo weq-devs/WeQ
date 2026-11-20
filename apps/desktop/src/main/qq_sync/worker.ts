@@ -6,6 +6,7 @@ import { uptime } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { RecallJournal } from './recall_journal';
 import { QqSyncProxy } from './proxy';
 import type { SyncProxyConfig } from './ipc';
 
@@ -87,7 +88,34 @@ const schema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('credential'),
     token: z.string(),
-    value: z.object({ uin: z.string(), key: z.string(), generation: z.string().max(128) }),
+    value: z.object({
+      uin: z.string(),
+      key: z.string(),
+      generation: z.string().max(128),
+      selfUid: z.string().optional(),
+    }),
+  }),
+  z.object({
+    op: z.literal('recall-policy'),
+    token: z.string(),
+    uin: z.string(),
+    generation: z.string(),
+    value: z.object({
+      owner: z.string().max(256),
+      enabled: z.boolean(),
+      block: z.boolean(),
+      all: z.boolean(),
+      targets: z
+        .array(z.object({ kind: z.enum(['c2c', 'group', 'dataline']), id: z.string() }))
+        .max(10000),
+    }),
+  }),
+  z.object({
+    op: z.literal('recall-events'),
+    token: z.string(),
+    uin: z.string(),
+    generation: z.string(),
+    ack: z.array(z.string()).max(64),
   }),
   z.object({ op: z.literal('forget'), token: z.string(), uin: z.string() }),
   z.object({
@@ -100,7 +128,7 @@ const schema = z.discriminatedUnion('op', [
   }),
 ]);
 async function serve() {
-  const proxy = new QqSyncProxy();
+  const proxy = new QqSyncProxy(new RecallJournal(join(directory, 'recall-events')));
   const server = createServer((socket) => {
     let buffer = '';
     const timer = setTimeout(() => socket.destroy(), 10000);
@@ -126,6 +154,11 @@ async function serve() {
         else if (request.op === 'credential') {
           proxy.setCredential(request.value);
           result = true;
+        } else if (request.op === 'recall-policy') {
+          proxy.setRecallPolicy(request.uin, request.generation, request.value);
+          result = true;
+        } else if (request.op === 'recall-events') {
+          result = proxy.takeRecallEvents(request.uin, request.generation, request.ack);
         } else if (request.op === 'forget') {
           proxy.forget(request.uin);
           result = true;
@@ -158,7 +191,13 @@ async function serve() {
     await import('node:fs/promises').then((fs) => fs.chmod(config.socket, 0o600));
   await writeFile(
     join(directory, 'status.json'),
-    JSON.stringify({ pid: process.pid, port: config.port, startedAt: Date.now() }),
+    JSON.stringify({
+      pid: process.pid,
+      port: config.port,
+      startedAt: Date.now(),
+      state: '正常',
+      protocolVersion: 2,
+    }),
     { mode: 0o600 },
   );
   const stop = async () => {

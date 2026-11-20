@@ -367,7 +367,8 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('notification-badges', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
   field('mail', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
   field('mail', 'poll-interval', 'mail-poll-interval', '邮箱查询间隔', 'runtime'),
-  field('recall-scope', 'scope', 'anti-recall', '防撤回启用范围', 'runtime'),
+  field('recall-scope', 'method', 'anti-recall', '防撤回方式', 'runtime'),
+  field('recall-scope', 'scope', 'anti-recall', '防撤回保护范围', 'runtime'),
   field('recall-scope', 'targets', 'anti-recall', '防撤回会话选择', 'runtime', {
     scope: '当前账号',
   }),

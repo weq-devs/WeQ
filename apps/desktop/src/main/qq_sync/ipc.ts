@@ -1,5 +1,5 @@
 import { connect } from 'node:net';
-import type { SyncCredential } from './proxy';
+import type { SyncCredential, RecallPolicy } from './proxy';
 export interface SyncProxyConfig {
   socket: string;
   token: string;
@@ -11,9 +11,14 @@ export interface SyncProxyStatus {
   accounts: string[];
   delivered: number;
   pid: number;
+  protocolVersion?: number;
+  recallError?: string;
+  filteredRecalls?: number;
 }
 export type SyncProxyRequest =
   | { op: 'status' }
+  | { op: 'recall-policy'; uin: string; generation: string; value: RecallPolicy }
+  | { op: 'recall-events'; uin: string; generation: string; ack: string[] }
   | { op: 'credential'; value: SyncCredential }
   | { op: 'forget'; uin: string }
   | { op: 'push'; uin: string; generation: string; identity: string; body: string };
@@ -45,7 +50,7 @@ export function requestProxy<T>(
     );
     socket.on('data', (data) => {
       buffer += data.toString();
-      if (buffer.length > 1024 * 1024) return finish(new Error('QQ 同步状态响应过大'));
+      if (buffer.length > 4 * 1024 * 1024) return finish(new Error('QQ 同步状态响应过大'));
       const end = buffer.indexOf('\n');
       if (end < 0) return;
       try {

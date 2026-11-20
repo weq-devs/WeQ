@@ -439,6 +439,7 @@ function flattenElements(elements: readonly unknown[]): string {
 interface AiMsgRowLike {
   msgId?: bigint | number | string;
   msgSeq?: bigint | number | string;
+  msgRandom?: bigint | number | string;
   senderUid: string;
   /** 普通会话 senderUin 可用；数据线各设备共用同一个 uin，判 mine 走 senderUid。 */
   senderUin?: bigint | number | string;
@@ -2328,20 +2329,31 @@ export const AI_TOOLS: AiTool[] = [
       return {
         enabled: status.enabled,
         mode: status.mode,
+        method: status.enabled ? (status.method ?? 'database') : 'off',
+        proxyConnected: status.proxyConnected ?? false,
+        applying: status.applying ?? false,
+        error: status.error || '',
         modeLabel: status.mode === 'all' ? '全部会话' : '仅指定会话',
         protectedTargets: targets,
         installedTriggers: triggerNames,
         qqRunning: status.qqRunning,
-        hint: status.enabled
-          ? `防撤回已开启（${status.mode === 'all' ? '保护全部会话' : `保护 ${status.targets.length} 个指定会话`}）；` +
-            (status.qqRunning
-              ? 'QQ 正在运行，最近一次开关/改目标可能要重启 QQ 后才真正生效。'
-              : '触发器已按当前配置安装。') +
-            '若从未有人撤回，撤回列表为空属正常。' +
-            (status.targets.length > 0
-              ? 'protectedTargets 里的 id 是内部会话标识，给用户展示前请用 find_contact 解析成名字。'
-              : '')
-          : '防撤回未开启，因此也没有拦截撤回的日志记录。',
+        hint:
+          status.error ||
+          (status.enabled
+            ? status.applying
+              ? '正在应用防撤回设置。'
+              : (status.method ?? 'database') === 'database'
+                ? status.qqRunning
+                  ? '数据库触发器改动可能需要重启 QQ 后生效。'
+                  : '数据库触发器保护，关闭 WeQ 后继续生效。'
+                : status.method === 'proxy'
+                  ? status.proxyConnected
+                    ? 'QQ 已连接代理。'
+                    : '等待 QQ 连接代理。'
+                  : status.proxyConnected
+                    ? '通过代理实时留存原文。'
+                    : '通过数据库监听留存及时读到的原文。'
+            : '防撤回已关闭，已有留存记录仍可查看。'),
       };
     },
   }),
@@ -2350,11 +2362,12 @@ export const AI_TOOLS: AiTool[] = [
     name: 'set_anti_recall',
     assistantOnly: true, // 写数据库触发器 + 配置文件 → 只给内置助手，不进只读 MCP server
     description:
-      '开启/取消防撤回。enabled=false 会卸载全部防撤回触发器；enabled=true 会按当前配置（或本次传入的 mode/targets）重建。' +
+      '开启/取消防撤回。method 为 weq（独立留存）、proxy（代理过滤）或 database（数据库触发器）；省略时沿用当前方式。' +
       'mode: selected=只保护 targets 里的会话，all=保护所有会话（无需列 targets）。targets 是会话清单：' +
       'kind=c2c 传对方 uid、kind=group 传群号、kind=dataline 传设备 uid（一般不需要手动加）。' +
       '返回最新状态与 QQ 是否在运行——QQ 开着时触发器可能要到重启 QQ 才真正生效。',
     input: z.object({
+      method: z.enum(['weq', 'proxy', 'database']).optional(),
       enabled: z.boolean().describe('true=开启防撤回，false=关闭'),
       mode: z.enum(['selected', 'all']).optional().describe('保护范围：仅指定会话 / 全部会话'),
       targets: z
@@ -2367,7 +2380,7 @@ export const AI_TOOLS: AiTool[] = [
         .optional()
         .describe('要保护的会话清单（仅 mode=selected 时有意义）'),
     }),
-    run: async ({ enabled, mode, targets }) => {
+    run: async ({ enabled, method, mode, targets }) => {
       const ctx = toolContext();
       if (enabled && ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
         throw new Error('静态账号的数据库是离线快照，QQ 不会写入，防撤回无法生效。');
@@ -2376,20 +2389,23 @@ export const AI_TOOLS: AiTool[] = [
       // 顺序固定：先改清单/范围再翻总开关，确保 applyTriggers 一次对齐终态。
       if (targets) await svc.setTargets(targets);
       if (mode) await svc.setMode(mode);
-      await svc.setEnabled(enabled);
+      if (enabled && method) await svc.setMethod(method);
+      else await svc.setEnabled(enabled);
       const status = await svc.getStatus();
       return {
         ok: true,
         enabled: status.enabled,
         mode: status.mode,
+        method: status.enabled ? (status.method ?? 'database') : 'off',
         protectedTargets: status.targets,
         installedTriggers: status.installed.map((i) => i.name),
         qqRunning: status.qqRunning,
-        hint: status.qqRunning
-          ? 'QQ 正在运行，触发器的变化可能要到 QQ 重启后才真正生效。'
-          : status.enabled
-            ? '防撤回已开启，之后撤回的消息会被拦截并记录到本地日志。'
-            : '防撤回已关闭，QQ 的撤回将正常执行。',
+        hint:
+          (status.method ?? 'database') === 'database' && status.qqRunning
+            ? 'QQ 正在运行，触发器的变化可能要到 QQ 重启后才真正生效。'
+            : status.enabled
+              ? '防撤回已开启，之后撤回的消息会被拦截并记录到本地日志。'
+              : '防撤回已关闭，QQ 的撤回将正常执行。',
       };
     },
   }),
@@ -2408,7 +2424,17 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ kind, conv, limit }) => {
       const svc = services();
-      const rows = (await svc.msgs.getRecalledMessages(kind, conv)) as AiMsgRowLike[];
+      const native = (await svc.msgs.getRecalledMessages(kind, conv)) as AiMsgRowLike[];
+      const cached = (await svc.gapHistory.cachedRecalls(kind, conv)).map((row) => ({
+        ...row,
+        sendTime: Number(row.sendTime),
+      }));
+      const key = (row: AiMsgRowLike) =>
+        `${row.msgSeq}:${row.senderUid}:${row.msgRandom || row.msgId}`;
+      const unique = new Map([...native, ...cached].map((row) => [key(row), row]));
+      const rows = [...unique.values()].sort(
+        (a, b) => Number(b.recall?.recallTs ?? 0) - Number(a.recall?.recallTs ?? 0),
+      );
       const hasMore = rows.length > limit;
       const page = rows.slice(0, limit);
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
@@ -2608,10 +2634,22 @@ export const AI_TOOLS: AiTool[] = [
       const svc = services();
       const id = safeBigint(msgId);
       if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
-      const row =
+      const local =
         kind === 'group'
           ? await svc.msgs.getGroupMessageById(conv, id)
           : await svc.msgs.getC2cMessageById(conv, id);
+      const cached = await svc.gapHistory.findByMsgId(msgId);
+      const row =
+        cached?.recall && cached.kind === kind && cached.conv === conv
+          ? {
+              ...cached,
+              msgId: BigInt(cached.msgId),
+              msgSeq: BigInt(cached.msgSeq),
+              senderUin: BigInt(cached.senderUin || '0'),
+              sendTime: BigInt(cached.sendTime),
+              deletedKind: undefined,
+            }
+          : local;
       if (!row) {
         return {
           found: false,

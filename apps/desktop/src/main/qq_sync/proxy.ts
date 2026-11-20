@@ -5,12 +5,23 @@ import {
   buildServerPlain,
   parseServerFrame,
   parseServerPlain,
+  decodedBody,
+  inspectRecallPush,
 } from '@weqbot/protocol/qq-sync';
+import type { RecallJournal } from './recall_journal';
 
 export interface SyncCredential {
   uin: string;
   key: string;
   generation: string;
+  selfUid?: string;
+}
+export interface RecallPolicy {
+  owner: string;
+  enabled: boolean;
+  block: boolean;
+  all: boolean;
+  targets: { kind: 'c2c' | 'group' | 'dataline'; id: string }[];
 }
 type Template = {
   outer: ReturnType<typeof parseServerFrame>;
@@ -24,6 +35,8 @@ interface Tunnel {
   framer: FrameBuffer;
   template?: Template;
   waiting: Set<() => void>;
+  filtering?: boolean;
+  fragmentTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** 登录前导字节透传，已识别的完整 MSF 帧供解密和边界判断。 */
@@ -33,9 +46,23 @@ export class FrameBuffer {
   get atBoundary() {
     return this.aligned && this.buffer.length === 0;
   }
+  get pending(): Buffer {
+    return this.buffer;
+  }
+  flush(): Buffer {
+    const pending = this.buffer;
+    this.buffer = Buffer.alloc(0);
+    this.aligned = false;
+    return pending;
+  }
   feed(chunk: Buffer): Buffer[] {
+    return this.parts(chunk)
+      .filter((part) => part.frame)
+      .map((part) => part.data);
+  }
+  parts(chunk: Buffer): { frame: boolean; data: Buffer }[] {
     this.buffer = Buffer.concat([this.buffer, chunk]);
-    const frames: Buffer[] = [];
+    const frames: { frame: boolean; data: Buffer }[] = [];
     while (this.buffer.length >= 9) {
       const length = this.buffer.readUInt32BE();
       const protocol = this.buffer.readUInt32BE(4);
@@ -49,13 +76,13 @@ export class FrameBuffer {
         const positions = [Buffer.from([0, 0, 0, 12]), Buffer.from([0, 0, 0, 13])]
           .map((signature) => this.buffer.indexOf(signature, 5))
           .filter((position) => position >= 5);
-        this.buffer = this.buffer.subarray(
-          positions.length ? Math.min(...positions) - 4 : this.buffer.length - 8,
-        );
+        const end = positions.length ? Math.min(...positions) - 4 : this.buffer.length;
+        frames.push({ frame: false, data: this.buffer.subarray(0, end) });
+        this.buffer = this.buffer.subarray(end);
         continue;
       }
       if (this.buffer.length < length) break;
-      frames.push(this.buffer.subarray(0, length));
+      frames.push({ frame: true, data: this.buffer.subarray(0, length) });
       this.buffer = this.buffer.subarray(length);
       this.aligned = true;
     }
@@ -70,6 +97,32 @@ export class QqSyncProxy {
   private readonly delivered = new Set<string>();
   private nextId = 0;
   private deliveredCount = 0;
+  private readonly policies = new Map<
+    string,
+    { value: RecallPolicy; expires: number; generation: string }
+  >();
+  private lastRecallError = '';
+  private filteredRecalls = 0;
+  constructor(private readonly journal?: RecallJournal) {}
+
+  setRecallPolicy(uin: string, generation: string, value: RecallPolicy) {
+    if (this.credentials.get(uin)?.generation !== generation) throw new Error('QQ 会话已变化');
+    this.policies.set(uin, { value, expires: Date.now() + 10000, generation });
+  }
+  takeRecallEvents(uin: string, generation: string, ack: string[]) {
+    const policy = this.policies.get(uin);
+    if (!policy || policy.generation !== generation) throw new Error('QQ 会话已变化');
+    return this.journal?.take(policy.value.owner, ack) ?? [];
+  }
+  private recallPolicy(uin: string) {
+    const policy = this.policies.get(uin);
+    return policy &&
+      policy.expires > Date.now() &&
+      policy.value.enabled &&
+      policy.generation === this.credentials.get(uin)?.generation
+      ? policy.value
+      : undefined;
+  }
 
   setCredential(value: SyncCredential) {
     if (!/^\d{4,16}$/.test(value.uin) || !/^[a-f\d]{32}$/i.test(value.key))
@@ -78,6 +131,7 @@ export class QqSyncProxy {
   }
   forget(uin: string) {
     this.credentials.delete(uin);
+    this.policies.delete(uin);
     for (const tunnel of this.tunnels.values())
       if (tunnel.template?.outer.uin === uin) tunnel.template = undefined;
   }
@@ -99,6 +153,9 @@ export class QqSyncProxy {
         ),
       ],
       delivered: this.deliveredCount,
+      recallError: this.lastRecallError,
+      filteredRecalls: this.filteredRecalls,
+      protocolVersion: 2,
     };
   }
   async start(port: number) {
@@ -114,6 +171,7 @@ export class QqSyncProxy {
   }
   async close() {
     for (const tunnel of this.tunnels.values()) {
+      clearTimeout(tunnel.fragmentTimer);
       tunnel.client.destroy();
       tunnel.upstream?.destroy();
       for (const wake of tunnel.waiting) wake();
@@ -136,6 +194,7 @@ export class QqSyncProxy {
     const timeout = setTimeout(() => client.destroy(), 15000);
     const cleanup = () => {
       clearTimeout(timeout);
+      clearTimeout(tunnel.fragmentTimer);
       this.tunnels.delete(tunnel.id);
       tunnel.upstream?.destroy();
       for (const wake of tunnel.waiting) wake();
@@ -179,12 +238,35 @@ export class QqSyncProxy {
         client.resume();
       });
       upstream.on('data', (data: Buffer) => {
-        if (!client.write(data)) upstream.pause();
-        for (const frame of tunnel.framer.feed(data)) this.observe(tunnel, frame);
+        clearTimeout(tunnel.fragmentTimer);
+        if (tunnel.framer.atBoundary) {
+          tunnel.filtering = Boolean(
+            tunnel.template && this.recallPolicy(tunnel.template.outer.uin)?.block,
+          );
+        }
+        if (tunnel.filtering) {
+          for (const part of tunnel.framer.parts(data)) {
+            const output = part.frame ? this.observe(tunnel, part.data, true) : part.data;
+            if (output && !client.write(output)) upstream.pause();
+          }
+        } else {
+          if (!client.write(data)) upstream.pause();
+          for (const frame of tunnel.framer.feed(data)) this.observe(tunnel, frame);
+        }
+        if (tunnel.filtering && !tunnel.framer.atBoundary && tunnel.framer.pending.length) {
+          tunnel.fragmentTimer = setTimeout(() => {
+            // 无完整帧时保留观察缓冲并先透传已收字节，避免异常/慢分片堵住 QQ 连接。
+            tunnel.filtering = false;
+            if (!client.write(tunnel.framer.pending)) upstream.pause();
+            this.lastRecallError = '推送分片等待超时，本帧已正常转发';
+          }, 2000);
+        }
         if (tunnel.framer.atBoundary) for (const wake of tunnel.waiting) wake();
       });
       client.on('drain', () => upstream.resume());
-      upstream.on('end', () => client.end());
+      upstream.on('end', () =>
+        client.end(tunnel.filtering ? tunnel.framer.flush() : Buffer.alloc(0)),
+      );
     };
     const handshake = (data: Buffer) => {
       buffer = Buffer.concat([buffer, data]);
@@ -244,19 +326,39 @@ export class QqSyncProxy {
     client.on('data', handshake);
   }
 
-  private observe(tunnel: Tunnel, frame: Buffer) {
+  private observe(tunnel: Tunnel, frame: Buffer, filtering = false): Buffer {
     try {
       const size = frame.readUInt32BE(10);
-      if (size < 4 || size > 20 || 10 + size > frame.length) return;
+      if (size < 4 || size > 20 || 10 + size > frame.length) return frame;
       const uin = frame.subarray(14, 10 + size).toString();
       const credential = this.credentials.get(uin);
-      if (!credential) return;
-      const outer = parseServerFrame(frame, Buffer.from(credential.key, 'hex'));
+      if (!credential) return frame;
+      const key = Buffer.from(credential.key, 'hex');
+      const outer = parseServerFrame(frame, key);
       const inner = parseServerPlain(outer.plain);
-      if (inner.command === 'trpc.msg.olpush.OlPushService.MsgPush')
-        tunnel.template = { outer, inner, generation: credential.generation };
-    } catch {
-      /* 转发先完成，无法识别的事件等待下一条可解析模板。 */
+      if (inner.command !== 'trpc.msg.olpush.OlPushService.MsgPush') return frame;
+      tunnel.template = { outer, inner, generation: credential.generation };
+      const policy = this.recallPolicy(uin);
+      if (!policy || !credential.selfUid || !this.journal) return frame;
+      const protects = (target: { kind: 'c2c' | 'group'; conv: string }) =>
+        policy.all ||
+        policy.targets.some((item) => item.kind === target.kind && item.id === target.conv);
+      const inspected = inspectRecallPush(
+        decodedBody(inner),
+        credential.selfUid,
+        protects,
+        filtering && policy.block,
+      );
+      this.journal.append(policy.owner, inspected.observed);
+      this.lastRecallError = '';
+      if (!inspected.removed) return frame;
+      const plain = buildServerPlain({ ...inner, body: inspected.body, dataFlag: 0 });
+      const output = buildServerFrame({ ...outer, plain, key });
+      this.filteredRecalls += inspected.removed;
+      return output;
+    } catch (error) {
+      if (filtering) this.lastRecallError = (error as Error).message;
+      return frame;
     }
   }
 

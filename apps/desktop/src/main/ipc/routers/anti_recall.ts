@@ -1,23 +1,4 @@
-/**
- * `account.antiRecall.*` — the anti-recall settings surface.
- *
- * Thin tRPC skin over {@link AntiRecallService} (see `@weq/service`): the config
- * persistence + SQL-trigger install/drop all live there. The renderer's
- * 「更多 → 防撤回」面板与「会话设置」弹窗驱动它：
- *   getStatus    → { enabled, mode, targets, notifyEnabled, notifyTargets, installed, qqRunning }
- *   setEnabled   → flip master switch, (re)install or drop triggers
- *   setMode      → 'selected' | 'all'，重建触发器
- *   setTargets   → replace the protected-conversation set, reconcile triggers
- *   setNotify    → 通知总开关 + 按会话通知集
- *   listRecalls  → 某个会话已记录的撤回（撤回记录面板）
- *   listRecallConversations → 有撤回记录的会话目录（撤回记录集成页）
- *
- * Settings writes are optimistic: they persist + return immediately and the
- * (SQLCipher) trigger reconcile runs in the background, so the UI never blocks.
- * `setEnabled` / `setTargets` install or drop the triggers whether or not QQ is
- * running; if QQ is open it may keep serving from its cached schema until the
- * next restart, so `getStatus().qqRunning` lets the UI warn about that.
- */
+/** 防撤回设置与记录的共用路由，供桌面、Web 和 Remote 使用。 */
 import { OperationError } from '@weq/service';
 
 import { z } from 'zod';
@@ -66,6 +47,7 @@ export async function sharedAntiRecallStatus(): Promise<AntiRecallStatus> {
     settingsRevision: config.sharedPreferenceRevision(),
     enabled: value.enabled ?? false,
     mode: value.mode ?? 'selected',
+    method: value.method ?? 'database',
     notifyEnabled: banner || system,
     targets: [],
     notifyTargets: [],
@@ -75,6 +57,21 @@ export async function sharedAntiRecallStatus(): Promise<AntiRecallStatus> {
 }
 
 export const antiRecallSettingsProcedures = {
+  setMethod: procedure
+    .input(z.object({ method: z.enum(['off', 'weq', 'proxy', 'database']) }))
+    .mutation(async ({ input }) => {
+      const ctx = getAppContext();
+      if (ctx.services) {
+        const status = await ctx.services.antiRecall.setMethod(input.method);
+        ctx.services.qqClientSync?.refresh();
+        return status;
+      }
+      requireBootstrap().userConfig.patchSharedPreference('antiRecall', {
+        enabled: input.method !== 'off',
+        ...(input.method === 'off' ? {} : { method: input.method }),
+      });
+      return sharedAntiRecallStatus();
+    }),
   /** Current config + live trigger state + whether QQ is running. */
   getStatus: procedure.query(() => {
     return sharedAntiRecallStatus();

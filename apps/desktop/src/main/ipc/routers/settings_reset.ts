@@ -433,8 +433,14 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     );
     if (selected.has('recall-scope') || selected.has('recall-notifications')) {
       const recall = await sharedAntiRecallStatus();
-      bind('recall-scope:scope', recall.enabled ? recall.mode : 'off', 'off', async () =>
-        shared.antiRecall.setScope({ scope: 'off' }),
+      bind(
+        'recall-scope:method',
+        recall.enabled ? (recall.method ?? 'database') : 'off',
+        'off',
+        async () => shared.antiRecall.setMethod({ method: 'off' }),
+      );
+      bind('recall-scope:scope', recall.mode, 'selected', async () =>
+        shared.antiRecall.setMode({ mode: 'selected' }),
       );
       if (services)
         bind('recall-scope:targets', recall.targets, [], async () =>

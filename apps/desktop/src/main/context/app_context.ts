@@ -1754,6 +1754,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
+      await this.services?.antiRecall.dispose();
       this.services?.interactionBadges.dispose();
       await waitForUnreadWrites();
       await this.services?.contactDirectory?.dispose();
@@ -1938,6 +1939,19 @@ export function initAppContext(fileRoot?: string): AppContext {
         platform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
         {
+          archivePath: join(
+            userConfig.cacheDir(join('anti_recall', exportConfigId)),
+            'retained.db',
+          ),
+          onArchiveChanged: (message) => {
+            if (getAppContext().account !== session) return;
+            dbEventBus.emit('roaming', {
+              session,
+              kind: message.kind,
+              conv: message.conv,
+              messages: [message],
+            } satisfies RoamingCacheChange);
+          },
           onRecall: (event) => notifyRecall(session, event),
           onObservedRecall: (event) => observeInteractionRecall(session, event),
           notificationsEnabled: () => recallNotificationsEnabled(userConfig),
@@ -1988,6 +2002,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         },
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
         deletedMsgs,
+        antiRecall.archive,
       );
       groupInfo.setAnalysisCache(gapHistory);
       const guildDirect = new GuildDirectService(session);
@@ -2007,6 +2022,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       let generatedSources: GeneratedSearchSources | undefined;
       await dressInstall.prepareMessageRendering();
       const qqClientSync = new AccountQqSync({
+        antiRecall,
         root: platform.appDataRoot(),
         path: join(
           platform.appDataRoot(),
@@ -2798,6 +2814,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
+      await this.services?.antiRecall.dispose();
       this.services?.interactionBadges.dispose();
       await waitForUnreadWrites();
       await this.services?.contactDirectory?.dispose();
@@ -3674,6 +3691,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       const agentLabClosed = this.services?.agentLab.close();
       const unreadClosed = this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
+      await this.services?.antiRecall.dispose();
       this.services?.contentSearch.close();
       this.services?.guildDirect.cancelSearch();
       const closingAccount = this.account;

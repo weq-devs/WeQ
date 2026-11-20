@@ -456,6 +456,7 @@ export type { DeletedMsgRecord } from './account/deleted_msgs';
 export { AntiRecallService } from './account/anti_recall';
 export type {
   AntiRecallConfig,
+  AntiRecallMethod,
   AntiRecallStatus,
   AntiRecallOptions,
   RecallNotifyEvent,

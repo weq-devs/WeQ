@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { mkdir, writeFile, rename } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { AccountSession } from '@weq/account';
-import type { GapFetchedMessage } from '@weq/service';
+import type { GapFetchedMessage, AntiRecallService } from '@weq/service';
 import type { NtHelperBinding } from '@weq/native';
 import { fetchC2cHistoryRaw, fetchGroupHistoryRaw, extractPath } from '@weqbot/protocol';
 import {
@@ -11,6 +11,8 @@ import {
   wrapClientMessage,
   type ClientReadTarget,
 } from '@weqbot/protocol/qq-sync';
+import type { RecallJournalEntry } from './recall_journal';
+import type { SyncProxyStatus } from './ipc';
 import { qqSyncRequest } from './runtime';
 
 type SentIdentity = Pick<
@@ -32,6 +34,7 @@ export interface AccountQqSyncOptions {
   nt: NtHelperBinding;
   enabled(): boolean;
   readEnabled(): boolean;
+  antiRecall?: AntiRecallService;
   current(): QqSyncSession | null;
 }
 
@@ -44,6 +47,9 @@ export class AccountQqSync {
   private timer: ReturnType<typeof setInterval>;
   private lastError = '';
   private completed = 0;
+  private recallAck: string[] = [];
+  private flight?: Promise<void>;
+  private recallActive = false;
   constructor(private readonly options: AccountQqSyncOptions) {
     try {
       const saved = JSON.parse(readFileSync(options.path, 'utf8'));
@@ -129,7 +135,18 @@ export class AccountQqSync {
   async dispose() {
     this.disposed = true;
     clearInterval(this.timer);
+    await this.flight;
     await this.persistence.catch(() => undefined);
+    const current = this.options.current();
+    if (current && this.options.antiRecall) {
+      const generation = createHash('sha256').update(`${current.pid}:${current.key}`).digest('hex');
+      await qqSyncRequest(this.options.root, {
+        op: 'recall-policy',
+        uin: String(this.options.session.context.uin),
+        generation,
+        value: { owner: this.options.path, enabled: false, block: false, all: false, targets: [] },
+      }).catch(() => undefined);
+    }
   }
 
   private async exists(message: SentIdentity): Promise<boolean> {
@@ -180,10 +197,25 @@ export class AccountQqSync {
     if (!bytes) throw new Error('服务器原始消息不完整');
     return wrapClientMessage(bytes);
   }
-  private async run() {
-    if (this.disposed || this.running || !this.options.enabled()) return;
+  private run(): Promise<void> {
+    this.flight ??= this.runOnce().finally(() => {
+      this.flight = undefined;
+    });
+    return this.flight;
+  }
+  private async runOnce() {
+    const protection = this.options.antiRecall?.protection();
+    if (
+      this.disposed ||
+      this.running ||
+      (!this.options.enabled() && !protection?.enabled && !this.recallActive)
+    )
+      return;
     const current = this.options.current();
-    if (!current) return;
+    if (!current) {
+      this.options.antiRecall?.setProxyState(false);
+      return;
+    }
     this.running = true;
     const uin = String(this.options.session.context.uin);
     const generation = createHash('sha256').update(`${current.pid}:${current.key}`).digest('hex');
@@ -191,7 +223,9 @@ export class AccountQqSync {
       const now = this.options.current();
       return (
         !this.disposed &&
-        this.options.enabled() &&
+        (this.options.enabled() ||
+          this.options.antiRecall?.protection().enabled ||
+          this.recallActive) &&
         now?.pid === current.pid &&
         now.key === current.key
       );
@@ -199,9 +233,46 @@ export class AccountQqSync {
     try {
       await qqSyncRequest(this.options.root, {
         op: 'credential',
-        value: { uin, key: current.key, generation },
+        value: { uin, key: current.key, generation, selfUid: this.options.session.selfUid },
       });
+      if (this.options.antiRecall && valid()) {
+        const status = await qqSyncRequest<SyncProxyStatus>(this.options.root, { op: 'status' });
+        if ((status.protocolVersion ?? 1) < 2)
+          throw new Error('请应用开发更新以启用新版防撤回代理');
+        const active = this.options.antiRecall.protection();
+        await qqSyncRequest(this.options.root, {
+          op: 'recall-policy',
+          uin,
+          generation,
+          value: {
+            owner: this.options.path,
+            enabled: active.enabled,
+            block: active.method === 'proxy',
+            all: active.mode === 'all',
+            targets: active.targets,
+          },
+        });
+        this.recallActive = active.enabled;
+        const entries = await qqSyncRequest<RecallJournalEntry[]>(this.options.root, {
+          op: 'recall-events',
+          uin,
+          generation,
+          ack: this.recallAck,
+        });
+        this.recallAck = [];
+        for (const entry of entries) {
+          if (!valid()) break;
+          await this.options.antiRecall.archive?.observePush(
+            entry.events,
+            this.options.session.selfUid!,
+            entry.at,
+          );
+          this.recallAck.push(entry.id);
+        }
+        this.options.antiRecall.setProxyState(status.accounts.includes(uin), status.recallError);
+      }
       for (const task of this.tasks.values()) {
+        if (!this.options.enabled()) break;
         if (!valid()) break;
         if (task.kind === 'read' && !this.options.readEnabled()) {
           this.tasks.delete(task.id);
@@ -270,6 +341,7 @@ export class AccountQqSync {
       }
     } catch (error) {
       this.lastError = (error as Error).message;
+      this.options.antiRecall?.setProxyState(false, this.lastError);
     } finally {
       this.running = false;
     }

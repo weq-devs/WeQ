@@ -4,6 +4,7 @@ import { expect, it, vi } from 'vitest';
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
     services: {
+      gapHistory: { findByMsgId: async () => null },
       profile: { getSelfProfile: async () => ({ uin: 1n }), nicksByUids: async () => ({}) },
       msgs: {
         getGroupMessageById: async () => ({

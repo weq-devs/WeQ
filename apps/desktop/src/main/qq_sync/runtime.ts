@@ -47,8 +47,32 @@ export async function ensureQqSyncProxy(root: string): Promise<SyncProxyConfig> 
   const promise = (async () => {
     const config = await readConfig(root);
     try {
-      await requestProxy(config, { op: 'status' }, 1000);
-      return config;
+      const status = await requestProxy<SyncProxyStatus>(config, { op: 'status' }, 1000);
+      if ((status.protocolVersion ?? 1) >= 2) return config;
+      if (!Number.isSafeInteger(status.pid) || status.pid <= 1)
+        throw new Error('旧代理进程信息无效');
+      await writeFile(
+        join(root, 'qq-client-sync', 'status.json'),
+        JSON.stringify({
+          pid: status.pid,
+          port: config.port,
+          state: '维护中',
+          reason: '升级防撤回代理',
+          updatedAt: Date.now(),
+        }),
+        { mode: 0o600 },
+      );
+      process.kill(status.pid, 'SIGTERM');
+      // 旧监护进程在正常退出时释放锁，随后再启动新版。
+      for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        try {
+          process.kill(status.pid, 0);
+        } catch {
+          break;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
     } catch {
       /* 继续检查监护进程。 */
     }

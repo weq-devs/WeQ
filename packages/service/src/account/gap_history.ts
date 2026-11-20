@@ -31,6 +31,9 @@ import { existsSync, statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { decodeSsoHistoryWindow } from './sso_history_window';
 import type { RecallInfo } from './msg';
+import type { RecallArchive } from './recall_archive';
+import { compareMessageOrder } from '@weq/codec';
+import { mergeRoamingTimeline } from '../common/roaming_timeline';
 import type { RecallMessageParams } from './group_moderation';
 
 /** 单个物理请求的最大 seq 跨度，不是消息条数承诺。 */
@@ -223,6 +226,7 @@ export class GapHistoryService {
     /** 本账号漫游消息缓存库的绝对路径（weq 缓存目录 /roam-msg/<uin>.db）。 */
     cacheDbPath: string,
     private readonly deleted?: DeletedMsgStore,
+    readonly recallArchive?: RecallArchive,
   ) {
     this.cache = new RoamMsgCacheDb(
       nt,
@@ -262,7 +266,7 @@ export class GapHistoryService {
     descending: boolean,
     cursor?: { msgSeq: number; sendTime: number; msgId: string },
   ): Promise<GapFetchedMessage[]> {
-    return measureMessageWork(this.session.msgDbPath, 'roamingCache', () =>
+    const rows = await measureMessageWork(this.session.msgDbPath, 'roamingCache', () =>
       this.cache.query(
         kind,
         conv,
@@ -274,6 +278,14 @@ export class GapHistoryService {
         false,
         cursor,
       ),
+    );
+    const archived = (
+      (await this.recallArchive?.query(kind, conv, startSeq, endSeq, limit, descending, cursor)) ??
+      []
+    ).filter((row) => !this.deleted?.isHiddenCached(row));
+    if (!archived.length) return rows;
+    return mergeRoamingTimeline(kind, [], [...archived, ...rows], { descending, limit }).sort(
+      compareMessageOrder,
     );
   }
 
@@ -320,10 +332,17 @@ export class GapHistoryService {
   }
 
   async cachedRecalls(kind?: 'c2c' | 'group', conv?: string): Promise<GapFetchedMessage[]> {
-    if (!existsSync(this.cache.dbPath)) return [];
-    return (await this.cache.sentMessages(kind, conv, undefined, true)).filter(
-      (row) => row.recall && !this.deleted?.isHiddenCached(row),
+    const rows = existsSync(this.cache.dbPath)
+      ? await this.cache.sentMessages(kind, conv, undefined, true)
+      : [];
+    const archived = (await this.recallArchive?.list(kind, conv)) ?? [];
+    const unique = new Map(
+      [...rows, ...archived].map((row) => [
+        `${row.kind}:${row.conv}:${row.msgSeq}:${row.senderUid}`,
+        row,
+      ]),
     );
+    return [...unique.values()].filter((row) => row.recall && !this.deleted?.isHiddenCached(row));
   }
 
   /** Batch coverage is committed only after this durable cache write succeeds. */
@@ -336,16 +355,20 @@ export class GapHistoryService {
     conv: string,
     includeHidden = false,
   ): Promise<GapFetchedMessage[]> {
-    const rows = await this.cache.allForExport(kind, conv);
+    const cached = await this.cache.allForExport(kind, conv);
+    const archived = (await this.recallArchive?.list(kind, conv)) ?? [];
+    const rows = mergeRoamingTimeline(kind, [], [...archived, ...cached]);
     return includeHidden ? rows : rows.filter((row) => !this.deleted?.isHiddenCached(row));
   }
 
-  cachedDeleted(kind: 'c2c' | 'group', conv: string, ids: readonly string[]) {
+  async cachedDeleted(kind: 'c2c' | 'group', conv: string, ids: readonly string[]) {
     const keys = ids.flatMap((id) => {
       const match = /^roaming:(?:(?:native|protocol):)?([1-9]\d*):(-?\d+)$/.exec(id);
       return match ? [[match[1]!, match[2]!] as const] : [];
     });
-    return this.cache.allForExport(kind, conv, keys);
+    const rows = await this.cache.allForExport(kind, conv, keys);
+    const archived = (await this.recallArchive?.byKeys(kind, conv, keys)) ?? [];
+    return mergeRoamingTimeline(kind, [], [...archived, ...rows]);
   }
 
   /** 仅枚举可见缓存会话，不联网；供即时分析目录发现缓存独有对象。 */
@@ -386,7 +409,9 @@ export class GapHistoryService {
     conv: string,
     seq: number,
   ): Promise<GapFetchedMessage[]> {
-    return this.cache.query(kind, conv, seq, seq, kind === 'c2c', 2000, true, true);
+    const rows = await this.cache.query(kind, conv, seq, seq, kind === 'c2c', 2000, true, true);
+    const archived = (await this.recallArchive?.query(kind, conv, seq, seq, 2000, true)) ?? [];
+    return mergeRoamingTimeline(kind, [], [...archived, ...rows]);
   }
 
   resolveReplySeq(
@@ -402,7 +427,8 @@ export class GapHistoryService {
   async findByMsgId(msgId: string): Promise<GapFetchedMessage | null> {
     if (!msgId) return null;
     try {
-      return await this.cache.findByMsgId(msgId);
+      const archived = await this.recallArchive?.find(msgId);
+      return archived ?? (await this.cache.findByMsgId(msgId));
     } catch (e) {
       console.error('[GapHistory] failed to find cached message by msgId:', e);
       return null;
