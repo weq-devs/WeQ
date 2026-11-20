@@ -1,6 +1,7 @@
 import { groupDirectoryPreference, mutedFromNotifyLevel } from '../../lib/groupNotifications';
 import { groupNoticeId } from '../../lib/contactNotice';
 import { buddyRequestDirection, buddyRequestState } from '@weq/service/buddy-request';
+import { timeDate } from '@weq/time';
 import { isDataline, deviceAvatarDataUri } from '../../lib/deviceAvatar';
 import { previewNodes, previewNodesToText } from '../../lib/conversationPreview';
 import { selfIdentityValues } from '../../lib/selfIdentity';
@@ -279,7 +280,12 @@ export function groupNotifyToGroupRequest(
   const conversation = groupsById.get(groupUin);
   const group = conversation?.type === 'group' ? conversation.group : null;
 
-  const createdAt = secondsToIsoTime(notify.msgTime) ?? new Date(0).toISOString();
+  // 61001 除以 1000 后，毫秒来源得到秒，微秒来源得到毫秒。沿用原值生成已读 ID。
+  const noticeTime =
+    notify.msgTime >= 1e12
+      ? timeDate(notify.msgTime)?.toISOString()
+      : secondsToIsoTime(notify.msgTime);
+  const createdAt = noticeTime ?? new Date(0).toISOString();
   const user = groupNotifyUserToContact(
     notify.operatedUid,
     notify.operatedUin,
