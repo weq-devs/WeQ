@@ -30,6 +30,7 @@ import {
   getFeatureDefinition,
 } from './feature_tools';
 import { runAssistantTool } from './openai_tools';
+import { attachInfoAtEnd } from '../account_resource_exports';
 import { hasAccountSwitchSubscriber, pushAccountSwitchRequest } from '../account_switch_bus';
 import {
   classifyChatType,
@@ -62,6 +63,7 @@ import {
   fetchWebTokens,
   getHost,
   requireDevelopmentDressTools,
+  collectionSearchDocument,
   HonorType,
   localOcrBlocker,
   normalizeMallItems,
@@ -111,6 +113,7 @@ export interface AiTool {
    * file) so the public MCP surface stays strictly read-only.
    */
   assistantOnly?: boolean;
+  structuredResult?: boolean;
 }
 
 function toolContext(): ReturnType<typeof getAppContext> {
@@ -132,6 +135,26 @@ async function withMail<T>(run: (mail: AccountServices['mail']) => Promise<T>): 
   if (toolContext().services !== account) throw new Error('账号或数据源已切换，请重新查询邮件。');
   return result;
 }
+
+function accountReadScope(online = false) {
+  const account = services();
+  const configId = account.accountConfig.getRecord()?.configId;
+  const pid = online ? onlinePid() : undefined;
+  const { signal } = toolExecutionOptions();
+  const check = () => {
+    signal?.throwIfAborted();
+    if (services() !== account || account.accountConfig.getRecord()?.configId !== configId)
+      throw new Error('账号或数据源已切换，请重新查询');
+    if (online && onlinePid() !== pid) throw new Error('QQ 运行时已改变，请重新查询');
+  };
+  check();
+  return { account, check };
+}
+
+const groupResourceCode = z
+  .string()
+  .trim()
+  .regex(/^[1-9]\d{0,9}$/);
 
 // ── 在线能力（凭据 / OIDB 协议 / Web CGI）公共小工具 ─────────────────────────
 
@@ -612,6 +635,7 @@ function tool<I extends z.ZodRawShape>(def: {
   input: z.ZodObject<I>;
   run: (args: z.infer<z.ZodObject<I>>) => Promise<unknown>;
   assistantOnly?: boolean;
+  structuredResult?: boolean;
 }): AiTool {
   return def as unknown as AiTool;
 }
@@ -765,6 +789,54 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async (input) => listSettings(input),
   }),
+  tool({
+    name: 'search_local_resources',
+    structuredResult: true,
+    description:
+      '按关键词搜索当前账号已保存在本机的资源，一次查一种来源：chatAttachment 聊天附件、groupFile 已浏览群文件、collection 本地收藏。' +
+      '不联网补历史。status=unavailable 表示来源未覆盖，coverage.limited 表示候选有上限；nextOffset 可继续翻页。' +
+      '附件的 target 可交给 get_message_details，群文件的 target 可用于 list_group_files，收藏 cid 可交给 get_local_collection。',
+    input: z.object({
+      source: z.enum(['chatAttachment', 'groupFile', 'collection']),
+      keyword: z.string().trim().min(1).max(200),
+      offset: z.number().int().min(0).max(100_000).default(0),
+      limit: z.number().int().min(1).max(50).default(20),
+    }),
+    run: async ({ source, keyword, offset, limit }) => {
+      const { account, check } = accountReadScope();
+      const result = await account.unifiedSearch.localResourceSearch(
+        source,
+        keyword,
+        offset,
+        limit,
+      );
+      check();
+      return result;
+    },
+  }),
+
+  tool({
+    name: 'get_local_collection',
+    structuredResult: true,
+    description:
+      '按收藏 cid 读取本地收藏摘要和已有的正文，绝不联网补详情。cid 可从 search_local_resources 或 list_collections 取得。',
+    input: z.object({ cid: z.string().min(1).max(4096) }),
+    run: async ({ cid }) => {
+      const { account, check } = accountReadScope();
+      const item = await account.collection.readLocalItem(cid);
+      check();
+      if (!item) return { found: false, cid };
+      const { text, ...summary } = collectionSearchDocument(item);
+      return {
+        found: true,
+        ...summary,
+        text: text.slice(0, 8000),
+        truncated: text.length > 8000,
+        hasCachedDetail: Boolean(item.cachedContent),
+      };
+    },
+  }),
+
   tool({
     name: 'search_messages',
     description:
@@ -1301,8 +1373,31 @@ export const AI_TOOLS: AiTool[] = [
     input: z.object({
       query: z.string().min(1).describe('要查找的名字、备注或群名（部分匹配，大小写不敏感）'),
       limit: z.number().int().min(1).max(30).default(10).describe('每类返回上限'),
+      exactGroups: z
+        .boolean()
+        .optional()
+        .describe('仅查精确群名、备注或群号，同时报告是否还有同名群；不查人'),
     }),
-    run: async ({ query, limit }) => {
+    run: async ({ query, limit, exactGroups }) => {
+      if (exactGroups) {
+        const { account, check } = accountReadScope();
+        const normalize = (name: string) => name.trim().replace(/群$/, '').toLocaleLowerCase();
+        const key = normalize(query);
+        if (!key) throw new Error('请提供准确群名或群号');
+        const matches = (await account.groupInfo.searchGroupIdentities(key)).filter(
+          ({ groupCode, name, remark }) =>
+            groupCode === key || normalize(name) === key || normalize(remark) === key,
+        );
+        check();
+        return {
+          query,
+          people: [],
+          groups: matches
+            .slice(0, limit)
+            .map(({ groupCode, name, remark }) => ({ groupCode, groupName: name, remark })),
+          groupsHaveMore: matches.length > limit,
+        };
+      }
       const svc = services();
       const q = query.trim().toLowerCase();
       const hit = (s: string | undefined): boolean => !!s && s.toLowerCase().includes(q);
@@ -4881,6 +4976,85 @@ export const AI_TOOLS: AiTool[] = [
           updateTime: a.updateTime,
         })),
         ...(albums.length === 0 ? { hint: '该群没有相册，或票据已失效。' } : {}),
+      };
+    },
+  }),
+
+  tool({
+    name: 'list_group_files',
+    description:
+      '在线读取指定群某一层的文件和子文件夹，不递归。先用 find_contact 核对群号；不传 folderId 从根目录开始。' +
+      '子目录传 folders[].folderId，续页传 nextOffset。返回 fileId 可与群文件搜索结果对应。',
+    input: z.object({
+      groupCode: groupResourceCode.describe('准确群号'),
+      folderId: z.string().min(1).max(4096).default('/'),
+      offset: z.number().int().min(0).max(100_000).default(0),
+    }),
+    run: async ({ groupCode, folderId, offset }) => {
+      const { account, check } = accountReadScope(true);
+      const pageSize = 50;
+      const { files, folders, isEnd } = await account.groupFile.listPage(
+        Number(groupCode),
+        folderId,
+        offset,
+        pageSize,
+      );
+      check();
+      account.contentSearch?.remember(
+        files.map((file) => ({
+          target: { kind: 'groupFile' as const, groupCode, folderId, fileId: file.fileId },
+          title: file.fileName,
+          content: file.uploaderName,
+          sourceName: `群 ${groupCode} · ${folderId === '/' ? '根目录' : folderId}`,
+          time: file.uploadedTime,
+        })),
+      );
+      const nextOffset = isEnd || files.length + folders.length === 0 ? null : offset + pageSize;
+      return { groupCode, folderId, files, folders, nextOffset, hasMore: nextOffset !== null };
+    },
+  }),
+
+  tool({
+    name: 'get_group_album_photos',
+    description:
+      '在线读取指定群相册的一页照片和视频。groupId 与 get_group_albums 相同，albumId 取 albums[].id。' +
+      '有下一页时，把 nextCursor 原样传给 cursor。',
+    input: z.object({
+      groupId: groupResourceCode.describe('准确群号'),
+      albumId: z.string().min(1).max(4096),
+      cursor: z.string().max(16384).default(''),
+    }),
+    run: async ({ groupId, albumId, cursor }) => {
+      const { account, check } = accountReadScope(true);
+      const page = await account.groupAlbumMedia.getMediaList(groupId, albumId, cursor);
+      check();
+      const nextCursor =
+        page.nextAttachInfo && !attachInfoAtEnd(page, page.nextAttachInfo)
+          ? page.nextAttachInfo
+          : null;
+      if (nextCursor && nextCursor === cursor)
+        throw new Error('群相册返回了重复游标，无法继续翻页');
+      return {
+        groupId,
+        albumId: page.albumId,
+        albumName: page.albumName,
+        media: page.mediaList.map(({ image, video, ...media }) => ({
+          ...media,
+          image: image && {
+            id: image.lloc || image.sloc,
+            name: image.name,
+            preview: image.defaultUrl ?? image.photoUrls.find((photo) => photo.url)?.url ?? null,
+          },
+          video: video && {
+            id: video.id,
+            width: video.width,
+            height: video.height,
+            durationSeconds: video.videoTime,
+            url: video.url,
+          },
+        })),
+        nextCursor,
+        hasMore: nextCursor !== null,
       };
     },
   }),

@@ -916,6 +916,7 @@ export type {
 } from './account/roaming_backfill';
 export type { GapFetchedMessage, GapFetchResult } from './account/gap_history';
 export { GroupFileService } from './account/group_file';
+export { collectionSearchDocument } from './account/collection_search';
 export type { GroupFileItem, GroupFolderItem, GroupFileListing } from './account/group_file';
 
 export { GroupAlbumMediaService } from './account/group_album_media';

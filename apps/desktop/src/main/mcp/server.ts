@@ -70,7 +70,12 @@ function buildMcpServer(): McpServer {
               `MCP ${t.name}`,
             ),
           );
-          return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
+            ...(t.structuredResult && data && typeof data === 'object' && !Array.isArray(data)
+              ? { structuredContent: data as Record<string, unknown> }
+              : {}),
+          };
         } catch (error) {
           return {
             isError: true,

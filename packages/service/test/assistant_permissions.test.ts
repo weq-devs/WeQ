@@ -12,15 +12,31 @@ afterEach(() => {
   vi.unstubAllGlobals();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture(run: AssistantTools['run'] = async () => null) {
+function fixture(run: AssistantTools['run'] = async () => null, localModel?: string) {
   const root = mkdtempSync(join(tmpdir(), 'weq-assistant-permissions-'));
   roots.push(root);
   const service = new AssistantService(
     root,
-    () => ({ baseUrl: 'https://synthetic.invalid', apiKey: 'synthetic', model: 'synthetic' }),
+    () =>
+      localModel
+        ? {
+            baseUrl: 'http://127.0.0.1:8000/v1',
+            apiKey: 'synthetic',
+            model: localModel,
+            providerVendor: 'omlx',
+          }
+        : { baseUrl: 'https://synthetic.invalid', apiKey: 'synthetic', model: 'synthetic' },
     new TokenUsageStore(join(root, 'usage.json')),
     new ConversationStore(join(root, 'conversation.json')),
-    { specs: () => [], run },
+    {
+      specs: (options) =>
+        (options?.names ?? []).map((name) => ({
+          type: 'function',
+          function: { name, description: '', parameters: {} },
+        })),
+      run,
+      isReadOnly: (name) => ['find_contact', 'list_group_files', 'get_feature'].includes(name),
+    },
   );
   service.setConfig({ model: { providerId: 'synthetic', model: 'synthetic' } });
   const api = service as unknown as {
@@ -58,6 +74,60 @@ it('defaults to sandbox and refuses unacknowledged unrestricted activation', () 
   expect(service.getConfig().permissionMode).toBe('unrestricted');
   service.setConfig({ permissionMode: 'sandbox' });
   expect(() => service.setConfig({ permissionMode: 'unrestricted' })).toThrow();
+});
+
+it('本地轻量模式普通对话不附工具，精确范围查询直接引用工具结果', async () => {
+  const run = vi.fn<AssistantTools['run']>(async () => ({
+    navigation: { featureId: 'setting:llm-default-model' },
+  }));
+  const { service, calls } = fixture(run, 'unverified-local');
+  service.setConfig({ localLightweight: true });
+  calls.mockResolvedValue({ content: '合成答案' });
+  await service.chat(service.createSession().id, '什么是周报？');
+  expect(calls.mock.calls[0]?.[2]).toEqual([]);
+  expect(run).not.toHaveBeenCalled();
+  await service.chat(service.createSession().id, '默认聊天模型在哪里设置');
+  expect(run).toHaveBeenCalledWith(
+    'get_feature',
+    { id: 'setting:llm-default-model' },
+    expect.anything(),
+  );
+  expect(calls.mock.calls[1]?.[2]).toEqual([]);
+  expect(JSON.stringify(calls.mock.calls[1]?.[1])).toContain('WeQ 的查询结果');
+});
+
+it('轻量模式的同名群必须先确认，模型的坏参数不能变成空对象执行', async () => {
+  const run = vi.fn<AssistantTools['run']>(async (name) =>
+    name === 'find_contact'
+      ? {
+          groups: [
+            { groupCode: '12345', groupName: '测试群' },
+            { groupCode: '54321', groupName: '测试群' },
+          ],
+        }
+      : { navigation: { featureId: 'setting:llm-default-model' } },
+  );
+  const { service, calls } = fixture(run, 'Qwen3.6-35B-A3B-4bit');
+  service.setConfig({ localLightweight: true });
+  const choice = await service.chat(service.createSession().id, '查看测试群文件');
+  expect(choice.text).toContain('12345、54321');
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(calls).not.toHaveBeenCalled();
+  calls
+    .mockResolvedValueOnce({
+      content: '',
+      toolCalls: [{ id: 'invalid', function: { name: 'get_feature', arguments: '{bad' } }],
+    })
+    .mockResolvedValueOnce({ content: '合成答案' });
+  await service.chat(service.createSession().id, '默认聊天模型在哪里设置');
+  expect(calls.mock.calls[0]?.[2]).toEqual([
+    expect.objectContaining({ function: expect.objectContaining({ name: 'get_feature' }) }),
+  ]);
+  expect(run.mock.calls[1]?.slice(0, 2)).toEqual([
+    'get_feature',
+    { id: 'setting:llm-default-model' },
+  ]);
+  expect(calls.mock.calls[1]?.[2]).toEqual([]);
 });
 
 it.each(['null', '[]', '42', '"text"'])(

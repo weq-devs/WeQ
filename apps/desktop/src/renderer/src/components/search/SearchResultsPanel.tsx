@@ -57,6 +57,7 @@ export function SearchResultsPanel({
           <button
             type="button"
             className="weq-search-more-back"
+            data-search-back
             title="返回搜索结果"
             aria-label="返回搜索结果"
             onClick={navigation.backDetail}

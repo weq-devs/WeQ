@@ -12,8 +12,16 @@ function contact(id: string, label: string, summary: string, details: Details = 
   });
 }
 
-function group(id: string, label: string, summary: string, details: Details = {}) {
-  return defineFeature(`groups.${id}`, 'groups', label, [], {
+function group(
+  id: string,
+  label: string,
+  summary: string,
+  {
+    aliases = [],
+    ...details
+  }: Details & Partial<Pick<FeatureDefinition, 'aliases' | 'navigation'>> = {},
+) {
+  return defineFeature(`groups.${id}`, 'groups', label, aliases, {
     summary,
     context: ['account', 'group'],
     navigation: 'context',
@@ -92,6 +100,9 @@ export const CONTACT_GROUP_FEATURES = [
     tools: ['send_group_signup'],
   }),
   group('files', '群文件', '在绑定当前群的资源窗口浏览文件夹与文件。', {
+    aliases: ['群共享文件', '群文件夹'],
+    navigation: 'search',
+    tools: ['list_group_files', 'search_local_resources'],
     docs: ['guide/album-qzone.md#feature-groups.files'],
   }),
   group('files.manage', '群文件管理', '选定文件后，按当前账号和群权限使用已有文件操作。', {

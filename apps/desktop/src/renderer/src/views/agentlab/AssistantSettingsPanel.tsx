@@ -13,7 +13,7 @@ import type { AssistantConfig } from '@weq/service';
 import { DEFAULT_ASSISTANT_SEND_MODE, type AssistantSendMode } from '@weq/service/assistant-config';
 import { trpc } from '../../trpc/client';
 import { ConversationModelSettings } from '../../components/settings/ConversationModelSettings';
-import { Card, Row, SectionHeader } from '../../components/settings/controls';
+import { Card, Row, SectionHeader, Toggle } from '../../components/settings/controls';
 import { useAppDialog } from '../../lib/dialogUtils';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useSettingsAutosave, type SettingsSection } from '../../hooks/useSettingsAutosave';
@@ -312,6 +312,18 @@ function AssistantSettingsFields({
               onModelChange={(model) => void save({ model }).catch(() => {})}
               onEffortChange={(reasoningEffort) => void save({ reasoningEffort }).catch(() => {})}
             >
+              <Row
+                settingId="weq-assistant-local-lightweight"
+                label="本地模型轻量模式"
+                control={
+                  <Toggle
+                    label="本地模型轻量模式"
+                    checked={data.localLightweight === true}
+                    disabled={saving}
+                    onChange={(localLightweight) => void save({ localLightweight }).catch(() => {})}
+                  />
+                }
+              />
               <Row
                 settingId="weq-assistant-permission"
                 label="运行模式"

@@ -268,6 +268,7 @@ export function SearchMoreResults({
         <button
           type="button"
           className="weq-search-more-back"
+          data-search-back
           onClick={onBack}
           title="返回搜索总览"
           aria-label="返回搜索总览"

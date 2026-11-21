@@ -41,6 +41,7 @@ export const assistantSettingsProcedures = {
         model: agentLabModelSelectionSchema.optional(),
         customPrompt: z.string().optional(),
         reasoningEffort: z.string().min(1).max(64).optional(),
+        localLightweight: z.boolean().optional(),
         sendMode: z.enum(['interrupt', 'boundary', 'queue']).optional(),
         mcpServers: z.string().optional(),
         permissionMode: z.enum(['sandbox', 'unrestricted']).optional(),

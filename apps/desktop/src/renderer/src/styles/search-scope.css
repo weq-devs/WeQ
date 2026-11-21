@@ -98,6 +98,11 @@
   outline-offset: 1px;
 }
 
+.weq-search-dropdown button[data-search-hit-key]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 .weq-search-failure {
   display: flex;
   align-items: center;

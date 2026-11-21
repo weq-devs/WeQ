@@ -35,6 +35,79 @@ function generated(): GeneratedSearchSources {
 }
 
 describe('全局搜索来源与类型', () => {
+  it('本地资源分页保留原对象，区分来源未覆盖、零命中和候选上限', async () => {
+    const coverage = {
+      scope: 'observed-cache' as const,
+      records: 0,
+      updatedAt: null,
+      limited: false,
+    };
+    const target = {
+      kind: 'groupFile' as const,
+      groupCode: '10000',
+      folderId: 'docs',
+      fileId: 'f1',
+    };
+    const groupFiles = vi.fn((_category, keyword) => ({
+      items:
+        keyword === '有记录'
+          ? [
+              {
+                id: 'file',
+                category: 'groupFile' as const,
+                target,
+                title: '有记录.txt',
+                content: '',
+                sourceName: '',
+                time: 0,
+                observedAt: 0,
+              },
+            ]
+          : [],
+      total: keyword === '有记录' ? 1 : 0,
+      coverage: { ...coverage, records: keyword === '未覆盖' ? 0 : 1 },
+    }));
+    const service = new UnifiedSearchService(
+      {
+        buddyMsgFts: { searchFilesByKeyword: async () => ({ items: [], total: 0 }) },
+        groupMsgFts: {
+          searchFilesByKeyword: async () => ({
+            total: 150,
+            items: [
+              {
+                targetUid: '10000',
+                msgId: 7n,
+                msgSeq: 5n,
+                sendTime: 50n,
+                fileName: '有记录.txt',
+              },
+            ],
+          }),
+        },
+        groupDetail: { detailsByGroupCodes: async () => [] },
+      } as unknown as AccountSession,
+      { searchContent: groupFiles },
+    );
+    const unavailable = await service.localResourceSearch('groupFile', '未覆盖', 0, 1);
+    expect(unavailable).toMatchObject({ status: 'unavailable', items: [] });
+    expect(unavailable).not.toHaveProperty('total');
+    expect(await service.localResourceSearch('groupFile', '没匹配', 0, 1)).toMatchObject({
+      status: 'ok',
+      total: 0,
+    });
+    expect(await service.localResourceSearch('groupFile', '有记录', 0, 1)).toMatchObject({
+      items: [{ target }],
+      nextOffset: null,
+    });
+    expect(await service.localResourceSearch('chatAttachment', '有记录', 0, 1)).toMatchObject({
+      items: [{ target: { kind: 'group', conv: '10000', msgId: '7', msgSeq: '5' } }],
+      coverage: { limited: true, candidateLimitPerSource: 100 },
+    });
+    expect(await service.localResourceSearch('collection', '未配置', 0, 1)).toMatchObject({
+      status: 'unavailable',
+    });
+  });
+
   it('全局组合筛选的预览、会话分页及详情共用同一候选和消息分类', async () => {
     const hit = (msgId: number, partition: number) => ({
       msgId: BigInt(msgId),

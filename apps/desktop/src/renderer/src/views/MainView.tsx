@@ -283,6 +283,9 @@ import type { SectionId as SettingsDialogSectionId } from '../components/Setting
 import { remoteUnsupportedTools } from '../components/settings/DataMaintenanceSection.shared';
 import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';
 import { isRemoteClient } from '../lib/remoteClient';
+import { restoreGlobalSearch } from '../components/TitleBarSearch';
+import { SearchGroupFiles, type SearchFileGroup } from '../components/search/SearchGroupFiles';
+import { topSurface } from '../lib/surfaceEscape';
 import {
   SettingsDialog,
   DataMaintenanceDialog,
@@ -6074,6 +6077,15 @@ function MainWorkspace(): ReactElement {
 
   const searchQuery = shell.query.trim();
   const searchAccountKey = noticeAccountKey || openedUin;
+  const [searchFilesGroup, setSearchFilesGroup] = useState<{
+    accountKey: string;
+    group: SearchFileGroup | null;
+    fromPicker: boolean;
+  } | null>(null);
+  const activeSearchFilesGroup =
+    searchFilesGroup?.accountKey === searchAccountKey ? searchFilesGroup : null;
+  const searchOpenedSettings = useRef<string | null>(null);
+  const returnFromSearchTarget = useRef(false);
   const [recordFilterDraft, setRecordFilterDraft] = useState<GlobalChatRecordFilter>();
   useEffect(() => setRecordFilterDraft(undefined), [searchAccountKey]);
   const activeRecordFilter = useMemo(() => {
@@ -6101,6 +6113,37 @@ function MainWorkspace(): ReactElement {
     searchSources,
     activeRecordFilter,
   );
+  const handleSearchReturnKey = useStableCallback((event: KeyboardEvent) => {
+    if (
+      event.key !== 'Escape' ||
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.keyCode === 229 ||
+      !searchDismissed ||
+      !returnFromSearchTarget.current ||
+      !searchReturn.target ||
+      settingsOpen ||
+      topSurface(document) ||
+      useAppLock.getState().locked ||
+      (event.target instanceof Element &&
+        event.target.closest('input, textarea, select, [contenteditable="true"]'))
+    )
+      return;
+    returnFromSearchTarget.current = false;
+    event.preventDefault();
+    restoreGlobalSearch();
+  });
+  useEffect(() => {
+    window.addEventListener('keydown', handleSearchReturnKey);
+    const leaveTarget = () => {
+      returnFromSearchTarget.current = false;
+    };
+    document.addEventListener('pointerdown', leaveTarget, true);
+    return () => {
+      window.removeEventListener('keydown', handleSearchReturnKey);
+      document.removeEventListener('pointerdown', leaveTarget, true);
+    };
+  }, [handleSearchReturnKey, searchAccountKey]);
   useEffect(() => {
     if (searchQuery) setSearchDismissed(false);
   }, [searchQuery]);
@@ -6188,7 +6231,10 @@ function MainWorkspace(): ReactElement {
       messageId?: string,
       toastOnMissingSeq = false,
       preferredView?: ConversationView,
-    ) => jumpToConvSeq(kind, id, seq, toastOnMissingSeq, undefined, messageId, { preferredView }),
+    ) => {
+      returnFromSearchTarget.current = true;
+      jumpToConvSeq(kind, id, seq, toastOnMissingSeq, undefined, messageId, { preferredView });
+    },
     [jumpToConvSeq],
   );
 
@@ -6219,6 +6265,7 @@ function MainWorkspace(): ReactElement {
   // then jump. Files additionally carry a seq anchor.
   const openSearchHit = useCallback(
     (hit: SearchHit): void => {
+      returnFromSearchTarget.current = true;
       setSearchDismissed(true);
       setSearchFocused(false);
       if ((hit.category === 'contact' || hit.category === 'group') && hit.target) {
@@ -9132,13 +9179,28 @@ function MainWorkspace(): ReactElement {
       ).status !== 'available'
     )
       return;
+    const target = entry.target;
+    if (target.kind === 'group-files') {
+      if (!searchAccountKey || !messageScope || messageScope !== messageScopeRef.current) return;
+      const current =
+        shell.view === 'contacts'
+          ? shell.selectedGroupConversation
+          : messagesTabActive
+            ? activeConversation
+            : null;
+      const group =
+        current?.type === 'group' ? { code: current.id, name: current.group.name } : null;
+      setSearchFilesGroup({ accountKey: searchAccountKey, group, fromPicker: !group });
+      setSettingsOpen(false);
+      restoreGlobalSearch();
+      return;
+    }
     setSearchDismissed(true);
     setSearchFocused(false);
     setSettingsOpen(false);
     setSettingsSearchTarget(null);
     setMaintenanceTool(null);
     setDressUpOpen(false);
-    const target = entry.target;
     if (target.kind === 'setting') {
       setSettingsSection(target.section);
       if (target.item || target.settingId)
@@ -9239,6 +9301,52 @@ function MainWorkspace(): ReactElement {
     if (entry.target.kind === 'setting') openAppSearchEntryNow(entry);
     else settingsNavigation.navigate(() => openAppSearchEntryNow(entry));
   };
+
+  const openAppSearchResult = (entry: AppSearchEntry) => {
+    searchOpenedSettings.current = entry.target.kind === 'setting' ? searchAccountKey : null;
+    returnFromSearchTarget.current =
+      entry.target.kind !== 'group-files' && entry.target.kind !== 'setting';
+    openAppSearchEntry(entry);
+  };
+
+  const closeSearchedSettings = () => {
+    const restore =
+      searchOpenedSettings.current === searchAccountKey && Boolean(searchReturn.target);
+    searchOpenedSettings.current = null;
+    setSettingsOpen(false);
+    if (restore) restoreGlobalSearch();
+  };
+
+  const groupSearchTarget = activeSearchFilesGroup?.group;
+  const closeGroupSearch = () => {
+    setSearchFilesGroup((current) =>
+      current?.fromPicker && current.group ? { ...current, group: null } : null,
+    );
+  };
+  const searchPanelOpen = (searchQuery || searchFocused) && !searchDismissed;
+  const groupFilesSearchPanel =
+    searchPanelOpen && activeSearchFilesGroup ? (
+      <SearchGroupFiles
+        key={activeSearchFilesGroup.accountKey}
+        group={groupSearchTarget ?? null}
+        onPick={(group) =>
+          setSearchFilesGroup({ ...activeSearchFilesGroup, group, fromPicker: true })
+        }
+        onBack={closeGroupSearch}
+      >
+        {groupSearchTarget ? (
+          <GroupFileDialog
+            embedded
+            groupCode={groupSearchTarget.code}
+            groupName={groupSearchTarget.name}
+            onJumpToMessage={(seq, msgId) =>
+              jumpToSearchConversation('group', groupSearchTarget.code, seq, msgId)
+            }
+            onClose={closeGroupSearch}
+          />
+        ) : null}
+      </SearchGroupFiles>
+    ) : null;
 
   const openFeatureLink = useStableCallback((event: Event) => {
     const id: unknown = (event as CustomEvent<unknown>).detail;
@@ -9614,6 +9722,8 @@ function MainWorkspace(): ReactElement {
             onOpenInvite={noopAsync}
             onQueryChange={(query) => {
               searchReturn.clear();
+              returnFromSearchTarget.current = false;
+              setSearchFilesGroup(null);
               shell.setQuery(query);
             }}
             onSearchFocus={() => {
@@ -9623,7 +9733,7 @@ function MainWorkspace(): ReactElement {
             // 搜索框下方的浮层：范围先于输入显示，结果由关键词控制。
             // 它挂在搜索框上（不是可滚动列表里），所以会话列表怎么滚都看得见。
             searchPanel={
-              (searchQuery || searchFocused) && !searchDismissed ? (
+              searchPanelOpen && !groupFilesSearchPanel ? (
                 <SearchResultsPanel
                   key={searchAccountKey}
                   navigation={searchReturn}
@@ -9758,9 +9868,11 @@ function MainWorkspace(): ReactElement {
                     searchReturn.clear();
                     setAppSearchEnabled(enabled);
                   }}
-                  onSelectAppEntry={openAppSearchEntry}
+                  onSelectAppEntry={openAppSearchResult}
                 />
-              ) : null
+              ) : (
+                groupFilesSearchPanel
+              )
             }
             onOpenFriendNotices={() =>
               settingsNavigation.navigate(() => shell.openContactNotice('friend'))
@@ -10281,7 +10393,7 @@ function MainWorkspace(): ReactElement {
               key={`settings:${messageScope}`}
               open={settingsOpen}
               navigationGuard={settingsNavigation.guard}
-              onClose={() => setSettingsOpen(false)}
+              onClose={closeSearchedSettings}
               initialSection={settingsSection}
               searchTarget={settingsSearchTarget}
               onOpenMaintenance={openMaintenance}

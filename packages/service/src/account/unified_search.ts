@@ -74,7 +74,7 @@ export interface UnifiedSearchServiceOptions {
     keyword: string,
     limit: number,
     offset: number,
-  ) => Promise<{ items: CollectionSearchHit[]; total: number }>;
+  ) => Promise<{ items: CollectionSearchHit[]; total: number; coverage?: ContentSearchCoverage }>;
   generatedSources?: () => GeneratedSearchSources | undefined;
   /**
    * 旧搜索缓存的位置，仅供迁移清理；源库搜索不在这里创建数据库。
@@ -107,6 +107,7 @@ export const SEARCH_CATEGORIES = [
 export type SearchCategory = (typeof SEARCH_CATEGORIES)[number];
 export type FtsSource = 'buddy' | 'group';
 export const SERVICE_SEARCH_CANDIDATE_LIMIT = 1000;
+const FILE_SEARCH_CANDIDATE_LIMIT = 100;
 
 export interface ConversationSearchHit {
   category: 'conversation';
@@ -613,6 +614,61 @@ export class UnifiedSearchService {
       assistantMessages,
       failedCategories: SEARCH_CATEGORIES.filter((category) => failures.has(category)),
       indexStatus: this.indexStatus,
+    };
+  }
+
+  /** One local source per request, so missing coverage is never mixed into a hit count. */
+  async localResourceSearch(
+    source: 'chatAttachment' | 'groupFile' | 'collection',
+    keyword: string,
+    offset: number,
+    limit: number,
+  ) {
+    if (source !== 'chatAttachment') {
+      const page = await this.moreSearch(source, keyword, offset, limit);
+      if (
+        !page.coverage ||
+        page.coverage.available === false ||
+        (source === 'groupFile' && page.coverage.records === 0)
+      )
+        return {
+          source,
+          status: 'unavailable' as const,
+          items: [],
+          nextOffset: null,
+          coverage: page.coverage,
+        };
+      return {
+        source,
+        status: 'ok' as const,
+        items: page.items,
+        total: page.total,
+        nextOffset: page.hasMore ? offset + page.items.length : null,
+        coverage: page.coverage,
+      };
+    }
+    const needle = keyword.trim();
+    const ranked = await this.cachedFileRanking(needle);
+    const items = ranked.slice(offset, offset + limit).map((hit) => ({
+      ...hit,
+      target: {
+        kind: hit.source === 'group' ? 'group' : 'c2c',
+        conv: hit.targetUid,
+        msgId: hit.msgId,
+        msgSeq: hit.msgSeq,
+      },
+    }));
+    return {
+      source,
+      status: 'ok' as const,
+      items,
+      total: ranked.length,
+      nextOffset: offset + items.length < ranked.length ? offset + items.length : null,
+      coverage: {
+        scope: 'local-message-index',
+        limited: this.fileCache.get(needle)?.limited ?? false,
+        candidateLimitPerSource: FILE_SEARCH_CANDIDATE_LIMIT,
+      },
     };
   }
 
@@ -1502,12 +1558,12 @@ export class UnifiedSearchService {
 
     // 候选池有界；只去掉同一来源、会话、消息的重复索引行。
     const [buddyPool, groupPool] = await Promise.all([
-      this.buddyIndex?.ready
-        ? this.buddyIndex.searchFiles(keyword, 100, 0)
-        : this.session.buddyMsgFts.searchFilesByKeyword(keyword, 100, 0),
-      this.groupIndex?.ready
-        ? this.groupIndex.searchFiles(keyword, 100, 0)
-        : this.session.groupMsgFts.searchFilesByKeyword(keyword, 100, 0),
+      this.buddyIndex?.ready && [...keyword].length >= 3
+        ? this.buddyIndex.searchFiles(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0)
+        : this.session.buddyMsgFts.searchFilesByKeyword(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0),
+      this.groupIndex?.ready && [...keyword].length >= 3
+        ? this.groupIndex.searchFiles(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0)
+        : this.session.groupMsgFts.searchFilesByKeyword(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0),
     ]);
     this.maybeRetire('buddy');
     this.maybeRetire('group');

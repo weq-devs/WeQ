@@ -84,6 +84,7 @@ export const MESSAGE_FEATURES = [
     {
       context: ['account', 'conversation'],
       navigation: 'context',
+      tools: ['search_local_resources'],
       docs: ['guide/chat-view.md#feature-messages.history.shared-media'],
     },
   ),

@@ -401,6 +401,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['model-settings', '助手模型设置'],
       ['default-model', '助手默认聊天模型'],
       ['default-effort', '助手默认思考强度'],
+      ['local-lightweight', '本地模型轻量模式'],
       ['permission', '运行模式'],
       ['customPrompt', '额外提示词'],
       ['mcpServers', '外部 MCP 服务器'],

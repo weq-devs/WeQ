@@ -56,10 +56,12 @@ export function SearchResultCard({
   hit,
   keyword,
   onSelect,
+  keepOpen = false,
 }: {
   hit: SearchHit;
   keyword: string;
   onSelect?: (hit: SearchHit, focusKey?: string) => void;
+  keepOpen?: boolean;
 }): ReactElement {
   let media: ReactElement;
   let title: string;
@@ -344,7 +346,7 @@ export function SearchResultCard({
       type="button"
       className="weq-search-row"
       data-search-category={hit.category}
-      data-search-keep-open={isInlineSearchHit(hit) || undefined}
+      data-search-keep-open={keepOpen || isInlineSearchHit(hit) || undefined}
       role="option"
       data-search-hit-key={searchHitKey(hit)}
       onClick={() => onSelect?.(hit)}

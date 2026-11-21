@@ -192,7 +192,16 @@ export class CollectionService {
         if (content) item.cachedContent = content;
       }
     }
-    return searchCollectionItems(rows, keyword, offset, limit);
+    return {
+      ...searchCollectionItems(rows, keyword, offset, limit),
+      coverage: {
+        scope: 'local-database' as const,
+        records: rows.length,
+        limited: false,
+        updatedAt: null,
+        available: rows.length > 0 || (await this.session.collection.hasLocalList()),
+      },
+    };
   }
 
   async readLocalItem(cid: string): Promise<CollectionItem | null> {
