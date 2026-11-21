@@ -13,8 +13,17 @@ class UnreadTransport implements MailTransport {
   panelFails = false;
   foldersFail = false;
   notices: { mailid: string }[] = [];
-  async request(raw: string | URL, _options?: MailRequest): Promise<MailResponse> {
+  readonly mailItems = new Map<string, { emailid: string; unread?: number }>();
+  async request(raw: string | URL, options?: MailRequest): Promise<MailResponse> {
     const path = new URL(raw).pathname;
+    if (path === '/mgr/mailmgr') throw new Error('提醒同步不应写入邮件状态');
+    if (path === '/read/readmail') {
+      const item = this.mailItems.get(String(options?.form?.mailid));
+      return {
+        status: 200,
+        body: JSON.stringify({ head: { ret: 0 }, body: { item: { ret: item ? 0 : -1, ...item } } }),
+      };
+    }
     const failed =
       (path === '/qs/list_notify' && this.panelFails) ||
       (path === '/list/folderlist' && this.foldersFail);
@@ -51,6 +60,46 @@ const native = {
 };
 
 describe('跨客户端邮箱未读同步', () => {
+  it('邮箱总未读不变时也只收起明确已读的那一封横幅', async () => {
+    vi.useFakeTimers();
+    const transport = new UnreadTransport();
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    const socket = Object.assign(new EventEmitter(), {
+      send: vi.fn(),
+      close: vi.fn(),
+      terminate: vi.fn(),
+    });
+    const cgi = vi.spyOn(auth, 'cgi');
+    const onNotice = vi.fn(() => true);
+    const onRead = vi.fn();
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      socketFactory: () => socket,
+      onNotice,
+      onRead,
+    });
+    try {
+      service.startBackground({ showUnread: true, notifications: true });
+      await vi.advanceTimersByTimeAsync(0);
+      transport.notices = [{ mailid: 'first' }, { mailid: 'second' }, { mailid: 'unknown' }];
+      transport.mailItems.set('first', { emailid: 'first', unread: 1 });
+      transport.mailItems.set('second', { emailid: 'second', unread: 1 });
+      transport.mailItems.set('unknown', { emailid: 'unknown' });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(onNotice).toHaveBeenCalledTimes(3);
+      expect(onRead).not.toHaveBeenCalled();
+      transport.mailItems.set('first', { emailid: 'first', unread: 0 });
+      transport.mailItems.set('second', { emailid: 'wrong-mail', unread: 0 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(service.status().unread).toBe(2);
+      expect(onRead.mock.calls).toEqual([[['first']]]);
+      expect(cgi.mock.calls.map(([path]) => path)).not.toContain('/mgr/mailmgr');
+    } finally {
+      service.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it('使用持久化查询间隔，修改后立即重新计时，断开后停止查询', async () => {
     vi.useFakeTimers();
     const auth = new MailAuth(native, '12345678', () => 42, new UnreadTransport());

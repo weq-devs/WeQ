@@ -406,7 +406,7 @@ function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
   });
   recallNotifier?.(event);
 }
-function notifyMail(session: AccountSession, notice: MailNotice): void {
+function notifyMail(session: AccountSession, notice: MailNotice): boolean {
   webNotice(session, {
     kind: 'mail',
     title: 'QQ 邮箱收到新邮件',
@@ -414,6 +414,9 @@ function notifyMail(session: AccountSession, notice: MailNotice): void {
     mail: { folderId: notice.folderId, id: notice.id },
   });
   mailNotifier?.(String(session.context.uin), notice);
+  return (
+    getAppContext().bootstrap?.userConfig.getSettings().notificationEvents.mail.banner === true
+  );
 }
 let mailNotifier: ((uin: string, notice: MailNotice) => void) | null = null;
 export function setMailNotifier(

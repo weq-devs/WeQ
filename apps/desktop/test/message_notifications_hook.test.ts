@@ -96,6 +96,7 @@ afterEach(() => {
   f.browserNotify.mockClear();
   f.badge.mockClear();
   f.unsubscribe.mockClear();
+  useToast.setState({ toasts: [], leaving: [], seq: 0 });
 });
 it('Web 角标复用平台计数，退出账号工作区时清除', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -217,6 +218,40 @@ it('乱序批次与缺失序号不改变第一条可定位消息的目标', asyn
       }),
     );
     expect(f.notify).toHaveBeenLastCalledWith(expect.objectContaining({ conv: 'peer', seq: '50' }));
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it('合并横幅只在同账号、同数据源和同会话确认最后一条已读后收起', async () => {
+  const events = useNotificationPolicy.getState().events;
+  act(() =>
+    useNotificationPolicy.getState().setEvents({
+      ...events,
+      directMessage: { banner: true, system: false },
+    }),
+  );
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    const latest = batch('9007199254740993');
+    const first = batch('9007199254740992');
+    const store = useToast.getState();
+    store.push({ title: '不相关的提醒', system: false });
+    await act(async () =>
+      f.receive?.({ ...latest, messages: [...latest.messages, ...first.messages] }),
+    );
+    const id = useToast.getState().toasts.at(-1)!.id;
+    expect(useToast.getState().toasts).toHaveLength(2);
+    const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' };
+    const row = { chatType: 1, uid: 'peer', readSeq: latest.messages[0]!.msgSeq };
+    store.dismissReadMessages({ ...binding, expectedAccountConfigId: 'backup' }, [row]);
+    store.dismissReadMessages(binding, [{ ...row, chatType: 2 }]);
+    store.dismissReadMessages(binding, [{ ...row, readError: true }]);
+    store.dismissReadMessages(binding, [{ ...row, readSeq: first.messages[0]!.msgSeq }]);
+    expect(useToast.getState().leaving).toEqual([]);
+    store.dismissReadMessages(binding, [row]);
+    expect(useToast.getState().leaving).toEqual([id]);
   } finally {
     await act(async () => root.unmount());
   }

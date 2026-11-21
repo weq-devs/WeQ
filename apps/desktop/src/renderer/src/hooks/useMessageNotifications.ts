@@ -136,6 +136,7 @@ export function useMessageNotifications(options: {
         title: string;
         body: string;
         count: number;
+        throughSeq: string;
         reasons: NotificationEvent[];
         anchors: Map<NotificationEvent, ChatMsgWire>;
       }
@@ -204,6 +205,10 @@ export function useMessageNotifications(options: {
         title: policy.name || message.conv,
         body: plainContentText(elements).slice(0, 1700) || '[消息]',
         count: (previous?.count ?? 0) + 1,
+        throughSeq:
+          previous && BigInt(previous.throughSeq) > BigInt(message.msgSeq)
+            ? previous.throughSeq
+            : message.msgSeq,
         reasons: [...new Set([...(previous?.reasons ?? []), ...reasons])],
       });
     }
@@ -277,6 +282,12 @@ export function useMessageNotifications(options: {
             event: item.reasons.find((event) => currentPolicy[event].banner),
             title,
             detail: body,
+            messageReadTarget: {
+              binding: scope,
+              chatType: item.message.kind === 'group' ? 2 : 1,
+              uid: item.message.conv,
+              seq: item.throughSeq,
+            },
             action: {
               label: '定位消息',
               run: () =>

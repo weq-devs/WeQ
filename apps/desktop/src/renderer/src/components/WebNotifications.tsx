@@ -49,6 +49,18 @@ export function WebNotifications() {
               key: notice.mail ? mailBannerKey(notice.uin, configId, notice.mail.id) : undefined,
               title: notice.title,
               detail: notice.body,
+              messageReadTarget:
+                event === 'keyword' && notice.target
+                  ? {
+                      binding: {
+                        expectedAccountUin: notice.uin,
+                        expectedAccountConfigId: configId,
+                      },
+                      chatType: notice.target.kind === 'group' ? 2 : 1,
+                      uid: notice.target.conv,
+                      seq: notice.target.seq,
+                    }
+                  : undefined,
               source: notice.mail
                 ? notificationSource(
                     { kind: 'mail', folderId: notice.mail.folderId, mailId: notice.mail.id },

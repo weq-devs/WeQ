@@ -147,7 +147,7 @@ import {
 import { useWebConnection } from '../state/webConnection';
 import { useEnhancementUpdates } from '../hooks/useEnhancementUpdates';
 import { client } from '../trpc/client';
-import { useToast, sourceToastPush } from '../components/Toast.shared';
+import { useToast, sourceToastPush, type Toast } from '../components/Toast.shared';
 import {
   notificationContent,
   notificationSource,
@@ -3490,6 +3490,7 @@ function MainWorkspace(): ReactElement {
   // cancelling and restarting an all-conversation scan on every change.
   type UnreadTarget = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
   type UnreadRows = Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>;
+  type UnreadBinding = NonNullable<typeof messageBindingRef.current>;
   const [activeReadPosition, setActiveReadPosition] = useState<{
     scope: string;
     uid: string;
@@ -3588,6 +3589,7 @@ function MainWorkspace(): ReactElement {
       // 实时结果也推进版本，不能被更早启动的全量扫描回灌。
       const finish = guard.begin(accepted.map((row) => row.uid));
       finish();
+      if (binding) useToast.getState().dismissReadMessages(binding, accepted);
       applyActiveReadPosition(accepted);
       setUnreadByConv((current) => {
         const next = { ...current };
@@ -3634,6 +3636,23 @@ function MainWorkspace(): ReactElement {
       refresh.request,
       UNREAD_BATCH_SIZE,
     );
+    const checkMessageBanner = ({ messageReadTarget: target }: Toast) => {
+      if (
+        target &&
+        binding &&
+        target.binding.expectedAccountUin === binding.expectedAccountUin &&
+        target.binding.expectedAccountConfigId === binding.expectedAccountConfigId &&
+        isCurrent()
+      )
+        liveRefresh.request([{ chatType: target.chatType, uid: target.uid }]);
+    };
+    // 群名片等异步补全可能比已读通知晚到，横幅出现时用现有定向队列校准一次。
+    const stopBannerChecks = useToast.subscribe((state, previous) => {
+      if (state.seq === previous.seq) return;
+      const toast = state.toasts.at(-1);
+      if (toast) checkMessageBanner(toast);
+    });
+    for (const toast of useToast.getState().toasts) checkMessageBanner(toast);
     const liveSub = binding
       ? client.account.onUnreadChanged.subscribe(binding, {
           onData(targets) {
@@ -3690,6 +3709,7 @@ function MainWorkspace(): ReactElement {
     return () => {
       disposed = true;
       liveSub?.unsubscribe();
+      stopBannerChecks();
       liveRefresh.dispose();
       refresh.dispose();
       window.removeEventListener('focus', onVisible);
@@ -5108,7 +5128,8 @@ function MainWorkspace(): ReactElement {
     setUnreadDock(undefined);
   }, [messageScope]);
   const applyUnreadRows = useCallback(
-    (rows: UnreadRows) => {
+    (rows: UnreadRows, binding: UnreadBinding) => {
+      useToast.getState().dismissReadMessages(binding, rows);
       applyActiveReadPosition(rows);
       setUnreadByConv((current) => {
         const next = { ...current };
@@ -5212,7 +5233,7 @@ function MainWorkspace(): ReactElement {
                 ...binding,
                 targets: [{ chatType: request.chatType, uid: conv.id }],
               });
-              if (stillCurrent()) applyUnreadRows(rows);
+              if (stillCurrent()) applyUnreadRows(rows, binding);
               if (changed.changed) void utils.account.listRecentContacts.invalidate();
             }
           } catch (error) {
@@ -5296,7 +5317,7 @@ function MainWorkspace(): ReactElement {
         unread,
       });
       if (!isCurrent()) return;
-      applyUnreadRows(result.rows);
+      applyUnreadRows(result.rows, binding);
       const undo = {
         accountUin: openedUin,
         token: result.undoToken,
@@ -5341,7 +5362,9 @@ function MainWorkspace(): ReactElement {
     const pushToast = sourceToastPush(
       notificationSource({ kind: 'app', target: { kind: 'view', view: 'messages' } }),
     );
-    if (!undo || undo.accountUin !== openedUin || readStateBusyRef.current) return;
+    const binding = messageBindingRef.current;
+    const source = messageScopeRef.current;
+    if (!undo || !binding || undo.accountUin !== openedUin || readStateBusyRef.current) return;
     if (readUndoRef.current?.token !== undo.token) {
       pushToast({ tone: 'info', durationKind: 'success', title: '请撤销最近一次标记' });
       return;
@@ -5363,8 +5386,9 @@ function MainWorkspace(): ReactElement {
         expectedAccountUin: undo.accountUin,
         undoToken: undo.token,
       });
-      if (useViewState.getState().openedUin !== openedUin) return;
-      applyUnreadRows(result.rows);
+      if (useViewState.getState().openedUin !== openedUin || messageScopeRef.current !== source)
+        return;
+      applyUnreadRows(result.rows, binding);
       readUndoRef.current = null;
       setReadUndo(null);
       pushToast({
