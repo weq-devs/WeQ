@@ -17,6 +17,7 @@ import {
   projectPublicFeed,
   projectPublicUpvote,
   projectPublicRepliesPage,
+  projectQzoneHomeFeed,
   publicCapabilities,
   publicMediaSource,
 } from '../src/renderer/src/lib/qzonePublic';
@@ -116,6 +117,40 @@ const COMMENT = {
 };
 
 describe('空友 feed 投影', () => {
+  it('主页按应用识别内容类型，站外卡片与普通说说详情保持各自的有效目标', () => {
+    const app = (appId: number, uin = '10002', qqUrl = 'https://example.com/post') =>
+      projectQzoneHomeFeed(
+        projectPublicFeed({
+          ...FEED,
+          cell_user_info: { user: { uin } },
+          cell_common: {
+            ...FEED.cell_common,
+            app_id: appId,
+            title: '示例标题',
+            union_id: { feed_id: '122700001234567800000000' },
+          },
+          cell_operation: { qq_url: qqUrl },
+        })!,
+      );
+    expect(app(311)).toMatchObject({
+      type: '说说',
+      detailId: '122700001234567800000000',
+      href: null,
+    });
+    expect(app(311, '10003').detailId).toBeNull();
+    expect(app(2)).toEqual({
+      type: '日志',
+      title: '示例标题',
+      detailId: null,
+      href: 'https://example.com/post',
+    });
+    expect(app(4).type).toBe('相册');
+    expect(app(202, '10002', 'javascript:alert(1)')).toMatchObject({
+      type: '分享',
+      href: null,
+    });
+    expect(app(999).type).toBe('视频');
+  });
   it('推使用 upvoted 而非 liked，读取独立人数和用户预览', () => {
     const view = projectPublicFeed({
       ...FEED,

@@ -28,7 +28,6 @@ const FIELD_GROUPS: Record<ContactCardField, ContactCardGroup> = {
   constellation: 'basic',
   zodiac: 'basic',
   bloodType: 'basic',
-  qzoneRelationship: 'basic',
   region: 'basic',
   occupation: 'basic',
   school: 'basic',

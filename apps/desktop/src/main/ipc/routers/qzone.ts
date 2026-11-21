@@ -248,6 +248,13 @@ export const qzoneRouter = router({
         services.webQuery.getQzoneSpaceStats(input.hostUin, signal),
       ),
     ),
+  homeMetadata: procedure
+    .input(boundTarget)
+    .query(({ input }) =>
+      readBound(input, (services, signal) =>
+        services.webQuery.qzoneHomeMetadata(input.selfUin, input.hostUin, signal),
+      ),
+    ),
   blogs: procedure
     .input(boundTarget.extend({ offset: contentOffset }))
     .query(({ input }) =>

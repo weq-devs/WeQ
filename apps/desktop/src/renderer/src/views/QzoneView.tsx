@@ -1032,6 +1032,7 @@ function SpaceContent({
           key={`${selfUin}:${hostUin}:${refreshes.home}`}
           selfUin={selfUin}
           hostUin={hostUin}
+          onSpace={onSpace}
         />
       </QzonePage>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts ?? 0}>
@@ -1185,90 +1186,6 @@ function QzoneAlbums({
   );
 }
 
-function SpaceStats({ selfUin, hostUin }: { selfUin: string; hostUin: string }) {
-  const { active, refresh } = useContext(QzonePageContext);
-  const completed = useRef<number | null>(null);
-  const [stats, setStats] = useState<{
-    postCount: number | null;
-    photoCount: number | null;
-    totalCount: number | null;
-    todayCount: number | null;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(0);
-  const { run, cancel } = useQzoneRequests();
-  useEffect(() => {
-    if (!active || completed.current === refresh) return undefined;
-    let live = true;
-    setLoading(true);
-    setError('');
-    void run((requestId) => client.account.qzone.stats.query({ selfUin, hostUin, requestId }))
-      .then((value) => {
-        if (!live) return;
-        setStats(value);
-        completed.current = refresh;
-      })
-      .catch((reason: unknown) => {
-        if (live) setError(errorText(reason));
-      })
-      .finally(() => {
-        if (live) setLoading(false);
-      });
-    return () => {
-      live = false;
-      cancel();
-    };
-  }, [active, selfUin, hostUin, refresh, retry, run, cancel]);
-  const items = [
-    ['说说', stats?.postCount],
-    ['照片', stats?.photoCount],
-    ...(hostUin === selfUin
-      ? ([
-          ['累计访问', stats?.totalCount],
-          ['今日访问', stats?.todayCount],
-        ] as const)
-      : []),
-  ] as const;
-  return (
-    <div className="weq-qzn-space-stats" aria-label="空间统计" aria-busy={loading}>
-      <dl>
-        {items.map(([label, value]) => (
-          <div key={label} title={value == null && !loading ? '接口未提供可用计数' : undefined}>
-            <dt>{label}</dt>
-            <dd>
-              {value == null ? (
-                loading ? (
-                  '…'
-                ) : (
-                  '未知'
-                )
-              ) : (
-                <span className="weq-number weq-number-inherit">
-                  {value.toLocaleString('zh-CN')}
-                </span>
-              )}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      {error || (!loading && stats && items.some(([, value]) => value == null)) ? (
-        <button
-          type="button"
-          title={error || '重新读取空间统计'}
-          aria-label="重新读取空间统计"
-          onClick={() => {
-            completed.current = null;
-            setRetry((value) => value + 1);
-          }}
-        >
-          <RefreshCw size={14} />
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 interface PostsSnapshot {
   posts: QzoneEmotion[];
   nextOffset: number;
@@ -1415,7 +1332,6 @@ function Posts({
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
   return (
     <div {...multi.rootProps}>
-      <SpaceStats key={hostUin} selfUin={selfUin} hostUin={hostUin} />
       {loading && posts.length > 0 && headRequest.current ? (
         <LoadingStatus text={`正在刷新…${pageCountLabel}`} />
       ) : null}

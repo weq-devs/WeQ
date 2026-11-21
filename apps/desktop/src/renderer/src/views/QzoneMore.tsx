@@ -287,7 +287,6 @@ function Visitors({ space }: { space: Space }) {
     client.account.qzone.visitors.query({ ...input, page }),
   );
   const first = state.first;
-  const count = (value: number | null) => (value === null ? '未知' : value.toLocaleString('zh-CN'));
   const empty =
     first?.status === 'forbidden'
       ? '无权查看这个空间的访客'
@@ -298,20 +297,6 @@ function Visitors({ space }: { space: Space }) {
           : '';
   return (
     <>
-      {first && (first.totalCount !== null || first.todayCount !== null) ? (
-        <div className="weq-qzn-space-stats" aria-label="空间浏览量">
-          <dl>
-            <div>
-              <dt>总浏览量</dt>
-              <dd>{count(first.totalCount)}</dd>
-            </div>
-            <div>
-              <dt>今日浏览量</dt>
-              <dd>{count(first.todayCount)}</dd>
-            </div>
-          </dl>
-        </div>
-      ) : null}
       {state.items.map((person) => (
         <article className="weq-qzn-post" key={person.id}>
           <QzonePersonHeader
@@ -334,14 +319,6 @@ function Guestbook({ space }: { space: Space }) {
   );
   return (
     <>
-      {state.first?.greeting ? (
-        <section aria-label="主人寄语">
-          <h3 className="weq-qzn-more-title">主人寄语</h3>
-          <p className="weq-qzn-content" data-privacy-sensitive>
-            <QzoneInlineText content={state.first.greeting} />
-          </p>
-        </section>
-      ) : null}
       {state.items.map((entry) => (
         <article className="weq-qzn-post" key={entry.id}>
           <QzonePersonHeader

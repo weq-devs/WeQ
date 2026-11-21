@@ -89,21 +89,6 @@ export function ContactOnlineRegion({ uin }: { uin: string }) {
     />
   );
 }
-export function ContactOnlineQzoneRelationship({ uin }: { uin: string }) {
-  const { enabled, input } = useTarget(uin);
-  const query = trpc.account.qqActions.qzoneSpaceProfile.useQuery(
-    {
-      expectedAccountUin: input.expectedAccountUin,
-      expectedAccountConfigId: input.expectedAccountConfigId,
-      hostUin: uin,
-    },
-    { ...PROFILE_QUERY_OPTIONS, enabled },
-  );
-  return query.data?.relationship ? (
-    <ContactRow label="感情状况" value={query.data.relationship} />
-  ) : null;
-}
-
 export function ContactOnlineSchool({
   uin,
   cachedDegree,

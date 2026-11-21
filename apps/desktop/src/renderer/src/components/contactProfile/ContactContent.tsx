@@ -66,7 +66,6 @@ import { SelfAvatarHistory } from '../SelfAvatarHistory';
 import { SelfOnlineStatus } from '../SelfOnlineStatus';
 import {
   ContactOnlineOccupation,
-  ContactOnlineQzoneRelationship,
   ContactOnlineRegion,
   ContactOnlineSchool,
 } from './ContactOnlineFields';
@@ -75,7 +74,6 @@ export type { ContactCardGroup } from '../../lib/contactCardSections';
 
 const automaticFields: readonly ContactCardContent[] = [
   'qqShow',
-  'qzoneRelationship',
   'labels',
   'common',
   'marks',
@@ -921,9 +919,6 @@ export function ContactContent({
     ),
     zodiac: <ContactRow label="生肖" value={chineseZodiacText(ext?.zodiac)} />,
     bloodType: <ContactRow label="血型" value={bloodTypeText(ext?.bloodType)} />,
-    qzoneRelationship: onlineFallback ? (
-      <ContactOnlineQzoneRelationship uin={person.identityValue} />
-    ) : null,
     occupation: (
       <SelfProfileSlot field="profession">
         {occupation || !onlineFallback ? (

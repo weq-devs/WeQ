@@ -219,7 +219,7 @@ export const CONTACT_HISTORY_CAPTURE: readonly Capture[] = [
   },
   {
     service: 'webQuery',
-    methods: ['getFriendDress', 'getFriendMutualMark', 'getQzoneSpaceStats'],
+    methods: ['getFriendDress', 'getFriendMutualMark'],
     kind: 'friend',
     source: 'online',
   },

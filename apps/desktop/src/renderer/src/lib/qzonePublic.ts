@@ -23,6 +23,7 @@
  */
 
 import type { QzoneUpvotePreview } from '@weqbot/protocol';
+import { qzoneLinkTarget } from './qzone';
 
 export type PublicJson = Record<string, unknown>;
 
@@ -424,4 +425,61 @@ export function publicCapabilities(entrances: unknown): {
     canFollow: asBool(flags.can_public_follow),
     canComment: asBool(flags.public_qzone_entrance_switch),
   };
+}
+
+export function publicGridMedia(media: PublicMedia[]): {
+  images: string[];
+  videos: {
+    coverUrl: string;
+    videoUrl: string;
+    videoId: string;
+    duration: number;
+    mediaIndex: number;
+  }[];
+} {
+  return {
+    images: media.filter((item) => item.kind === 'image').map((item) => item.src),
+    videos: media.flatMap((item, mediaIndex) =>
+      item.kind === 'video'
+        ? [
+            {
+              coverUrl: item.poster,
+              videoUrl: item.src,
+              videoId: item.key,
+              duration: item.durationMs,
+              mediaIndex,
+            },
+          ]
+        : [],
+    ),
+  };
+}
+
+const homeFeedTypes: Partial<Record<number, string>> = {
+  2: '日志',
+  4: '相册',
+  202: '分享',
+  311: '说说',
+};
+
+/** 个人主页与推荐流共用 cell 结构。只有可核对作者的说说能走普通详情。 */
+export function projectQzoneHomeFeed(view: PublicFeedView) {
+  const common = asObject(view.feed.cell_common);
+  const appId = asNumber(common?.app_id);
+  const type =
+    (appId === null ? undefined : homeFeedTypes[appId]) ??
+    (view.media.some((item) => item.kind === 'video') ? '视频' : '动态');
+  const title = asString(common?.title).trim();
+  const tid = asString(asObject(common?.union_id)?.feed_id);
+  const detailId =
+    (appId === null || appId === 311) &&
+    /^[\da-f]{24}$/i.test(tid) &&
+    String(Number.parseInt(tid.slice(0, 8).match(/../g)!.reverse().join(''), 16)) ===
+      view.author.uin
+      ? tid
+      : null;
+  const href = detailId
+    ? null
+    : qzoneLinkTarget(asString(asObject(view.feed.cell_operation)?.qq_url));
+  return { type, title, detailId, href };
 }

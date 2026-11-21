@@ -155,6 +155,49 @@ describe('Qzone space statistics', () => {
       'synthetic cancellation',
     );
   });
+  it('主页汇集空间统计、他人访客计数及留言元数据，单个来源失败时保留其余数据', async () => {
+    const fetch = vi.fn(async (value: string) => {
+      const url = new URL(value);
+      if (url.pathname.endsWith('/main_page_cgi')) return new Response(stringify(content(0, 9)));
+      if (url.pathname.endsWith('/cgi_get_visitor_simple')) {
+        expect(url.searchParams.get('mask')).toBe('2');
+        return new Response(stringify(visits(10)));
+      }
+      if (url.pathname.endsWith('/fcg_list_album_v3'))
+        return new Response(stringify({ code: -10031 }));
+      if (url.pathname.endsWith('/get_abs'))
+        return new Response(stringify({ code: 0, data: { totalNum: 0, list: [] } }));
+      if (url.pathname.endsWith('/get_msgb'))
+        return new Response(
+          stringify({
+            code: 0,
+            data: {
+              authorInfo: { msg: '欢迎' },
+              total: 0,
+              commentList: [],
+              auditON: true,
+              auditNum: 3,
+            },
+          }),
+        );
+      throw new Error(`意外请求 ${url.pathname}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    const service = Object.create(WebQueryService.prototype) as WebQueryService;
+    Reflect.set(service, 'creds', { forDomain: async () => credential });
+    expect(await service.qzoneHomeMetadata('10001', '10002')).toEqual({
+      postCount: 0,
+      photoCount: 9,
+      albumCount: null,
+      blogCount: 0,
+      messageCount: 0,
+      totalCount: 10,
+      todayCount: 2,
+      greeting: '欢迎',
+      audit: null,
+    });
+    expect(fetch).toHaveBeenCalledTimes(5);
+  });
 });
 
 describe('Qzone post views', () => {

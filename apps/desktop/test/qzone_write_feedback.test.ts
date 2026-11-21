@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement as h, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -89,7 +90,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
-      qqActions: { qzoneHome: { useInfiniteQuery: () => ({}) } },
+      qqActions: {
+        qzoneHome: { useInfiniteQuery: () => ({}) },
+        qzoneSpaceProfile: { useQuery: () => ({}) },
+      },
     },
   },
   client: {
@@ -103,7 +107,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         posts: {
           query: state.posts,
         },
-        stats: { query: async () => ({ postCount: 1, photoCount: 0 }) },
+        homeMetadata: { query: async () => ({ postCount: 1, photoCount: 0 }) },
         people: { query: async () => ({}) },
         summary: { query: state.summary },
         likes: { query: state.likes },
@@ -196,6 +200,7 @@ async function mount(strict = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { cacheTime: 0 } } });
   const update = () => {
     const view = h(QzoneView, {
       selfUin: '10001',
@@ -208,10 +213,13 @@ async function mount(strict = false) {
         catalog: { section: 'posts' },
       },
     });
-    root.render(strict ? h(StrictMode, null, view) : view);
+    root.render(
+      h(QueryClientProvider, { client: queryClient }, strict ? h(StrictMode, null, view) : view),
+    );
   };
   close = () => {
     act(() => root.unmount());
+    queryClient.clear();
     host.remove();
   };
   await act(async () => update());

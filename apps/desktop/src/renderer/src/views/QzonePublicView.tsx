@@ -55,6 +55,7 @@ import {
   projectPublicFeed,
   projectPublicRepliesPage,
   publicCapabilities,
+  publicGridMedia,
   type PublicCommentView,
   type PublicFeedView,
   type PublicJson,
@@ -171,34 +172,6 @@ function countText(value: number | null): string {
   if (value === null) return '?';
   if (value < 10_000) return String(value);
   return `${(value / 10_000).toFixed(1).replace(/\.0$/, '')}万`;
-}
-
-function toGridMedia(media: PublicFeedView['media']): {
-  images: string[];
-  videos: {
-    coverUrl: string;
-    videoUrl: string;
-    videoId: string;
-    duration: number;
-    mediaIndex: number;
-  }[];
-} {
-  return {
-    images: media.filter((item) => item.kind === 'image').map((item) => item.src),
-    videos: media.flatMap((item, mediaIndex) =>
-      item.kind === 'video'
-        ? [
-            {
-              coverUrl: item.poster,
-              videoUrl: item.src,
-              videoId: item.key,
-              duration: item.durationMs,
-              mediaIndex,
-            },
-          ]
-        : [],
-    ),
-  };
 }
 
 interface Capabilities {
@@ -598,7 +571,7 @@ function PublicFeedCard({
   const [pending, setPending] = useState<'like' | 'upvote' | 'follow' | null>(null);
   const [error, setError] = useState('');
   const [forwardOpen, setForwardOpen] = useState(false);
-  const grid = useMemo(() => toGridMedia(view.media), [view.media]);
+  const grid = useMemo(() => publicGridMedia(view.media), [view.media]);
   const canOpenSpace = /^[1-9]\d{4,19}$/.test(view.author.uin);
   const authorLabel = view.author.nick || view.author.uin || view.author.uid || '匿名用户';
 
@@ -1148,7 +1121,7 @@ function PublicFeedDetail({
                   <p>
                     <QzoneInlineText content={comment.text} />
                   </p>
-                  <QzoneMediaGrid images={toGridMedia(comment.media).images} />
+                  <QzoneMediaGrid images={publicGridMedia(comment.media).images} />
                   <div className="weq-qzn-comment-meta">
                     <time>{timeText(comment.time)}</time>
                     <button
