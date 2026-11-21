@@ -1,7 +1,3 @@
-import { useDialog } from '../Dialog.shared';
-import { openExternalLink } from '../../lib/openExternalLink';
-import { useRenderDocument } from '../../lib/renderDocument';
-import { qqContactCardUrl } from '../../im-template/template/arkCards';
 import { client, trpc } from '../../trpc/client';
 import { useQQAction } from './shared.shared';
 
@@ -36,23 +32,27 @@ export function useDeleteFriend(scope: string, options?: { passive?: boolean }) 
 }
 
 export function useGroupExitActions(action: ReturnType<typeof useQQAction>) {
-  const ownerDocument = useRenderDocument();
-  const confirm = useDialog((state) => state.confirm);
-  const showError = useDialog((state) => state.showError);
   const utils = trpc.useUtils();
-  return {
-    leave: {
-      label: '退出群聊',
+  function groupExit(disband: boolean) {
+    return {
+      label: disband ? '解散群聊' : '退出群聊',
       disabled: action.disabled,
       run(groupId: number, name: string) {
         return action.perform(
           (binding) =>
-            client.account.qqActions.groupSettings.mutate({ ...binding, groupId, action: 'leave' }),
+            client.account.qqActions.groupSettings.mutate({
+              ...binding,
+              groupId,
+              action: 'leave',
+              ...(disband ? { disband: true } : {}),
+            }),
           () => utils.account.qqActions.groupPermissions.invalidate(),
-          `退出「${name}」（${groupId}）？退出后将无法接收该群的新消息。`,
+          disband
+            ? `解散「${name}」（${groupId}）？解散后，所有成员将退出该群。`
+            : `退出「${name}」（${groupId}）？退出后将无法接收该群的新消息。`,
           {
             danger: 'outline',
-            readbackSuccessText: '已退出群聊',
+            readbackSuccessText: disband ? '已解散群聊' : '已退出群聊',
             readback: async () => {
               if (!action.binding) return false;
               const status = await client.account.qqActions.groupPermissions.query({
@@ -64,30 +64,7 @@ export function useGroupExitActions(action: ReturnType<typeof useQQAction>) {
           },
         );
       },
-    },
-    disband: {
-      label: '解散群聊',
-      disabled: false,
-      async run(groupId: number, name: string) {
-        const proceed = await confirm(
-          '解散群聊',
-          `解散「${name}」（${groupId}）会影响所有群成员。请用群主账号在 QQ 的群设置中完成解散。`,
-          { danger: 'outline', okLabel: '在 QQ 中打开群资料', ownerDocument },
-        );
-        if (!proceed) return;
-        try {
-          const result = await openExternalLink(
-            qqContactCardUrl('group', groupId),
-            ownerDocument.defaultView ?? undefined,
-          );
-          if (result.ok) return;
-        } catch {
-          // 没有可用的 QQ 链接处理器时，仍给出手动定位方式。
-        }
-        showError('无法打开 QQ 群资料', `请在 QQ 中搜索群号 ${groupId}，进入群设置完成解散。`, {
-          ownerDocument,
-        });
-      },
-    },
-  };
+    };
+  }
+  return { leave: groupExit(false), disband: groupExit(true) };
 }

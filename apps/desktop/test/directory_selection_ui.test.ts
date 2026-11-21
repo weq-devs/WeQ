@@ -178,18 +178,14 @@ it.each(['friend', 'member', 'owner', 'historical'] as const)(
           ...relationshipWrites.binding,
           targetUid: friend.uid,
         });
-      else if (kind === 'member')
+      else {
         expect(relationshipWrites.leaveGroup).toHaveBeenCalledWith({
           ...relationshipWrites.binding,
           groupId: 123,
           action: 'leave',
+          ...(kind === 'owner' ? { disband: true } : {}),
         });
-      else {
-        expect(relationshipWrites.openExternal).toHaveBeenCalledWith(
-          'mqqapi://card/show_pslcard?src_type=internal&version=1&card_type=group&uin=123',
-          expect.anything(),
-        );
-        expect(relationshipWrites.leaveGroup).not.toHaveBeenCalled();
+        expect(relationshipWrites.openExternal).not.toHaveBeenCalled();
       }
     } finally {
       act(() => root.unmount());

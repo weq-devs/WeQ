@@ -1464,6 +1464,7 @@ export function createQQActionsRouter(
       .input(
         group.extend({
           action: z.enum(['leave', 'join', 'sign', 'addTag', 'deleteTag']),
+          disband: z.boolean().optional(),
           addType: z
             .union([
               z.literal(1),
@@ -1486,8 +1487,10 @@ export function createQQActionsRouter(
             const directory = await s.groupInfo.listGroupDirectory();
             const role = directory.find((row) => row.groupCode === String(i.groupId))?.role;
             current();
-            if (role === 'owner') throw new Error('请在 QQ 客户端的群设置中解散群聊');
-            if (role !== 'admin' && role !== 'member') throw new Error('无法确认当前入群身份');
+            if (role !== 'owner' && role !== 'admin' && role !== 'member')
+              throw new Error('无法确认当前入群身份');
+            if ((role === 'owner') !== (i.disband === true))
+              throw new Error('请刷新群聊身份后重新确认操作');
             return s.groupModeration.leaveGroup(i.groupId);
           }
           if (i.action === 'sign') return s.interaction.sendGroupSign(i.groupId);

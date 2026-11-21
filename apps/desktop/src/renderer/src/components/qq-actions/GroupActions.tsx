@@ -54,7 +54,6 @@ function GroupActionsBody({
         <Card title="其他操作" icon={<MoreHorizontal />}>
           <Row
             label={role === 'owner' ? '解散会影响所有群成员' : '退出后将无法接收群消息'}
-            desc={role === 'owner' ? '需前往 QQ 完成解散' : undefined}
             control={
               <button
                 data-danger="outline"
