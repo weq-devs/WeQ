@@ -831,10 +831,6 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   word-break: normal;
 }
 
-.message-line[data-grouped-dress-bubble] .message-content.is-plain-text {
-  --weq-dress-bubble-group-padding: 10px;
-}
-
 .message-line.theirs:is([data-message-group='first'], [data-message-group='middle'])
   > :is(.message-bubble, .weq-forward-row-main)
   .message-content {

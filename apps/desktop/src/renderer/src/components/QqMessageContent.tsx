@@ -784,7 +784,7 @@ function TextMarkdownDisplay({
   );
   if (override === undefined) return renderDefault();
   return (
-    <div className={cn('message-content', 'qq-message-inline', !override && 'is-plain-text')}>
+    <div className="message-content qq-message-inline">
       {override ? <QqMarkdown text={text} /> : renderRaw()}
     </div>
   );
@@ -1186,11 +1186,8 @@ function QqMessageContentBody({
   }
 
   const nodes = renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv, groupImages);
-  const plainText =
-    meaningful.length > 0 && meaningful.every(({ type }) => type === 'text' || type === 'at');
-
   return (
-    <div className={cn('message-content', 'qq-message-inline', plainText && 'is-plain-text')}>
+    <div className="message-content qq-message-inline">
       <div className="qq-message-body">{nodes}</div>
     </div>
   );

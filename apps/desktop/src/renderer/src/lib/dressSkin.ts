@@ -540,7 +540,7 @@ export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
 }
 
 export function bubbleContentPaddingCss({ topPad, rightPad, bottomPad }: BubbleMetrics): string {
-  return `  padding: var(--weq-dress-bubble-group-padding, ${topPad}) ${rightPad} var(--weq-dress-bubble-group-padding, ${bottomPad});`;
+  return `  padding: ${topPad} ${rightPad} ${bottomPad};`;
 }
 
 /**
@@ -864,12 +864,11 @@ export function fontRules(font: FontSkinCss, scope: DressScope, animated = true)
 /**
  * 装扮文字使用当前布局的默认正文尺寸；不缩放整个内容盒，避免改变引用及媒体尺寸。
  * ETDrawable 在 padding.top 放置文字位图，不能再均分最小高度多出的垂直空间。
- * normal 保留多行间距；位图字体保留气泡上下留白，首行去掉 em 上方多出的半份行间留白。
+ * normal 保留多行间距；位图字体的首行去掉 em 上方多出的半份行间留白。
  * 系统文字路径不做这项近似，否则普通 TextView 字体也会被上移。
  * 保留真实字形、颜色、缺字回退与 DOM 选择，不靠合成粗斜体改变字体笔画。
  */
 export function fontTextRules(sel: string, family: string): string {
-  const bitmap = appendToSelectors(sel, ':not([data-weq-system-font] *)');
   return `${sel} {
   font-family: "${family}", var(--im-font-body, Inter), ui-sans-serif, system-ui, sans-serif;
   --weq-dress-content-alignment: start;
@@ -877,10 +876,7 @@ export function fontTextRules(sel: string, family: string): string {
   line-height: normal;
   font-synthesis: none;
 }
-${appendToSelectors(bitmap, '.is-plain-text')} {
-  --weq-dress-bubble-group-padding: initial;
-}
-${appendToSelectors(bitmap, ' > .qq-message-body:has(> .qq-text-run:first-child)')} {
+${appendToSelectors(sel, ':not([data-weq-system-font] *) > .qq-message-body:has(> .qq-text-run:first-child)')} {
   margin-block-start: calc((1em - 1lh) / 2);
 }`;
 }
