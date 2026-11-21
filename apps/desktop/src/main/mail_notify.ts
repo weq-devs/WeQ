@@ -2,6 +2,7 @@ import { Notification } from 'electron';
 import type { MailNotice } from '@weq/service/mail';
 import { getAppContext } from './context/app_context';
 import { getMainWindow } from './main_window';
+import { MAIL_NOTICE } from '../shared/notification_copy';
 
 /** 系统层只给通用提醒，避免锁屏、录屏或隐私模式泄露邮件主题。 */
 export function handleMailNotification(uin: string, notice: MailNotice): void {
@@ -17,7 +18,7 @@ export function handleMailNotification(uin: string, notice: MailNotice): void {
     return;
   const window = getMainWindow();
   if (window && !window.isDestroyed() && window.isFocused() && !window.isMinimized()) return;
-  const notification = new Notification({ title: 'QQ 邮箱收到新邮件', body: '', silent: false });
+  const notification = new Notification({ ...MAIL_NOTICE, silent: false });
   notification.on('click', () => {
     const current = getAppContext();
     if (String(current.account?.context.uin) !== uin || current.services?.mail !== mail) return;

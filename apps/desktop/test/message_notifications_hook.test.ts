@@ -56,6 +56,7 @@ vi.mock('../src/renderer/src/state/lock', () => ({
   useAppLock: (select: (state: { locked: boolean }) => unknown) => select(f),
 }));
 vi.mock('../src/renderer/src/lib/clientPreferences', () => ({
+  PREFERENCES_CHANGED: 'weq:test-preferences-changed',
   useClientPreferences: () => 0,
   preferenceValue: (key: keyof typeof f.values) => f.values[key],
   accountBinding: () => ({ expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' }),
@@ -166,8 +167,8 @@ it.each([false, true])('群通知保留群名并显示最后一条消息的发�
     expect(resolveGroupSenderName).toHaveBeenCalledWith(last.messages[0]);
     expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        title: '测试群',
-        body: '本地群名片：消息正文\n另有 1 条消息',
+        title: '测试群 · 2 条新消息',
+        body: '本地群名片：消息正文',
       }),
     );
     expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
@@ -185,7 +186,7 @@ it.each([false, true])('群通知保留群名并显示最后一条消息的发�
     await act(async () => root.unmount());
   }
 });
-it('群发送者资料缺失时回退 QQ 号或 UID，空消息仍保留发送者', async () => {
+it('群发送者资料缺失时回退 QQ 号，不显示内部 UID 或占位符', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   setMessageNotifications(true);
   const root = createRoot(document.createElement('div'));
@@ -196,7 +197,9 @@ it('群发送者资料缺失时回退 QQ 号或 UID，空消息仍保留发送�
     await act(async () =>
       f.receive?.(batch('24', { kind: 'group', conv: '10003', senderUin: '0', elements: [] })),
     );
-    expect(f.notify).toHaveBeenLastCalledWith(expect.objectContaining({ body: 'peer：[消息]' }));
+    expect(f.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({ body: '群成员发来一条消息' }),
+    );
   } finally {
     await act(async () => root.unmount());
   }
@@ -257,12 +260,12 @@ it('合并横幅只在同账号、同数据源和同会话确认最后一条已�
   }
 });
 
-it('系统仅提醒 @我而横幅提醒普通消息时，各渠道定位自己的首个来源', async () => {
+it('后来的普通消息不覆盖另一渠道的 @你预览和位置', async () => {
   const events = useNotificationPolicy.getState().events;
   const next = Object.fromEntries(
     Object.keys(events).map((event) => [event, { banner: false, system: false }]),
   ) as typeof events;
-  next.groupMessage.banner = true;
+  next.groupMessage = { banner: true, system: true };
   next.mentionMe.system = true;
   act(() => useNotificationPolicy.getState().setEvents(next));
   const root = createRoot(document.createElement('div'));
@@ -279,13 +282,34 @@ it('系统仅提醒 @我而横幅提醒普通消息时，各渠道定位自己�
     );
     await act(async () => root.render(createElement(Probe, { conversations: groups })));
     const ordinary = batch('60', { kind: 'group', conv: '10003' });
-    const mention = batch('61', { kind: 'group', conv: '10003' });
+    const mention = batch('61', {
+      kind: 'group',
+      conv: '10003',
+      elements: [
+        { type: 'at', data: { atTargetUid: 'self', textContent: '@测试账号' } },
+        { type: 'text', data: { textContent: ' 请确认报名' } },
+      ],
+    });
+    const last = batch('62', { kind: 'group', conv: '10003' });
     await act(async () =>
-      f.receive?.({ ...mention, messages: [...ordinary.messages, ...mention.messages] }),
+      f.receive?.({
+        ...mention,
+        messages: [...ordinary.messages, ...mention.messages, ...last.messages],
+      }),
     );
     expect(f.notify).toHaveBeenLastCalledWith(
-      expect.objectContaining({ conv: '10003', seq: '61', anchorId: '61' }),
+      expect.objectContaining({
+        conv: '10003',
+        seq: '61',
+        anchorId: '61',
+        title: '@你 · 测试群',
+        body: '10002：请确认报名',
+      }),
     );
+    expect(useToast.getState().toasts.at(-1)).toMatchObject({
+      title: '测试群 · 3 条新消息',
+      summary: '10002：消息正文',
+    });
     act(() => useToast.getState().toasts.at(-1)!.action!.run());
     expect(opened).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -296,6 +320,28 @@ it('系统仅提醒 @我而横幅提醒普通消息时，各渠道定位自己�
     );
   } finally {
     window.removeEventListener('weq:notice-open', opened);
+    await act(async () => root.unmount());
+  }
+});
+
+it('同一条消息只在已开启群提醒词的渠道交给专用提醒', async () => {
+  const events = useNotificationPolicy.getState().events;
+  act(() =>
+    useNotificationPolicy.getState().setEvents({
+      ...events,
+      groupMessage: { banner: true, system: true },
+      keyword: { banner: false, system: true },
+    }),
+  );
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () =>
+      f.receive?.(batch('85', { kind: 'group', conv: '10003', groupKeyword: true })),
+    );
+    expect(f.notify).not.toHaveBeenCalled();
+    expect(useToast.getState().toasts.at(-1)).toMatchObject({ event: 'groupMessage' });
+  } finally {
     await act(async () => root.unmount());
   }
 });
@@ -396,7 +442,9 @@ it('发送者解析失败仍显示消息，长名称和正文不超过原生通�
       ),
     );
     expect(f.notify).toHaveBeenLastCalledWith(
-      expect.objectContaining({ body: `${'名'.repeat(256)}：${'文'.repeat(1700)}` }),
+      expect.objectContaining({
+        body: expect.stringMatching(/^名+…：文+…$/u),
+      }),
     );
   } finally {
     await act(async () => root.unmount());

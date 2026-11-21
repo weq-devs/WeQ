@@ -227,14 +227,14 @@ export function McpServerSection(): ReactElement {
       if (result.port !== port) {
         pushToast({
           tone: 'info',
-          title: '端口已自动调整',
-          message: `${port} 被占用，MCP 服务器现监听 ${result.port}`,
+          title: `MCP 服务器已改用端口 ${result.port}`,
+          summary: `端口 ${port} 已被占用`,
         });
       } else {
-        pushToast({ tone: 'success', title: '端口已更新', message: `MCP 服务器现监听 ${port}` });
+        pushToast({ tone: 'success', title: `MCP 服务器端口已更新为 ${port}` });
       }
     } catch (e) {
-      showError('修改端口失败', errMsg(e));
+      showError('无法修改 MCP 服务器端口', errMsg(e));
       await status.refetch();
     }
   }

@@ -146,9 +146,12 @@ export function ExternalRkeySection(): ReactElement {
       });
       setForm(null);
       await refetch();
-      pushToast({ tone: 'success', title: form.id ? '配置已更新' : '配置已导入' });
+      pushToast({
+        tone: 'success',
+        title: form.id ? '外部 RKEY 配置已更新' : '外部 RKEY 配置已导入',
+      });
     } catch (err) {
-      showError('保存失败', errMsg(err));
+      showError('无法保存外部 RKEY 配置', errMsg(err));
     }
   }
 

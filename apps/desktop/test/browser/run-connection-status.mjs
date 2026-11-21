@@ -53,7 +53,7 @@ try {
         window.connectionQa.reset();
         window.connectionQa.change('network');
       }, theme);
-      await page.getByText('网络已断开，恢复后自动重连', { exact: true }).waitFor();
+      await page.getByText('手机网络已断开', { exact: true }).waitFor();
       await page.locator('.weq-toast.show').waitFor();
       if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}.png`) });
       const bounds = await page.locator('.weq-toast').boundingBox();
@@ -67,9 +67,9 @@ try {
         throw new Error(`横幅文字溢出：${width}/${theme}`);
       if (output) await page.screenshot({ path: resolve(output, `${theme}-${width}.png`) });
       await page.evaluate(() => window.connectionQa.change('connection'));
-      await page.getByText('连接已中断，正在重连…', { exact: true }).waitFor();
+      await page.getByText('与电脑的连接已中断', { exact: true }).waitFor();
       await page.evaluate(() => window.connectionQa.change('connected'));
-      await page.getByText('连接已恢复', { exact: true }).waitFor();
+      await page.getByText('已重新连接电脑', { exact: true }).waitFor();
       if ((await page.locator('.weq-toast').count()) !== 1)
         throw new Error('断连和恢复横幅重复堆叠');
       cases++;

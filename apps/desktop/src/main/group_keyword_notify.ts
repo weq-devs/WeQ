@@ -25,6 +25,8 @@ import { getAppContext, type AccountServices } from './context/app_context';
 import { claimMessageSystemNotification } from './message_notification_dedupe';
 import { pushGroupKeywordJump } from './group_keyword_bus';
 import { getMainWindow } from './main_window';
+import { globalClientState } from './ipc/routers/client_state';
+import { PRIVATE_MESSAGE_NOTICE } from '../shared/notification_copy';
 
 const logger = getLogger().child({ scope: 'group-keyword' });
 
@@ -37,8 +39,11 @@ let iconDir: string | null = null;
 /**
  * 处理一次命中：写 2006 高亮 + 弹系统通知。永不抛错。
  */
-export function handleGroupKeywordHit(hit: GroupKeywordHit): void {
-  void handle(hit).catch((error) => {
+export function handleGroupKeywordHit(
+  hit: GroupKeywordHit,
+  copy: { title: string; body: string },
+): void {
+  void handle(hit, copy).catch((error) => {
     logger.warn('group keyword hit handling failed', {
       event: 'group-keyword-hit-failed',
       groupCode: hit.groupCode,
@@ -47,7 +52,7 @@ export function handleGroupKeywordHit(hit: GroupKeywordHit): void {
   });
 }
 
-async function handle(hit: GroupKeywordHit): Promise<void> {
+async function handle(hit: GroupKeywordHit, copy: { title: string; body: string }): Promise<void> {
   const ctx = getAppContext();
   const services = ctx.services;
   if (!services) return;
@@ -57,7 +62,7 @@ async function handle(hit: GroupKeywordHit): Promise<void> {
 
   // 2) 系统通知（群头像 + 点击跳转）。
   if (ctx.bootstrap?.userConfig.getSettings().notificationEvents?.keyword.system !== false)
-    await showNotification(services, hit);
+    await showNotification(services, hit, copy);
 }
 
 async function writeHighlight(services: AccountServices, hit: GroupKeywordHit): Promise<void> {
@@ -83,14 +88,16 @@ async function writeHighlight(services: AccountServices, hit: GroupKeywordHit): 
   }
 }
 
-async function showNotification(services: AccountServices, hit: GroupKeywordHit): Promise<void> {
+async function showNotification(
+  services: AccountServices,
+  hit: GroupKeywordHit,
+  copy: { title: string; body: string },
+): Promise<void> {
   if (!Notification.isSupported()) return;
 
-  const [groupName, senderName, iconPath] = await Promise.all([
-    groupNameOf(services, hit.groupCode),
-    senderNameOf(services, hit),
-    groupIconPath(services, hit.groupCode),
-  ]);
+  const isPrivate = () => globalClientState().snapshot().values.privacyMode === true;
+  const iconPath = isPrivate() ? null : await groupIconPath(services, hit.groupCode);
+  if (getAppContext().services !== services) return;
 
   if (
     !claimMessageSystemNotification(
@@ -101,10 +108,10 @@ async function showNotification(services: AccountServices, hit: GroupKeywordHit)
     )
   )
     return;
+  const hidden = isPrivate();
   const notification = new Notification({
-    title: groupName ? `${groupName} · 命中「${hit.keyword}」` : `命中「${hit.keyword}」`,
-    body: senderName ? `${senderName}：${hit.text}` : hit.text,
-    icon: iconPath ?? undefined,
+    ...(hidden ? PRIVATE_MESSAGE_NOTICE : copy),
+    icon: hidden ? undefined : (iconPath ?? undefined),
     silent: false,
   });
   notification.on('click', () => {
@@ -130,24 +137,6 @@ function openConversationAt(hit: GroupKeywordHit): void {
     msgSeq: hit.msgSeq.toString(),
     msgId: hit.msgId.toString(),
   });
-}
-
-async function groupNameOf(services: AccountServices, groupCode: string): Promise<string> {
-  try {
-    const detail = await services.groupInfo.getGroupDetail(BigInt(groupCode));
-    return detail?.groupName ?? '';
-  } catch {
-    return '';
-  }
-}
-
-async function senderNameOf(services: AccountServices, hit: GroupKeywordHit): Promise<string> {
-  try {
-    const member = await services.groupInfo.getMemberInfo(BigInt(hit.groupCode), hit.senderUid);
-    return member?.card || member?.nick || '';
-  } catch {
-    return '';
-  }
 }
 
 /**

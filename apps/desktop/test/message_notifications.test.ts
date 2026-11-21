@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   incomingImportantEvents,
   incomingNoticeEligible,
+  incomingMessageCopy,
   applicationBadgeBitmap,
 } from '../src/shared/message_notifications';
 import { RedbagType } from '@weq/codec';
@@ -77,6 +78,26 @@ describe('普通消息通知与应用角标', () => {
     expect(incomingNoticeEligible({ ...message, kind: 'group', conv: '10003' }, options)).toBe(
       true,
     );
+  });
+  it('回复预览不把引用原文放在新回复前，红包优先显示祝福语', () => {
+    const options = { name: '摄影群', sender: '林林', count: 1 };
+    expect(
+      incomingMessageCopy({
+        ...options,
+        event: 'replyMe',
+        elements: [
+          { type: 'reply', data: { origText: '很长的原文，请勿显示' } },
+          { type: 'text', data: { textContent: '我会参加' } },
+        ],
+      }),
+    ).toMatchObject({ title: '回复你 · 摄影群', body: '林林：我会参加' });
+    expect(
+      incomingMessageCopy({
+        ...options,
+        event: 'redPacket',
+        elements: [{ type: 'wallet', data: { walletDetail: { redbagTitle: '开工大吉' } } }],
+      }),
+    ).toMatchObject({ title: '红包 · 摄影群', body: '林林：开工大吉' });
   });
   it('原生数字图标尺寸固定，零值透明，数字与 99+ 均有真实像素', () => {
     const red = Uint8Array.of(220, 38, 38, 255),

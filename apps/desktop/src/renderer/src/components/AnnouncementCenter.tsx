@@ -137,6 +137,7 @@ export function AnnouncementCenter({
             event: 'officialAnnouncement',
             key: bannerKey,
             title: lease.title,
+            summary: lease.summary === lease.title ? undefined : lease.summary,
             action: { label: '查看公告', icon: 'open', run: () => open(candidate) },
             system: false,
             source: null,

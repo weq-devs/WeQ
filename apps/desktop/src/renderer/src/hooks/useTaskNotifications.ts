@@ -73,7 +73,8 @@ export function useTaskNotifications(
       toast.push({
         key: taskNotificationKey(scope, task.id),
         event,
-        title: `${task.notificationName || task.name || '后台任务'}${phase}`,
+        title: `${phase}：${task.notificationName || task.name || '后台任务'}`,
+        summary: task.waiting ? undefined : task.notificationSummary,
         tone: task.waiting
           ? 'warning'
           : event === 'taskFailure'

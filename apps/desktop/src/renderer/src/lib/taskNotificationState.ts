@@ -46,7 +46,7 @@ export class TaskNotificationTracker {
       ) {
         notify(
           task.failed ? 'taskFailure' : 'taskComplete',
-          task.failed ? '失败或部分失败' : '已完成',
+          task.partial ? '部分完成' : task.failed ? '未完成' : '已完成',
         );
       } else if (
         (task.activity === 'running' && (before?.activity !== 'running' || before.waiting)) ||

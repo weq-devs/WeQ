@@ -17,11 +17,8 @@ export function useDatabaseDamageNotifications(
           key: `database-damage:${event.uin}`,
           tone: 'error',
           title: event.title,
-          detail: [
-            event.message,
-            ...event.details,
-            event.reportPath ? `检查报告：${event.reportPath}` : '',
-          ]
+          summary: event.message,
+          detail: [...event.details, event.reportPath ? `检查报告：${event.reportPath}` : '']
             .filter(Boolean)
             .join('\n'),
           source: notificationSource(

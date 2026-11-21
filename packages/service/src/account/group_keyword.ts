@@ -208,7 +208,7 @@ export class GroupKeywordService {
         senderUin: msg.senderUin,
         sendTime: msg.sendTime,
         keyword,
-        text: plainTextOf(msg).slice(0, MAX_TEXT_LEN),
+        text: keywordExcerpt(plainTextOf(msg), keyword),
       });
     } catch (error) {
       if (!this.isCurrent(generation)) return;
@@ -217,6 +217,14 @@ export class GroupKeywordService {
       throw error;
     }
   }
+}
+
+function keywordExcerpt(text: string, keyword: string): string {
+  const index = text.toLowerCase().indexOf(keyword.toLowerCase());
+  const start = Math.max(0, index - 12);
+  const end = start + MAX_TEXT_LEN - (start > 0 ? 1 : 0);
+  const clipped = end < text.length;
+  return `${start > 0 ? '…' : ''}${text.slice(start, end - (clipped ? 1 : 0))}${clipped ? '…' : ''}`;
 }
 
 /**

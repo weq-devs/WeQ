@@ -134,8 +134,8 @@ export function applyDataSaverStatus(status: DataSaverStatus) {
       key: 'data-saver-mode',
       event: 'dataSaver',
       tone: 'info',
-      title: status.enabled ? '已自动进入省流量模式' : '已自动退出省流量模式',
-      detail: reason,
+      title: status.enabled ? '省流量模式已自动开启' : '省流量模式已自动关闭',
+      summary: reason,
       action: { label: '省流量设置', run: openDataSaverMenu },
     });
   } else if (initial || previous.enabled !== status.enabled)

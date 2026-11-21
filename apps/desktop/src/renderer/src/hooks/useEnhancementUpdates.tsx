@@ -8,9 +8,11 @@ import type { EnhancementUpdateNotice } from '../../../shared/enhancement_releas
 const bannerKey = 'enhancement-updates';
 
 function updateCopy(notices: Iterable<EnhancementUpdateNotice>) {
+  const names = Array.from(notices, ({ name }) => name).join('、');
   return {
     title: '增强包有可用更新',
-    detail: Array.from(notices, ({ name }) => name).join('、'),
+    summary: names,
+    detail: names.length > 35 ? names : undefined,
   };
 }
 

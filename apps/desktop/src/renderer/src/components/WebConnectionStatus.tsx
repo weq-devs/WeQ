@@ -66,7 +66,8 @@ export function WebConnectionStatus() {
         tone: 'warning',
         durationKind: 'long',
         ttl: 0,
-        title: nativeState === 'network' ? '网络已断开，恢复后自动重连' : '连接已中断，正在重连…',
+        title: nativeState === 'network' ? '手机网络已断开' : '与电脑的连接已中断',
+        summary: nativeState === 'network' ? '网络恢复后会自动重连' : '正在重新连接电脑…',
         source: notificationSource(
           { kind: 'local', open: () => window.weqRemoteShell?.openMenu() },
           '查看当前连接',
@@ -76,7 +77,12 @@ export function WebConnectionStatus() {
     } else if (warned.current || nativeRecovery > previousNativeRecovery.current) {
       warned.current = false;
       webAvatarCache.retryFailedVisible();
-      toast.push({ key: NOTICE_KEY, event: 'connection', tone: 'success', title: '连接已恢复' });
+      toast.push({
+        key: NOTICE_KEY,
+        event: 'connection',
+        tone: 'success',
+        title: '已重新连接电脑',
+      });
     }
     previousNativeRecovery.current = nativeRecovery;
   }, [nativeState, nativeRecovery, notificationToast]);
@@ -102,15 +108,15 @@ export function WebConnectionStatus() {
   }, [nativeState, status]);
 
   useEffect(() => {
-    if (visible && !nativeState && status !== 'connected')
-      publishNotificationSystem('connection', '实时连接已断开，正在重连', '');
+    if (visible && !nativeState && status === 'reconnecting')
+      publishNotificationSystem('connection', '与电脑的连接已中断', '正在重新连接电脑…');
   }, [visible, nativeState, status]);
 
   if (!banner || !visible || status === 'connected') return null;
   return (
     <div className="weq-web-connection" role="status" aria-live="polite">
       <WifiOff size={18} aria-hidden />
-      <span>{status === 'connecting' ? '正在连接电脑…' : '实时连接已断开，正在重连…'}</span>
+      <span>{status === 'connecting' ? '正在连接电脑…' : '与电脑的连接已中断，正在重连…'}</span>
     </div>
   );
 }

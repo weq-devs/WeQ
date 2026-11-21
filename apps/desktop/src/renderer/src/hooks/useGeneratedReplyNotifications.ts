@@ -13,6 +13,7 @@ import { IS_WEB } from '../lib/target.shared';
 import { useAppLock } from '../state/lock';
 import { client, trpc } from '../trpc/client';
 import { messageNotificationDedupe } from '../../../shared/notification_dedupe';
+import { notificationInlineText } from '../../../shared/notification_copy';
 
 const claimReply = messageNotificationDedupe();
 const event = 'assistantReply';
@@ -77,8 +78,12 @@ export function useGeneratedReplyNotifications(uin: string, configId: string, re
           return;
 
         const privacy = locked || preferenceValue('privacyMode');
-        const title = privacy ? 'WeQ' : `${reply.title} · 新回复`;
-        const body = privacy ? '收到新回复' : reply.preview || '收到新回复';
+        const name = notificationInlineText(reply.title, 38);
+        const fallback =
+          reply.kind === 'assistant' ? 'WeQ 助手' : reply.kind === 'group' ? '克隆群聊' : '克隆体';
+        const title = privacy ? 'WeQ' : `${name || fallback} · 新回复`;
+        const detail = privacy ? '' : reply.preview?.trim() || '';
+        const body = privacy ? '收到新回复' : notificationInlineText(detail, 180);
         const source = notificationSource(
           {
             kind: 'generated-reply',
@@ -95,7 +100,15 @@ export function useGeneratedReplyNotifications(uin: string, configId: string, re
         const trackRead = ts !== undefined && Number.isSafeInteger(ts) && ts > 0;
         if (banner && !(trackRead && replyRead(sharedAccountRecords('reads'), readKey, ts))) {
           const toast = useToast.getState();
-          const bannerId = toast.push({ key, event, title, detail: body, source, system: false });
+          const bannerId = toast.push({
+            key,
+            event,
+            title,
+            summary: body,
+            detail,
+            source,
+            system: false,
+          });
           if (trackRead) {
             if (pending.current.size >= 256) {
               const active = new Set(toast.toasts.map(({ id }) => id));

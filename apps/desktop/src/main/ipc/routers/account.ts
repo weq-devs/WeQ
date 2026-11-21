@@ -11,7 +11,7 @@
  * page, `listBefore` to page up, `listFrom` to re-read the loaded window live.
  */
 import { setTimeout as delay } from 'node:timers/promises';
-import { MESSAGE_CATEGORIES, OperationError } from '@weq/service';
+import { matchesRule, MESSAGE_CATEGORIES, OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { plainContentText } from '@weq/service/message-plain-text';
@@ -106,6 +106,7 @@ import {
   requireBootstrap,
   dbEventBus,
   accountEventBus,
+  liveGroupKeywordRules,
   type AccountServices,
   type RoamingCacheChange,
 } from '../../context/app_context';
@@ -501,7 +502,7 @@ const activeCollectionDetailSyncs = new Map<string, AbortController>();
 
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
-  messages: ChatMsgWire[];
+  messages: Array<ChatMsgWire & { groupKeyword?: true }>;
   observedAt?: number;
   accountUin?: string;
   configId?: string;
@@ -6251,11 +6252,13 @@ export const accountRouter = router({
   onNewMessages: procedure.subscription(() => {
     return observable<NewMessagesWire>((emit) => {
       const handler = (change: NewMessages): void => {
-        const messages: ChatMsgWire[] = [
+        const rules = liveGroupKeywordRules();
+        const messages: NewMessagesWire['messages'] = [
           ...change.c2c.map((m) => c2cMsgToWire({ ...m, elements: toRenderElements(m.elements) })),
-          ...change.group.map((m) =>
-            groupMsgToWire({ ...m, elements: toRenderElements(m.elements) }),
-          ),
+          ...change.group.map((m) => ({
+            ...groupMsgToWire({ ...m, elements: toRenderElements(m.elements) }),
+            groupKeyword: matchesRule(rules?.[m.targetGroupCode], m) ? (true as const) : undefined,
+          })),
         ];
         const context = getAppContext();
         emit.next({

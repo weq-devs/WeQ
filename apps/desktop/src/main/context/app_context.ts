@@ -27,6 +27,8 @@ import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
 import { ConversationInteractionBadges } from './conversation_interactions';
 import { webNotices, type WebNoticeEvent, type WebNoticePayload } from '../web/notices';
+import { MAIL_NOTICE, mailBannerCopy } from '../../shared/notification_copy';
+import { groupKeywordContent, recallContent } from '../notification_content';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
 import { resolveSignerWrapper } from './signer_target';
@@ -366,17 +368,23 @@ export function isSsePushActive(): boolean {
 }
 /** 群关键词提醒匹配器（随账号打开常驻），null = 无账号。 */
 let groupKeyword: GroupKeywordService | null = null;
+export function liveGroupKeywordRules() {
+  return groupKeyword?.getRules();
+}
 /**
  * 群关键词命中的「通知」实现（Electron 系统通知 + 写 2006 高亮）。由 app 层注入
  * —— app_context 保持 Electron-free（web 端共用它），所以这里只留一个可替换钩子。
  */
-let groupKeywordNotifier: ((hit: GroupKeywordHit) => void | Promise<void>) | null = null;
+type NotificationCopy = { title: string; body: string };
+let groupKeywordNotifier:
+  | ((hit: GroupKeywordHit, copy: NotificationCopy) => void | Promise<void>)
+  | null = null;
 
 /**
  * 拦住一次撤回时的「通知」实现（Electron 系统通知 + 点击跳转）。与群关键词一样
  * 由 app 层注入 —— app_context 保持 Electron-free（web 端共用它）。
  */
-let recallNotifier: ((event: RecallNotifyEvent) => void) | null = null;
+let recallNotifier: ((event: RecallNotifyEvent, copy: NotificationCopy) => void) | null = null;
 function webNotice(session: AccountSession, notice: WebNoticePayload): void {
   const ctx = getAppContext();
   const configId = ctx.services?.accountConfig.getRecord()?.configId;
@@ -402,21 +410,26 @@ function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
     ctx.bootstrap?.userConfig.getSettings().notificationEvents.recall.banner
   )
     ctx.services?.interactionBadges.observeRecall(event, true);
-  webNotice(session, {
-    kind: 'recall',
-    title: '撤回提醒',
-    body: '有一条消息被撤回。',
-    ...(event.kind === 'dataline'
-      ? {}
-      : { target: { kind: event.kind, conv: event.conv, seq: event.origSeq, msgId: event.msgId } }),
-  });
-  recallNotifier?.(event);
+  if (ctx.account !== session || !ctx.services) return;
+  void recallContent(ctx.services, event)
+    .then((copy) => {
+      if (getAppContext().account !== session) return;
+      webNotice(session, {
+        kind: 'recall',
+        ...copy,
+        ...(event.kind === 'dataline'
+          ? {}
+          : { target: { kind: event.kind, conv: event.conv, seq: event.origSeq, msgId: event.msgId } }),
+      });
+      recallNotifier?.(event, copy);
+    })
+    .catch((error: unknown) => console.warn('[notifications] 无法生成撤回提醒', error));
 }
 function notifyMail(session: AccountSession, notice: MailNotice): boolean {
   webNotice(session, {
     kind: 'mail',
-    title: 'QQ 邮箱收到新邮件',
-    body: '',
+    ...MAIL_NOTICE,
+    banner: mailBannerCopy(notice.subject, notice.sender),
     mail: { folderId: notice.folderId, id: notice.id },
   });
   mailNotifier?.(String(session.context.uin), notice);
@@ -486,14 +499,12 @@ export function getActiveIntentSenseLocalEngine(): IntentSenseLocalEngineControl
 }
 
 /** app 层注入群关键词命中的处理（弹系统通知 + 写高亮）。 */
-export function setGroupKeywordNotifier(
-  notifier: ((hit: GroupKeywordHit) => void | Promise<void>) | null,
-): void {
+export function setGroupKeywordNotifier(notifier: typeof groupKeywordNotifier): void {
   groupKeywordNotifier = notifier;
 }
 
 /** app 层注入撤回通知的处理（弹系统通知 + 点击跳转）。 */
-export function setRecallNotifier(notifier: ((event: RecallNotifyEvent) => void) | null): void {
+export function setRecallNotifier(notifier: typeof recallNotifier): void {
   recallNotifier = notifier;
 }
 
@@ -655,11 +666,14 @@ function unmountDbWatch(): void {
 function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): void {
   if (!groupKeyword) {
     groupKeyword = new GroupKeywordService(session, {
-      onHit: (hit) => {
+      onHit: async (hit) => {
+        const { services, account } = getAppContext();
+        if (account !== session || !services) return;
+        const copy = await groupKeywordContent(services, hit);
+        if (getAppContext().account !== session) return;
         webNotice(session, {
           kind: 'keyword',
-          title: '群关键词提醒',
-          body: '收到命中群提醒词的消息。',
+          ...copy,
           target: {
             kind: 'group',
             conv: hit.groupCode,
@@ -667,7 +681,7 @@ function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): v
             msgId: String(hit.msgId),
           },
         });
-        return groupKeywordNotifier?.(hit);
+        return groupKeywordNotifier?.(hit, copy);
       },
     });
     groupKeyword.start();

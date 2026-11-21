@@ -175,6 +175,7 @@ import { closeForwardWindows } from '../state/forwardWindow';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useAccountNoticeUnread } from '../hooks/useAccountNoticeUnread';
+import { friendNoticeCopy, groupNoticeCopy } from '../lib/contactNotice';
 import {
   ContactWorkspaceNavigationContext,
   ProfileNavigationContext,
@@ -1236,7 +1237,8 @@ function MainWorkspace(): ReactElement {
           useToast.getState().push({
             event: 'update',
             key: 'weq-update',
-            title: e.kind === 'downloaded' ? '新版本已下载，等待安装' : `发现新版本 ${e.latest}`,
+            title: e.kind === 'downloaded' ? `WeQ ${e.latest} 已下载` : `WeQ ${e.latest} 可更新`,
+            summary: e.kind === 'downloaded' ? '可以在「版本与更新」中安装' : undefined,
             source: notificationSource({
               kind: 'app',
               target: { kind: 'setting', section: 'version' },
@@ -2836,13 +2838,26 @@ function MainWorkspace(): ReactElement {
   );
   const openFriendNotice = useStableCallback(() => shell.openContactNotice('friend'));
   const openGroupNotice = useStableCallback(() => shell.openContactNotice('group'));
+  const describeFriendNotice = useStableCallback((id: string) => {
+    const notice = contactRequests.find((item) => item.id === id);
+    return notice && friendNoticeCopy(notice);
+  });
+  const describeGroupNotice = useStableCallback((id: string) => {
+    const notice = groupRequests.find((item) => item.id === id);
+    return notice && groupNoticeCopy(notice);
+  });
   const friendNoticeCount = useAccountNoticeUnread(
     noticeAccountKey,
     'friend',
     friendNoticeIds,
     shell.contactNotice === 'friend',
     buddyRequests.isSuccess,
-    { title: '收到新的好友通知', onOpen: openFriendNotice, handledIds: handledFriendNotices },
+    {
+      title: '好友通知',
+      onOpen: openFriendNotice,
+      handledIds: handledFriendNotices,
+      describe: describeFriendNotice,
+    },
   );
   const groupNoticeCount = useAccountNoticeUnread(
     noticeAccountKey,
@@ -2850,7 +2865,12 @@ function MainWorkspace(): ReactElement {
     groupNoticeIds,
     shell.contactNotice === 'group',
     groupNotifies.isSuccess,
-    { title: '收到新的群通知', onOpen: openGroupNotice, handledIds: handledGroupNotices },
+    {
+      title: '群通知',
+      onOpen: openGroupNotice,
+      handledIds: handledGroupNotices,
+      describe: describeGroupNotice,
+    },
   );
   const mailOpenRef = useRef(shell.switchView);
   mailOpenRef.current = shell.switchView;

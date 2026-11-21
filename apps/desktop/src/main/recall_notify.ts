@@ -5,8 +5,8 @@ import { networkFetch } from '@weq/network';
  * 服务层的 {@link AntiRecallService}（@weq/service）自己监听 nt_msg.db、从
  * `weq_recall_log` 里 drain 出新撤回记录，然后回调注入的钩子。这里就是那个钩子：
  *
- *   1. **系统通知卡片**（Electron Notification）：标题=会话名 + 「撤回提醒」，正文=
- *      谁撤了谁的消息；图标用会话头像。点击打开 WeQ 并把「打开该会话、跳到该 seq」
+ *   1. **系统通知卡片**（Electron Notification）：共用撤回文案，图标用会话头像。
+ *      点击打开 WeQ 并把「打开该会话、跳到该 seq」
  *      交给渲染层（见 {@link pushConversationJump} /
  *      `bootstrap.onConversationJump` / `consumeConversationJump`）。
  *   2. 不做任何写库 —— 撤回消息本身已被触发器原地保留。
@@ -23,6 +23,8 @@ import { getLogger, logErrorContext, type RecallNotifyEvent } from '@weq/service
 import { getAppContext, type AccountServices } from './context/app_context';
 import { pushConversationJump } from './group_keyword_bus';
 import { getMainWindow } from './main_window';
+import { globalClientState } from './ipc/routers/client_state';
+import { PRIVATE_RECALL_NOTICE } from '../shared/notification_copy';
 
 const logger = getLogger().child({ scope: 'recall-notify' });
 
@@ -32,8 +34,11 @@ let iconDir: string | null = null;
 /**
  * 处理一次撤回记录：弹系统通知。永不抛错（服务层的 drain 已 try/catch，这里再兜一层）。
  */
-export function handleRecallNotification(event: RecallNotifyEvent): void {
-  void handle(event).catch((error) => {
+export function handleRecallNotification(
+  event: RecallNotifyEvent,
+  copy: { title: string; body: string },
+): void {
+  void handle(event, copy).catch((error) => {
     logger.warn('recall notification failed', {
       event: 'recall-notify-failed',
       conv: event.conv,
@@ -42,7 +47,10 @@ export function handleRecallNotification(event: RecallNotifyEvent): void {
   });
 }
 
-async function handle(event: RecallNotifyEvent): Promise<void> {
+async function handle(
+  event: RecallNotifyEvent,
+  copy: { title: string; body: string },
+): Promise<void> {
   if (
     getAppContext().bootstrap?.userConfig.getSettings().notificationEvents?.recall.system === false
   )
@@ -52,18 +60,14 @@ async function handle(event: RecallNotifyEvent): Promise<void> {
   const services = ctx.services;
   if (!services) return;
 
-  const [info, iconPath] = await Promise.all([
-    describeConversation(services, event),
-    conversationIconPath(services, event),
-  ]);
-
-  const title = info.name ? `${info.name} · 撤回提醒` : '撤回提醒';
-  const body = buildBody(info, event);
+  const isPrivate = () => globalClientState().snapshot().values.privacyMode === true;
+  const iconPath = isPrivate() ? null : await conversationIconPath(services, event);
+  if (getAppContext().services !== services) return;
+  const hidden = isPrivate();
 
   const notification = new Notification({
-    title,
-    body,
-    icon: iconPath ?? undefined,
+    ...(hidden ? PRIVATE_RECALL_NOTICE : copy),
+    icon: hidden ? undefined : (iconPath ?? undefined),
     silent: false,
   });
   notification.on('click', () => {
@@ -71,19 +75,6 @@ async function handle(event: RecallNotifyEvent): Promise<void> {
     openConversationAt(event);
   });
   notification.show();
-}
-
-/** 正文：自己撤回 vs 管理员撤回他人。名字解析失败就以 uid 兜底 / 省略。 */
-function buildBody(
-  info: { name: string; senderName: string; revokerName: string },
-  event: RecallNotifyEvent,
-): string {
-  const selfRecall = !event.revokeUid || event.revokeUid === event.senderUid;
-  if (selfRecall) {
-    return info.senderName ? `${info.senderName} 撤回了一条消息` : '有人撤回了一条消息';
-  }
-  const who = info.revokerName || '管理员';
-  return info.senderName ? `${who} 撤回了 ${info.senderName} 的一条消息` : `${who} 撤回了一条消息`;
 }
 
 /**
@@ -98,51 +89,6 @@ function openConversationAt(event: RecallNotifyEvent): void {
   }
   const kind = event.kind === 'group' ? 'group' : 'c2c';
   pushConversationJump({ kind, conv: event.conv, seq: event.origSeq, msgId: event.msgId });
-}
-
-/** 会话显示名 + 发送者 / 撤回者昵称（best-effort，全部失败也有兜底）。 */
-async function describeConversation(
-  services: AccountServices,
-  event: RecallNotifyEvent,
-): Promise<{ name: string; senderName: string; revokerName: string }> {
-  let name = event.conv;
-  let senderName = '';
-  let revokerName = '';
-
-  try {
-    const contacts = await services.recentContacts.getRecentContact(1000);
-    const hit = contacts.find((c) => c.targetUid === event.conv);
-    if (hit?.targetDisplayName) name = hit.targetDisplayName;
-  } catch {
-    /* keep uid/groupCode as the name */
-  }
-
-  if (event.kind === 'group') {
-    try {
-      const detail = await services.groupInfo.getGroupDetail(BigInt(event.conv));
-      if (detail?.groupName) name = detail.groupName;
-    } catch {
-      /* ignore */
-    }
-    if (event.senderUid) {
-      try {
-        const m = await services.groupInfo.getMemberInfo(BigInt(event.conv), event.senderUid);
-        senderName = m?.card || m?.nick || '';
-      } catch {
-        /* ignore */
-      }
-    }
-    if (event.revokeUid && event.revokeUid !== event.senderUid) {
-      try {
-        const m = await services.groupInfo.getMemberInfo(BigInt(event.conv), event.revokeUid);
-        revokerName = m?.card || m?.nick || '';
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  return { name, senderName, revokerName };
 }
 
 /** 会话头像写成一个临时文件，供系统通知的 `icon` 使用。 */

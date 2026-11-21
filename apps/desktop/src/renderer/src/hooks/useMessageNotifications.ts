@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { NEW_CONV_FRESH_SEC } from '@weq/service/live-message';
-import { plainContentText, type PlainElement } from '@weq/service/message-plain-text';
+import type { PlainElement } from '@weq/service/message-plain-text';
 import { client } from '../trpc/client';
 import {
   accountBinding,
@@ -19,22 +19,31 @@ import type { WebNotice } from '../../../main/web/notices';
 import {
   incomingNoticeEligible,
   incomingImportantEvents,
+  incomingMessageCopy,
+  incomingNoticePriority,
 } from '../../../shared/message_notifications';
+import { PRIVATE_MESSAGE_NOTICE } from '../../../shared/notification_copy';
 import { WEB_NOTICE_OPEN, browserNoticeChannel } from '../lib/browserNotifications';
 import { useNotificationPolicy, claimMessageBanner } from '../lib/notificationPolicy';
 import {
   normalizeNotificationScope,
   normalizeNotificationEvents,
   notificationScopeIncludes,
+  type NotificationChannel,
   type NotificationEvent,
 } from '@weq/service/notification-settings';
 import { useToast } from '../components/Toast.shared';
+import { useWebNotices } from '../state/webNotices';
 
-function firstNoticeMessage(previous: ChatMsgWire | undefined, next: ChatMsgWire): ChatMsgWire {
-  if (!previous || !/^[1-9]\d*$/.test(previous.msgSeq)) return next;
-  return !/^[1-9]\d*$/.test(next.msgSeq) || BigInt(previous.msgSeq) <= BigInt(next.msgSeq)
-    ? previous
-    : next;
+type IncomingMessage = NewMessagesWire['messages'][number];
+
+function currentNoticeEvents() {
+  const state = useNotificationPolicy.getState();
+  return state.ready
+    ? state.events
+    : normalizeNotificationEvents(undefined, {
+        messageNotifications: preferenceValue('messageNotifications'),
+      });
 }
 
 export function useMessageNotifications(options: {
@@ -108,7 +117,7 @@ export function useMessageNotifications(options: {
   const policyRef = useRef(policies);
   policyRef.current = policies;
   const seen = useRef(new Set<string>());
-  const pending = useRef(new Map<string, { message: ChatMsgWire; observedAt: number }>());
+  const pending = useRef(new Map<string, { message: IncomingMessage; observedAt: number }>());
   const openedAt = useRef(Date.now() / 1000);
   const generation = useRef(0);
   const channel = useRef<ReturnType<typeof browserNoticeChannel> | null>(null);
@@ -131,14 +140,12 @@ export function useMessageNotifications(options: {
     const notices = new Map<
       string,
       {
-        message: ChatMsgWire;
-        anchor: ChatMsgWire;
-        title: string;
-        body: string;
-        count: number;
-        throughSeq: string;
-        reasons: NotificationEvent[];
-        anchors: Map<NotificationEvent, ChatMsgWire>;
+        name: string;
+        items: {
+          message: IncomingMessage;
+          elements: PlainElement[];
+          reasons: NotificationEvent[];
+        }[];
       }
     >();
     for (const [key, { message, observedAt }] of pending.current) {
@@ -193,138 +200,144 @@ export function useMessageNotifications(options: {
         }
       }
       if (!reasons.length) continue;
-      const previous = notices.get(policy.key);
-      const anchor = firstNoticeMessage(previous?.anchor, message);
-      const anchors = previous?.anchors ?? new Map<NotificationEvent, ChatMsgWire>();
-      for (const reason of reasons)
-        anchors.set(reason, firstNoticeMessage(anchors.get(reason), message));
-      notices.set(policy.key, {
-        message,
-        anchor,
-        anchors,
-        title: policy.name || message.conv,
-        body: plainContentText(elements).slice(0, 1700) || '[消息]',
-        count: (previous?.count ?? 0) + 1,
-        throughSeq:
-          previous && BigInt(previous.throughSeq) > BigInt(message.msgSeq)
-            ? previous.throughSeq
-            : message.msgSeq,
-        reasons: [...new Set([...(previous?.reasons ?? []), ...reasons])],
-      });
+      let notice = notices.get(policy.key);
+      if (!notice) {
+        notice = { name: policy.name, items: [] };
+        notices.set(policy.key, notice);
+      }
+      notice.items.push({ message, elements, reasons });
     }
     while (seen.current.size > 5000) seen.current.delete(seen.current.values().next().value!);
     while (pending.current.size > 500) pending.current.delete(pending.current.keys().next().value!);
-    for (const item of notices.values()) {
+    for (const { name, items } of notices.values()) {
       const currentGeneration = generation.current;
-      const show = (senderName = '') => {
-        if (
-          generation.current !== currentGeneration ||
-          JSON.stringify(accountBinding()) !== scopeKey ||
-          !latest.current.enabled ||
-          (document.visibilityState === 'visible' &&
-            document.hasFocus() &&
-            latest.current.foregroundConversation === item.message.conv)
-        )
-          return;
-        const sender =
-          senderName.trim() ||
-          (item.message.senderUin && item.message.senderUin !== '0'
-            ? item.message.senderUin
-            : item.message.senderUid || '成员');
-        const content =
-          item.message.kind === 'group' ? `${sender.slice(0, 256)}：${item.body}` : item.body;
-        const title = latest.current.privacy ? 'WeQ' : item.title.slice(0, 512);
-        const body = latest.current.privacy
-          ? '收到新消息'
-          : content + (item.count > 1 ? `\n另有 ${item.count - 1} 条消息` : '');
-        const notice: WebNotice = {
-          uin: scope.expectedAccountUin,
-          configId: scope.expectedAccountConfigId,
-          kind: 'message',
-          title,
-          body,
-        };
-        const currentPolicyState = useNotificationPolicy.getState();
-        const currentPolicy = currentPolicyState.ready
-          ? currentPolicyState.events
-          : normalizeNotificationEvents(undefined, {
-              messageNotifications: preferenceValue('messageNotifications'),
-            });
-        const noticeFor = (channel: 'banner' | 'system') => {
-          let anchor: ChatMsgWire | undefined;
-          for (const [reason, candidate] of item.anchors) {
-            if (currentPolicy[reason][channel]) anchor = firstNoticeMessage(anchor, candidate);
-          }
-          anchor ??= item.anchor;
-          return {
-            ...notice,
-            target: {
-              kind: item.message.kind,
-              conv: item.message.conv,
-              seq: anchor.msgSeq,
-              msgId: anchor.msgId,
-            },
+      items.sort((a, b) => {
+        const difference = BigInt(a.message.msgSeq) - BigInt(b.message.msgSeq);
+        return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+      });
+      const names = new Map<string, Promise<string>>();
+      const showOn = (destination: NotificationChannel) => {
+        const events = currentNoticeEvents();
+        // 自定义提醒词由专用通知处理，普通消息不能先占用相同的去重键。
+        const keywordOwnsChannel =
+          events.keyword[destination] &&
+          (destination === 'banner' || !IS_WEB || useWebNotices.getState().enabled);
+        const eligible = items.filter(
+          ({ message, reasons }) =>
+            !(message.groupKeyword && keywordOwnsChannel) &&
+            reasons.some((event) => events[event][destination]),
+        );
+        const event = incomingNoticePriority.find(
+          (event) =>
+            events[event][destination] && eligible.some((item) => item.reasons.includes(event)),
+        );
+        if (!event) return;
+        const matching = eligible.filter((item) => item.reasons.includes(event));
+        const { message, elements } = matching.at(-1)!;
+        const anchor = matching[0]!.message;
+        const show = (resolvedName = '') => {
+          if (
+            generation.current !== currentGeneration ||
+            JSON.stringify(accountBinding()) !== scopeKey ||
+            !latest.current.enabled ||
+            !currentNoticeEvents()[event][destination] ||
+            (document.visibilityState === 'visible' &&
+              document.hasFocus() &&
+              latest.current.foregroundConversation === message.conv)
+          )
+            return;
+          const sender =
+            message.kind === 'group'
+              ? resolvedName.trim() ||
+                (/^[1-9]\d*$/.test(message.senderUin) ? message.senderUin : '群成员')
+              : '';
+          const { title, body, detail } = latest.current.privacy
+            ? { ...PRIVATE_MESSAGE_NOTICE, detail: undefined }
+            : incomingMessageCopy({
+                name: name.trim() || (message.kind === 'group' ? `群聊 ${message.conv}` : '私聊'),
+                sender,
+                elements,
+                event,
+                count: matching.length,
+                selfUid: options.selfUid,
+              });
+          const target = {
+            kind: message.kind,
+            conv: message.conv,
+            seq: anchor.msgSeq,
+            msgId: anchor.msgId,
           };
-        };
-        const bannerNotice = noticeFor('banner');
-        const systemNotice = noticeFor('system');
-        if (
-          item.reasons.some((event) => currentPolicy[event].banner) &&
-          (item.message.kind !== 'group' ||
-            claimMessageBanner(
-              scope.expectedAccountConfigId,
-              item.message.kind,
-              item.message.conv,
-              item.message.msgSeq,
-            ))
-        )
-          useToast.getState().push({
-            event: item.reasons.find((event) => currentPolicy[event].banner),
+          const notice: WebNotice = {
+            uin: scope.expectedAccountUin,
+            configId: scope.expectedAccountConfigId,
+            kind: 'message',
             title,
-            detail: body,
-            messageReadTarget: {
-              binding: scope,
-              chatType: item.message.kind === 'group' ? 2 : 1,
-              uid: item.message.conv,
-              seq: item.throughSeq,
-            },
-            action: {
-              label: '定位消息',
-              run: () =>
-                window.dispatchEvent(new CustomEvent(WEB_NOTICE_OPEN, { detail: bannerNotice })),
-            },
-          });
-        if (!item.reasons.some((event) => currentPolicy[event].system)) return;
-        if (IS_WEB) {
-          channel.current?.show(systemNotice);
-        } else
-          void client.account.messageNotifications.notify
-            .mutate({
-              ...scope,
-              messageId: item.message.msgId,
-              anchorId: systemNotice.target.msgId,
-              kind: item.message.kind,
-              conv: item.message.conv,
-              seq: systemNotice.target.seq,
+            body,
+            target,
+          };
+          if (destination === 'banner') {
+            if (
+              message.kind === 'group' &&
+              !claimMessageBanner(notice.configId, 'group', message.conv, message.msgSeq)
+            )
+              return;
+            useToast.getState().push({
+              event,
               title,
-              body,
-              private: latest.current.privacy,
-              reasons: item.reasons,
-            })
-            .catch((error: unknown) => console.warn('[message-notifications] 通知未提交', error));
-      };
-      const resolve = latest.current.resolveGroupSenderName;
-      if (item.message.kind === 'group' && !latest.current.privacy && resolve) {
-        void (async () => {
-          let senderName = '';
-          try {
-            senderName = await resolve(item.message);
-          } catch (error) {
-            console.warn('[message-notifications] 发送者名称未补全', error);
+              summary: body,
+              detail,
+              messageReadTarget: {
+                binding: scope,
+                chatType: message.kind === 'group' ? 2 : 1,
+                uid: message.conv,
+                seq: eligible.at(-1)!.message.msgSeq,
+              },
+              action: {
+                label: '定位消息',
+                icon: 'conversation',
+                run: () =>
+                  window.dispatchEvent(new CustomEvent(WEB_NOTICE_OPEN, { detail: notice })),
+              },
+            });
+          } else if (IS_WEB) {
+            channel.current?.show(notice);
+          } else {
+            void client.account.messageNotifications.notify
+              .mutate({
+                ...scope,
+                messageId: message.msgId,
+                anchorId: target.msgId,
+                kind: message.kind,
+                conv: message.conv,
+                seq: target.seq,
+                title,
+                body,
+                private: latest.current.privacy,
+                reasons: [event],
+              })
+              .catch((error: unknown) => console.warn('[message-notifications] 通知未提交', error));
           }
-          show(senderName);
-        })();
-      } else show();
+        };
+        const resolve = latest.current.resolveGroupSenderName;
+        if (message.kind !== 'group' || latest.current.privacy || !resolve) {
+          show();
+          return;
+        }
+        const key = message.senderUid || message.senderUin;
+        let senderName = names.get(key);
+        if (!senderName) {
+          senderName = Promise.resolve()
+            .then(() => resolve(message))
+            .catch((error: unknown) => {
+              console.warn('[message-notifications] 发送者名称未补全', error);
+              return '';
+            });
+          names.set(key, senderName);
+        }
+        void senderName.then(show);
+      };
+      showOn('banner');
+      showOn('system');
     }
   };
   useEffect(() => {

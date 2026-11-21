@@ -1,6 +1,89 @@
 import { RedbagType } from '@weq/codec';
-import type { PlainElement } from '@weq/service/message-plain-text';
-import type { ScopedNotificationEvent } from '@weq/service/notification-settings';
+import { plainContentText, type PlainElement } from '@weq/service/message-plain-text';
+import type {
+  NotificationEvent,
+  ScopedNotificationEvent,
+} from '@weq/service/notification-settings';
+import { notificationInlineText } from './notification_copy';
+
+const importantNoticeLabel = {
+  mentionMe: '@你',
+  replyMe: '回复你',
+  mentionAll: '@全体成员',
+  redPacket: '红包',
+  specialCare: '特别关心',
+} as const;
+
+export const incomingNoticePriority = [
+  'mentionMe',
+  'replyMe',
+  'mentionAll',
+  'redPacket',
+  'specialCare',
+  'directMessage',
+  'groupMessage',
+] as const satisfies readonly NotificationEvent[];
+
+export function incomingMessageCopy(options: {
+  name: string;
+  sender: string;
+  elements: readonly PlainElement[];
+  event: NotificationEvent;
+  count: number;
+  selfUid?: string;
+}) {
+  const { event, elements, selfUid } = options;
+  const label = importantNoticeLabel[event as keyof typeof importantNoticeLabel];
+  const count = options.count > 1 ? ` · ${options.count} 条新消息` : '';
+  const name = notificationInlineText(options.name, 28);
+  const sender = notificationInlineText(options.sender, 24);
+  const title = `${label ? `${label} · ` : ''}${name}${count}`;
+  const content = elements.flatMap((element) => {
+    const data = (element.data ?? {}) as Record<string, unknown>;
+    switch (element.type) {
+      case 'reply':
+        return [];
+      case 'at':
+        if (
+          (event === 'mentionMe' && selfUid && data.atTargetUid === selfUid) ||
+          (event === 'mentionAll' && data.atTargetUid === 'all')
+        )
+          return [];
+        return [element];
+      case 'forward':
+      case 'multiMsg':
+        return [{ type: 'forward' }];
+      case 'pic':
+        return [{ type: 'pic', data: { subType: data.subType } }];
+      case 'wallet': {
+        const detail = data.walletDetail as { redbagTitle?: unknown } | undefined;
+        const wish = detail?.redbagTitle;
+        return event === 'redPacket'
+          ? [{ type: 'text', data: { textContent: typeof wish === 'string' ? wish : '' } }]
+          : [element];
+      }
+      default:
+        return [element];
+    }
+  });
+  const text = plainContentText(content).trim();
+  const fallback =
+    event === 'redPacket'
+      ? '发来一个红包'
+      : event === 'replyMe' || elements.some((el) => el.type === 'reply')
+        ? '引用了一条消息'
+        : event === 'mentionMe' || event === 'mentionAll'
+          ? ''
+          : '发来一条消息';
+  const body = text
+    ? [sender, text].filter(Boolean).join('：')
+    : fallback
+      ? `${sender}${fallback}`
+      : sender
+        ? `来自 ${sender}`
+        : '';
+  return { title, body: notificationInlineText(body, 200), detail: body.slice(0, 2048) };
+}
 
 export interface IncomingNoticeMessage {
   kind: 'c2c' | 'group';

@@ -443,15 +443,24 @@ export function RestrictedModeHost() {
         event: awaitingAuthorization ? 'request' : entering ? 'progress' : 'runtime',
         tone: entering ? 'info' : 'warning',
         title: awaitingAuthorization
-          ? '待提权：请完成管理员授权'
+          ? '待提权'
           : entering
             ? '正在启用 QQ 在线能力'
-            : `在线能力受限：${reasons.map((r) => r.title).join('、')}`,
+            : 'QQ 在线能力受限',
+        summary: awaitingAuthorization
+          ? '请完成管理员授权后继续启用'
+          : entering
+            ? undefined
+            : reasons.map((reason) => reason.title).join('、'),
         loading: entering,
         durationKind: entering ? 'long' : 'failure',
         ...(entering ? { ttl: 0 } : {}),
         action: {
-          label: entering ? '查看进入进度' : '查看「在线能力受限」详情',
+          label: awaitingAuthorization
+            ? '查看授权请求'
+            : entering
+              ? '查看启用进度'
+              : '查看「在线能力受限」详情',
           run: () => {
             if (
               useRestrictedMode.getState().reasons.length ||
@@ -480,7 +489,8 @@ export function RestrictedModeHost() {
             key: 'signer-degraded',
             event: 'runtime',
             tone: 'warning',
-            title: '签名器已降级：改用完整签名函数',
+            title: 'QQ 在线能力已启用，签名方式已切换',
+            summary: '暂时使用兼容方式完成 QQ 在线操作',
             source: notificationSource({
               kind: 'app',
               target: { kind: 'setting', section: 'diagnostics', settingId: 'signer-status' },

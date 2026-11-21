@@ -4,6 +4,7 @@ import { IS_WEB } from '../lib/target.shared';
 import { useDialog } from './Dialog.shared';
 import { useToastApi } from './Toast.shared';
 import { notificationSource } from '../lib/notificationNavigation.shared';
+import { notificationInlineText } from '../../../shared/notification_copy';
 
 export function RemoteRequests() {
   return IS_WEB ? null : <DesktopRemoteRequests />;
@@ -33,7 +34,8 @@ function DesktopRemoteRequests() {
     notificationToast.push({
       event: 'request',
       key: `remote-request:${request.id}`,
-      title: '有手机请求连接 WeQ',
+      title: `${notificationInlineText(request.name, 28) || '有一部手机'}请求连接 WeQ`,
+      summary: '等待你确认是否允许连接',
       source: notificationSource(
         { kind: 'app', target: { kind: 'setting', section: 'remote' } },
         '查看连接请求',
@@ -53,7 +55,8 @@ function DesktopRemoteRequests() {
       } catch {
         notificationToast.push({
           tone: 'error',
-          title: '连接请求已失效或无法保存，请重试',
+          title: '未能处理手机连接请求',
+          summary: '请让手机重新发起连接，再尝试确认',
           source: notificationSource(
             { kind: 'app', target: { kind: 'setting', section: 'remote' } },
             '查看 Remote 连接请求',

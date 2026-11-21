@@ -1,5 +1,50 @@
 import { eventTimeFormatter } from '@weq/time';
 import type { ContactRequest, GroupJoinRequest } from '../im-template/template/types';
+import { notificationInlineText } from '../../../shared/notification_copy';
+
+export function friendNoticeCopy(notice: ContactRequest) {
+  const name = notificationInlineText(notice.user.displayName, 24);
+  const person = !name || name === notice.user.id ? '对方' : name;
+  const title =
+    notice.direction === 'incoming'
+      ? notice.status === 'accepted'
+        ? `已同意 ${person} 的好友申请`
+        : notice.status === 'rejected'
+          ? `已拒绝 ${person} 的好友申请`
+          : notice.status === 'cancelled'
+            ? `${person}已撤回好友申请`
+            : `${person}申请加你为好友`
+      : notice.status === 'accepted'
+        ? `${person}已同意你的好友申请`
+        : notice.status === 'rejected'
+          ? `${person}未同意你的好友申请`
+          : `发给 ${person} 的好友申请`;
+  return { title, summary: notificationInlineText(notice.message ?? '', 100) };
+}
+
+export function groupNoticeCopy(notice: GroupJoinRequest) {
+  const name = notificationInlineText(notice.user.displayName, 20);
+  const person = !name || name === notice.user.id ? '一位成员' : name;
+  const group = notificationInlineText(notice.group.name, 28);
+  const applying = notice.action === '申请加入';
+  const title = applying ? `${person}申请加入群聊` : `${person}${notice.action}`;
+  const status =
+    applying && notice.handleState === 'agreed'
+      ? '已同意'
+      : applying && notice.handleState === 'refused'
+        ? '已拒绝'
+        : '';
+  return {
+    title,
+    summary: [
+      group,
+      status,
+      notificationInlineText(notice.message || notice.systemRemark || '', 100),
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  };
+}
 
 const noticeTime = eventTimeFormatter;
 
