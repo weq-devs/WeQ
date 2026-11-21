@@ -2018,6 +2018,20 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.querySelector('[aria-label="表情备注"]')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
   });
+  it('普通成员从在线读回看到入群问题，群分类仍从公开资料读取', () => {
+    state.data.groupPermissions = { canManage: false, role: 'member' };
+    state.data.groupJoinSettings = { groupId: 123, categoryName: '兴趣交流', categoryId: 36 };
+    state.data.groupJoinManagement = { option: 4, question: '请填写来意' };
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    const question = f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]');
+    const answer = f.host.querySelector<HTMLInputElement>('[aria-label="加群答案"]');
+    expect(question?.value ?? f.host.textContent).toContain('请填写来意');
+    expect(f.host.textContent).toContain('兴趣交流');
+    expect(answer?.value ?? '').toBe('');
+    expect(answer?.disabled ?? true).toBe(true);
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+
   it('带问答的入群方式选中时建立草稿，只有方式 4 要求标准答案', () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     value(f.host, '加群方式', '4');

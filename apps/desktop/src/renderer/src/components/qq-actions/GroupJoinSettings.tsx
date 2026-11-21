@@ -18,15 +18,7 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
   const a = useQQAction(`join-settings:${groupId}`);
   const autoRefresh = useQQAutoRefresh(a.available);
   const input = { ...a.binding!, groupId };
-  const manage = trpc.account.qqActions.groupJoinManagement.useQuery(input, {
-    ...autoRefresh,
-    enabled: autoRefresh.enabled && canManage,
-  });
-  const summary = trpc.account.qqActions.groupJoinSettings.useQuery(input, {
-    ...autoRefresh,
-    enabled: autoRefresh.enabled && !canManage,
-  });
-  const query = canManage ? manage : summary;
+  const query = trpc.account.qqActions.groupJoinManagement.useQuery(input, autoRefresh);
   const [draft, setDraft] = useState<{
     mode: QuestionMode;
     question: string;
@@ -55,7 +47,7 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
           question: targetQuestion,
           answer: targetMode === 4 ? answer : undefined,
         }),
-      targetMode === 4 ? () => manage.refetch() : undefined,
+      targetMode === 4 ? () => query.refetch() : undefined,
       undefined,
       {
         requireReadback: true,
@@ -67,7 +59,7 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
               answer,
             });
           }
-          const result = await manage.refetch();
+          const result = await query.refetch();
           if (result.error) throw result.error;
           return (
             joinMode(result.data?.option) === targetMode &&

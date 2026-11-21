@@ -46,6 +46,7 @@ const labels: Record<string, string> = {
   listExportFriends: '好友导出资料',
   getMemberLevelInfo: '群等级资料',
   getJoinInfo: '群入群资料',
+  joinValidation: '群入群验证',
   getMessagePolicy: '群消息策略',
   getMemberNotify: '成员消息提醒',
   getFriendRemark: '好友备注',

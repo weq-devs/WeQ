@@ -283,7 +283,7 @@ export const CONTACT_HISTORY_CAPTURE: readonly Capture[] = [
   },
   {
     service: 'groupModeration',
-    methods: ['getAtAllRemain', 'getTodoList'],
+    methods: ['getAtAllRemain', 'getTodoList', 'joinValidation'],
     kind: 'group',
     source: 'online',
   },

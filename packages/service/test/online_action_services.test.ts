@@ -10,6 +10,7 @@ import {
   CreateGroupFolder,
   DeleteGroupFile,
   FetchGroupDetail,
+  GetGroupJoinInfo,
   DeleteGroupFolder,
   FetchGroupMemberListPage,
   GetGroupMessagePolicies,
@@ -141,18 +142,52 @@ describe('GroupModerationService', () => {
     const reply = encode(FetchGroupDetail.respSchema, {
       groupInfo: {
         uin: 123,
-        results: { uin: 123, addType: 4, question: '合成问题', answer: '合成答案' },
+        results: { uin: 723123, addType: 4, question: '合成问题', answer: '合成答案' },
       },
     });
     const nt = makeNative(new Map([['88d_0', reply]]));
     const svc = new GroupModerationService(nt, () => 7);
+    await expect(svc.joinValidation(123)).resolves.toEqual({
+      option: 4,
+      question: '合成问题',
+    });
     await expect(svc.joinSettings(123)).resolves.toEqual({
       option: 4,
       question: '合成问题',
       answer: '合成答案',
     });
-    expect(nt.calls).toHaveLength(1);
+    expect(nt.calls).toHaveLength(2);
     expect(nt.calls[0]).toMatchObject({ command: 0x88d, subCommand: 0 });
+    const validation = decode(FetchGroupDetail.reqSchema, nt.calls[0]!.body);
+    const verification = decode(FetchGroupDetail.reqSchema, nt.calls[1]!.body);
+    expect(validation).toMatchObject({ config: { flags: { question: '' } } });
+    expect(validation).not.toHaveProperty('config.flags.answer');
+    expect(verification).toMatchObject({ config: { flags: { question: '', answer: '' } } });
+  });
+
+  it.each([
+    { uin: 456, result: 0, error: '群号不一致' },
+    { uin: 123, result: 72, error: '72' },
+  ])('拒绝 0x88D_0 错群或失败回包 %#', async ({ uin, result, error }) => {
+    const reply = encode(FetchGroupDetail.respSchema, {
+      groupInfo: { uin, result, results: { uin: 123, addType: 4, question: '合成问题' } },
+    });
+    const nt = makeNative(new Map([['88d_0', reply]]));
+    const svc = new GroupModerationService(nt, () => 1);
+    await expect(svc.joinValidation(123)).rejects.toThrow(error);
+  });
+
+  it('公开资料保留分类字段，跳过请求和使用旧接口的题目', async () => {
+    const reply = encode(GetGroupJoinInfo.respSchema, {
+      groups: [{ groupCode: 123, result: 0, info: { categoryId: 37, question: '旧问题' } }],
+    });
+    const nt = makeNative(new Map([['88d_110', reply]]));
+    const svc = new GroupInfoService({} as never, { nt, resolvePid: () => 1 });
+    await expect(svc.getJoinInfo(123)).resolves.toMatchObject({ categoryId: 37, question: null });
+    expect(nt.calls[0]).toMatchObject({ command: 0x88d, subCommand: 110 });
+    const request = decode(GetGroupJoinInfo.reqSchema, nt.calls[0]!.body);
+    expect(request).toMatchObject({ groups: [{ info: { categoryId: 0 } }] });
+    expect(request).not.toHaveProperty('groups.0.info.question');
   });
 });
 

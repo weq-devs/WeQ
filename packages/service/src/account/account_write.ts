@@ -137,7 +137,10 @@ export class AccountWriteService {
   async exactProfile(kind: 'user' | 'group', target: string) {
     const pid = this.resolvePid();
     if (kind === 'group') {
-      const group = await GetGroupJoinInfo.invoke(this.nt, pid, { groupId: Number(target) });
+      const group = await GetGroupJoinInfo.invoke(this.nt, pid, {
+        groupId: Number(target),
+        includeQuestion: false,
+      });
       this.assertCurrentPid(pid);
       return {
         kind,

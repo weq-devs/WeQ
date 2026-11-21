@@ -86,6 +86,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       listGroupLeftMembers: { useQuery: () => ({ data: [], isFetching: false }) },
       qqActions: {
         groupPermissions: { useQuery: () => ({ data: undefined }) },
+        groupJoinManagement: { useQuery: () => ({ data: undefined }) },
         todoList: { useQuery: () => ({ data: [] }) },
         todoLocalList: { useQuery: () => ({ data: [] }) },
       },

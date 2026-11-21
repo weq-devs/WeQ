@@ -15,7 +15,7 @@ export function projectContactHistoryFields(
       name,
     );
   const groupCategory =
-    /^(getGroupDetail|listAllGroups|listGroupDirectory|listExportGroups|listAnalysisGroups|getJoinInfo|joinProfile|extendedProfile|getGroupExt|listAllGroupsExt)$/.test(
+    /^(getGroupDetail|listAllGroups|listGroupDirectory|listExportGroups|listAnalysisGroups|getJoinInfo|joinValidation|joinProfile|extendedProfile|getGroupExt|listAllGroupsExt)$/.test(
       name,
     );
   if (

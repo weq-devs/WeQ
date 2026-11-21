@@ -25,6 +25,7 @@ import {
 } from 'react';
 import { Avatar, GroupInfoSkeleton, GroupMembersSkeleton } from './primitives';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
+import { useGroupEntranceQuestion, useGroupReadScope } from '../../hooks/useGroupProfile';
 import type { GroupConversationView } from './conversationDetailsTypes';
 import { useEventContextValue } from '../../hooks/useEventContextValue';
 import { displayUserName } from './user';
@@ -221,6 +222,14 @@ export function GroupInfoPanel({
   }, [conversation.id, hidden, active]);
   const memberListRef = useRef<HTMLDivElement | null>(null);
   const group = conversation.group;
+  const readEntranceQuestion = active && !hidden && !membersOnly && !conversation.generated;
+  const { binding } = useGroupReadScope(readEntranceQuestion);
+  const entranceQ = useGroupEntranceQuestion(
+    conversation.id,
+    binding,
+    readEntranceQuestion,
+    group.entranceQ,
+  );
   const announcement =
     group.announcement?.trim() || group.bulletins?.find((item) => item.text?.trim())?.text || '';
   // 侧栏只留「日常扫一眼」能用的字段：长简介在资料页看，这里给明确的入口，
@@ -232,7 +241,7 @@ export function GroupInfoPanel({
     group.labels ? ['标签', group.labels] : null,
     group.customLabels?.length ? ['自定义标签', group.customLabels.join('、')] : null,
     group.addressName ? ['群地点', group.addressName] : null,
-    group.entranceQ ? ['入群问题', group.entranceQ] : null,
+    entranceQ ? ['入群问题', entranceQ] : null,
   ].filter(Boolean) as string[][];
 
   const keyword = (memberSearch?.keyword ?? '').trim();

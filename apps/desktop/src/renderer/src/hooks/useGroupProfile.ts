@@ -34,14 +34,14 @@ export function previewMemberView(row: MemberWire, owner?: string): GroupMember 
     customTitle: row.customTitle,
   };
 }
-export function useGroupReadScope() {
+export function useGroupReadScope(needed = true) {
   const active = useTabActive();
   const uin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
     ...PROFILE_QUERY_OPTIONS,
     staleTime: 0,
     refetchOnMount: 'always',
-    enabled: active && Boolean(uin),
+    enabled: active && needed && Boolean(uin),
   });
   const binding =
     config.data?.uin === uin && config.data.configId
@@ -54,7 +54,29 @@ export function useGroupReadScope() {
     refreshScope: config.refetch,
   };
 }
-export function useGroupProfile(conversation: GroupConversation, previewMembers = true) {
+export function useGroupEntranceQuestion(
+  groupCode: string,
+  binding: ReturnType<typeof useGroupReadScope>['binding'],
+  enabled: boolean,
+  cachedQuestion?: string | null,
+) {
+  const groupId = Number(groupCode);
+  const canRead =
+    enabled && Boolean(binding) && /^[1-9]\d{0,9}$/.test(groupCode) && groupId <= 0xffffffff;
+  const validation = trpc.account.qqActions.groupJoinManagement.useQuery(
+    { ...binding!, groupId },
+    { ...PROFILE_QUERY_OPTIONS, enabled: canRead },
+  );
+  const settings = canRead ? validation.data : undefined;
+  if (settings?.option === 1 || settings?.option === 2 || settings?.option === 3) return null;
+  return settings?.question || cachedQuestion;
+}
+
+export function useGroupProfile(
+  conversation: GroupConversation,
+  previewMembers = true,
+  readEntranceQuestion = false,
+) {
   const { active, binding, key, refreshScope } = useGroupReadScope();
   const enabled =
     active && Boolean(binding) && !conversation.generated && /^[1-9]\d{0,9}$/.test(conversation.id);
@@ -104,6 +126,12 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
     ? metrics.data?.rows[`group:${conversation.id}`]?.joinedAt?.value
     : null;
   const local = detail.data;
+  const entranceQ = useGroupEntranceQuestion(
+    conversation.id,
+    binding,
+    enabled && readEntranceQuestion,
+    local?.entranceQ || conversation.group.entranceQ,
+  );
   const knownName = local?.groupName?.trim() || conversation.group.name?.trim();
   const cloudName = useQuery({
     queryKey: ['group-profile-name', key, conversation.id],
@@ -130,7 +158,7 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
         maxMemberCount: local.maxMemberCount || conversation.group.maxMemberCount,
         createTime: iso(local.createTime) || conversation.group.createTime,
         labels: local.labels || conversation.group.labels,
-        entranceQ: local.entranceQ || conversation.group.entranceQ,
+        entranceQ,
         announcement: local.pinnedAnnounce || conversation.group.announcement,
         customLabels: local.customLabels
           .map((label) => label.content)
@@ -138,7 +166,7 @@ export function useGroupProfile(conversation: GroupConversation, previewMembers 
         customLabelRecords: local.customLabels,
         addressName: local.address?.locationName ?? conversation.group.addressName,
       }
-    : { ...conversation.group, name: displayName };
+    : { ...conversation.group, name: displayName, entranceQ };
   return {
     conversation: { ...conversation, group },
     ownerUid: local?.ownerUid,

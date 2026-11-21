@@ -1449,10 +1449,9 @@ export function createQQActionsRouter(
     groupJoinSettings: procedure
       .input(group)
       .query(({ input: i }) => read(i, (s) => s.groupInfo.getJoinInfo(i.groupId))),
-    groupJoinManagement: procedure.input(group).query(async ({ input: i }) => {
-      const { option, question } = await readManagedJoinSettings(i);
-      return { option, question };
-    }),
+    groupJoinManagement: procedure
+      .input(group)
+      .query(({ input: i }) => read(i, (s) => s.groupModeration.joinValidation(i.groupId))),
     verifyGroupJoinAnswer: procedure
       .input(group.extend({ question: z.string().max(256), answer: z.string().min(1).max(256) }))
       .mutation(async ({ input: i }) => {

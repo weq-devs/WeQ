@@ -151,6 +151,7 @@ export class GroupProfileReader {
         const result = await GetGroupJoinInfo.invoke(online.nt, pid, {
           groupId,
           includeExtensions: true,
+          includeQuestion: false,
         });
         current();
         if (result.groupId === groupId && this.history)

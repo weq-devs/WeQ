@@ -509,7 +509,10 @@ export class GroupInfoService {
 
   async getJoinInfo(groupId: number) {
     if (!this.online) throw new Error('QQ 在线能力未就绪');
-    return GetGroupJoinInfo.invoke(this.online.nt, this.online.resolvePid(), { groupId });
+    return GetGroupJoinInfo.invoke(this.online.nt, this.online.resolvePid(), {
+      groupId,
+      includeQuestion: false,
+    });
   }
 
   async getMessagePolicy(groupId: number): Promise<GroupMessagePolicySnapshot> {

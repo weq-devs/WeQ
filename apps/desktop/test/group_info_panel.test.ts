@@ -42,6 +42,8 @@ vi.mock('../src/renderer/src/trpc/client', async (importOriginal) => ({
   client: { account: { listGroupMembersByLevel: { query: rankQuery } } },
   trpc: {
     account: {
+      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+      qqActions: { groupJoinManagement: { useQuery: () => ({ data: undefined }) } },
       contactMetrics: {
         groupFriendSources: {
           useQuery: () => ({

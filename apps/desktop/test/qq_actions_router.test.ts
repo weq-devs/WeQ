@@ -83,8 +83,8 @@ function fixture() {
           categoryId: 2,
           categoryName: '服务端分类',
           option: 5,
-          question: '为什么加入',
-          questionState: 'available' as const,
+          question: null,
+          questionState: 'unavailable' as const,
         }),
       ),
     },
@@ -101,6 +101,10 @@ function fixture() {
       getTodoList: vi.fn(async () => []),
       leaveGroup: empty(),
       setAddOption: empty(),
+      joinValidation: vi.fn(async (_groupId: number) => ({
+        option: 4 as number | null,
+        question: '为什么加入' as string | null,
+      })),
       joinSettings: vi.fn(async (_groupId: number) => ({
         option: 4 as number | null,
         question: '为什么加入' as string | null,
@@ -503,21 +507,32 @@ describe('收藏包导出任务', () => {
 });
 
 describe('加群方式读回', () => {
-  it('复用现有在线资料查询，读取方式与问题但不伪造答案', async () => {
+  it('群分类与基本资料沿用公开查询', async () => {
     const f = fixture();
     const result = await f.caller.groupJoinSettings({ ...binding, groupId: 888 });
     expect(f.s.groupInfo.getJoinInfo).toHaveBeenCalledWith(888);
-    expect(result).toMatchObject({ option: 5, question: '为什么加入' });
-    expect(result).not.toHaveProperty('answer');
+    expect(result).toMatchObject({ categoryId: 2, categoryName: '服务端分类' });
+    expect(f.s.groupModeration.joinValidation).not.toHaveBeenCalled();
     expect(f.s.groupModeration.setAddOption).not.toHaveBeenCalled();
   });
-  it('管理设置读回问题并核对正确答案，答案缺失或不一致时保持未确认', async () => {
+  it('普通成员可在线读回问题，答案核对仍需要管理员权限', async () => {
     const f = fixture();
-    const check = { ...group, question: '为什么加入', answer: '合成答案' };
+    f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
     await expect(f.caller.groupJoinManagement(group)).resolves.toEqual({
       option: 4,
-      question: check.question,
+      question: '为什么加入',
     });
+    expect(f.s.groupModeration.joinValidation).toHaveBeenCalledWith(123);
+    expect(f.s.groupInfo.getJoinInfo).not.toHaveBeenCalled();
+    await expect(
+      f.caller.verifyGroupJoinAnswer({ ...group, question: '为什么加入', answer: '合成答案' }),
+    ).rejects.toThrow('管理员权限');
+    expect(f.s.groupModeration.joinSettings).not.toHaveBeenCalled();
+  });
+
+  it('管理设置核对正确答案，答案缺失或不一致时保持未确认', async () => {
+    const f = fixture();
+    const check = { ...group, question: '为什么加入', answer: '合成答案' };
     await expect(f.caller.verifyGroupJoinAnswer(check)).resolves.toBe(true);
     await expect(f.caller.verifyGroupJoinAnswer({ ...check, answer: '新答案' })).resolves.toBe(
       false,
@@ -529,7 +544,7 @@ describe('加群方式读回', () => {
 
     f.s.groupInfo.listGroupDirectory.mockResolvedValueOnce([{ groupCode: '123', role: 'member' }]);
     await expect(f.caller.verifyGroupJoinAnswer(check)).rejects.toThrow('管理员权限');
-    expect(f.s.groupModeration.joinSettings).toHaveBeenCalledTimes(4);
+    expect(f.s.groupModeration.joinSettings).toHaveBeenCalledTimes(3);
   });
   it('分类标签写入前核对真实群分类，缺失、变化或读取后切源都不写入', async () => {
     const f = fixture();

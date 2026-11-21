@@ -292,15 +292,19 @@ export class GroupModerationService {
     await SetAdminReceiveVerify.invoke(this.nt, pid, { groupId, userId, enable });
   }
 
-  async joinSettings(groupId: number) {
+  async joinValidation(groupId: number) {
+    const { option, question } = await this.joinSettings(groupId, false);
+    return { option, question };
+  }
+
+  async joinSettings(groupId: number, includeAnswer = true) {
     const pid = this.resolvePid();
-    // 群管理详情返回问答字段，公开群资料查询可能只返回入群档位。
-    const detail = await FetchGroupDetail.invoke(this.nt, pid, { groupId });
+    const detail = await FetchGroupDetail.invoke(this.nt, pid, { groupId, includeAnswer });
     if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请刷新');
     return {
       option: detail.addType || null,
       question: detail.question || null,
-      answer: detail.answer || null,
+      answer: includeAnswer ? detail.answer || null : null,
     };
   }
 

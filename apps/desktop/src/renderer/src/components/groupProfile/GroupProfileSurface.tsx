@@ -58,7 +58,7 @@ function GroupProfileBody({
   onOpenMember,
   ...location
 }: GroupProfileSurfaceProps & { conversation: GroupConversation }) {
-  const data = useGroupProfile(initial, false);
+  const data = useGroupProfile(initial, false, Boolean(embedded));
   const { conversation } = data;
   const openChat = useContext(ChatNavigationContext);
   const openWorkspace = useContext(ContactWorkspaceNavigationContext);
