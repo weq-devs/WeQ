@@ -153,7 +153,10 @@ import { createContactMetricsRouter } from './contact_metrics';
 import { createNoticeReadRouter } from './notice_read';
 import { readMessageHistoryPage } from './message_history_page';
 import { mergeNoticeSeen } from '../../../shared/notice_seen';
-import type { ConversationInteraction } from '../../../shared/conversation_interaction';
+import type {
+  ConversationInteraction,
+  ConversationInteractionSnapshot,
+} from '../../../shared/conversation_interaction';
 import {
   directoryUnreadKey,
   isDirectoryReadKey,
@@ -1380,24 +1383,53 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
-      return observable<{ pending: ConversationInteraction[]; seen: readonly string[] }>((emit) =>
+      return observable<ConversationInteractionSnapshot>((emit) =>
         interactionBadges.subscribe((pending) =>
-          emit.next({ pending, seen: interactionBadges.seenIds }),
+          emit.next({
+            pending,
+            badges: interactionBadges.badgeEvents,
+            seen: interactionBadges.seenIds,
+          }),
         ),
       );
     }),
     acknowledge: procedure
+    unsequencedRows: procedure
+      .input(convInput.merge(exportAccountBindingInput.required()))
+      .query(({ input }) =>
+        readMessageScope(input, async () => {
+          const services = requireExpectedAccount(
+            input.expectedAccountUin,
+            input.expectedAccountConfigId,
+          );
+          const { kind, conv } = input;
+          const ids = services.interactionBadges.unsequencedIds(kind, conv);
+          const rows = await services.msgs.readHistoryRecordBodies(kind, conv, ids);
+          return withMessageBubbles(
+            rows.flatMap((row) => {
+              if (row.msgSeq !== 0n) return [];
+              if ('targetGroupCode' in row)
+                return kind === 'group' && row.targetGroupCode === conv
+                  ? [groupMsgToWire(row)]
+                  : [];
+              return kind === 'c2c' && row.targetUid === conv ? [c2cMsgToWire(row)] : [];
+            }),
+            services.dressInstall,
+          );
+        }),
+      ),
       .input(
         exportAccountBindingInput.required().extend({
           ids: z.array(z.string().max(512)).max(128),
         }),
+          bannerOnly: z.boolean().optional(),
       )
       .mutation(({ input }) => {
         const { interactionBadges } = requireExpectedAccount(
           input.expectedAccountUin,
           input.expectedAccountConfigId,
         );
-        interactionBadges.acknowledge(input.ids);
+        interactionBadges.acknowledge(input.ids, input.bannerOnly);
       }),
   }),
   noticeRead: createNoticeReadRouter((input) => {

@@ -75,8 +75,33 @@ export interface RecentContactSeq {
 
 export interface RecentInteractionWindow {
   latest: Map<string, bigint>;
-  tips: Array<{ seq: bigint; conv: string; msgId: string; sentAt: number; elements: Element[] }>;
+  tips: Array<{
+    seq: bigint;
+    conv: string;
+    msgId: string;
+    sentAt: number;
+    senderUid: string;
+    elements: Element[];
+  }>;
 }
+
+export interface InteractionMessagePosition {
+  sentAt: number;
+  msgId: string;
+}
+
+interface InteractionAnchors {
+  read?: InteractionMessagePosition;
+  latest?: InteractionMessagePosition & { seq: bigint };
+}
+
+const POKE_BODY = `instr(m."40800", X'a0c517a508')>0`;
+const DIRECT_INTERACTION_TYPES = [
+  ChatType.KCHATTYPEC2C,
+  ChatType.KCHATTYPETEMPC2CFROMUNKNOWN,
+  ChatType.KCHATTYPETEMPC2CFROMGROUP,
+  ChatType.KCHATTYPETEMPFRIENDVERIFY,
+].join(',');
 
 export interface ConversationIdentity {
   targetUid: string;
@@ -181,34 +206,31 @@ export class RecentContactDb {
   ): Promise<RecentInteractionWindow> {
     const table = kind === 'group' ? 'group_msg_table' : 'c2c_msg_table';
     const partition = kind === 'group' ? 'CAST("40021" AS INTEGER)' : '"40027"';
-    const types =
-      kind === 'group'
-        ? [ChatType.KCHATTYPEGROUP]
-        : [
-            ChatType.KCHATTYPEC2C,
-            ChatType.KCHATTYPETEMPC2CFROMUNKNOWN,
-            ChatType.KCHATTYPETEMPC2CFROMGROUP,
-            ChatType.KCHATTYPETEMPFRIENDVERIFY,
-          ];
+    const types = kind === 'group' ? ChatType.KCHATTYPEGROUP : DIRECT_INTERACTION_TYPES;
     const rows = await this.qq.query(
       `WITH targets(conv, partition, seq) AS MATERIALIZED (
          SELECT "40021", ${partition}, MAX("40003") FROM recent_contact_v3_table
-         WHERE "40010" IN (${types.join(',')}) AND "40050">=? AND ${partition}>0
+         WHERE "40010" IN (${types}) AND "40050">=? AND ${partition}>0
          GROUP BY "40021", ${partition} ORDER BY MAX("40050") DESC LIMIT 128
        )
-       SELECT t.conv, m."40003", m."40001", m."40050", m."40800"
+       SELECT t.conv, m."40003", m."40001", m."40050", m."40800", m."40020"
        FROM targets t CROSS JOIN ${table} m ON m."40027"=t.partition
-       WHERE m."40003" BETWEEN MAX(0,t.seq-63) AND t.seq
+       WHERE m."40003" BETWEEN MAX(1,t.seq-63) AND t.seq
          AND (m."40011"=5 OR (m."40011"=2 AND m."40012"=1
            AND instr(substr(m."40800",1,96), X'd0fc1508')>0))
-         AND (instr(m."40800", X'baa517')>0 OR instr(m."40800", X'a0c517a508')>0)
-       UNION ALL SELECT conv, seq, NULL, NULL, NULL FROM targets`,
-      [BigInt(since)],
+         AND (instr(m."40800", X'baa517')>0 OR ${POKE_BODY})
+       UNION ALL
+       SELECT t.conv, m."40003", m."40001", m."40050", m."40800", m."40020"
+       FROM targets t CROSS JOIN (SELECT 0 AS seq UNION ALL SELECT NULL) s
+       CROSS JOIN ${table} m ON m."40027"=t.partition AND m."40003" IS s.seq
+       WHERE m."40050">=?
+       UNION ALL SELECT conv, seq, NULL, NULL, NULL, NULL FROM targets`,
+      [BigInt(since), BigInt(since)],
     );
     // 撤回者为 47703，戳一戳详细动作 48212=1061。字节仅预筛，仍解码确认类型和身份。
     const latest = new Map<string, bigint>();
     const tips: RecentInteractionWindow['tips'] = [];
-    for (const [conv, seq, msgId, sentAt, body] of rows) {
+    for (const [conv, seq, msgId, sentAt, body, senderUid] of rows) {
       if (msgId == null) latest.set(toStr(conv), toBigint(seq));
       else
         tips.push({
@@ -216,10 +238,53 @@ export class RecentContactDb {
           seq: toBigint(seq),
           msgId: toStr(msgId),
           sentAt: toNum(sentAt),
+          senderUid: toStr(senderUid),
           elements: decodeBody(body),
         });
     }
     return { latest, tips };
+  }
+
+  /** 读取水位对应的真实消息，以及用于释放无独立序号已读记录的最新真实消息。 */
+  async recentInteractionAnchors(
+    kind: 'c2c' | 'group',
+    targets: Array<{ conv: string; readSeq: bigint }>,
+  ): Promise<Map<string, InteractionAnchors>> {
+    const table = kind === 'group' ? 'group_msg_table' : 'c2c_msg_table';
+    const partition =
+      kind === 'group'
+        ? 'CAST(t.conv AS INTEGER)'
+        : `(SELECT r."40027" FROM recent_contact_v3_table r WHERE r."40021"=t.conv
+            AND r."40010" IN (${DIRECT_INTERACTION_TYPES}) AND r."40027">0
+            ORDER BY r."40010"=1 DESC, r."40050" DESC LIMIT 1)`;
+    const result = new Map<string, InteractionAnchors>();
+    for (let offset = 0; offset < targets.length; offset += 128) {
+      const batch = targets.slice(offset, offset + 128);
+      const rows = await this.qq.query(
+        `WITH input(conv, seq) AS (VALUES ${batch.map(() => '(?, ?)').join(',')}),
+          targets AS MATERIALIZED (SELECT conv, seq, ${partition} AS part FROM input t)
+         SELECT t.conv, r."40001", r."40050", l."40001", l."40050", l."40003"
+         FROM targets t
+         LEFT JOIN ${table} r ON r."40001"=(SELECT m."40001" FROM ${table} m
+           WHERE m."40027"=t.part AND m."40003"=t.seq AND t.seq>0
+             AND (m."40011" IS NOT 5 OR NOT COALESCE(${POKE_BODY},0))
+           ORDER BY m."40050" DESC, m."40001" DESC LIMIT 1)
+         LEFT JOIN ${table} l ON l."40001"=(SELECT m."40001" FROM ${table} m
+           WHERE m."40027"=t.part AND m."40003">0
+             AND (m."40011" IS NOT 5 OR NOT COALESCE(${POKE_BODY},0))
+           ORDER BY m."40003" DESC, m."40050" DESC, m."40001" DESC LIMIT 1)`,
+        batch.flatMap(({ conv, readSeq }) => [conv, readSeq]),
+      );
+      for (const [conv, readId, readTime, latestId, latestTime, latestSeq] of rows)
+        result.set(toStr(conv), {
+          read: readId == null ? undefined : { msgId: toStr(readId), sentAt: toNum(readTime) },
+          latest:
+            latestId == null
+              ? undefined
+              : { msgId: toStr(latestId), sentAt: toNum(latestTime), seq: toBigint(latestSeq) },
+        });
+    }
+    return result;
   }
 
   /**

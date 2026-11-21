@@ -2106,6 +2106,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           () =>
             this.account === session &&
             userConfig.getSharedPreference('client').showInteractionBadge === true,
+          () => this.services?.unreadInfo,
         ),
         recentContacts: new RecentContactService(session, () => gapHistory.latestSent()),
         guildDirect,
@@ -3098,6 +3099,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         recentContacts: new RecentContactService(session, () => gapHistory.latestSent()),
         guildDirect,
         contentSearch,
+          () => this.services?.unreadInfo,
         hiddenSessions: new HiddenSessionService(session),
         drafts: new DraftService(session),
         deletedSessions: new DeletedSessionService(session),

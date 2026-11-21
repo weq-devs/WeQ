@@ -532,7 +532,7 @@ export type ChatPaneProps = {
   confirmedReadSeq?: string;
   onReadCurrentConversation?: (conversation: Conversation, visibleSeqs?: string[]) => void;
   pendingInteractions?: readonly ConversationInteraction[];
-  onSeeInteractions?: (ids: string[]) => void;
+  onSeeInteractions?: (ids: string[], bannerOnly?: boolean) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
   onAddGroupMember?: () => void;

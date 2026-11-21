@@ -64,7 +64,11 @@ import type {
 } from './workspace/types';
 import { useWorkspaceDrafts } from './workspace/useWorkspaceDrafts';
 import { useWorkspaceDirectory } from './workspace/useWorkspaceDirectory';
-import { useConversationInteractionBadges } from '../hooks/useConversationInteractionBadges';
+import {
+  mergeUnsequencedInteractionRows,
+  useConversationInteractionBadges,
+  useUnsequencedInteractionRows,
+} from '../hooks/useConversationInteractionBadges';
 import React, {
   lazy,
   Suspense,
@@ -4152,6 +4156,16 @@ function MainWorkspace(): ReactElement {
   );
 
   const messageElementTarget = isGroup || isDirect ? convFetchKey(selectedConversation) : null;
+  const interactionTailTarget = anchoredToLatest && messagesTabActive ? messageElementTarget : null;
+  const unsequencedInteractions = useUnsequencedInteractionRows(
+    pinSession.binding,
+    interactionTailTarget,
+    interactionTailTarget
+      ? interactionBadges.byConversation.get(
+          `${interactionTailTarget.kind}:${interactionTailTarget.conv}`,
+        )
+      : undefined,
+  );
   const messageElementPatches = useMessageElementPatches(
     loaded,
     messageElementTarget?.kind,
@@ -4166,13 +4180,16 @@ function MainWorkspace(): ReactElement {
   // 原行负责定位、撤回和对账，补拉只提供正文。窗口刷新也能继续使用已补回的元素。
   const loadedMessageWires = useMemo(
     () =>
-      loaded.map((row) => {
-        const base = replyMediaRows.get(row) ?? row;
-        const patch = messageElementPatches[row.msgId];
-        if (!patch || !messageFallbackKind(row)) return base;
-        return { ...base, elements: patch.elements, sourceFormat: patch.sourceFormat };
-      }),
-    [loaded, replyMediaRows, replyMediaRevision, messageElementPatches],
+      mergeUnsequencedInteractionRows(
+        loaded.map((row) => {
+          const base = replyMediaRows.get(row) ?? row;
+          const patch = messageElementPatches[row.msgId];
+          if (!patch || !messageFallbackKind(row)) return base;
+          return { ...base, elements: patch.elements, sourceFormat: patch.sourceFormat };
+        }),
+        unsequencedInteractions,
+      ),
+    [loaded, replyMediaRows, replyMediaRevision, messageElementPatches, unsequencedInteractions],
   );
   const messageReplyIndex = useMemo(
     () => createReplyPreviewIndex(loadedMessageWires),
@@ -11202,7 +11219,7 @@ function MainWorkspace(): ReactElement {
                             views: conversationViews,
                             rows: currentViewRows,
                             interactionBadges: showInteractionBadge
-                              ? interactionBadges.byConversation
+                              ? interactionBadges.badgeConversations
                               : undefined,
                             returnToRegular,
                             searchReturnView,

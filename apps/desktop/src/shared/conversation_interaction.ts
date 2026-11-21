@@ -2,7 +2,15 @@ export interface ConversationInteraction {
   kind: 'c2c' | 'group';
   conv: string;
   msgId: string;
-  action: 'poke' | 'recall';
+  action: 'poke' | 'recall' | 'seqless';
+  bannerPending?: true;
+  storedWithoutSeq?: true;
+}
+
+export interface ConversationInteractionSnapshot {
+  pending: ConversationInteraction[];
+  badges: ConversationInteraction[];
+  seen: readonly string[];
 }
 
 export function conversationInteractionId(event: ConversationInteraction): string {

@@ -31,6 +31,6 @@ export type {
   DeletedSession,
   ServiceAssistantContact,
 } from './types';
-export type { RecentContactSeq } from './recent_contact';
+export type { InteractionMessagePosition, RecentContactSeq } from './recent_contact';
 export { UidMappingDb, UidMap } from './uid_mapping';
 export type { UidMappingDbOptions, UidMappingRow } from './uid_mapping';

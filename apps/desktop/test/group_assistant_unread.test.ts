@@ -79,7 +79,7 @@ it.each([null, mutedGroup.id])(
           value: {
             view: 'groupAssistant',
             rows: conversations,
-            interactionBadges: new Map([[`group:${mutedGroup.id}`, true]]),
+            interactionBadges: new Set([`group:${mutedGroup.id}`]),
             virtual: [],
             onVirtual: () => {},
             onCreate: () => {},
