@@ -21,6 +21,7 @@ import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
 import { QqArk } from '../components/ark/QqArk';
 import { ActionFeedback } from '../components/qq-actions/shared';
 import { QzoneHomeOverview } from './QzoneHomeOverview';
+import { QzoneAutoPage } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext, timeText } from './qzoneShared.shared';
 
@@ -317,7 +318,8 @@ export function QzoneSpaceHome({
   const cursorStalled = !!cursor && pages.slice(0, -1).some((page) => page.next_cursor === cursor);
   const [selected, setSelected] = useState<{ hostUin: string; tid: string } | null>(null);
   const error = query.error?.message ?? '';
-  const retry = () => void query.refetch();
+  const next = () => void query.fetchNextPage({ cancelRefetch: false });
+  const retry = () => (query.hasNextPage ? next() : void query.refetch());
   return (
     <div className="weq-qzn-timeline">
       {binding ? (
@@ -339,7 +341,7 @@ export function QzoneSpaceHome({
           <State
             loading={query.isFetching}
             error={error}
-            empty={query.isSuccess ? '这个空间暂无可查看的动态。' : ''}
+            empty={query.isSuccess && !query.hasNextPage ? '这个空间暂无可查看的动态。' : ''}
             retry={retry}
           />
         )
@@ -359,15 +361,8 @@ export function QzoneSpaceHome({
           主页分页未推进，请刷新核对。
         </p>
       ) : null}
-      {query.hasNextPage ? (
-        <button
-          type="button"
-          className="weq-qzn-more"
-          disabled={query.isFetchingNextPage}
-          onClick={() => void query.fetchNextPage()}
-        >
-          {query.isFetchingNextPage ? '正在加载…' : '加载更多动态'}
-        </button>
+      {available && query.hasNextPage && !query.error ? (
+        <QzoneAutoPage key={pages.length} loading={query.isFetching} onNext={next} />
       ) : null}
       {selected && available ? (
         <OrdinaryDetail

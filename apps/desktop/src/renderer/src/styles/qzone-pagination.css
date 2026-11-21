@@ -1,0 +1,17 @@
+.weq-qzn-page-controls {
+  display: flex;
+  justify-content: center;
+  padding-block: 8px;
+}
+
+.weq-qzn-page-action:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.weq-set-btn.weq-qzn-page-action[aria-disabled='true'] {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border-color: var(--weq-border-subtle);
+  cursor: default;
+}

@@ -1,10 +1,11 @@
 import { NumericText } from './NumericText';
 import { EmptyState } from './EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, Loader2, RefreshCw, Forward } from 'lucide-react';
+import { Loader2, Forward } from 'lucide-react';
 import { client } from '../trpc/client';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import type { QzoneForwardPage } from '../views/qzone_types';
+import { QzonePageButton } from '../views/QzonePagination';
 import { QzonePersonIdentity } from './QzoneProfileAvatar';
 
 export interface QzoneForwardTarget {
@@ -102,25 +103,24 @@ export function QzoneForwardList({
       {!paused && !loading && !error && rows.length === 0 ? (
         <EmptyState variant="inline" icon={<Forward />} title="暂无可读取的转发记录" />
       ) : null}
-      {loading ? (
+      {loading && !page?.nextCursor ? (
         <p className="weq-qzn-status" role="status">
           <Loader2 size={14} className="weq-spin" />
           正在读取转发者…
         </p>
       ) : null}
       {error ? (
-        <p className="weq-qzn-error" role="alert">
-          {error}
-          <button
-            type="button"
+        <>
+          <p className="weq-qzn-error" role="alert">
+            {error}
+          </p>
+          <QzonePageButton
+            label="重试"
             title="重试转发名单"
-            aria-label="重试转发名单"
+            retry
             onClick={() => void load(page?.nextCursor ?? null)}
-          >
-            <RefreshCw size={14} />
-            重试
-          </button>
-        </p>
+          />
+        </>
       ) : null}
       {page ? (
         <p className="weq-qzn-status">
@@ -132,15 +132,12 @@ export function QzoneForwardList({
           )}
         </p>
       ) : null}
-      {page?.nextCursor && !loading && !error && !paused ? (
-        <button
-          className="weq-qzn-forward-more"
-          type="button"
+      {page?.nextCursor && !error && !paused ? (
+        <QzonePageButton
+          label="加载更多"
+          loading={loading}
           onClick={() => void load(page.nextCursor)}
-        >
-          <ChevronDown size={14} />
-          加载更多
-        </button>
+        />
       ) : null}
       {page && !page.nextCursor && !loading ? (
         <p className="weq-qzn-status">

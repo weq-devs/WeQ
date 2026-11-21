@@ -35,11 +35,24 @@ vi.mock('../src/renderer/src/components/QzoneProfileAvatar', async (importOrigin
 
 it('日志在 StrictMode 和暂停后可读，摘要断行，正文和评论按需展开', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const sentinels = new Map<Element, () => void>();
   vi.stubGlobal(
     'IntersectionObserver',
     class {
-      observe() {}
-      disconnect() {}
+      private target?: Element;
+      constructor(private readonly callback: IntersectionObserverCallback) {}
+      observe(target: Element) {
+        this.target = target;
+        sentinels.set(target, () => {
+          this.callback(
+            [{ target, isIntersecting: true } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
+        });
+      }
+      disconnect() {
+        if (this.target) sentinels.delete(this.target);
+      }
     },
   );
   const blog = (id: string, title: string) => ({
@@ -60,6 +73,10 @@ it('日志在 StrictMode 和暂停后可读，摘要断行，正文和评论按�
   rpc.list.mockResolvedValueOnce({ items: [blog('7', '首篇日志')], nextOffset: 1 });
   rpc.list.mockResolvedValueOnce({
     items: [blog('7', '首篇日志'), blog('8', '下一篇日志')],
+    nextOffset: 3,
+  });
+  rpc.list.mockResolvedValueOnce({
+    items: [blog('10', '最后一篇日志')],
     nextOffset: null,
   });
   rpc.detail.mockResolvedValue({
@@ -73,6 +90,13 @@ it('日志在 StrictMode 和暂停后可读，摘要断行，正文和评论按�
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  const reachEnd = (parent: ParentNode) =>
+    act(async () => {
+      const sentinel = parent.querySelector('.weq-qzn-page-sentinel');
+      expect(sentinel && sentinels.has(sentinel)).toBe(true);
+      sentinels.get(sentinel!)?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   function button(label: string, parent: ParentNode = host) {
     const control = [...parent.querySelectorAll('button')].find((item) =>
       item.textContent?.includes(label),
@@ -126,12 +150,15 @@ it('日志在 StrictMode 和暂停后可读，摘要断行，正文和评论按�
     expect(summary?.textContent).toBe('摘要第一行摘要第二行 & 补充');
     expect(rpc.detail).not.toHaveBeenCalled();
     expect(rpc.comments).not.toHaveBeenCalled();
-    await act(async () => button('加载更多日志').click());
+    await reachEnd(host);
     await wait('下一篇日志');
     expect(host.querySelectorAll('article')).toHaveLength(2);
     expect(rpc.list).toHaveBeenLastCalledWith(
       expect.objectContaining({ offset: 1, expectedAccountConfigId: 'live' }),
     );
+    await reachEnd(host);
+    await wait('最后一篇日志');
+    expect(rpc.list).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 3 }));
     const first = host.querySelector('article')!;
     await act(async () => button('查看全文', first).click());
     await wait('日志全文');

@@ -21,7 +21,6 @@ import {
   type ReactElement,
 } from 'react';
 import {
-  ChevronDown,
   Eye,
   Loader2,
   MessageCircle,
@@ -60,6 +59,7 @@ import {
   type PublicFeedView,
   type PublicJson,
 } from '../lib/qzonePublic';
+import { QzoneAutoPage, QzonePageButton } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext, timeText } from './qzoneShared.shared';
 import '../styles/qzone-public.css';
@@ -269,8 +269,7 @@ function QzonePublicContent({
   const [openDetail, setOpenDetail] = useState<string | null>(null);
   const nextCursor = useRef<string | null>(snapshot?.nextCursor ?? null);
   const seenCursors = useRef(new Set(snapshot?.seenCursors));
-  const moreRef = useRef<HTMLDivElement>(null);
-  const nearEnd = useNearEnd(moreRef);
+  const seenFeedKeys = useRef(new Set(snapshot?.feeds.map((feed) => feed.key)));
 
   // 能力查询：入口开关决定整栏是否可用，推权限决定是否显示「推」。
   //
@@ -363,16 +362,17 @@ function QzonePublicContent({
         const views = page.feeds
           .map((feed, index) => projectPublicFeed(feed, index))
           .filter((view): view is PublicFeedView => Boolean(view));
-        let added = views.length;
+        if (head) seenFeedKeys.current.clear();
+        const previousSize = seenFeedKeys.current.size;
+        for (const view of views) seenFeedKeys.current.add(view.key);
+        const added = seenFeedKeys.current.size - previousSize;
         if (head) {
           headLoadedAt.current = Date.now();
           setFeeds(views);
         } else {
           setFeeds((current) => {
             const merged = new Map((current ?? []).map((item) => [item.key, item]));
-            const before = merged.size;
             for (const view of views) merged.set(view.key, view);
-            added = merged.size - before;
             return [...merged.values()];
           });
         }
@@ -422,18 +422,6 @@ function QzonePublicContent({
     } satisfies PublicFeedSnapshot);
   }, [selfUin, feeds, done]);
 
-  // 触底自动续页；显式点「加载更多」走同一个入口。
-  useEffect(() => {
-    if (!active || !nearEnd || loading || error || done || !nextCursor.current) return undefined;
-    const cursor = nextCursor.current;
-    const timer = setTimeout(() => {
-      if (nextCursor.current !== cursor) return;
-      cursorRequest.current = cursor;
-      setPageRequest((value) => value + 1);
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [active, nearEnd, loading, error, done]);
-
   const loadMore = useCallback(() => {
     if (!nextCursor.current || loading) return;
     cursorRequest.current = nextCursor.current;
@@ -451,6 +439,10 @@ function QzonePublicContent({
     setDone(false);
     setPageRequest((value) => value + 1);
   }, [loading]);
+  const retryPage = () => {
+    requestedCursor.current = undefined;
+    setPageRequest((value) => value + 1);
+  };
 
   /** 本地更新单条动态（赞 / 推 / 关注后立即回显，失败由调用方回滚）。 */
   const patchFeed = useCallback((key: string, patch: Partial<PublicFeedView>) => {
@@ -501,16 +493,14 @@ function QzonePublicContent({
           onToggle={() => setOpenDetail(openDetail === feed.key ? null : feed.key)}
         />
       ))}
-      <div ref={moreRef} className="weq-qzn-page-sentinel">
+      <div className="weq-qzn-page-sentinel">
         {feeds && error ? (
-          <State loading={false} error={error} empty="" retry={reload} />
+          <State loading={false} error={error} empty="" retry={retryPage} />
         ) : feeds && !error ? (
           loading ? (
             <LoadingStatus text="正在加载…" />
-          ) : !done ? (
-            <button type="button" className="weq-qzn-more" onClick={loadMore}>
-              加载更多推荐
-            </button>
+          ) : !done && nextCursor.current ? (
+            <QzoneAutoPage key={nextCursor.current} loading={false} delay={350} onNext={loadMore} />
           ) : feeds.length ? (
             <p className="weq-qzn-status">已加载当前可查看的推荐</p>
           ) : (
@@ -520,27 +510,6 @@ function QzonePublicContent({
       </div>
     </div>
   );
-}
-
-/** 与空间页同一套视口判定，但滚动容器是本页自己的。 */
-function useNearEnd(ref: React.RefObject<HTMLDivElement | null>): boolean {
-  const [near, setNear] = useState(false);
-  const { active } = useContext(QzonePageContext);
-  useEffect(() => {
-    if (!active) {
-      setNear(false);
-      return undefined;
-    }
-    const element = ref.current;
-    if (!element) return undefined;
-    const observer = new IntersectionObserver(
-      (entries) => setNear(entries.some((entry) => entry.isIntersecting)),
-      { root: element.closest('.weq-qzn-scroll'), rootMargin: '400px' },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref, active]);
-  return active && near;
 }
 
 function PublicFeedCard({
@@ -841,13 +810,15 @@ function PublicFeedDetail({
   focusComment?: PublicCommentFocus;
 }): ReactElement {
   const root = useRef<HTMLElement>(null);
-  const searchedCursors = useRef(new Set<string>());
+  const loadedCursors = useRef(new Set<string>());
+  const pageRequest = useRef<AbortController | null>(null);
   const { active } = useContext(QzonePageContext);
   const { run, cancel } = useQzoneRequests('qzonePublic');
   const [comments, setComments] = useState<PublicCommentView[] | null>(null);
   const [cursor, setCursor] = useState('');
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState('');
+  const [pageError, setPageError] = useState('');
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
   const [draft, setDraft] = useState('');
@@ -861,18 +832,27 @@ function PublicFeedDetail({
     composer.current?.focus();
     if (replyTarget) composer.current?.scrollIntoView({ block: 'nearest' });
   }, [replyTarget]);
+  useEffect(
+    () => () => {
+      pageRequest.current?.abort();
+      pageRequest.current = null;
+    },
+    [active, view.feed],
+  );
 
   // 首批评论来自详情；之后的续页用 attach_info。
   useEffect(() => {
     if (!active) return undefined;
     let live = true;
+    loadedCursors.current.clear();
     setError('');
+    setPageError('');
     setLoading(true);
     if (initialData && retry === 0) {
       const page = projectPublicDetail(initialData);
       setComments(page.comments);
       setCursor(page.cursor);
-      setHasMore(page.hasMore);
+      setHasMore(page.hasMore && Boolean(page.cursor));
       setLoading(false);
       return;
     }
@@ -884,7 +864,7 @@ function PublicFeedDetail({
         const page = projectPublicDetail(data);
         setComments(page.comments);
         setCursor(page.cursor);
-        setHasMore(page.hasMore);
+        setHasMore(page.hasMore && Boolean(page.cursor));
       })
       .catch((reason: unknown) => {
         if (live) setError(errorText(reason));
@@ -899,26 +879,44 @@ function PublicFeedDetail({
   }, [active, selfUin, view.feed, retry, run, cancel, initialData]);
 
   const loadMore = useCallback(() => {
-    if (!cursor || loading) return;
+    if (!active || !cursor || loading || pageRequest.current) return;
+    const request = new AbortController();
+    pageRequest.current = request;
     setLoading(true);
-    setError('');
-    void run((requestId) =>
-      client.account.qzonePublic.comments.query({
-        selfUin,
-        requestId,
-        feed: view.feed,
-        cursor,
-      }),
+    setPageError('');
+    void run(
+      (requestId) =>
+        client.account.qzonePublic.comments.query({
+          selfUin,
+          requestId,
+          feed: view.feed,
+          cursor,
+        }),
+      false,
+      request.signal,
     )
       .then((data) => {
+        if (request.signal.aborted) return;
         const page = projectPublicCommentsPage(data);
+        loadedCursors.current.add(cursor);
         setComments((current) => mergePublicComments(current ?? [], page.comments));
         setCursor(page.cursor);
-        setHasMore(page.hasMore && page.cursor !== cursor);
+        setHasMore(
+          page.hasMore &&
+            page.comments.length > 0 &&
+            Boolean(page.cursor) &&
+            !loadedCursors.current.has(page.cursor),
+        );
       })
-      .catch((reason: unknown) => setError(errorText(reason)))
-      .finally(() => setLoading(false));
-  }, [cursor, loading, run, selfUin, view.feed]);
+      .catch((reason: unknown) => {
+        if (!request.signal.aborted) setPageError(errorText(reason));
+      })
+      .finally(() => {
+        if (pageRequest.current !== request) return;
+        pageRequest.current = null;
+        setLoading(false);
+      });
+  }, [active, cursor, loading, run, selfUin, view.feed]);
   const focusParent = focusComment?.parentCommentId || focusComment?.commentId;
   const focusFound = comments?.some((comment) => comment.id === focusParent) ?? false;
   useEffect(() => {
@@ -929,14 +927,12 @@ function PublicFeedDetail({
       focusFound ||
       loading ||
       error ||
-      !hasMore ||
-      !cursor ||
-      searchedCursors.current.has(cursor)
+      pageError ||
+      !hasMore
     )
       return;
-    searchedCursors.current.add(cursor);
     loadMore();
-  }, [active, focusParent, comments, focusFound, loading, error, hasMore, cursor, loadMore]);
+  }, [active, focusParent, comments, focusFound, loading, error, pageError, hasMore, loadMore]);
   useSearchTargetFocus(
     root,
     'data-public-comment-key',
@@ -1092,13 +1088,21 @@ function PublicFeedDetail({
           {error}{' '}
           <button
             type="button"
-            onClick={() => setRetry((value) => value + 1)}
             className="weq-retry-button"
+            onClick={() => setRetry((value) => value + 1)}
           >
             <RefreshCw size={14} aria-hidden />
             重试
           </button>
         </p>
+      ) : null}
+      {pageError ? (
+        <>
+          <p className="weq-qzn-error" role="alert">
+            {pageError}
+          </p>
+          <QzonePageButton label="重试" retry loading={loading} onClick={loadMore} />
+        </>
       ) : null}
       {comments !== null ? (
         <>
@@ -1147,7 +1151,9 @@ function PublicFeedDetail({
                     : null}
                 </div>
               </div>
-              {comment.replies.length || focusComment?.parentCommentId === comment.id ? (
+              {comment.replyCount > 0 ||
+              comment.replies.length ||
+              focusComment?.parentCommentId === comment.id ? (
                 <div className="weq-qzn-public-replies">
                   {comment.replies.map((reply) => (
                     <div
@@ -1217,9 +1223,9 @@ function PublicFeedDetail({
             </div>
           ))}
           {hasMore ? (
-            <button type="button" className="weq-qzn-more" disabled={loading} onClick={loadMore}>
-              {loading ? '正在加载…' : '加载更多评论'}
-            </button>
+            !error && !pageError ? (
+              <QzoneAutoPage key={cursor} loading={loading} onNext={loadMore} />
+            ) : null
           ) : comments.length === 0 ? (
             <EmptyState variant="inline" icon={<MessageCircle />} title="还没有评论" />
           ) : null}
@@ -1305,34 +1311,56 @@ function ReplyMore({
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const remaining = comment.replyCount - comment.replies.length;
-  const searched = useRef(new Set<string>());
+  const { active } = useContext(QzonePageContext);
+  const { run } = useQzoneRequests('qzonePublic');
+  const loadedCursors = useRef(new Set<string>());
+  const pageRequest = useRef<AbortController | null>(null);
   const loadRef = useRef<() => Promise<void>>(async () => undefined);
   const found = comment.replies.some((reply) => reply.id === focusReplyId);
   useEffect(() => {
-    if (!focusReplyId || found || busy || done || error || searched.current.has(cursor)) return;
-    searched.current.add(cursor);
+    if (!active || !focusReplyId || found || busy || done || error) return;
     void loadRef.current();
-  }, [focusReplyId, found, busy, done, error, cursor]);
+  }, [active, focusReplyId, found, busy, done, error, cursor]);
+  useEffect(() => {
+    if (!active) setBusy(false);
+    return () => {
+      pageRequest.current?.abort();
+      pageRequest.current = null;
+    };
+  }, [active]);
   async function load(): Promise<void> {
-    if (busy) return;
+    if (!active || pageRequest.current) return;
+    const request = new AbortController();
+    pageRequest.current = request;
     setBusy(true);
     setError('');
     try {
-      const data = await client.account.qzonePublic.replies.query({
-        selfUin,
-        feed,
-        comment: comment.raw,
-        cursor,
-        requestId: crypto.randomUUID(),
-      });
+      const data = await run(
+        (requestId) =>
+          client.account.qzonePublic.replies.query({
+            selfUin,
+            feed,
+            comment: comment.raw,
+            cursor,
+            requestId,
+          }),
+        false,
+        request.signal,
+      );
+      if (request.signal.aborted) return;
       const page = projectPublicRepliesPage(data, comment.id);
+      loadedCursors.current.add(cursor);
       onLoaded(page.replies);
       setCursor(page.cursor);
-      if (!page.hasMore || page.replies.length === 0 || page.cursor === cursor) setDone(true);
+      if (!page.hasMore || page.replies.length === 0 || loadedCursors.current.has(page.cursor))
+        setDone(true);
     } catch (reason) {
-      setError(errorText(reason));
+      if (!request.signal.aborted) setError(errorText(reason));
     } finally {
-      setBusy(false);
+      if (pageRequest.current === request) {
+        pageRequest.current = null;
+        setBusy(false);
+      }
     }
   }
   loadRef.current = load;
@@ -1342,17 +1370,15 @@ function ReplyMore({
       {focusReplyId && done && !found ? (
         <p role="alert">未找到搜索中的回复，可能已移除；原搜索结果仍保留</p>
       ) : null}
-      {error ? <p className="weq-qzn-error">{error}</p> : null}
-      {!done ? (
-        <button
-          type="button"
-          className="weq-qzn-public-more-replies"
-          disabled={busy}
-          onClick={() => void load()}
-        >
-          {busy ? <Loader2 size={13} className="weq-spin" /> : <ChevronDown size={13} />}
-          展开更多回复（<span className="weq-number weq-number-inherit">{remaining}</span>）
-        </button>
+      {error ? (
+        <>
+          <p className="weq-qzn-error" role="alert">
+            {error}
+          </p>
+          <QzonePageButton label="重试" retry onClick={() => void load()} />
+        </>
+      ) : !done ? (
+        <QzoneAutoPage key={cursor} loading={busy} onNext={() => void load()} />
       ) : null}
     </>
   );

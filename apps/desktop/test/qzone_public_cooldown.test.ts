@@ -42,11 +42,20 @@ afterEach(() => {
 });
 
 function mount(uin: string) {
+  let reachEnd: (() => void) | undefined;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal(
     'IntersectionObserver',
     class {
-      observe() {}
+      constructor(private readonly callback: IntersectionObserverCallback) {}
+      observe(target: Element) {
+        if (!target.matches('.weq-qzn-page-sentinel')) return;
+        reachEnd = () =>
+          this.callback(
+            [{ target, isIntersecting: true } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
+      }
       disconnect() {}
     },
   );
@@ -55,6 +64,7 @@ function mount(uin: string) {
   cleanup = () => act(() => root.unmount());
   return {
     host,
+    reachEnd: () => reachEnd?.(),
     render: (show: boolean, refresh = 0) =>
       act(async () =>
         root.render(
@@ -128,16 +138,17 @@ it('失败不进入冷却期，首次读取空列表仍进入冷却期', async (
 });
 
 it('冷却期回访保留续页游标，加载更多不从首页重新开始', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   state.feeds.mockResolvedValueOnce({ feeds: [], has_more: true, next_cursor: 'page-2' });
   const page = mount('cooldown-pagination');
   await page.render(true);
   await page.render(false);
   await page.render(true);
   expect(state.feeds).toHaveBeenCalledTimes(1);
-  const more = [...page.host.querySelectorAll('button')].find(
-    (item) => item.textContent === '加载更多推荐',
-  );
-  await act(async () => more!.click());
+  await act(async () => {
+    page.reachEnd();
+    await vi.advanceTimersByTimeAsync(350);
+  });
   expect(state.feeds).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'page-2' }));
 });
 

@@ -23056,22 +23056,6 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   color: var(--weq-fg-muted, var(--weq-fg-secondary));
 }
 
-.weq-qzal-retry {
-  padding: 5px 14px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 9%, transparent);
-  color: var(--weq-accent-effective);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.weq-qzal-retry:hover {
-  border-color: var(--weq-border-strong);
-  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
-}
-
 .weq-qzal-end {
   padding: 4px 0 2px;
   text-align: center;

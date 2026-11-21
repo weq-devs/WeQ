@@ -1,7 +1,7 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import type { QzoneShare, QzoneShareCategory } from '@weqbot/protocol/web';
 import { RefreshCw } from 'lucide-react';
-import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { FormSelect } from '../components/FormSelect';
 import { QzoneActionsRow, QzoneCommentToggle } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
@@ -11,8 +11,9 @@ import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { qzoneLinkTarget, qzoneMediaSource } from '../lib/qzone';
 import { client, trpc } from '../trpc/client';
+import { QzoneAutoPage } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
-import { QzonePageContext, timeText, useNearViewport } from './qzoneShared.shared';
+import { QzonePageContext, timeText } from './qzoneShared.shared';
 import { QzoneVideoGrid } from './QzoneVideoGrid';
 
 const shareCategories = {
@@ -83,8 +84,9 @@ function useMorePages<P extends Page>(
     queryFn: ({ pageParam = start, signal }) =>
       run((requestId) => load({ ...target, requestId }, pageParam), false, signal),
     getNextPageParam: (last: P, pages: P[]) => {
-      if (!last.items.length || last.next === null) return undefined;
+      if (!last.items.length || last.next === null || last.next === start) return undefined;
       if (pages.length > 1) {
+        if (pages.slice(0, -1).some((page) => page.next === last.next)) return undefined;
         const preceding = new Set(
           pages.slice(0, -1).flatMap((page) => page.items.map(({ id }) => id)),
         );
@@ -115,17 +117,16 @@ function useMorePages<P extends Page>(
   };
 }
 
-type PagedState = Pick<ReturnType<typeof useMorePages>, 'error' | 'loading' | 'onNext' | 'onRetry'>;
+type PagedState = Pick<
+  ReturnType<typeof useMorePages>,
+  'error' | 'loading' | 'onNext' | 'onRetry' | 'pageCount'
+>;
 
 function PageEnd({ state, empty }: { state: PagedState; empty: string }) {
-  return state.loading || state.error || empty ? (
+  return state.error || empty || (state.loading && !state.onNext) ? (
     <State loading={state.loading} error={state.error} retry={state.onRetry} empty={empty} />
   ) : state.onNext ? (
-    <div className="weq-qzn-page-sentinel">
-      <button type="button" className="weq-set-btn" onClick={state.onNext}>
-        加载更多
-      </button>
-    </div>
+    <QzoneAutoPage key={state.pageCount} loading={state.loading} onNext={state.onNext} />
   ) : null;
 }
 
@@ -152,7 +153,11 @@ function Shares({ space }: { space: Space }) {
       {state.items.map((share) => (
         <SharePost key={share.id} space={space} share={share} />
       ))}
-      <PageEnd state={state} empty={state.first && !state.items.length ? '这个分类暂无分享' : ''} />
+      <PageEnd
+        key={category}
+        state={state}
+        empty={state.first && !state.items.length ? '这个分类暂无分享' : ''}
+      />
     </>
   );
 }
@@ -223,7 +228,7 @@ function ShareCommentList({
   shareId: string;
   onCount: (count: number) => void;
 }) {
-  const { first, items, loading, error, onNext, onRetry } = useMorePages(
+  const { first, items, loading, error, onNext, onRetry, pageCount } = useMorePages(
     space,
     `share-comments:${shareId}`,
     1,
@@ -234,11 +239,6 @@ function ShareCommentList({
   useEffect(() => {
     if (count !== undefined) onCount(count);
   }, [count, onCount]);
-  const more = useRef<HTMLDivElement>(null);
-  const nearEnd = useNearViewport(more, false, Boolean(onNext) && !error);
-  useEffect(() => {
-    if (nearEnd && !loading && !error) onNext?.();
-  }, [nearEnd, loading, error, onNext]);
   return (
     <section className="weq-qzn-interaction" aria-label="分享评论">
       {count === 0 && !loading && !error ? <p className="weq-qzn-status">暂无评论</p> : null}
@@ -267,7 +267,7 @@ function ShareCommentList({
           ))}
         </div>
       ))}
-      {loading ? <LoadingStatus text="正在加载评论…" /> : null}
+      {loading && !onNext ? <LoadingStatus text="正在加载评论…" /> : null}
       {error ? (
         <p className="weq-qzn-error" role="status">
           {error}{' '}
@@ -277,7 +277,9 @@ function ShareCommentList({
           </button>
         </p>
       ) : null}
-      {onNext && !error ? <div ref={more} className="weq-qzn-page-sentinel" /> : null}
+      {onNext && !error ? (
+        <QzoneAutoPage key={pageCount} loading={loading} onNext={onNext} />
+      ) : null}
     </section>
   );
 }

@@ -50,6 +50,7 @@ import { useDebouncedLoading } from '../hooks/useDebouncedLoading';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { useMultiSelection } from '../hooks/useMultiSelection';
+import { QzonePageButton } from '../views/QzonePagination';
 import { QZONE_ALBUM_PAGE_SIZE as PAGE_NUM } from '../../../shared/qzone_album_export';
 
 /** 相册列表 wire（service QzoneAlbum）。 */
@@ -647,13 +648,21 @@ export function QzoneAlbumDialog({
             />
             <div ref={albumSentinel} className="weq-qzal-sentinel">
               {albumNext !== null ? (
-                <button type="button" disabled={albumsLoading} onClick={() => void loadAlbumPage()}>
-                  {albumsLoading ? <Loader2 size={13} className="weq-spin" /> : null}
-                  {albumsError ? '重试加载相册' : '加载更多相册'}
-                  {!embedded ? (
-                    <NumericText>{`（已获取 ${albumPages.current.size} 页）`}</NumericText>
-                  ) : null}
-                </button>
+                albumsError ? (
+                  <QzonePageButton
+                    label="重试加载相册"
+                    retry
+                    onClick={() => void loadAlbumPage()}
+                  />
+                ) : albumsLoading ? (
+                  <span className="weq-qzal-sentinel-text" role="status">
+                    <Loader2 size={13} className="weq-spin" aria-hidden />
+                    正在加载相册…
+                    {!embedded ? (
+                      <NumericText>{`（已获取 ${albumPages.current.size} 页）`}</NumericText>
+                    ) : null}
+                  </span>
+                ) : null
               ) : (
                 <span className="weq-qzal-sentinel-text">
                   {albumTotal === null ? (
@@ -1131,14 +1140,7 @@ export function MediaView({
           </div>
           <div ref={sentinelRef} className="weq-qzal-sentinel">
             {loadFailed ? (
-              <button
-                type="button"
-                className="weq-qzal-retry weq-retry-button"
-                onClick={() => void triggerLoadMore()}
-              >
-                <RefreshCw size={14} aria-hidden />
-                加载失败，点击重试
-              </button>
+              <QzonePageButton label="重试加载媒体" retry onClick={() => void triggerLoadMore()} />
             ) : loadingMore ? (
               <span className="weq-qzal-sentinel-text">
                 <Loader2 size={13} className="weq-spin" />

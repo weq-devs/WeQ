@@ -13,6 +13,11 @@ import {
 import { QzoneScopePicker } from '../src/renderer/src/views/export/QzoneScopePicker';
 
 const fixture = vi.hoisted(() => ({
+  related: vi.fn(async ({ offset }: { offset: number }) => ({
+    feeds: [{ uin: 10002, appid: 0, key: `interaction-${offset}`, time: offset + 1, html: '' }],
+    hasMore: true,
+    nextCursor: `offset=${offset + 1}`,
+  })),
   posts: vi.fn(async (_input: unknown) => ({
     total: 3,
     nickname: '合成空间',
@@ -40,6 +45,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
       qzone: {
+        related: { query: fixture.related },
         feeds: {
           query: async () => ({
             feeds: [
@@ -138,6 +144,52 @@ it('好友动态不显示常驻多选按钮，修饰键选择后仍可操作并�
     f.close();
   }
 });
+
+it('与我相关自动读取五页后，点击加载更多才从当前游标继续', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      constructor(private readonly callback: IntersectionObserverCallback) {}
+      observe(target: Element) {
+        this.callback(
+          [{ target, isIntersecting: true } as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver,
+        );
+      }
+      disconnect() {}
+    },
+  );
+  const f = mount(
+    createElement(
+      ContentSelectionProvider,
+      null,
+      createElement(QzoneView, { selfUin: '10001', nickname: '合成自己' }),
+    ),
+  );
+  try {
+    const related = [...f.host.querySelectorAll('button')].find(
+      (button) => button.textContent === '与我相关',
+    );
+    await act(async () => related!.click());
+    for (let page = 1; page < 5; page++) {
+      await act(async () => vi.advanceTimersByTimeAsync(350));
+    }
+    await act(async () => vi.advanceTimersByTimeAsync(700));
+    expect(fixture.related.mock.calls.map(([input]) => input.offset)).toEqual([0, 1, 2, 3, 4]);
+    const more = [...f.host.querySelectorAll('button')].find(
+      (button) => button.textContent === '加载更多互动',
+    );
+    expect(more?.disabled).toBe(false);
+    await act(async () => more!.click());
+    expect(fixture.related).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 5 }));
+    expect(fixture.related).toHaveBeenCalledTimes(6);
+  } finally {
+    f.close();
+    vi.useRealTimers();
+  }
+});
+
 it('空间预热不读内容，停稳才读；再次滑动暂停读取但不清空已显示内容', async () => {
   const page = (readEnabled: boolean) =>
     createElement(QzoneWorkspace, {

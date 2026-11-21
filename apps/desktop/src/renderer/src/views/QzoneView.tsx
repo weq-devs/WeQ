@@ -72,6 +72,7 @@ import {
 import { Modal } from '../components/Dialog';
 import { QzoneSettingsSection } from '../components/settings/QzoneSettingsSection';
 import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
+import { QzoneAutoPage, QzonePageButton } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
 import {
   QzonePageContext,
@@ -1231,8 +1232,6 @@ function Posts({
     setOffset(value);
     setPageRequest((current) => current + 1);
   }, []);
-  const moreRef = useRef<HTMLDivElement>(null);
-  const nearEnd = useNearViewport(moreRef);
   const nextOffset = useRef(cached?.nextOffset ?? 0);
   const currentPosts = useRef<QzoneEmotion[]>(cached?.posts ?? []);
   const fetchedPages = useRef(new Set<number>(cached?.pages));
@@ -1326,9 +1325,6 @@ function Posts({
       cancel();
     };
   }, [active, selfUin, hostUin, offset, pageRequest, retry, refresh, run, cancel, onOwnerNickname]);
-  useEffect(() => {
-    if (nearEnd && posts.length > 0 && !loading && !done && !error) loadOffset(nextOffset.current);
-  }, [nearEnd, posts.length, loading, done, error, loadOffset]);
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
   return (
     <div {...multi.rootProps}>
@@ -1356,25 +1352,14 @@ function Posts({
           retry={() => setRetry((value) => value + 1)}
         />
       ) : null}
-      <div ref={moreRef} className="weq-qzn-page-sentinel">
-        {posts.length > 0 && !done && !error ? (
-          <button
-            type="button"
-            className="weq-qzn-more"
-            disabled={loading}
-            onClick={() => loadOffset(nextOffset.current)}
-          >
-            {loading ? (
-              <>
-                <Loader2 size={16} className="weq-spin" />
-                加载中…
-              </>
-            ) : (
-              '加载更多说说'
-            )}
-            <NumericText>{pageCountLabel}</NumericText>
-          </button>
-        ) : null}
+      {posts.length > 0 && !done && !error ? (
+        <QzoneAutoPage
+          key={nextOffset.current}
+          loading={loading}
+          onNext={() => loadOffset(nextOffset.current)}
+        />
+      ) : null}
+      <div className="weq-qzn-page-sentinel">
         {done && posts.length > 0 ? (
           <p className="weq-qzn-status">
             已到列表末尾<NumericText>{pageCountLabel}</NumericText>
@@ -2612,7 +2597,6 @@ function FeedTimeline({
   const [incomplete, setIncomplete] = useState(cached?.incomplete ?? false);
   const title = kind === 'friends' ? '好友动态' : '与我相关';
   const relatedRound = useRef(new QzoneRelatedRound());
-  const [roundRevision, setRoundRevision] = useState(0);
   const lastRefresh = useRef(refresh);
   const [feeds, setFeeds] = useState<QzoneFeed[] | null>(cached?.feeds ?? null);
   const [error, setError] = useState('');
@@ -2641,8 +2625,6 @@ function FeedTimeline({
   const bridgeTail = useRef<{ cursor: string | undefined; keys: Set<string> } | null>(
     cached?.bridge ? { ...cached.bridge, keys: new Set(cached.bridge.keys) } : null,
   );
-  const moreRef = useRef<HTMLDivElement>(null);
-  const nearEnd = useNearViewport(moreRef);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
     if (!feeds || !fetchedPages.current.size) return;
@@ -2659,57 +2641,14 @@ function FeedTimeline({
     } satisfies FeedSnapshot);
   }, [feeds, incomplete, done, cacheKey, dataCache]);
   useEffect(() => {
-    if (!active || kind !== 'related') return undefined;
-    const scroll = moreRef.current?.closest('.weq-qzn-scroll');
-    if (!scroll) return undefined;
-    const resume = () => {
-      if (relatedRound.current.scrollDown()) setRoundRevision((value) => value + 1);
-    };
-    const wheel = (event: Event) => {
-      if ((event as WheelEvent).deltaY > 0) resume();
-    };
-    let touchY: number | undefined;
-    const touchStart = (event: Event) => {
-      touchY = (event as TouchEvent).touches[0]?.clientY;
-    };
-    const touchMove = (event: Event) => {
-      const next = (event as TouchEvent).touches[0]?.clientY;
-      if (next !== undefined && touchY !== undefined && next < touchY) resume();
-      touchY = next;
-    };
-    const key = (event: Event) => {
-      const keyboard = event as KeyboardEvent;
-      if (
-        keyboard.target instanceof HTMLElement &&
-        keyboard.target.closest(
-          'input, textarea, select, button, a, summary, [role="tab"], [contenteditable="true"]',
-        )
-      )
-        return;
-      if (
-        keyboard.key === 'ArrowDown' ||
-        keyboard.key === 'PageDown' ||
-        keyboard.key === 'End' ||
-        (keyboard.key === ' ' && !keyboard.shiftKey)
-      )
-        resume();
-    };
-    scroll.addEventListener('wheel', wheel, { passive: true });
-    scroll.addEventListener('touchstart', touchStart, { passive: true });
-    scroll.addEventListener('touchmove', touchMove, { passive: true });
-    scroll.addEventListener('keydown', key);
-    return () => {
-      scroll.removeEventListener('wheel', wheel);
-      scroll.removeEventListener('touchstart', touchStart);
-      scroll.removeEventListener('touchmove', touchMove);
-      scroll.removeEventListener('keydown', key);
-    };
-  }, [active, kind]);
-  useEffect(() => {
-    if (!active) return undefined;
     const recovery = `${refresh}:${retry}`;
-    if (kind === 'related' && suspended.current === recovery) return undefined;
-    if (kind === 'related' && relatedRound.current.exhausted) return undefined;
+    if (
+      !active ||
+      (kind === 'related' && (suspended.current === recovery || relatedRound.current.exhausted))
+    ) {
+      setLoading(false);
+      return;
+    }
     suspended.current = null;
     let live = true;
     setError('');
@@ -2800,20 +2739,12 @@ function FeedTimeline({
       cancel();
     };
   }, [active, selfUin, cursor, pageRequest, retry, refresh, scope, kind, run, cancel]);
-  useEffect(() => {
-    if (!active || !nearEnd || loading || error || done || !nextCursor.current) return undefined;
-    if (kind !== 'related') {
-      loadCursor(nextCursor.current);
-      return undefined;
-    }
-    if (relatedRound.current.exhausted) return undefined;
-    // Pace automatic notification reads; explicit loading/retry stays immediate.
-    const continuation = nextCursor.current;
-    const timer = setTimeout(() => {
-      if (nextCursor.current === continuation) loadCursor(continuation);
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [active, nearEnd, loading, error, done, feeds, loadCursor, kind, roundRevision]);
+  const continuation = nextCursor.current;
+  const roundExhausted = kind === 'related' && relatedRound.current.exhausted;
+  const retryFeed = () => {
+    if (kind === 'related') relatedRound.current.resume();
+    setRetry((value) => value + 1);
+  };
   const projections = useRef(
     new Map<
       string,
@@ -3179,7 +3110,7 @@ function FeedTimeline({
           error={error}
           empty=""
           progress={pageCountLabel}
-          retry={() => setRetry((value) => value + 1)}
+          retry={retryFeed}
         />
       ) : null}
       {shown?.map(({ feed, body }) => {
@@ -3204,14 +3135,14 @@ function FeedTimeline({
           </div>
         );
       })}
-      <div ref={moreRef} className="weq-qzn-page-sentinel">
+      <div className="weq-qzn-page-sentinel">
         {feeds && error ? (
           <State
             loading={false}
             error={error}
             empty=""
             progress={pageCountLabel}
-            retry={() => setRetry((value) => value + 1)}
+            retry={retryFeed}
           />
         ) : null}
         {feeds && !error ? (
@@ -3221,22 +3152,22 @@ function FeedTimeline({
               {headRequest.current ? '正在刷新…' : '正在加载更多…'}
               <NumericText>{pageCountLabel}</NumericText>
             </p>
-          ) : !done ? (
-            <button
-              type="button"
-              className="weq-qzn-more"
-              disabled={kind === 'related' && relatedRound.current.exhausted}
-              onClick={() => {
-                if (nextCursor.current) loadCursor(nextCursor.current);
-              }}
-            >
-              {kind === 'related'
-                ? relatedRound.current.exhausted
-                  ? '向下滚动加载更多互动'
-                  : '加载更多互动'
-                : '加载更多动态'}
-              <NumericText>{pageCountLabel}</NumericText>
-            </button>
+          ) : !done && continuation ? (
+            roundExhausted ? (
+              <QzonePageButton
+                label="加载更多互动"
+                onClick={() => {
+                  if (active && relatedRound.current.resume()) loadCursor(continuation);
+                }}
+              />
+            ) : (
+              <QzoneAutoPage
+                key={continuation}
+                loading={false}
+                delay={kind === 'related' ? 350 : 0}
+                onNext={() => loadCursor(continuation)}
+              />
+            )
           ) : !incomplete && kind !== 'related' && !shown?.length ? (
             <EmptyState
               icon={<Images />}

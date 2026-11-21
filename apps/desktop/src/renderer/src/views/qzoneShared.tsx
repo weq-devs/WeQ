@@ -22,14 +22,7 @@ import { client } from '../trpc/client';
 import { applyQzoneVideoTypes, type QzoneVideoType } from '../lib/qzoneMediaTypes';
 import { useNearViewport, QzonePageContext, QzoneReadPauseContext } from './qzoneShared.shared';
 
-export function LoadingStatus({ text = '正在加载…' }: { text?: string }) {
-  return (
-    <p className="weq-qzn-loading" role="status">
-      <Loader2 size={16} className="weq-spin" />
-      {text}
-    </p>
-  );
-}
+export { LoadingStatus } from './QzonePagination';
 
 export function State({
   loading,

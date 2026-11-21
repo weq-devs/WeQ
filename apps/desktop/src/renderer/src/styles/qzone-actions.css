@@ -100,14 +100,13 @@
   overflow-wrap: anywhere;
 }
 .weq-qzn-forward-list .weq-qzn-status,
-.weq-qzn-forward-list .weq-qzn-error,
-.weq-qzn-forward-more {
+.weq-qzn-forward-list .weq-qzn-error {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 5px;
 }
-.weq-qzn-forward-list button:not(.weq-qzn-person-link) {
+.weq-qzn-forward-list button:not(.weq-qzn-person-link, .weq-qzn-page-action) {
   display: inline-flex;
   align-items: center;
   gap: 4px;

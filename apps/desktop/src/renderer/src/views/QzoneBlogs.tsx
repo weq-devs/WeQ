@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, FileText, MessageCircle } from 'lucide-react';
+import { FileText, MessageCircle } from 'lucide-react';
 import {
   createElement,
   useContext,
@@ -19,7 +19,8 @@ import { qzoneMediaSource } from '../lib/qzone';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { client, trpc } from '../trpc/client';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
-import { QzonePageContext, useNearViewport } from './qzoneShared.shared';
+import { QzoneAutoPage } from './QzonePagination';
+import { QzonePageContext } from './qzoneShared.shared';
 
 type BlogInput = Omit<
   Parameters<typeof client.account.qzone.blog.query>[0],
@@ -289,14 +290,11 @@ function BlogCard({
             />
           ) : null}
           {comments.hasNextPage && !comments.error ? (
-            <button
-              type="button"
-              className="weq-qzn-more"
-              disabled={comments.isFetching}
-              onClick={() => void comments.fetchNextPage()}
-            >
-              {comments.isFetchingNextPage ? '正在加载…' : '加载更多评论'}
-            </button>
+            <QzoneAutoPage
+              key={commentPages.length}
+              loading={comments.isFetching}
+              onNext={() => void comments.fetchNextPage({ cancelRefetch: false })}
+            />
           ) : null}
         </section>
       ) : null}
@@ -324,8 +322,6 @@ export function QzoneBlogs({
   );
   const { run } = useQzoneRequests();
   const queryClient = useQueryClient();
-  const more = useRef<HTMLDivElement>(null);
-  const nearEnd = useNearViewport(more);
   const { refetch, fetchNextPage, ...query } = useInfiniteQuery({
     queryKey: ['qzone-blogs', input],
     queryFn: ({ pageParam = 0, signal }) =>
@@ -350,11 +346,6 @@ export function QzoneBlogs({
     previousRefresh.current = refresh;
     void refetch();
   }, [active, configId, refresh, input, queryClient, refetch]);
-  useEffect(() => {
-    if (active && nearEnd && query.hasNextPage && !query.isFetching && !query.error)
-      void fetchNextPage();
-  }, [active, nearEnd, query.hasNextPage, query.isFetching, query.error, fetchNextPage]);
-
   const pages = query.data?.pages ?? [];
   const items = blogItems(pages);
   const last = pages.at(-1);
@@ -391,22 +382,16 @@ export function QzoneBlogs({
           }}
         />
       ) : null}
-      <div ref={more} className="weq-qzn-page-sentinel">
-        {query.hasNextPage && !error ? (
-          <button
-            type="button"
-            className="weq-qzn-more"
-            disabled={query.isFetching}
-            onClick={() => void fetchNextPage()}
-          >
-            <ChevronDown size={16} aria-hidden />
-            {query.isFetchingNextPage ? '加载中…' : '加载更多日志'}
-          </button>
-        ) : null}
-        {!error && last?.nextOffset === null && items.length ? (
-          <p className="weq-qzn-status">已到列表末尾</p>
-        ) : null}
-      </div>
+      {query.hasNextPage && !error ? (
+        <QzoneAutoPage
+          key={pages.length}
+          loading={query.isFetching}
+          onNext={() => void fetchNextPage({ cancelRefetch: false })}
+        />
+      ) : null}
+      {!error && last?.nextOffset === null && items.length ? (
+        <p className="weq-qzn-status">已到列表末尾</p>
+      ) : null}
     </div>
   );
 }

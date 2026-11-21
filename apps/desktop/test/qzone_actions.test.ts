@@ -40,14 +40,14 @@ it('引用上一人文案，保留原始文字；关闭或无文案时不预填'
   expect(qzoneForwardDraft(true, '  ')).toBe('');
 });
 
-it('每轮最多五次，未用完的滚动不叠加额度，耗尽后只有向下滚动重开', () => {
+it('每轮最多五次，用完额度后才能开启下一轮', () => {
   const round = new QzoneRelatedRound();
   expect(round.take()).toBe(true);
-  expect(round.scrollDown()).toBe(false);
+  expect(round.resume()).toBe(false);
   for (let index = 1; index < round.limit; index++) expect(round.take()).toBe(true);
   expect(round.take()).toBe(false);
   expect(round.take()).toBe(false);
-  expect(round.scrollDown()).toBe(true);
+  expect(round.resume()).toBe(true);
   for (let index = 0; index < round.limit; index++) expect(round.take()).toBe(true);
   expect(round.take()).toBe(false);
 });

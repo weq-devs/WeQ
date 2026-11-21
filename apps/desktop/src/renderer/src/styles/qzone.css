@@ -8,7 +8,7 @@
   color: var(--foreground);
   background: var(--background);
 }
-.weq-qzn button,
+.weq-qzn button:where(:not(.weq-qzn-page-action)),
 .weq-qzn-composer button {
   display: inline-flex;
   align-items: center;
@@ -23,11 +23,11 @@
 .weq-qzn-composer button:where(:not(.weq-select-trigger)) {
   justify-content: center;
 }
-.weq-qzn button:hover,
+.weq-qzn button:where(:not(.weq-qzn-page-action)):hover,
 .weq-qzn-composer button:hover {
   background: var(--muted);
 }
-.weq-qzn button:disabled,
+.weq-qzn button:where(:not(.weq-qzn-page-action)):disabled,
 .weq-qzn-composer button:disabled {
   opacity: 0.5;
   cursor: default;
@@ -412,11 +412,6 @@
   color: var(--muted-foreground);
   font-size: 13px;
   overflow-wrap: anywhere;
-}
-.weq-qzn-more {
-  width: 100%;
-  margin-top: 15px;
-  color: var(--primary);
 }
 .weq-qzn-feed-link {
   display: block;

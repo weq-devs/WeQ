@@ -22,7 +22,7 @@ export function qzoneForwardDraft(quotePrevious: boolean, content: string): stri
   return quotePrevious && content.trim() ? `//：${content}` : '';
 }
 
-/** 自动补齐只消费本轮额度，只有向下滚动才能开启下一轮。 */
+/** 自动补齐只消费本轮额度，继续读取由用户开启下一轮。 */
 export class QzoneRelatedRound {
   private used = 0;
   readonly limit = 5;
@@ -37,7 +37,7 @@ export class QzoneRelatedRound {
     return this.used >= this.limit;
   }
 
-  scrollDown(): boolean {
+  resume(): boolean {
     if (!this.exhausted) return false;
     this.used = 0;
     return true;
