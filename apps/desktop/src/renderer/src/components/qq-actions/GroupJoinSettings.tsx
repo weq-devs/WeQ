@@ -9,6 +9,14 @@ import { useQQAction } from './shared.shared';
 
 type JoinMode = 1 | 2 | 3 | 4 | 5;
 type QuestionMode = 4 | 5;
+const joinModeLabels: Record<JoinMode, string> = {
+  1: '允许任何人',
+  2: '需要审核',
+  3: '不允许加入',
+  4: '正确回答问题',
+  5: '回答问题并审核',
+};
+
 function joinMode(value: number | null | undefined): JoinMode | '' {
   if (value === 55) return 5;
   return value === 1 || value === 2 || value === 3 || value === 4 || value === 5 ? value : '';
@@ -19,6 +27,7 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
   const autoRefresh = useQQAutoRefresh(a.available);
   const input = { ...a.binding!, groupId };
   const query = trpc.account.qqActions.groupJoinManagement.useQuery(input, autoRefresh);
+  const unavailable = query.isFetching ? '读取中…' : '尚未读取加群方式';
   const [draft, setDraft] = useState<{
     mode: QuestionMode;
     question: string;
@@ -26,8 +35,8 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
   } | null>(null);
   useDraftProtection(draft, a.pending);
   const currentMode = joinMode(query.data?.option);
-  const mode = draft?.mode ?? currentMode;
-  const question = draft?.question ?? query.data?.question ?? '';
+  const mode = (canManage ? draft?.mode : undefined) ?? currentMode;
+  const question = (canManage ? draft?.question : undefined) ?? query.data?.question ?? '';
   const answer = draft?.answer ?? '';
   const disabled = a.disabled || !canManage;
   const asking = mode === 4 || mode === 5;
@@ -75,34 +84,40 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
       <Row
         label="入群验证"
         control={
-          <FormSelect
-            className="weq-set-input"
-            aria-label="加群方式"
-            value={mode}
-            disabled={!canEdit}
-            onChange={(event) => {
-              const next = joinMode(Number(event.target.value));
-              if (!next || next === mode) return;
-              if (next === 4 || next === 5) {
-                setDraft({ mode: next, question, answer: '' });
-              } else if (next === currentMode) {
-                setDraft(null);
-              } else {
-                void submit(next);
-              }
-            }}
-          >
-            {mode === '' && (
-              <option value="" disabled data-placeholder>
-                {query.isFetching ? '读取中…' : '尚未读取加群方式'}
-              </option>
-            )}
-            <option value={1}>允许任何人</option>
-            <option value={2}>需要审核</option>
-            <option value={3}>不允许加入</option>
-            <option value={4}>正确回答问题</option>
-            <option value={5}>回答问题并审核</option>
-          </FormSelect>
+          canManage ? (
+            <FormSelect
+              className="weq-set-input"
+              aria-label="加群方式"
+              value={mode}
+              disabled={!canEdit}
+              onChange={(event) => {
+                const next = joinMode(Number(event.target.value));
+                if (!next || next === mode) return;
+                if (next === 4 || next === 5) {
+                  setDraft({ mode: next, question, answer: '' });
+                } else if (next === currentMode) {
+                  setDraft(null);
+                } else {
+                  void submit(next);
+                }
+              }}
+            >
+              {mode === '' && (
+                <option value="" disabled data-placeholder>
+                  {unavailable}
+                </option>
+              )}
+              {Object.entries(joinModeLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </FormSelect>
+          ) : (
+            <span className="weq-qq-write-static">
+              {currentMode ? joinModeLabels[currentMode] : unavailable}
+            </span>
+          )
         }
       />
       {asking ? (
@@ -110,18 +125,22 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
           label="入群问题"
           desc={mode === 4 ? '答对问题才能加入' : '答完问题后仍需管理员审核'}
           control={
-            <input
-              className="weq-set-input"
-              aria-label="加群问题"
-              value={question}
-              maxLength={256}
-              disabled={disabled}
-              onChange={(event) => setDraft({ mode, question: event.target.value, answer })}
-            />
+            canManage ? (
+              <input
+                className="weq-set-input"
+                aria-label="加群问题"
+                value={question}
+                maxLength={256}
+                disabled={disabled}
+                onChange={(event) => setDraft({ mode, question: event.target.value, answer })}
+              />
+            ) : (
+              <span className="weq-qq-write-static">{question || '未取得入群问题'}</span>
+            )
           }
         />
       ) : null}
-      {mode === 4 ? (
+      {canManage && mode === 4 ? (
         <Row
           label="问题答案"
           desc="只有你和管理员能看到"

@@ -1,4 +1,4 @@
-import { Plus, Tags, Trash2 } from 'lucide-react';
+import { Plus, Tags, X } from 'lucide-react';
 import { useState } from 'react';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { client, trpc } from '../../trpc/client';
@@ -6,6 +6,31 @@ import { NumericText } from '../NumericText';
 import { Card, Row } from '../settings/controls';
 import { ActionIcon } from './shared';
 import type { useQQAction } from './shared.shared';
+
+// QQ Android TroopClassifyDetailConfig 的内置目录，群资料中的名称优先。
+const groupCategoryNames: Partial<Record<number, string>> = {
+  23: '同事与朋友',
+  24: '置业安家',
+  25: '游戏',
+  26: '品牌产品',
+  27: '粉丝',
+  28: '兴趣爱好',
+  29: '生活休闲',
+  30: '学习考试',
+  31: '行业交流',
+  32: '老师家长',
+  36: '兴趣交流',
+  37: '二次元',
+  39: '其他',
+  40: '同城',
+  10009: '同事',
+  10010: '亲友',
+  10011: '师生同学',
+  10012: '团队办公',
+  10018: '影视综艺',
+  10019: '音乐',
+  30003: '交友扩列',
+};
 
 export function GroupCategorySettings({
   groupId,
@@ -38,7 +63,7 @@ export function GroupCategorySettings({
       ? info.isFetching
         ? '读取中…'
         : '未取得群分类'
-      : info.data?.categoryName || `分类 ${category}`;
+      : info.data?.categoryName || groupCategoryNames[category];
   const disabled = action.disabled || !canManage || category === null;
 
   async function update(kind: 'addTag' | 'deleteTag', name: string) {
@@ -71,7 +96,17 @@ export function GroupCategorySettings({
 
   return (
     <Card title="分类标签" icon={<Tags />}>
-      <Row label="群分类" control={<span className="weq-qq-write-static">{categoryName}</span>} />
+      <Row
+        label="群分类"
+        control={
+          <span
+            className="weq-qq-write-static"
+            title={categoryName ? undefined : `QQ 分类编号 ${category}`}
+          >
+            {categoryName || (category === 34 ? '未设置' : '未命名分类')}
+          </span>
+        }
+      />
       {canManage && (
         <Row
           label="新增标签"
@@ -117,9 +152,9 @@ export function GroupCategorySettings({
               {tags.isFetching ? '正在读取分类标签…' : '此分类暂无标签'}
             </p>
           ) : (
-            <ul className="weq-qq-action-list" aria-label="分类标签目录">
+            <ul className="weq-group-management-tags" aria-label="分类标签目录">
               {[...tagCounts].map(([name, count]) => (
-                <li key={name}>
+                <li key={name} className="weq-profile-tag">
                   <span>
                     {name}
                     {count > 1 ? <NumericText>{` (${count} 条)`}</NumericText> : null}
@@ -131,7 +166,7 @@ export function GroupCategorySettings({
                       disabled={disabled}
                       onClick={() => void update('deleteTag', name)}
                     >
-                      <Trash2 size={15} aria-hidden />
+                      <X size={12} aria-hidden />
                     </ActionIcon>
                   )}
                 </li>

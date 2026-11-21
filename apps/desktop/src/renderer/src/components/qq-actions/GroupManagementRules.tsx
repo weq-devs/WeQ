@@ -14,7 +14,7 @@ const memberSwitches = [
   ['allowMemberUploadAlbum', '允许成员上传群相册'],
 ] as const;
 const robotSwitches = [
-  ['robotMemberSwitch', '允许邀请群机器人'],
+  ['robotMemberSwitch', '允许群成员邀请机器人'],
   ['robotMemberExamine', '群机器人入群需要审核'],
 ] as const;
 const searchModes = {
@@ -26,7 +26,7 @@ const inviteModes = {
   disabled: '禁止成员邀请',
   require_approval: '需要审核',
   no_approval: '无需审核',
-  no_approval_under_100: '不足 100 人免审核',
+  no_approval_under_100: '100 人以内免审核',
 } as const;
 type Change =
   | { key: (typeof memberSwitches | typeof robotSwitches)[number][0]; value: boolean }
@@ -122,7 +122,7 @@ export function GroupManagementRules({
                   className="weq-set-input"
                   aria-label="成员邀请"
                   value={query.data?.invitePolicy ?? ''}
-                  disabled={disabled || query.data?.invitePolicy == null}
+                  disabled={disabled}
                   onChange={(event) => {
                     const value = event.target.value;
                     if (Object.hasOwn(inviteModes, value))
@@ -130,7 +130,7 @@ export function GroupManagementRules({
                   }}
                 >
                   <option value="" disabled>
-                    状态未知
+                    {query.isFetching ? '读取中…' : '状态未知'}
                   </option>
                   {Object.entries(inviteModes).map(([key, label]) => (
                     <option key={key} value={key}>

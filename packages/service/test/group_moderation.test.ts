@@ -13,6 +13,7 @@ import {
   decode,
   MuteGroupAll,
   MUTE_ALL_PERMANENT,
+  SetGroupInvitePolicy,
   SetGroupSearch,
 } from '@weqbot/protocol';
 
@@ -29,7 +30,10 @@ interface TrpcCall {
   needSign: boolean;
 }
 
-function fakeNative(groupDetail = Buffer.alloc(0)) {
+function fakeNative(
+  groupDetail = Buffer.alloc(0),
+  otherReply: (command: number) => Buffer = () => Buffer.alloc(0),
+) {
   const oidb: OidbCall[] = [];
   const trpc: TrpcCall[] = [];
   return {
@@ -42,7 +46,7 @@ function fakeNative(groupDetail = Buffer.alloc(0)) {
       body: Buffer,
     ): Promise<Buffer> => {
       oidb.push({ pid, command, subCommand, body: new Uint8Array(body) });
-      return command === 0x88d ? groupDetail : Buffer.alloc(0);
+      return command === 0x88d ? groupDetail : otherReply(command);
     },
     sendPacket: async (
       pid: number,
@@ -85,6 +89,91 @@ function groupSearchDetail(keywordFlag: number, numberFlag: number) {
 }
 
 describe('GroupModerationService', () => {
+  it('成员邀请先写审核档位，再打开邀请，写入只包含各自字段', async () => {
+    // 0x88D_0：扩展标志有禁止邀请位，审核标志还保留不相关的相册限制。
+    const nt = fakeNative(Buffer.from('0a0f08b9601a0aa801b960208001c00301', 'hex'));
+    const service = makeService(nt);
+    expect((await service.advancedSettings(12345)).invitePolicy).toBe('disabled');
+    await service.setAdvancedSetting(
+      12345,
+      { key: 'invitePolicy', value: 'no_approval_under_100' },
+      () => {},
+    );
+    const writes = nt.oidb.filter(({ command }) => command === 0x89a);
+    expect(writes.map(({ body }) => decode(SetGroupInvitePolicy.reqSchema, body))).toEqual([
+      {
+        groupUin: 12345n,
+        settings: { appPrivilegeFlag: 0x04000000, appPrivilegeMask: 0x06100000 },
+      },
+      { groupUin: 12345n, settings: { allowMemberInvite: 1 } },
+    ]);
+  });
+
+  it('允许邀请时按审核规则读回，禁止邀请只提交开关', async () => {
+    const nt = fakeNative(Buffer.from('0a1108b9601a0ca801b9602000c00381808020', 'hex'));
+    const service = makeService(nt);
+    expect((await service.advancedSettings(12345)).invitePolicy).toBe('no_approval_under_100');
+    await service.setAdvancedSetting(12345, { key: 'invitePolicy', value: 'disabled' }, () => {});
+    const writes = nt.oidb.filter(({ command }) => command === 0x89a);
+    expect(writes.map(({ body }) => decode(SetGroupInvitePolicy.reqSchema, body))).toEqual([
+      { groupUin: 12345n, settings: { allowMemberInvite: 0 } },
+    ]);
+  });
+
+  it('已禁止邀请的群切回需要审核时只开启邀请', async () => {
+    const nt = fakeNative(Buffer.from('0a0f08b9601a0aa801b960208001c00301', 'hex'));
+    await makeService(nt).setAdvancedSetting(
+      12345,
+      { key: 'invitePolicy', value: 'require_approval' },
+      () => {},
+    );
+    const writes = nt.oidb.filter(({ command }) => command === 0x89a);
+    expect(writes.map(({ body }) => decode(SetGroupInvitePolicy.reqSchema, body))).toEqual([
+      { groupUin: 12345n, settings: { allowMemberInvite: 1 } },
+    ]);
+  });
+
+  it('审核规则写入被拒时，不以旧规则开放邀请', async () => {
+    const nt = fakeNative(Buffer.from('0a0f08b9601a0aa801b960208001c00301', 'hex'), (command) => {
+      if (command === 0x89a) throw new Error('OIDB error 1006: ');
+      return Buffer.alloc(0);
+    });
+    await expect(
+      makeService(nt).setAdvancedSetting(
+        12345,
+        { key: 'invitePolicy', value: 'no_approval' },
+        () => {},
+      ),
+    ).rejects.toThrow('QQ 拒绝修改邀请审核方式（1006）');
+    expect(nt.oidb.filter(({ command }) => command === 0x89a)).toHaveLength(1);
+  });
+
+  it('机器人开关与审核使用各自的开关值，写入单项不覆盖其他字段', async () => {
+    const nt = fakeNative(groupSearchDetail(0, 0), (command) =>
+      command === 0xef0 ? Buffer.from('0a0b08b9601a06e80102f00102', 'hex') : Buffer.alloc(0),
+    );
+    const service = makeService(nt);
+    expect(await service.advancedSettings(12345)).toMatchObject({
+      robotMemberSwitch: true,
+      robotMemberExamine: true,
+    });
+    await service.setAdvancedSetting(12345, { key: 'robotMemberSwitch', value: false }, () => {});
+    await service.setAdvancedSetting(12345, { key: 'robotMemberExamine', value: false }, () => {});
+    expect(
+      nt.oidb
+        .filter(({ command }) => command === 0xf00)
+        .map(({ body }) => Buffer.from(body).toString('hex')),
+    ).toEqual(['08b960120808b9601203e80101', '08b960120808b9601203f00101']);
+  });
+
+  it('从群详情补读机器人扩展，成功返回扩展时使用 QQ 的缺省值', async () => {
+    const nt = fakeNative(Buffer.from('0a0f08b9601a0aa801b960ea0603e80101', 'hex'));
+    expect(await makeService(nt).advancedSettings(12345)).toMatchObject({
+      robotMemberSwitch: false,
+      robotMemberExamine: false,
+    });
+  });
+
   it.each([
     ['keyword_or_number', 'disabled', 0, 0, 1, 1],
     ['number_only', 'keyword_or_number', 1, 0, 0, 0],
@@ -116,7 +205,7 @@ describe('GroupModerationService', () => {
   it('群详情读回失败时，管理员仍能明确提交一个完整的搜索档位', async () => {
     const nt = fakeNative(Buffer.from('0a0508b9601048', 'hex'));
     const service = makeService(nt);
-    await expect(service.advancedSettings(12345)).rejects.toThrow('缺少 groupInfo.results');
+    await expect(service.advancedSettings(12345)).rejects.toThrow('72');
     nt.oidb.length = 0;
     await service.setAdvancedSetting(12345, { key: 'searchMode', value: 'number_only' }, () => {});
     expect(nt.oidb.map(({ command, subCommand }) => [command, subCommand])).toEqual([[0x89a, 0]]);

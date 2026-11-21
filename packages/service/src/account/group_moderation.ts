@@ -38,6 +38,7 @@ import {
   SetGroupMemberPermission,
   decodeGroupHistoryVisibility,
   decodeGroupMemberPermissions,
+  decodeMemberInviteAllowed,
   decodeMemberInvitePolicy,
   type GroupMemberInvitePolicy,
   SetAdminPermissions,
@@ -127,13 +128,23 @@ const GROUP_SEARCH_FLAGS = {
 } as const;
 type GroupSearchMode = keyof typeof GROUP_SEARCH_FLAGS;
 
+const GROUP_ROBOT_VALUES = {
+  robotMemberSwitch: { on: 2, off: 1, defaultEnabled: true },
+  robotMemberExamine: { on: 2, off: 1, defaultEnabled: false },
+} as const;
+type GroupRobotSwitch = keyof typeof GROUP_ROBOT_VALUES;
+
 type GroupSettingChange =
   | { key: GroupSettingSwitch; value: boolean }
   | { key: 'searchMode'; value: GroupSearchMode }
   | { key: 'invitePolicy'; value: GroupMemberInvitePolicy };
 
-function decodeSwitch(value: number | undefined) {
-  return value === 0 || value === 1 ? value === 1 : null;
+function decodeRobotSwitch(value: number | undefined, key: GroupRobotSwitch) {
+  const { on, off, defaultEnabled } = GROUP_ROBOT_VALUES[key];
+  // QQ 默认允许群成员邀请机器人，且无需审核。
+  if (value === 0) return defaultEnabled;
+  if (value === on || value === off) return value === on;
+  return null;
 }
 
 export class GroupModerationService {
@@ -311,12 +322,22 @@ export class GroupModerationService {
   async advancedSettings(groupId: number) {
     const pid = this.resolvePid();
     const [detail, robot] = await Promise.all([
-      FetchGroupDetail.invoke(this.nt, pid, { groupId }),
+      FetchGroupDetail.invoke(this.nt, pid, { groupId, includeRobotSettings: true }),
       FetchGroupExtInfo.invoke(this.nt, pid, { groupId }).catch(() => null),
     ]);
     if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请刷新');
     const fields = detail.settingFields ?? {};
     const flags = fields.privilegeFlag;
+    const memberInviteAllowed = decodeMemberInviteAllowed(fields.groupFlagExt);
+    const robotFields = robot?.settingFields;
+    const detailRobotFields = detail.robotSettings;
+    const robotSetting = (key: GroupRobotSwitch) =>
+      decodeRobotSwitch(
+        robotFields?.[key] ??
+          detailRobotFields?.[key] ??
+          (robotFields || detailRobotFields ? 0 : undefined),
+        key,
+      );
     const member = flags === undefined ? null : decodeGroupMemberPermissions(flags);
     const searchMode = (Object.keys(GROUP_SEARCH_FLAGS) as GroupSearchMode[]).find((mode) => {
       const expected = GROUP_SEARCH_FLAGS[mode];
@@ -328,7 +349,12 @@ export class GroupModerationService {
     return {
       privilegeFlag: flags ?? null,
       searchMode: searchMode ?? null,
-      invitePolicy: flags === undefined ? null : decodeMemberInvitePolicy(flags),
+      invitePolicy:
+        memberInviteAllowed === false
+          ? ('disabled' as const)
+          : memberInviteAllowed === true && flags !== undefined
+            ? decodeMemberInvitePolicy(flags)
+            : null,
       newMemberHistory:
         fields.groupFlagExt4 === undefined
           ? null
@@ -336,8 +362,8 @@ export class GroupModerationService {
       allowMemberUploadAlbum: member?.allowMemberUploadAlbum ?? null,
       allowMemberTemporarySession: member?.allowMemberTemporarySession ?? null,
       allowMemberCreateGroup: member?.allowMemberCreateGroup ?? null,
-      robotMemberSwitch: decodeSwitch(robot?.settingFields?.robotMemberSwitch),
-      robotMemberExamine: decodeSwitch(robot?.settingFields?.robotMemberExamine),
+      robotMemberSwitch: robotSetting('robotMemberSwitch'),
+      robotMemberExamine: robotSetting('robotMemberExamine'),
     };
   }
 
@@ -355,6 +381,17 @@ export class GroupModerationService {
         ...GROUP_SEARCH_FLAGS[change.value],
       });
     }
+    if (change.key === 'invitePolicy') {
+      const { settingFields } = await FetchGroupDetail.invoke(this.nt, pid, { groupId });
+      checkCurrent();
+      return SetGroupInvitePolicy.invoke(this.nt, pid, {
+        groupId,
+        currentPrivilegeFlag: settingFields?.privilegeFlag,
+        memberInviteAllowed: decodeMemberInviteAllowed(settingFields?.groupFlagExt),
+        policy: change.value,
+        beforeSend: checkCurrent,
+      });
+    }
     const settings = await this.advancedSettings(groupId);
     checkCurrent();
     if (settings[change.key] === null) throw new Error('服务端未返回对应设置，请刷新后重试');
@@ -362,18 +399,11 @@ export class GroupModerationService {
     switch (change.key) {
       case 'newMemberHistory':
         return SetGroupHistoryVisibility.invoke(this.nt, pid, { groupId, visible: change.value });
-      case 'invitePolicy':
-        if (settings.privilegeFlag === null) throw new Error('群邀请设置不可读');
-        return SetGroupInvitePolicy.invoke(this.nt, pid, {
-          groupId,
-          currentPrivilegeFlag: settings.privilegeFlag,
-          policy: change.value,
-        });
       case 'robotMemberSwitch':
       case 'robotMemberExamine':
         return ModifyGroupExtInfo.invoke(this.nt, pid, {
           groupId,
-          [change.key]: Number(change.value),
+          [change.key]: GROUP_ROBOT_VALUES[change.key][change.value ? 'on' : 'off'],
         });
       default: {
         const permission = {

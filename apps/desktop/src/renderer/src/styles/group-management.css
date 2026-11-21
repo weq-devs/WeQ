@@ -46,6 +46,37 @@
   margin: 0;
 }
 
+.weq-group-management-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.weq-group-management-tags > li {
+  max-width: 100%;
+  min-width: 0;
+  min-height: 24px;
+}
+
+.weq-group-management-tags > li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-group-management-tags > li > .weq-set-iconbtn {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin: -2px -6px -2px 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+}
+
 @container (max-width: 340px) {
   .weq-group-management .weq-set-row:has(.weq-set-input) {
     display: grid;
@@ -65,5 +96,10 @@
 
   .weq-group-management .weq-set-input {
     font-size: 16px;
+  }
+
+  .weq-group-management-tags > li > .weq-set-iconbtn {
+    width: 44px;
+    height: 44px;
   }
 }
