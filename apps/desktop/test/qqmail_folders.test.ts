@@ -105,6 +105,11 @@ function fixture() {
     read: vi.fn(async () => {
       throw new Error('未使用正文夹具');
     }),
+    previewUnread: vi.fn(async () => ({
+      ids: ['fixture-mail', 'other-mail'],
+      configId: 'source-a',
+    })),
+    markAllRead: vi.fn(async () => {}),
     action: vi.fn(async () => {}),
     send: vi.fn(async () => ({ state: 'accepted' as const, id: '', messageId: '' })),
     notifications: vi.fn(async () => ready),
@@ -190,6 +195,52 @@ async function mount(api: MailApi, searchTarget?: MailOpenTarget, scope = crypto
     },
   };
 }
+
+describe('批量标记邮件已读', () => {
+  it('无选中项时先确认整个邮箱的数量，取消不写入，确认只提交统计到的邮件', async () => {
+    const { api } = fixture();
+    const view = await mount(api);
+    const click = () =>
+      act(async () =>
+        view.host.querySelector<HTMLButtonElement>('[aria-label="全部标为已读"]')!.click(),
+      );
+    try {
+      await click();
+      expect(useDialog.getState().current?.message).toContain('2 封未读邮件');
+      expect(api.markAllRead).not.toHaveBeenCalled();
+      await act(async () => useDialog.getState().close());
+      expect(api.markAllRead).not.toHaveBeenCalled();
+
+      await click();
+      await act(async () => {
+        useDialog.getState().current?.confirm?.resolve(true);
+        useDialog.getState().close();
+      });
+      expect(api.markAllRead).toHaveBeenCalledWith(['fixture-mail', 'other-mail'], 'source-a');
+      expect(api.action).not.toHaveBeenCalled();
+    } finally {
+      useDialog.getState().close();
+      view.close();
+    }
+  });
+
+  it('有选中项时直接标记所选邮件', async () => {
+    const { api } = fixture();
+    const view = await mount(api);
+    try {
+      await act(async () =>
+        view.host.querySelector<HTMLInputElement>('[aria-label="选择当前页全部邮件"]')!.click(),
+      );
+      await act(async () =>
+        view.host.querySelector<HTMLButtonElement>('[aria-label="标为已读"]')!.click(),
+      );
+      expect(api.action).toHaveBeenCalledWith(['fixture-mail'], 'read');
+      expect(api.previewUnread).not.toHaveBeenCalled();
+    } finally {
+      view.close();
+    }
+  });
+});
 
 describe('邮箱文件夹重复选择', () => {
   it('非活动时释放阅读/编辑 DOM，后台连接继续，重建和重开都恢复未发送正文', async () => {

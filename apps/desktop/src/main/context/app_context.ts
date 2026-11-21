@@ -2556,6 +2556,10 @@ export function initAppContext(fileRoot?: string): AppContext {
             allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => notifyMail(session, notice),
             onRead: (mailIds) => webNotice(session, { kind: 'mail-read', mailIds }),
+            onAllRead: async (confirm) => {
+              const { markMailReminderRead } = await import('../mail_read_state');
+              await markMailReminderRead(session, confirm);
+            },
           },
         ),
         groupAlbumMedia: new GroupAlbumMediaService(
@@ -3486,6 +3490,10 @@ export function initAppContext(fileRoot?: string): AppContext {
             allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => notifyMail(session, notice),
             onRead: (mailIds) => webNotice(session, { kind: 'mail-read', mailIds }),
+            onAllRead: async (confirm) => {
+              const { markMailReminderRead } = await import('../mail_read_state');
+              await markMailReminderRead(session, confirm);
+            },
           },
         ),
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),

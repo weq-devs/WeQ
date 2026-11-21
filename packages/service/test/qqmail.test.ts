@@ -672,6 +672,127 @@ describe('邮箱生命周期和提醒', () => {
     expect(transport.calls.some((call) => call.url.pathname === '/mgr/mailmgr')).toBe(false);
     service.dispose();
   });
+  it('统计整个邮箱的未读邮件时跨页去重，并将会话展开为实际未读子邮件', async () => {
+    const transport = new FakeMailTransport();
+    const original = transport.request.bind(transport);
+    const inbox = Array.from({ length: 98 }, (_, index) => ({
+      emailid: `inbox-${index}`,
+      info: { unread: 1 },
+    }));
+    const pages = vi.fn();
+    transport.request = async (url, options) => {
+      switch (new URL(url).pathname) {
+        case '/list/folderlist':
+          return transport.envelope({
+            list: [
+              { id: 1, unread: 101 },
+              { id: 2001, unread: 2 },
+              { id: 4001, unread: 5 },
+            ],
+          });
+        case '/list/maillist': {
+          const { dirid, page_now, only_unread } = options?.form ?? {};
+          expect(only_unread).toBe(true);
+          pages(dirid, page_now);
+          const rows =
+            dirid === 1
+              ? page_now === 0
+                ? [...inbox, { emailid: 'C1Tthread' }, { emailid: 'read-pinned', unread: 0 }]
+                : [inbox[0], { emailid: 'last-page', unread: 1 }]
+              : dirid === 2001
+                ? [inbox[0], { emailid: 'another-folder', unread: 1 }]
+                : [];
+          return transport.envelope({ list: rows, total_num: rows.length });
+        }
+        case '/list/collo_maillist':
+          return transport.envelope({
+            colloinfo: { emailid: 'C1Tthread' },
+            sublist: [
+              { emailid: 'thread-unread', info: { unread: 1 } },
+              { emailid: 'thread-read', info: { unread: 0 } },
+            ],
+          });
+        default:
+          return original(url, options);
+      }
+    };
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => new MailAuth(native, '12345678', () => 42, transport),
+    });
+    try {
+      await expect(service.unreadIds()).resolves.toEqual([
+        ...inbox.map((item) => item.emailid),
+        'last-page',
+        'another-folder',
+        'thread-unread',
+      ]);
+      expect(pages).toHaveBeenCalledWith(1, 1);
+      expect(pages).not.toHaveBeenCalledWith(2, 0);
+      expect(pages).not.toHaveBeenCalledWith(4001, 0);
+      expect(transport.calls.some((call) => call.url.pathname === '/mgr/mailmgr')).toBe(false);
+      expect(transport.calls.some((call) => call.url.pathname === '/read/readmail')).toBe(false);
+    } finally {
+      service.dispose();
+    }
+  });
+  it('批量标已读分批提交，失败后仅清理已确认的提醒并刷新一次未读数', async () => {
+    const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+    const cgi = vi.spyOn(auth, 'cgi').mockResolvedValueOnce({});
+    cgi.mockRejectedValueOnce(new MailFailure('network', '请求失败'));
+    const query = vi.spyOn(auth, 'notificationQuery').mockResolvedValue({ unread: 101 });
+    const onRead = vi.fn();
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      onRead,
+    });
+    const ids = Array.from({ length: 201 }, (_, index) => `fixture-${index}`);
+    try {
+      await expect(service.action(ids, 'read')).rejects.toThrow(
+        '已确认 100 封邮件标为已读，另有 101 封尚未确认',
+      );
+      expect(cgi).toHaveBeenCalledTimes(2);
+      expect(cgi).toHaveBeenNthCalledWith(
+        2,
+        '/mgr/mailmgr',
+        { mailid: ids.slice(100, 200), func: 4 },
+        { signal: undefined, write: true },
+      );
+      expect(onRead).toHaveBeenCalledOnce();
+      expect(onRead).toHaveBeenCalledWith(ids.slice(0, 100));
+      expect(query).toHaveBeenCalledOnce();
+    } finally {
+      service.dispose();
+    }
+  });
+  it('逐封和批量标已读都要等邮箱确认归零，随后复核期间是否有未读', async () => {
+    const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+    vi.spyOn(auth, 'cgi').mockResolvedValue({
+      item: { ret: 0, emailid: 'last-fixture', content: '正文' },
+    });
+    vi.spyOn(auth, 'notificationQuery')
+      .mockResolvedValueOnce({ unread: 0, mailboxUnread: null })
+      .mockResolvedValueOnce({ unread: 1, mailboxUnread: 1 })
+      .mockResolvedValue({ unread: 0, mailboxUnread: 0 });
+    vi.spyOn(auth, 'mailboxUnread').mockResolvedValueOnce(1).mockResolvedValue(0);
+    const result = vi.fn();
+    const onAllRead = vi.fn(async (confirm: () => Promise<boolean>) => result(await confirm()));
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      onAllRead,
+    });
+    try {
+      await service.action(['unknown-count'], 'read');
+      await service.action(['still-unread'], 'read');
+      expect(onAllRead).not.toHaveBeenCalled();
+      await service.read('last-fixture');
+      await vi.waitFor(() => expect(result).toHaveBeenCalledWith(false));
+      await service.action(['batch-a', 'batch-b'], 'read');
+      await vi.waitFor(() => expect(result).toHaveBeenCalledWith(true));
+      expect(onAllRead).toHaveBeenCalledTimes(2);
+    } finally {
+      service.dispose();
+    }
+  });
   it('提醒开启后去重并调用系统适配，关闭与销毁清理连接和计时器', async () => {
     vi.useFakeTimers();
     class Socket extends EventEmitter implements MailSocket {

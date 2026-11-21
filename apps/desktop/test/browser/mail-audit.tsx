@@ -152,6 +152,8 @@ const api: MailApi = {
   list: async () =>
     scenario === 'empty' ? { ...listPage, items: [], total: 0, unread: 0 } : listPage,
   read: async () => detail,
+  previewUnread: async () => ({ ids: [], configId: 'fixture' }),
+  markAllRead: async () => {},
   action: async () => {},
   send: async () => ({ state: 'accepted', id: 'fixture', messageId: 'fixture' }),
   notifications: async () => status,

@@ -24,6 +24,8 @@ export interface MailApi {
   folders(signal?: AbortSignal): Promise<MailFolder[]>;
   list(input: MailListInput, signal?: AbortSignal): Promise<MailPage>;
   read(id: string, signal?: AbortSignal): Promise<MailDetail>;
+  previewUnread(): Promise<{ ids: string[]; configId: string }>;
+  markAllRead(ids: string[], expectedAccountConfigId: string): Promise<void>;
   action(ids: string[], action: MailAction): Promise<void>;
   send(message: MailComposeInput, draft: boolean): Promise<MailSubmission>;
   notifications(enabled: boolean): Promise<MailStatus>;
@@ -85,6 +87,12 @@ export function createMailApi(selfUin: string): MailApi {
       ),
     read: (id, signal) =>
       request((requestId) => client.mail.read.mutate({ selfUin, requestId, id }), signal),
+    previewUnread: () =>
+      request((requestId) => client.mail.previewUnread.query({ selfUin, requestId })),
+    markAllRead: (ids, expectedAccountConfigId) =>
+      request((requestId) =>
+        client.mail.markAllRead.mutate({ selfUin, requestId, ids, expectedAccountConfigId }),
+      ),
     action: (ids, action) =>
       request((requestId) => client.mail.action.mutate({ selfUin, requestId, ids, action })),
     send: (message, draft) =>

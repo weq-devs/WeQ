@@ -100,6 +100,7 @@ import {
   boundClientState,
   trustSharedDraftMedia,
   reportOfficialDirectoryReads,
+  setDirectoryReadState,
 } from './client_state';
 import { mkdir, stat, lstat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -109,8 +110,8 @@ import {
   getAppContext,
   requireBootstrap,
   dbEventBus,
-  accountEventBus,
   liveGroupKeywordRules,
+  accountEventBus,
   type AccountServices,
   type RoamingCacheChange,
 } from '../../context/app_context';
@@ -3659,8 +3660,7 @@ export const accountRouter = router({
         let changes: DirectoryReadChange[] = [];
         let failed = 0;
         try {
-          changes = state.setDirectoryReadState(input.directoryTargets, input.unread);
-          if (!input.unread) reportOfficialDirectoryReads(state, input.directoryTargets, true);
+          changes = setDirectoryReadState(state, input.directoryTargets, input.unread);
         } catch (error) {
           if (!input.targets.length) throw error;
           failed += input.directoryTargets.length;

@@ -250,6 +250,7 @@ export function MailPage({
   });
   const selectedFolder = folders.find((item) => item.id === folderId);
   const selection = checked.length ? checked : selectedId ? [selectedId] : [];
+  const markReadLabel = selection.length ? '标为已读' : '全部标为已读';
   const chooseFolder = useCallback(
     (id: number): void => {
       loadedRead.current = null;
@@ -556,8 +557,36 @@ export function MailPage({
       if (mounted.current) setActionBusy(false);
     }
   }
+  async function markAllRead(): Promise<void> {
+    if (actionBusy) return;
+    setActionBusy(true);
+    const dialog = useDialog.getState();
+    try {
+      const { ids, configId } = await api.previewUnread();
+      if (!mounted.current) return;
+      if (!ids.length) {
+        dialog.showInfo('没有未读邮件', '当前邮箱的邮件均已读。');
+        return;
+      }
+      const confirmed = await dialog.confirm(
+        '全部标为已读？',
+        `将当前邮箱的 ${ids.length} 封未读邮件标为已读。`,
+        { okLabel: '全部标为已读', tone: 'info' },
+      );
+      if (!confirmed || !mounted.current) return;
+      await api.markAllRead(ids, configId);
+      if (mounted.current) {
+        if (unreadOnly) setPageNumber(0);
+        setRevision((value) => value + 1);
+      }
+    } catch (error) {
+      if (mounted.current) dialog.showError('全部标为已读失败', mailError(error));
+    } finally {
+      if (mounted.current) setActionBusy(false);
+    }
+  }
   async function disconnect(): Promise<void> {
-    if (composeBusy) return;
+    if (composeBusy || actionBusy) return;
     if (
       composeDirty &&
       !(await useDialog.getState().confirm('断开邮箱连接？', '未保存的写信内容和附件将被清除。', {
@@ -699,7 +728,7 @@ export function MailPage({
               type="button"
               title="断开邮箱连接"
               aria-label="断开邮箱连接"
-              disabled={composeBusy}
+              disabled={composeBusy || actionBusy}
               onClick={() => void disconnect()}
             >
               <Unlink size={17} />
@@ -868,12 +897,16 @@ export function MailPage({
               </span>
               <button
                 type="button"
-                title="标为已读"
-                aria-label="标为已读"
-                disabled={!selection.length || actionBusy}
-                onClick={() => void act('read')}
+                title={markReadLabel}
+                aria-label={markReadLabel}
+                disabled={actionBusy}
+                onClick={() => void (selection.length ? act('read') : markAllRead())}
               >
-                <MailOpen size={16} />
+                {actionBusy && !selection.length ? (
+                  <LoaderCircle size={16} className="weq-mail-spin" />
+                ) : (
+                  <MailOpen size={16} />
+                )}
               </button>
               <button
                 type="button"

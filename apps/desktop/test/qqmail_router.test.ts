@@ -43,6 +43,8 @@ function fixture() {
     })),
     folders: vi.fn(async () => []),
     list: vi.fn(async () => ({ items: [], page: 0, total: 0, unread: 0, hasMore: false })),
+    unreadIds: vi.fn(async () => ['fixture-mail', 'another-mail']),
+    action: vi.fn(async () => {}),
     read: vi.fn(),
     send: vi.fn(async () => ({ id: 'accepted-fixture', messageId: 'message-fixture' })),
     upload: vi.fn(),
@@ -146,6 +148,22 @@ describe('原生邮箱 IPC 边界', () => {
       '账号已切换',
     );
     expect(mail.list).not.toHaveBeenCalled();
+  });
+  it('统计未读邮件只查询，提交必须对应原账号和数据源', async () => {
+    preferences.getRecord.mockReturnValue({ configId: 'source-a' });
+    const { ids, configId } = await api.previewUnread(input);
+    expect(ids).toEqual(['fixture-mail', 'another-mail']);
+    expect(mail.action).not.toHaveBeenCalled();
+    const confirmation = { ...input, ids, expectedAccountConfigId: configId };
+    await expect(api.markAllRead({ ...confirmation, selfUin: '87654321' })).rejects.toThrow(
+      '账号已切换',
+    );
+    preferences.getRecord.mockReturnValue({ configId: 'source-b' });
+    await expect(api.markAllRead(confirmation)).rejects.toThrow('数据源已切换');
+    expect(mail.action).not.toHaveBeenCalled();
+    preferences.getRecord.mockReturnValue({ configId: 'source-a' });
+    await api.markAllRead(confirmation);
+    expect(mail.action).toHaveBeenCalledWith(ids, 'read', expect.any(AbortSignal));
   });
   it('晚到的读取不能越过重开账号后的服务边界', async () => {
     let release: (() => void) | undefined;

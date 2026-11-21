@@ -10,6 +10,11 @@ const context = vi.hoisted(() => ({
   configId: '10001_aabbccdd',
   config: null as UserConfigService | null,
   assistantSessions: [] as Array<{ id: string }>,
+  officialAccounts: [] as Array<{
+    displayName: string;
+    peerUid: string;
+    latestReadPosition: string;
+  }>,
   reportOfficialRead: vi.fn(
     async (_uid: string, _position: string, _valid: () => boolean, _manual: boolean) => ({
       state: 'acknowledged',
@@ -22,18 +27,27 @@ vi.mock('../src/main/context/app_context', () => {
     fileResource: { trustPath: vi.fn() },
     assistant: { listSessions: () => context.assistantSessions },
     unreadInfo: { reportOfficialRead: context.reportOfficialRead },
+    officialAccount: { listAccounts: async () => context.officialAccounts },
+  };
+  const account = {
+    context: {
+      get uin() {
+        return context.uin;
+      },
+    },
   };
   return {
     requirePlatform: () => ({ appDataRoot: () => context.root }),
     requireBootstrap: () => ({
       userConfig: context.config,
     }),
-    getAppContext: () => ({ account: { context: { uin: context.uin } }, services }),
+    getAppContext: () => ({ account, services }),
   };
 });
 import { clientStateRouter, boundClientState } from '../src/main/ipc/routers/client_state';
 import { createWebHost } from '../src/main/web/host';
 import { getAppContext } from '../src/main/context/app_context';
+import { markMailReminderRead } from '../src/main/mail_read_state';
 import { pickedBrowserFiles } from '../src/main/browser_files';
 import { assistantBus, type AssistantStreamEvent } from '../src/main/mcp/assistant_bus';
 import { networkCost } from '@weq/service/data-saver';
@@ -44,6 +58,7 @@ beforeEach(() => {
   context.configId = '10001_aabbccdd';
   context.config = new UserConfigService({ appDataRoot: () => context.root });
   context.assistantSessions = [];
+  context.officialAccounts = [];
   context.reportOfficialRead.mockClear();
 });
 afterEach(() => rmSync(context.root, { recursive: true, force: true }));
@@ -73,6 +88,38 @@ it('自动阅读从账号状态路由进入公众号上报，初始化与手动�
   context.reportOfficialRead.mockClear();
   await client.accountPatch({ ...binding, namespace: 'reads', values: { [key]: position } });
   expect(context.reportOfficialRead).not.toHaveBeenCalled();
+});
+it('邮箱归零后沿右键已读路径清除公众号未读并触发手动上报', async () => {
+  const account = getAppContext().account!;
+  const binding = { expectedAccountUin: context.uin, expectedAccountConfigId: context.configId };
+  const key = 'official:u_mail';
+  const position = '0:1700000000:20';
+  context.officialAccounts = [
+    { displayName: 'QQ 邮箱提醒', peerUid: 'u_mail', latestReadPosition: position },
+    { displayName: 'QQ 邮箱服务', peerUid: 'u_other', latestReadPosition: position },
+  ];
+  const state = boundClientState(binding);
+  state.setDirectoryReadState([{ key, position }], true);
+
+  await markMailReminderRead(account, async () => false);
+  expect(state.snapshot().records.reads?.[`unread:${key}`]).toBeDefined();
+  expect(context.reportOfficialRead).not.toHaveBeenCalled();
+
+  await markMailReminderRead(account, async () => true);
+  expect(state.snapshot().records.reads).toEqual({ [key]: position });
+  expect(context.reportOfficialRead).toHaveBeenCalledWith(
+    'u_mail',
+    position,
+    expect.any(Function),
+    true,
+  );
+  expect(context.reportOfficialRead.mock.calls[0]![2]()).toBe(true);
+
+  await markMailReminderRead(account, async () => {
+    context.configId = 'another-source';
+    return true;
+  });
+  expect(context.reportOfficialRead).toHaveBeenCalledOnce();
 });
 it('计费自动启用默认关闭，经真实共享路由修改后立即生效并跨账号保留', async () => {
   const client = clientStateRouter.createCaller({});

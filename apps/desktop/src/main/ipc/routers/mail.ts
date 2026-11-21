@@ -276,6 +276,27 @@ export const mailRouter = router({
     rememberMail(contentSearch, [detail, ...(detail.thread ?? [])]);
     return detail;
   }),
+  previewUnread: procedure.input(operation).query(({ input }) =>
+    perform(input, async (mail, signal) => {
+      const configId = getAppContext().services?.accountConfig.getRecord()?.configId;
+      if (!configId) throw new MailFailure('auth', '邮箱账号状态已变化，请重新打开。');
+      return { ids: await mail.unreadIds(signal), configId };
+    }),
+  ),
+  markAllRead: procedure
+    .input(
+      operation.extend({ ids: z.array(mailId).min(1), expectedAccountConfigId: z.string().min(1) }),
+    )
+    .mutation(({ input }) =>
+      perform(input, (mail, signal) => {
+        if (
+          getAppContext().services?.accountConfig.getRecord()?.configId !==
+          input.expectedAccountConfigId
+        )
+          throw new MailFailure('auth', '邮箱数据源已切换，请重新统计。');
+        return mail.action([...new Set(input.ids)], 'read', signal);
+      }),
+    ),
   image: procedure
     .input(operation.extend({ id: z.string().uuid() }))
     .query(({ input }) => perform(input, (mail, signal) => mail.image(input.id, signal))),

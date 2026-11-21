@@ -20,6 +20,7 @@ import {
   type MailPage,
   type MailStatus,
   type MailNotice,
+  type MailSummary,
 } from './types';
 import {
   MAIL_PAGE_SIZE,
@@ -75,6 +76,8 @@ export class QQMailService {
   private readonly transfers = new Set<AbortController>();
   private readonly onNotice?: (notice: MailNotice) => boolean | undefined;
   private readonly onRead?: (ids: string[]) => void;
+  private readonly onAllRead?: (confirm: () => Promise<boolean>) => Promise<void>;
+  private checkAllRead = false;
   private showUnread = false;
   private backgroundStopped = false;
   private backgroundConnect: Promise<void> | null = null;
@@ -93,6 +96,7 @@ export class QQMailService {
       /** 返回 true 表示有应用内横幅，需要跟踪这封邮件的已读。 */
       onNotice?: (notice: MailNotice) => boolean | undefined;
       onRead?: (ids: string[]) => void;
+      onAllRead?: (confirm: () => Promise<boolean>) => Promise<void>;
       socketFactory?: (options: WebSocket.ClientOptions) => MailSocket;
       allowOnline?: () => boolean;
     } = {},
@@ -103,6 +107,7 @@ export class QQMailService {
     this.state.notifications = options.notificationsEnabled ?? false;
     this.onNotice = options.onNotice;
     this.onRead = options.onRead;
+    this.onAllRead = options.onAllRead;
     this.socketFactory =
       options.socketFactory ?? ((options) => new WebSocket('wss://wx.mail.qq.com/socket', options));
   }
@@ -289,11 +294,8 @@ export class QQMailService {
       .map(mailSummary)
       .filter((entry) => entry.id);
     const key = `${keyword ?? input.folderId}:${Boolean(input.unreadOnly)}`;
-    if (body.total_num !== undefined)
-      this.totals.set(
-        key,
-        count(keyword ? body.total_num : input.unreadOnly ? body.unread_num : body.total_num),
-      );
+    const reportedTotal = input.unreadOnly && !keyword ? body.unread_num : body.total_num;
+    if (reportedTotal !== undefined) this.totals.set(key, count(reportedTotal));
     if (this.totals.size > 100) {
       const first = this.totals.keys().next().value;
       if (first) this.totals.delete(first);
@@ -306,10 +308,53 @@ export class QQMailService {
       total,
       unread: count(body.unread_num),
       hasMore:
-        body.total_num === undefined && !this.totals.has(key)
+        reportedTotal === undefined && !this.totals.has(key)
           ? rows.length >= size
           : (input.page + 1) * size < total,
     };
+  }
+
+  async unreadIds(signal?: AbortSignal): Promise<string[]> {
+    return this.scoped(async () => {
+      const unread = new Set<string>();
+      const threads = new Set<string>();
+      const collect = (item: MailSummary) => {
+        if (isMailThreadId(item.id)) threads.add(item.id);
+        else if (item.unread) unread.add(item.id);
+      };
+      for (const folder of await this.folders(signal)) {
+        // 星标和标签是聚合入口，实际邮件从所属文件夹取得。
+        if (folder.id === 2 || (folder.id >= 4000 && folder.id <= 4064)) continue;
+        if (folder.locked) {
+          if (folder.unread > 0)
+            throw new MailFailure('business', '有未读邮件位于加锁文件夹，请解锁后重试。');
+          continue;
+        }
+        const listed = new Set<string>();
+        for (let page = 0; ; page++) {
+          signal?.throwIfAborted();
+          const result = await this.list(
+            { folderId: folder.id, page, pageSize: 100, unreadOnly: true },
+            signal,
+          );
+          const before = listed.size;
+          for (const item of result.items) {
+            if (listed.has(item.id)) continue;
+            listed.add(item.id);
+            collect(item);
+          }
+          if (!result.hasMore || !result.items.length) break;
+          if (listed.size === before)
+            throw new MailFailure('business', '未读邮件分页未能继续，请重新统计。');
+        }
+      }
+      for (const id of threads) {
+        signal?.throwIfAborted();
+        const detail = await this.read(id, signal, false);
+        for (const item of detail.thread ?? []) collect(item);
+      }
+      return [...unread];
+    });
   }
 
   private async readMailItem(id: string, signal?: AbortSignal) {
@@ -365,17 +410,45 @@ export class QQMailService {
   }
 
   async action(ids: string[], action: MailAction, signal?: AbortSignal): Promise<void> {
+    if (action === 'read') return this.markRead(ids, signal);
+    await this.manage(ids, action, signal);
+    if (action === 'unread' || action === 'trash') void this.refreshUnread(signal);
+    this.events.emit('change', { type: 'changed' });
+  }
+
+  private async manage(ids: string[], action: MailAction, signal?: AbortSignal): Promise<void> {
     const funcs: Record<MailAction, number> = { read: 4, unread: 5, star: 6, unstar: 7, trash: 1 };
     await this.scoped(async (auth) => {
       await auth.cgi('/mgr/mailmgr', { mailid: ids, func: funcs[action] }, { signal, write: true });
     });
-    if (action === 'read') {
-      // 防止排队中的推送或提醒查询再次提示刚读过的邮件。
-      this.confirmNoticeReads(ids);
+  }
+
+  private async markRead(ids: string[], signal?: AbortSignal): Promise<void> {
+    const auth = this.auth;
+    let confirmed = 0;
+    try {
+      while (confirmed < ids.length) {
+        signal?.throwIfAborted();
+        if (this.auth !== auth) throw new MailFailure('auth', '邮箱账号状态已变化，请重新打开。');
+        const batch = ids.slice(confirmed, confirmed + 100);
+        await this.manage(batch, 'read', signal);
+        confirmed += batch.length;
+        // 防止排队中的推送或提醒查询再次提示刚读过的邮件。
+        this.confirmNoticeReads(batch);
+      }
+    } catch (error) {
+      if (!confirmed) throw error;
+      throw new MailFailure(
+        'business',
+        `已确认 ${confirmed} 封邮件标为已读，另有 ${ids.length - confirmed} 封尚未确认。请重新统计后重试。`,
+      );
+    } finally {
+      if (confirmed && this.auth === auth) {
+        this.checkAllRead = Boolean(this.onAllRead);
+        void this.refreshUnread();
+        this.events.emit('change', { type: 'changed' });
+      }
     }
-    if (action === 'read' || action === 'unread' || action === 'trash')
-      void this.refreshUnread(signal);
-    this.events.emit('change', { type: 'changed' });
   }
 
   private async refreshUnread(signal?: AbortSignal): Promise<void> {
@@ -584,6 +657,17 @@ export class QQMailService {
       unread: count(body.unread),
       lastSync: Date.now(),
     });
+    if (this.onAllRead && this.checkAllRead && typeof body.mailboxUnread === 'number') {
+      this.checkAllRead = false;
+      if (body.mailboxUnread === 0) {
+        const auth = this.auth;
+        // 取得公众号水位后再核一次，避免把期间新到的提醒标为已读。
+        void this.onAllRead(
+          async () =>
+            this.auth === auth && (await this.scoped((current) => current.mailboxUnread())) === 0,
+        ).catch(() => undefined);
+      }
+    }
     // 列表失效与横幅提醒独立；相同结果不再触发文件夹补查，避免刷新循环。
     if (!prime && changed) this.events.emit('change', { type: 'changed' });
     if (this.backgroundEnabled) {
@@ -685,6 +769,7 @@ export class QQMailService {
   /** 运行态失活只释放网络会话，不改变用户的提醒/后台偏好。 */
   suspendOnline(): void {
     if (this.closed) return;
+    this.checkAllRead = false;
     this.pendingCredentials = false;
     this.stopNotifications();
     for (const transfer of this.transfers) transfer.abort();
@@ -695,6 +780,7 @@ export class QQMailService {
 
   disconnect(): void {
     if (this.closed) return;
+    this.checkAllRead = false;
     this.backgroundStopped = true;
     this.pendingCredentials = false;
     this.stopNotifications();

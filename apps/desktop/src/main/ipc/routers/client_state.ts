@@ -64,6 +64,15 @@ export function reportOfficialDirectoryReads(
       .catch(() => undefined);
   }
 }
+export function setDirectoryReadState(
+  state: ClientStateStore,
+  targets: readonly { key: string; position: string }[],
+  unread: boolean,
+) {
+  const changes = state.setDirectoryReadState(targets, unread);
+  if (!unread) reportOfficialDirectoryReads(state, targets, true);
+  return changes;
+}
 function draftMediaRoot(configId: string) {
   return join(requirePlatform().appDataRoot(), 'config', 'accounts', configId, 'draft-media');
 }

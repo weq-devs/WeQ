@@ -149,6 +149,11 @@ export class MailAuth {
     }
   }
 
+  async mailboxUnread(signal?: AbortSignal): Promise<number | null> {
+    const body = await this.cgi('/list/folderlist', {}, { signal });
+    return mailUnreadCount(body.list);
+  }
+
   async notificationQuery(signal?: AbortSignal): Promise<MailObject> {
     await this.connect(signal);
     const [notice, mailbox] = await Promise.allSettled([
@@ -158,7 +163,7 @@ export class MailAuth {
           panelCookie: `p_uin=o${this.uin}; p_skey=${this.panelPskey}`,
         })
         .then((response) => mailEnvelope(json(response))),
-      this.cgi('/list/folderlist', {}, { signal }).then((body) => mailUnreadCount(body.list)),
+      this.mailboxUnread(signal),
     ]);
     signal?.throwIfAborted();
     if (this.disposed) throw new MailFailure('auth', '邮箱会话已关闭。');
@@ -172,9 +177,14 @@ export class MailAuth {
     if (notice.status === 'rejected') {
       if (unread === null) throw notice.reason;
       // 提醒票据失效不妨碍邮箱会话同步已读；后续仍补查提醒，不伪造新邮件基线。
-      return { unread, notificationUnavailable: true, next_sync_time_interval_sec: 60 };
+      return {
+        unread,
+        mailboxUnread: unread,
+        notificationUnavailable: true,
+        next_sync_time_interval_sec: 60,
+      };
     }
-    return { ...notice.value, ...(unread === null ? {} : { unread }) };
+    return { ...notice.value, mailboxUnread: unread, ...(unread === null ? {} : { unread }) };
   }
 
   async downloadCredentials(
