@@ -4,7 +4,7 @@ import { eventTimeFormatter } from '@weq/time';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { CalendarDays, CalendarRange, Download, LocateFixed, Play, X, SearchX } from 'lucide-react';
+import { CalendarDays, CalendarRange, LocateFixed, Play, X, SearchX } from 'lucide-react';
 import { ChatRecordsHeader } from './ChatRecordsHeader';
 import { ConversationCalendar } from './ConversationCalendar';
 import { TimeRangePicker } from '../../views/export/TimeRangePicker';
@@ -19,8 +19,6 @@ import {
   type ConversationRecordHit,
 } from './types';
 import { client } from '../../trpc/client';
-import { preflightExportEstimate } from '../../views/export/preflight';
-import { useAppDialog } from '../../lib/dialogUtils';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import {
   ConvContext,
@@ -37,8 +35,6 @@ import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
 import type { Conversation, GroupMember, Message, User } from '../../im-template/template/types';
 import '../../styles/chat-records.css';
-import { conversationExportSelection } from '../../lib/conversationActions';
-import { useRequestContentExport } from '../../state/contentSelection.shared';
 import { createReplyPreviewIndex } from '../../lib/replyPreview';
 import { enrichReplyElements } from '../../views/workspace/messageProjection';
 import type { RenderElement } from '../QqMessageContent.shared';
@@ -103,11 +99,10 @@ export function ChatRecordsModal({
   groupMembers?: (groupCode: string) => ReadonlyMap<string, GroupMember>;
   resolveGroupMembers?: (groupCode: string, uids: string[]) => void;
 }): ReactElement | null {
-  const dialog = useAppDialog();
-  const requestExport = useRequestContentExport();
   const [localKeyword, setKeyword] = useState(initialKeyword);
   const embedded = embeddedKeyword !== undefined;
   const keyword = embeddedKeyword ?? localKeyword;
+  const trimmedKeyword = keyword.trim();
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [rangeCalendarOpen, setRangeCalendarOpen] = useState(false);
   const [startDay, setStartDay] = useState('');
@@ -126,12 +121,6 @@ export function ChatRecordsModal({
   const expectedAccountConfigId = accountBinding?.expectedAccountConfigId;
   const [ownUin, setOwnUin] = useState('');
   const [category, setCategory] = useState<MessageCategory | ''>(sharedMedia ? 'image' : '');
-  const [exportFormat, setExportFormat] = useState<
-    'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html'
-  >('jsonl');
-  const [exportBusy, setExportBusy] = useState(false);
-  const [includeMedia, setIncludeMedia] = useState(false);
-  const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const [msgError, setMsgError] = useState('');
   const [browseHasMore, setBrowseHasMore] = useState(false);
   const browseCursor = useRef<BrowseCursor | null>(null);
@@ -140,12 +129,17 @@ export function ChatRecordsModal({
   const filter = useMemo(
     () => ({
       sender: senderIdentity,
-      keyword: keyword.trim() || undefined,
+      keyword: trimmedKeyword || undefined,
       category: category || undefined,
       start: startDay ? Math.floor(Date.parse(`${startDay}T00:00:00+08:00`) / 1000) : undefined,
       end: endDay ? Math.floor(Date.parse(`${endDay}T23:59:59+08:00`) / 1000) : undefined,
     }),
-    [senderIdentity, keyword, category, startDay, endDay],
+    [senderIdentity, trimmedKeyword, category, startDay, endDay],
+  );
+  const hasSearch = Boolean(
+    filter.keyword ||
+      sharedMedia ||
+      (fixed && (filter.sender || filter.category || startDay || endDay)),
   );
   useEffect(() => {
     let active = true;
@@ -170,9 +164,7 @@ export function ChatRecordsModal({
   }, [fixed, localSource, user]);
   const selected = initialHit;
   const [messages, setMessages] = useState<ConversationRecordHit[]>([]);
-  const [msgLoading, setMsgLoading] = useState(
-    () => !localSource && (fixed || Boolean(filter.keyword)),
-  );
+  const [msgLoading, setMsgLoading] = useState(() => !localSource && hasSearch);
   const [msgLoadingMore, setMsgLoadingMore] = useState(false);
   const [msgTotal, setMsgTotal] = useState(0);
   const [msgLimited, setMsgLimited] = useState(false);
@@ -339,16 +331,25 @@ export function ChatRecordsModal({
 
   // Fetch messages for the selected conversation.
   useEffect(() => {
-    const controller = new AbortController();
-    const { signal } = controller;
-    msgRunRef.current = { controller, loadingMore: false };
-    const cancel = () => controller.abort();
     setMsgLoadingMore(false);
     setMsgLimited(false);
     setMsgError('');
     setScannedDay('');
     browseCursor.current = null;
     msgScrollRef.current?.scrollTo(0, 0);
+    if (!hasSearch) {
+      msgRunRef.current = null;
+      localMatches.current = [];
+      setMessages([]);
+      setMsgTotal(0);
+      setBrowseHasMore(false);
+      setMsgLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const { signal } = controller;
+    msgRunRef.current = { controller, loadingMore: false };
+    const cancel = () => controller.abort();
     if (localSource) {
       const keyword = (filter.keyword ?? '').toLocaleLowerCase();
       const rows = localSource.messages
@@ -388,10 +389,6 @@ export function ChatRecordsModal({
     setMessages([]);
     setMsgTotal(0);
     setBrowseHasMore(false);
-    if (!filter.keyword && !fixed) {
-      setMsgLoading(false);
-      return cancel;
-    }
     setMsgLoading(true);
     void queryMessages(0, signal)
       .then((r) => {
@@ -407,7 +404,7 @@ export function ChatRecordsModal({
         if (!signal.aborted) setMsgLoading(false);
       });
     return cancel;
-  }, [fixed, filter, localSource, queryMessages]);
+  }, [hasSearch, filter, localSource, queryMessages]);
 
   const loadMoreMessages = useCallback(() => {
     if (localSource) {
@@ -444,6 +441,7 @@ export function ChatRecordsModal({
   const onMsgScroll = useCallback(() => {
     const el = msgScrollRef.current;
     if (
+      !hasSearch ||
       !el?.clientHeight ||
       msgLoading ||
       msgLoadingMore ||
@@ -454,6 +452,7 @@ export function ChatRecordsModal({
       void loadMoreMessages();
     }
   }, [
+    hasSearch,
     loadMoreMessages,
     msgLoading,
     msgLoadingMore,
@@ -692,134 +691,14 @@ export function ChatRecordsModal({
             <CalendarDays size={15} aria-hidden />
             跳转日期
           </button>
-          {fixed ? (
-            <div
-              className="weq-record-filters weq-record-export"
-              role="group"
-              aria-label="导出选项"
-            >
-              <FormSelect
-                aria-label="导出格式"
-                disabled={Boolean(localSource)}
-                value={exportFormat}
-                onChange={(e) => setExportFormat(e.target.value as typeof exportFormat)}
-              >
-                {['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'].map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
-              </FormSelect>
-              <label className="weq-record-self">
-                <input
-                  type="checkbox"
-                  checked={includeMedia || exportFormat === 'html'}
-                  disabled={Boolean(localSource) || exportFormat === 'html'}
-                  onChange={(e) => setIncludeMedia(e.target.checked)}
-                />
-                附件
-              </label>
-              {!localSource ? (
-                <label className="weq-record-self" title="附带完整性报告">
-                  <input
-                    type="checkbox"
-                    aria-label="附带完整性报告"
-                    checked={includeIntegrityReport}
-                    disabled={exportBusy}
-                    onChange={(e) => setIncludeIntegrityReport(e.target.checked)}
-                  />
-                  完整性报告
-                </label>
-              ) : null}
-              <button
-                type="button"
-                className="weq-dialog-x"
-                aria-label="导出筛选结果"
-                title="导出筛选结果"
-                disabled={
-                  exportBusy ||
-                  msgLoading ||
-                  !!msgError ||
-                  !selected ||
-                  Boolean(localSource && (!requestExport || !messages.length))
-                }
-                onClick={() => {
-                  if (localSource) {
-                    const scope = conversationExportSelection(localSource.conversation);
-                    if (requestExport && scope && messages.length)
-                      requestExport({
-                        ...scope,
-                        scope: {
-                          type: 'items',
-                          ids: localMatches.current.map((message) => message.msgId),
-                        },
-                      });
-                    if (requestExport && scope && messages.length) onClose();
-                    return;
-                  }
-                  if (!selected) return;
-                  setExportBusy(true);
-                  setMsgError('');
-                  void (async () => {
-                    const range = { start: filter.start ?? null, end: filter.end ?? null };
-                    if (
-                      !(await preflightExportEstimate(
-                        dialog,
-                        [
-                          {
-                            kind: selected.source === 'group' ? 'group' : 'c2c',
-                            id: selected.targetUid,
-                            name: selected.name,
-                          },
-                        ],
-                        {
-                          range,
-                          formats: [exportFormat],
-                          exportMedia: includeMedia || exportFormat === 'html',
-                          filter,
-                        },
-                      ))
-                    )
-                      return;
-                    await client.account.startExport.mutate({
-                      includeIntegrityReport,
-                      kind: selected.source === 'group' ? 'group' : 'c2c',
-                      conv: selected.targetUid,
-                      name: selected.name,
-                      format: exportFormat,
-                      total: 0,
-                      media: {
-                        exportMedia: includeMedia || exportFormat === 'html',
-                        completeMessages: false,
-                        completeMedia: false,
-                        downloadVideo: false,
-                        downloadFile: false,
-                        downloadPtt: false,
-                        transcribeVoice: false,
-                      },
-                      filter: {
-                        sender: filter.sender,
-                        keyword: filter.keyword,
-                        category: filter.category,
-                      },
-                      range,
-                    });
-                    onClose();
-                  })()
-                    .catch((e) => setMsgError(String(e)))
-                    .finally(() => setExportBusy(false));
-                }}
-              >
-                <Download size={16} />
-              </button>
-            </div>
-          ) : null}
         </div>
-        {msgError ? (
+        {hasSearch && msgError ? (
           <p role="alert" className="weq-record-error">
             {msgError}
           </p>
         ) : null}
         <div className="weq-chatrecords-body is-fixed">
-          {searchingRecords || (browseRecords && browseHasMore && progress) ? (
+          {hasSearch && (searchingRecords || (browseRecords && browseHasMore && progress)) ? (
             <div className="weq-record-progress" role="status">
               {searchingRecords ? (
                 <LoadingIndicator>
@@ -844,7 +723,7 @@ export function ChatRecordsModal({
                   messages={galleryMessages}
                 >
                   <ReplyJumpContext.Provider value={jumpToReply}>
-                    {msgLoading ? (
+                    {!hasSearch ? null : msgLoading ? (
                       browseRecords ? null : (
                         <SearchListSkeleton rows={4} />
                       )
@@ -978,7 +857,7 @@ export function ChatRecordsModal({
                                   </span>
                                 </span>
                                 <span className="weq-chatrecords-msg-content">
-                                  {highlightText(msg.content, keyword.trim())}
+                                  {highlightText(msg.content, trimmedKeyword)}
                                 </span>
                               </span>
                             </button>

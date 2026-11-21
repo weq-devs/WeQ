@@ -1,16 +1,12 @@
 import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { DialogHost } from '../src/renderer/src/components/Dialog';
-import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { ChatRecordsModal } from '../src/renderer/src/components/search/ChatRecordsModal';
 import {
   cloneChatUser,
   cloneChatConversation,
   cloneChatMessages,
 } from '../src/renderer/src/views/agentlab/cloneChatAdapter';
-import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
-import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 import { changeInput, chooseFormOption } from './support/form-controls';
 import { usePreviews } from '../src/renderer/src/components/mediaPreviewStore.shared';
 
@@ -31,59 +27,39 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
   return { trpc: stub.trpc, client: proxy() };
 });
 afterEach(() => {
-  useDialog.getState().close();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   nativeReads.mockReset();
   vi.useRealTimers();
 });
 
-it('筛选结果导出仅确认预检，并透传原位选择的完整性报告', async () => {
+it('会话搜索没有条件时不查历史，清空关键词会清除结果并中止查询', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  const host = document.createElement('div');
-  document.body.append(host);
-  const root = createRoot(host);
-  nativeReads.mockImplementation((path: string) => {
-    if (path === 'account.browseConversation') return { items: [], cursor: null, hasMore: false };
-    if (path === 'account.exportPreflight')
-      return {
-        matchingMessages: 7,
-        destination: '/fixture/export',
-        estimatedMessageBytes: 1024,
-        availableBytes: 100_000,
-        spaceWarning: false,
-      };
-    return undefined;
-  });
+  const root = createRoot(document.createElement('div'));
+  const pending = Promise.withResolvers<{ items: []; cursor: null; hasMore: false }>();
+  const browse = vi.fn().mockReturnValue(pending.promise);
+  nativeReads.mockImplementation((path: string, input: unknown, options: unknown) =>
+    path === 'account.browseConversation' ? browse(input, options) : undefined,
+  );
   try {
-    await act(async () => root.render(h('div', null, nativeRecords(), h(DialogHost))));
-    const report = document.querySelector<HTMLInputElement>('[aria-label="附带完整性报告"]')!;
-    const exportButton = document.querySelector<HTMLButtonElement>('[aria-label="导出筛选结果"]')!;
-    expect(report.checked).toBe(false);
-    act(() => report.click());
+    await act(async () => root.render(nativeRecords('')));
+    const input = document.querySelector<HTMLInputElement>('.weq-search-more-input')!;
+    const results = document.querySelector<HTMLElement>('.weq-chatrecords-body')!;
+    await act(async () => changeInput(input, '  '));
+    expect(results.textContent).toBe('');
+    expect(browse).not.toHaveBeenCalled();
 
-    await act(async () => exportButton.click());
-    expect(useDialog.getState().current?.title).toBe('导出预检');
-    await act(async () => useDialog.getState().close());
-    expect(nativeReads).not.toHaveBeenCalledWith(
-      'account.startExport',
-      expect.anything(),
-      undefined,
-    );
+    await act(async () => changeInput(input, '合成'));
+    expect(browse.mock.lastCall?.[0]).toMatchObject({ filter: { keyword: '合成' } });
+    expect(results.querySelector('[role="status"]')).not.toBeNull();
 
-    await act(async () => exportButton.click());
-    const confirm = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === '开始导出',
-    );
-    await act(async () => confirm!.click());
-    expect(nativeReads).toHaveBeenCalledWith(
-      'account.startExport',
-      expect.objectContaining({ includeIntegrityReport: true, conv: '12345' }),
-      undefined,
-    );
+    await act(async () => changeInput(input, ''));
+    expect(browse.mock.lastCall?.[1].signal.aborted).toBe(true);
+    await act(async () => pending.resolve({ items: [], cursor: null, hasMore: false }));
+    expect(results.textContent).toBe('');
+    expect(browse).toHaveBeenCalledOnce();
   } finally {
     act(() => root.unmount());
-    host.remove();
   }
 });
 
@@ -154,7 +130,7 @@ it('服务号搜索显示候选截断提示，消息定位保留服务号和消�
   }
 });
 
-it('克隆复用普通搜索窗，分页显示但按完整匹配身份导出，不查询原生 QQ 记录', async () => {
+it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 记录', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -176,51 +152,35 @@ it('克隆复用普通搜索窗，分页显示但按完整匹配身份导出，�
     conversation.id,
     () => peer,
   );
-  const close = vi.fn();
-  function Probe() {
-    return h('output', null, JSON.stringify(useContentExportRequest()?.selection));
-  }
   try {
     await act(async () =>
       root.render(
-        h(
-          ContentSelectionProvider,
-          null,
-          h(ChatRecordsModal, {
-            fixed: true,
-            initialKeyword: '合成',
-            initialHit: {
-              category: 'chatRecord',
-              source: 'buddy',
-              partition: conversation.id,
-              targetUid: conversation.id,
-              targetUin: '',
-              name: peer.displayName,
-              count: messages.length,
-            },
-            localSource: { conversation, messages, user, onJump: vi.fn() },
-            onClose: close,
-            onJumpMessage: vi.fn(),
-          }),
-          h(Probe),
-        ),
+        h(ChatRecordsModal, {
+          fixed: true,
+          initialKeyword: '',
+          initialHit: {
+            category: 'chatRecord',
+            source: 'buddy',
+            partition: conversation.id,
+            targetUid: conversation.id,
+            targetUin: '',
+            name: peer.displayName,
+            count: messages.length,
+          },
+          localSource: { conversation, messages, user, onJump: vi.fn() },
+          onClose: vi.fn(),
+          onJumpMessage: vi.fn(),
+        }),
       ),
     );
+    const input = document.querySelector<HTMLInputElement>('.weq-search-more-input')!;
+    const results = document.querySelector<HTMLElement>('.weq-chatrecords-msgs')!;
+    expect(results.textContent).toBe('');
+    await act(async () => changeInput(input, '合成'));
     expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(30);
     expect(document.querySelector<HTMLSelectElement>('[aria-label="消息类型"]')?.disabled).toBe(
       true,
     );
-    await act(async () =>
-      document.querySelector<HTMLButtonElement>('[aria-label="导出筛选结果"]')!.click(),
-    );
-    const exported = JSON.parse(host.querySelector('output')!.textContent!);
-    expect(exported.owner).toEqual({
-      kind: 'clone-messages',
-      container: JSON.stringify(['persona', 'peer', 's']),
-    });
-    expect(exported.scope.ids).toEqual(messages.map((message) => message.id));
-    expect(close).toHaveBeenCalledOnce();
-    const results = document.querySelector<HTMLElement>('.weq-chatrecords-msgs')!;
     Object.defineProperties(results, {
       clientHeight: { value: 300 },
       scrollHeight: {
@@ -230,6 +190,8 @@ it('克隆复用普通搜索窗，分页显示但按完整匹配身份导出，�
     results.scrollTop = 700;
     act(() => results.dispatchEvent(new Event('scroll')));
     expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(60);
+    await act(async () => changeInput(input, ''));
+    expect(results.textContent).toBe('');
     expect(nativeReads).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
@@ -315,10 +277,10 @@ it('换关键词时中止旧搜索，迟到的空批次不会继续分页', asyn
   }
 });
 
-function nativeRecords() {
+function nativeRecords(initialKeyword = '合成') {
   return h(ChatRecordsModal, {
     fixed: true,
-    initialKeyword: '合成',
+    initialKeyword,
     initialHit: {
       category: 'chatRecord',
       source: 'group',
@@ -486,7 +448,7 @@ it('发送者可选群昵称、备注或号码，使用身份筛选并保留账�
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.useFakeTimers();
   const root = createRoot(document.createElement('div'));
-  const { props } = nativeRecords();
+  const { props } = nativeRecords('');
   const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source' };
   nativeReads.mockImplementation((path: string) =>
     path === 'account.searchGroupMembers'
@@ -510,6 +472,9 @@ it('发送者可选群昵称、备注或号码，使用身份筛选并保留账�
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((element) =>
       element.textContent?.includes('昵称样本'),
     )!;
+    expect(nativeReads.mock.calls.some(([path]) => path === 'account.browseConversation')).toBe(
+      false,
+    );
     await act(async () => option.click());
     expect(nativeReads).toHaveBeenCalledWith(
       'account.browseConversation',
