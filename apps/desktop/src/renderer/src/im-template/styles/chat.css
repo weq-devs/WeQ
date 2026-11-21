@@ -790,18 +790,18 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   word-break: normal;
 }
 
-.message-line[data-grouped-dress-bubble] > .message-bubble .message-content.is-plain-text {
+.message-line[data-grouped-dress-bubble] .message-content.is-plain-text {
   --weq-dress-bubble-group-padding: 10px;
 }
 
 .message-line.theirs:is([data-message-group='first'], [data-message-group='middle'])
-  > .message-bubble
+  > :is(.message-bubble, .weq-forward-row-main)
   .message-content {
   border-end-start-radius: 3px;
 }
 
 .message-line.theirs:is([data-message-group='middle'], [data-message-group='last'])
-  > .message-bubble
+  > :is(.message-bubble, .weq-forward-row-main)
   .message-content {
   border-start-start-radius: 3px;
 }

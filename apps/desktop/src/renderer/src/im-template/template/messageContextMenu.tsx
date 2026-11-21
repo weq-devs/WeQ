@@ -67,6 +67,7 @@ export type MessageContextMenuState = {
 type Props = {
   state: MessageContextMenuState;
   metadataPrecision?: 'second' | 'millisecond';
+  metadataSequence?: string;
   onClose?: () => void;
   onCopy: (message: Message) => void | Promise<void>;
   onForward?: (message: Message) => void;
@@ -123,7 +124,9 @@ export function MessageContextMenu(props: Props) {
   const time = props.metadataPrecision
     ? formatDateTime(message.createdAt, props.metadataPrecision)
     : '';
-  const seq = props.metadataPrecision ? messageSequence(message.msgSeq) : null;
+  const seq = props.metadataPrecision
+    ? messageSequence(props.metadataSequence ?? message.msgSeq)
+    : null;
   const roaming = Boolean(props.metadataPrecision && showsRoamingSource(message));
   const hasMetadata = Boolean(time || seq || roaming);
   const originElement = state.originElement;

@@ -9726,13 +9726,15 @@ html[data-theme='dark'] .weq-call-recording-play {
 }
 
 .weq-forward-body {
+  --weq-forward-row-gap: 12px;
+  --weq-forward-group-gap: 4px;
   flex: 1 1 auto;
   overflow-y: auto;
   padding: 8px 12px 12px;
   background: #fafafa;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--weq-forward-row-gap);
 }
 
 /* 转发窗口 / 合成转发预览里的居中灰条行（撤回、戳一戳、群提示、群通话结束…）。

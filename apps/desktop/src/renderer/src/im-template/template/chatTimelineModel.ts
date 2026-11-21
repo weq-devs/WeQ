@@ -48,6 +48,47 @@ export function unreadTimelineBoundary(messages: readonly Message[], firstSeq: s
 
 export type MessageGroupPosition = 'first' | 'middle' | 'last';
 
+type MessageGroupKey = { senderId?: string; senderUid?: string; time: number };
+
+export function consecutiveMessageGroups<T>(
+  messages: readonly T[],
+  keyFor: (message: T) => MessageGroupKey | undefined,
+  breakBefore: (previous: T, message: T) => boolean,
+): Array<MessageGroupPosition | undefined> {
+  const result: Array<MessageGroupPosition | undefined> = new Array(messages.length);
+  let previous: MessageGroupKey | undefined;
+  let previousDay: number | undefined;
+  for (const [index, message] of messages.entries()) {
+    const key = keyFor(message);
+    const day = calendarParts(key?.time)?.dayIndex;
+    if (previous && key && day !== undefined && day === previousDay) {
+      const sameId = !!key.senderId && key.senderId === previous.senderId;
+      const sameUid = !!key.senderUid && key.senderUid === previous.senderUid;
+      if (
+        (sameId || sameUid) &&
+        (!key.senderId || !previous.senderId || sameId) &&
+        (!key.senderUid || !previous.senderUid || sameUid) &&
+        key.time >= previous.time &&
+        !shouldShowMessageTime(previous.time, key.time) &&
+        !breakBefore(messages[index - 1]!, message)
+      ) {
+        result[index - 1] = result[index - 1] === 'last' ? 'middle' : 'first';
+        result[index] = 'last';
+        // 保留组内已核对的身份，个别行缺少 QQ 号或 UID 时不会丢掉另一项。
+        previous = {
+          senderId: key.senderId || previous.senderId,
+          senderUid: key.senderUid || previous.senderUid,
+          time: key.time,
+        };
+        continue;
+      }
+    }
+    previous = key;
+    previousDay = day;
+  }
+  return result;
+}
+
 export function messageGroups(
   messages: readonly Message[],
   {
@@ -58,42 +99,25 @@ export function messageGroups(
     breakBefore: (previous: Message, message: Message) => boolean;
   },
 ): Array<MessageGroupPosition | undefined> {
-  const result: Array<MessageGroupPosition | undefined> = new Array(messages.length);
-  let previous: Message | undefined;
-  let previousTime = 0;
-  let previousDay: number | undefined;
-  for (const [index, message] of messages.entries()) {
-    if (
-      !message.senderId ||
-      message.senderId === '0' ||
-      message.deletedKind ||
-      message.recall ||
-      message.optimistic ||
-      grayTipOf(message) ||
-      message.qqElements?.some(({ type }) => type === 'reply') ||
-      standalone(message)
-    ) {
-      previous = undefined;
-      continue;
-    }
-    const time = timeDate(message.createdAt)?.getTime();
-    const day = calendarParts(time)?.dayIndex;
-    if (
-      previous?.senderId === message.senderId &&
-      (!previous.senderUid || !message.senderUid || previous.senderUid === message.senderUid) &&
-      time !== undefined &&
-      time >= previousTime &&
-      day === previousDay &&
-      !shouldShowMessageTime(previousTime, time) &&
-      !messageGapCount(previous, message, true) &&
-      !breakBefore(previous, message)
-    ) {
-      result[index - 1] = result[index - 1] === 'last' ? 'middle' : 'first';
-      result[index] = 'last';
-    }
-    previous = time === undefined ? undefined : message;
-    previousTime = time ?? 0;
-    previousDay = day;
-  }
-  return result;
+  return consecutiveMessageGroups(
+    messages,
+    (message) => {
+      if (
+        !message.senderId ||
+        message.senderId === '0' ||
+        message.deletedKind ||
+        message.recall ||
+        message.optimistic ||
+        grayTipOf(message) ||
+        message.qqElements?.some(({ type }) => type === 'reply') ||
+        standalone(message)
+      )
+        return;
+      const time = timeDate(message.createdAt)?.getTime();
+      if (time !== undefined)
+        return { senderId: message.senderId, senderUid: message.senderUid, time };
+    },
+    (previous, message) =>
+      Boolean(messageGapCount(previous, message, true)) || breakBefore(previous, message),
+  );
 }
