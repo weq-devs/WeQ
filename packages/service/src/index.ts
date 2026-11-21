@@ -466,7 +466,7 @@ export type {
 export type { RenderC2cMsg, RenderGroupMsg, MessagePageOptions, RecallInfo } from './account/msg';
 export { DeletedMsgStore } from './account/deleted_msgs';
 export type { DeletedMsgRecord } from './account/deleted_msgs';
-export { AntiRecallService } from './account/anti_recall';
+export { AntiRecallService, DEFAULT_ANTI_RECALL_CONFIG } from './account/anti_recall';
 export type {
   AntiRecallConfig,
   AntiRecallMethod,

@@ -38,8 +38,8 @@ export interface AntiRecallConfig {
   /** 总开关；关闭后停止收集和过滤，并卸下触发器。 */
   enabled: boolean;
   /**
-   * `'selected'` (default) — only `targets` are protected.
-   * `'all'` — every conversation is protected (永久全选，不做会话筛选);
+   * `'selected'` — only `targets` are protected.
+   * `'all'` (default) — every conversation is protected (永久全选，不做会话筛选);
    * `targets` is ignored while this mode is active, but kept in the config so
    * switching back to `'selected'` restores the prior selection.
    */
@@ -99,7 +99,7 @@ export interface AntiRecallOptions {
 
 const DEFAULT_CONFIG: AntiRecallConfig = {
   enabled: false,
-  mode: 'selected',
+  mode: 'all',
   method: 'database',
   targets: [],
   notifyEnabled: false,
@@ -171,7 +171,8 @@ export class AntiRecallService {
         const parsed = (raw ?? {}) as Partial<AntiRecallConfig>;
         return {
           enabled: parsed.enabled === true,
-          mode: parsed.mode === 'all' ? 'all' : 'selected',
+          mode:
+            parsed.mode === 'selected' || parsed.mode === 'all' ? parsed.mode : DEFAULT_CONFIG.mode,
           method: parsed.method === 'weq' || parsed.method === 'proxy' ? parsed.method : 'database',
           targets: Array.isArray(parsed.targets)
             ? parsed.targets
@@ -362,9 +363,8 @@ export class AntiRecallService {
   async setScope(scope: 'off' | 'selected' | 'all'): Promise<AntiRecallStatus> {
     if (!this.opts.readOnly) assertDatabaseWritable(this.session.msgDbPath);
     const enabled = scope !== 'off';
-    const mode: 'selected' | 'all' = scope === 'all' ? 'all' : 'selected';
     const wasEnabled = this.config.enabled;
-    this.config = { ...this.config, enabled, mode };
+    this.config = { ...this.config, enabled, ...(scope === 'off' ? {} : { mode: scope }) };
     if (enabled && !wasEnabled) this.resetRecallBaseline();
     this.reconcileInBackground();
     return this.optimisticStatus();

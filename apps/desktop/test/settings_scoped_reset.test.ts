@@ -7,6 +7,7 @@ import {
 import type { AppSettings } from '@weq/service';
 import { SETTINGS_RESET_CARDS, resetCards } from '../src/shared/settings_reset';
 import { settingsResetRouter } from '../src/main/ipc/routers/settings_reset';
+import { sharedSettingsRouter } from '../src/main/ipc/routers/shared_settings';
 import { SETTINGS_FIELDS } from '@weq/service/settings-catalog';
 import { preferenceDefaults } from '@weq/service/client-preferences';
 import { DEFAULT_MONITOR_SETTINGS, type MonitorSettings } from '@weq/service/performance';
@@ -140,6 +141,27 @@ beforeEach(() => {
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
+  it('防撤回默认保护全部会话，恢复时替换已保存的范围', async () => {
+    const recall = sharedSettingsRouter.createCaller({}).antiRecall;
+    expect(await recall.getStatus()).toMatchObject({ enabled: false, mode: 'all' });
+    expect(await recall.setScope({ scope: 'off' })).toMatchObject({ enabled: false, mode: 'all' });
+    expect(await recall.setMethod({ method: 'weq' })).toMatchObject({ enabled: true, mode: 'all' });
+    await recall.setMode({ mode: 'selected' });
+    const target = { page: 'chat-interaction', card: 'recall-scope' } as const;
+    const preview = await caller().preview(target);
+    expect(preview.items).toContainEqual(
+      expect.objectContaining({
+        id: 'recall-scope:scope',
+        current: 'selected',
+        defaultValue: 'all',
+      }),
+    );
+    expect(await caller().restore({ ...target, source: preview.source })).toContainEqual({
+      id: 'recall-scope:scope',
+      ok: true,
+    });
+    expect(await recall.getStatus()).toMatchObject({ enabled: false, mode: 'all' });
+  });
   it('各 AI 页只恢复本功能的图片偏好，日志页复位性能记录档位', async () => {
     Object.assign(state.settings.aiImages, {
       intent: 'ocr',

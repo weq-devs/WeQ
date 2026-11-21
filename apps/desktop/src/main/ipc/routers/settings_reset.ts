@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  DEFAULT_ANTI_RECALL_CONFIG,
   DEFAULT_APP_SETTINGS,
   DEFAULT_INTENT_SENSE_CONFIG,
   mergeAssistantConfig,
@@ -439,8 +440,9 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
         'off',
         async () => shared.antiRecall.setMethod({ method: 'off' }),
       );
-      bind('recall-scope:scope', recall.mode, 'selected', async () =>
-        shared.antiRecall.setMode({ mode: 'selected' }),
+      const defaultMode = DEFAULT_ANTI_RECALL_CONFIG.mode;
+      bind('recall-scope:scope', recall.mode, defaultMode, async () =>
+        shared.antiRecall.setMode({ mode: defaultMode }),
       );
       if (services)
         bind('recall-scope:targets', recall.targets, [], async () =>

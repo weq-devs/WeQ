@@ -144,23 +144,25 @@ describe('WeQ 自撤缓存保护', () => {
     expect(mergeRoamingTimeline('c2c', [local], [unverified])).toEqual([local]);
   });
 
-  it('缓存保护遵守总开关与按会话名单', () => {
+  it('防撤回默认覆盖全部会话，缓存保护遵守总开关与已保存的名单', () => {
     const root = mkdtempSync(join(tmpdir(), 'weq-recall-config-'));
     roots.push(root);
     const path = join(root, 'config.json');
-    const open = (enabled: boolean, mode = 'selected') => {
+    const open = (enabled: boolean, mode?: 'selected' | 'all') => {
       writeFileSync(
         path,
         JSON.stringify({ enabled, mode, targets: [{ kind: 'c2c', id: 'u_peer' }] }),
       );
       return new AntiRecallService({} as AccountSession, {} as Platform, path);
     };
+    const fresh = new AntiRecallService({} as AccountSession, {} as Platform, path);
+    expect(fresh.protection()).toMatchObject({ enabled: false, mode: 'all' });
     expect(open(false).protects('c2c', 'u_peer')).toBe(false);
-    const service = open(true);
+    expect(open(true).protects('group', '777')).toBe(true);
+    const service = open(true, 'selected');
     expect(service.protects('c2c', 'u_peer')).toBe(true);
     expect(service.protects('c2c', 'u_other')).toBe(false);
     expect(service.protects('group', 'u_peer')).toBe(false);
-    expect(open(true, 'all').protects('group', '777')).toBe(true);
     expect(open(false, 'all').protects('c2c', 'u_peer')).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 /** 防撤回设置与记录的共用路由，供桌面、Web 和 Remote 使用。 */
-import { OperationError } from '@weq/service';
+import { DEFAULT_ANTI_RECALL_CONFIG, OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { getAppContext, requireBootstrap, type AccountServices } from '../../context/app_context';
@@ -46,7 +46,7 @@ export async function sharedAntiRecallStatus(): Promise<AntiRecallStatus> {
   return {
     settingsRevision: config.sharedPreferenceRevision(),
     enabled: value.enabled ?? false,
-    mode: value.mode ?? 'selected',
+    mode: value.mode ?? DEFAULT_ANTI_RECALL_CONFIG.mode,
     method: value.method ?? 'database',
     notifyEnabled: banner || system,
     targets: [],
@@ -96,7 +96,7 @@ export const antiRecallSettingsProcedures = {
       if (getAppContext().services) return requireServices().antiRecall.setScope(input.scope);
       requireBootstrap().userConfig.patchSharedPreference('antiRecall', {
         enabled: input.scope !== 'off',
-        mode: input.scope === 'all' ? 'all' : 'selected',
+        ...(input.scope === 'off' ? {} : { mode: input.scope }),
       });
       return sharedAntiRecallStatus();
     }),
