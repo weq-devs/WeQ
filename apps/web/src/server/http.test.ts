@@ -38,6 +38,13 @@ async function main(): Promise<void> {
   writeFileSync(join(bundle, 'chat.html'), '<img src="media/picture.bin">');
   writeFileSync(join(bundle, 'media', 'picture.bin'), Buffer.from([0, 1, 2, 255]));
   const bundleUrl = register(bundle, '聊天与媒体.zip', 'directory').url;
+  const flashUrl = host.registerArchiveDownload!(
+    [
+      { path: text, name: '记录.txt' },
+      { path: join(bundle, 'media', 'picture.bin'), name: '图片/附件.bin' },
+    ],
+    '闪传.zip',
+  ).url;
 
   let trpcHits = 0;
   const auth = new AuthGate({ token: TOKEN, remote: false, maxSessions: 1 });
@@ -70,6 +77,7 @@ async function main(): Promise<void> {
       '/_download/anything',
       fileUrl,
       bundleUrl,
+      flashUrl,
       '/robots.txt',
       '/some/spa/route',
     ];
@@ -186,6 +194,21 @@ async function main(): Promise<void> {
       check(bytes.includes(Buffer.from('media/empty/')), 'ZIP 保留空目录');
       check(res.headers.get('cache-control') === 'no-store', 'ZIP 下载不留浏览器缓存');
       check(existsSync(join(bundle, 'chat.html')), '下载不删除已完成结果');
+    }
+    {
+      const res = await get(flashUrl, cookie);
+      const entries = readZipEntries(Buffer.from(await res.arrayBuffer()));
+      check(
+        res.status === 200 &&
+          res.headers.get('content-disposition')?.includes(encodeURIComponent('闪传.zip')) ===
+            true &&
+          entries.length === 2 &&
+          entries[0]?.name === '记录.txt' &&
+          entries[0].data.toString() === '独立文件' &&
+          entries[1]?.name === '图片/附件.bin' &&
+          entries[1].data.equals(Buffer.from([0, 1, 2, 255])),
+        '闪传 ZIP 只包含本批次成品，保留文件名和原有字节',
+      );
     }
     {
       // Windows 创建文件符号链接需要管理员权限；非提权环境建不出来时跳过这段

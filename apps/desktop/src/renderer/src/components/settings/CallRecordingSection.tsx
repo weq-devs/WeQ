@@ -101,7 +101,7 @@ export function CallRecordingSection(): ReactElement {
           remoteUnsupported
           desc={
             systemUnsupported
-              ? '当前平台不支持。macOS 需要先装 BlackHole 之类的虚拟声卡，再把系统输出指过去。'
+              ? '当前系统或使用方式不支持录制电脑声音。'
               : '把电脑正在播放的声音一并录进文件。它只会进录音，不会发给对方。'
           }
           control={

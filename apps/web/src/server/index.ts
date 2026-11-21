@@ -11,7 +11,7 @@
  *   WEQ_HOST        bind address (default 127.0.0.1). Set 0.0.0.0 to expose.
  *   WEQ_PORT        preferred port (default 7690). Probes forward if taken.
  *   WEQ_EXPORT_DIR  where exports/saves land (default <cwd>/weq-exports).
- *   WEQ_DATA_DIR    logs + app data (default <cwd>/weq-data).
+ *   WEQ_DATA_DIR    log directory parent (default <cwd>/weq-data).
  *   WEQ_NATIVE_DIR  override for the native/ bundle (see @weq/native loader).
  */
 
@@ -26,7 +26,12 @@ import {
   flushFileLogger,
   getLogger,
 } from '@weq/service';
-import { initAppContext, getAppContext } from '@weq/desktop/main/context/app_context';
+import {
+  initAppContext,
+  getAppContext,
+  setIntentSenseLocalEngine,
+} from '@weq/desktop/main/context/app_context';
+import { getIntentSenseLocalEngine } from '@weq/desktop/main/intent_sense/bridge';
 import { assistantResourceServer } from '@weq/desktop/main/weq_assistant/server';
 import { appRouter } from '@weq/desktop/main/ipc/router';
 import { startAnnouncements } from '@weq/desktop/main/announcements';
@@ -105,6 +110,8 @@ async function main(): Promise<void> {
 
   setHost(createWebHost({ exportDir: EXPORT_DIR, version: VERSION }));
   initAppContext();
+  const intentEngine = getIntentSenseLocalEngine();
+  setIntentSenseLocalEngine(intentEngine);
   const stopAnnouncements = startAnnouncements({
     dataRoot: DATA_DIR,
     platform: 'web',
@@ -158,9 +165,9 @@ async function main(): Promise<void> {
     stopAnnouncements();
     getAppContext().bootstrap?.enhancements.updates.stop();
     void assistantResourceServer.shutdown();
-    const monitorStopped = performanceMonitor.dispose();
+    const servicesStopped = Promise.allSettled([performanceMonitor.dispose(), intentEngine.stop()]);
     server.close(() => {
-      void monitorStopped.finally(async () => {
+      void servicesStopped.finally(async () => {
         await flushFileLogger();
         process.exit(0);
       });

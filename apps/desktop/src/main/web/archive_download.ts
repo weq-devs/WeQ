@@ -1,5 +1,6 @@
 import type { ServerResponse } from 'node:http';
-import { lstat, readdir } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, open, readdir } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { once } from 'node:events';
 import { pipeline } from 'node:stream/promises';
@@ -22,10 +23,15 @@ async function* entries(
 /** 两种 Web 入口共用 ZIP 流，不额外复制媒体目录；断开只中止本次传输。 */
 export async function streamArchiveDownload(
   res: ServerResponse,
-  path: string,
+  source: string | readonly { path: string; name: string }[],
   name: string,
 ): Promise<void> {
-  if (!(await lstat(path)).isDirectory()) throw new Error('导出下载目录不存在。');
+  if (typeof source === 'string' && !(await lstat(source)).isDirectory())
+    throw new Error('导出下载目录不存在。');
+  const files =
+    typeof source === 'string'
+      ? entries(source)
+      : source.map((file) => ({ ...file, directory: false }));
   const controller = new AbortController();
   const onClose = () => {
     if (!res.writableFinished) controller.abort();
@@ -41,12 +47,31 @@ export async function streamArchiveDownload(
     (error: unknown) => error,
   );
   try {
-    for await (const entry of entries(path)) {
+    for await (const entry of files) {
       controller.signal.throwIfAborted();
-      const added = once(archive, 'entry', { signal: controller.signal });
-      if (entry.directory) archive.append(Buffer.alloc(0), { name: `${entry.name}/` });
-      else archive.file(entry.path, { name: entry.name });
-      await added;
+      if (typeof source !== 'string') {
+        if (!(await lstat(entry.path)).isFile()) throw new Error('闪传成品已不可用。');
+        const file = await open(
+          entry.path,
+          constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+        );
+        try {
+          if (!(await file.stat()).isFile()) throw new Error('闪传成品已不可用。');
+          controller.signal.throwIfAborted();
+          const input = file.createReadStream({ signal: controller.signal });
+          input.once('error', (error) => archive.destroy(error));
+          const added = once(archive, 'entry', { signal: controller.signal });
+          archive.append(input, { name: entry.name });
+          await added;
+        } finally {
+          await file.close();
+        }
+      } else {
+        const added = once(archive, 'entry', { signal: controller.signal });
+        if (entry.directory) archive.append(Buffer.alloc(0), { name: `${entry.name}/` });
+        else archive.file(entry.path, { name: entry.name });
+        await added;
+      }
     }
     await archive.finalize();
     const error = await pumped;

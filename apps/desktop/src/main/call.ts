@@ -659,7 +659,7 @@ export class CallManager extends EventEmitter {
     if (!muted) this.session?.pushAudio(pcm);
   }
 
-  /** 界面推来一帧「电脑正在播放的声音」（Windows 走渲染层采集）。 */
+  /** 界面推来一帧「电脑正在播放的声音」（Windows／macOS 走渲染层采集）。 */
   pushSystemAudio(pcm: Uint8Array): void {
     this.recorder?.pushSystem(pcm);
   }
@@ -713,7 +713,7 @@ export class CallManager extends EventEmitter {
     this.recordingStore = store;
     this.recordingEntry = entry;
 
-    // Linux：主进程直接起 parec 采监视源。Windows 由渲染层采集后推回来，这里不做事。
+    // Linux 在主进程采监视源；Windows 与 macOS 从渲染层接收音频。
     if (config.systemAudio && systemAudioCapability() === 'native') {
       const capture = new LinuxSystemAudioCapture({
         onFrame: (pcm) => this.recorder?.pushSystem(pcm),

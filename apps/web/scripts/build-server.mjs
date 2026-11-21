@@ -1,5 +1,5 @@
 /**
- * Bundle the server into `dist/server.mjs` (plus its two sidecar workers).
+ * Bundle the server and its sidecar workers into `dist/`.
  *
  * Per-platform by design: each release runner builds its own archive, so
  * `native/` only carries the platform/arch this machine

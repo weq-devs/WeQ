@@ -39,7 +39,7 @@ import { resolveChildWorkerPath } from '../worker_path';
 
 const logger = getLogger().child({ scope: 'intent-sense' });
 
-/** 本地引擎对 app_context 暴露的控制面（electron 侧实现，web 恒为 null）。 */
+/** 本地引擎对 app_context 暴露的控制面（桌面和独立 Web 共用）。 */
 export interface IntentSenseLocalEngine extends IntentLocalEnginePort {
   validateModel(modelId: string, directory?: string): Promise<void>;
   listModels(): Array<{ id: string; name: string; downloaded: boolean; downloadable: boolean }>;
@@ -92,9 +92,8 @@ export function qweqModelCandidates(): string[] {
     join(weqAppDataRoot(), 'models', 'QWeQ-NineBird-v1'),
     join(process.cwd(), 'models', 'QWeQ-NineBird-v1'),
   ];
-  if (process.resourcesPath) {
-    dirs.push(join(process.resourcesPath, 'models', 'QWeQ-NineBird-v1'));
-  }
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  if (resourcesPath) dirs.push(join(resourcesPath, 'models', 'QWeQ-NineBird-v1'));
   return dirs;
 }
 
@@ -491,9 +490,8 @@ function ensureBridge(dir = findAvailableModelDir()): LocalEngineBridge {
 
 /**
  * 意图感知本地引擎整体控制面：既实现 service 的 {@link IntentLocalEnginePort}
- * （analyze/inferMbti），也实现模型下载/worker 生命周期控制。只在桌面版
- * electron 入口调用一次并注入 app_context —— 该文件 import 了 electron，
- * 不能进 router / app_context 的（web 共享的）模块图。
+ * （analyze/inferMbti），也实现模型下载和 worker 生命周期控制。
+ * 桌面及独立 Web 启动时各自注入 app_context。
  */
 export function getIntentSenseLocalEngine(): IntentSenseLocalEngine {
   return {

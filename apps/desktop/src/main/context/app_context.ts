@@ -465,9 +465,7 @@ export interface IntentSenseModelProgress {
 }
 
 /**
- * 意图感知本地引擎（Laya ONNX worker）的控制面。实现在 `intent_sense/bridge.ts`
- * —— 那个文件 import 了 electron，只能由桌面版入口注入；web 端恒为 null
- *（`intentSense.localAvailable === false`，UI 相应隐藏本地引擎入口）。
+ * 意图感知本地引擎（Laya ONNX worker）的控制面，由宿主入口注入。
  */
 export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
   validateModel?(modelId: string, directory?: string): Promise<void>;
@@ -489,7 +487,7 @@ export interface IntentSenseLocalEngineControl extends IntentLocalEnginePort {
 
 let intentSenseLocalEngine: IntentSenseLocalEngineControl | null = null;
 
-/** app 层注入意图感知本地引擎控制面（桌面版启动时调用一次）。 */
+/** app 层注入意图感知本地引擎控制面（宿主启动时调用一次）。 */
 export function setIntentSenseLocalEngine(engine: IntentSenseLocalEngineControl | null): void {
   intentSenseLocalEngine = engine;
   if (engine)
@@ -501,7 +499,7 @@ export function setIntentSenseLocalEngine(engine: IntentSenseLocalEngineControl 
     );
 }
 
-/** 当前注入的本地引擎控制面（未注入 = web / 未初始化）。 */
+/** 当前注入的本地引擎控制面（未注入时返回 null）。 */
 export function getActiveIntentSenseLocalEngine(): IntentSenseLocalEngineControl | null {
   return intentSenseLocalEngine;
 }

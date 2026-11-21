@@ -39,6 +39,7 @@ for (const entry of [
   'imageWorker.mjs',
   'coverWorker.mjs',
   'transcribeWorker.mjs',
+  'intentSenseWorker.mjs',
   'start.sh',
   'start.bat',
   'public',

@@ -60,6 +60,7 @@ import { BackgroundTaskActionIcon, BackgroundTaskDetails } from './BackgroundTas
 import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
 import { IS_WEB } from '../../lib/target.shared';
+import { downloadFlashToDevice } from '../../lib/flashDownload';
 import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { EmptyState } from '../EmptyState';
 import { TaskProgressDetails } from './TaskProgressDetails';
@@ -511,6 +512,25 @@ export function CurrentTaskList({
       await utils.account.flashListDownloadTasks.invalidate();
       if (!retried) showInfo('暂时无法重试', '下载仍在收尾或任务状态已变化，请查看最新任务状态。');
     };
+    const flashFiles = task.files ?? [task];
+    const takeFlash = async (fileId?: string) => {
+      if (!cleanupBinding || openingFlashRef.current) return;
+      openingFlashRef.current = task.id;
+      setOpeningFlash(task.id);
+      const isCurrent = () =>
+        mounted.current &&
+        bindingRef.current?.expectedAccountUin === cleanupBinding.expectedAccountUin &&
+        bindingRef.current?.expectedAccountConfigId === cleanupBinding.expectedAccountConfigId;
+      try {
+        await downloadFlashToDevice({ ...cleanupBinding, taskId: task.id, fileId }, isCurrent);
+      } catch (error) {
+        if (isCurrent())
+          showInfo('下载失败', error instanceof Error ? error.message : String(error));
+      } finally {
+        openingFlashRef.current = null;
+        if (mounted.current) setOpeningFlash(null);
+      }
+    };
     const openFlash = async (mode: 'file' | 'directory' | 'reveal') => {
       if (!cleanupBinding || openingFlashRef.current) return;
       openingFlashRef.current = task.id;
@@ -582,6 +602,14 @@ export function CurrentTaskList({
           });
           await utils.account.flashListDownloadTasks.invalidate();
         },
+      });
+    if (IS_WEB && flashFiles.some((file) => file.status === 'done'))
+      actions.unshift({
+        id: 'download',
+        label: single ? '下载到此设备' : '下载已完成文件',
+        icon: <Download size={14} />,
+        disabled: !cleanupBinding || Boolean(openingFlash),
+        run: () => takeFlash(),
       });
     if (!IS_WEB) {
       if (single && task.status === 'done')
@@ -656,9 +684,20 @@ export function CurrentTaskList({
           </p>
           {(task.files?.length ?? 1) === 1 ? <p>{task.targetPath}</p> : null}
           <ul className="weq-flash-task-files" aria-label="下载文件">
-            {(task.files ?? [task]).map((file) => (
+            {flashFiles.map((file) => (
               <li key={file.id}>
                 <span title={file.targetPath}>{file.relativePath}</span>
+                {IS_WEB && !single && file.status === 'done' && (
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    disabled={!cleanupBinding || Boolean(openingFlash)}
+                    aria-label={`下载 ${file.relativePath} 到此设备`}
+                    onClick={() => void takeFlash(file.id)}
+                  >
+                    <Download size={14} aria-hidden />
+                  </button>
+                )}
                 <span>
                   {file.interrupted
                     ? file.pausedByUser

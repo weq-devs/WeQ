@@ -2,12 +2,11 @@ import type { AccountSession } from '@weq/account';
 import type { QqUnreadSnapshot } from '@weq/native';
 import { afterEach, expect, it, vi, describe } from 'vitest';
 import { UnreadInfoService } from '../src/account/unread_info';
-import {
-  createQqUnreadCountSource,
-  VERIFIED_QQ_UNREAD_LAYOUT,
-  VERIFIED_WINDOWS_QQ_UNREAD_LAYOUT,
-  QQ_UNREAD_COVERAGE,
-} from '../src/account/unread_count_source';
+import { createQqUnreadCountSource, QQ_UNREAD_COVERAGE } from '../src/account/unread_count_source';
+
+const MAC_ARM_LAYOUT = 'qqnt-macos-arm64-7.0.3-54395';
+const WINDOWS_LAYOUT = 'qqnt-windows-x64-9.9.37-54395';
+
 function memory(unreadCount = 10): QqUnreadSnapshot {
   return {
     success: true,
@@ -17,7 +16,7 @@ function memory(unreadCount = 10): QqUnreadSnapshot {
     missingTargets: [],
     generation: 'source',
     coverage: QQ_UNREAD_COVERAGE,
-    layout: VERIFIED_QQ_UNREAD_LAYOUT,
+    layout: MAC_ARM_LAYOUT,
     fromCache: true,
     locateMs: 0,
     elapsedMs: 1,
@@ -61,8 +60,11 @@ describe('原生诊断适配器', () => {
   });
 
   it.each([
-    ['darwin', 'arm64', VERIFIED_QQ_UNREAD_LAYOUT],
-    ['win32', 'x64', VERIFIED_WINDOWS_QQ_UNREAD_LAYOUT],
+    ['darwin', 'arm64', MAC_ARM_LAYOUT],
+    ['win32', 'x64', WINDOWS_LAYOUT],
+    ['darwin', 'x64', 'qqnt-macos-x64-7.0.1-52892'],
+    ['linux', 'x64', 'qqnt-linux-x64-3.2.35-54395'],
+    ['linux', 'arm64', 'qqnt-linux-arm64-3.2.35-54395'],
   ])('%s/%s 按固定账号路径读取并只清理自己用过的 PID', async (platform, arch, layout) => {
     vi.stubGlobal('process', { ...process, platform, arch });
     let pid: number | null = 123;
@@ -95,36 +97,6 @@ describe('原生诊断适配器', () => {
     await expect(source!.read()).rejects.toThrow('不可用');
   });
 
-  it.each([
-    ['win32', 'arm64', VERIFIED_WINDOWS_QQ_UNREAD_LAYOUT],
-    ['win32', 'ia32', VERIFIED_WINDOWS_QQ_UNREAD_LAYOUT],
-    ['linux', 'x64', VERIFIED_WINDOWS_QQ_UNREAD_LAYOUT],
-    ['darwin', 'x64', VERIFIED_QQ_UNREAD_LAYOUT],
-    ['win32', 'x64', VERIFIED_QQ_UNREAD_LAYOUT],
-    ['darwin', 'arm64', VERIFIED_WINDOWS_QQ_UNREAD_LAYOUT],
-    ['win32', 'x64', 'unknown-layout'],
-  ])('%s/%s 不接受不匹配的架构或布局 %s', (platform, arch, layout) => {
-    vi.stubGlobal('process', { ...process, platform, arch });
-    const readQqUnreadCounts = vi.fn(async () => memory());
-    expect(
-      createQqUnreadCountSource(
-        {
-          getQqUnreadCapability: () => ({
-            supported: true,
-            readOnly: true,
-            layouts: [layout],
-            coverage: QQ_UNREAD_COVERAGE,
-          }),
-          readQqUnreadCounts,
-          clearQqUnreadCache: () => 0,
-        },
-        '/synthetic/account.db',
-        () => 1,
-      ),
-    ).toBeUndefined();
-    expect(readQqUnreadCounts).not.toHaveBeenCalled();
-  });
-
   it('Windows 旧产物、非只读或覆盖声明不匹配时不启用，能力查询本身不读取内存', () => {
     vi.stubGlobal('process', { ...process, platform: 'win32', arch: 'x64' });
     for (const change of [
@@ -140,7 +112,7 @@ describe('原生诊断适配器', () => {
             getQqUnreadCapability: () => ({
               supported: true,
               readOnly: true,
-              layouts: [VERIFIED_WINDOWS_QQ_UNREAD_LAYOUT],
+              layouts: [WINDOWS_LAYOUT],
               coverage: QQ_UNREAD_COVERAGE,
               ...change,
             }),

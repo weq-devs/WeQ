@@ -9,16 +9,17 @@
  *            所以 PipeWire 发行版同样可用。
  *
  *   Windows  Electron 的 `setDisplayMediaRequestHandler` 支持
- *            `audio: 'loopback'`（Electron 44 起仅 Windows），这条路只能在渲染层
+ *            `audio: 'loopback'`，这条路从渲染层
  *            发起 `getDisplayMedia`。主进程负责放行，渲染层拿到音轨后切帧推回来。
  *
- *   macOS    没有系统音频采集能力（需要 BlackHole 之类的虚拟声卡），返回
- *            `unsupported`，界面把开关置灰。
+ *   macOS    macOS 14.2 起由 Chromium 使用 Core Audio Tap，系统选择器可用时
+ *            交给系统处理。渲染层用与 Windows 相同的 PCM 工作流。
  *
  * 采集到的数据**只进录音，不进通话上行** —— 电脑在放什么不该被发给对方。
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { release } from 'node:os';
 
 /** 界面要据此决定「电脑声音」开关能不能开。 */
 export type SystemAudioCapability = 'native' | 'renderer' | 'unsupported';
@@ -29,9 +30,15 @@ const FRAME_BYTES = 640;
 /** 当前平台的系统音频采集能力。 */
 export function systemAudioCapability(
   platform: NodeJS.Platform = process.platform,
+  kernelRelease: string = release(),
 ): SystemAudioCapability {
   if (platform === 'linux') return 'native';
   if (platform === 'win32') return 'renderer';
+  if (platform === 'darwin') {
+    // Darwin 23.2 对应 macOS 14.2，Core Audio Tap 从此版本起可用。
+    const [major = 0, minor = 0] = kernelRelease.split('.').map(Number);
+    if (major > 23 || (major === 23 && minor >= 2)) return 'renderer';
+  }
   return 'unsupported';
 }
 

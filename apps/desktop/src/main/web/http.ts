@@ -168,6 +168,7 @@ export async function handleRequest(
     const entry = lookupDownload(id);
     if (!entry) return send(res, 404, 'not found');
     if (entry.kind === 'directory') return streamArchiveDownload(res, entry.path, entry.name);
+    if (entry.kind === 'archive') return streamArchiveDownload(res, entry.files, entry.name);
     const out = await fileResponse(entry.path);
     const headers = new Headers(out.headers);
     headers.set('Cache-Control', 'no-store');

@@ -6,7 +6,7 @@ import {
 } from '@weqbot/protocol';
 import { withCollectionTransport, type CollectionNetworkOptions } from './collection';
 
-export { COLLECTION_DOWNLOAD_BUILDS, type CollectionDownloadResource } from '@weqbot/protocol';
+export type { CollectionDownloadResource } from '@weqbot/protocol';
 
 export async function applyCollectionFileDownload(
   cred: WebCredential,

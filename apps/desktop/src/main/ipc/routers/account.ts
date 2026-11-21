@@ -48,7 +48,11 @@ import { withDatabaseRequest, assertDatabaseWritable } from '@weq/db';
 import { clearFinishedTasks } from './clear_finished_tasks';
 import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
-import { openFlashDownloadOutput, startFlashDownloads } from './flash_save';
+import {
+  openFlashDownloadOutput,
+  registerFlashDownloadOutput,
+  startFlashDownloads,
+} from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
 import { pickedBrowserFiles } from '../../browser_files';
 import { saveAnalyticsFromWeb } from '../../analytics_save';
@@ -7805,6 +7809,28 @@ export const accountRouter = router({
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
       const services = current();
       return openFlashDownloadOutput(
+        input,
+        services.flashTransferFiles.downloads,
+        getHost(),
+        () => {
+          if (current() !== services)
+            throw new DOMException('账号已切换，已停止操作', 'AbortError');
+        },
+      );
+    }),
+
+  flashDownloadOutput: procedure
+    .input(
+      generatedAccountInput.extend({
+        taskId: z.string().min(1),
+        fileId: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const current = () =>
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const services = current();
+      return registerFlashDownloadOutput(
         input,
         services.flashTransferFiles.downloads,
         getHost(),

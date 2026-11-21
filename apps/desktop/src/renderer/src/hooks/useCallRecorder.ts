@@ -4,7 +4,7 @@
  * 录音本体在主进程（两路 PCM 本来就在那儿），这里只做三件事：
  *
  *   1. 发 `startRecording` / `stopRecording`，维护本地状态；
- *   2. **Windows** 上额外采集「电脑正在播放的声音」并推给主进程 —— 系统音频只有
+ *   2. **Windows／macOS** 上额外采集「电脑正在播放的声音」并推给主进程 —— 系统音频只有
  *      `getDisplayMedia` 能拿到，而它必须在渲染层发起（主进程负责放行，见
  *      `call_display_media.ts`）。Linux 由主进程自己 `parec`，这里什么都不做；
  *   3. 把设置页的默认值带进第一次录音，抽屉里改了就临时覆盖。
@@ -56,6 +56,7 @@ export function useCallRecorder({ live, defaults, capability }: UseCallRecorderO
   const stop = trpc.call.stopRecording.useMutation();
   const pushSystem = trpc.call.pushSystemAudio.useMutation();
 
+  const audioAttempt = useRef(0);
   const systemStream = useRef<MediaStream | null>(null);
   const systemContext = useRef<AudioContext | null>(null);
   const pushRef = useRef(pushSystem.mutate);
@@ -80,30 +81,41 @@ export function useCallRecorder({ live, defaults, capability }: UseCallRecorderO
     return () => window.clearInterval(timer);
   }, [recording?.active]);
 
-  /** Windows：采系统音频，切 20 ms 帧推给主进程。失败只记日志，不打断录音。 */
-  const startSystemAudio = useCallback(async () => {
-    if (capability !== 'renderer') return;
-    try {
-      // 主进程的 handler 会把 audio 固定回 loopback；video 是 Chromium 的硬性
-      // 要求（两者至少一个），拿到流之后立刻停掉，别白占一路桌面捕获。
+  const releaseSystemAudio = useCallback(() => {
+    for (const track of systemStream.current?.getTracks() ?? []) track.stop();
+    systemStream.current = null;
+    void systemContext.current?.close().catch(() => {});
+    systemContext.current = null;
+  }, []);
+
+  const stopSystemAudio = useCallback(() => {
+    audioAttempt.current++;
+    releaseSystemAudio();
+  }, [releaseSystemAudio]);
+
+  /** 从用户点击发起系统选择，取到音轨后才开始写入录音。 */
+  const prepareSystemAudio = useCallback(
+    async (attempt: number) => {
       const stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
+      if (attempt !== audioAttempt.current) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
+      systemStream.current = stream;
       for (const track of stream.getVideoTracks()) {
         track.stop();
         stream.removeTrack(track);
       }
-      if (stream.getAudioTracks().length === 0) {
-        for (const track of stream.getTracks()) track.stop();
-        console.warn('[call] 没有拿到系统音频轨');
-        return;
-      }
-      systemStream.current = stream;
+      const audio = stream.getAudioTracks().find((track) => track.readyState === 'live');
+      if (!audio) throw new Error('系统未提供可用的电脑声音音轨');
       const context = new AudioContext({ sampleRate: SYSTEM_RATE });
       systemContext.current = context;
-      if (context.state === 'suspended') await context.resume().catch(() => {});
+      if (context.state === 'suspended') void context.resume().catch(() => {});
       const source = context.createMediaStreamSource(stream);
       const processor = context.createScriptProcessor(SYSTEM_BUFFER_SAMPLES, 1, 1);
       let pending = new Float32Array(0);
       processor.onaudioprocess = (event) => {
+        if (attempt !== audioAttempt.current) return;
         const input = event.inputBuffer.getChannelData(0);
         const merged = new Float32Array(pending.length + input.length);
         merged.set(pending, 0);
@@ -119,21 +131,23 @@ export function useCallRecorder({ live, defaults, capability }: UseCallRecorderO
           void pushRef.current({ pcm: new Uint8Array(frame.buffer) });
         }
         pending = merged.slice(offset);
-        if (pending.length > SYSTEM_RATE) pending = new Float32Array(0);
       };
-      source.connect(processor);
-      processor.connect(context.destination);
-    } catch (cause) {
-      console.warn('[call] 系统声音采集失败', cause);
-    }
-  }, [capability]);
-
-  const stopSystemAudio = useCallback(() => {
-    for (const track of systemStream.current?.getTracks() ?? []) track.stop();
-    systemStream.current = null;
-    void systemContext.current?.close();
-    systemContext.current = null;
-  }, []);
+      return () => {
+        audio.addEventListener(
+          'ended',
+          () => {
+            if (attempt !== audioAttempt.current) return;
+            releaseSystemAudio();
+            setError('电脑声音采集已中断，通话录音仍在继续。');
+          },
+          { once: true },
+        );
+        source.connect(processor);
+        processor.connect(context.destination);
+      };
+    },
+    [releaseSystemAudio],
+  );
 
   const begin = useCallback(
     async (override?: Partial<{ mode: CallRecordingMode; systemAudio: boolean }>) => {
@@ -141,10 +155,25 @@ export function useCallRecorder({ live, defaults, capability }: UseCallRecorderO
       setBusy(true);
       setError(null);
       setFinished(null);
+      const attempt = ++audioAttempt.current;
       try {
         const mode = override?.mode ?? defaults?.mode ?? 'mixed';
-        const systemAudio = override?.systemAudio ?? defaults?.systemAudio ?? false;
+        const requested = override?.systemAudio ?? defaults?.systemAudio ?? false;
+        let connectAudio: (() => void) | undefined;
+        if (requested && capability === 'renderer') {
+          try {
+            connectAudio = await prepareSystemAudio(attempt);
+          } catch (cause) {
+            if (attempt !== audioAttempt.current) return;
+            releaseSystemAudio();
+            console.warn('[call] 系统声音采集失败', cause);
+            setError('未能录制电脑声音，录音只包含通话声音。');
+          }
+        }
+        if (attempt !== audioAttempt.current) return;
+        const systemAudio = requested && (capability === 'native' || !!connectAudio);
         const snapshot = await start.mutateAsync({ mode, systemAudio });
+        if (attempt !== audioAttempt.current) return;
         startedAtRef.current = Date.now();
         setRecording({
           active: true,
@@ -152,14 +181,25 @@ export function useCallRecorder({ live, defaults, capability }: UseCallRecorderO
           mode: snapshot.mode,
           systemAudio: snapshot.systemAudio,
         });
-        if (systemAudio) void startSystemAudio();
+        connectAudio?.();
       } catch (cause) {
+        if (attempt !== audioAttempt.current) return;
+        releaseSystemAudio();
         setError(cause instanceof Error ? cause.message : '无法开始录音');
       } finally {
         setBusy(false);
       }
     },
-    [busy, defaults, live, recording?.active, start, startSystemAudio],
+    [
+      busy,
+      capability,
+      defaults,
+      live,
+      prepareSystemAudio,
+      recording?.active,
+      releaseSystemAudio,
+      start,
+    ],
   );
 
   const end = useCallback(async () => {
@@ -190,6 +230,7 @@ export function useCallRecorder({ live, defaults, capability }: UseCallRecorderO
   // 这条订阅过来。用户点「停止」时两条路都会到，`finished` 覆盖成同一份即可。
   trpc.call.onCallRecording.useSubscription(undefined, {
     onData: (entry) => {
+      stopSystemAudio();
       startedAtRef.current = null;
       setRecording(null);
       setFinished({

@@ -1102,16 +1102,14 @@ void app.whenReady().then(async () => {
   // 防撤回：拦到新撤回时按会话开关弹系统通知（服务层注入，保持 Electron-free）。
   setRecallNotifier(handleRecallNotification);
   setMailNotifier(handleMailNotification);
-  // 意图感知本地引擎（Laya ONNX worker）：bridge 认识 Electron（userData 路径、
-  // fork），同样从这里注入控制面；web 端不注入，localAvailable 恒为 false。
+  // 意图感知本地引擎（Laya ONNX worker）的宿主控制面。
   setIntentSenseLocalEngine(getIntentSenseLocalEngine());
 
   registerResourceProtocol();
   registerAvatarProtocol();
   registerMediaProtocol();
   registerUdpCaptureStorage();
-  // 放行通话窗口的 getDisplayMedia：屏幕共享（所有平台）与 Windows 的
-  // 电脑声音 loopback（Linux 录电脑声音走 parec，不经这条路）。
+  // 放行通话窗口的屏幕共享与 Windows／macOS 系统音频。
   installCallDisplayMediaHandler();
   registerWindowLayoutIpc();
   registerMediaIpc();

@@ -20,6 +20,11 @@ const mocks = vi.hoisted(() => ({
     profile: { width: 1280, height: 720, fps: 15, bitrateKbps: 1200 },
   })),
   resizeVideo: vi.fn(),
+  systemAudio: 'unsupported' as 'unsupported' | 'renderer',
+  startRecording: vi.fn(async (input: { mode: string; systemAudio: boolean }) => ({
+    ...input,
+    durationSec: 0,
+  })),
 }));
 vi.mock('../src/renderer/src/lib/target', async (original) => ({
   ...(await original<object>()),
@@ -59,17 +64,26 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       resizeVideo: { useMutation: () => ({ mutate: mocks.resizeVideo, isPending: false }) },
       pushVideoFrame: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
-      // 录音相关的 RPC：这个测试只关心窗口生命周期与通话控件，录音一律给空。
-      startRecording: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
+      startRecording: {
+        useMutation: () => ({ mutateAsync: mocks.startRecording, isLoading: false }),
+      },
       stopRecording: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },
       pushSystemAudio: { useMutation: () => ({ mutate: vi.fn() }) },
       recordingCapabilities: {
-        useQuery: () => ({ data: { systemAudio: 'unsupported', dir: null }, refetch: vi.fn() }),
+        useQuery: () => ({ data: { systemAudio: mocks.systemAudio, dir: null }, refetch: vi.fn() }),
       },
       recordingForMessage: { useQuery: () => ({ data: null }) },
     },
     bootstrap: {
-      getSettings: { useQuery: () => ({ data: undefined, refetch: vi.fn() }) },
+      getSettings: {
+        useQuery: () => ({
+          data:
+            mocks.systemAudio === 'renderer'
+              ? { callRecording: { mode: 'mixed', systemAudio: true } }
+              : undefined,
+          refetch: vi.fn(),
+        }),
+      },
       setCallRecording: { useMutation: () => ({ mutate: vi.fn(), isLoading: false }) },
       pickCallRecordingDir: { useMutation: () => ({ mutate: vi.fn(), isLoading: false }) },
     },
@@ -104,6 +118,8 @@ const initial: CallInfo = {
 
 afterEach(() => {
   mocks.web = false;
+  mocks.systemAudio = 'unsupported';
+  mocks.startRecording.mockClear();
   useAppLock.getState().unlock();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -217,6 +233,41 @@ it('界面仅挂在子窗口，主题同步，通话控件可用，结束后自�
     popup.close();
   }
   expect(mocks.hangup).toHaveBeenCalledOnce();
+});
+
+it('系统选择器返回已结束的音轨时仍录通话，且丢弃采集轨道', async () => {
+  mocks.systemAudio = 'renderer';
+  const video = { stop: vi.fn() };
+  const audio = { readyState: 'ended', stop: vi.fn() };
+  const getDisplayMedia = vi.fn(async () => ({
+    getVideoTracks: () => [video],
+    getAudioTracks: () => [audio],
+    getTracks: () => [audio],
+    removeTrack: vi.fn(),
+  }));
+  const testNavigator = Object.create(navigator);
+  Object.defineProperty(testNavigator, 'mediaDevices', {
+    value: { getDisplayMedia, getUserMedia: vi.fn().mockRejectedValue(new Error('合成麦克风')) },
+  });
+  vi.stubGlobal('navigator', testNavigator);
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const popup = new HappyWindow();
+  vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+  const app = mount();
+  try {
+    act(() => mocks.state!.onData({ ...initial, state: 'connected' }));
+    await act(async () =>
+      popup.document.querySelector<HTMLButtonElement>('[title="开始录音"]')!.click(),
+    );
+    expect(getDisplayMedia).toHaveBeenCalledOnce();
+    expect(mocks.startRecording).toHaveBeenCalledWith({ mode: 'mixed', systemAudio: false });
+    expect(video.stop).toHaveBeenCalledOnce();
+    expect(audio.stop).toHaveBeenCalledOnce();
+    expect(popup.document.body.textContent).toContain('录音只包含通话声音');
+  } finally {
+    await app.dispose();
+    popup.close();
+  }
 });
 
 it('手动关闭系统窗口会挂断并清理主界面的通话状态', async () => {
