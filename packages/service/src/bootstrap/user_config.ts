@@ -936,6 +936,13 @@ export interface AppSettings {
   chatImageCacheMiB: number;
   /** 发送文本时显式携带 QQ 账号当前的个性字体。 */
   sendWithQqFont: boolean;
+  /**
+   * 发送文本时改用「个性装扮」里选用的聊天字体。
+   *
+   * 开启后接管字体槽位：有选中款就发它，没选就不带字体，不再回落到 QQ 账号字体。
+   * 默认关闭，避免沿用本地预览选择改变对方看到的字形。
+   */
+  sendWithDressFont: boolean;
   /** 群助手入口显示汇总未读消息数，而不是仅显示圆点。 */
   showGroupAssistantMessageCount: boolean;
   /**
@@ -1290,6 +1297,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showScrollToBottomButton: true,
   chatImageCacheMiB: DEFAULT_CHAT_IMAGE_CACHE_MIB,
   sendWithQqFont: true,
+  sendWithDressFont: false,
   showGroupAssistantMessageCount: false,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
@@ -2097,6 +2105,7 @@ export class UserConfigService {
       showScrollToBottomButton: s?.showScrollToBottomButton ?? d.showScrollToBottomButton,
       chatImageCacheMiB: normalizeChatImageCacheMiB(s?.chatImageCacheMiB),
       sendWithQqFont: s?.sendWithQqFont ?? d.sendWithQqFont,
+      sendWithDressFont: s?.sendWithDressFont ?? d.sendWithDressFont,
       showGroupAssistantMessageCount:
         s?.showGroupAssistantMessageCount ?? d.showGroupAssistantMessageCount,
       externalChatpic: {
@@ -2294,6 +2303,7 @@ export class UserConfigService {
         patch.chatImageCacheMiB ?? current.chatImageCacheMiB,
       ),
       sendWithQqFont: patch.sendWithQqFont ?? current.sendWithQqFont,
+      sendWithDressFont: patch.sendWithDressFont ?? current.sendWithDressFont,
       showGroupAssistantMessageCount:
         patch.showGroupAssistantMessageCount ?? current.showGroupAssistantMessageCount,
       externalChatpic: {

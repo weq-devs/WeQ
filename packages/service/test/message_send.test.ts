@@ -1067,6 +1067,172 @@ describe('MessageSendService.sendText（离线集成）', () => {
     expect(native.calls).toHaveLength(0);
   });
 
+  describe('装扮字体发送', () => {
+    /** 末尾两个位置参数：装扮选用的字体、是否用它发送。 */
+    function withDressFont(
+      options: {
+        activeFontId?: number | undefined;
+        enabled?: boolean;
+        currentFontId?: number;
+        fontSamples?: {
+          senderUin: bigint;
+          senderUid: string;
+          decoration?: { fontId2Raw: number };
+        }[];
+      } = {},
+    ) {
+      const native = fakeNative();
+      const svc = new MessageSendService(
+        native as never,
+        fakeSession(options.fontSamples ? { fontSamples: options.fontSamples } : undefined),
+        () => 1,
+        undefined, // marketFaceKey
+        undefined, // retainSent
+        () => options.currentFontId ?? 31001,
+        undefined, // sendWithQqFont（用默认 true）
+        undefined, // currentChatBubbleId
+        undefined, // mediaDownload
+        undefined, // authorizeGroup
+        () => options.activeFontId,
+        () => options.enabled ?? true,
+      );
+      return { native, svc };
+    }
+
+    it('开启后用装扮里选用的字体发送，不带 QQ 账号字体', async () => {
+      // 历史里没有这款的原值 → 走 0x10000 | swap16 兜底编码。
+      const { native, svc } = withDressFont({ activeFontId: 22045, fontSamples: [] });
+      await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '装扮字体' });
+      expect(elemsOf(native.calls[0]!.body)[0]).toEqual({
+        generalFlags: {
+          bubbleDiyTextId: 0,
+          widgetId: 0,
+          font: { ...fontWireFields, fontId2: 0x10000 | 0x11d56 },
+        },
+      });
+    });
+
+    it('开启但未选用字体时按普通字体发送，不回落到 QQ 账号字体', async () => {
+      const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+      const native = fakeNative();
+      const svc = new MessageSendService(
+        native as never,
+        fakeSession(),
+        () => 1,
+        undefined,
+        async (row) => {
+          saved.push(row);
+        },
+        () => 31001,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => 0,
+        () => true,
+      );
+      await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '普通字体' });
+      expect(elemsOf(native.calls[0]!.body)).toEqual([{ text: { str: '普通字体' } }]);
+      expect(saved[0]!.decoration).toBeUndefined();
+    });
+
+    it('关闭时回到 QQ 账号字体，装扮选择不参与发送', async () => {
+      const { native, svc } = withDressFont({ activeFontId: 22045, enabled: false });
+      await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '账号字体' });
+      expect(elemsOf(native.calls[0]!.body)[0]).toEqual({
+        generalFlags: {
+          bubbleDiyTextId: 0,
+          widgetId: 0,
+          font: { ...fontWireFields, fontId2: 72057 },
+        },
+      });
+    });
+
+    it('不查历史原值，统一发 feeType=1 形态，不随历史高位变化', async () => {
+      // 历史里同款带的是 0x01017684（feeType=0、带类型高位）；装扮字体仍发 0x10000|swap16。
+      const { native, svc } = withDressFont({
+        activeFontId: 33910,
+        fontSamples: [
+          { senderUin: 10001n, senderUid: 'u_me', decoration: { fontId2Raw: 0x01017684 } },
+        ],
+      });
+      await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '统一形态' });
+      expect(elemsOf(native.calls[0]!.body)[0]).toEqual({
+        generalFlags: {
+          bubbleDiyTextId: 0,
+          widgetId: 0,
+          font: { ...fontWireFields, fontId2: 0x10000 | 0x7684 },
+        },
+      });
+    });
+
+    it('选用的 itemId 超出 16 位时不发送，避免截断成另一款', async () => {
+      const { native, svc } = withDressFont({ activeFontId: 0x10000 });
+      await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '超范围' });
+      expect(elemsOf(native.calls[0]!.body)).toEqual([{ text: { str: '超范围' } }]);
+    });
+
+    it('准备阶段与真实请求使用同一份装扮字体，本地回显跟着写', async () => {
+      const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+      const native = fakeNative();
+      const svc = new MessageSendService(
+        native as never,
+        fakeSession({ fontSamples: [] }),
+        () => 1,
+        undefined,
+        async (row) => {
+          saved.push(row);
+        },
+        () => 31001,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => 22045,
+        () => true,
+      );
+      const target = { peerType: 'c2c' as const, targetId: 'u_friend' };
+      expect(await svc.prepareChatFont(target)).toEqual({
+        fontId: 22045,
+        fontId2Raw: 0x10000 | 0x11d56,
+      });
+      await svc.sendElements({
+        ...target,
+        elements: [{ kind: 'text', textContent: '预设字体' }],
+        preparedChatFont: await svc.prepareChatFont(target),
+      });
+      expect(saved[0]!.decoration?.fontId).toBe(22045);
+    });
+
+    it('纯表情消息不读取装扮字体', async () => {
+      let reads = 0;
+      const native = fakeNative();
+      const svc = new MessageSendService(
+        native as never,
+        fakeSession(),
+        () => 1,
+        undefined,
+        undefined,
+        () => 31001,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => {
+          reads++;
+          return 22045;
+        },
+        () => true,
+      );
+      await svc.sendElements({
+        peerType: 'c2c',
+        targetId: 'u_friend',
+        elements: [{ kind: 'face', faceId: 14 }],
+      });
+      expect(reads).toBe(0);
+    });
+  });
+
   it('发送成功后用实际协议正文持久保留文字和表情弹射', async () => {
     const saved: unknown[] = [];
     const svc = new MessageSendService(

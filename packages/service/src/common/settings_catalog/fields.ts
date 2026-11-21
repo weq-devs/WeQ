@@ -79,6 +79,7 @@ export const APP_SETTING_FIELDS = (
     ['message-content', 'linkPreview', 'link-preview', '链接预览'],
     ['message-content', 'chatImageCacheMiB', 'chat-image-cache', '图片预览内存预算'],
     ['sending', 'sendWithQqFont', 'send-with-qq-font', 'QQ 个性字体发送'],
+    ['sending', 'sendWithDressFont', 'send-with-dress-font', '装扮字体发送'],
     ['call-connection', 'callDisableP2P', 'call-p2p', '禁用 P2P'],
     ['qzone-person', 'qzonePersonClickAction', 'qzone-person-click', '人物入口'],
     ['qzone-forward', 'qzoneForwardQuotePrevious', 'qzone-forward', '引用上一人文案'],

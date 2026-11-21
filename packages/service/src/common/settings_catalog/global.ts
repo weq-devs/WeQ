@@ -59,6 +59,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   showScrollToBottomButton: 'preference',
   chatImageCacheMiB: 'preference',
   sendWithQqFont: 'preference',
+  sendWithDressFont: 'preference',
   showGroupAssistantMessageCount: 'preference',
   externalChatpic: 'preference',
   externalRkey: 'api',

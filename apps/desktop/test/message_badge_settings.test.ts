@@ -133,6 +133,7 @@ function mount() {
     toggle: (label: string) => {
       const page = [
         '使用 QQ 账号设置的个性字体发送消息',
+        '发送时使用个性装扮中选用的聊天字体',
         '群聊引用时自动 @ 对方',
         '按退格键移除引用',
       ].includes(label)
@@ -228,6 +229,7 @@ const toggles = [
   ['发送消息后定位到最新消息', 'jumpToLatestAfterSend', true],
   ['向下滚动时显示定位到底部按钮', 'showScrollToBottomButton', true],
   ['使用 QQ 账号设置的个性字体发送消息', 'sendWithQqFont', true],
+  ['发送时使用个性装扮中选用的聊天字体', 'sendWithDressFont', false],
 ] as const;
 
 it('未读角标按系统图标、主导航、常规视图、联系人和菜单排列', () => {
