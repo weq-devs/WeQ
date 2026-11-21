@@ -66,11 +66,12 @@ import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-action
 import { withQQAccountScope } from '../components/qq-actions/shared.shared';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { pushMobileBack, useMobileBack } from '../hooks/useMobileNavigation';
-import { QzoneEmoji } from '../components/QzoneEmoji';
+import { QzoneEmoji, QzoneInlineText } from '../components/QzoneEmoji';
 import {
   projectQzoneFeed,
   qzoneMediaSource,
   mergeQzonePosts,
+  qzonePlainText,
   qzoneTextParts,
   qzoneAlbumTarget,
 } from '../lib/qzone';
@@ -341,12 +342,7 @@ function QzoneName({
     !freezeLabel && nickname && (preferNickname || !content || content === uin)
       ? nickname
       : content;
-  const tooltipNickname = nickname;
-  const plainNickname = tooltipNickname
-    ? qzoneTextParts(tooltipNickname)
-        .map((part) => (part.kind === 'emoji' ? '[QQ表情]' : part.text))
-        .join('')
-    : '';
+  const plainNickname = nickname ? qzonePlainText(nickname) : '';
   return (
     <span
       className="weq-qzn-name"
@@ -355,13 +351,7 @@ function QzoneName({
         if (uin) people.request(uin);
       }}
     >
-      {qzoneTextParts(label).map((part) =>
-        part.kind === 'emoji' ? (
-          <QzoneEmoji key={`${part.offset}:${part.code}`} code={part.code} />
-        ) : (
-          <span key={`${part.offset}:text`}>{part.text}</span>
-        ),
-      )}
+      <QzoneInlineText content={label} />
     </span>
   );
 }
@@ -747,7 +737,9 @@ export function QzoneView({
                     </button>
                     <button
                       type="button"
-                      aria-label={ownPosts ? '关闭我的说说' : `关闭 ${name} ${suffix}`}
+                      aria-label={
+                        ownPosts ? '关闭我的说说' : `关闭 ${qzonePlainText(name)} ${suffix}`
+                      }
                       onClick={() => closeOwnerTab(section, uin)}
                     >
                       <X size={12} />
@@ -2588,7 +2580,7 @@ function Interaction({
         ) : null}
         <div className="weq-qzn-like-users">
           {likes.likes.map((like) => (
-            <span key={like.uin} title={like.nickname || like.uin}>
+            <span key={like.uin} title={qzonePlainText(like.nickname || like.uin)}>
               <QzonePersonIdentity
                 uin={like.uin}
                 nickname={like.nickname}
@@ -3599,7 +3591,9 @@ function RelatedCard({
                 nickname={activity.actorName}
                 onSpace={onSpace}
               >
-                <span className="weq-qzn-name">{activity.actorName || activity.actorUin}</span>
+                <span className="weq-qzn-name">
+                  <QzoneInlineText content={activity.actorName || activity.actorUin} />
+                </span>
               </QzonePersonButton>
             ) : null}
             <span title={relatedActionLine(activity)}>{relatedActionLine(activity)}</span>

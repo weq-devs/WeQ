@@ -10,7 +10,9 @@ import { useTransferProgress } from '../../lib/transferActivity';
 import { TransferRing } from '../TransferRing';
 import { qzoneSelfLiked, type QzoneReplyTarget } from '../../lib/qzoneActions';
 import { qzoneReplyPresentation } from '../../lib/qzoneReplyPresentation';
+import { qzonePlainText } from '../../lib/qzone';
 import type { QzoneInteraction } from '../../views/qzone_types';
+import { QzoneInlineText } from '../QzoneEmoji';
 import { ActionFeedback, ActionIcon, ImageAction, SaveAction } from './shared';
 import { useQQAction, useQQAlbumPermissions, withQQAccountScope } from './shared.shared';
 
@@ -529,7 +531,10 @@ function QzoneWriteActionsBody({
     <div className="weq-qq-actions weq-qzn-comment-composer">
       {replyTarget ? (
         <p className="weq-qzn-status">
-          回复 {replyTarget.nickname}{' '}
+          回复{' '}
+          <span className="weq-qzn-name">
+            <QzoneInlineText content={replyTarget.nickname} />
+          </span>{' '}
           <button type="button" disabled={commentPending} onClick={onCancelReply}>
             取消
           </button>
@@ -560,7 +565,7 @@ function QzoneWriteActionsBody({
       <div className="weq-qq-action-bar" aria-busy={commentPending || undefined}>
         <input
           aria-label={replyTarget ? '说说回复' : '说说评论'}
-          placeholder={replyTarget ? `回复 ${replyTarget.nickname}` : '写评论'}
+          placeholder={replyTarget ? `回复 ${qzonePlainText(replyTarget.nickname)}` : '写评论'}
           value={content}
           maxLength={4096}
           onChange={(e) => {

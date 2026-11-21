@@ -1,6 +1,7 @@
 import type { ReactNode, Ref } from 'react';
 import { QzonePersonButton, QzoneProfileAvatar } from './QzoneProfileAvatar';
 import { QqAvatar } from './QqAvatar';
+import { QzoneInlineText } from './QzoneEmoji';
 import { timeText } from '../views/qzoneShared.shared';
 
 export function QzoneCommentRow({
@@ -30,7 +31,7 @@ export function QzoneCommentRow({
 }) {
   const label = name ?? (
     <span className="weq-qzn-name" data-privacy-sensitive={Boolean(nickname || uin) || undefined}>
-      {nickname || uin || '空间用户'}
+      <QzoneInlineText content={nickname || uin || '空间用户'} />
     </span>
   );
   return (

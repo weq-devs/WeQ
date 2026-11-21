@@ -3,7 +3,9 @@ import { activateProfile } from '../lib/profileClick';
 import { useContext, type ReactNode, type CSSProperties } from 'react';
 import { QzoneProfileContext, QzonePersonContext } from '../lib/qzoneNavigation';
 import { profileTargetUser } from '../lib/profileNavigation';
+import { qzonePlainText } from '../lib/qzone';
 import { QqAvatar } from './QqAvatar';
+import { QzoneInlineText } from './QzoneEmoji';
 import '../styles/identity-links.css';
 
 /** 昵称与头像共用设置，当前空间主人始终打开名片。 */
@@ -27,12 +29,13 @@ export function QzonePersonButton({
   const context = useContext(QzonePersonContext);
   const showProfile = context.spaceUin === uin || context.action === 'profile';
   const openSpace = onSpace ?? context.onSpace;
+  const label = qzonePlainText(nickname || uin);
   return (
     <button
       type="button"
       className={`weq-qzn-person-link${className ? ` ${className}` : ''}`}
       style={style}
-      aria-label={showProfile ? `查看 ${nickname || uin} 的资料` : `进入 ${nickname || uin} 的空间`}
+      aria-label={showProfile ? `查看 ${label} 的资料` : `进入 ${label} 的空间`}
       disabled={showProfile ? !openProfile : !openSpace}
       onClick={(event) => {
         event.preventDefault();
@@ -90,10 +93,14 @@ export function QzonePersonHeader({
       <div className="weq-qzn-person-info">
         {uin ? (
           <QzonePersonButton uin={uin} nickname={nickname} onSpace={onSpace}>
-            {children ?? <span className="weq-qzn-name">{nickname}</span>}
+            {children ?? (
+              <span className="weq-qzn-name">
+                <QzoneInlineText content={nickname} />
+              </span>
+            )}
           </QzonePersonButton>
         ) : (
-          <span className="weq-qzn-name">{children ?? nickname}</span>
+          <span className="weq-qzn-name">{children ?? <QzoneInlineText content={nickname} />}</span>
         )}
         {time}
       </div>
@@ -126,7 +133,11 @@ export function QzonePersonIdentity({
       className={`weq-qzn-identity-link ${className}`}
     >
       <QqAvatar uin={uin} url={url} size={size} />
-      {children ?? <span className="weq-qzn-name">{nickname || uin}</span>}
+      {children ?? (
+        <span className="weq-qzn-name">
+          <QzoneInlineText content={nickname || uin} />
+        </span>
+      )}
     </QzonePersonButton>
   );
 }

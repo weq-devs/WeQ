@@ -2,11 +2,11 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import type { QzoneShareCategory } from '@weqbot/protocol/web';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
-import { QzoneEmoji } from '../components/QzoneEmoji';
+import { QzoneInlineText } from '../components/QzoneEmoji';
 import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { openExternalLink } from '../lib/openExternalLink';
-import { qzoneLinkTarget, qzoneMediaSource, qzoneTextParts } from '../lib/qzone';
+import { qzoneLinkTarget, qzoneMediaSource } from '../lib/qzone';
 import { client, trpc } from '../trpc/client';
 import { QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext, timeText } from './qzoneShared.shared';
@@ -117,16 +117,6 @@ function PageEnd({ state, empty }: { state: PagedState; empty: string }) {
   ) : null;
 }
 
-function SpaceText({ text }: { text: string }) {
-  return qzoneTextParts(text).map((part) =>
-    part.kind === 'emoji' ? (
-      <QzoneEmoji key={part.offset} code={part.code} />
-    ) : (
-      <span key={part.offset}>{part.text}</span>
-    ),
-  );
-}
-
 function ShareExport({
   space,
   category,
@@ -221,7 +211,7 @@ function Shares({ space }: { space: Space }) {
             </header>
             {share.memo ? (
               <p className="weq-qzn-content" data-privacy-sensitive>
-                <SpaceText text={share.memo} />
+                <QzoneInlineText content={share.memo} />
               </p>
             ) : null}
             {poster ? <QzoneMediaGrid images={[poster]} videos={[]} /> : null}
@@ -280,7 +270,7 @@ function ShareCommentList({ space, shareId }: { space: Space; shareId: string })
           afterMeta={<time>{row.publishedAt}</time>}
         >
           <div className="weq-qzn-comment-content" data-privacy-sensitive>
-            <SpaceText text={row.text} />
+            <QzoneInlineText content={row.text} />
           </div>
           {row.replies.map((reply) => (
             <QzoneCommentRow
@@ -292,7 +282,7 @@ function ShareCommentList({ space, shareId }: { space: Space; shareId: string })
               afterMeta={<time>{reply.publishedAt}</time>}
             >
               <div className="weq-qzn-comment-content" data-privacy-sensitive>
-                <SpaceText text={reply.text} />
+                <QzoneInlineText content={reply.text} />
               </div>
             </QzoneCommentRow>
           ))}
@@ -361,7 +351,7 @@ function Guestbook({ space }: { space: Space }) {
             <>
               <h3 className="weq-qzn-more-title">主人寄语</h3>
               <p className="weq-qzn-content" data-privacy-sensitive>
-                <SpaceText text={state.first.greeting} />
+                <QzoneInlineText content={state.first.greeting} />
               </p>
             </>
           ) : null}
@@ -383,7 +373,7 @@ function Guestbook({ space }: { space: Space }) {
             time={<time>{entry.publishedAt}</time>}
           />
           <p className="weq-qzn-content" data-privacy-sensitive>
-            <SpaceText text={entry.text} />
+            <QzoneInlineText content={entry.text} />
           </p>
           {entry.replies.length ? (
             <div className="weq-qzn-comments" aria-label="留言回复">
@@ -396,7 +386,7 @@ function Guestbook({ space }: { space: Space }) {
                   onSpace={space.onSpace}
                 >
                   <div className="weq-qzn-comment-content" data-privacy-sensitive>
-                    <SpaceText text={reply.text} />
+                    <QzoneInlineText content={reply.text} />
                   </div>
                 </QzoneCommentRow>
               ))}

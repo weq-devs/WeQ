@@ -10,7 +10,8 @@ import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
 import { useQQAction } from './qq-actions/shared.shared';
 import { useToast } from './Toast.shared';
-import { qzoneMediaSource } from '../lib/qzone';
+import { qzoneMediaSource, qzonePlainText } from '../lib/qzone';
+import { QzoneInlineText } from './QzoneEmoji';
 import { ShimmerImage } from './ShimmerImage';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { visibleViewport } from '../lib/visibleViewport';
@@ -81,7 +82,7 @@ export function QzoneUpvoteAction({
           {value?.users.map((user, index) => {
             const name = user.nickname || user.uin || '空间用户';
             return (
-              <span key={user.uid || user.uin || `preview-${index}`} title={name}>
+              <span key={user.uid || user.uin || `preview-${index}`} title={qzonePlainText(name)}>
                 {user.uin ? (
                   <QzonePersonIdentity
                     uin={user.uin}
@@ -89,13 +90,13 @@ export function QzoneUpvoteAction({
                     url={user.portrait}
                     size={20}
                     onSpace={onSpace}
-                  >
-                    <span className="weq-qzn-name">{name}</span>
-                  </QzonePersonIdentity>
+                  />
                 ) : (
                   <span className="weq-qzn-identity-link">
                     <QqAvatar uin={null} url={user.portrait} size={20} />
-                    <span className="weq-qzn-name">{name}</span>
+                    <span className="weq-qzn-name">
+                      <QzoneInlineText content={name} />
+                    </span>
                   </span>
                 )}
               </span>

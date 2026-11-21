@@ -1,5 +1,16 @@
 import { useState } from 'react';
+import { qzoneTextParts } from '../lib/qzone';
 import { avatarFetchUrl } from '../lib/resourceUrl';
+
+export function QzoneInlineText({ content }: { content: string }) {
+  return qzoneTextParts(content).map((part) =>
+    part.kind === 'emoji' ? (
+      <QzoneEmoji key={`${part.offset}:${part.code}`} code={part.code} />
+    ) : (
+      <span key={`${part.offset}:text`}>{part.text}</span>
+    ),
+  );
+}
 
 export function QzoneEmoji({
   code,

@@ -18,12 +18,13 @@ it('作者头像与昵称分开操作，时间只属于昵称旁的身份信息'
   const host = document.createElement('div');
   const root = createRoot(host);
   const space = vi.fn();
+  const nickname = '合成[em]e257868[/em][em]e328008[/em]好友';
   try {
     act(() =>
       root.render(
         h(QzonePersonHeader, {
           uin: '10002',
-          nickname: '合成好友',
+          nickname,
           size: 34,
           onSpace: space,
           time: h('time', null, '2026-11-04'),
@@ -33,9 +34,18 @@ it('作者头像与昵称分开操作，时间只属于昵称旁的身份信息'
     expect(host.querySelectorAll('button')).toHaveLength(2);
     expect(host.querySelector('button time')).toBeNull();
     expect(host.querySelector('.weq-qzn-person-info > time')?.textContent).toBe('2026-11-04');
+    const name = host.querySelector('.weq-qzn-name')!;
+    expect(name.textContent).toBe('合成好友');
+    const emojiSources = Array.from(name.querySelectorAll('img'), (image) =>
+      new URL(image.src).searchParams.get('src'),
+    );
+    expect(emojiSources).toEqual([
+      'https://qzonestyle.gtimg.cn/qzone/em/e257868.gif',
+      'https://qzonestyle.gtimg.cn/qzone/em/e328008.gif',
+    ]);
     for (const button of host.querySelectorAll('button')) act(() => button.click());
     expect(space).toHaveBeenCalledTimes(2);
-    expect(space).toHaveBeenLastCalledWith('10002', '合成好友');
+    expect(space).toHaveBeenLastCalledWith('10002', nickname);
   } finally {
     act(() => root.unmount());
     vi.unstubAllGlobals();

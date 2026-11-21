@@ -40,14 +40,13 @@ import { normalizeQzonePublicRefreshCooldown } from '@weq/service/qzone-public-s
 import { PageDataCache } from '../lib/pageDataCache';
 import { QqAvatar } from '../components/QqAvatar';
 import { QzonePersonIdentity, QzonePersonHeader } from '../components/QzoneProfileAvatar';
-import { QzoneEmoji } from '../components/QzoneEmoji';
+import { QzoneInlineText } from '../components/QzoneEmoji';
 import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
 import { QzoneUpvoteAction } from '../components/QzoneUpvoteAction';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
-import { qzoneTextParts } from '../lib/qzone';
 import {
   mergePublicComments,
   projectPublicCommentsPage,
@@ -172,22 +171,6 @@ function countText(value: number | null): string {
   if (value === null) return '?';
   if (value < 10_000) return String(value);
   return `${(value / 10_000).toFixed(1).replace(/\.0$/, '')}万`;
-}
-
-/** 正文里的 `[em]eXXX[/em]` 走表情图，其余按文本；不做 @ 跳转（公共域没有 uin）。 */
-function PublicText({ content }: { content: string }) {
-  return (
-    <>
-      {qzoneTextParts(content).map((part) =>
-        part.kind === 'emoji' ? (
-          <QzoneEmoji key={`${part.offset}:${part.code}`} code={part.code} />
-        ) : (
-          // 公共域的作者没有 uin，@ 只能当普通文字显示，不做跳转。
-          <span key={`${part.offset}:text`}>{part.text}</span>
-        ),
-      )}
-    </>
-  );
 }
 
 function toGridMedia(media: PublicFeedView['media']): {
@@ -723,7 +706,7 @@ function PublicFeedCard({
       </header>
       {view.text ? (
         <p className="weq-qzn-content">
-          <PublicText content={view.text} />
+          <QzoneInlineText content={view.text} />
         </p>
       ) : null}
       <QzoneMediaGrid images={grid.images} videos={grid.videos} />
@@ -829,7 +812,7 @@ function PublicFeedCard({
             }
           />
           <p className="weq-qzn-content">
-            <PublicText content={view.text} />
+            <QzoneInlineText content={view.text} />
           </p>
           <QzoneMediaGrid images={grid.images} videos={grid.videos} />
         </QzoneForwardDialog>
@@ -857,7 +840,9 @@ function PublicCommentIdentity({
   ) : (
     <span className="weq-qzn-identity-link">
       <QqAvatar uin={null} url={author.portrait} size={size} />
-      <span className="weq-qzn-public-name">{name}</span>
+      <span className="weq-qzn-public-name weq-qzn-name">
+        <QzoneInlineText content={name} />
+      </span>
     </span>
   );
 }
@@ -1076,7 +1061,14 @@ function PublicFeedDetail({
     <div className="weq-qzn-public-composer">
       {replyTarget ? (
         <p className="weq-qzn-status">
-          回复 {replyTarget.reply?.author.nick || replyTarget.comment.author.nick || '这条评论'}
+          回复{' '}
+          <span className="weq-qzn-name">
+            <QzoneInlineText
+              content={
+                replyTarget.reply?.author.nick || replyTarget.comment.author.nick || '这条评论'
+              }
+            />
+          </span>
           <button type="button" onClick={() => setReplyTarget(null)}>
             取消
           </button>
@@ -1154,7 +1146,7 @@ function PublicFeedDetail({
                 <div>
                   <PublicCommentIdentity author={comment.author} size={26} />
                   <p>
-                    <PublicText content={comment.text} />
+                    <QzoneInlineText content={comment.text} />
                   </p>
                   <QzoneMediaGrid images={toGridMedia(comment.media).images} />
                   <div className="weq-qzn-comment-meta">
@@ -1193,7 +1185,7 @@ function PublicFeedDetail({
                       <div>
                         <PublicCommentIdentity author={reply.author} size={22} />
                         <p>
-                          <PublicText content={reply.text} />
+                          <QzoneInlineText content={reply.text} />
                         </p>
                         <div className="weq-qzn-comment-meta">
                           <time>{timeText(reply.time)}</time>

@@ -588,3 +588,9 @@ export function qzoneTextParts(content: string): QzoneTextPart[] {
     parts.push({ kind: 'text', text: content.slice(cursor), offset: cursor });
   return parts;
 }
+
+export function qzonePlainText(content: string): string {
+  return qzoneTextParts(content)
+    .map((part) => (part.kind === 'emoji' ? '[QQ表情]' : part.text))
+    .join('');
+}
