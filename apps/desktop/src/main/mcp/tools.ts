@@ -4956,7 +4956,7 @@ export const AI_TOOLS: AiTool[] = [
     name: 'get_group_albums',
     description:
       '列出某个群的【相册列表】（qzone cgi）：相册 id、名称、照片数、封面、描述、创建/更新时间。' +
-      '相册 id 传给 get_group_album_photos 看内容。需要在线 QQ。',
+      '相册 id 传给 get_group_album_photos 看内容。需要在线 QQ；读取失败会返回工具错误，不按空相册列表处理。',
     input: z.object({
       groupId: z.string().min(1).describe('群号（纯数字）'),
     }),
@@ -4975,7 +4975,7 @@ export const AI_TOOLS: AiTool[] = [
           createTime: a.createTime,
           updateTime: a.updateTime,
         })),
-        ...(albums.length === 0 ? { hint: '该群没有相册，或票据已失效。' } : {}),
+        ...(albums.length === 0 ? { hint: '该群没有返回可查看的相册。' } : {}),
       };
     },
   }),
