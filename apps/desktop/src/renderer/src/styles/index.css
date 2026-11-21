@@ -22722,10 +22722,13 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   display: block;
   width: 100%;
   aspect-ratio: 4 / 3;
+  overflow: hidden;
   background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
 }
 
-.weq-qzal-album-cover img {
+.weq-qzal-album-cover > img {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
