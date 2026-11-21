@@ -3,7 +3,7 @@ import type { QzoneShareCategory } from '@weqbot/protocol/web';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
 import { QzoneInlineText } from '../components/QzoneEmoji';
-import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
+import { QzonePersonButton, QzonePersonHeader } from '../components/QzoneProfileAvatar';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { openExternalLink } from '../lib/openExternalLink';
 import { qzoneLinkTarget, qzoneMediaSource } from '../lib/qzone';
@@ -363,37 +363,51 @@ function Guestbook({ space }: { space: Space }) {
           ) : null}
         </section>
       ) : null}
-      {state.items.map((entry) => (
-        <article className="weq-qzn-post" key={entry.id}>
-          <QzonePersonHeader
-            uin={entry.uin}
-            nickname={entry.nickname}
-            onSpace={space.onSpace}
-            size={36}
-            time={<time>{entry.publishedAt}</time>}
-          />
-          <p className="weq-qzn-content" data-privacy-sensitive>
-            <QzoneInlineText content={entry.text} />
-          </p>
-          {entry.replies.length ? (
-            <div className="weq-qzn-comments" aria-label="留言回复">
-              {entry.replies.map((reply) => (
+      {state.items.length ? (
+        <section className="weq-qzn-interaction" aria-label="留言">
+          {state.items.map((entry) => {
+            const name = (
+              <span className="weq-qzn-name">
+                <QzoneInlineText content={entry.nickname || entry.uin} />
+              </span>
+            );
+            const recipient = entry.uin ? (
+              <QzonePersonButton uin={entry.uin} nickname={entry.nickname} onSpace={space.onSpace}>
+                {name}
+              </QzonePersonButton>
+            ) : entry.nickname ? (
+              name
+            ) : null;
+            return (
+              <div key={entry.id}>
                 <QzoneCommentRow
-                  key={reply.id}
-                  uin={reply.uin}
-                  nickname={reply.nickname}
-                  time={reply.time ?? 0}
+                  uin={entry.uin}
+                  nickname={entry.nickname}
+                  time={entry.publishedAt}
                   onSpace={space.onSpace}
                 >
-                  <div className="weq-qzn-comment-content" data-privacy-sensitive>
-                    <QzoneInlineText content={reply.text} />
-                  </div>
+                  <p data-privacy-sensitive>
+                    <QzoneInlineText content={entry.text} />
+                  </p>
                 </QzoneCommentRow>
-              ))}
-            </div>
-          ) : null}
-        </article>
-      ))}
+                {entry.replies.map((reply) => (
+                  <QzoneCommentRow
+                    key={reply.id}
+                    uin={reply.uin}
+                    nickname={reply.nickname}
+                    time={reply.time}
+                    onSpace={space.onSpace}
+                    reply={{
+                      recipient,
+                      content: <QzoneInlineText content={reply.text} />,
+                    }}
+                  />
+                ))}
+              </div>
+            );
+          })}
+        </section>
+      ) : null}
       <PageEnd state={state} empty={state.first && !state.items.length ? '暂无留言' : ''} />
     </>
   );

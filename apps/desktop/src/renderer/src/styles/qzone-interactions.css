@@ -74,6 +74,9 @@
 .weq-qzn-comment.is-reply {
   margin-left: 34px;
 }
+.weq-qzn-reply-message {
+  white-space: pre-wrap;
+}
 .weq-qzn-comment .weq-qzn-pictures {
   max-width: 210px;
 }
