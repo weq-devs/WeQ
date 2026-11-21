@@ -23,12 +23,9 @@ import {
   Download,
   ChevronDown,
   Eye,
-  ExternalLink,
   ImagePlus,
   Loader2,
-  Link2,
   Lock,
-  Music2,
   MessageCircle,
   RefreshCw,
   Repeat2,
@@ -39,7 +36,6 @@ import {
   Images,
 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
-import { openExternalLink } from '../lib/openExternalLink';
 import { z } from 'zod';
 import { PageSnapshotScope } from '../components/PageSnapshots';
 import { usePageDataCache, usePageState } from '../components/PageSnapshots.shared';
@@ -61,10 +57,9 @@ import {
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { TransferRing } from '../components/TransferRing';
-import { ShimmerImage } from '../components/ShimmerImage';
+import { QzoneFeedLinks } from '../components/QzoneFeedLinks';
 import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
 import { withQQAccountScope } from '../components/qq-actions/shared.shared';
-import { albumMediaUrl } from '../lib/resourceUrl';
 import { pushMobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { QzoneEmoji, QzoneInlineText } from '../components/QzoneEmoji';
 import {
@@ -73,7 +68,6 @@ import {
   mergeQzonePosts,
   qzonePlainText,
   qzoneTextParts,
-  qzoneAlbumTarget,
 } from '../lib/qzone';
 import { Modal } from '../components/Dialog';
 import { QzoneSettingsSection } from '../components/settings/QzoneSettingsSection';
@@ -1062,7 +1056,13 @@ function SpaceContent({
       </QzonePage>
       {(Object.keys(moreSpacePanes) as QzoneMorePane[]).map((key) => (
         <QzonePage key={key} active={active && pane === key} refreshKey={refreshes[key] ?? 0}>
-          <QzoneMore pane={key} selfUin={selfUin} hostUin={hostUin} onSpace={onSpace} />
+          <QzoneMore
+            pane={key}
+            selfUin={selfUin}
+            hostUin={hostUin}
+            nickname={ownerNickname || nickname}
+            onSpace={onSpace}
+          />
         </QzonePage>
       ))}
       {visitedAlbums ? (
@@ -1725,7 +1725,7 @@ function Post({
         videos={videos}
         target={{ selfUin, hostUin, tid: post.tid, time: post.time }}
       />
-      <FeedLinks links={links} ownerUin={hostUin} ownerNickname={nickname} />
+      <QzoneFeedLinks links={links} ownerUin={hostUin} ownerNickname={nickname} />
       {post.repost ? (
         <Repost
           selfUin={selfUin}
@@ -2277,84 +2277,6 @@ function FeedCounts({
       </span>
       {loading ? <Loader2 size={13} className="weq-spin" aria-label="正在加载互动数据" /> : null}
     </QzoneActionsRow>
-  );
-}
-
-function FeedLinks({
-  links,
-  ownerUin,
-  ownerNickname,
-}: {
-  links: ReturnType<typeof projectQzoneFeed>['links'];
-  ownerUin?: string;
-  ownerNickname?: string;
-}) {
-  const openAlbum = useContext(QzoneAlbumNavigationContext);
-  const [error, setError] = useState('');
-  return (
-    <>
-      {links.map((link) => (
-        <button
-          className="weq-qzn-feed-link"
-          key={link.href}
-          type="button"
-          title={link.href}
-          onClick={() => {
-            setError('');
-            const target = qzoneAlbumTarget(link.href);
-            if (target && openAlbum) {
-              const title = link.text.match(/《([^》]+)》/)?.[1] || link.text || '相册';
-              openAlbum(
-                target.hostUin,
-                target.topicId,
-                title,
-                target.hostUin === ownerUin ? ownerNickname : undefined,
-              );
-              return;
-            }
-            void openExternalLink(link.href)
-              .then((result) => {
-                if (!result.ok) setError(result.error || '链接打开失败');
-              })
-              .catch((error: unknown) => setError(errorText(error)));
-          }}
-        >
-          <FeedLinkCover
-            key={link.cover || 'no-cover'}
-            src={link.cover}
-            music={link.kind === 'music'}
-          />
-          <span className="weq-qzn-feed-link-body">
-            <strong>{link.text}</strong>
-            {link.description ? <span>{link.description}</span> : null}
-            <small>{link.source || new URL(link.href).hostname}</small>
-          </span>
-          <ExternalLink className="weq-qzn-feed-link-external" size={16} aria-hidden />
-        </button>
-      ))}
-      {error ? <p className="weq-qzn-error">{error}</p> : null}
-    </>
-  );
-}
-
-function FeedLinkCover({ src, music }: { src?: string; music: boolean }) {
-  const [failed, setFailed] = useState(false);
-  return (
-    <span className="weq-qzn-feed-link-cover weq-media-frame" aria-hidden>
-      {src && !failed ? (
-        <ShimmerImage
-          src={albumMediaUrl(src)}
-          alt=""
-          loading="lazy"
-          mediaLoading
-          onError={() => setFailed(true)}
-        />
-      ) : music ? (
-        <Music2 size={26} />
-      ) : (
-        <Link2 size={26} />
-      )}
-    </span>
   );
 }
 
@@ -3768,7 +3690,11 @@ function FeedCard({
       {loading ? <LoadingStatus /> : null}
       <QzoneMediaGrid images={body.images} videos={body.videos} />
       {body.repost ? <Repost selfUin={selfUin} original={body.repost} onSpace={onSpace} /> : null}
-      <FeedLinks links={body.links} ownerUin={String(feed.uin)} ownerNickname={feed.nickname} />
+      <QzoneFeedLinks
+        links={body.links}
+        ownerUin={String(feed.uin)}
+        ownerNickname={feed.nickname}
+      />
       {body.sourceName ? <p className="weq-qzn-source">来自 {body.sourceName}</p> : null}
       {actions ?? <FeedCounts selfUin={selfUin} appid={feed.appid} body={body} />}
     </>

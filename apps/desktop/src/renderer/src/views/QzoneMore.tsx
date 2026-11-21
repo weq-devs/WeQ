@@ -1,15 +1,16 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
-import type { QzoneShareCategory } from '@weqbot/protocol/web';
-import { useContext, useEffect, useState, type ReactNode } from 'react';
+import type { QzoneShare, QzoneShareCategory } from '@weqbot/protocol/web';
+import { RefreshCw } from 'lucide-react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
 import { QzoneInlineText } from '../components/QzoneEmoji';
+import { QzoneFeedLinks } from '../components/QzoneFeedLinks';
 import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
-import { openExternalLink } from '../lib/openExternalLink';
 import { qzoneLinkTarget, qzoneMediaSource } from '../lib/qzone';
 import { client, trpc } from '../trpc/client';
-import { QzoneMediaGrid, State } from './qzoneShared';
-import { QzonePageContext, timeText } from './qzoneShared.shared';
+import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
+import { QzonePageContext, timeText, useNearViewport } from './qzoneShared.shared';
 import { QzoneVideoGrid } from './QzoneVideoGrid';
 
 const shareCategories = {
@@ -36,6 +37,7 @@ export type QzoneMorePane = keyof typeof moreSpacePanes;
 type Space = {
   selfUin: string;
   hostUin: string;
+  nickname: string;
   onSpace: (uin: string, nickname?: string) => void;
 };
 type Request = Pick<Space, 'selfUin' | 'hostUin'> & {
@@ -63,6 +65,7 @@ function useMorePages<P extends Page>(
   key: string,
   start: number,
   load: (input: Request, offset: number) => Promise<P>,
+  { background = false, staleTime }: { background?: boolean; staleTime?: number } = {},
 ) {
   const { active, refresh, configId, target, error, retryConfig } = useSpaceRequest(space);
   const { run, cancel } = useQzoneRequests();
@@ -74,8 +77,9 @@ function useMorePages<P extends Page>(
     enabled: active && Boolean(configId),
     retry: false,
     refetchOnWindowFocus: false,
+    staleTime,
     queryFn: ({ pageParam = start, signal }) =>
-      run((requestId) => load({ ...target, requestId }, pageParam), false, signal),
+      run((requestId) => load({ ...target, requestId }, pageParam), background, signal),
     getNextPageParam: (last: P, pages: P[]) => {
       if (!last.items.length || last.next === null) return undefined;
       if (pages.length > 1) {
@@ -100,7 +104,10 @@ function useMorePages<P extends Page>(
     items: [...items.values()] as P['items'],
     error: failure instanceof Error ? failure.message : failure ? '读取失败，请重试。' : '',
     loading: query.isFetching || (active && !configId && !error),
-    onNext: active && query.hasNextPage ? () => void query.fetchNextPage() : undefined,
+    onNext:
+      active && query.hasNextPage
+        ? () => void query.fetchNextPage({ cancelRefetch: false })
+        : undefined,
     onRetry: () =>
       void (error ? retryConfig() : query.hasNextPage ? query.fetchNextPage() : query.refetch()),
   };
@@ -201,98 +208,116 @@ function Shares({ space }: { space: Space }) {
         </select>
         <ShareExport space={space} category={category} enabled={state.items.length > 0} />
       </div>
-      {state.items.map((share) => {
-        const href = qzoneLinkTarget(share.originalUrl);
-        const poster = qzoneMediaSource(share.previewUrl);
-        return (
-          <article className="weq-qzn-post" key={share.id}>
-            <header className="weq-qzn-post-head">
-              <h3 className="weq-qzn-more-title" data-privacy-sensitive>
-                {share.title || '分享'}
-              </h3>
-              {share.publishedAt ? <time>{share.publishedAt}</time> : null}
-            </header>
-            {share.memo ? (
-              <p className="weq-qzn-content" data-privacy-sensitive>
-                <QzoneInlineText content={share.memo} />
-              </p>
-            ) : null}
-            {poster ? <QzoneMediaGrid images={[poster]} videos={[]} /> : null}
-            {href ? (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(event) => {
-                  event.preventDefault();
-                  void openExternalLink(href);
-                }}
-              >
-                打开原链接
-              </a>
-            ) : null}
-            <ShareComments space={space} shareId={share.id} />
-          </article>
-        );
-      })}
+      {state.items.map((share) => (
+        <SharePost key={share.id} space={space} share={share} />
+      ))}
       <PageEnd state={state} empty={state.first && !state.items.length ? '这个分类暂无分享' : ''} />
     </>
   );
 }
 
-function ShareComments({ space, shareId }: { space: Space; shareId: string }) {
-  const [expanded, setExpanded] = useState(false);
+function SharePost({ space, share }: { space: Space; share: QzoneShare }) {
+  const ref = useRef<HTMLElement>(null);
+  const near = useNearViewport(ref, true);
+  const href = qzoneLinkTarget(share.originalUrl);
+  const cover = qzoneMediaSource(share.previewUrl);
+  const title = share.title || '分享';
   return (
-    <div className="weq-qzn-share-comments">
-      <button
-        type="button"
-        className="weq-set-btn"
-        aria-expanded={expanded}
-        onClick={() => setExpanded(!expanded)}
-      >
-        {expanded ? '收起评论' : '查看评论'}
-      </button>
-      {expanded ? <ShareCommentList space={space} shareId={shareId} /> : null}
-    </div>
+    <article ref={ref} className="weq-qzn-post">
+      <header className="weq-qzn-post-head">
+        <QzonePersonHeader
+          uin={space.hostUin}
+          nickname={space.nickname || space.hostUin}
+          onSpace={space.onSpace}
+          size={34}
+          time={share.publishedAt ? <time>{share.publishedAt}</time> : null}
+        />
+      </header>
+      {share.memo ? (
+        <p className="weq-qzn-content" data-privacy-sensitive>
+          <QzoneInlineText content={share.memo} />
+        </p>
+      ) : null}
+      <div className="weq-qzn-share-preview">
+        {href ? (
+          <QzoneFeedLinks
+            links={[
+              {
+                href,
+                text: share.title || '打开原链接',
+                cover: cover ?? undefined,
+                kind: share.category === 18 ? 'music' : 'link',
+              },
+            ]}
+          />
+        ) : (
+          <>
+            <h3 className="weq-qzn-more-title" data-privacy-sensitive>
+              {title}
+            </h3>
+            {cover ? <QzoneMediaGrid images={[cover]} /> : null}
+          </>
+        )}
+      </div>
+      {near ? <ShareCommentList space={space} shareId={share.id} /> : null}
+    </article>
   );
 }
 
 function ShareCommentList({ space, shareId }: { space: Space; shareId: string }) {
-  const state = useMorePages(space, `share-comments:${shareId}`, 1, (input, page) =>
-    client.account.qzone.shareComments.query({ ...input, shareId, page }),
+  const { items, loading, error, onNext, onRetry } = useMorePages(
+    space,
+    `share-comments:${shareId}`,
+    1,
+    (input, page) => client.account.qzone.shareComments.query({ ...input, shareId, page }),
+    { background: true, staleTime: 60_000 },
   );
+  const more = useRef<HTMLDivElement>(null);
+  const nearEnd = useNearViewport(more, false, Boolean(onNext) && !error);
+  useEffect(() => {
+    if (nearEnd && !loading && !error) onNext?.();
+  }, [nearEnd, loading, error, onNext]);
+  if (!items.length && !loading && !error) return null;
+
   return (
-    <div className="weq-qzn-comments" aria-label="分享评论">
-      {state.items.map((row) => (
-        <QzoneCommentRow
-          key={row.id}
-          uin={row.uin}
-          nickname={row.nickname}
-          time={0}
-          onSpace={space.onSpace}
-          afterMeta={<time>{row.publishedAt}</time>}
-        >
-          <div className="weq-qzn-comment-content" data-privacy-sensitive>
-            <QzoneInlineText content={row.text} />
-          </div>
-          {row.replies.map((reply) => (
+    <section className="weq-qzn-interaction" aria-label="分享评论">
+      {items.map((row) => (
+        <div key={row.id}>
+          {[row, ...row.replies].map((comment, index) => (
             <QzoneCommentRow
-              key={reply.id}
-              uin={reply.uin}
-              nickname={reply.nickname}
+              key={comment.id}
+              uin={comment.uin}
+              nickname={comment.nickname}
               time={0}
               onSpace={space.onSpace}
-              afterMeta={<time>{reply.publishedAt}</time>}
+              className={index > 0 ? 'is-reply' : undefined}
+              afterMeta={
+                comment.publishedAt ? (
+                  <div className="weq-qzn-comment-meta">
+                    <time>{comment.publishedAt}</time>
+                  </div>
+                ) : null
+              }
             >
-              <div className="weq-qzn-comment-content" data-privacy-sensitive>
-                <QzoneInlineText content={reply.text} />
-              </div>
+              <p data-privacy-sensitive>
+                <QzoneInlineText content={comment.text} />
+              </p>
             </QzoneCommentRow>
           ))}
-        </QzoneCommentRow>
+        </div>
       ))}
-      <PageEnd state={state} empty={state.first && !state.items.length ? '暂无评论' : ''} />
-    </div>
+      {loading ? <LoadingStatus text="正在加载评论…" /> : null}
+      {error ? (
+        <p className="weq-qzn-error" role="status">
+          {error}{' '}
+          <button type="button" className="weq-retry-button" onClick={onRetry}>
+            <RefreshCw size={14} aria-hidden />
+            重试
+          </button>
+        </p>
+      ) : null}
+      {onNext && !error ? <div ref={more} className="weq-qzn-page-sentinel" /> : null}
+    </section>
   );
 }
 
