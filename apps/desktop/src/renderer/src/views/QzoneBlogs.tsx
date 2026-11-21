@@ -13,6 +13,7 @@ import { NumericText } from '../components/NumericText';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
 import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
+import { QzoneTime } from '../components/QzoneTime';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { openExternalLink } from '../lib/openExternalLink';
 import { qzoneMediaSource } from '../lib/qzone';
@@ -212,13 +213,7 @@ function BlogCard({
           uin={input.hostUin}
           nickname={nickname || input.hostUin}
           onSpace={onSpace}
-          time={
-            blog.publishedAt ? (
-              <time>
-                <NumericText>{blog.publishedAt}</NumericText>
-              </time>
-            ) : null
-          }
+          time={<QzoneTime value={blog.publishedAt} />}
         />
       </header>
       <h3 className="weq-qzn-blog-title" data-privacy-sensitive>

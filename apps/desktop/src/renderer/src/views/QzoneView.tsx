@@ -58,6 +58,7 @@ import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMul
 import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { TransferRing } from '../components/TransferRing';
 import { QzoneFeedLinks } from '../components/QzoneFeedLinks';
+import { QzoneTime } from '../components/QzoneTime';
 import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
 import { withQQAccountScope } from '../components/qq-actions/shared.shared';
 import { pushMobileBack, useMobileBack } from '../hooks/useMobileNavigation';
@@ -74,12 +75,7 @@ import { QzoneSettingsSection } from '../components/settings/QzoneSettingsSectio
 import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
 import { QzoneAutoPage, QzonePageButton } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
-import {
-  QzonePageContext,
-  QzoneReadPauseContext,
-  timeText,
-  useNearViewport,
-} from './qzoneShared.shared';
+import { QzonePageContext, QzoneReadPauseContext, useNearViewport } from './qzoneShared.shared';
 import '../styles/qzone.css';
 import {
   QzoneProfileContext,
@@ -1596,7 +1592,7 @@ function Post({
           size={34}
           time={
             <div className="weq-qzn-post-meta">
-              <time dateTime={new Date(post.time * 1000).toISOString()}>{timeText(post.time)}</time>
+              <QzoneTime value={post.time} />
               {post.isPrivate ? (
                 <span className="weq-qzn-post-status">
                   <Lock size={16} className="weq-qzn-post-status-icon" aria-hidden />
@@ -1690,11 +1686,7 @@ function Repost({
           onSpace={onSpace}
           time={
             <div className="weq-qzn-post-meta">
-              {original.time ? (
-                <time>{timeText(original.time)}</time>
-              ) : original.timeLabel ? (
-                <time>{original.timeLabel}</time>
-              ) : null}
+              <QzoneTime value={original.time || original.timeLabel} />
               {tag}
             </div>
           }
@@ -2065,7 +2057,7 @@ function PostActionsBody({
             nickname={hostUin}
             size={34}
             onSpace={onSpace}
-            time={post.time > 0 ? <time>{timeText(post.time)}</time> : null}
+            time={<QzoneTime value={post.time} />}
           >
             <QzoneName content={hostUin} uin={hostUin} />
           </QzonePersonHeader>
@@ -2080,7 +2072,7 @@ function PostActionsBody({
                 nickname={post.repost.nickname || post.repost.uin || '原作者'}
                 size={26}
                 onSpace={onSpace}
-                time={post.repost.timeLabel ? <time>{post.repost.timeLabel}</time> : null}
+                time={<QzoneTime value={post.repost.timeLabel} />}
               >
                 <QzoneName
                   content={post.repost.nickname || post.repost.uin}
@@ -3368,9 +3360,7 @@ function RelatedCard({
             </span>
           ) : null}
         </span>
-        <time>
-          <NumericText>{timeText(feed.time)}</NumericText>
-        </time>
+        <QzoneTime value={feed.time} interactive={false} />
         <ChevronDown size={15} className="weq-qzn-related-chevron" />
       </summary>
       <div className="weq-qzn-related-detail">
@@ -3505,9 +3495,7 @@ function FeedCard({
           size={34}
           time={
             <div className="weq-qzn-post-meta">
-              <time>
-                <NumericText>{timeText(feed.time)}</NumericText>
-              </time>
+              <QzoneTime value={feed.time} />
               {tag}
             </div>
           }

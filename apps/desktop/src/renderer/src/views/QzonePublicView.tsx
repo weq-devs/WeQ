@@ -44,6 +44,7 @@ import { QzoneForwardDialog } from '../components/QzoneForwardDialog';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
+import { QzoneTime } from '../components/QzoneTime';
 import { QzoneUpvoteAction } from '../components/QzoneUpvoteAction';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import {
@@ -61,7 +62,7 @@ import {
 } from '../lib/qzonePublic';
 import { QzoneAutoPage, QzonePageButton } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
-import { QzonePageContext, timeText } from './qzoneShared.shared';
+import { QzonePageContext } from './qzoneShared.shared';
 import '../styles/qzone-public.css';
 import '../styles/qzone.css';
 
@@ -622,11 +623,7 @@ function PublicFeedCard({
           uin={canOpenSpace ? view.author.uin : null}
           nickname={authorLabel}
           onSpace={onSpace}
-          time={
-            <time>
-              <NumericText>{timeText(view.time)}</NumericText>
-            </time>
-          }
+          time={<QzoneTime value={view.time} />}
         />
         {view.author.canFollow && capabilities.canFollow ? (
           <button
@@ -747,11 +744,7 @@ function PublicFeedCard({
             url={view.author.portrait}
             size={36}
             onSpace={onSpace}
-            time={
-              <time>
-                <NumericText>{timeText(view.time)}</NumericText>
-              </time>
-            }
+            time={<QzoneTime value={view.time} />}
           />
           <p className="weq-qzn-content">
             <QzoneInlineText content={view.text} />
@@ -1127,7 +1120,7 @@ function PublicFeedDetail({
                   </p>
                   <QzoneMediaGrid images={publicGridMedia(comment.media).images} />
                   <div className="weq-qzn-comment-meta">
-                    <time>{timeText(comment.time)}</time>
+                    <QzoneTime value={comment.time} />
                     <button
                       type="button"
                       onClick={() => setReplyTarget({ comment })}
@@ -1167,7 +1160,7 @@ function PublicFeedDetail({
                           <QzoneInlineText content={reply.text} />
                         </p>
                         <div className="weq-qzn-comment-meta">
-                          <time>{timeText(reply.time)}</time>
+                          <QzoneTime value={reply.time} />
                           <button
                             type="button"
                             onClick={() => setReplyTarget({ comment, reply })}

@@ -5,6 +5,7 @@ import { ContentSelectionToolbar } from '../components/ContentReferenceToolbar';
 import { MediaPreview, type PreviewMedia } from '../components/MediaPreview';
 import { NumericText } from '../components/NumericText';
 import { QzoneAlbumTile } from '../components/QzoneAlbumTile';
+import { QzoneTime } from '../components/QzoneTime';
 import { MediaTransferBadge, TransferSummary } from '../components/TransferRing';
 import { ServerSavePrompt } from '../components/ServerSavePrompt';
 import { useToast } from '../components/Toast.shared';
@@ -16,7 +17,7 @@ import { IS_WEB } from '../lib/target.shared';
 import { notifyTaskCreated } from '../lib/taskNotifications';
 import { useTransferProgress } from '../lib/transferActivity';
 import { client } from '../trpc/client';
-import { QzonePageContext, timeText } from './qzoneShared.shared';
+import { QzonePageContext } from './qzoneShared.shared';
 
 type Video = {
   id: string;
@@ -168,7 +169,7 @@ export function QzoneVideoGrid({
               coverAlt="视频"
               subtitle={
                 <>
-                  {tile.uploadedAt ? <time>{timeText(tile.uploadedAt)}</time> : null}
+                  <QzoneTime value={tile.uploadedAt} interactive={false} />
                   {tile.uploadedAt && tile.description ? ' · ' : null}
                   {tile.description ? <span data-privacy-sensitive>{tile.description}</span> : null}
                   {!tile.source ? (

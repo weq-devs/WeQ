@@ -226,11 +226,6 @@
   padding: 0;
   font-weight: 600;
 }
-.weq-qzn-post-head time,
-.weq-qzn-comment time {
-  color: var(--muted-foreground);
-  font-size: 11px;
-}
 .weq-qzn-feed-kind {
   margin-left: auto;
   color: var(--muted-foreground);
@@ -696,11 +691,6 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.weq-qzn-person-info > time {
-  color: var(--muted-foreground);
-  font-size: 11px;
-  line-height: 1.5;
-}
 .weq-qzn-comment-line {
   line-height: 1.7;
   overflow-wrap: anywhere;
@@ -870,9 +860,7 @@
   overflow-wrap: anywhere;
   line-height: 1.6;
 }
-.weq-qzn-related-card time {
-  font-size: 11px;
-  color: var(--muted-foreground);
+.weq-qzn-related-card .weq-qzn-time {
   white-space: nowrap;
 }
 .weq-qzn-related-icon,
@@ -930,6 +918,9 @@
 .weq-qzn-related-action-line > span {
   min-width: 0;
   overflow: hidden;
+.weq-qzn-related-card > summary .weq-qzn-related-chevron {
+  grid-column: 4;
+}
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -999,7 +990,7 @@
     grid-template-columns: 18px minmax(0, 1fr) 15px;
     gap: 4px 8px;
   }
-  .weq-qzn-related-card time {
+  .weq-qzn-related-card .weq-qzn-time {
     grid-column: 2;
     grid-row: 2;
   }

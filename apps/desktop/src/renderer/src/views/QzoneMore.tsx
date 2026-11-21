@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { formatUnixTime } from '@weq/time';
 import type { QzoneShare, QzoneShareCategory } from '@weqbot/protocol/web';
 import { RefreshCw } from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
@@ -8,12 +9,13 @@ import { QzoneCommentRow } from '../components/QzoneCommentRow';
 import { QzoneInlineText } from '../components/QzoneEmoji';
 import { QzoneFeedLinks } from '../components/QzoneFeedLinks';
 import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
+import { QzoneTime } from '../components/QzoneTime';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { qzoneLinkTarget, qzoneMediaSource } from '../lib/qzone';
 import { client, trpc } from '../trpc/client';
 import { QzoneAutoPage } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
-import { QzonePageContext, timeText } from './qzoneShared.shared';
+import { QzonePageContext } from './qzoneShared.shared';
 import { QzoneVideoGrid } from './QzoneVideoGrid';
 
 const shareCategories = {
@@ -176,7 +178,9 @@ function SharePost({ space, share }: { space: Space; share: QzoneShare }) {
           nickname={space.nickname || space.hostUin}
           onSpace={space.onSpace}
           size={34}
-          time={share.publishedAt ? <time>{share.publishedAt}</time> : null}
+          time={
+            <QzoneTime value={formatUnixTime(share.publishedTime, 'minute') || share.publishedAt} />
+          }
         />
       </header>
       {share.memo ? (
@@ -249,16 +253,9 @@ function ShareCommentList({
               key={comment.id}
               uin={comment.uin}
               nickname={comment.nickname}
-              time={0}
+              time={comment.publishedAt}
               onSpace={space.onSpace}
               className={index > 0 ? 'is-reply' : undefined}
-              afterMeta={
-                comment.publishedAt ? (
-                  <div className="weq-qzn-comment-meta">
-                    <time>{comment.publishedAt}</time>
-                  </div>
-                ) : null
-              }
             >
               <p data-privacy-sensitive>
                 <QzoneInlineText content={comment.text} />
@@ -306,7 +303,7 @@ function Visitors({ space }: { space: Space }) {
             nickname={person.nickname}
             onSpace={space.onSpace}
             size={32}
-            time={<time>{timeText(person.time)}</time>}
+            time={<QzoneTime value={person.time} />}
           />
         </article>
       ))}
@@ -328,7 +325,7 @@ function Guestbook({ space }: { space: Space }) {
             nickname={entry.nickname}
             onSpace={space.onSpace}
             size={36}
-            time={<time>{entry.publishedAt}</time>}
+            time={<QzoneTime value={entry.publishedAt} />}
           />
           <p className="weq-qzn-content" data-privacy-sensitive>
             <QzoneInlineText content={entry.text} />

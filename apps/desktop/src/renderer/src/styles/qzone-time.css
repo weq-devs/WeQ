@@ -1,0 +1,9 @@
+.weq-qzn-time {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.weq-qzn-time:not([data-time-detail]) {
+  cursor: inherit;
+}

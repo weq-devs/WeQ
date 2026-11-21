@@ -1,4 +1,3 @@
-import { eventTimeFormatter } from '@weq/time';
 /**
  * 空间页与空友爱看共用的展示件。
  *
@@ -42,8 +41,4 @@ export function useNearViewport(
     return () => observer.disconnect();
   }, [ref, once, active, enabled]);
   return active && enabled && near;
-}
-
-export function timeText(time: number): string {
-  return time ? eventTimeFormatter.format(new Date(time * 1000)) : '';
 }

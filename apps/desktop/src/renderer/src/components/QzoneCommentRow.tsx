@@ -2,7 +2,7 @@ import type { ReactNode, Ref } from 'react';
 import { QzonePersonButton, QzoneProfileAvatar } from './QzoneProfileAvatar';
 import { QqAvatar } from './QqAvatar';
 import { QzoneInlineText } from './QzoneEmoji';
-import { timeText } from '../views/qzoneShared.shared';
+import { QzoneTime } from './QzoneTime';
 
 export function QzoneCommentRow({
   uin,
@@ -19,7 +19,7 @@ export function QzoneCommentRow({
 }: {
   uin: string;
   nickname: string;
-  time: number;
+  time: number | string;
   onSpace: (uin: string, nickname?: string) => void;
   name?: ReactNode;
   inline?: ReactNode;
@@ -55,7 +55,7 @@ export function QzoneCommentRow({
         {children}
         {time || actions ? (
           <div className="weq-qzn-comment-meta">
-            <time>{timeText(time)}</time>
+            <QzoneTime value={time} />
             {actions}
           </div>
         ) : null}

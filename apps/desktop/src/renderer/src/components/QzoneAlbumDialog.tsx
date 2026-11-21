@@ -1,5 +1,4 @@
 import { NumericText } from './NumericText';
-import * as timeFormat from '@weq/time';
 /**
  * QzoneAlbumDialog — 左栏「更多功能 → 空间相册」查看器（大灯箱卡片）。
  *
@@ -39,6 +38,7 @@ import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';
 import { QzoneAlbumTile } from './QzoneAlbumTile';
+import { QzoneTime } from './QzoneTime';
 import { MediaPreview, type PreviewMedia } from './MediaPreview';
 import { MediaTransferBadge, TransferRing, TransferSummary } from './TransferRing';
 import { useTransferProgress } from '../lib/transferActivity';
@@ -90,10 +90,6 @@ function QzoneBatchProgress({ owner }: { owner: string }) {
 }
 
 /** 秒级时间戳 → `YYYY-MM-DD`（媒体格子的日期角标）。 */
-function fmtDay(sec: number): string {
-  return sec > 0 ? timeFormat.formatDate(timeFormat.unixDate(sec)) : '';
-}
-
 /** 延时 skeleton 包装（快速加载不闪骨架，与导出中心同款）。 */
 function Debounced({ children }: { children: ReactElement }): ReactElement | null {
   const visible = useDebouncedLoading(true, 80);
@@ -1125,13 +1121,7 @@ export function MediaView({
                           <span className="weq-number weq-number-inherit">{detail.height}</span>
                         </small>
                       ) : null}
-                      {photo.uploadTime ? (
-                        <time>
-                          <span className="weq-number weq-number-inherit">
-                            {fmtDay(photo.uploadTime)}
-                          </span>
-                        </time>
-                      ) : null}
+                      <QzoneTime value={photo.uploadTime} interactive={false} />
                     </span>
                   </button>
                 </div>

@@ -12,18 +12,18 @@ import {
 import { useQQAction } from '../components/qq-actions/shared.shared';
 import { EditorDialog } from '../components/EditorDialog';
 import { CopyButton } from '../components/CopyButton';
-import { NumericText } from '../components/NumericText';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
 import { QzoneInlineText } from '../components/QzoneEmoji';
 import { QzoneFeedLinks } from '../components/QzoneFeedLinks';
 import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
+import { QzoneTime } from '../components/QzoneTime';
 import { QqArk } from '../components/ark/QqArk';
 import { ActionFeedback } from '../components/qq-actions/shared';
 import { QzoneHomeOverview } from './QzoneHomeOverview';
 import { QzoneAutoPage } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
-import { QzonePageContext, timeText } from './qzoneShared.shared';
+import { QzonePageContext } from './qzoneShared.shared';
 
 function FeedContent({ feed }: { feed: PublicFeedView }) {
   const { type, title, href } = projectQzoneHomeFeed(feed);
@@ -119,13 +119,7 @@ function HomeFeedCard({
           uin={feed.author.uin}
           nickname={feed.author.nick || feed.author.uin || '空间用户'}
           onSpace={onSpace}
-          time={
-            feed.time ? (
-              <time>
-                <NumericText>{timeText(feed.time)}</NumericText>
-              </time>
-            ) : null
-          }
+          time={<QzoneTime value={feed.time} />}
         />
         <span className="weq-qzn-feed-kind">{type}</span>
       </header>

@@ -22942,11 +22942,12 @@ html[data-theme='dark'] .weq-applock-bind-success small {
 
 .weq-qzal-media-caption {
   display: flex;
+  flex-wrap: wrap;
   width: 100%;
   min-width: 0;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: 2px 8px;
   padding: 0 10px 9px;
 }
 
@@ -22962,10 +22963,8 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   white-space: nowrap;
 }
 
-.weq-qzal-media-caption time {
-  flex: 0 0 auto;
-  font-size: 10px;
-  color: var(--weq-fg-muted, var(--weq-fg-secondary));
+.weq-qzal-media-caption .weq-qzn-time {
+  flex-basis: 100%;
 }
 
 .weq-qzal-selectbar {
