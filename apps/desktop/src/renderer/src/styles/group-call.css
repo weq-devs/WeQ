@@ -158,7 +158,6 @@
   margin: 8px 16px 0;
   padding: 7px 12px;
   border-radius: 8px;
-  border-left: 2px solid var(--weq-danger-solid-background);
   background: color-mix(in srgb, var(--weq-danger-solid-background) 8%, transparent);
   color: var(--weq-list-alert-ink);
   font-size: 12.5px;
