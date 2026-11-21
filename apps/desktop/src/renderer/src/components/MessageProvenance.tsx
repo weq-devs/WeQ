@@ -8,6 +8,7 @@ import {
   ShowMessageDateContext,
   ShowMessageTimeContext,
   ShowMessageSeqContext,
+  messageSequence,
   showsRoamingSource,
 } from './MessageProvenance.shared';
 
@@ -46,10 +47,7 @@ export function MessageProvenance({
   const showSeq = useContext(ShowMessageSeqContext);
   const showDate = useContext(ShowMessageDateContext);
   const showTime = useContext(ShowMessageTimeContext);
-  const seq =
-    !system && showSeq && /^\d+$/.test(message.msgSeq ?? '') && BigInt(message.msgSeq!) > 0n
-      ? message.msgSeq
-      : null;
+  const seq = !system && showSeq ? messageSequence(message.msgSeq) : null;
   const date = message.createdAt ? new Date(message.createdAt) : null;
   const day =
     !system && showDate && date && Number.isFinite(date.getTime()) ? beijingDay(date) : null;

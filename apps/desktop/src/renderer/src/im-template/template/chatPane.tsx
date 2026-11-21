@@ -7777,6 +7777,13 @@ function ChatPaneContent({
       {contextMenu ? (
         <MessageContextMenu
           onClose={() => setContextMenu(null)}
+          metadataPrecision={
+            groupConsecutiveMessages && !grayTipOf(contextMenu.message)
+              ? conversation.generated || contextMenu.message.optimistic
+                ? 'millisecond'
+                : 'second'
+              : undefined
+          }
           favoriteEmojiAction={
             !restrictedSource &&
             !isLocalOutgoingMessage(contextMenu.message) &&

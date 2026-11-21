@@ -700,54 +700,56 @@ function MessageBubbleBody({
         onLostPointerCapture={cancelTouch}
         onDragStart={(event) => event.preventDefault()}
       >
-        <div className="weq-message-heading">
-          {groupContinuation ? (
-            <span className="sr-only" data-privacy-sensitive>
-              {senderName}
-            </span>
-          ) : senderNameVisible || (conversation.type === 'group' && Boolean(groupDisplay & 6)) ? (
-            <span className={cn('message-name')}>
-              {conversation.type === 'group' ? (
-                <GroupMessageBadge
-                  member={sender}
-                  showLevel={Boolean(groupDisplay & 2)}
-                  showTitle={Boolean(groupDisplay & 4)}
-                />
-              ) : null}
-              {senderNameVisible && onAvatarClick && conversation.generated ? (
-                <button
-                  type="button"
-                  className="weq-message-name-profile"
-                  title="查看资料"
-                  aria-label={`查看 ${senderName} 的名片`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    onAvatarClick(
-                      sender,
-                      event.detail === 0
-                        ? { x: rect.right, y: rect.bottom }
-                        : { x: event.clientX, y: event.clientY },
-                    );
-                  }}
-                >
+        {groupContinuation ? (
+          <span className="sr-only" data-privacy-sensitive>
+            {senderName}
+          </span>
+        ) : (
+          <div className="weq-message-heading">
+            {senderNameVisible || (conversation.type === 'group' && Boolean(groupDisplay & 6)) ? (
+              <span className={cn('message-name')}>
+                {conversation.type === 'group' ? (
+                  <GroupMessageBadge
+                    member={sender}
+                    showLevel={Boolean(groupDisplay & 2)}
+                    showTitle={Boolean(groupDisplay & 4)}
+                  />
+                ) : null}
+                {senderNameVisible && onAvatarClick && conversation.generated ? (
+                  <button
+                    type="button"
+                    className="weq-message-name-profile"
+                    title="查看资料"
+                    aria-label={`查看 ${senderName} 的名片`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      onAvatarClick(
+                        sender,
+                        event.detail === 0
+                          ? { x: rect.right, y: rect.bottom }
+                          : { x: event.clientX, y: event.clientY },
+                      );
+                    }}
+                  >
+                    <span data-privacy-sensitive>{senderName}</span>
+                  </button>
+                ) : senderNameVisible ? (
                   <span data-privacy-sensitive>{senderName}</span>
-                </button>
-              ) : senderNameVisible ? (
-                <span data-privacy-sensitive>{senderName}</span>
-              ) : null}
-              {senderKind === 'bot' ? (
-                <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                  <Bot size={12} strokeWidth={2.4} />
-                </small>
-              ) : null}
-            </span>
-          ) : null}
-          <MessageProvenance
-            message={message}
-            precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
-          />
-        </div>
+                ) : null}
+                {senderKind === 'bot' ? (
+                  <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                    <Bot size={12} strokeWidth={2.4} />
+                  </small>
+                ) : null}
+              </span>
+            ) : null}
+            <MessageProvenance
+              message={message}
+              precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
+            />
+          </div>
+        )}
         {repeatAction || optimistic === 'sending' ? (
           <div className="weq-repeat-content">
             {content}
