@@ -20432,6 +20432,10 @@ html[data-theme='dark'] .essence-unknown {
   padding: 16px 18px 8px;
 }
 
+.weq-chatrecords-head > .weq-dialog-x {
+  flex: none;
+}
+
 /* 顶栏搜索按钮进入的「当前会话」模式：标题下方带会话名小标签。 */
 .weq-chatrecords-title-wrap {
   display: flex;
@@ -20448,6 +20452,10 @@ html[data-theme='dark'] .essence-unknown {
   max-width: 320px;
   font-size: 12px;
   color: var(--weq-fg-muted);
+}
+
+.weq-chatrecords-fixed-conv > span {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

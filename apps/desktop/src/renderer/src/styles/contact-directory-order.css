@@ -57,15 +57,12 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.weq-directory-sort-options > button {
+.weq-directory-sort-options > :where(button) {
   width: 100%;
   border: 0;
-  color: inherit;
-  background: transparent;
   text-align: start;
 }
-.weq-directory-sort-options > button:hover,
-.weq-directory-sort-options > button:focus-visible {
+.weq-directory-sort-options > button:not([data-active]):is(:hover, :focus-visible) {
   background: var(--weq-skin-selection, var(--weq-list-selected-background));
 }
 .weq-directory-sort-options > button:focus-visible {

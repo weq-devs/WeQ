@@ -1,8 +1,7 @@
 import { RefreshCw, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { GroupFeatureSurface } from '../GroupFeatureSurface';
-import { SegmentedControl } from '../SegmentedControl';
-import { Row } from '../settings/controls';
+import { Row, Toggle } from '../settings/controls';
 import { ActionFeedback } from './shared';
 import { useQQAction, withQQAccountScope } from './shared.shared';
 import '../../styles/group-admin-permissions.css';
@@ -94,19 +93,15 @@ function GroupAdminPermissionsEditor({
             label="接收验证消息"
             control={
               verification.data == null ? (
-                <span className="weq-admin-permissions-status">
+                <span className="weq-set-row-status" role="status">
                   {refreshing ? '读取中…' : verification.isError ? '读取失败' : '未确认'}
                 </span>
               ) : (
-                <SegmentedControl
+                <Toggle
                   label="接收验证消息"
-                  value={verification.data ? 'receive' : 'off'}
-                  options={[
-                    { value: 'receive', label: '接收' },
-                    { value: 'off', label: '关闭' },
-                  ]}
+                  checked={verification.data}
                   disabled={action.disabled || refreshing || verification.isError}
-                  onChange={(next) => changeVerification(next === 'receive')}
+                  onChange={changeVerification}
                 />
               )
             }

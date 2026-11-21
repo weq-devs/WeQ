@@ -18,11 +18,17 @@ export function ChatRecordsHeader({
         {conversationName ? (
           <span className="weq-chatrecords-fixed-conv" title={conversationName}>
             <Search size={13} aria-hidden />
-            {conversationName}
+            <span>{conversationName}</span>
           </span>
         ) : null}
       </div>
-      <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
+      <button
+        type="button"
+        className="weq-dialog-x"
+        onClick={onClose}
+        title="关闭"
+        aria-label="关闭"
+      >
         <X size={16} strokeWidth={1.9} aria-hidden />
       </button>
     </div>

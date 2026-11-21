@@ -118,6 +118,13 @@
   font-size: 12px;
   color: var(--muted-foreground);
 }
+.weq-qzn-space-profile-form {
+  display: grid;
+  gap: 12px;
+}
+.weq-qzn-space-profile-form .weq-qq-action-bar {
+  justify-content: flex-end;
+}
 .weq-qzn .weq-select-trigger,
 .weq-qzn-composer .weq-select-trigger {
   padding: 6px 8px;

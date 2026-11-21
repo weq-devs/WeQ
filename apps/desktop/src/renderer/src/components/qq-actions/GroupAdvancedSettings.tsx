@@ -1,7 +1,7 @@
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { client, trpc } from '../../trpc/client';
 import { FormSelect } from '../FormSelect';
-import { Row } from '../settings/controls';
+import { Row, Toggle } from '../settings/controls';
 import { ActionFeedback } from './shared';
 import { useQQAction } from './shared.shared';
 
@@ -85,18 +85,18 @@ export function GroupAdvancedSettings({ groupId }: { groupId: number }) {
             key={key}
             label={label}
             control={
-              <FormSelect
-                aria-label={label}
-                value={value == null ? '' : String(value)}
-                disabled={disabled || value == null}
-                onChange={(event) => update({ key, value: event.target.value === 'true' })}
-              >
-                <option value="" disabled>
-                  状态未知
-                </option>
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </FormSelect>
+              value == null ? (
+                <span className="weq-set-row-status">
+                  {query.isFetching ? '读取中…' : '状态未知'}
+                </span>
+              ) : (
+                <Toggle
+                  label={label}
+                  checked={value}
+                  disabled={disabled}
+                  onChange={(value) => update({ key, value })}
+                />
+              )
             }
           />
         );

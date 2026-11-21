@@ -1,12 +1,18 @@
 import { useState } from 'react';
+import { FileText, Info, Save } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { projectPublicFeed, type PublicFeedView } from '../lib/qzonePublic';
 import { useQQAction } from '../components/qq-actions/shared.shared';
 import { EditorDialog } from '../components/EditorDialog';
 import { CopyButton } from '../components/CopyButton';
+import { NumericText } from '../components/NumericText';
+import { QzoneActionsRow } from '../components/QzoneActionsRow';
+import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
 import { QqArk } from '../components/ark/QqArk';
 import { ActionFeedback } from '../components/qq-actions/shared';
-import { QzoneMediaGrid, LoadingStatus } from './qzoneShared';
+import { Row } from '../components/settings/controls';
+import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
+import { timeText } from './qzoneShared.shared';
 
 const record = (value: unknown) =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -74,6 +80,7 @@ function OrdinaryDetail({
             <button
               type="button"
               className="weq-set-btn"
+              data-danger="outline"
               disabled={action.disabled}
               onClick={() => {
                 let confirmed = false;
@@ -145,7 +152,7 @@ function SpaceProfile({
       {query.error ? <p role="alert">{query.error.message}</p> : null}
       {profile && editable ? (
         <form
-          className="weq-join-settings"
+          className="weq-qzn-space-profile-form"
           onSubmit={(event) => {
             event.preventDefault();
             if (!draft || action.disabled || !query.data) return;
@@ -183,37 +190,47 @@ function SpaceProfile({
             );
           }}
         >
-          <label>
-            空间名称
+          <label className="weq-set-text-field">
+            <span className="weq-set-row-label">空间名称</span>
             <input
+              className="weq-set-input"
               value={profile.name}
               maxLength={80}
               onChange={(event) => setDraft({ ...profile, name: event.target.value })}
             />
           </label>
-          <label>
-            空间说明
+          <label className="weq-set-text-field">
+            <span className="weq-set-row-label">空间说明</span>
             <textarea
+              className="weq-set-input"
+              rows={3}
               value={profile.description}
               maxLength={512}
               onChange={(event) => setDraft({ ...profile, description: event.target.value })}
             />
           </label>
-          <button
-            type="submit"
-            className="weq-set-btn weq-set-btn-primary"
-            disabled={action.disabled || !draft}
-          >
-            保存资料
-          </button>
+          <div className="weq-qq-action-bar">
+            <button
+              type="submit"
+              className="weq-set-btn weq-set-btn-primary"
+              disabled={action.disabled || !draft}
+            >
+              <Save size={15} aria-hidden />
+              保存资料
+            </button>
+          </div>
         </form>
       ) : profile ? (
-        <dl>
-          <dt>空间名称</dt>
-          <dd>{profile.name || '未填写'}</dd>
-          <dt>空间说明</dt>
-          <dd>{profile.description || '未填写'}</dd>
-        </dl>
+        <div>
+          <Row
+            label="空间名称"
+            control={<span className="weq-set-row-status">{profile.name || '未填写'}</span>}
+          />
+          <Row
+            label="空间说明"
+            control={<span className="weq-set-row-status">{profile.description || '未填写'}</span>}
+          />
+        </div>
       ) : null}
       <ActionFeedback action={action} />
     </EditorDialog>
@@ -249,47 +266,66 @@ export function QzoneSpaceHome({ selfUin, hostUin }: { selfUin: string; hostUin:
   const cursorStalled = !!cursor && pages.slice(0, -1).some((page) => page.next_cursor === cursor);
   const [selected, setSelected] = useState<{ hostUin: string; tid: string } | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const error = query.error?.message ?? '';
+  const retry = () => void query.refetch();
   return (
     <div className="weq-qzn-timeline">
-      <button
-        type="button"
-        className="weq-set-btn"
-        disabled={!available}
-        onClick={() => setProfileOpen(true)}
-      >
-        空间资料
-      </button>
-      {!available && !rows.size ? (
-        <p className="weq-qzn-status">当前无法读取在线主页，可查看「说说」或「相册」。</p>
-      ) : null}
-      {query.isFetching && !rows.size ? <LoadingStatus /> : null}
-      {query.error ? (
-        <div role="alert" className="weq-qzn-status">
-          {query.error.message}{' '}
-          <button type="button" className="weq-set-btn" onClick={() => void query.refetch()}>
-            重试
-          </button>
-        </div>
-      ) : null}
-      {query.isSuccess && !rows.size ? (
-        <p className="weq-qzn-status">这个空间暂无可查看的主页动态。</p>
+      <header className="weq-qzn-section-title">
+        <h2>主页动态</h2>
+        <button type="button" disabled={!available} onClick={() => setProfileOpen(true)}>
+          <Info size={15} aria-hidden />
+          空间资料
+        </button>
+      </header>
+      {!rows.size ? (
+        !available ? (
+          <State
+            loading={false}
+            error=""
+            empty="当前无法读取在线主页"
+            progress="可查看「说说」或「相册」。"
+          />
+        ) : (
+          <State
+            loading={query.isFetching}
+            error={error}
+            empty={query.isSuccess ? '这个空间暂无可查看的主页动态。' : ''}
+            retry={retry}
+          />
+        )
+      ) : error ? (
+        <State loading={false} error={error} empty="" retry={retry} />
       ) : null}
       {[...rows].map(([key, feed]) => {
         const tid = ordinaryId(feed);
         return (
           <article className="weq-qzn-post" key={key}>
             <header className="weq-qzn-post-head">
-              <strong>{feed.author.nick || feed.author.uin || '空间动态'}</strong>
+              <QzonePersonHeader
+                size={36}
+                url={feed.author.portrait}
+                uin={feed.author.uin}
+                nickname={feed.author.nick || feed.author.uin || '空间动态'}
+                time={
+                  feed.time ? (
+                    <time>
+                      <NumericText>{timeText(feed.time)}</NumericText>
+                    </time>
+                  ) : null
+                }
+              />
             </header>
             <FeedText feed={feed} />
             {tid ? (
-              <button
-                type="button"
-                className="weq-set-btn"
-                onClick={() => setSelected({ hostUin: feed.author.uin, tid })}
-              >
-                查看详情
-              </button>
+              <QzoneActionsRow>
+                <button
+                  type="button"
+                  onClick={() => setSelected({ hostUin: feed.author.uin, tid })}
+                >
+                  <FileText size={16} aria-hidden />
+                  查看详情
+                </button>
+              </QzoneActionsRow>
             ) : null}
           </article>
         );
@@ -302,11 +338,11 @@ export function QzoneSpaceHome({ selfUin, hostUin }: { selfUin: string; hostUin:
       {query.hasNextPage ? (
         <button
           type="button"
-          className="weq-set-btn"
+          className="weq-qzn-more"
           disabled={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
-          加载更多动态
+          {query.isFetchingNextPage ? '正在加载…' : '加载更多动态'}
         </button>
       ) : null}
       {selected && available ? (
