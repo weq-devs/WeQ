@@ -597,22 +597,49 @@ function MessageBubbleBody({
     onAvatarClick?.(sender, { x: rect.left, y: rect.bottom });
   }
 
-  const SelfAvatar = onAvatarClick ? 'button' : 'span';
-  const incomingAvatar = !mine ? (
-    conversation.generated?.kind === 'assistant' ? (
-      <span className="avatar weq-asst-avatar" aria-hidden>
-        <FEATURE_ICONS.assistant />
-      </span>
-    ) : (
-      <PendantOverlay
-        name={senderName}
-        uin={sender.identityValue}
-        avatarUrl={senderAvatarUrl}
-        seed={senderSeed}
-        widget={lineWidget}
-      />
-    )
-  ) : null;
+  const AvatarContainer = onAvatarClick ? 'button' : 'span';
+  const avatar = groupContinuation ? null : (
+    <AvatarContainer
+      className={cn(
+        onAvatarClick ? 'message-avatar-button' : 'message-avatar-wrap',
+        mine && 'is-self',
+      )}
+      {...(onAvatarClick
+        ? {
+            type: 'button',
+            title: '查看资料',
+            'aria-label': `查看 ${senderName} 的资料`,
+            onClick: handleAvatarClick,
+          }
+        : {})}
+      onContextMenu={
+        onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
+      }
+    >
+      {!mine && conversation.generated?.kind === 'assistant' ? (
+        <span className="avatar weq-asst-avatar" aria-hidden>
+          <FEATURE_ICONS.assistant />
+        </span>
+      ) : (
+        <PendantOverlay
+          name={senderName}
+          uin={sender.identityValue}
+          avatarUrl={senderAvatarUrl}
+          seed={senderSeed}
+          widget={lineWidget}
+          fallbackUrl={mine && decorationEnabled.widget ? pendantUrl : null}
+        />
+      )}
+      {!mine ? avatarBadge : null}
+    </AvatarContainer>
+  );
+  const avatarSlot = groupPosition ? (
+    <span className="message-avatar-slot" aria-hidden={groupContinuation || undefined}>
+      {avatar}
+    </span>
+  ) : (
+    avatar
+  );
   const renderContext = { message, conversation, sender, mine };
   const renderer = (renderers ?? defaultMessageRenderers).find((item) => item.match(renderContext));
   const content = renderer?.render(renderContext) ?? renderDefaultMessageContent(message);
@@ -630,6 +657,9 @@ function MessageBubbleBody({
       )}
       data-message-id={message.id}
       data-message-group={msgBubbleId || localBubbleOverride ? undefined : groupPosition}
+      data-grouped-dress-bubble={
+        Boolean(groupPosition && (msgBubbleId || localBubbleOverride)) || undefined
+      }
       data-generated-message-id={
         conversation.generated && !message.generatedPending ? message.id : undefined
       }
@@ -655,35 +685,7 @@ function MessageBubbleBody({
       data-widget={lineWidget?.animated ? lineWidget.itemId : undefined}
     >
       {selectionMode ? <MessageSelectionMark selected={selected ?? false} /> : null}
-      {!mine ? (
-        groupContinuation ? (
-          <span className="message-avatar-spacer" aria-hidden />
-        ) : onAvatarClick ? (
-          <button
-            type="button"
-            className={cn('message-avatar-button')}
-            title="查看资料"
-            aria-label={`查看 ${senderName} 的资料`}
-            onClick={handleAvatarClick}
-            onContextMenu={
-              onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
-            }
-          >
-            {incomingAvatar}
-            {avatarBadge}
-          </button>
-        ) : (
-          <span
-            className={cn('message-avatar-wrap')}
-            onContextMenu={
-              onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
-            }
-          >
-            {incomingAvatar}
-            {avatarBadge}
-          </span>
-        )
-      ) : null}
+      {!mine ? avatarSlot : null}
       <div
         ref={bubbleRef}
         className={cn('message-bubble', active && 'context-active')}
@@ -938,38 +940,7 @@ function MessageBubbleBody({
         ) : null}
       </div>
       {selectionMode ? null : renderer?.renderTrailing?.(renderContext)}
-      {mine ? (
-        groupContinuation ? (
-          <span className="message-avatar-spacer" aria-hidden />
-        ) : (
-          <SelfAvatar
-            className={cn(
-              onAvatarClick ? 'message-avatar-button' : 'message-avatar-wrap',
-              'is-self',
-            )}
-            {...(onAvatarClick
-              ? {
-                  type: 'button',
-                  title: '查看资料',
-                  'aria-label': `查看 ${senderName} 的资料`,
-                  onClick: handleAvatarClick,
-                }
-              : {})}
-            onContextMenu={
-              onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
-            }
-          >
-            <PendantOverlay
-              name={senderName}
-              uin={sender.identityValue}
-              avatarUrl={senderAvatarUrl}
-              seed={senderSeed}
-              widget={lineWidget}
-              fallbackUrl={decorationEnabled.widget ? pendantUrl : null}
-            />
-          </SelfAvatar>
-        )
-      ) : null}
+      {mine ? avatarSlot : null}
     </div>
   );
 }

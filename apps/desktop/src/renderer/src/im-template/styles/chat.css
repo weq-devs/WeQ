@@ -553,8 +553,18 @@
   justify-content: flex-end;
 }
 
-.message-avatar-spacer {
+.message-avatar-slot {
+  position: relative;
   flex: 0 0 36px;
+  block-size: 0;
+}
+
+/* 保留头像的交互区域和横向占位，但组内行高只由消息决定。 */
+.message-avatar-slot > :is(.message-avatar-wrap, .message-avatar-button) {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 0;
+  inset-inline-start: 0;
 }
 
 .message-line .avatar {
@@ -574,7 +584,7 @@
 }
 
 /* 焦点跟随头像或 QQ 秀的绘制尺寸，按钮的行内留白和挂件不参与描边。 */
-html[data-theme] .message-line > .message-avatar-button:focus-visible {
+html[data-theme] .message-line .message-avatar-button:focus-visible {
   outline: none;
 }
 
@@ -778,6 +788,10 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   overflow-wrap: anywhere;
   white-space: normal;
   word-break: normal;
+}
+
+.message-line[data-grouped-dress-bubble] > .message-bubble .message-content.is-plain-text {
+  --weq-dress-bubble-group-padding: 10px;
 }
 
 .message-line.theirs:is([data-message-group='first'], [data-message-group='middle'])

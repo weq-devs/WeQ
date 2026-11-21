@@ -17,6 +17,7 @@ import {
   BUBBLE_FRAME_Z_INDEX,
   FONT_FX_LAYER_CLASS,
   bubbleContentAlignmentCss,
+  bubbleContentPaddingCss,
   bubbleFrameAnimationCss,
   bubbleLinkMentionRules,
   bubbleMenuHighlightCss,
@@ -93,7 +94,7 @@ function fontTheirsLineSel(fontId: number): string {
 export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
   return acquireDecorationStyle(`bubble:${skin.itemId}${staticOnly ? ':base' : ''}`, (resource) => {
     const metrics = bubbleMetrics(skin);
-    const { slice, width, topPad, rightPad, bottomPad, minWidth, minHeight, imageUrl } = metrics;
+    const { slice, width, minWidth, minHeight, imageUrl } = metrics;
     const sel = bubbleSel(skin.itemId);
     const theirsSel = theirsBubbleSel(skin.itemId);
     // `sel` 是逗号选择器列表,`::after` 不能直接往上拼 —— 那样只会加到最后一项目上,
@@ -125,7 +126,7 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
       `  border-image-width: ${width};`,
       `  border-image-repeat: stretch;`,
       `  border-radius: 0;`,
-      `  padding: ${topPad} ${rightPad} ${bottomPad};`,
+      bubbleContentPaddingCss(metrics),
       `  min-width: ${minWidth};`,
       `  min-height: ${minHeight};`,
       `}`,

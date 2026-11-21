@@ -539,6 +539,10 @@ export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
   };
 }
 
+export function bubbleContentPaddingCss({ topPad, rightPad, bottomPad }: BubbleMetrics): string {
+  return `  padding: var(--weq-dress-bubble-group-padding, ${topPad}) ${rightPad} var(--weq-dress-bubble-group-padding, ${bottomPad});`;
+}
+
 /**
  * 把一款气泡的核心九宫格规则涂到给定的元素选择器上。
  *
@@ -569,7 +573,7 @@ function baseBubbleRule(skin: BubbleSkinCss, m: BubbleMetrics, sel: string): str
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
     // 正文留白与图像切片独立，预览、本地覆盖和逐消息装扮共用同一计算。
-    `  padding: ${m.topPad} ${m.rightPad} ${m.bottomPad};`,
+    bubbleContentPaddingCss(m),
     `  min-width: ${m.minWidth};`,
     `  min-height: ${m.minHeight};`,
     `}`,
