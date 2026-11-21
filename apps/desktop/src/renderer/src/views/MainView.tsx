@@ -287,7 +287,7 @@ import type { SectionId as SettingsDialogSectionId } from '../components/Setting
 import { remoteUnsupportedTools } from '../components/settings/DataMaintenanceSection.shared';
 import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';
 import { isRemoteClient } from '../lib/remoteClient';
-import { restoreGlobalSearch } from '../components/TitleBarSearch';
+import { restoreGlobalSearch } from '../components/search/searchPosition.shared';
 import { SearchGroupFiles, type SearchFileGroup } from '../components/search/SearchGroupFiles';
 import { topSurface } from '../lib/surfaceEscape';
 import {

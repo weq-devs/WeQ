@@ -10,13 +10,8 @@ import {
 import { createPortal } from 'react-dom';
 import { hasActiveModal, useOverlayLayer } from '../lib/overlayStack';
 import { IS_WEB } from '../lib/target.shared';
+import { RESTORE_SEARCH_EVENT } from './search/searchPosition.shared';
 import { Search, X } from 'lucide-react';
-
-const RESTORE_SEARCH_EVENT = 'weq:restore-global-search';
-
-export function restoreGlobalSearch(): void {
-  window.dispatchEvent(new Event(RESTORE_SEARCH_EVENT));
-}
 
 export function TitleBarSearch({
   query,
@@ -241,6 +236,7 @@ export function TitleBarSearch({
             setSuppressHover(true);
             input.current?.blur();
           } else {
+            forceInputFocus.current = true;
             setPinned(true);
             setSuppressHover(false);
             onSearchFocus?.();

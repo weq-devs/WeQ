@@ -1235,7 +1235,7 @@ describe('非阻塞提权入口', () => {
     mock.access = { ...ready, qqOnline: false };
     f.render();
     expect(useToast.getState().toasts).toHaveLength(1);
-    expect(useToast.getState().toasts[0]!.title).toContain('QQ 不在线');
+    expect(useToast.getState().toasts[0]!.summary).toContain('QQ 不在线');
     expect(useToast.getState().leaving).not.toContain(useToast.getState().toasts[0]!.id);
     mock.access = { ...ready };
     f.render();

@@ -17,7 +17,8 @@ const rpc = vi.hoisted(() => ({ notify: vi.fn(async () => true) }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { bootstrap: { notifyConfiguredEvent: { mutate: rpc.notify } } },
 }));
-vi.mock('../src/renderer/src/lib/clientPreferences', () => ({
+vi.mock('../src/renderer/src/lib/clientPreferences', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/lib/clientPreferences')>()),
   accountBinding: () => ({ expectedAccountUin: 'fixture', expectedAccountConfigId: 'source' }),
   preferenceValue: () => false,
 }));

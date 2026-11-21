@@ -1,3 +1,9 @@
+export const RESTORE_SEARCH_EVENT = 'weq:restore-global-search';
+
+export function restoreGlobalSearch(): void {
+  window.dispatchEvent(new Event(RESTORE_SEARCH_EVENT));
+}
+
 export interface SearchPosition {
   scrollTop: number;
   focusKey: string | null;

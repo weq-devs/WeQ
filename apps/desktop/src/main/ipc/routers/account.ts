@@ -1393,7 +1393,6 @@ export const accountRouter = router({
         ),
       );
     }),
-    acknowledge: procedure
     unsequencedRows: procedure
       .input(convInput.merge(exportAccountBindingInput.required()))
       .query(({ input }) =>
@@ -1418,11 +1417,12 @@ export const accountRouter = router({
           );
         }),
       ),
+    acknowledge: procedure
       .input(
         exportAccountBindingInput.required().extend({
           ids: z.array(z.string().max(512)).max(128),
-        }),
           bannerOnly: z.boolean().optional(),
+        }),
       )
       .mutation(({ input }) => {
         const { interactionBadges } = requireExpectedAccount(

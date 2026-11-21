@@ -146,6 +146,7 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
   customPrompt: '',
   mcpServers: '',
   reasoningEffort: 'off',
+  localLightweight: false,
 };
 
 export function mergeAssistantConfig(
