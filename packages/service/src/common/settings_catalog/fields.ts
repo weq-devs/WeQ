@@ -166,6 +166,12 @@ export const CLIENT_SETTING_FIELDS = (
     ...AGGREGATE_BADGE_SETTINGS.filter(([, key]) => key !== 'showGroupAssistantMessageCount').map(
       ([, key, id, label]) => ['notification-badges', key, id, label] as const,
     ),
+    [
+      'conversation-markers',
+      'showInteractionBadge',
+      'conversation-interaction-badge',
+      '会话互动红点',
+    ],
     ...AGGREGATE_BADGE_SETTINGS.filter(([, key]) => key !== 'showGroupAssistantMessageCount').map(
       ([, key, id, label]) => ['conversation-markers', key, id, label] as const,
     ),

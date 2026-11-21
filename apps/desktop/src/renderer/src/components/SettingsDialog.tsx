@@ -115,7 +115,7 @@ export type { SectionId } from './settings/navigation';
 import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
 import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
 import { useEnhancementUpdateBadge } from '../lib/unreadMarkers';
-import { AggregateBadgeRows, BadgeSettingRow } from './settings/UnreadBadgeSettings';
+import { BadgeSettingRow, ConversationListBadgeRows } from './settings/UnreadBadgeSettings';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
@@ -1018,7 +1018,7 @@ function AppearanceSection({
           )}
           {category === 'reading' && (
             <Card title="常规视图未读角标" icon={<Bell size={15} />} resetId="conversation-markers">
-              <AggregateBadgeRows />
+              <ConversationListBadgeRows />
             </Card>
           )}
           {category === 'reading' && (

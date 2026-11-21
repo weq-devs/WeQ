@@ -23,9 +23,16 @@ export function BadgeSettingRow(
   );
 }
 
-export function AggregateBadgeRows() {
+export function ConversationListBadgeRows() {
   return (
     <>
+      <BadgeSettingRow
+        name="showInteractionBadge"
+        settingId="conversation-interaction-badge"
+        label="会话互动红点"
+        desc="仅提示已读位置之后未查看的互动；有未读数字时优先显示数字。"
+        fallback={false}
+      />
       {AGGREGATE_BADGE_SETTINGS.map(([, key, id, label]) => (
         <BadgeSettingRow
           key={key}
@@ -105,14 +112,7 @@ export function UnreadBadgeSettings() {
       />
       <MailNotificationSettings kind="unread" />
       <h4 className="weq-badge-group-title">会话列表常规视图</h4>
-      <BadgeSettingRow
-        name="showInteractionBadge"
-        settingId="conversation-interaction-badge"
-        label="会话互动红点"
-        desc="仅提示已读位置之后未查看的互动；有未读数字时优先显示数字。"
-        fallback={false}
-      />
-      <AggregateBadgeRows />
+      <ConversationListBadgeRows />
       <h4 className="weq-badge-group-title">联系人页</h4>
       <ContactBadgeRows />
       <h4 className="weq-badge-group-title">菜单</h4>

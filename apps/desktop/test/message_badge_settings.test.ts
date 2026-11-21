@@ -151,7 +151,7 @@ function mount() {
                 label,
               )
             ? '通知与提醒'
-            : ['显示会话预览', '鼠标停留时保持会话位置'].includes(label)
+            : ['显示会话预览', '鼠标停留时保持会话位置', '会话互动红点'].includes(label)
               ? '会话列表'
               : '消息阅读';
       if (page === '通知与提醒')
@@ -209,6 +209,7 @@ const sharedToggles = [
   ['在消息图标上显示红点', 'showMessageUnreadBadge', true],
   ['在联系人界面显示未读消息数', 'showContactUnreadCount', false],
   ['群助手显示总消息数', 'showGroupAssistantMessageCount', false],
+  ['会话互动红点', 'showInteractionBadge', false],
   ['显示会话预览', 'showConversationPreview', true],
   ['鼠标停留时保持会话位置', 'keepConversationPositionOnHover', false],
   ['消息气泡', 'showMessageBubble', true],
