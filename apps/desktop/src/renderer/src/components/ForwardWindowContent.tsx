@@ -46,6 +46,7 @@ import {
   type ForwardEntry,
 } from '../lib/forwardRecordActions';
 import { textMarkdownKey } from '../state/textMarkdown';
+import { revealTimelineMessage } from '../lib/timelineViewport';
 import { MessageIntentSense } from './intentSense/MessageIntentSense';
 
 import {
@@ -406,7 +407,8 @@ const ForwardRow = memo(function ForwardRow({
   windowId: number;
   interactive: boolean;
 }): ReactElement {
-  const { record, sendTimeMs } = entry;
+  const { record, sendTimeMs, reply } = entry;
+  const replyTargetId = reply?.targetId;
   const rowRef = useRef<HTMLDivElement | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const decorationEnabled = useContext(MsgDecorationEnabledContext);
@@ -475,7 +477,7 @@ const ForwardRow = memo(function ForwardRow({
       kind: 'human' as const,
     };
     return (
-      <div className="weq-forward-graytip">
+      <div className="weq-forward-graytip" data-message-id={interactive ? undefined : entry.id}>
         <SystemMessageContent message={metadata}>
           <GrayTipLine
             gt={gray}
@@ -492,6 +494,7 @@ const ForwardRow = memo(function ForwardRow({
     <div
       ref={rowRef}
       className="weq-forward-row message-line theirs"
+      data-message-id={interactive ? undefined : entry.id}
       data-forward-group={entry.groupPosition}
       data-forward-continuation={continuation || undefined}
       data-message-group={dressed ? undefined : entry.groupPosition}
@@ -540,7 +543,19 @@ const ForwardRow = memo(function ForwardRow({
               conversationId: `forward:${windowId}`,
               id: entry.id,
             })}
-            forwardRecord={{ target: forwardRecordTarget(entry), children: record.subMsgs }}
+            forwardRecord={{
+              target: forwardRecordTarget(entry),
+              children: record.subMsgs,
+              reply: reply && {
+                senderName: reply.senderName,
+                onJump: replyTargetId
+                  ? () => {
+                      const body = rowRef.current?.closest<HTMLElement>('.weq-forward-body');
+                      if (body) revealTimelineMessage(body, replyTargetId, true);
+                    }
+                  : undefined,
+              },
+            }}
           />
         </div>
         {interactive ? (

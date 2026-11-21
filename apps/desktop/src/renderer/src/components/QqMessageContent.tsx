@@ -671,6 +671,8 @@ function replyPreviewElements(origElements: RenderElement[]): RenderElement[] {
   return origElements.filter((element) => element.type !== 'reply' && isMeaningful(element));
 }
 
+type LocalReply = { senderName?: string; onJump?: () => void };
+
 /**
  * The darker quote box for a `reply` element. Two lines:
  *   line 1 — the original sender's nickname (resolved by the host),
@@ -678,13 +680,21 @@ function replyPreviewElements(origElements: RenderElement[]): RenderElement[] {
  *           with the jump-arrow tucked at its end.
  * 点击文字或箭头定位原消息；图片保留自身的加载、重试与预览操作。
  */
-function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendTimeMs: number }) {
+function ReplyQuote({
+  data,
+  sendTimeMs,
+  localReply,
+}: {
+  data: Record<string, unknown>;
+  sendTimeMs: number;
+  localReply?: LocalReply;
+}) {
   const jumpToSeq = useContext(ReplyJumpContext);
   const origElements = Array.isArray(data.origElements)
     ? (data.origElements as RenderElement[])
     : [];
   const previewEls = replyPreviewElements(origElements);
-  const senderName = origSenderDisplay(data);
+  const senderName = localReply?.senderName || origSenderDisplay(data);
   const quoteTimeMs = quoteSendTimeMs(data, sendTimeMs);
   // Pass both 40003 candidates; the host picks by conversation kind. Verified
   // against the live DB: group → origMsgSeq(47402), c2c → origMsgIndex(47419).
@@ -693,12 +703,15 @@ function ReplyQuote({ data, sendTimeMs }: { data: Record<string, unknown>; sendT
   const clientSeq = data.origClientSeq as number | string | undefined;
   const isUsable = (v: unknown): boolean =>
     (typeof v === 'number' || typeof v === 'string') && /^\d+$/.test(String(v)) && BigInt(v) > 0n;
-  const canJump = isUsable(seq) || isUsable(index) || isUsable(clientSeq);
+  const canJump = localReply
+    ? Boolean(localReply.onJump)
+    : isUsable(seq) || isUsable(index) || isUsable(clientSeq);
 
   function handleJump(event: ReactMouseEvent | ReactKeyboardEvent): void {
     event.preventDefault();
     event.stopPropagation();
-    if (canJump)
+    if (localReply) localReply.onJump?.();
+    else
       jumpToSeq({
         seq,
         index,
@@ -823,6 +836,7 @@ function QqMessageContentBody({
   forwardRecord?: {
     target: import('@weq/service').ForwardRecordTarget;
     children?: import('../state/forwardWindow').ForwardRecordWire[];
+    reply?: LocalReply;
   };
   /**
    * 当前会话（渲染器注册表带进来的）—— 红包明细要拿 conv / 会话类型。
@@ -1072,7 +1086,11 @@ function QqMessageContentBody({
   if (replyElement) {
     return (
       <div className={cn('message-content', 'qq-message-inline', 'qq-has-reply')}>
-        <ReplyQuote data={replyElement.data ?? {}} sendTimeMs={sendTimeMs} />
+        <ReplyQuote
+          data={replyElement.data ?? {}}
+          sendTimeMs={sendTimeMs}
+          localReply={forwardRecord?.reply}
+        />
         {meaningful.length > 0 ? (
           <div className="qq-reply-body">
             {renderElementNodes(meaningful, sendTimeMs, msgId, isSender, callConv, groupImages)}

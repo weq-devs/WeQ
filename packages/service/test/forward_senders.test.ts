@@ -82,7 +82,7 @@ it.each([undefined, '10004'])(
   },
 );
 
-it('在线拉取的私聊记录也补全本地名称，不只依赖群名片字段', async () => {
+it('在线私聊转发保留引用所需的发送方序号和昵称，优先使用本地名称', async () => {
   const f = fixture();
   const payload = encode(LONG_MSG_RESULT, {
     action: [
@@ -92,7 +92,12 @@ it('在线拉取的私聊记录也补全本地名称，不只依赖群名片字�
           msgBody: [
             {
               responseHead: { fromUin: 10002, fromUid: 'u_friend' },
-              contentHead: { msgType: 1, sequence: 7, timestamp: 1700000000 },
+              contentHead: { msgType: 1, sequence: 7, ntMsgSeq: 90, timestamp: 1700000000 },
+              body: { richText: { elems: [{ text: { str: '合成正文' } }] } },
+            },
+            {
+              responseHead: { fromUin: 10004, forward: { friendName: '包内昵称' } },
+              contentHead: { msgType: 1, sequence: 8, ntMsgSeq: 91, timestamp: 1700000001 },
               body: { richText: { elems: [{ text: { str: '合成正文' } }] } },
             },
           ],
@@ -108,7 +113,14 @@ it('在线拉取的私聊记录也补全本地名称，不只依赖群名片字�
     ),
   );
   expect(await f.service.fetchRemote('fixture')).toMatchObject([
-    { senderUid: 'u_friend', senderUin: '10002', sendNick: '本地备注' },
+    {
+      senderUid: 'u_friend',
+      senderUin: '10002',
+      sendNick: '本地备注',
+      msgSeq: '90',
+      clientSeq: '7',
+    },
+    { senderUin: '10004', sendNick: '包内昵称', msgSeq: '91', clientSeq: '8' },
   ]);
 });
 

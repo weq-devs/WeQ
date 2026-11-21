@@ -27,6 +27,7 @@ import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 export interface FetchedForwardRecord {
   msgId: string;
   msgSeq?: string;
+  clientSeq?: string;
   msgType?: number;
   senderUid?: string;
   senderUin?: string;
@@ -184,10 +185,6 @@ function toFetchedForwardRecord(raw: Record<string, unknown>): FetchedForwardRec
   const bytes = encode(PUSH_MSG_BODY, raw);
   const decoded = decodeMessage(bytes);
   const { head, sender, dress } = decoded;
-  const grp = (
-    raw.responseHead as { grp?: { memberName?: string; memberCard?: string } } | undefined
-  )?.grp;
-  const sendNick = grp?.memberName || grp?.memberCard || '';
   const decoration =
     dress.bubble || dress.font || dress.widget
       ? { bubbleId: dress.bubble, fontId: dress.font, widgetId: dress.widget }
@@ -195,11 +192,12 @@ function toFetchedForwardRecord(raw: Record<string, unknown>): FetchedForwardRec
   return {
     msgId: String(head.msgId),
     msgSeq: String(head.sequence),
+    ...(head.clientSequence ? { clientSeq: String(head.clientSequence) } : {}),
     msgType: head.msgType,
     senderUid: sender.uid,
     senderUin: String(sender.uin),
     sendTime: String(head.timestamp),
-    ...(sendNick ? { sendNick } : {}),
+    ...(sender.name ? { sendNick: sender.name } : {}),
     elements: renderDecodedElements(decoded.elements),
     ...(decoration ? { decoration } : {}),
   };

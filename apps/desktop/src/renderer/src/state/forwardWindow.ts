@@ -9,6 +9,7 @@ export interface ForwardRecordWire {
   cachedBubbles?: MessageBubbleSkin[];
   msgId: string;
   msgSeq?: string | number;
+  clientSeq?: string | number;
   msgType?: number;
   isSender?: boolean;
   senderUid?: string;

@@ -1139,7 +1139,12 @@ html[data-theme='dark'] .weq-qqshow-avatar {
 /* Brief highlight when a reply jump lands on its target message. QQ 本体是**整行底色**
  * 加重并淡出，而不是只给气泡描一圈边——气泡带装扮 / 换肤时那圈描边很容易被盖掉，
  * 站位也不明显。所以这里直接在整行（.message-line）上铺一层背景色再渐隐。 */
-:is(.message-line, .weq-system-message-row).weq-reply-target-flash {
+:is(
+  .message-line,
+  .weq-system-message-row,
+  .weq-forward-item,
+  .weq-forward-graytip
+).weq-reply-target-flash {
   /* 纵向留一点呼吸感：padding 与等量负 margin 抵消，行布局不动。 */
   margin-block: -4px;
   padding-block: 4px;
@@ -1158,7 +1163,13 @@ html[data-theme='dark'] .weq-qqshow-avatar {
 }
 
 /* 深色主题下底衬更暗，0.16 的蓝几乎看不见——用更亮、更实一点的蓝。 */
-html[data-theme='dark'] :is(.message-line, .weq-system-message-row).weq-reply-target-flash {
+html[data-theme='dark']
+:is(
+  .message-line,
+  .weq-system-message-row,
+  .weq-forward-item,
+  .weq-forward-graytip
+).weq-reply-target-flash {
   animation: weq-reply-flash-dark 1.6s ease;
 }
 

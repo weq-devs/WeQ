@@ -923,6 +923,7 @@ export function forwardRecordToWire(record: MsgCacheRecord): unknown {
   } = record as unknown as Record<string, unknown>;
   const carrier = sanitize(rest) as Record<string, unknown>;
   if (record.senderUin !== undefined) carrier.senderUin = String(record.senderUin);
+  if (record.flag40005) carrier.clientSeq = String(record.flag40005);
   const decoration = proto40801 instanceof Uint8Array ? decodeMsgDressWire(proto40801) : null;
   return { ...carrier, elements, subMsgs, ...(decoration ? { decoration } : {}) };
 }

@@ -7,6 +7,10 @@ import { createTemplateDemoData } from './support/templateDemoData';
 import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
 import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
 import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
+import { ForwardWindowHost } from '../src/renderer/src/components/ForwardWindow';
+import { openForwardWindow, useForwardStore } from '../src/renderer/src/state/forwardWindow';
+import { forwardRecordToWire } from '../src/main/ipc/serde';
+import type { ForwardRecordWire } from '../src/renderer/src/state/forwardWindow';
 
 const dataSaverPolicy = useDataSaver.getState();
 
@@ -33,6 +37,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return { trpc: proxy(), client: proxy() };
 });
+vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
+  useExportSavePolicy: () => ({
+    binding: null,
+    settings: { isLoading: false },
+    isCurrent: () => true,
+  }),
+}));
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -279,4 +290,89 @@ it('普通正文图片打开连续预览，不触发引用跳转', () => {
   expect(gallery).toHaveBeenCalledOnce();
   expect(gallery.mock.calls[0]?.[0]).toMatchObject({ initialKey: 'quote:0' });
   expect(f.jump).not.toHaveBeenCalled();
+});
+
+it.each([false, true])('转发引用显示正确的昵称并定位本层原消息，可多选=%s', async (selectable) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  cleanups.push(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  const timelineJump = vi.fn();
+  const actions = selectable
+    ? {
+        binding: null,
+        sendAvailable: false,
+        forward: vi.fn(),
+        merge: vi.fn(),
+        addMaterial: vi.fn(),
+      }
+    : undefined;
+  const original = forwardRecordToWire({
+    msgId: 100n,
+    msgSeq: 91,
+    flag40005: 42,
+    senderUin: 10002,
+    senderUid: 'u_original',
+    sendTime: 1700000000,
+    sendNick: '原作者昵称',
+    elements: [{ elementType: 1, textContent: '原消息正文' }],
+  }) as ForwardRecordWire;
+  const sameSeq = { ...original, msgId: '101', sendTime: 1700000001, sendNick: '重号消息' };
+  const quote = (data: Record<string, unknown>, id: string): ForwardRecordWire => ({
+    msgId: id,
+    elements: [
+      { type: 'reply', data },
+      { type: 'text', data: { textContent: '回复正文' } },
+    ],
+  });
+  const pointer = { origMsgSeq: 42, origSenderUid: 'u_original', origSenderUin: 10002 };
+  const source = { kind: 'group' as const, conv: '12345', msgId: '1' };
+  await act(async () => {
+    root.render(
+      h(ReplyJumpContext.Provider, { value: timelineJump }, h(ForwardWindowHost, { actions })),
+    );
+    openForwardWindow({ ...source, title: '父记录', records: [original] });
+    openForwardWindow({
+      ...source,
+      title: '子记录',
+      parentId: useForwardStore.getState().seq,
+      records: [
+        original,
+        sameSeq,
+        quote({ ...pointer, origMsgTime: 1700000000 }, '102'),
+        quote(pointer, '103'),
+        forwardRecordToWire({
+          msgId: 104n,
+          elements: [{ elementType: 7, origMsgSeq: 43, replyOrigSenderNick: '包外作者' }],
+        }) as ForwardRecordWire,
+      ],
+    });
+  });
+  await act(async () => vi.dynamicImportSettled());
+  const parent = document.querySelector<HTMLElement>('[aria-label="父记录"]')!;
+  const child = document.querySelector<HTMLElement>('[aria-label="子记录"]')!;
+  const [linked, ambiguous, missing] = child.querySelectorAll<HTMLElement>('.qq-reply-quote');
+  expect(linked!.textContent).toContain('原作者昵称');
+  expect(ambiguous!.getAttribute('role')).toBeNull();
+  expect(missing!.textContent).toContain('包外作者');
+  expect(missing!.getAttribute('role')).toBeNull();
+  const [target, other] = child.querySelectorAll<HTMLElement>('[data-message-id]');
+  const scroll = vi.spyOn(target!, 'scrollIntoView');
+  act(() => {
+    missing!.click();
+    ambiguous!.click();
+    if (selectable) linked!.click();
+    else linked!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+  expect(scroll.mock.calls).toEqual([[{ block: 'center' }]]);
+  expect(target!.classList.contains('weq-reply-target-flash')).toBe(true);
+  expect(other!.classList.contains('weq-reply-target-flash')).toBe(false);
+  expect(parent.querySelector('.weq-reply-target-flash')).toBeNull();
+  expect(timelineJump).not.toHaveBeenCalled();
+  expect(useForwardStore.getState().windows).toHaveLength(2);
 });

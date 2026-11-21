@@ -272,6 +272,7 @@ export interface RenderReplyElement {
     /** 导出时的缓存来源摘要，不将 origMsgId 误当成缓存消息的原生 ID。 */
     exportQuoteCache?: Record<string, string | number | null>;
     origSenderUid: string;
+    origSenderNick?: string;
     // origReceiverUid: string;
     origMsgSeq: number;
     origSenderUin: number;
@@ -865,6 +866,7 @@ function mapReply(el: ReplyElement): RenderReplyElement {
     type: 'reply',
     data: {
       origSenderUid: el.origSenderUid,
+      ...(el.replyOrigSenderNick ? { origSenderNick: el.replyOrigSenderNick } : {}),
       // origReceiverUid: el.origReceiverUid,
       origMsgSeq: el.origMsgSeq,
       origSenderUin: el.origSenderUin,

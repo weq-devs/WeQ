@@ -20,7 +20,71 @@ export type ForwardEntry = {
   sendTimeMs: number;
   showTime: boolean;
   groupPosition?: MessageGroupPosition;
+  reply?: { targetId?: string; senderName?: string };
 };
+
+function positiveNumberKey(value: unknown): string | undefined {
+  const key = String(value ?? '');
+  return /^[1-9]\d*$/.test(key) ? key : undefined;
+}
+
+function resolveForwardReplies(entries: ForwardEntry[]) {
+  const replies = entries.flatMap((entry) => {
+    const reply = entry.record.elements.find((element) => element.type === 'reply');
+    return reply ? [{ entry, data: reply.data ?? {} }] : [];
+  });
+  if (!replies.length) return;
+
+  const byId = new Map<string, ForwardEntry[]>();
+  const bySeq = new Map<string, ForwardEntry[]>();
+  const byReplySeq = new Map<string, ForwardEntry[]>();
+  for (const entry of entries) {
+    const { record } = entry;
+    for (const [map, key] of [
+      [byId, positiveNumberKey(record.msgId)],
+      [bySeq, positiveNumberKey(record.msgSeq)],
+      // 群聊引用使用会话序号，私聊使用发送方序号。外层卡片的会话类型和这里无关。
+      [byReplySeq, positiveNumberKey(record.clientSeq) ?? positiveNumberKey(record.msgSeq)],
+    ] as const) {
+      if (!key) continue;
+      const matches = map.get(key);
+      if (matches) matches.push(entry);
+      else map.set(key, [entry]);
+    }
+  }
+
+  for (const { entry, data } of replies) {
+    const { record } = entry;
+    // 回复消息的独立 40900 快照可以提供原文身份，即使转发后序号已变。
+    const snapshot =
+      record.msgType === 9 && record.subMsgs?.length === 1 ? record.subMsgs[0] : null;
+    const cachedId = positiveNumberKey(snapshot?.msgId);
+    const cachedMatches = byId.get(cachedId ?? '')?.filter((row) => row.index < entry.index);
+    const senderUin = positiveNumberKey(data.origSenderUin);
+    const senderUid = typeof data.origSenderUid === 'string' ? data.origSenderUid : '';
+    const sendTime = positiveNumberKey(data.origMsgTime);
+    const matchesReply = ({ index, record: row }: ForwardEntry) =>
+      index < entry.index &&
+      (!senderUin || !row.senderUin || row.senderUin === '0' || row.senderUin === senderUin) &&
+      (!senderUid || !row.senderUid || row.senderUid === senderUid) &&
+      (!sendTime || !row.sendTime || String(row.sendTime) === sendTime);
+    const seqMatches = bySeq.get(positiveNumberKey(data.origMsgIndex) ?? '')?.filter(matchesReply);
+    const replySeq = positiveNumberKey(data.origClientSeq) ?? positiveNumberKey(data.origMsgSeq);
+    const matches = seqMatches?.length
+      ? seqMatches
+      : byReplySeq.get(replySeq ?? '')?.filter(matchesReply);
+    const target =
+      cachedMatches?.length === 1
+        ? cachedMatches[0]
+        : matches?.length === 1
+          ? matches[0]
+          : undefined;
+    entry.reply = {
+      targetId: target?.id,
+      senderName: target?.record.sendNick?.trim() || snapshot?.sendNick?.trim(),
+    };
+  }
+}
 
 export function forwardEntries(
   win: Pick<ForwardWindowState, 'id' | 'records'>,
@@ -33,6 +97,7 @@ export function forwardEntries(
     if (sendTimeMs > 0) previousTime = sendTimeMs;
     return { id: `forward:${win.id}:${index}`, index, record, sendTimeMs, showTime };
   });
+  resolveForwardReplies(entries);
   if (!groupMessages) return entries;
   const groups = consecutiveMessageGroups(
     entries,
