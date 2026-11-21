@@ -1,7 +1,8 @@
-import { RefreshCw, X } from 'lucide-react';
+import { X } from 'lucide-react';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { client, trpc } from '../../trpc/client';
 import { GroupFeatureSurface } from '../GroupFeatureSurface';
-import { Row, Toggle } from '../settings/controls';
+import { QueryError, Row, Toggle } from '../settings/controls';
 import { ActionFeedback } from './shared';
 import { useQQAction, withQQAccountScope } from './shared.shared';
 import '../../styles/group-admin-permissions.css';
@@ -22,7 +23,7 @@ function GroupAdminPermissionsEditor({
   const action = useQQAction(`group-admin-permissions:${groupId}:${targetUid}`);
   const verification = trpc.account.qqActions.groupAdminReceiveVerify.useQuery(
     { ...action.binding!, groupId, targetUid },
-    { enabled: action.available, refetchOnWindowFocus: false, retry: false },
+    useQQAutoRefresh(action.available),
   );
   const refreshing = verification.isFetching;
 
@@ -70,16 +71,6 @@ function GroupAdminPermissionsEditor({
           <button
             type="button"
             className="icon-button"
-            title="刷新权限"
-            aria-label="刷新权限"
-            disabled={action.disabled || refreshing}
-            onClick={() => void verification.refetch()}
-          >
-            <RefreshCw size={15} className={refreshing ? 'weq-spin' : undefined} aria-hidden />
-          </button>
-          <button
-            type="button"
-            className="icon-button"
             title="关闭管理员权限"
             aria-label="关闭管理员权限"
             disabled={action.pending}
@@ -106,7 +97,14 @@ function GroupAdminPermissionsEditor({
               )
             }
           />
-          {verification.error ? <p role="alert">{verification.error.message}</p> : null}
+          {action.available && verification.error ? (
+            <QueryError
+              message={verification.error.message}
+              retryLabel="重新读取管理员权限"
+              retrying={action.disabled || refreshing}
+              onRetry={() => void verification.refetch()}
+            />
+          ) : null}
           {!action.available ? (
             <p className="weq-admin-permissions-status">需要 QQ 在线能力才能更改此设置。</p>
           ) : null}

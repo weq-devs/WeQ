@@ -1,6 +1,8 @@
 import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
+import { DialogHost } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { ChatRecordsModal } from '../src/renderer/src/components/search/ChatRecordsModal';
 import {
   cloneChatUser,
@@ -29,10 +31,60 @@ vi.mock('../src/renderer/src/trpc/client', async () => {
   return { trpc: stub.trpc, client: proxy() };
 });
 afterEach(() => {
+  useDialog.getState().close();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   nativeReads.mockReset();
   vi.useRealTimers();
+});
+
+it('筛选结果导出仅确认预检，并透传原位选择的完整性报告', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  nativeReads.mockImplementation((path: string) => {
+    if (path === 'account.browseConversation') return { items: [], cursor: null, hasMore: false };
+    if (path === 'account.exportPreflight')
+      return {
+        matchingMessages: 7,
+        destination: '/fixture/export',
+        estimatedMessageBytes: 1024,
+        availableBytes: 100_000,
+        spaceWarning: false,
+      };
+    return undefined;
+  });
+  try {
+    await act(async () => root.render(h('div', null, nativeRecords(), h(DialogHost))));
+    const report = document.querySelector<HTMLInputElement>('[aria-label="附带完整性报告"]')!;
+    const exportButton = document.querySelector<HTMLButtonElement>('[aria-label="导出筛选结果"]')!;
+    expect(report.checked).toBe(false);
+    act(() => report.click());
+
+    await act(async () => exportButton.click());
+    expect(useDialog.getState().current?.title).toBe('导出预检');
+    await act(async () => useDialog.getState().close());
+    expect(nativeReads).not.toHaveBeenCalledWith(
+      'account.startExport',
+      expect.anything(),
+      undefined,
+    );
+
+    await act(async () => exportButton.click());
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === '开始导出',
+    );
+    await act(async () => confirm!.click());
+    expect(nativeReads).toHaveBeenCalledWith(
+      'account.startExport',
+      expect.objectContaining({ includeIntegrityReport: true, conv: '12345' }),
+      undefined,
+    );
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 
 it('服务号搜索显示候选截断提示，消息定位保留服务号和消息身份', async () => {

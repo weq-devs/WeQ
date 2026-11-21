@@ -72,14 +72,14 @@ function OrdinaryDetail({
           {share.data?.notice ? <p>{share.data.notice}</p> : null}
           {share.error ? <p role="alert">{share.error.message}</p> : null}
           <div className="weq-qq-action-bar">
-            {detail.data ? (
+            {detail.data && !share.data ? (
               <button
                 type="button"
                 className="weq-set-btn"
                 disabled={share.isLoading || !action.available}
                 onClick={() => share.mutate(input)}
               >
-                {share.isLoading ? '正在生成…' : share.data ? '重新生成卡片' : '生成分享卡片'}
+                {share.isLoading ? '正在生成…' : share.error ? '重试生成' : '生成分享卡片'}
               </button>
             ) : null}
             {share.data ? (

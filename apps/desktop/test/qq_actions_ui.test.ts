@@ -2046,6 +2046,7 @@ describe('QQ 主动操作的实际界面', () => {
     });
     await act(async () => f.button('保存加群方式').click());
     expect(state.refreshJoin).toHaveBeenCalledOnce();
+    expect(state.confirm).not.toHaveBeenCalled();
     expect(f.host.querySelector<HTMLElement>('[aria-label="加群方式"]')!.dataset.value).toBe('1');
     expect(f.button('保存加群方式').disabled).toBe(false);
     await act(async () => f.button('保存加群方式').click());

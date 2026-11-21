@@ -20,7 +20,6 @@ import {
 } from './types';
 import { client } from '../../trpc/client';
 import { preflightExportEstimate } from '../../views/export/preflight';
-import { useExportReportDialog } from '../../views/export/ExportReportControl.shared';
 import { useAppDialog } from '../../lib/dialogUtils';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import {
@@ -132,7 +131,7 @@ export function ChatRecordsModal({
   >('jsonl');
   const [exportBusy, setExportBusy] = useState(false);
   const [includeMedia, setIncludeMedia] = useState(false);
-  const report = useExportReportDialog();
+  const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const [msgError, setMsgError] = useState('');
   const [browseHasMore, setBrowseHasMore] = useState(false);
   const browseCursor = useRef<BrowseCursor | null>(null);
@@ -556,7 +555,6 @@ export function ChatRecordsModal({
 
   const content = (
     <>
-      {report.dialog}
       <div className="weq-chatrecords">
         {embedded ? null : (
           <ChatRecordsHeader
@@ -719,6 +717,18 @@ export function ChatRecordsModal({
                 />
                 附件
               </label>
+              {!localSource ? (
+                <label className="weq-record-self" title="附带完整性报告">
+                  <input
+                    type="checkbox"
+                    aria-label="附带完整性报告"
+                    checked={includeIntegrityReport}
+                    disabled={exportBusy}
+                    onChange={(e) => setIncludeIntegrityReport(e.target.checked)}
+                  />
+                  完整性报告
+                </label>
+              ) : null}
               <button
                 type="button"
                 className="weq-dialog-x"
@@ -749,8 +759,6 @@ export function ChatRecordsModal({
                   setExportBusy(true);
                   setMsgError('');
                   void (async () => {
-                    const includeIntegrityReport = await report.choose();
-                    if (includeIntegrityReport === null) return;
                     const range = { start: filter.start ?? null, end: filter.end ?? null };
                     if (
                       !(await preflightExportEstimate(
