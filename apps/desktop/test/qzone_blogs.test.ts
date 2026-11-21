@@ -1,0 +1,126 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, createElement as h } from 'react';
+import { createRoot } from 'react-dom/client';
+import { expect, it, vi } from 'vitest';
+import { QzoneBlogs } from '../src/renderer/src/views/QzoneBlogs';
+import { QzonePageContext } from '../src/renderer/src/views/qzoneShared.shared';
+
+const rpc = vi.hoisted(() => ({
+  list: vi.fn(),
+  detail: vi.fn(),
+  comments: vi.fn(),
+  cancel: vi.fn(async () => {}),
+}));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    account: {
+      getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'live' } }) },
+    },
+  },
+  client: {
+    account: {
+      qzone: {
+        blogs: { query: rpc.list },
+        blog: { query: rpc.detail },
+        blogComments: { query: rpc.comments },
+        cancel: { mutate: rpc.cancel },
+      },
+    },
+  },
+}));
+vi.mock('../src/renderer/src/components/QzoneProfileAvatar', () => ({
+  QzonePersonHeader: ({ nickname }: { nickname: string }) => h('span', null, nickname),
+}));
+
+it('日志列表可接着翻页，正文和评论按需展开，正文移除主动内容', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const blog = (id: string, title: string) => ({
+    id,
+    title,
+    summary: '摘要',
+    publishedAt: '2021-08-03 15:06',
+    images: [],
+    commentCount: 1,
+  });
+  rpc.list.mockResolvedValueOnce({ items: [blog('7', '首篇日志')], nextOffset: 1 });
+  rpc.list.mockResolvedValueOnce({
+    items: [blog('7', '首篇日志'), blog('8', '下一篇日志')],
+    nextOffset: null,
+  });
+  rpc.detail.mockResolvedValue({
+    html: '<p>日志全文</p><script>window.unwanted=true</script><img src="https://qpic.cn/test" onerror="window.unwanted=true"><a href="javascript:alert(1)">不安全链接</a>',
+  });
+  rpc.comments.mockResolvedValue({
+    items: [{ id: '1', uin: '10003', nickname: '评论者', text: '日志评论内容', time: 1600000000 }],
+    nextOffset: null,
+  });
+  const cache = new QueryClient({ logger: { log() {}, warn() {}, error() {} } });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  function button(label: string, parent: ParentNode = host) {
+    const control = [...parent.querySelectorAll('button')].find((item) =>
+      item.textContent?.includes(label),
+    );
+    expect(control).toBeDefined();
+    return control!;
+  }
+  const wait = async (label: string) => {
+    await vi.waitFor(async () => {
+      await act(async () => {});
+      expect(host.textContent).toContain(label);
+    });
+  };
+  try {
+    await act(async () =>
+      root.render(
+        h(
+          QueryClientProvider,
+          { client: cache },
+          h(
+            QzonePageContext.Provider,
+            { value: { active: true, refresh: 0 } },
+            h(QzoneBlogs, {
+              selfUin: '10001',
+              hostUin: '10002',
+              nickname: '空间主人',
+              onSpace: () => {},
+            }),
+          ),
+        ),
+      ),
+    );
+    await wait('首篇日志');
+    expect(rpc.detail).not.toHaveBeenCalled();
+    expect(rpc.comments).not.toHaveBeenCalled();
+    await act(async () => button('加载更多日志').click());
+    await wait('下一篇日志');
+    expect(host.querySelectorAll('article')).toHaveLength(2);
+    expect(rpc.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 1, expectedAccountConfigId: 'live' }),
+    );
+    const first = host.querySelector('article')!;
+    await act(async () => button('查看全文', first).click());
+    await wait('日志全文');
+    expect(first.querySelector('script, [onerror], a[href]')).toBeNull();
+    await act(async () => button('评论', first).click());
+    await wait('日志评论内容');
+    expect(rpc.comments).toHaveBeenCalledWith(
+      expect.objectContaining({ blogId: '7', hostUin: '10002', offset: 0 }),
+    );
+    await act(async () => button('收起全文', first).click());
+    expect(first.textContent).toContain('摘要');
+  } finally {
+    await act(async () => root.unmount());
+    cache.clear();
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});

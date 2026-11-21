@@ -94,6 +94,7 @@ import {
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzoneSpaceHome } from './QzoneSpaceHome';
+import { QzoneBlogs } from './QzoneBlogs';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
@@ -959,7 +960,7 @@ function SpaceContent({
   const openProfile = useContext(QzoneProfileContext);
   const [ownerLabel] = useState(nickname || hostUin);
   const handledAlbum = useRef<string | null>(null);
-  const [pane, setPane] = useState<'home' | 'posts' | 'albums'>('home');
+  const [pane, setPane] = useState<'home' | 'posts' | 'blogs' | 'albums'>('home');
   useMobileBack(
     active && pane === 'albums',
     () => setPane('posts'),
@@ -967,7 +968,7 @@ function SpaceContent({
     () => document.querySelector<HTMLElement>('.weq-qzn-owner-space:not([hidden])'),
   );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
-  const [refreshes, setRefreshes] = useState({ home: 0, posts: 0, albums: 0 });
+  const [refreshes, setRefreshes] = useState({ home: 0, posts: 0, blogs: 0, albums: 0 });
   useEffect(() => {
     if (
       !albumRequest ||
@@ -1004,6 +1005,13 @@ function SpaceContent({
         </button>
         <button
           type="button"
+          aria-current={pane === 'blogs' ? 'page' : undefined}
+          onClick={() => setPane('blogs')}
+        >
+          日志
+        </button>
+        <button
+          type="button"
           aria-current={pane === 'albums' ? 'page' : undefined}
           onClick={() => {
             setVisitedAlbums(true);
@@ -1037,6 +1045,15 @@ function SpaceContent({
             onOwnerNickname={onOwnerNickname}
           />
         </div>
+      </QzonePage>
+      <QzonePage active={active && pane === 'blogs'} refreshKey={refreshes.blogs}>
+        <QzoneBlogs
+          key={hostUin}
+          selfUin={selfUin}
+          hostUin={hostUin}
+          nickname={ownerNickname || nickname}
+          onSpace={onSpace}
+        />
       </QzonePage>
       {visitedAlbums ? (
         <QzonePage

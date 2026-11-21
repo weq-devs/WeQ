@@ -198,6 +198,35 @@
   line-height: 1.8;
   margin: 14px 0;
 }
+.weq-qzn-blog-title {
+  margin: 14px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 600;
+}
+.weq-qzn-blog-body {
+  overflow-x: auto;
+  white-space: normal;
+}
+.weq-qzn-blog-body img {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+}
+.weq-qzn-blog-body a {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+  text-decoration: underline;
+}
+.weq-qzn-blog-comments {
+  margin-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-qzn-blog-comment {
+  padding: 10px 0;
+}
+.weq-qzn-blog-comment .weq-qzn-content {
+  margin: 6px 0 0;
+}
 .weq-qzn-pictures {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

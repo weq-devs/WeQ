@@ -95,6 +95,9 @@ import {
   type QzoneUgcRight,
 } from './qzone_publish';
 import {
+  getQzoneBlog,
+  getQzoneBlogComments,
+  getQzoneBlogs,
   getQzoneProfile,
   setQzoneProfile,
   deleteQzoneMsg,
@@ -635,6 +638,24 @@ export class WebQueryService {
   async qzoneHome(targetUin: string, cursor?: string) {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
       getQzoneHomeFeeds(cred, targetUin, cursor),
+    );
+  }
+
+  qzoneBlogs(targetUin: string, offset: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneBlogs(cred, targetUin, offset, 20, signal),
+    );
+  }
+
+  qzoneBlog(targetUin: string, blogId: string, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneBlog(cred, targetUin, blogId, signal),
+    );
+  }
+
+  qzoneBlogComments(targetUin: string, blogId: string, offset: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneBlogComments(cred, targetUin, blogId, offset, 20, signal),
     );
   }
 

@@ -13,6 +13,9 @@ const account = z.object({ selfUin: uin });
 const read = account.extend({ requestId: z.string().uuid() });
 const target = read.extend({ hostUin: uin });
 const post = target.extend({ tid: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/) });
+const blogTarget = target.extend({ expectedAccountConfigId: z.string().min(1) });
+const blog = blogTarget.extend({ blogId: z.string().regex(/^[1-9]\d{0,15}$/) });
+const blogOffset = z.number().int().min(0).max(100_000);
 const pending = new Map<string, { services: AccountServices; controller: AbortController }>();
 const publishing = new WeakSet<AccountServices>();
 const archiveWriting = new WeakSet<AccountServices>();
@@ -48,6 +51,17 @@ async function request<T>(
   } finally {
     pending.delete(input.requestId);
   }
+}
+
+function readBlog<T>(
+  input: z.infer<typeof blogTarget>,
+  run: (services: AccountServices, signal: AbortSignal) => Promise<T>,
+) {
+  return request(input, (services, signal) => {
+    if (services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId)
+      throw new Error('账号数据源已切换，请重新打开日志。');
+    return run(services, signal);
+  });
 }
 
 export const qzoneRouter = router({
@@ -189,6 +203,27 @@ export const qzoneRouter = router({
     .query(({ input }) =>
       request(input, (services, signal) =>
         services.webQuery.getQzoneSpaceStats(input.hostUin, signal),
+      ),
+    ),
+  blogs: procedure
+    .input(blogTarget.extend({ offset: blogOffset }))
+    .query(({ input }) =>
+      readBlog(input, (services, signal) =>
+        services.webQuery.qzoneBlogs(input.hostUin, input.offset, signal),
+      ),
+    ),
+  blog: procedure
+    .input(blog)
+    .query(({ input }) =>
+      readBlog(input, (services, signal) =>
+        services.webQuery.qzoneBlog(input.hostUin, input.blogId, signal),
+      ),
+    ),
+  blogComments: procedure
+    .input(blog.extend({ offset: blogOffset }))
+    .query(({ input }) =>
+      readBlog(input, (services, signal) =>
+        services.webQuery.qzoneBlogComments(input.hostUin, input.blogId, input.offset, signal),
       ),
     ),
   posts: procedure
