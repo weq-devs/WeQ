@@ -33,12 +33,7 @@ export function forwardEntries(win: Pick<ForwardWindowState, 'id' | 'records'>):
   const groups = consecutiveMessageGroups(
     entries,
     ({ record, sendTimeMs }) => {
-      if (
-        sendTimeMs <= 0 ||
-        grayTipOf(record) ||
-        record.elements.some(({ type }) => type === 'reply')
-      )
-        return;
+      if (sendTimeMs <= 0 || grayTipOf(record)) return;
       const senderId = /^[1-9]\d*$/.test(record.senderUin ?? '') ? record.senderUin : undefined;
       const senderUid = record.senderUid && record.senderUid !== '0' ? record.senderUid : undefined;
       if (senderId || senderUid) return { senderId, senderUid, time: sendTimeMs };

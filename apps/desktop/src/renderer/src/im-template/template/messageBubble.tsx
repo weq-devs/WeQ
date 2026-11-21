@@ -795,6 +795,7 @@ function MessageBubbleBody({
             ) : null}
             <MessageProvenance
               message={message}
+              groupHead={groupPosition === 'first'}
               precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
             />
           </div>

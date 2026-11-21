@@ -38,23 +38,22 @@ export function SystemMessageContent({
 export function MessageProvenance({
   message,
   system = false,
+  groupHead = false,
   precision = 'second',
 }: {
   message: MessageMetadataSource;
   system?: boolean;
+  groupHead?: boolean;
   precision?: 'second' | 'millisecond';
 }) {
   const showSeq = useContext(ShowMessageSeqContext);
   const showDate = useContext(ShowMessageDateContext);
   const showTime = useContext(ShowMessageTimeContext);
-  const seq = !system && showSeq ? messageSequence(message.msgSeq) : null;
+  const seq = !system && (groupHead || showSeq) ? messageSequence(message.msgSeq) : null;
   const date = message.createdAt ? new Date(message.createdAt) : null;
-  const day =
-    !system && showDate && date && Number.isFinite(date.getTime()) ? beijingDay(date) : null;
-  const time =
-    !system && showTime && date && Number.isFinite(date.getTime())
-      ? clockFormatter.format(date)
-      : null;
+  const validDate = !system && date && Number.isFinite(date.getTime()) ? date : null;
+  const day = (groupHead || showDate) && validDate ? beijingDay(validDate) : null;
+  const time = (groupHead || showTime) && validDate ? clockFormatter.format(validDate) : null;
   const roaming = showsRoamingSource(message);
   if (!roaming && !seq && !day && !time) return null;
   return (

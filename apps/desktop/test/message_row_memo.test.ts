@@ -44,6 +44,13 @@ it('连续分组纳入本地发送占位，仍按身份、时间与时间线分�
   expect(positions([row(1), row(2), row(3)])).toEqual(['first', 'middle', 'last']);
   expect(
     positions([
+      row(1, { qqElements: [{ type: 'reply', data: {} }] }),
+      row(2, { qqElements: [{ type: 'file', data: {} }] }),
+      row(3, { qqElements: [{ type: 'reply', data: {} }] }),
+    ]),
+  ).toEqual(['first', 'middle', 'last']);
+  expect(
+    positions([
       row(1),
       row(2, { msgSeq: '', senderUid: undefined, optimistic: 'sending' }),
       row(3, { msgSeq: '', senderUid: undefined, optimistic: 'queued' }),
@@ -63,7 +70,6 @@ it('连续分组纳入本地发送占位，仍按身份、时间与时间线分�
     [row(1), row(2, { id: 'unread' })],
     [row(1), row(2, { id: 'deleted' }), row(3)],
     [row(1), row(2, { qqElements: [{ type: 'grayTipRevoke', data: {} }] }), row(3)],
-    [row(1), row(2, { qqElements: [{ type: 'reply', data: {} }] }), row(3)],
   ])
     expect(positions(separated)).toEqual(separated.map(() => undefined));
 });
@@ -159,16 +165,22 @@ it('前插同人发言时移动组头像，且只在缺口可见时拆组', () =
     );
   const line = (id: string) => host.querySelector<HTMLElement>(`[data-message-id="${id}"]`)!;
   const avatar = (id: string) => line(id).querySelector('.avatar');
+  const metadata = (id: string) => line(id).querySelector('.weq-message-provenance');
   try {
     render(rows.slice(1));
     const old = line('2');
     expect(avatar('2')).not.toBeNull();
     expect(avatar('3')).toBeNull();
+    expect(metadata('2')?.textContent).toContain('seq 2');
+    expect(metadata('2')?.querySelector('time')?.textContent).toBe('2026-11-20 23:00:00');
+    expect(metadata('3')).toBeNull();
     render(rows);
     expect(line('2')).toBe(old);
     expect(avatar('1')).not.toBeNull();
     expect(avatar('2')).toBeNull();
     expect(avatar('3')).toBeNull();
+    expect(metadata('1')?.textContent).toContain('seq 1');
+    expect(metadata('2')).toBeNull();
     expect(line('2').textContent).toContain('消息 2');
 
     render([rows[0]!, rows[2]!]);

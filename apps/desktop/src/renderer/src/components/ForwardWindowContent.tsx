@@ -523,7 +523,7 @@ const ForwardRow = memo(function ForwardRow({
             <span className="message-name weq-forward-row-name" data-marquee-text>
               {displayName}
             </span>
-            <MessageProvenance message={metadata} />
+            <MessageProvenance message={metadata} groupHead={entry.groupPosition === 'first'} />
           </div>
         </header>
       )}
