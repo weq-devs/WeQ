@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { createSocket } from 'node:dgram';
-import { dirname } from 'node:path';
 import {
   GroupCallSession,
   getLogger,
@@ -11,8 +10,10 @@ import {
   type GroupCallTransport,
 } from '@weq/service';
 import { groupCall, invokeTrpc } from '@weqbot/protocol';
-import { NativeCallCodec } from './call';
+import { recordingsRootFor } from './call_recording_store';
+import { CallUdpTrace, type TracedDatagram } from './call_udp_trace';
 import { accountEventBus, getAppContext, requireAttachEnabled } from './context/app_context';
+import { GroupCallAudioCodec } from './group_call_audio';
 
 export interface GroupCallPerson {
   uin: number;
@@ -65,8 +66,8 @@ export async function startGroupCall(input: {
   };
   active = call;
   const nt = platform.native.ntHelper;
-  let codec: NativeCallCodec | undefined;
   let connection: number | undefined;
+  let trace: CallUdpTrace | null = null;
   const abort = new AbortController();
   let released = false;
   const release = async () => {
@@ -75,8 +76,6 @@ export async function startGroupCall(input: {
     accountEventBus.off('closing', closeOnAccountChange);
     try {
       try {
-        codec?.close();
-      } finally {
         if (connection !== undefined) {
           try {
             await nt.detachPushSink?.(connection);
@@ -84,6 +83,8 @@ export async function startGroupCall(input: {
             await nt.closeSession?.(connection);
           }
         }
+      } finally {
+        await trace?.stop();
       }
     } catch (error) {
       logger.warn('群通话资源释放失败', { error: String(error) });
@@ -107,7 +108,6 @@ export async function startGroupCall(input: {
     const guid = record?.guid || resolveDeviceGuid(nt, platform);
     if (!guid || !isCompleteSessionMaterial(material)) throw new Error('QQ 会话凭据未就绪');
     const client = await resolveSsoClientSnapshot(nt, platform, pid, { uin, uid, guid });
-    if (!client.wrapperPath) throw new Error('找不到 QQ 音频组件');
     const media = input.media === 'video' ? 2 : 1;
     const sessionConfig = {
       ...client.identity,
@@ -171,8 +171,17 @@ export async function startGroupCall(input: {
               },
             },
     };
-    codec = new NativeCallCodec(nt, dirname(client.wrapperPath));
-    await codec.open();
+    const recording = bootstrap.userConfig.getSettings().callRecording;
+    if (recording?.udpTrace) {
+      const root = recording.dir ?? recordingsRootFor(platform.appDataRoot(), uin);
+      trace = await CallUdpTrace.start({ root, peerUin: `group-${input.groupId}` }).catch(
+        (error: unknown) => {
+          logger.warn('群通话 UDP 落盘开启失败', { error: String(error) });
+          return null;
+        },
+      );
+      if (trace) logger.info('开始记录群通话 UDP', { path: trace.path });
+    }
     if (abort.signal.aborted || getAppContext().account !== account) throw new Error('账号已切换');
     const session = new GroupCallSession({
       selfUin: Number(uin),
@@ -183,8 +192,8 @@ export async function startGroupCall(input: {
       media,
       gcsEntryBody: groupCall.buildGroupCallEntryBody(Number(uin), uid, media),
       signaling,
-      transport: groupTransport(),
-      codec,
+      transport: groupTransport(trace),
+      codec: new GroupCallAudioCodec(),
       logger,
     });
     call.session = session;
@@ -226,8 +235,25 @@ async function resolveInvitees(call: ActiveGroupCall, uids: string[]) {
   return people;
 }
 
-function groupTransport(): GroupCallTransport {
+function groupTransport(trace: CallUdpTrace | null): GroupCallTransport {
   const socket = createSocket({ type: 'udp6', ipv6Only: false });
+  const record = (
+    direction: TracedDatagram['direction'],
+    payload: Buffer,
+    remoteAddress: string,
+    remotePort: number,
+  ) => {
+    if (!trace) return;
+    const local = socket.address();
+    trace.record({
+      direction,
+      payload,
+      localAddress: local.address,
+      localPort: local.port,
+      remoteAddress,
+      remotePort,
+    });
+  };
   return {
     bind: () =>
       new Promise((resolve, reject) => {
@@ -238,7 +264,9 @@ function groupTransport(): GroupCallTransport {
         });
       }),
     send: (body, port, ip) => {
-      socket.send(body, port, ip.includes(':') ? ip : `::ffff:${ip}`, (error) => {
+      const address = ip.includes(':') ? ip : `::ffff:${ip}`;
+      record('c2s', Buffer.from(body), address, port);
+      socket.send(body, port, address, (error) => {
         if (error) socket.emit('error', error);
       });
     },
@@ -250,7 +278,10 @@ function groupTransport(): GroupCallTransport {
       }
     },
     onMessage: (listener) => {
-      socket.on('message', (body, remote) => listener(body, remote));
+      socket.on('message', (body, remote) => {
+        record('s2c', body, remote.address, remote.port);
+        listener(body, remote);
+      });
     },
     onError: (listener) => {
       socket.on('error', listener);

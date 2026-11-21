@@ -208,7 +208,7 @@ class NodeUdpTransport implements UdpTransport {
 // ─────────────────────────── 编解码 ───────────────────────────
 
 /** nt_helper 侧的 Opus 编解码，转成 `CallSession` 要的异步形状。 */
-export class NativeCallCodec implements CallAudioCodec {
+class NativeCallCodec implements CallAudioCodec {
   constructor(
     private readonly nt: NtHelperBinding,
     private readonly modulesDir: string,

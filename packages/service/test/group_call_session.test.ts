@@ -122,7 +122,7 @@ class FakeTransport implements GroupCallTransport {
   }
 }
 
-/** 恒等变换的编解码器（测试不关心真实 Opus）。 */
+/** 测试替身，保留逐帧编解码的异步接口。 */
 const fakeCodec: GroupCallCodec = {
   encode: async (pcm) => pcm.subarray(0, 8),
   decode: async (opus) => new Uint8Array(opus.length * 40),
@@ -529,6 +529,79 @@ describe('成员', () => {
 });
 
 describe('媒体', () => {
+  it('SILK 上行保留完整帧号，并按 15 帧周期发送扩展头', async () => {
+    const { session, transport, timers } = makeSession({ media: 2 });
+    await session.start();
+    deliverEntryResponse(transport);
+    transport.deliver(authRspOk);
+    const pcm = new Uint8Array(640).fill(0x42);
+    for (let i = 0; i < 258; i++) {
+      if (i % 50 === 0) transport.deliver(keepalive);
+      await session.pushAudio(pcm);
+      timers.advance(20);
+    }
+    const audio = transport.sent.flatMap(({ data }) => {
+      const packet = parseGroupRelay(data);
+      return packet?.cmd === GroupRelayCmd.mediaUp && packet.body[16] === groupCall.GroupTrack.audio
+        ? [packet.body]
+        : [];
+    });
+    expect(audio).toHaveLength(258);
+    expect(audio[0]?.slice(16, 26)).toEqual(Uint8Array.of(1, 1, 0, 3, 0xbe, 1, 1, 0x25, 0, 1));
+    expect(audio[0]?.slice(30)).toEqual(
+      Uint8Array.of(0x10, 1, 0, 0, 0, 10, 8, 0, ...pcm.subarray(0, 8), 0, 0),
+    );
+    expect(audio[0]?.[8]).toBe(0xfa);
+    expect(audio[1]?.[20]).toBe(0x3e);
+    expect(audio[15]?.[20]).toBe(0xbe);
+    expect(audio[255]?.slice(24, 26)).toEqual(Uint8Array.of(1, 0));
+    const parsed = audio.map((body) => groupCall.parseGroupAudioFrame(body)!);
+    expect(parsed.slice(254).map(({ frameIndex }) => frameIndex)).toEqual([255, 256, 257, 258]);
+    expect(parsed[255]!.sampleTs - parsed[254]!.sampleTs).toBe(320);
+    expect(parsed[255]?.payload).toEqual(pcm.subarray(0, 8));
+  });
+
+  it('按成员和采样时钟过滤下行重复帧，允许 32 位采样时钟回绕', async () => {
+    const decode = vi.fn(async () => new Uint8Array(640));
+    const { session, transport } = makeSession({ codec: { ...fakeCodec, decode } });
+    await session.start();
+    deliverEntryResponse(transport);
+    transport.deliver(authRspOk);
+    const stream = Uint8Array.of(0x18, 1, 6, 0xaa, 1, 2, 0);
+    const silk = Uint8Array.of(1, 2, 3);
+    const frame = (frameIndex: number, sampleTs: number) => {
+      const packet = groupCall.buildGroupAudioFrame({
+        route: frameIndex,
+        ownerUin: PEER_UIN,
+        stream,
+        frameIndex,
+        sampleTs,
+        sentAt: 123,
+        capturedAt: 122,
+        silk,
+      });
+      packet[8] = GroupRelayCmd.mediaDown;
+      return packet;
+    };
+    const beforeWrap = frame(255, 0xffffff00);
+    const afterWrap = frame(256, 0x40);
+    const late = frame(254, 0xfffffdc0);
+    let received = 0;
+    const delivered = new Promise<void>((resolve) => {
+      session.onAudio(() => {
+        if (++received === 2) resolve();
+      });
+    });
+    for (const packet of [beforeWrap, beforeWrap, afterWrap, late, afterWrap]) {
+      transport.deliver(packet);
+    }
+    await delivered;
+    expect(decode.mock.calls).toEqual([
+      [silk, PEER_UIN],
+      [silk, PEER_UIN],
+    ]);
+  });
+
   it('收到下行媒体后状态进入 connected', async () => {
     const { session, transport } = makeSession();
     await session.start();

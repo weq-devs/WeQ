@@ -155,7 +155,7 @@ export interface GroupCallSignaling {
   }): Promise<void>;
 }
 
-/** UDP 传输（复用私聊的 `NodeUdpTransport` 实现）。 */
+/** UDP 传输由调用方提供。 */
 export interface GroupCallTransport {
   bind(): Promise<void>;
   send(data: Uint8Array, port: number, address: string): void;
@@ -164,12 +164,20 @@ export interface GroupCallTransport {
   onError(handler: (error: Error) => void): void;
 }
 
-/** 音频编解码（native 侧实现，测试里可以换成恒等变换）。 */
+/** 群通话的逐帧 SILK 编解码。 */
 export interface GroupCallCodec {
-  /** 640 字节 PCM → Opus。 */
+  /** 640 字节 PCM → 裸 SILK。 */
   encode(pcm: Uint8Array): Promise<Uint8Array>;
-  /** Opus → 640 字节 PCM。 */
-  decode(opus: Uint8Array): Promise<Uint8Array>;
+  /** 裸 SILK → 640 字节 PCM。按成员保留解码上下文。 */
+  decode(silk: Uint8Array, uin: number): Promise<Uint8Array>;
+  resetMember?(uin: number): void;
+}
+
+interface ReceivedAudioStream {
+  id: string;
+  sampleTs: number;
+  queued: number;
+  decoded: Promise<void>;
 }
 
 /** 定时器，单测里换成手动推进的实现。 */
@@ -272,6 +280,8 @@ const EXIT_RETRY_MAX = 5;
 const _FRAME_MS = 20;
 /** 每帧 320 个采样（16 kHz × 20 ms）。 */
 const FRAME_SAMPLES = 320;
+const AUDIO_FRAME_MS = 20;
+const MAX_AUDIO_DECODE_QUEUE = 5;
 
 // ─────────────────────────── 会话 ───────────────────────────
 
@@ -302,19 +312,19 @@ export class GroupCallSession {
   private reportAudioBytes = 0;
   private reportVideoPackets = 0;
   private streamPrefix = 0;
-  /** 本端 `0x17` 的包序号与采样时间戳。 */
-  private mediaSeq = 0;
+  /** 音频帧号按 16 位编码，扩展头周期使用完整计数。 */
+  private audioFrameIndex = 0;
+  private audioCapturedAt: number | undefined;
   private videoPacketIndex = 0;
   private videoFrameIndex = 0;
   private videoGroupIndex = 0;
   private secondaryVideoFrameIndex = 0;
-  private sampleTs = 0;
-  private frameIndex = 0;
 
   /** 服务端中继地址。 */
   private server: { ip: string; port: number } | null = null;
 
   private readonly members = new Map<number, GroupCallMember>();
+  private readonly receivedAudio = new Map<number, ReceivedAudioStream>();
   private readonly videoAssembler = new GroupVideoAssembler();
 
   private micMuted = false;
@@ -540,22 +550,26 @@ export class GroupCallSession {
       throw new RangeError(`一帧必须是 ${FRAME_SAMPLES * 2} 字节 PCM，收到 ${pcm.length}`);
     }
 
-    const opus = await this.opts.codec.encode(pcm);
+    const now = this.timers.now();
+    const silk = await this.opts.codec.encode(pcm);
     if (!this.isMediaActive() || this.micMuted || !this.stream) return;
+    // 正常维持 20 ms 的采样步长。暂停采集或静音后按新的采集时刻继续。
+    const nextCapture = (this.audioCapturedAt ?? now - AUDIO_FRAME_MS) + AUDIO_FRAME_MS;
+    const capturedAt = now - nextCapture > AUDIO_FRAME_MS * 2 ? now : nextCapture;
+    this.audioCapturedAt = capturedAt;
     this.sendRelay(
       buildGroupAudioFrame({
         route: this.nextRoute(),
         ownerUin: this.opts.selfUin,
         stream: this.stream!,
-        seq: this.mediaSeq,
-        frameIndex: this.frameIndex,
-        sampleTs: this.sampleTs,
-        opus,
+        sentAt: this.timers.now(),
+        capturedAt,
+        frameIndex: ++this.audioFrameIndex,
+        sampleTs: (capturedAt * 16) >>> 0,
+        silk,
+        profile: this.opts.profile,
       }),
     );
-    this.mediaSeq += 1;
-    this.frameIndex = (this.frameIndex + 1) & 0xff;
-    this.sampleTs += FRAME_SAMPLES;
   }
 
   /** 推一帧 H.264 Annex B。可同时发送由调用方独立编码的低分辨率轨。 */
@@ -577,7 +591,7 @@ export class GroupCallSession {
       route: this.nextRoute(),
       ownerUin: this.opts.selfUin,
       stream: this.stream!,
-      seq: this.mediaSeq,
+      seq: this.videoPacketIndex,
       sentAt: this.timers.now(),
       capturedAt,
       profile: this.opts.profile,
@@ -761,6 +775,8 @@ export class GroupCallSession {
     const previous = this.members.get(state.uin);
     if (state.event === GroupMemberEvent.leave) {
       this.members.delete(state.uin);
+      this.receivedAudio.delete(state.uin);
+      this.opts.codec.resetMember?.(state.uin);
       this.videoAssembler.reset(state.uin);
       if (self && this.isActive()) {
         this.finish('all_left');
@@ -821,11 +837,11 @@ export class GroupCallSession {
 
     if (header.track === GroupTrack.audio) {
       const frame = parseGroupAudioFrame(packet.body);
-      if (!frame || frame.fragmentFlag === groupCall.GroupAudioFragmentFlag.memberInfo) return;
+      if (!frame) return;
       this.reportAudioPackets += 1;
       this.reportAudioBytes += frame.payload.length;
       this.setState('connected');
-      void this.emitAudio(frame.payload, packet.ownerUin);
+      this.queueAudio(packet.ownerUin, header.stream.join(','), frame);
       return;
     }
 
@@ -841,10 +857,39 @@ export class GroupCallSession {
     }
   }
 
-  private async emitAudio(opus: Uint8Array, uin: number): Promise<void> {
+  private queueAudio(
+    uin: number,
+    streamId: string,
+    frame: { payload: Uint8Array; sampleTs: number },
+  ): void {
+    let stream = this.receivedAudio.get(uin);
+    // 有符号差值可跨 32 位采样时钟回绕比较。
+    const delta = stream?.id === streamId ? (frame.sampleTs - stream.sampleTs) | 0 : undefined;
+    if (delta !== undefined && delta <= 0) return;
+    if (!stream || delta === undefined || delta > FRAME_SAMPLES * 3) {
+      if (stream) this.opts.codec.resetMember?.(uin);
+      stream = { id: streamId, sampleTs: frame.sampleTs, queued: 0, decoded: Promise.resolve() };
+      this.receivedAudio.set(uin, stream);
+    }
+    if (stream.queued >= MAX_AUDIO_DECODE_QUEUE) return;
+    stream.sampleTs = frame.sampleTs;
+    stream.queued += 1;
+    const current = stream;
+    current.decoded = current.decoded.then(async () => {
+      current.queued -= 1;
+      if (this.receivedAudio.get(uin) !== current || !this.isMediaActive()) return;
+      await this.emitAudio(frame.payload, uin, current);
+    });
+  }
+
+  private async emitAudio(
+    silk: Uint8Array,
+    uin: number,
+    stream: ReceivedAudioStream,
+  ): Promise<void> {
     try {
-      const pcm = await this.opts.codec.decode(opus);
-      if (!this.isMediaActive()) return;
+      const pcm = await this.opts.codec.decode(silk, uin);
+      if (!this.isMediaActive() || this.receivedAudio.get(uin) !== stream) return;
       const at = this.timers.now();
       for (const listener of this.audioListeners) listener(pcm, uin, at);
     } catch (error) {
@@ -1153,6 +1198,7 @@ export class GroupCallSession {
     for (const timer of this.pendingInvites.values()) this.timers.clearTimeout(timer);
     this.pendingInvites.clear();
     this.finishedInvites.clear();
+    this.receivedAudio.clear();
     this.videoAssembler.reset();
     this.endReason = reason;
     this.state = state;
