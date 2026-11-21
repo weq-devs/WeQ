@@ -92,10 +92,10 @@ try {
   if (touchReply) {
     const cdp = await page.context().newCDPSession(page);
     const target = page.locator('[data-message-id="row-1003"] .message-content');
-    const swipe = async (dx, dy) => {
+    const swipe = async (dx, dy, whileDragging) => {
       await target.scrollIntoViewIfNeeded();
       const bounds = await target.boundingBox();
-      const x = bounds.x + Math.min(20, bounds.width / 2);
+      const x = bounds.x + Math.min(80, bounds.width / 2);
       const y = bounds.y + bounds.height / 2;
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
       for (const fraction of [0.25, 0.5, 0.75, 1]) {
@@ -104,6 +104,7 @@ try {
           touchPoints: [{ x: x + dx * fraction, y: y + dy * fraction }],
         });
       }
+      await whileDragging?.(bounds);
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     };
     const quote = page.getByLabel('待发送的引用');
@@ -115,15 +116,18 @@ try {
       before,
     );
     assert.equal(await quote.count(), 0);
-    await swipe(80, 0);
+    await swipe(-80, 0, async (bounds) => {
+      assert.ok((await target.boundingBox()).x < bounds.x - 50, '气泡应在松手前跟随手指');
+      const arrow = page.locator('[data-message-id="row-1003"] .weq-swipe-reply-icon');
+      assert.equal(await arrow.evaluate((element) => getComputedStyle(element).opacity), '1');
+      assert.equal(await quote.count(), 0);
+    });
     await quote.waitFor();
     assert.match(await quote.textContent(), /合成消息 1003/);
-    assert.ok(
-      await page
-        .locator('.composer-editor')
-        .first()
-        .evaluate((element) => document.activeElement === element),
-    );
+    const editor = page.locator('.composer-editor').first();
+    assert.ok(await editor.evaluate((element) => document.activeElement === element));
+    await page.keyboard.insertText('引用后直接输入');
+    assert.match(await editor.textContent(), /引用后直接输入/);
     await cdp.detach();
     await page.reload();
     await page.waitForSelector('[data-message-id="row-1001"]');

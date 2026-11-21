@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   Monitor,
   RefreshCw,
+  Reply,
   RotateCcw,
   SendHorizontal,
   TriangleAlert,
@@ -51,6 +52,10 @@ import '../../styles/chat-interactions.css';
 import '../../styles/message-repeat.css';
 import '../../styles/composer-reedit.css';
 import '../../styles/unsent-message.css';
+
+const swipeReplySlop = 10;
+const swipeReplyDistance = 59;
+const swipeReplyMaxOffset = 89;
 
 // 猜测式回退（newPreview 拼接，见 msg_decoration.ts）常年会有下架/过期 404。加载失败
 // 就把 <img> 本身藏起来，别让浏览器画那个裂图占位——头像本体照常显示，只是没有这个
@@ -446,7 +451,7 @@ function MessageBubbleBody({
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.pointerType === 'touch') {
-      swipeReply.current = null;
+      resetSwipeReply();
       if (
         onSwipeReply &&
         event.isPrimary &&
@@ -481,7 +486,7 @@ function MessageBubbleBody({
     };
     clearLongPress();
     longPressTimerRef.current = window.setTimeout(() => {
-      swipeReply.current = null;
+      resetSwipeReply();
       const anchorPoint = longPressAnchorRef.current ?? startPoint;
       selectMessageContent();
       onLongPress(anchorPoint, message, target);
@@ -492,12 +497,31 @@ function MessageBubbleBody({
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const swipe = swipeReply.current;
     if (swipe?.id === event.pointerId) {
-      const dx = event.clientX - swipe.x;
+      const dx = swipe.x - event.clientX;
       const dy = Math.abs(event.clientY - swipe.y);
-      if (dx < -10 || (dy > 10 && dy >= dx)) swipeReply.current = null;
-      else if (dx > 10 && !swipe.moving) {
-        if (event.timeStamp - swipe.started > 450) swipeReply.current = null;
+      if (!swipe.moving && (dx < -swipeReplySlop || (dy > swipeReplySlop && dy >= dx))) {
+        resetSwipeReply();
+      } else if (!swipe.moving && dx > swipeReplySlop) {
+        if (event.timeStamp - swipe.started > 450) resetSwipeReply();
         else swipe.moving = true;
+      }
+      if (swipe.moving) {
+        const distance = Math.max(0, dx);
+        const offset = Math.min(
+          swipeReplyMaxOffset,
+          distance <= swipeReplyDistance
+            ? distance
+            : swipeReplyDistance + (distance - swipeReplyDistance) / 3,
+        );
+        // 跟手只更新当前气泡，不让整条消息在每次移动时重新渲染。
+        const bubble = event.currentTarget;
+        bubble.setAttribute('data-swipe-dragging', '');
+        bubble.toggleAttribute('data-swipe-ready', dx >= swipeReplyDistance && dx >= dy * 1.5);
+        bubble.style.setProperty('--swipe-reply-x', `${-offset}px`);
+        bubble.style.setProperty(
+          '--swipe-reply-progress',
+          String(Math.min(1, distance / swipeReplyDistance)),
+        );
       }
     }
     const point = longPressPointRef.current;
@@ -509,8 +533,19 @@ function MessageBubbleBody({
     }
   }
 
-  function cancelTouch() {
+  function resetSwipeReply() {
+    if (swipeReply.current?.moving) {
+      const bubble = bubbleRef.current;
+      bubble?.removeAttribute('data-swipe-dragging');
+      bubble?.removeAttribute('data-swipe-ready');
+      bubble?.style.removeProperty('--swipe-reply-x');
+      bubble?.style.removeProperty('--swipe-reply-progress');
+    }
     swipeReply.current = null;
+  }
+
+  function cancelTouch() {
+    resetSwipeReply();
     clearLongPress();
   }
 
@@ -518,9 +553,9 @@ function MessageBubbleBody({
     const swipe = swipeReply.current;
     cancelTouch();
     if (!swipe?.moving || swipe.id !== event.pointerId) return;
-    const dx = event.clientX - swipe.x;
+    const dx = swipe.x - event.clientX;
     if (
-      dx >= 56 &&
+      dx >= swipeReplyDistance &&
       dx >= Math.abs(event.clientY - swipe.y) * 1.5 &&
       event.currentTarget.ownerDocument.getSelection()?.isCollapsed !== false
     )
@@ -702,6 +737,11 @@ function MessageBubbleBody({
         onLostPointerCapture={cancelTouch}
         onDragStart={(event) => event.preventDefault()}
       >
+        {onSwipeReply ? (
+          <span className="weq-swipe-reply-icon" aria-hidden="true">
+            <Reply size={22} />
+          </span>
+        ) : null}
         {groupContinuation ? (
           <span className="sr-only" data-privacy-sensitive>
             {senderName}

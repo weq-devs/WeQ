@@ -26,9 +26,10 @@ const base = createTemplateDemoData().messages[0]!;
 afterEach(() => vi.unstubAllGlobals());
 
 describe('消息菜单及触屏操作', () => {
-  it('从气泡向右横滑引用，边缘、纵向、短滑、取消及长按都保留输入', async () => {
+  it('从气泡向左横滑引用，反向、边缘、纵向、短滑和长按不触发', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
+    localStorage.setItem('chat-template.layout.composerCollapsed', '1');
     vi.useFakeTimers();
     const demo = createTemplateDemoData();
     const conversation = demo.conversations.find((item) => item.type === 'direct')!;
@@ -73,34 +74,42 @@ describe('消息菜单及触屏操作', () => {
       );
       expect(host.querySelector('[data-swipe-reply]')).not.toBeNull();
       for (const [start, end, y] of [
-        [24, 110, 100],
-        [100, 145, 100],
-        [100, 120, 175],
+        [24, -60, 100],
+        [150, 225, 100],
+        [150, 105, 100],
+        [150, 130, 175],
       ]) {
         pointer('pointerdown', start!);
         pointer('pointermove', end!, y);
         pointer('pointerup', end!, y);
         expect(quote()).toBeNull();
       }
-      pointer('pointerdown', 100);
-      pointer('pointermove', 175);
-      pointer('pointercancel', 175);
-      pointer('pointerup', 175);
+      pointer('pointerdown', 150);
+      pointer('pointermove', 75);
+      pointer('pointercancel', 75);
+      pointer('pointerup', 75);
       expect(quote()).toBeNull();
 
-      pointer('pointerdown', 100);
-      pointer('pointermove', 175);
-      pointer('pointerup', 175);
+      pointer('pointerdown', 150);
+      pointer('pointermove', 75);
+      pointer('pointermove', 125);
+      pointer('pointerup', 125);
+      expect(quote()).toBeNull();
+
+      pointer('pointerdown', 150);
+      pointer('pointermove', 75);
+      expect(quote()).toBeNull();
+      pointer('pointerup', 75);
       expect(quote()?.textContent).toContain('待引用的消息');
       expect(host.querySelector('.composer-editor')?.textContent).toContain('保留草稿');
       expect(document.activeElement).toBe(host.querySelector('.composer-editor'));
       act(() => quote()!.querySelector('button')!.click());
 
-      pointer('pointerdown', 100);
+      pointer('pointerdown', 150);
       act(() => vi.advanceTimersByTime(470));
       expect(document.getSelection()?.toString()).toContain('待引用的消息');
-      pointer('pointermove', 175);
-      pointer('pointerup', 175);
+      pointer('pointermove', 75);
+      pointer('pointerup', 75);
       expect(quote()).toBeNull();
     } finally {
       document.getSelection()?.removeAllRanges();

@@ -718,6 +718,35 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   touch-action: pan-y pinch-zoom;
 }
 
+.message-bubble[data-swipe-reply] {
+  position: relative;
+  translate: var(--swipe-reply-x, none);
+  transition: translate 180ms ease-out;
+}
+
+.message-bubble[data-swipe-dragging] {
+  transition: none;
+}
+
+.weq-swipe-reply-icon {
+  position: absolute;
+  inset: 50% auto auto calc(100% + 10px);
+  translate: 0 -50%;
+  color: var(--weq-fg-secondary);
+  opacity: var(--swipe-reply-progress, 0);
+  pointer-events: none;
+}
+
+.message-bubble[data-swipe-ready] .weq-swipe-reply-icon {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-bubble[data-swipe-reply] {
+    transition: none;
+  }
+}
+
 .message-bubble:has(.qq-md pre) {
   max-width: min(75%, 680px);
 }

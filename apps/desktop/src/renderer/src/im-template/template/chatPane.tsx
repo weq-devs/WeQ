@@ -1674,11 +1674,7 @@ function ChatPaneContent({
     pagingNewer,
   ]);
   const rowRestore = useStableCallback(onRestoreMessage);
-  const rowSwipeReply = useStableCallback((message: Message) => {
-    setComposerCollapsed(false);
-    startQuote(message);
-    focusComposerEnd(currentComposerEditor());
-  });
+  const rowSwipeReply = useStableCallback((message: Message) => startQuote(message, true));
   const rowContext = useStableCallback(openMessageMenu);
   const rowLongPress = useStableCallback(
     (point: { x: number; y: number }, message: Message, target?: EventTarget | null) =>
@@ -3661,7 +3657,7 @@ function ChatPaneContent({
    * 引用条与「只能单独发」的卡片互斥 —— 挂上引用就把卡片卸掉（预览地址一并释放），
    * 反过来卡片顶掉引用见 setMedia / stageSuperEmoji。
    */
-  function startQuote(message: Message) {
+  function startQuote(message: Message, fromSwipe = false) {
     if (!conversation || quoteBlockReason(message)) {
       return;
     }
@@ -3674,11 +3670,26 @@ function ChatPaneContent({
       return;
     }
 
-    setContextMenu(null);
-    clearMediaAttachments();
-    setPendingSuperEmoji(null);
-    setAttachmentError(null);
-    setPendingQuote(quote);
+    const showQuote = () => {
+      setContextMenu(null);
+      clearMediaAttachments();
+      setPendingSuperEmoji(null);
+      setAttachmentError(null);
+      setPendingQuote(quote);
+      if (fromSwipe || isMobileWebComposer()) setComposerCollapsed(false);
+      setEmojiOpen(false);
+      setToolsOpen(false);
+      setLocationMenu(null);
+      setLocationCardOpen(false);
+      setArkOpen(false);
+      if (fromSwipe) {
+        if (voiceOpen) closeVoicePanel();
+        setFlashOpen(false);
+      }
+    };
+    // 松手时同步露出可编辑的正文；延到下一帧聚焦可能失去软键盘需要的触摸手势。
+    if (fromSwipe) flushSync(showQuote);
+    else showQuote();
     if (conversation.type === 'group' && preferenceValue('autoMentionOnQuote')) {
       const self = new Set(selfIdentityValues(user));
       const editor = currentComposerEditor();
@@ -3699,14 +3710,8 @@ function ChatPaneContent({
         insertMention(sender as GroupMember, false);
       }
     }
-    if (isMobileWebComposer()) setComposerCollapsed(false);
-    // 引用条要占正文上面那一行，表情 / 语音 / 更多 / 链接面板先收起来。
-    setEmojiOpen(false);
-    setToolsOpen(false);
-    setLocationMenu(null);
-    setLocationCardOpen(false);
-    setArkOpen(false);
-    window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
+    if (fromSwipe) focusComposerEnd(currentComposerEditor());
+    else window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
   function removeQuote() {
@@ -6511,6 +6516,7 @@ function ChatPaneContent({
                           onSwipeReply={
                             composerVisible &&
                             !readOnly &&
+                            !currentPreference.blocked &&
                             !selectionMode &&
                             !restrictedSource &&
                             !outgoingActionBlockReason(message) &&

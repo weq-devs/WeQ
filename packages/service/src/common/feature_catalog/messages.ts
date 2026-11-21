@@ -105,7 +105,7 @@ export const MESSAGE_FEATURES = [
       docs: ['guide/chat-view.md#feature-messages.timeline.unread-boundary'],
     },
   ),
-  messageFeature('reply.touch', '触屏横滑引用', '从可引用的消息气泡向右滑，将原消息加入输入框。', {
+  messageFeature('reply.touch', '触屏横滑引用', '向左滑动消息气泡，松手引用并聚焦输入框。', {
     docs: ['guide/chat-view.md#feature-messages.reply.touch'],
   }),
   messageFeature(
