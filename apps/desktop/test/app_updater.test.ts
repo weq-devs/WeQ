@@ -19,6 +19,15 @@ const fixture = vi.hoisted(() => ({
   fetchOfficialArchive: vi.fn(),
   verifyOfficialArchive: vi.fn(),
 }));
+// Keep the real RPC middleware without loading account services for an updater test.
+vi.mock('@weq/service', async () => {
+  const [{ withHost }, { OperationError }, { logRequest }] = await Promise.all([
+    import('../../../packages/service/src/common/host'),
+    import('../../../packages/service/src/common/operation_error'),
+    import('../../../packages/service/src/common/request_log'),
+  ]);
+  return { withHost, OperationError, logRequest };
+});
 vi.mock('../src/main/data_saver', () => ({
   hostDataSaver: async () => fixture.restricted,
   refreshTransferPolicy: async () => undefined,
