@@ -62,7 +62,7 @@ it('汇总页按真实条数累计，重试清除来源缓存，源缓存容量�
   restored.cancel();
 });
 
-it('当日明细连续读取时穿插其他日期快捷计数，月计数不必等明细结束', async () => {
+it('选中日期的所有来源完成后才开始统计下一天', async () => {
   const calls: string[] = [];
   const job = new ConversationCalendarJob(
     '2026-11',
@@ -75,20 +75,60 @@ it('当日明细连续读取时穿插其他日期快捷计数，月计数不必�
           return 0;
         },
         page: async (_s, _e, cursor) => {
-          calls.push('detail');
+          calls.push('私聊');
           const next = Number(cursor ?? 0) + 1;
-          return { rows: [message(String(next))], cursor: next, done: next >= 20 };
+          return { rows: [message(String(next))], cursor: next, done: next === 6 };
+        },
+      },
+      {
+        kind: 'group',
+        count: async () => 0,
+        page: async () => {
+          calls.push('群聊');
+          return { rows: [], done: true };
         },
       },
     ],
   );
   job.keepAlive(day);
-  await vi.advanceTimersByTimeAsync(150);
-  expect(calls.slice(0, 5)).toEqual(['detail', 'detail', 'detail', 'detail', 'count']);
-  expect(job.snapshot(day).complete).toBe(false);
-  expect(job.snapshot(day).progress.completedSources).toBeGreaterThan(0);
-  job.cancel();
+  await vi.advanceTimersByTimeAsync(120);
+  expect(calls).toEqual([...Array(6).fill('私聊'), '群聊']);
+  expect(job.snapshot(day).complete).toBe(true);
+  await vi.advanceTimersByTimeAsync(20);
+  expect(calls.at(-1)).toBe('count');
   await finish(job);
+});
+
+it('切换日期时完成在途批次，再优先统计新日期并续查原游标', async () => {
+  const nextDay = '2026-11-09';
+  const nextStart = start + 86400;
+  let finishPage!: () => void;
+  const page = vi.fn<CalendarSource['page']>(async (from, _to, cursor) => {
+    if (from === nextStart) return { rows: [], done: true };
+    if (cursor === 1) return { rows: [message('2')], done: true };
+    await new Promise<void>((resolve) => {
+      finishPage = resolve;
+    });
+    return { rows: [message('1')], cursor: 1, done: false };
+  });
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target],
+    [{ kind: 'c2c', count: async () => 0, page }],
+  );
+
+  job.keepAlive(day);
+  job.keepAlive(nextDay);
+  expect(page).toHaveBeenCalledOnce();
+  finishPage();
+  await finish(job);
+
+  expect(page.mock.calls.map(([from, , cursor]) => [from, cursor])).toEqual([
+    [start, undefined],
+    [nextStart, undefined],
+    [start, 1],
+  ]);
+  expect(job.snapshot(day).rows[0]?.count).toBe(2);
 });
 it('取消勾选的来源停止后续批次并退出总数，再勾选保留原游标与计数', async () => {
   const cursors: unknown[] = [];

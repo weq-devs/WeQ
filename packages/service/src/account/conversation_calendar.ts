@@ -232,7 +232,6 @@ export class ConversationCalendarJob {
   controller = new AbortController();
   private enabled = new Set<CalendarKind>(CALENDAR_SOURCE_ORDER);
   private monthPaused = false;
-  private detailBatches = 0;
   private dayFocus: string | undefined;
   private readonly pausedDays = new Set<string>();
   private suspended = false;
@@ -254,19 +253,21 @@ export class ConversationCalendarJob {
         this.needsWork(task) &&
         !this.pausedDays.has(task.day) &&
         (!this.monthPaused || task.day === this.dayFocus) &&
-        !(task.refresh ?? task).error &&
-        (!readyOnly ||
-          (this.connectionWaits.get(task.refresh ?? task)?.retryAt ?? 0) <= Date.now()),
+        !(task.refresh ?? task).error,
     );
-    const selected = pending.find((task) => task.day === this.selectedDay);
-    const quickCount =
-      this.detailBatches >= 4
-        ? pending.find(
-            (task) =>
-              task.day !== this.selectedDay && !task.counted && !task.cursor && task.source.count,
-          )
-        : undefined;
-    return pending.find((task) => task.refresh) ?? quickCount ?? selected ?? pending[0];
+    const first =
+      pending.find((task) => task.day === this.selectedDay) ??
+      pending.find((task) => task.day === this.dayFocus && task.refresh) ??
+      pending[0];
+    if (!first) return;
+    // 先确定统计日期；来源等待连接时，只从同一天选择其他来源。
+    const now = Date.now();
+    const ready = pending.filter(
+      (task) =>
+        task.day === first.day &&
+        (!readyOnly || (this.connectionWaits.get(task.refresh ?? task)?.retryAt ?? 0) <= now),
+    );
+    return ready.find((task) => task.refresh) ?? ready[0];
   }
   suspend(): void {
     this.suspended = true;
@@ -849,7 +850,6 @@ export class ConversationCalendarJob {
         if (this.running) this.cancel();
       }, 5000);
     if (day !== this.selectedDay) {
-      this.detailBatches = 0;
       this.dayFocus = day;
       this.log(
         'info',
@@ -982,7 +982,7 @@ export class ConversationCalendarJob {
         );
       this.activeWork = task;
       this.lastScan = task;
-      this.detailBatches = task.day === this.selectedDay ? this.detailBatches + 1 : 0;
+      const selectedDay = this.selectedDay;
       const began = performance.now();
       try {
         if (!task.counted && task.cursor === undefined && !task.rows.size)
@@ -992,7 +992,7 @@ export class ConversationCalendarJob {
           !task.cursor &&
           !task.rows.size &&
           !owner.refresh &&
-          task.day !== this.selectedDay &&
+          task.day !== selectedDay &&
           task.source.count
         ) {
           const count = await task.source.count(task.start, task.end);
@@ -1004,6 +1004,7 @@ export class ConversationCalendarJob {
             task.counted = true;
             continue;
           }
+          if (this.selectedDay !== selectedDay) continue;
         }
         const page = await task.source.page(task.start, task.end, task.cursor, task.limit);
         if (!this.current()) return;
