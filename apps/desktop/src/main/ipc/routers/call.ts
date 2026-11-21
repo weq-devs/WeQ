@@ -17,7 +17,6 @@ import { observable } from '@trpc/server/observable';
 import {
   developmentDressToolsEnabled,
   ensureCallBackground,
-  getHost,
   getLogger,
   type DressConversationEntry,
 } from '@weq/service';
@@ -311,10 +310,7 @@ export const callRouter = router({
     const dir =
       settings?.dir ??
       (ctx.platform && uin ? recordingsRootFor(ctx.platform.appDataRoot(), String(uin)) : null);
-    const capability = systemAudioCapability();
-    const systemAudio =
-      capability === 'renderer' && !getHost().canReveal ? ('unsupported' as const) : capability;
-    return { systemAudio, dir };
+    return { systemAudio: systemAudioCapability(), dir };
   }),
 
   /**
