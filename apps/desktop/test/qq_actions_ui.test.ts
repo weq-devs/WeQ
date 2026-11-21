@@ -55,6 +55,7 @@ const state = vi.hoisted(() => ({
   refreshSigns: vi.fn(async () => {}),
   refreshTodos: vi.fn(async (_input?: unknown) => {}),
   refreshJoin: vi.fn(async () => {}),
+  verifyJoinAnswer: vi.fn(async (_input: unknown) => false),
   refreshAdvanced: vi.fn(async () => {}),
   refreshPeerStats: vi.fn(async () => {}),
   data: {} as Record<string, unknown>,
@@ -88,13 +89,13 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
     run: async (
       action: (b: QQWriteBinding) => Promise<QQWriteOutcome>,
       refresh?: () => Promise<unknown>,
-      options?: { readback?: () => Promise<boolean> },
+      options?: { readback?: () => Promise<boolean>; requireReadback?: boolean },
     ) => {
       try {
         await action({ expectedAccountUin: '10001', expectedAccountConfigId: state.configId });
-        await options?.readback?.();
+        const matched = await options?.readback?.();
         await refresh?.();
-        return true;
+        return !options?.requireReadback || matched === true;
       } catch {
         return false;
       }
@@ -132,6 +133,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'groupPermissions',
     'albumPermissions',
     'groupJoinSettings',
+    'groupJoinManagement',
     'groupAdvancedSettings',
   ];
   return {
@@ -164,6 +166,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               ...((state.data[`listing:${input.directory}`] as object) ?? {}),
             }),
           },
+          verifyGroupJoinAnswer: { mutate: state.verifyJoinAnswer },
           ...Object.fromEntries(
             names.map((name) => [name, { mutate: (input: unknown) => state.mutate(name, input) }]),
           ),
@@ -235,7 +238,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 isFetching: Boolean(state.data[`fetching:${name}`]),
                 error: state.data[`error:${name}`],
                 refetch: async () => {
-                  if (name === 'groupJoinSettings') await state.refreshJoin();
+                  if (name === 'groupJoinManagement') await state.refreshJoin();
                   if (name === 'groupAdvancedSettings') await state.refreshAdvanced();
                   return { error: null, data: state.data[name] };
                 },
@@ -326,6 +329,7 @@ beforeEach(() => {
   state.refreshSigns.mockClear();
   state.refreshTodos.mockClear();
   state.refreshJoin.mockClear();
+  state.verifyJoinAnswer.mockReset().mockResolvedValue(false);
   state.refreshAdvanced.mockClear();
   state.refreshPeerStats.mockClear();
   state.data = {
@@ -352,6 +356,7 @@ beforeEach(() => {
       atAll: { canAtAll: true, remainCountForUin: 1, remainCountForGroup: 1 },
     },
     groupJoinSettings: { groupId: 123, option: 2, question: null, questionState: 'not-required' },
+    groupJoinManagement: { option: 2, question: null },
   };
   useViewState.setState({ openedUin: '10001' });
 });
@@ -2022,8 +2027,34 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.querySelector('[aria-label="加群答案"]')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
   });
+  it.each([true, false])(
+    '保存正确回答模式后按真实答案读回决定是否清除草稿：%s',
+    async (matched) => {
+      const f = fixture(() => h(GroupActions, { groupId: 123 }));
+      value(f.host, '加群方式', '4');
+      value(f.host, '加群问题', '合成问题');
+      value(f.host, '加群答案', '合成答案');
+      state.mutate.mockImplementationOnce(async () => {
+        state.data.groupJoinManagement = { option: 4, question: '合成问题' };
+        return { state: 'accepted' };
+      });
+      state.verifyJoinAnswer.mockResolvedValueOnce(matched);
+      await act(async () => f.button('保存加群方式').click());
+      expect(state.mutate).toHaveBeenCalledOnce();
+      expect(state.verifyJoinAnswer).toHaveBeenCalledWith({
+        expectedAccountUin: '10001',
+        expectedAccountConfigId: 'source-a',
+        groupId: 123,
+        question: '合成问题',
+        answer: '合成答案',
+      });
+      expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群答案"]')?.value).toBe(
+        matched ? '' : '合成答案',
+      );
+    },
+  );
   it('加群方式与问题来自读回，55 按审核问答显示，原值仍可保存且答案不伪造', async () => {
-    state.data.groupJoinSettings = { groupId: 123, option: 55, question: '原问题' };
+    state.data.groupJoinManagement = { groupId: 123, option: 55, question: '原问题' };
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector<HTMLElement>('[aria-label="加群方式"]')!.dataset.value).toBe('5');
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]')!.value).toBe('原问题');
@@ -2041,7 +2072,7 @@ describe('QQ 主动操作的实际界面', () => {
     );
   });
   it('加群方式尚未读取时只显示占位，读回后从选项中移除', async () => {
-    state.data.groupJoinSettings = { groupId: 123, option: null };
+    state.data.groupJoinManagement = { groupId: 123, option: null };
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     const trigger = f.button('加群方式');
     await act(async () => trigger.click());
@@ -2050,17 +2081,17 @@ describe('QQ 主动操作的实际界面', () => {
     await act(async () => placeholder.click());
     expect(state.mutate).not.toHaveBeenCalled();
 
-    state.data.groupJoinSettings = { groupId: 123, option: 2 };
+    state.data.groupJoinManagement = { groupId: 123, option: 2 };
     f.update();
     expect(trigger.dataset.value).toBe('2');
     expect(document.querySelector('[role="option"][data-value=""]')).toBeNull();
   });
   it.each([1, 2, 3])('入群方式 %s 选中即提交，自动读回且无需保存按钮', async (mode) => {
-    state.data.groupJoinSettings = { groupId: 123, option: mode === 2 ? 1 : 2 };
+    state.data.groupJoinManagement = { groupId: 123, option: mode === 2 ? 1 : 2 };
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.button('保存加群方式')).toBeNull();
     state.mutate.mockImplementationOnce(async () => {
-      state.data.groupJoinSettings = { groupId: 123, option: mode, question: null };
+      state.data.groupJoinManagement = { groupId: 123, option: mode, question: null };
       return { state: 'accepted' };
     });
     await act(async () => chooseFormOption(f.button('加群方式'), String(mode)));
@@ -2096,24 +2127,24 @@ describe('QQ 主动操作的实际界面', () => {
     value(f.host, '加群方式', '5');
     value(f.host, '加群问题', '入群问题');
     state.mutate.mockImplementationOnce(async () => {
-      state.data.groupJoinSettings = { groupId: 123, option: 55, question: '入群问题' };
+      state.data.groupJoinManagement = { groupId: 123, option: 55, question: '入群问题' };
       return { state: 'accepted' };
     });
     await act(async () => f.button('保存加群方式').click());
     expect(state.refreshJoin).toHaveBeenCalledOnce();
-    state.data.groupJoinSettings = { groupId: 123, option: 55, question: '更新后的问题' };
+    state.data.groupJoinManagement = { groupId: 123, option: 55, question: '更新后的问题' };
     f.update();
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]')?.value).toBe(
       '更新后的问题',
     );
   });
   it('迟到的加群资料不覆盖编辑草稿，未知答案不当作空答案回填', () => {
-    state.data.groupJoinSettings = { groupId: 123, option: 4, question: '原问题' };
+    state.data.groupJoinManagement = { groupId: 123, option: 4, question: '原问题' };
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群答案"]')!.value).toBe('');
     expect(f.button('保存加群方式').disabled).toBe(true);
     value(f.host, '加群问题', '正在编辑的问题');
-    state.data.groupJoinSettings = { groupId: 123, option: 4, question: '迟到的服务端问题' };
+    state.data.groupJoinManagement = { groupId: 123, option: 4, question: '迟到的服务端问题' };
     f.update();
     expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]')!.value).toBe(
       '正在编辑的问题',

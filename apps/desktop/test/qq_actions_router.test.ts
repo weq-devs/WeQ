@@ -78,6 +78,8 @@ function fixture() {
         async (_groupId: number): Promise<GroupJoinInfo> => ({
           groupId: 888,
           name: '目标群',
+          maxMemberCount: null,
+          memberCount: null,
           categoryId: 2,
           categoryName: '服务端分类',
           option: 5,
@@ -99,6 +101,11 @@ function fixture() {
       getTodoList: vi.fn(async () => []),
       leaveGroup: empty(),
       setAddOption: empty(),
+      joinSettings: vi.fn(async (_groupId: number) => ({
+        option: 4 as number | null,
+        question: '为什么加入' as string | null,
+        answer: '合成答案' as string | null,
+      })),
       addCategoryTag: empty(),
       deleteCategoryTag: empty(),
       getCategoryTags: vi.fn(async () => []),
@@ -504,12 +511,34 @@ describe('加群方式读回', () => {
     expect(result).not.toHaveProperty('answer');
     expect(f.s.groupModeration.setAddOption).not.toHaveBeenCalled();
   });
+  it('管理设置读回问题并核对正确答案，答案缺失或不一致时保持未确认', async () => {
+    const f = fixture();
+    const check = { ...group, question: '为什么加入', answer: '合成答案' };
+    await expect(f.caller.groupJoinManagement(group)).resolves.toEqual({
+      option: 4,
+      question: check.question,
+    });
+    await expect(f.caller.verifyGroupJoinAnswer(check)).resolves.toBe(true);
+    await expect(f.caller.verifyGroupJoinAnswer({ ...check, answer: '新答案' })).resolves.toBe(
+      false,
+    );
+    f.s.groupModeration.joinSettings.mockResolvedValueOnce({ ...check, option: 4, answer: null });
+    await expect(f.caller.verifyGroupJoinAnswer(check)).resolves.toBe(false);
+    expect(f.s.groupInfo.getJoinInfo).not.toHaveBeenCalled();
+    expect(f.s.groupModeration.setAddOption).not.toHaveBeenCalled();
+
+    f.s.groupInfo.listGroupDirectory.mockResolvedValueOnce([{ groupCode: '123', role: 'member' }]);
+    await expect(f.caller.verifyGroupJoinAnswer(check)).rejects.toThrow('管理员权限');
+    expect(f.s.groupModeration.joinSettings).toHaveBeenCalledTimes(4);
+  });
   it('分类标签写入前核对真实群分类，缺失、变化或读取后切源都不写入', async () => {
     const f = fixture();
     const input = { ...binding, groupId: 123, action: 'addTag' as const, category: 2, tag: '合成' };
     const info = {
       groupId: 123,
       name: '目标群',
+      maxMemberCount: null,
+      memberCount: null,
       categoryId: 2,
       categoryName: '服务端分类',
       option: 2,

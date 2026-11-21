@@ -292,6 +292,18 @@ export class GroupModerationService {
     await SetAdminReceiveVerify.invoke(this.nt, pid, { groupId, userId, enable });
   }
 
+  async joinSettings(groupId: number) {
+    const pid = this.resolvePid();
+    // 群管理详情返回问答字段，公开群资料查询可能只返回入群档位。
+    const detail = await FetchGroupDetail.invoke(this.nt, pid, { groupId });
+    if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请刷新');
+    return {
+      option: detail.addType || null,
+      question: detail.question || null,
+      answer: detail.answer || null,
+    };
+  }
+
   async advancedSettings(groupId: number) {
     const pid = this.resolvePid();
     const [detail, robot] = await Promise.all([

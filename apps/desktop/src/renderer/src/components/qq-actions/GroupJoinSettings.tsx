@@ -17,10 +17,16 @@ function joinMode(value: number | null | undefined): JoinMode | '' {
 export function GroupJoinSettings({ groupId, canManage }: { groupId: number; canManage: boolean }) {
   const a = useQQAction(`join-settings:${groupId}`);
   const autoRefresh = useQQAutoRefresh(a.available);
-  const query = trpc.account.qqActions.groupJoinSettings.useQuery(
-    { ...a.binding!, groupId },
-    autoRefresh,
-  );
+  const input = { ...a.binding!, groupId };
+  const manage = trpc.account.qqActions.groupJoinManagement.useQuery(input, {
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && canManage,
+  });
+  const summary = trpc.account.qqActions.groupJoinSettings.useQuery(input, {
+    ...autoRefresh,
+    enabled: autoRefresh.enabled && !canManage,
+  });
+  const query = canManage ? manage : summary;
   const [draft, setDraft] = useState<{
     mode: QuestionMode;
     question: string;
@@ -36,10 +42,10 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
   const canEdit = !disabled && !query.isFetching && Boolean(query.data);
   const canSave = canEdit && Boolean(question.trim()) && (mode !== 4 || Boolean(answer.trim()));
 
-  function submit(targetMode: JoinMode) {
+  async function submit(targetMode: JoinMode) {
     if (!canEdit) return;
     const targetQuestion = targetMode === 4 || targetMode === 5 ? question : '';
-    void a.perform(
+    const saved = await a.perform(
       (binding) =>
         client.account.qqActions.groupSettings.mutate({
           ...binding,
@@ -49,21 +55,28 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
           question: targetQuestion,
           answer: targetMode === 4 ? answer : undefined,
         }),
-      undefined,
+      targetMode === 4 ? () => manage.refetch() : undefined,
       undefined,
       {
         requireReadback: true,
         readback: async () => {
-          const result = await query.refetch();
+          if (targetMode === 4) {
+            return client.account.qqActions.verifyGroupJoinAnswer.mutate({
+              ...input,
+              question: targetQuestion,
+              answer,
+            });
+          }
+          const result = await manage.refetch();
           if (result.error) throw result.error;
-          const matched =
+          return (
             joinMode(result.data?.option) === targetMode &&
-            ((targetMode !== 4 && targetMode !== 5) || result.data?.question === targetQuestion);
-          if (matched) setDraft(null);
-          return matched;
+            (targetMode !== 5 || result.data?.question === targetQuestion)
+          );
         },
       },
     );
+    if (saved) setDraft(null);
   }
   return (
     <div className="weq-group-management-join">
@@ -83,7 +96,7 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
               } else if (next === currentMode) {
                 setDraft(null);
               } else {
-                submit(next);
+                void submit(next);
               }
             }}
           >
@@ -145,7 +158,7 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
             aria-label="保存加群方式"
             className="weq-set-btn weq-set-btn-primary"
             disabled={!canSave}
-            onClick={() => submit(mode)}
+            onClick={() => void submit(mode)}
           >
             保存加群方式
           </button>

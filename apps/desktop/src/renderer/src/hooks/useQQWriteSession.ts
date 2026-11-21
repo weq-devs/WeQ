@@ -140,12 +140,7 @@ export function useQQWriteSession(scope: string, passive = false) {
         const valid = () => !expired && current() && operation.current === capturedOperation;
         try {
           const confirm = async () => {
-            if (!options?.readback) {
-              const read = await refresh?.();
-              if (typeof read === 'boolean') return read;
-              await new Promise((resolve) => setTimeout(resolve, 3850));
-              return false;
-            }
+            if (!options?.readback) return (await refresh?.()) === true;
             // 普通读取核对目标值，不要求写接口返回确认回执，也不重发写请求。
             for (const delay of [0, 350, 1000, 2500]) {
               if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
@@ -159,7 +154,7 @@ export function useQQWriteSession(scope: string, passive = false) {
             return false;
           };
           readbackMatched = await Promise.race([
-            confirm(),
+            confirm().catch(() => false),
             new Promise<false>((resolve) => {
               timeout = setTimeout(() => {
                 expired = true;
@@ -167,6 +162,7 @@ export function useQQWriteSession(scope: string, passive = false) {
               }, 15000);
             }),
           ]);
+          clearTimeout(timeout);
           if (!current() || operation.current !== capturedOperation) {
             finish('已停止确认：操作对象已切换，请稍后重新读取', 'warning');
             return;
@@ -174,7 +170,9 @@ export function useQQWriteSession(scope: string, passive = false) {
           finish(
             readbackMatched
               ? (options?.readbackSuccessText ?? '操作已完成')
-              : '确认超时，请稍后重新读取操作结果',
+              : expired
+                ? '确认超时，请稍后重新读取操作结果'
+                : qqWriteOutcomeText({ state: 'unconfirmed' }),
             readbackMatched ? 'success' : 'warning',
           );
           if (options?.profileUid)
@@ -211,8 +209,7 @@ export function useQQWriteSession(scope: string, passive = false) {
               : []),
           ]);
         } catch {
-          if (current() && operation.current === capturedOperation && !readbackMatched)
-            finish('确认超时，请稍后重新读取操作结果', 'warning');
+          // 确认完成后的缓存刷新失败不改变已报告的结果。
         } finally {
           expired = true;
           if (timeout) clearTimeout(timeout);

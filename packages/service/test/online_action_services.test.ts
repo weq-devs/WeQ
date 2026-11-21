@@ -9,6 +9,7 @@ import { decode, encode } from '@weqbot/protocol';
 import {
   CreateGroupFolder,
   DeleteGroupFile,
+  FetchGroupDetail,
   DeleteGroupFolder,
   FetchGroupMemberListPage,
   GetGroupMessagePolicies,
@@ -134,6 +135,24 @@ describe('GroupModerationService', () => {
     const hex = Buffer.from(nt.calls[0]!.body).toString('hex');
     expect(hex).toContain(Buffer.from('q').toString('hex'));
     expect(hex).toContain(Buffer.from('a').toString('hex'));
+  });
+
+  it('从 0x88D_0 群管理详情读取档位和问答，不使用省略问题的公开详情', async () => {
+    const reply = encode(FetchGroupDetail.respSchema, {
+      groupInfo: {
+        uin: 123,
+        results: { uin: 123, addType: 4, question: '合成问题', answer: '合成答案' },
+      },
+    });
+    const nt = makeNative(new Map([['88d_0', reply]]));
+    const svc = new GroupModerationService(nt, () => 7);
+    await expect(svc.joinSettings(123)).resolves.toEqual({
+      option: 4,
+      question: '合成问题',
+      answer: '合成答案',
+    });
+    expect(nt.calls).toHaveLength(1);
+    expect(nt.calls[0]).toMatchObject({ command: 0x88d, subCommand: 0 });
   });
 });
 

@@ -18,6 +18,7 @@ const mock = vi.hoisted(() => ({
   pinned: false,
   friend: true,
   serverPolicy: 1 as number | null,
+  localReadError: null as Error | null,
   mutate: vi.fn(async (_input: unknown): Promise<QQWriteOutcome> => ({ state: 'accepted' })),
   refetch: vi.fn(async () => {}),
   refetchPolicy: vi.fn(async () => {}),
@@ -137,7 +138,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                   friendDisturb: mock.readFriendDisturb,
                   pinned: mock.readPinned,
                 },
-                error: null,
+                error: mock.localReadError,
               };
             },
           }),
@@ -195,6 +196,7 @@ beforeEach(() => {
   mock.pinned = false;
   mock.friend = true;
   mock.serverPolicy = 1;
+  mock.localReadError = null;
   mock.mutate.mockReset().mockResolvedValue({ state: 'accepted' });
   mock.refetch.mockReset().mockResolvedValue(undefined);
   mock.refetchPolicy.mockReset().mockResolvedValue(undefined);
@@ -239,6 +241,18 @@ it('群消息策略保存后自动核对读回，保留群号、策略和账号�
     groupId: 123,
     policy: 4,
   });
+  expect(mock.refetch).toHaveBeenCalledOnce();
+  expect(mock.refetchPolicy).toHaveBeenCalledOnce();
+});
+it('本机快照刷新失败时仍能确认已生效的服务端群消息策略', async () => {
+  const host = fixture('group');
+  mock.mutate.mockImplementationOnce(async () => {
+    mock.serverPolicy = 4;
+    mock.localReadError = new Error('合成本机刷新失败');
+    return { state: 'accepted' };
+  });
+  await act(async () => chooseFormOption(messagePolicySelect(host), '4'));
+  expect(mock.readbacks).toEqual([true]);
   expect(mock.refetch).toHaveBeenCalledOnce();
   expect(mock.refetchPolicy).toHaveBeenCalledOnce();
 });

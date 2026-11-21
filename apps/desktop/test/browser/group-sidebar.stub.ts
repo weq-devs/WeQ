@@ -245,7 +245,7 @@ async function reply(path: string, input: Record<string, unknown>) {
   if (path === 'account.qqActions.folders')
     return { targetDirectory: input.directory ?? '/', files: [], folders: [] };
   if (path.includes('Permissions')) return { canManage: false };
-  if (path.endsWith('.groupJoinSettings'))
+  if (path.endsWith('.groupJoinSettings') || path.endsWith('.groupJoinManagement'))
     return { groupId: input.groupId, option: 2, categoryId: null };
   if (path.includes('status') || path.includes('Status')) return {};
   return [];

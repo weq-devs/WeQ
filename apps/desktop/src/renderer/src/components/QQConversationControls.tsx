@@ -151,7 +151,7 @@ export function QQConversationControls({
       return false;
     return session.run(
       (binding) => policy.mutateAsync({ ...binding, groupId: Number(conv), policy: value }),
-      undefined,
+      () => snapshot.refetch(),
       {
         readbackSuccessText:
           value === 1
@@ -162,9 +162,8 @@ export function QQConversationControls({
                 ? '已收进群助手'
                 : '已屏蔽群消息',
         readback: async () => {
-          const [remote, local] = await Promise.all([policySnapshot.refetch(), snapshot.refetch()]);
+          const remote = await policySnapshot.refetch();
           if (remote.error) throw remote.error;
-          if (local.error) throw local.error;
           return remote.data?.policy === value;
         },
       },

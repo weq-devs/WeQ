@@ -267,6 +267,14 @@ export function createQQActionsRouter(
     current();
     if (!permissions.canManage) throw new Error('此操作需要群主或管理员权限');
   }
+  const readManagedJoinSettings = (input: QQWriteBinding & { groupId: number }) =>
+    read(input, async (s) => {
+      await manager(s, input.groupId, () => {
+        if (resolve(input) !== s) throw new Error('账号已切换，请刷新');
+      });
+      return s.groupModeration.joinSettings(input.groupId);
+    });
+
   async function adminTarget(s: QQActionServices, groupId: number, targetUid: string) {
     const [context, member] = await Promise.all([
       s.groupInfo.operationContext(groupId, targetUid),
@@ -1441,6 +1449,17 @@ export function createQQActionsRouter(
     groupJoinSettings: procedure
       .input(group)
       .query(({ input: i }) => read(i, (s) => s.groupInfo.getJoinInfo(i.groupId))),
+    groupJoinManagement: procedure.input(group).query(async ({ input: i }) => {
+      const { option, question } = await readManagedJoinSettings(i);
+      return { option, question };
+    }),
+    verifyGroupJoinAnswer: procedure
+      .input(group.extend({ question: z.string().max(256), answer: z.string().min(1).max(256) }))
+      .mutation(async ({ input: i }) => {
+        // 用 POST 传入待核对的答案，只返回是否匹配。
+        const { option, question, answer } = await readManagedJoinSettings(i);
+        return option === 4 && question === i.question && answer === i.answer;
+      }),
     groupSettings: procedure
       .input(
         group.extend({

@@ -122,7 +122,7 @@ async function reply(path: string, input) {
     return { targetDirectory: input.folderId, files: [], folders: [] };
   if (path.includes('Permissions') || path.endsWith('.groupPermissions'))
     return { canManage: false };
-  if (path.endsWith('.groupJoinSettings'))
+  if (path.endsWith('.groupJoinSettings') || path.endsWith('.groupJoinManagement'))
     return { groupId: input.groupId, option: 2, categoryId: null };
   if (path.includes('status') || path.includes('Status')) return {};
   return [];

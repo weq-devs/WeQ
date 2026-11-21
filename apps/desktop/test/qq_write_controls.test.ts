@@ -647,7 +647,10 @@ describe('QQ 写操作账号与生命周期', () => {
         expect(action).toHaveBeenCalledOnce();
         expect(useToast.getState().toasts).toHaveLength(1);
         expect(useToast.getState().toasts[0]).toMatchObject({
-          title: '确认超时，请稍后重新读取操作结果',
+          title:
+            kind === 'timeout'
+              ? '确认超时，请稍后重新读取操作结果'
+              : qqWriteOutcomeText({ state: 'unconfirmed' }),
           tone: 'warning',
           durationKind: 'failure',
         });
@@ -697,27 +700,20 @@ describe('QQ 写操作账号与生命周期', () => {
     expect(mocked.invalidate).not.toHaveBeenCalled();
     expect(mocked.invalidateStatus).not.toHaveBeenCalled();
   });
-  it('没有可核对字段时仍刷新普通读取，但不凭确认回执显示成功', async () => {
-    vi.useFakeTimers();
-    try {
-      const f = harness();
-      const refresh = vi.fn(async () => undefined);
-      let pending!: Promise<boolean>;
-      await act(async () => {
-        pending = f.session().run(async () => ({ state: 'confirmed' }), refresh);
-      });
-      expect(refresh).toHaveBeenCalledOnce();
-      expect(useToast.getState().toasts[0]?.loading).toBe(true);
-      await act(async () => {
-        await vi.runAllTimersAsync();
-        await pending;
-      });
-      expect(useToast.getState().toasts).toHaveLength(1);
-      expect(useToast.getState().toasts[0]).toMatchObject({ tone: 'warning', loading: false });
-      expect(f.host.textContent).toBe('');
-    } finally {
-      vi.useRealTimers();
-    }
+  it('没有可核对字段时只刷新普通读取，并直接提示结果尚未确认', async () => {
+    const f = harness();
+    const refresh = vi.fn(async () => undefined);
+    await act(async () => {
+      await f.session().run(async () => ({ state: 'confirmed' }), refresh);
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(useToast.getState().toasts).toHaveLength(1);
+    expect(useToast.getState().toasts[0]).toMatchObject({
+      tone: 'warning',
+      loading: false,
+      title: qqWriteOutcomeText({ state: 'unconfirmed' }),
+    });
+    expect(f.host.textContent).toBe('');
   });
   it('群名片受理后刷新同群成员列表、排序、解析与搜索缓存', async () => {
     const f = harness();
@@ -803,7 +799,7 @@ describe('QQ 写操作账号与生命周期', () => {
         expect(action).toHaveBeenCalledOnce();
         expect(readback).toHaveBeenCalledTimes(synced ? 1 : 4);
         expect(String(useToast.getState().toasts.at(-1)?.title)).toContain(
-          synced ? '已开启免打扰' : '确认超时',
+          synced ? '已开启免打扰' : '暂未确认结果',
         );
         expect(f.host.textContent).not.toContain('QQ 已确认');
       } finally {

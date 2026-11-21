@@ -271,9 +271,9 @@ describe('消息菜单与精华列表的同步', () => {
       expect(f.menu().textContent).toBe('取消精华');
       expect(f.host.querySelector('.group-essence-item')).not.toBeNull();
       expect(String(useToast.getState().toasts.at(-1)?.title)).toContain(
-        kind === 'error' ? '合成拒绝' : '确认超时',
+        kind === 'error' ? '合成拒绝' : '暂未确认结果',
       );
-      expect(f.host.textContent).not.toContain('确认超时');
+      expect(f.host.textContent).not.toContain('暂未确认结果');
       expect(state.mutate).toHaveBeenCalledOnce();
       expect(f.close).not.toHaveBeenCalled();
       vi.useRealTimers();
