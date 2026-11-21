@@ -867,6 +867,9 @@
 .weq-qzn-related-chevron {
   color: var(--muted-foreground);
 }
+.weq-qzn-related-card > summary .weq-qzn-related-chevron {
+  grid-column: 4;
+}
 .weq-qzn-related-card[open] > summary .weq-qzn-related-chevron {
   transform: rotate(180deg);
 }
@@ -918,9 +921,6 @@
 .weq-qzn-related-action-line > span {
   min-width: 0;
   overflow: hidden;
-.weq-qzn-related-card > summary .weq-qzn-related-chevron {
-  grid-column: 4;
-}
   text-overflow: ellipsis;
   white-space: nowrap;
 }
