@@ -769,14 +769,6 @@
 .weq-qzn-share-comments {
   margin-top: 10px;
 }
-.weq-qzn-space-videos {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
-  gap: 10px;
-}
-.weq-qzn-space-videos .weq-qzn-pictures {
-  max-width: 100%;
-}
 .weq-qzn-loading {
   display: flex;
   align-items: center;

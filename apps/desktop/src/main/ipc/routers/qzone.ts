@@ -1,11 +1,26 @@
 /** Native Qzone UI: only already implemented web capabilities are exposed. */
-import { getHost, OperationError, qzoneFeedSearchRecord, writeFileAtomic } from '@weq/service';
+import {
+  getHost,
+  OperationError,
+  qzoneFeedSearchRecord,
+  writeFileAtomic,
+  type ResourceExportSummary,
+} from '@weq/service';
 import { QZONE_SHARE_CATEGORIES, type QzoneShareCategory } from '@weqbot/protocol/web';
 import { z } from 'zod';
 import { rememberQzoneAlbums, rememberQzonePosts } from '../../search_content';
 import { withQzonePaginationTimeout } from '@weq/service/qzone-pagination';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
+import { uniqueFilename } from '../../account_resource_exports';
+import { transferTarget } from '../../../shared/transfer_progress';
+import {
+  bindExportSaveRequest,
+  exportAccountBindingInput,
+  exportSavePolicyInput,
+  prepareExportDestination,
+} from './export_save';
+import { planUrlMediaExport } from './media_save';
 
 const uin = z.string().regex(/^[1-9]\d{4,19}$/);
 const account = z.object({ selfUin: uin });
@@ -19,6 +34,31 @@ const category = z.custom<QzoneShareCategory>((value) =>
 const pageNumber = z.number().int().min(1).max(100_000);
 const blog = boundTarget.extend({ blogId: z.string().regex(/^[1-9]\d{0,15}$/) });
 const contentOffset = z.number().int().min(0).max(100_000);
+const videoExportInput = exportAccountBindingInput.required().extend({
+  hostUin: uin,
+  items: z
+    .array(
+      z.object({
+        id: z.string().regex(/^[a-zA-Z0-9_-]{1,256}$/),
+        name: z.string().min(1),
+        url: z
+          .string()
+          .url()
+          .refine((value) => {
+            const url = URL.parse(value);
+            return (
+              url &&
+              ['http:', 'https:'].includes(url.protocol) &&
+              !url.username &&
+              !url.password &&
+              !url.port
+            );
+          }, '空间视频地址无效'),
+      }),
+    )
+    .min(1),
+  savePolicy: exportSavePolicyInput,
+});
 const pending = new Map<string, { services: AccountServices; controller: AbortController }>();
 const publishing = new WeakSet<AccountServices>();
 const archiveWriting = new WeakSet<AccountServices>();
@@ -308,6 +348,90 @@ export const qzoneRouter = router({
         services.webQuery.qzoneVideos(input.hostUin, input.offset, signal),
       ),
     ),
+  exportVideos: procedure.input(videoExportInput).mutation(async ({ input }) => {
+    const { services, bootstrap } = getAppContext();
+    if (!services) throw new Error('未打开账号');
+    const check = bindExportSaveRequest(input, () => {
+      const current = getAppContext();
+      return {
+        uin: current.account?.context.uin.toString(),
+        configId: current.services?.accountConfig.getRecord()?.configId,
+        services: current.services,
+      };
+    });
+    check();
+    const items = [...new Map(input.items.map((item) => [item.id, item])).values()];
+    const plan = (item: (typeof items)[number], signal?: AbortSignal) => {
+      const url = `weq-media://album?${new URLSearchParams({ src: item.url })}`;
+      return planUrlMediaExport(url, item.name, check, signal);
+    };
+    const single = items.length === 1 ? await plan(items[0]!) : null;
+    const policy = await prepareExportDestination(
+      input.savePolicy,
+      bootstrap?.userConfig.getSettings().defaultExportDir,
+      getHost(),
+      single?.output ?? { kind: 'directory' },
+      check,
+    );
+    if (!policy) return null;
+    return services.exportManager.startResourceExport({
+      kind: 'media',
+      name: single?.output.name ?? 'QQ 空间视频',
+      transferTarget: [
+        transferTarget('qzone-videos', input.hostUin),
+        ...(single ? [transferTarget('qzone-video', input.hostUin, items[0]!.id)] : []),
+      ],
+      display: {
+        action: '导出空间视频',
+        context: 'QQ 空间视频',
+        subject: single?.fileName ?? `${items.length} 个视频`,
+        fileName: Boolean(single),
+      },
+      savePolicy: policy,
+      output: single?.output,
+      run: async (context) => {
+        if (single) return single.run(context);
+        const used = new Set<string>();
+        const failed: ResourceExportSummary['failed'] = [];
+        let ok = 0;
+        context.progress(0, items.length);
+        for (const [index, item] of items.entries()) {
+          const target = transferTarget('qzone-video', input.hostUin, item.id);
+          let fileName = item.name;
+          let success = false;
+          try {
+            check();
+            context.signal.throwIfAborted();
+            const media = await plan(item, context.signal);
+            fileName = uniqueFilename(media.fileName, used);
+            await media.run(
+              {
+                directory: context.directory,
+                signal: context.signal,
+                progress() {},
+                transferProgress: (received, total) =>
+                  context.transferProgress?.(received, total, target),
+              },
+              fileName,
+            );
+            ok++;
+            success = true;
+          } catch (reason) {
+            check();
+            context.signal.throwIfAborted();
+            failed.push({
+              fileName,
+              error: reason instanceof Error ? reason.message : String(reason),
+            });
+          } finally {
+            context.transferItemFinished?.(target, success);
+          }
+          context.progress(index + 1, items.length);
+        }
+        return { total: items.length, ok, failed };
+      },
+    });
+  }),
   posts: procedure
     .input(target.extend({ offset: z.number().int().min(0).max(100_000) }))
     .query(({ input }) =>

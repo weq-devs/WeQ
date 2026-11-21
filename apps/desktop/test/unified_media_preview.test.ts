@@ -21,12 +21,14 @@ import {
   TransferActivityContext,
 } from '../src/renderer/src/lib/transferActivity';
 import { useViewState } from '../src/renderer/src/state/view';
+import { QzoneVideoGrid } from '../src/renderer/src/views/QzoneVideoGrid';
 
 const mocks = vi.hoisted(() => ({
   ocr: vi.fn(),
   page: vi.fn(),
   bound: false,
   configId: 'fixture-a',
+  exportVideos: vi.fn(async (_input: unknown) => 'task'),
 }));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
@@ -35,10 +37,16 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
       : null,
     settings: { isLoading: false },
     isCurrent: () => true,
+    policy: { mode: 'before' },
   }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: { account: { mediaPreviewPage: { query: mocks.page } } },
+  client: {
+    account: {
+      mediaPreviewPage: { query: mocks.page },
+      qzone: { exportVideos: { mutate: mocks.exportVideos } },
+    },
+  },
   trpc: {
     useUtils: () => ({}),
     account: {
@@ -100,6 +108,48 @@ const key = (name: string) =>
       .dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true })),
   );
 const load = () => act(() => document.querySelector('img')!.dispatchEvent(new Event('load')));
+it('空间视频从所点封面预览，可切换相邻媒体，导出只提交勾选的视频', async () => {
+  mocks.bound = true;
+  const videos = ['甲', '乙', '丙'].map((title, index) => ({
+    id: String(index + 1),
+    title,
+    description: '',
+    uploadedAt: null,
+    coverUrl: `https://p.qpic.cn/cover-${index}`,
+    videoUrl: index === 0 ? '' : `https://cdn.video.qq.com/video-${index}`,
+  }));
+  act(() =>
+    root.render(
+      h(QzoneVideoGrid, {
+        videos,
+        selfUin: '10001',
+        hostUin: '10002',
+        configId: mocks.configId,
+        pageCount: 1,
+      }),
+    ),
+  );
+  act(() => host.querySelector<HTMLButtonElement>('button[title="乙"]')!.click());
+  const source = () => new URL(document.querySelector('video')!.src).searchParams.get('src');
+  expect(source()).toBe(videos[1]!.videoUrl);
+  act(() => button('下一项媒体').click());
+  expect(source()).toBe(videos[2]!.videoUrl);
+  key('ArrowLeft');
+  expect(source()).toBe(videos[1]!.videoUrl);
+  act(() => button('上一项媒体').click());
+  expect(document.querySelector('[role="dialog"] video')).toBeNull();
+  key('Escape');
+  act(() => button('选择视频 乙').click());
+  await act(async () => button('导出所选视频').click());
+  expect(mocks.exportVideos).toHaveBeenLastCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: mocks.configId,
+    hostUin: '10002',
+    items: [{ id: '2', name: '乙', url: videos[1]!.videoUrl }],
+    savePolicy: { mode: 'before' },
+  });
+});
+
 it('聊天灯箱命中本地原图时不显示下载，缺失时可从缩略图查看原图并重试', async () => {
   const pic = { type: 'pic', data: { fileToken: 'fixture', fileSize: 197453 } };
   const chat = galleryMedia([{ msgId: '4', sendTime: 1, elements: [pic, pic] }]);

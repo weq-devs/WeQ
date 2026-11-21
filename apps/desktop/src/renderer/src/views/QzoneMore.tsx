@@ -10,6 +10,7 @@ import { qzoneLinkTarget, qzoneMediaSource } from '../lib/qzone';
 import { client, trpc } from '../trpc/client';
 import { QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext, timeText } from './qzoneShared.shared';
+import { QzoneVideoGrid } from './QzoneVideoGrid';
 
 const shareCategories = {
   0: '全部',
@@ -94,6 +95,8 @@ function useMorePages<P extends Page>(
   const failure = error ?? query.error;
   return {
     first: pages[0],
+    pageCount: pages.length,
+    configId,
     items: [...items.values()] as P['items'],
     error: failure instanceof Error ? failure.message : failure ? '读取失败，请重试。' : '',
     loading: query.isFetching || (active && !configId && !error),
@@ -404,29 +407,19 @@ function Videos({ space }: { space: Space }) {
     client.account.qzone.videos.query({ ...input, offset }),
   );
   return (
-    <>
-      <div className="weq-qzn-space-videos">
-        {state.items.map((video) => (
-          <article className="weq-qzn-post" key={video.id}>
-            <QzoneMediaGrid images={[]} videos={[video]} />
-            {video.title ? (
-              <h3 className="weq-qzn-more-title" data-privacy-sensitive>
-                {video.title}
-              </h3>
-            ) : null}
-            {video.uploadedAt ? (
-              <time className="weq-qzn-status">{timeText(video.uploadedAt)}</time>
-            ) : null}
-            {video.description ? (
-              <p className="weq-qzn-content" data-privacy-sensitive>
-                {video.description}
-              </p>
-            ) : null}
-          </article>
-        ))}
-      </div>
+    <div className="weq-qzone-album-embedded">
+      {state.items.length ? (
+        <QzoneVideoGrid
+          key={state.configId}
+          selfUin={space.selfUin}
+          hostUin={space.hostUin}
+          configId={state.configId}
+          videos={state.items}
+          pageCount={state.pageCount}
+        />
+      ) : null}
       <PageEnd state={state} empty={state.first && !state.items.length ? '暂无视频' : ''} />
-    </>
+    </div>
   );
 }
 

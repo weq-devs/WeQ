@@ -196,11 +196,19 @@ async function probeMedia(
   }
 }
 
-async function planSource(services: AccountServices, source: MediaSaveSource, check: () => void) {
+type PlannedMedia = {
+  fileName: string;
+  fileSize?: number;
+  open: (signal: AbortSignal) => Promise<Response>;
+};
+
+async function planSource(
+  services: AccountServices,
+  source: MediaSaveSource,
+  check: () => void,
+): Promise<PlannedMedia> {
   if (source.kind === 'url') {
-    const fileName = await probeMedia(source.url, source.name, check);
-    check();
-    return { fileName, open: (signal: AbortSignal) => openUrl(source.url, signal, check) };
+    return planUrlMedia(source.url, source.name, check);
   }
   if (source.kind === 'group-file')
     return {
@@ -374,6 +382,38 @@ async function copyResponse(
 
 type MediaResumeRequest = Extract<ResumableResourceRequest, { type: 'media-file' }>;
 
+async function planUrlMedia(
+  url: string,
+  name: string | undefined,
+  check: () => void,
+  signal?: AbortSignal,
+) {
+  const fileName = await probeMedia(url, name, check, signal);
+  check();
+  return { fileName, open: (signal: AbortSignal) => openUrl(url, signal, check) };
+}
+
+export async function planUrlMediaExport(
+  url: string,
+  name: string,
+  check: () => void,
+  signal?: AbortSignal,
+) {
+  const plan = await planUrlMedia(url, name, check, signal);
+  const output = describeExportOutput(
+    { kind: 'file', name, fileName: plan.fileName },
+    { avatar: false, transcribe: false, ocr: false, dress: false },
+  );
+  if (output.kind !== 'file') throw new Error('媒体保存形态无效');
+  const fileName = exportOutputFileName(output);
+  return {
+    output,
+    fileName,
+    run: (context: ResourceExportRunContext, name = fileName) =>
+      savePlannedMedia(plan, name, context, check, output.extension),
+  };
+}
+
 /** URL 媒体在任务内部识别格式，并以原始格式写入任务暂存目录。 */
 export async function downloadUrlMedia(
   url: string,
@@ -381,22 +421,9 @@ export async function downloadUrlMedia(
   { directory, signal }: Pick<ResourceExportRunContext, 'directory' | 'signal'>,
   check: () => void,
 ): Promise<string> {
-  const probed = await probeMedia(url, name, check, signal);
-  const output = describeExportOutput(
-    { kind: 'file', name, fileName: probed },
-    { avatar: false, transcribe: false, ocr: false, dress: false },
-  );
-  if (output.kind !== 'file') throw new Error('媒体保存形态无效');
-  const fileName = exportOutputFileName(output);
-  signal.throwIfAborted();
-  const response = await openUrl(url, signal, check);
-  try {
-    check();
-    await copyResponse(response, join(directory, fileName), signal, output.extension);
-    return fileName;
-  } finally {
-    await closeResponse(response);
-  }
+  const plan = await planUrlMediaExport(url, name, check, signal);
+  const result = await plan.run({ directory, signal, progress() {} });
+  return result.fileName;
 }
 
 export async function runResumableMediaFile(
@@ -423,7 +450,7 @@ export async function runResumableMediaFile(
 }
 
 async function savePlannedMedia(
-  plan: Awaited<ReturnType<typeof planSource>>,
+  plan: PlannedMedia,
   fileName: string,
   context: ResourceExportRunContext,
   check: () => void,

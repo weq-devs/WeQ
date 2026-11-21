@@ -38,6 +38,7 @@ import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';
+import { QzoneAlbumTile } from './QzoneAlbumTile';
 import { MediaPreview, type PreviewMedia } from './MediaPreview';
 import { MediaTransferBadge, TransferRing, TransferSummary } from './TransferRing';
 import { useTransferProgress } from '../lib/transferActivity';
@@ -744,45 +745,16 @@ export function AlbumGridView({
         </div>
       )}
       <div className="weq-qzal-album-grid" {...multi.rootProps}>
-        {albums.map((album) => (
-          <div
-            key={album.id}
-            className={`weq-qzal-album-card${selection.selectedIds.has(albumKey(album)) ? ' is-checked' : ''}`}
-            {...multi.itemProps(albumKey(album))}
-          >
-            <button
-              type="button"
-              className={`weq-qzal-media-check${selection.selectedIds.has(albumKey(album)) ? ' is-on' : ''}`}
-              aria-label={`选择相册 ${album.name || '未命名相册'}`}
-              aria-pressed={selection.selectedIds.has(albumKey(album))}
-              onClick={() => multi.toggle(albumKey(album))}
-            >
-              {selection.selectedIds.has(albumKey(album)) ? <Check size={12} /> : null}
-            </button>
-            <button
-              type="button"
-              className="weq-qzal-album-open"
-              onClick={() => onOpen(album)}
-              title={album.name || '未命名相册'}
-            >
-              <span className="weq-qzal-album-cover weq-media-frame">
-                {album.coverUrl ? (
-                  <ShimmerImage
-                    mediaLoading
-                    src={albumMediaUrl(album.coverUrl)}
-                    alt="相册封面"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <span className="weq-qzal-album-cover-empty">
-                    <Images size={22} />
-                  </span>
-                )}
-              </span>
-              <span className="weq-qzal-album-meta">
-                <strong>{album.name || '未命名相册'}</strong>
-                <small>
+        {albums.map((album) => {
+          const key = albumKey(album);
+          return (
+            <QzoneAlbumTile
+              key={album.id}
+              name={album.name || '未命名相册'}
+              cover={album.coverUrl ? albumMediaUrl(album.coverUrl) : ''}
+              coverAlt="相册"
+              subtitle={
+                <>
                   <span className="weq-number weq-number-inherit">{album.mediaCount ?? 0}</span>{' '}
                   个媒体
                   {album.desc ? (
@@ -791,11 +763,15 @@ export function AlbumGridView({
                       <span data-privacy-sensitive>{album.desc}</span>
                     </>
                   ) : null}
-                </small>
-              </span>
-            </button>
-          </div>
-        ))}
+                </>
+              }
+              selected={selection.selectedIds.has(key)}
+              onSelect={() => multi.toggle(key)}
+              onOpen={() => onOpen(album)}
+              selectionProps={multi.itemProps(key)}
+            />
+          );
+        })}
       </div>
     </div>
   );

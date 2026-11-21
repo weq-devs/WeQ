@@ -16,6 +16,42 @@ export function ContentReferenceToolbar({
   loaded: string[];
 }) {
   const request = useRequestContentExport();
+  return (
+    <ContentSelectionToolbar
+      selection={selection}
+      loaded={loaded}
+      exportDisabled={!selection.references.length || !request}
+      onExport={() =>
+        request?.({
+          owner,
+          scope: {
+            type: 'references',
+            items: selection.references.map((item) => ({ ...item })),
+          },
+        })
+      }
+    />
+  );
+}
+
+export function ContentSelectionToolbar({
+  selection,
+  loaded,
+  subject = '内容',
+  unit = '项',
+  exportDisabled,
+  onExport,
+}: {
+  selection: Pick<
+    ReturnType<typeof useContentMultiSelect>,
+    'selectedIds' | 'setSelectedIds' | 'selectionMode' | 'setSelectionMode'
+  >;
+  loaded: string[];
+  subject?: string;
+  unit?: string;
+  exportDisabled: boolean;
+  onExport: () => void;
+}) {
   const all = loaded.length > 0 && loaded.every((id) => selection.selectedIds.has(id));
   const button = (label: string, icon: ReactNode, run: () => void, disabled = false) => (
     <button
@@ -34,7 +70,7 @@ export function ContentReferenceToolbar({
       {!selection.selectionMode ? (
         button('多选', <ListChecks size={17} />, () => selection.setSelectionMode(true))
       ) : (
-        <MessageSelectionBar count={selection.selectedIds.size} unit="项" subject="内容">
+        <MessageSelectionBar count={selection.selectedIds.size} unit={unit} subject={subject}>
           {button(all ? '取消全选已加载项' : '全选已加载项', <CheckCheck size={17} />, () =>
             selection.setSelectedIds((previous) => {
               const next = new Set(previous);
@@ -55,19 +91,7 @@ export function ContentReferenceToolbar({
               return next;
             }),
           )}
-          {button(
-            '导出所选内容',
-            <Download size={17} />,
-            () =>
-              request?.({
-                owner,
-                scope: {
-                  type: 'references',
-                  items: selection.references.map((item) => ({ ...item })),
-                },
-              }),
-            !selection.references.length || !request,
-          )}
+          {button(`导出所选${subject}`, <Download size={17} />, onExport, exportDisabled)}
           {button('退出多选', <X size={17} />, () => selection.setSelectionMode(false))}
         </MessageSelectionBar>
       )}

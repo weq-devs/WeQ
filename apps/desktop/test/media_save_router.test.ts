@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, type MediaElement, type MsgService } from '@weq/service';
 import { makeSolidPng } from '@weqbot/protocol';
 import { mediaSaveRouter } from '../src/main/ipc/routers/media_save';
+import { qzoneRouter } from '../src/main/ipc/routers/qzone';
 import { mediaResourceRouter } from '../src/main/ipc/routers/media_resource';
 import { boundClientState } from '../src/main/ipc/routers/client_state';
 import {
@@ -28,8 +29,9 @@ const state = vi.hoisted(() => ({
   picked: null as string | null,
   afterPick: null as (() => void) | null,
   local: null as { fileName: string; localPath: string } | null,
-  response: (): Response => new Response('fixture', { headers: { 'content-type': 'text/plain' } }),
-  media: vi.fn(async (_request: Request): Promise<Response> => state.response()),
+  response: (_request?: Request): Response =>
+    new Response('fixture', { headers: { 'content-type': 'text/plain' } }),
+  media: vi.fn(async (request: Request): Promise<Response> => state.response(request)),
   asset: vi.fn(async (_request: Request): Promise<Response> => state.response()),
   fetch: vi.fn(
     async (_url: string, _opts?: { signal?: AbortSignal }): Promise<Response> => state.response(),
@@ -129,6 +131,72 @@ async function completed(id: string | null) {
   await vi.waitFor(() => expect(manager.getTask(id!)?.status).toBe('completed'));
   return manager.getTask(id!)!;
 }
+
+const video = { id: 'video', name: '合成视频', url: 'https://cdn.video.qq.com/a' };
+const cover = { id: 'cover', name: video.name, url: 'https://p.qpic.cn/cover' };
+const mp4 = Buffer.from('00000018667479706d703432000000006d70343269736f6d', 'hex');
+
+it('空间多选只导出选中的媒体，保留重名视频和封面的原始格式并报告单项失败', async () => {
+  state.response = (request) => {
+    const url = new URL(request!.url);
+    expect(url.hostname).toBe('album');
+    const src = url.searchParams.get('src');
+    if (src === video.url)
+      return new Response(new Uint8Array(mp4), { headers: { 'content-type': 'video/mp4' } });
+    if (src === cover.url)
+      return new Response(new Uint8Array(png), { headers: { 'content-type': 'image/png' } });
+    return new Response(null, { status: 404 });
+  };
+  const task = await completed(
+    await qzoneRouter.createCaller({}).exportVideos({
+      ...binding,
+      hostUin: '10002',
+      items: [
+        video,
+        video,
+        cover,
+        { id: 'second', name: video.name, url: video.url },
+        {
+          id: 'expired',
+          name: '已过期',
+          url: 'https://cdn.video.qq.com/expired',
+        },
+      ],
+      savePolicy: { mode: 'before', directory: root },
+    }),
+  );
+  expect(task.total).toBe(4);
+  expect(task.resource?.failed).toBe(1);
+  expect(task.bundleDir).toBeTruthy();
+  const files = join(task.bundleDir!, 'files');
+  expect(readFileSync(join(files, '合成视频.mp4'))).toEqual(mp4);
+  expect(readFileSync(join(files, '合成视频-2.mp4'))).toEqual(mp4);
+  expect(readFileSync(join(files, '合成视频.png'))).toEqual(Buffer.from(png));
+});
+
+it('空间单项用真实封面后缀选择文件，取消保存或切换数据源时不下载', async () => {
+  const exportCover = () =>
+    qzoneRouter.createCaller({}).exportVideos({
+      ...binding,
+      hostUin: '10002',
+      items: [cover],
+      savePolicy: { mode: 'before' },
+    });
+  expect(await exportCover()).toBeNull();
+  expect(state.media).toHaveBeenCalledTimes(1);
+  state.picked = join(root, '封面.png');
+  state.afterPick = () => {
+    state.configId = 'source-b';
+  };
+  await expect(exportCover()).rejects.toThrow('账号或数据源已切换');
+  expect(state.media).toHaveBeenCalledTimes(2);
+  state.configId = 'source-a';
+  state.afterPick = null;
+  const task = await completed(await exportCover());
+  expect(task.resource?.output?.extension).toBe('png');
+  expect(readFileSync(task.filePath!)).toEqual(Buffer.from(png));
+});
+
 it('图片复用原协议，按真实 PNG 类型保存，不把所有图片当 JPEG', async () => {
   state.response = () =>
     new Response(new Uint8Array(png), { headers: { 'content-type': 'image/jpeg' } });
