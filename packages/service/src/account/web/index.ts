@@ -98,10 +98,16 @@ import {
   getQzoneBlog,
   getQzoneBlogComments,
   getQzoneBlogs,
+  getQzoneGuestbook,
   getQzoneProfile,
+  getQzoneShares,
+  getQzoneShareComments,
+  getQzoneVideos,
+  getQzoneVisitors,
   setQzoneProfile,
   deleteQzoneMsg,
   type QzoneProfilePatch,
+  type QzoneShareCategory,
 } from '@weqbot/protocol';
 import { setQzoneLike, commentQzoneMsg, type QzoneCommentResult } from './qzone';
 import { replyQzoneMsg, forwardQzoneMsg, type QzoneReplyTarget } from './qzone_write_actions';
@@ -656,6 +662,36 @@ export class WebQueryService {
   qzoneBlogComments(targetUin: string, blogId: string, offset: number, signal?: AbortSignal) {
     return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
       getQzoneBlogComments(cred, targetUin, blogId, offset, 20, signal),
+    );
+  }
+
+  qzoneShares(targetUin: string, category: QzoneShareCategory, page: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneShares(cred, targetUin, category, page, signal),
+    );
+  }
+
+  qzoneShareComments(targetUin: string, shareId: string, page: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneShareComments(cred, targetUin, shareId, page, signal),
+    );
+  }
+
+  qzoneVisitors(targetUin: string, page: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneVisitors(cred, targetUin, page, signal),
+    );
+  }
+
+  qzoneGuestbook(targetUin: string, offset: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneGuestbook(cred, targetUin, offset, signal),
+    );
+  }
+
+  qzoneVideos(targetUin: string, offset: number, signal?: AbortSignal) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) =>
+      getQzoneVideos(cred, targetUin, offset, signal),
     );
   }
 

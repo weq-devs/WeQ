@@ -95,6 +95,7 @@ import {
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzoneSpaceHome } from './QzoneSpaceHome';
 import { QzoneBlogs } from './QzoneBlogs';
+import { QzoneMore, moreSpacePanes, type QzoneMorePane } from './QzoneMore';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
@@ -961,7 +962,8 @@ function SpaceContent({
   const openProfile = useContext(QzoneProfileContext);
   const [ownerLabel] = useState(nickname || hostUin);
   const handledAlbum = useRef<string | null>(null);
-  const [pane, setPane] = useState<'home' | 'posts' | 'blogs' | 'albums'>('home');
+  type Pane = 'home' | 'posts' | 'blogs' | 'albums' | QzoneMorePane;
+  const [pane, setPane] = useState<Pane>('home');
   useMobileBack(
     active && pane === 'albums',
     () => setPane('posts'),
@@ -969,7 +971,7 @@ function SpaceContent({
     () => document.querySelector<HTMLElement>('.weq-qzn-owner-space:not([hidden])'),
   );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
-  const [refreshes, setRefreshes] = useState({ home: 0, posts: 0, blogs: 0, albums: 0 });
+  const [refreshes, setRefreshes] = useState<Partial<Record<Pane, number>>>({});
   useEffect(() => {
     if (
       !albumRequest ||
@@ -985,7 +987,7 @@ function SpaceContent({
   useEffect(() => {
     if (previousRefresh.current === refreshKey) return;
     previousRefresh.current = refreshKey;
-    setRefreshes((current) => ({ ...current, [pane]: current[pane] + 1 }));
+    setRefreshes((current) => ({ ...current, [pane]: (current[pane] ?? 0) + 1 }));
   }, [refreshKey, pane]);
   return (
     <div className="weq-qzn-owner-space" hidden={!active}>
@@ -1021,6 +1023,16 @@ function SpaceContent({
         >
           相册
         </button>
+        {(Object.keys(moreSpacePanes) as QzoneMorePane[]).map((key) => (
+          <button
+            key={key}
+            type="button"
+            aria-current={pane === key ? 'page' : undefined}
+            onClick={() => setPane(key)}
+          >
+            {moreSpacePanes[key]}
+          </button>
+        ))}
         {openProfile ? (
           <div className="weq-qzn-owner-profile">
             <QzonePersonIdentity uin={hostUin} nickname={ownerLabel} onSpace={onSpace} size={24}>
@@ -1029,14 +1041,14 @@ function SpaceContent({
           </div>
         ) : null}
       </nav>
-      <QzonePage active={active && pane === 'home'} refreshKey={refreshes.home}>
+      <QzonePage active={active && pane === 'home'} refreshKey={refreshes.home ?? 0}>
         <QzoneSpaceHome
           key={`${selfUin}:${hostUin}:${refreshes.home}`}
           selfUin={selfUin}
           hostUin={hostUin}
         />
       </QzonePage>
-      <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts}>
+      <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts ?? 0}>
         <div className="weq-qzn-timeline">
           <Posts
             selfUin={selfUin}
@@ -1047,7 +1059,7 @@ function SpaceContent({
           />
         </div>
       </QzonePage>
-      <QzonePage active={active && pane === 'blogs'} refreshKey={refreshes.blogs}>
+      <QzonePage active={active && pane === 'blogs'} refreshKey={refreshes.blogs ?? 0}>
         <QzoneBlogs
           key={hostUin}
           selfUin={selfUin}
@@ -1056,10 +1068,15 @@ function SpaceContent({
           onSpace={onSpace}
         />
       </QzonePage>
+      {(Object.keys(moreSpacePanes) as QzoneMorePane[]).map((key) => (
+        <QzonePage key={key} active={active && pane === key} refreshKey={refreshes[key] ?? 0}>
+          <QzoneMore pane={key} selfUin={selfUin} hostUin={hostUin} onSpace={onSpace} />
+        </QzonePage>
+      ))}
       {visitedAlbums ? (
         <QzonePage
           active={active && pane === 'albums'}
-          refreshKey={refreshes.albums}
+          refreshKey={refreshes.albums ?? 0}
           pauseReadsDuringNavigation={false}
         >
           <QzoneAlbums

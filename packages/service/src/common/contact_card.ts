@@ -9,6 +9,7 @@ export const CONTACT_CARD_FIELDS = [
   ['constellation', '星座', false],
   ['zodiac', '生肖', false],
   ['bloodType', '血型', false],
+  ['qzoneRelationship', '感情状况', false],
   ['region', '所在地', true],
   ['occupation', '职业', false],
   ['school', '学校', true],

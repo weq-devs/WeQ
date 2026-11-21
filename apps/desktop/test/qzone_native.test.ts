@@ -1,12 +1,19 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   ctx: {} as { services?: unknown; account?: unknown },
   imageValid: true,
+  pickSaveTarget: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => ({ getAppContext: () => mocks.ctx }));
 vi.mock('@weq/service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weq/service')>()),
-  getHost: () => ({ validateImageBuffer: () => mocks.imageValid }),
+  getHost: () => ({
+    validateImageBuffer: () => mocks.imageValid,
+    pickSaveTarget: mocks.pickSaveTarget,
+  }),
 }));
 import { qzoneRouter } from '../src/main/ipc/routers/qzone';
 import { qzoneMediaSource, mergeQzonePosts } from '../src/renderer/src/lib/qzone';
@@ -21,7 +28,7 @@ let services: {
 const api = qzoneRouter.createCaller({});
 beforeEach(() => {
   services = {
-    accountConfig: { getRecord: vi.fn(() => ({ qqOnline: true, qqPid: 1 })) },
+    accountConfig: { getRecord: vi.fn(() => ({ qqOnline: true, qqPid: 1, configId: 'live' })) },
     webQuery: {
       getQzoneMsgList: vi.fn(async () => ({
         total: 1,
@@ -78,11 +85,49 @@ beforeEach(() => {
   };
   mocks.ctx = { services, account: { context: { uin: selfUin } } };
   mocks.imageValid = true;
+  mocks.pickSaveTarget.mockReset();
 });
 afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('native Qzone boundary', () => {
+  it('按所选分类导出全部分享并去重，遇到重复页不覆盖已保存文件', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'weq-shares-test-'));
+    try {
+      const path = join(directory, 'shares.json');
+      mocks.pickSaveTarget.mockResolvedValue({ path, downloadId: null });
+      const input = {
+        selfUin,
+        hostUin,
+        requestId: query.requestId,
+        expectedAccountConfigId: 'live',
+        category: 4 as const,
+      };
+      const entry = { id: '1', memo: '附言', originalUrl: 'https://example.org/post' };
+      const list = vi
+        .fn()
+        .mockResolvedValueOnce({ items: [entry], next: 2 })
+        .mockResolvedValueOnce({ items: [entry, { ...entry, id: '2' }], next: null });
+      services.webQuery.qzoneShares = list;
+      await expect(api.exportShares(input)).resolves.toEqual({ path, downloadUrl: null, count: 2 });
+      expect(list).toHaveBeenNthCalledWith(2, hostUin, 4, 2, expect.any(AbortSignal));
+      const saved = await readFile(path, 'utf8');
+      expect(JSON.parse(saved)).toMatchObject({
+        version: 1,
+        hostUin,
+        category: 4,
+        items: [entry, { id: '2' }],
+      });
+      list.mockResolvedValue({ items: [{ id: '3' }], next: 2 });
+      await expect(api.exportShares(input)).rejects.toThrow('重复返回分享页');
+      expect(await readFile(path, 'utf8')).toBe(saved);
+      await expect(
+        api.exportShares({ ...input, expectedAccountConfigId: 'other' }),
+      ).rejects.toThrow('账号数据源已切换');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it('推预览准确绑定当前账号和帖，刷新复用详情服务而不返回完整原件', async () => {
     const input = {
       selfUin,
@@ -281,6 +326,7 @@ describe('native Qzone boundary', () => {
     await expect(api.uploadImage({ selfUin, base64: 'YWJj' })).rejects.toThrow('图片');
     expect(services.webQuery.uploadQzoneImage).not.toHaveBeenCalled();
     mocks.imageValid = true;
+    mocks.pickSaveTarget.mockReset();
     expect(await api.uploadImage({ selfUin, base64: 'YWJj' })).toEqual({ richval: ',synthetic' });
   });
 });

@@ -1,8 +1,7 @@
 /** Native Qzone UI: only already implemented web capabilities are exposed. */
-import { OperationError } from '@weq/service';
-
+import { getHost, OperationError, qzoneFeedSearchRecord, writeFileAtomic } from '@weq/service';
+import { QZONE_SHARE_CATEGORIES, type QzoneShareCategory } from '@weqbot/protocol/web';
 import { z } from 'zod';
-import { getHost, qzoneFeedSearchRecord } from '@weq/service';
 import { rememberQzoneAlbums, rememberQzonePosts } from '../../search_content';
 import { withQzonePaginationTimeout } from '@weq/service/qzone-pagination';
 import { getAppContext, type AccountServices } from '../../context/app_context';
@@ -13,9 +12,13 @@ const account = z.object({ selfUin: uin });
 const read = account.extend({ requestId: z.string().uuid() });
 const target = read.extend({ hostUin: uin });
 const post = target.extend({ tid: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/) });
-const blogTarget = target.extend({ expectedAccountConfigId: z.string().min(1) });
-const blog = blogTarget.extend({ blogId: z.string().regex(/^[1-9]\d{0,15}$/) });
-const blogOffset = z.number().int().min(0).max(100_000);
+const boundTarget = target.extend({ expectedAccountConfigId: z.string().min(1) });
+const category = z.custom<QzoneShareCategory>((value) =>
+  QZONE_SHARE_CATEGORIES.some((candidate) => value === candidate),
+);
+const pageNumber = z.number().int().min(1).max(100_000);
+const blog = boundTarget.extend({ blogId: z.string().regex(/^[1-9]\d{0,15}$/) });
+const contentOffset = z.number().int().min(0).max(100_000);
 const pending = new Map<string, { services: AccountServices; controller: AbortController }>();
 const publishing = new WeakSet<AccountServices>();
 const archiveWriting = new WeakSet<AccountServices>();
@@ -53,13 +56,13 @@ async function request<T>(
   }
 }
 
-function readBlog<T>(
-  input: z.infer<typeof blogTarget>,
+function readBound<T>(
+  input: z.infer<typeof boundTarget>,
   run: (services: AccountServices, signal: AbortSignal) => Promise<T>,
 ) {
   return request(input, (services, signal) => {
     if (services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId)
-      throw new Error('账号数据源已切换，请重新打开日志。');
+      throw new Error('账号数据源已切换，请重新打开空间。');
     return run(services, signal);
   });
 }
@@ -206,24 +209,103 @@ export const qzoneRouter = router({
       ),
     ),
   blogs: procedure
-    .input(blogTarget.extend({ offset: blogOffset }))
+    .input(boundTarget.extend({ offset: contentOffset }))
     .query(({ input }) =>
-      readBlog(input, (services, signal) =>
+      readBound(input, (services, signal) =>
         services.webQuery.qzoneBlogs(input.hostUin, input.offset, signal),
       ),
     ),
   blog: procedure
     .input(blog)
     .query(({ input }) =>
-      readBlog(input, (services, signal) =>
+      readBound(input, (services, signal) =>
         services.webQuery.qzoneBlog(input.hostUin, input.blogId, signal),
       ),
     ),
   blogComments: procedure
-    .input(blog.extend({ offset: blogOffset }))
+    .input(blog.extend({ offset: contentOffset }))
     .query(({ input }) =>
-      readBlog(input, (services, signal) =>
+      readBound(input, (services, signal) =>
         services.webQuery.qzoneBlogComments(input.hostUin, input.blogId, input.offset, signal),
+      ),
+    ),
+  shares: procedure
+    .input(boundTarget.extend({ category, page: pageNumber }))
+    .query(({ input }) =>
+      readBound(input, (services, signal) =>
+        services.webQuery.qzoneShares(input.hostUin, input.category, input.page, signal),
+      ),
+    ),
+  shareComments: procedure
+    .input(boundTarget.extend({ shareId: z.string().regex(/^\d{1,32}$/), page: pageNumber }))
+    .query(({ input }) =>
+      readBound(input, (services, signal) =>
+        services.webQuery.qzoneShareComments(input.hostUin, input.shareId, input.page, signal),
+      ),
+    ),
+  exportShares: procedure.input(boundTarget.extend({ category })).mutation(async ({ input }) => {
+    const services = online(input.selfUin);
+    if (services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId)
+      throw new Error('账号数据源已切换，请重新打开空间。');
+    const host = getHost();
+    const target = await host.pickSaveTarget({
+      defaultName: `QQ空间分享-${input.hostUin}-${input.category}-${Date.now()}.json`,
+      extension: 'json',
+      locationKey: 'qzone-shares',
+    });
+    if (!target) return null;
+    const items = await readBound(input, async (services, signal) => {
+      const shares = new Map<
+        string,
+        Awaited<ReturnType<typeof services.webQuery.qzoneShares>>['items'][number]
+      >();
+      let page: number | null = 1;
+      while (page !== null) {
+        signal.throwIfAborted();
+        const result = await services.webQuery.qzoneShares(
+          input.hostUin,
+          input.category,
+          page,
+          signal,
+        );
+        const count = shares.size;
+        for (const share of result.items) if (!shares.has(share.id)) shares.set(share.id, share);
+        if (page > 1 && count === shares.size)
+          throw new Error('QQ 空间重复返回分享页，导出未完成，请重试。');
+        page = result.next;
+      }
+      return [...shares.values()];
+    });
+    if (online(input.selfUin) !== services) throw new Error('账号已切换，导出已取消。');
+    await writeFileAtomic(
+      target.path,
+      `${JSON.stringify({ version: 1, hostUin: input.hostUin, category: input.category, items }, null, 2)}\n`,
+    );
+    return {
+      path: target.downloadId ? null : target.path,
+      downloadUrl: target.downloadId ? `/_download/${target.downloadId}` : null,
+      count: items.length,
+    };
+  }),
+  visitors: procedure
+    .input(boundTarget.extend({ page: pageNumber }))
+    .query(({ input }) =>
+      readBound(input, (services, signal) =>
+        services.webQuery.qzoneVisitors(input.hostUin, input.page, signal),
+      ),
+    ),
+  guestbook: procedure
+    .input(boundTarget.extend({ offset: contentOffset }))
+    .query(({ input }) =>
+      readBound(input, (services, signal) =>
+        services.webQuery.qzoneGuestbook(input.hostUin, input.offset, signal),
+      ),
+    ),
+  videos: procedure
+    .input(boundTarget.extend({ offset: contentOffset }))
+    .query(({ input }) =>
+      readBound(input, (services, signal) =>
+        services.webQuery.qzoneVideos(input.hostUin, input.offset, signal),
       ),
     ),
   posts: procedure

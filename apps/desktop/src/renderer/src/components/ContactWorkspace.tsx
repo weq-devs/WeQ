@@ -91,6 +91,7 @@ export function ContactWorkspace({
             'constellation',
             'zodiac',
             'bloodType',
+            'qzoneRelationship',
             'region',
             'occupation',
             'school',

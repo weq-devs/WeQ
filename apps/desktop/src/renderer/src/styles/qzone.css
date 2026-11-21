@@ -738,12 +738,44 @@
 }
 .weq-qzn-owner-navigation {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 12px 26px 0;
 }
 .weq-qzn-owner-navigation button[aria-current='page'] {
   color: var(--primary);
   background: var(--muted);
+}
+.weq-qzn-more-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.weq-qzn-more-toolbar select {
+  width: auto;
+}
+.weq-qzn-export-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.weq-qzn-more-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 600;
+}
+.weq-qzn-share-comments {
+  margin-top: 10px;
+}
+.weq-qzn-space-videos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 10px;
+}
+.weq-qzn-space-videos .weq-qzn-pictures {
+  max-width: 100%;
 }
 .weq-qzn-loading {
   display: flex;
