@@ -992,13 +992,17 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'list_conversations',
     description:
-      '列出最近会话（私聊与群聊），最新在前。用来给后续工具挑选目标会话——从返回的 conv/kind 接 get_messages / get_messages_by_date 读原文，或先看「最近在跟谁来往」。想按活跃量排行别用它（那用 rank_friends_by_activity / get_period_overview）。',
+      '列出最近会话，最新在前。可由 get_messages / get_messages_by_date 读取的会话会附 conv/kind；其他记录保留原始会话字段。想按活跃量排行用 rank_friends_by_activity / get_period_overview。',
     input: z.object({
       limit: z.number().int().min(1).max(200).default(50).describe('返回条数上限'),
     }),
     run: async ({ limit }) => {
       const contacts = await services().recentContacts.getRecentContact(limit);
-      return contacts.map(recentContactToWire);
+      return contacts.map((contact) => {
+        const row = recentContactToWire(contact);
+        const kind = convKindOf(row.chatType);
+        return kind && row.targetUid ? { ...row, conv: row.targetUid, kind } : row;
+      });
     },
   }),
 
