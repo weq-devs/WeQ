@@ -23,7 +23,15 @@ import { randomUUID } from 'node:crypto';
 import type { ManualReadChange } from './local_unread';
 import type { UnreadCountSource } from './unread_count_source';
 import { ImportantMessageStore } from './important_messages';
-import type { UnreadSentRange } from './roam_msg_cache';
+import type { RecallArchive } from './recall_archive';
+
+export interface UnreadSequenceRange {
+  peer: string;
+  kind: 'c2c' | 'group';
+  conv: string;
+  after: bigint;
+  through: bigint;
+}
 
 export type ReadReportState =
   | 'disabled'
@@ -71,7 +79,8 @@ export class UnreadInfoService {
   private readonly results = new Map<string, ResolvedUnreadInfo>();
   private readonly targets = new Map<string, UnreadInfoTarget>();
   private readonly confirmedSent = new Map<string, string[]>();
-  private readonly sentRefreshes = new Map<string, symbol>();
+  private readonly archivedRecalls = new Map<string, string[]>();
+  private readonly sequenceRefreshes = new Map<string, symbol>();
   private loading?: Promise<void>;
   private updatedAt = 0;
   private dirty = true;
@@ -99,7 +108,8 @@ export class UnreadInfoService {
     private readonly localOptions?: {
       statePath: string;
       readOnly?: boolean;
-      unreadSentSequences?: (ranges: UnreadSentRange[]) => Promise<Map<string, string[]>>;
+      unreadSentSequences?: (ranges: UnreadSequenceRange[]) => Promise<Map<string, string[]>>;
+      recallArchive?: Pick<RecallArchive, 'unreadRecalledSequences'>;
     },
     private readonly countSource?: UnreadCountSource,
   ) {
@@ -156,8 +166,17 @@ export class UnreadInfoService {
 
   /** 发送缓存写入后，即使 QQ 小表未变也重算对应会话。 */
   invalidateSent(kind: 'c2c' | 'group', uid: string): void {
-    if (this.disposed || !this.localOptions?.unreadSentSequences) return;
-    this.sentRefreshes.set(this.key({ chatType: kind === 'group' ? 2 : 1, uid }), Symbol());
+    if (this.localOptions?.unreadSentSequences) this.invalidateSequences(kind, uid);
+  }
+
+  /** 代理可能保留 QQ 原文，只更新独立留存库。 */
+  invalidateRecall(kind: 'c2c' | 'group', uid: string): void {
+    if (this.localOptions?.recallArchive) this.invalidateSequences(kind, uid);
+  }
+
+  private invalidateSequences(kind: 'c2c' | 'group', uid: string): void {
+    if (this.disposed) return;
+    this.sequenceRefreshes.set(this.key({ chatType: kind === 'group' ? 2 : 1, uid }), Symbol());
     this.invalidate();
   }
 
@@ -345,17 +364,22 @@ export class UnreadInfoService {
   }
 
   private resolve(row: UnreadInfoSnapshot): ResolvedUnreadInfo {
-    return this.local.resolve(row, this.confirmedSent.get(row.peer));
+    const archived = this.archivedRecalls.get(row.peer);
+    const snapshot = archived
+      ? { ...row, recalledSeqs: [...new Set([...(row.recalledSeqs ?? []), ...archived])] }
+      : row;
+    return this.local.resolve(snapshot, this.confirmedSent.get(row.peer));
   }
 
   private async applySnapshots(
     rows: UnreadInfoSnapshot[],
     accepts: (row: UnreadInfoSnapshot) => boolean,
   ): Promise<void> {
-    const versions = new Map(rows.map(({ peer }) => [peer, this.sentRefreshes.get(peer)]));
-    const ranges: UnreadSentRange[] = [];
+    const versions = new Map(rows.map(({ peer }) => [peer, this.sequenceRefreshes.get(peer)]));
+    const ranges: UnreadSequenceRange[] = [];
     const readSent = this.localOptions?.unreadSentSequences;
-    if (readSent) {
+    const archive = this.localOptions?.recallArchive;
+    if (readSent || archive) {
       for (const { chatType, uid, peer, msgSeq, localReadSeq, latestSeq } of rows) {
         if ((chatType !== 1 && chatType !== 2) || latestSeq === null) continue;
         const serverRead = BigInt(msgSeq ?? 0);
@@ -366,31 +390,43 @@ export class UnreadInfoService {
           ranges.push({ peer, kind: chatType === 1 ? 'c2c' : 'group', conv: uid, after, through });
       }
     }
-    const sent =
-      ranges.length && readSent
-        ? await withDatabasePriority(
-            'interactive',
-            () => readSent(ranges),
-            this.reads.signal,
-          ).catch(() => undefined)
-        : new Map<string, string[]>();
+    const empty = new Map<string, string[]>();
+    const [sent, recalled] = ranges.length
+      ? await withDatabasePriority(
+          'interactive',
+          () =>
+            Promise.all([
+              readSent ? readSent(ranges).catch(() => undefined) : empty,
+              archive ? archive.unreadRecalledSequences(ranges).catch(() => undefined) : empty,
+            ]),
+          this.reads.signal,
+        )
+      : [empty, empty];
     if (this.disposed) return;
-    const pending = new Set(sent ? [] : ranges.map(({ peer }) => peer));
+    const pending = new Set(sent && recalled ? [] : ranges.map(({ peer }) => peer));
     const changed: UnreadInfoTarget[] = [];
     for (const row of rows) {
-      if (!accepts(row) || versions.get(row.peer) !== this.sentRefreshes.get(row.peer)) continue;
-      if (pending.has(row.peer)) this.sentRefreshes.set(row.peer, Symbol());
-      else {
-        this.sentRefreshes.delete(row.peer);
+      if (!accepts(row) || versions.get(row.peer) !== this.sequenceRefreshes.get(row.peer))
+        continue;
+      const retry = pending.has(row.peer);
+      if (retry) this.sequenceRefreshes.set(row.peer, Symbol());
+      else this.sequenceRefreshes.delete(row.peer);
+      if (sent || !retry) {
         const sequences = sent?.get(row.peer);
         if (sequences?.length) this.confirmedSent.set(row.peer, sequences);
         else this.confirmedSent.delete(row.peer);
+      }
+      if (recalled || !retry) {
+        const sequences = recalled?.get(row.peer);
+        if (sequences?.length) this.archivedRecalls.set(row.peer, sequences);
+        else this.archivedRecalls.delete(row.peer);
       }
       const previous = this.results.get(row.peer);
       const result = this.resolve(row);
       if (
         previous?.unreadCount === result.unreadCount &&
         previous?.readSeq === result.readSeq &&
+        JSON.stringify(previous?.recalledSeqs) === JSON.stringify(result.recalledSeqs) &&
         JSON.stringify(this.snapshots.get(row.peer)) === JSON.stringify(row)
       )
         continue;
@@ -434,7 +470,7 @@ export class UnreadInfoService {
           rows.filter(
             (row) =>
               !row.readError &&
-              (this.sentRefreshes.has(row.peer) ||
+              (this.sequenceRefreshes.has(row.peer) ||
                 JSON.stringify(this.snapshots.get(row.peer)) !== JSON.stringify(row)),
           ),
           () => revision === this.manualRevision,

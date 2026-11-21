@@ -2,12 +2,14 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { NtHelperBinding, SqlValue } from '@weq/native';
 import type { C2cMsg, GroupMsg } from '@weq/db';
+import { scheduleDatabase } from '@weq/db';
 import { decodeMessage } from '@weqbot/protocol';
 import { decodePushEnvelope } from '@weqbot/protocol/push';
 import { wrapClientMessage } from '@weqbot/protocol/qq-sync';
 import type { RecallTarget, ObservedPush } from '@weqbot/protocol/qq-sync';
 import { toGapMessage, type GapFetchedMessage } from './gap_history';
 import { toRenderElements } from './msg_view';
+import type { UnreadSequenceRange } from './unread_info';
 
 type Native = Pick<NtHelperBinding, 'executeSql' | 'executeSqlWrite' | 'closeDb'>;
 type StoredRecall = RecallTarget & { at: number; localId?: string };
@@ -316,6 +318,43 @@ export class RecallArchive {
       [kind, conv, JSON.stringify(keys.map(([seq, id]) => `${seq}:${id}`))],
     );
     return rows.map((row) => markRetained(parse<GapFetchedMessage>(row[0])));
+  }
+
+  /** 只读取未读区间内已确认的撤回序号，无需解析留存正文。 */
+  async unreadRecalledSequences(ranges: UnreadSequenceRange[]): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>();
+    if (!ranges.length || !existsSync(this.path)) return result;
+    await this.prepare();
+    for (let offset = 0; offset < ranges.length; offset += 128) {
+      const batch = ranges.slice(offset, offset + 128);
+      const rows = await scheduleDatabase(
+        this.path,
+        () =>
+          this.nt.executeSql(
+            this.path,
+            `WITH targets(peer, kind, conv, lo, hi) AS (VALUES ${batch.map(() => '(?,?,?,?,?)').join(',')})
+             SELECT DISTINCT t.peer, s.seq FROM targets t
+             CROSS JOIN recall_snapshot s INDEXED BY recall_snapshot_match
+             WHERE s.kind=t.kind AND s.conv=t.conv AND s.seq>t.lo AND s.seq<=t.hi AND s.recalled=1
+             ORDER BY t.peer, s.seq`,
+            batch.flatMap(({ peer, kind, conv, after, through }) => [
+              peer,
+              kind,
+              conv,
+              after,
+              through,
+            ]),
+          ),
+        this.nt,
+      );
+      for (const [peer, seq] of rows) {
+        const key = String(peer);
+        const sequences = result.get(key) ?? [];
+        sequences.push(String(seq));
+        result.set(key, sequences);
+      }
+    }
+    return result;
   }
 
   async find(msgId: string): Promise<GapFetchedMessage | null> {

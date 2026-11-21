@@ -1980,6 +1980,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           ),
           onArchiveChanged: (message) => {
             if (getAppContext().account !== session) return;
+            this.services?.unreadInfo.invalidateRecall(message.kind, message.conv);
             dbEventBus.emit('roaming', {
               session,
               kind: message.kind,
@@ -2160,6 +2161,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               'unread.json',
             ),
             unreadSentSequences: (ranges) => gapHistory.unreadSentSequences(ranges),
+            recallArchive: antiRecall.archive,
           },
           createQqUnreadCountSource(platform.native.ntHelper, session.msgDbPath, () => {
             if (this.account !== session || this.accountIsStatic) return null;

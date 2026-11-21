@@ -106,7 +106,7 @@ export interface UnreadInfoSnapshot extends UnreadInfoResult {
   latestSenderUid?: string;
   /** 最新序号已确认只有撤回／拍一拍，不是新的正文。 */
   latestSeqNonMessage?: true;
-  /** 防撤回保留了原正文，但这些序号已收到撤回。 */
+  /** 已确认撤回的序号，用于未读减项及过滤对应提醒。 */
   recalledSeqs?: string[];
 
   readError?: true;
