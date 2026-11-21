@@ -53,12 +53,12 @@ export function startupWindowLayout(
   accountOpen: boolean,
   pending: boolean,
   config: Pick<UserConfigService, 'getStartupAutoEnter' | 'listAccountConfigs'> | undefined,
+  configId?: string,
 ): 'chat' | 'home' {
   if (accountOpen) return 'chat';
   if (!pending || !config) return 'home';
-  const target = config.getStartupAutoEnter();
-  return target &&
-    config.listAccountConfigs().some((account) => account.configId === target.configId)
+  const target = configId ?? config.getStartupAutoEnter()?.configId;
+  return target && config.listAccountConfigs().some((account) => account.configId === target)
     ? 'chat'
     : 'home';
 }
@@ -71,10 +71,11 @@ export async function openStartupAccount(
     'qqDataAccess' | 'testDatabaseKey' | 'openAccount' | 'openStaticAccount'
   >,
   isMac: boolean,
+  configId?: string,
 ): Promise<StartupResult> {
-  const target = config.getStartupAutoEnter();
+  const target = configId ?? config.getStartupAutoEnter()?.configId;
   const cfg = target
-    ? config.listAccountConfigs().find((account) => account.configId === target.configId)
+    ? config.listAccountConfigs().find((account) => account.configId === target)
     : undefined;
   if (!cfg) return { opened: false, page: null, error: null };
   if (!cfg.static && isMac) {

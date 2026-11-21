@@ -25,6 +25,7 @@ import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
+import { withAccountInstance } from '../account_instance_scope';
 import { ConversationInteractionBadges } from './conversation_interactions';
 import { webNotices, type WebNoticeEvent, type WebNoticePayload } from '../web/notices';
 import { MAIL_NOTICE, mailBannerCopy } from '../../shared/notification_copy';
@@ -1553,12 +1554,13 @@ export function initAppContext(fileRoot?: string): AppContext {
     nativeBuild,
   });
 
-  const platform =
+  const nativePlatform =
     process.platform === 'linux'
       ? createLinuxPlatform(bundle, () => readDataRootOverride(), resolveUid)
       : process.platform === 'darwin'
         ? createDarwinPlatform(bundle, () => readDataRootOverride(), resolveUid)
         : createWin32Platform(bundle, () => readDataRootOverride(), getQqProtocolExe);
+  const platform: Platform = { ...nativePlatform, appDataRoot: () => files.root };
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
@@ -4015,12 +4017,19 @@ export function initAppContext(fileRoot?: string): AppContext {
   const setAccount = ctx.setAccount.bind(ctx);
   const setStaticAccount = ctx.setStaticAccount.bind(ctx);
   const clearAccount = ctx.clearAccount.bind(ctx);
+  const openedUin = () => ctx.account?.context.uin;
   ctx.setAccount = (...args) =>
-    logRequest('account', 'account.open', 'operation', () => setAccount(...args));
+    logRequest('account', 'account.open', 'operation', () =>
+      withAccountInstance(args[0].uin, () => setAccount(...args), openedUin),
+    );
   ctx.setStaticAccount = (...args) =>
-    logRequest('account', 'account.open-static', 'operation', () => setStaticAccount(...args));
+    logRequest('account', 'account.open-static', 'operation', () =>
+      withAccountInstance(args[1].uin, () => setStaticAccount(...args), openedUin),
+    );
   ctx.clearAccount = (...args) =>
-    logRequest('account', 'account.close', 'operation', () => clearAccount(...args));
+    logRequest('account', 'account.close', 'operation', () =>
+      withAccountInstance(null, () => clearAccount(...args), openedUin),
+    );
   cached = ctx;
   return ctx;
 }

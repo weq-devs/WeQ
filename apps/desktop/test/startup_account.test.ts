@@ -74,6 +74,20 @@ it('自动进入目标有效时直接创建工作区尺寸，跳过、失效、�
   expect(startupWindowLayout(true, false, config)).toBe('chat');
 });
 
+it('独立实例打开启动参数指定的数据源，优先于自动进入设置', async () => {
+  const { config, caller, account } = fixture();
+  const other = { ...account, configId: 'other', uin: '20002', dataDir: '/fixture/other' };
+  config.listAccountConfigs.mockReturnValue([account, other]);
+  expect(startupWindowLayout(false, true, config, other.configId)).toBe('chat');
+  await expect(openStartupAccount(config, caller, false, other.configId)).resolves.toMatchObject({
+    opened: true,
+  });
+  expect(caller.openAccount).toHaveBeenCalledWith(
+    expect.objectContaining({ uin: other.uin, dataDir: other.dataDir }),
+  );
+  expect(config.getStartupAutoEnter).not.toHaveBeenCalled();
+});
+
 it('后台失败可由首屏展示，重载不重试、不重复弹错', async () => {
   const startup = new StartupAccount();
   const run = vi.fn(async () => {

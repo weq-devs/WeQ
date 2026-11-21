@@ -20,6 +20,7 @@ import { CALL_VIDEO_FRAME_CHANNEL, type CallVideoFrame } from '../shared/call_vi
 import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
 import { rendererRecoveryBridge } from './renderer_recovery';
 import { windowChromeBridge } from './window_chrome';
+import type { AccountInstanceBridge } from '../shared/account_instances';
 
 // Same CJS workaround as src/main/index.ts — electron-trpc 0.7's ESM
 // build statically imports `ipcMain` from 'electron', which is not
@@ -46,6 +47,10 @@ ipcRenderer.on('edit:undo', () => {
 ipcRenderer.send('edit:undo-ready');
 
 const weqBridge = {
+  accountInstances: {
+    list: () => ipcRenderer.invoke('account-instances:list'),
+    open: (configId) => ipcRenderer.invoke('account-instances:open', configId),
+  } satisfies AccountInstanceBridge,
   windowChrome: windowChromeBridge,
   rendererRecovery: rendererRecoveryBridge,
   authorization: {

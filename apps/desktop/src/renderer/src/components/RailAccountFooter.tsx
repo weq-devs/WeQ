@@ -26,6 +26,7 @@ import {
   Database,
   Smartphone,
   RefreshCw,
+  ExternalLink,
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { leaveAccountForBootstrap } from '../lib/leaveAccount';
@@ -255,6 +256,14 @@ export function RailAccountFooter({
     staleTime: 0,
     refetchOnMount: 'always',
   });
+  const instanceBridge =
+    typeof window === 'undefined' ? undefined : shellBridge()?.accountInstances;
+  const instanceConfigs = useQuery({
+    queryKey: ['desktop-account-instances'],
+    queryFn: () => instanceBridge?.list() ?? [],
+    enabled: open && !!instanceBridge,
+    staleTime: 0,
+  });
 
   // 当前打开的是哪一条账号记录 —— 必须按 configId 认，不能按 uin：同一个 QQ
   // 号可以同时存在「在线账号」和「静态账号」两条记录，只比 uin 会把另一条
@@ -302,8 +311,27 @@ export function RailAccountFooter({
     }
   }
 
+  async function openInInstance(configId: string): Promise<void> {
+    if (busy || !instanceBridge) return;
+    setBusy(true);
+    try {
+      await instanceBridge.open(configId);
+      setOpen(false);
+    } catch (error) {
+      showError('无法打开账号窗口', errMsg(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // configId 尚未取到时退回按 uin 过滤（旧行为），避免把当前账号也列出来。
-  const others = (configs.data ?? []).filter((c) =>
+  const localConfigs = new Map((configs.data ?? []).map((cfg) => [cfg.configId, cfg]));
+  const desktopAccounts = instanceBridge ? (instanceConfigs.data ?? []) : [];
+  const instances = new Map(desktopAccounts.map((cfg) => [cfg.configId, cfg]));
+  const accounts = new Map(
+    [...(configs.data ?? []), ...desktopAccounts].map((cfg) => [cfg.configId, cfg]),
+  );
+  const others = Array.from(accounts.values()).filter((c) =>
     currentConfigId ? c.configId !== currentConfigId : c.uin !== currentUin,
   );
 
@@ -389,50 +417,75 @@ export function RailAccountFooter({
               )
             ) : (
               <ul className="weq-rail-account-list">
-                {others.map((cfg) => (
-                  <li key={cfg.configId}>
-                    <button
-                      type="button"
-                      className="weq-rail-account-item"
-                      title={cfg.displayName || cfg.uin}
-                      onClick={() => void switchTo(cfg)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setCtxMenu({
-                          configId: cfg.configId,
-                          displayName: cfg.displayName || cfg.uin,
-                          anchor: e.currentTarget,
-                        });
-                      }}
-                      disabled={busy}
-                    >
-                      <span className="weq-acct-row-avatar-wrap">
-                        <QqAvatar uin={cfg.uin} url={cfg.avatarUrl} size={40} />
-                        {cfg.static && (
-                          <span
-                            className="weq-static-badge"
-                            title={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
-                            aria-label={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
-                          >
-                            {cfg.mobile ? (
-                              <Smartphone size={9} strokeWidth={2.2} aria-hidden />
-                            ) : (
-                              <Database size={9} strokeWidth={2.2} aria-hidden />
-                            )}
+                {others.map((cfg) => {
+                  const local = localConfigs.get(cfg.configId);
+                  const opensWindow = !local || instances.get(cfg.configId)?.running;
+                  const windowAction =
+                    opensWindow && instances.get(cfg.configId)?.running
+                      ? '转到窗口'
+                      : '在新窗口打开';
+                  return (
+                    <li key={cfg.configId} className="weq-rail-account-instance-row">
+                      <button
+                        type="button"
+                        className="weq-rail-account-item"
+                        title={opensWindow ? windowAction : cfg.displayName || cfg.uin}
+                        onClick={() =>
+                          void (!opensWindow && local
+                            ? switchTo(local)
+                            : openInInstance(cfg.configId))
+                        }
+                        onContextMenu={(e) => {
+                          if (!local) return;
+                          e.preventDefault();
+                          setCtxMenu({
+                            configId: cfg.configId,
+                            displayName: cfg.displayName || cfg.uin,
+                            anchor: e.currentTarget,
+                          });
+                        }}
+                        disabled={busy}
+                      >
+                        <span className="weq-acct-row-avatar-wrap">
+                          <QqAvatar uin={cfg.uin} url={cfg.avatarUrl} size={40} />
+                          {cfg.static && (
+                            <span
+                              className="weq-static-badge"
+                              title={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                              aria-label={cfg.mobile ? 'Android 手机备份账号' : '静态离线账号'}
+                            >
+                              {cfg.mobile ? (
+                                <Smartphone size={9} strokeWidth={2.2} aria-hidden />
+                              ) : (
+                                <Database size={9} strokeWidth={2.2} aria-hidden />
+                              )}
+                            </span>
+                          )}
+                        </span>
+                        <span className="weq-rail-account-item-text">
+                          <span className="weq-rail-account-item-name">
+                            {cfg.displayName || cfg.uin}
                           </span>
-                        )}
-                      </span>
-                      <span className="weq-rail-account-item-text">
-                        <span className="weq-rail-account-item-name">
-                          {cfg.displayName || cfg.uin}
+                          <span className="weq-rail-account-item-uin">
+                            <span className="weq-number weq-number-inherit">{cfg.uin}</span>
+                          </span>
                         </span>
-                        <span className="weq-rail-account-item-uin">
-                          <span className="weq-number weq-number-inherit">{cfg.uin}</span>
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                      </button>
+                      {instanceBridge && cfg.uin !== currentUin ? (
+                        <button
+                          type="button"
+                          className="weq-rail-account-instance-action"
+                          title={windowAction}
+                          aria-label={`${windowAction}：${cfg.displayName || cfg.uin}`}
+                          disabled={busy}
+                          onClick={() => void openInInstance(cfg.configId)}
+                        >
+                          <ExternalLink size={16} aria-hidden />
+                        </button>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <button

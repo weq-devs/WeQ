@@ -6,6 +6,8 @@ import { RailAccountFooter } from '../src/renderer/src/components/RailAccountFoo
 const fixture = vi.hoisted(() => ({
   mutate: vi.fn(),
   refetch: vi.fn(async () => ({ data: undefined })),
+  openInstance: vi.fn(async (_configId: string) => {}),
+  running: false,
   mode: 'ready' as 'ready' | 'loading' | 'empty' | 'error' | 'stale',
   accounts: Array.from({ length: 24 }, (_, i) => ({
     configId: `synthetic-${i}`,
@@ -18,7 +20,12 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ removeQueries: vi.fn() }),
-  useQuery: () => ({ data: { configured: false, available: false } }),
+  useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => ({
+    data:
+      queryKey[0] === 'desktop-account-instances'
+        ? fixture.accounts.map((account) => ({ ...account, running: fixture.running }))
+        : { configured: false, available: false },
+  }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path = ''): unknown =>
@@ -58,6 +65,8 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.mutate.mockClear();
   fixture.refetch.mockClear();
+  fixture.openInstance.mockClear();
+  fixture.running = false;
   fixture.mode = 'ready';
   host = document.createElement('div');
   document.body.append(host);
@@ -81,6 +90,19 @@ function popup() {
 }
 
 describe('账号菜单的公共浮层契约', () => {
+  it.each([false, true])('独立账号窗口操作保留当前会话，已启动=%s', async (running) => {
+    fixture.running = running;
+    vi.stubGlobal('weq', { accountInstances: { open: fixture.openInstance } });
+    open();
+    const label = running ? '转到窗口' : '在新窗口打开';
+    const action = popup().querySelector<HTMLButtonElement>(
+      `[aria-label="${label}：${fixture.accounts[0]!.displayName}"]`,
+    );
+    expect(action).not.toBeNull();
+    await act(async () => action!.click());
+    expect(fixture.openInstance).toHaveBeenCalledWith(fixture.accounts[0]!.configId);
+    expect(fixture.mutate).not.toHaveBeenCalled();
+  });
   it.each(['error', 'stale'] as const)(
     '读取失败不冒充空账号列表，%s 可重试并保留已有数据',
     (mode) => {

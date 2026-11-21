@@ -143,8 +143,23 @@ import { systemAuthService } from './system_auth';
 import { totpAuthService } from './totp_auth';
 import { screenshotPage } from './link_shot';
 import { guardStorageCleanupStartup } from './storage_cleanup';
+import { weqAppDataRoot } from '@weq/platform';
+import {
+  AccountInstances,
+  AccountInstanceBusy,
+  accountIsRunning,
+  focusAccountArg,
+  focusAccountTarget,
+  instanceArg,
+  instanceDirectories,
+  instanceTarget,
+  prepareInstanceAccount,
+  savedInstanceAccounts,
+  accountLaunchArgs,
+} from './account_instances';
+import { setAccountInstanceScope } from './account_instance_scope';
+import type { AccountInstanceInfo } from '../shared/account_instances';
 const moduleDir = dirname(fileURLToPath(import.meta.url));
-guardStorageCleanupStartup();
 
 // Wayland 会话默认走 XWayland（见 linux_window_backend.ts）：这里**不能**用
 // `appendSwitch`，ozone 后端必须在 Electron 启动参数里指定。开发时由
@@ -165,6 +180,53 @@ function relaunchForOzoneBackend(): void {
   app.exit(0);
 }
 relaunchForOzoneBackend();
+
+const defaultDataRoot = weqAppDataRoot();
+const accountTarget = instanceTarget(process.argv);
+const focusTarget = focusAccountTarget(process.argv);
+const accountDirectories = accountTarget
+  ? instanceDirectories(defaultDataRoot, accountTarget.uin)
+  : undefined;
+if (accountDirectories) {
+  fs.mkdirSync(accountDirectories.userData, { recursive: true, mode: 0o700 });
+  app.setPath('userData', accountDirectories.userData);
+  app.setPath('sessionData', accountDirectories.userData);
+}
+const accountInstances = new AccountInstances(defaultDataRoot, accountTarget?.uin);
+let instanceName: string | undefined;
+
+function launchAccountProcess(arg: string): Promise<void> {
+  const args = accountLaunchArgs(process.argv).filter((value) => value !== AUTOSTART_ARG);
+  const appImage = process.platform === 'linux' ? process.env.APPIMAGE : undefined;
+  const env = { ...process.env };
+  if (appImage) {
+    // 新实例有自己的 AppImage 挂载，父实例退出后资源仍可读取。
+    for (const key of [
+      'APPIMAGE',
+      'APPDIR',
+      'ARGV0',
+      'OWD',
+      'LD_LIBRARY_PATH',
+      'GSETTINGS_SCHEMA_DIR',
+      'CHROME_DESKTOP',
+      'EGL_PLATFORM',
+      'FC_FONTATIONS',
+    ])
+      delete env[key];
+  }
+  const child = spawn(appImage || process.execPath, [...args, arg], {
+    detached: true,
+    stdio: 'ignore',
+    env,
+  });
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
+}
 
 // Privileged-scheme registration must happen before app `ready`, and Electron
 // honors only ONE `registerSchemesAsPrivileged` call — register every custom
@@ -273,6 +335,7 @@ function buildTray(): void {
       openMainWindow,
       restart: restartFromMenu,
       quit: () => app.quit(),
+      title: instanceName,
     });
     logger.info('system tray created', { event: 'tray-create' });
   } catch (e) {
@@ -631,6 +694,7 @@ function createWindow(
     Boolean(getAppContext().account),
     desktopStartupAccount.pending,
     getAppContext().bootstrap?.userConfig,
+    accountTarget?.configId,
   ),
 ): BrowserWindow {
   const icon = resolveWindowIcon();
@@ -644,7 +708,7 @@ function createWindow(
     ...WINDOW_LAYOUTS[layout],
     useContentSize: true,
     show: false,
-    title: 'WeQ Desktop',
+    title: instanceName ?? 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
     titleBarStyle: process.platform === 'linux' && controls === 'native' ? 'default' : 'hidden',
@@ -659,6 +723,7 @@ function createWindow(
       webviewTag: true,
     },
   });
+  if (instanceName) win.on('page-title-updated', (event) => event.preventDefault());
   windowLayouts.set(win, layout);
   applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
   windowStyles.set(win, controls);
@@ -824,14 +889,15 @@ function createWindow(
   return win;
 }
 
-// Single-instance guard: with the app now living in the tray, a second launch
-// should just re-reveal the existing window rather than spawn another
-// background process. The non-primary instance quits immediately.
+// 独立账号有各自的 Electron 锁目录，重复启动交给已运行的对应进程。
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
+  if (!focusTarget) guardStorageCleanupStartup();
   app.on('second-instance', (_event, argv) => {
+    const focus = focusAccountTarget(argv);
+    if (focus && !accountInstances.owns(focus)) return;
     if (
       !argv.includes(AUTOSTART_ARG) ||
       (mainIpcHandler && getAppContext().bootstrap?.userConfig.getSettings().showWindowOnAutostart)
@@ -849,7 +915,30 @@ void app.whenReady().then(async () => {
     arch: process.arch,
   });
   if (!hasSingleInstanceLock) return;
+  if (focusTarget) {
+    app.exit(0);
+    return;
+  }
+  if (accountTarget) {
+    try {
+      accountInstances.claim(accountTarget.uin);
+      const record = prepareInstanceAccount(defaultDataRoot, accountTarget);
+      instanceName = `WeQ · ${record.displayName || record.uin}`;
+    } catch (error) {
+      if (error instanceof AccountInstanceBusy) {
+        await launchAccountProcess(focusAccountArg(accountTarget.uin)).catch((reason: unknown) =>
+          dialog.showErrorBox('无法唤出账号窗口', String(reason)),
+        );
+      } else {
+        dialog.showErrorBox('无法打开账号窗口', String(error));
+      }
+      app.exit(0);
+      return;
+    }
+  }
+  setAccountInstanceScope(accountInstances);
   const autostart =
+    !accountTarget &&
     app.isPackaged &&
     isAutostartLaunch(
       process.argv,
@@ -872,14 +961,15 @@ void app.whenReady().then(async () => {
   const stopNetwork = installDesktopNetwork();
   app.once('will-quit', stopNetwork);
   accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
-  await migrateLegacyAutostart().catch((error: unknown) => {
-    logger.warn('legacy daemon migration failed', {
-      event: 'legacy-daemon-migration-failed',
-      error: error instanceof Error ? error.message : String(error),
+  if (!accountTarget)
+    await migrateLegacyAutostart().catch((error: unknown) => {
+      logger.warn('legacy daemon migration failed', {
+        event: 'legacy-daemon-migration-failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
-  });
   if (isQuitting) return;
-  initAppContext();
+  initAppContext(accountDirectories?.data);
   void import('./data_saver')
     .then(async ({ refreshTransferPolicy }) => {
       await refreshTransferPolicy();
@@ -916,7 +1006,7 @@ void app.whenReady().then(async () => {
   userConfig?.getStartupPage();
   // 旧版安卓备份的 uin 是从资料库猜的，可能猜错；纠正它会连带改 configId，
   // 所以必须在账号打开之前、且在任何按 id 建目录的服务之前跑完。
-  if (userConfig) {
+  if (userConfig && !accountTarget) {
     await migrateStaticAccountIdentity(requirePlatform(), userConfig).catch((error: unknown) => {
       logger.warn('static account identity migration failed', {
         event: 'static-account-identity-migration-failed',
@@ -970,16 +1060,18 @@ void app.whenReady().then(async () => {
       web: () => new RemoteWebGateway(remoteRuntime.pairing, (auth) => webCore.entry(auth)),
       onRequest: openMainWindow,
     });
-    void remoteRuntime.resume().catch((error: unknown) =>
-      logger.warn('远程连接恢复失败', {
-        event: 'remote-resume-failed',
-        error: error instanceof Error ? error.message : '未知错误',
-      }),
-    );
-    if (desktopWebRuntime.status().autoStart) {
-      void desktopWebRuntime
-        .start()
-        .catch(() => logger.warn('Web 服务自动启动失败，可在设置中重试。'));
+    if (!accountTarget) {
+      void remoteRuntime.resume().catch((error: unknown) =>
+        logger.warn('远程连接恢复失败', {
+          event: 'remote-resume-failed',
+          error: error instanceof Error ? error.message : '未知错误',
+        }),
+      );
+      if (desktopWebRuntime.status().autoStart) {
+        void desktopWebRuntime
+          .start()
+          .catch(() => logger.warn('Web 服务自动启动失败，可在设置中重试。'));
+      }
     }
   }
   const logDirectory = getLogDir();
@@ -1044,6 +1136,55 @@ void app.whenReady().then(async () => {
   registerEditUndoIpc();
   registerEditContextMenu();
   registerCallVideoIpc();
+  const visibleAccountConfigs = () =>
+    new Map(
+      [
+        ...(accountTarget
+          ? savedInstanceAccounts(defaultDataRoot).filter(
+              (record) => record.uin !== accountTarget.uin,
+            )
+          : []),
+        ...(userConfig?.listAccountConfigs() ?? []),
+      ].map((record) => [record.configId, record]),
+    );
+  const assertAccountMenuSender = (event: Electron.IpcMainInvokeEvent) => {
+    if (
+      event.sender !== getMainWindow()?.webContents ||
+      event.senderFrame !== event.sender.mainFrame
+    )
+      throw new Error('账号窗口操作只在 WeQ 主窗口可用。');
+  };
+  ipcMain.handle('account-instances:list', (event): AccountInstanceInfo[] => {
+    assertAccountMenuSender(event);
+    const running = new Map<string, boolean>();
+    return Array.from(visibleAccountConfigs().values(), (record) => {
+      if (!running.has(record.uin))
+        running.set(
+          record.uin,
+          !accountInstances.owns(record.uin) && accountIsRunning(defaultDataRoot, record.uin),
+        );
+      const { configId, uin, displayName, avatarUrl, static: isStatic, mobile } = record;
+      return {
+        configId,
+        uin,
+        displayName,
+        avatarUrl,
+        static: isStatic,
+        mobile,
+        running: running.get(uin) === true,
+      };
+    });
+  });
+  ipcMain.handle('account-instances:open', async (event, configId: unknown) => {
+    assertAccountMenuSender(event);
+    const record = typeof configId === 'string' ? visibleAccountConfigs().get(configId) : undefined;
+    if (!record) throw new Error('找不到此账号的已保存数据源。');
+    if (accountInstances.owns(record.uin)) {
+      openMainWindow();
+      return;
+    }
+    await launchAccountProcess(instanceArg(record));
+  });
 
   app.on('browser-window-created', (_, win) => {
     optimizer.watchWindowShortcuts(win);
@@ -1083,6 +1224,7 @@ void app.whenReady().then(async () => {
         userConfig,
         appRouter.createCaller({}).bootstrap,
         process.platform === 'darwin',
+        accountTarget?.configId,
       ),
     );
   mainWindowLifecycle.open({
@@ -1111,7 +1253,7 @@ void app.whenReady().then(async () => {
   // Silent background update check (packaged builds only). Result is cached and
   // pushed to the renderer via the `update.onEvent` subscription → settings red
   // dot. Deferred so it never competes with first paint; failures are ignored.
-  startAutomaticUpdateChecks();
+  if (!accountTarget) startAutomaticUpdateChecks();
 
   app.on('activate', (_event, hasVisibleWindows) => {
     // 已有可见窗口时由 macOS 恢复窗口顺序，不让主窗口盖过工具窗口。

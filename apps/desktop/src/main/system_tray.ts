@@ -7,12 +7,14 @@ export function createSystemTray({
   openMainWindow,
   restart,
   quit,
+  title = 'WeQ',
   platform = process.platform,
 }: {
   locale: string;
   openMainWindow: () => void;
   restart: () => void;
   quit: () => void;
+  title?: string;
   platform?: NodeJS.Platform;
 }): Tray {
   const labels = nativeMenuLabels(locale);
@@ -39,7 +41,7 @@ export function createSystemTray({
     { label: labels.quit, click: quit },
   ]);
   const tray = new Tray(image);
-  tray.setToolTip('WeQ');
+  tray.setToolTip(title);
   // macOS 的 setContextMenu 会接管左键点击；仅在右键事件中手动弹出。
   if (platform === 'darwin') tray.on('right-click', () => tray.popUpContextMenu(menu));
   else tray.setContextMenu(menu);
