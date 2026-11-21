@@ -10,7 +10,7 @@ export function QzoneCommentRow({
   time,
   onSpace,
   name,
-  reply,
+  inline,
   actions,
   afterMeta,
   className,
@@ -19,10 +19,10 @@ export function QzoneCommentRow({
 }: {
   uin: string;
   nickname: string;
-  time: number | string | null;
+  time: number;
   onSpace: (uin: string, nickname?: string) => void;
   name?: ReactNode;
-  reply?: { recipient?: ReactNode; content: ReactNode };
+  inline?: ReactNode;
   actions?: ReactNode;
   afterMeta?: ReactNode;
   className?: string;
@@ -35,10 +35,7 @@ export function QzoneCommentRow({
     </span>
   );
   return (
-    <div
-      className={`weq-qzn-comment${reply ? ' is-reply' : ''}${className ? ` ${className}` : ''}`}
-      ref={rowRef}
-    >
+    <div className={className ? `weq-qzn-comment ${className}` : 'weq-qzn-comment'} ref={rowRef}>
       {uin ? (
         <QzoneProfileAvatar size={26} uin={uin} nickname={nickname} onSpace={onSpace} />
       ) : (
@@ -53,17 +50,12 @@ export function QzoneCommentRow({
           ) : (
             label
           )}
-          {reply ? (
-            <>
-              <span> 回复{reply.recipient ? <> {reply.recipient}</> : null}：</span>
-              <span className="weq-qzn-reply-message">{reply.content}</span>
-            </>
-          ) : null}
+          {inline}
         </div>
         {children}
         {time || actions ? (
           <div className="weq-qzn-comment-meta">
-            <time>{typeof time === 'string' ? time : timeText(time ?? 0)}</time>
+            <time>{timeText(time)}</time>
             {actions}
           </div>
         ) : null}

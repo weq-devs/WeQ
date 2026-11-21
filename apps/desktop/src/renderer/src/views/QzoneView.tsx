@@ -2629,12 +2629,15 @@ function Interaction({
         time={comment.time}
         onSpace={onSpace}
         name={<QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />}
-        className={focusedComment?.id === comment.id ? 'is-notification-target' : undefined}
+        className={`${comment.isReply ? 'is-reply' : ''}${focusedComment?.id === comment.id ? ' is-notification-target' : ''}`.trim()}
         rowRef={focusedComment?.id === comment.id ? focusRef : undefined}
-        reply={
-          comment.isReply
-            ? {
-                recipient: comment.replyToUin ? (
+        inline={
+          comment.isReply ? (
+            <>
+              <span>
+                {' '}
+                回复{' '}
+                {comment.replyToUin ? (
                   <QzonePersonButton
                     uin={comment.replyToUin}
                     nickname={comment.replyToNickname}
@@ -2647,10 +2650,14 @@ function Interaction({
                   </QzonePersonButton>
                 ) : (
                   <QzoneName content={comment.replyToNickname || ''} uin={comment.replyToUin} />
-                ),
-                content: <QzoneText content={comment.content} onSpace={onSpace} />,
-              }
-            : undefined
+                )}
+                ：
+              </span>
+              <span className="weq-qzn-reply-message">
+                <QzoneText content={comment.content} onSpace={onSpace} />
+              </span>
+            </>
+          ) : null
         }
         actions={
           <button type="button" disabled={!root} onClick={() => root && onReply?.(source, root)}>
