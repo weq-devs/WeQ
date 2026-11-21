@@ -472,6 +472,7 @@ export async function downloadMailFile(
   destination: string,
   signal: AbortSignal,
   request: MailDownloadRequest = requestMailDownload,
+  maxBytes = MAIL_MAX_FILE_BYTES,
 ): Promise<void> {
   const source = registry.get(id);
   const check =
@@ -524,7 +525,7 @@ export async function downloadMailFile(
           bytes += chunk.length;
           hash?.update(chunk);
           done(
-            bytes > MAIL_MAX_FILE_BYTES
+            bytes > Math.min(maxBytes, MAIL_MAX_FILE_BYTES)
               ? new MailFailure('business', '附件超过下载大小上限。')
               : null,
             chunk,

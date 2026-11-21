@@ -37,7 +37,7 @@ function content(
   domain: ContentDomain,
   label: string,
   summary: string,
-  details: Partial<Pick<FeatureDefinition, 'context' | 'docs'>> = {},
+  details: Partial<Pick<FeatureDefinition, 'context' | 'docs' | 'tools'>> = {},
 ) {
   return defineFeature(`${domain}.${id}`, domain, label, [], {
     context: ['account', 'content'],
@@ -59,6 +59,7 @@ export const CONTENT_FEATURES = [
   ),
   content('message.read', 'mail', '查看邮件', '从邮箱列表选择邮件以读正文和附件。', {
     docs: ['guide/qqmail.md#feature-mail.message.read'],
+    tools: ['get_mail_message'],
   }),
   content('compose', 'mail', '写信与草稿', '在邮箱使用已有编辑器，保留草稿保存与退出确认。', {
     context: ['account'],
@@ -71,6 +72,7 @@ export const CONTENT_FEATURES = [
     '在已打开的邮件中按当前端的保存流程另存附件。',
     {
       docs: ['guide/qqmail.md#feature-mail.attachment.save'],
+      tools: ['download_mail_attachment'],
     },
   ),
   content('search', 'collections', '搜索收藏', '在现有收藏页按关键词与材料类型查找条目。', {

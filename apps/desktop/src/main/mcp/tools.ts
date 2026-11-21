@@ -21,7 +21,8 @@ import { databasePerformance } from '@weq/db';
 import { listSettings } from '@weq/service/settings-catalog';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { fullModeAllowed } from '../context/full_mode';
-import { assertAccountToolScope } from './account_scope';
+import { assertAccountToolScope, toolExecutionOptions } from './account_scope';
+import { mailAttachmentForTool, mailDetailForTool, mailSummaryForTool } from './mail_tools';
 import {
   listFeaturesInput,
   getFeatureInput,
@@ -123,6 +124,13 @@ function services(): AccountServices {
     throw new Error('当前没有已登录的账号，请先在 WeQ 里进入一个账号。');
   }
   return svc;
+}
+
+async function withMail<T>(run: (mail: AccountServices['mail']) => Promise<T>): Promise<T> {
+  const account = services();
+  const result = await run(account.mail);
+  if (toolContext().services !== account) throw new Error('账号或数据源已切换，请重新查询邮件。');
+  return result;
 }
 
 // ── 在线能力（凭据 / OIDB 协议 / Web CGI）公共小工具 ─────────────────────────
@@ -684,6 +692,68 @@ export const AI_TOOLS: AiTool[] = [
       '按稳定 ID 查看 WeQ 功能的导航描述、业务条件及本轮是否提供相关工具。返回的是查询结果。',
     input: getFeatureInput,
     run: getFeatureDefinition,
+  }),
+  tool({
+    name: 'list_mail_folders',
+    description:
+      '列出当前账号的 QQ 邮箱文件夹、各文件夹 ID 和邮件数。使用已有 WeQ 邮箱连接；需要在线邮箱。',
+    input: z.object({}),
+    run: async () =>
+      withMail(async (mail) => ({ folders: await mail.folders(toolExecutionOptions().signal) })),
+  }),
+  tool({
+    name: 'list_mail_messages',
+    description:
+      '列出当前账号的 QQ 邮箱邮件摘要。提供 keyword 时从邮箱在线搜索（不限 folderId）；不提供时按文件夹翻页。返回邮件 id 供 get_mail_message，不读取正文或标记已读。',
+    input: z.object({
+      keyword: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe('邮箱搜索关键词；未传则列文件夹'),
+      folderId: z.number().int().min(0).max(100_000).default(1).describe('文件夹 ID；默认收件箱'),
+      page: z.number().int().min(0).max(100_000).default(0).describe('从 0 开始的页码'),
+      limit: z.number().int().min(1).max(50).default(20).describe('每页上限，最多 50'),
+    }),
+    run: async ({ keyword, folderId, page, limit }) =>
+      withMail(async (mail) => {
+        const result = await mail.list(
+          { keyword, folderId, page, pageSize: limit },
+          toolExecutionOptions().signal,
+        );
+        return { ...result, items: result.items.map(mailSummaryForTool) };
+      }),
+  }),
+  tool({
+    name: 'get_mail_message',
+    description:
+      '读取 QQ 邮箱中的一封邮件，不标记已读。返回纯文本、附件 ID，以及可选的指定主机 HTTPS 链接（仅返回，不访问链接）。会话邮件返回子邮件列表，可再传子邮件 id 读正文。',
+    input: z.object({
+      id: z.string().min(1).max(2048).describe('list_mail_messages 返回的邮件 ID'),
+      linkHosts: z
+        .array(
+          z
+            .string()
+            .max(253)
+            .regex(/^[a-z0-9.-]+$/i),
+        )
+        .max(10)
+        .default([])
+        .describe('允许返回的 HTTPS 链接主机名，精确匹配；省略时不提取链接'),
+    }),
+    run: async ({ id, linkHosts }) =>
+      withMail(async (mail) =>
+        mailDetailForTool(await mail.read(id, toolExecutionOptions().signal, false), linkHosts),
+      ),
+  }),
+  tool({
+    name: 'download_mail_attachment',
+    description:
+      '获取 QQ 邮箱附件的本机 MCP 下载路径（上限 64 MiB）。附件 ID 来自 get_mail_message；一段时间后失效可重新读取邮件。用同一个 MCP 服务地址与 Bearer 令牌发起 GET 下载；工具本身不保存文件。',
+    input: z.object({ id: z.string().uuid().describe('get_mail_message 返回的附件 ID') }),
+    run: async ({ id }) => mailAttachmentForTool(services().mail, id),
   }),
   tool({
     name: 'list_settings',

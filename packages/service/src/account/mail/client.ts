@@ -447,9 +447,9 @@ export class QQMailService {
     );
   }
 
-  async download(id: string, path: string, signal?: AbortSignal): Promise<void> {
+  async download(id: string, path: string, signal?: AbortSignal, maxBytes?: number): Promise<void> {
     await this.transfer(
-      (auth, active) => downloadMailFile(auth, this.attachments, id, path, active),
+      (auth, active) => downloadMailFile(auth, this.attachments, id, path, active, undefined, maxBytes),
       signal,
     );
   }
