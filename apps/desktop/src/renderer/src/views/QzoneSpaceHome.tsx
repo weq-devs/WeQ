@@ -315,7 +315,7 @@ export function QzoneSpaceHome({
   const next = () => void query.fetchNextPage({ cancelRefetch: false });
   const retry = () => (query.hasNextPage ? next() : void query.refetch());
   return (
-    <div className="weq-qzn-timeline">
+    <div className="weq-qzn-timeline weq-qzn-home">
       {binding ? (
         <QzoneHomeOverview
           key={binding.expectedAccountConfigId}

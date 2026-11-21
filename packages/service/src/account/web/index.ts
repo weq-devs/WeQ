@@ -716,7 +716,6 @@ export class WebQueryService {
       blogCount: blogs?.total ?? null,
       messageCount: board?.total ?? null,
       greeting: board?.greeting || '',
-      audit: board?.audit ?? null,
     };
   }
 

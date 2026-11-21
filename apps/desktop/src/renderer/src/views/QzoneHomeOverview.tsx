@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { QzoneProfile } from '@weqbot/protocol/web';
-import { Pencil, RefreshCw, Save } from 'lucide-react';
+import { Pencil, RefreshCw, Save, UserRound } from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
 import { EditorDialog } from '../components/EditorDialog';
 import { NumericText } from '../components/NumericText';
@@ -59,7 +59,7 @@ export function QzoneHomeOverview({
   hostUin: string;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
-  const [editing, setEditing] = useState(false);
+  const [dialog, setDialog] = useState<'personal' | 'edit' | null>(null);
   const profile = trpc.account.qqActions.qzoneSpaceProfile.useQuery(
     { ...binding, hostUin },
     { enabled: active, retry: false, refetchOnWindowFocus: false },
@@ -86,22 +86,6 @@ export function QzoneHomeOverview({
       ),
   });
   const profileData = profile.data;
-  const personal = { ...profileData?.personal, relationship: profileData?.relationship };
-  const personalRows = (Object.keys(personalLabels) as (keyof typeof personalLabels)[]).flatMap(
-    (key) => {
-      const value = personal[key];
-      if (value == null || value === '') return [];
-      return (
-        <OverviewRow key={key} label={personalLabels[key]}>
-          {typeof value === 'string' ? (
-            <QzoneInlineText content={value} />
-          ) : (
-            <NumericText>{value}</NumericText>
-          )}
-        </OverviewRow>
-      );
-    },
-  );
   const data = metadata.data;
   const counts = [
     ['累计访问', data?.totalCount],
@@ -112,52 +96,49 @@ export function QzoneHomeOverview({
     ['照片', data?.photoCount],
     ['留言', data?.messageCount],
   ] as const;
-  const name = profileData?.name;
-  const description = profileData?.description;
+  const name = profileData?.name.trim();
+  const description = profileData?.description.trim();
   const greeting = data?.greeting;
-  const audit = data?.audit;
-  const self = hostUin === target.selfUin;
-  const canEdit = self && Boolean(profileData);
+  const canEdit = hostUin === target.selfUin && Boolean(profileData);
   return (
-    <div className="weq-qzn-home-overview">
-      <section aria-label="个人资料">
-        <header>
-          <h2>个人资料</h2>
-        </header>
-        {personalRows.length ? <dl>{personalRows}</dl> : null}
-        {profile.isFetching && !profileData ? <LoadingStatus text="正在读取个人资料…" /> : null}
-        {profile.error ? (
-          <OverviewError message={profile.error.message} retry={() => void profile.refetch()} />
-        ) : profileData && !personalRows.length ? (
-          <p className="weq-qzn-status">暂无可见的个人资料</p>
-        ) : null}
-      </section>
-      <section aria-label="空间资料">
-        <header>
-          <h2>空间资料</h2>
+    <header className="weq-qzn-home-overview">
+      <div className="weq-qzn-home-heading">
+        <div className="weq-qzn-home-title">
+          <h2 data-privacy-sensitive={Boolean(name) || undefined}>
+            <QzoneInlineText content={name || 'QQ 空间'} />
+          </h2>
+          {description ? (
+            <p data-privacy-sensitive>
+              <QzoneInlineText content={description} />
+            </p>
+          ) : null}
+        </div>
+        <div className="weq-qzn-home-tools">
+          <button
+            type="button"
+            className="weq-set-btn"
+            aria-haspopup="dialog"
+            onClick={() => setDialog('personal')}
+          >
+            <UserRound size={14} aria-hidden />
+            个人资料
+          </button>
           {canEdit ? (
-            <button type="button" className="weq-set-btn" onClick={() => setEditing(true)}>
+            <button
+              type="button"
+              className="weq-set-btn"
+              aria-label="编辑空间资料"
+              title="编辑空间资料"
+              aria-haspopup="dialog"
+              onClick={() => setDialog('edit')}
+            >
               <Pencil size={14} aria-hidden />
-              编辑
             </button>
           ) : null}
-        </header>
-        <dl>
-          {name ? (
-            <OverviewRow label="空间名称">
-              <QzoneInlineText content={name} />
-            </OverviewRow>
-          ) : null}
-          {description ? (
-            <OverviewRow label="空间说明">
-              <QzoneInlineText content={description} />
-            </OverviewRow>
-          ) : null}
-          {greeting ? (
-            <OverviewRow label="主人寄语">
-              <QzoneInlineText content={greeting} />
-            </OverviewRow>
-          ) : null}
+        </div>
+      </div>
+      {counts.some(([, value]) => value != null) ? (
+        <dl className="weq-qzn-home-stats" aria-label="空间统计">
           {counts.map(([label, value]) =>
             value == null ? null : (
               <OverviewRow key={label} label={label}>
@@ -165,34 +146,61 @@ export function QzoneHomeOverview({
               </OverviewRow>
             ),
           )}
-          {self && audit ? (
-            <OverviewRow label="留言审核">{audit.enabled ? '已开启' : '已关闭'}</OverviewRow>
-          ) : null}
-          {self && audit?.enabled && audit.count !== null ? (
-            <OverviewRow label="待审核留言">
-              <NumericText>{audit.count}</NumericText>
-            </OverviewRow>
-          ) : null}
         </dl>
-        {metadata.isFetching && !data ? <LoadingStatus text="正在读取空间统计…" /> : null}
-        {metadata.error ? (
-          <OverviewError
-            message={metadata.error instanceof Error ? metadata.error.message : '空间统计读取失败'}
-            retry={() => void metadata.refetch()}
-          />
-        ) : data &&
-          !name &&
-          !description &&
-          !greeting &&
-          !audit &&
-          counts.every(([, value]) => value == null) ? (
-          <p className="weq-qzn-status">暂无可见的空间资料</p>
-        ) : null}
-      </section>
-      {editing && canEdit ? (
-        <EditSpaceProfile hostUin={hostUin} binding={binding} onClose={() => setEditing(false)} />
       ) : null}
-    </div>
+      {greeting ? (
+        <p className="weq-qzn-home-greeting">
+          <span>主人寄语</span>
+          <span data-privacy-sensitive>
+            <QzoneInlineText content={greeting} />
+          </span>
+        </p>
+      ) : null}
+      {profile.error ? (
+        <OverviewError message={profile.error.message} retry={() => void profile.refetch()} />
+      ) : null}
+      {metadata.isFetching && !data ? <LoadingStatus text="正在读取空间统计…" /> : null}
+      {metadata.error ? (
+        <OverviewError
+          message={metadata.error instanceof Error ? metadata.error.message : '空间统计读取失败'}
+          retry={() => void metadata.refetch()}
+        />
+      ) : null}
+      {dialog === 'personal' ? (
+        <EditorDialog title="个人资料" onClose={() => setDialog(null)} width={440}>
+          {profileData ? <PersonalProfile profile={profileData} /> : null}
+          {profile.isFetching && !profileData ? <LoadingStatus text="正在读取个人资料…" /> : null}
+          {profile.error ? (
+            <OverviewError message={profile.error.message} retry={() => void profile.refetch()} />
+          ) : null}
+        </EditorDialog>
+      ) : null}
+      {dialog === 'edit' && canEdit ? (
+        <EditSpaceProfile hostUin={hostUin} binding={binding} onClose={() => setDialog(null)} />
+      ) : null}
+    </header>
+  );
+}
+
+function PersonalProfile({ profile }: { profile: QzoneProfile }) {
+  const personal = { ...profile.personal, relationship: profile.relationship };
+  const rows = (Object.keys(personalLabels) as (keyof typeof personalLabels)[]).flatMap((key) => {
+    const value = personal[key];
+    if (value == null || value === '') return [];
+    return (
+      <OverviewRow key={key} label={personalLabels[key]}>
+        {typeof value === 'string' ? (
+          <QzoneInlineText content={value} />
+        ) : (
+          <NumericText>{value}</NumericText>
+        )}
+      </OverviewRow>
+    );
+  });
+  return rows.length ? (
+    <dl className="weq-qzn-personal-profile">{rows}</dl>
+  ) : (
+    <p className="weq-qzn-status">暂无可见的个人资料</p>
   );
 }
 

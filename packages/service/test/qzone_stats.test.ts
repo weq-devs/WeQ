@@ -194,7 +194,6 @@ describe('Qzone space statistics', () => {
       totalCount: 10,
       todayCount: 2,
       greeting: '欢迎',
-      audit: null,
     });
     expect(fetch).toHaveBeenCalledTimes(5);
   });
