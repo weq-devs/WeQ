@@ -2,7 +2,6 @@ import { calendarParts, timeDate } from '@weq/time';
 import type { Message, UnreadDock } from './types';
 import { grayTipOf } from './messageRow.shared';
 import { shouldShowMessageTime } from './messageTime.shared';
-import { messageGapCount } from './messageGap.shared';
 
 export function countAppendedMessages(lastId: string | null, messages: Message[], selfId: string) {
   const index = lastId ? messages.findIndex((message) => message.id === lastId) : -1;
@@ -117,7 +116,6 @@ export function messageGroups(
       if (time !== undefined)
         return { senderId: message.senderId, senderUid: message.senderUid, time };
     },
-    (previous, message) =>
-      Boolean(messageGapCount(previous, message, true)) || breakBefore(previous, message),
+    breakBefore,
   );
 }

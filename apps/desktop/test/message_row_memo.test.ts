@@ -24,7 +24,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-it('群组只连接相邻的同一发送者，未读、跨日、缺口和系统行保持独立', () => {
+it('群组只连接相邻的同一发送者，未读、跨日和系统行保持独立', () => {
   const row = (seq: number, patch: Partial<Message> = {}): Message => ({
     id: String(seq),
     msgSeq: String(seq),
@@ -46,7 +46,6 @@ it('群组只连接相邻的同一发送者，未读、跨日、缺口和系统�
     [row(1), row(2, { senderUid: 'uid-b' })],
     [row(1), row(2, { createdAt: '2026-11-21T00:00:00+08:00' })],
     [row(1, { createdAt: '2026-11-20T23:54:59+08:00' }), row(2)],
-    [row(1), row(3)],
     [row(1), row(2, { id: 'unread' })],
     [row(1), row(2, { id: 'deleted' }), row(3)],
     [row(1), row(2, { qqElements: [{ type: 'grayTipRevoke', data: {} }] }), row(3)],
@@ -109,7 +108,7 @@ it('输入草稿不重画未变消息，编辑和前插只重画变化行', () =
   }
 });
 
-it('前插同人发言时移动组头像并保留原消息行身份', () => {
+it('前插同人发言时移动组头像，且只在缺口可见时拆组', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   const demo = createTemplateDemoData();
@@ -126,7 +125,7 @@ it('前插同人发言时移动组头像并保留原消息行身份', () => {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (messages: Message[]) =>
+  const render = (messages: Message[], overrides: Partial<Parameters<typeof ChatPane>[0]> = {}) =>
     act(() =>
       root.render(
         h(ChatPane, {
@@ -140,6 +139,7 @@ it('前插同人发言时移动组头像并保留原消息行身份', () => {
           onDraftChange: vi.fn(),
           onDraftClear: vi.fn(),
           onBack: vi.fn(),
+          ...overrides,
         }),
       ),
     );
@@ -156,6 +156,26 @@ it('前插同人发言时移动组头像并保留原消息行身份', () => {
     expect(avatar('2')).toBeNull();
     expect(avatar('3')).toBeNull();
     expect(line('2').textContent).toContain('消息 2');
+
+    render([rows[0]!, rows[2]!]);
+    expect(avatar('3')).toBeNull();
+    expect(line('gap:1:3')).toBeNull();
+
+    const jump = { missingJumpSeq: '2', onOpenGapMessages: vi.fn() };
+    render([rows[0]!, rows[2]!], jump);
+    expect(avatar('3')).not.toBeNull();
+    expect(line('gap:1:3')).not.toBeNull();
+    render([rows[0]!, rows[2]!], { ...jump, resolvedGapIds: new Set(['gap:1:3']) });
+    expect(avatar('3')).toBeNull();
+    expect(line('gap:1:3')).toBeNull();
+
+    const multipleMissing = [rows[0]!, { ...rows[2]!, msgSeq: '4' }];
+    render(multipleMissing);
+    expect(avatar('3')).not.toBeNull();
+    expect(line('gap:1:4')).not.toBeNull();
+    render(multipleMissing, { resolvedGapIds: new Set(['gap:1:4']) });
+    expect(avatar('3')).toBeNull();
+    expect(line('gap:1:4')).toBeNull();
   } finally {
     act(() => root.unmount());
     host.remove();

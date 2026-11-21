@@ -1440,18 +1440,55 @@ function ChatPaneContent({
     `${user.id}:${conversation?.id ?? ''}`,
     visibleMessages,
   );
-  const gapPredecessors = useMemo(() => {
-    let previous: Message | undefined;
-    return visibleMessages.map((message) => {
-      const before = previous;
-      if (!isUnpositionedFailure(message)) previous = message;
-      return before;
-    });
-  }, [visibleMessages]);
   const hasHiddenDeletionBetween = useMemo(
     () => hiddenDeletionLookup(messages, hiddenDeletedIds ?? new Set()),
     [messages, hiddenDeletedIds],
   );
+  const canShowMissingJumpGap = Boolean(conversation && onOpenGapMessages);
+  const timelineGaps = useMemo(() => {
+    const gaps = new Map<string, SelectionGap & { id: string; autoFetch: boolean }>();
+    if (restrictedSource) return gaps;
+    let predecessor: Message | undefined;
+    for (const message of visibleMessages) {
+      const previous = predecessor;
+      if (!isUnpositionedFailure(message)) predecessor = message;
+      if (!previous?.msgSeq || !message.msgSeq) continue;
+      const previousSeq = previous.msgSeq;
+      const currentSeq = message.msgSeq;
+      const deleted = hasHiddenDeletionBetween(previousSeq, currentSeq);
+      let count = messageGapCount(previous, message, selectionMode || deleted || autoFetchGaps);
+      // 跳转落在默认隐藏的单条缺口时，仍给这次跳转一个拉取入口。
+      if (
+        count === 0 &&
+        missingJumpSeq &&
+        canShowMissingJumpGap &&
+        isSeqBetween(missingJumpSeq, previousSeq, currentSeq)
+      ) {
+        count = 1;
+      }
+      if (count === 0) continue;
+      const id = selectionGapId({ previousSeq, currentSeq });
+      if (!resolvedGapIds?.has(id)) {
+        gaps.set(message.id, {
+          id,
+          previousSeq,
+          currentSeq,
+          count,
+          autoFetch: autoFetchGaps && !deleted,
+        });
+      }
+    }
+    return gaps;
+  }, [
+    restrictedSource,
+    visibleMessages,
+    hasHiddenDeletionBetween,
+    selectionMode,
+    autoFetchGaps,
+    missingJumpSeq,
+    canShowMissingJumpGap,
+    resolvedGapIds,
+  ]);
   const unreadCount = conversation?.unreadCount;
   const unreadStartSeq = unreadTimelineStart(
     unreadDock,
@@ -1466,17 +1503,10 @@ function ChatPaneContent({
     if (!groupConsecutiveMessages) return undefined;
     return messageGroups(visibleMessages, {
       standalone: (message) => deletedKeys.has(deletionIdentity(message.id)),
-      breakBefore: (previous, message) =>
-        message.id === unreadBoundaryId ||
-        hasHiddenDeletionBetween(previous.msgSeq, message.msgSeq),
+      breakBefore: (_previous, message) =>
+        message.id === unreadBoundaryId || timelineGaps.has(message.id),
     });
-  }, [
-    groupConsecutiveMessages,
-    visibleMessages,
-    deletedKeys,
-    hasHiddenDeletionBetween,
-    unreadBoundaryId,
-  ]);
+  }, [groupConsecutiveMessages, visibleMessages, deletedKeys, timelineGaps, unreadBoundaryId]);
   const compactHeader = useMobileWebLayout();
   // 分析和回复使用不同目标，自己的消息不触发推荐；跳过灰条、撤回和删除。
   const intentSupported = Boolean(
@@ -6335,120 +6365,27 @@ function ChatPaneContent({
                     const message = visibleMessages[index];
                     if (!message) return;
                     const blockStart = out.length;
-                    // A hole in the seq run means QQ has messages here that were
-                    // never synced locally. Checked for every row (gray tips
-                    // included — they occupy a seq too) and emitted before the row
-                    // that follows the hole.
                     const previous = visibleMessages[index - 1];
-                    const gapPrevious = gapPredecessors[index];
-                    const deletedGap =
-                      gapPrevious && hasHiddenDeletionBetween(gapPrevious.msgSeq, message.msgSeq);
-                    const gap = restrictedSource
-                      ? 0
-                      : messageGapCount(
-                          gapPrevious,
-                          message,
-                          selectionMode || Boolean(deletedGap) || autoFetchGaps,
-                        );
-                    // 跳转落空的目标落在 previous 与 message 之间、且恰好只缺这 1 条时，
-                    // 默认的缺口条（只在跳空 >1 时出现）不会渲染。补一条，保证「跳到空消息」
-                    // 永远有可点击的拉取入口。跳空 >1 时交给上面的自然缺口条，不重复。
-                    if (
-                      gap === 0 &&
-                      missingJumpSeq &&
-                      gapPrevious &&
-                      conversation &&
-                      onOpenGapMessages &&
-                      isSeqBetween(missingJumpSeq, gapPrevious.msgSeq, message.msgSeq)
-                    ) {
-                      out.push(
-                        <MessageGapDivider
-                          key={`missing-jump-${message.id}`}
-                          id={selectionGapId({
-                            previousSeq: String(gapPrevious.msgSeq),
-                            currentSeq: String(message.msgSeq),
-                          })}
-                          selectionMode={selectionMode}
-                          selected={displayedGapSelected({
-                            previousSeq: String(gapPrevious.msgSeq),
-                            currentSeq: String(message.msgSeq),
-                            count: 1,
-                          })}
-                          selectionProps={multi.itemProps(
-                            selectionGapId({
-                              previousSeq: String(gapPrevious.msgSeq),
-                              currentSeq: String(message.msgSeq),
-                            }),
-                          )}
-                          count={1}
-                          autoFetch={autoFetchGaps}
-                          onOpen={(automatic) =>
-                            onOpenGapMessages(
-                              {
-                                conversation,
-                                previousSeq: String(gapPrevious.msgSeq ?? ''),
-                                currentSeq: String(message.msgSeq ?? ''),
-                                count: 1,
-                              },
-                              automatic,
-                            )
-                          }
-                        />,
-                      );
-                    }
-                    // 本次已确认「服务端这段 seq 本来就没有可渲染消息」的缺口不再显示
-                    // （拉取成功但拿到的是空槽位，见 MainView 的 resolvedGaps）。
-                    const gapResolved =
-                      gapPrevious !== undefined &&
-                      resolvedGapIds?.has(
-                        selectionGapId({
-                          previousSeq: String(gapPrevious.msgSeq),
-                          currentSeq: String(message.msgSeq),
-                        }),
-                      ) === true;
-                    if (gap > 0 && !gapResolved) {
+                    const gap = timelineGaps.get(message.id);
+                    if (gap) {
                       out.push(
                         <MessageGapDivider
                           key={`gap-${message.id}`}
-                          id={
-                            gapPrevious
-                              ? selectionGapId({
-                                  previousSeq: String(gapPrevious.msgSeq),
-                                  currentSeq: String(message.msgSeq),
-                                })
-                              : undefined
-                          }
+                          id={gap.id}
                           selectionMode={selectionMode}
-                          selected={
-                            gapPrevious
-                              ? displayedGapSelected({
-                                  previousSeq: String(gapPrevious.msgSeq),
-                                  currentSeq: String(message.msgSeq),
-                                  count: gap,
-                                })
-                              : false
-                          }
-                          selectionProps={
-                            gapPrevious
-                              ? multi.itemProps(
-                                  selectionGapId({
-                                    previousSeq: String(gapPrevious.msgSeq),
-                                    currentSeq: String(message.msgSeq),
-                                  }),
-                                )
-                              : undefined
-                          }
-                          count={gap}
-                          autoFetch={autoFetchGaps && !deletedGap}
+                          selected={displayedGapSelected(gap)}
+                          selectionProps={multi.itemProps(gap.id)}
+                          count={gap.count}
+                          autoFetch={gap.autoFetch}
                           onOpen={
-                            conversation && onOpenGapMessages && gapPrevious
+                            conversation && onOpenGapMessages
                               ? (automatic) =>
                                   onOpenGapMessages(
                                     {
                                       conversation,
-                                      previousSeq: String(gapPrevious.msgSeq ?? ''),
-                                      currentSeq: String(message.msgSeq ?? ''),
-                                      count: gap,
+                                      previousSeq: gap.previousSeq,
+                                      currentSeq: gap.currentSeq,
+                                      count: gap.count,
                                     },
                                     automatic,
                                   )
