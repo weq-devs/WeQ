@@ -26,6 +26,9 @@ const MIME: Record<string, string> = {
   '.bmp': 'image/bmp',
   '.svg': 'image/svg+xml',
   '.apng': 'image/apng',
+  '.avif': 'image/avif',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
@@ -46,6 +49,63 @@ const MIME: Record<string, string> = {
 
 export function mimeOf(path: string): string {
   return MIME[extname(path).toLowerCase()] ?? 'application/octet-stream';
+}
+
+export async function fileContentType(
+  path: string,
+  opts: { sniffImageType?: boolean; sniffMediaType?: boolean } = {},
+): Promise<string> {
+  const fallback = mimeOf(path);
+  const sniffMedia = opts.sniffMediaType || /^[a-f0-9]{64}$/.test(basename(path));
+  if (!sniffMedia && !(opts.sniffImageType && fallback === 'application/octet-stream'))
+    return fallback;
+
+  const handle = await open(path, 'r');
+  try {
+    const buffer = Buffer.alloc(32);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const head = buffer.subarray(0, bytesRead);
+    const image = sniffImageExt(head);
+    if (image) return mimeOf(`image${image}`);
+    if (!sniffMedia) return fallback;
+
+    if (head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WAVE')
+      return 'audio/wav';
+    if (head.toString('ascii', 0, 4) === 'OggS') return 'audio/ogg';
+    if (bytesRead >= 12 && head.toString('ascii', 4, 8) === 'ftyp') {
+      const brand = head.toString('ascii', 8, 12);
+      if (brand === 'qt  ') return 'video/quicktime';
+      if (brand === 'avif' || brand === 'avis') return 'image/avif';
+      if (['heic', 'heix', 'hevc', 'hevx'].includes(brand)) return 'image/heic';
+      if (brand === 'mif1' || brand === 'msf1') return 'image/heif';
+      if (brand.startsWith('M4A')) return 'audio/mp4';
+      if (/^(isom|iso[2-9]|mp4[12]|avc1|dash|M4V )$/.test(brand)) return 'video/mp4';
+    }
+    if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3)
+      return 'video/webm';
+    if (
+      head.toString('ascii', 0, 3) === 'ID3' ||
+      (bytesRead >= 4 &&
+        head[0] === 0xff &&
+        (head[1]! & 0xe6) === 0xe2 &&
+        (head[1]! & 0x18) !== 0x08 &&
+        (head[2]! & 0xf0) !== 0xf0 &&
+        (head[2]! & 0x0c) !== 0x0c)
+    )
+      return 'audio/mpeg';
+    return fallback;
+  } finally {
+    await handle.close();
+  }
+}
+
+export function mediaDownloadName(path: string, type: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: Keep archive filenames usable on every host.
+  const name = basename(path).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
+  if (!/^(image|audio|video)\//.test(type) || mimeOf(name) === type) return name;
+  const extension = Object.entries(MIME).find(([, value]) => value === type)?.[0];
+  const old = extname(name);
+  return extension ? `${old ? name.slice(0, -old.length) : name}${extension}` : name;
 }
 
 /** Parse a single `bytes=a-b` range against `size`. Null when absent/unsatisfiable. */
@@ -85,7 +145,7 @@ function parseRange(header: string | null, size: number): { start: number; end: 
 export async function fileResponse(
   path: string,
   request?: Request,
-  opts: { revalidate?: boolean; sniffImageType?: boolean } = {},
+  opts: { revalidate?: boolean; sniffImageType?: boolean; sniffMediaType?: boolean } = {},
 ): Promise<Response> {
   let size: number;
   let mtimeMs: number;
@@ -98,34 +158,7 @@ export async function fileResponse(
     return new Response('not found', { status: 404 });
   }
 
-  let type = mimeOf(path);
-  const contentHash = /^[a-f0-9]{64}$/.test(basename(path));
-  if (contentHash || (opts.sniffImageType && type === 'application/octet-stream')) {
-    const handle = await open(path, 'r');
-    try {
-      const buffer = Buffer.alloc(32),
-        { bytesRead } = await handle.read(buffer, 0, 32, 0);
-      const head = buffer.subarray(0, bytesRead),
-        image = sniffImageExt(head);
-      if (image) type = mimeOf(`image${image}`);
-      else if (contentHash) {
-        if (head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WAVE')
-          type = 'audio/wav';
-        else if (head.toString('ascii', 0, 4) === 'OggS') type = 'audio/ogg';
-        else if (head.toString('ascii', 4, 8) === 'ftyp')
-          type = head.toString('ascii', 8, 12).startsWith('M4A') ? 'audio/mp4' : 'video/mp4';
-        else if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3)
-          type = 'video/webm';
-        else if (
-          head.toString('ascii', 0, 3) === 'ID3' ||
-          (head[0] === 0xff && (head[1]! & 0xe0) === 0xe0)
-        )
-          type = 'audio/mpeg';
-      }
-    } finally {
-      await handle.close();
-    }
-  }
+  const type = await fileContentType(path, opts);
   const range = parseRange(request?.headers.get('range') ?? null, size);
 
   // `Last-Modified` has one-second granularity, so compare at that resolution —

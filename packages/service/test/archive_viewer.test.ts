@@ -1,10 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   archiveHeader,
   makeEntry,
+  sha256,
   type Archive,
   type ArchiveEntry,
   writeArchiveEntries,
@@ -14,6 +15,7 @@ import {
   streamArchiveViewerValues,
 } from '../src/account/export/archive_viewer';
 import { DomainArchive } from '../src/account/export/archive_domain';
+import { describeViewerFile, readViewerPage } from '../src/account/export/viewer';
 
 describe('正式归档查看投影', () => {
   const header = archiveHeader({ accountUin: '10001' });
@@ -82,6 +84,83 @@ describe('正式归档查看投影', () => {
     expect(JSON.stringify(values)).not.toContain('旧正文');
     expect(JSON.stringify(values)).toContain('已删除');
   });
+  it.each(['json', 'jsonl', 'jsonl.gz'] as const)(
+    '%s 保留旧归档小数时间，只展示确认为该内容绑定的媒体',
+    async (format) => {
+      const root = await mkdtemp(join(tmpdir(), 'weq-legacy-view-'));
+      try {
+        const path = join(root, `view.${format}`);
+        await mkdir(join(root, 'media'));
+        await writeFile(join(root, 'media', 'unrelated.png'), '不同来源的同名内容');
+        const bytes = '合成已保存媒体';
+        const hash = sha256(bytes);
+        const saved = `media/${hash}`;
+        await writeFile(join(root, saved), bytes);
+        const entry = makeEntry('qzone', ['historical-qzone', 'post'], {
+          type: 'post',
+          sourceId: 'old-post',
+          owner: { identities: [] },
+          author: { identities: [] },
+          createdAt: { unixSeconds: '1792771200.125', precision: 'millisecond' },
+          content: ['old-resource', 'shared-file', 'shared-file'].map((id) => ({
+            type: 'media',
+            mediaType: 'image',
+            resourceIds: [id],
+          })),
+        });
+        entry.resources = [
+          {
+            id: 'old-resource',
+            role: 'original',
+            status: 'failed',
+            name: 'unrelated.png',
+            observedAt: { unixSeconds: '1792771201', precision: 'second' },
+          },
+          {
+            id: 'shared-file',
+            role: 'original',
+            status: 'saved',
+            path: saved,
+            sha256: hash,
+            size: String(Buffer.byteLength(bytes)),
+            name: 'cached.png',
+            observedAt: { unixSeconds: '1792771201', precision: 'second' },
+            bindings: ['candidate', 'verified'].map((status, index) => ({
+              recordId: entry.record.id,
+              target: `/data/content/${index + 1}`,
+              evidence: 'synthetic/association',
+              status,
+            })),
+          },
+        ];
+        await writeArchiveEntries(
+          path,
+          format,
+          {
+            ...header,
+            formats: [format === 'jsonl.gz' ? 'jsonl' : format],
+          },
+          [entry],
+        );
+        const source = await describeViewerFile(path);
+        const page = await readViewerPage(source, { offset: 0, date: '2026-10-24' });
+        expect(page.messages).toHaveLength(1);
+        expect(page.messages[0]).toMatchObject({
+          msgId: entry.record.id,
+          sendTime: 1792771200.125,
+          parts: [
+            expect.objectContaining({ type: 'image', text: 'unrelated.png' }),
+            expect.objectContaining({ type: 'image', text: 'cached.png（关联未确认）' }),
+            expect.objectContaining({ type: 'image', text: 'cached.png', path: saved }),
+          ],
+        });
+        expect(page.messages[0]?.parts[0]?.path).toBeUndefined();
+        expect(page.messages[0]?.parts[1]?.path).toBeUndefined();
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
   it('非聊天领域也能显示，附加参数关闭不丢基本正文与工具过程', () => {
     const archive = new DomainArchive({ profile: 'full', extra: { generatedParameters: false } });
     const entry = archive.add(

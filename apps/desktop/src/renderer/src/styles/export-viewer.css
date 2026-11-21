@@ -129,6 +129,17 @@
   line-height: 1.6;
   margin-top: 6px;
 }
+.weq-ev-media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+  margin-block: 4px;
+  overflow-wrap: anywhere;
+}
+.weq-ev-media > .weq-icon-button {
+  flex: none;
+}
 .weq-ev-body img,
 .weq-ev-body video {
   display: block;
