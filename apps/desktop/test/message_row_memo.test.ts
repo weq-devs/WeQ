@@ -24,7 +24,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-it('群组只连接相邻的同一发送者，未读、跨日和系统行保持独立', () => {
+it('连续分组纳入本地发送占位，仍按身份、时间与时间线分界拆组', () => {
   const row = (seq: number, patch: Partial<Message> = {}): Message => ({
     id: String(seq),
     msgSeq: String(seq),
@@ -42,6 +42,20 @@ it('群组只连接相邻的同一发送者，未读、跨日和系统行保持�
     }),
   ];
   expect(positions([row(1), row(2), row(3)])).toEqual(['first', 'middle', 'last']);
+  expect(
+    positions([
+      row(1),
+      row(2, { msgSeq: '', senderUid: undefined, optimistic: 'sending' }),
+      row(3, { msgSeq: '', senderUid: undefined, optimistic: 'queued' }),
+    ]),
+  ).toEqual(['first', 'middle', 'last']);
+  expect(
+    positions([
+      row(1, { optimistic: 'sent' }),
+      row(2, { msgSeq: '', optimistic: 'failed' }),
+      row(3, { msgSeq: '', optimistic: 'sent', optimisticRejected: true }),
+    ]),
+  ).toEqual(['first', 'middle', 'last']);
   for (const separated of [
     [row(1), row(2, { senderUid: 'uid-b' })],
     [row(1), row(2, { createdAt: '2026-11-21T00:00:00+08:00' })],
