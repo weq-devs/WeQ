@@ -5,6 +5,7 @@ import { createTemplateDemoData } from '../support/templateDemoData';
 import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent.shared';
 import { ShowMessageSeqContext } from '../../src/renderer/src/components/MessageProvenance.shared';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
+import { ReplyJumpContext } from '../../src/renderer/src/state/messageContext';
 import {
   useContentMultiSelect,
   useContentExportRequest,
@@ -89,6 +90,19 @@ const conversation = {
   id: 'u_synthetic',
   otherUser: { ...demo.user, id: 'u_peer', displayName: '合成联系人', avatarUrl: avatar },
 };
+const touchReplyElements = params.has('touch-reply')
+  ? [
+      {
+        type: 'reply',
+        data: {
+          origMsgIndex: '1001',
+          origSenderName: '合成联系人',
+          origElements: [{ type: 'text', data: { textContent: '合成消息 1001' } }],
+        },
+      },
+      { type: 'text', data: { textContent: '合成消息 1003' } },
+    ]
+  : undefined;
 const message = (seq: number): Message => ({
   id: `row-${seq}`,
   ...(params.has('read-progress') ? { msgId: String(seq) } : {}),
@@ -124,7 +138,9 @@ const message = (seq: number): Message => ({
               },
             },
           ]
-        : undefined,
+        : seq === 1003
+          ? touchReplyElements
+          : undefined,
 });
 const scroll = () => document.querySelector<HTMLElement>('.message-scroll')!;
 const bridge: Record<string, unknown> = {};
@@ -341,7 +357,11 @@ createRoot(document.getElementById('root')!).render(
     createElement(
       ShowMessageSeqContext.Provider,
       { value: params.has('show-message-seq') },
-      createElement(Fixture),
+      createElement(
+        ReplyJumpContext.Provider,
+        { value: ({ index }) => revealTimelineMessage(scroll(), `row-${index}`, true) },
+        createElement(Fixture),
+      ),
     ),
   ),
 );

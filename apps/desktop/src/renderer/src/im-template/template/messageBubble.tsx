@@ -460,8 +460,9 @@ function MessageBubbleBody({
         event.button === 0 &&
         event.clientX > 24 &&
         target instanceof Element &&
+        // 引用预览可轻点跳转，也可从这里开始滑动整条消息。
         !target.closest(
-          'a, button:not(.qq-media-action, .message-avatar-button, .weq-message-name-profile), input, textarea, select, video, audio, pre, [contenteditable], [role="button"], [role="slider"]',
+          'a, button:not(.qq-media-action, .message-avatar-button, .weq-message-name-profile), input, textarea, select, video, audio, pre, [contenteditable], [role="button"]:not(.qq-reply-quote), [role="slider"]',
         ) &&
         !event.currentTarget.querySelector('pre') &&
         event.currentTarget.ownerDocument.getSelection()?.isCollapsed !== false

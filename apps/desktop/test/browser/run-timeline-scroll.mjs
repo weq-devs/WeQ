@@ -22,7 +22,7 @@ const fixtureFlags = [
   cachedBubbles && '&cached-bubbles=1',
   (grouped || touchReply) && '&grouped=1',
   (imageGrid || touchReply) && '&image-grid=1',
-  touchReply && '&show-message-seq=1',
+  touchReply && '&show-message-seq=1&touch-reply=1',
 ]
   .filter(Boolean)
   .join('');
@@ -94,7 +94,9 @@ try {
     const cdp = await page.context().newCDPSession(page);
     const first = page.locator('[data-message-id="row-1003"]');
     const last = page.locator('[data-message-id="row-1004"]');
-    const text = first.locator('.message-content');
+    const text = first.locator('.qq-reply-body');
+    const quotePreview = first.getByRole('button', { name: /合成消息 1001/ });
+    const original = page.locator('[data-message-id="row-1001"]');
     const avatar = first.locator('.avatar');
     const meta = first.locator('.weq-message-provenance');
     const image = last.locator('button.qq-media-wrap').first();
@@ -189,15 +191,24 @@ try {
     );
     await waitForX(text, initial.parts[0]);
     assert.equal(await quote.count(), 0);
-    await swipe(text, -80, 0, async (fraction) => {
+    await swipe(quotePreview, -80, 0, async (fraction) => {
       if (fraction === 1) assert.equal(await quote.count(), 0);
     });
-    await quote.waitFor();
+    await quote.waitFor({ timeout: 3000 });
     assert.match(await quote.textContent(), /合成消息 1003/);
+    assert.doesNotMatch(await quote.textContent(), /合成消息 1001/);
+    assert.equal(
+      await original.evaluate((el) => el.classList.contains('weq-reply-target-flash')),
+      false,
+    );
     const editor = page.locator('.composer-editor').first();
     assert.ok(await editor.evaluate((element) => document.activeElement === element));
     await page.keyboard.insertText('引用后直接输入');
     assert.match(await editor.textContent(), /引用后直接输入/);
+    await quote.getByRole('button', { name: '取消引用' }).click();
+    await quotePreview.tap();
+    await page.waitForSelector('[data-message-id="row-1001"].weq-reply-target-flash');
+    assert.equal(await quote.count(), 0);
     await cdp.detach();
     await page.reload();
     await page.waitForSelector('[data-message-id="row-1001"]');
