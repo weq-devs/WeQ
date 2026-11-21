@@ -195,6 +195,7 @@ export type {
   GroupCallState,
   GroupCallEndReason,
   GroupCallMember,
+  GroupCallChatMessage,
   GroupCallSnapshot,
   GroupCallSessionOptions,
   GroupCallSignaling,

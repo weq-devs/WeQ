@@ -179,6 +179,40 @@ class FakeSignaling implements GroupCallSignaling {
     );
   }
 
+  chatNotice({
+    room = 0x180106aa,
+    groupId = GROUP_ID,
+    recipient = SELF_UIN,
+    id,
+    text,
+  }: {
+    room?: number;
+    groupId?: number;
+    recipient?: number;
+    id: number;
+    text: string;
+  }): void {
+    const context = Buffer.concat([pbVarint(1, 1), pbVarint(2, groupId), pbVarint(3, room)]);
+    const chat = Buffer.concat([
+      pbVarint(1, PEER_UIN),
+      pbBytes(2, Buffer.from(text)),
+      pbVarint(3, 1),
+      pbVarint(4, id),
+    ]);
+    const event = Buffer.concat([pbBytes(1, context), pbBytes(2, chat)]);
+    this.subscribers.get(MSG_PUSH_CMD)?.(
+      encode(MSG_PUSH_ENVELOPE, {
+        messages: [
+          {
+            responseHead: { fromUin: PEER_UIN, toUin: recipient },
+            contentHead: { msgType: 528, subType: 294 },
+            body: { msgContent: pbBytes(3, event) },
+          },
+        ],
+      }),
+    );
+  }
+
   async multiTerminalSync(): Promise<void> {
     this.syncCalls += 1;
   }
@@ -234,6 +268,23 @@ function deliverEntryResponse(transport: FakeTransport, streamPrefix = 0x180106a
   transport.deliver(reply);
   return reply;
 }
+
+it('只归入本账号本房间的聊天推送，保留内联表情原文并过滤重传', async () => {
+  const { session, transport, signaling } = makeSession();
+  const initial = await session.start();
+  signaling.chatNotice({ id: 1, text: '入房前' });
+  deliverEntryResponse(transport);
+  signaling.chatNotice({ id: 2, room: 1, text: '其他房间' });
+  signaling.chatNotice({ id: 3, groupId: 1, text: '其他群' });
+  signaling.chatNotice({ id: 4, recipient: 1, text: '其他账号' });
+  const message = { id: 0xfe000003, text: '喵\x14/色喵' };
+  signaling.chatNotice(message);
+  signaling.chatNotice(message);
+  expect(initial.chatMessages).toEqual([]);
+  expect(session.snapshot().chatMessages).toEqual([
+    { id: `${PEER_UIN}:${message.id}`, senderUin: PEER_UIN, text: message.text },
+  ]);
+});
 
 // ─────────────────────────── 用例 ───────────────────────────
 

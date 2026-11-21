@@ -58,6 +58,7 @@ export type FaceEmojiProps = {
    */
   animated?: boolean;
   className?: string;
+  fallbackText?: string;
   /** Whether the message sender is the current user (for mirroring poke faces). */
   isSender?: boolean;
 };
@@ -67,7 +68,14 @@ function toLength(size: number | string | undefined): string | undefined {
   return typeof size === 'number' ? `${size}px` : size;
 }
 
-export function FaceEmoji({ element, size, animated, className, isSender = true }: FaceEmojiProps) {
+export function FaceEmoji({
+  element,
+  size,
+  animated,
+  className,
+  fallbackText,
+  isSender = true,
+}: FaceEmojiProps) {
   const { faceId, faceText, innerId, subType } = element;
   const label = faceText || `[表情${faceId}]`;
   const dim = toLength(size);
@@ -162,7 +170,15 @@ export function FaceEmoji({ element, size, animated, className, isSender = true 
     );
   }
 
-  return <FaceImage src={apngSrc} label={label} style={boxStyle} className={className} />;
+  return (
+    <FaceImage
+      src={apngSrc}
+      label={label}
+      style={boxStyle}
+      className={className}
+      fallbackText={fallbackText}
+    />
+  );
 }
 
 function FaceImage({
@@ -170,11 +186,13 @@ function FaceImage({
   label,
   style,
   className,
+  fallbackText,
 }: {
   src: string;
   label: string;
   style?: { width: string; height: string };
   className?: string;
+  fallbackText?: string;
 }) {
   const [broken, setBroken] = useState(false);
 
@@ -182,6 +200,7 @@ function FaceImage({
   // 不回退成文字 `[表情xxx]`（丑且不像表情），而是回退到一个纯线条的默认笑脸，
   // 一眼能看出是「未知表情」的兜底占位。
   if (broken) {
+    if (fallbackText !== undefined) return <span>{fallbackText}</span>;
     const glyphSize = style?.width ?? '1.25em';
     return (
       <span

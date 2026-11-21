@@ -526,6 +526,74 @@
   color: var(--weq-fg-secondary);
 }
 
+.weq-group-call-chat {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+
+.weq-group-call-chat:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+.weq-group-call-chat > ul {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 8px 4px;
+  list-style: none;
+}
+
+.weq-group-call-chat li {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.weq-group-call-chat-entry {
+  min-width: 0;
+}
+
+.weq-group-call-chat-sender {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-group-call-chat-text {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 3px 10px 10px;
+  padding: 5px 8px;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.weq-group-call-chat-text .face-emoji {
+  vertical-align: middle;
+}
+
+.weq-group-call-chat-empty {
+  margin: 28px 0;
+  color: var(--weq-fg-secondary);
+  text-align: center;
+  font-size: 12px;
+}
+
 .weq-group-call-icon-btn {
   display: grid;
   place-items: center;
@@ -877,6 +945,28 @@
   .weq-group-call-plate {
     top: 14px;
     bottom: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .weq-group-call-heading {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  .weq-group-call-notice {
+    order: 1;
+    flex-basis: 100%;
+    text-align: left;
+  }
+
+  .weq-group-call-notice:empty {
+    display: none;
+  }
+
+  .weq-group-call-action {
+    padding-inline: 7px;
   }
 }
 
