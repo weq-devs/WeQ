@@ -207,20 +207,22 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
               >
                 <div className="weq-account-section-head">
                   <h2>{mode === 'existing' ? '最近使用' : '本机 QQ 账号'}</h2>
-                  <button
-                    type="button"
-                    className="weq-icon-button"
-                    title="重新读取账号"
-                    aria-label="重新读取账号"
-                    disabled={busy || accountQuery.isFetching}
-                    onClick={() => void accountQuery.refetch()}
-                  >
-                    <RefreshCw
-                      size={15}
-                      className={accountQuery.isFetching ? 'weq-spin' : undefined}
-                      aria-hidden
-                    />
-                  </button>
+                  {!accountQuery.error && (
+                    <button
+                      type="button"
+                      className="weq-icon-button"
+                      title="重新读取账号"
+                      aria-label="重新读取账号"
+                      disabled={busy || accountQuery.isFetching}
+                      onClick={() => void accountQuery.refetch()}
+                    >
+                      <RefreshCw
+                        size={15}
+                        className={accountQuery.isFetching ? 'weq-spin' : undefined}
+                        aria-hidden
+                      />
+                    </button>
+                  )}
                 </div>
                 {accountQuery.error && (
                   <div className="weq-select-error" role="alert">

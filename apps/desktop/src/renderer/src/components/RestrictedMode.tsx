@@ -648,6 +648,12 @@ export function RestrictedModeHost() {
     setLoginRequested(binding);
     await (active ? access.refetch() : online.refetch());
   }
+  const retryLabel =
+    accessMatches &&
+    reasons.some((reason) => reason.code === 'credentials') &&
+    !reasons.some((reason) => reason.code === 'data-access')
+      ? '重试获取在线凭据'
+      : '重新检查';
   const actions =
     showDebugCopy && !awaitingAuthorization ? (
       <RestrictedQqAction
@@ -657,6 +663,7 @@ export function RestrictedModeHost() {
         onOpened={afterDebugQqOpened}
         onEnable={() => refresh(true)}
         onRetry={() => refresh()}
+        retryLabel={retryLabel}
       />
     ) : (
       <>
@@ -688,7 +695,7 @@ export function RestrictedModeHost() {
           onClick={() => void refresh()}
         >
           <RefreshCw size={14} />
-          {busy ? '正在检查' : '重新检查'}
+          {busy ? '正在检查' : retryLabel}
         </button>
         {reasons.some((r) => r.code === 'disabled') && (
           <button

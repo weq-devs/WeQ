@@ -112,7 +112,7 @@ export function restrictionReasons(input: {
         code: 'credentials',
         title: '会话凭据不完整',
         guidance:
-          '在线功能所需的会话凭据或设备身份尚未就绪，后台会自动重试。请保持 QQ 登录；也可重新检查或使用扫码登录。',
+          '在线功能所需的会话凭据或设备身份尚未就绪，后台会自动重试。请保持 QQ 登录；也可手动重试获取凭据或使用扫码登录。',
       });
   }
   if (input.failed)

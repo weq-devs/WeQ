@@ -492,15 +492,17 @@ export function McpServerSection(): ReactElement {
         remoteUnsupported
         icon={<Download size={15} strokeWidth={1.8} />}
         action={
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-            disabled={agentTargets.isFetching}
-            onClick={() => void onRescan()}
-          >
-            <RefreshCw size={13} className={agentTargets.isFetching ? 'is-spin' : ''} />
-            重新扫描
-          </button>
+          !agentTargets.error && (
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+              disabled={agentTargets.isFetching}
+              onClick={() => void onRescan()}
+            >
+              <RefreshCw size={13} className={agentTargets.isFetching ? 'is-spin' : ''} />
+              重新扫描
+            </button>
+          )
         }
       >
         <p className="weq-set-note">

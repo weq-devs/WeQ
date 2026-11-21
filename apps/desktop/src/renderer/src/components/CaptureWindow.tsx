@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
 import { createPortal } from 'react-dom';
-import { LockKeyhole, Radio, RefreshCw, X } from 'lucide-react';
+import { LockKeyhole, Radio, X } from 'lucide-react';
 import { useToolWindow } from '../hooks/useCompositionWindow';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { IS_WEB } from '../lib/target.shared';
@@ -136,18 +136,6 @@ function CaptureWindowPanel({
           <span className="weq-capture-window-status" role="status">
             读取中…
           </span>
-        ) : null}
-        {tab === 'tcp' ? (
-          <button
-            type="button"
-            className="weq-set-iconbtn"
-            title="刷新 QQ 账号"
-            aria-label="刷新 QQ 账号"
-            disabled={loading}
-            onClick={() => void refresh()}
-          >
-            <RefreshCw size={16} />
-          </button>
         ) : null}
         <button
           type="button"

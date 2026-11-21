@@ -19,6 +19,7 @@ import { writeFileAtomic } from '@weq/service/atomic-write';
 import { notificationInlineText } from '../shared/notification_copy';
 
 const REFRESH_INTERVAL = 15 * 60_000;
+const OPEN_REFRESH_MAX_AGE = 60_000;
 const RESERVATION_TIME = 15_000;
 const receiptsSchema = z.object({
   read: z.array(z.string().regex(ANNOUNCEMENT_ID)),
@@ -56,6 +57,7 @@ export class Announcements {
   private receipts: Receipts = { read: [], reminded: [] };
   private updates: Promise<unknown> = Promise.resolve();
   private pending?: Promise<void>;
+  private lastCheckedAt?: number;
   private timer?: ReturnType<typeof setInterval>;
   private reservation?: { id: string; token: string; expiresAt: number };
   private change = 0;
@@ -164,8 +166,16 @@ export class Announcements {
     return { ...entry, releasePageUrl };
   }
 
-  refresh(): Promise<void> {
-    this.pending ??= this.check().finally(() => {
+  refresh({ ifStale = false }: { ifStale?: boolean } = {}): Promise<void> {
+    if (this.pending) return this.pending;
+    if (
+      ifStale &&
+      this.lastCheckedAt !== undefined &&
+      this.now() - this.lastCheckedAt < OPEN_REFRESH_MAX_AGE
+    )
+      return Promise.resolve();
+    this.pending = this.check().finally(() => {
+      this.lastCheckedAt = this.now();
       this.pending = undefined;
     });
     return this.pending;

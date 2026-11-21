@@ -9,11 +9,13 @@ const id = z.string().regex(ANNOUNCEMENT_ID);
 export const announcementsRouter = router({
   list: procedure.query(() => getAnnouncements().list()),
   detail: procedure.input(id).query(({ input }) => getAnnouncements().detail(input)),
-  refresh: procedure.mutation(async () => {
-    const announcements = getAnnouncements();
-    await announcements.refresh();
-    return announcements.list();
-  }),
+  refresh: procedure
+    .input(z.object({ ifStale: z.boolean() }).optional())
+    .mutation(async ({ input }) => {
+      const announcements = getAnnouncements();
+      await announcements.refresh(input);
+      return announcements.list();
+    }),
   markRead: procedure
     .input(z.array(id).max(MAX_ANNOUNCEMENTS))
     .mutation(({ input }) => getAnnouncements().markRead(input)),

@@ -14,11 +14,15 @@ const STATE_LABELS = {
   'needs-repair': '需要修复',
 } as const;
 
+type Operation = 'status' | 'install' | 'remove';
+
 export function LongTermAuthorizationSection() {
   const active = useTabActive();
   const [status, setStatus] = useState<LongTermAuthorizationStatus | null>(null);
-  const [pending, setPending] = useState<'status' | 'install' | 'remove' | null>(null);
-  const [error, setError] = useState<AuthorizationFailure | null>(null);
+  const [pending, setPending] = useState<Operation | null>(null);
+  const [error, setError] = useState<(AuthorizationFailure & { operation: Operation }) | null>(
+    null,
+  );
   const operation = useRef(false);
   const mounted = useRef(true);
   const confirm = useDialog((state) => state.confirm);
@@ -26,11 +30,11 @@ export function LongTermAuthorizationSection() {
   const development = status?.development === true;
 
   const run = useCallback(
-    async (kind: 'status' | 'install' | 'remove') => {
+    async (kind: Operation) => {
       if (!bridge || operation.current) return;
       operation.current = true;
       setPending(kind);
-      setError(null);
+      if (kind !== 'status') setError(null);
       try {
         if (kind !== 'status') {
           const approved = await confirm(
@@ -47,16 +51,20 @@ export function LongTermAuthorizationSection() {
           if (!approved || !mounted.current) return;
         }
         const result = kind === 'status' ? await bridge.status() : await bridge[kind](development);
-        if (mounted.current) setStatus(result);
+        if (mounted.current) {
+          setStatus(result);
+          setError(null);
+        }
       } catch (failure) {
         // 失败原文是助手的英文 bail!，渲染层统一翻成用户能照着做的说明。
         if (mounted.current)
-          setError(
-            authorizationFailure(failure instanceof Error ? failure.message : String(failure), {
+          setError({
+            ...authorizationFailure(failure instanceof Error ? failure.message : String(failure), {
               development,
-              operation: kind === 'remove' ? 'remove' : 'install',
+              operation: kind,
             }),
-          );
+            operation: kind,
+          });
       } finally {
         operation.current = false;
         if (mounted.current) setPending(null);
@@ -81,6 +89,11 @@ export function LongTermAuthorizationSection() {
   }, [active, bridge, run]);
 
   const canManage = Boolean(bridge && status && status.state !== 'unavailable');
+  const canRecheck =
+    status?.state === 'needs-repair' ||
+    error?.operation === 'status' ||
+    error?.needsUserAction ||
+    error?.retryStatus;
   return (
     <Card
       title={development ? '长期授权（开发）' : '长期授权'}
@@ -141,15 +154,17 @@ export function LongTermAuthorizationSection() {
                 ? '修复授权'
                 : '启用长期授权'}
           </button>
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            disabled={Boolean(pending)}
-            onClick={() => void run('status')}
-          >
-            <RefreshCw size={14} />
-            {pending === 'status' ? '检查中…' : '重新检查'}
-          </button>
+          {canRecheck && (
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              disabled={Boolean(pending)}
+              onClick={() => void run('status')}
+            >
+              <RefreshCw size={14} />
+              {pending === 'status' ? '检查中…' : '重新检查'}
+            </button>
+          )}
           {(status?.state === 'ready' || status?.state === 'needs-repair') && (
             <button
               type="button"

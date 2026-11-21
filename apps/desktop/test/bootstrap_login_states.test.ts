@@ -123,7 +123,9 @@ it.each(['new', 'existing'] as const)('%s 读取失败不冒充空配置，并�
   render();
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('读取账号失败');
   expect(host.textContent).not.toContain('还没有保存的账号');
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="重新读取账号"]')!.click());
+  const alert = host.querySelector('[role="alert"]')!;
+  expect(host.querySelector('[aria-label="重新读取账号"]')).toBeNull();
+  act(() => alert.querySelector<HTMLButtonElement>('button')!.click());
   expect(api.retry).toHaveBeenCalledOnce();
 });
 it('已有配置确实为空时保留空提示，没有错误提示', () => {

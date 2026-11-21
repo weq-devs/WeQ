@@ -14,6 +14,7 @@ const fixture = vi.hoisted(() => ({
     releasePageUrl: null as string | null,
   },
   openExternal: vi.fn(async () => ({ ok: true })),
+  refresh: vi.fn(),
   markRead: vi.fn(),
   reset: vi.fn(),
 }));
@@ -26,7 +27,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => ({}),
     announcements: {
       detail: { useQuery: () => ({ data: fixture.detail }) },
-      refresh: { useMutation: () => ({}) },
+      refresh: { useMutation: () => ({ mutate: fixture.refresh }) },
       markRead: { useMutation: () => ({ mutate: fixture.markRead, reset: fixture.reset }) },
     },
   },
@@ -35,6 +36,44 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('公告打开时按需补读，断网时保留已显示的列表并可立即重试', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  const entry = {
+    id: 'release-2-8-0',
+    title: 'WeQ 2.8.0',
+    level: 'normal' as const,
+    publishedAt: '2026-11-18T16:00:00Z',
+    unread: false,
+  };
+  const render = (status: 'ready' | 'cached') =>
+    act(() =>
+      root.render(
+        h(AnnouncementPanel, {
+          selected: null,
+          onClose() {},
+          onSelect() {},
+          listFailed: false,
+          canOpenUpdateSettings: false,
+          list: { status, entries: [entry], unread: 0, reminder: null },
+        }),
+      ),
+    );
+  const retry = () =>
+    [...document.querySelectorAll('button')].find((b) => b.textContent === '重试');
+  try {
+    render('ready');
+    expect(fixture.refresh.mock.calls).toEqual([[{ ifStale: true }]]);
+    expect(retry()).toBeUndefined();
+    render('cached');
+    expect(document.body.textContent).toContain(entry.title);
+    act(() => retry()!.click());
+    expect(fixture.refresh.mock.calls).toEqual([[{ ifStale: true }], [undefined]]);
+  } finally {
+    act(() => root.unmount());
+  }
 });
 
 it('发布公告依据当前页面选择软件更新定位或官方发布页；升级后只保留正文', () => {

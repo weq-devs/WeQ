@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { ArrowLeft, ArrowRight, ChevronRight, ExternalLink, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronRight, ExternalLink, X } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
@@ -79,6 +79,8 @@ export default function AnnouncementPanel({
   const refresh = trpc.announcements.refresh.useMutation({
     onSettled: () => utils.announcements.list.invalidate(),
   });
+  const { mutate: refreshFeed } = refresh;
+  useEffect(() => refreshFeed({ ifStale: true }), [refreshFeed]);
   const mark = trpc.announcements.markRead.useMutation({
     onSettled: () => utils.announcements.list.invalidate(),
   });
@@ -92,6 +94,9 @@ export default function AnnouncementPanel({
   const visibleId = visibleDetail?.id;
   const releasePageUrl = visibleDetail?.releasePageUrl;
   const unreadIds = list?.entries.filter(({ unread }) => unread).map(({ id }) => id) ?? [];
+  const hasEntries = Boolean(list?.entries.length);
+  const feedFailed =
+    listFailed || refresh.isError || list?.status === 'unavailable' || list?.status === 'cached';
 
   useEffect(() => {
     if (!visibleDetail || requested.current === visibleDetail.id) return;
@@ -160,30 +165,14 @@ export default function AnnouncementPanel({
         )}
         <h2 id="weq-announcement-title">{title}</h2>
         {!selected && (
-          <>
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={!unreadIds.length || mark.isLoading}
-              onClick={() => mutate(unreadIds)}
-            >
-              全部标为已读
-            </button>
-            <button
-              type="button"
-              className="weq-workspace-control"
-              title="刷新公告"
-              aria-label="刷新公告"
-              disabled={refresh.isLoading}
-              onClick={() => refresh.mutate()}
-            >
-              <RefreshCw
-                size={16}
-                className={refresh.isLoading ? 'weq-spin' : undefined}
-                aria-hidden
-              />
-            </button>
-          </>
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={!unreadIds.length || mark.isLoading}
+            onClick={() => mutate(unreadIds)}
+          >
+            全部标为已读
+          </button>
         )}
         {!mobile && (
           <button
@@ -275,9 +264,20 @@ export default function AnnouncementPanel({
           )
         ) : (
           <>
-            {list?.status === 'cached' && (
-              <p className="weq-announcement-status" role="status">
-                显示上次获取的公告
+            {feedFailed && (
+              <p
+                className={hasEntries ? 'weq-announcement-status' : 'weq-announcement-empty'}
+                role="status"
+              >
+                {hasEntries ? '暂时无法获取最新公告，显示上次获取的内容。' : '暂时无法获取公告。'}
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  disabled={refresh.isLoading}
+                  onClick={() => refreshFeed(undefined)}
+                >
+                  {refresh.isLoading ? '正在获取…' : '重试'}
+                </button>
               </p>
             )}
             {list?.entries.length ? (
@@ -305,15 +305,13 @@ export default function AnnouncementPanel({
                   </li>
                 ))}
               </ul>
-            ) : (
+            ) : !feedFailed ? (
               <p className="weq-announcement-empty" role="status">
-                {listFailed || refresh.isError || list?.status === 'unavailable'
-                  ? '暂时无法获取公告。'
-                  : !list || list.status === 'loading'
-                    ? '正在获取公告…'
-                    : '暂无官方公告'}
+                {!list || list.status === 'loading' || refresh.isLoading
+                  ? '正在获取公告…'
+                  : '暂无官方公告'}
               </p>
-            )}
+            ) : null}
           </>
         )}
       </div>

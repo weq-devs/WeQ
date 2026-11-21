@@ -63,13 +63,27 @@ describe('长期授权设置', () => {
     );
     expect(bridge.install).toHaveBeenCalledWith(true);
   });
-  it('打开、搜索或重新检查只读取状态，不自动安装', async () => {
+  it('打开及回到窗口时自动读取权限助手状态', async () => {
     const view = await mount();
     expect(view.host.querySelector('[data-setting-id="long-term-authorization"]')).not.toBeNull();
-    await act(async () => view.button('重新检查').click());
+    expect(view.button('重新检查')).toBeUndefined();
+    bridge.status.mockResolvedValue(state('ready'));
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+    });
     expect(bridge.status).toHaveBeenCalledTimes(2);
+    expect(view.host.querySelector('[role="status"]')?.textContent).toBe('已连接');
     expect(bridge.install).not.toHaveBeenCalled();
     expect(bridge.remove).not.toHaveBeenCalled();
+  });
+  it('检查失败后可手动读回，恢复成功后收起重试', async () => {
+    bridge.status.mockRejectedValueOnce(new Error('fixture unavailable'));
+    const view = await mount();
+    expect(view.host.querySelector('[role="alert"]')?.textContent).toContain('fixture unavailable');
+    await act(async () => view.button('重新检查').click());
+    expect(bridge.status).toHaveBeenCalledTimes(2);
+    expect(view.host.querySelector('[role="alert"]')).toBeNull();
+    expect(view.button('重新检查')).toBeUndefined();
   });
   it('系统与页面确认成功后才启用，不因点击按钮提前报已连接', async () => {
     const view = await mount();

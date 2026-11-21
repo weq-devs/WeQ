@@ -7,9 +7,9 @@ import type { AnalysisReportSummary } from '@weq/service';
 import { TimeLabel } from '../../components/TimeLabel';
 import { client, trpc } from '../../trpc/client';
 import { useDialog } from '../../components/Dialog.shared';
-import { useTabActive } from '../../components/RetainedTabs.shared';
 import { WindowedList } from '../../components/WindowedList';
 import { usePageState } from '../../components/PageSnapshots.shared';
+import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { pageValue } from '../../lib/pageSnapshots';
 import { ANALYSIS_LABELS, restoredAnalysisRequest, type AnalysisReportRequest } from './model';
 import '../../styles/analysis-reports.css';
@@ -34,19 +34,19 @@ export function AnalysisReportsTool({
 }: {
   onOpenReport: (request: AnalysisReportRequest) => void;
 }) {
-  const enabled = useTabActive();
-  const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled });
+  const autoRefresh = useQQAutoRefresh(true, { onlineOnly: false });
+  const config = trpc.account.getAccountConfig.useQuery(undefined, autoRefresh);
   const binding = {
     expectedAccountUin: config.data?.uin ?? '',
     expectedAccountConfigId: config.data?.configId ?? '',
   };
-  const query = trpc.account.analysisReports.list.useQuery(binding, {
-    enabled: enabled && Boolean(config.data),
-    refetchOnWindowFocus: false,
-  });
+  const enabled = autoRefresh.enabled && Boolean(config.data);
+  const query = trpc.account.analysisReports.list.useQuery(binding, { ...autoRefresh, enabled });
+  const refreshReports = () => void query.refetch();
   trpc.account.analysisReports.onChange.useSubscription(binding, {
-    enabled: enabled && Boolean(config.data),
-    onData: () => void query.refetch(),
+    enabled,
+    onStarted: refreshReports,
+    onData: refreshReports,
   });
   const dialog = useDialog();
   const [error, setError] = useState('');
@@ -149,25 +149,25 @@ export function AnalysisReportsTool({
             </option>
           ))}
         </FormSelect>
-        <button
-          className="weq-set-iconbtn"
-          type="button"
-          title="刷新报告列表"
-          aria-label="刷新报告列表"
-          disabled={query.isFetching || config.isFetching}
-          onClick={() => {
-            setError('');
-            if (config.error) void config.refetch();
-            else void query.refetch();
-          }}
-        >
-          <RefreshCw size={16} aria-hidden />
-        </button>
       </div>
-      {error || loadError ? (
+      {error ? (
         <p className="weq-analysis-reports-error" role="alert">
-          {error || loadError}
+          {error}
         </p>
+      ) : null}
+      {loadError ? (
+        <div className="weq-analysis-reports-error">
+          <span role="alert">{loadError}</span>{' '}
+          <button
+            className="weq-set-btn weq-set-btn-sm weq-retry-button"
+            type="button"
+            disabled={!autoRefresh.enabled || query.isFetching || config.isFetching}
+            onClick={() => void (config.error ? config.refetch() : query.refetch())}
+          >
+            <RefreshCw size={14} aria-hidden />
+            重试
+          </button>
+        </div>
       ) : null}
       <div className="weq-analysis-reports-viewport" ref={viewport}>
         {loading && !query.data ? (

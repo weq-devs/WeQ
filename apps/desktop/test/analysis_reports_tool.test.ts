@@ -6,6 +6,14 @@ import type { AnalysisReportSummary } from '../../../packages/service/src/accoun
 import { chooseFormOption } from './support/form-controls';
 const f = vi.hoisted(() => ({
   reports: [] as AnalysisReportSummary[],
+  listError: null as Error | null,
+  subscribe:
+    vi.fn<
+      (
+        binding: { expectedAccountUin: string; expectedAccountConfigId: string },
+        callbacks: { enabled: boolean; onStarted(): void; onData(): void },
+      ) => void
+    >(),
   confirm: vi.fn(async () => false),
   remove: vi.fn(async () => undefined),
   refetch: vi.fn(async () => undefined),
@@ -19,8 +27,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'fixture' } }) },
       analysisReports: {
-        list: { useQuery: () => ({ data: f.reports, refetch: f.refetch }) },
-        onChange: { useSubscription() {} },
+        list: { useQuery: () => ({ data: f.reports, error: f.listError, refetch: f.refetch }) },
+        onChange: { useSubscription: f.subscribe },
       },
     },
   },
@@ -36,6 +44,31 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   f.confirm.mockResolvedValue(false);
+  f.listError = null;
+});
+it('报告订阅重连后补读，列表读取失败可手动重试', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const render = () =>
+    act(() => root.render(createElement(AnalysisReportsTool, { onOpenReport() {} })));
+  try {
+    render();
+    const [binding, callbacks] = f.subscribe.mock.lastCall!;
+    expect(binding).toEqual({ expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' });
+    expect(callbacks.enabled).toBe(true);
+    act(() => callbacks.onStarted());
+    expect(f.refetch).toHaveBeenCalledOnce();
+
+    f.listError = new Error('暂时无法读取报告');
+    render();
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert?.textContent).toBe(f.listError.message);
+    act(() => alert?.parentElement?.querySelector('button')?.click());
+    expect(f.refetch).toHaveBeenCalledTimes(2);
+  } finally {
+    act(() => root.unmount());
+  }
 });
 it('报告列表自动窗口化，打开一步完成，删除仍单独确认', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

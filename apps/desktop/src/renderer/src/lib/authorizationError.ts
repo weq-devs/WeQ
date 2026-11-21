@@ -16,6 +16,8 @@ export interface AuthorizationFailure {
   message: string;
   /** 是否需要用户自己去命令行处理（设置页用警告色）。 */
   needsUserAction: boolean;
+  /** 其他窗口或终端操作完成后，可主动读回状态。 */
+  retryStatus?: boolean;
 }
 
 /** 提取 `Error invoking remote method '<channel>': Error: <detail>` 里的真实 detail。 */
@@ -30,7 +32,7 @@ const NOT_PROTECTED = /installation directory is not system-protected:\s*(\S+)/;
 /** 把一次安装 / 撤销失败的原始报错翻成用户能看懂的说明。 */
 export function authorizationFailure(
   raw: string,
-  context: { development?: boolean; operation?: 'install' | 'remove' } = {},
+  context: { development?: boolean; operation?: 'status' | 'install' | 'remove' } = {},
 ): AuthorizationFailure {
   const detail = unwrapIpcError(raw);
   const withDetail = (message: string, needsUserAction = false): AuthorizationFailure => ({
@@ -76,10 +78,13 @@ export function authorizationFailure(
     );
 
   if (detail.includes('another authorization installation is in progress'))
-    return withDetail(
-      '另一个长期授权操作正在进行（可能来自另一个 WeQ 窗口，或终端里手动运行的助手）。\n' +
-        '等它完成后再点「重新检查」；确认没有别的操作卡住时，重新打开 WeQ 再试。',
-    );
+    return {
+      ...withDetail(
+        '另一个长期授权操作正在进行（可能来自另一个 WeQ 窗口，或终端里手动运行的助手）。\n' +
+          '等它完成后再点「重新检查」；确认没有别的操作卡住时，重新打开 WeQ 再试。',
+      ),
+      retryStatus: true,
+    };
 
   if (detail.includes('helper changed before installation'))
     return withDetail(
@@ -100,7 +105,7 @@ export function authorizationFailure(
   if (detail.includes('已取消长期授权操作')) return { message: detail, needsUserAction: false };
 
   return {
-    message: `${removing ? '撤销长期授权' : '启用长期授权'}失败：${detail}`,
+    message: `${context.operation === 'status' ? '检查长期授权' : removing ? '撤销长期授权' : '启用长期授权'}失败：${detail}`,
     needsUserAction: false,
   };
 }

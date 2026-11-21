@@ -320,7 +320,7 @@ export function EducationSection({ uin }: { uin: string }) {
     <ContactSection
       title="教育经历"
       action={
-        education.rows.length ? (
+        education.rows.length && !education.error ? (
           <button
             type="button"
             className="weq-profile-section-action"

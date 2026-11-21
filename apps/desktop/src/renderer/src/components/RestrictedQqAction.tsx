@@ -23,12 +23,14 @@ export function RestrictedQqAction({
   onOpened,
   onEnable,
   onRetry,
+  retryLabel,
 }: {
   needsQq: boolean;
   busy: boolean;
   onOpened: () => Promise<void>;
   onEnable: () => Promise<void>;
   onRetry: () => Promise<void>;
+  retryLabel: string;
 }) {
   const [pending, setPending] = useState<QqDebugCopyPhase | null>(null);
   const status = trpc.bootstrap.qqDebugCopyStatus.useQuery(undefined, {
@@ -167,7 +169,7 @@ export function RestrictedQqAction({
               onClick={() => void onRetry()}
             >
               <RefreshCw size={14} />
-              重新检查
+              {retryLabel}
             </button>
           </div>
         </details>

@@ -161,7 +161,7 @@ export function ProfileDetailsSection({ uin }: { uin: string }) {
     <ContactSection
       title="扩展资料"
       action={
-        details.usable ? (
+        details.usable && !details.error ? (
           <button
             type="button"
             className="weq-profile-section-action"

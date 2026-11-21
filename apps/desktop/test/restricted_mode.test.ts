@@ -488,6 +488,19 @@ it('手动启用提交完整来源，不修改自动偏好；普通重新检查�
     false,
   );
 });
+it.each([false, true])('凭据不全时可主动补读，SIP 开启：%s', async (sip) => {
+  mock.sip = sip;
+  mock.access = { ...ready, hasGuid: false };
+  const f = fixture();
+  act(() => useRestrictedMode.getState().setOpen(true));
+  await act(async () =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === '重试获取在线凭据')!
+      .click(),
+  );
+  expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+  expect(mock.requestFull).not.toHaveBeenCalled();
+});
 it.each(['missing', 'ready', 'outdated', 'invalid', 'unmanaged'] as const)(
   'SIP 副本 %s 状态的嵌入面板只显示一个重新检查，点击同时刷新副本和在线状态',
   async (state) => {

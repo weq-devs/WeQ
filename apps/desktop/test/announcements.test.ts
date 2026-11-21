@@ -135,6 +135,29 @@ describe('宿主官方公告', () => {
     expect(await restarted.list()).toMatchObject({ status: 'ready', entries: [] });
   });
 
+  it('打开公告时复用近期检查，多端共用在途请求，失败后可立即重试', async () => {
+    const { instance, fetcher } = host();
+    origin = signed(1, [regular]);
+    await Promise.all([instance.refresh(), instance.refresh({ ifStale: true })]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    origin = signed(2, [regular, important]);
+    await instance.refresh({ ifStale: true });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    now += 60_000;
+    await Promise.all([instance.refresh({ ifStale: true }), instance.refresh({ ifStale: true })]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect((await instance.list()).entries.map(({ id }) => id)).toEqual([important.id, regular.id]);
+
+    origin = 'offline';
+    now += 60_000;
+    await instance.refresh({ ifStale: true });
+    expect(await instance.list()).toMatchObject({ status: 'cached', unread: 2 });
+    origin = signed(3, [regular]);
+    await instance.refresh();
+    expect(await instance.list()).toMatchObject({ status: 'ready', unread: 1 });
+  });
+
   it('升级后保留发布公告，只对低于公告版本的宿主返回更新入口', async () => {
     origin = signed(1, [regular, { ...important, releaseVersion: '2.10.0' }]);
     const older = host('macos', '2.9.9').instance;
