@@ -19,7 +19,7 @@ export const NAVIGATION_FEATURES = {
     summary: '查看已有本地收藏，页面在有可用票据时补充在线结果。',
     context: ['account'],
     navigation: 'search',
-    tools: ['list_collections'],
+    tools: ['list_collections', 'search_local_resources', 'get_local_collection'],
   }),
   qzone: defineFeature('qzone.timeline', 'qzone', 'QQ 空间', ['说说', '相册'], {
     context: ['account'],

@@ -29,6 +29,7 @@ import { MessageTimeDivider } from '../im-template/template/messageTime';
 import { useMsgDecoration } from '../hooks/useMsgDecoration';
 import { useActiveFontFx, useActiveWidget } from '../hooks/useActiveWidget.shared';
 import { localDressApplies } from '../lib/dressSkin';
+import { preferenceValue, useClientPreferences } from '../lib/clientPreferences';
 import { useBubbleFontFx } from '../hooks/useBubbleFontFx';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import type { ResolvedWidget } from '@weq/service';
@@ -245,9 +246,10 @@ function ForwardWindowFrame({
     (): ForwardCarrier => ({ msgId: win.rootMsgId, kind: win.kind, resId: win.resId }),
     [win.rootMsgId, win.kind, win.resId],
   );
+  const groupMessages = useClientPreferences(() => preferenceValue('groupConsecutiveMessages'));
   const entries = useMemo(
-    () => forwardEntries({ id: win.id, records: win.records }),
-    [win.id, win.records],
+    () => forwardEntries({ id: win.id, records: win.records }, groupMessages),
+    [win.id, win.records, groupMessages],
   );
   const galleryMessages = useMemo(
     () =>

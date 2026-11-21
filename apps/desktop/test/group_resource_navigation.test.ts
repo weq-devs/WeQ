@@ -10,11 +10,7 @@ import {
   useMobileBack,
 } from '../src/renderer/src/hooks/useMobileNavigation';
 
-vi.mock('../src/renderer/src/lib/responsiveLayout', async (original) => ({
-  ...(await original<typeof import('../src/renderer/src/lib/responsiveLayout')>()),
-  isSingleColumnLayout: () => true,
-  isMobileClient: () => true,
-}));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 afterEach(() => {
   resetMobileRoot();
   vi.unstubAllGlobals();
@@ -50,6 +46,7 @@ it('统一资源导航显示当前目录并把返回交给本窗口', () => {
 });
 it('工具窗的返回动作不注册到主窗口移动导航', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('weqRemoteShell', { openMenu() {} });
   const popup = new HappyWindow();
   const root = createRoot(document.createElement('div'));
   const back = vi.fn();

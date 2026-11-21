@@ -1,0 +1,205 @@
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
+import { type AccountConfig, writeFileAtomicSync } from '@weq/service';
+import type { AccountInstanceScope } from './account_instance_scope';
+
+const ACCOUNT_ARG = '--weq-account-instance=';
+const FOCUS_ARG = '--weq-focus-account=';
+const CONFIG_ID = /^[a-z\d][a-z\d_-]{0,127}$/i;
+// Vite 5 的内置模块表不识别 node:sqlite，交给 Electron/Node 运行时加载。
+const nodeSqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+
+export function accountLaunchArgs(argv: readonly string[]): string[] {
+  return argv.slice(1).filter((arg) => !arg.startsWith(ACCOUNT_ARG) && !arg.startsWith(FOCUS_ARG));
+}
+
+export interface AccountInstanceTarget {
+  uin: string;
+  configId: string;
+}
+
+export function instanceArg(target: AccountInstanceTarget): string {
+  return `${ACCOUNT_ARG}${target.uin}:${target.configId}`;
+}
+
+export function focusAccountArg(uin: string): string {
+  return `${FOCUS_ARG}${uin}`;
+}
+
+export function instanceTarget(argv: readonly string[]): AccountInstanceTarget | undefined {
+  const arg = argv.find((value) => value.startsWith(ACCOUNT_ARG));
+  if (!arg) return undefined;
+  const [uin, configId, extra] = arg.slice(ACCOUNT_ARG.length).split(':');
+  if (!uin || !configId || extra !== undefined || !CONFIG_ID.test(uin) || !CONFIG_ID.test(configId))
+    throw new Error('账号实例启动参数无效。');
+  return { uin, configId };
+}
+
+export function focusAccountTarget(argv: readonly string[]): string | undefined {
+  const value = argv.find((arg) => arg.startsWith(FOCUS_ARG))?.slice(FOCUS_ARG.length);
+  return value && CONFIG_ID.test(value) ? value : undefined;
+}
+
+function instanceRoot(root: string, uin: string): string {
+  return join(root, 'instances', createHash('sha256').update(uin).digest('hex').slice(0, 24));
+}
+
+export function instanceDirectories(root: string, uin: string) {
+  const directory = instanceRoot(root, uin);
+  return { userData: join(directory, 'electron'), data: join(directory, 'data') };
+}
+
+function readAccount(directory: string, configId: string): AccountConfig | undefined {
+  if (!CONFIG_ID.test(configId)) return undefined;
+  try {
+    const raw = JSON.parse(
+      readFileSync(join(directory, `${configId}.json`), 'utf8'),
+    ) as AccountConfig & { algo?: AccountConfig['algos'][string] };
+    if (
+      typeof raw.uin !== 'string' ||
+      !CONFIG_ID.test(raw.uin) ||
+      typeof raw.dbKey !== 'string' ||
+      (raw.configId && raw.configId !== configId)
+    )
+      return undefined;
+    return { ...raw, configId, algos: raw.algos ?? (raw.algo ? { 'nt_msg.db': raw.algo } : {}) };
+  } catch {
+    return undefined;
+  }
+}
+
+function accountsDirectory(root: string): string {
+  return join(root, 'config', 'accounts');
+}
+
+export function savedInstanceAccounts(root: string): AccountConfig[] {
+  const directory = accountsDirectory(root);
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory)
+    .filter((name) => name.endsWith('.json'))
+    .flatMap((name) => readAccount(directory, name.slice(0, -5)) ?? [])
+    .sort((a, b) => b.lastLoginAt - a.lastLoginAt);
+}
+
+/** 首次打开只带入打开此 QQ 数据源所需的配置。后续所有写入归该实例。 */
+export function prepareInstanceAccount(root: string, target: AccountInstanceTarget): AccountConfig {
+  const { data } = instanceDirectories(root, target.uin);
+  const directory = accountsDirectory(data);
+  const existing = readAccount(directory, target.configId);
+  if (existing?.uin === target.uin) return existing;
+  const path = join(directory, `${target.configId}.json`);
+  if (existsSync(path)) throw new Error('独立窗口的账号配置无法读取，请检查原配置。');
+
+  const source = readAccount(accountsDirectory(root), target.configId);
+  if (source?.uin !== target.uin) throw new Error('找不到此账号的已保存数据源。');
+  const { configId, uin, uid, dbKey, algos, dataDir, backupAccountDir, displayName, avatarUrl } =
+    source;
+  const record = {
+    configId,
+    uin,
+    uid,
+    dbKey,
+    algos,
+    dataDir,
+    backupAccountDir,
+    displayName,
+    avatarUrl,
+    static: source.static,
+    mobile: source.mobile,
+    lastLoginAt: source.lastLoginAt,
+  };
+  const configPath = join(data, 'config.json');
+  if (!existsSync(configPath)) {
+    const original = join(root, 'config.json');
+    const config = existsSync(original) ? JSON.parse(readFileSync(original, 'utf8')) : {};
+    mkdirSync(data, { recursive: true, mode: 0o700 });
+    writeFileAtomicSync(
+      configPath,
+      JSON.stringify({
+        tencentFilesRootOverride: config.tencentFilesRootOverride,
+        settings: { appLock: config.settings?.appLock },
+        totpSecret: config.totpSecret,
+      }),
+    );
+  }
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  writeFileAtomicSync(path, JSON.stringify(record));
+  return record;
+}
+
+function lockAccount(root: string, uin: string, probe = false): DatabaseSync | null {
+  const directory = instanceRoot(root, uin);
+  if (!probe) mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const db = new nodeSqlite.DatabaseSync(join(directory, 'owner.sqlite'));
+  try {
+    // SQLite 的跨进程文件锁会在进程崩溃后由系统释放，无需根据 PID 清理锁文件。
+    db.exec(probe ? 'BEGIN IMMEDIATE' : 'PRAGMA busy_timeout = 100; BEGIN IMMEDIATE');
+    return db;
+  } catch (error) {
+    db.close();
+    if ((error as { errcode?: number }).errcode === 5) return null;
+    throw error;
+  }
+}
+
+export function accountIsRunning(root: string, uin: string): boolean {
+  if (!existsSync(join(instanceRoot(root, uin), 'owner.sqlite'))) return false;
+  const probe = lockAccount(root, uin, true);
+  probe?.close();
+  return probe === null;
+}
+
+export class AccountInstanceBusy extends Error {
+  constructor() {
+    super('此账号已在另一个 WeQ 实例打开。');
+  }
+}
+
+/** 普通窗口可逐次打开账号，独立窗口始终保留指定账号的所有权。 */
+export class AccountInstances implements AccountInstanceScope {
+  private readonly locks = new Map<string, DatabaseSync>();
+  private pending: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    private readonly root: string,
+    private readonly assignedUin?: string,
+  ) {}
+
+  owns(uin: string): boolean {
+    return this.locks.has(uin);
+  }
+
+  claim(uin: string): void {
+    if (this.locks.has(uin)) return;
+    const lock = lockAccount(this.root, uin);
+    if (!lock) throw new AccountInstanceBusy();
+    this.locks.set(uin, lock);
+  }
+
+  run<T>(
+    uin: string | null,
+    operation: () => Promise<T>,
+    opened: () => string | undefined,
+  ): Promise<T> {
+    const result = this.pending.then(async () => {
+      if (uin && this.assignedUin && uin !== this.assignedUin)
+        throw new Error('此窗口已绑定一个 QQ 账号，请在独立窗口打开其它账号。');
+      if (uin) this.claim(uin);
+      try {
+        return await operation();
+      } finally {
+        const active = opened();
+        for (const [owner, lock] of this.locks) {
+          if (owner === active || owner === this.assignedUin) continue;
+          lock.close();
+          this.locks.delete(owner);
+        }
+      }
+    });
+    this.pending = result.catch(() => undefined);
+    return result;
+  }
+}

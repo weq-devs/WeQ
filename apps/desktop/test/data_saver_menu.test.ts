@@ -115,17 +115,21 @@ it('自动进入退出提醒去重，未知探测不退出，手动操作不产�
   applyDataSaverStatus(fixture.session!.status());
   applyDataSaverStatus(fixture.session!.status());
   expect(useToast.getState().toasts).toHaveLength(1);
-  expect(useToast.getState().toasts[0].title).toBe('已自动进入省流量模式');
+  const entry = useToast.getState().toasts[0];
+  expect(entry.event).toBe('dataSaver');
+  expect(useDataSaver.getState().enabled).toBe(true);
   fixture.session!.update('auto', UNKNOWN_NETWORK);
   applyDataSaverStatus(fixture.session!.status());
-  expect(useToast.getState().toasts[0].title).toBe('已自动进入省流量模式');
+  expect(useToast.getState().toasts[0]).toBe(entry);
   fixture.session!.update('auto', networkCost(false, false, 'fixture'));
   applyDataSaverStatus(fixture.session!.status());
-  expect(useToast.getState().toasts[0].title).toBe('已自动退出省流量模式');
-  useToast.setState({ toasts: [] });
+  expect(useToast.getState().toasts[0].title).not.toBe(entry.title);
+  expect(useDataSaver.getState().enabled).toBe(false);
+  const staleNotice = useToast.getState().toasts[0].id;
   fixture.session!.setTemporary({ enabled: true, duration: 'exit' });
   applyDataSaverStatus(fixture.session!.status());
-  expect(useToast.getState().toasts).toHaveLength(0);
+  expect(useToast.getState().toasts).toHaveLength(1);
+  expect(useToast.getState().leaving).toEqual([staleNotice]);
 });
 it('临时期满恢复基础模式并显示横幅，迟到的旧状态不能覆盖', async () => {
   vi.useFakeTimers();
@@ -137,14 +141,16 @@ it('临时期满恢复基础模式并显示横幅，迟到的旧状态不能覆�
   applyDataSaverStatus(fixture.session!.status());
   applyDataSaverStatus(old);
   expect(useDataSaver.getState().enabled).toBe(true);
-  expect(useToast.getState().toasts[0].detail).toBe('临时设置已到期');
+  const notice = useToast.getState().toasts[0];
+  expect(Reflect.get(notice, 'summary') ?? notice.detail).toBe('临时设置已到期');
 });
 it('首次确认跟随系统开启时提醒，不受之前的手动设置原因影响', () => {
   fixture.session!.update('never', networkCost(true, false, 'fixture'));
   fixture.session!.update('auto', networkCost(true, false, 'fixture'));
   expect(fixture.session!.status().reason).toBe('settings');
   applyDataSaverStatus(fixture.session!.status());
-  expect(useToast.getState().toasts[0].title).toBe('已自动进入省流量模式');
+  expect(useToast.getState().toasts[0].event).toBe('dataSaver');
+  expect(useDataSaver.getState().enabled).toBe(true);
 });
 it('计费触发初次提醒说明实际原因，默认关闭时不弹自动开启提醒', () => {
   const cost = networkCost(false, true, 'fixture');
@@ -154,7 +160,8 @@ it('计费触发初次提醒说明实际原因，默认关闭时不弹自动开�
   useDataSaver.setState({ status: null });
   fixture.session!.update('auto', cost, true);
   applyDataSaverStatus(fixture.session!.status());
-  expect(useToast.getState().toasts[0].detail).toBe('使用流量时自动启用');
+  const notice = useToast.getState().toasts[0];
+  expect(Reflect.get(notice, 'summary') ?? notice.detail).toBe('使用流量时自动启用');
 });
 it.each(['host', 'local'] as const)(
   '入口跟随实际省流量状态，不因 %s 端仅使用流量或系统限制而单独显示',

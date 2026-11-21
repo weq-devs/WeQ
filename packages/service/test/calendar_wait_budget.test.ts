@@ -117,18 +117,18 @@ it('等待超时不占用也不重置真正的连续执行失败次数', async (
   ]);
 });
 
-it('某个来源等待连接时其他来源继续推进，取消会移除退避定时器', async () => {
+it('等待连接时只推进同日其他来源，取消会移除退避定时器', async () => {
   const page = vi.fn<CalendarSource['page']>(async () => {
     throw new Error('database_query_wait_timeout');
   });
   const other = vi.fn<CalendarSource['page']>(async () => ({ rows: [], done: true }));
-  const job = make({ kind: 'c2c', page, count: async () => 0 }, [
-    { kind: 'group', page: other, count: async () => 0 },
-  ]);
+  const count = vi.fn(async () => 0);
+  const job = make({ kind: 'c2c', page, count }, [{ kind: 'group', page: other, count }]);
   job.keepAlive(day);
   job.continueInBackground();
   await vi.advanceTimersByTimeAsync(1000);
   expect(other).toHaveBeenCalledOnce();
+  expect(count).not.toHaveBeenCalled();
   expect(page.mock.calls.length).toBeLessThan(8);
   expect(job.snapshot(day).controls.day.state).toBe('running');
   expect(job.snapshot(day).canRun).toBe(true);

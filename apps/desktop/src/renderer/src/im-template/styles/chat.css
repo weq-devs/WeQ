@@ -714,35 +714,47 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   gap: 5px;
 }
 
-.message-bubble[data-swipe-reply]:not(:has(pre)) {
+.message-line[data-swipe-reply]:not(:has(pre)) {
   touch-action: pan-y pinch-zoom;
 }
 
-.message-bubble[data-swipe-reply] {
+.message-line[data-swipe-reply],
+.message-line[data-swipe-reply] > .message-bubble {
   position: relative;
+}
+
+.message-line[data-swipe-reply] {
   translate: var(--swipe-reply-x, none);
   transition: translate 180ms ease-out;
 }
 
-.message-bubble[data-swipe-dragging] {
+.message-line[data-swipe-dragging] {
   transition: none;
 }
 
 .weq-swipe-reply-icon {
   position: absolute;
-  inset: 50% auto auto calc(100% + 10px);
+  top: 50%;
+  left: calc(100% + var(--swipe-reply-edge, 0px));
   translate: 0 -50%;
   color: var(--weq-fg-secondary);
-  opacity: var(--swipe-reply-progress, 0);
+  visibility: hidden;
+  transition: visibility 0s 180ms;
   pointer-events: none;
 }
 
-.message-bubble[data-swipe-ready] .weq-swipe-reply-icon {
+.message-line[data-swipe-dragging] > .weq-swipe-reply-icon {
+  visibility: visible;
+  transition: none;
+}
+
+.message-line[data-swipe-ready] > .weq-swipe-reply-icon {
   color: var(--weq-accent-ink, var(--weq-accent-effective));
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .message-bubble[data-swipe-reply] {
+  .message-line[data-swipe-reply],
+  .weq-swipe-reply-icon {
     transition: none;
   }
 }

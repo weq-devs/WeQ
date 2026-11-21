@@ -5,9 +5,10 @@
  * `requests` 是已经取好的申请列表。
  */
 import { ArrowLeft } from 'lucide-react';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { cn } from '../im-template/template/classNames';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
+import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { Avatar, EmptyState } from '../im-template/template/primitives';
 import type { ContactRequest, GroupJoinRequest, User } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
@@ -18,6 +19,8 @@ import { withQQAccountScope } from './qq-actions/shared.shared';
 import {
   bindNoticeOperations,
   formatNoticeTimestamp,
+  latestNormalNoticeSequence,
+  type NoticeInbox,
   type NoticeOperation,
 } from '../lib/contactNotice';
 import { avatarFromUin } from '../lib/avatarResolver';
@@ -56,15 +59,18 @@ type NoticeGroupProfileHandler = (
 function ContactNoticeDialogBody({
   open,
   requests,
+  onlineInbox,
   onClose,
   onOpenProfile,
 }: {
   open: boolean;
   requests: ContactRequest[];
+  onlineInbox?: NoticeInbox;
   onClose: () => void;
   onOpenProfile?: NoticeProfileHandler;
 }) {
-  const inbox = useNoticeOperations(false, open);
+  const fallbackInbox = useNoticeOperations(false, open && !onlineInbox);
+  const inbox = onlineInbox ?? fallbackInbox;
   const panel = useRef<HTMLElement>(null);
   // 手机返回由 shell 的来源快照负责，避免 onClose 再次进入同一个返回栈。
   useSurfaceEscape(panel, onClose, open, false, false);
@@ -138,9 +144,12 @@ function ContactNoticeDialogBody({
                   </div>
                   {open && operation && (
                     <RequestActions
-                      key={`${operation.kind}:${operation.token}`}
+                      key={`${operation.kind}:${operation.noticeId ?? operation.token}`}
                       operation={operation}
                     />
+                  )}
+                  {operation?.kind === 'doubtFriend' && (
+                    <div className="notice-doubt-mark" title="可疑好友申请" />
                   )}
                 </article>
               );
@@ -149,7 +158,7 @@ function ContactNoticeDialogBody({
           {open &&
             remaining.map((operation) => (
               <OnlineRequestCard
-                key={`${operation.kind}:${operation.token}`}
+                key={`${operation.kind}:${operation.noticeId ?? operation.token}`}
                 operation={operation}
                 onOpenProfile={onOpenProfile}
               />
@@ -205,20 +214,33 @@ function splitNoticeMessage(message: string): Array<{ label?: string; value: str
 function GroupNoticeDialogBody({
   open,
   requests,
+  onlineInbox,
+  onViewed,
   onClose,
   onOpenProfile,
   onOpenGroupProfile,
 }: {
   open: boolean;
   requests: GroupJoinRequest[];
+  onlineInbox?: NoticeInbox;
+  onViewed?: (sequence: string) => void;
   onClose: () => void;
   onOpenProfile?: NoticeProfileHandler;
   onOpenGroupProfile?: NoticeGroupProfileHandler;
 }) {
-  const inbox = useNoticeOperations(true, open);
+  const fallbackInbox = useNoticeOperations(true, open && !onlineInbox);
+  const inbox = onlineInbox ?? fallbackInbox;
   const panel = useRef<HTMLElement>(null);
   useSurfaceEscape(panel, onClose, open, false, false);
   const { cards, remaining } = bindNoticeOperations(requests, inbox.operations);
+  const activity = useQQReadActivity(open && Boolean(onViewed));
+  const sequence = onViewed ? latestNormalNoticeSequence(requests, remaining) : undefined;
+  const reported = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!activity.enabled || !sequence || !onViewed || reported.current === sequence) return;
+    reported.current = sequence;
+    onViewed(sequence);
+  }, [activity.enabled, sequence, onViewed]);
   if (!open) return null;
   return (
     <section
@@ -313,7 +335,7 @@ function GroupNoticeDialogBody({
                   </div>
                   {open && operation && (
                     <RequestActions
-                      key={`${operation.kind}:${operation.token}`}
+                      key={`${operation.kind}:${operation.noticeId ?? operation.token}`}
                       operation={operation}
                     />
                   )}
@@ -325,7 +347,7 @@ function GroupNoticeDialogBody({
           {open &&
             remaining.map((operation) => (
               <OnlineRequestCard
-                key={`${operation.kind}:${operation.token}`}
+                key={`${operation.kind}:${operation.noticeId ?? operation.token}`}
                 operation={operation}
                 onOpenProfile={onOpenProfile}
                 onOpenGroupProfile={onOpenGroupProfile}

@@ -13,6 +13,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DATALINE_UID_TO_DEVICE, ProtoMsg } from '@weq/codec';
+import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 import { UnreadInfoDb } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 
@@ -46,7 +48,7 @@ function setup(peer: string, blobHex: string, latestSeq: number): void {
   sql.exec(`CREATE TABLE msg_unread_info_table ("48901" TEXT PRIMARY KEY, "48902" BLOB)`);
   sql.exec(
     `CREATE TABLE recent_contact_v3_table ("40021" TEXT, "40003" INTEGER, "40010" INTEGER DEFAULT 2, "40027" INTEGER, "40020" TEXT,
-      "40011" INTEGER, "40051" BLOB, "40001" INTEGER)`,
+      "40011" INTEGER, "40051" BLOB, "40001" INTEGER, "40050" INTEGER)`,
   );
   sql.prepare(`INSERT INTO msg_unread_info_table VALUES (?, ?)`).run(peer, blobOf(blobHex));
   sql
@@ -417,4 +419,52 @@ describe('UnreadInfoDb.addHighlight', () => {
     const keywords = (after?.highlights ?? []).filter((h) => h.kind === 'groupKeyword');
     expect(keywords.map((hit) => hit.msgSeq)).toEqual([1740, 1741]);
   });
+});
+
+it('设备行使用 QQ 存储别名，零序号读档保留同秒消息并忽略电脑回声', async () => {
+  const [phone] = Object.entries(DATALINE_UID_TO_DEVICE).find(([, device]) => device === 'phone')!;
+  const [pc] = Object.entries(DATALINE_UID_TO_DEVICE).find(([, device]) => device === 'pc')!;
+  setup(`8_${phone}`, GROUP_BLOB, 0);
+  const sql = fixtureDb(dbPath);
+  const native = new ProtoMsg(UnreadInfo);
+  const time = 1700000000;
+  sql.prepare('INSERT INTO msg_unread_info_table VALUES (?, ?)').run(
+    `10_${phone}`,
+    native.encode({
+      info: {
+        chatType: 8,
+        peerUid: phone,
+        deviceReadTime: BigInt(time),
+        deviceReadId: 20n,
+        deviceIncomingTime: BigInt(time),
+        localUnreadCount: 0,
+      },
+    }),
+  );
+  sql
+    .prepare('UPDATE recent_contact_v3_table SET "40010"=8,"40020"=?,"40001"=99,"40050"=?')
+    .run(pc, time + 1);
+  sql.exec(
+    'CREATE TABLE dataline_msg_table ("40001" INTEGER, "40010" INTEGER, "40011" INTEGER, "40020" TEXT, "40021" TEXT, "40050" INTEGER)',
+  );
+  const insert = sql.prepare('INSERT INTO dataline_msg_table VALUES (?,?,2,?,?,?)');
+  insert.run(20, 8, phone, phone, time);
+  insert.run(21, 8, phone, phone, time);
+  insert.run(26, 8, phone, phone, time);
+  insert.run(23, 8, pc, phone, time);
+  insert.run(99, 8, pc, phone, time + 1);
+  insert.run(25, 134, phone, phone, time);
+  sql.prepare('INSERT INTO dataline_msg_table VALUES (22,8,5,?,?,?)').run(phone, phone, time);
+  const expected = {
+    chatType: 8,
+    peer: `8_${phone}`,
+    latestSeq: '0',
+    deviceRead: `0:${time}:20`,
+    deviceLatest: `0:${time}:26`,
+  };
+  expect((await db.getUnreadInfos([{ chatType: 8, uid: phone }]))[0]).toMatchObject(expected);
+  expect(await db.getAllUnreadInfos()).toEqual([expect.objectContaining(expected)]);
+  const target = { chatType: 8, uid: phone };
+  expect(await db.countDeviceIncoming(target, expected.deviceRead, expected.deviceLatest)).toBe(2);
+  expect(await db.countDeviceIncoming(target, `0:${time}:21`, expected.deviceLatest)).toBe(1);
 });

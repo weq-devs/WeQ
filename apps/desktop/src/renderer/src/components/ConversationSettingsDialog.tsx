@@ -194,7 +194,7 @@ export function ConversationSettingsDialog({
         section === 'dress'
           ? '当前会话在 WeQ 中的背景和挂件'
           : section === 'group-management'
-            ? '加群方式与分类标签'
+            ? undefined
             : section === 'qq'
               ? kind === 'group'
                 ? '置顶、消息接收与本群身份'

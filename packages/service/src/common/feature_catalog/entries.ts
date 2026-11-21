@@ -113,7 +113,7 @@ export const CONTEXT_FEATURES = [
     context: ['account', 'group'],
     navigation: 'context',
     operation: 'album-list',
-    tools: ['get_group_albums'],
+    tools: ['get_group_albums', 'get_group_album_photos'],
     docs: ['guide/album-qzone.md#feature-groups.albums'],
   }),
   defineFeature('messages.locate', 'messages', '定位原消息', [], {

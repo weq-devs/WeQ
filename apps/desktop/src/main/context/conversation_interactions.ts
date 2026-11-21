@@ -1,18 +1,22 @@
 import { EventEmitter } from 'node:events';
 import type { AccountSession } from '@weq/account';
 import type { Element } from '@weq/codec';
-import { withDatabasePriority } from '@weq/db';
+import { type InteractionMessagePosition, withDatabasePriority } from '@weq/db';
 import { JsonStore } from '@weq/service/json-store';
 import { NEW_CONV_FRESH_SEC } from '@weq/service/live-message';
 import { onSettingsChanged } from '@weq/service/settings-changes';
+import type { UnreadInfoService } from '@weq/service';
 import {
   conversationInteractionId,
   type ConversationInteraction,
 } from '../../shared/conversation_interaction';
 
 type Kind = ConversationInteraction['kind'];
+type Watermarks = Pick<UnreadInfoService, 'getUnreadInfos' | 'onCountsChanged'>;
 const kinds: Kind[] = ['c2c', 'group'];
 const pokeVerb = /拍了拍|戳了戳/;
+const chatType = (kind: Kind) => (kind === 'group' ? 2 : 1);
+const convKey = (kind: Kind, conv: string) => `${chatType(kind)}_${conv}`;
 
 function pokePeople(element: Extract<Element, { kind: 'grayTipPoke' | 'grayTipXml' }>) {
   const [before, after] = (element.grayTipXmlContent ?? '').split(pokeVerb, 2);
@@ -71,8 +75,39 @@ export function incomingConversationInteraction(
 }
 
 interface InteractionState {
+  // 撤回横幅独立于原消息的已读水位。
   pending: ConversationInteraction[];
   seen: string[];
+  seenRecalls: string[];
+  candidates: BadgeCandidate[];
+}
+
+type BadgeCandidate = ConversationInteraction &
+  (
+    | { action: 'recall'; seq: string }
+    | { action: 'poke' | 'seqless'; sentAt: number; attachedSeq?: string; seen?: true }
+  );
+
+function validEvent(event: ConversationInteraction): boolean {
+  return (
+    !!event &&
+    kinds.includes(event.kind) &&
+    typeof event.conv === 'string' &&
+    typeof event.msgId === 'string' &&
+    /^-?\d{1,20}$/.test(event.msgId)
+  );
+}
+
+function seenRecallIds(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((id) => typeof id === 'string' && id.endsWith(',"recall"]')).slice(-2048)
+    : [];
+}
+
+function after(message: InteractionMessagePosition, anchor: InteractionMessagePosition): boolean {
+  return message.sentAt === anchor.sentAt
+    ? BigInt(message.msgId) > BigInt(anchor.msgId)
+    : message.sentAt > anchor.sentAt;
 }
 
 export class ConversationInteractionBadges {
@@ -82,46 +117,91 @@ export class ConversationInteractionBadges {
   private readonly self: ReadonlySet<string>;
   private readonly stopSettings: () => void;
   private readonly baselines = new Map<Kind, { latest: Map<string, bigint>; ids: Set<string> }>();
+  private stopWatermarks?: () => void;
+  private eligible = new Set<string>();
   private scanInFlight?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
   private watching = false;
   private generation = 0;
+  private projection = 0;
 
   constructor(
     private readonly session: AccountSession,
     path: string,
     private readonly enabled: () => boolean,
+    private readonly watermarks: () => Watermarks | undefined,
   ) {
     this.self = new Set([session.selfUid, String(session.context.uin)].filter(Boolean));
-    this.store = new JsonStore(path, () => ({ pending: [], seen: [] }), {
-      normalize: (value) => {
-        const { pending, seen } = (value ?? {}) as Partial<InteractionState>;
-        return {
-          pending: Array.isArray(pending)
-            ? pending.filter(
-                (event) =>
-                  event &&
-                  kinds.includes(event.kind) &&
-                  typeof event.conv === 'string' &&
-                  typeof event.msgId === 'string' &&
-                  /^-?\d{1,20}$/.test(event.msgId) &&
-                  (event.action === 'poke' || event.action === 'recall'),
-              )
-            : [],
-          seen: Array.isArray(seen) ? seen.filter((id) => typeof id === 'string').slice(-2048) : [],
-        };
+    this.store = new JsonStore<InteractionState>(
+      path,
+      () => ({ pending: [], seen: [], seenRecalls: [], candidates: [] }),
+      {
+        normalize: (value) => {
+          const { pending, seen, seenRecalls, candidates } = (value ??
+            {}) as Partial<InteractionState>;
+          return {
+            pending: Array.isArray(pending)
+              ? pending.filter((event) => validEvent(event) && event.action === 'recall')
+              : [],
+            seen: seenRecallIds(seen),
+            seenRecalls: seenRecallIds(seenRecalls ?? seen),
+            candidates: Array.isArray(candidates)
+              ? candidates.filter(
+                  (event) =>
+                    validEvent(event) &&
+                    (event.action === 'recall'
+                      ? typeof event.seq === 'string' && /^[1-9]\d{0,19}$/.test(event.seq)
+                      : (event.action === 'poke' || event.action === 'seqless') &&
+                        Number.isSafeInteger(event.sentAt) &&
+                        (event.attachedSeq === undefined ||
+                          /^[1-9]\d{0,19}$/.test(event.attachedSeq))),
+                )
+              : [],
+          };
+        },
       },
-    });
+    );
     this.stopSettings = onSettingsChanged(() => {
       if (this.watching !== this.enabled()) this.requestScan();
     });
   }
 
   subscribe(onChange: (events: ConversationInteraction[]) => void): () => void {
-    this.events.on('change', onChange);
-    onChange(this.store.data.pending);
     this.requestScan();
+    this.events.on('change', onChange);
+    onChange(this.pendingEvents());
     return () => this.events.off('change', onChange);
+  }
+
+  get seenIds(): readonly string[] {
+    return this.store.data.seen;
+  }
+
+  get badgeEvents(): ConversationInteraction[] {
+    return this.store.data.candidates.flatMap(({ kind, conv, msgId, action, storedWithoutSeq }) => {
+      const event = { kind, conv, msgId, action, storedWithoutSeq };
+      return this.eligible.has(conversationInteractionId(event)) ? [event] : [];
+    });
+  }
+
+  unsequencedIds(kind: Kind, conv: string): bigint[] {
+    return this.badgeEvents
+      .filter((event) => event.kind === kind && event.conv === conv && event.storedWithoutSeq)
+      .slice(-64)
+      .map((event) => BigInt(event.msgId));
+  }
+
+  private pendingEvents(): ConversationInteraction[] {
+    const pending = new Map(
+      this.badgeEvents.map((event) => [conversationInteractionId(event), event]),
+    );
+    for (const event of this.store.data.pending)
+      pending.set(conversationInteractionId(event), { ...event, bannerPending: true });
+    return [...pending.values()];
+  }
+
+  private publish(): void {
+    this.events.emit('change', this.pendingEvents());
   }
 
   requestScan(): void {
@@ -133,9 +213,20 @@ export class ConversationInteractionBadges {
       this.baselines.clear();
       clearTimeout(this.timer);
       this.timer = undefined;
+      if (!watching) {
+        this.stopWatermarks?.();
+        this.stopWatermarks = undefined;
+        this.eligible.clear();
+        this.publish();
+      }
     }
     if (!watching || this.timer) return;
-    // 同一批文件变化合并，独立于普通消息的水位和通知。
+    this.stopWatermarks ??= this.watermarks()?.onCountsChanged((targets) => {
+      const changed = new Set(targets.map(({ chatType, uid }) => `${chatType}_${uid}`));
+      if (this.store.data.candidates.some(({ kind, conv }) => changed.has(convKey(kind, conv))))
+        void this.project(this.generation).catch(() => {});
+    });
+    // 合并 QQ 文件变化；仅水位变化时直接重算已有候选。
     this.timer = setTimeout(
       () => {
         this.timer = undefined;
@@ -171,15 +262,26 @@ export class ConversationInteractionBadges {
         ),
       ),
     );
-    const newEvents: ConversationInteraction[] = [];
+    const newEvents: BadgeCandidate[] = [];
+    const previousRecalls = new Set(this.store.data.pending.map(conversationInteractionId));
     for (const result of scans) {
       if (this.reads.signal.aborted || !this.enabled() || this.generation !== generation) return;
       if (result.status !== 'fulfilled') continue;
       const { kind, window } = result.value;
       const old = this.baselines.get(kind);
       const ids = new Set<string>();
-      for (const { seq, conv, msgId, sentAt, elements } of window.tips) {
-        const action = incomingConversationInteraction(elements, this.self);
+      for (const { seq, conv, msgId, sentAt, senderUid, elements } of window.tips) {
+        const action =
+          incomingConversationInteraction(elements, this.self) ??
+          (seq === 0n &&
+          senderUid &&
+          !this.self.has(senderUid) &&
+          !elements.some(
+            ({ kind }) =>
+              kind === 'grayTipPoke' || kind === 'grayTipXml' || kind === 'grayTipRevoke',
+          )
+            ? 'seqless'
+            : undefined);
         if (!action || !conv || !msgId || msgId === '0') continue;
         const event = { kind, conv, msgId, action };
         const id = conversationInteractionId(event);
@@ -187,59 +289,221 @@ export class ConversationInteractionBadges {
         const previousSeq = old?.latest.get(conv);
         const existingMessage =
           previousSeq !== undefined && seq <= previousSeq && seq > previousSeq - 64n;
-        if (
-          old &&
-          !old.ids.has(id) &&
-          ((action === 'recall' && existingMessage) || observedAt - sentAt <= NEW_CONV_FRESH_SEC)
-        )
-          newEvents.push(event);
+        if (old ? old.ids.has(id) : !previousRecalls.has(id)) continue;
+        if (action === 'recall') {
+          if (
+            seq > 0n &&
+            !this.self.has(senderUid) &&
+            (existingMessage ||
+              previousRecalls.has(id) ||
+              observedAt - sentAt <= NEW_CONV_FRESH_SEC)
+          )
+            newEvents.push({ ...event, action, seq: String(seq) });
+        } else if (sentAt > 0 && observedAt - sentAt <= NEW_CONV_FRESH_SEC) {
+          newEvents.push({
+            ...event,
+            action,
+            sentAt,
+            attachedSeq: seq > 0n ? String(seq) : undefined,
+            storedWithoutSeq: seq === 0n ? true : undefined,
+          });
+        }
       }
       this.baselines.set(kind, { latest: window.latest, ids });
     }
-    this.add(newEvents);
-  }
-
-  observeRecall(event: {
-    kind: Kind | 'dataline';
-    conv: string;
-    msgId: string;
-    revokeUid: string;
-  }) {
-    const { kind, conv, msgId, revokeUid } = event;
-    if (kind !== 'dataline' && revokeUid && !this.self.has(revokeUid))
-      this.add([{ kind, conv, msgId, action: 'recall' }]);
-  }
-
-  private add(events: ConversationInteraction[]): void {
-    if (!events.length || this.reads.signal.aborted || !this.enabled()) return;
-    const { pending, seen } = this.store.data;
-    const existing = new Set([...seen, ...pending.map(conversationInteractionId)]);
-    const additions = events.filter((event) => {
+    // 先保存检测结果；未读数据暂不可用时，下次仍能重新判断这些消息。
+    const state = this.store.data;
+    const known = new Set([
+      ...state.seenRecalls,
+      ...state.candidates.map(conversationInteractionId),
+    ]);
+    const additions = newEvents.filter((event) => {
       const id = conversationInteractionId(event);
-      if (existing.has(id)) return false;
-      existing.add(id);
+      if (known.has(id)) return false;
+      known.add(id);
       return true;
     });
-    if (additions.length) this.save({ pending: [...pending, ...additions], seen });
+    if (additions.length)
+      this.store.replace({ ...state, candidates: [...state.candidates, ...additions] });
+    await this.project(generation);
   }
 
-  acknowledge(ids: string[]): void {
-    const { pending, seen } = this.store.data;
+  private async project(generation: number): Promise<void> {
+    const { candidates } = this.store.data;
+    const source = this.watermarks();
+    if (!candidates.length || !source) return;
+    const projection = ++this.projection;
+    const keys = new Map(
+      candidates.map(({ kind, conv }) => [
+        convKey(kind, conv),
+        { chatType: chatType(kind), uid: conv },
+      ]),
+    );
+    const snapshots = await source.getUnreadInfos([...keys.values()]);
+    const watermarks = new Map(
+      snapshots.flatMap((row) =>
+        row.readError || row.readSeq === undefined
+          ? []
+          : [[row.peer, BigInt(row.readSeq)] as const],
+      ),
+    );
+    const anchors = await Promise.all(
+      kinds.map((kind) => {
+        const unique = new Map<string, bigint>();
+        for (const event of candidates) {
+          if (event.kind !== kind || event.action === 'recall') continue;
+          const read = watermarks.get(convKey(kind, event.conv));
+          if (read !== undefined) unique.set(event.conv, read);
+        }
+        return unique.size
+          ? withDatabasePriority(
+              'background',
+              () =>
+                this.session.recentContacts.recentInteractionAnchors(
+                  kind,
+                  [...unique].map(([conv, readSeq]) => ({ conv, readSeq })),
+                ),
+              this.reads.signal,
+            )
+          : undefined;
+      }),
+    );
+    if (
+      this.reads.signal.aborted ||
+      this.generation !== generation ||
+      this.projection !== projection ||
+      !this.enabled()
+    )
+      return;
+    const checked = new Set(candidates.map(conversationInteractionId));
+    const state = this.store.data;
+    const eligible = new Set<string>();
+    const retained = state.candidates.filter((event) => {
+      const id = conversationInteractionId(event);
+      const floor = watermarks.get(convKey(event.kind, event.conv));
+      if (!checked.has(id) || floor === undefined) {
+        if (this.eligible.has(id)) eligible.add(id);
+        return true;
+      }
+      if (event.action === 'recall') {
+        if (BigInt(event.seq) <= floor) return false;
+      } else {
+        const anchor = anchors[event.kind === 'c2c' ? 0 : 1]?.get(event.conv);
+        // 戳一戳借用正文序号来定位；同序号时才用时间和 ID 确定前后。
+        const attached = event.attachedSeq === undefined ? undefined : BigInt(event.attachedSeq);
+        const latest = anchor?.latest;
+        if (event.seen && latest) {
+          const followed =
+            attached !== undefined && latest.seq !== attached
+              ? latest.seq > attached
+              : after(latest, event);
+          if (followed) return false;
+        }
+        if (attached !== undefined && attached < floor) return false;
+        if (attached === undefined || attached === floor) {
+          if (anchor?.read && !after(event, anchor.read)) return false;
+          if (floor > 0n && !anchor?.read) return true;
+        }
+        if (event.seen) return true;
+      }
+      eligible.add(id);
+      return true;
+    });
+    const changed =
+      eligible.size !== this.eligible.size || [...eligible].some((id) => !this.eligible.has(id));
+    this.eligible = eligible;
+    if (retained.length !== state.candidates.length)
+      this.store.replace({ ...state, candidates: retained });
+    if (changed) this.publish();
+  }
+
+  observeRecall(
+    {
+      kind,
+      conv,
+      msgId,
+      revokeUid,
+      origSeq,
+      senderUid,
+    }: {
+      kind: Kind | 'dataline';
+      conv: string;
+      msgId: string;
+      revokeUid: string;
+      origSeq: string;
+      senderUid: string;
+    },
+    forBanner = false,
+  ): void {
+    if (this.reads.signal.aborted || kind === 'dataline' || !revokeUid || this.self.has(revokeUid))
+      return;
+    const event = { kind, conv, msgId, action: 'recall' } as const;
+    if (!validEvent(event)) return;
+    const id = conversationInteractionId(event);
+    const state = this.store.data;
+    const { pending, seen, seenRecalls, candidates } = state;
+    const addBanner =
+      forBanner &&
+      !seen.includes(id) &&
+      !pending.some((event) => conversationInteractionId(event) === id);
+    const addBadge =
+      this.enabled() &&
+      !this.self.has(senderUid) &&
+      /^[1-9]\d{0,19}$/.test(origSeq) &&
+      !seenRecalls.includes(id) &&
+      !candidates.some((event) => conversationInteractionId(event) === id);
+    if (!addBanner && !addBadge) return;
+    this.store.replace({
+      ...state,
+      pending: addBanner ? [...pending, event] : pending,
+      candidates: addBadge ? [...candidates, { ...event, seq: origSeq }] : candidates,
+    });
+    if (addBanner) this.publish();
+    if (addBadge) this.requestScan();
+  }
+
+  acknowledge(ids: string[], bannerOnly = false): void {
+    const state = this.store.data;
+    const { pending, seen, seenRecalls, candidates } = state;
     const read = new Set(ids);
+    const recalls = new Set<string>();
     const next = pending.filter((event) => !read.has(conversationInteractionId(event)));
-    if (next.length === pending.length) return;
-    const removed = pending.map(conversationInteractionId).filter((id) => read.has(id));
-    this.save({ pending: next, seen: [...seen, ...removed].slice(-2048) });
-  }
-
-  private save(state: InteractionState): void {
-    this.store.replace(state);
-    this.events.emit('change', state.pending);
+    for (const event of pending) {
+      const id = conversationInteractionId(event);
+      if (read.has(id)) recalls.add(id);
+    }
+    let changed = next.length !== pending.length;
+    const confirmedRecalls = new Set(recalls);
+    const remaining = bannerOnly
+      ? candidates
+      : candidates.flatMap((event): BadgeCandidate[] => {
+          const id = conversationInteractionId(event);
+          if (!read.has(id) || (event.action !== 'recall' && event.seen)) return [event];
+          changed = true;
+          this.eligible.delete(id);
+          if (event.action !== 'recall') return [{ ...event, seen: true }];
+          recalls.add(id);
+          confirmedRecalls.add(id);
+          return [];
+        });
+    if (!changed) return;
+    this.store.replace({
+      pending: next,
+      seen: [...new Set([...seen, ...recalls])].slice(-2048),
+      seenRecalls: bannerOnly
+        ? seenRecalls
+        : [...new Set([...seenRecalls, ...confirmedRecalls])].slice(-2048),
+      candidates: remaining,
+    });
+    this.publish();
+    if (!bannerOnly && remaining.some((event) => event.action !== 'recall' && event.seen))
+      void this.project(this.generation).catch(() => {});
   }
 
   dispose(): void {
     this.reads.abort();
     this.stopSettings();
+    this.stopWatermarks?.();
     clearTimeout(this.timer);
     this.events.removeAllListeners();
   }

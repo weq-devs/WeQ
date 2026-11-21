@@ -14,6 +14,16 @@ import {
   samplesToBytes,
   type CallRecorderTimers,
 } from '../src/main/call_recorder';
+import { systemAudioCapability } from '../src/main/call_system_audio';
+
+it('macOS 从 Core Audio Tap 支持的版本开放录电脑声音', () => {
+  expect(systemAudioCapability('darwin', '22.6.0')).toBe('unsupported');
+  expect(systemAudioCapability('darwin', '23.1.0')).toBe('unsupported');
+  expect(systemAudioCapability('darwin', '23.2.0')).toBe('renderer');
+  expect(systemAudioCapability('darwin', '24.0.0')).toBe('renderer');
+  expect(systemAudioCapability('win32')).toBe('renderer');
+  expect(systemAudioCapability('linux')).toBe('native');
+});
 
 /** 手动推进的定时器：泵是 setInterval，测试里自己决定跑几拍。 */
 function fakeTimers() {

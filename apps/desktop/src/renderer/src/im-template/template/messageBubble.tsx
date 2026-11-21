@@ -322,6 +322,7 @@ function MessageBubbleBody({
     started: number;
     moving: boolean;
   } | null>(null);
+  const lineRef = useRef<HTMLDivElement | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
@@ -450,6 +451,7 @@ function MessageBubbleBody({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target;
     if (event.pointerType === 'touch') {
       resetSwipeReply();
       if (
@@ -457,9 +459,9 @@ function MessageBubbleBody({
         event.isPrimary &&
         event.button === 0 &&
         event.clientX > 24 &&
-        event.target instanceof Element &&
-        !event.target.closest(
-          'a, button, input, textarea, select, video, audio, pre, [contenteditable], [role="button"], [role="slider"]',
+        target instanceof Element &&
+        !target.closest(
+          'a, button:not(.qq-media-action, .message-avatar-button, .weq-message-name-profile), input, textarea, select, video, audio, pre, [contenteditable], [role="button"], [role="slider"]',
         ) &&
         !event.currentTarget.querySelector('pre') &&
         event.currentTarget.ownerDocument.getSelection()?.isCollapsed !== false
@@ -476,9 +478,10 @@ function MessageBubbleBody({
     if (IS_WEB || selectionMode || event.pointerType === 'mouse' || event.button !== 0) {
       return;
     }
+    const bubble = bubbleRef.current;
+    if (!bubble || !(target instanceof Node) || !bubble.contains(target)) return;
     const startPoint = { x: event.clientX, y: event.clientY };
-    const target = event.target;
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = bubble.getBoundingClientRect();
     longPressPointRef.current = startPoint;
     longPressAnchorRef.current = {
       x: rect.left + rect.width / 2,
@@ -497,13 +500,25 @@ function MessageBubbleBody({
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const swipe = swipeReply.current;
     if (swipe?.id === event.pointerId) {
+      const line = event.currentTarget;
       const dx = swipe.x - event.clientX;
       const dy = Math.abs(event.clientY - swipe.y);
       if (!swipe.moving && (dx < -swipeReplySlop || (dy > swipeReplySlop && dy >= dx))) {
         resetSwipeReply();
       } else if (!swipe.moving && dx > swipeReplySlop) {
         if (event.timeStamp - swipe.started > 450) resetSwipeReply();
-        else swipe.moving = true;
+        else {
+          swipe.moving = true;
+          // 用未移动的外层定位箭头，快速连续滑动时也不会受上一轮回弹影响。
+          const viewport = line.closest('.message-scroll');
+          const row = line.parentElement;
+          const edge =
+            viewport && row
+              ? viewport.getBoundingClientRect().right - row.getBoundingClientRect().right
+              : 0;
+          line.style.setProperty('--swipe-reply-edge', `${edge}px`);
+          line.setPointerCapture(event.pointerId);
+        }
       }
       if (swipe.moving) {
         const distance = Math.max(0, dx);
@@ -513,15 +528,10 @@ function MessageBubbleBody({
             ? distance
             : swipeReplyDistance + (distance - swipeReplyDistance) / 3,
         );
-        // 跟手只更新当前气泡，不让整条消息在每次移动时重新渲染。
-        const bubble = event.currentTarget;
-        bubble.setAttribute('data-swipe-dragging', '');
-        bubble.toggleAttribute('data-swipe-ready', dx >= swipeReplyDistance && dx >= dy * 1.5);
-        bubble.style.setProperty('--swipe-reply-x', `${-offset}px`);
-        bubble.style.setProperty(
-          '--swipe-reply-progress',
-          String(Math.min(1, distance / swipeReplyDistance)),
-        );
+        // 只移动当前消息行，不触发 React 重绘或移动同组消息。
+        line.setAttribute('data-swipe-dragging', '');
+        line.toggleAttribute('data-swipe-ready', dx >= swipeReplyDistance && dx >= dy * 1.5);
+        line.style.setProperty('--swipe-reply-x', `${-offset}px`);
       }
     }
     const point = longPressPointRef.current;
@@ -535,11 +545,10 @@ function MessageBubbleBody({
 
   function resetSwipeReply() {
     if (swipeReply.current?.moving) {
-      const bubble = bubbleRef.current;
-      bubble?.removeAttribute('data-swipe-dragging');
-      bubble?.removeAttribute('data-swipe-ready');
-      bubble?.style.removeProperty('--swipe-reply-x');
-      bubble?.style.removeProperty('--swipe-reply-progress');
+      const line = lineRef.current;
+      line?.removeAttribute('data-swipe-dragging');
+      line?.removeAttribute('data-swipe-ready');
+      line?.style.removeProperty('--swipe-reply-x');
     }
     swipeReply.current = null;
   }
@@ -680,6 +689,7 @@ function MessageBubbleBody({
   const content = renderer?.render(renderContext) ?? renderDefaultMessageContent(message);
   return (
     <div
+      ref={lineRef}
       className={cn(
         'message-line',
         'weq-message-selectable',
@@ -691,6 +701,7 @@ function MessageBubbleBody({
         selected && 'is-selected',
       )}
       data-message-id={message.id}
+      data-swipe-reply={Boolean(onSwipeReply) || undefined}
       data-message-group={msgBubbleId || localBubbleOverride ? undefined : groupPosition}
       data-grouped-dress-bubble={
         Boolean(groupPosition && (msgBubbleId || localBubbleOverride)) || undefined
@@ -701,6 +712,14 @@ function MessageBubbleBody({
       data-weq-select-id={selectionMode ? message.id : undefined}
       // 普通模式给 -1：不进 Tab 顺序，但允许聊天区用方向键把焦点落到消息上。
       tabIndex={selectionMode ? 0 : -1}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={cancelTouch}
+      onPointerLeave={cancelTouch}
+      onLostPointerCapture={(event) => {
+        if (event.target === event.currentTarget) cancelTouch();
+      }}
       onClickCapture={
         selectionMode && onToggleSelect
           ? (event) => {
@@ -724,24 +743,12 @@ function MessageBubbleBody({
       <div
         ref={bubbleRef}
         className={cn('message-bubble', active && 'context-active')}
-        data-swipe-reply={Boolean(onSwipeReply) || undefined}
         onContextMenu={(event) => {
           cancelTouch();
           onContextMenu(event, message);
         }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={cancelTouch}
-        onPointerLeave={cancelTouch}
-        onLostPointerCapture={cancelTouch}
         onDragStart={(event) => event.preventDefault()}
       >
-        {onSwipeReply ? (
-          <span className="weq-swipe-reply-icon" aria-hidden="true">
-            <Reply size={22} />
-          </span>
-        ) : null}
         {groupContinuation ? (
           <span className="sr-only" data-privacy-sensitive>
             {senderName}
@@ -981,6 +988,11 @@ function MessageBubbleBody({
       </div>
       {selectionMode ? null : renderer?.renderTrailing?.(renderContext)}
       {mine ? avatarSlot : null}
+      {onSwipeReply ? (
+        <span className="weq-swipe-reply-icon" aria-hidden="true">
+          <Reply size={22} />
+        </span>
+      ) : null}
     </div>
   );
 }

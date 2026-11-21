@@ -1,5 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import {
+  getMobileNavigationSnapshot,
+  getSingleColumnLayoutSnapshot,
   isSingleColumnLayout,
   resolveResponsiveLayout,
   subscribeResponsiveLayout,
@@ -60,18 +62,41 @@ it('Remote方向变化统一更新样式和订阅，键盘缩短窗口不改变�
   const notify = vi.fn();
   const stop = subscribeResponsiveLayout(notify);
   try {
-    expect(isSingleColumnLayout()).toBe(true);
+    expect(getSingleColumnLayoutSnapshot()).toBe(true);
     expect(document.documentElement.dataset.weqLayout).toBe('single');
     vi.stubGlobal('innerHeight', 320);
     window.dispatchEvent(new Event('resize'));
-    expect(isSingleColumnLayout()).toBe(true);
+    expect(getSingleColumnLayoutSnapshot()).toBe(true);
     orientation.type = 'landscape-primary';
     vi.stubGlobal('innerWidth', 640);
     orientation.dispatchEvent(new Event('change'));
-    expect(isSingleColumnLayout()).toBe(false);
+    expect(getSingleColumnLayoutSnapshot()).toBe(false);
+    expect(getMobileNavigationSnapshot()).toBe(true);
     expect(document.documentElement.dataset.weqLayout).toBe('wide');
     expect(document.documentElement.dataset.weqInput).toBe('touch');
     expect(notify).toHaveBeenCalledTimes(2);
+  } finally {
+    stop();
+  }
+});
+
+it('布局订阅发布 Remote 桥变化，重复读取快照不重新查询视口', () => {
+  vi.stubGlobal('weqRemoteShell', undefined);
+  vi.stubGlobal('navigator', { userAgent: 'Desktop Browser', maxTouchPoints: 0 });
+  const matchMedia = vi.fn(() => Object.assign(new EventTarget(), { matches: false }));
+  vi.stubGlobal('matchMedia', matchMedia);
+  const notify = vi.fn(getMobileNavigationSnapshot);
+  const stop = subscribeResponsiveLayout(notify);
+  try {
+    expect(getSingleColumnLayoutSnapshot()).toBe(false);
+    expect(getMobileNavigationSnapshot()).toBe(false);
+    vi.stubGlobal('weqRemoteShell', { openMenu() {} });
+    window.dispatchEvent(new Event('weq-remote-shell-ready'));
+    expect(notify).toHaveLastReturnedWith(true);
+    matchMedia.mockClear();
+    expect(getSingleColumnLayoutSnapshot()).toBe(false);
+    expect(getMobileNavigationSnapshot()).toBe(true);
+    expect(matchMedia).not.toHaveBeenCalled();
   } finally {
     stop();
   }

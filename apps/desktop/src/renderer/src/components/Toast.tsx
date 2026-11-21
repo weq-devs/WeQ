@@ -27,6 +27,9 @@ import { openNotificationSource } from '../lib/notificationNavigation.shared';
 import type { NotificationSource } from '../lib/notificationNavigation';
 import { version } from '../../../../package.json';
 import { IS_WEB } from '../lib/target.shared';
+import { notificationInlineText, privateToastCopy } from '../../../shared/notification_copy';
+import { useAppLock } from '../state/lock';
+import { preferenceValue, useClientPreferences } from '../lib/clientPreferences';
 import '../styles/toast-action.css';
 import '../styles/toast-layout.css';
 import {
@@ -108,7 +111,7 @@ function sameActionValue(left: unknown, right: unknown): boolean {
   return [...keys].every((key) => sameActionValue(a[key], b[key]));
 }
 
-function ToastRow({ toast }: { toast: Toast }): ReactElement {
+function ToastRow({ toast, hidePreview }: { toast: Toast; hidePreview: boolean }): ReactElement {
   const enabled = useNotificationPolicy((state) => state.events[toast.event ?? 'success'].banner);
   const presented = useWorkspaceMenu((state) =>
     taskNotificationPresented(toast.event, toast.source, state.taskPanelScope, toast.taskId),
@@ -164,13 +167,22 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
 
   useEffect(() => () => window.clearTimeout(copiedTimerRef.current), []);
 
-  const hasDetail = toast.detail != null && textOf(toast.detail).length > 0;
+  const privateCopy = hidePreview ? privateToastCopy(toast.event) : undefined;
+  const title = privateCopy?.title ?? toast.title;
+  const summary = privateCopy?.body ?? toast.summary;
+  const detail = privateCopy ? undefined : toast.detail;
+  const summaryText = textOf(summary).trim();
+  const detailText = textOf(detail).trim();
+  const repeatsDetail =
+    summaryText.length > 0 &&
+    notificationInlineText(detailText, summaryText.length) === summaryText;
+  const hasDetail = detailText.length > 0;
   const isFailure = toast.tone === 'error' || toast.tone === 'warning';
   const hasBody = hasDetail || isFailure;
   const copyLabel = copied ? '已复制' : isFailure ? '复制错误信息' : '复制信息';
 
   const handleCopy = async () => {
-    const text = [textOf(toast.title).trim(), textOf(toast.detail).trim()]
+    const text = [...new Set([textOf(title).trim(), repeatsDetail ? '' : summaryText, detailText])]
       .filter(Boolean)
       .join('\n\n');
     const occurredAt = eventTimeFormatter.format(new Date(toast.occurredAt));
@@ -270,7 +282,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
               config.icon
             )}
           </div>
-          <h3 className="weq-toast-title">{toast.title}</h3>
+          <h3 className="weq-toast-title">{title}</h3>
           <div className="weq-toast-actions">
             {action ? (
               <button
@@ -299,6 +311,7 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
                 type="button"
                 className="weq-toast-action"
                 onClick={() => setExpanded((v) => !v)}
+                aria-expanded={expanded}
                 aria-label={expanded ? '折叠详情' : '展开详情'}
                 title={expanded ? '折叠' : '展开'}
               >
@@ -324,12 +337,16 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
           </div>
         </div>
 
+        {summaryText && !(expanded && repeatsDetail) ? (
+          <div className="weq-toast-summary">{summary}</div>
+        ) : null}
+
         {/* 中间：详细内容（默认折叠） */}
         {hasBody ? (
           <div className="weq-toast-body-wrapper">
             <div className="weq-toast-body">
               <div className="weq-toast-content">
-                {hasDetail ? <div className="weq-toast-detail">{toast.detail}</div> : null}
+                {hasDetail ? <div className="weq-toast-detail">{detail}</div> : null}
                 <button
                   type="button"
                   className="weq-toast-copy"
@@ -379,6 +396,8 @@ function ToastRow({ toast }: { toast: Toast }): ReactElement {
 /** Mount once near the root. Stacks active toasts bottom-right. */
 export function ToastHost(): ReactElement | null {
   const toasts = useToast((s) => s.toasts);
+  const locked = useAppLock((s) => s.locked);
+  const privacy = useClientPreferences(() => preferenceValue('privacyMode') === true);
   const host = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const latestId = toasts.at(-1)?.id;
@@ -403,7 +422,7 @@ export function ToastHost(): ReactElement | null {
       }}
     >
       {toasts.map((t) => (
-        <ToastRow key={t.id} toast={t} />
+        <ToastRow key={t.id} toast={t} hidePreview={locked || privacy} />
       ))}
     </div>
   );

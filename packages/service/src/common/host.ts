@@ -47,6 +47,12 @@ export interface HostBridge {
   /** Web 服务端导出根目录；桌面端由原生目录选择，不设此字段。 */
   readonly exportRoot?: string;
   registerDownload?(path: string, name: string, kind: 'file' | 'directory'): { url: string };
+  registerArchiveDownload?(
+    files: readonly { path: string; name: string }[],
+    name: string,
+  ): {
+    url: string;
+  };
   /** 桌面保留原 Electron 会话的媒体读取，Web 缺省使用原生 fetch。 */
   fetchMedia?(
     url: string,

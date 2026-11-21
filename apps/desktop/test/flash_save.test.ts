@@ -3,7 +3,11 @@ import { mkdtemp, rm, realpath, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { openFlashDownloadOutput, startFlashDownloads } from '../src/main/ipc/routers/flash_save';
+import {
+  openFlashDownloadOutput,
+  registerFlashDownloadOutput,
+  startFlashDownloads,
+} from '../src/main/ipc/routers/flash_save';
 import type { FlashDownloadBatch, FlashDownloadTask } from '@weq/service';
 
 const roots: string[] = [];
@@ -145,4 +149,68 @@ it('闪传仅打开记录中的已完成单文件，定位与多文件目录复�
   await rm(path);
   await expect(open()).rejects.toThrow('已移动或删除');
   expect(host.revealPath).toHaveBeenCalledTimes(calls);
+});
+
+it('下载到设备只授权当前任务的已完成文件，批量打包保留相对路径', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-flash-output-'));
+  roots.push(root);
+  await mkdir(join(root, 'nested'));
+  await writeFile(join(root, 'first.txt'), 'first');
+  await writeFile(join(root, 'nested', 'second.txt'), 'second');
+  await writeFile(join(root, 'other.txt'), '未完成');
+  function output(
+    id: string,
+    name: string,
+    status: FlashDownloadTask['status'],
+  ): FlashDownloadTask {
+    return {
+      id,
+      name,
+      status,
+      filesetId: 'set',
+      filesetName: '集合',
+      physicalId: 'physical',
+      relativePath: name,
+      targetPath: join(root, name),
+      fileSize: 1,
+      downloadedBytes: 1,
+      createdAt: 0,
+    };
+  }
+  const first = output('first', 'first.txt', 'done');
+  const second = output('second', 'nested/second.txt', 'done');
+  const pending = output('other', 'other.txt', 'pending');
+  const manager = {
+    load: vi.fn(async () => {}),
+    list: () => [{ ...first, id: 'batch', files: [first, second, pending] }],
+  };
+  const host = {
+    registerDownload: vi.fn(() => ({ url: '/file' })),
+    registerArchiveDownload: vi.fn(() => ({ url: '/archive' })),
+  };
+  const current = vi.fn();
+  const take = (fileId?: string) =>
+    registerFlashDownloadOutput({ taskId: 'batch', fileId }, manager, host, current);
+  expect(await take('second')).toEqual({ url: '/file' });
+  expect(host.registerDownload).toHaveBeenLastCalledWith(second.targetPath, 'second.txt', 'file');
+  expect(await take()).toEqual({ url: '/archive' });
+  expect(host.registerArchiveDownload).toHaveBeenLastCalledWith(
+    [
+      { path: first.targetPath, name: 'first.txt' },
+      { path: second.targetPath, name: 'nested/second.txt' },
+    ],
+    '集合.zip',
+  );
+  await expect(take('other')).rejects.toThrow('已完成');
+  await expect(take('another-account')).rejects.toThrow('已完成');
+  current
+    .mockImplementationOnce(() => {})
+    .mockImplementationOnce(() => {
+      throw new Error('账号已切换');
+    });
+  await expect(take('first')).rejects.toThrow('账号已切换');
+  expect(host.registerDownload).toHaveBeenCalledOnce();
+  await rm(second.targetPath);
+  await expect(take()).rejects.toThrow('已移动或删除');
+  expect(host.registerArchiveDownload).toHaveBeenCalledOnce();
 });

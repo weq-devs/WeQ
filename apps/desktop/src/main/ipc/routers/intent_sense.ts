@@ -452,7 +452,7 @@ export const intentSenseModelProcedures = {
     )
     .mutation(async ({ input }) => {
       const engine = getActiveIntentSenseLocalEngine();
-      if (!engine) return { ok: false, error: '本地引擎仅桌面版可用', alreadyRunning: false };
+      if (!engine) return { ok: false, error: '当前宿主未提供本地引擎', alreadyRunning: false };
       const packs = requireBootstrap().enhancements?.packs;
       if (packs) {
         if (input.modelId === 'QWeQ-NineBird-v1')
@@ -513,7 +513,7 @@ export const intentSenseModelProcedures = {
   /** 模型就绪后拉起本地引擎 worker。 */
   startLocalEngine: procedure.mutation(async () => {
     const engine = getActiveIntentSenseLocalEngine();
-    if (!engine) return { ok: false, error: '本地引擎仅桌面版可用' };
+    if (!engine) return { ok: false, error: '当前宿主未提供本地引擎' };
     try {
       await engine.start();
       return { ok: true };

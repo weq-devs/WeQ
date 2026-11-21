@@ -147,6 +147,43 @@ try {
       assert.equal(await page.getByRole('dialog').count(), 0);
       await page.getByRole('button', { name: '全局搜索', exact: true }).click();
     }
+    await page.getByRole('searchbox').fill('零命中');
+    await page.getByRole('button', { name: '筛选 QQ 消息', exact: true }).click();
+    await page.getByText('本轮候选中没有匹配消息').waitFor();
+    assert.equal(await page.getByRole('searchbox').inputValue(), '零命中');
+    const filters = page.getByRole('group', { name: 'QQ 消息筛选条件' });
+    const theme = width === 390 ? 'dark' : 'light';
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.style.setProperty(
+        '--weq-accent-effective',
+        theme === 'light' ? '#237344' : '#f0cb63',
+      );
+    }, theme);
+    await filters.getByRole('combobox', { name: '发送者' }).fill('小林');
+    await page.getByRole('option', { name: /小林/ }).click();
+    await filters.getByRole('button', { name: '起始日期', exact: true }).click();
+    const calendar = page.getByRole('dialog', { name: '起始日期' });
+    await calendar.getByRole('textbox', { name: /输入日期/ }).fill('2026-10-01');
+    if (output && width === 390)
+      await page.screenshot({ path: resolve(output, `${width}-${theme}-qq-message-calendar.png`) });
+    await calendar.getByRole('button', { name: '确定', exact: true }).click();
+    await filters.getByRole('combobox', { name: '消息类型' }).click();
+    await page.getByRole('option', { name: '文件消息', exact: true }).click();
+    await page.getByRole('option', { name: /命中筛选的项目群/ }).waitFor();
+    if (output)
+      await page.screenshot({ path: resolve(output, `${width}-${theme}-qq-message-filters.png`) });
+    await page.getByRole('option', { name: /命中筛选的项目群/ }).click();
+    await page.locator('.weq-chatrecords-msg').first().waitFor();
+    assert.equal(await page.getByText('本轮候选已显示完').count(), 0);
+    await page.getByRole('button', { name: '返回搜索结果' }).click();
+    await page.getByRole('option', { name: /命中筛选的项目群/ }).waitFor();
+    assert.equal(await filters.getByRole('combobox', { name: '发送者' }).inputValue(), '小林');
+    await filters.getByRole('button', { name: '清除条件' }).click();
+    await page.getByText('本轮候选中没有匹配消息').waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '筛选 QQ 消息', exact: true }).waitFor();
+    assert.equal(await page.getByRole('searchbox').inputValue(), '零命中');
     await page.close();
   }
   assert.deepEqual(errors, []);

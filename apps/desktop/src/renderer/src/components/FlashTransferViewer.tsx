@@ -43,6 +43,7 @@ import { useToast } from './Toast.shared';
 import { TransferRing } from './TransferRing';
 import { useTransferProgress } from '../lib/transferActivity';
 import { IS_WEB } from '../lib/target.shared';
+import { downloadFlashToDevice } from '../lib/flashDownload';
 import { TaskProgressBar } from './tasks/TaskProgressBar';
 import {
   flashFileTransferTarget,
@@ -155,7 +156,7 @@ function FlashFileProgress({ file }: { file: FlashEntry }) {
 
 type DownloadBinding = { expectedAccountUin: string; expectedAccountConfigId: string };
 type DownloadBatch = Awaited<ReturnType<typeof client.account.flashViewDownloads.query>>[number];
-type DownloadAction = 'pause' | 'cancel' | 'retry' | 'background' | 'open';
+type DownloadAction = 'pause' | 'cancel' | 'retry' | 'background' | 'open' | 'download';
 const downloadLabel = {
   pending: '等待下载',
   resolving: '获取下载链接',
@@ -284,7 +285,7 @@ export function FlashTransferViewer({
     }
   }
 
-  async function control(batch: DownloadBatch, action: DownloadAction) {
+  async function control(batch: DownloadBatch, action: DownloadAction, fileId?: string) {
     if (!binding || busy.current || leaving.current) return;
     busy.current = true;
     setBusyBatch(batch.id);
@@ -302,6 +303,12 @@ export function FlashTransferViewer({
         if (!(await client.account.flashRetryDownloadTask.mutate(ref)))
           throw new Error('下载仍在收尾，请稍后再试');
         if (batch.foreground) owned.current.add(batch.id);
+      } else if (action === 'download') {
+        await downloadFlashToDevice(
+          { ...ref, fileId },
+          () => active.current && liveBinding.current === binding,
+        );
+        return;
       } else {
         await client.account.flashOpenDownloadOutput.mutate({
           ...ref,
@@ -697,6 +704,17 @@ export function FlashTransferViewer({
                           {batch.files.map((file) => (
                             <li key={file.id}>
                               {file.relativePath} · {downloadLabel[file.status]}
+                              {IS_WEB && file.status === 'done' && batch.files.length > 1 && (
+                                <button
+                                  type="button"
+                                  className="weq-set-btn"
+                                  disabled={disabled}
+                                  aria-label={`下载 ${file.relativePath} 到此设备`}
+                                  onClick={() => void control(batch, 'download', file.id)}
+                                >
+                                  <Download size={14} aria-hidden />
+                                </button>
+                              )}
                               {file.status === 'downloading' && (
                                 <NumericText>{` · ${formatSize(file.downloadedBytes)} / ${formatSize(file.fileSize)}`}</NumericText>
                               )}
@@ -749,6 +767,17 @@ export function FlashTransferViewer({
                           >
                             <RefreshCw size={14} aria-hidden />
                             {batch.paused ? '继续' : '重试未完成文件'}
+                          </button>
+                        )}
+                        {IS_WEB && batch.files.some((file) => file.status === 'done') && (
+                          <button
+                            type="button"
+                            className="weq-set-btn"
+                            disabled={disabled}
+                            onClick={() => void control(batch, 'download')}
+                          >
+                            <Download size={14} aria-hidden />
+                            {batch.files.length === 1 ? '下载到此设备' : '下载已完成文件'}
                           </button>
                         )}
                         {!IS_WEB && batch.files.some((file) => file.status === 'done') && (

@@ -207,6 +207,8 @@ mac:
   sign: ../../scripts/sign-macos.mjs
   # 仅主进程读取 QQ 调试副本；渲染子进程沿用默认继承权限。
   entitlements: build/entitlements.mac.plist
+  extendInfo:
+    NSAudioCaptureUsageDescription: WeQ 仅在开启「同时录电脑声音」并开始通话录音时采集电脑声音。
   # 打包字体（见顶部 extraResources 的说明）：macOS 的候选全是 .ttc，satori 读不了。
   extraResources:
     - from: out/main/macUpdateWorker.mjs

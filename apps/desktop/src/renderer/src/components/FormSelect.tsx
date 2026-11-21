@@ -212,8 +212,9 @@ function OptionList({
   const anchor = popup.trigger.current;
   if (!popup.open || !anchor) return null;
   const host =
-    anchor.closest('[role="dialog"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer') ??
-    anchor.ownerDocument.body;
+    anchor.closest(
+      '[data-field-popup-host], [role="dialog"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer',
+    ) ?? anchor.ownerDocument.body;
   let offset = 0;
   return createPortal(
     <div
@@ -221,6 +222,7 @@ function OptionList({
       id={popup.id}
       className="weq-field-options"
       data-weq-escape-surface=""
+      data-search-keep-open="true"
       popover="manual"
       role="listbox"
       aria-label={label}
@@ -455,11 +457,13 @@ export function FormSuggestions({
   options: suggestions,
   value,
   onValueChange,
+  onSelectSuggestion = onValueChange,
   ...props
 }: Omit<ComponentProps<'input'>, 'onChange' | 'value' | 'ref' | 'list'> & {
   options: { value: string; label: string }[];
   value: string;
   onValueChange: (value: string) => void;
+  onSelectSuggestion?: (value: string) => void;
 }) {
   const query = value.trim().toLocaleLowerCase();
   const options = suggestions
@@ -481,7 +485,7 @@ export function FormSuggestions({
     const option = options[index];
     if (!option) return;
     popup.trigger.current?.focus({ preventScroll: true });
-    onValueChange(option.value);
+    onSelectSuggestion(option.value);
     popup.close();
   }
 

@@ -96,6 +96,18 @@ it('应用设置与 API 分区独立，快照不改原值或夹带运行票据',
   expect(source).toEqual(original);
 });
 
+it('API 备份保留助手轻量模式，兼容未保存该选项的旧备份', () => {
+  const source = settings();
+  source.sharedPreferences.assistant = { localLightweight: true };
+  const api = snapshotWeqApiSettings(source);
+  expect(api.sharedAssistant?.localLightweight).toBe(true);
+  expect(() => validateWeqApiSettings(api)).not.toThrow();
+  expect(() => validateWeqApiSettings({ sharedAssistant: {} })).not.toThrow();
+  expect(() => validateWeqApiSettings({ sharedAssistant: { localLightweight: 'true' } })).toThrow(
+    'api.sharedAssistant.localLightweight',
+  );
+});
+
 it.each(['defaultModel', 'defaultVisionModel', 'defaultEmbeddingModel'] as const)(
   '旧 API 备份缺省默认模型仍可读，%s 引用必须完整且不能引用自身',
   (field) => {

@@ -71,6 +71,8 @@ export interface Toast {
   loading?: boolean;
   /** 标题（第一行主内容） */
   title: ReactNode;
+  /** 不展开也需要看到的内容；系统通知优先使用这段文字。 */
+  summary?: ReactNode;
   /** 可选的详情，传入后显示展开按钮与复制按钮 */
   detail?: ReactNode;
   /** 自动关闭毫秒数，0 表示常驻。 */
@@ -93,6 +95,7 @@ export type ToastPatch = Partial<
     | 'durationKind'
     | 'loading'
     | 'title'
+    | 'summary'
     | 'detail'
     | 'ttl'
     | 'dismissible'
@@ -121,6 +124,7 @@ interface ToastStore {
     title?: ReactNode;
     /** 旧写法的主内容，未传 title 时当作标题 */
     message?: ReactNode;
+    summary?: ReactNode;
     /** 可选的详情（展开区域） */
     detail?: ReactNode;
     ttl?: number;
@@ -205,6 +209,7 @@ const toastStore = create<ToastStore>((set, get) => ({
     loading,
     title,
     message,
+    summary,
     detail,
     ttl,
     dismissible,
@@ -240,6 +245,7 @@ const toastStore = create<ToastStore>((set, get) => ({
       durationKind: kind,
       loading,
       title: actualTitle,
+      summary,
       detail: actualDetail,
       ttl: toastTtl({ durationKind: kind, loading, dismissible, ttl }, state.durations),
       timerRevision: existing ? existing.timerRevision + 1 : 0,
@@ -256,6 +262,7 @@ const toastStore = create<ToastStore>((set, get) => ({
         (!loading &&
           !existing.loading &&
           (textOf(existing.title) !== textOf(actualTitle) ||
+            textOf(existing.summary) !== textOf(summary) ||
             textOf(existing.detail) !== textOf(actualDetail)))) &&
       ![
         'directMessage',
@@ -273,7 +280,7 @@ const toastStore = create<ToastStore>((set, get) => ({
       publishNotificationSystem(
         toast.event,
         textOf(actualTitle),
-        textOf(actualDetail),
+        textOf(summary ?? actualDetail),
         source ? () => openNotificationSource(source) : action?.run,
       );
     set({
@@ -309,10 +316,15 @@ const toastStore = create<ToastStore>((set, get) => ({
           publishNotificationSystem(
             next.event,
             textOf(next.title),
-            textOf(next.detail),
+            textOf(next.summary ?? next.detail),
             next.source ? () => openNotificationSource(next.source!) : next.action?.run,
           );
-        if (patch.tone !== undefined || patch.title !== undefined || patch.detail !== undefined)
+        if (
+          patch.tone !== undefined ||
+          patch.title !== undefined ||
+          patch.summary !== undefined ||
+          patch.detail !== undefined
+        )
           next.occurredAt = Date.now();
         const reset =
           patch.tone !== undefined ||

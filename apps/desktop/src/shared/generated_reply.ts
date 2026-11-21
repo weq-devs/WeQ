@@ -5,6 +5,8 @@ export interface GeneratedReply {
   title: string;
   preview: string;
   messageId?: string;
+  /** 实际入库的回复时间，与会话目录使用同一阅读位置。 */
+  ts?: number;
 }
 
 export function generatedMessageSummary(message: {

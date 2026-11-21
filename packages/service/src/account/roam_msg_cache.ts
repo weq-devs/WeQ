@@ -18,6 +18,7 @@ import { QqDb, scheduleDatabase } from '@weq/db';
 import type { GapFetchedMessage } from './gap_history';
 import { nativeHistoryElements } from './native_history_projection';
 import type { ProtocolHistoryObservation } from './sso_history_window';
+import type { UnreadSequenceRange } from './unread_info';
 
 const TABLE = 'gap_msg';
 const NATIVE_TABLE = 'native_gap_msg';
@@ -25,14 +26,6 @@ const PROTOCOL_TABLE = 'protocol_gap_msg';
 const OBSERVATION_TABLE = 'protocol_gap_observation';
 const CONFIRMED_SENT =
   "json_extract(payload,'$.localSent')=1 AND (kind='group' OR nt_seq_verified=1)";
-
-export interface UnreadSentRange {
-  peer: string;
-  kind: 'c2c' | 'group';
-  conv: string;
-  after: bigint;
-  through: bigint;
-}
 
 /** SQLite 存不了 bigint 字段值，渲染元素里又有 elementId/origMsgId 等 bigint，JSON 序列化时包一层。 */
 function serializeJson(value: unknown): string {
@@ -170,7 +163,7 @@ export class RoamMsgCacheDb {
   /** 只按发送索引读取未读区间内已确认的自发序号。 */
   async unreadSentSequences(
     selfUid: string,
-    ranges: UnreadSentRange[],
+    ranges: UnreadSequenceRange[],
   ): Promise<Map<string, string[]>> {
     const result = new Map<string, string[]>();
     if (!selfUid || !ranges.length || !existsSync(this.dbPath)) return result;

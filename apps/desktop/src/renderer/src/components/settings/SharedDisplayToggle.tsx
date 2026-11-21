@@ -18,7 +18,7 @@ export function SharedDisplayToggle({
       : never;
   }[PreferenceKey];
   label: string;
-  fallback: boolean;
+  fallback?: boolean;
   disabled?: boolean;
 }) {
   useClientPreferences((state) => state.tick);

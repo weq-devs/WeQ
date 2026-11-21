@@ -209,6 +209,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           listGroupNotifies: { invalidate: async () => {} },
           qqActions: {
             requests: { invalidate: async () => {} },
+            requestInbox: { invalidate: async () => {} },
             groupReadTools: { invalidate: state.refreshSigns },
             todoList: { invalidate: state.refreshTodos },
           },
@@ -1896,9 +1897,12 @@ describe('QQ 主动操作的实际界面', () => {
     expect(state.mutate).not.toHaveBeenCalled();
   });
   it('群分类直接展示，普通成员的退群操作独立可见', async () => {
+    state.data.groupPermissions = { canManage: false, role: 'member' };
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
-    expect(f.host.querySelector('[aria-label="群分类标签"]')).not.toBeNull();
+    expect(f.host.textContent).toContain('分类标签');
     expect(f.button('退出群聊')?.getAttribute('data-danger')).toBe('outline');
+    expect(f.button('保存加群方式')).toBeNull();
+    expect(f.button('添加分类标签')).toBeNull();
     expect(f.button('群管理菜单')).toBeNull();
     expect(f.host.textContent).toContain('其他操作');
     expect(state.mutate).not.toHaveBeenCalled();
@@ -1935,14 +1939,14 @@ describe('QQ 主动操作的实际界面', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const f = fixture(() => h(GroupActions, { groupId: 123 }));
-      expect(f.host.querySelectorAll('.weq-group-tags li')).toHaveLength(2);
+      expect(f.host.querySelectorAll('[aria-label="分类标签目录"] li')).toHaveLength(2);
       expect(f.host.textContent).toContain('同名目录项 (2 条)');
       state.data.tags = [
         { id: null, name: '同名目录项', type: null },
         { id: null, name: '另一目录项', type: null },
       ];
       f.update();
-      expect(f.host.querySelectorAll('.weq-group-tags li')).toHaveLength(2);
+      expect(f.host.querySelectorAll('[aria-label="分类标签目录"] li')).toHaveLength(2);
       expect(f.host.textContent).not.toContain('同名目录项 (2 条)');
       expect(errors).not.toHaveBeenCalled();
     } finally {
@@ -1952,7 +1956,7 @@ describe('QQ 主动操作的实际界面', () => {
   it('群分类从真实群资料选择，未返回分类不默认为 0 或允许写入', async () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector('input[aria-label="群分类编号"]')).toBeNull();
-    expect(f.host.querySelector<HTMLButtonElement>('[aria-label="群分类"]')!.disabled).toBe(true);
+    expect(f.host.textContent).toContain('未取得群分类');
     expect(f.button('添加分类标签').disabled).toBe(true);
     state.data.groupJoinSettings = {
       groupId: 123,
@@ -1960,9 +1964,7 @@ describe('QQ 主动操作的实际界面', () => {
       categoryName: '服务端分类名称',
     };
     f.update();
-    const category = f.host.querySelector<HTMLButtonElement>('[aria-label="群分类"]')!;
-    expect(category.dataset.value).toBe('0');
-    expect(category.textContent).toBe('服务端分类名称');
+    expect(f.host.textContent).toContain('服务端分类名称');
     captureManagement(f.host, 'group-category');
     value(f.host, '分类标签名称', '合成标签');
     await act(async () => f.button('添加分类标签').click());
@@ -2011,13 +2013,14 @@ describe('QQ 主动操作的实际界面', () => {
     expect(f.host.querySelector('[aria-label="表情备注"]')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();
   });
-  it('加群方式 4 带标准答案，方式 5 不让用户填写被忽略的答案', () => {
+  it('带问答的入群方式选中时建立草稿，只有方式 4 要求标准答案', () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     value(f.host, '加群方式', '4');
     expect(f.host.querySelector('[aria-label="加群答案"]')).not.toBeNull();
     expect(f.button('保存加群方式').disabled).toBe(true);
     value(f.host, '加群方式', '5');
     expect(f.host.querySelector('[aria-label="加群答案"]')).toBeNull();
+    expect(state.mutate).not.toHaveBeenCalled();
   });
   it('加群方式与问题来自读回，55 按审核问答显示，原值仍可保存且答案不伪造', async () => {
     state.data.groupJoinSettings = { groupId: 123, option: 55, question: '原问题' };
@@ -2037,21 +2040,72 @@ describe('QQ 主动操作的实际界面', () => {
       }),
     );
   });
-  it('保存加群方式后自动回读并清除草稿，仍允许主动再次提交相同值', async () => {
+  it('加群方式尚未读取时只显示占位，读回后从选项中移除', async () => {
+    state.data.groupJoinSettings = { groupId: 123, option: null };
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
-    value(f.host, '加群方式', '1');
+    const trigger = f.button('加群方式');
+    await act(async () => trigger.click());
+    const placeholder = document.querySelector<HTMLElement>('[role="option"][data-value=""]')!;
+    expect(placeholder.getAttribute('aria-disabled')).toBe('true');
+    await act(async () => placeholder.click());
+    expect(state.mutate).not.toHaveBeenCalled();
+
+    state.data.groupJoinSettings = { groupId: 123, option: 2 };
+    f.update();
+    expect(trigger.dataset.value).toBe('2');
+    expect(document.querySelector('[role="option"][data-value=""]')).toBeNull();
+  });
+  it.each([1, 2, 3])('入群方式 %s 选中即提交，自动读回且无需保存按钮', async (mode) => {
+    state.data.groupJoinSettings = { groupId: 123, option: mode === 2 ? 1 : 2 };
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(f.button('保存加群方式')).toBeNull();
     state.mutate.mockImplementationOnce(async () => {
-      state.data.groupJoinSettings = { groupId: 123, option: 1, question: null };
+      state.data.groupJoinSettings = { groupId: 123, option: mode, question: null };
+      return { state: 'accepted' };
+    });
+    await act(async () => chooseFormOption(f.button('加群方式'), String(mode)));
+    expect(state.mutate).toHaveBeenCalledOnce();
+    expect(state.mutate).toHaveBeenCalledWith(
+      'groupSettings',
+      expect.objectContaining({ action: 'join', addType: mode, question: '', answer: undefined }),
+    );
+    expect(state.refreshJoin).toHaveBeenCalledOnce();
+    expect(state.confirm).not.toHaveBeenCalled();
+    expect(f.button('加群方式').dataset.value).toBe(String(mode));
+    expect(f.button('保存加群方式')).toBeNull();
+  });
+  it('写入失败保留问答草稿，选回已生效的档位时直接放弃该草稿', async () => {
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    value(f.host, '加群方式', '5');
+    value(f.host, '加群问题', '只在本地编辑的问题');
+    state.mutate.mockRejectedValueOnce(new Error('QQ 拒绝写入'));
+    await act(async () => chooseFormOption(f.button('加群方式'), '1'));
+    expect(state.refreshJoin).not.toHaveBeenCalled();
+    expect(f.button('加群方式').dataset.value).toBe('5');
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]')?.value).toBe(
+      '只在本地编辑的问题',
+    );
+    expect(f.button('保存加群方式').disabled).toBe(false);
+    await act(async () => chooseFormOption(f.button('加群方式'), '2'));
+    expect(f.button('加群方式').dataset.value).toBe('2');
+    expect(f.button('保存加群方式')).toBeNull();
+    expect(state.mutate).toHaveBeenCalledOnce();
+  });
+  it('带问答的入群方式保存后自动读回并清除草稿', async () => {
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    value(f.host, '加群方式', '5');
+    value(f.host, '加群问题', '入群问题');
+    state.mutate.mockImplementationOnce(async () => {
+      state.data.groupJoinSettings = { groupId: 123, option: 55, question: '入群问题' };
       return { state: 'accepted' };
     });
     await act(async () => f.button('保存加群方式').click());
     expect(state.refreshJoin).toHaveBeenCalledOnce();
-    expect(state.confirm).not.toHaveBeenCalled();
-    expect(f.host.querySelector<HTMLElement>('[aria-label="加群方式"]')!.dataset.value).toBe('1');
-    expect(f.button('保存加群方式').disabled).toBe(false);
-    await act(async () => f.button('保存加群方式').click());
-    expect(state.mutate).toHaveBeenCalledTimes(2);
-    expect(state.refreshJoin).toHaveBeenCalledTimes(2);
+    state.data.groupJoinSettings = { groupId: 123, option: 55, question: '更新后的问题' };
+    f.update();
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="加群问题"]')?.value).toBe(
+      '更新后的问题',
+    );
   });
   it('迟到的加群资料不覆盖编辑草稿，未知答案不当作空答案回填', () => {
     state.data.groupJoinSettings = { groupId: 123, option: 4, question: '原问题' };

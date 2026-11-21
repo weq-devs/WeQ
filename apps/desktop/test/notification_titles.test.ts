@@ -10,8 +10,15 @@ import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { WebNotifications } from '../src/renderer/src/components/WebNotifications';
 import { useNotificationPolicy } from '../src/renderer/src/lib/notificationPolicy';
 import { useViewState } from '../src/renderer/src/state/view';
+import { useWebNotices } from '../src/renderer/src/state/webNotices';
+import { useAppLock } from '../src/renderer/src/state/lock';
+import { MAIL_NOTICE, mailBannerCopy } from '../src/shared/notification_copy';
 
-const subscribe = vi.hoisted(() => vi.fn());
+const { subscribe, browserShow } = vi.hoisted(() => ({ subscribe: vi.fn(), browserShow: vi.fn() }));
+vi.mock('../src/renderer/src/lib/browserNotifications', () => ({
+  browserNoticeChannel: () => ({ show: browserShow, close() {} }),
+}));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { account: { getAccountConfig: { useQuery: () => ({ data: { configId: 'source-a' } }) } } },
   client: {
@@ -24,32 +31,13 @@ function read(relative: string) {
   return readFileSync(new URL(relative, import.meta.url), 'utf8');
 }
 
-function mailContent() {
-  const source = ts.createSourceFile(
-    'app_context.ts',
-    read('../src/main/context/app_context.ts'),
-    ts.ScriptTarget.Latest,
-    true,
-  );
-  const notify = source.statements.find(
-    (node): node is ts.FunctionDeclaration =>
-      ts.isFunctionDeclaration(node) && node.name?.text === 'notifyMail',
-  );
-  const content: Record<string, string> = {};
-  function visit(node: ts.Node) {
-    if (ts.isPropertyAssignment(node) && ts.isStringLiteral(node.initializer))
-      content[node.name.getText(source)] = node.initializer.text;
-    ts.forEachChild(node, visit);
-  }
-  expect(notify).toBeDefined();
-  visit(notify!);
-  return content;
-}
-
 let cleanup = () => {};
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   useViewState.setState({ openedUin: null });
+  useAppLock.setState({ locked: false });
+  useWebNotices.setState({ enabled: false });
+  browserShow.mockClear();
   useNotificationPolicy.getState().setEvents(normalizeNotificationEvents(undefined));
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
   useToast.getState().setDurations({ successSeconds: -1, failureSeconds: -1 });
@@ -61,23 +49,47 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('新邮件事件直接显示在折叠横幅标题，不再只显示邮箱分类或产生空详情', () => {
-  const content = mailContent();
-  expect(content.title).toBe('QQ 邮箱收到新邮件');
-  expect(content.body).toBe('');
+it('邮件主题和发件人只出现在未锁定的应用内横幅，系统只报有新邮件', () => {
+  useViewState.setState({ openedUin: '10001' });
+  useWebNotices.setState({ enabled: true });
+  let deliver!: (notice: WebNoticeEvent) => void;
+  subscribe.mockImplementation((_binding, { onData }) => {
+    deliver = onData;
+    return { unsubscribe: vi.fn() };
+  });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  act(() => root.render(h(ToastHost)));
+  act(() =>
+    root.render([h(WebNotifications, { key: 'notices' }), h(ToastHost, { key: 'toasts' })]),
+  );
   cleanup = () => {
     act(() => root.unmount());
     host.remove();
   };
-  act(() => {
-    useToast.getState().push({ title: content.title, detail: content.body });
-  });
-  expect(host.querySelector('.weq-toast-title')?.textContent).toBe('QQ 邮箱收到新邮件');
+  const notice = {
+    uin: '10001',
+    configId: 'source-a',
+    kind: 'mail' as const,
+    ...MAIL_NOTICE,
+    banner: mailBannerCopy('项目周报', '林林'),
+    mail: { folderId: 1, id: 'public' },
+  };
+  act(() => deliver(notice));
+  expect(host.querySelector('.weq-toast-title')?.textContent).toBe('项目周报');
+  expect(host.querySelector('.weq-toast-summary')?.textContent).toBe('QQ 邮箱 · 来自 林林');
   expect(host.querySelector('[aria-label="展开详情"]')).toBeNull();
+  expect(browserShow).toHaveBeenLastCalledWith(expect.objectContaining(MAIL_NOTICE));
+  expect(browserShow.mock.lastCall?.[0]).not.toHaveProperty('banner');
+  act(() => {
+    useAppLock.setState({ locked: true });
+    deliver({ ...notice, mail: { folderId: 1, id: 'locked' } });
+  });
+  expect(useToast.getState().toasts.at(-1)).toMatchObject({
+    title: MAIL_NOTICE.title,
+    summary: '',
+  });
+  expect(host.textContent).not.toContain('项目周报');
 });
 
 it('已读事件只关闭当前账号和数据源中对应邮件的横幅', async () => {

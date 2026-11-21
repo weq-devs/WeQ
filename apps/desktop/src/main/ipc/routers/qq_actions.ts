@@ -28,6 +28,7 @@ import {
 import { updateFavoriteImportTask } from '../../favorite_import_task';
 import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 import { runResumableExport } from '../../resumable_exports';
+import { groupNoticeSequenceId, type NoticeOperationWire } from '../../../shared/contact_notices';
 import {
   albumMediaDeleteAllowed,
   groupPermission,
@@ -42,6 +43,9 @@ const text = z.string().trim().min(1).max(4096);
 const id = z.string().min(1).max(1024);
 const groupId = z.number().int().positive().max(0xffffffff);
 const group = binding.extend({ groupId });
+const requestInboxBinding = binding.extend({
+  kind: z.enum(['friend', 'doubtFriend', 'group', 'filteredGroup']),
+});
 const sequence = z
   .string()
   .regex(/^[1-9]\d{0,19}$/)
@@ -126,6 +130,7 @@ export function createQQActionsRouter(
   resolve: (input: QQWriteBinding) => QQActionServices,
   resolveStatus = resolve,
   assertWritable?: (input: QQWriteBinding) => void,
+  canReportGroupNoticeRead: () => boolean = () => false,
 ) {
   const busy = new WeakSet<QQActionServices>();
   const favoriteImports = new WeakMap<
@@ -172,6 +177,80 @@ export function createQQActionsRouter(
     if (resolve(input) !== s) throw new Error('账号已切换，请刷新');
     return result;
   };
+
+  async function loadRequestInbox(
+    s: QQActionServices,
+    kind: z.infer<typeof requestInboxBinding>['kind'],
+  ): Promise<{ operations: NoticeOperationWire[]; readSequence: string | null }> {
+    if (kind === 'friend')
+      return {
+        operations: (await s.profile.listBuddyRequests(2000))
+          .filter(isIncomingPendingBuddyRequest)
+          .map((r) => ({
+            token: r.peerUid,
+            noticeId: r.timestamp > 0 ? `buddy-request:${r.peerUid}:${r.timestamp}` : undefined,
+            uid: r.peerUid,
+            uin: '',
+            groupId: '',
+            name: r.nick || r.peerUid,
+            message: r.verifyMsg,
+            groupName: '',
+          })),
+        readSequence: null,
+      };
+    if (kind === 'doubtFriend')
+      return {
+        operations: (await s.profile.listDoubtFriendRequests()).map((r) => ({
+          token: r.uid,
+          noticeId:
+            r.requestTime > 0
+              ? `buddy-request:${r.uid}:${r.requestTime}`
+              : `doubt-buddy-request:${r.uid}`,
+          uid: r.uid,
+          uin: '',
+          groupId: '',
+          name: r.nick || r.uid,
+          message: `${r.message} ${r.reason}`,
+          groupName: '',
+        })),
+        readSequence: null,
+      };
+    const filtered = kind === 'filteredGroup';
+    const inbox = await s.groupNotify.fetchOnlineInbox({ filtered, maxPages: 3 });
+    const cache = pending.get(s) ?? new Map();
+    for (const [key, value] of cache) if (value.expires < Date.now()) cache.delete(key);
+    if (cache.size > 1000) cache.clear();
+    pending.set(s, cache);
+    const self = s.accountWrite.selfIdentity();
+    const operations = inbox.requests
+      .filter(
+        (r) =>
+          r.state === 1 &&
+          Number.isSafeInteger(r.sequence) &&
+          r.sequence > 0 &&
+          (r.eventType === 1 || r.eventType === 7) &&
+          Boolean(r.target.uid || r.target.uin > 0) &&
+          !(self.uid && r.target.uid === self.uid) &&
+          !(self.uin && String(r.target.uin) === self.uin),
+      )
+      .map((request) => {
+        const token = randomUUID();
+        const sequence = (request.rawSequence ?? request.sequence).toString();
+        cache.set(token, { request, expires: Date.now() + 600000 });
+        return {
+          token,
+          noticeId: groupNoticeSequenceId(sequence, filtered),
+          sequence,
+          uid: request.target.uid,
+          uin: request.target.uin > 0 ? String(request.target.uin) : '',
+          groupId: String(request.groupId),
+          name: request.target.name || request.target.uid || String(request.target.uin),
+          message: request.comment,
+          groupName: request.groupName || String(request.groupId),
+        };
+      });
+    return { operations, readSequence: inbox.readSequence?.toString() ?? null };
+  }
   async function groupPermissions(s: QQActionServices, g: number) {
     const context = await s.groupInfo.operationContext(g);
     const role = context.role ?? null;
@@ -1265,67 +1344,37 @@ export function createQQActionsRouter(
         return { ...result, ...(addedEmojiId ? { emojiId: addedEmojiId } : {}) };
       }),
     requests: procedure
-      .input(binding.extend({ kind: z.enum(['friend', 'doubtFriend', 'group', 'filteredGroup']) }))
-      .query(({ input: i }) =>
-        read(i, async (s) => {
-          if (i.kind === 'friend')
-            return (await s.profile.listBuddyRequests(2000))
-              .filter(isIncomingPendingBuddyRequest)
-              .map((r) => ({
-                token: r.peerUid,
-                uid: r.peerUid,
-                uin: '',
-                groupId: '',
-                name: r.nick || r.peerUid,
-                message: r.verifyMsg,
-                groupName: '',
-              }));
-          if (i.kind === 'doubtFriend')
-            return (await s.profile.listDoubtFriendRequests()).map((r) => ({
-              token: r.uid,
-              uid: r.uid,
-              uin: '',
-              groupId: '',
-              name: r.nick || r.uid,
-              message: `${r.message} ${r.reason}`,
-              groupName: '',
-            }));
-          const rows = await s.groupNotify.fetchOnlineRequests({
-            filtered: i.kind === 'filteredGroup',
-            maxPages: 3,
-          });
-          const cache = pending.get(s) ?? new Map();
-          for (const [key, value] of cache) if (value.expires < Date.now()) cache.delete(key);
-          if (cache.size > 1000) cache.clear();
-          pending.set(s, cache);
-          const self = s.accountWrite.selfIdentity();
-          return rows
-            .filter(
-              (r) =>
-                r.state === 1 &&
-                Number.isSafeInteger(r.sequence) &&
-                r.sequence > 0 &&
-                // 这里只处理他人入群申请，不把退出、邀请及自己的申请当成审批。
-                r.eventType === 7 &&
-                Boolean(r.target.uid || r.target.uin > 0) &&
-                !(self.uid && r.target.uid === self.uid) &&
-                !(self.uin && String(r.target.uin) === self.uin),
-            )
-            .map((request) => {
-              const token = randomUUID();
-              cache.set(token, { request, expires: Date.now() + 600000 });
-              return {
-                token,
-                uid: request.target.uid,
-                uin: request.target.uin > 0 ? String(request.target.uin) : '',
-                groupId: String(request.groupId),
-                name: request.target.name || request.target.uid || String(request.target.uin),
-                message: request.comment,
-                groupName: request.groupName || String(request.groupId),
-              };
-            });
-        }),
+      .input(requestInboxBinding)
+      .query(({ input }) =>
+        read(input, async (s) => (await loadRequestInbox(s, input.kind)).operations),
       ),
+    requestInbox: procedure.input(requestInboxBinding).query(({ input }) =>
+      read(input, async (s) => ({
+        ...(await loadRequestInbox(s, input.kind)),
+        canReportRead: input.kind === 'group' && canReportGroupNoticeRead(),
+      })),
+    ),
+    reportGroupNoticeRead: procedure
+      .input(binding.extend({ sequence: z.string().regex(/^[1-9]\d{0,19}$/) }))
+      .mutation(async ({ input }) => {
+        if (!canReportGroupNoticeRead()) return null;
+        const sequence = BigInt(input.sequence);
+        if (sequence > 0xffffffffffffffffn) return null;
+        assertWritable?.(input);
+        const services = resolve(input);
+        const pid = services.accountConfig.getRecord()?.qqPid;
+        const current = () => {
+          assertWritable?.(input);
+          if (
+            !canReportGroupNoticeRead() ||
+            resolve(input) !== services ||
+            services.accountConfig.getRecord()?.qqPid !== pid
+          )
+            throw new Error('账号、QQ 运行时或已读上报设置已改变');
+        };
+        const confirmed = await services.groupNotify.reportNoticeRead(sequence, current);
+        return confirmed?.toString() ?? null;
+      }),
     request: procedure
       .input(
         binding.extend({

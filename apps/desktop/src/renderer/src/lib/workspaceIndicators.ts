@@ -12,6 +12,8 @@ export interface WorkspaceTaskIndicator {
   activity: AssistantActivity;
   result: string;
   failed: boolean;
+  partial?: boolean;
+  notificationSummary?: string;
   name?: string;
   notificationName?: string;
   paused?: boolean;
@@ -102,6 +104,7 @@ export function summarizeWorkspaceTasks({
       cancelled: task.status === 'cancelled',
       activity: running ? 'running' : finished ? 'finished' : 'idle',
       failed,
+      partial: task.status === 'completed' && Boolean(task.databaseRecoveryRecords?.length),
       autoOpenTaskList:
         task.autoOpenTaskList !== false &&
         !(task.resource?.output && QUICK_SAVE_RESOURCE_KINDS.has(task.resource.kind)),
@@ -174,8 +177,8 @@ export function summarizeWorkspaceTasks({
     });
   }
   for (const task of background) {
-    const failed =
-      task.status === 'failed' || (task.subtasks?.some((part) => part.failed > 0) ?? false);
+    const failedItems = task.subtasks?.reduce((total, part) => total + part.failed, 0) ?? 0;
+    const failed = task.status === 'failed' || failedItems > 0;
     items.push({
       id: task.id,
       name: task.name,
@@ -198,6 +201,8 @@ export function summarizeWorkspaceTasks({
         task.status === 'running' ? 'running' : task.status === 'paused' ? 'idle' : 'finished',
       result: `${task.status}:${task.updatedAt}`,
       failed,
+      partial: task.status === 'completed' && failedItems > 0,
+      notificationSummary: failedItems ? `${failedItems} 项未完成` : undefined,
       autoOpenTaskList: false,
     });
   }

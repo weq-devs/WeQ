@@ -311,7 +311,7 @@ interface AlbumNextAttachInfo {
   Lloc?: string;
 }
 
-function attachInfoAtEnd(page: AlbumMediaPage, nextAttachInfo: string): boolean {
+export function attachInfoAtEnd(page: AlbumMediaPage, nextAttachInfo: string): boolean {
   const last = page.mediaList[page.mediaList.length - 1];
   if (!last) return false;
   let info: AlbumNextAttachInfo | null = null;

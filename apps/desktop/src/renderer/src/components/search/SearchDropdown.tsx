@@ -1,7 +1,6 @@
 /** The unified search dropdown under the sidebar search box. */
 
 import { EmptyState } from '../EmptyState';
-import { FormSelect } from '../FormSelect';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Layers, RefreshCw, Settings2, SearchX } from 'lucide-react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -16,8 +15,6 @@ import {
   rankFileSearchHits,
   DEFAULT_SEARCH_SOURCES,
   searchCategoriesForSources,
-  hasGlobalChatRecordFilter,
-  type GlobalChatRecordFilter,
   type SearchSource,
 } from '@weq/service/search-policy';
 import { AppSearchResults } from './AppSearchResults';
@@ -26,11 +23,9 @@ import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { restoreSearchPosition } from './searchPosition.shared';
 import type { SearchPosition } from './searchPosition';
 import { SEARCH_CATEGORY_ICONS, SEARCH_SOURCE_ICONS } from './searchIcons';
-import { beijingDay, daySeconds } from '../../lib/messageCalendar';
 import type { FeatureIcon } from '../../lib/featureIcons';
 import {
   CATEGORY_META,
-  MESSAGE_CATEGORY_LABELS,
   CONTENT_CATEGORY_ORDER,
   SEARCH_CATEGORY_ORDER,
   searchHitKey,
@@ -83,8 +78,7 @@ export function SearchDropdown({
   numberLookupEnabled = false,
   sources,
   onSourcesChange,
-  recordFilter,
-  onRecordFilterChange,
+  onFilterQQMessages,
 }: {
   keyword: string;
   numberLookupKeyword?: string;
@@ -110,8 +104,7 @@ export function SearchDropdown({
   onNumberLookupEnabledChange?: (enabled: boolean) => void;
   sources?: readonly SearchSource[];
   onSourcesChange?: (sources: SearchSource[]) => void;
-  recordFilter?: GlobalChatRecordFilter;
-  onRecordFilterChange?: (filter: GlobalChatRecordFilter) => void;
+  onFilterQQMessages?: () => void;
 }): ReactElement {
   const hasKeyword = keyword.trim().length > 0;
   const developmentDressTools = useDevelopmentDressTools();
@@ -126,8 +119,7 @@ export function SearchDropdown({
     [activeSources],
   );
   const visibleOptions = scopeOptions.filter((option) => visibleCategories.includes(option.id));
-  const canFilterRecords =
-    onRecordFilterChange && activeSources.includes('qq') && categories.includes('chatRecord');
+  const canFilterQQMessages = onFilterQQMessages && activeSources.includes('qq');
   const changeSources = (next: SearchSource[]) => {
     if (onSourcesChange) {
       onSourcesChange(next);
@@ -334,13 +326,7 @@ export function SearchDropdown({
             {visibleCategories.filter((category) => categories.includes(category)).length}
           </span>
         </span>
-        <span>
-          {filtersExpanded
-            ? '收起筛选'
-            : canFilterRecords && hasGlobalChatRecordFilter(recordFilter)
-              ? '聊天记录已筛选'
-              : '筛选'}
-        </span>
+        <span>{filtersExpanded ? '收起范围' : '搜索范围'}</span>
       </button>
       <div
         className={`weq-search-filters${filtersExpanded ? ' is-expanded' : ''}`}
@@ -437,88 +423,7 @@ export function SearchDropdown({
             ))}
           </div>
         ) : null}
-        {canFilterRecords ? (
-          <div className="weq-global-record-filters" role="group" aria-label="QQ 聊天记录筛选">
-            <label>
-              发送者
-              <input
-                aria-label="全局聊天记录发送者"
-                value={recordFilter?.sender ?? ''}
-                maxLength={128}
-                placeholder="QQ 号或 UID"
-                onChange={(event) =>
-                  onRecordFilterChange({ ...recordFilter, sender: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              起始日期
-              <input
-                type="date"
-                aria-label="全局聊天记录起始日期"
-                value={
-                  recordFilter?.start === undefined
-                    ? ''
-                    : beijingDay(new Date(recordFilter.start * 1000))
-                }
-                onChange={(event) =>
-                  onRecordFilterChange({
-                    ...recordFilter,
-                    start: event.target.value ? daySeconds(event.target.value) : undefined,
-                  })
-                }
-              />
-            </label>
-            <label>
-              截止日期
-              <input
-                type="date"
-                aria-label="全局聊天记录截止日期"
-                value={
-                  recordFilter?.end === undefined
-                    ? ''
-                    : beijingDay(new Date(recordFilter.end * 1000))
-                }
-                onChange={(event) =>
-                  onRecordFilterChange({
-                    ...recordFilter,
-                    end: event.target.value ? daySeconds(event.target.value) + 86399 : undefined,
-                  })
-                }
-              />
-            </label>
-            <label>
-              消息类型
-              <FormSelect
-                aria-label="全局聊天记录消息类型"
-                value={recordFilter?.category ?? ''}
-                onChange={(event) =>
-                  onRecordFilterChange({
-                    ...recordFilter,
-                    category: (event.target.value ||
-                      undefined) as GlobalChatRecordFilter['category'],
-                  })
-                }
-              >
-                <option value="">全部消息</option>
-                {Object.entries(MESSAGE_CATEGORY_LABELS).map(([category, label]) => (
-                  <option key={category} value={category}>
-                    {label}
-                  </option>
-                ))}
-              </FormSelect>
-            </label>
-          </div>
-        ) : null}
       </div>
-      {hasKeyword &&
-      canFilterRecords &&
-      hasGlobalChatRecordFilter(recordFilter) &&
-      slow?.messageCoverage?.limited ? (
-        <p className="weq-global-record-coverage" role="status">
-          当前只显示本轮查到的聊天记录，可缩小日期范围再查。
-        </p>
-      ) : null}
       {hasKeyword ? (
         <>
           {indexBuilding ? (
@@ -586,27 +491,50 @@ export function SearchDropdown({
               const section = sections.get(category)!;
               const hits = section.hits;
               const failed = failedFor(category);
+              const canRefine = category === 'chatRecord' && canFilterQQMessages;
               // 多类同时选中时不再为每个空分类渲染一条「无结果」标题，
               // 只在用户收窄到单一类型时给明确空态；全部为空时由下方统一兜底。
-              if (!failed && !section.loading && !hits?.length && categories.length > 1)
+              if (
+                !failed &&
+                !section.loading &&
+                !hits?.length &&
+                categories.length > 1 &&
+                !canRefine
+              )
                 return null;
               return (
                 <div className="weq-search-section" key={category}>
                   <div className="weq-search-section-header">
                     <span className="weq-search-section-name">{CATEGORY_META[category].label}</span>
-                    {hits && hits.length >= 3 ? (
-                      <button
-                        type="button"
-                        className="weq-search-more"
-                        data-search-hit-key={`more:${category}`}
-                        onClick={() => {
-                          rememberPosition(`more:${category}`);
-                          onMore(category);
-                        }}
-                      >
-                        更多
-                      </button>
-                    ) : null}
+                    <div className="weq-search-section-actions">
+                      {canRefine ? (
+                        <button
+                          type="button"
+                          className="weq-search-more"
+                          data-search-hit-key="filter:qqMessages"
+                          onClick={() => {
+                            rememberPosition('filter:qqMessages');
+                            onFilterQQMessages?.();
+                          }}
+                        >
+                          <Settings2 size={13} aria-hidden />
+                          筛选 QQ 消息
+                        </button>
+                      ) : null}
+                      {hits && hits.length >= 3 ? (
+                        <button
+                          type="button"
+                          className="weq-search-more"
+                          data-search-hit-key={`more:${category}`}
+                          onClick={() => {
+                            rememberPosition(`more:${category}`);
+                            onMore(category);
+                          }}
+                        >
+                          更多
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   {failed ? (
                     <div className="weq-search-failure" role="status">
@@ -624,7 +552,7 @@ export function SearchDropdown({
                   {section.loading ? (
                     <SearchSectionSkeleton />
                   ) : !hits || hits.length === 0 ? (
-                    failed ? null : (
+                    failed || (canRefine && categories.length > 1) ? null : (
                       <EmptyState variant="inline" icon={<SearchX />} title="无结果" />
                     )
                   ) : (

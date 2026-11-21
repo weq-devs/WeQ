@@ -4,9 +4,36 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { startMcpServer, stopMcpServer } from '../src/main/mcp/server';
 
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({ services: {}, account: { msgDbPath: '/synthetic/mcp-performance.db' } }),
+const fake = vi.hoisted(() => ({
+  account: { msgDbPath: '/synthetic/mcp-performance.db' },
+  attach: true,
+  qqOnline: true,
+  groupPage: vi.fn(),
+  mediaPage: vi.fn(),
+  search: vi.fn(),
 }));
+vi.mock('../src/main/context/app_context', () => {
+  const ctx = {
+    account: fake.account,
+    bootstrap: { userConfig: { getSettings: () => ({ autoAttachQq: fake.attach }) } },
+    services: {
+      accountConfig: {
+        getRecord: () => ({ configId: 'fixture', qqPid: 10, qqOnline: fake.qqOnline }),
+      },
+      groupFile: { listPage: fake.groupPage },
+      groupInfo: {
+        searchGroupIdentities: async () => [
+          { groupCode: '12345', name: '合成群', remark: '' },
+          { groupCode: '54321', name: '合成群', remark: '' },
+          { groupCode: '10001', name: '合成群后缀', remark: '' },
+        ],
+      },
+      groupAlbumMedia: { getMediaList: fake.mediaPage },
+      unifiedSearch: { localResourceSearch: fake.search },
+    },
+  };
+  return { getAppContext: () => ctx };
+});
 
 it('lists the real registry without exposing SQL writes, messaging, wallet, credentials or host files', async () => {
   const port = await startMcpServer({ port: 39873, token: 'synthetic-only' });
@@ -39,7 +66,70 @@ it('lists the real registry without exposing SQL writes, messaging, wallet, cred
     expect(next.entries[0].id).not.toBe(first.entries[0].id);
     const group = await featureCall('get_feature', { id: 'groups.albums', client: 'remote' });
     expect(group.entry).toEqual({ status: 'needs-context', missing: ['group'] });
-    expect(group.tools).toEqual([{ name: 'get_group_albums', exposed: true }]);
+    expect(group.tools).toEqual([
+      { name: 'get_group_albums', exposed: true },
+      { name: 'get_group_album_photos', exposed: true },
+    ]);
+    expect((await featureCall('get_feature', { id: 'groups.files' })).tools).toContainEqual({
+      name: 'list_group_files',
+      exposed: true,
+    });
+    expect(
+      await featureCall('find_contact', { query: '合成群', exactGroups: true, limit: 1 }),
+    ).toMatchObject({ groups: [{ groupCode: '12345' }], groupsHaveMore: true });
+    fake.groupPage
+      .mockResolvedValueOnce({
+        files: [{ fileId: 'doc-1' }],
+        folders: [{ folderId: 'docs' }],
+        isEnd: false,
+      })
+      .mockResolvedValueOnce({ files: [], folders: [], isEnd: true })
+      .mockRejectedValueOnce(new Error('没有查看权限'));
+    expect(await featureCall('list_group_files', { groupCode: '12345' })).toMatchObject({
+      nextOffset: 50,
+      hasMore: true,
+      folders: [{ folderId: 'docs' }],
+    });
+    expect(
+      await featureCall('list_group_files', { groupCode: '12345', folderId: 'docs' }),
+    ).toMatchObject({ nextOffset: null, hasMore: false, files: [] });
+    expect(fake.groupPage).toHaveBeenLastCalledWith(12345, 'docs', 0, 50);
+    expect(
+      (await client.callTool({ name: 'list_group_files', arguments: { groupCode: '12345' } }))
+        .isError,
+    ).toBe(true);
+    fake.qqOnline = false;
+    expect(
+      (await client.callTool({ name: 'list_group_files', arguments: { groupCode: '12345' } }))
+        .isError,
+    ).toBe(true);
+    expect(fake.groupPage).toHaveBeenCalledTimes(3);
+    fake.qqOnline = true;
+    fake.mediaPage
+      .mockResolvedValueOnce({ albumId: 'a', mediaList: [], nextAttachInfo: 'next' })
+      .mockResolvedValueOnce({
+        albumId: 'a',
+        mediaList: [{ batchId: '2', image: null, video: null }],
+        nextAttachInfo: '{"Loc":{"batch_id":"2"}}',
+      });
+    expect(
+      await featureCall('get_group_album_photos', { groupId: '12345', albumId: 'a' }),
+    ).toMatchObject({ nextCursor: 'next' });
+    expect(
+      await featureCall('get_group_album_photos', {
+        groupId: '12345',
+        albumId: 'a',
+        cursor: 'next',
+      }),
+    ).toMatchObject({ nextCursor: null });
+    expect(fake.mediaPage).toHaveBeenLastCalledWith('12345', 'a', 'next');
+    const needle = { source: 'groupFile', keyword: '合成' };
+    const result = { source: 'groupFile', status: 'unavailable', items: [], nextOffset: null };
+    fake.search.mockResolvedValueOnce(result);
+    const resource = await client.callTool({ name: 'search_local_resources', arguments: needle });
+    expect(resource.structuredContent).toEqual(result);
+    expect(JSON.parse((resource.content as Array<{ text: string }>)[0]!.text)).toEqual(result);
+    expect(fake.search).toHaveBeenCalledWith('groupFile', '合成', 0, 20);
     expect(group.navigation).not.toHaveProperty('url');
     const report = await featureCall('get_feature', { id: 'assistant.report-artifact' });
     expect(report.tools).toEqual([{ name: 'write_report', exposed: false }]);

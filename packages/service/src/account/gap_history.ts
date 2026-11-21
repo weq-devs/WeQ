@@ -22,7 +22,8 @@ import type { NtHelperBinding } from '@weq/native';
 import { decodeMessage, fetchC2cHistoryRaw, fetchGroupHistoryRaw } from '@weqbot/protocol';
 import type { SpecialMessageKind } from '@weqbot/protocol/message-fallbacks';
 import { toRenderElements, type RenderElement } from './msg_view';
-import { RoamMsgCacheDb, type UnreadSentRange } from './roam_msg_cache';
+import { RoamMsgCacheDb } from './roam_msg_cache';
+import type { UnreadSequenceRange } from './unread_info';
 import type { DeletedMsgStore } from './deleted_msgs';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
 import { withRoamingRequest } from '../common/roaming_request_queue';
@@ -293,7 +294,7 @@ export class GapHistoryService {
     return (await this.cache.latestSent()).filter((row) => !this.deleted?.isHiddenCached(row));
   }
 
-  unreadSentSequences(ranges: UnreadSentRange[]): Promise<Map<string, string[]>> {
+  unreadSentSequences(ranges: UnreadSequenceRange[]): Promise<Map<string, string[]>> {
     return this.cache.unreadSentSequences(this.session.selfUid, ranges);
   }
 

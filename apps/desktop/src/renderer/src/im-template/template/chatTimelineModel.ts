@@ -106,9 +106,7 @@ export function messageGroups(
         message.senderId === '0' ||
         message.deletedKind ||
         message.recall ||
-        message.optimistic ||
         grayTipOf(message) ||
-        message.qqElements?.some(({ type }) => type === 'reply') ||
         standalone(message)
       )
         return;

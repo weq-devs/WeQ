@@ -109,7 +109,7 @@ export function UnreadBadgeSettings() {
         name="showInteractionBadge"
         settingId="conversation-interaction-badge"
         label="会话互动红点"
-        desc="对方戳你或撤回消息时，在会话旁显示红点。"
+        desc="仅提示已读位置之后未查看的互动；有未读数字时优先显示数字。"
         fallback={false}
       />
       <AggregateBadgeRows />

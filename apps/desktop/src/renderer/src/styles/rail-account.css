@@ -22,6 +22,38 @@ html .weq-rail-account-layer[tabindex] > .weq-rail-account-popover {
   background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
 }
 
+.weq-rail-account-instance-row {
+  display: flex;
+  align-items: center;
+}
+
+.weq-rail-account-instance-row .weq-rail-account-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.weq-rail-account-instance-action {
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--weq-radius-control, 6px);
+  color: var(--weq-fg-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-rail-account-instance-action:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
+  color: var(--weq-fg-primary);
+}
+
+.weq-rail-account-instance-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .weq-rail-account-error {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

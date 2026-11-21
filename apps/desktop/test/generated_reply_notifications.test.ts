@@ -19,12 +19,15 @@ const fixture = vi.hoisted(() => ({
   system: true,
   private: false,
   muted: false,
+  reads: {} as Record<string, string>,
 }));
 
 vi.mock('../src/renderer/src/lib/clientPreferences', () => ({
   accountBinding: () => fixture.binding,
   preferenceValue: (key: string) => key === 'privacyMode' && fixture.private,
-  sharedAccountRecords: () => ({ [generatedMuteKey('virtual:group:g')]: fixture.muted }),
+  sharedAccountRecords: (type: string) =>
+    type === 'reads' ? fixture.reads : { [generatedMuteKey('virtual:group:g')]: fixture.muted },
+  useAccountRecords: () => fixture.reads,
 }));
 vi.mock('../src/renderer/src/lib/notificationPolicy', () => ({
   notificationEnabled: (_event: string, channel: 'system' | 'banner') => fixture[channel],
@@ -52,8 +55,48 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 
 afterEach(() => {
+  fixture.binding.expectedAccountConfigId = 'source';
+  fixture.banner = true;
+  fixture.private = false;
+  fixture.reads = {};
+  fixture.invalidate.mockClear();
+  fixture.publish.mockClear();
+  useToast.setState({ toasts: [], leaving: [], seq: 0 });
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('同步到相同会话的实际回复位置后才收起；迟到已读回复不再弹横幅', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  function Probe() {
+    useGeneratedReplyNotifications('synthetic', 'source');
+    return null;
+  }
+  const reply: GeneratedReply = {
+    kind: 'group',
+    conversationId: 'g',
+    id: 'read-1',
+    title: '克隆群',
+    preview: '新回复',
+    ts: 200,
+  };
+  try {
+    act(() => root.render(h(Probe)));
+    fixture.onData?.(reply);
+    const [item] = useToast.getState().toasts;
+    expect(item).toBeDefined();
+    fixture.reads = { 'clone-group:g': '199', 'assistant:g': '400', 'clone-group:other': '400' };
+    act(() => root.render(h(Probe)));
+    expect(useToast.getState().leaving).toEqual([]);
+    fixture.reads = { 'clone-group:g': '200' };
+    act(() => root.render(h(Probe)));
+    expect(useToast.getState().leaving).toEqual([item!.id]);
+    fixture.onData?.({ ...reply, ts: 120, id: 'read-delayed' });
+    expect(useToast.getState().toasts).toHaveLength(1);
+  } finally {
+    act(() => root.unmount());
+  }
 });
 
 it('新回复按渠道发送并带原消息目标，过滤正在阅读、重复事件和切号迟到结果', () => {

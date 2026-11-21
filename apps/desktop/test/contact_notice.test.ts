@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import {
   bindNoticeOperations,
+  confirmedGroupNoticeReads,
   formatNoticeTimestamp,
   groupNoticeId,
+  noticeBadgeList,
   type NoticeOperation,
 } from '../src/renderer/src/lib/contactNotice';
 import { NOTICE_SEEN_LIMIT, useNoticeUnread } from '../src/renderer/src/hooks/useNoticeUnread';
@@ -74,6 +76,47 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('通知卡片操作匹配', () => {
+  it('普通与可疑列表返回同一好友申请时保留可疑身份且只计一次', () => {
+    const noticeId = 'buddy-request:u_peer:1794843040';
+    const normal: NoticeOperation = { ...operation, kind: 'friend', groupId: '', noticeId };
+    const doubtful: NoticeOperation = { ...normal, kind: 'doubtFriend' };
+    const local: ContactRequest = {
+      id: noticeId,
+      user,
+      direction: 'incoming',
+      status: 'pending',
+      message: '',
+      createdAt: '2026-11-16T15:30:40Z',
+      respondedAt: null,
+    };
+    expect(noticeBadgeList([], [normal, doubtful]).ids).toEqual([noticeId]);
+    expect(noticeBadgeList([local], [normal, doubtful]).ids).toEqual([noticeId]);
+    expect(bindNoticeOperations([local], [normal, doubtful]).cards[0]?.operation?.kind).toBe(
+      'doubtFriend',
+    );
+  });
+
+  it('在线群申请落库前后用同一已读身份，普通收件箱读回只覆盖其对应批次', () => {
+    const raw = '1794843040123000';
+    const online = { ...operation, sequence: raw, noticeId: `group-notify-seq:normal:${raw}` };
+    const old = { ...group, sequence: '1794843040122999' };
+    const local = { ...group, id: 'group-db', sequence: raw };
+    const filtered = {
+      ...operation,
+      kind: 'filteredGroup' as const,
+      noticeId: `group-notify-seq:filtered:${raw}`,
+    };
+    const newer = 'group-notify-seq:normal:1794843040123001';
+    const before = noticeBadgeList([old], [online, filtered]);
+    expect(bindNoticeOperations([old], [online]).cards[0]?.operation).toBeUndefined();
+    const after = noticeBadgeList([old, local], [online, filtered]);
+    expect(before.ids).toEqual(after.ids);
+    expect(after.legacyIds.get(online.noticeId)).toBe('group-db');
+    expect(confirmedGroupNoticeReads([...after.ids, newer], raw, null)).toEqual(
+      new Set(['group-notify-seq:normal:1794843040122999', online.noticeId]),
+    );
+  });
+
   it.each([
     [1794326407, '2026-11-10T16:00:07.000Z', '2026-11-11 00:00:07'],
     [1794843040123, '2026-11-16T15:30:40.123Z', '2026-11-16 23:30:40'],

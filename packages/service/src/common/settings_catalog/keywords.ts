@@ -72,7 +72,7 @@ export const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
     'Resource ID',
   ],
   'llm-providers': ['API Key', 'Base URL', '服务商'],
-  'llm-default-model': ['LLM 默认聊天模型', '默认模型', 'LLM 默认模型'],
+  'llm-default-model': ['LLM 默认聊天模型', '默认模型', 'LLM 默认模型', '默认聊天模型在哪里设置'],
   'enhancement-voice': ['语音转文字', '转写'],
   'ocr-online': ['文字识别'],
   'web-enabled': ['浏览器访问'],

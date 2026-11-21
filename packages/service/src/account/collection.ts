@@ -12,7 +12,7 @@ import { searchCollectionItems } from './collection_search';
 import { join } from 'node:path';
 import { statSync } from 'node:fs';
 import type { NtHelperBinding } from '@weq/native';
-import { applyCollectionFileDownload, COLLECTION_DOWNLOAD_BUILDS } from './web/collection_download';
+import { applyCollectionFileDownload } from './web/collection_download';
 import { getLogger, logErrorContext } from '../common/logger';
 import { WebCredentialProvider } from './web/credential';
 import type { WebCredential, WebNative } from './web/credential';
@@ -192,7 +192,16 @@ export class CollectionService {
         if (content) item.cachedContent = content;
       }
     }
-    return searchCollectionItems(rows, keyword, offset, limit);
+    return {
+      ...searchCollectionItems(rows, keyword, offset, limit),
+      coverage: {
+        scope: 'local-database' as const,
+        records: rows.length,
+        limited: false,
+        updatedAt: null,
+        available: rows.length > 0 || (await this.session.collection.hasLocalList()),
+      },
+    };
   }
 
   async readLocalItem(cid: string): Promise<CollectionItem | null> {
@@ -319,14 +328,8 @@ export class CollectionService {
       !/^\d+$/.test(reference.expectedSize)
     )
       throw new Error('收藏附件的来源信息不完整。');
-    // Only use request layouts verified for the currently running official build.
-    if (
-      process.platform !== 'darwin' ||
-      process.arch !== 'arm64' ||
-      !this.nt.resolveQqRuntimeModules ||
-      !this.nt.resolveAppidFromMajor
-    )
-      throw new Error('当前 QQ 版本的收藏附件下载尚未验证。');
+    if (!this.nt.resolveQqRuntimeModules || !this.nt.resolveAppidFromMajor)
+      throw new Error('当前原生助手无法识别运行中的 QQ 构建。');
     const pid = this.resolvePid();
     const modules = this.nt.resolveQqRuntimeModules(pid);
     if (!modules) throw new Error('请先连接在线 QQ。');
@@ -348,10 +351,10 @@ export class CollectionService {
         throw new Error('QQ 会话或版本已变化，请重新连接后重试。');
     };
     const info = this.nt.resolveAppidFromMajor(modules.majorPath);
-    const build = `${info.version}-${info.build}`;
     check();
-    if (!COLLECTION_DOWNLOAD_BUILDS.has(build))
-      throw new Error('当前 QQ 版本的收藏附件下载尚未验证。');
+    if (!info.version || !info.build)
+      throw new Error('无法识别运行中的 QQ 构建，不能申请收藏附件下载。');
+    const build = `${info.version}-${info.build}`;
     const cred = await this.creds.forDomain(WEIYUN_DOMAIN);
     check();
     const resource = await applyCollectionFileDownload(
@@ -417,7 +420,7 @@ export class CollectionService {
       if (receipt.state !== 'downloaded' || (ref.storedFile && receipt.role !== 'original')) {
         failed++;
         stopRequests =
-          /尚未验证|在线|认证|登录|p_skey|credential|过于频繁|代码 -10003|版本已变化/i.test(
+          /QQ 构建|在线|认证|登录|p_skey|credential|过于频繁|代码 -10003|版本已变化/i.test(
             receipt.error ?? '',
           );
         if (stopRequests || ++consecutiveFailures >= 3) break;

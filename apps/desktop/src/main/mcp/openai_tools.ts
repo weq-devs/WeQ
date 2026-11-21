@@ -87,11 +87,16 @@ function objectToParameters(obj: z.ZodObject<z.ZodRawShape>): Record<string, unk
 }
 
 /** 全部工具的 OpenAI function 规格。 */
-export function aiToolSpecs(options: ToolExecutionOptions = {}): OpenAiToolSpec[] {
+export function aiToolSpecs(
+  options: ToolExecutionOptions & { names?: readonly string[] } = {},
+): OpenAiToolSpec[] {
   const unrestricted =
     options.permissionMode === 'unrestricted' &&
     getAppContext().services?.assistant.getExecutionConfig().permissionMode === 'unrestricted';
-  return AI_TOOLS.filter((t) => unrestricted || isSandboxTool(t.name)).map((t) => ({
+  return AI_TOOLS.filter(
+    (t) =>
+      (!options.names || options.names.includes(t.name)) && (unrestricted || isSandboxTool(t.name)),
+  ).map((t) => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: objectToParameters(t.input) },
   }));
@@ -99,7 +104,7 @@ export function aiToolSpecs(options: ToolExecutionOptions = {}): OpenAiToolSpec[
 
 /** 沙箱不连接外部服务器取工具列表，避免未授权的工具和连接进入本轮。 */
 export async function assistantToolSpecs(
-  options: ToolExecutionOptions = {},
+  options: ToolExecutionOptions & { names?: readonly string[] } = {},
 ): Promise<OpenAiToolSpec[]> {
   options.signal?.throwIfAborted();
   const specs = aiToolSpecs(options);

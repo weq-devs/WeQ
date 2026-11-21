@@ -64,7 +64,11 @@ import type {
 } from './workspace/types';
 import { useWorkspaceDrafts } from './workspace/useWorkspaceDrafts';
 import { useWorkspaceDirectory } from './workspace/useWorkspaceDirectory';
-import { useConversationInteractionBadges } from '../hooks/useConversationInteractionBadges';
+import {
+  mergeUnsequencedInteractionRows,
+  useConversationInteractionBadges,
+  useUnsequencedInteractionRows,
+} from '../hooks/useConversationInteractionBadges';
 import React, {
   lazy,
   Suspense,
@@ -106,6 +110,7 @@ import {
 } from '../lib/startupQueries';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
 import { useContactNoticeUpdates } from '../hooks/useContactNoticeUpdates';
+import { useOnlineNoticeInbox } from '../components/qq-actions/RequestActions.shared';
 import { CONTACT_NOTICE_LIMIT } from '../../../shared/contact_notices';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { useStableCallback } from '../hooks/useStableCallback';
@@ -146,6 +151,7 @@ import {
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
 import { useEnhancementUpdates } from '../hooks/useEnhancementUpdates';
+import { useNotificationPolicy } from '../lib/notificationPolicy';
 import { client } from '../trpc/client';
 import { useToast, sourceToastPush, type Toast } from '../components/Toast.shared';
 import {
@@ -174,6 +180,13 @@ import { closeForwardWindows } from '../state/forwardWindow';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useAccountNoticeUnread } from '../hooks/useAccountNoticeUnread';
+import {
+  confirmedGroupNoticeReads,
+  friendNoticeCopy,
+  groupNoticeCopy,
+  groupNoticeReadId,
+  noticeBadgeList,
+} from '../lib/contactNotice';
 import {
   ContactWorkspaceNavigationContext,
   ProfileNavigationContext,
@@ -281,6 +294,9 @@ import type { SectionId as SettingsDialogSectionId } from '../components/Setting
 import { remoteUnsupportedTools } from '../components/settings/DataMaintenanceSection.shared';
 import type { MaintenanceTool } from '../components/settings/DataMaintenanceSection';
 import { isRemoteClient } from '../lib/remoteClient';
+import { restoreGlobalSearch } from '../components/search/searchPosition.shared';
+import { SearchGroupFiles, type SearchFileGroup } from '../components/search/SearchGroupFiles';
+import { topSurface } from '../lib/surfaceEscape';
 import {
   SettingsDialog,
   DataMaintenanceDialog,
@@ -390,7 +406,6 @@ import { isGeneratedSearchHit, isContentSearchHit } from '../components/search/t
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchPreferences } from '../hooks/useSearchPreferences';
 import { useSearchReturn } from '../hooks/useSearchReturn';
-import { hasGlobalChatRecordFilter, type GlobalChatRecordFilter } from '@weq/service/search-policy';
 import { useSearchDismissal } from '../hooks/useSearchDismissal';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
 import { restoredAnalysisRequest } from './analysis/model';
@@ -1231,11 +1246,14 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     const sub = client.update.onEvent.subscribe(undefined, {
       onData(e) {
-        if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
+        if (e.kind === 'installing' || (e.kind === 'chosen' && !e.hasUpdate)) {
+          useToast.getState().resolve('weq-update');
+        } else if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
           useToast.getState().push({
             event: 'update',
             key: 'weq-update',
-            title: e.kind === 'downloaded' ? '新版本已下载，等待安装' : `发现新版本 ${e.latest}`,
+            title: e.kind === 'downloaded' ? `WeQ ${e.latest} 已下载` : `WeQ ${e.latest} 可更新`,
+            summary: e.kind === 'downloaded' ? '可以在「版本与更新」中安装' : undefined,
             source: notificationSource({
               kind: 'app',
               target: { kind: 'setting', section: 'version' },
@@ -1448,9 +1466,11 @@ function MainWorkspace(): ReactElement {
     if (mobileLayout) setMobileConversationList(true);
   });
   useClientPreferences((state) => state.tick);
+  const showInteractionBadge = preferenceValue('showInteractionBadge');
+  const showRecallBanner = useNotificationPolicy((state) => state.events.recall.banner);
   const interactionBadges = useConversationInteractionBadges(
     pinSession.binding,
-    preferenceValue('showInteractionBadge'),
+    showInteractionBadge || showRecallBanner,
   );
   const interactionViewportLocked = useAppLock((state) => state.locked);
   const includeHiddenConversations = preferenceValue('allConversationsIncludeHidden');
@@ -2819,25 +2839,112 @@ function MainWorkspace(): ReactElement {
     categoryById,
     botUids,
   ]);
-  const friendNoticeIds = useMemo(() => contactRequests.map((r) => r.id), [contactRequests]);
-  const groupNoticeIds = useMemo(() => groupRequests.map((r) => r.id), [groupRequests]);
+  const friendNoticeInbox = useOnlineNoticeInbox(
+    false,
+    pinSession.available && (onlineReady || shell.contactNotice === 'friend'),
+    pinSession.binding,
+  );
+  const groupNoticeInbox = useOnlineNoticeInbox(
+    true,
+    pinSession.available && (onlineReady || shell.contactNotice === 'group'),
+    pinSession.binding,
+  );
+  const { ids: friendNoticeIds } = useMemo(
+    () => noticeBadgeList(contactRequests, friendNoticeInbox.operations),
+    [contactRequests, friendNoticeInbox.operations],
+  );
+  const { ids: groupNoticeIds, legacyIds: legacyGroupNoticeIds } = useMemo(
+    () => noticeBadgeList(groupRequests, groupNoticeInbox.operations),
+    [groupRequests, groupNoticeInbox.operations],
+  );
+  const { readSequence, filteredReadSequence, canReportRead } = groupNoticeInbox;
+  const confirmedGroupNoticeIds = useMemo(
+    () => confirmedGroupNoticeReads(groupNoticeIds, readSequence, filteredReadSequence),
+    [groupNoticeIds, readSequence, filteredReadSequence],
+  );
+  const reportViewedGroupNotices = useStableCallback((sequence: string) => {
+    const binding = pinSession.binding;
+    if (
+      !binding ||
+      !canReportRead ||
+      readSequence == null ||
+      BigInt(sequence) <= BigInt(readSequence)
+    )
+      return;
+    void client.account.qqActions.reportGroupNoticeRead
+      .mutate({ ...binding, sequence })
+      .then((confirmed) => {
+        if (confirmed === null) return;
+        utils.account.qqActions.requestInbox.setData({ ...binding, kind: 'group' }, (previous) => {
+          if (
+            !previous ||
+            (previous.readSequence !== null && BigInt(previous.readSequence) >= BigInt(confirmed))
+          )
+            return previous;
+          return { ...previous, readSequence: confirmed };
+        });
+      })
+      .catch((error) => console.error('[contact-notice] 群通知已读同步失败', error));
+  });
+  const handledFriendNotices = useMemo(
+    () =>
+      new Set(
+        contactRequests.flatMap(({ id, direction, status }) =>
+          direction === 'incoming' && ['accepted', 'rejected', 'cancelled'].includes(status)
+            ? [id]
+            : [],
+        ),
+      ),
+    [contactRequests],
+  );
+  const handledGroupNotices = useMemo(
+    () =>
+      new Set(
+        groupRequests.flatMap((notice) =>
+          notice.handleState === 'agreed' || notice.handleState === 'refused'
+            ? [groupNoticeReadId(notice)]
+            : [],
+        ),
+      ),
+    [groupRequests],
+  );
   const openFriendNotice = useStableCallback(() => shell.openContactNotice('friend'));
   const openGroupNotice = useStableCallback(() => shell.openContactNotice('group'));
+  const describeFriendNotice = useStableCallback((id: string) => {
+    const notice = contactRequests.find((item) => item.id === id);
+    return notice && friendNoticeCopy(notice);
+  });
+  const describeGroupNotice = useStableCallback((id: string) => {
+    const notice = groupRequests.find((item) => groupNoticeReadId(item) === id);
+    return notice && groupNoticeCopy(notice);
+  });
   const friendNoticeCount = useAccountNoticeUnread(
     noticeAccountKey,
     'friend',
     friendNoticeIds,
     shell.contactNotice === 'friend',
-    buddyRequests.isSuccess,
-    { title: '收到新的好友通知', onOpen: openFriendNotice },
+    buddyRequests.isSuccess || friendNoticeInbox.ready,
+    {
+      title: '好友通知',
+      onOpen: openFriendNotice,
+      handledIds: handledFriendNotices,
+      describe: describeFriendNotice,
+    },
   );
   const groupNoticeCount = useAccountNoticeUnread(
     noticeAccountKey,
     'group',
     groupNoticeIds,
     shell.contactNotice === 'group',
-    groupNotifies.isSuccess,
-    { title: '收到新的群通知', onOpen: openGroupNotice },
+    groupNotifies.isSuccess || groupNoticeInbox.ready,
+    {
+      title: '群通知',
+      onOpen: openGroupNotice,
+      handledIds: handledGroupNotices,
+      confirmedReadIds: confirmedGroupNoticeIds,
+      legacyIds: legacyGroupNoticeIds,
+      describe: describeGroupNotice,
+    },
   );
   const mailOpenRef = useRef(shell.switchView);
   mailOpenRef.current = shell.switchView;
@@ -4116,6 +4223,16 @@ function MainWorkspace(): ReactElement {
   );
 
   const messageElementTarget = isGroup || isDirect ? convFetchKey(selectedConversation) : null;
+  const interactionTailTarget = anchoredToLatest && messagesTabActive ? messageElementTarget : null;
+  const unsequencedInteractions = useUnsequencedInteractionRows(
+    pinSession.binding,
+    interactionTailTarget,
+    interactionTailTarget
+      ? interactionBadges.byConversation.get(
+          `${interactionTailTarget.kind}:${interactionTailTarget.conv}`,
+        )
+      : undefined,
+  );
   const messageElementPatches = useMessageElementPatches(
     loaded,
     messageElementTarget?.kind,
@@ -4130,13 +4247,16 @@ function MainWorkspace(): ReactElement {
   // 原行负责定位、撤回和对账，补拉只提供正文。窗口刷新也能继续使用已补回的元素。
   const loadedMessageWires = useMemo(
     () =>
-      loaded.map((row) => {
-        const base = replyMediaRows.get(row) ?? row;
-        const patch = messageElementPatches[row.msgId];
-        if (!patch || !messageFallbackKind(row)) return base;
-        return { ...base, elements: patch.elements, sourceFormat: patch.sourceFormat };
-      }),
-    [loaded, replyMediaRows, replyMediaRevision, messageElementPatches],
+      mergeUnsequencedInteractionRows(
+        loaded.map((row) => {
+          const base = replyMediaRows.get(row) ?? row;
+          const patch = messageElementPatches[row.msgId];
+          if (!patch || !messageFallbackKind(row)) return base;
+          return { ...base, elements: patch.elements, sourceFormat: patch.sourceFormat };
+        }),
+        unsequencedInteractions,
+      ),
+    [loaded, replyMediaRows, replyMediaRevision, messageElementPatches, unsequencedInteractions],
   );
   const messageReplyIndex = useMemo(
     () => createReplyPreviewIndex(loadedMessageWires),
@@ -5111,11 +5231,12 @@ function MainWorkspace(): ReactElement {
   const [missingJumpSeq, setMissingJumpSeq] = useState<string | null>(null);
   // 正在处理（或已处理完）的会话 id —— 同一个会话只引导一次（分页/刷新不再重复）。
   // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
-  const unreadDockRequestRef = useRef<{ convId: string } | null>(null);
+  const unreadDockRequestRef = useRef<{ convId: string; deviceTail?: string } | null>(null);
   const unreadSnapshotPendingRef = useRef<{ convId: string } | null>(null);
   type AutoRead = {
     snapshot?: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number];
     visibleSeqs?: string[];
+    devicePosition?: string;
   };
   const readRequestsRef = useRef(new Map<string, { next?: AutoRead; promise: Promise<void> }>());
   const readSettingsReady = Boolean(displaySettings.data);
@@ -5171,7 +5292,8 @@ function MainWorkspace(): ReactElement {
         Boolean(binding) &&
         readPolicy.current.readSettingsReady &&
         readPolicy.current.readThroughViewport === Boolean(visibleSeqs) &&
-        (!visibleSeqs || readPolicy.current.readViewportActive) &&
+        ((!visibleSeqs && chatType !== 8 && chatType !== 134) ||
+          readPolicy.current.readViewportActive) &&
         messageScopeRef.current === source &&
         messagesTabActiveRef.current &&
         document.visibilityState !== 'hidden' &&
@@ -5199,7 +5321,7 @@ function MainWorkspace(): ReactElement {
       };
       entry.promise = (async () => {
         while (entry.next) {
-          const { snapshot, visibleSeqs } = entry.next;
+          const { snapshot, visibleSeqs, devicePosition } = entry.next;
           entry.next = undefined;
           const stillCurrent = () => isCurrent(visibleSeqs);
           if (!stillCurrent()) continue;
@@ -5207,7 +5329,7 @@ function MainWorkspace(): ReactElement {
           try {
             if (visibleSeqs && chatType !== 1 && chatType !== 2) continue;
             let latestSeq: string | undefined;
-            if (!visibleSeqs) {
+            if (!visibleSeqs && !devicePosition) {
               // 摘要可能来自乐观更新或漫游；传统模式固定使用本次捕获的小表最新水位。
               const info =
                 snapshot ??
@@ -5233,7 +5355,11 @@ function MainWorkspace(): ReactElement {
               () =>
                 visibleSeqs && (chatType === 1 || chatType === 2)
                   ? client.account.markViewportRead.mutate({ ...request, chatType, visibleSeqs })
-                  : client.account.markConversationRead.mutate({ ...request, latestSeq }),
+                  : client.account.markConversationRead.mutate({
+                      ...request,
+                      latestSeq,
+                      devicePosition,
+                    }),
               stillCurrent,
             );
             if (
@@ -5451,13 +5577,19 @@ function MainWorkspace(): ReactElement {
     }
     // 等首批消息落地后记录未读快照；跳转目标是否可见由聊天视口判断。
     if (messagesLoading || loaded.length === 0) return undefined;
-    if (unreadDockRequestRef.current?.convId === conv.id) return undefined;
-
-    const convId = conv.id;
-    const request = { convId };
-    unreadDockRequestRef.current = request;
     const chatType =
       conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1);
+    const device = chatType === 8 || chatType === 134;
+    if (device && (!anchoredToLatest || !readViewportActive)) return undefined;
+    const convId = conv.id;
+    const deviceTail = device ? loaded.at(-1)?.msgId : undefined;
+    if (
+      unreadDockRequestRef.current?.convId === convId &&
+      unreadDockRequestRef.current.deviceTail === deviceTail
+    )
+      return undefined;
+    const request = { convId, deviceTail };
+    unreadDockRequestRef.current = request;
     const source = messageScopeRef.current;
     const binding = messageBindingRef.current;
     // 只在「还是同一个会话」时落地结果 —— 用 ref 而非 effect cleanup，
@@ -5483,11 +5615,19 @@ function MainWorkspace(): ReactElement {
       const startedAt = guard.revision();
       try {
         if (!openedUin) return;
-        [info] = await readUnreadInfos({
-          expectedAccountUin: openedUin,
-          expectedAccountConfigId: binding?.expectedAccountConfigId,
-          targets: [{ chatType, uid: convId }],
-        });
+        if (device && binding) {
+          info = await client.account.getDeviceReadSnapshot.query({
+            ...binding,
+            chatType,
+            uid: convId,
+          });
+        } else {
+          [info] = await readUnreadInfos({
+            expectedAccountUin: openedUin,
+            expectedAccountConfigId: binding?.expectedAccountConfigId,
+            targets: [{ chatType, uid: convId }],
+          });
+        }
       } catch (err) {
         console.error('[unread-dock] getUnreadInfo failed', err);
       } finally {
@@ -5499,6 +5639,16 @@ function MainWorkspace(): ReactElement {
         return;
       }
       if (guard.accepts(convId, startedAt)) applyActiveReadPosition([info]);
+
+      if (device) {
+        const position = info.deviceLatest;
+        const [, time, id] = position?.split(':') ?? [];
+        if (position && loaded.some((row) => row.msgId === id && String(row.sendTime) === time)) {
+          await markVisibleConversationRead(conv, { snapshot: info, devicePosition: position });
+        }
+        if (stillCurrent()) setUnreadDock(null);
+        return;
+      }
 
       const readSeq = info.readSeq ?? null;
       const unread = info.unreadCount ?? 0;
@@ -5520,6 +5670,8 @@ function MainWorkspace(): ReactElement {
     readSettingsReady,
     selectedConversation,
     messagesLoading,
+    anchoredToLatest,
+    readViewportActive,
     loaded,
     recentContactsData,
     markVisibleConversationRead,
@@ -6041,33 +6193,58 @@ function MainWorkspace(): ReactElement {
 
   const searchQuery = shell.query.trim();
   const searchAccountKey = noticeAccountKey || openedUin;
-  const [recordFilterDraft, setRecordFilterDraft] = useState<GlobalChatRecordFilter>();
-  useEffect(() => setRecordFilterDraft(undefined), [searchAccountKey]);
-  const activeRecordFilter = useMemo(() => {
-    if (
-      !searchSources.includes('qq') ||
-      !searchCategories.includes('chatRecord') ||
-      !recordFilterDraft
-    )
-      return undefined;
-    const filter = { ...recordFilterDraft, sender: recordFilterDraft.sender?.trim() || undefined };
-    return hasGlobalChatRecordFilter(filter) ? filter : undefined;
-  }, [recordFilterDraft, searchCategories, searchSources]);
+  const [searchFilesGroup, setSearchFilesGroup] = useState<{
+    accountKey: string;
+    group: SearchFileGroup | null;
+    fromPicker: boolean;
+  } | null>(null);
+  const activeSearchFilesGroup =
+    searchFilesGroup?.accountKey === searchAccountKey ? searchFilesGroup : null;
+  const searchOpenedSettings = useRef<string | null>(null);
+  const returnFromSearchTarget = useRef(false);
   const globalSearch = useGlobalSearch(
     searchQuery,
     searchCategories,
     searchAccountKey,
     searchSources,
-    activeRecordFilter,
-    pinSession.binding ?? undefined,
   );
   const searchReturn = useSearchReturn(
     searchAccountKey,
     searchQuery,
     searchCategories,
     searchSources,
-    activeRecordFilter,
   );
+  const handleSearchReturnKey = useStableCallback((event: KeyboardEvent) => {
+    if (
+      event.key !== 'Escape' ||
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.keyCode === 229 ||
+      !searchDismissed ||
+      !returnFromSearchTarget.current ||
+      !searchReturn.target ||
+      settingsOpen ||
+      topSurface(document) ||
+      useAppLock.getState().locked ||
+      (event.target instanceof Element &&
+        event.target.closest('input, textarea, select, [contenteditable="true"]'))
+    )
+      return;
+    returnFromSearchTarget.current = false;
+    event.preventDefault();
+    restoreGlobalSearch();
+  });
+  useEffect(() => {
+    window.addEventListener('keydown', handleSearchReturnKey);
+    const leaveTarget = () => {
+      returnFromSearchTarget.current = false;
+    };
+    document.addEventListener('pointerdown', leaveTarget, true);
+    return () => {
+      window.removeEventListener('keydown', handleSearchReturnKey);
+      document.removeEventListener('pointerdown', leaveTarget, true);
+    };
+  }, [handleSearchReturnKey, searchAccountKey]);
   useEffect(() => {
     if (searchQuery) setSearchDismissed(false);
   }, [searchQuery]);
@@ -6155,7 +6332,10 @@ function MainWorkspace(): ReactElement {
       messageId?: string,
       toastOnMissingSeq = false,
       preferredView?: ConversationView,
-    ) => jumpToConvSeq(kind, id, seq, toastOnMissingSeq, undefined, messageId, { preferredView }),
+    ) => {
+      returnFromSearchTarget.current = true;
+      jumpToConvSeq(kind, id, seq, toastOnMissingSeq, undefined, messageId, { preferredView });
+    },
     [jumpToConvSeq],
   );
 
@@ -6186,6 +6366,7 @@ function MainWorkspace(): ReactElement {
   // then jump. Files additionally carry a seq anchor.
   const openSearchHit = useCallback(
     (hit: SearchHit): void => {
+      returnFromSearchTarget.current = true;
       setSearchDismissed(true);
       setSearchFocused(false);
       if ((hit.category === 'contact' || hit.category === 'group') && hit.target) {
@@ -9104,13 +9285,28 @@ function MainWorkspace(): ReactElement {
       ).status !== 'available'
     )
       return;
+    const target = entry.target;
+    if (target.kind === 'group-files') {
+      if (!searchAccountKey || !messageScope || messageScope !== messageScopeRef.current) return;
+      const current =
+        shell.view === 'contacts'
+          ? shell.selectedGroupConversation
+          : messagesTabActive
+            ? activeConversation
+            : null;
+      const group =
+        current?.type === 'group' ? { code: current.id, name: current.group.name } : null;
+      setSearchFilesGroup({ accountKey: searchAccountKey, group, fromPicker: !group });
+      setSettingsOpen(false);
+      restoreGlobalSearch();
+      return;
+    }
     setSearchDismissed(true);
     setSearchFocused(false);
     setSettingsOpen(false);
     setSettingsSearchTarget(null);
     setMaintenanceTool(null);
     setDressUpOpen(false);
-    const target = entry.target;
     if (target.kind === 'setting') {
       setSettingsSection(target.section);
       if (target.item || target.settingId)
@@ -9211,6 +9407,52 @@ function MainWorkspace(): ReactElement {
     if (entry.target.kind === 'setting') openAppSearchEntryNow(entry);
     else settingsNavigation.navigate(() => openAppSearchEntryNow(entry));
   };
+
+  const openAppSearchResult = (entry: AppSearchEntry) => {
+    searchOpenedSettings.current = entry.target.kind === 'setting' ? searchAccountKey : null;
+    returnFromSearchTarget.current =
+      entry.target.kind !== 'group-files' && entry.target.kind !== 'setting';
+    openAppSearchEntry(entry);
+  };
+
+  const closeSearchedSettings = () => {
+    const restore =
+      searchOpenedSettings.current === searchAccountKey && Boolean(searchReturn.target);
+    searchOpenedSettings.current = null;
+    setSettingsOpen(false);
+    if (restore) restoreGlobalSearch();
+  };
+
+  const groupSearchTarget = activeSearchFilesGroup?.group;
+  const closeGroupSearch = () => {
+    setSearchFilesGroup((current) =>
+      current?.fromPicker && current.group ? { ...current, group: null } : null,
+    );
+  };
+  const searchPanelOpen = (searchQuery || searchFocused) && !searchDismissed;
+  const groupFilesSearchPanel =
+    searchPanelOpen && activeSearchFilesGroup ? (
+      <SearchGroupFiles
+        key={activeSearchFilesGroup.accountKey}
+        group={groupSearchTarget ?? null}
+        onPick={(group) =>
+          setSearchFilesGroup({ ...activeSearchFilesGroup, group, fromPicker: true })
+        }
+        onBack={closeGroupSearch}
+      >
+        {groupSearchTarget ? (
+          <GroupFileDialog
+            embedded
+            groupCode={groupSearchTarget.code}
+            groupName={groupSearchTarget.name}
+            onJumpToMessage={(seq, msgId) =>
+              jumpToSearchConversation('group', groupSearchTarget.code, seq, msgId)
+            }
+            onClose={closeGroupSearch}
+          />
+        ) : null}
+      </SearchGroupFiles>
+    ) : null;
 
   const openFeatureLink = useStableCallback((event: Event) => {
     const id: unknown = (event as CustomEvent<unknown>).detail;
@@ -9586,6 +9828,8 @@ function MainWorkspace(): ReactElement {
             onOpenInvite={noopAsync}
             onQueryChange={(query) => {
               searchReturn.clear();
+              returnFromSearchTarget.current = false;
+              setSearchFilesGroup(null);
               shell.setQuery(query);
             }}
             onSearchFocus={() => {
@@ -9595,7 +9839,7 @@ function MainWorkspace(): ReactElement {
             // 搜索框下方的浮层：范围先于输入显示，结果由关键词控制。
             // 它挂在搜索框上（不是可滚动列表里），所以会话列表怎么滚都看得见。
             searchPanel={
-              (searchQuery || searchFocused) && !searchDismissed ? (
+              searchPanelOpen && !groupFilesSearchPanel ? (
                 <SearchResultsPanel
                   key={searchAccountKey}
                   navigation={searchReturn}
@@ -9716,9 +9960,6 @@ function MainWorkspace(): ReactElement {
                   categories={searchCategories}
                   onCategoriesChange={setSearchCategories}
                   sources={searchSources}
-                  recordFilter={recordFilterDraft}
-                  activeRecordFilter={activeRecordFilter}
-                  onRecordFilterChange={setRecordFilterDraft}
                   accountBinding={pinSession.binding ?? undefined}
                   onSourcesChange={setSearchSources}
                   onRetry={globalSearch.retry}
@@ -9730,9 +9971,11 @@ function MainWorkspace(): ReactElement {
                     searchReturn.clear();
                     setAppSearchEnabled(enabled);
                   }}
-                  onSelectAppEntry={openAppSearchEntry}
+                  onSelectAppEntry={openAppSearchResult}
                 />
-              ) : null
+              ) : (
+                groupFilesSearchPanel
+              )
             }
             onOpenFriendNotices={() =>
               settingsNavigation.navigate(() => shell.openContactNotice('friend'))
@@ -9940,6 +10183,7 @@ function MainWorkspace(): ReactElement {
                       <ContactNoticeDialog
                         open
                         requests={contactRequests}
+                        onlineInbox={friendNoticeInbox}
                         onClose={shell.backContactNotice}
                         onOpenProfile={(member, anchor) =>
                           setMemberCard({ member, anchor, groupContext: null })
@@ -9949,6 +10193,12 @@ function MainWorkspace(): ReactElement {
                       <GroupNoticeDialog
                         open
                         requests={groupRequests}
+                        onlineInbox={groupNoticeInbox}
+                        onViewed={
+                          canReportRead && readSequence != null
+                            ? reportViewedGroupNotices
+                            : undefined
+                        }
                         onClose={shell.backContactNotice}
                         onOpenProfile={(member, anchor, group) =>
                           setMemberCard({ member, anchor, groupContext: group ?? null })
@@ -10253,7 +10503,7 @@ function MainWorkspace(): ReactElement {
               key={`settings:${messageScope}`}
               open={settingsOpen}
               navigationGuard={settingsNavigation.guard}
-              onClose={() => setSettingsOpen(false)}
+              onClose={closeSearchedSettings}
               initialSection={settingsSection}
               searchTarget={settingsSearchTarget}
               onOpenMaintenance={openMaintenance}
@@ -11061,7 +11311,9 @@ function MainWorkspace(): ReactElement {
                             view: conversationView,
                             views: conversationViews,
                             rows: currentViewRows,
-                            interactionBadges: interactionBadges.byConversation,
+                            interactionBadges: showInteractionBadge
+                              ? interactionBadges.badgeConversations
+                              : undefined,
                             returnToRegular,
                             searchReturnView,
                             captureListPosition: captureConversationListPosition,

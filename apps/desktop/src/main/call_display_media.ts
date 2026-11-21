@@ -5,8 +5,8 @@
  *
  * 1. **屏幕共享**（所有平台）：渲染层要共享屏幕时必须走这条路 —— Electron 里
  *    `getDisplayMedia` 默认是拒绝的，必须由主进程显式应答。
- * 2. **Windows 的「电脑声音」**（loopback）：系统音频也只有这条路能拿到，
- *    录通话时用。音频固定回 `loopback`（Electron 44 起仅 Windows 支持）。
+ * 2. **录电脑声音**：Windows 与支持 Core Audio Tap 的 macOS 请求系统音轨。
+ *    macOS 优先使用系统选择器，回调路径则在 Electron 中请求 loopback。
  *
  * ## 屏幕共享的源怎么选
  *
@@ -48,6 +48,7 @@
 
 import { desktopCapturer, session, webContents, type Session } from 'electron';
 import { getLogger } from '@weq/service';
+import { systemAudioCapability } from './call_system_audio';
 
 const logger = getLogger().child({ scope: 'call-display-media' });
 
@@ -91,7 +92,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
  * 视频与音频的分支是独立的：
  *
  * - **只要视频**（屏幕共享）→ 交一个 screen 源；
- * - **只要音频**（Windows 录电脑声音）→ 仍然要给一条视频轨（Chromium 的约束
+ * - **只要音频**（录电脑声音）→ 仍然要给一条视频轨（Chromium 的约束
  *   要求两者至少有一个），渲染层拿到流之后立刻把视频轨停掉；
  * - **两者都要** → 一起给。
  */
@@ -139,7 +140,7 @@ export function installCallDisplayMediaHandler(target: Session = session.default
           callback(null);
           return;
         }
-        // 屏幕共享要一条 screen 源。音频只有 Windows 能走 loopback。
+        // 屏幕共享要一条 screen 源。
         //
         // ⚠️ Linux 下这条 `getSources` **就是**那个 XDG Portal 选择窗口 —— 它会
         // 一直阻塞到用户在系统弹窗里选完（本机实测无交互时 33 秒才返回）。这是预期
@@ -159,7 +160,7 @@ export function installCallDisplayMediaHandler(target: Session = session.default
           callback(null);
           return;
         }
-        const loopbackSupported = process.platform === 'win32';
+        const loopbackSupported = systemAudioCapability() === 'renderer';
         callback(
           request.audioRequested && loopbackSupported
             ? { video: source, audio: 'loopback' }

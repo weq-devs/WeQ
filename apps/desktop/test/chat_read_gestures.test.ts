@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { createTemplateDemoData } from './support/templateDemoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -79,6 +80,16 @@ describe('新消息按钮已读行为', () => {
       render([100, 101, 105, 106], '105', 3);
       expect(markedId()).toBe('row-106');
       expect(count()).toContain('3 条新消息');
+      act(() =>
+        acceptPreferences(
+          { revision: 1, values: { showUnreadDivider: false }, records: {} },
+          false,
+        ),
+      );
+      expect(marker()).toBeNull();
+      expect(count()).toContain('3 条新消息');
+      act(() => acceptPreferences({ revision: 2, values: {}, records: {} }, false));
+      expect(markedId()).toBe('row-106');
       render([100, 101, 105, 106], '106', 0);
       expect(marker()).toBeNull();
       expect(count()).toBeUndefined();

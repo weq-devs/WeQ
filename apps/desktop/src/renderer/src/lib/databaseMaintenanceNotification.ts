@@ -34,7 +34,8 @@ export function databaseMaintenanceNotification(snapshot: DatabaseMaintenanceSna
           tone: 'info' as const,
           loading: true,
           title: '正在修复数据库',
-          detail: `${op.completedDatabases} / ${op.totalDatabases} 个数据库已完成${op.currentDb ? ` · ${op.currentDb}` : ''}${snapshot.progress?.current?.message ? `\n${snapshot.progress.current.message}` : ''}`,
+          summary: `${op.completedDatabases} / ${op.totalDatabases} 个数据库已完成`,
+          detail: [op.currentDb, snapshot.progress?.current?.message].filter(Boolean).join('\n'),
           account: { ...account, reportId: undefined },
         };
   const abnormal = snapshot.databases.filter(databaseMaintenanceRowAbnormal).length;
@@ -62,9 +63,11 @@ export function databaseMaintenanceNotification(snapshot: DatabaseMaintenanceSna
         ? '数据库修复等待处理'
         : `${databaseMaintenanceKindLabel[op.kind]}${failed ? (op.status === 'partial' ? '部分完成' : '未完成') : op.status === 'cancelled' ? '已停止' : op.kind === 'repair' ? '已完成' : '已完成，发现数据库异常'}`,
     loading: false,
+    summary:
+      op.kind !== 'repair' && abnormal
+        ? `${abnormal} 个数据库发现异常`
+        : `${op.completedDatabases} / ${op.totalDatabases} 个数据库已完成`,
     detail: [
-      `${op.completedDatabases} / ${op.totalDatabases} 个数据库已完成`,
-      ...(op.kind !== 'repair' && abnormal ? [`${abnormal} 个库发现异常`] : []),
       op.error,
       ...snapshot.databases.flatMap((row) =>
         row.repair?.error

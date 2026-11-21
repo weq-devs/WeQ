@@ -11,7 +11,7 @@
  * page, `listBefore` to page up, `listFrom` to re-read the loaded window live.
  */
 import { setTimeout as delay } from 'node:timers/promises';
-import { MESSAGE_CATEGORIES, OperationError } from '@weq/service';
+import { matchesRule, MESSAGE_CATEGORIES, OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { plainContentText } from '@weq/service/message-plain-text';
@@ -48,7 +48,11 @@ import { withDatabaseRequest, assertDatabaseWritable } from '@weq/db';
 import { clearFinishedTasks } from './clear_finished_tasks';
 import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
-import { openFlashDownloadOutput, startFlashDownloads } from './flash_save';
+import {
+  openFlashDownloadOutput,
+  registerFlashDownloadOutput,
+  startFlashDownloads,
+} from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
 import { pickedBrowserFiles } from '../../browser_files';
 import { saveAnalyticsFromWeb } from '../../analytics_save';
@@ -106,6 +110,7 @@ import {
   requireBootstrap,
   dbEventBus,
   accountEventBus,
+  liveGroupKeywordRules,
   type AccountServices,
   type RoamingCacheChange,
 } from '../../context/app_context';
@@ -152,7 +157,10 @@ import { createContactMetricsRouter } from './contact_metrics';
 import { createNoticeReadRouter } from './notice_read';
 import { readMessageHistoryPage } from './message_history_page';
 import { mergeNoticeSeen } from '../../../shared/notice_seen';
-import type { ConversationInteraction } from '../../../shared/conversation_interaction';
+import type {
+  ConversationInteraction,
+  ConversationInteractionSnapshot,
+} from '../../../shared/conversation_interaction';
 import {
   directoryUnreadKey,
   isDirectoryReadKey,
@@ -501,7 +509,7 @@ const activeCollectionDetailSyncs = new Map<string, AbortController>();
 
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
-  messages: ChatMsgWire[];
+  messages: Array<ChatMsgWire & { groupKeyword?: true }>;
   observedAt?: number;
   accountUin?: string;
   configId?: string;
@@ -1137,6 +1145,7 @@ function unreadInfoToWire(
     uid: row.uid,
     chatType: row.chatType,
     latestSeq: row.latestSeq,
+    deviceLatest: row.deviceLatest,
     unreadCount: row.unreadCount,
     readSeq: row.readSeq,
     readError: row.readError ?? false,
@@ -1157,14 +1166,18 @@ function applyConversationRead(
   chatType: number,
   uid: string,
   sequence?: string,
+  devicePosition?: string,
 ): ReturnType<AccountServices['unreadInfo']['markReadAndReport']> {
   const ctx = getAppContext();
   if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup)
-    return services.unreadInfo.markLocalRead(chatType, uid, sequence).then((changed) => ({
-      changed,
-      report: { state: 'unavailable' as const },
-    }));
-  return services.unreadInfo.markReadAndReport(chatType, uid, sequence);
+    return (
+      devicePosition === undefined
+        ? services.unreadInfo.markLocalRead(chatType, uid, sequence)
+        : services.unreadInfo.markLocalRead(chatType, uid, sequence, devicePosition)
+    ).then((changed) => ({ changed, report: { state: 'unavailable' as const } }));
+  return devicePosition === undefined
+    ? services.unreadInfo.markReadAndReport(chatType, uid, sequence)
+    : services.unreadInfo.markReadAndReport(chatType, uid, sequence, { devicePosition });
 }
 
 const browserFileBinding = z.object({
@@ -1374,10 +1387,50 @@ export const accountRouter = router({
         interactionBadges.subscribe((events) => emit.next(events)),
       );
     }),
+    state: procedure.input(exportAccountBindingInput.required()).subscription(({ input }) => {
+      const { interactionBadges } = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return observable<ConversationInteractionSnapshot>((emit) =>
+        interactionBadges.subscribe((pending) =>
+          emit.next({
+            pending,
+            badges: interactionBadges.badgeEvents,
+            seen: interactionBadges.seenIds,
+          }),
+        ),
+      );
+    }),
+    unsequencedRows: procedure
+      .input(convInput.merge(exportAccountBindingInput.required()))
+      .query(({ input }) =>
+        readMessageScope(input, async () => {
+          const services = requireExpectedAccount(
+            input.expectedAccountUin,
+            input.expectedAccountConfigId,
+          );
+          const { kind, conv } = input;
+          const ids = services.interactionBadges.unsequencedIds(kind, conv);
+          const rows = await services.msgs.readHistoryRecordBodies(kind, conv, ids);
+          return withMessageBubbles(
+            rows.flatMap((row) => {
+              if (row.msgSeq !== 0n) return [];
+              if ('targetGroupCode' in row)
+                return kind === 'group' && row.targetGroupCode === conv
+                  ? [groupMsgToWire(row)]
+                  : [];
+              return kind === 'c2c' && row.targetUid === conv ? [c2cMsgToWire(row)] : [];
+            }),
+            services.dressInstall,
+          );
+        }),
+      ),
     acknowledge: procedure
       .input(
         exportAccountBindingInput.required().extend({
           ids: z.array(z.string().max(512)).max(128),
+          bannerOnly: z.boolean().optional(),
         }),
       )
       .mutation(({ input }) => {
@@ -1385,7 +1438,7 @@ export const accountRouter = router({
           input.expectedAccountUin,
           input.expectedAccountConfigId,
         );
-        interactionBadges.acknowledge(input.ids);
+        interactionBadges.acknowledge(input.ids, input.bannerOnly);
       }),
   }),
   noticeRead: createNoticeReadRouter((input) => {
@@ -1549,6 +1602,9 @@ export const accountRouter = router({
     },
     (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
     assertCurrentAccountWritable,
+    () =>
+      process.platform === 'darwin' &&
+      requireBootstrap().userConfig.getSettings().reportReadEnabled,
   ),
   qqWrite: createQQWriteRouter(
     (input) => {
@@ -1784,6 +1840,7 @@ export const accountRouter = router({
             title: services.agentLab.getPersonaRecord(input.personaId)?.persona.name ?? '克隆会话',
             preview: generatedMessageSummary(reply),
             messageId: reply.id,
+            ts: reply.ts,
           });
         }
       }
@@ -1825,6 +1882,7 @@ export const accountRouter = router({
           conversationId: input.id,
           id: reply.id,
           messageId: reply.id,
+          ts: reply.ts,
           preview: sender && preview ? `${sender.displayName}：${preview}` : preview,
           title:
             group?.group.name ??
@@ -2344,6 +2402,7 @@ export const accountRouter = router({
             title: detail.group.name,
             preview: sender && preview ? `${sender.displayName}：${preview}` : preview,
             messageId: reply.id,
+            ts: reply.ts,
           });
         });
       return { groupRunId };
@@ -2379,7 +2438,10 @@ export const accountRouter = router({
           .listSessions()
           .find((item) => item.id === event.sessionId);
         if (!session) return;
-        const turn = services.assistant.getConversation(session.id).at(-1);
+        const history = services.assistant.getConversation(session.id);
+        const turn = event.messageId
+          ? history.findLast((item) => item.id === event.messageId)
+          : history.at(-1);
         emit.next({
           kind: 'assistant',
           conversationId: session.id,
@@ -2387,6 +2449,7 @@ export const accountRouter = router({
           title: session.title,
           preview: generatedMessageSummary({ text: event.step.text, steps: turn?.steps }),
           messageId: event.messageId ?? (turn?.role === 'assistant' ? turn.id : undefined),
+          ts: turn?.role === 'assistant' ? turn.ts : undefined,
         });
       };
       generatedReplyBus.on('reply', clone);
@@ -3410,6 +3473,22 @@ export const accountRouter = router({
       return rows.map(unreadInfoToWire);
     }),
 
+  getDeviceReadSnapshot: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        chatType: z.union([z.literal(8), z.literal(134)]),
+        uid: z.string().min(1),
+      }),
+    )
+    .query(async ({ input }) => {
+      const current = () =>
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const services = current();
+      const row = await services.unreadInfo.getDeviceReadSnapshot(input);
+      if (current() !== services) throw new Error('账号或数据源已切换');
+      return unreadInfoToWire(row);
+    }),
+
   clearLocalReadRecords: procedure
     .input(
       z.object({
@@ -3682,6 +3761,7 @@ export const accountRouter = router({
         chatType: z.number().int(),
         uid: z.string().min(1),
         latestSeq: z.string().optional(),
+        devicePosition: z.string().max(33).optional(),
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
       }),
@@ -3692,6 +3772,7 @@ export const accountRouter = router({
         input.chatType,
         input.uid,
         input.latestSeq,
+        input.devicePosition,
       ),
     ),
 
@@ -6233,11 +6314,13 @@ export const accountRouter = router({
   onNewMessages: procedure.subscription(() => {
     return observable<NewMessagesWire>((emit) => {
       const handler = (change: NewMessages): void => {
-        const messages: ChatMsgWire[] = [
+        const rules = liveGroupKeywordRules();
+        const messages: NewMessagesWire['messages'] = [
           ...change.c2c.map((m) => c2cMsgToWire({ ...m, elements: toRenderElements(m.elements) })),
-          ...change.group.map((m) =>
-            groupMsgToWire({ ...m, elements: toRenderElements(m.elements) }),
-          ),
+          ...change.group.map((m) => ({
+            ...groupMsgToWire({ ...m, elements: toRenderElements(m.elements) }),
+            groupKeyword: matchesRule(rules?.[m.targetGroupCode], m) ? (true as const) : undefined,
+          })),
         ];
         const context = getAppContext();
         emit.next({
@@ -7726,6 +7809,28 @@ export const accountRouter = router({
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
       const services = current();
       return openFlashDownloadOutput(
+        input,
+        services.flashTransferFiles.downloads,
+        getHost(),
+        () => {
+          if (current() !== services)
+            throw new DOMException('账号已切换，已停止操作', 'AbortError');
+        },
+      );
+    }),
+
+  flashDownloadOutput: procedure
+    .input(
+      generatedAccountInput.extend({
+        taskId: z.string().min(1),
+        fileId: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const current = () =>
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const services = current();
+      return registerFlashDownloadOutput(
         input,
         services.flashTransferFiles.downloads,
         getHost(),

@@ -93,6 +93,7 @@ export function resolveEndpoint(
     request.maxOutputTokens = defaults.maxOutputTokens;
   return {
     baseUrl: provider.baseUrl,
+    providerVendor: provider.vendor,
     apiKey: provider.apiKey,
     model: ref.model,
     reasoningEfforts: model?.reasoningEfforts,

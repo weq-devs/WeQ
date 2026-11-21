@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
+import { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { messagePerformanceSnapshot } from '../src/renderer/src/lib/messagePerformance';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useStableCallback } from '../src/renderer/src/hooks/useStableCallback';
 import { mergeRefreshedWindow } from '../src/renderer/src/lib/conversationRefresh';
 import { messageGroups } from '../src/renderer/src/im-template/template/chatTimelineModel';
@@ -24,7 +26,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-it('群组只连接相邻的同一发送者，未读、跨日和系统行保持独立', () => {
+it('连续分组纳入本地发送占位，仍按身份、时间与时间线分界拆组', () => {
   const row = (seq: number, patch: Partial<Message> = {}): Message => ({
     id: String(seq),
     msgSeq: String(seq),
@@ -42,6 +44,27 @@ it('群组只连接相邻的同一发送者，未读、跨日和系统行保持�
     }),
   ];
   expect(positions([row(1), row(2), row(3)])).toEqual(['first', 'middle', 'last']);
+  expect(
+    positions([
+      row(1, { qqElements: [{ type: 'reply', data: {} }] }),
+      row(2, { qqElements: [{ type: 'file', data: {} }] }),
+      row(3, { qqElements: [{ type: 'reply', data: {} }] }),
+    ]),
+  ).toEqual(['first', 'middle', 'last']);
+  expect(
+    positions([
+      row(1),
+      row(2, { msgSeq: '', senderUid: undefined, optimistic: 'sending' }),
+      row(3, { msgSeq: '', senderUid: undefined, optimistic: 'queued' }),
+    ]),
+  ).toEqual(['first', 'middle', 'last']);
+  expect(
+    positions([
+      row(1, { optimistic: 'sent' }),
+      row(2, { msgSeq: '', optimistic: 'failed' }),
+      row(3, { msgSeq: '', optimistic: 'sent', optimisticRejected: true }),
+    ]),
+  ).toEqual(['first', 'middle', 'last']);
   for (const separated of [
     [row(1), row(2, { senderUid: 'uid-b' })],
     [row(1), row(2, { createdAt: '2026-11-21T00:00:00+08:00' })],
@@ -49,7 +72,6 @@ it('群组只连接相邻的同一发送者，未读、跨日和系统行保持�
     [row(1), row(2, { id: 'unread' })],
     [row(1), row(2, { id: 'deleted' }), row(3)],
     [row(1), row(2, { qqElements: [{ type: 'grayTipRevoke', data: {} }] }), row(3)],
-    [row(1), row(2, { qqElements: [{ type: 'reply', data: {} }] }), row(3)],
   ])
     expect(positions(separated)).toEqual(separated.map(() => undefined));
 });
@@ -125,20 +147,23 @@ it('前插同人发言时移动组头像，且只在缺口可见时拆组', () =
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (messages: Message[], overrides: Partial<Parameters<typeof ChatPane>[0]> = {}) =>
+  const render = (
+    messages: Message[],
+    overrides: Partial<Parameters<typeof ChatMainContent>[0]> = {},
+  ) =>
     act(() =>
       root.render(
-        h(ChatPane, {
+        h(ChatMainContent, {
+          view: 'messages',
           user: demo.user,
-          conversation,
+          activeConversation: conversation,
           messages,
-          groupConsecutiveMessages: true,
-          draft: '',
-          loading: false,
-          onSend: vi.fn(),
-          onDraftChange: vi.fn(),
-          onDraftClear: vi.fn(),
-          onBack: vi.fn(),
+          loadingMessages: false,
+          conversationPrefs: {},
+          drafts: {},
+          onBackContact: vi.fn(),
+          onBackGroup: vi.fn(),
+          onBackConversation: vi.fn(),
           ...overrides,
         }),
       ),
@@ -147,6 +172,13 @@ it('前插同人发言时移动组头像，且只在缺口可见时拆组', () =
   const avatar = (id: string) => line(id).querySelector('.avatar');
   try {
     render(rows.slice(1));
+    expect(avatar('3')).not.toBeNull();
+    act(() =>
+      acceptPreferences(
+        { revision: 1, values: { groupConsecutiveMessages: true }, records: {} },
+        false,
+      ),
+    );
     const old = line('2');
     expect(avatar('2')).not.toBeNull();
     expect(avatar('3')).toBeNull();
@@ -176,8 +208,11 @@ it('前插同人发言时移动组头像，且只在缺口可见时拆组', () =
     render(multipleMissing, { resolvedGapIds: new Set(['gap:1:4']) });
     expect(avatar('3')).toBeNull();
     expect(line('gap:1:4')).toBeNull();
+    act(() => acceptPreferences({ revision: 2, values: {}, records: {} }, false));
+    expect(avatar('3')).not.toBeNull();
   } finally {
     act(() => root.unmount());
+    acceptPreferences({ revision: 2, values: {}, records: {} }, false);
     host.remove();
   }
 });

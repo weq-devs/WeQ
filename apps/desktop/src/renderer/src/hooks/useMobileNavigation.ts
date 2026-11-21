@@ -6,6 +6,7 @@ import {
 } from '../lib/mobileNavigation';
 import { compareMobileBackEntries } from '../lib/mobileBackSurface';
 import {
+  getMobileNavigationSnapshot,
   isMobileClient,
   isSingleColumnLayout,
   subscribeResponsiveLayout,
@@ -125,7 +126,11 @@ export function useMobileBack(
 ) {
   const renderDocument = useRenderDocument();
   const tabActive = useTabActive();
-  const mobile = useSyncExternalStore(subscribeResponsiveLayout, isMobileNavigation, () => false);
+  const mobile = useSyncExternalStore(
+    subscribeResponsiveLayout,
+    getMobileNavigationSnapshot,
+    () => false,
+  );
   const id = useRef(`layer-${++sequence}`);
   const latest = useRef({ back, target });
   latest.current = { back, target };

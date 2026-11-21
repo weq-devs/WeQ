@@ -8,6 +8,7 @@ import type { GroupNotify } from '@weq/db';
 import {
   FetchFilteredGroupRequests,
   FetchGroupRequests,
+  ReportGroupNoticeRead,
   SetGroupRequest,
   groupRequestOperationType,
   type GroupRequest,
@@ -25,6 +26,8 @@ const GROUP_REQUEST_PAGE_SIZE = 50;
 const GROUP_REQUEST_MAX_PAGES = 20;
 
 export class GroupNotifyService {
+  private readReports: Promise<unknown> = Promise.resolve();
+
   constructor(
     private readonly session: AccountSession,
     private readonly online?: GroupNotifyOnlineDeps,
@@ -102,10 +105,17 @@ export class GroupNotifyService {
   async fetchOnlineRequests(
     options: { filtered?: boolean; maxPages?: number } = {},
   ): Promise<GroupRequest[]> {
+    return (await this.fetchOnlineInbox(options)).requests;
+  }
+
+  async fetchOnlineInbox(
+    options: { filtered?: boolean; maxPages?: number } = {},
+  ): Promise<Omit<GroupRequestPage, 'cookie'>> {
     if (!this.online) throw new Error('该账号当前不在线，无法拉取加群请求。');
     const { nt, resolvePid } = this.online;
     const out: GroupRequest[] = [];
     let cookie: number | bigint = 0;
+    let firstPage: GroupRequestPage | undefined;
     const maxPages = options.maxPages ?? GROUP_REQUEST_MAX_PAGES;
     for (let page = 0; page < maxPages; page += 1) {
       const result: GroupRequestPage = options.filtered
@@ -118,10 +128,49 @@ export class GroupNotifyService {
             cookie,
           });
       out.push(...result.requests);
+      firstPage ??= result;
       if (result.cookie === 0 || result.requests.length < GROUP_REQUEST_PAGE_SIZE) break;
       cookie = result.cookie;
     }
-    return out;
+    return {
+      requests: out,
+      latestSequence: firstPage?.latestSequence,
+      readSequence: firstPage?.readSequence,
+    };
+  }
+
+  /** 每次仅提交界面提供的序号。较晚到达的通知仍由 QQ 保留为未读。 */
+  reportNoticeRead(sequence: bigint, assertCurrent: () => void): Promise<bigint | undefined> {
+    const report = this.readReports.then(async () => {
+      if (!this.online) return undefined;
+      assertCurrent();
+      const { nt, resolvePid } = this.online;
+      const pid = resolvePid();
+      const before = await this.fetchOnlineInbox({ maxPages: 1 });
+      assertCurrent();
+      if (resolvePid() !== pid) return undefined;
+      if (before.readSequence === undefined || before.latestSequence === undefined)
+        return before.readSequence;
+      if (sequence <= before.readSequence || sequence > before.latestSequence)
+        return before.readSequence;
+      // SDK 报错时也尝试独立读回，避免下一次阅读重复上报已经生效的结果。
+      try {
+        await ReportGroupNoticeRead.invoke(nt, pid, sequence);
+      } catch (error) {
+        assertCurrent();
+        const after = await this.fetchOnlineInbox({ maxPages: 1 });
+        assertCurrent();
+        if (after.readSequence !== undefined && after.readSequence >= sequence)
+          return after.readSequence;
+        throw error;
+      }
+      assertCurrent();
+      const after = await this.fetchOnlineInbox({ maxPages: 1 });
+      assertCurrent();
+      return after.readSequence;
+    });
+    this.readReports = report.catch(() => undefined);
+    return report;
   }
 
   async handleOnlineRequest(

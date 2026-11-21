@@ -51,7 +51,8 @@ export function useDatabaseMaintenanceNotifications(popup: Window | null): void 
           key: `database-damage:${event.uin}:${event.configId ?? ''}`,
           tone: 'error' as const,
           title: event.title,
-          detail: [event.message, ...event.details].join('\n'),
+          summary: event.message,
+          detail: event.details.join('\n'),
           source: notificationSource(
             {
               kind: 'local',

@@ -103,6 +103,43 @@ function click(host: HTMLElement, detail = 1) {
 }
 
 describe('通知头像名片入口', () => {
+  it('打开群通知只提交实际展示的普通群序号', () => {
+    const onViewed = vi.fn();
+    const requests = [
+      { ...group, sequence: '1794843040123000' },
+      { ...group, id: 'group-filtered', sequence: '1794843040123001', isDoubt: true },
+    ];
+    fixture(h(GroupNoticeDialog, { open: false, requests, onClose: vi.fn(), onViewed }));
+    expect(onViewed).not.toHaveBeenCalled();
+    fixture(h(GroupNoticeDialog, { open: true, requests, onClose: vi.fn(), onViewed }));
+    expect(onViewed.mock.calls).toEqual([['1794843040123000']]);
+  });
+
+  it('可疑好友申请匹配本地待处理卡时仍可辨认和处理', () => {
+    state.operations = [
+      {
+        kind: 'doubtFriend',
+        token: user.id,
+        uid: user.id,
+        uin: '',
+        groupId: '',
+        name: user.displayName,
+        groupName: '',
+        message: '你好',
+      },
+    ];
+    const host = fixture(
+      h(ContactNoticeDialog, {
+        open: true,
+        requests: [{ ...friend, status: 'pending' }],
+        onClose: vi.fn(),
+      }),
+    );
+    expect(host.querySelectorAll('article')).toHaveLength(1);
+    expect(host.querySelector('[title="可疑好友申请"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="同意申请"]')).not.toBeNull();
+  });
+
   it.each([ContactNoticeDialog, GroupNoticeDialog])(
     '通知直接在所属内容面板内展示，关闭后不残留内容',
     (Dialog) => {

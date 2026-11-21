@@ -1,0 +1,69 @@
+.weq-group-management {
+  container-type: inline-size;
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.weq-group-management-join {
+  display: grid;
+  gap: 2px;
+}
+
+.weq-group-management .weq-set-row:has(.weq-set-input) > .weq-set-row-ctrl {
+  width: min(58%, 240px);
+}
+
+.weq-group-management :is(.weq-set-row-ctrl, .weq-set-input) {
+  min-width: 0;
+}
+
+.weq-group-management .weq-set-input {
+  width: 100%;
+}
+
+.weq-group-management-join-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 4px;
+}
+
+.weq-group-management-tag-editor {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.weq-group-management-tag-editor > button {
+  flex: none;
+}
+
+.weq-group-management-tag-directory {
+  margin-top: 4px;
+}
+
+.weq-group-management-tag-directory > p {
+  margin: 0;
+}
+
+@container (max-width: 340px) {
+  .weq-group-management .weq-set-row:has(.weq-set-input) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .weq-group-management .weq-set-row:has(.weq-set-input) > .weq-set-row-ctrl {
+    width: 100%;
+  }
+}
+
+@media (pointer: coarse) {
+  .weq-group-management :is(.weq-set-btn, .weq-set-iconbtn, .weq-set-input) {
+    min-height: 44px;
+  }
+
+  .weq-group-management .weq-set-input {
+    font-size: 16px;
+  }
+}

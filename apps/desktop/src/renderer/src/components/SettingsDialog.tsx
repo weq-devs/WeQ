@@ -1157,7 +1157,23 @@ function AppearanceSection({
                     }
                   />
                 ))}
-              {category === 'display' ? <MissingMessageSettings /> : null}
+              {category === 'display' ? (
+                <>
+                  <Row
+                    settingId="unread-divider"
+                    desc="在聊天时间线标出「以下为未读消息」。"
+                    control={
+                      <SharedDisplayToggle name="showUnreadDivider" label="显示未读分界线" />
+                    }
+                  />
+                  <Row
+                    settingId="swipe-to-quote"
+                    desc="在触屏上向左滑动消息，松手后引用该消息并聚焦输入框。"
+                    control={<SharedDisplayToggle name="swipeToQuote" label="触屏左滑引用" />}
+                  />
+                  <MissingMessageSettings />
+                </>
+              ) : null}
             </Card>
           )}
           {category === 'sending' && (
@@ -1199,6 +1215,13 @@ function AppearanceSection({
             >
               <QqShowSettings />
               <MessageDisplayOptions />
+              <Row
+                settingId="group-consecutive-messages"
+                desc="在私聊、群聊和合并转发记录中合并同一人的连续发言，头像和发送者信息只显示在组首。"
+                control={
+                  <SharedDisplayToggle name="groupConsecutiveMessages" label="合并连续发言" />
+                }
+              />
               <VoiceAutoTranscribeSetting />
               <Row
                 settingId="text-markdown"

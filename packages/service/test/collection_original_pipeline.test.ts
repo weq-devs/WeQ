@@ -120,7 +120,7 @@ describe('collection original acquisition service', () => {
     });
     expect(forbidden).not.toHaveBeenCalled();
   });
-  it('does not count cached mismatching candidates as verified originals', async () => {
+  it('rejects mismatching originals and retries acquisition on next request', async () => {
     const { service, forbidden, item, bytes } = setup(true);
     const store = new CollectionMediaStore(service.mediaCacheDirectory());
     for (const reference of collectionMediaReferences('cid', null, item))
@@ -129,9 +129,9 @@ describe('collection original acquisition service', () => {
         fetch: async () => new Response(bytes),
       });
     expect(await service.downloadOriginalFiles('cid')).toEqual({
-      failed: 2,
-      attempted: 0,
-      stopRequests: false,
+      failed: 1,
+      attempted: 1,
+      stopRequests: true,
     });
     expect(forbidden).not.toHaveBeenCalled();
   });

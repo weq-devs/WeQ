@@ -1,16 +1,23 @@
 import type { AccountSession } from '@weq/account';
-import { classifyChatType } from '@weq/codec';
+import { classifyChatType, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
+import { MsgType } from '@weq/codec/proto/msg/40900';
 import { recordMessageWork, withDatabasePriority } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
-import { ReportRead, readReportWatermark, type ReadReportParams } from '@weqbot/protocol';
+import {
+  ReportRead,
+  readReportWatermark,
+  type ReadReportParams,
+  type ReadReportTarget,
+} from '@weqbot/protocol';
 import {
   messageReadCursor,
   messageReadPosition,
+  newerReadPosition,
   validReadPosition,
 } from '../common/client_preferences';
 import { resolveC2cPartition } from './c2c_partition';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
-import { LocalUnreadStore, type ResolvedUnreadInfo } from './local_unread';
+import { LocalUnreadStore, type ResolvedUnreadInfo, validDeviceReadPosition } from './local_unread';
 import type { NewMessages } from './nt_msg_hook';
 import type {
   UnreadHighlightInput,
@@ -23,7 +30,15 @@ import { randomUUID } from 'node:crypto';
 import type { ManualReadChange } from './local_unread';
 import type { UnreadCountSource } from './unread_count_source';
 import { ImportantMessageStore } from './important_messages';
-import type { UnreadSentRange } from './roam_msg_cache';
+import type { RecallArchive } from './recall_archive';
+
+export interface UnreadSequenceRange {
+  peer: string;
+  kind: 'c2c' | 'group';
+  conv: string;
+  after: bigint;
+  through: bigint;
+}
 
 export type ReadReportState =
   | 'disabled'
@@ -47,7 +62,7 @@ export interface ReadReportOptions {
 }
 
 interface PendingReport {
-  target: ReadReportParams;
+  target: ReadReportTarget;
   pid: number;
   owner: object | undefined;
   promise: Promise<ReadReportStatus>;
@@ -58,6 +73,7 @@ interface ManualReadEntry extends UnreadInfoTarget {
   change?: ManualReadChange;
   readSeq: string;
   throughSeq: string;
+  devicePosition?: string;
   database?: UnreadReadChange;
   version: number;
 }
@@ -71,7 +87,8 @@ export class UnreadInfoService {
   private readonly results = new Map<string, ResolvedUnreadInfo>();
   private readonly targets = new Map<string, UnreadInfoTarget>();
   private readonly confirmedSent = new Map<string, string[]>();
-  private readonly sentRefreshes = new Map<string, symbol>();
+  private readonly archivedRecalls = new Map<string, string[]>();
+  private readonly sequenceRefreshes = new Map<string, symbol>();
   private loading?: Promise<void>;
   private updatedAt = 0;
   private dirty = true;
@@ -99,7 +116,8 @@ export class UnreadInfoService {
     private readonly localOptions?: {
       statePath: string;
       readOnly?: boolean;
-      unreadSentSequences?: (ranges: UnreadSentRange[]) => Promise<Map<string, string[]>>;
+      unreadSentSequences?: (ranges: UnreadSequenceRange[]) => Promise<Map<string, string[]>>;
+      recallArchive?: Pick<RecallArchive, 'unreadRecalledSequences'>;
     },
     private readonly countSource?: UnreadCountSource,
   ) {
@@ -156,8 +174,17 @@ export class UnreadInfoService {
 
   /** 发送缓存写入后，即使 QQ 小表未变也重算对应会话。 */
   invalidateSent(kind: 'c2c' | 'group', uid: string): void {
-    if (this.disposed || !this.localOptions?.unreadSentSequences) return;
-    this.sentRefreshes.set(this.key({ chatType: kind === 'group' ? 2 : 1, uid }), Symbol());
+    if (this.localOptions?.unreadSentSequences) this.invalidateSequences(kind, uid);
+  }
+
+  /** 代理可能保留 QQ 原文，只更新独立留存库。 */
+  invalidateRecall(kind: 'c2c' | 'group', uid: string): void {
+    if (this.localOptions?.recallArchive) this.invalidateSequences(kind, uid);
+  }
+
+  private invalidateSequences(kind: 'c2c' | 'group', uid: string): void {
+    if (this.disposed) return;
+    this.sequenceRefreshes.set(this.key({ chatType: kind === 'group' ? 2 : 1, uid }), Symbol());
     this.invalidate();
   }
 
@@ -215,7 +242,7 @@ export class UnreadInfoService {
     for (const [key, version] of this.targetVersions) this.targetVersions.set(key, version + 1);
     this.local.clear();
     const targets = [...this.snapshots.values()];
-    this.project(targets);
+    await this.project(targets);
     this.publish(targets);
     await this.local.flush();
     this.invalidate();
@@ -302,6 +329,22 @@ export class UnreadInfoService {
       .unreadCount;
   }
 
+  async getDeviceReadSnapshot(target: UnreadInfoTarget): Promise<ResolvedUnreadInfo> {
+    if (
+      this.disposed ||
+      classifyChatType(target.chatType) !== 'dataline' ||
+      !isDatalineUid(target.uid)
+    )
+      return this.missing(target);
+    const [snapshot] = await withDatabasePriority(
+      'interactive',
+      () => this.session.unreadInfo.getUnreadInfos([target]),
+      this.reads.signal,
+    );
+    if (!snapshot || this.disposed) return this.missing(target);
+    return snapshot;
+  }
+
   async getUnreadInfos(
     targets: UnreadInfoTarget[],
     _watermarksOnly = false,
@@ -337,25 +380,64 @@ export class UnreadInfoService {
     for (const listener of this.countListeners) listener(changed);
   }
 
-  private project(targets: UnreadInfoTarget[]): void {
-    for (const target of targets) {
-      const row = this.snapshots.get(this.key(target));
-      if (row && !row.readError) this.results.set(row.peer, this.resolve(row));
-    }
+  private async project(targets: UnreadInfoTarget[]): Promise<void> {
+    const revision = this.manualRevision;
+    await Promise.all(
+      targets.map(async (target) => {
+        const row = this.snapshots.get(this.key(target));
+        if (!row || row.readError) return;
+        try {
+          const count = this.isDeviceSnapshot(row) ? await this.countDeviceUnread(row) : undefined;
+          if (
+            !this.disposed &&
+            revision === this.manualRevision &&
+            this.snapshots.get(row.peer) === row
+          )
+            this.results.set(row.peer, this.resolve(row, count));
+        } catch {
+          this.invalidate();
+        }
+      }),
+    );
   }
 
-  private resolve(row: UnreadInfoSnapshot): ResolvedUnreadInfo {
-    return this.local.resolve(row, this.confirmedSent.get(row.peer));
+  private isDeviceSnapshot(row: UnreadInfoSnapshot): boolean {
+    return (
+      classifyChatType(row.chatType) === 'dataline' &&
+      isDatalineUid(row.uid) &&
+      !isDatalineSelfUid(row.uid)
+    );
+  }
+
+  private async countDeviceUnread(row: UnreadInfoSnapshot): Promise<number> {
+    const through = row.deviceLatest;
+    if (!through) return 0;
+    const after = this.local.deviceReadFloor(row);
+    if (!newerReadPosition(through, after)) return 0;
+    return withDatabasePriority(
+      'interactive',
+      () => this.session.unreadInfo.countDeviceIncoming(row, after, through),
+      this.reads.signal,
+    );
+  }
+
+  private resolve(row: UnreadInfoSnapshot, deviceCount?: number): ResolvedUnreadInfo {
+    const archived = this.archivedRecalls.get(row.peer);
+    const snapshot = archived
+      ? { ...row, recalledSeqs: [...new Set([...(row.recalledSeqs ?? []), ...archived])] }
+      : row;
+    return this.local.resolve(snapshot, this.confirmedSent.get(row.peer), deviceCount);
   }
 
   private async applySnapshots(
     rows: UnreadInfoSnapshot[],
     accepts: (row: UnreadInfoSnapshot) => boolean,
   ): Promise<void> {
-    const versions = new Map(rows.map(({ peer }) => [peer, this.sentRefreshes.get(peer)]));
-    const ranges: UnreadSentRange[] = [];
+    const versions = new Map(rows.map(({ peer }) => [peer, this.sequenceRefreshes.get(peer)]));
+    const ranges: UnreadSequenceRange[] = [];
     const readSent = this.localOptions?.unreadSentSequences;
-    if (readSent) {
+    const archive = this.localOptions?.recallArchive;
+    if (readSent || archive) {
       for (const { chatType, uid, peer, msgSeq, localReadSeq, latestSeq } of rows) {
         if ((chatType !== 1 && chatType !== 2) || latestSeq === null) continue;
         const serverRead = BigInt(msgSeq ?? 0);
@@ -366,31 +448,50 @@ export class UnreadInfoService {
           ranges.push({ peer, kind: chatType === 1 ? 'c2c' : 'group', conv: uid, after, through });
       }
     }
-    const sent =
-      ranges.length && readSent
-        ? await withDatabasePriority(
-            'interactive',
-            () => readSent(ranges),
-            this.reads.signal,
-          ).catch(() => undefined)
-        : new Map<string, string[]>();
+    const empty = new Map<string, string[]>();
+    const [sent, recalled] = ranges.length
+      ? await withDatabasePriority(
+          'interactive',
+          () =>
+            Promise.all([
+              readSent ? readSent(ranges).catch(() => undefined) : empty,
+              archive ? archive.unreadRecalledSequences(ranges).catch(() => undefined) : empty,
+            ]),
+          this.reads.signal,
+        )
+      : [empty, empty];
+    const counts = await Promise.all(
+      rows.map((row) =>
+        this.isDeviceSnapshot(row) ? this.countDeviceUnread(row).catch(() => null) : undefined,
+      ),
+    );
     if (this.disposed) return;
-    const pending = new Set(sent ? [] : ranges.map(({ peer }) => peer));
+    const pending = new Set(sent && recalled ? [] : ranges.map(({ peer }) => peer));
     const changed: UnreadInfoTarget[] = [];
-    for (const row of rows) {
-      if (!accepts(row) || versions.get(row.peer) !== this.sentRefreshes.get(row.peer)) continue;
-      if (pending.has(row.peer)) this.sentRefreshes.set(row.peer, Symbol());
-      else {
-        this.sentRefreshes.delete(row.peer);
+    for (const [index, row] of rows.entries()) {
+      if (!accepts(row) || versions.get(row.peer) !== this.sequenceRefreshes.get(row.peer))
+        continue;
+      const count = counts[index];
+      if (count === null) continue;
+      const retry = pending.has(row.peer);
+      if (retry) this.sequenceRefreshes.set(row.peer, Symbol());
+      else this.sequenceRefreshes.delete(row.peer);
+      if (sent || !retry) {
         const sequences = sent?.get(row.peer);
         if (sequences?.length) this.confirmedSent.set(row.peer, sequences);
         else this.confirmedSent.delete(row.peer);
       }
+      if (recalled || !retry) {
+        const sequences = recalled?.get(row.peer);
+        if (sequences?.length) this.archivedRecalls.set(row.peer, sequences);
+        else this.archivedRecalls.delete(row.peer);
+      }
       const previous = this.results.get(row.peer);
-      const result = this.resolve(row);
+      const result = this.resolve(row, count);
       if (
         previous?.unreadCount === result.unreadCount &&
         previous?.readSeq === result.readSeq &&
+        JSON.stringify(previous?.recalledSeqs) === JSON.stringify(result.recalledSeqs) &&
         JSON.stringify(this.snapshots.get(row.peer)) === JSON.stringify(row)
       )
         continue;
@@ -434,7 +535,8 @@ export class UnreadInfoService {
           rows.filter(
             (row) =>
               !row.readError &&
-              (this.sentRefreshes.has(row.peer) ||
+              (this.sequenceRefreshes.has(row.peer) ||
+                this.isDeviceSnapshot(row) ||
                 JSON.stringify(this.snapshots.get(row.peer)) !== JSON.stringify(row)),
           ),
           () => revision === this.manualRevision,
@@ -558,7 +660,14 @@ export class UnreadInfoService {
     }
   }
 
-  async markLocalRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
+  async markLocalRead(
+    chatType: number,
+    uid: string,
+    latestSeq?: string,
+    devicePosition?: string,
+  ): Promise<boolean> {
+    if (devicePosition !== undefined)
+      return (await this.markDeviceConversationRead(chatType, uid, devicePosition)).changed;
     if (!this.usesLocalReadState(chatType)) return false;
     const resetRevision = this.localResetRevision;
     latestSeq = await this.readSequence(chatType, uid, latestSeq);
@@ -572,7 +681,7 @@ export class UnreadInfoService {
     const changed = this.local.markRead(target.chatType, target.uid, sequence);
     if (changed) {
       this.manualRevision++;
-      this.project([target]);
+      await this.project([target]);
       this.publish([target]);
       await this.local.flush();
     }
@@ -600,15 +709,21 @@ export class UnreadInfoService {
           : undefined,
         readSeq: unread ? (snapshot.readSeq ?? '0') : throughSeq,
         throughSeq,
+        devicePosition: snapshot.deviceLatest,
         version: this.bumpTarget(snapshot),
       };
     });
     const local = changes.filter((row) => row.change);
-    this.project(local);
+    await this.project(local);
     this.publish(local);
     await this.local.flush();
     for (const row of changes) {
-      if (this.disposed || this.localOptions?.readOnly || resetRevision !== this.localResetRevision)
+      if (
+        this.disposed ||
+        this.localOptions?.readOnly ||
+        resetRevision !== this.localResetRevision ||
+        (classifyChatType(row.chatType) === 'dataline' && isDatalineUid(row.uid))
+      )
         continue;
       const write = () =>
         this.writeTarget(row, row.version, () =>
@@ -652,10 +767,10 @@ export class UnreadInfoService {
       : this.targetVersions.get(this.key(row)) === row.version;
   }
 
-  private restoreLocalRead(row: ManualReadEntry) {
+  private async restoreLocalRead(row: ManualReadEntry) {
     if (!row.change || !this.local.restoreManualRead(row.chatType, row.uid, row.change)) return;
     this.manualRevision++;
-    this.project([row]);
+    await this.project([row]);
     this.publish([row]);
   }
 
@@ -683,7 +798,7 @@ export class UnreadInfoService {
         } catch {
           this.queueWrite(row, version, async () => {
             if (!(await undo()) || this.targetVersions.get(this.key(row)) !== version) return;
-            this.restoreLocalRead(row);
+            await this.restoreLocalRead(row);
             await this.local.flush();
             await this.refreshWrittenTargets([{ ...row, version }]);
           });
@@ -693,7 +808,7 @@ export class UnreadInfoService {
       }
       if (resetRevision !== this.localResetRevision) throw new Error('撤销记录已失效');
       if (this.targetVersions.get(this.key(row)) !== version) continue;
-      this.restoreLocalRead(row);
+      await this.restoreLocalRead(row);
       restored.push(row);
     }
     await this.local.flush();
@@ -714,6 +829,10 @@ export class UnreadInfoService {
       for (const row of changes) {
         if (this.disposed || this.generation !== generation || !this.reportEnabled(true)) return;
         if (!undo && !this.isCurrentManualChange(row)) continue;
+        if (row.devicePosition) {
+          if (!undo) await this.reportDeviceRead(row.chatType, row.uid, row.devicePosition, true);
+          continue;
+        }
         const sequence = undo ? row.database?.beforeReadSeq : row.throughSeq;
         if (sequence === undefined || (undo && BigInt(sequence) <= BigInt(row.readSeq))) continue;
         await this.markReadAndReport(row.chatType, row.uid, sequence, {
@@ -773,8 +892,15 @@ export class UnreadInfoService {
     chatType: number,
     uid: string,
     latestSeq?: string,
-    options?: { manual: boolean; write: false },
+    options?: { manual?: boolean; write?: false; devicePosition?: string },
   ): Promise<{ changed: boolean; report: ReadReportStatus }> {
+    if (classifyChatType(chatType) === 'dataline' && isDatalineUid(uid)) {
+      if (options?.write !== false && options?.devicePosition)
+        return this.markDeviceConversationRead(chatType, uid, options.devicePosition);
+      const changed =
+        options?.write !== false && (await this.markLocalRead(chatType, uid, latestSeq));
+      return { changed, report: { state: 'skipped' } };
+    }
     const generation = this.generation;
     const manual = options?.manual === true;
     const enabledAtStart = this.reportEnabled(manual);
@@ -857,6 +983,87 @@ export class UnreadInfoService {
     }
   }
 
+  private async markDeviceConversationRead(
+    chatType: number,
+    uid: string,
+    position: string,
+  ): Promise<{ changed: boolean; report: ReadReportStatus }> {
+    const skipped = { changed: false, report: { state: 'skipped' as const } };
+    if (
+      !isDatalineUid(uid) ||
+      classifyChatType(chatType) !== 'dataline' ||
+      !validDeviceReadPosition(position)
+    )
+      return skipped;
+    const resetRevision = this.localResetRevision;
+    const generation = this.generation;
+    const target = { chatType, uid };
+    let snapshot = (await this.getUnreadInfos([target]))[0];
+    if (!snapshot?.deviceLatest || newerReadPosition(position, snapshot.deviceLatest))
+      snapshot = await this.getDeviceReadSnapshot(target);
+    if (
+      snapshot?.readError ||
+      !snapshot?.deviceLatest ||
+      newerReadPosition(position, snapshot.deviceLatest)
+    )
+      return skipped;
+    if (position !== snapshot.deviceLatest) {
+      const cursor = messageReadCursor(position);
+      const rows = await this.session.datalineMsgs.calendarMessage({ uid }, cursor.msgId);
+      if (
+        !rows.some(
+          (row) =>
+            row.sendTime === cursor.sendTime &&
+            row.senderUid === uid &&
+            !isDatalineSelfUid(row.senderUid) &&
+            row.msgType !== BigInt(MsgType.GRAY_TIP),
+        )
+      )
+        return skipped;
+    }
+    if (
+      this.disposed ||
+      resetRevision !== this.localResetRevision ||
+      generation !== this.generation
+    )
+      return skipped;
+    const changed = this.local.markDeviceRead(snapshot, position);
+    if (changed) {
+      this.manualRevision++;
+      await this.project([target]);
+      this.publish([target]);
+      await this.local.flush();
+    }
+    if (this.localOptions?.readOnly) return { changed, report: { state: 'unavailable' } };
+    if (!this.reportEnabled(false)) return { changed, report: { state: 'disabled' } };
+    if (!this.local.isDeviceReadCurrent(chatType, uid, position))
+      return { changed, report: { state: 'skipped' } };
+    void this.reportDeviceRead(chatType, uid, position, false);
+    return { changed, report: { state: 'pending', sequence: '0' } };
+  }
+
+  private async reportDeviceRead(
+    chatType: number,
+    uid: string,
+    position: string,
+    manual: boolean,
+  ): Promise<void> {
+    const targetUid = this.session.selfUid;
+    if (this.localOptions?.readOnly || !targetUid || !validDeviceReadPosition(position)) return;
+    const timestamp = Number(messageReadCursor(position).sendTime);
+    if (timestamp > 0xffffffff) return;
+    const current = () => !this.disposed && this.local.isDeviceReadCurrent(chatType, uid, position);
+    if (!current()) return;
+    const status = await this.reportTarget(
+      `dataline:${manual ? 'manual:' : ''}${chatType}_${uid}`,
+      { kind: 'dataline', targetUid, sequence: 0, timestamp },
+      manual,
+      current,
+    );
+    // 已取得上报回包样本，运行中 QQ 消费的推送尚未确认。
+    if (current()) this.lastReport = status;
+  }
+
   /** 公众号零序号阅读使用实际消息时间，上报确认后通知本机代理。 */
   async reportOfficialRead(
     uid: string,
@@ -911,7 +1118,7 @@ export class UnreadInfoService {
 
   private reportTarget(
     key: string,
-    target: ReadReportParams,
+    target: ReadReportTarget,
     manual = false,
     valid?: () => boolean,
   ): Promise<ReadReportStatus> {
@@ -929,7 +1136,7 @@ export class UnreadInfoService {
     )
       return Promise.resolve({
         state: 'acknowledged',
-        sequence: String(target.kind === 'official' ? 0 : prior.watermark),
+        sequence: String(target.sequence === 0 ? 0 : prior.watermark),
       });
     const active = this.pending.get(key);
     if (active) {

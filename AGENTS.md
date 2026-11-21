@@ -21,6 +21,7 @@
 ## 分支与提交
 
 - `dev` 是开发基线，`main` 用于发布。公开 PR、特性分支和新功能 Issue 按[贡献指南](./CONTRIBUTING.md#提交-pull-request)办理。
+- 子模块（`docs`、`vendor/weqbot`）的改动提交到约定的长期分支（通常为 `main`），不要为每次改动新建分支；避免分支发散导致开发和合并困难。
 - 提交聚焦当前任务，使用 [Conventional Commits](./CONTRIBUTING.md#commit-规范)。注释和文档沿用仓库中文习惯。
 - 新功能、修复和用户可感知的变化写入 `CHANGELOG.md` 的 `Unreleased`。格式与发布整理见[更新日志约定](./CONTRIBUTING.md#更新日志)。
 - 凭据、Cookie、真实账号数据、依赖目录、构建产物和 native 二进制留在 Git 之外。测试与文档样本使用脱敏数据。共享分支禁止强制推送。

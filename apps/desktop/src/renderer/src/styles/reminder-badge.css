@@ -64,6 +64,14 @@ html .weq-reminder-overlay {
   position: absolute;
   top: 4px;
   right: 4px;
+}
+
+/* 叠角圆点的描边画在外侧，保留与行内圆点相同的色块直径。 */
+html .weq-reminder-dot.weq-reminder-overlay {
+  box-shadow: 0 0 0 1px var(--weq-reminder-separator, var(--weq-bg-surface));
+}
+
+html .weq-reminder-count.weq-reminder-overlay {
   border: 1px solid var(--weq-reminder-separator, var(--weq-bg-surface));
 }
 

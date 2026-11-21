@@ -12,6 +12,8 @@ export function useSearchDismissal(
       if (
         event.key === 'Escape' &&
         !event.defaultPrevented &&
+        !event.isComposing &&
+        event.keyCode !== 229 &&
         document.activeElement?.closest(
           '.weq-titlebar-search, .weq-search-dropdown, .weq-search-history',
         )

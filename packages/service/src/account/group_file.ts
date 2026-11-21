@@ -127,6 +127,15 @@ export class GroupFileService {
     return undefined;
   }
 
+  async listPage(groupId: number, targetDirectory: string, startIndex: number, pageSize: number) {
+    return ListGroupFiles.invoke(this.nt, this.resolvePid(), {
+      groupId,
+      targetDirectory,
+      startIndex,
+      pageSize,
+    });
+  }
+
   /** 拉某个目录下的全部文件+子文件夹(内部翻页到 isEnd)。 */
   async list(
     groupId: number,
@@ -140,12 +149,7 @@ export class GroupFileService {
     let startIndex = 0;
     for (let page = 0; page < MAX_PAGES; page += 1) {
       options.beforeRequest?.();
-      const res = await ListGroupFiles.invoke(this.nt, this.resolvePid(), {
-        groupId,
-        targetDirectory: dir,
-        startIndex,
-        pageSize: PAGE_SIZE,
-      });
+      const res = await this.listPage(groupId, dir, startIndex, PAGE_SIZE);
       files.push(...res.files);
       folders.push(...res.folders);
       if (res.isEnd || res.files.length + res.folders.length === 0)

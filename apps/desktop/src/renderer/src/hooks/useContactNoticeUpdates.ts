@@ -23,7 +23,7 @@ export function useContactNoticeUpdates(binding: QQWriteBinding | null) {
               : (['group', 'filteredGroup'] as const);
           await Promise.all(
             kinds.map((kind) =>
-              utils.account.qqActions.requests.invalidate({
+              utils.account.qqActions.requestInbox.invalidate({
                 expectedAccountUin: uin,
                 expectedAccountConfigId: configId,
                 kind,

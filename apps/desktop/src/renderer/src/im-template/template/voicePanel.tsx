@@ -57,6 +57,7 @@ const MIN_RECORD_MS = 700;
 const MAX_TTS_CHARS = 200;
 
 type RecorderPhase = 'idle' | 'requesting' | 'recording' | 'paused' | 'finalizing' | 'review';
+type SettledRecorderPhase = Exclude<RecorderPhase, 'requesting' | 'finalizing'>;
 type StopTarget = 'paused' | 'review';
 
 function pickRecorderMime(): string {
@@ -94,6 +95,7 @@ function downsamplePeaks(peaks: number[], target = BAR_COUNT): number[] {
 
 function useVoiceRecorder() {
   const [phase, setPhase] = useState<RecorderPhase>('idle');
+  const [settledPhase, setSettledPhase] = useState<SettledRecorderPhase>('idle');
   const [clip, setClip] = useState<VoiceClip | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -150,6 +152,8 @@ function useVoiceRecorder() {
   const setPhaseSafe = useCallback((next: RecorderPhase) => {
     phaseRef.current = next;
     setPhase(next);
+    // 开麦、整理录音期间保留当前画面，准备就绪后再切换波形和控件。
+    if (next !== 'requesting' && next !== 'finalizing') setSettledPhase(next);
   }, []);
 
   const cleanupAudio = useCallback(() => {
@@ -729,6 +733,7 @@ function useVoiceRecorder() {
 
   return {
     phase,
+    panelPhase: settledPhase === 'idle' ? phase : settledPhase,
     levels,
     subscribeWave,
     clip,
@@ -807,6 +812,7 @@ function VoiceWave({
     positionMs: number;
     durationMs: number;
     playing: boolean;
+    disabled: boolean;
     readPositionMs: () => number;
     seek: (timeMs: number) => void;
   };
@@ -853,15 +859,19 @@ function VoiceWave({
         if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
         context.setTransform(pixelWidth / width, 0, 0, pixelHeight / height, 0, 0);
       }
-      scheduleDraw();
+      // 改变画布像素尺寸会清空内容，必须在同一次尺寸更新中重画。
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      draw();
     };
     const refreshColors = () => {
       for (const layer of layers) layer.color = window.getComputedStyle(layer.canvas).color;
-      scheduleDraw();
     };
     const sizeObserver = new ResizeObserver(resize);
     sizeObserver.observe(wave);
-    const themeObserver = new MutationObserver(refreshColors);
+    const themeObserver = new MutationObserver(() => {
+      refreshColors();
+      scheduleDraw();
+    });
     themeObserver.observe(document.documentElement, {
       attributeFilter: ['class', 'data-theme', 'style'],
     });
@@ -923,7 +933,7 @@ function VoiceWave({
   }, [durationMs, playing, positionMs, readPositionMs]);
   return (
     <div
-      className={cn('voice-wave', playback && 'is-seekable')}
+      className={cn('voice-wave', playback && !playback.disabled && 'is-seekable')}
       aria-hidden={playback ? undefined : true}
       ref={waveRef}
     >
@@ -934,6 +944,7 @@ function VoiceWave({
             <canvas className="voice-wave-canvas" ref={playedCanvasRef} />
           </div>
           <div className="voice-wave-playhead" ref={playheadRef} aria-hidden="true" />
+          {/* 用 inert 暂停定位交互，避免全局禁用样式覆盖滑块的透明度。 */}
           <input
             className="voice-wave-seek"
             type="range"
@@ -941,6 +952,7 @@ function VoiceWave({
             max={playback.durationMs}
             step="any"
             value={Math.min(playback.positionMs, playback.durationMs)}
+            inert={playback.disabled}
             aria-label="录音播放进度"
             aria-valuetext={`${formatClipDuration(playback.positionMs)} / ${formatClipDuration(playback.durationMs)}`}
             onChange={(event) => playback.seek(Number(event.target.value))}
@@ -953,10 +965,12 @@ function VoiceWave({
 
 function RecordingPlayButton({
   playing,
+  disabled,
   onToggle,
   className,
 }: {
   playing: boolean;
+  disabled: boolean;
   onToggle: () => void;
   className?: string;
 }) {
@@ -967,6 +981,7 @@ function RecordingPlayButton({
       className={cn('voice-review-play', playing && 'is-playing', className)}
       title={label}
       aria-label={label}
+      disabled={disabled}
       onClick={onToggle}
     >
       {playing ? <Pause size={18} /> : <Play size={18} />}
@@ -1018,7 +1033,7 @@ export function VoiceWorkspace({
     setInline(panel);
     return () => setInline((current) => (current === panel ? null : current));
   }, []);
-  const { beginRecord, importAudio, releaseHeldRecord, phase } = recorder;
+  const { beginRecord, importAudio, releaseHeldRecord, phase, panelPhase } = recorder;
   function start(nextOwner: RecordingOwner, nextInput: RecordingInput) {
     if (phase !== 'idle' && owner?.id !== nextOwner.id) return;
     setOwner(nextOwner);
@@ -1047,7 +1062,9 @@ export function VoiceWorkspace({
     onReturn?.(owner.id);
   }, [onReturn, owner, pages]);
   const showBubble =
-    owner && phase !== 'idle' && (phase === 'paused' || obscured || inline?.id !== owner.id);
+    owner &&
+    panelPhase !== 'idle' &&
+    (panelPhase === 'paused' || obscured || inline?.id !== owner.id);
   return (
     <voiceModeContext.Provider value={mode}>
       <VoiceCaptureContext.Provider
@@ -1058,13 +1075,13 @@ export function VoiceWorkspace({
       <RecordingBubble
         owner={showBubble ? owner : null}
         status={
-          phase === 'paused'
+          panelPhase === 'paused'
             ? '已暂停'
-            : phase === 'finalizing'
+            : panelPhase === 'finalizing'
               ? '整理中'
-              : phase === 'review'
+              : panelPhase === 'review'
                 ? '待发送'
-                : phase === 'requesting'
+                : panelPhase === 'requesting'
                   ? '准备中'
                   : formatClipDuration(recorder.elapsedMs)
         }
@@ -1194,29 +1211,32 @@ export function VoicePanel({
     useContext(VoiceCaptureContext)!;
   const ownsRecording = owner?.id === conversationId;
   const phase = ownsRecording ? recorder.phase : 'idle';
+  const panelPhase = ownsRecording ? recorder.panelPhase : 'idle';
   const foreignRecording = !!owner && !ownsRecording && recorder.phase !== 'idle';
   const { endRecord, pauseRecord, stopPlayback } = recorder;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const aiSendRef = useRef<HTMLButtonElement | null>(null);
   const sendingReview = useRef(false);
   const [reviewSending, setReviewSending] = useState(false);
-  const paused = phase === 'paused';
-  const reviewing = phase === 'review';
-  const canPlayRecording = paused || reviewing;
+  const paused = panelPhase === 'paused';
+  const reviewing = panelPhase === 'review';
+  const showPlayback = paused || reviewing;
+  const pending = phase === 'requesting' || phase === 'finalizing';
   const transcriptReady = reviewing && recorder.transcriptReady;
   const playback =
-    canPlayRecording && recorder.playbackReady && recorder.playbackDurationMs > 0
+    showPlayback && recorder.playbackReady && recorder.playbackDurationMs > 0
       ? {
           positionMs: recorder.playbackMs,
           durationMs: recorder.playbackDurationMs,
           playing: recorder.playing,
+          disabled: pending,
           readPositionMs: recorder.readPlaybackMs,
           seek: recorder.seekPlayback,
         }
       : undefined;
   const previewTime =
     playback && (recorder.playing || playback.positionMs > 0) ? playback.positionMs : undefined;
-  const busy = phase === 'recording' || phase === 'requesting' || phase === 'finalizing';
+  const busy = phase === 'recording' || pending;
   const canResume =
     recorder.elapsedMs < MAX_RECORD_MS && !recorder.transcribing && !recorder.transcriptReady;
   const resumeByClick = () => start({ id: conversationId, label: conversationLabel }, 'button');
@@ -1395,7 +1415,7 @@ export function VoicePanel({
       ) : (
         <div
           className="voice-panel-body"
-          data-wave-phase={phase}
+          data-wave-phase={panelPhase}
           data-transcript-ready={transcriptReady}
         >
           {foreignRecording ? null : (
@@ -1410,20 +1430,20 @@ export function VoicePanel({
             <RecordingPlayButton
               className="voice-stage-play"
               playing={recorder.playing}
+              disabled={pending}
               onToggle={recorder.togglePlay}
             />
           ) : null}
           {!foreignRecording && !transcriptReady ? (
-            <div className={cn('voice-record-track', (busy || canPlayRecording) && 'is-at-end')}>
+            <div className={cn('voice-record-track', (busy || showPlayback) && 'is-at-end')}>
               <button
                 type="button"
                 className="voice-record-btn"
-                title={
-                  canPlayRecording ? '继续录音' : busy ? '结束录音' : '点击录音（也可长按空格）'
-                }
-                aria-label={canPlayRecording ? '继续录音' : busy ? '结束录音' : '点击录音'}
+                title={showPlayback ? '继续录音' : busy ? '结束录音' : '点击录音（也可长按空格）'}
+                aria-label={showPlayback ? '继续录音' : busy ? '结束录音' : '点击录音'}
                 disabled={
-                  phase === 'finalizing' || (canPlayRecording && (!canResume || reviewSending))
+                  phase === 'finalizing' ||
+                  (showPlayback && (pending || !canResume || reviewSending))
                 }
                 onClick={() => {
                   if (busy) endRecord();
@@ -1431,20 +1451,20 @@ export function VoicePanel({
                 }}
                 onContextMenu={(event) => event.preventDefault()}
               >
-                {phase === 'requesting' ? (
+                {panelPhase === 'requesting' ? (
                   <>
                     <Loader2 size={20} className="voice-spin" />
                     <strong>正在开麦…</strong>
                   </>
-                ) : phase === 'finalizing' ? (
+                ) : panelPhase === 'finalizing' ? (
                   <Loader2 size={20} className="voice-spin" />
-                ) : busy || canPlayRecording ? (
+                ) : busy || showPlayback ? (
                   <>
                     <strong className="voice-record-timer weq-number weq-number-inherit">
                       {formatClipDuration(previewTime ?? recorder.elapsedMs)}
                     </strong>
                     <em className="voice-record-note">
-                      {canPlayRecording ? '继续录音' : input === 'space' ? '松开结束' : '点击结束'}
+                      {showPlayback ? '继续录音' : input === 'space' ? '松开结束' : '点击结束'}
                     </em>
                   </>
                 ) : (
@@ -1465,6 +1485,7 @@ export function VoicePanel({
             <p className="voice-other-recording">另一个会话有录音，请通过悬浮球返回。</p>
           ) : reviewing && recorder.clip ? (
             <VoiceReview
+              inert={pending}
               transcript={recorder.transcript}
               transcriptReady={transcriptReady}
               transcribing={recorder.transcribing}
@@ -1486,7 +1507,7 @@ export function VoicePanel({
             />
           ) : null}
 
-          {!foreignRecording && phase !== 'review' ? (
+          {!foreignRecording && !reviewing ? (
             <div className={cn('voice-panel-foot')}>
               <span className={cn('voice-hint')}>
                 {paused ? (
@@ -1498,7 +1519,12 @@ export function VoicePanel({
                 )}
               </span>
               {paused ? (
-                <button type="button" className="voice-btn ghost" onClick={endRecord}>
+                <button
+                  type="button"
+                  className="voice-btn ghost"
+                  inert={pending}
+                  onClick={endRecord}
+                >
                   结束录音
                 </button>
               ) : phase === 'idle' ? (
@@ -1533,6 +1559,7 @@ export function VoicePanel({
 // ── 回顾 ─────────────────────────────────────────────────────────────────────
 
 function VoiceReview({
+  inert,
   transcript,
   transcriptReady,
   transcribing,
@@ -1546,6 +1573,7 @@ function VoiceReview({
   onSendVoice,
   onSendTranscript,
 }: {
+  inert: boolean;
   transcript: string;
   transcriptReady: boolean;
   transcribing: boolean;
@@ -1583,7 +1611,7 @@ function VoiceReview({
         </div>
       ) : null}
 
-      <div className="voice-review-actions">
+      <div className="voice-review-actions" inert={inert}>
         {transcriptReady ? null : (
           <button
             data-danger="outline"

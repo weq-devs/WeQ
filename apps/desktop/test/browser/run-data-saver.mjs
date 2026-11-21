@@ -258,7 +258,7 @@ try {
         window.fixtureDataSaver.setPendingTasks(0);
         window.fixtureDataSaver.finishTasks();
       });
-      await page.getByText('已自动进入省流量模式', { exact: true }).waitFor();
+      await page.getByText('省流量模式已自动开启', { exact: true }).waitFor();
       await page.keyboard.press('Escape');
       await menu.waitFor({ state: 'detached' });
       assert.equal(

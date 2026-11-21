@@ -5,6 +5,7 @@ import {
   NOTICE_SEEN_LIMIT,
   type NoticeSeenState,
 } from '../../../shared/notice_seen';
+import { type NewNoticeNotification, useNewNoticeNotification } from './useNewNoticeNotification';
 
 export { NOTICE_SEEN_LIMIT };
 const NOTICE_READ_EVENT = 'weq:notice-read';
@@ -45,6 +46,7 @@ export function useNoticeUnread(
   open: boolean,
   ready: boolean,
   sync?: { state: SeenState | null; publish: (state: SeenState) => void },
+  notification?: NewNoticeNotification,
 ) {
   const key = `weq:notice-seen:${accountKey}:${kind}`;
   const [revision, setRevision] = useState(0);
@@ -104,15 +106,24 @@ export function useNoticeUnread(
     };
   }, [key, snapshot]);
   const { seen, readThrough, initialized } = snapshot;
+  const confirmedReadIds = notification?.confirmedReadIds;
+  const legacyIds = notification?.legacyIds;
+  const readIds = useMemo(() => {
+    void revision;
+    if (!confirmedReadIds?.size && !legacyIds?.size) return seen;
+    const read = new Set([...seen, ...(confirmedReadIds ?? [])]);
+    for (const [id, legacy] of legacyIds ?? []) if (seen.has(legacy)) read.add(id);
+    return read;
+  }, [seen, revision, confirmedReadIds, legacyIds]);
   const unread = useMemo(() => {
     void revision;
     if (!accountKey || !ready) return null;
     if (!initialized) return [];
     return [...new Set(ids)].filter((id) => {
       const time = noticeTimestamp(id);
-      return !seen.has(id) && (time === null || time >= readThrough);
+      return !readIds.has(id) && (time === null || time >= readThrough);
     });
-  }, [accountKey, ready, initialized, ids, seen, readThrough, revision]);
+  }, [accountKey, ready, initialized, ids, readIds, readThrough, revision]);
   useEffect(() => {
     if (!unread || (initialized && (!open || !unread.length))) return;
     // 首次成功读取只建立历史基线；空列表也要保存，后续新增才能正常提醒。
@@ -156,5 +167,7 @@ export function useNoticeUnread(
     const remote = sync.state && mergeNoticeSeen(null, sync.state);
     if (JSON.stringify(state) !== JSON.stringify(remote)) sync.publish(state);
   }, [sync, ready, accountKey, key, revision, snapshot]);
-  return open && unread ? [] : unread;
+  const unreadForDisplay = open && unread ? [] : unread;
+  useNewNoticeNotification(key, ids, unreadForDisplay, readIds, readThrough, notification);
+  return unreadForDisplay;
 }

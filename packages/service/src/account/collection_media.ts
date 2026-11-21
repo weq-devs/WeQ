@@ -322,6 +322,10 @@ export class CollectionMediaStore {
       value.state !== 'downloaded' ||
       value.reference?.id !== reference.id ||
       JSON.stringify(value.reference) !== JSON.stringify(reference) ||
+      (reference.storedFile &&
+        (value.role !== 'original' ||
+          value.md5 !== reference.expectedMd5 ||
+          String(value.bytes) !== reference.expectedSize)) ||
       !value.file ||
       !/^files\/[a-f0-9]{64}\.bin$/.test(value.file)
     )
@@ -649,6 +653,8 @@ export class CollectionMediaStore {
               (reference.kind !== 'image' || receipt.imageDecoded === true)
             ? 'original'
             : 'unverified';
+      if (reference.storedFile && receipt.role !== 'original')
+        throw new Error('收藏附件的大小或 MD5 与原件记录不符。');
       controller.signal.throwIfAborted();
       await handle.sync();
       await handle.close();

@@ -73,7 +73,8 @@ export function useTaskNotifications(
       toast.push({
         key: taskNotificationKey(scope, task.id),
         event,
-        title: `${task.notificationName || task.name || '后台任务'}${phase}`,
+        title: `${phase}：${task.notificationName || task.name || '后台任务'}`,
+        summary: task.waiting ? undefined : task.notificationSummary,
         tone: task.waiting
           ? 'warning'
           : event === 'taskFailure'
@@ -86,5 +87,33 @@ export function useTaskNotifications(
         source: notificationSource({ kind: 'task', id: task.id }, '查看任务'),
       });
     }
+    if (!scope || !ready) return;
+    const closeReadResults = (readResults: Record<string, string> | undefined) => {
+      if (!readResults) return;
+      const current = useToast.getState();
+      const finished = new Set(
+        items
+          .filter(
+            ({ id, activity, waiting, result }) =>
+              activity === 'finished' && !waiting && readResults[id] === result,
+          )
+          .map(({ id }) => id),
+      );
+      for (const item of current.toasts) {
+        if (!item.taskId || !finished.has(item.taskId) || item.loading) continue;
+        const binding = item.source?.binding;
+        if (
+          item.key === taskNotificationKey(scope, item.taskId) ||
+          (binding &&
+            JSON.stringify([binding.expectedAccountUin, binding.expectedAccountConfigId]) === scope)
+        )
+          current.dismiss(item.id);
+      }
+    };
+    closeReadResults(useWorkspaceMenu.getState().readTaskResultsByScope[scope]);
+    return useWorkspaceMenu.subscribe((state, previous) => {
+      const readResults = state.readTaskResultsByScope[scope];
+      if (readResults !== previous.readTaskResultsByScope[scope]) closeReadResults(readResults);
+    });
   }, [scope, items, ready, visible, foreground, hidden]);
 }

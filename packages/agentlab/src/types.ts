@@ -134,6 +134,7 @@ export interface AgentLabEndpoint {
   model: string;
   providerId?: string;
   providerName?: string;
+  providerVendor?: string;
   /** 实际 provider/model 的无凭据身份，用于模型切换与向量索引一致性检查。 */
   modelIdentity?: string;
   /** 这个端点解析时对应的任务类型（用于 token 记账分类）。 */

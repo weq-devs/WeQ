@@ -40,7 +40,7 @@ describe('功能目录', () => {
     expect(listFeatures({ query: '群相册', domain: 'groups' })[0]).toMatchObject({
       id: 'groups.albums',
       context: ['account', 'group'],
-      tools: ['get_group_albums'],
+      tools: ['get_group_albums', 'get_group_album_photos'],
     });
     expect(findFeature('maintenance.message-performance')).toMatchObject({
       kind: 'feature',

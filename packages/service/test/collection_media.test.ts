@@ -489,6 +489,12 @@ it('does not reuse a collector copy whose bytes failed original identity checks'
     resolveDownload: async () => ({ url: 'https://download.weiyun.com/synthetic', cookie: '' }),
     fetch: async () => response(),
   });
-  expect(receipt.role).toBe('unverified');
+  expect(receipt).toMatchObject({
+    state: 'failed',
+    role: 'unverified',
+    file: null,
+    error: '收藏附件的大小或 MD5 与原件记录不符。',
+  });
+  await expect(store.savedFile(stored!.id)).rejects.toThrow('校验不符');
   expect(await store.download(source!)).toMatchObject({ state: 'unavailable', role: 'unverified' });
 });

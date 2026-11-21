@@ -324,6 +324,10 @@ export class CollectionDb {
     }
   }
 
+  async hasLocalList(): Promise<boolean> {
+    return this.tableExists();
+  }
+
   private async contentTableExists(): Promise<boolean> {
     try {
       const rows = await this.qq.query(

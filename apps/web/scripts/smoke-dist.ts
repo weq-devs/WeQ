@@ -10,7 +10,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
@@ -37,6 +37,7 @@ for (const entry of [
   'coverWorker.mjs',
   'backupProbeWorker.mjs',
   'transcribeWorker.mjs',
+  'intentSenseWorker.mjs',
   'start.sh',
   'start.bat',
   'public/index.html',
@@ -96,7 +97,22 @@ await new Promise<void>((done) => portProbe.close(() => done()));
 /** 仅本轮日志与导出临时目录，进程退出后清理。 */
 const smokeScratch = mkdtempSync(join(tmpdir(), 'weq-smoke-'));
 
-const server = spawn(process.execPath, [join(dist, 'server.mjs')], {
+// 正式版按各系统默认位置读取应用配置；冒烟进程使用本轮夹具。
+const isolateConfig = join(smokeScratch, 'isolate-config.mjs');
+writeFileSync(
+  isolateConfig,
+  `
+  import os from 'node:os';
+  import { syncBuiltinESMExports } from 'node:module';
+  const base = ${JSON.stringify(join(smokeScratch, 'profile'))};
+  os.homedir = () => base;
+  syncBuiltinESMExports();
+  if (process.platform === 'win32') process.env.APPDATA = base;
+  if (process.platform === 'linux') process.env.XDG_CONFIG_HOME = base;
+`,
+);
+
+const server = spawn(process.execPath, ['--import', isolateConfig, join(dist, 'server.mjs')], {
   cwd: dist,
   env: {
     ...process.env,
@@ -182,6 +198,14 @@ try {
   check(
     typeof version?.result?.data?.json?.node === 'string',
     'post-auth tRPC procedure returns data',
+  );
+
+  const intent = await (
+    await fetch(`${base}/trpc/account.intentSense.getStatus`, { headers: { cookie } })
+  ).json();
+  check(
+    intent?.result?.data?.json?.localAvailable === true,
+    'standalone Web registers local intent engine',
   );
 
   const shell = await (await fetch(base, { headers: { accept: 'text/html', cookie } })).text();

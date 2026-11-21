@@ -7,6 +7,7 @@ declare global {
   interface Window {
     electron: ElectronAPI;
     weq: {
+      accountInstances?: import('../shared/account_instances').AccountInstanceBridge;
       windowChrome?: import('../shared/window_chrome').WindowChromeBridge;
       authorization: LongTermAuthorizationBridge;
       editUndo: EditUndoBridge;

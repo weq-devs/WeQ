@@ -71,7 +71,7 @@ it('手机壳的断连和恢复复用同一横幅，Wi-Fi 恢复不提前报成�
   window.weqRemoteConnection = { state: 'network' };
   await act(async () => window.dispatchEvent(new Event('weq-remote-connection')));
   const warning = useToast.getState().toasts[0]!;
-  expect(warning.title).toBe('网络已断开，恢复后自动重连');
+  expect(warning).toMatchObject({ title: '手机网络已断开', summary: '网络恢复后会自动重连' });
   expect(warning.ttl).toBe(0);
   await act(async () => window.dispatchEvent(new Event('weq-remote-connection')));
   expect(useToast.getState().toasts).toHaveLength(1);
@@ -90,7 +90,7 @@ it('手机壳的断连和恢复复用同一横幅，Wi-Fi 恢复不提前报成�
   expect(useToast.getState().toasts[0]).toMatchObject({
     id: warning.id,
     tone: 'success',
-    title: '连接已恢复',
+    title: '已重新连接电脑',
   });
   expect(useToast.getState().toasts[0]?.ttl).toBeGreaterThan(0);
 });
@@ -107,7 +107,7 @@ it('补读早到的壳状态并忽略无效状态', async () => {
 it('切换入口后的新网页补读恢复回执，不需要先重新显示断连横幅', async () => {
   window.weqRemoteConnection = { state: 'connected', recovery: 1 };
   await act(async () => window.dispatchEvent(new Event('weq-remote-shell-ready')));
-  expect(useToast.getState().toasts[0]).toMatchObject({ tone: 'success', title: '连接已恢复' });
+  expect(useToast.getState().toasts[0]).toMatchObject({ tone: 'success', title: '已重新连接电脑' });
   const revision = useToast.getState().toasts[0]?.timerRevision;
   await act(async () => window.dispatchEvent(new Event('weq-remote-connection')));
   expect(useToast.getState().toasts[0]?.timerRevision).toBe(revision);

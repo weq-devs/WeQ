@@ -654,7 +654,7 @@ export function useChatTimelineNavigation({
     const pending = new Map(
       pendingInteractions
         .filter((event) => event.kind === kind && event.conv === interactionConversationId)
-        .map((event) => [`${event.action}:${event.msgId}`, conversationInteractionId(event)]),
+        .map((event) => [`${event.action}:${event.msgId}`, event]),
     );
     if (!pending.size) return;
     const targets = new Map<string, string[]>();
@@ -662,19 +662,23 @@ export function useChatTimelineNavigation({
       if (!message.msgId || message.conversationId !== interactionConversationId) continue;
       const recall = pending.get(`recall:${message.msgId}`);
       const poke = pending.get(`poke:${message.msgId}`);
+      const seqless = pending.get(`seqless:${message.msgId}`);
       const ids: string[] = [];
       if (
         recall &&
         (message.recall || message.qqElements?.some(({ type }) => type === 'grayTipRevoke'))
       )
-        ids.push(recall);
+        ids.push(conversationInteractionId(recall));
       if (
         poke &&
         message.qqElements?.some(({ type }) => type === 'grayTipPoke' || type === 'grayTipXml')
       )
-        ids.push(poke);
+        ids.push(conversationInteractionId(poke));
+      if (seqless) ids.push(conversationInteractionId(seqless));
       if (ids.length) targets.set(message.id, ids);
     }
+    const knownLatestSeq =
+      latestMessageSeq && /^[1-9]\d*$/.test(latestMessageSeq) ? BigInt(latestMessageSeq) : 0n;
     const latest =
       atLatest && !loadError
         ? visibleMessages.findLast(
@@ -682,20 +686,20 @@ export function useChatTimelineNavigation({
               message.conversationId === interactionConversationId &&
               message.msgId &&
               !message.optimistic &&
-              (!message.source || message.ntSeqVerified),
+              (!message.source || message.ntSeqVerified) &&
+              (knownLatestSeq === 0n ||
+                (message.msgSeq &&
+                  /^\d+$/.test(message.msgSeq) &&
+                  BigInt(message.msgSeq) >= knownLatestSeq)),
           )
         : undefined;
-    const loadedSeq = latest?.msgSeq;
-    const knownLatestSeq =
-      latestMessageSeq && /^[1-9]\d*$/.test(latestMessageSeq) ? BigInt(latestMessageSeq) : 0n;
-    // 命中实时尾页的最新消息时，确认当时收到的互动，包括未加载的撤回原文。
-    if (
-      latest &&
-      (knownLatestSeq === 0n ||
-        (loadedSeq && /^\d+$/.test(loadedSeq) && BigInt(loadedSeq) >= knownLatestSeq))
-    )
-      targets.set(latest.id, [...pending.values()]);
-    return targets;
+    const banners = [...pending.values()]
+      .filter((event) => event.bannerPending)
+      .map(conversationInteractionId);
+    return {
+      targets,
+      latestBannerTarget: latest && banners.length ? { id: latest.id, banners } : undefined,
+    };
   }, [
     atLatest,
     interactionConversationId,
@@ -728,7 +732,12 @@ export function useChatTimelineNavigation({
     const observeRead = viewportReadEnabled && !loading && !loadingNewer;
     for (const target of scroll.querySelectorAll<HTMLElement>('[data-message-id]')) {
       const id = target.dataset.messageId ?? '';
-      if (dockTargets?.has(id) || interactionTargets?.has(id)) targets.set(target, id);
+      if (
+        dockTargets?.has(id) ||
+        interactionTargets?.targets.has(id) ||
+        interactionTargets?.latestBannerTarget?.id === id
+      )
+        targets.set(target, id);
       if (!entryPending && !observeRead) continue;
       const index = target.closest<HTMLElement>('.weq-virtual-timeline-row')?.dataset.index;
       const message = index === undefined ? undefined : visibleMessages[Number(index)];
@@ -859,14 +868,15 @@ export function useChatTimelineNavigation({
         navigationKey,
         rows.flatMap((id) => dockTargets?.get(id) ?? []),
       );
-      if (
-        !interactionTargets?.size ||
-        document.visibilityState === 'hidden' ||
-        !document.hasFocus()
-      )
+      if (!interactionTargets || document.visibilityState === 'hidden' || !document.hasFocus())
         return;
-      const visible = rows.flatMap((id) => interactionTargets.get(id) ?? []);
+      const visible = rows.flatMap((id) => interactionTargets.targets.get(id) ?? []);
       if (visible.length) onSeeInteractions?.(visible);
+      const latest = interactionTargets.latestBannerTarget;
+      if (latest && rows.includes(latest.id)) {
+        const banners = latest.banners.filter((id) => !visible.includes(id));
+        if (banners.length) onSeeInteractions?.(banners, true);
+      }
     };
     const probe = () => {
       if (entryPending && viewportRows.size) sampleViewport();
@@ -903,7 +913,7 @@ export function useChatTimelineNavigation({
     for (const target of new Set([...targets.keys(), ...viewportRows.keys()]))
       observer?.observe(target);
     if (viewportRows.size) scroll.addEventListener('scroll', onViewportScroll, { passive: true });
-    if (interactionTargets?.size || viewportRows.size) {
+    if (interactionTargets || viewportRows.size) {
       window.addEventListener('focus', probe);
       window.addEventListener('blur', clearVisibleRead);
       document.addEventListener('visibilitychange', probe);

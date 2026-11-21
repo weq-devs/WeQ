@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../support/templateDemoData';
 import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent.shared';
+import { ShowMessageSeqContext } from '../../src/renderer/src/components/MessageProvenance.shared';
 import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSelection';
 import {
   useContentMultiSelect,
@@ -334,5 +335,13 @@ function Fixture() {
   );
 }
 createRoot(document.getElementById('root')!).render(
-  createElement(ContentSelectionProvider, null, createElement(Fixture)),
+  createElement(
+    ContentSelectionProvider,
+    null,
+    createElement(
+      ShowMessageSeqContext.Provider,
+      { value: params.has('show-message-seq') },
+      createElement(Fixture),
+    ),
+  ),
 );

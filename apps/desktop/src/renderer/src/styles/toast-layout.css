@@ -66,6 +66,18 @@ body:has(.weq-export-tool.is-export:not([hidden], [hidden] *), .weq-exp-modal-sc
   overflow-y: auto;
 }
 
+.weq-toast-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin: -4px 16px 10px 48px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--weq-toast-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .weq-toast .weq-toast-detail {
   max-height: min(42dvh, 20rem);
   overflow-y: auto;

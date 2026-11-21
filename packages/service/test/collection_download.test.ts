@@ -101,7 +101,7 @@ function response(
   );
 }
 describe('collector original file/video download application', () => {
-  it.each(['7.0.1-52892', '7.0.2-53644'])(
+  it.each(['7.0.1-52892', '7.0.2-53644', '7.0.3-54395', '9.9.37-54395', '3.2.35-54395'])(
     'uses the observed header and 20014 descriptor for %s',
     async (build) => {
       const transport = vi.fn(async (request: CollectionHttpRequest) => {
@@ -143,7 +143,7 @@ describe('collector original file/video download application', () => {
       expect(transport).toHaveBeenCalledTimes(1);
     },
   );
-  it('refuses unknown builds or incomplete source identity without dispatch', async () => {
+  it('refuses malformed builds or incomplete source identity without dispatch', async () => {
     const transport = vi.fn();
     for (const [build, metadata] of [
       ['7.0.3-unknown', file],

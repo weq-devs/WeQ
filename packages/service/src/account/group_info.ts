@@ -1176,6 +1176,10 @@ export class GroupInfoService {
     return this.session.groupDetail.listAll(limit, offset);
   }
 
+  async searchGroupIdentities(keyword: string) {
+    return this.session.groupDetail.searchIdentities(keyword);
+  }
+
   async listExportGroups() {
     const groups = new Map<string, { groupCode: string; groupName: string; memberCount: number }>();
     for (let offset = 0; ; offset += 1000) {

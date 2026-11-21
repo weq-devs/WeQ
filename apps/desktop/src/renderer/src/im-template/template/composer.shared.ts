@@ -140,15 +140,8 @@ export function getActiveComposerMentionTrigger(
   editor: HTMLElement,
   savedRange: Range | null,
 ): ComposerMentionTrigger | null {
-  const range = getReadableComposerRange(editor, savedRange);
-  if (!range) {
-    return null;
-  }
-
-  const beforeRange = document.createRange();
-  beforeRange.selectNodeContents(editor);
-  beforeRange.setEnd(range.startContainer, range.startOffset);
-  const before = serializeComposerNode(beforeRange.cloneContents()).replace(/\u200b/g, '');
+  const before = composerTextBeforeCaret(editor, savedRange);
+  if (before === null) return null;
   const match = /(^|[^A-Za-z0-9_.+\-@])@([^\s@\n]{0,40})$/u.exec(before);
   if (!match) {
     return null;
@@ -163,14 +156,24 @@ export function getActiveComposerMentionTrigger(
 }
 
 export function getActiveComposerSlashTrigger(editor: HTMLElement, savedRange: Range | null) {
+  const before = composerTextBeforeCaret(editor, savedRange);
+  return before === null ? null : slashEmojiTrigger(before);
+}
+
+function composerTextBeforeCaret(editor: HTMLElement, savedRange: Range | null) {
   const range = getReadableComposerRange(editor, savedRange);
   if (!range) return null;
+  const onlyChild = editor.firstChild;
+  if (onlyChild?.nodeType === Node.TEXT_NODE && onlyChild === editor.lastChild) {
+    const text = onlyChild.textContent ?? '';
+    const end =
+      range.startContainer === onlyChild ? range.startOffset : range.startOffset ? text.length : 0;
+    return text.slice(0, end).replace(/\u200b/g, '');
+  }
   const beforeRange = document.createRange();
   beforeRange.selectNodeContents(editor);
   beforeRange.setEnd(range.startContainer, range.startOffset);
-  return slashEmojiTrigger(
-    serializeComposerNode(beforeRange.cloneContents()).replace(/\u200b/g, ''),
-  );
+  return serializeComposerNode(beforeRange.cloneContents()).replace(/\u200b/g, '');
 }
 
 export function replaceComposerTextRange(
@@ -371,7 +374,7 @@ function getReadableComposerRange(editor: HTMLElement, savedRange: Range | null)
       isNodeInside(editor, activeRange.startContainer) &&
       isNodeInside(editor, activeRange.endContainer)
     ) {
-      return activeRange.cloneRange();
+      return activeRange;
     }
   }
 
@@ -380,7 +383,7 @@ function getReadableComposerRange(editor: HTMLElement, savedRange: Range | null)
     isNodeInside(editor, savedRange.startContainer) &&
     isNodeInside(editor, savedRange.endContainer)
   ) {
-    return savedRange.cloneRange();
+    return savedRange;
   }
 
   return null;

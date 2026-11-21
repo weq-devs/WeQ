@@ -16,6 +16,7 @@ import {
   oidbCommand,
   resolveSign,
   ReadedReport,
+  ReportGroupNoticeRead,
   MoveGroupFile,
   RenameGroupFile,
   RenameGroupFolder,
@@ -173,6 +174,65 @@ describe('GroupFileService', () => {
 });
 
 describe('GroupNotifyService', () => {
+  it('群通知只上报实际展示的序号，以独立读回确认，并保留后来条目', async () => {
+    const viewed = 9007199254740993n;
+    const newer = viewed + 1n;
+    const replies = new Map<string, Uint8Array>();
+    const page = (boundary: bigint) =>
+      encode(FetchGroupRequests.respSchema, {
+        newLatestSeq: newer,
+        field5: boundary,
+        requests: [
+          { sequence: viewed, eventType: 1 },
+          { sequence: newer, eventType: 1 },
+        ],
+      });
+    replies.set('10c0_1', page(viewed - 1n));
+    const transport = makeNative(replies);
+    const nt = {
+      ...transport,
+      sendOidbPacket: vi.fn(async (...args: Parameters<typeof transport.sendOidbPacket>) => {
+        const body = await transport.sendOidbPacket(...args);
+        if (args[1] === 0x113b) replies.set('10c0_1', page(viewed));
+        return body;
+      }),
+    };
+    const service = new GroupNotifyService({} as never, { nt, resolvePid: () => 1 });
+    const [first, duplicate] = await Promise.all([
+      service.reportNoticeRead(viewed, () => undefined),
+      service.reportNoticeRead(viewed, () => undefined),
+    ]);
+    expect([first, duplicate]).toEqual([viewed, viewed]);
+    expect(transport.calls.map(({ command }) => command)).toEqual([0x10c0, 0x113b, 0x10c0, 0x10c0]);
+    expect(transport.calls[1]).toMatchObject({ subCommand: 1, isUid: false, needSign: false });
+    expect(decode(ReportGroupNoticeRead.reqSchema, transport.calls[1]!.body)).toEqual({
+      sequence: viewed,
+    });
+    const inbox = await service.fetchOnlineInbox({ maxPages: 1 });
+    expect(
+      inbox.requests
+        .map(({ rawSequence }) => rawSequence)
+        .filter((seq) => seq! > inbox.readSequence!),
+    ).toEqual([newer]);
+  });
+
+  it('换号或缺少读取水位时不发送群通知已读', async () => {
+    const ready = encode(FetchGroupRequests.respSchema, { newLatestSeq: 900n, field5: 500n });
+    const replies = new Map([['10c0_1', ready]]);
+    const transport = makeNative(replies);
+    const service = new GroupNotifyService({} as never, { nt: transport, resolvePid: () => 1 });
+    const current = vi
+      .fn()
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error('账号已切换');
+      });
+    await expect(service.reportNoticeRead(800n, current)).rejects.toThrow('账号已切换');
+    replies.set('10c0_1', encode(FetchGroupRequests.respSchema, { newLatestSeq: 900n }));
+    await expect(service.reportNoticeRead(800n, () => undefined)).resolves.toBeUndefined();
+    expect(transport.calls.map(({ command }) => command)).toEqual([0x10c0, 0x10c0]);
+  });
+
   it('fetchOnlineRequests 翻页并按 cookie 停止', async () => {
     const encoded = encode(FetchGroupRequests.respSchema, {
       requests: [

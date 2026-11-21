@@ -21,15 +21,16 @@ export interface WebHostOptions {
   renderer?: Pick<HostBridge, 'renderHtmlToPdf' | 'renderHtmlToSlidesPng' | 'renderHtmlToLongPng'>;
 }
 
+type Download =
+  | { kind: 'file' | 'directory'; path: string; name: string }
+  | { kind: 'archive'; files: readonly { path: string; name: string }[]; name: string };
+
 /** Pending downloads, keyed by the id handed to the client. */
-const downloads = new Map<
-  string,
-  { path: string; name: string; kind: 'file' | 'directory'; expiresAt: number }
->();
+const downloads = new Map<string, Download & { expiresAt: number }>();
 const DOWNLOAD_TTL_MS = 30 * 60 * 1000;
 const MAX_DOWNLOAD_HANDLES = 4096;
 
-function registerDownload(path: string, name: string, kind: 'file' | 'directory'): string {
+function registerDownload(download: Download): string {
   const now = Date.now();
   for (const [id, entry] of downloads) if (entry.expiresAt <= now) downloads.delete(id);
   while (downloads.size >= MAX_DOWNLOAD_HANDLES) {
@@ -37,7 +38,7 @@ function registerDownload(path: string, name: string, kind: 'file' | 'directory'
     if (first !== undefined) downloads.delete(first);
   }
   const id = randomUUID();
-  downloads.set(id, { path, name, kind, expiresAt: now + DOWNLOAD_TTL_MS });
+  downloads.set(id, { ...download, expiresAt: now + DOWNLOAD_TTL_MS });
   return id;
 }
 
@@ -56,7 +57,10 @@ export function createWebHost({ exportDir, version, renderer }: WebHostOptions):
   return {
     exportRoot: exportDir,
     registerDownload(path, name, kind) {
-      return { url: `/_download/${registerDownload(path, name, kind)}` };
+      return { url: `/_download/${registerDownload({ path, name, kind })}` };
+    },
+    registerArchiveDownload(files, name) {
+      return { url: `/_download/${registerDownload({ files, name, kind: 'archive' })}` };
     },
     canReveal: false,
     // Web 的进程生命周期由部署方管理，不注册桌面登录项。
@@ -84,7 +88,7 @@ export function createWebHost({ exportDir, version, renderer }: WebHostOptions):
         throw new Error('保存文件名必须是单个文件名，不能包含路径或控制字符。');
       }
       const path = join(exportDir, `${randomUUID()}-${defaultName}`);
-      const id = registerDownload(path, defaultName, 'file');
+      const id = registerDownload({ path, name: defaultName, kind: 'file' });
       return { path, downloadId: id };
     },
 
@@ -103,7 +107,7 @@ export function createWebHost({ exportDir, version, renderer }: WebHostOptions):
     },
 
     async openHtmlReport(path) {
-      const id = registerDownload(path, basename(path), 'file');
+      const id = registerDownload({ path, name: basename(path), kind: 'file' });
       return { url: `/_download/${id}` };
     },
 

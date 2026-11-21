@@ -98,6 +98,11 @@
   outline-offset: 1px;
 }
 
+.weq-search-dropdown button[data-search-hit-key]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 .weq-search-failure {
   display: flex;
   align-items: center;
@@ -290,35 +295,16 @@ html[data-theme='dark'] .weq-search-more-modal .weq-search-row:hover {
   width: 36px;
   height: 36px;
 }
-.weq-global-record-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 112px), 1fr));
-  gap: 8px;
-  margin: 8px 0 2px;
-}
-
-.weq-global-record-filters label {
-  display: grid;
+.weq-search-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
-  min-width: 0;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
 }
 
-.weq-global-record-filters :is(input, .weq-select-trigger) {
-  width: 100%;
-  min-width: 0;
-  min-height: 30px;
-  padding: 4px 6px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 6px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
-}
-
-.weq-global-record-coverage {
-  margin: 0;
-  padding: 6px 12px;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
+.weq-search-section-actions .weq-search-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
 }

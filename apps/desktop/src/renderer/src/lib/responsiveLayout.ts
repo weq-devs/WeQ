@@ -103,11 +103,27 @@ export function isSingleColumnLayout(): boolean {
 
 const listeners = new Set<() => void>();
 let stopObserving: (() => void) | undefined;
+let singleColumnSnapshot = false;
+let mobileNavigationSnapshot = false;
+
+export function getSingleColumnLayoutSnapshot() {
+  return singleColumnSnapshot;
+}
+
+export function getMobileNavigationSnapshot() {
+  return mobileNavigationSnapshot;
+}
+
 function update() {
   const html = document.documentElement;
-  const layout = isSingleColumnLayout() ? 'single' : 'wide';
+  const singleColumn = isSingleColumnLayout();
+  const mobileClient = isMobileClient();
+  // React 挂载消息行时会反复读取快照，只有视口或客户端变化才重新读取布局。
+  singleColumnSnapshot = singleColumn;
+  mobileNavigationSnapshot = singleColumn || mobileClient;
+  const layout = singleColumn ? 'single' : 'wide';
   const input = isTouchClient() ? 'touch' : 'pointer';
-  const mobile = String(isMobileClient());
+  const mobile = String(mobileClient);
   if (html.dataset.weqLayout !== layout) html.dataset.weqLayout = layout;
   if (html.dataset.weqInput !== input) html.dataset.weqInput = input;
   if (html.dataset.weqMobileClient !== mobile) html.dataset.weqMobileClient = mobile;

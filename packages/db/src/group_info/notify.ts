@@ -45,6 +45,8 @@ export interface GroupNotifyGroupInfo {
 }
 
 export interface GroupNotify {
+  /** 61001 原值，用于 QQ 通知已读同步。 */
+  sequence?: bigint;
   /** 61001 去掉末三位。原列有毫秒和微秒两种精度，此值也用于已有的通知标识。 */
   msgTime: number;
   status: GroupNotifyStatus;
@@ -161,6 +163,7 @@ function rowToNotify(
   }
 
   return {
+    sequence: toBigint(row[0]),
     msgTime: Number(toBigint(row[0]) / 1000n),
     status: Number(row[1] ?? 0) as GroupNotifyStatus,
     verifyStatus: Number(row[2] ?? 0) as GroupNotifyVerifyStatus,

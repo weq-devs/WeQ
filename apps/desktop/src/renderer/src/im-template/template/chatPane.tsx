@@ -530,7 +530,7 @@ export type ChatPaneProps = {
   confirmedReadSeq?: string;
   onReadCurrentConversation?: (conversation: Conversation, visibleSeqs?: string[]) => void;
   pendingInteractions?: readonly ConversationInteraction[];
-  onSeeInteractions?: (ids: string[]) => void;
+  onSeeInteractions?: (ids: string[], bannerOnly?: boolean) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
   onAddGroupMember?: () => void;
@@ -869,6 +869,8 @@ function ChatPaneContent({
   const tabActive = useTabActive();
   useClientPreferences((state) => state.tick);
   const autoFetchGaps = tabActive && preferenceValue('autoFetchMissingMessages');
+  const showUnreadDivider = preferenceValue('showUnreadDivider');
+  const swipeToQuote = preferenceValue('swipeToQuote');
   const directory = useContext(ConversationDirectoryContext);
   const [body, setBody] = useState('');
   const draftMediaFingerprint = JSON.stringify([...composerAssetIds(body)].sort());
@@ -1343,6 +1345,16 @@ function ChatPaneContent({
       : onOpenGroupMember;
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
+  const mobileComposerMeasureFrame = useRef<number | null>(null);
+  useLayoutEffect(
+    () => () => {
+      if (mobileComposerMeasureFrame.current !== null) {
+        window.cancelAnimationFrame(mobileComposerMeasureFrame.current);
+        mobileComposerMeasureFrame.current = null;
+      }
+    },
+    [],
+  );
   useEffect(() => {
     setComposerMenu(null);
   }, [tabActive, mobileComposerExpanded, composerCollapsed]);
@@ -2374,8 +2386,8 @@ function ChatPaneContent({
   }, [tabActive, toolsOpen]);
 
   useLayoutEffect(() => {
-    if (!voiceOpen) scheduleMobileComposerMeasureRef.current();
-  }, [voiceOpen]);
+    if (tabActive && compactHeader && !voiceOpen) scheduleMobileComposerMeasureRef.current();
+  }, [tabActive, compactHeader, voiceOpen]);
 
   useLayoutEffect(() => {
     setVoiceConversationId((current) => (current === conversationId ? current : null));
@@ -5392,26 +5404,26 @@ function ChatPaneContent({
   }
 
   function scheduleMobileComposerMeasure(editor: HTMLElement | null = composerEditorRef.current) {
-    if (!editor) {
+    if (!editor || !tabActive || !compactHeader || mobileComposerMeasureFrame.current !== null)
       return;
-    }
-    // 这套「最多 4 行自动增高」只有小屏在用（高度由 --mobile-composer-editor-height
-    // 驱动）。桌面端的输入框高度是固定的 --composer-height，量了也不会被消费 ——
-    // 之前每敲一个字都白跑一次 cloneNode + 强制 reflow，是输入卡顿的主要来源。
-    if (!isMobileComposerViewport()) {
-      return;
-    }
 
-    window.requestAnimationFrame(() => {
+    mobileComposerMeasureFrame.current = window.requestAnimationFrame(() => {
+      mobileComposerMeasureFrame.current = null;
+      if (!editor.isConnected || editor !== composerEditorRef.current) return;
+      const currentHeight = editor.clientHeight;
+      if (currentHeight === 0) return;
       const styles = window.getComputedStyle(editor);
       const lineHeight = Number.parseFloat(styles.lineHeight) || 22;
       const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
       const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
       const minHeight = Math.ceil(lineHeight + paddingTop + paddingBottom);
       const maxHeight = Math.ceil(lineHeight * mobileComposerMaxLines + paddingTop + paddingBottom);
-      const contentHeight = serializeComposer(editor)
-        ? measureComposerContentHeight(editor)
-        : minHeight;
+      const scrollHeight = editor.scrollHeight;
+      // 固定高度会掩盖内容收缩；仅在需要识别多行缩回时测量不受高度限制的副本。
+      const contentHeight =
+        currentHeight <= minHeight || scrollHeight > currentHeight
+          ? scrollHeight
+          : measureComposerContentHeight(editor);
       const nextHeight = Math.min(Math.max(contentHeight, minHeight), maxHeight);
       const nextLong = contentHeight >= maxHeight - 1;
 
@@ -5446,6 +5458,10 @@ function ChatPaneContent({
   }
 
   function resetMobileComposerHeight() {
+    if (mobileComposerMeasureFrame.current !== null) {
+      window.cancelAnimationFrame(mobileComposerMeasureFrame.current);
+      mobileComposerMeasureFrame.current = null;
+    }
     setMobileComposerEditorHeight(42);
     setMobileComposerLong(false);
   }
@@ -6401,7 +6417,7 @@ function ChatPaneContent({
                             }
                           />
                         ) : null}
-                        {message.id === unreadBoundaryId ? (
+                        {showUnreadDivider && message.id === unreadBoundaryId ? (
                           <div
                             className="weq-unread-divider"
                             role="separator"
@@ -6445,6 +6461,7 @@ function ChatPaneContent({
                           onContextMenu={rowContext}
                           onLongPress={rowLongPress}
                           onSwipeReply={
+                            swipeToQuote &&
                             composerVisible &&
                             !readOnly &&
                             !currentPreference.blocked &&
@@ -6779,7 +6796,7 @@ function ChatPaneContent({
       {/* 收纳输入区的把手 —— 与群资料栏同一个交互：贴在两个区域的交界线上，
           平时隐形，压上去（或键盘聚焦）才浮出来；收起来以后整条输入区从布局里
           消失，只剩它在底边，负责把输入框再请回来。 */}
-      {composerVisible && !isMobileWebComposer() && !emojiOpen ? (
+      {composerVisible && !compactHeader && !emojiOpen ? (
         <button
           className={cn('composer-toggle')}
           type="button"

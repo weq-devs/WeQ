@@ -272,6 +272,8 @@ function validateSharedAssistant(value: unknown): void {
     fail('api.sharedAssistant.permissionMode');
   if (row.reasoningEffort !== undefined && typeof row.reasoningEffort !== 'string')
     fail('api.sharedAssistant.reasoningEffort');
+  if (row.localLightweight !== undefined && typeof row.localLightweight !== 'boolean')
+    fail('api.sharedAssistant.localLightweight');
   if (
     row.sendMode !== undefined &&
     !['interrupt', 'boundary', 'queue'].includes(String(row.sendMode))

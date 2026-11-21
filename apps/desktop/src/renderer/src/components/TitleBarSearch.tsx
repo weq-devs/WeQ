@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -7,7 +8,9 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useOverlayLayer } from '../lib/overlayStack';
+import { hasActiveModal, useOverlayLayer } from '../lib/overlayStack';
+import { IS_WEB } from '../lib/target.shared';
+import { RESTORE_SEARCH_EVENT } from './search/searchPosition.shared';
 import { Search, X } from 'lucide-react';
 
 export function TitleBarSearch({
@@ -30,13 +33,69 @@ export function TitleBarSearch({
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const forceInputFocus = useRef(false);
+  const hadResults = useRef(false);
   const expanded = pinned || (!persistent && hovered && !suppressHover);
   const hasPanel = Boolean(results) || pinned;
   const layer = useOverlayLayer(expanded && hasPanel);
 
   useEffect(() => {
-    if (pinned) input.current?.focus();
+    if (pinned && (forceInputFocus.current || !panel.current?.contains(document.activeElement)))
+      input.current?.focus();
+    forceInputFocus.current = false;
   }, [pinned]);
+
+  useEffect(() => {
+    if (hadResults.current && !results) {
+      setPinned(false);
+      setSuppressHover(true);
+    }
+    hadResults.current = Boolean(results);
+  }, [results]);
+
+  const openKeyboardSearch = useEffectEvent((focusInput: boolean) => {
+    if (!root.current?.getClientRects().length || !root.current.offsetWidth) return false;
+    const active = document.activeElement;
+    if (
+      (focusInput || !returnFocus.current) &&
+      active instanceof HTMLElement &&
+      !root.current.contains(active) &&
+      !panel.current?.contains(active)
+    )
+      returnFocus.current = active;
+    forceInputFocus.current = focusInput;
+    setSuppressHover(false);
+    setPinned(true);
+    onSearchFocus?.();
+    if (pinned && focusInput) input.current?.focus();
+    return true;
+  });
+
+  useEffect(() => {
+    const onShortcut = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        event.key.toLowerCase() !== 'k' ||
+        event.metaKey === event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey ||
+        hasActiveModal() ||
+        !openKeyboardSearch(true)
+      )
+        return;
+      event.preventDefault();
+    };
+    const onRestore = () => openKeyboardSearch(false);
+    if (!IS_WEB) window.addEventListener('keydown', onShortcut);
+    window.addEventListener(RESTORE_SEARCH_EVENT, onRestore);
+    return () => {
+      if (!IS_WEB) window.removeEventListener('keydown', onShortcut);
+      window.removeEventListener(RESTORE_SEARCH_EVENT, onRestore);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (!expanded) return;
@@ -102,12 +161,67 @@ export function TitleBarSearch({
         setSuppressHover(false);
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') {
+        if (
+          event.defaultPrevented ||
+          event.nativeEvent.isComposing ||
+          event.nativeEvent.keyCode === 229
+        )
+          return;
+        if (event.key === 'Escape' && expanded) {
+          event.preventDefault();
           event.stopPropagation();
+          const back = panel.current?.querySelector<HTMLButtonElement>('[data-search-back]');
+          if (back) {
+            back.click();
+            return;
+          }
           setPinned(false);
           setSuppressHover(true);
           input.current?.blur();
+          const previous = returnFocus.current;
+          returnFocus.current = null;
+          if (previous?.isConnected && previous !== document.body)
+            previous.focus({ preventScroll: true });
+          else root.current?.querySelector('button')?.focus();
+          return;
         }
+        if (
+          !['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key) ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.altKey ||
+          event.shiftKey
+        )
+          return;
+        const target = event.target;
+        if (
+          !(target instanceof HTMLElement) ||
+          (target !== input.current &&
+            !target.matches('[data-search-row-input], button[data-search-hit-key]'))
+        )
+          return;
+        if (event.key === 'Enter' && target instanceof HTMLButtonElement) return;
+        const rows = [
+          ...(panel.current?.querySelectorAll<HTMLButtonElement>(
+            'button[data-search-hit-key]:not(:disabled)',
+          ) ?? []),
+        ];
+        if (!rows.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === 'Enter') {
+          if (!event.repeat) rows[0]?.click();
+          return;
+        }
+        const current = rows.indexOf(target as HTMLButtonElement);
+        const next =
+          event.key === 'ArrowDown' ? current + 1 : current === -1 ? rows.length - 1 : current - 1;
+        if (next < 0 || next >= rows.length)
+          (
+            panel.current?.querySelector<HTMLInputElement>('[data-search-row-input]') ??
+            input.current
+          )?.focus({ preventScroll: true });
+        else rows[next]?.focus();
       }}
     >
       <button
@@ -122,6 +236,7 @@ export function TitleBarSearch({
             setSuppressHover(true);
             input.current?.blur();
           } else {
+            forceInputFocus.current = true;
             setPinned(true);
             setSuppressHover(false);
             onSearchFocus?.();

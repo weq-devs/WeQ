@@ -1,5 +1,3 @@
-import { FormSelect } from '../FormSelect';
-import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 import { useEffect, useState } from 'react';
 import {
@@ -8,18 +6,14 @@ import {
   LocateFixed,
   LogOut,
   MoreHorizontal,
-  Plus,
   Trash2,
   X,
   ListTodo,
-  Tags,
-  UsersRound,
   UserRoundX,
 } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
-import { Card, Row } from '../settings/controls';
-import { ContactEmptyState } from '../contactProfile/ContactRow';
 import { GroupFeatureSurface } from '../GroupFeatureSurface';
+import { Card, Row } from '../settings/controls';
 import {
   groupTodoHistoryKey,
   groupTodoKey,
@@ -30,11 +24,11 @@ import {
   type GroupTodoRecord,
 } from '../../lib/groupTodoHistory';
 import '../../styles/group-content-management.css';
-import '../../styles/qq-management.css';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh, useQQReadActivity } from '../../hooks/useQQAutoRefresh';
-import { GroupJoinSettings } from './GroupJoinSettings';
-import { GroupAdvancedSettings } from './GroupAdvancedSettings';
+import { GroupCategorySettings } from './GroupCategorySettings';
+import { GroupManagementRules } from './GroupManagementRules';
+import '../../styles/group-management.css';
 import { ActionFeedback, ActionIcon } from './shared';
 import { useQQAction, useQQGroupPermissions, withQQAccountScope } from './shared.shared';
 import { useGroupExitActions } from './relationshipActions.shared';
@@ -52,175 +46,37 @@ function GroupActionsBody({
   const exits = useGroupExitActions(a);
   const role = permissions.error ? null : permissions.data?.role;
   const exit = role === 'owner' ? exits.disband : role ? exits.leave : null;
-  const [tag, setTag] = useState('');
-  const groupRefresh = useQQAutoRefresh(a.available);
-  const info = trpc.account.qqActions.groupJoinSettings.useQuery(
-    { ...a.binding!, groupId },
-    groupRefresh,
-  );
-  const category =
-    a.available && !info.error && info.data?.groupId === groupId
-      ? (info.data.categoryId ?? null)
-      : null;
-  const tagsRefresh = useQQAutoRefresh(a.available && category !== null);
-  const tags = trpc.account.qqActions.tags.useQuery(
-    { ...a.binding!, category: category ?? 0 },
-    tagsRefresh,
-  );
-  const tagCounts = new Map<string, number>();
-  for (const item of tags.data ?? []) tagCounts.set(item.name, (tagCounts.get(item.name) ?? 0) + 1);
-  const tagRows = [...tagCounts].map(([name, count]) => ({ name, count }));
   return (
-    <section className="weq-qq-actions" aria-label="更多 QQ 群操作">
-      {/* 与设置页同一套 Card/Row 语言：章节标题由资料页给出，这里不再重复「群管理」。 */}
-      <div className="weq-qq-action-form">
-        <Card title="加群方式" icon={<UsersRound size={15} strokeWidth={1.8} />}>
-          <GroupJoinSettings key={groupId} groupId={groupId} />
-          {canManage ? <GroupAdvancedSettings groupId={groupId} /> : null}
-        </Card>
-        <Card title="分类标签" icon={<Tags size={15} strokeWidth={1.8} />}>
-          <section className="weq-group-tags" aria-label="群分类标签">
-            <Row
-              label="群分类"
-              control={
-                <FormSelect
-                  key={category ?? 'unknown'}
-                  aria-label="群分类"
-                  defaultValue={category ?? ''}
-                  disabled
-                >
-                  {category === null ? (
-                    <option value="">{info.isFetching ? '读取分类中…' : '未取得群分类'}</option>
-                  ) : (
-                    <option value={category}>
-                      {info.data?.categoryName || `分类 ${category}`}
-                    </option>
-                  )}
-                </FormSelect>
-              }
-            />
-            {info.error && <p role="alert">{info.error.message}</p>}
-            <Row
-              label="新增标签"
-              desc="标签写入当前群分类，同名标签会累加"
-              control={
-                <input
-                  aria-label="分类标签名称"
-                  placeholder="标签名称"
-                  value={tag}
-                  maxLength={64}
-                  disabled={a.disabled || !canManage}
-                  onChange={(e) => setTag(e.target.value)}
-                />
-              }
-            />
-            <div className="weq-qq-action-bar">
-              <ActionIcon
-                label="添加分类标签"
-                disabled={a.disabled || !canManage || category === null || !tag.trim()}
-                onClick={() =>
-                  void a.perform(
-                    (b) =>
-                      client.account.qqActions.groupSettings.mutate({
-                        ...b,
-                        groupId,
-                        action: 'addTag',
-                        category: category ?? undefined,
-                        tag,
-                      }),
-                    async () => {
-                      const result = await tags.refetch();
-                      if (result.error) throw result.error;
-                    },
-                    undefined,
-                    {
-                      readback: async () => {
-                        const result = await tags.refetch();
-                        if (result.error) throw result.error;
-                        return result.data?.some((item) => item.name === tag) ?? false;
-                      },
-                    },
-                  )
-                }
+    <div key={groupId} className="weq-group-management">
+      <GroupManagementRules groupId={groupId} canManage={canManage} />
+      <GroupCategorySettings groupId={groupId} canManage={canManage} action={a} />
+      {exit && (
+        <Card title="其他操作" icon={<MoreHorizontal />}>
+          <Row
+            label={role === 'owner' ? '解散会影响所有群成员' : '退出后将无法接收群消息'}
+            desc={role === 'owner' ? '需前往 QQ 完成解散' : undefined}
+            control={
+              <button
+                data-danger="outline"
+                type="button"
+                className="weq-set-btn"
+                aria-label={exit.label}
+                disabled={exit.disabled}
+                onClick={() => void exit.run(groupId, groupName)}
               >
-                <Plus size={16} />
-              </ActionIcon>
-            </div>
-            {tags.error && <p role="alert">{tags.error.message}</p>}
-            {category !== null && tagRows.length ? (
-              <ul className="weq-qq-action-list">
-                {tagRows.map((t) => (
-                  <li key={t.name}>
-                    <span>
-                      {t.name}
-                      {t.count > 1 ? <NumericText>{` (${t.count} 条)`}</NumericText> : ''}
-                    </span>
-                    <ActionIcon
-                      danger="outline"
-                      label="删除分类标签"
-                      disabled={a.disabled || !canManage || category === null}
-                      onClick={() =>
-                        void a.perform(
-                          (b) =>
-                            client.account.qqActions.groupSettings.mutate({
-                              ...b,
-                              groupId,
-                              action: 'deleteTag',
-                              category: category ?? undefined,
-                              tag: t.name,
-                            }),
-                          async () => {
-                            const result = await tags.refetch();
-                            if (result.error) throw result.error;
-                          },
-                          `删除分类标签「${t.name}」？`,
-                          {
-                            danger: 'outline',
-                            readback: async () => {
-                              const result = await tags.refetch();
-                              if (result.error) throw result.error;
-                              return Boolean(
-                                result.data && !result.data.some((item) => item.name === t.name),
-                              );
-                            },
-                          },
-                        )
-                      }
-                    >
-                      <Trash2 size={15} />
-                    </ActionIcon>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {category !== null && !tagRows.length ? (
-              <ContactEmptyState>还没有分类标签。</ContactEmptyState>
-            ) : null}
-          </section>
+                {role === 'owner' ? (
+                  <UserRoundX size={16} aria-hidden />
+                ) : (
+                  <LogOut size={16} aria-hidden />
+                )}
+                {exit.label}
+              </button>
+            }
+          />
         </Card>
-        {exit && (
-          <Card title="其他操作" icon={<MoreHorizontal size={15} strokeWidth={1.8} />}>
-            <Row
-              label={exit.label}
-              control={
-                <button
-                  data-danger="outline"
-                  type="button"
-                  className="weq-set-btn"
-                  aria-label={exit.label}
-                  disabled={exit.disabled}
-                  onClick={() => void exit.run(groupId, groupName)}
-                >
-                  {role === 'owner' ? <UserRoundX size={16} /> : <LogOut size={16} />}
-                  {exit.label}
-                </button>
-              }
-            />
-          </Card>
-        )}
-        <ActionFeedback action={a} />
-      </div>
-    </section>
+      )}
+      <ActionFeedback action={a} />
+    </div>
   );
 }
 export const GroupActions = withQQAccountScope(GroupActionsBody, (props) => ({

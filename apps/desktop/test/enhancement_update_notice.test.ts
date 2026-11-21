@@ -10,24 +10,39 @@ const fixture = vi.hoisted(() => ({
   emit: null as ((notices: EnhancementUpdateNotice[]) => void) | null,
   acknowledge: vi.fn(async () => true),
   unsubscribe: vi.fn(),
+  packs: undefined as
+    | {
+        packs: Array<{
+          id: string;
+          installed: boolean;
+          installedVersion: string;
+          ready: boolean;
+          busy: boolean;
+          updateAvailable: boolean;
+        }>;
+      }
+    | undefined,
 }));
-vi.mock('../src/renderer/src/trpc/client', () => ({
-  trpc: {
-    useUtils: () => ({ bootstrap: { enhancementPacks: { invalidate: async () => {} } } }),
-    bootstrap: { enhancementPacks: { useQuery: () => ({ data: undefined }) } },
-  },
-  client: {
-    bootstrap: {
-      onEnhancementUpdates: {
-        subscribe: (_: unknown, handler: { onData: typeof fixture.emit }) => {
-          fixture.emit = handler.onData;
-          return { unsubscribe: fixture.unsubscribe };
-        },
-      },
-      acknowledgeEnhancementUpdates: { mutate: fixture.acknowledge },
+vi.mock('../src/renderer/src/trpc/client', () => {
+  const utils = { bootstrap: { enhancementPacks: { invalidate: async () => {} } } };
+  return {
+    trpc: {
+      useUtils: () => utils,
+      bootstrap: { enhancementPacks: { useQuery: () => ({ data: fixture.packs }) } },
     },
-  },
-}));
+    client: {
+      bootstrap: {
+        onEnhancementUpdates: {
+          subscribe: (_: unknown, handler: { onData: typeof fixture.emit }) => {
+            fixture.emit = handler.onData;
+            return { unsubscribe: fixture.unsubscribe };
+          },
+        },
+        acknowledgeEnhancementUpdates: { mutate: fixture.acknowledge },
+      },
+    },
+  };
+});
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
@@ -35,23 +50,28 @@ beforeEach(() => {
 afterEach(() => {
   useDialog.getState().close();
   fixture.emit = null;
+  fixture.packs = undefined;
   vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
-function mount() {
+function mount(refresh?: (render: () => void) => void) {
   const host = document.createElement('div');
   const root = createRoot(host);
   function Notifier() {
     useEnhancementUpdates();
     return null;
   }
-  act(() => root.render(h(Notifier)));
+  const render = () => act(() => root.render(h(Notifier)));
+  render();
+  refresh?.(render);
   return () => act(() => root.unmount());
 }
 const notices: EnhancementUpdateNotice[] = [
   { id: 'text', name: '本地文字识别', contentVersion: 'a'.repeat(64) },
   { id: 'voice', name: '本地语音转写', contentVersion: 'b'.repeat(64) },
 ];
+const listedNames = (toast: NonNullable<ReturnType<typeof useToast.getState>['toasts'][number]>) =>
+  Reflect.get(toast, 'summary') ?? toast.detail;
 it('多个更新合并一条受控横幅，不再额外弹确认框，前往增强包仍使用原入口', () => {
   const open = vi.fn();
   const stop = onOpenSettingsRequest(open);
@@ -61,8 +81,8 @@ it('多个更新合并一条受控横幅，不再额外弹确认框，前往增�
     const toast = useToast.getState().toasts[0]!;
     expect(toast.event).toBe('update');
     expect(toast.title).toBe('增强包有可用更新');
-    expect(toast.detail).toContain('本地文字识别');
-    expect(toast.detail).toContain('本地语音转写');
+    expect(listedNames(toast)).toContain('本地文字识别');
+    expect(listedNames(toast)).toContain('本地语音转写');
     expect(useDialog.getState().current).toBeNull();
     expect(fixture.acknowledge).toHaveBeenCalledOnce();
     toast.action!.run();
@@ -85,8 +105,8 @@ it('分批发现的更新原位合并，不丢失前一批名称，不产生多�
     const toast = useToast.getState().toasts[0]!;
     expect(toast.id).toBe(id);
     expect(useToast.getState().toasts).toHaveLength(1);
-    expect(toast.detail).toContain('本地文字识别');
-    expect(toast.detail).toContain('本地语音转写');
+    expect(listedNames(toast)).toContain('本地文字识别');
+    expect(listedNames(toast)).toContain('本地语音转写');
   } finally {
     unmount();
   }
@@ -102,6 +122,40 @@ it('不替换正在操作的确认框，新内容版本仍可更新同一条通�
     act(() => fixture.emit?.([{ ...notices[0]!, contentVersion: 'c'.repeat(64) }]));
     expect(fixture.acknowledge).toHaveBeenCalledTimes(2);
     expect(useToast.getState().toasts).toHaveLength(1);
+  } finally {
+    unmount();
+  }
+});
+it('安装确认前保留增强包提醒，安装一部分只移除对应项', () => {
+  let render!: () => void;
+  const unmount = mount((refresh) => {
+    render = refresh;
+  });
+  const first = notices[0]!;
+  const second = notices[1]!;
+  const pack = (notice: EnhancementUpdateNotice, installedVersion: string, busy = false) => ({
+    id: notice.id,
+    installed: true,
+    installedVersion,
+    busy,
+    ready: !busy,
+    updateAvailable: installedVersion !== notice.contentVersion,
+  });
+  try {
+    act(() => fixture.emit?.(notices));
+    const [item] = useToast.getState().toasts;
+    fixture.packs = { packs: [pack(first, first.contentVersion, true)] };
+    render();
+    expect(listedNames(useToast.getState().toasts[0]!)).toContain(first.name);
+    fixture.packs = { packs: [pack(first, first.contentVersion), pack(second, 'legacy')] };
+    render();
+    expect(useToast.getState().leaving).toEqual([]);
+    expect(listedNames(useToast.getState().toasts[0]!)).toBe(second.name);
+    fixture.packs = {
+      packs: [pack(first, first.contentVersion), pack(second, second.contentVersion)],
+    };
+    render();
+    expect(useToast.getState().leaving).toEqual([item!.id]);
   } finally {
     unmount();
   }

@@ -20,7 +20,12 @@ export function browserNoticeChannel() {
           return true;
         const item = new Notification(notice.title, {
           body: notice.body,
-          tag: `weq:${notice.kind}:${notice.target?.conv ?? ''}`,
+          tag: JSON.stringify([
+            'weq',
+            notice.configId,
+            notice.kind,
+            notice.mail?.id ?? notice.target?.conv ?? '',
+          ]),
         });
         visible.add(item);
         item.onclose = () => visible.delete(item);

@@ -1,10 +1,14 @@
 import { useEffect, useSyncExternalStore, type RefObject } from 'react';
-import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsiveLayout';
+import { getSingleColumnLayoutSnapshot, subscribeResponsiveLayout } from '../lib/responsiveLayout';
 import '../styles/responsive-layout.css';
 
 /** Remote、Web 和桌面窄窗共用同一套单栏布局。 */
 export function useMobileWebLayout() {
-  return useSyncExternalStore(subscribeResponsiveLayout, isSingleColumnLayout, () => false);
+  return useSyncExternalStore(
+    subscribeResponsiveLayout,
+    getSingleColumnLayoutSnapshot,
+    () => false,
+  );
 }
 
 /** 软键盘可能只缩小 visual viewport；双指缩放时不重排，以保留浏览器放大阅读。 */

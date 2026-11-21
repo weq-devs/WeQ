@@ -163,19 +163,22 @@ function fixture() {
       rejectDoubtFriendRequest: empty(),
     },
     groupNotify: {
-      fetchOnlineRequests: vi.fn(async () => [
-        {
-          groupId: 123,
-          sequence: 55,
-          eventType: 7,
-          state: 1,
-          filtered: false,
-          target: { uid: 'u_friend', uin: 10002, name: '申请人' },
-          groupName: '测试群',
-          comment: '申请留言',
-          operateTransInfo: new Uint8Array([1, 2]),
-        },
-      ]),
+      fetchOnlineInbox: vi.fn(async () => ({
+        requests: [
+          {
+            groupId: 123,
+            sequence: 55,
+            eventType: 7,
+            state: 1,
+            filtered: false,
+            target: { uid: 'u_friend', uin: 10002, name: '申请人' },
+            groupName: '测试群',
+            comment: '申请留言',
+            operateTransInfo: new Uint8Array([1, 2]),
+          },
+        ],
+        readSequence: 50n,
+      })),
       handleOnlineRequest: empty(),
     },
     fileResource: {
@@ -905,31 +908,48 @@ describe('主动操作的账号与参数边界', () => {
   });
   it('申请列表排除退群通知与自己发出的加群申请，并返回卡片匹配标识', async () => {
     const f = fixture();
-    const [incoming] = await f.s.groupNotify.fetchOnlineRequests();
-    f.s.groupNotify.fetchOnlineRequests.mockResolvedValueOnce([
-      incoming!,
-      { ...incoming!, eventType: 13 },
-      { ...incoming!, eventType: 1 },
-      { ...incoming!, state: 2 },
-      { ...incoming!, state: 3 },
-      { ...incoming!, target: { uid: '', uin: 0, name: '身份缺失' } },
-      { ...incoming!, target: { uid: 'u_self', uin: 10001, name: '自己' } },
+    const {
+      requests: [incoming],
+    } = await f.s.groupNotify.fetchOnlineInbox();
+    f.s.groupNotify.fetchOnlineInbox.mockResolvedValueOnce({
+      readSequence: 50n,
+      requests: [
+        incoming!,
+        { ...incoming!, eventType: 13 },
+        { ...incoming!, eventType: 1, sequence: 56 },
+        { ...incoming!, state: 2 },
+        { ...incoming!, state: 3 },
+        { ...incoming!, target: { uid: '', uin: 0, name: '身份缺失' } },
+        { ...incoming!, target: { uid: 'u_self', uin: 10001, name: '自己' } },
+      ],
+    });
+    const { operations: rows, readSequence } = await f.caller.requestInbox({
+      ...binding,
+      kind: 'group',
+    });
+    expect(readSequence).toBe('50');
+    expect(rows.map((row) => row.noticeId)).toEqual([
+      'group-notify-seq:normal:55',
+      'group-notify-seq:normal:56',
     ]);
-    const rows = await f.caller.requests({ ...binding, kind: 'group' });
-    expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ uid: 'u_friend', uin: '10002', groupId: '123' });
   });
   it.each(['group', 'filteredGroup'] as const)(
     '%s 保留 UID 或 QQ 号可识别的待处理申请',
     async (kind) => {
       const f = fixture();
-      const [incoming] = await f.s.groupNotify.fetchOnlineRequests();
+      const {
+        requests: [incoming],
+      } = await f.s.groupNotify.fetchOnlineInbox();
       f.s.accountWrite.selfIdentity = () => ({ uin: '10001', uid: '' });
-      f.s.groupNotify.fetchOnlineRequests.mockResolvedValueOnce([
-        { ...incoming!, target: { uid: '', uin: 10002, name: 'QQ 申请人' } },
-        { ...incoming!, target: { uid: 'u_peer', uin: 0, name: 'UID 申请人' } },
-        { ...incoming!, target: { uid: '', uin: 10001, name: '自己' } },
-      ]);
+      f.s.groupNotify.fetchOnlineInbox.mockResolvedValueOnce({
+        readSequence: 50n,
+        requests: [
+          { ...incoming!, target: { uid: '', uin: 10002, name: 'QQ 申请人' } },
+          { ...incoming!, target: { uid: 'u_peer', uin: 0, name: 'UID 申请人' } },
+          { ...incoming!, target: { uid: '', uin: 10001, name: '自己' } },
+        ],
+      });
       const rows = await f.caller.requests({ ...binding, kind });
       expect(rows).toHaveLength(2);
       expect(rows.map(({ uid, uin }) => ({ uid, uin }))).toEqual([

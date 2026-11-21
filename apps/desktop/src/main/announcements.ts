@@ -16,6 +16,7 @@ import {
 } from '@weq/network/announcement-metadata';
 import releaseKeys from '@weq/network/release-keys';
 import { writeFileAtomic } from '@weq/service/atomic-write';
+import { notificationInlineText } from '../shared/notification_copy';
 
 const REFRESH_INTERVAL = 15 * 60_000;
 const RESERVATION_TIME = 15_000;
@@ -275,6 +276,7 @@ export class Announcements {
       return {
         token,
         title: entry.title,
+        summary: notificationInlineText(entry.body, 140),
         remainingMs: Date.parse(entry.remindUntil!) - now,
         leaseMs: RESERVATION_TIME,
       };

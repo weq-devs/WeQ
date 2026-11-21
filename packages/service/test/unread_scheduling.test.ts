@@ -6,9 +6,10 @@ import type { UnreadInfoSnapshot, UnreadReadChange } from '@weq/db';
 import { databaseRequestSignal, withDatabasePriority } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub } from '@weq/testkit';
 import { afterEach, expect, it, vi } from 'vitest';
-import { UnreadInfoService } from '../src/account/unread_info';
+import { UnreadInfoService, type UnreadSequenceRange } from '../src/account/unread_info';
 import type { GapFetchedMessage } from '../src/account/gap_history';
-import { RoamMsgCacheDb, type UnreadSentRange } from '../src/account/roam_msg_cache';
+import { RecallArchive } from '../src/account/recall_archive';
+import { RoamMsgCacheDb } from '../src/account/roam_msg_cache';
 
 const services: UnreadInfoService[] = [];
 afterEach(async () => {
@@ -25,7 +26,8 @@ const row = (extra: Partial<UnreadInfoSnapshot> = {}): UnreadInfoSnapshot => ({
 });
 function fixture(
   readOnly = false,
-  unreadSentSequences?: (ranges: UnreadSentRange[]) => Promise<Map<string, string[]>>,
+  unreadSentSequences?: (ranges: UnreadSequenceRange[]) => Promise<Map<string, string[]>>,
+  recallArchive?: RecallArchive,
 ) {
   let rows = [row()];
   let original = row();
@@ -90,7 +92,9 @@ function fixture(
   const service = new UnreadInfoService(
     session,
     undefined,
-    readOnly || unreadSentSequences ? { statePath: '', readOnly, unreadSentSequences } : undefined,
+    readOnly || unreadSentSequences || recallArchive
+      ? { statePath: '', readOnly, unreadSentSequences, recallArchive }
+      : undefined,
   );
   services.push(service);
   return {
@@ -174,6 +178,80 @@ it.each([1, 2])('类型 %s 的跨端自发消息在 QQ 减项到达前后都不�
   expect(f.markRead).not.toHaveBeenCalled();
   expect(f.setReadState).not.toHaveBeenCalled();
 });
+it('代理留存的撤回在 QQ 小表未变时清除 @全体 未读，重开后仍保留原阅读水位', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-unread-retained-recall-'));
+  const path = join(root, 'retained.db');
+  const nt = createSqliteStub();
+  const archive = new RecallArchive(
+    nt,
+    path,
+    () => true,
+    (message) => {
+      f.service.invalidateRecall(message.kind, message.conv);
+    },
+  );
+  const f = fixture(false, undefined, archive);
+  const unread = row({
+    msgSeq: 100,
+    latestSeq: '101',
+    latestSenderUid: 'u_peer',
+    highlights: [
+      { kind: 'atAll', rawKind: 2000, msgSeq: 101, senderUid: 'u_peer', sendTime: 1, text: '' },
+    ],
+  });
+  try {
+    await f.query();
+    f.update([unread]);
+    await archive.observe([
+      {
+        kind: 'group',
+        conv: target.uid,
+        msgId: '9001',
+        msgSeq: '101',
+        senderUid: 'u_peer',
+        senderUin: '20002',
+        sendTime: '1',
+        ntSeqVerified: true,
+        elements: [{ type: 'text', data: { textContent: '@全体 测试' } }],
+      },
+    ]);
+    expect((await f.query())[0]).toMatchObject({ unreadCount: 1, highlights: unread.highlights });
+
+    await archive.observe(
+      [],
+      [
+        {
+          kind: 'group',
+          conv: target.uid,
+          sequence: 101,
+          senderUid: 'u_peer',
+          revokeUid: 'u_peer',
+          at: Math.floor(Date.now() / 1000),
+        },
+      ],
+    );
+    const [recalled] = await f.query();
+    expect(recalled).toMatchObject({ unreadCount: 0, readSeq: '100', recalledSeqs: ['101'] });
+    expect(recalled?.highlights).toBeUndefined();
+    expect(f.markRead).not.toHaveBeenCalled();
+    expect(f.setReadState).not.toHaveBeenCalled();
+
+    await archive.close();
+    const reopened = new RecallArchive(nt, path, () => false, vi.fn());
+    const fresh = fixture(false, undefined, reopened);
+    await fresh.query();
+    fresh.update([unread]);
+    expect((await fresh.query())[0]).toMatchObject({ unreadCount: 0, readSeq: '100' });
+    fresh.update([{ ...unread, latestSeq: '102', decreasedSeqs: ['101'] }]);
+    expect((await fresh.query())[0]?.unreadCount).toBe(1);
+    await fresh.service.dispose();
+    await reopened.close();
+  } finally {
+    await f.service.dispose();
+    closeAllFixtureDbs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 it('戳一戳推进小表时扣除已确认自发序号，并在缓存晚到时重算原快照', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-unread-sent-'));
   const cache = new RoamMsgCacheDb(createSqliteStub(), join(root, 'cache.db'));
@@ -190,13 +268,14 @@ it('戳一戳推进小表时扣除已确认自发序号，并在缓存晚到时�
     localSent: true,
     elements: [{ type: 'text', data: { textContent: '原文' } }],
   };
-  const readSent = vi.fn((ranges: UnreadSentRange[]) =>
+  const readSent = vi.fn((ranges: UnreadSequenceRange[]) =>
     cache.unreadSentSequences('u_self', ranges),
   );
   const direct = { chatType: 1, uid: sent.conv, peer: '1_u_peer' };
   const f = fixture(false, readSent);
   const query = () => f.service.getUnreadInfos([direct]);
   try {
+    await f.query();
     await cache.store([
       sent,
       { ...sent, msgId: '65', msgSeq: '18065' },

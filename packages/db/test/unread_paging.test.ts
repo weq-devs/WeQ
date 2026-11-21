@@ -20,7 +20,7 @@ function fixture() {
     sql = fixtureDb(path);
   sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
     CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT,
-      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER);
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER,"40050" INTEGER);
     CREATE INDEX recent_uid ON recent_contact_v3_table("40021");`);
   const query = vi.spyOn(nt, 'executeSql');
   const db = new UnreadInfoDb(nt, { dbPath: path });
@@ -81,7 +81,7 @@ it('缺最近会话行、缺水位、设备和纯标记均可读取，不触发�
 it('临时私聊用普通私聊的未读键找到最新位置，打开后能清除手动标记', async () => {
   const f = fixture();
   const insert = f.sql.prepare(
-    'INSERT INTO recent_contact_v3_table VALUES (?,?,?,NULL,NULL,NULL,NULL,NULL)',
+    'INSERT INTO recent_contact_v3_table VALUES (?,?,?,NULL,NULL,NULL,NULL,NULL,NULL)',
   );
   const target = { chatType: ChatType.KCHATTYPEC2C, uid: 'u_temp' };
   insert.run(target.uid, 47, ChatType.KCHATTYPETEMPC2CFROMGROUP);
