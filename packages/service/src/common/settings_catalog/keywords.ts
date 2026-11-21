@@ -27,6 +27,7 @@ export const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   'read-first-unread': ['第一条未读'],
   'jump-latest-after-send': ['发送后跳转'],
   'send-with-qq-font': ['发送字体'],
+  'send-with-dress-font': ['发送字体', '装扮字体', '商城字体'],
   'chat-image-cache': ['图片缓存', '表情缓存'],
   'message-unread-badge': ['未读红点'],
   'contact-request-badge': ['好友与群通知'],

@@ -155,6 +155,7 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
     [
       'typing-status',
       'send-with-qq-font',
+      'send-with-dress-font',
       'quote-auto-mention',
       'quote-backspace-remove',
       'slash-emoji-input',
@@ -764,6 +765,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['jump-latest-after-send', '发送消息后定位到最新消息'],
       ['scroll-to-bottom-button', '向下滚动时显示定位到底部按钮', '快速到底部'],
       ['send-with-qq-font', '使用 QQ 账号设置的个性字体发送消息'],
+      ['send-with-dress-font', '发送时使用个性装扮中选用的聊天字体'],
       ['quote-auto-mention', '群聊引用时自动 @ 对方', '引用自动提及'],
       ['slash-emoji-input', '斜杠表情快捷输入', '系统表情快捷搜索'],
       ['slash-emoji-auto-replace', '无需回车即自动替换', '表情自动替换'],

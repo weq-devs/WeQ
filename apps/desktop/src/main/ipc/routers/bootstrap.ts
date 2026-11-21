@@ -1443,6 +1443,13 @@ export const bootstrapRouter = router({
     return true;
   }),
 
+  setSendWithDressFont: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ sendWithDressFont: input.enabled });
+      return true;
+    }),
+
   setShowGroupAssistantMessageCount: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {

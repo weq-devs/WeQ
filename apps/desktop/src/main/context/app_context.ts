@@ -91,7 +91,11 @@ import { createEnhancementResources } from '../enhancements/resources';
 import { createSearchIndexRetirement } from '../source_search_retirement';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
-import type { IntentLocalEnginePort, OnlineCredentialIssue } from '@weq/service';
+import {
+  developmentDressToolsEnabled,
+  type IntentLocalEnginePort,
+  type OnlineCredentialIssue,
+} from '@weq/service';
 import { resolveLocalOcrFilterModel, runLocalOcrFile, runLocalOcrFilterFile } from '../ocr/local';
 import { OnlineImageOcr } from '../ocr/online';
 import { createLinuxAttachHook } from '../attach_elevation';
@@ -2646,6 +2650,9 @@ export function initAppContext(fileRoot?: string): AppContext {
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
           mediaDownload,
           (groupId, uploadFile) => groupInfo.assertCanSend(groupId, uploadFile),
+          // 只用「个性装扮」里的显式选择；普通模式下装扮页不开放，选中款也不会生效。
+          () => (developmentDressToolsEnabled() ? dressInstall.read().activeFont : undefined),
+          () => userConfig.getSettings().sendWithDressFont,
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(
@@ -3569,6 +3576,9 @@ export function initAppContext(fileRoot?: string): AppContext {
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
           mediaDownload,
           (groupId, uploadFile) => groupInfo.assertCanSend(groupId, uploadFile),
+          // 只用「个性装扮」里的显式选择；普通模式下装扮页不开放，选中款也不会生效。
+          () => (developmentDressToolsEnabled() ? dressInstall.read().activeFont : undefined),
+          () => userConfig.getSettings().sendWithDressFont,
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(

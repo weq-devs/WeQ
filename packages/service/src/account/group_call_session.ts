@@ -43,6 +43,7 @@ const {
   buildGroupMultiVideoAck,
   buildGroupStreamSubscribe,
   buildGroupVideoFragments,
+  decodeGroupCallChatPushes,
   decodeGroupCallInviteUpdates,
   extractGroupSessionKey,
   parseGroupAudioFrame,
@@ -96,6 +97,12 @@ export interface GroupCallMember {
   joinedAt: number;
 }
 
+export interface GroupCallChatMessage {
+  id: string;
+  senderUin: number;
+  text: string;
+}
+
 /** 会话快照，透给界面。 */
 export interface GroupCallSnapshot {
   state: GroupCallState;
@@ -106,6 +113,7 @@ export interface GroupCallSnapshot {
   /** 成员表（按 uin 升序）。 */
   members: GroupCallMember[];
   pendingInviteUids: string[];
+  chatMessages: readonly GroupCallChatMessage[];
   /** 自己的 uin。 */
   selfUin: number;
   /** 自己的麦克风是否静音。 */
@@ -282,6 +290,7 @@ const _FRAME_MS = 20;
 const FRAME_SAMPLES = 320;
 const AUDIO_FRAME_MS = 20;
 const MAX_AUDIO_DECODE_QUEUE = 5;
+const MAX_CHAT_MESSAGES = 200;
 
 // ─────────────────────────── 会话 ───────────────────────────
 
@@ -324,6 +333,7 @@ export class GroupCallSession {
   private server: { ip: string; port: number } | null = null;
 
   private readonly members = new Map<number, GroupCallMember>();
+  private chatMessages: GroupCallChatMessage[] = [];
   private readonly receivedAudio = new Map<number, ReceivedAudioStream>();
   private readonly videoAssembler = new GroupVideoAssembler();
 
@@ -333,7 +343,7 @@ export class GroupCallSession {
   private authMode: 1 | 3;
   private readonly pendingInvites = new Map<string, unknown>();
   private readonly finishedInvites = new Set<string>();
-  private stopInvitePush: (() => void) | undefined;
+  private stopMsgPush: (() => void) | undefined;
   private firstAuthRetry: unknown;
   private authRenew: unknown;
   private videoSubscription: number[] = [];
@@ -646,6 +656,7 @@ export class GroupCallSession {
           member.self ? { ...member, video: this.cameraOn, muted: this.micMuted } : { ...member },
         ),
       pendingInviteUids: [...this.pendingInvites.keys()],
+      chatMessages: this.chatMessages,
       selfUin: this.opts.selfUin,
       micMuted: this.micMuted,
       cameraOn: this.cameraOn,
@@ -964,7 +975,7 @@ export class GroupCallSession {
   private subscribeToSsoPush(): void {
     const push = this.opts.signaling.push;
     if (!push) return;
-    this.stopInvitePush = push.subscribe(MSG_PUSH_CMD, (body) => {
+    this.stopMsgPush = push.subscribe(MSG_PUSH_CMD, (body) => {
       if (!this.isActive()) return;
       let changed = false;
       for (const update of decodeGroupCallInviteUpdates(body)) {
@@ -977,6 +988,23 @@ export class GroupCallSession {
             changed = true;
           }
         }
+      }
+      for (const message of decodeGroupCallChatPushes(body)) {
+        if (
+          message.groupId !== this.groupId ||
+          message.room !== this.streamPrefix ||
+          message.recipientUin !== this.opts.selfUin ||
+          message.senderUin === this.opts.selfUin
+        ) {
+          continue;
+        }
+        const id = `${message.senderUin}:${message.messageId}`;
+        if (this.chatMessages.some((existing) => existing.id === id)) continue;
+        this.chatMessages = [
+          ...this.chatMessages.slice(1 - MAX_CHAT_MESSAGES),
+          { id, senderUin: message.senderUin, text: message.text },
+        ];
+        changed = true;
       }
       if (changed) this.emit();
     });
@@ -1193,8 +1221,8 @@ export class GroupCallSession {
     this.exitDone?.();
     this.stopSsoPush?.();
     this.stopSsoPush = undefined;
-    this.stopInvitePush?.();
-    this.stopInvitePush = undefined;
+    this.stopMsgPush?.();
+    this.stopMsgPush = undefined;
     for (const timer of this.pendingInvites.values()) this.timers.clearTimeout(timer);
     this.pendingInvites.clear();
     this.finishedInvites.clear();

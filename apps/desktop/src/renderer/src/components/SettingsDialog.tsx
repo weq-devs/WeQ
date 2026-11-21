@@ -865,6 +865,7 @@ function AppearanceSection({
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
   const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
   const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
+  const setSendWithDressFont = trpc.bootstrap.setSendWithDressFont.useMutation();
   const utils = trpc.useUtils();
   const [readingError, setReadingError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(false);
@@ -1104,17 +1105,30 @@ function AppearanceSection({
                   fallback: true,
                   mutation: setSendWithQqFont,
                 },
+                {
+                  key: 'sendWithDressFont' as const,
+                  settingId: 'send-with-dress-font',
+                  label: '发送时使用个性装扮中选用的聊天字体',
+                  desc: '开启后以「个性装扮」里选用的字体发送；没有选用时不带字体，也不再回落到 QQ 账号字体。',
+                  fallback: false,
+                  mutation: setSendWithDressFont,
+                },
               ]
-                .filter(({ key }) => (key === 'sendWithQqFont') === (category === 'sending'))
+                .filter(
+                  ({ key }) =>
+                    (key === 'sendWithQqFont' || key === 'sendWithDressFont') ===
+                    (category === 'sending'),
+                )
                 .filter(
                   ({ key }) =>
                     key !== 'preserveUnreadUntilRead' || settings.data?.readFromFirstUnread,
                 )
-                .map(({ key, settingId, label, fallback, mutation }) => (
+                .map(({ key, settingId, label, desc, fallback, mutation }) => (
                   <Row
                     key={key}
                     settingId={settingId}
                     label={label}
+                    desc={desc}
                     indent={key === 'preserveUnreadUntilRead'}
                     control={
                       <span

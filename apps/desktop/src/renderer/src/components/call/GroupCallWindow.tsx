@@ -1,5 +1,6 @@
 import {
   Loader2,
+  MessageCircle,
   MicOff,
   PanelRightClose,
   PanelRightOpen,
@@ -24,6 +25,7 @@ import { client, trpc } from '../../trpc/client';
 import { Modal } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { CallControls } from './CallControls';
+import { GroupCallChatPanel } from './GroupCallChatPanel';
 import '../../styles/call.css';
 import '../../styles/group-call.css';
 
@@ -236,7 +238,7 @@ export function GroupCallWindow({
   const [info, setInfo] = useState(snapshot);
   const [directory, setDirectory] = useState(people);
   const [focusedUin, setFocusedUin] = useState<number>();
-  const [railOpen, setRailOpen] = useState(true);
+  const [rail, setRail] = useState<'members' | 'chat' | null>('members');
   const [speakerOff, setSpeakerOff] = useState(false);
   const [silent, setSilent] = useState(new Set<number>());
   const [inviteOpen, showInvite] = useState(false);
@@ -319,14 +321,18 @@ export function GroupCallWindow({
       action(client.groupCall.mic.mutate({ id, muted: true }));
     },
   });
-  const unknown = info.members.filter(
-    (member) => !member.self && !directory.some((person) => person.uin === member.uin),
-  );
+  const chatMessages = info.chatMessages ?? [];
+  const unknown = [
+    ...new Set([
+      ...info.members.map((member) => member.uin),
+      ...chatMessages.map((message) => message.senderUin),
+    ]),
+  ].filter((uin) => uin !== info.selfUin && !directory.some((person) => person.uin === uin));
   const roomDirectory = trpc.account.getGroupMembersByUins.useQuery(
     {
       groupCode: groupId,
       expectedAccountUin: String(info.selfUin),
-      uins: unknown.slice(0, 200).map((person) => String(person.uin)),
+      uins: unknown.slice(0, 200).map(String),
     },
     { enabled: live && unknown.length > 0, keepPreviousData: true },
   );
@@ -418,7 +424,7 @@ export function GroupCallWindow({
   const content = (
     <section
       className="weq-group-call-window"
-      data-rail={railOpen ? 'open' : 'closed'}
+      data-rail={rail ? 'open' : 'closed'}
       aria-label="群通话"
       hidden={locked}
       inert={locked}
@@ -435,8 +441,8 @@ export function GroupCallWindow({
         <p className="weq-group-call-notice" role="status">
           {notice}
         </p>
-        {finished ? null : (
-          <div className="weq-group-call-heading-actions">
+        <div className="weq-group-call-heading-actions">
+          {finished ? null : (
             <button
               type="button"
               className="weq-group-call-action"
@@ -446,22 +452,32 @@ export function GroupCallWindow({
               <UserPlus size={16} aria-hidden />
               邀请
             </button>
-            <button
-              type="button"
-              className="weq-group-call-action"
-              aria-expanded={railOpen}
-              aria-controls={railId}
-              onClick={() => setRailOpen(!railOpen)}
-            >
-              {railOpen ? (
-                <PanelRightClose size={16} aria-hidden />
-              ) : (
-                <PanelRightOpen size={16} aria-hidden />
-              )}
-              成员
-            </button>
-          </div>
-        )}
+          )}
+          <button
+            type="button"
+            className="weq-group-call-action"
+            aria-expanded={rail === 'members'}
+            aria-controls={railId}
+            onClick={() => setRail(rail === 'members' ? null : 'members')}
+          >
+            {rail === 'members' ? (
+              <PanelRightClose size={16} aria-hidden />
+            ) : (
+              <PanelRightOpen size={16} aria-hidden />
+            )}
+            成员
+          </button>
+          <button
+            type="button"
+            className="weq-group-call-action"
+            aria-expanded={rail === 'chat'}
+            aria-controls={railId}
+            onClick={() => setRail(rail === 'chat' ? null : 'chat')}
+          >
+            <MessageCircle size={16} aria-hidden />
+            消息
+          </button>
+        </div>
       </header>
       {error ? (
         <p className="weq-group-call-error" role="alert">
@@ -587,8 +603,18 @@ export function GroupCallWindow({
             </div>
           ) : null}
         </div>
-        <aside className="weq-group-call-rail" id={railId} aria-label="成员列表" inert={!railOpen}>
-          <div className="weq-group-call-rail-inner">
+        <aside
+          className="weq-group-call-rail"
+          id={railId}
+          aria-label={rail === 'chat' ? '通话消息' : '成员列表'}
+          inert={!rail}
+        >
+          {rail === 'chat' ? (
+            <div className="weq-group-call-rail-inner">
+              <GroupCallChatPanel messages={chatMessages} name={name} />
+            </div>
+          ) : null}
+          <div className="weq-group-call-rail-inner" hidden={rail === 'chat'}>
             <div className="weq-group-call-rail-heading">
               <strong>成员 · {info.members.length}</strong>
               <button
