@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, FileText, MessageCircle } from 'lucide-react';
 import {
   createElement,
@@ -166,26 +166,31 @@ function BlogCard({
   onSpace: (uin: string, nickname?: string) => void;
 }) {
   const { active } = useContext(QzonePageContext);
-  const { run, cancel } = useQzoneRequests();
+  const { run } = useQzoneRequests();
+  const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const scoped = useMemo(() => ({ ...input, blogId: blog.id }), [input, blog.id]);
   useEffect(() => {
-    if (!active) cancel();
-  }, [active, cancel]);
-  const scoped = { ...input, blogId: blog.id };
+    if (!active) void queryClient.cancelQueries({ queryKey: ['qzone-blog', scoped] });
+  }, [active, queryClient, scoped]);
   const detail = useQuery({
-    queryKey: ['qzone-blog', scoped],
-    queryFn: () => run((requestId) => client.account.qzone.blog.query({ ...scoped, requestId })),
+    queryKey: ['qzone-blog', scoped, 'detail'],
+    queryFn: ({ signal }) =>
+      run((requestId) => client.account.qzone.blog.query({ ...scoped, requestId }), false, signal),
     enabled: active && expanded,
     staleTime: 60_000,
     retry: false,
     refetchOnWindowFocus: false,
   });
   const comments = useInfiniteQuery({
-    queryKey: ['qzone-blog-comments', scoped],
-    queryFn: ({ pageParam = 0 }) =>
-      run((requestId) =>
-        client.account.qzone.blogComments.query({ ...scoped, requestId, offset: pageParam }),
+    queryKey: ['qzone-blog', scoped, 'comments'],
+    queryFn: ({ pageParam = 0, signal }) =>
+      run(
+        (requestId) =>
+          client.account.qzone.blogComments.query({ ...scoped, requestId, offset: pageParam }),
+        false,
+        signal,
       ),
     enabled: active && commentsOpen,
     getNextPageParam: nextPage,
@@ -221,11 +226,7 @@ function BlogCard({
         <BlogBody html={detail.data.html} />
       ) : (
         <>
-          {blog.summary ? (
-            <p className="weq-qzn-content" data-privacy-sensitive>
-              {blog.summary}
-            </p>
-          ) : null}
+          {blog.summary ? <BlogBody html={blog.summary} /> : null}
           <QzoneMediaGrid images={blog.images} videos={[]} />
         </>
       )}
@@ -325,15 +326,21 @@ export function QzoneBlogs({
   const { active, refresh } = useContext(QzonePageContext);
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: active });
   const configId = config.data?.uin === selfUin ? config.data.configId : undefined;
-  const input = { selfUin, hostUin, expectedAccountConfigId: configId ?? '' };
-  const { run, cancel } = useQzoneRequests();
+  const input = useMemo(
+    () => ({ selfUin, hostUin, expectedAccountConfigId: configId ?? '' }),
+    [selfUin, hostUin, configId],
+  );
+  const { run } = useQzoneRequests();
+  const queryClient = useQueryClient();
   const more = useRef<HTMLDivElement>(null);
   const nearEnd = useNearViewport(more);
   const { refetch, fetchNextPage, ...query } = useInfiniteQuery({
     queryKey: ['qzone-blogs', input],
-    queryFn: ({ pageParam = 0 }) =>
-      run((requestId) =>
-        client.account.qzone.blogs.query({ ...input, requestId, offset: pageParam }),
+    queryFn: ({ pageParam = 0, signal }) =>
+      run(
+        (requestId) => client.account.qzone.blogs.query({ ...input, requestId, offset: pageParam }),
+        false,
+        signal,
       ),
     enabled: active && Boolean(configId),
     getNextPageParam: nextPage,
@@ -344,13 +351,13 @@ export function QzoneBlogs({
   const previousRefresh = useRef(refresh);
   useEffect(() => {
     if (!active) {
-      cancel();
+      void queryClient.cancelQueries({ queryKey: ['qzone-blogs', input], exact: true });
       return;
     }
     if (!configId || previousRefresh.current === refresh) return;
     previousRefresh.current = refresh;
     void refetch();
-  }, [active, configId, refresh, cancel, refetch]);
+  }, [active, configId, refresh, input, queryClient, refetch]);
   useEffect(() => {
     if (active && nearEnd && query.hasNextPage && !query.isFetching && !query.error)
       void fetchNextPage();

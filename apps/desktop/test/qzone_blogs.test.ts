@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, createElement as h } from 'react';
+import { StrictMode, act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { QzoneBlogs } from '../src/renderer/src/views/QzoneBlogs';
@@ -32,7 +32,7 @@ vi.mock('../src/renderer/src/components/QzoneProfileAvatar', () => ({
   QzonePersonHeader: ({ nickname }: { nickname: string }) => h('span', null, nickname),
 }));
 
-it('日志列表可接着翻页，正文和评论按需展开，正文移除主动内容', async () => {
+it('日志在 StrictMode 和暂停后可读，摘要断行，正文和评论按需展开', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal(
     'IntersectionObserver',
@@ -44,11 +44,18 @@ it('日志列表可接着翻页，正文和评论按需展开，正文移除主�
   const blog = (id: string, title: string) => ({
     id,
     title,
-    summary: '摘要',
+    summary: '摘要第一行<br/>摘要第二行 &amp; 补充',
     publishedAt: '2021-08-03 15:06',
     images: [],
     commentCount: 1,
   });
+  let settleCancelledRequest!: (page: { items: ReturnType<typeof blog>[] }) => void;
+  rpc.list.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        settleCancelledRequest = resolve;
+      }),
+  );
   rpc.list.mockResolvedValueOnce({ items: [blog('7', '首篇日志')], nextOffset: 1 });
   rpc.list.mockResolvedValueOnce({
     items: [blog('7', '首篇日志'), blog('8', '下一篇日志')],
@@ -74,30 +81,48 @@ it('日志列表可接着翻页，正文和评论按需展开，正文移除主�
   }
   const wait = async (label: string) => {
     await vi.waitFor(async () => {
-      await act(async () => {});
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
       expect(host.textContent).toContain(label);
     });
   };
-  try {
+  const render = async (active: boolean) =>
     await act(async () =>
       root.render(
         h(
-          QueryClientProvider,
-          { client: cache },
+          StrictMode,
+          null,
           h(
-            QzonePageContext.Provider,
-            { value: { active: true, refresh: 0 } },
-            h(QzoneBlogs, {
-              selfUin: '10001',
-              hostUin: '10002',
-              nickname: '空间主人',
-              onSpace: () => {},
-            }),
+            QueryClientProvider,
+            { client: cache },
+            h(
+              QzonePageContext.Provider,
+              { value: { active, refresh: 0 } },
+              h(QzoneBlogs, {
+                selfUin: '10001',
+                hostUin: '10002',
+                nickname: '空间主人',
+                onSpace: () => {},
+              }),
+            ),
           ),
         ),
       ),
     );
+  try {
+    await render(true);
+    await vi.waitFor(() => expect(rpc.list).toHaveBeenCalledOnce());
+    const requestId = rpc.list.mock.calls[0]?.[0].requestId;
+    await render(false);
+    expect(rpc.cancel).toHaveBeenCalledWith({ requestId });
+    await render(true);
+    await act(async () => settleCancelledRequest({ items: [blog('9', '取消的日志结果')] }));
     await wait('首篇日志');
+    expect(host.textContent).not.toContain('取消的日志结果');
+    const summary = host.querySelector('article .weq-qzn-content');
+    expect(summary?.querySelector('br')).not.toBeNull();
+    expect(summary?.textContent).toBe('摘要第一行摘要第二行 & 补充');
     expect(rpc.detail).not.toHaveBeenCalled();
     expect(rpc.comments).not.toHaveBeenCalled();
     await act(async () => button('加载更多日志').click());
