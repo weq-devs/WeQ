@@ -6,9 +6,14 @@ import { useAccountNoticeUnread } from '../src/renderer/src/hooks/useAccountNoti
 import { mergeNoticeSeen, type NoticeSeenState } from '../src/shared/notice_seen';
 
 const rpc = vi.hoisted(() => ({ query: vi.fn(), mutate: vi.fn(), subscribe: vi.fn() }));
-const pushNotification = vi.hoisted(() => vi.fn());
+const toast = vi.hoisted(() => ({
+  toasts: [] as { id: number }[],
+  push: vi.fn(),
+  dismiss: vi.fn(),
+}));
+const pushNotification = toast.push;
 vi.mock('../src/renderer/src/components/Toast.shared', () => ({
-  useToast: { getState: () => ({ push: pushNotification }) },
+  useToast: { getState: () => toast },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -28,7 +33,13 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   window.localStorage.clear();
-  pushNotification.mockClear();
+  toast.toasts = [];
+  toast.dismiss.mockClear();
+  pushNotification.mockReset().mockImplementation(() => {
+    const id = toast.toasts.length + 1;
+    toast.toasts.push({ id });
+    return id;
+  });
   state = null;
   rpc.query.mockReset().mockImplementation(async () => state);
   rpc.mutate.mockReset().mockImplementation(async ({ state: next }) => {
@@ -88,9 +99,7 @@ describe('各端通知已读同步接线', () => {
     const newNotice = notice(300, 'u_b');
     await render([newNotice, newNotice, notice(300)]);
     expect(pushNotification).toHaveBeenCalledTimes(1);
-    expect(pushNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'contact', detail: '1 条新通知' }),
-    );
+    expect(pushNotification).toHaveBeenCalledWith(expect.objectContaining({ event: 'contact' }));
     await render([notice(400), newNotice], true);
     await render([notice(400), newNotice]);
     expect(pushNotification).toHaveBeenCalledTimes(1);
@@ -115,6 +124,35 @@ describe('各端通知已读同步接线', () => {
       ).toBe(300);
     },
   );
+  it('已读或已处理的通知只收起对应批次，暂时不在列表不算确认', async () => {
+    const root = createRoot(document.createElement('div'));
+    cleanups.push(() => act(() => root.unmount()));
+    const first = 'buddy-request:u_a:200';
+    const second = 'buddy-request:u_b:200';
+    const unrelated = 'buddy-request:u_c:200';
+    const onOpen = vi.fn();
+    function Probe({ ids, handledIds }: { ids: string[]; handledIds?: ReadonlySet<string> }) {
+      useAccountNoticeUnread('10001:source-a', 'friend', ids, false, true, {
+        title: '好友通知',
+        onOpen,
+        handledIds,
+      });
+      return null;
+    }
+    const render = (ids: string[], handledIds?: ReadonlySet<string>) =>
+      act(async () => root.render(h(Probe, { ids, handledIds })));
+    await render([]);
+    await render([first, second]);
+    await render([first, second, unrelated]);
+    expect(pushNotification).toHaveBeenCalledTimes(2);
+    await render([first, unrelated]);
+    await act(async () => receive({ seen: [first], readThrough: 200 }));
+    expect(toast.dismiss).not.toHaveBeenCalled();
+    await render([first, second, unrelated], new Set([second]));
+    expect(toast.dismiss.mock.calls).toEqual([[1]]);
+    await act(async () => receive({ seen: [unrelated], readThrough: 200 }));
+    expect(toast.dismiss.mock.calls).toEqual([[1], [2]]);
+  });
   it.each(['friend', 'group'] as const)(
     '迁移本端旧已读但不自动读掉新增，查看后上传：%s',
     async (kind) => {

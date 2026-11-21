@@ -5,9 +5,69 @@ import type { Message } from '../src/renderer/src/im-template/template/types';
 import { useChatTimelineNavigation } from '../src/renderer/src/im-template/template/useChatTimelineNavigation';
 import {
   conversationInteractionId,
+  interactionBannerPrefix,
   type ConversationInteraction,
 } from '../src/shared/conversation_interaction';
 import { createTemplateDemoData } from './support/templateDemoData';
+import { useConversationInteractionBadges } from '../src/renderer/src/hooks/useConversationInteractionBadges';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
+
+const interactionPush = vi.hoisted(() => ({
+  onData: undefined as
+    | ((snapshot: { pending: ConversationInteraction[]; seen: string[] }) => void)
+    | undefined,
+}));
+vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    account: {
+      interactionBadges: {
+        state: {
+          subscribe: (_: unknown, handler: { onData: typeof interactionPush.onData }) => {
+            interactionPush.onData = handler.onData;
+            return {
+              unsubscribe: () => {
+                interactionPush.onData = undefined;
+              },
+            };
+          },
+        },
+      },
+    },
+  },
+}));
+
+it('按撤回互动身份收起横幅，确认晚到的横幅也收起且不串数据源', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'live' };
+  const key = interactionBannerPrefix('10001', 'live');
+  const id = (msgId: string) =>
+    conversationInteractionId({ kind: 'c2c', conv: 'peer', msgId, action: 'recall' });
+  function Probe() {
+    useConversationInteractionBadges(binding, true);
+    return null;
+  }
+  try {
+    act(() => root.render(h(Probe)));
+    const store = useToast.getState();
+    const first = store.push({ event: 'recall', key: key + id('1'), title: 'first' });
+    store.push({ event: 'recall', key: key + id('2'), title: 'other' });
+    store.push({
+      event: 'recall',
+      key: interactionBannerPrefix('10001', 'backup') + id('1'),
+      title: 'backup',
+    });
+    act(() => interactionPush.onData?.({ pending: [], seen: [] }));
+    expect(useToast.getState().leaving).toEqual([]);
+    act(() => interactionPush.onData?.({ pending: [], seen: [id('1'), id('3')] }));
+    const late = store.push({ event: 'recall', key: key + id('3'), title: 'late' });
+    expect(useToast.getState().leaving).toEqual([first, late]);
+  } finally {
+    act(() => root.unmount());
+    useToast.setState({ toasts: [], leaving: [], seq: 0 });
+    vi.unstubAllGlobals();
+  }
+});
 
 it('读到前台最新消息时确认该会话的互动，历史页仍按条确认', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

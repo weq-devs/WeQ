@@ -3,26 +3,55 @@ import { noticeTimestamp, NOTICE_SEEN_LIMIT } from '../../../shared/notice_seen'
 import { useToast } from '../components/Toast.shared';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 
-export type NewNoticeNotification = { title: string; onOpen: () => void };
+export type NewNoticeNotification = {
+  title: string;
+  onOpen: () => void;
+  handledIds?: ReadonlySet<string>;
+};
 
 /** 首次读取建立基线，刷新时不把早于已见记录的历史回填当成新通知。 */
 export function useNewNoticeNotification(
   scope: string,
   ids: string[],
   unreadIds: string[] | null,
+  readIds: ReadonlySet<string>,
+  readThrough: number,
   notification?: NewNoticeNotification,
 ) {
   const seen = useRef<{ scope: string; time: number; ids: Set<string> } | null>(null);
+  const banners = useRef(
+    new Map<number, { scope: string; items: Array<{ id: string; handled: boolean }> }>(),
+  );
   const title = notification?.title;
   const onOpen = notification?.onOpen;
+  const handledIds = notification?.handledIds;
   useEffect(() => {
     if (!unreadIds || !title || !onOpen) return;
     const previous = seen.current?.scope === scope ? seen.current : null;
-    let count = 0;
+    const toast = useToast.getState();
+    if (banners.current.size) {
+      const active = new Set(toast.toasts.map(({ id }) => id));
+      for (const [bannerId, owner] of banners.current) {
+        if (!active.has(bannerId)) banners.current.delete(bannerId);
+        else if (
+          owner.scope === scope &&
+          owner.items.every(
+            ({ id, handled }) =>
+              readIds.has(id) ||
+              (noticeTimestamp(id) ?? Infinity) < readThrough ||
+              (!handled && handledIds?.has(id)),
+          )
+        ) {
+          toast.dismiss(bannerId);
+          banners.current.delete(bannerId);
+        }
+      }
+    }
+    const additions: string[] = [];
     if (previous) {
       for (const id of unreadIds) {
         const time = noticeTimestamp(id);
-        if (time !== null && time >= previous.time && !previous.ids.has(id)) count++;
+        if (time !== null && time >= previous.time && !previous.ids.has(id)) additions.push(id);
       }
     }
     const next = previous ?? { scope, time: 0, ids: new Set<string>() };
@@ -37,12 +66,17 @@ export function useNewNoticeNotification(
     }
     while (next.ids.size > NOTICE_SEEN_LIMIT) next.ids.delete(next.ids.values().next().value!);
     seen.current = next;
-    if (count)
-      useToast.getState().push({
+    if (additions.length) {
+      const bannerId = toast.push({
         event: 'contact',
         title,
-        detail: `${count} 条新通知`,
+        detail: `${additions.length} 条新通知`,
         source: notificationSource({ kind: 'local', open: onOpen }, '查看通知'),
       });
-  }, [scope, ids, unreadIds, title, onOpen]);
+      banners.current.set(bannerId, {
+        scope,
+        items: additions.map((id) => ({ id, handled: handledIds?.has(id) ?? false })),
+      });
+    }
+  }, [scope, ids, unreadIds, readIds, readThrough, title, onOpen, handledIds]);
 }

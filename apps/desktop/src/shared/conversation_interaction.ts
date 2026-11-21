@@ -8,3 +8,6 @@ export interface ConversationInteraction {
 export function conversationInteractionId(event: ConversationInteraction): string {
   return JSON.stringify([event.kind, event.conv, event.msgId, event.action]);
 }
+
+export const interactionBannerPrefix = (uin: string, configId: string) =>
+  `${JSON.stringify(['interaction', uin, configId])}:`;

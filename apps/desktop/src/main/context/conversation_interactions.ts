@@ -124,6 +124,10 @@ export class ConversationInteractionBadges {
     return () => this.events.off('change', onChange);
   }
 
+  get seenIds(): readonly string[] {
+    return this.store.data.seen;
+  }
+
   requestScan(): void {
     if (this.reads.signal.aborted) return;
     const watching = this.enabled();
@@ -199,19 +203,17 @@ export class ConversationInteractionBadges {
     this.add(newEvents);
   }
 
-  observeRecall(event: {
-    kind: Kind | 'dataline';
-    conv: string;
-    msgId: string;
-    revokeUid: string;
-  }) {
+  observeRecall(
+    event: { kind: Kind | 'dataline'; conv: string; msgId: string; revokeUid: string },
+    forBanner = false,
+  ) {
     const { kind, conv, msgId, revokeUid } = event;
     if (kind !== 'dataline' && revokeUid && !this.self.has(revokeUid))
-      this.add([{ kind, conv, msgId, action: 'recall' }]);
+      this.add([{ kind, conv, msgId, action: 'recall' }], forBanner);
   }
 
-  private add(events: ConversationInteraction[]): void {
-    if (!events.length || this.reads.signal.aborted || !this.enabled()) return;
+  private add(events: ConversationInteraction[], forBanner = false): void {
+    if (!events.length || this.reads.signal.aborted || (!forBanner && !this.enabled())) return;
     const { pending, seen } = this.store.data;
     const existing = new Set([...seen, ...pending.map(conversationInteractionId)]);
     const additions = events.filter((event) => {

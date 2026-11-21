@@ -53,10 +53,20 @@ it('以真实消息身份保存新互动，原位撤回和同序号戳一戳分�
   badges.subscribe(changed);
   try {
     expect(readWindow).not.toHaveBeenCalled();
+    const notified = { kind: 'c2c', conv: 'u_peer', msgId: '9', action: 'recall' } as const;
+    badges.observeRecall({ ...notified, revokeUid: 'u_peer' });
+    expect(changed).toHaveBeenCalledTimes(1);
+    badges.observeRecall({ ...notified, revokeUid: 'u_peer' }, true);
+    expect(changed).toHaveBeenLastCalledWith([notified]);
+    const notifiedId = conversationInteractionId(notified);
+    badges.acknowledge([notifiedId]);
+    expect(changed).toHaveBeenLastCalledWith([]);
+    expect(badges.seenIds).toEqual([notifiedId]);
+    changed.mockClear();
     enabled = true;
     emitSettingsChanged();
     await vi.waitFor(() => expect(readWindow).toHaveBeenCalledTimes(2));
-    expect(changed.mock.calls).toEqual([[[]]]);
+    expect(changed).not.toHaveBeenCalled();
 
     insert.run(13, 21, 18065, now, 5, 12, poke('u_peer', 'u_self'));
     insert.run(14, 21, 18065, now, 5, 12, poke('u_self', 'u_peer'));

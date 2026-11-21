@@ -1374,6 +1374,17 @@ export const accountRouter = router({
         interactionBadges.subscribe((events) => emit.next(events)),
       );
     }),
+    state: procedure.input(exportAccountBindingInput.required()).subscription(({ input }) => {
+      const { interactionBadges } = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return observable<{ pending: ConversationInteraction[]; seen: readonly string[] }>((emit) =>
+        interactionBadges.subscribe((pending) =>
+          emit.next({ pending, seen: interactionBadges.seenIds }),
+        ),
+      );
+    }),
     acknowledge: procedure
       .input(
         exportAccountBindingInput.required().extend({
@@ -1784,6 +1795,7 @@ export const accountRouter = router({
             title: services.agentLab.getPersonaRecord(input.personaId)?.persona.name ?? '克隆会话',
             preview: generatedMessageSummary(reply),
             messageId: reply.id,
+            ts: reply.ts,
           });
         }
       }
@@ -1825,6 +1837,7 @@ export const accountRouter = router({
           conversationId: input.id,
           id: reply.id,
           messageId: reply.id,
+          ts: reply.ts,
           preview: sender && preview ? `${sender.displayName}：${preview}` : preview,
           title:
             group?.group.name ??
@@ -2344,6 +2357,7 @@ export const accountRouter = router({
             title: detail.group.name,
             preview: sender && preview ? `${sender.displayName}：${preview}` : preview,
             messageId: reply.id,
+            ts: reply.ts,
           });
         });
       return { groupRunId };
@@ -2379,7 +2393,10 @@ export const accountRouter = router({
           .listSessions()
           .find((item) => item.id === event.sessionId);
         if (!session) return;
-        const turn = services.assistant.getConversation(session.id).at(-1);
+        const history = services.assistant.getConversation(session.id);
+        const turn = event.messageId
+          ? history.findLast((item) => item.id === event.messageId)
+          : history.at(-1);
         emit.next({
           kind: 'assistant',
           conversationId: session.id,
@@ -2387,6 +2404,7 @@ export const accountRouter = router({
           title: session.title,
           preview: generatedMessageSummary({ text: event.step.text, steps: turn?.steps }),
           messageId: event.messageId ?? (turn?.role === 'assistant' ? turn.id : undefined),
+          ts: turn?.role === 'assistant' ? turn.ts : undefined,
         });
       };
       generatedReplyBus.on('reply', clone);

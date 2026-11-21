@@ -7,6 +7,10 @@ import { notificationEnabled, claimMessageBanner } from '../lib/notificationPoli
 import { useToast } from './Toast.shared';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import { IS_WEB } from '../lib/target.shared';
+import {
+  conversationInteractionId,
+  interactionBannerPrefix,
+} from '../../../shared/conversation_interaction';
 
 function mailBannerKey(uin: string, configId: string, id: string): string {
   return JSON.stringify(['mail', uin, configId, id]);
@@ -33,6 +37,16 @@ export function WebNotifications() {
           }
           const event = notice.kind;
           if (event === 'message') return;
+          const recallKey =
+            event === 'recall' && notice.target?.msgId
+              ? interactionBannerPrefix(uin, configId) +
+                conversationInteractionId({
+                  kind: notice.target.kind,
+                  conv: notice.target.conv,
+                  msgId: notice.target.msgId,
+                  action: 'recall',
+                })
+              : undefined;
           if (
             notificationEnabled(event, 'banner') &&
             (event !== 'keyword' ||
@@ -46,7 +60,7 @@ export function WebNotifications() {
           )
             useToast.getState().push({
               event,
-              key: notice.mail ? mailBannerKey(notice.uin, configId, notice.mail.id) : undefined,
+              key: notice.mail ? mailBannerKey(notice.uin, configId, notice.mail.id) : recallKey,
               title: notice.title,
               detail: notice.body,
               messageReadTarget:

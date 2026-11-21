@@ -396,6 +396,12 @@ function observeInteractionRecall(session: AccountSession, event: RecallNotifyEv
   if (ctx.account === session) ctx.services?.interactionBadges.observeRecall(event);
 }
 function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
+  const ctx = getAppContext();
+  if (
+    ctx.account === session &&
+    ctx.bootstrap?.userConfig.getSettings().notificationEvents.recall.banner
+  )
+    ctx.services?.interactionBadges.observeRecall(event, true);
   webNotice(session, {
     kind: 'recall',
     title: '撤回提醒',

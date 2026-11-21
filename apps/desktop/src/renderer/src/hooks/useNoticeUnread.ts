@@ -5,6 +5,7 @@ import {
   NOTICE_SEEN_LIMIT,
   type NoticeSeenState,
 } from '../../../shared/notice_seen';
+import { type NewNoticeNotification, useNewNoticeNotification } from './useNewNoticeNotification';
 
 export { NOTICE_SEEN_LIMIT };
 const NOTICE_READ_EVENT = 'weq:notice-read';
@@ -45,6 +46,7 @@ export function useNoticeUnread(
   open: boolean,
   ready: boolean,
   sync?: { state: SeenState | null; publish: (state: SeenState) => void },
+  notification?: NewNoticeNotification,
 ) {
   const key = `weq:notice-seen:${accountKey}:${kind}`;
   const [revision, setRevision] = useState(0);
@@ -156,5 +158,7 @@ export function useNoticeUnread(
     const remote = sync.state && mergeNoticeSeen(null, sync.state);
     if (JSON.stringify(state) !== JSON.stringify(remote)) sync.publish(state);
   }, [sync, ready, accountKey, key, revision, snapshot]);
-  return open && unread ? [] : unread;
+  const unreadForDisplay = open && unread ? [] : unread;
+  useNewNoticeNotification(key, ids, unreadForDisplay, seen, readThrough, notification);
+  return unreadForDisplay;
 }

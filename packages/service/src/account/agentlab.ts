@@ -354,7 +354,7 @@ export class AgentLabService extends EventEmitter {
   /** 保存每条原始输入，只有尚未发出的回复能被后续输入替换。 */
   submitCloneMessage(
     input: CloneMessageInput,
-    onReply: (reply: { id: string; text: string; senderId?: string }) => void,
+    onReply: (reply: { id: string; text: string; ts: number; senderId?: string }) => void,
   ) {
     this.conversationRuns.assertOpen(input);
     const key = `${input.kind}:${input.id}`;
@@ -406,7 +406,7 @@ export class AgentLabService extends EventEmitter {
             },
           );
         } finally {
-          if (last) onReply({ id: last.id, text: last.text, senderId: last.senderId });
+          if (last) onReply({ id: last.id, text: last.text, ts: last.ts, senderId: last.senderId });
         }
       });
       return { kind: 'group-message' as const, message };

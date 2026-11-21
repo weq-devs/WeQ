@@ -138,7 +138,8 @@ export function applyDataSaverStatus(status: DataSaverStatus) {
       detail: reason,
       action: { label: '省流量设置', run: openDataSaverMenu },
     });
-  }
+  } else if (initial || previous.enabled !== status.enabled)
+    useToast.getState().resolve('data-saver-mode');
 }
 export async function refreshDataSaverStatus() {
   const { client } = await import('../trpc/client');

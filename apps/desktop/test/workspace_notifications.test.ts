@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, createElement as h } from 'react';
+import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { TASK_READ_LIMIT, useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import type { WorkspaceTaskIndicator } from '../src/renderer/src/lib/workspaceIndicators';
 import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
 import { BackgroundTaskRegistry } from '../src/shared/background_task';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
+import { useTaskNotifications } from '../src/renderer/src/hooks/useTaskNotifications';
+import { taskNotificationKey } from '../src/renderer/src/lib/taskNotificationPresentation';
 
 const task = (
   id: string,
@@ -28,6 +33,41 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('任务结果已读状态', () => {
+  it('已查看的结果收起相应横幅，旧结果、待处理任务和另一数据源不受影响', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const root = createRoot(document.createElement('div'));
+    const scope = '["test","live"]';
+    const items = [
+      { ...task('done', 'finished', 'failed:2'), failed: true },
+      { ...task('waiting'), waiting: true },
+    ];
+    function Probe() {
+      useTaskNotifications(scope, items, true);
+      return null;
+    }
+    const push = (scope: string, taskId: string) =>
+      useToast.getState().push({
+        event: 'taskFailure',
+        key: taskNotificationKey(scope, taskId),
+        taskId,
+        system: false,
+      });
+    try {
+      act(() => root.render(h(Probe)));
+      const read = push(scope, 'done');
+      push(scope, 'waiting');
+      push('["test","backup"]', 'done');
+      useWorkspaceMenu.setState({ readTaskResultsByScope: { [scope]: { done: 'failed:1' } } });
+      expect(useToast.getState().leaving).toEqual([]);
+      useWorkspaceMenu.setState({
+        readTaskResultsByScope: { [scope]: { done: 'failed:2', waiting: 'completed' } },
+      });
+      expect(useToast.getState().leaving).toEqual([read]);
+    } finally {
+      act(() => root.unmount());
+      useToast.setState({ toasts: [], leaving: [], seq: 0 });
+    }
+  });
   it('WeQ 更新下载保留任务和进度，完成或失败不计入结果角标', () => {
     const store = useWorkspaceMenu.getState();
     const update = { id: 'weq-update', kind: 'update', updatedAt: 1 } as const;

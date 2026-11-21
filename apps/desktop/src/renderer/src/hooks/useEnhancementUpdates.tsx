@@ -3,21 +3,52 @@ import { client, trpc } from '../trpc/client';
 import { useToast } from '../components/Toast.shared';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useUpdateStore } from '../state/update';
+import type { EnhancementUpdateNotice } from '../../../shared/enhancement_release';
+
+const bannerKey = 'enhancement-updates';
+
+function updateCopy(notices: Iterable<EnhancementUpdateNotice>) {
+  return {
+    title: '增强包有可用更新',
+    detail: Array.from(notices, ({ name }) => name).join('、'),
+  };
+}
 
 /** 一次检查的增强包共用一张提醒；其他确认框关闭后再显示，不抢占用户操作。 */
 export function useEnhancementUpdates() {
   const shown = useRef(new Map<string, string>());
-  const pendingNames = useRef(new Map<string, string>());
+  const pending = useRef(new Map<string, EnhancementUpdateNotice>());
   const utils = trpc.useUtils();
   const packages = trpc.bootstrap.enhancementPacks.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
   useEffect(() => {
-    if (packages.data)
-      useUpdateStore
-        .getState()
-        .setPacksAvailable(packages.data.packs.some((pack) => pack.updateAvailable));
-  }, [packages.data]);
+    if (!packages.data) return;
+    const packs = packages.data.packs;
+    useUpdateStore.getState().setPacksAvailable(packs.some((pack) => pack.updateAvailable));
+    let changed = false;
+    for (const pack of packs) {
+      const notice = pending.current.get(pack.id);
+      if (!notice || pack.busy) continue;
+      if (
+        !pack.installed ||
+        (pack.ready &&
+          !pack.updateAvailable &&
+          (pack.installedVersion === notice.contentVersion ||
+            (pack.latestVersion && pack.latestVersion === pack.installedVersion)))
+      ) {
+        pending.current.delete(pack.id);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const toast = useToast.getState();
+    if (!pending.current.size) toast.resolve(bannerKey);
+    else {
+      const item = toast.toasts.find(({ key }) => key === bannerKey);
+      if (item) toast.update(item.id, updateCopy(pending.current.values()));
+    }
+  }, [packages.data, packages.dataUpdatedAt]);
   useEffect(() => {
     const subscription = client.bootstrap.onEnhancementUpdates.subscribe(undefined, {
       onData: (notices) => {
@@ -28,13 +59,12 @@ export function useEnhancementUpdates() {
         if (!updates.length) return;
         for (const notice of updates) {
           shown.current.set(notice.id, notice.contentVersion);
-          pendingNames.current.set(notice.id, notice.name);
+          pending.current.set(notice.id, notice);
         }
         useToast.getState().push({
           event: 'update',
-          key: 'enhancement-updates',
-          title: '增强包有可用更新',
-          detail: [...pendingNames.current.values()].join('、'),
+          key: bannerKey,
+          ...updateCopy(pending.current.values()),
           action: { label: '前往增强包', run: () => requestOpenSettings('enhancementPacks') },
         });
         void client.bootstrap.acknowledgeEnhancementUpdates

@@ -20,8 +20,15 @@ function DesktopRemoteRequests() {
   const current = useDialog((state) => state.current);
   const active = useRef<string | null>(null);
   useEffect(() => {
-    const request = status.data?.pending[0];
-    if (!request || current || active.current) return;
+    const pending = status.data?.pending;
+    const tracked = active.current;
+    if (tracked) {
+      if (pending && !pending.some(({ id }) => id === tracked))
+        notificationToast.resolve(`remote-request:${tracked}`);
+      return;
+    }
+    const request = pending?.[0];
+    if (!request || current) return;
     active.current = request.id;
     notificationToast.push({
       event: 'request',

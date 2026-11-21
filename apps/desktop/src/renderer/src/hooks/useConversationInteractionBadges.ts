@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { client } from '../trpc/client';
-import type { ConversationInteraction } from '../../../shared/conversation_interaction';
+import {
+  type ConversationInteraction,
+  interactionBannerPrefix,
+} from '../../../shared/conversation_interaction';
+import { useToast } from '../components/Toast.shared';
 
 type Binding = { expectedAccountUin: string; expectedAccountConfigId?: string };
 
@@ -18,16 +22,29 @@ export function useConversationInteractionBadges(
   useEffect(() => {
     if (!scope || !uin || !configId) return;
     let active = true;
-    const sub = client.account.interactionBadges.changed.subscribe(
+    let seen: ReadonlySet<string> = new Set();
+    const prefix = interactionBannerPrefix(uin, configId);
+    const closeReadBanners = (toast: ReturnType<typeof useToast.getState>) => {
+      for (const { id, key } of toast.toasts)
+        if (key?.startsWith(prefix) && seen.has(key.slice(prefix.length))) toast.dismiss(id);
+    };
+    const sub = client.account.interactionBadges.state.subscribe(
       { expectedAccountUin: uin, expectedAccountConfigId: configId },
       {
-        onData: (events) => {
-          if (active) setSnapshot({ scope, events });
+        onData: ({ pending, seen: acknowledged }) => {
+          if (!active) return;
+          seen = new Set(acknowledged);
+          closeReadBanners(useToast.getState());
+          setSnapshot({ scope, events: pending });
         },
       },
     );
+    const stopBanners = useToast.subscribe((state, previous) => {
+      if (state.toasts !== previous.toasts) closeReadBanners(state);
+    });
     return () => {
       active = false;
+      stopBanners();
       sub.unsubscribe();
     };
   }, [scope, uin, configId]);

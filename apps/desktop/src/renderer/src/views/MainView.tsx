@@ -146,6 +146,7 @@ import {
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
 import { useEnhancementUpdates } from '../hooks/useEnhancementUpdates';
+import { useNotificationPolicy } from '../lib/notificationPolicy';
 import { client } from '../trpc/client';
 import { useToast, sourceToastPush, type Toast } from '../components/Toast.shared';
 import {
@@ -1229,7 +1230,9 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     const sub = client.update.onEvent.subscribe(undefined, {
       onData(e) {
-        if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
+        if (e.kind === 'installing' || (e.kind === 'chosen' && !e.hasUpdate)) {
+          useToast.getState().resolve('weq-update');
+        } else if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
           useToast.getState().push({
             event: 'update',
             key: 'weq-update',
@@ -1446,9 +1449,11 @@ function MainWorkspace(): ReactElement {
     if (mobileLayout) setMobileConversationList(true);
   });
   useClientPreferences((state) => state.tick);
+  const showInteractionBadge = preferenceValue('showInteractionBadge');
+  const showRecallBanner = useNotificationPolicy((state) => state.events.recall.banner);
   const interactionBadges = useConversationInteractionBadges(
     pinSession.binding,
-    preferenceValue('showInteractionBadge'),
+    showInteractionBadge || showRecallBanner,
   );
   const interactionViewportLocked = useAppLock((state) => state.locked);
   const includeHiddenConversations = preferenceValue('allConversationsIncludeHidden');
@@ -2809,6 +2814,26 @@ function MainWorkspace(): ReactElement {
   ]);
   const friendNoticeIds = useMemo(() => contactRequests.map((r) => r.id), [contactRequests]);
   const groupNoticeIds = useMemo(() => groupRequests.map((r) => r.id), [groupRequests]);
+  const handledFriendNotices = useMemo(
+    () =>
+      new Set(
+        contactRequests.flatMap(({ id, direction, status }) =>
+          direction === 'incoming' && ['accepted', 'rejected', 'cancelled'].includes(status)
+            ? [id]
+            : [],
+        ),
+      ),
+    [contactRequests],
+  );
+  const handledGroupNotices = useMemo(
+    () =>
+      new Set(
+        groupRequests.flatMap(({ id, handleState }) =>
+          handleState === 'agreed' || handleState === 'refused' ? [id] : [],
+        ),
+      ),
+    [groupRequests],
+  );
   const openFriendNotice = useStableCallback(() => shell.openContactNotice('friend'));
   const openGroupNotice = useStableCallback(() => shell.openContactNotice('group'));
   const friendNoticeCount = useAccountNoticeUnread(
@@ -2817,7 +2842,7 @@ function MainWorkspace(): ReactElement {
     friendNoticeIds,
     shell.contactNotice === 'friend',
     buddyRequests.isSuccess,
-    { title: '收到新的好友通知', onOpen: openFriendNotice },
+    { title: '收到新的好友通知', onOpen: openFriendNotice, handledIds: handledFriendNotices },
   );
   const groupNoticeCount = useAccountNoticeUnread(
     noticeAccountKey,
@@ -2825,7 +2850,7 @@ function MainWorkspace(): ReactElement {
     groupNoticeIds,
     shell.contactNotice === 'group',
     groupNotifies.isSuccess,
-    { title: '收到新的群通知', onOpen: openGroupNotice },
+    { title: '收到新的群通知', onOpen: openGroupNotice, handledIds: handledGroupNotices },
   );
   const mailOpenRef = useRef(shell.switchView);
   mailOpenRef.current = shell.switchView;
@@ -11044,7 +11069,9 @@ function MainWorkspace(): ReactElement {
                             view: conversationView,
                             views: conversationViews,
                             rows: currentViewRows,
-                            interactionBadges: interactionBadges.byConversation,
+                            interactionBadges: showInteractionBadge
+                              ? interactionBadges.byConversation
+                              : undefined,
                             returnToRegular,
                             searchReturnView,
                             captureListPosition: captureConversationListPosition,
