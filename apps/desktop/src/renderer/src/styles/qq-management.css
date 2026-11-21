@@ -63,10 +63,16 @@
   gap: 8px;
 }
 .weq-group-management-heading h4,
+.weq-group-member-settings h4,
 .weq-group-tags h5 {
   margin: 0;
   font-size: 13px;
   color: var(--weq-fg-primary);
+}
+.weq-group-member-settings {
+  margin-block-start: 8px;
+  padding-block-start: 8px;
+  border-top: 1px solid var(--weq-border-subtle);
 }
 .weq-group-tags {
   min-width: 0;

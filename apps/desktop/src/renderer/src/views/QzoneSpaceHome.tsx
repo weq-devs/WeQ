@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, Info, Save } from 'lucide-react';
+import { FileText, Info, Save, Trash2 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { projectPublicFeed, type PublicFeedView } from '../lib/qzonePublic';
 import { useQQAction } from '../components/qq-actions/shared.shared';
@@ -66,63 +66,68 @@ function OrdinaryDetail({
       {detail.isFetching ? <LoadingStatus /> : null}
       {detail.error ? <p role="alert">{detail.error.message}</p> : null}
       {feed ? <FeedText feed={feed} /> : null}
-      {detail.data ? (
-        <div className="weq-qq-action-bar">
+      {detail.data || share.data || share.error ? (
+        <section className="weq-qzn-share-result" aria-label="分享卡片">
+          {share.data ? <QqArk arkData={share.data.ark} /> : null}
+          {share.data?.notice ? <p>{share.data.notice}</p> : null}
+          {share.error ? <p role="alert">{share.error.message}</p> : null}
+          <div className="weq-qq-action-bar">
+            {detail.data ? (
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={share.isLoading || !action.available}
+                onClick={() => share.mutate(input)}
+              >
+                {share.isLoading ? '正在生成…' : share.data ? '重新生成卡片' : '生成分享卡片'}
+              </button>
+            ) : null}
+            {share.data ? (
+              <CopyButton text={share.data.ark} className="weq-set-btn weq-set-btn-primary">
+                {share.data.requires_confirmation ? '确认并复制卡片' : '复制卡片'}
+              </CopyButton>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+      {detail.data && hostUin === selfUin ? (
+        <footer className="weq-qzn-post-detail-management">
           <button
             type="button"
             className="weq-set-btn"
-            disabled={share.isLoading || !action.available}
-            onClick={() => share.mutate(input)}
+            data-danger="outline"
+            disabled={action.disabled}
+            onClick={() => {
+              let confirmed = false;
+              void action
+                .perform(
+                  async (binding) => {
+                    const result = await client.account.qqActions.removeQzonePost.mutate({
+                      ...binding,
+                      hostUin,
+                      tid,
+                    });
+                    confirmed = result.state === 'confirmed';
+                    return result;
+                  },
+                  refresh,
+                  '删除这条 QQ 空间说说？',
+                  {
+                    danger: 'outline',
+                    requireReadback: true,
+                    readback: async () => confirmed,
+                    readbackSuccessText: '说说已删除',
+                  },
+                )
+                .then((done) => {
+                  if (done) onClose();
+                });
+            }}
           >
-            生成分享卡片
+            <Trash2 size={15} aria-hidden />
+            删除说说
           </button>
-          {hostUin === selfUin ? (
-            <button
-              type="button"
-              className="weq-set-btn"
-              data-danger="outline"
-              disabled={action.disabled}
-              onClick={() => {
-                let confirmed = false;
-                void action
-                  .perform(
-                    async (binding) => {
-                      const result = await client.account.qqActions.removeQzonePost.mutate({
-                        ...binding,
-                        hostUin,
-                        tid,
-                      });
-                      confirmed = result.state === 'confirmed';
-                      return result;
-                    },
-                    refresh,
-                    '删除这条 QQ 空间说说？',
-                    {
-                      danger: 'outline',
-                      requireReadback: true,
-                      readback: async () => confirmed,
-                      readbackSuccessText: '说说已删除',
-                    },
-                  )
-                  .then((done) => {
-                    if (done) onClose();
-                  });
-              }}
-            >
-              删除说说
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {share.error ? <p role="alert">{share.error.message}</p> : null}
-      {share.data ? (
-        <>
-          <QqArk arkData={share.data.ark} />
-          {share.data.notice ? <p>{share.data.notice}</p> : null}
-          <CopyButton text={share.data.ark} className="weq-set-btn">
-            {share.data.requires_confirmation ? '确认并复制卡片' : '复制卡片'}
-          </CopyButton>
-        </>
+        </footer>
       ) : null}
       <ActionFeedback action={action} />
     </EditorDialog>

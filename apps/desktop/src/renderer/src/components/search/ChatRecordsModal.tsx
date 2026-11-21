@@ -4,7 +4,7 @@ import { eventTimeFormatter } from '@weq/time';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { CalendarDays, Download, LocateFixed, Play, X, SearchX } from 'lucide-react';
+import { CalendarDays, CalendarRange, Download, LocateFixed, Play, X, SearchX } from 'lucide-react';
 import { ChatRecordsHeader } from './ChatRecordsHeader';
 import { ConversationCalendar } from './ConversationCalendar';
 import { TimeRangePicker } from '../../views/export/TimeRangePicker';
@@ -583,38 +583,25 @@ export function ChatRecordsModal({
             autoFocus
           />
         )}
-        <div className="weq-record-calendar-actions">
-          {sharedMedia ? (
-            <div className="weq-record-media-categories" role="group" aria-label="共享媒体类型">
-              {sharedCategories.map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  className="weq-set-btn"
-                  aria-pressed={category === kind}
-                  onClick={() => setCategory(kind)}
-                >
-                  {MESSAGE_CATEGORY_LABELS[kind]}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {fixed ? (
-            <button type="button" onClick={() => setRangeCalendarOpen(true)}>
-              <CalendarDays size={15} />
-              {startDay || endDay ? `${startDay || '不限'} 至 ${endDay || '不限'}` : '时间范围'}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            title="按日期定位"
-            disabled={Boolean(localSource) || !selected}
-            onClick={() => setCalendarOpen(true)}
+        {sharedMedia ? (
+          <div
+            className="weq-record-filters weq-record-media-categories"
+            role="group"
+            aria-label="共享媒体类型"
           >
-            <CalendarDays size={15} />
-            跳转日期
-          </button>
-        </div>
+            {sharedCategories.map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                className="weq-set-btn"
+                aria-pressed={category === kind}
+                onClick={() => setCategory(kind)}
+              >
+                {MESSAGE_CATEGORY_LABELS[kind]}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {rangeCalendarOpen && selected ? (
           <Modal
             presentation="popover"
@@ -652,7 +639,7 @@ export function ChatRecordsModal({
           </Modal>
         ) : null}
         {fixed ? (
-          <div className="weq-record-filters">
+          <div className="weq-record-filters" role="group" aria-label="筛选聊天记录">
             <label>
               发送者
               <FormSuggestions
@@ -687,109 +674,137 @@ export function ChatRecordsModal({
                 ))}
               </FormSelect>
             ) : null}
-            <FormSelect
-              aria-label="导出格式"
-              disabled={Boolean(localSource)}
-              value={exportFormat}
-              onChange={(e) => setExportFormat(e.target.value as typeof exportFormat)}
-            >
-              {['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'].map((f) => (
-                <option key={f}>{f}</option>
-              ))}
-            </FormSelect>
-            <label className="weq-record-self">
-              <input
-                type="checkbox"
-                checked={includeMedia || exportFormat === 'html'}
-                disabled={Boolean(localSource) || exportFormat === 'html'}
-                onChange={(e) => setIncludeMedia(e.target.checked)}
-              />
-              附件
-            </label>
             <button
-              className="weq-dialog-x"
-              aria-label="导出筛选结果"
-              title="导出筛选结果"
-              disabled={
-                exportBusy ||
-                msgLoading ||
-                !!msgError ||
-                !selected ||
-                Boolean(localSource && (!requestExport || !messages.length))
-              }
-              onClick={() => {
-                if (localSource) {
-                  const scope = conversationExportSelection(localSource.conversation);
-                  if (requestExport && scope && messages.length)
-                    requestExport({
-                      ...scope,
-                      scope: {
-                        type: 'items',
-                        ids: localMatches.current.map((message) => message.msgId),
-                      },
-                    });
-                  if (requestExport && scope && messages.length) onClose();
-                  return;
-                }
-                if (!selected) return;
-                setExportBusy(true);
-                setMsgError('');
-                void (async () => {
-                  const includeIntegrityReport = await report.choose();
-                  if (includeIntegrityReport === null) return;
-                  const range = { start: filter.start ?? null, end: filter.end ?? null };
-                  if (
-                    !(await preflightExportEstimate(
-                      dialog,
-                      [
-                        {
-                          kind: selected.source === 'group' ? 'group' : 'c2c',
-                          id: selected.targetUid,
-                          name: selected.name,
-                        },
-                      ],
-                      {
-                        range,
-                        formats: [exportFormat],
-                        exportMedia: includeMedia || exportFormat === 'html',
-                        filter,
-                      },
-                    ))
-                  )
-                    return;
-                  await client.account.startExport.mutate({
-                    includeIntegrityReport,
-                    kind: selected.source === 'group' ? 'group' : 'c2c',
-                    conv: selected.targetUid,
-                    name: selected.name,
-                    format: exportFormat,
-                    total: 0,
-                    media: {
-                      exportMedia: includeMedia || exportFormat === 'html',
-                      completeMessages: false,
-                      completeMedia: false,
-                      downloadVideo: false,
-                      downloadFile: false,
-                      downloadPtt: false,
-                      transcribeVoice: false,
-                    },
-                    filter: {
-                      sender: filter.sender,
-                      keyword: filter.keyword,
-                      category: filter.category,
-                    },
-                    range,
-                  });
-                  onClose();
-                })()
-                  .catch((e) => setMsgError(String(e)))
-                  .finally(() => setExportBusy(false));
-              }}
+              type="button"
+              className="weq-set-btn weq-record-range-button"
+              onClick={() => setRangeCalendarOpen(true)}
             >
-              <Download size={16} />
+              <CalendarRange size={15} aria-hidden />
+              {startDay || endDay ? `${startDay || '不限'} 至 ${endDay || '不限'}` : '时间范围'}
             </button>
           </div>
         ) : null}
+        <div className="weq-record-calendar-actions">
+          <button
+            type="button"
+            title="按日期定位"
+            disabled={Boolean(localSource) || !selected}
+            onClick={() => setCalendarOpen(true)}
+          >
+            <CalendarDays size={15} aria-hidden />
+            跳转日期
+          </button>
+          {fixed ? (
+            <div
+              className="weq-record-filters weq-record-export"
+              role="group"
+              aria-label="导出选项"
+            >
+              <FormSelect
+                aria-label="导出格式"
+                disabled={Boolean(localSource)}
+                value={exportFormat}
+                onChange={(e) => setExportFormat(e.target.value as typeof exportFormat)}
+              >
+                {['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'].map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </FormSelect>
+              <label className="weq-record-self">
+                <input
+                  type="checkbox"
+                  checked={includeMedia || exportFormat === 'html'}
+                  disabled={Boolean(localSource) || exportFormat === 'html'}
+                  onChange={(e) => setIncludeMedia(e.target.checked)}
+                />
+                附件
+              </label>
+              <button
+                type="button"
+                className="weq-dialog-x"
+                aria-label="导出筛选结果"
+                title="导出筛选结果"
+                disabled={
+                  exportBusy ||
+                  msgLoading ||
+                  !!msgError ||
+                  !selected ||
+                  Boolean(localSource && (!requestExport || !messages.length))
+                }
+                onClick={() => {
+                  if (localSource) {
+                    const scope = conversationExportSelection(localSource.conversation);
+                    if (requestExport && scope && messages.length)
+                      requestExport({
+                        ...scope,
+                        scope: {
+                          type: 'items',
+                          ids: localMatches.current.map((message) => message.msgId),
+                        },
+                      });
+                    if (requestExport && scope && messages.length) onClose();
+                    return;
+                  }
+                  if (!selected) return;
+                  setExportBusy(true);
+                  setMsgError('');
+                  void (async () => {
+                    const includeIntegrityReport = await report.choose();
+                    if (includeIntegrityReport === null) return;
+                    const range = { start: filter.start ?? null, end: filter.end ?? null };
+                    if (
+                      !(await preflightExportEstimate(
+                        dialog,
+                        [
+                          {
+                            kind: selected.source === 'group' ? 'group' : 'c2c',
+                            id: selected.targetUid,
+                            name: selected.name,
+                          },
+                        ],
+                        {
+                          range,
+                          formats: [exportFormat],
+                          exportMedia: includeMedia || exportFormat === 'html',
+                          filter,
+                        },
+                      ))
+                    )
+                      return;
+                    await client.account.startExport.mutate({
+                      includeIntegrityReport,
+                      kind: selected.source === 'group' ? 'group' : 'c2c',
+                      conv: selected.targetUid,
+                      name: selected.name,
+                      format: exportFormat,
+                      total: 0,
+                      media: {
+                        exportMedia: includeMedia || exportFormat === 'html',
+                        completeMessages: false,
+                        completeMedia: false,
+                        downloadVideo: false,
+                        downloadFile: false,
+                        downloadPtt: false,
+                        transcribeVoice: false,
+                      },
+                      filter: {
+                        sender: filter.sender,
+                        keyword: filter.keyword,
+                        category: filter.category,
+                      },
+                      range,
+                    });
+                    onClose();
+                  })()
+                    .catch((e) => setMsgError(String(e)))
+                    .finally(() => setExportBusy(false));
+                }}
+              >
+                <Download size={16} />
+              </button>
+            </div>
+          ) : null}
+        </div>
         {msgError ? (
           <p role="alert" className="weq-record-error">
             {msgError}

@@ -140,7 +140,7 @@ html[data-theme='dark'] .weq-density-calendar-grid button {
   gap: 8px;
   margin: 0 0 12px;
 }
-.weq-record-calendar-actions button {
+.weq-record-calendar-actions > button {
   display: inline-flex;
   align-items: center;
   gap: 6px;

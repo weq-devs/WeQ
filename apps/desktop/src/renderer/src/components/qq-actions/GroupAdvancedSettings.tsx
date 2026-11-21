@@ -5,11 +5,13 @@ import { Row, Toggle } from '../settings/controls';
 import { ActionFeedback } from './shared';
 import { useQQAction } from './shared.shared';
 
-const switches = [
+const memberSwitches = [
   ['newMemberHistory', '新成员可查看历史消息'],
   ['allowMemberTemporarySession', '允许成员发起临时会话'],
   ['allowMemberCreateGroup', '允许成员发起群聊'],
   ['allowMemberUploadAlbum', '允许成员上传群相册'],
+] as const;
+const robotSwitches = [
   ['robotMemberSwitch', '允许邀请群机器人'],
   ['robotMemberExamine', '群机器人入群需要审核'],
 ] as const;
@@ -25,7 +27,7 @@ const inviteModes = {
   no_approval_under_100: '群人数不足 100 时无需审核',
 } as const;
 type Change =
-  | { key: (typeof switches)[number][0]; value: boolean }
+  | { key: (typeof memberSwitches | typeof robotSwitches)[number][0]; value: boolean }
   | { key: 'searchMode'; value: keyof typeof searchModes }
   | { key: 'invitePolicy'; value: keyof typeof inviteModes };
 
@@ -52,8 +54,30 @@ export function GroupAdvancedSettings({ groupId }: { groupId: number }) {
       },
     );
   }
+  function renderSwitch([key, label]: (typeof memberSwitches | typeof robotSwitches)[number]) {
+    const value = query.data?.[key];
+    return (
+      <Row
+        key={key}
+        label={label}
+        indent={key === 'robotMemberExamine'}
+        control={
+          value == null ? (
+            <span className="weq-set-row-status">{query.isFetching ? '读取中…' : '状态未知'}</span>
+          ) : (
+            <Toggle
+              label={label}
+              checked={value}
+              disabled={disabled}
+              onChange={(value) => update({ key, value })}
+            />
+          )
+        }
+      />
+    );
+  }
   return (
-    <div className="weq-join-settings">
+    <div>
       <Row
         label="群搜索方式"
         control={
@@ -78,29 +102,6 @@ export function GroupAdvancedSettings({ groupId }: { groupId: number }) {
           </FormSelect>
         }
       />
-      {switches.map(([key, label]) => {
-        const value = query.data?.[key];
-        return (
-          <Row
-            key={key}
-            label={label}
-            control={
-              value == null ? (
-                <span className="weq-set-row-status">
-                  {query.isFetching ? '读取中…' : '状态未知'}
-                </span>
-              ) : (
-                <Toggle
-                  label={label}
-                  checked={value}
-                  disabled={disabled}
-                  onChange={(value) => update({ key, value })}
-                />
-              )
-            }
-          />
-        );
-      })}
       <Row
         label="成员邀请"
         control={
@@ -125,6 +126,11 @@ export function GroupAdvancedSettings({ groupId }: { groupId: number }) {
           </FormSelect>
         }
       />
+      {robotSwitches.map(renderSwitch)}
+      <section className="weq-group-member-settings" aria-label="入群后权限">
+        <h4>入群后权限</h4>
+        {memberSwitches.map(renderSwitch)}
+      </section>
       {query.error ? <p role="alert">{query.error.message}</p> : null}
       <ActionFeedback action={action} />
     </div>

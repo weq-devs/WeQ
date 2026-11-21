@@ -57,6 +57,19 @@
   cursor: default;
 }
 
+.weq-record-range-button {
+  min-height: 30px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.weq-record-calendar-actions > .weq-record-export {
+  align-items: center;
+  min-width: 0;
+  margin-inline-start: auto;
+  padding: 0;
+}
+
 html[data-theme='dark'] .weq-record-calendar-actions > button {
   border-color: var(--weq-border-strong);
 }
