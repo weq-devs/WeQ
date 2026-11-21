@@ -389,7 +389,6 @@ button.composer-single-thumb {
 }
 
 .voice-wave {
-  --voice-wave-progress: 0%;
   position: absolute;
   z-index: 1;
   top: var(--voice-wave-center);
@@ -427,20 +426,12 @@ button.composer-single-thumb {
   right: 42px;
 }
 
-.voice-wave-bars {
-  display: flex;
+.voice-wave-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
   height: 100%;
-  align-items: center;
-  gap: clamp(1px, 0.4vw, 3px);
-}
-
-.voice-wave-bars > span {
-  flex: 1 1 0;
-  height: 100%;
-  border-radius: 2px;
-  background: currentColor;
-  transform: scaleY(0.14);
-  transition: transform 68ms linear;
+  pointer-events: none;
 }
 
 .voice-wave.is-seekable {
@@ -455,16 +446,23 @@ button.composer-single-thumb {
 .voice-wave-progress {
   position: absolute;
   inset: 0;
+  overflow: hidden;
   color: var(--weq-accent-effective);
-  clip-path: inset(0 calc(100% - var(--voice-wave-progress)) 0 0);
   pointer-events: none;
+  transform: translateX(-100%);
+  will-change: transform;
+}
+
+.voice-wave-progress .voice-wave-canvas {
+  transform: translateX(100%);
+  will-change: transform;
 }
 
 .voice-wave-playhead {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  transform: translateX(var(--voice-wave-progress));
+  will-change: transform;
 }
 
 .voice-wave-playhead::before {
@@ -533,8 +531,7 @@ button.composer-single-thumb {
 
 @media (prefers-reduced-motion: reduce) {
   .voice-record-track,
-  .voice-wave,
-  .voice-wave span {
+  .voice-wave {
     transition: none;
   }
 }

@@ -52,7 +52,6 @@ import {
 } from './composerMedia';
 
 const BAR_COUNT = 56;
-const WAVE_BARS = Array.from({ length: BAR_COUNT }, (_, index) => `bar-${index}`);
 const MAX_RECORD_MS = 60_000;
 const MIN_RECORD_MS = 700;
 const MAX_TTS_CHARS = 200;
@@ -110,6 +109,13 @@ function useVoiceRecorder() {
   const levelsRef = useRef<number[] | null>(null);
   if (!levelsRef.current) levelsRef.current = new Array(BAR_COUNT).fill(0);
   const levels = levelsRef.current;
+  const waveListeners = useRef(new Set<() => void>());
+  const subscribeWave = useCallback((listener: () => void) => {
+    waveListeners.current.add(listener);
+    return () => {
+      waveListeners.current.delete(listener);
+    };
+  }, []);
 
   const phaseRef = useRef<RecorderPhase>('idle');
   const clipRef = useRef<VoiceClip | null>(null);
@@ -336,6 +342,7 @@ function useVoiceRecorder() {
       levels.copyWithin(0, 1);
       levels[levels.length - 1] = level;
       peaksRef.current.push(level);
+      for (const listener of waveListeners.current) listener();
     },
     [levels],
   );
@@ -373,13 +380,16 @@ function useVoiceRecorder() {
     const startClock = () => {
       startedAtRef.current = performance.now();
       setPhaseSafe('recording');
+      let displayedSecond = Math.floor(completedDurationRef.current / 1000);
       timerRef.current = window.setInterval(() => {
-        setElapsedMs(
-          Math.min(
-            MAX_RECORD_MS,
-            completedDurationRef.current + performance.now() - startedAtRef.current,
-          ),
+        const elapsed = Math.min(
+          MAX_RECORD_MS,
+          completedDurationRef.current + performance.now() - startedAtRef.current,
         );
+        const second = Math.floor(elapsed / 1000);
+        if (second === displayedSecond) return;
+        displayedSecond = second;
+        setElapsedMs(elapsed);
       }, 100);
       maxTimerRef.current = window.setTimeout(
         endRecord,
@@ -551,31 +561,34 @@ function useVoiceRecorder() {
     const audio = audioRef.current ?? new Audio();
     audioRef.current = audio;
     if (audio.src === clip.url) return audio;
-    const updateTime = () => {
+    const updateTime = (exact = false) => {
       if (clipRef.current !== clip) return;
       const duration =
         Number.isFinite(audio.duration) && audio.duration > 0
           ? audio.duration * 1000
           : clip.durationMs;
-      setPlaybackDurationMs(duration);
-      setPlaybackMs(Math.min(duration, audio.currentTime * 1000));
+      if (exact) setPlaybackDurationMs(duration);
+      const position = Math.min(duration, audio.currentTime * 1000);
+      setPlaybackMs((previous) =>
+        exact || Math.floor(previous / 1000) !== Math.floor(position / 1000) ? position : previous,
+      );
     };
     audio.onplay = () => {
       if (clipRef.current === clip) setPlaying(true);
     };
     audio.onpause = () => {
       if (clipRef.current !== clip) return;
-      updateTime();
+      updateTime(true);
       setPlaying(false);
     };
     audio.onended = () => {
       if (clipRef.current !== clip) return;
-      updateTime();
+      updateTime(true);
       setPlaying(false);
     };
-    audio.ontimeupdate = updateTime;
-    audio.onseeked = updateTime;
-    audio.ondurationchange = updateTime;
+    audio.ontimeupdate = () => updateTime();
+    audio.onseeked = () => updateTime(true);
+    audio.ondurationchange = () => updateTime(true);
     audio.onerror = () => {
       if (clipRef.current !== clip) return;
       setPlaying(false);
@@ -717,6 +730,7 @@ function useVoiceRecorder() {
   return {
     phase,
     levels,
+    subscribeWave,
     clip,
     elapsedMs,
     error,
@@ -747,19 +761,48 @@ function useVoiceRecorder() {
 
 // ── 声纹 ─────────────────────────────────────────────────────────────────────
 
-function waveBarTransform(levels: readonly number[], index: number) {
-  const value = levels[Math.floor((index / BAR_COUNT) * levels.length)] ?? 0;
-  return `scaleY(${0.14 + Math.min(1, value) * 0.86})`;
+function drawWaveBars(
+  context: CanvasRenderingContext2D,
+  levels: readonly number[],
+  width: number,
+  height: number,
+  gap: number,
+  color: string,
+) {
+  const stride = (width + gap) / BAR_COUNT;
+  const barWidth = stride - gap;
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = color;
+  context.beginPath();
+  for (let index = 0; index < BAR_COUNT; index++) {
+    const value = levels[Math.floor((index / BAR_COUNT) * levels.length)] ?? 0;
+    const amplitude = height * (0.14 + Math.min(1, value) * 0.86);
+    const y = (height - amplitude) / 2;
+    if (context.roundRect) {
+      context.roundRect(
+        index * stride,
+        y,
+        barWidth,
+        amplitude,
+        Math.min(2, barWidth / 2, amplitude / 2),
+      );
+    } else {
+      context.rect(index * stride, y, barWidth, amplitude);
+    }
+  }
+  context.fill();
 }
 
-/** 录音与回顾共用同一组柱子，已播放部分由播放位置裁切。 */
+/** 采样时重画波形，播放时只移动已绘好的波形和进度线。 */
 function VoiceWave({
   levels,
   active,
+  subscribeWave,
   playback,
 }: {
   levels: readonly number[];
   active: boolean;
+  subscribeWave: (listener: () => void) => () => void;
   playback?: {
     positionMs: number;
     durationMs: number;
@@ -769,36 +812,98 @@ function VoiceWave({
   };
 }) {
   const waveRef = useRef<HTMLDivElement | null>(null);
-  const barRefs = useRef<Array<HTMLSpanElement | null>>([]);
-  useLayoutEffect(() => {
-    let timer: number | undefined;
-    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const draw = () => {
-      barRefs.current.forEach((bar, index) => {
-        if (bar) bar.style.transform = waveBarTransform(levels, index);
-      });
-    };
-    const updateMotion = () => {
-      window.clearInterval(timer);
-      draw();
-      if (active && !motion.matches) timer = window.setInterval(draw, 68);
-    };
-    updateMotion();
-    motion.addEventListener('change', updateMotion);
-    return () => {
-      window.clearInterval(timer);
-      motion.removeEventListener('change', updateMotion);
-    };
-  }, [levels, active]);
-  const { positionMs, durationMs, playing, readPositionMs } = playback ?? {};
+  const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const playedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const playedWindowRef = useRef<HTMLDivElement | null>(null);
+  const playheadRef = useRef<HTMLDivElement | null>(null);
+  const showPlayback = Boolean(playback);
+
   useLayoutEffect(() => {
     const wave = waveRef.current;
-    if (!wave || !durationMs || typeof positionMs !== 'number') return;
+    if (!wave) return;
+    const layers = [baseCanvasRef.current, playedCanvasRef.current].flatMap((canvas) => {
+      const context = canvas?.getContext('2d');
+      return canvas && context ? [{ canvas, context, color: '' }] : [];
+    });
+    if (!layers.length) return;
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let width = 0,
+      height = 0,
+      gap = 0;
+    let frame: number | null = null;
+    const draw = () => {
+      frame = null;
+      if (width <= 0 || height <= 0) return;
+      for (const { context, color } of layers)
+        drawWaveBars(context, levels, width, height, gap, color);
+    };
+    const scheduleDraw = () => {
+      if (frame === null) frame = window.requestAnimationFrame(draw);
+    };
+    const resize = () => {
+      width = wave.clientWidth;
+      height = wave.clientHeight;
+      if (width <= 0 || height <= 0) return;
+      const density = Math.min(2, window.devicePixelRatio || 1);
+      gap = Math.min(3, Math.max(1, window.innerWidth * 0.004), width / (BAR_COUNT * 2));
+      for (const { canvas, context } of layers) {
+        const pixelWidth = Math.round(width * density);
+        const pixelHeight = Math.round(height * density);
+        if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+        if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+        context.setTransform(pixelWidth / width, 0, 0, pixelHeight / height, 0, 0);
+      }
+      scheduleDraw();
+    };
+    const refreshColors = () => {
+      for (const layer of layers) layer.color = window.getComputedStyle(layer.canvas).color;
+      scheduleDraw();
+    };
+    const sizeObserver = new ResizeObserver(resize);
+    sizeObserver.observe(wave);
+    const themeObserver = new MutationObserver(refreshColors);
+    themeObserver.observe(document.documentElement, {
+      attributeFilter: ['class', 'data-theme', 'style'],
+    });
+    refreshColors();
+    resize();
+    const unsubscribe = active
+      ? subscribeWave(() => {
+          if (!motion.matches) scheduleDraw();
+        })
+      : undefined;
+    return () => {
+      unsubscribe?.();
+      sizeObserver.disconnect();
+      themeObserver.disconnect();
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, [levels, active, showPlayback, subscribeWave]);
+
+  const { positionMs, durationMs, playing, readPositionMs } = playback ?? {};
+  useLayoutEffect(() => {
+    const playedWindow = playedWindowRef.current;
+    const playedCanvas = playedCanvasRef.current;
+    const playhead = playheadRef.current;
+    if (
+      !playedWindow ||
+      !playedCanvas ||
+      !playhead ||
+      !durationMs ||
+      typeof positionMs !== 'number'
+    )
+      return;
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let frame = 0;
+    let lastProgress = -1;
     const paint = (timeMs: number) => {
       const progress = Math.min(1, Math.max(0, timeMs / durationMs));
-      wave.style.setProperty('--voice-wave-progress', `${progress * 100}%`);
+      if (progress === lastProgress) return;
+      lastProgress = progress;
+      // 反向平移裁切窗口和画布，着色区域前进，柱形保持原位。
+      playedWindow.style.transform = `translateX(${(progress - 1) * 100}%)`;
+      playedCanvas.style.transform = `translateX(${(1 - progress) * 100}%)`;
+      playhead.style.transform = `translateX(${progress * 100}%)`;
     };
     const tick = () => {
       paint(readPositionMs?.() ?? positionMs);
@@ -822,26 +927,13 @@ function VoiceWave({
       aria-hidden={playback ? undefined : true}
       ref={waveRef}
     >
-      <div className="voice-wave-bars" aria-hidden="true">
-        {WAVE_BARS.map((key, index) => (
-          <span
-            key={key}
-            ref={(node) => {
-              barRefs.current[index] = node;
-            }}
-          />
-        ))}
-      </div>
+      <canvas className="voice-wave-canvas" ref={baseCanvasRef} aria-hidden="true" />
       {playback ? (
         <>
-          <div className="voice-wave-progress" aria-hidden="true">
-            <div className="voice-wave-bars">
-              {WAVE_BARS.map((key, index) => (
-                <span key={key} style={{ transform: waveBarTransform(levels, index) }} />
-              ))}
-            </div>
+          <div className="voice-wave-progress" ref={playedWindowRef} aria-hidden="true">
+            <canvas className="voice-wave-canvas" ref={playedCanvasRef} />
           </div>
-          <div className="voice-wave-playhead" aria-hidden="true" />
+          <div className="voice-wave-playhead" ref={playheadRef} aria-hidden="true" />
           <input
             className="voice-wave-seek"
             type="range"
@@ -1310,6 +1402,7 @@ export function VoicePanel({
             <VoiceWave
               levels={playback ? (recorder.clip?.levels ?? []) : recorder.levels}
               active={phase === 'recording'}
+              subscribeWave={recorder.subscribeWave}
               playback={playback}
             />
           )}
