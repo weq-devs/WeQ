@@ -182,6 +182,13 @@ export const WorkspaceTools = lazyPanel<
 export const ChatHome = lazyPanel<ComponentProps<typeof import('../views/ChatHome').ChatHome>>(() =>
   import('../views/ChatHome').then((m) => ({ default: m.ChatHome })),
 );
+export const GroupCallWindow = lazyPanel<
+  ComponentProps<typeof import('./call/GroupCallWindow').GroupCallWindow>
+>(() => import('./call/GroupCallWindow').then((m) => ({ default: m.GroupCallWindow })));
+export const GroupCallInvite = lazyPanel<
+  ComponentProps<typeof import('./call/GroupCallWindow').GroupCallInvite>
+>(() => import('./call/GroupCallWindow').then((m) => ({ default: m.GroupCallInvite })));
+
 export const CallWindow = lazyPanel<ComponentProps<typeof import('./CallWindow').CallWindow>>(() =>
   import('./CallWindow').then((m) => ({ default: m.CallWindow })),
 );

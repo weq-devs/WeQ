@@ -7,8 +7,7 @@
  * 用 Web Audio 而不是 `<audio>` 播对端：通话是连续的 20 ms 流，`<audio>` 的解码 /
  * 缓冲模型适合整段文件，不适合实时流。
  *
- * 从 CallWindow 里抽出来，一是那文件本来就太长，二是**未来的视频通话**还要在这里
- * 加视频轨、多人通话要多路混音 —— 那些都不该和窗口的 DOM 搅在一起。
+ * 群通话按成员分开缓冲，再混到同一条播放轨。
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -39,22 +38,62 @@ export interface CallAudioOptions {
   micEnabled?: boolean;
   /** 录音期间即使静音也要保持采集（否则录到的是空轨）。 */
   keepMicForRecording?: boolean;
+  onMicError?: (error: unknown) => void;
 }
 
 /** 麦克风采集 + 对端播放。返回两端实时响度（0..1，画波形用）。 */
-export function useCallAudio({
-  live,
-  muted,
-  speakerOff,
-  micEnabled = true,
-  keepMicForRecording = false,
-}: CallAudioOptions): { level: number; peerLevel: number } {
+export function useCallAudio(options: CallAudioOptions): { level: number; peerLevel: number } {
+  const pushAudio = trpc.call.pushAudio.useMutation();
+  const { enqueue, level, peerLevel } = useCallAudioStream(options, pushAudio.mutate);
+  trpc.call.onCallAudio.useSubscription(undefined, {
+    onData: (pcm) => enqueue(0, pcm as unknown as Uint8Array),
+    onError: (error) => console.error('[call] audio subscription error', error),
+  });
+  return { level, peerLevel };
+}
+
+export function useGroupCallAudio(
+  options: CallAudioOptions & { id: string; silentMembers: ReadonlySet<number> },
+): void {
+  const pushAudio = trpc.groupCall.pushAudio.useMutation();
+  const audioPending = useRef(false);
+  const { enqueue } = useCallAudioStream(options, ({ pcm, muted }) => {
+    if (audioPending.current || muted) return;
+    audioPending.current = true;
+    void pushAudio
+      .mutateAsync({ id: options.id, pcm })
+      .catch(() => {})
+      .finally(() => {
+        audioPending.current = false;
+      });
+  });
+  trpc.groupCall.audio.useSubscription(
+    { id: options.id },
+    {
+      enabled: options.live,
+      onData: ({ pcm, uin }) => enqueue(uin, pcm),
+    },
+  );
+}
+
+function useCallAudioStream(
+  {
+    live,
+    muted,
+    speakerOff,
+    micEnabled = true,
+    keepMicForRecording = false,
+    silentMembers,
+    onMicError,
+  }: CallAudioOptions & { silentMembers?: ReadonlySet<number> },
+  push: (input: { pcm: Uint8Array<ArrayBuffer>; muted: boolean }) => void,
+) {
   const [level, setLevel] = useState(0);
   const [peerLevel, setPeerLevel] = useState(0);
 
   const micStream = useRef<MediaStream | null>(null);
   const micContext = useRef<AudioContext | null>(null);
-  const playBuffer = useRef<Int16Array[]>([]);
+  const playBuffer = useRef(new Map<number, Int16Array[]>());
   const playTimer = useRef<number | null>(null);
   /** 采集侧攒帧用的缓冲（16 ms 一段，凑满 20 ms 才发）。 */
   const micPending = useRef<Float32Array>(new Float32Array(0));
@@ -68,21 +107,19 @@ export function useCallAudio({
   speakerRef.current = speakerOff;
   keepMicRef.current = keepMicForRecording;
 
-  const pushAudio = trpc.call.pushAudio.useMutation();
-  const pushRef = useRef(pushAudio.mutate);
-  pushRef.current = pushAudio.mutate;
-
-  // ── 对端音频：进队列，由独立定时器按 20 ms 喂出 ──
-  trpc.call.onCallAudio.useSubscription(undefined, {
-    onData: (pcm) => {
-      const raw = pcm as unknown as Uint8Array;
-      if (speakerRef.current) return;
-      playBuffer.current.push(toInt16(raw));
-      if (playBuffer.current.length > MAX_PLAY_FRAMES)
-        playBuffer.current.splice(0, playBuffer.current.length - MAX_PLAY_FRAMES);
-    },
-    onError: (error) => console.error('[call] audio subscription error', error),
-  });
+  const micError = useRef(onMicError);
+  micError.current = onMicError;
+  const silentRef = useRef(silentMembers);
+  silentRef.current = silentMembers;
+  const pushRef = useRef(push);
+  pushRef.current = push;
+  const enqueue = (uin: number, bytes: Uint8Array) => {
+    if (speakerRef.current || silentRef.current?.has(uin)) return;
+    const queue = playBuffer.current.get(uin) ?? [];
+    queue.push(toInt16(bytes));
+    if (queue.length > MAX_PLAY_FRAMES) queue.shift();
+    playBuffer.current.set(uin, queue);
+  };
 
   // ── 播放循环 ──
   useEffect(() => {
@@ -96,12 +133,24 @@ export function useCallAudio({
     document.addEventListener('pointerdown', resumePlayback);
     const schedule = () => {
       playTimer.current = window.setTimeout(() => {
-        const frame = playBuffer.current.shift();
-        if (frame && !speakerRef.current) {
-          const buffer = context.createBuffer(1, frame.length, CALL_RATE);
+        const frames: Int16Array[] = [];
+        for (const [uin, queue] of playBuffer.current) {
+          if (speakerRef.current || silentRef.current?.has(uin)) {
+            playBuffer.current.delete(uin);
+            continue;
+          }
+          const frame = queue.shift();
+          if (frame) frames.push(frame);
+          if (!queue.length) playBuffer.current.delete(uin);
+        }
+        if (frames.length && context.state === 'running') {
+          const length = frames.reduce((max, frame) => Math.max(max, frame.length), 0);
+          const buffer = context.createBuffer(1, length, CALL_RATE);
           const channel = buffer.getChannelData(0);
-          for (let i = 0; i < frame.length; i++) channel[i] = (frame[i] ?? 0) / 0x8000;
-          // 与上行同一套响度：两边柱子对同样大小的声音应该一样高。
+          for (const frame of frames) {
+            for (let i = 0; i < frame.length; i++) channel[i] = channel[i]! + frame[i]! / 0x8000;
+          }
+          for (let i = 0; i < length; i++) channel[i] = Math.max(-1, Math.min(1, channel[i]!));
           const next = callLevel(channel);
           setPeerLevel((prev) => smoothLevel(prev, next));
           const source = context.createBufferSource();
@@ -155,7 +204,11 @@ export function useCallAudio({
                     pushRef.current({ pcm, muted: mutedRef.current });
                 }
               },
-              error: (message) => console.error('[call] 原生麦克风不可用', message),
+              error: (message) => {
+                if (cancelled) return;
+                if (micError.current) micError.current(new Error(message));
+                else console.error('[call] 原生麦克风不可用', message);
+              },
             },
             nativeController.signal,
           );
@@ -176,6 +229,7 @@ export function useCallAudio({
         // 默认允许自动播放，但上下文万一以 suspended 状态建出来，音频线程不跑、
         // `onaudioprocess` 一次都不回调 —— 表现就是没有波形、也没有上行声音。
         if (context.state === 'suspended') await context.resume().catch(() => {});
+        if (cancelled) return;
         if (context.state !== 'running') {
           console.warn('[call] 麦克风音频上下文未运行', context.state);
         }
@@ -222,7 +276,10 @@ export function useCallAudio({
           if (mutedRef.current) setLevel((prev) => smoothLevel(prev, 0));
         }, 100);
       } catch (error) {
-        if (!cancelled) console.error('[call] 麦克风不可用', error);
+        if (!cancelled) {
+          if (micError.current) micError.current(error);
+          else console.error('[call] 麦克风不可用', error);
+        }
       }
     };
     void start();
@@ -241,7 +298,7 @@ export function useCallAudio({
     };
   }, [wantMic]);
 
-  return { level, peerLevel };
+  return { enqueue, level, peerLevel };
 }
 
 /**

@@ -14,6 +14,18 @@ import type { Platform } from '@weq/platform';
 import { CallManager } from './call';
 
 const managers = new Map<number, CallManager>();
+let starting = false;
+
+/** 通话启动异步加载编解码器，私聊和群聊共用同一个 Opus 实例。 */
+export async function withCallStart<T>(start: () => Promise<T>): Promise<T> {
+  if (starting || findCallManager()?.busy) throw new Error('当前已有通话，请先挂断');
+  starting = true;
+  try {
+    return await start();
+  } finally {
+    starting = false;
+  }
+}
 
 /**
  * 拿到 `pid` 对应的管理器；不存在就建一个。**只给「发起通话」用。**

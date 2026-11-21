@@ -68,7 +68,7 @@ export class CallUdpTrace {
     await mkdir(dir, { recursive: true });
     const fileName = uniqueName(dir, `${formatStamp(startedAt)}_${safeSegment(options.peerUin)}`);
     const path = join(dir, fileName);
-    const stream = createWriteStream(path, { flags: 'w' });
+    const stream = createWriteStream(path, { flags: 'wx', mode: 0o600 });
     return new CallUdpTrace(path, new PcapngStream(stream, 'weq-call'));
   }
 

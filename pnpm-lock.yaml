@@ -788,6 +788,9 @@ importers:
       sharp:
         specifier: 0.35.5
         version: 0.35.5(@types/node@22.19.20)
+      silk-wasm:
+        specifier: 3.7.1
+        version: 3.7.1
       ws:
         specifier: 8.21.0
         version: 8.21.0

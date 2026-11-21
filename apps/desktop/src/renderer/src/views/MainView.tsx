@@ -326,6 +326,8 @@ import {
   WorkspaceTools,
   ChatHome,
   CallWindow,
+  GroupCallInvite,
+  GroupCallWindow,
   OfficialConversationPane,
   ContactNoticeDialog,
   GroupNoticeDialog,
@@ -1810,6 +1812,16 @@ function MainWorkspace(): ReactElement {
    * 当前通话的初始快照。非 null 就渲染通话窗口，窗口自己订阅后续状态并在
    * 结束后回调清空。只做主动发起 —— 来电由 QQ 本体处理，WeQ 收不到那条推送。
    */
+  const [groupCallDraft, setGroupCallDraft] = useState<{
+    accountUin: string;
+    groupId: string;
+    groupName: string;
+    media: 'audio' | 'video';
+  } | null>(null);
+  const [activeGroupCall, setActiveGroupCall] = useState<Omit<
+    Parameters<typeof GroupCallWindow>[0],
+    'onClose'
+  > | null>(null);
   const [activeCall, setActiveCall] = useState<Parameters<typeof CallWindow>[0]['initial'] | null>(
     null,
   );
@@ -7378,14 +7390,9 @@ function MainWorkspace(): ReactElement {
     }
   }
 
-  /**
-   * 发起语音通话。
-   *
-   * 只有私聊：群通话要先进群房间再邀请（OIDB 4752/4753/4754），与私聊不是同一条
-   * 协议路径。通话界面使用独立系统窗口，挂断 / 结束由窗口自己收尾。
-   */
+  /** 发起通话。群聊先选择邀请对象。 */
   async function startVoiceCall(
-    conversation: Extract<Conversation, { type: 'direct' }>,
+    conversation: Extract<Conversation, { type: 'direct' | 'group' }>,
     media: 'audio' | 'video' = 'audio',
   ) {
     const pushToast = sourceToastPush(conversationNotificationSource(conversation));
@@ -7396,6 +7403,16 @@ function MainWorkspace(): ReactElement {
         detail: '通话需要借用在线 QQ 实例的凭据，请先登录 QQ 并退出完全离线模式。',
       });
       throw new Error('qq offline');
+    }
+
+    if (conversation.type === 'group') {
+      setGroupCallDraft({
+        accountUin: user.identityValue,
+        groupId: conversation.group.identityValue || conversation.id,
+        groupName: conversation.group.name || conversation.id,
+        media,
+      });
+      return;
     }
 
     const other = conversation.otherUser;
@@ -11466,6 +11483,34 @@ function MainWorkspace(): ReactElement {
                   </QzoneProfileContext.Provider>
                 </QzoneNavigationContext.Provider>
                 {/* 通话窗口盖在最上层：它是一次性的模态浮层，与主界面的浮层栈无关。 */}
+                {groupCallDraft && groupCallDraft.accountUin === openedUin ? (
+                  <GroupCallInvite
+                    groupId={groupCallDraft.groupId}
+                    selfUin={user.identityValue}
+                    title={groupCallDraft.media === 'video' ? '发起群视频' : '发起群语音'}
+                    submitLabel="呼叫"
+                    onClose={() => setGroupCallDraft(null)}
+                    onSubmit={async (uids) => {
+                      const { accountUin, groupId, groupName, media } = groupCallDraft;
+                      const call = await client.groupCall.start.mutate({
+                        expectedAccountUin: accountUin,
+                        groupId,
+                        uids,
+                        media,
+                      });
+                      if (useViewState.getState().openedUin !== accountUin) return;
+                      setActiveGroupCall({ ...call, groupId, groupName });
+                      setGroupCallDraft(null);
+                    }}
+                  />
+                ) : null}
+                {activeGroupCall ? (
+                  <GroupCallWindow
+                    key={activeGroupCall.id}
+                    {...activeGroupCall}
+                    onClose={() => setActiveGroupCall(null)}
+                  />
+                ) : null}
                 {activeCall ? (
                   <CallWindow initial={activeCall} onClose={() => setActiveCall(null)} />
                 ) : null}

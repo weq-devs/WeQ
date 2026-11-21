@@ -31,28 +31,28 @@ export interface CallControlsProps {
    *
    * 摄像头与共享**互斥**：共享时摄像头按钮变成「切回摄像头」。
    */
-  screenSharing: boolean;
+  screenSharing?: boolean;
   /** 切换屏幕共享中（正在申请采集 / 重开编码器），按钮置灰防连点。 */
-  screenSharingPending: boolean;
+  screenSharingPending?: boolean;
   /** 共享按钮是否可用（未接通 / 已结束都不能点）。 */
-  screenShareEnabled: boolean;
+  screenShareEnabled?: boolean;
   /** 正在录音（按钮变成「停止」态）。 */
-  recording: boolean;
+  recording?: boolean;
   /** 录音按钮是否可用（未接通 / 已结束 / 请求中都不能点）。 */
-  recordingEnabled: boolean;
+  recordingEnabled?: boolean;
   finished: boolean;
   hangupPending: boolean;
   onToggleMute: () => void;
   onToggleSpeaker: () => void;
   onToggleCamera: () => void;
-  onToggleScreenShare: () => void;
-  onToggleRecording: () => void;
+  onToggleScreenShare?: () => void;
+  onToggleRecording?: () => void;
   onHangup: () => void;
   /** 是否显示「旋转画面」按钮（对端在发视频时才需要）。 */
-  canRotate: boolean;
+  canRotate?: boolean;
   /** 当前旋转角度。 */
-  rotation: 0 | 90 | 270;
-  onRotate: () => void;
+  rotation?: 0 | 90 | 270;
+  onRotate?: () => void;
   /** 额外按钮。 */
   extra?: ReactNode;
 }
@@ -76,7 +76,7 @@ export function CallControls({
   onToggleRecording,
   onHangup,
   canRotate,
-  rotation,
+  rotation = 0,
   onRotate,
   extra,
 }: CallControlsProps) {
@@ -105,30 +105,31 @@ export function CallControls({
         {cameraOn ? <Video size={22} /> : <VideoOff size={22} />}
       </button>
 
-      {/* 屏幕共享。与摄像头互斥：点它就切到共享，再点一次切回摄像头。
-          协议侧与摄像头完全一致，只是采集源换掉，所以对端不会看到「共享中」
-          的独立提示，但能看到屏幕画面。 */}
-      <button
-        type="button"
-        className={`weq-call-btn${screenSharing ? ' is-active' : ''}`}
-        onClick={onToggleScreenShare}
-        disabled={finished || !screenShareEnabled || screenSharingPending}
-        title={screenSharing ? '停止共享屏幕' : '共享屏幕'}
-        aria-pressed={screenSharing}
-      >
-        <MonitorUp size={22} />
-      </button>
+      {onToggleScreenShare ? (
+        <button
+          type="button"
+          className={`weq-call-btn${screenSharing ? ' is-active' : ''}`}
+          onClick={onToggleScreenShare}
+          disabled={finished || !screenShareEnabled || screenSharingPending}
+          title={screenSharing ? '停止共享屏幕' : '共享屏幕'}
+          aria-pressed={screenSharing}
+        >
+          <MonitorUp size={22} />
+        </button>
+      ) : null}
 
-      <button
-        type="button"
-        className={`weq-call-btn weq-call-btn-record${recording ? ' is-recording' : ''}`}
-        onClick={onToggleRecording}
-        disabled={finished || !recordingEnabled}
-        title={recording ? '停止录音' : '开始录音'}
-        aria-pressed={recording}
-      >
-        <Disc size={22} />
-      </button>
+      {onToggleRecording ? (
+        <button
+          type="button"
+          className={`weq-call-btn weq-call-btn-record${recording ? ' is-recording' : ''}`}
+          onClick={onToggleRecording}
+          disabled={finished || !recordingEnabled}
+          title={recording ? '停止录音' : '开始录音'}
+          aria-pressed={recording}
+        >
+          <Disc size={22} />
+        </button>
+      ) : null}
 
       {/* 画面方向只能由用户判断：码流里没有任何朝向信息（见 lib/callVideo.ts 的
           PEER_ROTATE 注释），所以给一个按钮而不是自动转。 */}

@@ -14,6 +14,7 @@ export type ToolWindowName =
   | 'weq-compose'
   | 'weq-db-repair'
   | 'weq-call'
+  | 'weq-group-call'
   | 'weq-capture'
   | 'weq-performance-monitor'
   | 'weq-log-viewer'

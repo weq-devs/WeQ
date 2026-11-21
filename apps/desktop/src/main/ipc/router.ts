@@ -26,6 +26,7 @@ import { mailRouter } from './routers/mail';
 import { remoteRouter } from './routers/remote';
 import { exportViewerRouter } from './routers/export_viewer';
 import { callRouter } from './routers/call';
+import { groupCallRouter } from './routers/group_call';
 import { udpCaptureRouter } from './routers/udp_capture';
 import { backgroundTasksRouter } from './routers/background_tasks';
 import { startupRouter } from './routers/startup';
@@ -44,6 +45,7 @@ const utilityRoutes = {
   remote: remoteRouter,
   /** 语音通话（仅主动发起）。 */
   call: callRouter,
+  groupCall: groupCallRouter,
   mail: mailRouter,
   update: updateRouter,
   announcements: announcementsRouter,

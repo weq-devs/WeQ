@@ -419,7 +419,14 @@ function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
         ...copy,
         ...(event.kind === 'dataline'
           ? {}
-          : { target: { kind: event.kind, conv: event.conv, seq: event.origSeq, msgId: event.msgId } }),
+          : {
+              target: {
+                kind: event.kind,
+                conv: event.conv,
+                seq: event.origSeq,
+                msgId: event.msgId,
+              },
+            }),
       });
       recallNotifier?.(event, copy);
     })
@@ -3095,11 +3102,11 @@ export function initAppContext(fileRoot?: string): AppContext {
           () =>
             this.account === session &&
             userConfig.getSharedPreference('client').showInteractionBadge === true,
+          () => this.services?.unreadInfo,
         ),
         recentContacts: new RecentContactService(session, () => gapHistory.latestSent()),
         guildDirect,
         contentSearch,
-          () => this.services?.unreadInfo,
         hiddenSessions: new HiddenSessionService(session),
         drafts: new DraftService(session),
         deletedSessions: new DeletedSessionService(session),

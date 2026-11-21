@@ -4,7 +4,13 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { RESVG_BINDINGS } from './platform.mjs';
 
-export const RUNTIME_MODULES = ['@resvg/resvg-js', 'quickjs-emscripten', 'sharp', 'ws'];
+export const RUNTIME_MODULES = [
+  '@resvg/resvg-js',
+  'quickjs-emscripten',
+  'sharp',
+  'silk-wasm',
+  'ws',
+];
 const json = (path) => JSON.parse(readFileSync(path, 'utf8'));
 export const digest = (value) => createHash('sha256').update(value).digest('hex');
 function canonical(value) {
@@ -167,4 +173,8 @@ export async function probeRuntime(dist, target) {
   } finally {
     context.dispose();
   }
+  const silk = require('silk-wasm');
+  const { data } = await silk.encode(Buffer.alloc(1280), 16000);
+  const pcm = await silk.decode(data, 16000);
+  if (pcm.data.byteLength !== 1280) throw new Error('SILK WASM 探针失败');
 }

@@ -363,6 +363,10 @@ export class CallManager extends EventEmitter {
     return this.info;
   }
 
+  get busy(): boolean {
+    return this.session !== null;
+  }
+
   /**
    * 取一段**从关键帧开始、帧序号连续**的帧，供新建立的渲染层订阅补发。
    *
