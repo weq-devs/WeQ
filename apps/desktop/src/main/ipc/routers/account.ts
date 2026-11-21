@@ -3030,18 +3030,24 @@ export const accountRouter = router({
     );
     const drafts = await services.drafts.listDrafts();
     requireExpectedAccount(input?.expectedAccountUin, input?.expectedAccountConfigId);
-    for (const draft of drafts) trustSharedDraftMedia(elementsToEditable(draft.elements));
-    return drafts.map((d) => ({
-      storageKey: d.storageKey,
-      chatType: d.chatType,
-      targetUid: d.targetUid,
-      sendTime: d.sendTime.toString(),
-      elements: elementsToEditable(d.elements),
-      version: currentDraftState().observeDraft(
-        `chat:${d.chatType === 2 ? 'group' : 'c2c'}:${d.targetUid}`,
-        elementsToEditable(d.elements),
-      ).version,
-    }));
+    if (!drafts.length) return [];
+    const state = currentDraftState();
+    return drafts.map((d) => {
+      const elements = elementsToEditable(d.elements);
+      state.relocateDraftImages(elements);
+      trustSharedDraftMedia(elements);
+      return {
+        storageKey: d.storageKey,
+        chatType: d.chatType,
+        targetUid: d.targetUid,
+        sendTime: d.sendTime.toString(),
+        elements,
+        version: state.observeDraft(
+          `chat:${d.chatType === 2 ? 'group' : 'c2c'}:${d.targetUid}`,
+          elements,
+        ).version,
+      };
+    });
   }),
 
   /**
@@ -3113,7 +3119,9 @@ export const accountRouter = router({
         expectedBody = snapshot.body;
         const row = snapshot.draft;
         if (snapshot.exists && !row) throw new Error('QQ 草稿原行无法解析，已保留原件');
-        return row ? elementsToEditable(row.elements) : null;
+        const elements = row ? elementsToEditable(row.elements) : null;
+        state.relocateDraftImages(elements);
+        return elements;
       };
       return state.saveExternalDraft(
         key,

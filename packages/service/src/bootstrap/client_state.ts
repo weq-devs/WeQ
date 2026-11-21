@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import { DRAFT_MEDIA_DIR, isDraftImageName, mapDraftImagePaths } from '../common/draft_media';
 import { normalizeSearchPreferences } from '../account/search_policy';
 import { getLogger } from '../common/logger';
 import {
@@ -152,6 +153,39 @@ export class ClientStateStore {
     const { epoch, revision, values, records } = this.read();
     return { epoch, revision, values, records };
   }
+  /** QQ 原草稿随库迁移时仍可能引用旧机器的素材绝对路径。 */
+  relocateDraftImages(value: unknown): void {
+    const accountDir = dirname(this.path);
+    const scope = basename(accountDir);
+    const uin = scope.split('_')[0];
+    if (!uin || !/^\d{1,20}$/.test(uin)) return;
+    const directory = join(accountDir, DRAFT_MEDIA_DIR);
+    let contained: boolean | undefined;
+    mapDraftImagePaths(value, (path) => {
+      const [config, accounts, previousScope, media, name] = path.split(/[/\\]/).slice(-5);
+      if (
+        config !== 'config' ||
+        accounts !== 'accounts' ||
+        previousScope?.split('_')[0] !== uin ||
+        media !== DRAFT_MEDIA_DIR ||
+        !name ||
+        !isDraftImageName(name)
+      )
+        return;
+      const local = join(directory, name);
+      if (local === path) return;
+      try {
+        const root = dirname(dirname(dirname(accountDir)));
+        contained ??=
+          realpathSync(directory) ===
+          join(realpathSync(root), 'config', 'accounts', scope, DRAFT_MEDIA_DIR);
+        if (contained && lstatSync(local).isFile()) return local;
+      } catch {
+        // 缺失时保留 QQ 原行提供的引用。
+      }
+    });
+  }
+
   exportState() {
     const state = this.read();
     if (!state.externalDrafts) return state;

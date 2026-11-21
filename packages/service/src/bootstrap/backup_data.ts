@@ -1,4 +1,5 @@
 import { parseWeqBackupJson, type WeqBackupBundle } from './backup_bundle';
+import { draftImageReferenceName, mapDraftImagePaths } from '../common/draft_media';
 import {
   validateWeqAppSettings,
   validateWeqApiSettings,
@@ -450,6 +451,7 @@ function cloneData(value: unknown, path: string): void {
 
 /** 在展示导入预览与暂存前检查业务形状，不能用 ZIP 校验成功代替业务可加载。 */
 export function validateWeqBackupData(bundle: WeqBackupBundle): void {
+  const paths = new Set(bundle.files.map((file) => file.path));
   for (const file of bundle.files) {
     if (!file.path.endsWith('.json')) continue;
     const value = parseWeqBackupJson(file.data);
@@ -464,8 +466,19 @@ export function validateWeqBackupData(bundle: WeqBackupBundle): void {
     else if (file.path.startsWith('accounts/')) {
       if (file.path.split('/').length === 2)
         validateWeqAccountSettings(value, file.path.split('/')[1]!.slice(0, -5));
-      else if (WEQ_ACCOUNT_SETTING_FILES.includes(file.path.split('/')[2] as WeqAccountSettingFile))
-        validateWeqAccountPreference(file.path.split('/')[2] as WeqAccountSettingFile, value);
+      else if (
+        WEQ_ACCOUNT_SETTING_FILES.includes(file.path.split('/')[2] as WeqAccountSettingFile)
+      ) {
+        const [part, scope, name] = file.path.split('/');
+        validateWeqAccountPreference(name as WeqAccountSettingFile, value);
+        if (name === 'client-state.json') {
+          mapDraftImagePaths(row(value, file.path).drafts, (path) => {
+            if (draftImageReferenceName(path) && !paths.has(`${part}/${scope}/${path}`))
+              throw new Error('备份缺少草稿引用的图片文件');
+            return undefined;
+          });
+        }
+      }
     } else if (file.path.startsWith('clones/')) cloneData(value, file.path);
   }
 }

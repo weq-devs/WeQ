@@ -1,7 +1,9 @@
 import { ClientStateStore, validateClientState } from './client_state';
 import { isDefaultModelSelection } from '@weq/agentlab';
-import { existsSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { extname, isAbsolute, join, relative } from 'node:path';
+import { DRAFT_MEDIA_DIR, isDraftImageName, mapDraftImagePaths } from '../common/draft_media';
+import { MAX_SHARED_DRAFT_IMAGE_BYTES } from '../common/client_preferences';
 import {
   INTENT_TUNING_KEYS,
   isIntentTuningValue,
@@ -12,7 +14,13 @@ import {
   isWeqBackgroundName,
   type WeqAccountSettingFile,
 } from '../common/backup_account_paths';
-import { parseWeqBackupJson, validateWeqBackground, type WeqBackupFile } from './backup_bundle';
+import {
+  parseWeqBackupJson,
+  validateWeqBackground,
+  validateWeqDraftImage,
+  WEQ_BACKUP_LIMITS,
+  type WeqBackupFile,
+} from './backup_bundle';
 import { readWeqBackupFile } from './backup_clones';
 import { isDressScope } from '../account/dress_config';
 import {
@@ -188,9 +196,14 @@ export function snapshotWeqAccountPreferences(
   root: string,
   cache: string,
   scope: string,
+  maxDraftMediaBytes: number = WEQ_BACKUP_LIMITS.maxTotalBytes,
 ): { files: WeqBackupFile[]; warnings: string[] } {
   const files: WeqBackupFile[] = [],
     warnings: string[] = [];
+  const mediaDir = join(root, 'config', 'accounts', scope, DRAFT_MEDIA_DIR);
+  const media = new Map<string, string | undefined>();
+  let draftMediaBytes = 0;
+  let missingDraftImages = false;
   for (const name of WEQ_ACCOUNT_SETTING_FILES) {
     if (name === 'dress.json') continue;
     const path = weqAccountSettingPath(root, cache, scope, name);
@@ -210,6 +223,34 @@ export function snapshotWeqAccountPreferences(
     if (name === 'client-state.json' && input.records && typeof input.records === 'object')
       delete (input.records as Record<string, unknown>).order;
     validateWeqAccountPreference(name, input);
+    if (name === 'client-state.json') {
+      mapDraftImagePaths(input.drafts, (path) => {
+        if (!isAbsolute(path)) return;
+        const name = relative(mediaDir, path);
+        if (!isDraftImageName(name)) return;
+        if (media.has(name)) return media.get(name);
+        let data: Buffer;
+        try {
+          if (
+            realpathSync(mediaDir) !==
+            join(realpathSync(root), 'config', 'accounts', scope, DRAFT_MEDIA_DIR)
+          )
+            throw new Error('草稿图片目录已重定向');
+          data = readWeqBackupFile(join(mediaDir, name), MAX_SHARED_DRAFT_IMAGE_BYTES);
+          validateWeqDraftImage(name, data);
+        } catch {
+          missingDraftImages = true;
+          media.set(name, undefined);
+          return;
+        }
+        draftMediaBytes += data.length;
+        if (draftMediaBytes > maxDraftMediaBytes) throw new Error('草稿图片使备份总体积超过限制');
+        const reference = `${DRAFT_MEDIA_DIR}/${name}`;
+        files.push({ path: `accounts/${scope}/${reference}`, data });
+        media.set(name, reference);
+        return reference;
+      });
+    }
     files.push({ path: `accounts/${scope}/${name}`, data: Buffer.from(JSON.stringify(input)) });
     if (name === 'dress-conversations.json' && isDressConversationEntries(input))
       for (const file of dressConversationBackgroundFiles(input)) {
@@ -223,5 +264,6 @@ export function snapshotWeqAccountPreferences(
         }
       }
   }
+  if (missingDraftImages) warnings.push('部分草稿图片缺失或格式无法备份，已保留原引用。');
   return { files, warnings };
 }
