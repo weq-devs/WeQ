@@ -33,7 +33,9 @@ async function reply(path: string, input: Record<string, unknown> = {}) {
     path === 'account.qqActions.groupJoinSettings' ||
     path === 'account.qqActions.groupJoinManagement'
   )
-    return { groupId: input.groupId, option: joinMode };
+    return { groupId: input.groupId, option: joinMode, categoryId: 25 };
+  if (path === 'account.qqActions.groupSelectedTags' || path === 'account.qqActions.tags')
+    return [];
   if (path === 'account.qqActions.groupSettings') joinMode = Number(input.addType);
   if (path === 'account.qqActions.groupAdvancedSettings') return { ...advanced };
   if (path === 'account.qqActions.setGroupAdvancedSetting') {

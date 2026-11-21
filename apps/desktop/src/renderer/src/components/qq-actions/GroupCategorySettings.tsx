@@ -1,6 +1,6 @@
 import { Check, Plus, Tags, X } from 'lucide-react';
 import { useState } from 'react';
-import { GROUP_SELECTED_TAG_LIMIT } from '@weqbot/protocol';
+import { GROUP_SELECTED_TAG_LIMIT } from '@weqbot/protocol/group-tags';
 import { sameGroupTags } from '../../../../shared/group_tags';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { client, trpc } from '../../trpc/client';
