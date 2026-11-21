@@ -255,7 +255,7 @@ function ToastRow({ toast, hidePreview }: { toast: Toast; hidePreview: boolean }
         role="status"
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
-        onPointerUp={(event) => {
+        onClick={(event) => {
           if (
             !action ||
             event.button !== 0 ||

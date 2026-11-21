@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const binding = { expectedAccountUin: '99999', expectedAccountConfigId: 'fixture' };
 const toggles = { pinned: false, disturb: false, care: true };
+let joinMode = 1;
+const advanced = { newMemberHistory: false, searchMode: 'keyword_or_number' };
 const preferences = { epoch: 'fixture', revision: 0, values: {}, records: {} };
 const calls: unknown[] = [];
 Object.assign(window, { settingsCalls: calls });
@@ -26,6 +28,18 @@ async function reply(path: string, input: Record<string, unknown> = {}) {
     };
   if (path === 'account.qqWrite.peerState')
     return { friend: true, friendUin: '10002', pinned: toggles.pinned };
+  if (path === 'account.qqActions.groupPermissions') return { role: 'owner', canManage: true };
+  if (
+    path === 'account.qqActions.groupJoinSettings' ||
+    path === 'account.qqActions.groupJoinManagement'
+  )
+    return { groupId: input.groupId, option: joinMode };
+  if (path === 'account.qqActions.groupSettings') joinMode = Number(input.addType);
+  if (path === 'account.qqActions.groupAdvancedSettings') return { ...advanced };
+  if (path === 'account.qqActions.setGroupAdvancedSetting') {
+    const change = input.change as { key: keyof typeof advanced; value: boolean | string };
+    Object.assign(advanced, { [change.key]: change.value });
+  }
   if (path === 'account.qqWrite.friendDisturbState') return { enabled: toggles.disturb };
   if (path === 'account.qqWrite.friendSpecialCareState')
     return { enabled: toggles.care, zone: toggles.care, ring: toggles.care };

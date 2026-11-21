@@ -70,12 +70,18 @@ try {
         throw Error('复制触发了跳转');
       await page.evaluate(() => {
         const node = document.querySelector('.weq-toast-title');
+        node.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true }));
+      });
+      if (await page.evaluate(() => window.notificationQa.routes.length))
+        throw Error('单独松开指针触发了跳转');
+      await page.evaluate(() => {
+        const node = document.querySelector('.weq-toast-title');
         const range = document.createRange();
         range.selectNodeContents(node);
         const selection = document.getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
-        node.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true }));
+        node.click();
       });
       if (await page.evaluate(() => window.notificationQa.routes.length))
         throw Error('拖选文字触发了跳转');

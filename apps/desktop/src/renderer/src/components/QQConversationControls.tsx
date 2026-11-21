@@ -90,7 +90,6 @@ export function QQConversationControls({
   const card = trpc.account.qqWrite.groupMemberCard.useMutation();
   const title = trpc.account.qqWrite.groupSpecialTitle.useMutation();
   const confirm = useDialog((state) => state.confirm);
-  const [revision, setRevision] = useState(0);
   const state = snapshot.data;
   const specialCare = useFriendSpecialCare(kind === 'c2c' && state?.friend ? conv : undefined);
   const ownEditing = groupMemberEditing(state?.role, state?.role, true);
@@ -199,9 +198,7 @@ export function QQConversationControls({
               (kind === 'group' && policySnapshot.isFetching)
             }
             onClick={() => {
-              void refresh(true)
-                .then(() => setRevision((value) => value + 1))
-                .catch(() => {});
+              void refresh(true).catch(() => {});
             }}
           >
             <RefreshCw size={16} />
@@ -224,7 +221,7 @@ export function QQConversationControls({
         )}
       <QQWriteResult result={session.result} />
       {state && (
-        <div key={`${kind}:${conv}:${revision}`}>
+        <div>
           {!management && (
             <Card
               title={kind === 'group' ? '群会话' : '好友会话'}

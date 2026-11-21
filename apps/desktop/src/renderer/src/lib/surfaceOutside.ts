@@ -52,6 +52,8 @@ export function useSurfaceOutside(
       if (eventSurfaces.get(event) !== surfaceRoot(element, false)) return;
       const target = event.target as Node | null;
       if (!target || anchor?.contains(target)) return;
+      // 横幅在应用浮层之上，关闭、复制或返回来源都由横幅自己处理。
+      if (target.nodeType === 1 && (target as Element).closest('.weq-toast-host')) return;
       if (element.contains(target) && (!scrim || target !== element)) return;
       if (consume && !switchingMenu) consumeOutsidePress(document, event);
       onClose();

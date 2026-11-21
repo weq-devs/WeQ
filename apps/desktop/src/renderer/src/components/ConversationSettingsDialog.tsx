@@ -11,7 +11,7 @@
  * 保护范围在防撤回设置，通知方式各入口共用，提醒名单在「常规 → 通知与提醒」。
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { accountBinding } from '../lib/clientPreferences';
 import { useNotificationPolicy } from '../lib/notificationPolicy';
 import { BellRing, BrainCircuit, Palette, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
@@ -23,15 +23,21 @@ import { ConversationSettingsFrame } from './ConversationSettingsFrame';
 import { QQConversationControls } from './QQConversationControls';
 import { NotificationMethodSelect } from './settings/NotificationMethodSelect';
 import { ConversationDressSettings } from './ConversationDressSettings';
-import type { ConversationSettingsRequest } from '../lib/conversationSettingsNavigation';
+import type {
+  ConversationSettingsRequest,
+  ConversationSettingsSection,
+} from '../lib/conversationSettingsNavigation';
+import {
+  NotificationSourceContext,
+  notificationContent,
+  notificationSource,
+  restoreNotificationSource,
+} from '../lib/notificationNavigation.shared';
 import '../styles/conversation-settings.css';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
-
-/** 会话偏好与意图感知面向好友／群聊；群管理与关键词仅限群聊。 */
-type SectionId = 'qq' | 'group-management' | 'antirecall' | 'keyword' | 'intentsense' | 'dress';
 
 export function ConversationSettingsDialog({
   kind,
@@ -39,6 +45,7 @@ export function ConversationSettingsDialog({
   title,
   members = [],
   onClose,
+  onReopen,
   anchor,
   initialSection,
   initialDressSlot,
@@ -52,6 +59,7 @@ export function ConversationSettingsDialog({
   /** 群成员（仅群聊的关键词用）。 */
   members?: KeywordMember[];
   onClose: () => void;
+  onReopen?: (section: ConversationSettingsSection) => void;
   anchor?: HTMLElement;
   initialSection?: ConversationSettingsRequest['initialSection'];
   initialDressSlot?: ConversationSettingsRequest['initialDressSlot'];
@@ -59,13 +67,24 @@ export function ConversationSettingsDialog({
   const showError = useDialog((s) => s.showError);
   const utils = trpc.useUtils();
   const source = useRef(accountBinding());
-  const [section, setSection] = useState<SectionId>(
+  const [section, setSection] = useState<ConversationSettingsSection>(
     kind === 'dataline' ? 'antirecall' : (initialSection ?? 'qq'),
   );
   /** 关键词编辑器的保存状态 —— 由内嵌的 editor 外抛（灯箱那套同一份实现）。 */
   const [checkingProtection, setCheckingProtection] = useState(false);
   const verification = useRef(0);
   const mounted = useRef(true);
+  const inheritedSource = useContext(NotificationSourceContext);
+  const notificationOrigin = useMemo(() => {
+    if (onReopen)
+      return restoreNotificationSource(section, (previousSection) => {
+        if (mounted.current) setSection(previousSection);
+        else onReopen(previousSection);
+      });
+    if (section === 'group-management')
+      return notificationSource({ kind: 'group', id: conv, section: 'management' });
+    return inheritedSource;
+  }, [conv, section, onReopen, inheritedSource]);
 
   const status = trpc.account.antiRecall.getStatus.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -182,8 +201,9 @@ export function ConversationSettingsDialog({
     }
   }
 
-  return (
-    <ConversationSettingsFrame<SectionId>
+  return notificationContent(
+    notificationOrigin,
+    <ConversationSettingsFrame<ConversationSettingsSection>
       title="会话设置"
       subtitle={title}
       anchor={anchor}
@@ -356,6 +376,6 @@ export function ConversationSettingsDialog({
           </Card>
         </div>
       )}
-    </ConversationSettingsFrame>
+    </ConversationSettingsFrame>,
   );
 }

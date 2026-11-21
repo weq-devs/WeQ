@@ -369,6 +369,7 @@ import {
   ConversationSettingsNavigationContext,
   GroupResourceNavigationContext,
   type ConversationSettingsRequest,
+  type ConversationSettingsSection,
 } from '../lib/conversationSettingsNavigation';
 import { FriendDirectoryControls } from '../components/FriendDirectoryControls';
 import { RelationshipDirectoryContext } from '../lib/contactRelationship';
@@ -1688,6 +1689,23 @@ function MainWorkspace(): ReactElement {
     (ConversationSettingsRequest & { ownerKey: string }) | null
   >(null);
   useEffect(() => setConvSettings(null), [messageScope]);
+  const reopenConversationSettings = useCallback(
+    (section: ConversationSettingsSection) => {
+      if (!convSettings) return;
+      setConvSettings((current) =>
+        current?.ownerKey === convSettings.ownerKey &&
+        current.kind === convSettings.kind &&
+        current.conv === convSettings.conv
+          ? current
+          : {
+              ...convSettings,
+              initialSection: section,
+              anchor: convSettings.anchor?.isConnected ? convSettings.anchor : undefined,
+            },
+      );
+    },
+    [convSettings],
+  );
   const openProfileConversationSettings = useCallback(
     (request: ConversationSettingsRequest) => {
       setConvSettings({ ...request, ownerKey: messageScope });
@@ -10761,6 +10779,7 @@ function MainWorkspace(): ReactElement {
                 role: m.role,
               }))}
               onClose={() => setConvSettings(null)}
+              onReopen={reopenConversationSettings}
             />
           ) : null}
           {remarkTarget && (
@@ -11178,7 +11197,6 @@ function MainWorkspace(): ReactElement {
       return restoreNotificationSource(groupMemberDialog, setGroupMemberDialog);
     if (groupTitleDialog) return restoreNotificationSource(groupTitleDialog, setGroupTitleDialog);
     if (remarkTarget) return restoreNotificationSource(remarkTarget, setRemarkTarget);
-    if (convSettings) return restoreNotificationSource(convSettings, setConvSettings);
     if (groupFileDialog) return restoreNotificationSource(groupFileDialog, setGroupFileDialog);
     if (albumDialog) return restoreNotificationSource(albumDialog, setAlbumDialog);
     if (groupBugDialog) return restoreNotificationSource(groupBugDialog, setGroupBugDialog);
@@ -11208,7 +11226,6 @@ function MainWorkspace(): ReactElement {
     groupMemberDialog,
     groupTitleDialog,
     remarkTarget,
-    convSettings,
     groupFileDialog,
     albumDialog,
     groupBugDialog,

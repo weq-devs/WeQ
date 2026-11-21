@@ -78,11 +78,7 @@ function GroupActionsBody({
     </div>
   );
 }
-export const GroupActions = withQQAccountScope(GroupActionsBody, (props) => ({
-  kind: 'group',
-  id: String(props.groupId),
-  section: 'management',
-}));
+export const GroupActions = withQQAccountScope(GroupActionsBody);
 function GroupTodosBody({
   groupId,
   groupName,

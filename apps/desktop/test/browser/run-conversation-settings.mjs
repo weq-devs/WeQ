@@ -55,7 +55,7 @@ try {
   await page.getByRole('switch', { name: '消息免打扰', exact: true }).waitFor();
   assert.equal(await pane.getByText('好友备注', { exact: true }).count(), 0);
   assert.equal(await pane.getByText('好友分组', { exact: true }).count(), 0);
-  assert.equal(await pane.locator('.weq-set-card').count(), 2);
+  assert.equal(await pane.getByText('QQ 空间', { exact: true }).count(), 1);
   await page.getByRole('switch', { name: '置顶会话', exact: true }).click();
   try {
     await page.waitForFunction(
@@ -100,6 +100,54 @@ try {
   assert.equal(await pane.getByText('未生效：应用意图感知已关闭', { exact: true }).count(), 1);
   await pane.getByRole('button', { name: '关闭', exact: true }).click();
   await pane.waitFor({ state: 'detached' });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${page.url()}?group`);
+  const management = pane.getByRole('button', { name: '群管理', exact: true });
+  await management.click();
+  const openedPane = await pane.elementHandle();
+  const search = pane.getByRole('combobox', { name: '群搜索方式' });
+  await search.click();
+  await page.getByRole('option', { name: '仅群号' }).click();
+  await search.getByText('仅群号', { exact: true }).waitFor();
+  const banner = page.getByRole('status').filter({ hasText: '操作已完成' });
+  await banner.waitFor();
+  const body = pane.locator('.weq-cvs-body-scroll');
+  const scroll = await body.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    return element.scrollTop;
+  });
+  assert.ok(scroll > 0);
+  await banner.getByText('操作已完成', { exact: true }).click();
+  await banner.waitFor({ state: 'detached' });
+  assert.equal(await management.getAttribute('aria-current', { timeout: 1500 }), 'true');
+  assert.equal(await openedPane.evaluate((element) => element.isConnected), true);
+  assert.equal(await body.evaluate((element) => element.scrollTop), scroll);
+
+  const history = pane.getByRole('switch', { name: '新成员可查看历史消息' });
+  await history.click();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[aria-label="新成员可查看历史消息"]')
+        ?.getAttribute('aria-checked') === 'true',
+  );
+  await banner.getByRole('button', { name: '关闭', exact: true }).click();
+  await banner.waitFor({ state: 'detached' });
+  assert.equal(await management.getAttribute('aria-current', { timeout: 1500 }), 'true');
+  assert.equal(await openedPane.evaluate((element) => element.isConnected), true);
+
+  const join = pane.getByRole('combobox', { name: '加群方式' });
+  await join.click();
+  await page.getByRole('option', { name: '需要审核', exact: true }).click();
+  await join.getByText('需要审核', { exact: true }).waitFor();
+  await banner.waitFor();
+  await pane.getByRole('button', { name: '关闭', exact: true }).click();
+  await pane.waitFor({ state: 'detached' });
+  await banner.getByRole('button', { name: '返回通知来源' }).click();
+  assert.equal(await management.getAttribute('aria-current', { timeout: 1500 }), 'true');
+  await join.getByText('需要审核', { exact: true }).waitFor();
+  await page.mouse.click(10, 10);
+  await pane.waitFor({ state: 'detached' });
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({
@@ -111,6 +159,9 @@ try {
         'pin-readback',
         'intent-state',
         'settings-close',
+        'group-settings-readback',
+        'group-settings-banner-dismissal',
+        'group-settings-banner-return',
       ],
       errors,
     }),
