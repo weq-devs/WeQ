@@ -164,7 +164,7 @@ html:root[data-theme][data-component-style] body
   :is(
     input,
     .weq-select-trigger,
-    textarea:where(:not(.voice-tts-input)),
+    textarea:where(:not(.voice-tts-input, .weq-help-bug-textarea, .weq-group-bug-textarea)),
     .weq-input,
     .weq-set-input,
     .weq-set-select,
@@ -254,6 +254,16 @@ html:root[data-theme][data-component-style] body
 html:root[data-theme][data-component-style] body
   :is(
     .search-box,
+    .group-info-member-search,
+    .group-album-search,
+    .weq-group-call-search,
+    .weq-clone-add-search,
+    .weq-cache-search,
+    .weq-filebrowser-search,
+    .weq-db-cards-search,
+    .weq-analysis-search,
+    .weq-analysis-reports-search,
+    .weq-roaming-search,
     .weq-cp-hex,
     .weq-dress-search,
     .weq-collection-search,
@@ -317,6 +327,11 @@ html:root[data-theme][data-component-style] body
       cursor: not-allowed;
     }
   }
+}
+
+/* 反馈编辑器在编辑和预览间共用同一个外框。 */
+html[data-theme] :is(.weq-help-bug-editor, .weq-group-bug-editor):has(> textarea:focus-visible) {
+  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
 }
 
 html:root[data-theme][data-component-style] body :is(.weq-asst-select, .weq-picker-trigger) {

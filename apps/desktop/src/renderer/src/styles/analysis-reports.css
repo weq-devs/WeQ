@@ -24,11 +24,15 @@
   border: 1px solid var(--weq-border-strong);
   border-radius: 6px;
 }
+.weq-analysis-reports-search:focus-within {
+  border-color: var(--weq-accent-effective);
+}
 .weq-analysis-reports-search input {
   width: 100%;
   min-width: 0;
   height: 34px;
   border: 0;
+  outline: none;
   background: transparent;
   color: var(--weq-fg-primary);
   font: inherit;
