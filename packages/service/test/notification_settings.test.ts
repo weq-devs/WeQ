@@ -159,12 +159,18 @@ it('范围按数据源持久保存，写其他事件不覆盖已有名单，非�
     replyMe: { mode: 'nonGroupAssistant', targets: ['group:20002'] },
     redPacket: { mode: 'nonMuted', targets: [] },
   });
+  first.records('notifications', {
+    specialCare: { mode: 'selected', targets: ['c2c:u_friend', 'group:20003'] },
+    keyword: { mode: 'selected', targets: ['group:20004'] },
+  });
   const reopened = new ClientStateStore(first.path).snapshot();
   expect(reopened.records.notifications).toEqual({
     mentionMe: { mode: 'selected', targets: ['group:20001'] },
     mentionAll: { mode: 'all', targets: [] },
     replyMe: { mode: 'nonGroupAssistant', targets: ['group:20002'] },
     redPacket: { mode: 'nonMuted', targets: [] },
+    specialCare: { mode: 'selected', targets: ['c2c:u_friend', 'group:20003'] },
+    keyword: { mode: 'selected', targets: ['group:20004'] },
   });
   expect(normalizeNotificationScope(reopened.records.notifications?.replyMe)).toEqual({
     mode: 'nonGroupAssistant',

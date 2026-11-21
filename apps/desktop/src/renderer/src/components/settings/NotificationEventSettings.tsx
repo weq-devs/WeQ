@@ -5,10 +5,10 @@ import {
   NOTIFICATION_LABELS,
   normalizeNotificationEvents,
   notificationGroupState,
+  isScopedNotificationEvent,
   supportsNotificationChannel,
   type NotificationEvent,
   type NotificationChannel,
-  type ScopedNotificationEvent,
 } from '@weq/service/notification-settings';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
@@ -22,7 +22,6 @@ import { resolveSettingsTarget } from './navigation';
 import '../../styles/notification-event-settings.css';
 import { NOTIFICATION_SETTING_IDS } from './NotificationEventSettings.shared';
 
-const scoped = new Set<NotificationEvent>(['mentionMe', 'mentionAll', 'replyMe', 'redPacket']);
 export function NotificationEventSettings({
   recallScope,
   target,
@@ -168,8 +167,8 @@ export function NotificationEventSettings({
                     <th scope="row">
                       <span>
                         {NOTIFICATION_LABELS[event]}
-                        {scoped.has(event) ? (
-                          <NotificationScopeEditor event={event as ScopedNotificationEvent} />
+                        {isScopedNotificationEvent(event) ? (
+                          <NotificationScopeEditor event={event} />
                         ) : event === 'recall' ? (
                           recallScope
                         ) : null}

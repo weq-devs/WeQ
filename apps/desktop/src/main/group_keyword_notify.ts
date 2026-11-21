@@ -41,7 +41,7 @@ let iconDir: string | null = null;
  */
 export function handleGroupKeywordHit(
   hit: GroupKeywordHit,
-  copy: { title: string; body: string },
+  copy?: { title: string; body: string },
 ): void {
   void handle(hit, copy).catch((error) => {
     logger.warn('group keyword hit handling failed', {
@@ -52,7 +52,7 @@ export function handleGroupKeywordHit(
   });
 }
 
-async function handle(hit: GroupKeywordHit, copy: { title: string; body: string }): Promise<void> {
+async function handle(hit: GroupKeywordHit, copy?: { title: string; body: string }): Promise<void> {
   const ctx = getAppContext();
   const services = ctx.services;
   if (!services) return;
@@ -61,7 +61,7 @@ async function handle(hit: GroupKeywordHit, copy: { title: string; body: string 
   await writeHighlight(services, hit);
 
   // 2) 系统通知（群头像 + 点击跳转）。
-  if (ctx.bootstrap?.userConfig.getSettings().notificationEvents?.keyword.system !== false)
+  if (copy && ctx.bootstrap?.userConfig.getSettings().notificationEvents?.keyword.system !== false)
     await showNotification(services, hit, copy);
 }
 

@@ -970,8 +970,8 @@ export class GroupInfoService {
   /**
    * List all groups with detailed metadata.
    */
-  async listGroupDirectory() {
-    const rows = await this.session.groupDetail.listDirectory();
+  async listGroupDirectory(groupCode?: bigint) {
+    const rows = await this.session.groupDetail.listDirectory(groupCode);
     if (!this.session.selfUid) return rows;
     return rows.map((row) => {
       if (row.role === 'owner') return row;

@@ -102,6 +102,8 @@ it('初始四组折叠，展开显示全部事件，官方公告只有横幅渠�
   expect(button(host, '重要官方公告：系统通知')).toBeUndefined();
   for (const label of ['普通私聊消息', '普通群聊消息', '收到助手或克隆体的新回复'])
     expect(button(host, `${label}：应用内横幅通知`).getAttribute('aria-checked')).toBe('false');
+  for (const label of ['特别关心', '群友回复', '群关键词'])
+    expect(button(host, `${label}：选择提醒会话`)).toBeDefined();
   expect(host.textContent).not.toMatch(/N\d{2}/);
   expect(host.textContent).not.toContain('收到点赞');
 });

@@ -66,7 +66,7 @@ export function createMessageNotificationsRouter(
           });
         if (
           !(input.reasons ?? [input.kind === 'group' ? 'groupMessage' : 'directMessage']).some(
-            (event) => events[event].system,
+            (event) => events[event].system && (event !== 'replyMe' || input.kind === 'group'),
           )
         )
           return false;

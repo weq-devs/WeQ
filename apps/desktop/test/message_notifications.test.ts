@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { groupKeywordNotificationIncluded } from '../src/main/notification_content';
 import {
   incomingImportantEvents,
   incomingNoticeEligible,
@@ -27,6 +28,21 @@ const options = {
   reading: false,
 };
 describe('普通消息通知与应用角标', () => {
+  it('宿主按群关键词的会话范围和 QQ 提醒状态筛选', async () => {
+    const getByTargetUids = vi.fn().mockResolvedValue([{ chatType: 2, notifyLevel: 4 }]);
+    const listGroupDirectory = vi.fn().mockResolvedValue([{ groupCode: '10003', notifyLevel: 1 }]);
+    const directory = { recentContacts: { getByTargetUids }, groupInfo: { listGroupDirectory } };
+    const included = (mode: string, targets: string[] = []) =>
+      groupKeywordNotificationIncluded(directory, '10003', { mode, targets });
+    expect(await included('selected', ['group:10004'])).toBe(false);
+    expect(await included('selected', ['group:10003'])).toBe(true);
+    expect(getByTargetUids).not.toHaveBeenCalled();
+    expect(await included('nonMuted')).toBe(false);
+    expect(await included('nonGroupAssistant')).toBe(true);
+    listGroupDirectory.mockResolvedValue([{ groupCode: '10003', notifyLevel: 2 }]);
+    expect(await included('nonGroupAssistant')).toBe(false);
+    expect(listGroupDirectory).toHaveBeenLastCalledWith(10003n);
+  });
   it('通知默认关闭、角标默认开启，两个共享值独立校验', () => {
     expect(preferenceDefaults.messageNotifications).toBe(false);
     expect(preferenceDefaults.applicationBadge).toBe(true);

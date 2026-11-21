@@ -1,3 +1,6 @@
+import { mutedFromNotifyLevel } from '@weq/service/notification-settings';
+import type { ConversationPreference } from '../im-template/template/types';
+
 /** Official recent-contact metadata, independent of WeQ's local mute preferences. */
 export type GroupNotificationMode = 'notify' | 'muted' | 'assistant' | 'blocked' | 'unknown';
 
@@ -24,12 +27,6 @@ export function groupNotificationMode(level: number | undefined): GroupNotificat
       return 'unknown';
   }
 }
-import type { ConversationPreference } from '../im-template/template/types';
-
-export function mutedFromNotifyLevel(level: number | undefined): boolean {
-  return level !== undefined && level !== 0 && level !== 1;
-}
-
 /** 群目录先于最近会话到达时，也按同一通知状态显示免打扰。 */
 export function groupDirectoryPreference(
   notifyLevel: number | undefined,

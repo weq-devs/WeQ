@@ -5,7 +5,10 @@ import { useNotificationPolicy } from '../src/renderer/src/lib/notificationPolic
 import { useMessageNotifications } from '../src/renderer/src/hooks/useMessageNotifications';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import type { NewMessagesWire } from '../src/main/ipc/routers/account';
-import type { NotificationScope } from '@weq/service/notification-settings';
+import type {
+  NotificationScope,
+  ScopedNotificationEvent,
+} from '@weq/service/notification-settings';
 
 const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
 
@@ -13,7 +16,7 @@ const f = vi.hoisted(() => ({
   web: false,
   values: { messageNotifications: false, applicationBadge: true, privacyMode: false },
   locked: false,
-  replyScope: undefined as NotificationScope | undefined,
+  scopes: {} as Partial<Record<ScopedNotificationEvent, NotificationScope>>,
   receive: undefined as undefined | ((batch: NewMessagesWire) => void),
   notify: vi.fn(async (_input: { conv: string; reasons: string[] }) => true),
   browserNotify: vi.fn(() => true),
@@ -61,7 +64,7 @@ vi.mock('../src/renderer/src/lib/clientPreferences', () => ({
   preferenceValue: (key: keyof typeof f.values) => f.values[key],
   accountBinding: () => ({ expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' }),
   isAccountStateReady: () => true,
-  sharedAccountRecords: () => ({ replyMe: f.replyScope }),
+  sharedAccountRecords: () => f.scopes,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -91,7 +94,7 @@ afterEach(() => {
   f.values.applicationBadge = true;
   f.values.privacyMode = false;
   f.locked = false;
-  f.replyScope = undefined;
+  f.scopes = {};
   f.receive = undefined;
   f.notify.mockClear();
   f.browserNotify.mockClear();
@@ -324,7 +327,7 @@ it('后来的普通消息不覆盖另一渠道的 @你预览和位置', async ()
   }
 });
 
-it('同一条消息只在已开启群提醒词的渠道交给专用提醒', async () => {
+it('群关键词只在所选群的已开启渠道接管普通通知', async () => {
   const events = useNotificationPolicy.getState().events;
   act(() =>
     useNotificationPolicy.getState().setEvents({
@@ -341,6 +344,14 @@ it('同一条消息只在已开启群提醒词的渠道交给专用提醒', asyn
     );
     expect(f.notify).not.toHaveBeenCalled();
     expect(useToast.getState().toasts.at(-1)).toMatchObject({ event: 'groupMessage' });
+    f.scopes.keyword = { mode: 'selected', targets: ['group:10004'] };
+    await act(async () =>
+      f.receive?.(batch('86', { kind: 'group', conv: '10003', groupKeyword: true })),
+    );
+    expect(f.notify).toHaveBeenCalledOnce();
+    expect(f.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ conv: '10003', reasons: ['groupMessage'] }),
+    );
   } finally {
     await act(async () => root.unmount());
   }
@@ -354,7 +365,7 @@ it.each([
 ] satisfies { scope: NotificationScope | undefined; expected: string[] }[])(
   '按 $scope 筛选回复，免打扰会话的普通消息保持静默',
   async ({ scope, expected }) => {
-    f.replyScope = scope;
+    f.scopes.replyMe = scope;
     const events = useNotificationPolicy.getState().events;
     act(() =>
       useNotificationPolicy.getState().setEvents({
@@ -399,6 +410,87 @@ it.each([
     }
   },
 );
+it('私聊引用和 QQ 回复标记都只走普通私聊通知', async () => {
+  const events = useNotificationPolicy.getState().events;
+  act(() =>
+    useNotificationPolicy.getState().setEvents({
+      ...events,
+      directMessage: { banner: true, system: true },
+      replyMe: { banner: true, system: true },
+    }),
+  );
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () =>
+      root.render(
+        createElement(Probe, {
+          conversations: [
+            {
+              ...conversations[0]!,
+              highlights: [{ kind: 'replyMe', rawKind: 1002, senderUid: 'peer', msgSeq: '91' }],
+            },
+          ],
+        }),
+      ),
+    );
+    await act(async () => {
+      f.receive?.(batch('90', { elements: [{ type: 'reply', data: { origSenderUid: 'self' } }] }));
+      f.receive?.(batch('91'));
+    });
+    expect(f.notify.mock.calls.map(([input]) => input.reasons)).toEqual([
+      ['directMessage'],
+      ['directMessage'],
+    ]);
+    expect(useToast.getState().toasts.map(({ event }) => event)).toEqual([
+      'directMessage',
+      'directMessage',
+    ]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+it('特别关心默认跳过免打扰，指定会话后可单独提醒', async () => {
+  const events = useNotificationPolicy.getState().events;
+  act(() =>
+    useNotificationPolicy.getState().setEvents({
+      ...events,
+      specialCare: { banner: true, system: true },
+    }),
+  );
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () =>
+      root.render(
+        createElement(Probe, {
+          conversations: [
+            {
+              ...conversations[0]!,
+              highlights: ['92', '93'].map((msgSeq) => ({
+                kind: 'specialCare' as const,
+                rawKind: 1006,
+                senderUid: 'peer',
+                msgSeq,
+              })),
+            },
+          ],
+          preferences: { peer: { pinned: false, muted: true, blocked: false } },
+        }),
+      ),
+    );
+    await act(async () => f.receive?.(batch('92')));
+    expect(f.notify).not.toHaveBeenCalled();
+    expect(useToast.getState().toasts).toHaveLength(0);
+    f.scopes.specialCare = { mode: 'selected', targets: ['c2c:peer'] };
+    await act(async () => f.receive?.(batch('93')));
+    expect(f.notify).toHaveBeenCalledOnce();
+    expect(f.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ conv: 'peer', reasons: ['specialCare'] }),
+    );
+    expect(useToast.getState().toasts.at(-1)).toMatchObject({ event: 'specialCare' });
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
 it('发送者解析期间锁定后不泄露群名、发送者或正文', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   setMessageNotifications(true);

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { join, relative, isAbsolute, extname } from 'node:path';
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
-import { ClientStateStore } from '@weq/service/client-state';
+import type { ClientStateStore } from '@weq/service/client-state';
 import { onSettingsChanged } from '@weq/service/settings-changes';
 import {
   displayPreferenceKeys,
@@ -18,28 +18,18 @@ import {
   type PreferencePatch,
 } from '@weq/service/client-preferences';
 import { getAppContext, requireBootstrap, requirePlatform } from '../../context/app_context';
+import { clientStateStore } from '../../client_state_store';
 import { assistantBus, type AssistantStreamEvent } from '../../mcp/assistant_bus';
 import { procedure, router } from '../trpc';
 import { pickedBrowserFiles } from '../../browser_files';
 import { dataSaverSession, updateTransferPolicy } from '@weq/service/transfer-policy';
 
-const stores = new Map<string, ClientStateStore>();
 export const clientAccountBinding = z.object({
   expectedAccountUin: z.string().min(1),
   expectedAccountConfigId: z.string().min(1),
 });
 function store(scope: string) {
-  const root = requirePlatform().appDataRoot();
-  const path =
-    scope === 'global'
-      ? join(root, 'client-state', 'global.json')
-      : join(root, 'config', 'accounts', scope, 'client-state.json');
-  let state = stores.get(path);
-  if (!state) {
-    state = new ClientStateStore(path);
-    stores.set(path, state);
-  }
-  return state;
+  return clientStateStore(requirePlatform().appDataRoot(), scope);
 }
 export function boundClientState(input: z.infer<typeof clientAccountBinding>) {
   const context = getAppContext();

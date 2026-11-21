@@ -41,7 +41,11 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
   useEffect(() => {
     if (!active || locked || sourceKey !== JSON.stringify(source.current)) setOpen(false);
   }, [active, locked, sourceKey]);
-  const saved = normalizeNotificationScope(sharedAccountRecords('notifications')[event]);
+  const saved = normalizeNotificationScope(sharedAccountRecords('notifications')[event], event);
+  const groupOnly = event === 'replyMe' || event === 'keyword';
+  const savedTargets = groupOnly
+    ? saved.targets.filter((target) => target.startsWith('group:'))
+    : saved.targets;
   const query = trpc.account.listConversationsWithCount.useQuery(undefined, {
     enabled: open && hasAccount && active && !locked,
     refetchOnWindowFocus: false,
@@ -50,7 +54,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
     () =>
       (query.data ?? []).flatMap((row) => {
         const type = classifyChatType(row.chatType);
-        if (type !== 'direct' && type !== 'group') return [];
+        if (type !== 'group' && (groupOnly || type !== 'direct')) return [];
         const kind = type === 'group' ? ('group' as const) : ('c2c' as const);
         return [
           {
@@ -62,7 +66,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
           },
         ];
       }),
-    [query.data],
+    [groupOnly, query.data],
   );
   return (
     <>
@@ -75,7 +79,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
         onClick={() => {
           source.current = accountBinding();
           setMode(saved.mode);
-          setSelected(new Set(saved.targets));
+          setSelected(new Set(savedTargets));
           setError('');
           setOpen(true);
         }}
@@ -88,7 +92,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
           presentation="modal"
           draft={
             mode !== saved.mode ||
-            JSON.stringify([...selected].sort()) !== JSON.stringify([...saved.targets].sort())
+            JSON.stringify([...selected].sort()) !== JSON.stringify([...savedTargets].sort())
               ? [mode, [...selected].sort()]
               : null
           }

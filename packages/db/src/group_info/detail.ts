@@ -117,12 +117,14 @@ export class GroupDetailDb {
   }
 
   /** Official current membership list; independent of partial group_member3 caches. */
-  async listDirectory(): Promise<GroupDirectoryEntry[]> {
+  async listDirectory(groupCode?: bigint): Promise<GroupDirectoryEntry[]> {
     const columns = await this.qq.tableColumns('group_list');
     const notify = columns.has('60252') ? '"60252"' : 'NULL';
     const unnamed = columns.has('60281') ? '"60281"' : 'NULL';
+    const filter = groupCode === undefined ? '' : ' WHERE "60001" = ?';
     const rows = await this.qq.query(
-      `SELECT "60001","60018","60022",${notify},${unnamed},"60006" FROM group_list`,
+      `SELECT "60001","60018","60022",${notify},${unnamed},"60006" FROM group_list${filter}`,
+      groupCode === undefined ? undefined : [groupCode],
     );
     return rows.map(
       (row): GroupDirectoryEntry => ({

@@ -145,6 +145,7 @@ export function useMessageNotifications(options: {
           message: IncomingMessage;
           elements: PlainElement[];
           reasons: NotificationEvent[];
+          keywordNotifies: boolean;
         }[];
       }
     >();
@@ -185,19 +186,19 @@ export function useMessageNotifications(options: {
         atAll: 'mentionAll',
         replyMe: 'replyMe',
         redPacket: 'redPacket',
+        specialCare: 'specialCare',
       } as const;
       for (const highlight of policy.highlights ?? []) {
         if (highlight.msgSeq !== message.msgSeq) continue;
-        if (highlight.kind === 'specialCare' && !policy.muted) reasons.push('specialCare');
-        else if (highlight.kind in mapping)
+        if (highlight.kind in mapping)
           important.add(mapping[highlight.kind as keyof typeof mapping]);
       }
-      if (important.size && isAccountStateReady()) {
-        const scopes = sharedAccountRecords('notifications');
-        for (const event of important) {
-          if (notificationScopeIncludes(normalizeNotificationScope(scopes[event]), policy))
-            reasons.push(event);
-        }
+      const scopes = sharedAccountRecords('notifications');
+      for (const event of important) {
+        if (event === 'replyMe' && message.kind !== 'group') continue;
+        if (event !== 'specialCare' && !isAccountStateReady()) continue;
+        if (notificationScopeIncludes(normalizeNotificationScope(scopes[event], event), policy))
+          reasons.push(event);
       }
       if (!reasons.length) continue;
       let notice = notices.get(policy.key);
@@ -205,7 +206,10 @@ export function useMessageNotifications(options: {
         notice = { name: policy.name, items: [] };
         notices.set(policy.key, notice);
       }
-      notice.items.push({ message, elements, reasons });
+      const keywordNotifies =
+        message.groupKeyword === true &&
+        notificationScopeIncludes(normalizeNotificationScope(scopes.keyword, 'keyword'), policy);
+      notice.items.push({ message, elements, reasons, keywordNotifies });
     }
     while (seen.current.size > 5000) seen.current.delete(seen.current.values().next().value!);
     while (pending.current.size > 500) pending.current.delete(pending.current.keys().next().value!);
@@ -223,8 +227,8 @@ export function useMessageNotifications(options: {
           events.keyword[destination] &&
           (destination === 'banner' || !IS_WEB || useWebNotices.getState().enabled);
         const eligible = items.filter(
-          ({ message, reasons }) =>
-            !(message.groupKeyword && keywordOwnsChannel) &&
+          ({ keywordNotifies, reasons }) =>
+            !(keywordNotifies && keywordOwnsChannel) &&
             reasons.some((event) => events[event][destination]),
         );
         const event = incomingNoticePriority.find(

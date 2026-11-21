@@ -29,7 +29,12 @@ import { withAccountInstance } from '../account_instance_scope';
 import { ConversationInteractionBadges } from './conversation_interactions';
 import { webNotices, type WebNoticeEvent, type WebNoticePayload } from '../web/notices';
 import { MAIL_NOTICE, mailBannerCopy } from '../../shared/notification_copy';
-import { groupKeywordContent, recallContent } from '../notification_content';
+import {
+  groupKeywordContent,
+  groupKeywordNotificationIncluded,
+  recallContent,
+} from '../notification_content';
+import { clientStateStore } from '../client_state_store';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
 import { resolveSignerWrapper } from './signer_target';
@@ -378,7 +383,7 @@ export function liveGroupKeywordRules() {
  */
 type NotificationCopy = { title: string; body: string };
 let groupKeywordNotifier:
-  | ((hit: GroupKeywordHit, copy: NotificationCopy) => void | Promise<void>)
+  | ((hit: GroupKeywordHit, copy?: NotificationCopy) => void | Promise<void>)
   | null = null;
 
 /**
@@ -673,20 +678,27 @@ function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): v
   if (!groupKeyword) {
     groupKeyword = new GroupKeywordService(session, {
       onHit: async (hit) => {
-        const { services, account } = getAppContext();
-        if (account !== session || !services) return;
-        const copy = await groupKeywordContent(services, hit);
+        const { services, account, platform } = getAppContext();
+        if (account !== session || !services || !platform) return;
+        const configId = services.accountConfig.getRecord()?.configId;
+        const scope = configId
+          ? clientStateStore(platform.appDataRoot(), configId).snapshot().records.notifications
+              ?.keyword
+          : undefined;
+        const included = await groupKeywordNotificationIncluded(services, hit.groupCode, scope);
+        const copy = included ? await groupKeywordContent(services, hit) : undefined;
         if (getAppContext().account !== session) return;
-        webNotice(session, {
-          kind: 'keyword',
-          ...copy,
-          target: {
-            kind: 'group',
-            conv: hit.groupCode,
-            seq: String(hit.msgSeq),
-            msgId: String(hit.msgId),
-          },
-        });
+        if (copy)
+          webNotice(session, {
+            kind: 'keyword',
+            ...copy,
+            target: {
+              kind: 'group',
+              conv: hit.groupCode,
+              seq: String(hit.msgSeq),
+              msgId: String(hit.msgId),
+            },
+          });
         return groupKeywordNotifier?.(hit, copy);
       },
     });

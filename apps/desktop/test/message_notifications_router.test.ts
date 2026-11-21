@@ -62,6 +62,23 @@ it('私聊与群聊系统通知分别服从事件表，不再由旧总开关覆�
   expect(f.notify).toHaveBeenCalledOnce();
 });
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' };
+it('私聊不能借用群友回复的系统通知开关', async () => {
+  const api = createMessageNotificationsRouter(() => {}).createCaller({});
+  const notice = {
+    ...binding,
+    messageId: 'private-reply',
+    kind: 'c2c' as const,
+    conv: 'peer',
+    seq: '4',
+    title: '名字',
+    body: '正文',
+    private: false,
+  };
+  f.policy = normalizeNotificationEvents(undefined);
+  expect(await api.notify({ ...notice, reasons: ['replyMe'] })).toBe(false);
+  expect(await api.notify({ ...notice, reasons: ['directMessage'] })).toBe(true);
+  expect(f.notify).toHaveBeenCalledOnce();
+});
 it('原生桥复核共享开关、隐私和去重，关闭角标清零', async () => {
   const resolve = vi.fn();
   const api = createMessageNotificationsRouter(resolve).createCaller({});

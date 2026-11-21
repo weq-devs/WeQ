@@ -1,4 +1,5 @@
-import { groupDirectoryPreference, mutedFromNotifyLevel } from '../../lib/groupNotifications';
+import { mutedFromNotifyLevel } from '@weq/service/notification-settings';
+import { groupDirectoryPreference } from '../../lib/groupNotifications';
 import { groupNoticeId } from '../../lib/contactNotice';
 import { buddyRequestDirection, buddyRequestState } from '@weq/service/buddy-request';
 import { timeDate } from '@weq/time';

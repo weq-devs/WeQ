@@ -1,8 +1,39 @@
 import type { GroupKeywordHit, RecallNotifyEvent } from '@weq/service';
+import { classifyChatType } from '@weq/codec';
+import {
+  mutedFromNotifyLevel,
+  normalizeNotificationScope,
+  notificationScopeIncludes,
+} from '@weq/service/notification-settings';
 import { groupKeywordCopy, notificationInlineText } from '../shared/notification_copy';
 import type { AccountServices } from './context/app_context';
 
 type LocalDirectory = Pick<AccountServices, 'groupInfo' | 'profile' | 'accountConfig'>;
+
+export async function groupKeywordNotificationIncluded(
+  directory: {
+    recentContacts: Pick<AccountServices['recentContacts'], 'getByTargetUids'>;
+    groupInfo: Pick<AccountServices['groupInfo'], 'listGroupDirectory'>;
+  },
+  groupCode: string,
+  rawScope: unknown,
+): Promise<boolean> {
+  const scope = normalizeNotificationScope(rawScope, 'keyword');
+  const conversation = { key: `group:${groupCode}`, muted: false, groupAssistant: false };
+  if (scope.mode === 'nonGroupAssistant' || scope.mode === 'nonMuted') {
+    const [recent, [group]] = await Promise.all([
+      directory.recentContacts.getByTargetUids([groupCode]),
+      directory.groupInfo.listGroupDirectory(BigInt(groupCode)),
+    ]);
+    const contactLevel = recent.find(
+      (row) => classifyChatType(row.chatType) === 'group',
+    )?.notifyLevel;
+    conversation.groupAssistant = contactLevel === 2 || group?.notifyLevel === 2;
+    conversation.muted =
+      conversation.groupAssistant || mutedFromNotifyLevel(contactLevel ?? group?.notifyLevel);
+  }
+  return notificationScopeIncludes(scope, conversation);
+}
 
 async function groupName(directory: LocalDirectory, group: string) {
   const detail = await directory.groupInfo.getGroupDetail(BigInt(group)).catch(() => undefined);

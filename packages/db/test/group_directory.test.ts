@@ -60,5 +60,7 @@ describe('current QQ group directory', () => {
         memberCount: 0,
       },
     ]);
+    expect(await db.listDirectory(10002n)).toMatchObject([{ groupCode: '10002', notifyLevel: 2 }]);
+    expect(await db.listDirectory(10009n)).toEqual([]);
   });
 });

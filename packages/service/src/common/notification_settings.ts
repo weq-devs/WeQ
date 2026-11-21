@@ -67,9 +67,9 @@ export const NOTIFICATION_LABELS: Record<NotificationEvent, string> = {
   specialCare: '特别关心',
   mentionMe: '@自己',
   mentionAll: '@全体成员',
-  replyMe: '引用／回复我',
+  replyMe: '群友回复',
   redPacket: '红包消息',
-  keyword: '关键词命中',
+  keyword: '群关键词',
   recall: '撤回提醒',
   contact: '联系人与群通知',
   mail: '新邮件',
@@ -164,12 +164,19 @@ export function notificationGroupState(
   };
 }
 export const SCOPED_NOTIFICATION_EVENTS = [
+  'specialCare',
   'mentionMe',
   'mentionAll',
   'replyMe',
   'redPacket',
+  'keyword',
 ] as const;
 export type ScopedNotificationEvent = (typeof SCOPED_NOTIFICATION_EVENTS)[number];
+export function isScopedNotificationEvent(
+  event: NotificationEvent,
+): event is ScopedNotificationEvent {
+  return SCOPED_NOTIFICATION_EVENTS.some((candidate) => candidate === event);
+}
 export const NOTIFICATION_SCOPE_OPTIONS = [
   { value: 'all', label: '全部适用会话' },
   { value: 'nonGroupAssistant', label: '非群助手会话' },
@@ -184,8 +191,11 @@ export interface NotificationScope {
 export function isNotificationScopeMode(value: unknown): value is NotificationScopeMode {
   return NOTIFICATION_SCOPE_OPTIONS.some((option) => option.value === value);
 }
-export function normalizeNotificationScope(raw: unknown): NotificationScope {
-  if (raw === undefined) return { mode: 'all', targets: [] };
+export function normalizeNotificationScope(
+  raw: unknown,
+  event?: ScopedNotificationEvent,
+): NotificationScope {
+  if (raw === undefined) return { mode: event === 'specialCare' ? 'nonMuted' : 'all', targets: [] };
   if (!raw || typeof raw !== 'object') return { mode: 'selected', targets: [] };
   const mode: unknown = Reflect.get(raw, 'mode');
   const targets: unknown = Reflect.get(raw, 'targets');
@@ -202,6 +212,10 @@ export function normalizeNotificationScope(raw: unknown): NotificationScope {
         ]
       : [],
   };
+}
+
+export function mutedFromNotifyLevel(level: number | undefined): boolean {
+  return level !== undefined && level !== 0 && level !== 1;
 }
 
 export function notificationScopeIncludes(
