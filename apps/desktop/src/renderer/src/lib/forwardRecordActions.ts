@@ -40,7 +40,9 @@ export function forwardEntries(
       if (sendTimeMs <= 0 || grayTipOf(record)) return;
       const senderId = /^[1-9]\d*$/.test(record.senderUin ?? '') ? record.senderUin : undefined;
       const senderUid = record.senderUid && record.senderUid !== '0' ? record.senderUid : undefined;
-      if (senderId || senderUid) return { senderId, senderUid, time: sendTimeMs };
+      // QQ 的转发快照可能给不同作者填相同 QQ 号和 UID，加密头像账号仍能区分。
+      const senderSnapshotId = record.senderInfo?.avatar?.encryptedUin;
+      if (senderId || senderUid) return { senderId, senderUid, senderSnapshotId, time: sendTimeMs };
     },
     (_previous, entry) => entry.showTime,
   );

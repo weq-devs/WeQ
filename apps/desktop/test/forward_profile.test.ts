@@ -76,6 +76,32 @@ it('转发包允许原序号跳过和媒体插入，但不以同名替代发送�
     expect(positions(first, boundary)).toEqual([undefined, undefined]);
 });
 
+it('转发作者共用 QQ 号和 UID 时，仍按头像快照身份拆组', () => {
+  const shared = { senderUid: 'u_shared', senderUin: '10002', elements: [{ type: 'text' }] };
+  const snapshot = (encryptedUin: string) => ({ avatar: { encryptedUin } });
+  const first = {
+    ...shared,
+    msgId: '1',
+    sendTime: 1700000000,
+    senderInfo: snapshot('avatar-account-a'),
+  };
+  const second = {
+    ...shared,
+    msgId: '2',
+    sendTime: 1700000001,
+    senderInfo: snapshot('avatar-account-b'),
+  };
+  const third = { ...second, msgId: '3', sendTime: 1700000002 };
+  const positions = (...records: ForwardRecordWire[]) =>
+    forwardEntries({ id: 1, records }, true).map((entry) => entry.groupPosition);
+  expect(positions(first, second, third)).toEqual([undefined, 'first', 'last']);
+  expect(positions(first, { ...second, senderInfo: undefined }, third)).toEqual([
+    'first',
+    'last',
+    undefined,
+  ]);
+});
+
 it('实际应用只在名片导航上下文内挂载转发宿主', () => {
   const hosts: string[][] = [];
   for (const path of ['src/renderer/src/App.tsx', 'src/renderer/src/views/MainView.tsx']) {

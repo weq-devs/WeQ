@@ -47,7 +47,12 @@ export function unreadTimelineBoundary(messages: readonly Message[], firstSeq: s
 
 export type MessageGroupPosition = 'first' | 'middle' | 'last';
 
-type MessageGroupKey = { senderId?: string; senderUid?: string; time: number };
+type MessageGroupKey = {
+  senderId?: string;
+  senderUid?: string;
+  senderSnapshotId?: string;
+  time: number;
+};
 
 export function consecutiveMessageGroups<T>(
   messages: readonly T[],
@@ -67,6 +72,9 @@ export function consecutiveMessageGroups<T>(
         (sameId || sameUid) &&
         (!key.senderId || !previous.senderId || sameId) &&
         (!key.senderUid || !previous.senderUid || sameUid) &&
+        (!key.senderSnapshotId ||
+          !previous.senderSnapshotId ||
+          key.senderSnapshotId === previous.senderSnapshotId) &&
         key.time >= previous.time &&
         !shouldShowMessageTime(previous.time, key.time) &&
         !breakBefore(messages[index - 1]!, message)
@@ -77,6 +85,7 @@ export function consecutiveMessageGroups<T>(
         previous = {
           senderId: key.senderId || previous.senderId,
           senderUid: key.senderUid || previous.senderUid,
+          senderSnapshotId: key.senderSnapshotId || previous.senderSnapshotId,
           time: key.time,
         };
         continue;
