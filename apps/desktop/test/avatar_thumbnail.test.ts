@@ -1,9 +1,13 @@
-import { afterEach, expect, it } from 'vitest';
-import { createElement } from 'react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QqAvatar } from '../src/renderer/src/components/QqAvatar';
+import { WebAvatarScope } from '../src/renderer/src/hooks/useAvatarImage';
+import { Avatar } from '../src/renderer/src/im-template/template/primitives';
 import { cachedAvatarUrl } from '../src/renderer/src/lib/avatarCache';
 import { setPreferCdnFlag } from '../src/renderer/src/lib/cdn';
+import { avatarStore, webAvatarCache, webAvatarKey } from '../src/renderer/src/lib/webAvatarCache';
 
 afterEach(() => setPreferCdnFlag(false));
 
@@ -64,4 +68,64 @@ it('重复包装的头像仍复用规范地址，不丢显式刷新参数，不�
   expect(cachedAvatarUrl(signed)).toBe(signed);
   const external = 'https://example.test/g?nk=10001&b=sdk&s=0';
   expect(new URL(cachedAvatarUrl(external)!).searchParams.get('src')).toBe(external);
+});
+
+it('Remote 会话缩略图失败时无需打开名片即可加载原图，成功的缩略图不再请求原图', async () => {
+  const scope = 'chat-avatar-fixture';
+  const own = '/_media/avatar?scope=user&uin=10001&v=big';
+  const peer = '/_media/avatar?scope=user&uin=10002&v=big';
+  const ownThumbnail = cachedAvatarUrl(own, 'small')!;
+  const peerThumbnail = cachedAvatarUrl(peer, 'small')!;
+  const fetchImage = vi.fn(async (src: string) =>
+    src === ownThumbnail
+      ? new Response(null, { status: 404 })
+      : new Response(new Blob(['avatar'], { type: 'image/png' })),
+  );
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
+  vi.stubGlobal('fetch', fetchImage);
+  vi.stubGlobal(
+    'Image',
+    class {
+      naturalWidth = 32;
+      naturalHeight = 32;
+      decode = async () => {};
+      removeAttribute = () => {};
+    },
+  );
+  vi.spyOn(avatarStore, 'get').mockResolvedValue(undefined);
+  vi.spyOn(avatarStore, 'put').mockResolvedValue(undefined);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(
+        createElement(
+          WebAvatarScope.Provider,
+          { value: scope },
+          createElement(Avatar, { name: '本人', avatarUrl: own, resolution: 'small' }),
+          createElement(Avatar, { name: '对方', avatarUrl: peer, resolution: 'small' }),
+        ),
+      );
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(webAvatarCache.peek(webAvatarKey(scope, own)!)?.ready).toBe(true),
+      );
+    });
+    const srcs = [...host.querySelectorAll('img')].map((image) => image.getAttribute('src'));
+    expect(srcs).toEqual([
+      webAvatarCache.peek(webAvatarKey(scope, own)!)?.src,
+      webAvatarCache.peek(webAvatarKey(scope, peerThumbnail)!)?.src,
+    ]);
+    expect(fetchImage.mock.calls.map(([src]) => src).sort()).toEqual(
+      [ownThumbnail, own, peerThumbnail].sort(),
+    );
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
 });
