@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { isDatalineUid } from '@weq/codec';
 import { NumericText } from '../../components/NumericText';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
@@ -1063,7 +1064,16 @@ export function ConversationList({
                     </>
                   }
                   status={
-                    showUnreadCount ? (
+                    showUnreadCount &&
+                    conversation.type === 'direct' &&
+                    isDatalineUid(conversation.id) ? (
+                      <ReminderDot
+                        className="row-unread"
+                        tone={reminderTone}
+                        role="img"
+                        aria-label="有未读消息"
+                      />
+                    ) : showUnreadCount ? (
                       <ReminderCount
                         count={unreadCount}
                         tone={reminderTone}

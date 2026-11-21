@@ -238,3 +238,25 @@ describe('只迁移显式操作', () => {
     expect(store.resolve(snapshot()).unreadCount).toBe(0);
   });
 });
+
+it('设备阅读位置按时间和原消息 ID 推进，不清同秒新消息', async () => {
+  const path = fixture();
+  const store = new LocalUnreadStore(path);
+  const row = snapshot({
+    chatType: 8,
+    peer: '8_u_phone',
+    uid: 'u_phone',
+    latestSeq: '0',
+    deviceRead: '0:1700000000:19',
+    deviceLatest: '0:1700000000:20',
+    localUnreadCount: 0,
+  });
+  expect(store.resolve(row).unreadCount).toBe(1);
+  expect(store.markDeviceRead(row, row.deviceLatest!)).toBe(true);
+  await store.flush();
+  const restored = new LocalUnreadStore(path);
+  expect(restored.resolve(row).unreadCount).toBe(0);
+  expect(restored.resolve({ ...row, deviceLatest: '0:1700000000:21' }).unreadCount).toBe(1);
+  expect(restored.resolve({ ...row, deviceRead: row.deviceLatest }).unreadCount).toBe(0);
+  expect(restored.isDeviceReadCurrent(8, row.uid, row.deviceLatest!)).toBe(false);
+});

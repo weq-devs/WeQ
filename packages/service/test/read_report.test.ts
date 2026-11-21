@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DATALINE_UID_TO_DEVICE } from '@weq/codec';
 import type { AccountSession } from '@weq/account';
 import { decode, encode, ReadedReport } from '@weqbot/protocol';
 import { ReportRead } from '@weqbot/protocol';
@@ -377,4 +378,37 @@ describe('已读上报服务', () => {
     await settled(f.service, 'unconfirmed');
     expect(f.nt.sendPacket).toHaveBeenCalledTimes(3);
   });
+});
+
+it('设备阅读用本人 UID 和原发送时间，不写普通序号或送入私聊通知代理', async () => {
+  const f = setup();
+  const [uid] = Object.entries(DATALINE_UID_TO_DEVICE).find(([, name]) => name === 'pad')!;
+  const device = {
+    uid,
+    chatType: 8,
+    peer: `8_${uid}`,
+    latestSeq: '0',
+    deviceRead: '0:1699999999:15',
+    deviceLatest: '0:1700000000:20',
+  };
+  f.getUnreadInfos.mockResolvedValue([device]);
+  f.nt.sendPacket.mockResolvedValueOnce(
+    Buffer.from(
+      encode(ReadedReport.respSchema, {
+        c2cList: [{ uid: 'u_self', readSeq: 10n }],
+      }),
+    ),
+  );
+  expect(
+    await f.service.markReadAndReport(8, uid, undefined, {
+      devicePosition: '0:1700000000:20',
+    }),
+  ).toMatchObject({ changed: true, report: { state: 'pending' } });
+  await settled(f.service);
+  expect(f.nt.sendPacket.mock.calls[0]![2].toString('hex')).toBe(
+    '120e1206755f73656c661880e2cfaa06',
+  );
+  expect(f.markRead).not.toHaveBeenCalled();
+  expect(f.acknowledged).not.toHaveBeenCalled();
+  expect((await f.service.getUnreadInfos([{ chatType: 8, uid }]))[0]?.unreadCount).toBe(0);
 });

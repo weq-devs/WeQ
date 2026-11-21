@@ -18,7 +18,7 @@ it('未读水位按 UID 定位，仅将类型作为剩余筛选，不重复扫�
   const sql = fixtureDb(path);
   sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
     CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40027" INTEGER,"40020" TEXT,
-      "40011" INTEGER,"40051" BLOB,"40001" INTEGER);
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40050" INTEGER);
     CREATE INDEX contacts_uid ON recent_contact_v3_table("40021");
     CREATE INDEX contacts_type_partition ON recent_contact_v3_table("40010","40027");
     INSERT INTO recent_contact_v3_table("40021","40003","40010","40027","40020")

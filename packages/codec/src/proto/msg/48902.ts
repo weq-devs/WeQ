@@ -79,7 +79,10 @@ const UnreadInfoInner = {
   markUnread: ProtoField(41027, ScalarType.UINT32, { optional: true }),
   /** 设备／特殊会话的独立计数，不作为普通私聊、群聊计数。 */
   unreadCount: ProtoField(41022, ScalarType.UINT32, { optional: true }),
+  deviceReadTime: ProtoField(41034, ScalarType.UINT64, { optional: true }),
+  deviceReadId: ProtoField(41036, ScalarType.UINT64, { optional: true }),
   localUnreadCount: ProtoField(41037, ScalarType.UINT32, { optional: true }),
+  deviceIncomingTime: ProtoField(41038, ScalarType.UINT64, { optional: true }),
   /** 会话扩展（特别关心等提醒高亮）。 */
   ext: ProtoField(50005, () => UnreadExt, { optional: true }),
 };

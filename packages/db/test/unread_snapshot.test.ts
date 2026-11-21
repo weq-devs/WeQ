@@ -21,7 +21,7 @@ it('防撤回保留的正文按会话及未读区间从撤回索引查出', asyn
   const sql = fixtureDb(path);
   sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
     CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT,
-      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER);
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER,"40050" INTEGER);
     INSERT INTO recent_contact_v3_table("40021","40003","40010","40020") VALUES ('70001',110,2,'u_peer');
     CREATE TABLE weq_recall_log(msgid INTEGER PRIMARY KEY, table_kind TEXT, conv TEXT, orig_seq INTEGER);
     CREATE INDEX weq_recall_by_conversation_seq ON weq_recall_log(table_kind,conv,orig_seq);
@@ -59,7 +59,7 @@ it('小表直接交付本地水位、减项、标志及最新发送者，不需�
   const sql = fixtureDb(path);
   sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
     CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT,
-      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER);
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER,"40050" INTEGER);
     INSERT INTO recent_contact_v3_table("40021","40003","40010","40020") VALUES ('70001',110,2,'u_self')`);
   sql.prepare('INSERT INTO msg_unread_info_table VALUES (?,?)').run(
     '2_70001',
@@ -106,7 +106,7 @@ it('撤回和拍一拍按同会话同序号的正文归因，缺行不猜，普�
   const sql = fixtureDb(path);
   sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
     CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT,
-      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER);
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER,"40050" INTEGER);
     CREATE TABLE c2c_msg_table("40027" INTEGER,"40003" INTEGER,"40011" INTEGER,"40001" INTEGER,"40020" TEXT);
     CREATE INDEX c2c_seq ON c2c_msg_table("40027","40003");
     CREATE TABLE group_msg_table("40027" INTEGER,"40003" INTEGER,"40011" INTEGER,"40001" INTEGER,"40020" TEXT);
@@ -123,7 +123,7 @@ it('撤回和拍一拍按同会话同序号的正文归因，缺行不猜，普�
   const recall = preview.encode({
     preview: [{ elementType: ElementType.GRAY_TIP, subType: GrayTipSubType.REVOKE }],
   });
-  const contact = sql.prepare('INSERT INTO recent_contact_v3_table VALUES (?,110,?,?,5,?,?,?)');
+  const contact = sql.prepare('INSERT INTO recent_contact_v3_table VALUES (?,110,?,?,5,?,?,?,NULL)');
   // 私聊拍一拍摘要的 ID 可以不同于共号的正文，发送者也可以相反。
   contact.run('u_own', 1, 'u_peer', poke, 91001, 10);
   contact.run('u_inbound', 1, 'u_self', poke, 91002, 11);

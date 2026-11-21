@@ -8,7 +8,15 @@
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import { QqDb } from '../qq_db';
-import { ChatType, ElementType, GrayTipSubType, ProtoMsg } from '@weq/codec';
+import {
+  ChatType,
+  ElementType,
+  GrayTipSubType,
+  ProtoMsg,
+  isDatalineSelfUid,
+  isDatalineUid,
+  DATALINE_UID_TO_DEVICE,
+} from '@weq/codec';
 import {
   appendNode,
   buildEditTree,
@@ -93,6 +101,9 @@ export interface UnreadInfoResult {
   localUnreadCount?: number;
   /** Notify-highlights (特别关心 / @我 / …) present on this conversation. */
   highlights?: UnreadHighlight[];
+  /** 数据线以原消息时间和 ID 定位，序号统一为零。 */
+  deviceRead?: string;
+  deviceIncomingTime?: string;
 }
 
 export interface UnreadInfoTarget {
@@ -102,6 +113,7 @@ export interface UnreadInfoTarget {
 
 export interface UnreadInfoSnapshot extends UnreadInfoResult {
   latestSeq: string | null;
+  deviceLatest?: string;
   /** 正文发送者；灰条覆盖预览时不能直接使用小表 40020。 */
   latestSenderUid?: string;
   /** 最新序号已确认只有撤回／拍一拍，不是新的正文。 */
@@ -124,6 +136,16 @@ const RECENT_UNREAD_TYPE = `CASE WHEN ${RECENT_CHAT_TYPE} IN (${TEMP_DIRECT_TYPE
 const RECENT_UNREAD_COLUMNS = `r."40003", r."40020", CASE WHEN r."40011"=${GRAY_TIP} THEN r."40051" END, r."40001", r."40027", ${RECENT_CHAT_TYPE}`;
 const HAS_RECALL_UNREAD_INDEX = `EXISTS(SELECT 1 FROM sqlite_master
   WHERE type='index' AND name='${RECALL_UNREAD_INDEX}')`;
+function deviceStorageType(chatType: number, uid: string): number {
+  if (!isDatalineUid(uid)) return chatType;
+  return chatType === 8 ? 10 : chatType === 134 ? 53 : chatType;
+}
+
+function readPosition(time: bigint, id: bigint): string {
+  return `0:${time}:${BigInt.asIntN(64, id)}`;
+}
+
+const deviceSelfUid = Object.keys(DATALINE_UID_TO_DEVICE).find(isDatalineSelfUid)!;
 const previewProto = new ProtoMsg(RecentContactBody);
 
 interface GrayTipUnreadTarget {
@@ -201,9 +223,10 @@ export class UnreadInfoDb {
 
   async getUnreadInfo(chatType: number, uid: string): Promise<UnreadInfoResult | null> {
     const peer = `${chatType}_${uid}`;
+    const storagePeer = `${deviceStorageType(chatType, uid)}_${uid}`;
     const rows = await this.qq.query(
-      `SELECT "48901", "48902" FROM msg_unread_info_table WHERE "48901" = ? LIMIT 1`,
-      [peer],
+      `SELECT "48901", "48902" FROM msg_unread_info_table WHERE "48901" IN (?, ?) ORDER BY "48901" = ? DESC LIMIT 1`,
+      [storagePeer, peer, storagePeer],
     );
 
     const row = rows[0];
@@ -214,7 +237,7 @@ export class UnreadInfoDb {
     const highlights = extractHighlights(decoded.info?.ext);
 
     return {
-      peer: row[0] as string,
+      peer,
       chatType,
       uid,
       ...this.readFields(decoded),
@@ -230,12 +253,17 @@ export class UnreadInfoDb {
       databaseRequestSignal()?.throwIfAborted();
       const batch = unique.slice(offset, offset + 256);
       const rows = await this.qq.query(
-        `WITH targets(chatType, uid, peer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
-         SELECT t.chatType, t.uid, t.peer, u."48902", ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
+        `WITH targets(chatType, uid, storagePeer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
+         SELECT t.chatType, t.uid, CAST(t.chatType AS INTEGER) || '_' || t.uid, COALESCE(u."48902", old."48902"), ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}, r."40050"
          FROM targets t
-         LEFT JOIN msg_unread_info_table u ON u."48901" = t.peer
+         LEFT JOIN msg_unread_info_table u ON u."48901" = t.storagePeer
+         LEFT JOIN msg_unread_info_table old ON old."48901" = (CAST(t.chatType AS INTEGER) || '_' || t.uid) AND old."48901" != t.storagePeer
          LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND (${RECENT_UNREAD_TYPE}) = t.chatType`,
-        batch.flatMap((t) => [t.chatType, t.uid, `${t.chatType}_${t.uid}`]),
+        batch.flatMap(({ chatType, uid }) => [
+          chatType,
+          uid,
+          `${deviceStorageType(chatType, uid)}_${uid}`,
+        ]),
       );
       const byPeer = new Map<string, SqlRow>();
       for (const row of rows) {
@@ -251,18 +279,29 @@ export class UnreadInfoDb {
   /** 账号共享快照由两张小表驱动，包含没有最近会话行的未读记录。 */
   async getAllUnreadInfos(): Promise<UnreadInfoSnapshot[]> {
     const rows = await this.qq.query(
-      `SELECT ${RECENT_UNREAD_TYPE}, r."40021", (${RECENT_UNREAD_TYPE}) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
+      `SELECT ${RECENT_UNREAD_TYPE}, r."40021", (${RECENT_UNREAD_TYPE}) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}, r."40050"
        FROM recent_contact_v3_table r
        WHERE ${RECENT_CHAT_TYPE} IN (1,2,8,134,${TEMP_DIRECT_TYPES})
        UNION ALL
-       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
+       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
     );
     // 同一 SQL 快照分别返回小表行，再线性合并；避免缺行检测逐个重扫最近会话表。
     const merged = new Map<string, SqlRow>();
+    const nativeDeviceRows = new Set<string>();
     for (const row of rows) {
-      const peer = String(row[2]);
+      let peer = String(row[2]);
+      if (row[0] == null) {
+        const separator = peer.indexOf('_');
+        const type = Number(peer.slice(0, separator));
+        const uid = peer.slice(separator + 1);
+        if ((type === 10 || type === 53) && isDatalineUid(uid)) {
+          peer = `${type === 10 ? 8 : 134}_${uid}`;
+          nativeDeviceRows.add(peer);
+          row[2] = peer;
+        } else if (nativeDeviceRows.has(peer)) continue;
+      }
       const recent = merged.get(peer);
-      if (recent && row[0] === null) recent[3] = row[3] ?? null;
+      if (recent && row[0] == null) recent[3] = row[3] ?? null;
       else if (!recent || preferRecentUnreadRow(row, recent)) merged.set(peer, [...row]);
     }
     return (await this.decodeAndResolveSnapshots([...merged.values()])).filter((row) =>
@@ -276,6 +315,10 @@ export class UnreadInfoDb {
     const info = decoded.info;
     return {
       msgSeq: info?.msgSeq,
+      ...(info?.deviceReadTime && info.deviceReadId
+        ? { deviceRead: readPosition(BigInt(info.deviceReadTime), BigInt(info.deviceReadId)) }
+        : {}),
+      ...(info?.deviceIncomingTime ? { deviceIncomingTime: String(info.deviceIncomingTime) } : {}),
       localReadSeq: info?.localReadSeq?.toString(),
       decreasedSeqs: info?.decreases
         ? [
@@ -318,9 +361,56 @@ export class UnreadInfoDb {
         return { ...identity, readError: true as const };
       }
     });
+    await Promise.all(
+      snapshots.flatMap((snapshot, idx) =>
+        snapshot.chatType === 8 || snapshot.chatType === 134
+          ? [this.resolveDeviceLatest(snapshot, rows[idx]!)]
+          : [],
+      ),
+    );
     for (const [chatType, batch] of targets) await this.resolveGrayTipTargets(chatType, batch);
     if (rows.some((row) => Number(row[10]) === 1)) await this.resolveProtectedRecalls(snapshots);
     return snapshots;
+  }
+
+  private async resolveDeviceLatest(snapshot: UnreadInfoSnapshot, row: SqlRow) {
+    const { chatType, uid, deviceIncomingTime, deviceRead, latestSenderUid } = snapshot;
+    if (snapshot.readError || !isDatalineUid(uid)) return;
+    const time = positiveInt(row[11]);
+    const id = row[7] == null ? 0n : BigInt(String(row[7]));
+    const incomingTime = positiveInt(deviceIncomingTime);
+    if (
+      time &&
+      id &&
+      latestSenderUid &&
+      !isDatalineSelfUid(latestSenderUid) &&
+      Number(row[9]) === chatType &&
+      (!incomingTime || incomingTime <= time) &&
+      !(row[6] instanceof Uint8Array)
+    ) {
+      snapshot.deviceLatest = readPosition(time, id);
+      return;
+    }
+    const through = incomingTime ?? time;
+    if (!through) return;
+    // QQ 保存最近收件时间。摘要被电脑发出的消息覆盖时，只看有界的收件区间。
+    const readTime = BigInt(deviceRead?.split(':')[1] ?? 0);
+    const from = incomingTime ?? (readTime || through);
+    if (from > through) return;
+    const [message] = await this.qq
+      .query(
+        `SELECT "40050", "40001" FROM dataline_msg_table
+       WHERE "40021"=? AND "40010"=? AND "40050" BETWEEN ? AND ?
+         AND "40020"<>? AND "40020"<>'' AND "40011"<>?
+       ORDER BY "40050" DESC, "40001" DESC LIMIT 1`,
+        [uid, BigInt(chatType), from, through, deviceSelfUid, BigInt(GRAY_TIP)],
+      )
+      .catch(() => {
+        snapshot.readError = true;
+        return [];
+      });
+    if (message)
+      snapshot.deviceLatest = readPosition(BigInt(String(message[0])), BigInt(String(message[1])));
   }
 
   private async resolveProtectedRecalls(snapshots: UnreadInfoSnapshot[]): Promise<void> {

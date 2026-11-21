@@ -5176,11 +5176,12 @@ function MainWorkspace(): ReactElement {
   const [missingJumpSeq, setMissingJumpSeq] = useState<string | null>(null);
   // 正在处理（或已处理完）的会话 id —— 同一个会话只引导一次（分页/刷新不再重复）。
   // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
-  const unreadDockRequestRef = useRef<{ convId: string } | null>(null);
+  const unreadDockRequestRef = useRef<{ convId: string; deviceTail?: string } | null>(null);
   const unreadSnapshotPendingRef = useRef<{ convId: string } | null>(null);
   type AutoRead = {
     snapshot?: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number];
     visibleSeqs?: string[];
+    devicePosition?: string;
   };
   const readRequestsRef = useRef(new Map<string, { next?: AutoRead; promise: Promise<void> }>());
   const readSettingsReady = Boolean(displaySettings.data);
@@ -5236,7 +5237,8 @@ function MainWorkspace(): ReactElement {
         Boolean(binding) &&
         readPolicy.current.readSettingsReady &&
         readPolicy.current.readThroughViewport === Boolean(visibleSeqs) &&
-        (!visibleSeqs || readPolicy.current.readViewportActive) &&
+        ((!visibleSeqs && chatType !== 8 && chatType !== 134) ||
+          readPolicy.current.readViewportActive) &&
         messageScopeRef.current === source &&
         messagesTabActiveRef.current &&
         document.visibilityState !== 'hidden' &&
@@ -5264,7 +5266,7 @@ function MainWorkspace(): ReactElement {
       };
       entry.promise = (async () => {
         while (entry.next) {
-          const { snapshot, visibleSeqs } = entry.next;
+          const { snapshot, visibleSeqs, devicePosition } = entry.next;
           entry.next = undefined;
           const stillCurrent = () => isCurrent(visibleSeqs);
           if (!stillCurrent()) continue;
@@ -5272,7 +5274,7 @@ function MainWorkspace(): ReactElement {
           try {
             if (visibleSeqs && chatType !== 1 && chatType !== 2) continue;
             let latestSeq: string | undefined;
-            if (!visibleSeqs) {
+            if (!visibleSeqs && !devicePosition) {
               // 摘要可能来自乐观更新或漫游；传统模式固定使用本次捕获的小表最新水位。
               const info =
                 snapshot ??
@@ -5298,7 +5300,11 @@ function MainWorkspace(): ReactElement {
               () =>
                 visibleSeqs && (chatType === 1 || chatType === 2)
                   ? client.account.markViewportRead.mutate({ ...request, chatType, visibleSeqs })
-                  : client.account.markConversationRead.mutate({ ...request, latestSeq }),
+                  : client.account.markConversationRead.mutate({
+                      ...request,
+                      latestSeq,
+                      devicePosition,
+                    }),
               stillCurrent,
             );
             if (
@@ -5516,13 +5522,19 @@ function MainWorkspace(): ReactElement {
     }
     // 等首批消息落地后记录未读快照；跳转目标是否可见由聊天视口判断。
     if (messagesLoading || loaded.length === 0) return undefined;
-    if (unreadDockRequestRef.current?.convId === conv.id) return undefined;
-
-    const convId = conv.id;
-    const request = { convId };
-    unreadDockRequestRef.current = request;
     const chatType =
       conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1);
+    const device = chatType === 8 || chatType === 134;
+    if (device && (!anchoredToLatest || !readViewportActive)) return undefined;
+    const convId = conv.id;
+    const deviceTail = device ? loaded.at(-1)?.msgId : undefined;
+    if (
+      unreadDockRequestRef.current?.convId === convId &&
+      unreadDockRequestRef.current.deviceTail === deviceTail
+    )
+      return undefined;
+    const request = { convId, deviceTail };
+    unreadDockRequestRef.current = request;
     const source = messageScopeRef.current;
     const binding = messageBindingRef.current;
     // 只在「还是同一个会话」时落地结果 —— 用 ref 而非 effect cleanup，
@@ -5548,11 +5560,19 @@ function MainWorkspace(): ReactElement {
       const startedAt = guard.revision();
       try {
         if (!openedUin) return;
-        [info] = await readUnreadInfos({
-          expectedAccountUin: openedUin,
-          expectedAccountConfigId: binding?.expectedAccountConfigId,
-          targets: [{ chatType, uid: convId }],
-        });
+        if (device && binding) {
+          info = await client.account.getDeviceReadSnapshot.query({
+            ...binding,
+            chatType,
+            uid: convId,
+          });
+        } else {
+          [info] = await readUnreadInfos({
+            expectedAccountUin: openedUin,
+            expectedAccountConfigId: binding?.expectedAccountConfigId,
+            targets: [{ chatType, uid: convId }],
+          });
+        }
       } catch (err) {
         console.error('[unread-dock] getUnreadInfo failed', err);
       } finally {
@@ -5564,6 +5584,16 @@ function MainWorkspace(): ReactElement {
         return;
       }
       if (guard.accepts(convId, startedAt)) applyActiveReadPosition([info]);
+
+      if (device) {
+        const position = info.deviceLatest;
+        const [, time, id] = position?.split(':') ?? [];
+        if (position && loaded.some((row) => row.msgId === id && String(row.sendTime) === time)) {
+          await markVisibleConversationRead(conv, { snapshot: info, devicePosition: position });
+        }
+        if (stillCurrent()) setUnreadDock(null);
+        return;
+      }
 
       const readSeq = info.readSeq ?? null;
       const unread = info.unreadCount ?? 0;
@@ -5585,6 +5615,8 @@ function MainWorkspace(): ReactElement {
     readSettingsReady,
     selectedConversation,
     messagesLoading,
+    anchoredToLatest,
+    readViewportActive,
     loaded,
     recentContactsData,
     markVisibleConversationRead,

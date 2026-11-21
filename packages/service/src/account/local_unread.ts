@@ -1,5 +1,6 @@
 import type { UnreadInfoSnapshot } from '@weq/db';
 import { classifyChatType } from '@weq/codec';
+import { newerReadPosition } from '../common/client_preferences';
 import { readJsonFile } from '../common/json_store';
 import { writeFileAtomic } from '../common/atomic_write';
 
@@ -8,18 +9,20 @@ interface ManualReadState {
   unread: boolean;
   readSeq?: string;
   confirmed?: boolean;
+  deviceRead?: string;
 }
 interface ReadPosition {
   sourceVersion: 2;
   readSeq?: string;
+  deviceRead?: string;
   manual?: ManualReadState;
   operation?: number;
 }
 export interface ManualReadChange {
   previous?: ManualReadState;
   applied: ManualReadState;
-  previousPosition: { readSeq?: string };
-  restoredPosition?: { readSeq?: string };
+  previousPosition: { readSeq?: string; deviceRead?: string };
+  restoredPosition?: { readSeq?: string; deviceRead?: string };
   operation: number;
   previousOperation?: number;
 }
@@ -29,6 +32,9 @@ export interface ResolvedUnreadInfo extends UnreadInfoSnapshot {
 }
 function sequence(value: unknown): value is string {
   return typeof value === 'string' && /^\d{1,20}$/.test(value);
+}
+export function validDeviceReadPosition(value: unknown): value is string {
+  return typeof value === 'string' && /^0:[1-9]\d{0,9}:-?[1-9]\d{0,18}$/.test(value);
 }
 const pendingWrites = new Set<Promise<void>>();
 export async function waitForUnreadWrites(): Promise<void> {
@@ -58,6 +64,7 @@ export class LocalUnreadStore {
         localReadSeq?: string;
         readSeq?: string;
         operation?: number;
+        deviceRead?: string;
         manual?: ManualReadState & { unreadCount?: number };
       };
       const readSeq =
@@ -76,14 +83,19 @@ export class LocalUnreadStore {
               unread: manual.unread ?? (manual.unreadCount ?? 0) > 0,
               readSeq: sequence(manual.readSeq) ? manual.readSeq : undefined,
               confirmed: manual.confirmed,
+              deviceRead: validDeviceReadPosition(manual.deviceRead)
+                ? manual.deviceRead
+                : undefined,
             }
           : undefined;
-      if (!sequence(readSeq) && !migrated) continue;
+      const deviceRead = validDeviceReadPosition(old.deviceRead) ? old.deviceRead : undefined;
+      if (!sequence(readSeq) && !migrated && !deviceRead) continue;
       this.positions.set(key, {
         sourceVersion: 2,
         readSeq: sequence(readSeq) ? readSeq : undefined,
         manual: migrated,
         operation: old.operation,
+        deviceRead,
       });
     }
   }
@@ -109,18 +121,59 @@ export class LocalUnreadStore {
     return true;
   }
 
+  markDeviceRead(snapshot: UnreadInfoSnapshot, position: string): boolean {
+    const row = this.position(snapshot.chatType, snapshot.uid);
+    const advances =
+      newerReadPosition(position, row.deviceRead) &&
+      newerReadPosition(position, snapshot.deviceRead);
+    if (!advances && !row.manual && !snapshot.markUnread) return false;
+    if (advances) row.deviceRead = position;
+    if (snapshot.markUnread && row.manual?.unread !== false) {
+      row.manual = { latestSeq: '0', unread: false, deviceRead: position };
+    } else if (row.manual?.unread) {
+      delete row.manual;
+    } else if (!advances) {
+      return false;
+    }
+    row.operation = ++this.revision;
+    return true;
+  }
+
+  isDeviceReadCurrent(chatType: number, uid: string, position: string): boolean {
+    const row = this.positions.get(`${chatType}_${uid}`);
+    return !!row && !row.manual?.unread && row.deviceRead === position;
+  }
+
   setManualRead(snapshot: ResolvedUnreadInfo, unread: boolean): ManualReadChange {
     const row = this.position(snapshot.chatType, snapshot.uid);
     const latest = snapshot.latestSeq ?? snapshot.readSeq ?? '0';
-    const applied = { latestSeq: latest, unread, readSeq: unread ? snapshot.readSeq : latest };
+    const device =
+      classifyChatType(snapshot.chatType) === 'dataline' &&
+      Boolean(snapshot.deviceLatest || snapshot.deviceRead || row.deviceRead);
+    const applied = {
+      latestSeq: latest,
+      unread,
+      readSeq: unread ? snapshot.readSeq : latest,
+      ...(device
+        ? { deviceRead: unread ? (row.deviceRead ?? snapshot.deviceRead) : snapshot.deviceLatest }
+        : {}),
+    };
     const change: ManualReadChange = {
       previous: row.manual,
       applied,
-      previousPosition: { readSeq: row.readSeq },
+      previousPosition: { readSeq: row.readSeq, deviceRead: row.deviceRead },
       previousOperation: row.operation,
       operation: ++this.revision,
     };
-    if (!unread && BigInt(latest) > BigInt(row.readSeq ?? '0')) row.readSeq = latest;
+    if (
+      !unread &&
+      device &&
+      snapshot.deviceLatest &&
+      newerReadPosition(snapshot.deviceLatest, row.deviceRead) &&
+      newerReadPosition(snapshot.deviceLatest, snapshot.deviceRead)
+    )
+      row.deviceRead = snapshot.deviceLatest;
+    if (!unread && !device && BigInt(latest) > BigInt(row.readSeq ?? '0')) row.readSeq = latest;
     row.manual = applied;
     row.operation = change.operation;
     return change;
@@ -134,8 +187,11 @@ export class LocalUnreadStore {
   ): boolean {
     const row = this.position(chatType, uid);
     if (row.operation !== (reverse ? change.previousOperation : change.operation)) return false;
-    if (!reverse) change.restoredPosition = { readSeq: row.readSeq };
+    if (!reverse) change.restoredPosition = { readSeq: row.readSeq, deviceRead: row.deviceRead };
     row.readSeq = (reverse ? change.restoredPosition : change.previousPosition)?.readSeq;
+    row.deviceRead = reverse
+      ? change.restoredPosition?.deviceRead
+      : change.previousPosition.deviceRead;
     row.manual = reverse ? change.applied : change.previous;
     row.operation = reverse ? change.operation : change.previousOperation;
     this.revision++;
@@ -155,6 +211,9 @@ export class LocalUnreadStore {
   resolve(snapshot: UnreadInfoSnapshot, confirmedSent: readonly string[] = []): ResolvedUnreadInfo {
     if (snapshot.readError) return snapshot;
     const row = this.positions.get(snapshot.peer);
+    const device = classifyChatType(snapshot.chatType) === 'dataline';
+    if (device && (snapshot.deviceRead || snapshot.deviceLatest || row?.deviceRead))
+      return this.resolveDevice(snapshot, row);
     const databaseRead = [String(snapshot.msgSeq ?? 0), snapshot.localReadSeq ?? '0'].reduce(
       (a, b) => (BigInt(a) > BigInt(b) ? a : b),
     );
@@ -190,7 +249,6 @@ export class LocalUnreadStore {
     const highlights = snapshot.highlights?.filter(
       (hit) => BigInt(hit.msgSeq) > floor && !recalled?.includes(String(hit.msgSeq)),
     );
-    const device = classifyChatType(snapshot.chatType) === 'dataline';
     const decreased = new Set(snapshot.decreasedSeqs);
     for (const seq of recalled ?? []) decreased.add(seq);
     // QQ 可能先更新最新消息，再补减项。仅暂存小表已确认的自发序号，不抬高阅读水位。
@@ -249,6 +307,28 @@ export class LocalUnreadStore {
       readSeq: hasRead ? read : undefined,
       highlights: highlights?.length ? highlights : undefined,
     };
+  }
+
+  private resolveDevice(
+    snapshot: UnreadInfoSnapshot,
+    row: ReadPosition | undefined,
+  ): ResolvedUnreadInfo {
+    const qqRead = snapshot.deviceRead;
+    if (qqRead && row?.deviceRead && !newerReadPosition(row.deviceRead, qqRead)) {
+      delete row.deviceRead;
+      this.revision++;
+    }
+    if (qqRead && row?.manual && newerReadPosition(qqRead, row.manual.deviceRead)) {
+      delete row.manual;
+      this.revision++;
+    }
+    const manuallyUnread = row?.manual?.unread ?? snapshot.markUnread;
+    const floor = row?.deviceRead ?? qqRead;
+    const hasUnread = snapshot.deviceLatest
+      ? newerReadPosition(snapshot.deviceLatest, floor)
+      : !row?.deviceRead &&
+        ((snapshot.localUnreadCount ?? 0) > 0 || (snapshot.storedUnreadCount ?? 0) > 0);
+    return { ...snapshot, unreadCount: hasUnread || manuallyUnread ? 1 : 0 };
   }
 
   async flush(): Promise<void> {

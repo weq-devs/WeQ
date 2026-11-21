@@ -1141,6 +1141,7 @@ function unreadInfoToWire(
     uid: row.uid,
     chatType: row.chatType,
     latestSeq: row.latestSeq,
+    deviceLatest: row.deviceLatest,
     unreadCount: row.unreadCount,
     readSeq: row.readSeq,
     readError: row.readError ?? false,
@@ -1161,14 +1162,18 @@ function applyConversationRead(
   chatType: number,
   uid: string,
   sequence?: string,
+  devicePosition?: string,
 ): ReturnType<AccountServices['unreadInfo']['markReadAndReport']> {
   const ctx = getAppContext();
   if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup)
-    return services.unreadInfo.markLocalRead(chatType, uid, sequence).then((changed) => ({
-      changed,
-      report: { state: 'unavailable' as const },
-    }));
-  return services.unreadInfo.markReadAndReport(chatType, uid, sequence);
+    return (
+      devicePosition === undefined
+        ? services.unreadInfo.markLocalRead(chatType, uid, sequence)
+        : services.unreadInfo.markLocalRead(chatType, uid, sequence, devicePosition)
+    ).then((changed) => ({ changed, report: { state: 'unavailable' as const } }));
+  return devicePosition === undefined
+    ? services.unreadInfo.markReadAndReport(chatType, uid, sequence)
+    : services.unreadInfo.markReadAndReport(chatType, uid, sequence, { devicePosition });
 }
 
 const browserFileBinding = z.object({
@@ -3461,6 +3466,22 @@ export const accountRouter = router({
       return rows.map(unreadInfoToWire);
     }),
 
+  getDeviceReadSnapshot: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        chatType: z.union([z.literal(8), z.literal(134)]),
+        uid: z.string().min(1),
+      }),
+    )
+    .query(async ({ input }) => {
+      const current = () =>
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const services = current();
+      const row = await services.unreadInfo.getDeviceReadSnapshot(input);
+      if (current() !== services) throw new Error('账号或数据源已切换');
+      return unreadInfoToWire(row);
+    }),
+
   clearLocalReadRecords: procedure
     .input(
       z.object({
@@ -3733,6 +3754,7 @@ export const accountRouter = router({
         chatType: z.number().int(),
         uid: z.string().min(1),
         latestSeq: z.string().optional(),
+        devicePosition: z.string().max(33).optional(),
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
       }),
@@ -3743,6 +3765,7 @@ export const accountRouter = router({
         input.chatType,
         input.uid,
         input.latestSeq,
+        input.devicePosition,
       ),
     ),
 
