@@ -47,6 +47,64 @@ import { OverlapPairCard, type OverlapPairSelection } from './OverlapPairCard';
 import type { GraphMode, GraphSettings, GroupFilterMode, OverlapDirection, RawNode } from './types';
 import './relationGraph.css';
 import { FormRange } from '../FormRange';
+import { TaskProgressBar } from '../tasks/TaskProgressBar';
+
+function MemberRefreshProgress({ task, busy, control }: ReturnType<typeof useGroupMemberRefresh>) {
+  if (!task) return null;
+  const { progress } = task;
+  const groups = progress.lanes?.groups ?? progress;
+  const rebuilding = progress.status === 'running' && progress.phase === '重新计算群交集';
+  const pending = progress.status === 'running' || progress.status === 'paused';
+  const labels = {
+    running: rebuilding ? '正在重新计算群交集' : (task.statusLabel ?? '正在更新群成员'),
+    paused: task.statusLabel ?? '更新已暂停',
+    completed: '群交集已更新',
+    cancelled: '已取消更新',
+    failed: '更新未全部完成',
+  };
+  return (
+    <div className="weq-group-refresh-progress" aria-label="群成员更新进度">
+      <div role="status">
+        {labels[progress.status]}
+        {groups.total > 0 && (
+          <NumericText>{` · 已处理 ${groups.done}/${groups.total} 个群${groups.failed ? `，${groups.failed} 个失败` : ''}`}</NumericText>
+        )}
+      </div>
+      {pending && (
+        <TaskProgressBar
+          value={rebuilding || !groups.total ? undefined : (groups.done / groups.total) * 100}
+          status={progress.status}
+          label="群成员更新进度"
+        />
+      )}
+      {task.actions?.length || (task.foreground && pending) ? (
+        <div className="weq-group-refresh-actions">
+          {task.actions?.map((action) => (
+            <button
+              type="button"
+              className="weq-set-btn"
+              key={action.id}
+              disabled={busy}
+              onClick={() => void control(action.id)}
+            >
+              {action.label}
+            </button>
+          ))}
+          {task.foreground && pending && (
+            <button
+              type="button"
+              className="weq-set-btn"
+              disabled={busy}
+              onClick={() => void control('background')}
+            >
+              后台进行
+            </button>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const MODE_OPTIONS: Array<{ value: GraphMode; label: string; icon: JSX.Element }> = [
   { value: 'people', label: '群友圈子', icon: <UserRound size={13} /> },
@@ -107,7 +165,9 @@ export function RelationGraphView({
   const groupAnchorRef = useRef<HTMLSpanElement | null>(null);
   const directory = useContext(ConversationDirectoryContext);
   const document = useRenderDocument();
-  const { refresh, refreshing, ready } = useGroupMemberRefresh();
+  const memberRefresh = useGroupMemberRefresh();
+  const { refresh, refreshing, ready } = memberRefresh;
+  const refreshDetails = <MemberRefreshProgress {...memberRefresh} />;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pair, setPair] = useState<OverlapPairSelection | null>(null);
   const previousModeRef = useRef<GraphMode>(DEFAULT_SETTINGS.mode);
@@ -175,6 +235,7 @@ export function RelationGraphView({
           loading={loading}
           refreshing={refreshing}
           refreshReady={ready}
+          refreshDetails={refreshDetails}
           onEnter={() => setEntered(true)}
           onRefresh={refresh}
         />
@@ -226,6 +287,7 @@ export function RelationGraphView({
               '暂无数据'
             )}
           </span>
+          {refreshDetails}
         </div>
 
         {loading ? (

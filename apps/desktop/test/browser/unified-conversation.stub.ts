@@ -262,7 +262,13 @@ function proxy(path: string[] = []): unknown {
           requests.push({ name, input });
           if (name === 'readonlyConversationPage')
             return {
-              items: [...wireRows].reverse(),
+              items: wireRows
+                .toReversed()
+                .map((row) =>
+                  (input as { target?: { peerUid?: string } }).target?.peerUid === 'u_mail_fixture'
+                    ? { ...row, msgSeq: '0' }
+                    : row,
+                ),
               hasMore: false,
               nextCursor: null,
               newerCursor: null,

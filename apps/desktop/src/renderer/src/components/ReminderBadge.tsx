@@ -12,14 +12,16 @@ function reminderClass(kind: 'dot' | 'count', overlay: boolean, className?: stri
 
 export function ReminderDot({
   marker,
+  tone = 'notice',
   overlay = false,
   className,
   ...props
-}: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & { overlay?: boolean } & MarkerProps) {
+}: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> &
+  MarkerProps & { tone?: 'notice' | 'muted'; overlay?: boolean }) {
   const settings = useUnreadMarkers();
   if (marker && !(typeof marker === 'string' ? [marker] : marker).every((key) => settings[key]))
     return null;
-  return <span {...props} className={reminderClass('dot', overlay, className)} />;
+  return <span {...props} className={reminderClass('dot', overlay, className)} data-tone={tone} />;
 }
 
 export function ReminderCount({

@@ -38,13 +38,13 @@ jobs:
           node-version: 22
       # 有意不先安装项目依赖：启动器必须能从全新 clone 进入准备流程。
       - name: Test dependency-free development bootstrap
-        run: pnpm exec node --test scripts/dev.test.mjs scripts/dev-web.test.mjs scripts/dev-native.test.mjs scripts/prepare-remote-network.test.mjs scripts/prepare-dev-electron.test.mjs
+        run: pnpm run test:dev-bootstrap
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Test development server integration
-        run: node --test scripts/dev-web.integration.test.mjs scripts/dev-electron.integration.test.mjs
+        run: pnpm run test:dev-integration
 
   lint:
     runs-on: ubuntu-latest
@@ -206,13 +206,17 @@ jobs:
 
       - name: Check CI orchestration and reports
         if: matrix.suite == 'core'
-        run: node --test scripts/test-ci.test.mjs scripts/check-docs-submodule.test.mjs scripts/extract-changelog.test.mjs scripts/publish-aur.test.mjs scripts/enhancement-metadata.test.mjs scripts/publish-release-feed.test.mjs scripts/publish-announcements.test.mjs
+        run: pnpm run test:ci-scripts
+
+      - name: Verify the independent archive format contract
+        if: matrix.suite == 'core'
+        run: pnpm run test:export-schema
 
       # 打包前置脚本在 electron-builder 的 beforePack 里跑；它一旦拉进
       # `@weq/service` 那种桶文件，Windows runner 上会把打包卡死（v2.7.1 踩过）。
       - name: Check packaging preparation graph
         if: matrix.suite == 'core'
-        run: node --test scripts/prepare-enhancement-engines.test.mjs scripts/build-weqbot-daemon.test.mjs
+        run: pnpm run test:packaging-scripts
 
       - name: Summarize test results
         if: always() && matrix.suite != 'core'

@@ -140,10 +140,6 @@ export function CurrentTaskList({
     enabled: active,
     refetchInterval: active ? 2000 : false,
   });
-  const cancelFlash = trpc.account.flashCancelDownloadTask.useMutation({
-    onSuccess: () => void utils.account.flashListDownloadTasks.invalidate(),
-    onError: (error) => showError('取消下载失败', error.message),
-  });
   const [selected, setSelected] = useState<string | null | undefined>(undefined);
   const taskFocusId = useWorkspaceMenu((state) => state.taskFocusId);
   const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
@@ -292,6 +288,22 @@ export function CurrentTaskList({
       action: task.operation === 'update' ? '更新好友克隆' : '创建好友克隆',
       subject: task.name,
     };
+    const actions: TaskQuickAction[] = [];
+    if (task.status === 'done' && onOpenClone) {
+      actions.push({
+        id: 'open',
+        label: '查看克隆体',
+        icon: <Users size={14} />,
+        run: () => onOpenClone(task.personaId),
+      });
+    }
+    actions.push({
+      id: 'remove',
+      label: '移除任务',
+      icon: <Trash2 size={14} />,
+      disabled: task.status === 'running',
+      run: () => dismissCloneTask(task.personaId),
+    });
     items.push({
       id: `clone:${task.personaId}`,
       name: taskDisplayTitle(display),
@@ -300,29 +312,7 @@ export function CurrentTaskList({
       status: task.status === 'done' ? 'completed' : task.status === 'error' ? 'failed' : 'running',
       progress: task.percent,
       icon: <Users size={16} />,
-      quickActions:
-        task.status !== 'running' ? (
-          <TaskQuickActions
-            actions={[
-              ...(task.status === 'done' && onOpenClone
-                ? [
-                    {
-                      id: 'open',
-                      label: '查看克隆体',
-                      icon: <Users size={14} />,
-                      run: () => onOpenClone(task.personaId),
-                    },
-                  ]
-                : []),
-              {
-                id: 'remove',
-                label: '移除任务',
-                icon: <Trash2 size={14} />,
-                run: () => dismissCloneTask(task.personaId),
-              },
-            ]}
-          />
-        ) : null,
+      quickActions: task.status !== 'running' ? <TaskQuickActions actions={actions} /> : null,
       detail: (
         <div>
           <TaskProgressDetails
@@ -333,30 +323,9 @@ export function CurrentTaskList({
             }
             progress={task.percent}
             note={task.error || task.phase}
+            actions={<TaskQuickActions variant="detail" actions={actions} />}
           />
           <CloneTaskLog key={`${task.personaId}:${task.revision}`} task={task} />
-          <div className="weq-long-task-actions">
-            {task.status === 'done' && onOpenClone ? (
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                onClick={() => onOpenClone(task.personaId)}
-              >
-                <Users size={14} />
-                查看克隆体
-              </button>
-            ) : null}
-            <button
-              data-danger="outline"
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              disabled={task.status === 'running'}
-              onClick={() => dismissCloneTask(task.personaId)}
-            >
-              <Trash2 size={14} />
-              移除任务
-            </button>
-          </div>
         </div>
       ),
     });
@@ -667,6 +636,14 @@ export function CurrentTaskList({
             note={task.error ? '下载未完成，原因见下方明细。' : undefined}
             startedAt={task.createdAt}
             finishedAt={task.finishedAt}
+            actions={
+              <TaskQuickActions
+                variant="detail"
+                actions={actions.map((action) =>
+                  action.id === 'reveal' && task.canRetry ? { ...action, secondary: true } : action,
+                )}
+              />
+            }
           />
           <p>
             {task.filesetName} · 已完成{' '}
@@ -735,71 +712,6 @@ export function CurrentTaskList({
             version={task.logVersion}
             binding={cleanupBinding}
           />
-          <div className="weq-long-task-actions">
-            {actions.find((action) => action.id === 'pause') ? (
-              <TaskQuickActions actions={actions.filter((action) => action.id === 'pause')} />
-            ) : null}
-            {task.canRetry ? (
-              <TaskQuickActions
-                actions={[
-                  {
-                    id: 'retry',
-                    label: retryLabel,
-                    icon: <RefreshCw size={14} aria-hidden />,
-                    disabled: !cleanupBinding,
-                    run: retryFlash,
-                  },
-                ]}
-              />
-            ) : null}
-            {!IS_WEB && single && task.status === 'done' ? (
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={!cleanupBinding || Boolean(openingFlash)}
-                onClick={() =>
-                  void openFlash('file').catch((error) =>
-                    showError(
-                      '打开文件失败',
-                      error instanceof Error ? error.message : String(error),
-                    ),
-                  )
-                }
-              >
-                <ExternalLink size={14} />
-                打开文件
-              </button>
-            ) : null}
-            {!IS_WEB ? (
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={!cleanupBinding || Boolean(openingFlash)}
-                onClick={() =>
-                  void openFlash(single ? 'reveal' : 'directory').catch((error) =>
-                    showError(
-                      '打开下载目录失败',
-                      error instanceof Error ? error.message : String(error),
-                    ),
-                  )
-                }
-              >
-                <FolderOpen size={14} />
-                打开下载目录
-              </button>
-            ) : null}
-            {running || task.status === 'pending' || task.interrupted ? (
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft"
-                disabled={cancelFlash.isLoading}
-                onClick={() => cancelFlash.mutate({ taskId: task.id })}
-              >
-                <Square size={14} />
-                取消下载
-              </button>
-            ) : null}
-          </div>
         </div>
       ),
     });
@@ -1089,7 +1001,7 @@ export function CurrentTaskList({
             ))}
           </div>
           {layout === 'split' ? (
-            <div className="weq-current-task-details" aria-label="任务步骤详情">
+            <div key={selectedId} className="weq-current-task-details" aria-label="任务步骤详情">
               {ordered.find((task) => task.id === selectedId)?.detail ?? (
                 <EmptyState compact icon={<ListTodo />} title="请选择任务" />
               )}

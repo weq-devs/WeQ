@@ -13,41 +13,11 @@
  *   · 复用跨端外链入口：桌面通过 IPC 交给系统浏览器，Web / Remote 在点击设备打开。
  */
 
-import { LinkifyIt } from 'linkify-it';
+import { splitLinks } from '@weq/service/text-links';
 import { useDialog } from '../components/Dialog.shared';
 import { openExternalLink } from './openExternalLink';
 
-// 邮件也交给解析器消费，但不生成链接，避免把邮箱的域名截成独立网址。
-const linkify = new LinkifyIt({ fuzzyLink: true, fuzzyIP: false, fuzzyEmail: true }).add(
-  'ftp:',
-  null,
-);
-const DOCUMENT_NAME = /^(?:readme|changelog|contributing|license|agents)\.(?:md|rst|txt)$/i;
-
-export interface LinkPart {
-  kind: 'text' | 'link';
-  /** 原文（链接片段保留用户写的原样，用于显示）。 */
-  text: string;
-  /** 链接片段的规范化地址（裸域名补上 https://）；文字片段为空串。 */
-  href: string;
-}
-
-/** 把一段文本切成文字/链接片段。没有链接时返回单个 text 片段。 */
-export function splitLinks(text: string): LinkPart[] {
-  const parts: LinkPart[] = [];
-  let cursor = 0;
-  for (const match of linkify.match(text) ?? []) {
-    if (match.schema && match.schema !== 'http:' && match.schema !== 'https:') continue;
-    if (!match.schema && DOCUMENT_NAME.test(match.raw)) continue;
-    if (match.index > cursor)
-      parts.push({ kind: 'text', text: text.slice(cursor, match.index), href: '' });
-    const href = match.schema ? match.raw : `https://${match.raw}`;
-    parts.push({ kind: 'link', text: match.raw, href });
-    cursor = match.lastIndex;
-  }
-  if (cursor < text.length) parts.push({ kind: 'text', text: text.slice(cursor), href: '' });
-  return parts;
-}
+export { splitLinks, type LinkPart } from '@weq/service/text-links';
 
 /** 整段文本是否**只是**一个链接（决定要不要出卡片）。 */
 export function soleLink(text: string): string | null {

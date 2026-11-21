@@ -12,6 +12,8 @@ import {
   MAX_SHARED_DRAFT_IMAGE_BYTES,
   preferenceDefaults,
   validatePreferencePatch,
+  directoryUnreadKey,
+  validReadPosition,
   type ClientStateChange,
   type PreferencePatch,
 } from '@weq/service/client-preferences';
@@ -48,6 +50,29 @@ export function boundClientState(input: z.infer<typeof clientAccountBinding>) {
   )
     throw new Error('账号或数据源已切换，请返回原账号后重试');
   return store(input.expectedAccountConfigId);
+}
+/** 已保存的公众号阅读沿用账号服务的已读上报与代理确认链路。 */
+export function reportOfficialDirectoryReads(
+  state: ClientStateStore,
+  targets: readonly { key: string; position: string }[],
+  manual = false,
+): void {
+  const context = getAppContext();
+  const services = context.services;
+  if (!services || context.accountIsStatic) return;
+  for (const { key, position } of targets) {
+    if (!key.startsWith('official:') || !validReadPosition(position) || !position.startsWith('0:'))
+      continue;
+    const valid = () => {
+      if (getAppContext().services !== services) return false;
+      const reads = state.snapshot().records.reads ?? {};
+      return reads[key] === position && !reads[directoryUnreadKey(key)];
+    };
+    if (!valid()) continue;
+    void services.unreadInfo
+      .reportOfficialRead(key.slice(9), position, valid, manual)
+      .catch(() => undefined);
+  }
 }
 function draftMediaRoot(configId: string) {
   return join(requirePlatform().appDataRoot(), 'config', 'accounts', configId, 'draft-media');
@@ -260,7 +285,19 @@ export const clientStateRouter = router({
         if (!input.seed) requireBootstrap().userConfig.patchSharedPreference('order', input.values);
         return accountSnapshot(input);
       }
-      boundClientState(input).records(input.namespace, input.values, input.seed);
+      const state = boundClientState(input);
+      state.records(input.namespace, input.values, input.seed);
+      if (input.namespace === 'reads' && !input.seed)
+        reportOfficialDirectoryReads(
+          state,
+          Object.entries(input.values).flatMap(([key, value]) => {
+            const position =
+              typeof value === 'string'
+                ? value
+                : (value as { position?: unknown } | null)?.position;
+            return typeof position === 'string' ? [{ key, position }] : [];
+          }),
+        );
       return accountSnapshot(input);
     }),
   accountChanged: procedure.input(clientAccountBinding).subscription(({ input }) => {

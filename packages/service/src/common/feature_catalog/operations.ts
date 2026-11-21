@@ -64,6 +64,16 @@ export const OPERATION_FEATURES = [
     context: ['account', 'group', 'contact'],
   }),
   operation(
+    'activity-ranking',
+    'analysis',
+    '好友与群聊活跃排行',
+    '按时间范围比较私聊消息量与群活跃度。',
+    {
+      navigation: undefined,
+      tools: ['rank_friends_by_activity', 'rank_my_groups_by_activity'],
+    },
+  ),
+  operation(
     'activity-period',
     'analysis',
     '按日与时段统计消息',

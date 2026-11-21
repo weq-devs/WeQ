@@ -52,6 +52,7 @@ import { fullModeAllowed } from '../../context/full_mode';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { buildDecorationBundle, buildDecorationFile } from './dressup_export';
+import { runDressDownload } from './dressup_download';
 import {
   bindExportSaveRequest,
   exportAccountBindingInput,
@@ -147,6 +148,47 @@ function staticRank(kind: DressKindInput): DressMallItem[] {
  */
 const EXCLUDED_WIDGETS = new Set(['9']);
 
+const opacityInput = z.number().min(0).max(1);
+const dressConversationInput = exportAccountBindingInput.extend({
+  kind: z.enum(['c2c', 'group']),
+  conv: z.string().min(1).max(128),
+  title: z.string().trim().min(1).max(256),
+});
+const offOrGlobal = z.union([z.literal('off'), z.null()]);
+const callBackgroundInput = z
+  .object({
+    itemId: z.number().int().positive(),
+    name: z.string(),
+    imageUrl: z.string(),
+    videoUrl: z.string(),
+  })
+  .refine(({ imageUrl, videoUrl }) => Boolean(imageUrl || videoUrl), '这款通话背景没有可用素材');
+const conversationChangeInput = z.discriminatedUnion('slot', [
+  z.object({ slot: z.literal('callbg'), value: z.union([offOrGlobal, callBackgroundInput]) }),
+  z.object({
+    slot: z.literal('background'),
+    value: z.union([offOrGlobal, z.object({ source: z.literal('qq'), opacity: opacityInput })]),
+  }),
+  z.object({
+    slot: z.literal('screen'),
+    value: z.union([offOrGlobal, z.object({ widgetId: z.string().min(1), opacity: opacityInput })]),
+  }),
+]);
+
+async function pickBackgroundFile(services: AccountServices, path?: string) {
+  return (
+    (path ? pickedBrowserFiles.requirePath(services, path) : undefined) ??
+    (await getHost().pickFile({
+      title: '选择聊天背景图 / 视频',
+      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'mp4', 'webm', 'mov'],
+    }))
+  );
+}
+
+function emitAppearanceChanged() {
+  accountEventBus.emit('dressChanged', { at: Date.now(), appearanceOnly: true });
+}
+
 /**
  * 仓库里 bundle 的浮屏挂件目录名。
  *
@@ -174,8 +216,8 @@ export const dressupRouter = router({
    * 必然晚于首屏那次查询几秒,不推的话会一直显示「已装 0」直到 staleTime 过期。
    */
   onChanged: procedure.subscription(() => {
-    return observable<{ at: number }>((emit) => {
-      const handler = (e: { at: number }): void => {
+    return observable<{ at: number; appearanceOnly?: boolean }>((emit) => {
+      const handler = (e: { at: number; appearanceOnly?: boolean }): void => {
         emit.next(e);
       };
       accountEventBus.on('dressChanged', handler);
@@ -200,6 +242,7 @@ export const dressupRouter = router({
     return {
       qqOnline: qqOnline(services),
       manifest,
+      conversationOverrides: services.dressConversations?.read() ?? {},
       indexResources: services.dressInstall.indexResources(),
       cachedBubbles: [
         ...new Set([manifest.activeBubble, record?.homeDress?.bubbleId ?? 0]),
@@ -372,10 +415,76 @@ export const dressupRouter = router({
 
   /** 切换作用范围：仅自己、替代无装扮或覆盖全部。 */
   setScope: procedure
-    .input(z.object({ scope: z.enum(['mine', 'fallback', 'all']) }))
+    .input(
+      z.object({
+        kind: z.enum(['bubble', 'font', 'widget']).optional(),
+        scope: z.enum(['mine', 'fallback', 'all']),
+      }),
+    )
     .mutation(({ input }) => {
       requireDevelopmentDressTools();
-      return requireServices().dressInstall.setScope(input.scope);
+      const manifest = requireServices().dressInstall.setScope(input.scope, input.kind);
+      emitAppearanceChanged();
+      return manifest;
+    }),
+
+  setConversationOverride: procedure
+    .input(dressConversationInput.and(conversationChangeInput))
+    .mutation(({ input }) => {
+      const { slot, value } = input;
+      const services = requireServices(input);
+      if (slot === 'callbg') {
+        requireDevelopmentDressTools();
+        if (input.kind !== 'c2c') throw new Error('通话背景适用于私聊');
+      } else if (slot === 'background' && value && value !== 'off') {
+        if (!services.accountConfig.getRecord()?.homeDress?.chatBgUrl)
+          throw new Error('QQ 尚未设置聊天背景');
+      } else if (
+        slot === 'screen' &&
+        value &&
+        value !== 'off' &&
+        !listScreenWidgets().includes(value.widgetId)
+      ) {
+        throw new Error('找不到这款浮屏挂件');
+      }
+      const result = services.dressConversations.set(
+        { kind: input.kind, conv: input.conv, title: input.title },
+        input,
+      );
+      emitAppearanceChanged();
+      return result;
+    }),
+
+  setConversationOpacity: procedure
+    .input(
+      dressConversationInput.extend({
+        slot: z.enum(['background', 'screen']),
+        opacity: opacityInput,
+      }),
+    )
+    .mutation(({ input }) => {
+      const result = requireServices(input).dressConversations.setOpacity(
+        { kind: input.kind, conv: input.conv, title: input.title },
+        input.slot,
+        input.opacity,
+      );
+      emitAppearanceChanged();
+      return result;
+    }),
+
+  pickConversationBackground: procedure
+    .input(dressConversationInput.extend({ path: z.string().min(1).optional() }))
+    .mutation(async ({ input }) => {
+      const services = requireServices(input);
+      const picked = await pickBackgroundFile(services, input.path);
+      if (!picked) return null;
+      if (requireServices(input) !== services) throw new Error('账号或数据源已切换，请重新选择');
+      const result = services.dressConversations.setBackgroundFile(
+        { kind: input.kind, conv: input.conv, title: input.title },
+        picked,
+      );
+      emitAppearanceChanged();
+      return result;
     }),
 
   /**
@@ -387,14 +496,7 @@ export const dressupRouter = router({
     .input(z.object({ path: z.string().min(1) }).optional())
     .mutation(async ({ input }) => {
       const services = requireServices();
-      const picked =
-        (input?.path ? pickedBrowserFiles.requirePath(services, input.path) : undefined) ??
-        (await getHost().pickFile({
-          title: '选择聊天背景图 / 视频',
-          // 视频格式限制在 Chromium 能直接播的几种 —— 拷进来的文件原样用 `<video>` 播,
-          // 没有转码兜底,放不支持的格式只会得到一块黑。
-          extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'mp4', 'webm', 'mov'],
-        }));
+      const picked = await pickBackgroundFile(services, input?.path);
       if (!picked) return services.dressInstall.read();
       return services.dressInstall.setCustomBackground(picked);
     }),
@@ -406,7 +508,6 @@ export const dressupRouter = router({
       return requireServices().dressInstall.setBackground(input.source);
     }),
 
-  /** 背景不透明度。服务端再 clamp 一次,不信前端的滑块范围。 */
   /**
    * 选定通话背景。
    *
@@ -429,8 +530,15 @@ export const dressupRouter = router({
       if (input.itemId) requireDevelopmentDressTools();
       const services = requireServices();
       const record = services.accountConfig.getRecord();
-      const dress = record?.homeDress;
-      if (!dress) throw new Error('还没有装扮快照，请先打开过一次账号');
+      if (!record) throw new Error('账号配置不可用，请重新打开账号');
+      // 热门目录可离线浏览，直接使用时可能还没有 QQ 装扮快照。
+      const dress = record.homeDress ?? {
+        widgetUrl: '',
+        cardUrl: '',
+        cardVideoUrl: '',
+        screenUrl: '',
+        tags: [],
+      };
       services.accountConfig.setHomeDress({
         ...dress,
         callBgId: input.itemId || undefined,
@@ -443,9 +551,14 @@ export const dressupRouter = router({
       return services.accountConfig.getRecord()?.homeDress ?? null;
     }),
 
+  /** 背景不透明度由服务端限制在 0–1。 */
   setBackgroundOpacity: procedure.input(z.object({ opacity: z.number() })).mutation(({ input }) => {
     return requireServices().dressInstall.setBackgroundOpacity(input.opacity);
   }),
+
+  setWidgetOpacity: procedure
+    .input(z.object({ opacity: z.number().min(0).max(1) }))
+    .mutation(({ input }) => requireServices().dressInstall.setWidgetOpacity(input.opacity)),
 
   /**
    * 选一款浮屏挂件(空串 = 不叠)。
@@ -503,6 +616,84 @@ export const dressupRouter = router({
       const resolved = await services.msgDecoration.resolve(input);
       const cached = services.dressInstall.messageBubble?.(input.bubbleId);
       return cached ? { ...resolved, bubble: cached } : resolved;
+    }),
+
+  /** 先选装扮下载目录，再由任务获取素材并按实际格式命名。 */
+  download: procedure
+    .input(
+      exportAccountBindingInput.extend({
+        kind: kindInput,
+        items: z
+          .array(
+            z.object({
+              itemId: z.number().int().positive(),
+              name: z.string().max(512),
+              mediaUrl: z
+                .string()
+                .url()
+                .max(4096)
+                .regex(/^https?:\/\//i)
+                .optional(),
+            }),
+          )
+          .min(1),
+        savePolicy: exportSavePolicyInput.optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      requireDevelopmentDressTools();
+      const { kind } = input;
+      const services = requireServices(input);
+      const items = [...new Map(input.items.map((item) => [item.itemId, item])).values()];
+      if (kind === 'callbg' && items.some((item) => !item.mediaUrl))
+        throw new Error('通话背景素材地址不可用');
+      const check = bindExportSaveRequest(
+        {
+          expectedAccountUin:
+            input.expectedAccountUin ?? getAppContext().account?.context.uin.toString(),
+          expectedAccountConfigId:
+            input.expectedAccountConfigId ?? services.accountConfig.getRecord()?.configId,
+        },
+        () => {
+          const ctx = getAppContext();
+          return {
+            uin: ctx.account?.context.uin.toString(),
+            configId: ctx.services?.accountConfig.getRecord()?.configId,
+            services: ctx.services,
+          };
+        },
+      );
+      const label = {
+        bubble: '聊天气泡',
+        font: '聊天字体',
+        widget: '头像挂件',
+        callbg: '通话背景',
+      }[kind];
+      const batch = items.length > 1;
+      const name = batch ? `${label} · ${items.length} 款` : items[0]!.name || label;
+      const bundleName = `WeQ-${label}-${items.length}款.zip`;
+      const settings = getAppContext().bootstrap?.userConfig.getSettings();
+      const policy = await prepareExportDestination(
+        input.savePolicy ?? { mode: settings?.exportSaveMode ?? 'before' },
+        settings?.defaultExportDir,
+        getHost(),
+        { kind: 'directory' },
+        check,
+        'dressup:download',
+        '选择装扮下载文件夹',
+      );
+      if (!policy) return null;
+      check();
+      return services.exportManager.startResourceExport({
+        kind: 'decoration',
+        name,
+        display: { action: '下载装扮', subject: name },
+        output: { kind: 'file', name, extension: '' },
+        fileNameFromResult: true,
+        networkTransfer: { batch },
+        savePolicy: policy,
+        run: (context) => runDressDownload(services, kind, items, bundleName, context, check),
+      });
     }),
 
   /**

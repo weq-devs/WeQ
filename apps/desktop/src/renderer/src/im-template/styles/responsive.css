@@ -824,21 +824,7 @@
   background: #f1f2f4;
 }
 
-:where(html[data-weq-layout='single']) .unread-jump-button,
-:where(html[data-weq-layout='single'])
-  .chat-pane.with-group-info:not(.group-info-collapsed)
-  .unread-jump-button {
-  top: calc(var(--chat-header-height) + 56px);
-  right: 0;
-  height: 44px;
-  gap: 8px;
-  padding: 0 22px;
-  border-radius: 999px 0 0 999px;
-  font-size: 18px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.13);
-}
-
-/* 移动端把跳转坞挪到顶栏正下方、贴右边缘（与旧的未读按钮同一位置）。 */
+/* 移动端把跳转坞放在顶栏正下方、贴右边缘。 */
 
 :where(html[data-weq-layout='single']) .unread-dock-button,
 :where(html[data-weq-layout='single'])

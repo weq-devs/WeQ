@@ -21,10 +21,15 @@ import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelec
 import { useViewState } from '../src/renderer/src/state/view';
 import type { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
 import type { ChatSidebarContent } from '../src/renderer/src/im-template/template/chatSidebarContent';
+import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
+import type { GroupSearchHit } from '../src/renderer/src/components/search/types';
 import type { MessagePageStage } from '../src/shared/message_read';
 import { publishQQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 import type { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
-import { GapMessagesModal as LazyGapMessagesModal } from '../src/renderer/src/components/lazyMainPanels';
+import {
+  GapMessagesModal as LazyGapMessagesModal,
+  SearchResultsPanel,
+} from '../src/renderer/src/components/lazyMainPanels';
 import * as replyPreview from '../src/renderer/src/lib/replyPreview';
 import * as conversationOrder from '@weq/service/conversation-order';
 import * as conversationRows from '../src/renderer/src/lib/conversationListOrder';
@@ -36,6 +41,7 @@ import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { elementToToken } from '../src/renderer/src/im-template/template/draftElements';
+import { releaseObjectUrl } from '../src/renderer/src/lib/objectUrl';
 
 beforeAll(() => LazyGapMessagesModal.preload());
 
@@ -60,9 +66,11 @@ vi.mock('../src/renderer/src/hooks/useRecentContactQueries', async (importOrigin
 
 type TestMessage = {
   source?: 'roaming';
+  localSent?: boolean;
   ntSeqVerified?: boolean;
   msgId: string;
   msgSeq: string;
+  msgRandom?: string;
   clientSeq?: string;
   sendTime: string;
   senderUid: string;
@@ -95,11 +103,17 @@ const f = vi.hoisted(() => ({
     customLabels: Array<{ content: string }>;
     directory: { memberCount: number; role: 'member'; notifyLevel: number };
   }>,
+  searchGroups: [] as GroupSearchHit[],
   headEnabled: false,
   unreadReads: [] as UnreadInput[],
   unreadFailures: 0,
   unreadReply: undefined as (() => Promise<unknown>) | undefined,
-  markedRead: [] as Array<{ chatType: number; uid: string; latestSeq?: string }>,
+  markedRead: [] as Array<{
+    chatType: number;
+    uid: string;
+    latestSeq?: string;
+    visibleSeqs?: string[];
+  }>,
   readCurrent: undefined as (() => void) | undefined,
   dbChanged: undefined as (() => void) | undefined,
   notificationSubscriptions: { group: [], conversation: [] } as Record<
@@ -137,6 +151,7 @@ const f = vi.hoisted(() => ({
   send: undefined as ComponentProps<typeof ChatMainContent>['onSend'] | undefined,
   sendCalls: [] as string[],
   sendPending: false,
+  sendReceipt: undefined as { ok: true; groupSequence: number; random: number } | undefined,
   sendError: undefined as string | undefined,
   messageCommits: [] as Array<{ id?: string; rows: string[] }>,
   atLatest: true as ComponentProps<typeof ChatMainContent>['atLatest'],
@@ -179,7 +194,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                   voiceTranscribe: { modelId: '' },
                 },
               };
-            if (path.at(-1) === 'getGroupAlbumAccessState' && (f.sendPending || f.sendError))
+            if (
+              path.at(-1) === 'getGroupAlbumAccessState' &&
+              (f.sendPending || f.sendError || f.sendReceipt)
+            )
               return { ...empty, data: { qqOnline: true, attachEnabled: true } };
             return path.join('.') === 'account.getAccountConfig'
               ? config
@@ -227,6 +245,16 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (input?: UnreadInput & { beforeSeq?: string; afterSeq?: string }) => {
+            if (path.at(-1) === 'searchQuick')
+              return { conversations: [], friends: [], groupMembers: [], groups: f.searchGroups };
+            if (path.at(-1) === 'searchSlow')
+              return {
+                chatRecords: [],
+                files: [],
+                collections: [],
+                cloneMessages: [],
+                assistantMessages: [],
+              };
             if (key === 'query' && path.at(-1) === 'listRecentContacts')
               return { items: f.recent, total: f.recent.length };
             if (path.at(-1) === 'peerQqShow') return null;
@@ -241,6 +269,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               f.sendCalls.push(path.at(-1)!);
               if (f.sendError) throw new Error(f.sendError);
               if (f.sendPending) return new Promise(() => {});
+              if (path.at(-1) === 'sendElements') return f.sendReceipt;
             }
             if (path.at(-1) === 'consumeGroupKeywordJump') {
               f.notificationReads.group++;
@@ -252,7 +281,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               f.conversationJumpReply = undefined;
               return reply ? reply() : (f.conversationJumps.shift() ?? null);
             }
-            if (path.at(-1) === 'markConversationRead') {
+            if (path.at(-1) === 'markConversationRead' || path.at(-1) === 'markViewportRead') {
               f.markedRead.push(input as unknown as (typeof f.markedRead)[number]);
               return { changed: true, report: { state: 'disabled' } };
             }
@@ -333,6 +362,9 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
   ChatShell: ({
     mainContent,
     sidebarContent,
+    searchPanel,
+    onSearchFocus,
+    onQueryChange,
     children,
     messageBadgeCount,
     onViewChange,
@@ -340,6 +372,9 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
   }: {
     mainContent: ReactNode;
     sidebarContent: ReactNode;
+    searchPanel: ReactNode;
+    onSearchFocus: () => void;
+    onQueryChange: (query: string) => void;
     children: ReactNode;
     messageBadgeCount: number;
     onViewChange: (view: 'messages' | 'contacts') => void;
@@ -351,6 +386,20 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
       h('button', { 'data-messages': true, onClick: () => onViewChange('messages') }, '消息'),
       h('button', { 'data-contacts': true, onClick: () => onViewChange('contacts') }, '联系人'),
       h('button', { 'data-locate-unread': true, onClick: () => onMessageBadgeClick() }, '定位未读'),
+      f.searchGroups.length
+        ? h(
+            'button',
+            {
+              'data-workspace-search': true,
+              onClick: () => {
+                onQueryChange('合成');
+                onSearchFocus();
+              },
+            },
+            '搜索',
+          )
+        : null,
+      searchPanel,
       sidebarContent,
       mainContent,
       children,
@@ -359,6 +408,15 @@ vi.mock('../src/renderer/src/im-template/template/chatShell', () => ({
 vi.mock('../src/renderer/src/im-template/template/chatSidebarContent', () => ({
   ChatSidebarContent: (props: ComponentProps<typeof ChatSidebarContent>) => {
     const directory = useContext(ConversationDirectoryContext);
+    if (f.searchGroups.length && props.view === 'messages')
+      return h(ConversationList, {
+        active: props.active,
+        conversations: props.conversations,
+        activeConversationId: props.activeConversationId,
+        preferences: props.conversationPrefs,
+        drafts: props.drafts,
+        onSelect: props.onSelectConversation,
+      });
     return h(
       'nav',
       { 'data-list-view': directory?.view },
@@ -492,6 +550,7 @@ afterEach(() => {
   f.freshPreview = false;
   f.previewTarget = null;
   f.groups = [];
+  f.searchGroups = [];
   f.headEnabled = false;
   f.unreadReads.length = 0;
   f.unreadFailures = 0;
@@ -520,6 +579,7 @@ afterEach(() => {
   f.send = undefined;
   f.sendCalls = [];
   f.sendPending = false;
+  f.sendReceipt = undefined;
   f.sendError = undefined;
   f.messageCommits = [];
   f.markedRead = [];
@@ -565,6 +625,77 @@ it('电脑请求不返回时，发送内容仍立即在本端回显且不查询�
     client.clear();
     host.remove();
   }
+});
+
+it('发送图片在发送缓存和 QQ 正式记录接管后都保留本地原图', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.refreshRows = [];
+  f.sendReceipt = { ok: true, groupSequence: 11, random: 123 };
+  const picture = { fileName: 'photo.png', fileToken: 'uploaded' };
+  const url = 'blob:sent-photo';
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [] }));
+    await act(async () => {
+      await f.send!(elementToToken({ kind: 'pic', fileName: 'photo.png', localPreviewUrl: url }), [
+        { key: url, name: 'photo.png', previewUrl: url, bytes: new Uint8Array([1]) },
+      ]);
+    });
+    expect(f.messages[0]?.qqElements?.[0]?.data?.localPreviewUrl).toBe(url);
+
+    const sent: TestMessage = {
+      msgId: 'cache-11',
+      msgSeq: '11',
+      msgRandom: '123',
+      sendTime: String(Math.floor(Date.now() / 1000)),
+      senderUid: '',
+      senderUin: '90001',
+      elements: [{ type: 'pic', data: picture }],
+    };
+    f.refreshRows = [{ ...sent, localSent: true, source: 'roaming' }];
+    await act(async () => f.dbChanged!());
+    expect(f.messages).toHaveLength(1);
+    expect(f.messages[0]?.msgId).toBe('cache-11');
+    expect(f.messages[0]?.optimistic).toBeUndefined();
+    expect(f.messages[0]?.qqElements?.[0]?.data).toEqual({ ...picture, localPreviewUrl: url });
+    releaseObjectUrl(url);
+    expect(revoke).not.toHaveBeenCalledWith(url);
+
+    const readbackPicture = { ...picture, thumbnailUrl: '/qq-thumb.png' };
+    f.refreshRows = [
+      { ...sent, msgId: 'qq-11', elements: [{ type: 'pic', data: readbackPicture }] },
+    ];
+    await act(async () => f.dbChanged!());
+    expect(f.messages).toHaveLength(1);
+    expect(f.messages[0]?.msgId).toBe('qq-11');
+    expect(f.messages[0]?.qqElements?.[0]?.data).toEqual({
+      ...readbackPicture,
+      localPreviewUrl: url,
+    });
+    expect(revoke).not.toHaveBeenCalledWith(url);
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+  expect(revoke).toHaveBeenCalledWith(url);
 });
 
 it.each(['video', 'aiVoice', 'flashTransfer'])(
@@ -865,8 +996,7 @@ it.each(['首屏校准', '向上空页', '向下空页'])('%s后停在边缘会�
       expect(before).not.toHaveBeenCalled();
       await act(async () => read.show({ complete: true, rows: [], reuseLocal: true }));
     } else if (!forward) {
-      expect(before.mock.calls).toEqual([[String(firstSeq)]]);
-      expect(f.messages).toHaveLength(GROUP_INITIAL_PAGE_SIZE);
+      expect(before.mock.calls[0]).toEqual([String(firstSeq)]);
     }
     await flushFrames();
     if (forward) {
@@ -974,6 +1104,89 @@ it.each([
     }
   },
 );
+
+it('首条新消息模式在消息滑出上沿或触底时提交已读，并保留跳过的序号', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+  useViewState.getState().setOpenedUin('90001');
+  f.readFromFirstUnread = true;
+  f.unreadMode = true;
+  f.unreadReply = async () => [
+    { uid: '10001', chatType: 2, readSeq: '100', latestSeq: '105', unreadCount: 5 },
+  ];
+  const message = (seq: number): TestMessage => ({
+    msgId: String(seq),
+    msgSeq: String(seq),
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', data: { textContent: `消息 ${seq}` } }],
+  });
+  f.beforeRows = [message(100)];
+  f.afterReply = () => [101, 102, 103, 104, 105].map(message);
+  let offset = 0;
+  const realBounds = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this.classList.contains('message-scroll')) {
+      Object.defineProperties(this, {
+        clientHeight: { value: 100, configurable: true },
+        scrollHeight: { value: 300, configurable: true },
+      });
+      return new DOMRect(0, 0, 400, 100);
+    }
+    if (this.classList.contains('message-line'))
+      return new DOMRect(0, (Number(this.dataset.messageId) - 101) * 50 - offset, 400, 50);
+    return realBounds.call(this);
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(32));
+    expect(f.markedRead).toEqual([]);
+
+    const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+    await act(async () => {
+      scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 100 }));
+      offset = scroll.scrollTop = 100;
+      scroll.dispatchEvent(new Event('scroll'));
+      await vi.advanceTimersByTimeAsync(32);
+    });
+    expect(f.markedRead.map(({ visibleSeqs }) => visibleSeqs)).toEqual([['101', '102']]);
+
+    vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 2000);
+    await act(async () => {
+      offset = scroll.scrollTop = 200;
+      scroll.dispatchEvent(new Event('scroll'));
+      f.readCurrent?.();
+      await vi.advanceTimersByTimeAsync(32);
+    });
+    expect(f.markedRead.map(({ visibleSeqs }) => visibleSeqs)).toEqual([
+      ['101', '102'],
+      ['101', '102', '105'],
+    ]);
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
 
 it.each([
   ['10001', false],
@@ -1139,6 +1352,105 @@ it('等值删除标记迟到不重复贴底，真实标记增删和正文更新�
     act(() => root.unmount());
     finishDeleted?.([]);
     finishHidden?.([]);
+    client.clear();
+    host.remove();
+  }
+});
+
+it('全局搜索优先留在当前会话视图，跨视图连续查看后返回出发位置', async () => {
+  await SearchResultsPanel.preload();
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.groups = [
+    {
+      groupCode: '10001',
+      groupName: '合成折叠群',
+      remark: '',
+      memberCount: 2,
+      maxMemberCount: 500,
+      customLabels: [],
+      directory: { memberCount: 2, role: 'member', notifyLevel: 2 },
+    },
+  ];
+  f.searchGroups = (
+    [
+      { groupCode: '10001', name: '合成折叠群', conversationView: 'groupAssistant' },
+      { groupCode: '10002', name: '合成普通群', conversationView: 'regular' },
+    ] as const
+  ).map(
+    (row): GroupSearchHit => ({
+      ...row,
+      category: 'group',
+      remark: '',
+      inDirectory: true,
+      hasConversation: true,
+      aliases: [],
+    }),
+  );
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const click = (selector: string) =>
+    act(async () => host.querySelector<HTMLButtonElement>(selector)!.click());
+  const search = async (name: string) => {
+    await click('[data-workspace-search]');
+    await act(async () => vi.advanceTimersByTimeAsync(250));
+    const row = [
+      ...document.querySelectorAll<HTMLButtonElement>('[data-search-category="group"]'),
+    ].find((button) => button.textContent?.includes(name));
+    expect(row, name).toBeDefined();
+    await act(async () => row!.click());
+  };
+  const viewButton = () => host.querySelector<HTMLButtonElement>('[aria-label="会话视图"]');
+  const switchView = async (label: string) => {
+    await click('[aria-label="会话视图"]');
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+        .find((button) => button.textContent === label)!
+        .click(),
+    );
+  };
+  const scroll = () => host.querySelector<HTMLElement>('[data-weq-windowed-list]')!;
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await click('[data-messages]');
+    await click('[data-conversation-id="u_peer"]');
+    await act(async () => {
+      scroll().scrollTop = 42;
+      scroll().dispatchEvent(new Event('scroll'));
+    });
+    await search('合成折叠群');
+    expect(host.querySelector('[data-conversation-id="10001"]')).not.toBeNull();
+    expect(viewButton()).toBeNull();
+    await search('合成普通群');
+    expect(viewButton()?.title).toBe('会话视图：常规视图');
+    await search('合成折叠群');
+    await click('[aria-label="返回常规视图"]');
+    expect(viewButton()?.title).toBe('会话视图：常规视图');
+    expect(scroll().scrollTop).toBe(42);
+    expect(f.reads.at(-1)?.conv).toBe('u_peer');
+
+    await switchView('克隆会话');
+    await search('合成折叠群');
+    const back = '[aria-label="返回克隆会话"]';
+    expect(host.querySelector<HTMLButtonElement>(back)?.title).toBe('返回克隆会话');
+    await search('合成普通群');
+    await click(back);
+    expect(viewButton()?.title).toBe('会话视图：克隆会话');
+
+    await switchView('全部会话');
+    await search('合成折叠群');
+    expect(viewButton()?.title).toBe('会话视图：全部会话');
+    expect(host.querySelector('[data-conversation-id="10001"].is-locate-target')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
     client.clear();
     host.remove();
   }

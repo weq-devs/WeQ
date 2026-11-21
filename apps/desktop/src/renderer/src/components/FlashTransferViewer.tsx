@@ -3,9 +3,9 @@
  *
  * 卡片点击后直接打开这个竖屏弹窗，用 qfile 匿名 HTTP2RPC 拉文件列表，
  * 支持展开文件夹 / 压缩包、多选下载到 WeQ 本地缓存目录。顶部提供「分享」
- * （换 sharelink 后仍走原来的 webview 弹窗）和常规任务入口。
+ * （换 sharelink 后仍走原来的 webview 弹窗）。
  *
- * 布局：紧凑文件列表，单次下载操作作为一个任务进入常规任务列表。
+ * 下载按批次在本页展示，可交给后台继续。
  */
 import { NumericText } from './NumericText';
 import { formatBytes as formatSize } from '../lib/format';
@@ -27,22 +27,23 @@ import {
   FolderOpen,
   ListTodo,
   Loader2,
+  Pause,
   RefreshCw,
   Share2,
+  Square,
   X,
 } from 'lucide-react';
 import { Modal } from './Dialog';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { pruneNestedSelection } from '../lib/fileSelection';
 import { FlashShareDialog } from './FlashShareDialog';
-import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { client } from '../trpc/client';
 import { fileIconUrl } from '../lib/resourceUrl';
 import { useToast } from './Toast.shared';
-import { taskNotificationSource } from '../lib/notificationNavigation.shared';
 import { TransferRing } from './TransferRing';
-import { transferDetail } from '../lib/transferPresentation';
 import { useTransferProgress } from '../lib/transferActivity';
+import { IS_WEB } from '../lib/target.shared';
+import { TaskProgressBar } from './tasks/TaskProgressBar';
 import {
   flashFileTransferTarget,
   flashFilesetTransferTarget,
@@ -152,6 +153,20 @@ function FlashFileProgress({ file }: { file: FlashEntry }) {
   ) : null;
 }
 
+type DownloadBinding = { expectedAccountUin: string; expectedAccountConfigId: string };
+type DownloadBatch = Awaited<ReturnType<typeof client.account.flashViewDownloads.query>>[number];
+type DownloadAction = 'pause' | 'cancel' | 'retry' | 'background' | 'open';
+const downloadLabel = {
+  pending: '等待下载',
+  resolving: '获取下载链接',
+  downloading: '下载中',
+  done: '已保存',
+  cancelled: '已取消',
+  failed: '下载未完成',
+};
+const activeDownload = (batch: DownloadBatch) =>
+  batch.status === 'pending' || batch.status === 'resolving' || batch.status === 'downloading';
+
 export function FlashTransferViewer({
   filesetId,
   title,
@@ -177,14 +192,131 @@ export function FlashTransferViewer({
   const [selected, setSelected] = useState<Map<string, FlashEntry>>(new Map());
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
-  const openTasks = useWorkspaceMenu((state) => state.openTasks);
   const [starting, setStarting] = useState(false);
-  const downloads = useTransferProgress(flashFilesetTransferTarget(filesetId, 'download'));
+  const [binding, setBinding] = useState<DownloadBinding | null>(null);
+  const [batches, setBatches] = useState<DownloadBatch[]>([]);
+  const [busyBatch, setBusyBatch] = useState<string | null>(null);
+  const active = useRef(false);
+  const leaving = useRef(false);
+  const busy = useRef(false);
+  const owned = useRef(new Set<string>());
+  const liveBinding = useRef<DownloadBinding | null>(null);
+  const reads = useRef(0);
   const upload = useTransferProgress(flashFilesetTransferTarget(filesetId, 'upload'));
-  const showTasks = (): void => {
-    openTasks();
-    onClose();
-  };
+
+  const refreshDownloads = useCallback(
+    async (scope: DownloadBinding) => {
+      const read = ++reads.current;
+      const result = await client.account.flashViewDownloads.query({ ...scope, filesetId });
+      if (active.current && read === reads.current && liveBinding.current === scope)
+        setBatches(result);
+    },
+    [filesetId],
+  );
+
+  const stopOwned = useCallback(async (scope: DownloadBinding) => {
+    await Promise.all(
+      [...owned.current].map(async (taskId) => {
+        await client.account.flashPauseDownloadTask.mutate({
+          ...scope,
+          taskId,
+          foregroundOnly: true,
+        });
+        owned.current.delete(taskId);
+      }),
+    );
+  }, []);
+
+  useEffect(() => {
+    active.current = true;
+    let disposed = false;
+    void client.account.getAccountConfig
+      .query()
+      .then((config) => {
+        if (disposed || !config?.configId || !config.uin) return;
+        const scope = { expectedAccountUin: config.uin, expectedAccountConfigId: config.configId };
+        liveBinding.current = scope;
+        setBinding(scope);
+      })
+      .catch(() => {
+        if (!disposed) pushToast({ tone: 'error', message: '无法读取闪传下载账号' });
+      });
+    return () => {
+      active.current = false;
+      disposed = true;
+      const scope = liveBinding.current;
+      queueMicrotask(() => {
+        if (!active.current && scope) void stopOwned(scope).catch(() => undefined);
+      });
+    };
+  }, [pushToast, stopOwned]);
+
+  useEffect(() => {
+    if (!binding) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        await refreshDownloads(binding);
+      } catch {
+        // 暂时失联时保留上次快照，下次读取补齐。
+      } finally {
+        if (!stopped) timer = setTimeout(poll, 1200);
+      }
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [binding, refreshDownloads]);
+
+  async function close() {
+    if (busy.current || leaving.current) return;
+    leaving.current = true;
+    try {
+      if (binding) await stopOwned(binding);
+      if (active.current) onClose();
+    } catch (reason) {
+      pushToast({ tone: 'error', message: '无法暂停闪传下载', detail: String(reason) });
+    } finally {
+      leaving.current = false;
+    }
+  }
+
+  async function control(batch: DownloadBatch, action: DownloadAction) {
+    if (!binding || busy.current || leaving.current) return;
+    busy.current = true;
+    setBusyBatch(batch.id);
+    const ref = { ...binding, taskId: batch.id };
+    try {
+      if (action === 'background') {
+        if (!(await client.account.flashBackgroundDownload.mutate({ ...ref, filesetId })))
+          throw new Error('下载批次已失效');
+        owned.current.delete(batch.id);
+      } else if (action === 'pause') {
+        await client.account.flashPauseDownloadTask.mutate(ref);
+      } else if (action === 'cancel') {
+        await client.account.flashCancelDownloadTask.mutate(ref);
+      } else if (action === 'retry') {
+        if (!(await client.account.flashRetryDownloadTask.mutate(ref)))
+          throw new Error('下载仍在收尾，请稍后再试');
+        if (batch.foreground) owned.current.add(batch.id);
+      } else {
+        await client.account.flashOpenDownloadOutput.mutate({
+          ...ref,
+          mode:
+            batch.files.length === 1 && batch.files[0]?.status === 'done' ? 'file' : 'directory',
+        });
+      }
+      await refreshDownloads(binding);
+    } catch (reason) {
+      pushToast({ tone: 'error', message: '闪传下载操作失败', detail: String(reason) });
+    } finally {
+      busy.current = false;
+      if (active.current) setBusyBatch(null);
+    }
+  }
 
   const current = crumbs[crumbs.length - 1] ?? crumbs[0]!;
 
@@ -371,10 +503,12 @@ export function FlashTransferViewer({
 
   const handleStart = async (): Promise<void> => {
     const items = Array.from(selected.values());
-    if (items.length === 0 || starting) return;
+    if (items.length === 0 || !binding || starting || leaving.current) return;
     setStarting(true);
     try {
       const res = await client.account.flashStartDownloads.mutate({
+        ...binding,
+        viewFilesetId: filesetId,
         filesetName: crumbs[0]?.name || title || '闪传下载',
         selections: items.map((it) => ({
           filesetId: it.filesetId,
@@ -389,9 +523,21 @@ export function FlashTransferViewer({
         })),
       });
       if (res.cancelled) return;
+      if (res.taskId) {
+        if (!active.current || leaving.current) {
+          await client.account.flashPauseDownloadTask.mutate({
+            ...binding,
+            taskId: res.taskId,
+            foregroundOnly: true,
+          });
+          return;
+        }
+        owned.current.add(res.taskId);
+      }
+      if (!active.current) return;
       setSelected(new Map());
       if (res.started > 0) {
-        showTasks();
+        await refreshDownloads(binding);
       } else {
         pushToast({ tone: 'warning', message: '没有可下载的文件' });
       }
@@ -400,7 +546,6 @@ export function FlashTransferViewer({
           tone: 'warning',
           message: '部分文件无法解析',
           detail: res.errors[0],
-          source: res.taskId ? taskNotificationSource(res.taskId, 'flash') : undefined,
         });
       }
     } catch (e) {
@@ -427,7 +572,7 @@ export function FlashTransferViewer({
   const Surface = embedded ? EmbeddedTransfer : Modal;
   return (
     <>
-      <Surface presentation="floating" onClose={onClose} width={520} title="闪传文件">
+      <Surface presentation="floating" onClose={() => void close()} width={520} title="闪传文件">
         <div
           className="weq-ft"
           {...multi.rootProps}
@@ -441,15 +586,6 @@ export function FlashTransferViewer({
               {crumbs[0]?.name || 'QQ闪传'}
             </span>
             <div className="weq-ft-actions">
-              <button
-                type="button"
-                className="weq-ft-btn"
-                onClick={showTasks}
-                title="打开任务列表"
-                aria-label="打开任务列表"
-              >
-                <ListTodo size={16} strokeWidth={1.9} aria-hidden />
-              </button>
               <button
                 type="button"
                 className="weq-ft-btn"
@@ -467,7 +603,7 @@ export function FlashTransferViewer({
               <button
                 type="button"
                 className="weq-ft-close"
-                onClick={onClose}
+                onClick={() => void close()}
                 aria-label="关闭"
                 title="关闭"
               >
@@ -533,6 +669,105 @@ export function FlashTransferViewer({
           </div>
 
           <div className="weq-ft-body">
+            {batches.length > 0 && (
+              <section className="weq-ft-batches" aria-label="本分享的下载">
+                {batches.map((batch) => {
+                  const running = activeDownload(batch);
+                  const label = batch.paused ? '已暂停' : downloadLabel[batch.status];
+                  const value =
+                    batch.fileSize > 0 ? (batch.downloadedBytes / batch.fileSize) * 100 : undefined;
+                  const disabled = busyBatch !== null;
+                  return (
+                    <section
+                      className="weq-ft-batch"
+                      key={batch.id}
+                      aria-label={`下载 ${batch.files[0]?.relativePath ?? ''}`}
+                    >
+                      <details>
+                        <summary>
+                          <span>
+                            {batch.files[0]?.relativePath}
+                            {batch.files.length > 1 ? (
+                              <NumericText>{` 等 ${batch.files.length} 个文件`}</NumericText>
+                            ) : null}
+                          </span>
+                          <span>{batch.foreground ? label : `${label} · 后台`}</span>
+                        </summary>
+                        <ul>
+                          {batch.files.map((file) => (
+                            <li key={file.id}>
+                              {file.relativePath} · {downloadLabel[file.status]}
+                              {file.status === 'downloading' && (
+                                <NumericText>{` · ${formatSize(file.downloadedBytes)} / ${formatSize(file.fileSize)}`}</NumericText>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                        {batch.error && <p className="weq-ft-batch-error">{batch.error}</p>}
+                      </details>
+                      {running && <TaskProgressBar value={value} label="本批次下载进度" />}
+                      <div className="weq-ft-batch-actions">
+                        {running && (
+                          <>
+                            <button
+                              type="button"
+                              className="weq-set-btn"
+                              disabled={disabled}
+                              onClick={() => void control(batch, 'pause')}
+                            >
+                              <Pause size={14} aria-hidden />
+                              暂停
+                            </button>
+                            <button
+                              type="button"
+                              className="weq-set-btn"
+                              disabled={disabled}
+                              onClick={() => void control(batch, 'cancel')}
+                            >
+                              <Square size={14} aria-hidden />
+                              停止
+                            </button>
+                          </>
+                        )}
+                        {batch.foreground && (running || batch.paused) && (
+                          <button
+                            type="button"
+                            className="weq-set-btn"
+                            disabled={disabled}
+                            onClick={() => void control(batch, 'background')}
+                          >
+                            <ListTodo size={14} aria-hidden />
+                            后台进行
+                          </button>
+                        )}
+                        {batch.canRetry && (
+                          <button
+                            type="button"
+                            className="weq-set-btn"
+                            disabled={disabled}
+                            onClick={() => void control(batch, 'retry')}
+                          >
+                            <RefreshCw size={14} aria-hidden />
+                            {batch.paused ? '继续' : '重试未完成文件'}
+                          </button>
+                        )}
+                        {!IS_WEB && batch.files.some((file) => file.status === 'done') && (
+                          <button
+                            type="button"
+                            className="weq-set-btn"
+                            disabled={disabled}
+                            onClick={() => void control(batch, 'open')}
+                          >
+                            <FolderOpen size={14} aria-hidden />
+                            {batch.files.length === 1 ? '打开文件' : '打开下载目录'}
+                          </button>
+                        )}
+                      </div>
+                    </section>
+                  );
+                })}
+              </section>
+            )}
             {loading ? (
               <div className="weq-ft-loading">
                 <Loader2 size={22} strokeWidth={1.9} className="weq-spin" aria-hidden />
@@ -647,25 +882,15 @@ export function FlashTransferViewer({
             <button
               type="button"
               className="weq-ft-btn-primary"
-              disabled={selectedCount === 0 || starting}
+              disabled={selectedCount === 0 || starting || !binding}
               onClick={() => void handleStart()}
             >
-              {starting || downloads ? (
-                <TransferRing
-                  progress={downloads ?? { phase: 'preparing' }}
-                  label="闪传下载进度"
-                  size={16}
-                />
+              {starting ? (
+                <TransferRing progress={{ phase: 'preparing' }} label="闪传下载进度" size={16} />
               ) : (
                 <Download size={15} strokeWidth={2} aria-hidden />
               )}
-              <span>
-                {starting
-                  ? '解析中…'
-                  : downloads
-                    ? (transferDetail(downloads) ?? '正在下载')
-                    : '下载'}
-              </span>
+              <span>{starting ? '解析中…' : '下载'}</span>
             </button>
           </footer>
         </div>

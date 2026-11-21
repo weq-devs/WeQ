@@ -4,18 +4,24 @@ import { eventTimeFormatter } from '@weq/time';
 /** 会话消息搜索：全局搜索内嵌展示，会话顶栏入口使用单会话浮窗。 */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { CalendarDays, Download, Search, X, SearchX } from 'lucide-react';
+import { CalendarDays, CalendarRange, Download, LocateFixed, Play, X, SearchX } from 'lucide-react';
+import { ChatRecordsHeader } from './ChatRecordsHeader';
 import { ConversationCalendar } from './ConversationCalendar';
 import { TimeRangePicker } from '../../views/export/TimeRangePicker';
 import { beijingDay, daySeconds } from '../../lib/messageCalendar';
 import { Modal } from '../Dialog';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { SearchListSkeleton } from './SearchSkeleton';
 import { c2cAvatarSrc, groupAvatarSrc, highlightText } from './SearchResultCard.shared';
-import type { ChatRecordSearchHit, ConversationRecordHit } from './types';
+import {
+  MESSAGE_CATEGORY_LABELS,
+  type ChatRecordSearchHit,
+  type ConversationRecordHit,
+} from './types';
 import { client } from '../../trpc/client';
 import { preflightExportEstimate } from '../../views/export/preflight';
-import { useExportReportDialog } from '../../views/export/ExportReportControl.shared';
 import { useAppDialog } from '../../lib/dialogUtils';
+import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import {
   ConvContext,
   ForwardKindContext,
@@ -24,6 +30,8 @@ import {
 } from '../../state/messageContext';
 import { closeForwardWindows } from '../../state/forwardWindow';
 import { ChatMediaGallery } from '../ChatMediaGallery';
+import { useChatMediaItems, useChatMediaOpen } from '../ChatMediaGallery.shared';
+import { ShimmerImage } from '../ShimmerImage';
 import { MessageBubble } from '../../im-template/template/messageBubble';
 import { displayUserName } from '../../im-template/template/user';
 import type { MessageRenderer } from '../../im-template/template/messageRenderers';
@@ -34,14 +42,23 @@ import { useRequestContentExport } from '../../state/contentSelection.shared';
 import { createReplyPreviewIndex } from '../../lib/replyPreview';
 import { enrichReplyElements } from '../../views/workspace/messageProjection';
 import type { RenderElement } from '../QqMessageContent.shared';
+import type { MessageCategory } from '@weq/service';
+import type { GlobalChatRecordFilter } from '@weq/service/search-policy';
 
 const noop = (): void => {};
+type BrowseCursor = { time: number; rowId: string };
+const sharedCategories = ['image', 'video', 'file'] as const;
 
 export function ChatRecordsModal({
   initialHit,
   initialKeyword,
   fixed = false,
+  sharedMedia = false,
+  accountBinding,
+  globalRecordFilter,
+  suspended = false,
   onClose,
+  onSuspend,
   onJumpMessage,
   renderers,
   user,
@@ -66,7 +83,13 @@ export function ChatRecordsModal({
    * 列表，结果列表占满整个宽度，跳转目标始终是当前会话。
    */
   fixed?: boolean;
+  sharedMedia?: boolean;
+  accountBinding?: QQWriteBinding;
+  globalRecordFilter?: GlobalChatRecordFilter;
+  suspended?: boolean;
   onClose: () => void;
+  /** 跳原消息时关闭浮层，保留这次搜索会话。 */
+  onSuspend?: () => void;
   /** Jump to a conversation + seq (like a file hit). */
   onJumpMessage: (hit: {
     source: 'buddy' | 'group';
@@ -79,7 +102,7 @@ export function ChatRecordsModal({
   user?: User;
   groupMembers?: (groupCode: string) => ReadonlyMap<string, GroupMember>;
   resolveGroupMembers?: (groupCode: string, uids: string[]) => void;
-}): ReactElement {
+}): ReactElement | null {
   const dialog = useAppDialog();
   const requestExport = useRequestContentExport();
   const [localKeyword, setKeyword] = useState(initialKeyword);
@@ -90,29 +113,39 @@ export function ChatRecordsModal({
   const [startDay, setStartDay] = useState('');
   const [endDay, setEndDay] = useState('');
   const [sender, setSender] = useState('');
+  const [senderMatches, setSenderMatches] = useState<{
+    query: string;
+    options: { value: string; label: string }[];
+  }>();
+  const senderQuery = sender.trim();
+  const senderIdentity =
+    !senderQuery || localSource || /^(?:[1-9]\d*|u_[\w-]+)$/.test(senderQuery)
+      ? senderQuery || undefined
+      : undefined;
+  const expectedAccountUin = accountBinding?.expectedAccountUin;
+  const expectedAccountConfigId = accountBinding?.expectedAccountConfigId;
   const [ownUin, setOwnUin] = useState('');
-  const [category, setCategory] = useState<
-    'text' | 'image' | 'video' | 'voice' | 'file' | 'emoji' | 'system' | 'other' | ''
-  >('');
+  const [category, setCategory] = useState<MessageCategory | ''>(sharedMedia ? 'image' : '');
   const [exportFormat, setExportFormat] = useState<
     'json' | 'jsonl' | 'txt' | 'csv' | 'xlsx' | 'html'
   >('jsonl');
   const [exportBusy, setExportBusy] = useState(false);
   const [includeMedia, setIncludeMedia] = useState(false);
-  const report = useExportReportDialog();
+  const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
   const [msgError, setMsgError] = useState('');
   const [browseHasMore, setBrowseHasMore] = useState(false);
-  const browseCursor = useRef<{ time: number; rowId: string } | null>(null);
+  const browseCursor = useRef<BrowseCursor | null>(null);
+  const [scannedDay, setScannedDay] = useState('');
   const localMatches = useRef<ConversationRecordHit[]>([]);
   const filter = useMemo(
     () => ({
-      sender: sender.trim() || undefined,
+      sender: senderIdentity,
       keyword: keyword.trim() || undefined,
       category: category || undefined,
       start: startDay ? Math.floor(Date.parse(`${startDay}T00:00:00+08:00`) / 1000) : undefined,
       end: endDay ? Math.floor(Date.parse(`${endDay}T23:59:59+08:00`) / 1000) : undefined,
     }),
-    [sender, keyword, category, startDay, endDay],
+    [senderIdentity, keyword, category, startDay, endDay],
   );
   useEffect(() => {
     let active = true;
@@ -137,17 +170,89 @@ export function ChatRecordsModal({
   }, [fixed, localSource, user]);
   const selected = initialHit;
   const [messages, setMessages] = useState<ConversationRecordHit[]>([]);
-  const [msgLoading, setMsgLoading] = useState(false);
+  const [msgLoading, setMsgLoading] = useState(
+    () => !localSource && (fixed || Boolean(filter.keyword)),
+  );
   const [msgLoadingMore, setMsgLoadingMore] = useState(false);
   const [msgTotal, setMsgTotal] = useState(0);
   const [msgLimited, setMsgLimited] = useState(false);
-  const msgRunRef = useRef(0);
+  const msgRunRef = useRef<{ controller: AbortController; loadingMore: boolean } | null>(null);
   const msgScrollRef = useRef<HTMLDivElement | null>(null);
+  const savedScrollTop = useRef<number | null>(null);
+  const bindMsgScroll = useCallback((element: HTMLDivElement | null) => {
+    msgScrollRef.current = element;
+    if (!element || savedScrollTop.current === null) return;
+    element.scrollTop = savedScrollTop.current;
+    savedScrollTop.current = null;
+  }, []);
   const isGroup = selected.source === 'group';
   const members = useMemo(
     () => (isGroup && !localSource ? groupMembers?.(selected.targetUid) : undefined),
     [isGroup, localSource, groupMembers, selected.targetUid],
   );
+  useEffect(() => {
+    if (!fixed || !isGroup || localSource || suspended || !senderQuery || senderIdentity) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void client.account.searchGroupMembers
+        .query(
+          {
+            groupCode: selected.targetUid,
+            keyword: senderQuery,
+            limit: 30,
+            expectedAccountUin,
+            expectedAccountConfigId,
+          },
+          { signal: controller.signal },
+        )
+        .then(({ members }) => {
+          if (controller.signal.aborted) return;
+          setSenderMatches({
+            query: senderQuery,
+            options: members.map((member) => ({
+              value: member.uin && member.uin !== '0' ? member.uin : member.uid,
+              label: [...new Set([member.card, member.nick].filter(Boolean))].join(' · '),
+            })),
+          });
+        })
+        .catch(() => undefined);
+    }, 170);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    fixed,
+    isGroup,
+    localSource,
+    suspended,
+    senderIdentity,
+    senderQuery,
+    selected.targetUid,
+    expectedAccountUin,
+    expectedAccountConfigId,
+  ]);
+  const senderOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const message of messages) {
+      const value =
+        message.senderUin && message.senderUin !== '0' ? message.senderUin : message.senderUid;
+      if (value) options.set(value, message.senderName);
+    }
+    if (!isGroup && selected.targetUid) options.set(selected.targetUid, selected.name);
+    for (const member of members?.values() ?? []) {
+      const value = member.uin && member.uin !== '0' ? member.uin : member.id;
+      if (!value) continue;
+      const label = [
+        ...new Set([member.remark, member.card, member.nick, member.displayName].filter(Boolean)),
+      ].join(' · ');
+      options.set(value, label || options.get(value) || '');
+    }
+    if (senderMatches?.query === senderQuery)
+      for (const { value, label } of senderMatches.options)
+        if (value && !options.has(value)) options.set(value, label);
+    return [...options].map(([value, label]) => ({ value, label }));
+  }, [messages, isGroup, selected.name, selected.targetUid, members, senderMatches, senderQuery]);
   useEffect(() => {
     if (!isGroup || localSource || !resolveGroupMembers) return;
     const uids = new Set<string>();
@@ -176,8 +281,74 @@ export function ChatRecordsModal({
     [selected, localSource],
   );
 
+  const queryMessages = useCallback(
+    async (offset: number, signal: AbortSignal) => {
+      if (!fixed) {
+        return client.account.searchConversationRecords.query(
+          {
+            source: selected.source,
+            conv: selected.targetUid,
+            keyword: filter.keyword ?? '',
+            offset,
+            limit: 30,
+            ...(globalRecordFilter
+              ? {
+                  recordFilter: globalRecordFilter,
+                  expectedAccountUin,
+                  expectedAccountConfigId,
+                }
+              : {}),
+          },
+          { signal },
+        );
+      }
+
+      // 空批次也可能扫描过几千条原始消息。按游标接着查，直到有命中或到达范围末尾。
+      while (!signal.aborted) {
+        const cursor = browseCursor.current;
+        const page = await client.account.browseConversation.query(
+          {
+            kind: selected.source === 'group' ? 'group' : 'c2c',
+            conv: selected.targetUid,
+            filter,
+            expectedAccountUin,
+            expectedAccountConfigId,
+            cursor: cursor ?? undefined,
+            limit: 30,
+          },
+          { signal },
+        );
+        if (signal.aborted) return;
+        if (
+          page.hasMore &&
+          (!page.cursor ||
+            (page.cursor.time === cursor?.time && page.cursor.rowId === cursor.rowId))
+        )
+          throw new Error('聊天记录搜索进度未推进');
+        browseCursor.current = page.cursor ?? null;
+        if (page.cursor && page.cursor.time > 0) {
+          setScannedDay(beijingDay(new Date(page.cursor.time * 1000)));
+        }
+        setBrowseHasMore(page.hasMore);
+        if (page.items.length || !page.hasMore)
+          return { items: page.items, total: undefined, limited: false };
+      }
+    },
+    [fixed, selected, filter, expectedAccountUin, expectedAccountConfigId, globalRecordFilter],
+  );
+
   // Fetch messages for the selected conversation.
   useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    msgRunRef.current = { controller, loadingMore: false };
+    const cancel = () => controller.abort();
+    setMsgLoadingMore(false);
+    setMsgLimited(false);
+    setMsgError('');
+    setScannedDay('');
+    browseCursor.current = null;
+    msgScrollRef.current?.scrollTo(0, 0);
     if (localSource) {
       const keyword = (filter.keyword ?? '').toLocaleLowerCase();
       const rows = localSource.messages
@@ -212,71 +383,31 @@ export function ChatRecordsModal({
       setMsgTotal(Math.min(rows.length, 30));
       setMsgLoading(false);
       setBrowseHasMore(rows.length > 30);
-      setMsgError('');
-      return;
+      return cancel;
     }
-    const trimmed = keyword.trim();
-    if ((!trimmed && !fixed) || !selected) {
-      setMessages([]);
-      setMsgTotal(0);
+    setMessages([]);
+    setMsgTotal(0);
+    setBrowseHasMore(false);
+    if (!filter.keyword && !fixed) {
       setMsgLoading(false);
-      setBrowseHasMore(false);
-      setMsgError('');
-      return undefined;
+      return cancel;
     }
-    const run = ++msgRunRef.current;
     setMsgLoading(true);
-    setMsgLoadingMore(false);
-    msgScrollRef.current?.scrollTo(0, 0);
-    setMsgLimited(false);
-    setMsgError('');
-    browseCursor.current = null;
-    const request = fixed
-      ? client.account.browseConversation.query({
-          kind: selected.source === 'group' ? 'group' : 'c2c',
-          conv: selected.targetUid,
-          filter,
-          limit: 30,
-        })
-      : client.account.searchConversationRecords.query({
-          source: selected.source,
-          conv: selected.targetUid,
-          keyword: trimmed,
-          offset: 0,
-          limit: 30,
-        });
-    void request
-      .then((result) => {
-        if (run !== msgRunRef.current) return;
-        const r = result as { items: ConversationRecordHit[]; total: number; limited?: boolean };
+    void queryMessages(0, signal)
+      .then((r) => {
+        if (signal.aborted || !r) return;
         setMsgLimited(Boolean(r.limited));
         setMessages(r.items);
-        if (fixed) {
-          const page = result as {
-            items: ConversationRecordHit[];
-            cursor: { time: number; rowId: string } | null;
-            hasMore: boolean;
-          };
-          browseCursor.current = page.cursor;
-          setBrowseHasMore(page.hasMore);
-          setMsgTotal(page.items.length);
-        } else setMsgTotal(r.total);
-        // 拼音输入会产生大量无结果的中间态，不弹 Toast，界面上的空态提示已足够。
+        setMsgTotal(r.total ?? r.items.length);
       })
       .catch((err) => {
-        if (run === msgRunRef.current) {
-          setMessages([]);
-          setBrowseHasMore(false);
-          setMsgError(String(err));
-        }
+        if (!signal.aborted) setMsgError(String(err));
       })
       .finally(() => {
-        if (run === msgRunRef.current) setMsgLoading(false);
+        if (!signal.aborted) setMsgLoading(false);
       });
-    return () => {
-      if (run === msgRunRef.current) msgRunRef.current++;
-    };
-  }, [selected, keyword, fixed, filter, localSource]);
+    return cancel;
+  }, [fixed, filter, localSource, queryMessages]);
 
   const loadMoreMessages = useCallback(() => {
     if (localSource) {
@@ -286,54 +417,34 @@ export function ChatRecordsModal({
       setBrowseHasMore(next.length < localMatches.current.length);
       return;
     }
-    const trimmed = keyword.trim();
-    if ((!trimmed && !fixed) || !selected || msgLoadingMore || msgLoading) return;
     const run = msgRunRef.current;
+    if (!run || run.loadingMore || msgLoading) return;
+    const { signal } = run.controller;
+    if (signal.aborted) return;
+    run.loadingMore = true;
     setMsgLoadingMore(true);
-    const request = fixed
-      ? client.account.browseConversation.query({
-          kind: selected.source === 'group' ? 'group' : 'c2c',
-          conv: selected.targetUid,
-          filter,
-          cursor: browseCursor.current ?? undefined,
-          limit: 30,
-        })
-      : client.account.searchConversationRecords.query({
-          source: selected.source,
-          conv: selected.targetUid,
-          keyword: trimmed,
-          offset: messages.length,
-          limit: 30,
-        });
-    void request
-      .then((result) => {
-        if (run !== msgRunRef.current) return;
-        const r = result as { items: ConversationRecordHit[]; total: number; limited?: boolean };
+    setMsgError('');
+    void queryMessages(messages.length, signal)
+      .then((r) => {
+        if (signal.aborted || !r) return;
         setMsgLimited(Boolean(r.limited));
         setMessages((prev) => [...prev, ...r.items]);
-        if (fixed) {
-          const page = result as {
-            cursor: { time: number; rowId: string } | null;
-            hasMore: boolean;
-          };
-          browseCursor.current = page.cursor;
-          setBrowseHasMore(page.hasMore);
-          setMsgTotal(messages.length + r.items.length);
-        } else setMsgTotal(r.total);
+        setMsgTotal(r.total ?? messages.length + r.items.length);
       })
       .catch((err) => {
-        if (run === msgRunRef.current) setMsgError(String(err));
+        if (!signal.aborted) setMsgError(String(err));
       })
       .finally(() => {
-        if (run === msgRunRef.current) setMsgLoadingMore(false);
+        if (!signal.aborted) setMsgLoadingMore(false);
+        run.loadingMore = false;
       });
-  }, [keyword, selected, messages.length, msgLoadingMore, msgLoading, fixed, filter, localSource]);
+  }, [messages.length, msgLoading, localSource, queryMessages]);
 
   // Infinite scroll for the message list.
   const onMsgScroll = useCallback(() => {
     const el = msgScrollRef.current;
     if (
-      !el ||
+      !el?.clientHeight ||
       msgLoading ||
       msgLoadingMore ||
       (fixed ? !browseHasMore : messages.length >= msgTotal)
@@ -352,6 +463,16 @@ export function ChatRecordsModal({
     browseHasMore,
   ]);
 
+  // 结果不足一屏时没有滚动事件，填满列表或读完为止。
+  useEffect(() => {
+    const el = msgScrollRef.current;
+    if (!fixed || !browseHasMore || msgLoading || msgLoadingMore || msgError || !el) return;
+    onMsgScroll();
+    const observer = new ResizeObserver(onMsgScroll);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fixed, browseHasMore, msgLoading, msgLoadingMore, msgError, onMsgScroll, suspended]);
+
   const jumpTo = useCallback(
     (msg: Pick<ConversationRecordHit, 'msgSeq' | 'msgId'>) => {
       if (localSource) {
@@ -368,7 +489,11 @@ export function ChatRecordsModal({
         setMsgError('该消息没有可定位的原生序号。');
         return;
       }
-      // 跳转进会话时自动关闭聊天记录模态。
+      if (onSuspend) {
+        savedScrollTop.current = msgScrollRef.current?.scrollTop ?? null;
+        setCalendarOpen(false);
+        setRangeCalendarOpen(false);
+      }
       closeForwardWindows();
       onJumpMessage({
         source: selected.source,
@@ -376,9 +501,9 @@ export function ChatRecordsModal({
         msgSeq: msg.msgSeq,
         msgId: msg.msgId,
       });
-      onClose();
+      (onSuspend ?? onClose)();
     },
-    [onJumpMessage, onClose, selected, localSource],
+    [onJumpMessage, onClose, onSuspend, selected, localSource],
   );
 
   const jumpToReply = useCallback(
@@ -404,35 +529,39 @@ export function ChatRecordsModal({
           // 服务未能精确解析引用时，不用不同语义的序号跳到另一条消息。
         }
       } else if (!isGroup) seq ??= positive(target.seq);
-      if (run !== msgRunRef.current) return;
+      if (run !== msgRunRef.current || run?.controller.signal.aborted) return;
       jumpTo({ msgId: target.msgId ?? '', msgSeq: seq ?? '' });
     },
     [isGroup, jumpTo, localSource, selected.targetUid],
   );
 
   const convKey = isGroup ? selected.targetUid : '';
+  const browseRecords = fixed && !localSource;
+  const mediaKind = sharedMedia && (category === 'image' || category === 'video') ? category : null;
+  const messageList = mediaKind ? [] : messages;
+  const searchingRecords = browseRecords && (msgLoading || msgLoadingMore);
+  const progress = scannedDay ? `已查到 ${scannedDay}` : '';
+  const galleryMessages = useMemo(
+    () =>
+      messages.map((message) => ({
+        msgId: message.msgId,
+        msgSeq: message.msgSeq,
+        sendTime: message.sendTime,
+        elements: message.elements ?? [],
+      })),
+    [messages],
+  );
+  if (suspended) return null;
 
   const content = (
     <>
-      {report.dialog}
       <div className="weq-chatrecords">
         {embedded ? null : (
-          <div className="weq-chatrecords-head" data-window-drag-handle>
-            <div className="weq-chatrecords-title-wrap">
-              <h3 id="weq-chatrecords-title" className="weq-search-more-title">
-                聊天记录
-              </h3>
-              {fixed ? (
-                <span className="weq-chatrecords-fixed-conv" title={initialHit.name}>
-                  <Search size={13} aria-hidden />
-                  {initialHit.name}
-                </span>
-              ) : null}
-            </div>
-            <button type="button" className="weq-dialog-x" onClick={onClose} aria-label="关闭">
-              <X size={16} strokeWidth={1.9} aria-hidden />
-            </button>
-          </div>
+          <ChatRecordsHeader
+            conversationName={fixed ? initialHit.name : undefined}
+            title={sharedMedia ? '共享媒体' : undefined}
+            onClose={onClose}
+          />
         )}
         {calendarOpen && selected ? (
           <ConversationCalendar
@@ -452,23 +581,25 @@ export function ChatRecordsModal({
             autoFocus
           />
         )}
-        <div className="weq-record-calendar-actions">
-          {fixed ? (
-            <button type="button" onClick={() => setRangeCalendarOpen(true)}>
-              <CalendarDays size={15} />
-              {startDay || endDay ? `${startDay || '不限'} 至 ${endDay || '不限'}` : '时间范围'}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            title="按日期定位"
-            disabled={Boolean(localSource) || !selected}
-            onClick={() => setCalendarOpen(true)}
+        {sharedMedia ? (
+          <div
+            className="weq-record-filters weq-record-media-categories"
+            role="group"
+            aria-label="共享媒体类型"
           >
-            <CalendarDays size={15} />
-            跳转日期
-          </button>
-        </div>
+            {sharedCategories.map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                className="weq-set-btn"
+                aria-pressed={category === kind}
+                onClick={() => setCategory(kind)}
+              >
+                {MESSAGE_CATEGORY_LABELS[kind]}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {rangeCalendarOpen && selected ? (
           <Modal
             presentation="popover"
@@ -506,23 +637,15 @@ export function ChatRecordsModal({
           </Modal>
         ) : null}
         {fixed ? (
-          <div className="weq-record-filters">
+          <div className="weq-record-filters" role="group" aria-label="筛选聊天记录">
             <label>
               发送者
               <FormSuggestions
-                placeholder="QQ 号或 UID"
+                aria-label="发送者"
+                placeholder="昵称、备注或 QQ 号"
                 value={sender}
                 onValueChange={setSender}
-                options={[
-                  ...new Map(
-                    messages.map((m) => [
-                      m.senderUin && m.senderUin !== '0' ? m.senderUin : m.senderUid,
-                      m.senderName,
-                    ]),
-                  ).entries(),
-                ]
-                  .filter(([id]) => !!id)
-                  .map(([value, label]) => ({ value, label }))}
+                options={senderOptions}
               />
             </label>
             <label className="weq-record-self">
@@ -534,138 +657,180 @@ export function ChatRecordsModal({
               />
               我
             </label>
-            <FormSelect
-              aria-label="消息类型"
-              disabled={Boolean(localSource)}
-              value={category}
-              onChange={(e) => setCategory(e.target.value as typeof category)}
-            >
-              <option value="">全部类型</option>
-              {Object.entries({
-                text: '文字',
-                image: '图片',
-                video: '视频',
-                voice: '语音',
-                file: '文件',
-                emoji: '表情',
-                system: '系统',
-                other: '其他',
-              }).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </FormSelect>
-            <FormSelect
-              aria-label="导出格式"
-              disabled={Boolean(localSource)}
-              value={exportFormat}
-              onChange={(e) => setExportFormat(e.target.value as typeof exportFormat)}
-            >
-              {['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'].map((f) => (
-                <option key={f}>{f}</option>
-              ))}
-            </FormSelect>
-            <label className="weq-record-self">
-              <input
-                type="checkbox"
-                checked={includeMedia || exportFormat === 'html'}
-                disabled={Boolean(localSource) || exportFormat === 'html'}
-                onChange={(e) => setIncludeMedia(e.target.checked)}
-              />
-              附件
-            </label>
+            {!sharedMedia ? (
+              <FormSelect
+                aria-label="消息类型"
+                disabled={Boolean(localSource)}
+                value={category}
+                onChange={(e) => setCategory(e.target.value as typeof category)}
+              >
+                <option value="">全部类型</option>
+                {Object.entries(MESSAGE_CATEGORY_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </FormSelect>
+            ) : null}
             <button
-              className="weq-dialog-x"
-              aria-label="导出筛选结果"
-              title="导出筛选结果"
-              disabled={
-                exportBusy ||
-                msgLoading ||
-                !!msgError ||
-                !selected ||
-                Boolean(localSource && (!requestExport || !messages.length))
-              }
-              onClick={() => {
-                if (localSource) {
-                  const scope = conversationExportSelection(localSource.conversation);
-                  if (requestExport && scope && messages.length)
-                    requestExport({
-                      ...scope,
-                      scope: {
-                        type: 'items',
-                        ids: localMatches.current.map((message) => message.msgId),
-                      },
-                    });
-                  if (requestExport && scope && messages.length) onClose();
-                  return;
-                }
-                if (!selected) return;
-                setExportBusy(true);
-                setMsgError('');
-                void (async () => {
-                  const includeIntegrityReport = await report.choose();
-                  if (includeIntegrityReport === null) return;
-                  const range = { start: filter.start ?? null, end: filter.end ?? null };
-                  if (
-                    !(await preflightExportEstimate(
-                      dialog,
-                      [
-                        {
-                          kind: selected.source === 'group' ? 'group' : 'c2c',
-                          id: selected.targetUid,
-                          name: selected.name,
-                        },
-                      ],
-                      {
-                        range,
-                        formats: [exportFormat],
-                        exportMedia: includeMedia || exportFormat === 'html',
-                        filter,
-                      },
-                    ))
-                  )
-                    return;
-                  await client.account.startExport.mutate({
-                    includeIntegrityReport,
-                    kind: selected.source === 'group' ? 'group' : 'c2c',
-                    conv: selected.targetUid,
-                    name: selected.name,
-                    format: exportFormat,
-                    total: 0,
-                    media: {
-                      exportMedia: includeMedia || exportFormat === 'html',
-                      completeMessages: false,
-                      completeMedia: false,
-                      downloadVideo: false,
-                      downloadFile: false,
-                      downloadPtt: false,
-                      transcribeVoice: false,
-                    },
-                    filter: {
-                      sender: filter.sender,
-                      keyword: filter.keyword,
-                      category: filter.category,
-                    },
-                    range,
-                  });
-                  onClose();
-                })()
-                  .catch((e) => setMsgError(String(e)))
-                  .finally(() => setExportBusy(false));
-              }}
+              type="button"
+              className="weq-set-btn weq-record-range-button"
+              onClick={() => setRangeCalendarOpen(true)}
             >
-              <Download size={16} />
+              <CalendarRange size={15} aria-hidden />
+              {startDay || endDay ? `${startDay || '不限'} 至 ${endDay || '不限'}` : '时间范围'}
             </button>
           </div>
         ) : null}
+        <div className="weq-record-calendar-actions">
+          <button
+            type="button"
+            title="按日期定位"
+            disabled={Boolean(localSource) || !selected}
+            onClick={() => setCalendarOpen(true)}
+          >
+            <CalendarDays size={15} aria-hidden />
+            跳转日期
+          </button>
+          {fixed ? (
+            <div
+              className="weq-record-filters weq-record-export"
+              role="group"
+              aria-label="导出选项"
+            >
+              <FormSelect
+                aria-label="导出格式"
+                disabled={Boolean(localSource)}
+                value={exportFormat}
+                onChange={(e) => setExportFormat(e.target.value as typeof exportFormat)}
+              >
+                {['json', 'jsonl', 'txt', 'csv', 'xlsx', 'html'].map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </FormSelect>
+              <label className="weq-record-self">
+                <input
+                  type="checkbox"
+                  checked={includeMedia || exportFormat === 'html'}
+                  disabled={Boolean(localSource) || exportFormat === 'html'}
+                  onChange={(e) => setIncludeMedia(e.target.checked)}
+                />
+                附件
+              </label>
+              {!localSource ? (
+                <label className="weq-record-self" title="附带完整性报告">
+                  <input
+                    type="checkbox"
+                    aria-label="附带完整性报告"
+                    checked={includeIntegrityReport}
+                    disabled={exportBusy}
+                    onChange={(e) => setIncludeIntegrityReport(e.target.checked)}
+                  />
+                  完整性报告
+                </label>
+              ) : null}
+              <button
+                type="button"
+                className="weq-dialog-x"
+                aria-label="导出筛选结果"
+                title="导出筛选结果"
+                disabled={
+                  exportBusy ||
+                  msgLoading ||
+                  !!msgError ||
+                  !selected ||
+                  Boolean(localSource && (!requestExport || !messages.length))
+                }
+                onClick={() => {
+                  if (localSource) {
+                    const scope = conversationExportSelection(localSource.conversation);
+                    if (requestExport && scope && messages.length)
+                      requestExport({
+                        ...scope,
+                        scope: {
+                          type: 'items',
+                          ids: localMatches.current.map((message) => message.msgId),
+                        },
+                      });
+                    if (requestExport && scope && messages.length) onClose();
+                    return;
+                  }
+                  if (!selected) return;
+                  setExportBusy(true);
+                  setMsgError('');
+                  void (async () => {
+                    const range = { start: filter.start ?? null, end: filter.end ?? null };
+                    if (
+                      !(await preflightExportEstimate(
+                        dialog,
+                        [
+                          {
+                            kind: selected.source === 'group' ? 'group' : 'c2c',
+                            id: selected.targetUid,
+                            name: selected.name,
+                          },
+                        ],
+                        {
+                          range,
+                          formats: [exportFormat],
+                          exportMedia: includeMedia || exportFormat === 'html',
+                          filter,
+                        },
+                      ))
+                    )
+                      return;
+                    await client.account.startExport.mutate({
+                      includeIntegrityReport,
+                      kind: selected.source === 'group' ? 'group' : 'c2c',
+                      conv: selected.targetUid,
+                      name: selected.name,
+                      format: exportFormat,
+                      total: 0,
+                      media: {
+                        exportMedia: includeMedia || exportFormat === 'html',
+                        completeMessages: false,
+                        completeMedia: false,
+                        downloadVideo: false,
+                        downloadFile: false,
+                        downloadPtt: false,
+                        transcribeVoice: false,
+                      },
+                      filter: {
+                        sender: filter.sender,
+                        keyword: filter.keyword,
+                        category: filter.category,
+                      },
+                      range,
+                    });
+                    onClose();
+                  })()
+                    .catch((e) => setMsgError(String(e)))
+                    .finally(() => setExportBusy(false));
+                }}
+              >
+                <Download size={16} />
+              </button>
+            </div>
+          ) : null}
+        </div>
         {msgError ? (
           <p role="alert" className="weq-record-error">
             {msgError}
           </p>
         ) : null}
         <div className="weq-chatrecords-body is-fixed">
-          <div className="weq-chatrecords-msgs" ref={msgScrollRef} onScroll={onMsgScroll}>
+          {searchingRecords || (browseRecords && browseHasMore && progress) ? (
+            <div className="weq-record-progress" role="status">
+              {searchingRecords ? (
+                <LoadingIndicator>
+                  {progress ? `正在搜索，${progress}` : '正在搜索聊天记录…'}
+                </LoadingIndicator>
+              ) : (
+                progress
+              )}
+            </div>
+          ) : null}
+          <div className="weq-chatrecords-msgs" ref={bindMsgScroll} onScroll={onMsgScroll}>
             <ForwardKindContext.Provider value={isGroup ? 'group' : 'c2c'}>
               <ConvContext.Provider value={convKey}>
                 <ChatMediaGallery
@@ -674,28 +839,38 @@ export function ChatRecordsModal({
                   conv={selected?.targetUid ?? ''}
                   kind={isGroup ? 'group' : 'c2c'}
                   filter={filter}
+                  mediaKind={mediaKind ?? undefined}
                   paged={!localSource}
-                  messages={messages.map((message) => ({
-                    msgId: message.msgId,
-                    msgSeq: message.msgSeq,
-                    sendTime: message.sendTime,
-                    elements: message.elements ?? [],
-                  }))}
+                  messages={galleryMessages}
                 >
                   <ReplyJumpContext.Provider value={jumpToReply}>
                     {msgLoading ? (
-                      <SearchListSkeleton rows={4} />
+                      browseRecords ? null : (
+                        <SearchListSkeleton rows={4} />
+                      )
                     ) : messages.length === 0 ? (
-                      <EmptyState
-                        compact
-                        icon={<SearchX />}
-                        title={fixed && browseHasMore ? '本批尚无匹配消息' : '没有找到相关消息'}
-                      />
+                      browseRecords && (msgError || searchingRecords) ? null : (
+                        <EmptyState compact icon={<SearchX />} title="没有找到相关消息" />
+                      )
                     ) : (
                       <>
-                        {messages.map((msg) => {
+                        {mediaKind ? (
+                          <SharedRecordMedia mediaKind={mediaKind} onLocate={jumpTo} />
+                        ) : null}
+                        {messageList.map((msg) => {
                           // 能取到原消息 40800 正文的，渲染真实气泡；找不到的回退纯文本行。
-                          if (msg.elements?.length && conversation) {
+                          const elements = sharedMedia
+                            ? msg.elements?.filter(
+                                (element) =>
+                                  !!element &&
+                                  typeof element === 'object' &&
+                                  'type' in element &&
+                                  (element.type === 'file' ||
+                                    element.type === 'onlineFile' ||
+                                    element.type === 'onlineFolder'),
+                              )
+                            : msg.elements;
+                          if (elements?.length && conversation) {
                             const message =
                               localSource?.messages.find((message) => message.id === msg.msgId) ??
                               messageFromHit(
@@ -703,13 +878,13 @@ export function ChatRecordsModal({
                                 conversation,
                                 user
                                   ? enrichReplyElements(
-                                      msg.elements,
+                                      elements,
                                       conversation,
                                       user,
                                       members,
                                       replyIndex,
                                     )
-                                  : msg.elements,
+                                  : elements,
                               );
                             const mine = localSource
                               ? message.senderId === localSource.user.id
@@ -728,7 +903,16 @@ export function ChatRecordsModal({
                                 className="weq-chatrecords-msg is-bubble"
                                 role="button"
                                 tabIndex={0}
-                                onClick={() => jumpTo(msg)}
+                                onClick={(event) => {
+                                  if (
+                                    event.defaultPrevented ||
+                                    (event.target instanceof Element &&
+                                      event.target !== event.currentTarget &&
+                                      event.target.closest('button, a[href], input, video, audio'))
+                                  )
+                                    return;
+                                  jumpTo(msg);
+                                }}
                                 onKeyDown={(event) => {
                                   if (
                                     event.target === event.currentTarget &&
@@ -800,7 +984,7 @@ export function ChatRecordsModal({
                             </button>
                           );
                         })}
-                        {msgLoadingMore ? <SearchListSkeleton rows={2} /> : null}
+                        {msgLoadingMore && !browseRecords ? <SearchListSkeleton rows={2} /> : null}
                         {(fixed ? !browseHasMore : messages.length >= msgTotal) &&
                         messages.length > 0 ? (
                           <div className="weq-search-more-end">
@@ -809,15 +993,6 @@ export function ChatRecordsModal({
                         ) : null}
                       </>
                     )}
-                    {fixed && browseHasMore ? (
-                      <button
-                        className="weq-action-soft"
-                        disabled={msgLoading || msgLoadingMore}
-                        onClick={() => void loadMoreMessages()}
-                      >
-                        {msgLoadingMore ? '加载中...' : '继续加载'}
-                      </button>
-                    ) : null}
                   </ReplyJumpContext.Provider>
                 </ChatMediaGallery>
               </ConvContext.Provider>
@@ -841,6 +1016,57 @@ export function ChatRecordsModal({
     >
       {content}
     </Modal>
+  );
+}
+
+function SharedRecordMedia({
+  mediaKind,
+  onLocate,
+}: {
+  mediaKind: 'image' | 'video';
+  onLocate: (message: Pick<ConversationRecordHit, 'msgSeq' | 'msgId'>) => void;
+}) {
+  const open = useChatMediaOpen();
+  const items = useChatMediaItems();
+  if (!items.length) return <EmptyState compact icon={<SearchX />} title="没有可浏览的媒体" />;
+  return (
+    <div
+      className="weq-record-media-grid"
+      role="list"
+      aria-label={MESSAGE_CATEGORY_LABELS[mediaKind]}
+    >
+      {items.map((item) => (
+        <div className="weq-record-media-tile" role="listitem" key={item.key}>
+          <button
+            type="button"
+            className="weq-record-media-thumbnail"
+            aria-label={`查看${MESSAGE_CATEGORY_LABELS[mediaKind]}：${item.title}`}
+            onClick={(event) => open?.(item.key, event.currentTarget.ownerDocument)}
+          >
+            <ShimmerImage
+              className="qq-media-image"
+              src={item.kind === 'video' ? item.poster : item.src}
+              alt=""
+              loading="lazy"
+            />
+            {item.kind === 'video' ? (
+              <Play className="weq-record-media-play" size={17} aria-hidden />
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className="weq-set-btn"
+            aria-label={`定位原消息：${item.title}`}
+            onClick={() =>
+              onLocate({ msgId: item.order?.rawId ?? '', msgSeq: item.order?.sequence ?? '' })
+            }
+          >
+            <LocateFixed size={14} aria-hidden />
+            定位原消息
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 

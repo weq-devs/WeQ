@@ -146,6 +146,7 @@ interface Work {
   end: number;
   counted: boolean;
   detailed: boolean;
+  readStartedAt?: number;
   count: number;
   cursor?: unknown;
   limit: number;
@@ -164,6 +165,7 @@ export interface CalendarSavedWork {
   day: string;
   counted: boolean;
   detailed: boolean;
+  readStartedAt?: number;
   count: number;
   cursor?: unknown;
   limit: number;
@@ -185,12 +187,31 @@ export interface CalendarCheckpoint {
   logs?: CalendarLogLine[];
   scan?: { day: string; kind: CalendarKind };
   dayFocus?: string;
+  coverage?: Array<[string, string]>;
 }
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 function natural(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+function readCoverage(value: unknown): Map<string, string> | undefined {
+  if (!Array.isArray(value) || value.length > 12000) return;
+  const coverage = new Map<string, string>();
+  for (const entry of value) {
+    if (
+      !Array.isArray(entry) ||
+      entry.length !== 2 ||
+      typeof entry[0] !== 'string' ||
+      entry[0].length > 272 ||
+      coverage.has(entry[0]) ||
+      typeof entry[1] !== 'string' ||
+      entry[1].length > 64
+    )
+      return;
+    coverage.set(entry[0], entry[1]);
+  }
+  return coverage;
 }
 function cursorValue(value: unknown, depth = 0): boolean {
   if (depth > 5) return false;
@@ -297,6 +318,7 @@ export class ConversationCalendarJob {
           ...task,
           counted: false,
           detailed: false,
+          readStartedAt: undefined,
           count: 0,
           cursor: undefined,
           rows: new Map(),
@@ -321,6 +343,7 @@ export class ConversationCalendarJob {
       day: task.day,
       counted: task.counted,
       detailed: task.detailed,
+      readStartedAt: task.readStartedAt,
       count: task.count,
       cursor: task.cursor,
       limit: task.limit,
@@ -342,6 +365,7 @@ export class ConversationCalendarJob {
       logs: [...this.logs],
       scan: this.lastScan ? { day: this.lastScan.day, kind: this.lastScan.source.kind } : undefined,
       dayFocus: this.dayFocus,
+      coverage: this.reuseCoverage ? [...this.reuseCoverage] : undefined,
     };
   }
   restore(raw: unknown): boolean {
@@ -391,97 +415,17 @@ export class ConversationCalendarJob {
       !raw.pausedDays.every((day) => typeof day === 'string' && days.has(day))
     )
       return false;
+    const previousCoverage = readCoverage(raw.coverage);
+    if (raw.coverage !== undefined && !previousCoverage) return false;
+    const changedKinds = new Set<CalendarKind>();
+    if (previousCoverage && this.reuseCoverage) {
+      for (const [key, fingerprint] of this.reuseCoverage) {
+        if (previousCoverage.get(key) !== fingerprint)
+          changedKinds.add(this.targets.get(key)!.kind);
+      }
+    }
     const saved: Array<[Work, Work]> = [];
     let bytes = 0;
-    const load = (value: unknown, base: Work, nested = false): Work | undefined => {
-      if (
-        !record(value) ||
-        value.kind !== base.source.kind ||
-        value.day !== base.day ||
-        typeof value.counted !== 'boolean' ||
-        typeof value.detailed !== 'boolean' ||
-        !natural(value.count) ||
-        !natural(value.limit) ||
-        value.limit < 1 ||
-        value.limit > CALENDAR_BATCH_SIZE ||
-        !natural(value.failures) ||
-        value.failures > 3 ||
-        typeof value.fallback !== 'boolean' ||
-        !Array.isArray(value.rows) ||
-        value.rows.length > this.targets.size ||
-        (value.error !== undefined &&
-          (typeof value.error !== 'string' || value.error.length > 1024)) ||
-        !cursorValue(value.cursor)
-      )
-        return undefined;
-      const rows = new Map<string, CalendarRow>();
-      for (const row of value.rows) {
-        if (
-          !record(row) ||
-          typeof row.key !== 'string' ||
-          !row.key.startsWith(`${base.source.kind}:`) ||
-          !natural(row.count) ||
-          row.count === 0 ||
-          !record(row.anchor)
-        )
-          return undefined;
-        const target = this.targets.get(row.key),
-          anchor = row.anchor;
-        if (
-          !target ||
-          rows.has(row.key) ||
-          typeof anchor.id !== 'string' ||
-          anchor.id.length > 256 ||
-          typeof anchor.seq !== 'string' ||
-          anchor.seq.length > 64 ||
-          typeof anchor.time !== 'number' ||
-          !Number.isFinite(anchor.time) ||
-          anchor.time < base.start ||
-          anchor.time >= base.end ||
-          (anchor.sessionId !== undefined &&
-            anchor.sessionId !== null &&
-            typeof anchor.sessionId !== 'string')
-        )
-          return undefined;
-        rows.set(row.key, {
-          target,
-          count: row.count,
-          anchor: {
-            id: anchor.id,
-            seq: anchor.seq,
-            time: anchor.time,
-            sessionId: anchor.sessionId as string | null | undefined,
-          },
-        });
-        bytes += 512 + target.name.length * 2;
-      }
-      if (
-        value.detailed &&
-        (!value.counted ||
-          [...rows.values()].reduce((sum, row) => sum + row.count, 0) !== value.count)
-      )
-        return undefined;
-      const result: Work = {
-        ...base,
-        counted: value.counted,
-        detailed: value.detailed,
-        count: value.count,
-        cursor: value.cursor,
-        limit: value.limit,
-        failures: value.failures,
-        error: value.error as string | undefined,
-        rows,
-        progress: undefined,
-        refresh: undefined,
-        source: value.fallback ? { ...base.source, count: undefined } : base.source,
-      };
-      if (value.refresh !== undefined) {
-        if (nested) return undefined;
-        result.refresh = load(value.refresh, base, true);
-        if (!result.refresh) return undefined;
-      }
-      return result;
-    };
     const seen = new Set<string>();
     for (const value of raw.work) {
       if (!record(value)) return false;
@@ -491,9 +435,12 @@ export class ConversationCalendarJob {
       );
       if (!base || seen.has(key)) return false;
       seen.add(key);
-      const loaded = load(value, base);
+      const loaded = this.loadWork(value, base);
       if (!loaded) return false;
-      saved.push([base, loaded]);
+      if (!changedKinds.has(base.source.kind)) {
+        saved.push([base, loaded.work]);
+        bytes += loaded.bytes;
+      }
     }
     if (this.bytes + bytes > CALENDAR_CACHE_BYTES || (this.reserve && !this.reserve(bytes)))
       return false;
@@ -519,6 +466,222 @@ export class ConversationCalendarJob {
     }
     this.log('info', 'task', '已恢复持久化统计结果与进度');
     return true;
+  }
+  reuseCompleted(raw: unknown): number {
+    if (
+      !this.reuseCoverage ||
+      !record(raw) ||
+      raw.schema !== 1 ||
+      raw.month !== this.month ||
+      !Array.isArray(raw.work) ||
+      raw.work.length > 31 * CALENDAR_SOURCE_ORDER.length
+    )
+      return 0;
+    const coverage = readCoverage(raw.coverage);
+    if (!coverage?.size) return 0;
+    const previousSizes = new Map<string, number>();
+    for (const key of coverage.keys()) {
+      const kind = key.split(':', 1)[0]!;
+      previousSizes.set(kind, (previousSizes.get(kind) ?? 0) + 1);
+    }
+    const compatible = new Map<CalendarKind, boolean>();
+    for (const { kind } of this.sources) {
+      const current = [...this.reuseCoverage].filter(([key]) => key.startsWith(`${kind}:`));
+      if (
+        !current.length ||
+        !current.every(([key, fingerprint]) => coverage.get(key) === fingerprint)
+      )
+        continue;
+      compatible.set(kind, current.length === previousSizes.get(kind));
+    }
+    const candidates = new Map<string, Record<string, unknown>>();
+    for (const value of raw.work) {
+      if (!record(value) || typeof value.day !== 'string' || typeof value.kind !== 'string')
+        continue;
+      const key = `${value.day}:${value.kind}`;
+      if (candidates.has(key)) return 0;
+      candidates.set(key, value);
+    }
+    const now = Date.now();
+    let reused = 0;
+    for (const task of this.work) {
+      if (!this.canReuseWork(task)) continue;
+      const sameTargets = compatible.get(task.source.kind);
+      if (sameTargets === undefined) continue;
+      const saved = candidates.get(`${task.day}:${task.source.kind}`);
+      if (
+        saved?.counted !== true ||
+        saved.error !== undefined ||
+        saved.refresh !== undefined ||
+        !natural(saved.readStartedAt) ||
+        saved.readStartedAt > now ||
+        task.day >= calendarToday(saved.readStartedAt) ||
+        !natural(saved.count) ||
+        (saved.detailed !== true && (!sameTargets || saved.detailed !== false))
+      )
+        continue;
+      const rows: unknown[] = [];
+      let count = saved.count;
+      if (saved.detailed) {
+        if (!Array.isArray(saved.rows) || saved.rows.length > coverage.size) continue;
+        const seen = new Set<string>();
+        let total = 0;
+        count = 0;
+        for (const row of saved.rows) {
+          if (
+            !record(row) ||
+            typeof row.key !== 'string' ||
+            !row.key.startsWith(`${task.source.kind}:`) ||
+            !coverage.has(row.key) ||
+            seen.has(row.key) ||
+            !natural(row.count) ||
+            !row.count
+          )
+            break;
+          seen.add(row.key);
+          total += row.count;
+          if (this.targets.has(row.key)) {
+            rows.push(row);
+            count += row.count;
+          }
+        }
+        if (seen.size !== saved.rows.length || total !== saved.count) continue;
+      }
+      const loaded = this.loadWork(
+        {
+          day: task.day,
+          kind: task.source.kind,
+          counted: true,
+          detailed: saved.detailed,
+          readStartedAt: saved.readStartedAt,
+          count,
+          rows,
+          limit: CALENDAR_BATCH_SIZE,
+          failures: 0,
+          fallback: false,
+        },
+        task,
+      );
+      if (
+        !loaded ||
+        this.bytes + loaded.bytes > CALENDAR_CACHE_BYTES ||
+        (loaded.bytes > 0 && this.reserve && !this.reserve(loaded.bytes))
+      )
+        continue;
+      Object.assign(task, loaded.work);
+      this.bytes += loaded.bytes;
+      reused++;
+    }
+    if (reused) this.log('info', 'task', `复用其他会话范围的 ${reused} 个已完成日期来源`);
+    return reused;
+  }
+  get canReuseCompleted(): boolean {
+    const today = calendarToday();
+    return this.work.some((task) => task.day < today && this.canReuseWork(task));
+  }
+  private canReuseWork(task: Work): boolean {
+    return (
+      !task.counted && task.cursor === undefined && !task.rows.size && !task.error && !task.refresh
+    );
+  }
+  private loadWork(
+    value: unknown,
+    base: Work,
+    nested = false,
+  ): { work: Work; bytes: number } | undefined {
+    let bytes = 0;
+    if (
+      !record(value) ||
+      value.kind !== base.source.kind ||
+      value.day !== base.day ||
+      typeof value.counted !== 'boolean' ||
+      typeof value.detailed !== 'boolean' ||
+      (value.readStartedAt !== undefined &&
+        (!natural(value.readStartedAt) || value.readStartedAt > 8.64e15 - 28800000)) ||
+      !natural(value.count) ||
+      !natural(value.limit) ||
+      value.limit < 1 ||
+      value.limit > CALENDAR_BATCH_SIZE ||
+      !natural(value.failures) ||
+      value.failures > 3 ||
+      typeof value.fallback !== 'boolean' ||
+      !Array.isArray(value.rows) ||
+      value.rows.length > this.targets.size ||
+      (value.error !== undefined &&
+        (typeof value.error !== 'string' || value.error.length > 1024)) ||
+      !cursorValue(value.cursor)
+    )
+      return undefined;
+    const rows = new Map<string, CalendarRow>();
+    for (const row of value.rows) {
+      if (
+        !record(row) ||
+        typeof row.key !== 'string' ||
+        !row.key.startsWith(`${base.source.kind}:`) ||
+        !natural(row.count) ||
+        row.count === 0 ||
+        !record(row.anchor)
+      )
+        return undefined;
+      const target = this.targets.get(row.key),
+        anchor = row.anchor;
+      if (
+        !target ||
+        rows.has(row.key) ||
+        typeof anchor.id !== 'string' ||
+        anchor.id.length > 256 ||
+        typeof anchor.seq !== 'string' ||
+        anchor.seq.length > 64 ||
+        typeof anchor.time !== 'number' ||
+        !Number.isFinite(anchor.time) ||
+        anchor.time < base.start ||
+        anchor.time >= base.end ||
+        (anchor.sessionId !== undefined &&
+          anchor.sessionId !== null &&
+          typeof anchor.sessionId !== 'string')
+      )
+        return undefined;
+      rows.set(row.key, {
+        target,
+        count: row.count,
+        anchor: {
+          id: anchor.id,
+          seq: anchor.seq,
+          time: anchor.time,
+          sessionId: anchor.sessionId as string | null | undefined,
+        },
+      });
+      bytes += 512 + target.name.length * 2;
+    }
+    if (
+      value.detailed &&
+      (!value.counted ||
+        [...rows.values()].reduce((sum, row) => sum + row.count, 0) !== value.count)
+    )
+      return undefined;
+    const result: Work = {
+      ...base,
+      counted: value.counted,
+      detailed: value.detailed,
+      readStartedAt: value.readStartedAt as number | undefined,
+      count: value.count,
+      cursor: value.cursor,
+      limit: value.limit,
+      failures: value.failures,
+      error: value.error as string | undefined,
+      rows,
+      progress: undefined,
+      refresh: undefined,
+      source: value.fallback ? { ...base.source, count: undefined } : base.source,
+    };
+    if (value.refresh !== undefined) {
+      if (nested) return undefined;
+      const refresh = this.loadWork(value.refresh, base, true);
+      if (!refresh) return undefined;
+      result.refresh = refresh.work;
+      bytes += refresh.bytes;
+    }
+    return { work: result, bytes };
   }
   private readState: { state: 'idle' | 'queued' | 'reading'; since: number } | undefined;
   observeState(state: 'idle' | 'queued' | 'reading' | undefined): void {
@@ -643,6 +806,7 @@ export class ConversationCalendarJob {
     private readonly sources: CalendarSource[],
     private readonly reserve?: (bytes: number) => boolean,
     private readonly onProgress?: () => void,
+    private readonly reuseCoverage?: ReadonlyMap<string, string>,
   ) {
     this.targets = new Map(targets.map((target) => [calendarTargetKey(target), target]));
     this.bytes =
@@ -715,12 +879,13 @@ export class ConversationCalendarJob {
       }
     this.start();
   }
-  continueInBackground(): void {
+  continueInBackground(day = this.selectedDay): void {
     if (this.controller.signal.aborted) throw new Error('日历任务已停止，请重新打开日历');
-    this.background = true;
-    clearTimeout(this.leaseTimer);
-    this.log('info', 'task', `${this.month} 统计转入后台，继续为前台读取让路`);
-    this.start();
+    if (!this.background) {
+      this.background = true;
+      this.log('info', 'task', `${this.month} 统计转入后台，继续为前台读取让路`);
+    }
+    this.keepAlive(day);
   }
   cancel(): void {
     if (this.controller.signal.aborted) return;
@@ -820,6 +985,8 @@ export class ConversationCalendarJob {
       this.detailBatches = task.day === this.selectedDay ? this.detailBatches + 1 : 0;
       const began = performance.now();
       try {
+        if (!task.counted && task.cursor === undefined && !task.rows.size)
+          task.readStartedAt ??= Date.now();
         if (
           !task.counted &&
           !task.cursor &&

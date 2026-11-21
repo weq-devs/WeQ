@@ -11,15 +11,19 @@ import { dateFormatter } from '@weq/time';
  * 渲染进程不直连 CDN。
  *
  * 布局沿用礼物墙那套观感：头部工具栏 + 卡片网格 + 骨架 / 空态。封面是 2:3 的竖图，
- * 所以卡片固定宽高比 + contain，点开看弹层大图。
+ * 所以卡片固定宽高比 + contain，点开在查看器里放大同一张图。
  */
 
-import { useCallback, useMemo, useState, type ReactElement } from 'react';
-import { Gift as GiftIcon, Search, Wallet, X, RefreshCw } from 'lucide-react';
+import { useMemo, type ReactElement } from 'react';
+import { Gift as GiftIcon, Wallet, RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { redPackSkinUrl } from '../../lib/resourceUrl';
 import { ShimmerImage } from '../ShimmerImage';
+import { DressSearchForm } from '../DressSearchForm';
 import { openMediaPreview } from '../mediaPreviewStore.shared';
+import { usePageState } from '../PageSnapshots.shared';
+import { PageScrollSnapshot } from '../PageScrollSnapshot';
+import { pageValue } from '../../lib/pageSnapshots';
 import '../../styles/redpack-wall.css';
 
 type Variant = 'preview' | 'popup' | 'background' | 'image';
@@ -42,8 +46,9 @@ function primaryVariant(skin: SkinCard): Variant | null {
 }
 
 export function RedPackSkinWall(): ReactElement {
-  const [draft, setDraft] = useState('');
-  const [keyword, setKeyword] = useState('');
+  const [draft, setDraft] = usePageState('redpack:draft', '', pageValue.string);
+  const [keyword, setKeyword] = usePageState('redpack:keyword', '', pageValue.string);
+  const listScope = `redpack:list:${keyword}`;
 
   const query = trpc.account.redpack.catalog.useQuery(
     { keyword },
@@ -54,26 +59,19 @@ export function RedPackSkinWall(): ReactElement {
   const total = query.data?.total ?? 0;
   const generatedAt = query.data?.generatedAt ?? 0;
 
-  const submitted = useCallback(() => {
-    setKeyword(draft.trim());
-  }, [draft]);
-
-  const open = useCallback((skin: SkinCard) => {
-    const variant = primaryVariant(skin);
-    const large =
-      skin.variants.includes('popup') && skin.variants.includes('preview') ? 'popup' : variant;
-    if (!large) return;
+  function open(skin: SkinCard, src: string, ownerDocument: Document) {
     openMediaPreview({
+      ownerDocument,
       items: [
         {
-          key: redPackSkinUrl(skin.id, large),
+          key: src,
           kind: 'image',
-          src: redPackSkinUrl(skin.id, large),
+          src,
           title: `${skin.name} · 红包封面`,
         },
       ],
     });
-  }, []);
+  }
 
   const updated = useMemo(() => {
     if (!generatedAt) return '';
@@ -85,39 +83,9 @@ export function RedPackSkinWall(): ReactElement {
   }, [generatedAt]);
 
   return (
-    <div className="weq-redpack-wall">
-      <div className="weq-redpack-wall-head">
-        <form
-          className="weq-redpack-wall-search"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitted();
-          }}
-        >
-          <Search size={14} strokeWidth={1.9} />
-          <input
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="搜索红包封面名，回车确认"
-            aria-label="搜索红包封面"
-            spellCheck={false}
-          />
-          {draft ? (
-            <button
-              type="button"
-              className="weq-redpack-wall-clear"
-              title="清空"
-              aria-label="清空搜索"
-              onClick={() => {
-                setDraft('');
-                setKeyword('');
-              }}
-            >
-              <X size={12} strokeWidth={2} />
-            </button>
-          ) : null}
-        </form>
-        <span className="weq-redpack-wall-count">
+    <>
+      <div className="weq-dress-toolbar">
+        <span className="weq-redpack-wall-count" role="status">
           {keyword ? (
             <NumericText>{`命中 ${skins.length} / ${total}`}</NumericText>
           ) : (
@@ -125,9 +93,18 @@ export function RedPackSkinWall(): ReactElement {
           )}
           {updated ? <em> · 目录更新于 {updated}</em> : null}
         </span>
+        <div className="weq-dress-toolbar-controls">
+          <DressSearchForm
+            label="搜索红包封面"
+            value={draft}
+            onChange={setDraft}
+            onSearch={setKeyword}
+            maxLength={64}
+          />
+        </div>
       </div>
 
-      <div className="weq-redpack-wall-body">
+      <PageScrollSnapshot key={listScope} snapshotKey={listScope} className="weq-dress-body">
         {query.isInitialLoading ? (
           <div className="weq-redpack-wall-grid" aria-hidden>
             {SKELETON_KEYS.map((key) => (
@@ -158,20 +135,22 @@ export function RedPackSkinWall(): ReactElement {
           <div className="weq-redpack-wall-grid">
             {skins.map((skin) => {
               const variant = primaryVariant(skin);
-              const clickable = Boolean(variant) && Boolean(skin.variants.includes('popup'));
+              const src = variant ? redPackSkinUrl(skin.id, variant) : null;
               return (
                 <button
                   key={skin.id}
                   type="button"
                   className="weq-redpack-wall-card"
-                  onClick={() => (clickable ? open(skin) : undefined)}
-                  disabled={!clickable}
-                  title={clickable ? `${skin.name} · 点击看大图` : `${skin.name}（无大图）`}
+                  onClick={
+                    src ? (event) => open(skin, src, event.currentTarget.ownerDocument) : undefined
+                  }
+                  disabled={!src}
+                  title={src ? `${skin.name} · 查看封面` : skin.name}
                 >
                   <span className="weq-redpack-wall-media weq-media-frame">
-                    {variant ? (
+                    {src ? (
                       <ShimmerImage
-                        src={redPackSkinUrl(skin.id, variant)}
+                        src={src}
                         alt={`${skin.name} 红包封面`}
                         loading="lazy"
                         decoding="async"
@@ -193,7 +172,7 @@ export function RedPackSkinWall(): ReactElement {
             })}
           </div>
         )}
-      </div>
-    </div>
+      </PageScrollSnapshot>
+    </>
   );
 }

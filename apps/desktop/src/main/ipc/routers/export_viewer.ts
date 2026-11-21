@@ -1,4 +1,6 @@
-import { dirname } from 'node:path';
+import { constants } from 'node:fs';
+import { copyFile } from 'node:fs/promises';
+import { dirname, extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
@@ -16,6 +18,7 @@ import {
 import { pushConversationJump } from '../../group_keyword_bus';
 import { procedure, router } from '../trpc';
 import { pickedBrowserFiles } from '../../browser_files';
+import { fileContentType, mediaDownloadName } from '../../file_response';
 
 const pendingScans = new Map<string, { path: string; expires: number }>();
 function scanToken(path: string) {
@@ -238,6 +241,32 @@ export const exportViewerRouter = router({
       const path = await viewerMedia(input.id, input.path);
       if (!path) throw new Error('导出目录内未找到此文件。');
       await getHost().revealInFolder(path);
+    }),
+  saveMedia: procedure
+    .input(z.object({ id: z.string().uuid(), path: z.string().max(4096) }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.host) throw new Error('请下载到当前设备。');
+      const source = await viewerMedia(input.id, input.path);
+      if (!source) throw new Error('导出目录内未找到此文件。');
+      const name = mediaDownloadName(
+        source,
+        await fileContentType(source, { sniffMediaType: true }),
+      );
+      const target = await getHost().pickSaveTarget({
+        defaultName: name,
+        extension: extname(name).slice(1) || undefined,
+        locationKey: 'export-viewer-media',
+      });
+      if (!target) return;
+      if ((await viewerMedia(input.id, input.path)) !== source)
+        throw new Error('导出媒体已不可用，请重新打开导出。');
+      try {
+        await copyFile(source, target.path, constants.COPYFILE_EXCL);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+          throw new Error('目标文件已存在，请另选文件名。');
+        throw error;
+      }
     }),
   close: procedure
     .input(z.object({ ids: z.array(z.string().uuid()).max(64) }))

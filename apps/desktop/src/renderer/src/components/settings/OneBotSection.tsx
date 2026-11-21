@@ -388,7 +388,7 @@ export function OneBotSection(): ReactElement {
         <Row
           label="账号"
           desc={data?.uin ? `配置属于 ${data.uin}，切换账号会换成另一份。` : '没有打开的账号。'}
-          control={<span>{data?.uin ?? '—'}</span>}
+          control={<span className="weq-number weq-number-inherit">{data?.uin ?? '—'}</span>}
         />
         <Row
           label="运行状态"

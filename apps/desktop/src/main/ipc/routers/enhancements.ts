@@ -3,7 +3,12 @@ import { observable } from '@trpc/server/observable';
 import type { EnhancementUpdateNotice } from '../../../shared/enhancement_release';
 import { ENHANCEMENT_PACK_IDS } from '../../../shared/enhancement_manifest';
 import { requireBootstrap } from '../../context/app_context';
-import { forgetRemovedPackTask, startEnhancementDownloads } from '../../enhancements/tasks';
+import {
+  backgroundEnhancementDownload,
+  enhancementDownloadTask,
+  forgetRemovedPackTask,
+  startEnhancementDownloads,
+} from '../../enhancements/tasks';
 import { procedure } from '../trpc';
 
 const packId = z.enum(ENHANCEMENT_PACK_IDS);
@@ -33,7 +38,11 @@ export const enhancementProcedures = {
     await resources.updates.ready();
     const packs = await resources.packs.list();
     return {
-      packs: packs.map((pack) => ({ ...pack, check: resources.updates.state(pack.id) })),
+      packs: packs.map((pack) => ({
+        ...pack,
+        check: resources.updates.state(pack.id),
+        downloadTask: enhancementDownloadTask(resources.packs, pack.id),
+      })),
       preferences: requireBootstrap().userConfig.getSettings().enhancementUpdates,
       all: resources.packs.plan(
         packs.filter((pack) => !pack.downloaded && !pack.blocker).map((pack) => pack.id),
@@ -55,11 +64,19 @@ export const enhancementProcedures = {
   enhancementPlan: procedure
     .input(selection)
     .query(({ input }) => requireBootstrap().enhancements.packs.plan(input.ids)),
-  prepareEnhancementPacks: procedure.input(selection).mutation(async ({ input }) => {
-    const packs = requireBootstrap().enhancements.packs;
-    await startEnhancementDownloads(packs, input.ids);
-    return true;
-  }),
+  prepareEnhancementPacks: procedure
+    .input(selection.extend({ foreground: z.boolean().optional() }))
+    .mutation(async ({ input }) => {
+      const packs = requireBootstrap().enhancements.packs;
+      await startEnhancementDownloads(packs, input.ids, input.foreground);
+      return true;
+    }),
+  backgroundEnhancementPack: procedure
+    .input(z.object({ id: packId, taskId: z.string().uuid() }))
+    .mutation(({ input }) => {
+      backgroundEnhancementDownload(requireBootstrap().enhancements.packs, input.id, input.taskId);
+      return true;
+    }),
   deleteEnhancementPack: procedure.input(z.object({ id: packId })).mutation(async ({ input }) => {
     const packs = requireBootstrap().enhancements.packs;
     await packs.remove(input.id);

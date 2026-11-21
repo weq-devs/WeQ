@@ -20,13 +20,14 @@
  */
 
 import { createContext, useContext } from 'react';
-import type { DressScope, ResolvedWidget } from '@weq/service';
+import type { DressScope, DressScopes, ResolvedWidget } from '@weq/service';
 import type { FontFxSkin } from '../lib/dressSkin';
 
 /** 生效挂件 + 作用范围。`widget` 为 null = 没选或清单里已查不到（回退 QQ 自己的挂件）。 */
 export interface ActiveWidgetInfo {
   widget: ResolvedWidget | null;
   scope: DressScope;
+  scopes?: DressScopes;
   /** 本地使用中的字体（包括没有炫彩帧的普通款）优先于消息字体。 */
   fontActive?: boolean;
   /** 本地使用中的气泡优先于消息气泡。 */

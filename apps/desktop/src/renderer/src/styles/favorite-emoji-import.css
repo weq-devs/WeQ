@@ -190,7 +190,7 @@
 
 .weq-favorite-import-item[aria-pressed='true'] {
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
-  box-shadow: inset 3px 0 var(--weq-accent-effective);
+  box-shadow: inset 0 0 0 1px var(--weq-accent-effective);
 }
 
 .weq-favorite-import-item > span {

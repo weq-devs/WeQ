@@ -25,6 +25,7 @@ import { elementsToText } from './export/element_text';
 import { extractArkCard, extractArkPrompt } from './ark_feed';
 import { GuildDirectService } from './guild_direct';
 import type { ConversationScope } from './search_policy';
+import { matchesMessageFilter } from './message_filter';
 import type { NtHelperBinding } from '@weq/native';
 import type { CollectionSearchHit } from './collection_search';
 import {
@@ -38,6 +39,8 @@ import {
   contentSourcesCoverage,
   DEFAULT_SEARCH_SOURCES,
   searchCategorySupportsSources,
+  hasGlobalChatRecordFilter,
+  type GlobalChatRecordFilter,
   type SearchSource,
 } from './search_policy';
 import {
@@ -270,6 +273,14 @@ export interface MoreSearchResult {
   limited?: boolean;
 }
 
+type FtsRecordCandidate = BuddyMsgFtsHit & { partition: bigint };
+type FilteredChatRecords = {
+  ranked: ChatRecordSearchHit[];
+  buckets: Map<string, FtsRecordCandidate[]>;
+  coverage: ContentSearchCoverage;
+};
+const FILTERED_RECORD_LIMIT = 500;
+
 export class UnifiedSearchService {
   private readonly serviceMessageCache = new Map<
     string,
@@ -281,6 +292,10 @@ export class UnifiedSearchService {
   private readonly chatRecordCache = new Map<
     string,
     { at: number; value: ChatRecordSearchHit[]; limited: boolean }
+  >();
+  private readonly filteredRecordCache = new Map<
+    string,
+    { at: number; result: Promise<FilteredChatRecords> }
   >();
   private readonly fileCache = new Map<
     string,
@@ -368,6 +383,7 @@ export class UnifiedSearchService {
     this.buddyIndex?.dispose();
     this.groupIndex?.dispose();
     this.chatRecordCache.clear();
+    this.filteredRecordCache.clear();
     this.fileCache.clear();
     this.serviceMessageCache.clear();
   }
@@ -505,6 +521,7 @@ export class UnifiedSearchService {
     categories?: readonly SearchCategory[],
     scope: ConversationScope = 'all',
     sources?: readonly SearchSource[],
+    recordFilter?: GlobalChatRecordFilter,
   ): Promise<SlowSearchResult> {
     const needle = keyword.trim();
     const selected = this.selectedSources(scope, sources);
@@ -534,7 +551,12 @@ export class UnifiedSearchService {
         return [];
       }
     };
-    if ((enabled('chatRecord') && selected.includes('qq')) || enabled('file'))
+    if (
+      (enabled('chatRecord') &&
+        selected.includes('qq') &&
+        !hasGlobalChatRecordFilter(recordFilter)) ||
+      enabled('file')
+    )
       void this.ensureIndexes();
     const generated = (category: 'cloneMessage' | 'assistantMessage') => {
       const sources = this.options.generatedSources?.();
@@ -559,6 +581,7 @@ export class UnifiedSearchService {
           limit,
           directoryScope,
           selected,
+          recordFilter,
           (category, error) => {
             failures.add(category);
             console.error(`[unified-search] ${category} failed:`, error);
@@ -601,6 +624,7 @@ export class UnifiedSearchService {
     limit: number,
     scope: ConversationScope = 'all',
     sources?: readonly SearchSource[],
+    recordFilter?: GlobalChatRecordFilter,
   ): Promise<MoreSearchResult> {
     const needle = keyword.trim();
     const selected = this.selectedSources(scope, sources);
@@ -738,7 +762,14 @@ export class UnifiedSearchService {
       case 'chatRecord': {
         return {
           category,
-          ...(await this.messageSearch(needle, offset, page, directoryScope, selected)),
+          ...(await this.messageSearch(
+            needle,
+            offset,
+            page,
+            directoryScope,
+            selected,
+            recordFilter,
+          )),
         };
       }
       case 'file': {
@@ -777,9 +808,23 @@ export class UnifiedSearchService {
     keyword: string,
     offset = 0,
     limit = 20,
+    filter?: GlobalChatRecordFilter,
   ): Promise<{ items: ConversationRecordHit[]; total: number; limited?: boolean }> {
     const needle = keyword.trim();
     if (!needle) return { items: [], total: 0 };
+    if (filter && hasGlobalChatRecordFilter(filter)) {
+      const partition = await this.conversationPartition(source, conv);
+      if (partition === undefined) return { items: [], total: 0 };
+      const snapshot = await this.filteredRecords(needle, filter);
+      const matches = snapshot.buckets.get(`${source}:${partition}`) ?? [];
+      const hits = matches.slice(offset, offset + limit);
+      const originals = await this.loadOriginalMessages(source, partition, hits);
+      return {
+        items: await this.decorateSenders(source, conv, hits, originals),
+        total: matches.length,
+        limited: snapshot.coverage.limited,
+      };
+    }
     if (source === 'buddy' && /^service:[1-9]\d*$/.test(conv)) {
       const { items, limited } = await this.serviceRecords(conv.slice('service:'.length));
       const matching = items.filter((row) =>
@@ -1021,8 +1066,22 @@ export class UnifiedSearchService {
     limit: number,
     scope: ConversationScope,
     sources: readonly SearchSource[],
+    recordFilter?: GlobalChatRecordFilter,
     onFailure?: (category: SearchCategory, error: unknown) => void,
   ) {
+    if (recordFilter && hasGlobalChatRecordFilter(recordFilter)) {
+      const snapshot =
+        sources.includes('qq') && (scope === 'all' || scope === 'real')
+          ? await this.filteredRecords(keyword, recordFilter)
+          : undefined;
+      return {
+        items: snapshot?.ranked.slice(offset, offset + limit) ?? [],
+        total: snapshot?.ranked.length ?? 0,
+        hasMore: (snapshot?.ranked.length ?? 0) > offset + limit,
+        limited: snapshot?.coverage.limited ?? false,
+        coverage: snapshot?.coverage,
+      };
+    }
     // 各来源采用相同的名称相关度顺序，取足够前缀后再合并分页。
     const read = async <T>(
       category: SearchCategory,
@@ -1185,6 +1244,105 @@ export class UnifiedSearchService {
     return DEFAULT_SEARCH_SOURCES;
   }
 
+  private filteredRecords(keyword: string, filter: GlobalChatRecordFilter) {
+    const key = JSON.stringify([keyword, filter.sender, filter.start, filter.end, filter.category]);
+    const now = Date.now();
+    const cached = this.filteredRecordCache.get(key);
+    if (cached && now - cached.at < 30_000) return cached.result;
+    this.filteredRecordCache.delete(key);
+    const oldest = this.filteredRecordCache.keys().next().value;
+    if (oldest !== undefined && this.filteredRecordCache.size >= 8)
+      this.filteredRecordCache.delete(oldest);
+    const result = this.readFilteredRecords(keyword, filter).catch((error: unknown) => {
+      if (this.filteredRecordCache.get(key)?.result === result)
+        this.filteredRecordCache.delete(key);
+      throw error;
+    });
+    this.filteredRecordCache.set(key, { at: now, result });
+    return result;
+  }
+
+  private async readFilteredRecords(
+    keyword: string,
+    filter: GlobalChatRecordFilter,
+  ): Promise<FilteredChatRecords> {
+    if (filter.start !== undefined && filter.end !== undefined && filter.start > filter.end)
+      throw new Error('开始日期不能晚于结束日期。');
+    const senderUid =
+      filter.sender && /^\d+$/.test(filter.sender)
+        ? this.session.uidMap.uidByUin(BigInt(filter.sender))
+        : filter.sender;
+    const needsOriginal = Boolean(filter.category || (filter.sender && !senderUid));
+    const bounds = { start: filter.start, end: filter.end, senderUid };
+    const read = async (source: FtsSource) => {
+      const database = source === 'group' ? this.session.groupMsgFts : this.session.buddyMsgFts;
+      const candidates = await database.searchRecordCandidates(
+        keyword,
+        bounds,
+        FILTERED_RECORD_LIMIT + 1,
+      );
+      const rows = candidates.slice(0, FILTERED_RECORD_LIMIT);
+      const originalSource = source === 'group' ? this.session.groupMsgs : this.session.c2cMsgs;
+      const originals = needsOriginal
+        ? new Map(
+            (await originalSource.listByMsgIds([...new Set(rows.map(({ msgId }) => msgId))])).map(
+              (message) => [message.msgId, message],
+            ),
+          )
+        : new Map<bigint, C2cMsg | GroupMsg>();
+      const buckets = new Map<bigint, FtsRecordCandidate[]>();
+      for (const candidate of rows) {
+        const original = originals.get(candidate.msgId);
+        if (
+          needsOriginal &&
+          !matchesMessageFilter(
+            {
+              senderUid: candidate.senderUid,
+              senderUin: original?.senderUin ?? 0n,
+              elements: original
+                ? toRenderElements(original.elements)
+                : [{ type: 'text', data: { textContent: candidate.content } }],
+            },
+            { sender: senderUid ? undefined : filter.sender, category: filter.category },
+          )
+        )
+          continue;
+        const bucket = buckets.get(candidate.partition);
+        if (bucket) bucket.push(candidate);
+        else buckets.set(candidate.partition, [candidate]);
+      }
+      return {
+        source,
+        buckets,
+        scanned: rows.length,
+        limited: candidates.length > FILTERED_RECORD_LIMIT,
+      };
+    };
+    const results = await Promise.allSettled([read('buddy'), read('group')]);
+    const windows = results.flatMap((result) =>
+      result.status === 'fulfilled' ? [result.value] : [],
+    );
+    if (!windows.length) throw new Error('QQ 聊天记录无法读取');
+    const top = (source: FtsSource) =>
+      [...(windows.find((window) => window.source === source)?.buckets ?? [])].map(
+        ([partition, rows]) => ({ partition, count: rows.length }),
+      );
+    return {
+      ranked: await this.rankFtsRecords(keyword, top('buddy'), top('group')),
+      buckets: new Map(
+        windows.flatMap(({ source, buckets }) =>
+          [...buckets].map(([partition, rows]) => [`${source}:${partition}`, rows]),
+        ),
+      ),
+      coverage: {
+        scope: 'local-database',
+        records: windows.reduce((sum, window) => sum + window.scanned, 0),
+        limited: windows.length !== 2 || windows.some((window) => window.limited),
+        updatedAt: Date.now(),
+      },
+    };
+  }
+
   private async cachedChatRecordRanking(keyword: string): Promise<ChatRecordSearchHit[]> {
     const hit = this.chatRecordCache.get(keyword);
     if (hit && Date.now() - hit.at < 30_000) return hit.value;
@@ -1199,7 +1357,20 @@ export class UnifiedSearchService {
     ]);
     this.maybeRetire('buddy');
     this.maybeRetire('group');
+    const value = await this.rankFtsRecords(keyword, buddyTop, groupTop);
+    this.chatRecordCache.set(keyword, {
+      at: Date.now(),
+      value,
+      limited: buddyTop.length >= 200 || groupTop.length >= 200,
+    });
+    return value;
+  }
 
+  private async rankFtsRecords(
+    keyword: string,
+    buddyTop: Array<{ partition: bigint; count: number }>,
+    groupTop: Array<{ partition: bigint; count: number }>,
+  ): Promise<ChatRecordSearchHit[]> {
     // Resolve identities for all ranked partitions in parallel.
     const [buddyIds, groupNames] = await Promise.all([
       Promise.all(buddyTop.map((t) => this.buddyConvIdentity(t.partition))),
@@ -1230,19 +1401,13 @@ export class UnifiedSearchService {
       count: t.count,
     }));
 
-    const value = [...buddyHits, ...groupHits].sort(
+    return [...buddyHits, ...groupHits].sort(
       (a, b) =>
         searchNameRank(keyword, b.name) - searchNameRank(keyword, a.name) ||
         b.count - a.count ||
         a.source.localeCompare(b.source) ||
         a.partition.localeCompare(b.partition),
     );
-    this.chatRecordCache.set(keyword, {
-      at: Date.now(),
-      value,
-      limited: buddyTop.length >= 200 || groupTop.length >= 200,
-    });
-    return value;
   }
 
   private async serviceChatRecords(keyword: string) {

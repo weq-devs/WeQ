@@ -8,6 +8,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import type { BackgroundTask } from '../../shared/background_task';
 
 export interface UpdateState {
   includePrerelease?: boolean;
@@ -37,7 +38,13 @@ export interface UpdateProgress {
   bytesPerSecond: number;
 }
 
+export type UpdateDownloadTask = Pick<
+  BackgroundTask,
+  'id' | 'status' | 'statusLabel' | 'actions' | 'foreground' | 'note'
+> & { version?: string; progress?: UpdateProgress };
+
 export type UpdateEvent =
+  | { kind: 'download-task'; task: UpdateDownloadTask | null }
   /** Speed-test started — `mirrors` mirrors are being screened. */
   | { kind: 'checking'; mirrors: number }
   | { kind: 'check-failed' }
@@ -77,7 +84,9 @@ export interface UpdateActions {
   setPrerelease(enabled: boolean): void;
   check(force: boolean): Promise<UpdateState>;
   assertDownloadAvailable?(): void;
-  startDownload(): Promise<void>;
+  startDownload(foreground?: boolean): Promise<void>;
+  getDownloadTask?(): UpdateDownloadTask | null;
+  backgroundDownload?(id: string): void;
   forgetDownloadTask?(id: string): boolean;
   quitAndInstall(): void;
   /** False when this host can't self-update, so the UI can hide the card. */

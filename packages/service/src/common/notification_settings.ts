@@ -170,22 +170,31 @@ export const SCOPED_NOTIFICATION_EVENTS = [
   'redPacket',
 ] as const;
 export type ScopedNotificationEvent = (typeof SCOPED_NOTIFICATION_EVENTS)[number];
+export const NOTIFICATION_SCOPE_OPTIONS = [
+  { value: 'all', label: '全部适用会话' },
+  { value: 'nonGroupAssistant', label: '非群助手会话' },
+  { value: 'nonMuted', label: '非免打扰会话' },
+  { value: 'selected', label: '指定会话' },
+] as const;
+export type NotificationScopeMode = (typeof NOTIFICATION_SCOPE_OPTIONS)[number]['value'];
 export interface NotificationScope {
-  mode: 'all' | 'selected';
+  mode: NotificationScopeMode;
   targets: string[];
 }
-export function normalizeNotificationScope(
-  event: ScopedNotificationEvent,
-  raw: unknown,
-): NotificationScope {
-  if (raw === undefined) return { mode: event === 'redPacket' ? 'selected' : 'all', targets: [] };
+export function isNotificationScopeMode(value: unknown): value is NotificationScopeMode {
+  return NOTIFICATION_SCOPE_OPTIONS.some((option) => option.value === value);
+}
+export function normalizeNotificationScope(raw: unknown): NotificationScope {
+  if (raw === undefined) return { mode: 'all', targets: [] };
   if (!raw || typeof raw !== 'object') return { mode: 'selected', targets: [] };
+  const mode: unknown = Reflect.get(raw, 'mode');
+  const targets: unknown = Reflect.get(raw, 'targets');
   return {
-    mode: Reflect.get(raw, 'mode') === 'all' ? 'all' : 'selected',
-    targets: Array.isArray(Reflect.get(raw, 'targets'))
+    mode: isNotificationScopeMode(mode) ? mode : 'selected',
+    targets: Array.isArray(targets)
       ? [
           ...new Set(
-            (Reflect.get(raw, 'targets') as unknown[]).filter(
+            targets.filter(
               (value): value is string =>
                 typeof value === 'string' && /^(c2c|group|dataline):.+/.test(value),
             ),
@@ -193,4 +202,20 @@ export function normalizeNotificationScope(
         ]
       : [],
   };
+}
+
+export function notificationScopeIncludes(
+  scope: NotificationScope,
+  conversation: { key: string; muted: boolean; groupAssistant: boolean },
+): boolean {
+  switch (scope.mode) {
+    case 'all':
+      return true;
+    case 'nonGroupAssistant':
+      return !conversation.groupAssistant;
+    case 'nonMuted':
+      return !conversation.muted;
+    case 'selected':
+      return scope.targets.includes(conversation.key);
+  }
 }

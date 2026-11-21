@@ -11,3 +11,10 @@ export type CalendarNavigate = (
   record?: CalendarLocated['record'],
 ) => void;
 export const CalendarNavigationContext = createContext<CalendarNavigate | null>(null);
+
+export type CalendarTaskOpening = Awaited<
+  ReturnType<typeof client.account.calendarOverview.openTask.query>
+> & { taskId: string };
+export const CalendarTaskNavigationContext = createContext<
+  ((taskId: string) => Promise<void>) | null
+>(null);

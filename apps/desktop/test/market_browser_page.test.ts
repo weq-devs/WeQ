@@ -29,7 +29,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => ({ account: { listExportTasks: { invalidate: async () => {} } } }),
     account: {
       dressup: {
-        getState: { useQuery: () => ({ data: { qqOnline: false } }) },
+        getState: { useQuery: () => ({ data: { qqOnline: false, own: { chatBgUrl: '' } } }) },
         rank: { useQuery: () => ({ data: { items: [] } }) },
         search: { useQuery: () => ({ data: { items: [] } }) },
         widgets: { useQuery: () => ({ data: [] }) },
@@ -45,6 +45,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             'setWidget',
             'setCallBackground',
             'setBackgroundOpacity',
+            'setWidgetOpacity',
             'saveMsgDecoration',
           ].map((name) => [name, { useMutation: () => ({}) }]),
         ),
@@ -77,7 +78,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
 }));
 
-it('商城表情复用装扮顶部搜索，离线可提交、清空，切换页签保留独立关键词', async () => {
+it('商城表情在页签内离线搜索和清空，切换页签保留独立关键词', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -212,7 +213,7 @@ it('内嵌模式不套整页、不渲染关闭按钮，可直接放进个性装�
     expect(host.querySelector('.weq-workspace-page')).toBeNull();
     expect(host.querySelector('[aria-label="关闭商城表情"]')).toBeNull();
     expect(page.querySelector('.weq-market-head')).toBeNull();
-    expect(page.querySelector('.weq-market-summary')?.textContent).toBe('共 0 套');
+    expect(page.querySelector('[role="status"]')?.textContent).toBe('共 0 套');
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -322,7 +323,7 @@ it('内嵌详情保留计数条和返回入口，筛选状态可访问且不叠�
   }
 });
 
-it('在整包详情内提交顶部搜索时返回目录并应用新关键词', async () => {
+it('从整包详情的搜索框提交时返回目录并应用新关键词', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -330,22 +331,26 @@ it('在整包详情内提交顶部搜索时返回目录并应用新关键词', a
   try {
     await act(async () =>
       root.render(
-        h(MarketEmojiBrowserLightbox, {
-          embedded: true,
-          initialPackId: 'test-pack',
-          searchQuery: '',
+        h(DressUpDialog, {
+          initialKind: 'emoji',
+          initialEmojiPackId: 'test-pack',
+          onClose: () => {},
         }),
       ),
     );
     expect(host.querySelector('.weq-emb-detail')).not.toBeNull();
+    const form = host.querySelector<HTMLFormElement>('form[role="search"]')!;
+    expect(form.closest('[hidden]')).toBeNull();
+    const input = form.querySelector('input')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        '开心',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
     await act(async () =>
-      root.render(
-        h(MarketEmojiBrowserLightbox, {
-          embedded: true,
-          initialPackId: 'test-pack',
-          searchQuery: '开心',
-        }),
-      ),
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
     );
     expect(host.querySelector('.weq-emb-detail')).toBeNull();
     expect(host.querySelector<HTMLElement>('.weq-market-catalog')!.hidden).toBe(false);

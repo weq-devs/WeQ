@@ -1,6 +1,5 @@
 import { createRoot } from 'react-dom/client';
 import { CalendarTaskDetails } from '../../src/renderer/src/components/CalendarTaskDetails';
-import { CalendarNavigationContext } from '../../src/renderer/src/lib/calendarNavigation';
 import { ConversationOverviewCalendar } from '../../src/renderer/src/components/ConversationOverviewCalendar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CONVERSATION_VIEWS } from '../../src/renderer/src/lib/conversationViews';
@@ -32,17 +31,11 @@ createRoot(document.getElementById('root')!).render(
     ) : (
       <main style={{ maxWidth: 720, margin: '0 auto' }}>
         <h2 style={{ fontSize: 18 }}>会话日历 · 2026-11</h2>
-        <CalendarNavigationContext.Provider
-          value={() => {
-            document.body.dataset.located = 'true';
-          }}
-        >
-          <CalendarTaskDetails
-            taskId="fixture"
-            scope={{ uin: 'fixture', configId: 'live' }}
-            running
-          />
-        </CalendarNavigationContext.Provider>
+        <CalendarTaskDetails
+          taskId="fixture"
+          scope={{ uin: 'fixture', configId: 'live' }}
+          running
+        />
       </main>
     )}
   </QueryClientProvider>,

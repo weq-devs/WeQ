@@ -3,6 +3,7 @@ import { localFileUrl, mediaUrl } from '../lib/resourceUrl';
 import { timelineRowKey } from '../../../shared/roaming_timeline';
 import type { PreviewMedia } from './mediaPreviewTypes';
 import { messageTransferTarget } from '../../../shared/transfer_progress';
+import { isChatGalleryImage } from '../lib/chatMediaSize';
 
 export interface GalleryMessage {
   msgId: string;
@@ -19,11 +20,16 @@ export type GalleryOpen = (
   clicked?: Partial<PreviewMedia>,
 ) => boolean;
 export const GalleryContext = createContext<GalleryOpen | null>(null);
+export const GalleryItemsContext = createContext<readonly PreviewMedia[]>([]);
 export const MediaItemKeyContext = createContext('');
 export const MediaItemIndexContext = createContext(0);
 export const MediaMessageKeyContext = createContext('');
 export function useChatMediaOpen() {
   return useContext(GalleryContext);
+}
+
+export function useChatMediaItems() {
+  return useContext(GalleryItemsContext);
 }
 
 export function chatImagePreviewSources(
@@ -41,6 +47,19 @@ export function chatImagePreviewSources(
       src: mediaUrl('pic', original),
       bytes: Number.isFinite(bytes) && bytes > 0 ? bytes : undefined,
     },
+  };
+}
+
+/** 本端 Blob 只用于显示，已回读的图片仍通过原有保存管线获取 QQ 原图。 */
+export function chatBlobImageSaveSource(
+  src: string,
+  params: Record<string, string | number>,
+): PreviewMedia['saveSource'] {
+  if (!src.startsWith('blob:') || !params.token) return undefined;
+  return {
+    kind: 'url',
+    url: mediaUrl('pic', { ...params, v: 'original', intent: 'interactive' }),
+    name: String(params.name || ''),
   };
 }
 
@@ -66,8 +85,7 @@ export function galleryMedia(
       const key = `${identity}:${mediaIndex++}`;
       const data = element.data ?? {};
       const token = String(data.fileToken ?? '');
-      if (element.type === 'pic' && (data.subType === 1 || data.isFlash || token.startsWith('/')))
-        return [];
+      if (element.type === 'pic' && !isChatGalleryImage(data)) return [];
       const image = element.type === 'pic';
       const t = Number(message.sendTime) * 1000;
       const name = String(data.fileName ?? '');
@@ -124,7 +142,7 @@ export function galleryMedia(
             : src.startsWith('blob:')
               ? data.localPath
                 ? { kind: 'url', url: localFileUrl(String(data.localPath)), name }
-                : null
+                : ((image ? chatBlobImageSaveSource(src, params) : undefined) ?? null)
               : { kind: 'url', url: src, name },
           title: name || (image ? '聊天图片' : '聊天视频'),
           fallbackSources: !preview && src !== proxy ? [proxy] : [],

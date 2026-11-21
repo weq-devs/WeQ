@@ -57,7 +57,7 @@ const MAX_CONTENT_SIDE = 16_000;
 const CAPTURE_CSS = `
   @media screen {
     body { display: block !important; gap: 0 !important; padding: 0 !important; align-items: stretch !important; }
-    .slide { opacity: 1 !important; transform: none !important; box-shadow: none !important; margin: 0 !important; }
+    .slide { transition: none !important; opacity: 1 !important; transform: none !important; box-shadow: none !important; margin: 0 !important; }
   }
   html { scroll-behavior: auto !important; overflow-anchor: none !important; }
 `;

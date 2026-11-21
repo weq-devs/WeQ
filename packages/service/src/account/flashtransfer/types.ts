@@ -80,6 +80,9 @@ export interface FlashDownloadTask {
   id: string;
   /** 同一次下载操作共享的任务 id；旧记录未提供时独立展示。 */
   batchId?: string;
+  /** 发起下载的分享，可能与压缩包内单文件的标识不同。 */
+  viewFilesetId?: string;
+  foreground?: boolean;
   resolutionErrors?: string[];
   filesetId: string;
   filesetName: string;

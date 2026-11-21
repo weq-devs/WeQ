@@ -286,3 +286,29 @@ it('配置后的年度报告直接读取第一页，原年份、账号身份与�
     host.remove();
   }
 });
+
+it('年度报告仅在取得页面结果后更新完成页数', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const first = Promise.withResolvers<{ status: 'ok'; data: object }>();
+  const second = Promise.withResolvers<{ status: 'ok'; data: object }>();
+  fixture.query.mockImplementation(({ pageId }) =>
+    pageId === 'overview' ? first.promise : second.promise,
+  );
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const progress = () =>
+    host.querySelector('.weq-report-slide.is-active [aria-label="年度报告统计进度"]');
+  try {
+    await act(async () => root.render(createElement(AnnualReportView, { configuredYear: 2025 })));
+    expect(progress()?.getAttribute('aria-valuetext')).toBe('已完成 0 / 2 页');
+    await act(async () => first.resolve({ status: 'ok', data: {} }));
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="下一页"]')!.click());
+    expect(progress()?.getAttribute('aria-valuetext')).toBe('已完成 1 / 2 页');
+    await act(async () => second.resolve({ status: 'ok', data: {} }));
+    expect(progress()).toBeNull();
+  } finally {
+    first.resolve({ status: 'ok', data: {} });
+    second.resolve({ status: 'ok', data: {} });
+    act(() => root.unmount());
+  }
+});

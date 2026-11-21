@@ -25,6 +25,8 @@ import { getLogger, logErrorContext, logRequest, withLogOperation } from '@weq/s
 import { AI_TOOLS } from './tools';
 import { isReadOnlyTool } from './tool_permissions';
 import { withToolExecutionOptions } from './account_scope';
+import { MCP_MAIL_ATTACHMENT_ROUTE } from './mail_tools';
+import { handleMcpMailDownload } from './mail_download';
 import { runtimeMaintenance } from '../runtime_maintenance';
 
 const logger = getLogger().child({ scope: 'mcp-server' });
@@ -59,11 +61,12 @@ function buildMcpServer(): McpServer {
     server.registerTool(
       t.name,
       { description: t.description, inputSchema: t.input.shape },
-      async (args: unknown) => {
+      async (args: unknown, { signal }) => {
         try {
           const data = await logRequest('mcp-server', t.name, 'tool', async () =>
             runtimeMaintenance.operation(
-              () => withToolExecutionOptions({ visibleToolNames }, () => t.run(args as never)),
+              () =>
+                withToolExecutionOptions({ visibleToolNames, signal }, () => t.run(args as never)),
               `MCP ${t.name}`,
             ),
           );
@@ -104,6 +107,16 @@ async function handleRequest(
   const auth = req.headers.authorization;
   if (!token || auth !== `Bearer ${token}`) {
     unauthorized(res);
+    return;
+  }
+  if (req.url?.startsWith(MCP_MAIL_ATTACHMENT_ROUTE)) {
+    try {
+      await runtimeMaintenance.operation(() => handleMcpMailDownload(req, res), 'MCP 邮箱附件');
+    } catch {
+      if (!res.headersSent && !res.destroyed) {
+        res.writeHead(503, { 'Cache-Control': 'no-store' }).end('邮箱附件暂不可用。');
+      }
+    }
     return;
   }
   const server = buildMcpServer();

@@ -51,6 +51,7 @@ import {
   setUpdateState,
   updateBus,
   type UpdateEvent,
+  type UpdateDownloadTask,
   type UpdateProgress,
   type UpdateState,
 } from './state';
@@ -151,6 +152,7 @@ export async function checkForUpdate(force = false): Promise<UpdateState> {
     managed: packageManaged(),
   };
   setUpdateState(state);
+  emitDownloadTask();
   lastCheckedAt = Date.now();
 
   // Surface which mirror won (and the fallback order) so the UI can say
@@ -181,6 +183,8 @@ let macPlan: MacUpdatePlan | null = null;
 let activeTaskId: string | undefined;
 let latestTaskId: string | undefined;
 let lastDownload: UpdateReceipt | undefined;
+let lastProgress: UpdateProgress | undefined;
+let lastDownloadEvent = 'null';
 const updateReceipt = downloadTaskReceipt.extend({
   version: z
     .string()
@@ -198,6 +202,50 @@ function updatePresentation(version?: string) {
     name: '下载 WeQ 更新',
     display: { action: '下载 WeQ 更新', subject: version },
   };
+}
+
+function getDownloadTask(): UpdateDownloadTask | null {
+  const saved = lastDownload;
+  if (!saved) return null;
+  const latest = getUpdateState()?.latest;
+  if (!downloading && !downloaded && latest && saved.version && saved.version !== latest)
+    return null;
+  const task = backgroundTasks.snapshot().find((item) => item.id === saved.id);
+  if (!task || task.status === 'cancelled' || (task.status === 'completed' && !downloaded))
+    return null;
+  const { id, status, statusLabel, actions, foreground, note } = task;
+  return {
+    id,
+    status,
+    statusLabel,
+    actions,
+    foreground,
+    note,
+    version: saved.version,
+    progress: lastProgress,
+  };
+}
+
+function emitDownloadTask() {
+  const task = getDownloadTask();
+  const key = JSON.stringify(
+    task && [task.id, task.status, task.statusLabel, task.actions, task.foreground, task.version],
+  );
+  if (key === lastDownloadEvent) return;
+  lastDownloadEvent = key;
+  updateBus.emit('event', { kind: 'download-task', task } satisfies UpdateEvent);
+}
+
+function backgroundDownload(id: string) {
+  const saved = lastDownload;
+  const task = getDownloadTask();
+  if (task?.id !== id || saved?.id !== id) throw new Error('更新下载已改变，请刷新');
+  if (!task.foreground) return;
+  const updated = { ...saved, foreground: false };
+  downloadStore?.replace({ current: updated }, true);
+  lastDownload = updated;
+  backgroundTasks.setForeground(id, false);
+  emitDownloadTask();
 }
 
 function restoreUpdateTask() {
@@ -235,12 +283,14 @@ function restoreUpdateTask() {
     },
     matches ? [retryUpdateAction(saved.id, status === 'failed' ? 'retry' : 'continue')] : [],
   );
+  emitDownloadTask();
 }
 
 function forgetDownloadTask(id: string) {
   if (activeTaskId === id) return false;
   if (downloadStore?.data.current?.id === id) downloadStore.replace({}, true);
   if (lastDownload?.id === id) lastDownload = undefined;
+  emitDownloadTask();
   return true;
 }
 
@@ -364,7 +414,7 @@ function assertDownloadAvailable() {
   if (packageManaged()) throw new Error(managedUpdateHint(true) ?? '当前安装不支持自动更新。');
 }
 
-export async function startDownload(resumeId?: string): Promise<void> {
+export async function startDownload(resumeId?: string, foreground?: boolean): Promise<void> {
   assertDownloadAvailable();
   if (downloading || installing) return;
   const saved = lastDownload;
@@ -390,8 +440,12 @@ export async function startDownload(resumeId?: string): Promise<void> {
   const expectedChannel = channel;
   downloading = true;
   downloaded = false;
+  lastProgress = undefined;
   clearInstallTaskActions();
-  const taskId = reuse ? saved.id : backgroundTasks.start(updatePresentation(version));
+  const taskId = reuse
+    ? saved.id
+    : backgroundTasks.start({ ...updatePresentation(version), foreground });
+  if (reuse && foreground !== undefined) backgroundTasks.setForeground(taskId, foreground);
   latestTaskId = taskId;
   activeTaskId = taskId;
   backgroundTasks.resume(taskId);
@@ -400,11 +454,13 @@ export async function startDownload(resumeId?: string): Promise<void> {
     const task = backgroundTasks.snapshot().find((item) => item.id === taskId);
     if (!task) return;
     lastDownload = { ...downloadTaskSnapshot(task), version, channel, includePrerelease };
+    emitDownloadTask();
     if (!downloadStore) return;
     const previous = downloadStore.data.current;
     if (
       previous?.id === taskId &&
       previous.status === task.status &&
+      previous.foreground === task.foreground &&
       previous.version === version &&
       previous.channel === channel &&
       previous.statusLabel === task.statusLabel &&
@@ -425,7 +481,9 @@ export async function startDownload(resumeId?: string): Promise<void> {
   let total = 0;
   let received = 0;
   let policyPaused = false;
+  let verifying = false;
   const updatePolicy = () => {
+    if (verifying) return;
     const behavior = transferBehavior();
     const restricted = transferRestricted(owner) || (policyPaused && !transferCanResume(owner));
     policyPaused = restricted;
@@ -465,6 +523,7 @@ export async function startDownload(resumeId?: string): Promise<void> {
     persist();
   };
   const progressPolicy = (progress: UpdateProgress) => {
+    lastProgress = progress;
     total = progress.total;
     received = progress.transferred;
     updatePolicy();
@@ -485,12 +544,23 @@ export async function startDownload(resumeId?: string): Promise<void> {
     updateBus.on('progress', progressPolicy);
     unwatch = watchTransferPolicy(updatePolicy);
     updatePolicy();
-    await downloadUpdate(expectedVersion, expectedChannel, (latest, selectedChannel) => {
-      version = latest;
-      channel = selectedChannel;
-      backgroundTasks.update(taskId, { display: updatePresentation(latest).display });
-      persist();
-    });
+    await downloadUpdate(
+      expectedVersion,
+      expectedChannel,
+      (latest, selectedChannel) => {
+        version = latest;
+        channel = selectedChannel;
+        backgroundTasks.update(taskId, { display: updatePresentation(latest).display });
+        persist();
+      },
+      () => {
+        verifying = true;
+        backgroundTasks.resume(taskId);
+        backgroundTasks.update(taskId, { statusLabel: '正在校验更新包' });
+        backgroundTasks.setActions(taskId, []);
+        persist();
+      },
+    );
     backgroundTasks.resume(taskId);
     backgroundTasks.finish(taskId, 'completed', { note: '更新包已下载，等待重启安装' });
     backgroundTasks.setActions(taskId, [
@@ -526,6 +596,7 @@ async function downloadUpdate(
   expectedVersion: string | undefined,
   expectedChannel: string | undefined,
   target: (version: string, channel: string) => void,
+  verify: () => void,
 ): Promise<void> {
   if (!getUpdateState()?.hasUpdate) {
     await checkForUpdate(true);
@@ -579,6 +650,7 @@ async function downloadUpdate(
   }
 
   if (!success) throw lastErr ?? new Error('更新下载失败');
+  if (macVerifiedArchive || process.platform === 'linux') verify();
   if (macVerifiedArchive) {
     // 下载事件只说明 ZIP 已落地；官方哈希与固定发布身份通过后才允许安装。
     const update = archiveDownload as { file: string; version: string } | null;
@@ -673,7 +745,9 @@ export function installUpdateActions(
     supported: true,
     check: checkForUpdate,
     assertDownloadAvailable,
-    startDownload,
+    startDownload: (foreground) => startDownload(undefined, foreground),
+    getDownloadTask,
+    backgroundDownload,
     forgetDownloadTask,
     quitAndInstall,
   });

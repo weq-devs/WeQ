@@ -6,7 +6,7 @@
 
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useTabActive } from '../../components/RetainedTabs.shared';
-import { FolderOpen, X } from 'lucide-react';
+import { Flame, FolderOpen, Sparkles, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { MediaPreview } from '../../components/lazyMainPanels';
 import { cn } from './classNames';
@@ -56,6 +56,12 @@ function ComposerMediaItem({
   const tabActive = useTabActive();
   const kindLabel = attachmentKindText(attachment.kind);
   const playable = attachment.kind === 'video' && Boolean(attachment.url);
+  const AttachmentIcon =
+    attachment.special === 'flashPhoto'
+      ? Flame
+      : attachment.special === 'bubbleVideo'
+        ? Sparkles
+        : FolderOpen;
 
   return (
     <>
@@ -80,7 +86,7 @@ function ComposerMediaItem({
               ) : null}
             </>
           ) : (
-            <FolderOpen size={46} strokeWidth={1.4} />
+            <AttachmentIcon size={46} strokeWidth={1.4} />
           )
         }
       />

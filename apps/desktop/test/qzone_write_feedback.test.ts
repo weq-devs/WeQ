@@ -89,6 +89,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
+      qqActions: { qzoneHome: { useInfiniteQuery: () => ({}) } },
     },
   },
   client: {
@@ -200,7 +201,12 @@ async function mount(strict = false) {
       selfUin: '10001',
       nickname: '合成自己',
       active,
-      spaceRequest: { accountUin: '10001', uin: '10001', revision: 'fixture' },
+      spaceRequest: {
+        accountUin: '10001',
+        uin: '10001',
+        revision: 'fixture',
+        catalog: { section: 'posts' },
+      },
     });
     root.render(strict ? h(StrictMode, null, view) : view);
   };
@@ -209,6 +215,11 @@ async function mount(strict = false) {
     host.remove();
   };
   await act(async () => update());
+  await act(async () => {
+    Array.from(host.querySelectorAll<HTMLButtonElement>('[aria-label="空间内容"] button'))
+      .find((button) => button.textContent === '说说')!
+      .click();
+  });
   await act(async () => {
     await vi.waitFor(() => expect(state.summary).toHaveBeenCalled());
   });

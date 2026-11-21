@@ -22,10 +22,13 @@ function displayActor(value: Json | undefined): string {
 function contentElements(
   content: Json | undefined,
   resources: Map<string, JsonObject>,
+  recordId: string,
+  pointer = '/data',
 ): JsonObject[] {
   if (!Array.isArray(content)) return [];
-  return content.flatMap((value) => {
+  return content.flatMap((value, index) => {
     const element = object(value);
+    const target = `${pointer}/content/${index}`;
     if (element.type === 'text')
       return [{ type: 'text', data: { textContent: text(element.text) } }];
     if (element.type === 'mention')
@@ -33,6 +36,18 @@ function contentElements(
     if (element.type === 'media')
       return (Array.isArray(element.resourceIds) ? element.resourceIds : []).map((id) => {
         const resource = resources.get(String(id));
+        const bindings = resource?.bindings;
+        const verified = Array.isArray(bindings)
+          ? bindings.some((value) => {
+              const binding = object(value);
+              return (
+                binding.recordId === recordId &&
+                binding.target === target &&
+                binding.status === 'verified'
+              );
+            })
+          : object(resource?.source).kind !== 'legacy-import';
+        const name = text(element.caption) || text(resource?.name);
         const type =
           element.mediaType === 'image' || element.mediaType === 'sticker'
             ? 'pic'
@@ -44,8 +59,10 @@ function contentElements(
         return {
           type,
           data: {
-            fileName: text(element.caption) || text(resource?.name),
-            ...(resource?.status === 'saved' ? { exportPath: resource.path! } : {}),
+            fileName: verified ? name : `${name || '附件'}（关联未确认）`,
+            ...(verified && resource?.status === 'saved' && resource.path
+              ? { exportPath: resource.path }
+              : { unavailableArchiveResource: true }),
           },
         };
       });
@@ -54,8 +71,9 @@ function contentElements(
         {
           type: 'multiMsg',
           data: {
-            forwardMessages: (Array.isArray(element.records) ? element.records : []).map((node) =>
-              formalMessage(object(node), resources),
+            forwardMessages: (Array.isArray(element.records) ? element.records : []).map(
+              (node, child) =>
+                formalMessage(object(node), resources, recordId, `${target}/records/${child}`),
             ),
             status: element.status!,
           },
@@ -83,20 +101,25 @@ function contentElements(
     ];
   });
 }
-function formalMessage(data: JsonObject, resources: Map<string, JsonObject>): JsonObject {
+function formalMessage(
+  data: JsonObject,
+  resources: Map<string, JsonObject>,
+  recordId: string,
+  pointer?: string,
+): JsonObject {
   return {
     msgId: text(data.messageId) || text(data.id),
     msgSeq: text(data.seq),
-    sendTime: Number(object(data.sentAt).unixSeconds ?? 0),
+    sendTime: object(data.sentAt).unixSeconds ?? 0,
     senderName: displayActor(data.sender),
-    elements: contentElements(data.content, resources),
+    elements: contentElements(data.content, resources, recordId, pointer),
   };
 }
 
 function displayRecord(record: ArchiveRecord, resources: Map<string, JsonObject>): JsonObject {
-  if (record.kind === 'message') return formalMessage(record.data, resources);
+  if (record.kind === 'message') return formalMessage(record.data, resources, record.id);
   const data = record.data;
-  const elements = contentElements(data.content, resources);
+  const elements = contentElements(data.content, resources, record.id);
   if (typeof data.subject === 'string')
     elements.unshift({ type: 'text', data: { textContent: data.subject } });
   if (Array.isArray(data.resourceIds))
@@ -110,6 +133,8 @@ function displayRecord(record: ArchiveRecord, resources: Map<string, JsonObject>
           },
         ],
         resources,
+        record.id,
+        '/viewer',
       ),
     );
   if (!elements.length)
@@ -119,7 +144,7 @@ function displayRecord(record: ArchiveRecord, resources: Map<string, JsonObject>
   return {
     msgId: record.id,
     msgSeq: '',
-    sendTime: Number(object(data.sentAt ?? data.createdAt ?? data.collectedAt).unixSeconds ?? 0),
+    sendTime: object(data.sentAt ?? data.createdAt ?? data.collectedAt).unixSeconds ?? 0,
     senderName:
       displayActor(data.author ?? data.sender ?? data.owner ?? data.subject) || record.kind,
     elements,

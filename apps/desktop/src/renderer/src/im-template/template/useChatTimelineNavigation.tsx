@@ -1,18 +1,17 @@
-import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
+import { TIMELINE_VIRTUAL_THRESHOLD } from '../../hooks/useVirtualTimeline';
 import { conversationInteractionId } from '../../../../shared/conversation_interaction';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
-import { firstUnreadMessage, matchesUnreadMessage } from '../../lib/unreadNavigation';
+import { matchesUnreadMessage } from '../../lib/unreadNavigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReplyJump, ReplyJumpTarget } from '../../state/messageContext';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
 import type { Conversation, Message, UnreadDockStop } from './types';
 import { unreadHighlightKey } from './unreadDock';
 import type { ChatPaneProps } from './chatPane';
-import {
-  type UnreadJumpState,
-  type UnreadJumpSeed,
-  countAppendedMessages,
-} from './chatTimelineModel';
+import { countAppendedMessages, unreadTimelineBoundary } from './chatTimelineModel';
+
+type ViewportReadRow = { seq: string; bottom: number };
+const READ_GESTURE_MS = 1000;
 
 export function useChatTimelineNavigation({
   atLatest,
@@ -26,11 +25,12 @@ export function useChatTimelineNavigation({
   timelineSettings,
   messages,
   onJumpToLatest,
+  readThroughViewport,
+  confirmedReadSeq,
   onReadCurrentConversation,
   pendingInteractions,
   onSeeInteractions,
   parentJumpToSeq,
-  selectionOrder,
   tabActive,
   unreadDock,
   seenUnreadHighlights,
@@ -50,11 +50,12 @@ export function useChatTimelineNavigation({
     | undefined;
   messages: ChatPaneProps['messages'];
   onJumpToLatest: ChatPaneProps['onJumpToLatest'];
+  readThroughViewport: ChatPaneProps['readThroughViewport'];
+  confirmedReadSeq: ChatPaneProps['confirmedReadSeq'];
   onReadCurrentConversation: ChatPaneProps['onReadCurrentConversation'];
   pendingInteractions?: ChatPaneProps['pendingInteractions'];
   onSeeInteractions?: ChatPaneProps['onSeeInteractions'];
   parentJumpToSeq: ReplyJump;
-  selectionOrder: string[];
   tabActive: boolean;
   unreadDock: ChatPaneProps['unreadDock'];
   seenUnreadHighlights?: Set<string>;
@@ -65,9 +66,13 @@ export function useChatTimelineNavigation({
 
   const locatedJump = useRef<typeof jumpRequest>(undefined);
 
-  const [unreadJump, setUnreadJump] = useState<UnreadJumpState | null>(null);
-
   const [locatedSeq, setLocatedSeq] = useState<string | null>(null);
+  const entryVisibility = useMemo(
+    () => ({ ids: new Set<string>(), sequences: new Set<string>() }),
+    [conversation?.id, conversation?.type],
+  );
+  const confirmedWatermark =
+    confirmedReadSeq && /^\d{1,20}$/.test(confirmedReadSeq) ? BigInt(confirmedReadSeq) : undefined;
   const navigationKey = useMemo(
     () => ({ conversationId: conversation?.id, dock: unreadDock, seenUnreadHighlights }),
     [conversation?.id, unreadDock, seenUnreadHighlights],
@@ -97,10 +102,12 @@ export function useChatTimelineNavigation({
   const isVisited = useCallback(
     (stop: UnreadDockStop) =>
       visitedStops?.has(stop.seq) ||
-      (stop.kind !== 'unread' &&
-        navigationKey.conversationId &&
-        seenUnreadHighlights?.has(unreadHighlightKey(navigationKey.conversationId, stop))),
-    [navigationKey, seenUnreadHighlights, visitedStops],
+      (stop.kind === 'unread'
+        ? entryVisibility.sequences.has(stop.seq) ||
+          (confirmedWatermark !== undefined && BigInt(stop.seq) <= confirmedWatermark)
+        : navigationKey.conversationId &&
+          seenUnreadHighlights?.has(unreadHighlightKey(navigationKey.conversationId, stop))),
+    [confirmedWatermark, entryVisibility, navigationKey, seenUnreadHighlights, visitedStops],
   );
   const locateTask = useRef<object | null>(null);
   const [dockJumping, setDockJumping] = useState(false);
@@ -174,12 +181,32 @@ export function useChatTimelineNavigation({
   );
 
   const lastReadSignal = useRef({ key: '', at: 0 });
+  const viewportRead = useMemo(
+    () => ({
+      scrollTop: undefined as number | undefined,
+      visible: new Map<string, ViewportReadRow>(),
+      ready: new Set<string>(),
+      watermark: undefined as bigint | undefined,
+      lastReport: '',
+    }),
+    [conversation?.id, conversation?.type, readThroughViewport],
+  );
+  const viewportReadEnabled = Boolean(readThroughViewport && onReadCurrentConversation);
+  const viewportReadVersion = viewportReadEnabled
+    ? `${confirmedReadSeq ?? ''}:${conversation?.unreadCount}:${latestMessageSeq ?? ''}`
+    : '';
+  useLayoutEffect(() => {
+    if (viewportReadEnabled && tabActive) return;
+    viewportRead.visible.clear();
+    viewportRead.scrollTop = undefined;
+  }, [viewportRead, viewportReadEnabled, tabActive]);
 
   const readContextRef = useRef({
     tabActive,
     atLatest,
     loading,
     conversation,
+    viewportReadEnabled,
     onReadCurrentConversation,
     lastId: messages.at(-1)?.id,
   });
@@ -189,6 +216,7 @@ export function useChatTimelineNavigation({
     atLatest,
     loading,
     conversation,
+    viewportReadEnabled,
     onReadCurrentConversation,
     lastId: messages.at(-1)?.id,
   };
@@ -209,12 +237,6 @@ export function useChatTimelineNavigation({
     revision: number | undefined;
   } | null>(null);
 
-  const unreadSeedRef = useRef<UnreadJumpSeed | null>(null);
-
-  const unreadConversationRef = useRef<string | null>(null);
-
-  const unreadScrollFrameRef = useRef<number | null>(null);
-
   // 换会话（或上层重下了新的一份快照）时，跳转坞从第一个跳转点重新开始。
   useEffect(() => {
     setLocatedSeq(null);
@@ -222,69 +244,13 @@ export function useChatTimelineNavigation({
     setDockJumping(false);
   }, [conversation?.id, unreadDock]);
 
-  const timelineIds = useMemo(
-    () => visibleMessages.map((message) => message.id),
-    [visibleMessages],
-  );
-
-  const timeline = useVirtualTimeline({
-    ids: timelineIds,
-    orderedIds: selectionOrder,
-    scrollRef: messageScrollRef,
-    // 数据源切换由宿主 ChatMainContent 的 messageScope key 重新挂载；不绑定按需加载的撤回资料。
-    scope: `${user.id}:${conversation?.id}`,
-    active: tabActive,
-  });
+  const timelineEnabled = visibleMessages.length > TIMELINE_VIRTUAL_THRESHOLD;
 
   // 下面几个 effect 只该在会话/消息变化时跑，但正文里要调用这些每次渲染都重建的
   // 函数。用 ref 转发拿最新实现，避免把它们塞进依赖导致 effect 每次渲染重跑。
   const scrollMessagesToBottomRef = useRef<() => void>(() => {});
 
   const jumpToBottomAndReadRef = useRef<() => Promise<void>>(async () => {});
-
-  const updateUnreadJumpRemainingRef = useRef<() => void>(() => {});
-
-  useLayoutEffect(() => {
-    const conversationId = conversation?.id ?? null;
-    if (unreadConversationRef.current === conversationId) {
-      return;
-    }
-
-    unreadConversationRef.current = conversationId;
-    setUnreadJump(null);
-    const total = Math.max(0, conversation?.unreadCount ?? 0);
-    unreadSeedRef.current =
-      conversationId && total > 0
-        ? {
-            conversationId,
-            total,
-          }
-        : null;
-  }, [conversation?.id, conversation?.unreadCount]);
-
-  useLayoutEffect(() => {
-    const seed = unreadSeedRef.current;
-    if (
-      !seed ||
-      seed.conversationId !== conversation?.id ||
-      loading ||
-      visibleMessages.length === 0
-    ) {
-      return;
-    }
-
-    const total = Math.min(seed.total, visibleMessages.length);
-    unreadSeedRef.current = null;
-    setUnreadJump(
-      total > 0
-        ? {
-            conversationId: seed.conversationId,
-            remaining: total,
-            total,
-          }
-        : null,
-    );
-  }, [conversation?.id, loading, visibleMessages]);
 
   useLayoutEffect(() => {
     if (!tabActive) return;
@@ -450,7 +416,7 @@ export function useChatTimelineNavigation({
     observer.observe(scroll);
     // 虚拟行在 RO 内更新父容器高度；父层改用样式通知，避免向上反馈尺寸交付。
     const mutation = new MutationObserver(schedule);
-    if (timeline.enabled)
+    if (timelineEnabled)
       mutation.observe(content, { attributes: true, attributeFilter: ['style'] });
     else observer.observe(content);
     return () => {
@@ -458,7 +424,7 @@ export function useChatTimelineNavigation({
       mutation.disconnect();
       if (frame !== undefined) window.cancelAnimationFrame(frame);
     };
-  }, [tabActive, loading, conversation?.id, visibleMessages.length, timeline.enabled]);
+  }, [tabActive, loading, conversation?.id, visibleMessages.length, timelineEnabled]);
 
   // 历史窗口不追加实时消息；沿用服务端已排除自己的入站未读数，不用序号差猜条数。
   useEffect(() => {
@@ -478,29 +444,6 @@ export function useChatTimelineNavigation({
     const delta = unread - previous.unread;
     if (delta > 0) setNewMessagePill((count) => count + Math.min(delta, 100));
   }, [conversation?.id, conversation?.unreadCount, latestMessageSeq, atLatest]);
-
-  // updateUnreadJumpRemaining 会写回 unreadJump.remaining，所以这里只认「换会话 /
-  // 换未读总数」这两个稳定信号，不能整体依赖 unreadJump，否则每次滚动都要多跑一轮。
-  const unreadJumpKey = unreadJump ? `${unreadJump.conversationId}:${unreadJump.total}` : null;
-
-  useLayoutEffect(() => {
-    if (!tabActive || !unreadJumpKey) {
-      return;
-    }
-
-    updateUnreadJumpRemainingRef.current();
-    const frame = window.requestAnimationFrame(() => updateUnreadJumpRemainingRef.current());
-    return () => window.cancelAnimationFrame(frame);
-  }, [tabActive, unreadJumpKey, visibleMessages, loading]);
-
-  useEffect(
-    () => () => {
-      if (unreadScrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(unreadScrollFrameRef.current);
-      }
-    },
-    [],
-  );
 
   useEffect(() => {
     if (!tabActive || !jumpRequest || loading || loadError) {
@@ -555,6 +498,7 @@ export function useChatTimelineNavigation({
 
   async function jumpToBottomAndRead() {
     if (jumpingToLatest) return;
+    readGestureUntil.current = 0;
     if (!atLatest) {
       if (!onJumpToLatest) return;
       setJumpingToLatest(true);
@@ -597,6 +541,7 @@ export function useChatTimelineNavigation({
     const current = readContextRef.current;
     if (
       !current.onReadCurrentConversation ||
+      readThroughViewport ||
       !current.conversation ||
       current.conversation.id !== conversation?.id ||
       !current.tabActive ||
@@ -616,7 +561,7 @@ export function useChatTimelineNavigation({
 
   function handleReadGesture(event: { target: EventTarget | null }) {
     if (event.target instanceof Element && event.target.closest('.message-scroll'))
-      readGestureUntil.current = performance.now() + 1000;
+      readGestureUntil.current = performance.now() + READ_GESTURE_MS;
     requestReadAtBottom();
   }
 
@@ -655,100 +600,6 @@ export function useChatTimelineNavigation({
     if (bottom && atLatest && newMessagePill > 0) {
       setNewMessagePill(0);
     }
-
-    if (!unreadJump || unreadScrollFrameRef.current !== null) {
-      return;
-    }
-
-    unreadScrollFrameRef.current = window.requestAnimationFrame(() => {
-      unreadScrollFrameRef.current = null;
-      updateUnreadJumpRemaining();
-    });
-  }
-
-  function updateUnreadJumpRemaining() {
-    const scroll = messageScrollRef.current;
-    if (!scroll || !unreadJump) {
-      return;
-    }
-
-    const firstUnread = unreadMessageElements(unreadJump)[0];
-    const unreadId = visibleMessages[Math.max(0, visibleMessages.length - unreadJump.total)]?.id;
-    const virtualOffset = unreadId ? timelineViewport(scroll)?.offset(unreadId) : undefined;
-    if (!firstUnread && virtualOffset === undefined) {
-      setUnreadJump(null);
-      return;
-    }
-
-    const scrollRect = scroll.getBoundingClientRect();
-    const firstUnreadTop =
-      virtualOffset !== undefined
-        ? scrollRect.top + virtualOffset - scroll.scrollTop
-        : (firstUnread?.getBoundingClientRect().top ?? scrollRect.top);
-    const targetScrollTop =
-      unreadJump.targetScrollTop ??
-      Math.max(0, scroll.scrollTop + firstUnreadTop - scrollRect.top - 12);
-    const startScrollTop = unreadJump.startScrollTop ?? scroll.scrollTop;
-
-    if (targetScrollTop >= startScrollTop - 1 || scroll.scrollTop <= targetScrollTop + 1) {
-      setUnreadJump(null);
-      return;
-    }
-
-    const progress = (scroll.scrollTop - targetScrollTop) / (startScrollTop - targetScrollTop);
-    const remaining = Math.max(1, Math.ceil(unreadJump.total * Math.min(1, progress)));
-
-    setUnreadJump((current) => {
-      if (!current || current.conversationId !== unreadJump.conversationId) {
-        return current;
-      }
-      return current.remaining === remaining &&
-        current.startScrollTop === startScrollTop &&
-        current.targetScrollTop === targetScrollTop
-        ? current
-        : {
-            ...current,
-            remaining,
-            startScrollTop,
-            targetScrollTop,
-          };
-    });
-  }
-
-  updateUnreadJumpRemainingRef.current = updateUnreadJumpRemaining;
-
-  function unreadMessageElements(state = unreadJump) {
-    const scroll = messageScrollRef.current;
-    if (!scroll || !state) {
-      return [];
-    }
-
-    const ids = new Set(visibleMessages.slice(-state.total).map((message) => message.id));
-
-    return Array.from(
-      scroll.querySelectorAll<HTMLElement>('.message-line[data-message-id]'),
-    ).filter((element) => ids.has(element.dataset.messageId ?? ''));
-  }
-
-  function jumpToFirstUnreadMessage() {
-    const scroll = messageScrollRef.current;
-    const id =
-      unreadJump && visibleMessages[Math.max(0, visibleMessages.length - unreadJump.total)]?.id;
-    if (scroll && id && timelineViewport(scroll)?.scrollTo(id, { align: 'start' })) {
-      setUnreadJump(null);
-      return;
-    }
-    const firstUnread = unreadMessageElements()[0];
-    if (!firstUnread) {
-      setUnreadJump(null);
-      return;
-    }
-
-    firstUnread.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    });
-    setUnreadJump(null);
   }
 
   // ── 未读跳转坞 ──────────────────────────────────────────────────────────
@@ -769,18 +620,18 @@ export function useChatTimelineNavigation({
     const idsBySeq = new Map<string, string>();
     for (const message of messages) {
       const stop = message.msgSeq ? pendingBySeq.get(message.msgSeq) : undefined;
-      if (stop && !idsBySeq.has(stop.seq) && matchesUnreadMessage(message, stop.seq, stop.identity))
+      if (
+        stop &&
+        stop.kind !== 'unread' &&
+        !idsBySeq.has(stop.seq) &&
+        matchesUnreadMessage(message, stop.seq, stop.identity)
+      )
         idsBySeq.set(stop.seq, message.id);
     }
     const unreadSeq = pending.find((stop) => stop.kind === 'unread')?.seq;
-    if (unreadSeq && !idsBySeq.has(unreadSeq)) {
-      const start = BigInt(unreadSeq);
-      // 只为普通未读补缺号；重要消息必须看到对应原文。
-      const covered = messages.some(
-        ({ msgSeq }) => msgSeq && /^[1-9]\d*$/.test(msgSeq) && BigInt(msgSeq) < start,
-      );
-      const next = covered ? firstUnreadMessage(messages, unreadSeq) : undefined;
-      if (next) idsBySeq.set(unreadSeq, next.id);
+    if (unreadSeq) {
+      const id = unreadTimelineBoundary(visibleMessages, unreadSeq);
+      if (id) idsBySeq.set(unreadSeq, id);
     }
     const seqsById = new Map<string, string[]>();
     for (const [seq, id] of idsBySeq) {
@@ -789,8 +640,7 @@ export function useChatTimelineNavigation({
       else seqsById.set(id, [seq]);
     }
     return seqsById;
-  }, [messages, unreadDock, isVisited]);
-  const renderedTimelineItems = timeline.enabled ? timeline.items : null;
+  }, [messages, visibleMessages, unreadDock, isVisited]);
   const interactionConversationId = conversation?.id;
   const interactionConversationType = conversation?.type;
   const interactionTargets = useMemo(() => {
@@ -806,6 +656,7 @@ export function useChatTimelineNavigation({
         .filter((event) => event.kind === kind && event.conv === interactionConversationId)
         .map((event) => [`${event.action}:${event.msgId}`, conversationInteractionId(event)]),
     );
+    if (!pending.size) return;
     const targets = new Map<string, string[]>();
     for (const message of visibleMessages) {
       if (!message.msgId || message.conversationId !== interactionConversationId) continue;
@@ -824,30 +675,185 @@ export function useChatTimelineNavigation({
         ids.push(poke);
       if (ids.length) targets.set(message.id, ids);
     }
+    const latest =
+      atLatest && !loadError
+        ? visibleMessages.findLast(
+            (message) =>
+              message.conversationId === interactionConversationId &&
+              message.msgId &&
+              !message.optimistic &&
+              (!message.source || message.ntSeqVerified),
+          )
+        : undefined;
+    const loadedSeq = latest?.msgSeq;
+    const knownLatestSeq =
+      latestMessageSeq && /^[1-9]\d*$/.test(latestMessageSeq) ? BigInt(latestMessageSeq) : 0n;
+    // 命中实时尾页的最新消息时，确认当时收到的互动，包括未加载的撤回原文。
+    if (
+      latest &&
+      (knownLatestSeq === 0n ||
+        (loadedSeq && /^\d+$/.test(loadedSeq) && BigInt(loadedSeq) >= knownLatestSeq))
+    )
+      targets.set(latest.id, [...pending.values()]);
     return targets;
   }, [
+    atLatest,
     interactionConversationId,
     interactionConversationType,
+    latestMessageSeq,
+    loadError,
     pendingInteractions,
     visibleMessages,
   ]);
 
-  useLayoutEffect(() => {
+  const entryPending = unreadDock === undefined && Boolean(onReadCurrentConversation);
+  const observeMessageVisibility = useCallback(() => {
     const scroll = messageScrollRef.current;
     if (
       !tabActive ||
-      loading ||
-      loadingNewer ||
       !scroll ||
-      (!dockTargets?.size && !interactionTargets?.size)
+      !visibleMessages.length ||
+      (!entryPending && (loading || loadingNewer))
     )
       return;
+    const unreadSeq = unreadDock?.stops.find((stop) => stop.kind === 'unread')?.seq;
+    if (dockTargets && unreadSeq)
+      for (const [id, seqs] of dockTargets)
+        if (entryVisibility.ids.has(id) && seqs.includes(unreadSeq)) {
+          visitStops(navigationKey, [unreadSeq]);
+          break;
+        }
     const targets = new Map<Element, string>();
+    const viewportRows = new Map<HTMLElement, { id: string; seq: string; readable: boolean }>();
+    const observeRead = viewportReadEnabled && !loading && !loadingNewer;
     for (const target of scroll.querySelectorAll<HTMLElement>('[data-message-id]')) {
       const id = target.dataset.messageId ?? '';
       if (dockTargets?.has(id) || interactionTargets?.has(id)) targets.set(target, id);
+      if (!entryPending && !observeRead) continue;
+      const index = target.closest<HTMLElement>('.weq-virtual-timeline-row')?.dataset.index;
+      const message = index === undefined ? undefined : visibleMessages[Number(index)];
+      if (
+        message?.id === id &&
+        message.conversationId === conversation?.id &&
+        !message.optimistic &&
+        (!message.source || message.ntSeqVerified) &&
+        message.msgSeq &&
+        /^[1-9]\d{0,19}$/.test(message.msgSeq)
+      )
+        viewportRows.set(target, {
+          id,
+          seq: message.msgSeq,
+          readable:
+            observeRead && Boolean(message.msgId) && target.classList.contains('message-line'),
+        });
     }
-    if (!targets.size) return;
+    if (!targets.size && !viewportRows.size) return;
+    const clearVisibleRead = () => {
+      viewportRead.visible.clear();
+      viewportRead.scrollTop = undefined;
+    };
+    const sampleViewport = () => {
+      const current = readContextRef.current;
+      if (
+        !current.tabActive ||
+        !current.conversation ||
+        current.conversation.id !== conversation?.id ||
+        document.visibilityState === 'hidden' ||
+        !document.hasFocus()
+      ) {
+        clearVisibleRead();
+        return;
+      }
+      const bounds = scroll.getBoundingClientRect();
+      if (bounds.height <= 0) return;
+      const scrollTop = scroll.scrollTop;
+      const forward =
+        viewportRead.scrollTop !== undefined &&
+        scrollTop > viewportRead.scrollTop &&
+        readGestureUntil.current > performance.now();
+      const atBottom =
+        current.atLatest &&
+        !loadError &&
+        scroll.scrollHeight - scrollTop - scroll.clientHeight <= 2;
+      const previous = viewportRead.visible;
+      const visible = new Map<string, ViewportReadRow>();
+      const { ready } = viewportRead;
+      if (confirmedWatermark !== viewportRead.watermark) {
+        if (
+          viewportRead.watermark !== undefined &&
+          confirmedWatermark !== undefined &&
+          confirmedWatermark < viewportRead.watermark
+        ) {
+          ready.clear();
+          previous.clear();
+        } else if (confirmedWatermark !== undefined) {
+          for (const seq of ready) if (BigInt(seq) <= confirmedWatermark) ready.delete(seq);
+        }
+        viewportRead.watermark = confirmedWatermark;
+      }
+      const confirm = (seq: string) => {
+        if (
+          confirmedWatermark === undefined ||
+          BigInt(seq) > confirmedWatermark ||
+          (seq === confirmedReadSeq &&
+            seq === latestMessageSeq &&
+            Boolean(current.conversation?.unreadCount))
+        )
+          ready.add(seq);
+      };
+      for (const [target, { id, seq, readable }] of viewportRows) {
+        const rect = target.getBoundingClientRect();
+        const shown = Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top);
+        if (entryPending && shown > 0) {
+          entryVisibility.ids.add(id);
+          entryVisibility.sequences.add(seq);
+        }
+        if (!readable || !current.viewportReadEnabled) continue;
+        const seen = previous.get(id)?.seq === seq;
+        previous.delete(id);
+        if (seen && forward && rect.bottom <= bounds.top) confirm(seq);
+        // 看到足够内容后持续追踪，直到整条消息从视口上沿滑出。
+        if (shown > 0 && (seen || shown >= Math.min(rect.height, bounds.height) / 2)) {
+          visible.set(id, { seq, bottom: rect.bottom - bounds.top + scrollTop });
+          if (atBottom) confirm(seq);
+        }
+      }
+      if (!observeRead || !current.viewportReadEnabled) return;
+      if (forward) {
+        // 虚拟列表可能先卸载刚滑出的行，使用上一帧实际测得的下沿。
+        for (const [id, row] of previous)
+          if (
+            row.bottom <= scrollTop &&
+            visibleMessages.some((message) => message.id === id && message.msgSeq === row.seq)
+          )
+            confirm(row.seq);
+      }
+      viewportRead.visible = visible;
+      viewportRead.scrollTop = scrollTop;
+      if (!ready.size) return;
+      const key = `${viewportReadVersion}:${ready.size}`;
+      if (viewportRead.lastReport === key) return;
+      viewportRead.lastReport = key;
+      // 提交最早的已读候选，后续视口可补上跳转留下的缺口。
+      const sequences = [...ready]
+        .sort((a, b) => a.length - b.length || a.localeCompare(b))
+        .slice(0, 512);
+      current.onReadCurrentConversation?.(current.conversation, sequences);
+    };
+    let readFrame: number | undefined;
+    const scheduleRead = () => {
+      if (!viewportRows.size || readFrame !== undefined) return;
+      readFrame = window.requestAnimationFrame(() => {
+        readFrame = undefined;
+        sampleViewport();
+      });
+    };
+    const onViewportScroll = () => {
+      const now = performance.now();
+      if (observeRead && readGestureUntil.current > now)
+        readGestureUntil.current = now + READ_GESTURE_MS;
+      scheduleRead();
+    };
     const report = (rows: string[]) => {
       visitStops(
         navigationKey,
@@ -863,6 +869,8 @@ export function useChatTimelineNavigation({
       if (visible.length) onSeeInteractions?.(visible);
     };
     const probe = () => {
+      if (entryPending && viewportRows.size) sampleViewport();
+      else scheduleRead();
       const bounds = scroll.getBoundingClientRect();
       if (bounds.height <= 0) return;
       const seen: string[] = [];
@@ -878,32 +886,53 @@ export function useChatTimelineNavigation({
       typeof IntersectionObserver === 'undefined'
         ? undefined
         : new IntersectionObserver(
-            (entries) =>
+            (entries) => {
+              scheduleRead();
               report(
                 entries.flatMap(({ target, intersectionRatio }) => {
                   const id = targets.get(target);
                   return intersectionRatio > 0 && id ? [id] : [];
                 }),
-              ),
-            { root: scroll, threshold: Number.EPSILON },
+              );
+            },
+            {
+              root: scroll,
+              threshold: observeRead ? [Number.EPSILON, 0.5] : Number.EPSILON,
+            },
           );
-    for (const target of targets.keys()) observer?.observe(target);
-    if (interactionTargets?.size) {
+    for (const target of new Set([...targets.keys(), ...viewportRows.keys()]))
+      observer?.observe(target);
+    if (viewportRows.size) scroll.addEventListener('scroll', onViewportScroll, { passive: true });
+    if (interactionTargets?.size || viewportRows.size) {
       window.addEventListener('focus', probe);
+      window.addEventListener('blur', clearVisibleRead);
       document.addEventListener('visibilitychange', probe);
     }
     return () => {
       observer?.disconnect();
       observer?.takeRecords();
+      scroll.removeEventListener('scroll', onViewportScroll);
+      if (readFrame !== undefined) window.cancelAnimationFrame(readFrame);
       window.removeEventListener('focus', probe);
+      window.removeEventListener('blur', clearVisibleRead);
       document.removeEventListener('visibilitychange', probe);
     };
   }, [
     loading,
     loadingNewer,
     navigationKey,
-    renderedTimelineItems,
+    conversation?.id,
+    confirmedReadSeq,
+    confirmedWatermark,
+    entryPending,
+    entryVisibility,
+    latestMessageSeq,
+    loadError,
     tabActive,
+    unreadDock,
+    viewportRead,
+    viewportReadEnabled,
+    viewportReadVersion,
     dockTargets,
     interactionTargets,
     onSeeInteractions,
@@ -956,7 +985,6 @@ export function useChatTimelineNavigation({
     jumpDockStop,
     jumpMissing,
     jumpToBottomAndRead,
-    jumpToFirstUnreadMessage,
     jumpToSeq,
     jumpingToLatest,
     messageScrollRef,
@@ -967,10 +995,9 @@ export function useChatTimelineNavigation({
       readGestureUntil.current = 0;
     },
     requestReadAtBottom,
-    clearUnreadJump: () => setUnreadJump(null),
     showBottomJump,
-    timeline,
+    timelineEnabled,
     timelineContentRef,
-    unreadJump,
+    observeMessageVisibility,
   };
 }

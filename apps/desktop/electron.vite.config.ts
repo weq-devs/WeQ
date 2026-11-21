@@ -128,6 +128,7 @@ export default defineConfig({
           // 抓包会话要以 root 跑（Electron 不能以 root 运行），所以和 attachWorker
           // 一样单独打一个入口，用 `sudo` + `ELECTRON_RUN_AS_NODE` 拉起。
           captureWorker: resolve(import.meta.dirname, 'src/main/capture_worker.ts'),
+          qqSyncWorker: resolve(import.meta.dirname, 'src/main/qq_sync/worker.ts'),
           // 密钥扫描同理：读别的进程内存要 root，单独打成 root 子进程入口。
           keyScanWorker: resolve(import.meta.dirname, 'src/main/key_scan_worker.ts'),
           storageCleanupWorker: resolve(import.meta.dirname, 'src/main/storage_cleanup_worker.ts'),
@@ -157,6 +158,7 @@ export default defineConfig({
             chunk.name === 'ocrWorker' ||
             chunk.name === 'attachWorker' ||
             chunk.name === 'captureWorker' ||
+            chunk.name === 'qqSyncWorker' ||
             chunk.name === 'keyScanWorker' ||
             chunk.name === 'storageCleanupWorker' ||
             chunk.name === 'backupProbeWorker' ||

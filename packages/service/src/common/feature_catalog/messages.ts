@@ -47,15 +47,6 @@ export const CONVERSATION_CALENDAR_FEATURE = defineFeature(
 
 export const MESSAGE_FEATURES = [
   messageFeature(
-    'system-emoji-catalog',
-    '在线系统表情目录',
-    '从表情面板查看 QQ 在线目录或查询单个表情。',
-    {
-      context: ['account', 'conversation'],
-      navigation: 'context',
-    },
-  ),
-  messageFeature(
     'ai-voice-catalog',
     '群聊在线声线',
     '在群聊 AI 声聊面板浏览当前群的声线、试听并发送。',
@@ -70,10 +61,52 @@ export const MESSAGE_FEATURES = [
     '在消息菜单请求 QQ 翻译，并在原消息下方查看译文。',
     { navigation: 'context' },
   ),
-  messageFeature('history.search', '搜索聊天记录', '按关键词检索消息内容，也可限定在指定会话。', {
-    context: ['account'],
-    tools: ['search_messages', 'search_in_conversation'],
-    docs: ['guide/chat-view.md#feature-messages.history.search'],
+  messageFeature(
+    'history.search',
+    '搜索聊天记录',
+    '在搜索界面组合关键词、发送者、日期和类型，也可限定在当前会话。',
+    {
+      context: ['account'],
+      tools: [
+        'search_messages',
+        'search_in_conversation',
+        'inspect_timeline',
+        'get_messages_by_date',
+        'fetch_history_window',
+      ],
+      docs: ['guide/chat-view.md#feature-messages.history.search'],
+    },
+  ),
+  messageFeature(
+    'history.shared-media',
+    '共享媒体',
+    '从会话标题栏浏览图片、视频和文件，也可定位原消息。',
+    {
+      context: ['account', 'conversation'],
+      navigation: 'context',
+      docs: ['guide/chat-view.md#feature-messages.history.shared-media'],
+    },
+  ),
+  messageFeature(
+    'timeline.grouping',
+    '连续发言分组',
+    '主聊天按发送者和时间归组，保留每条消息的引用、定位与多选。',
+    {
+      context: ['account', 'conversation'],
+      docs: ['guide/chat-view.md#feature-messages.timeline.grouping'],
+    },
+  ),
+  messageFeature(
+    'timeline.unread-boundary',
+    '聊天内未读分界',
+    '在时间线标出未读起点，浏览历史时显示剩余未读条数。',
+    {
+      context: ['account', 'conversation'],
+      docs: ['guide/chat-view.md#feature-messages.timeline.unread-boundary'],
+    },
+  ),
+  messageFeature('reply.touch', '触屏横滑引用', '向左滑动消息气泡，松手引用并聚焦输入框。', {
+    docs: ['guide/chat-view.md#feature-messages.reply.touch'],
   }),
   messageFeature(
     'conversation.preview',
@@ -97,6 +130,47 @@ export const MESSAGE_FEATURES = [
   messageFeature('important', '重要消息', '在群聊中查看并定位提及、回复、文件等重要消息。', {
     context: ['account', 'group'],
     navigation: 'context',
+    tools: ['find_people_who_mentioned'],
+  }),
+  messageFeature('send', '发送消息', '从输入区发送文本、媒体、文件和适用的卡片。', {
+    context: ['account', 'conversation'],
+    navigation: 'context',
+    tools: [
+      'send_text_message',
+      'send_media_message',
+      'send_file_message',
+      'send_rich_message',
+      'send_tuwen_ark',
+    ],
+    docs: ['guide/chat-view.md'],
+  }),
+  messageFeature('voice.transcribe', '语音转文字', '从语音消息查看已有文字或发起转写。', {
+    navigation: 'context',
+    tools: ['transcribe_voice_message'],
+    docs: ['guide/voice-transcribe.md'],
+  }),
+  messageFeature('flash.share', '分享 QQ 闪传', '在闪传文件列表获取分享链接。', {
+    navigation: 'context',
+    tools: ['get_flash_share_link'],
+  }),
+  messageFeature('red-packet.send', '发 QQ 红包', '填写红包信息，生成二维码后在手机 QQ 支付。', {
+    context: ['account', 'conversation'],
+    navigation: 'context',
+    tools: ['get_red_bag_passwords', 'pack_red_bag'],
+  }),
+  messageFeature('red-packet.detail', 'QQ 红包详情与领取', '从红包消息查看领取记录或领取红包。', {
+    navigation: 'context',
+    tools: ['get_red_bag_detail', 'grab_red_bag'],
+  }),
+  messageFeature('reaction', '表情回应', '在适用的群消息上添加或取消表情回应。', {
+    navigation: 'context',
+    tools: ['set_message_reaction'],
+    docs: ['guide/chat-view.md'],
+  }),
+  messageFeature('poke', '戳一戳', '从会话中的轻互动入口戳指定联系人。', {
+    context: ['account', 'conversation', 'contact'],
+    navigation: 'context',
+    tools: ['send_poke'],
   }),
   messageFeature('forward.inspect', '查看合并转发', '打开聊天记录卡片并查看其中的消息。', {
     navigation: 'context',
@@ -104,6 +178,7 @@ export const MESSAGE_FEATURES = [
   }),
   messageFeature('forward.send', '转发消息', '选择目标后转发，可多选逐条转发或合并转发。', {
     navigation: 'context',
+    tools: ['send_forward_message'],
   }),
   messageFeature('recall', '撤回消息', '在 QQ 在线且有相应权限时撤回适用的消息。', {
     navigation: 'context',

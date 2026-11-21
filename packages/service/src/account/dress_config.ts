@@ -21,6 +21,12 @@ import { extname } from 'node:path';
 
 /** 装扮作用范围。 */
 export type DressScope = 'mine' | 'fallback' | 'all';
+export type DressScopeKind = 'bubble' | 'font' | 'widget';
+export type DressScopes = Record<DressScopeKind, DressScope>;
+
+export function isDressScope(value: unknown): value is DressScope {
+  return value === 'mine' || value === 'fallback' || value === 'all';
+}
 
 /** 背景来源。 */
 export type DressBackgroundSource = 'none' | 'qq' | 'custom';
@@ -65,8 +71,9 @@ export interface DressConfig {
   activeFont: number;
   /** 当前激活的挂件 itemId（0 = 不用）。 */
   activeWidget: number;
-  /** 作用范围（mine = 仅自己，fallback = 替代无装扮，all = 覆盖全部）。 */
+  /** 旧版共用范围，读取时作为各项尚未设置时的默认值。 */
   scope: DressScope;
+  scopes?: DressScopes;
   /** 背景来源（none = 无背景，qq = QQ 同款，custom = 自定义）。 */
   background: DressBackgroundSource;
   /** 自定义背景文件名（不含路径，文件存在同目录下）。图片或视频（mp4/webm/mov）都走这里。 */
@@ -75,6 +82,12 @@ export interface DressConfig {
   widgetId: string;
   /** 背景不透明度（0-1）。 */
   backgroundOpacity: number;
+  /** 浮屏挂件不透明度（0-1）。 */
+  widgetOpacity: number;
+}
+
+function normalizeOpacity(value: number | undefined): number {
+  return value !== undefined && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
 }
 
 /**
@@ -84,6 +97,7 @@ export interface DressConfig {
  */
 export function normalizeDressConfig(raw: Partial<DressConfig>): DressConfig {
   const explicitLocalAppearance = raw.localAppearanceVersion === 1;
+  const scope = isDressScope(raw.scope) ? raw.scope : 'mine';
   return {
     localAppearanceVersion: 1,
     installedBubbles: Array.isArray(raw.installedBubbles) ? raw.installedBubbles : [],
@@ -95,13 +109,19 @@ export function normalizeDressConfig(raw: Partial<DressConfig>): DressConfig {
     activeBubble: explicitLocalAppearance ? Number(raw.activeBubble ?? 0) : 0,
     activeFont: explicitLocalAppearance ? Number(raw.activeFont ?? 0) : 0,
     activeWidget: explicitLocalAppearance ? Number(raw.activeWidget ?? 0) : 0,
-    scope: raw.scope === 'all' || raw.scope === 'fallback' ? raw.scope : 'mine',
+    scope,
+    scopes: {
+      bubble: isDressScope(raw.scopes?.bubble) ? raw.scopes.bubble : scope,
+      font: isDressScope(raw.scopes?.font) ? raw.scopes.font : scope,
+      widget: isDressScope(raw.scopes?.widget) ? raw.scopes.widget : scope,
+    },
     background: ['none', 'qq', 'custom'].includes(raw.background as string)
       ? (raw.background as DressBackgroundSource)
       : 'none',
     backgroundFile: typeof raw.backgroundFile === 'string' ? raw.backgroundFile : '',
     widgetId: typeof raw.widgetId === 'string' ? raw.widgetId : '',
-    backgroundOpacity: typeof raw.backgroundOpacity === 'number' ? raw.backgroundOpacity : 1,
+    backgroundOpacity: normalizeOpacity(raw.backgroundOpacity),
+    widgetOpacity: normalizeOpacity(raw.widgetOpacity),
   };
 }
 
@@ -211,9 +231,13 @@ export class DressConfigService {
   /**
    * 切换作用范围。
    */
-  setScope(scope: DressScope): void {
+  setScope(scope: DressScope, kind?: DressScopeKind): void {
     const cfg = this.read();
-    cfg.scope = scope;
+    if (kind) cfg.scopes = { ...cfg.scopes!, [kind]: scope };
+    else {
+      cfg.scope = scope;
+      cfg.scopes = { bubble: scope, font: scope, widget: scope };
+    }
     this.write(cfg);
   }
 
@@ -255,7 +279,13 @@ export class DressConfigService {
    */
   setBackgroundOpacity(opacity: number): void {
     const cfg = this.read();
-    cfg.backgroundOpacity = Math.max(0, Math.min(1, opacity));
+    cfg.backgroundOpacity = normalizeOpacity(opacity);
+    this.write(cfg);
+  }
+
+  setWidgetOpacity(opacity: number): void {
+    const cfg = this.read();
+    cfg.widgetOpacity = normalizeOpacity(opacity);
     this.write(cfg);
   }
 
@@ -291,10 +321,12 @@ export class DressConfigService {
       activeFont: 0,
       activeWidget: 0,
       scope: 'mine',
+      scopes: { bubble: 'mine', font: 'mine', widget: 'mine' },
       background: 'none',
       backgroundFile: '',
       widgetId: '',
       backgroundOpacity: 1,
+      widgetOpacity: 1,
     };
   }
 }

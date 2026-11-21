@@ -10,6 +10,8 @@ import {
   type LoggerContext,
   type LogLevel,
 } from '@weq/service/console-output';
+import { DEVELOPMENT_RESTART_EXIT_CODE } from './development_restart';
+import { manualRestartArgs } from './startup_window';
 
 export { terminalColor };
 
@@ -276,13 +278,30 @@ export async function launchDevelopment(
   env: NodeJS.ProcessEnv,
 ): Promise<number> {
   const processGroup = process.platform !== 'win32';
-  return superviseDevelopmentChild(
-    spawn(command, args, {
-      cwd,
-      env: developmentChildEnvironment(env),
-      stdio: ['inherit', 'pipe', 'pipe'],
-      detached: processGroup,
-    }),
-    processGroup,
-  );
+  const childEnv = developmentChildEnvironment({ ...env, WEQ_DEV_RESTART_MANAGED: '1' });
+  let launchArgs = args;
+  for (;;) {
+    const status = await superviseDevelopmentChild(
+      spawn(command, launchArgs, {
+        cwd,
+        env: childEnv,
+        stdio: ['inherit', 'pipe', 'pipe'],
+        detached: processGroup,
+      }),
+      processGroup,
+    );
+    if (status !== DEVELOPMENT_RESTART_EXIT_CODE) return status;
+
+    launchArgs = manualRestartArgs([command, ...args]);
+    childEnv.WEQ_DEV_RESTART = '1';
+    childEnv.WEQ_DEV_STARTED_AT = String(Date.now());
+    process.stdout.write(
+      developmentRecord(
+        'info',
+        '正在重启 WeQ 开发服务',
+        { scope: 'startup' },
+        terminalColor('stdout'),
+      ),
+    );
+  }
 }

@@ -80,9 +80,10 @@ export function createContactMetricsRouter(
     }),
     status: procedure.input(binding).query(({ input }) => resolve(input).status()),
     snapshot: procedure.input(binding).query(({ input }) => resolve(input).snapshot()),
-    localTimes: procedure
-      .input(binding.extend({ kind: z.enum(['friends', 'groups']) }))
-      .query(({ input }) => resolve(input).localTimes(input.kind)),
+    localTimes: procedure.input(binding).query(({ input }) => resolve(input).localTimes()),
+    localGroupTimes: procedure
+      .input(binding.extend({ groupCodes: z.array(z.string().regex(/^[1-9]\d{0,14}$/)).max(256) }))
+      .query(({ input }) => resolve(input).localGroupTimes(input.groupCodes)),
     localGroupMaxSeqs: procedure
       .input(binding)
       .query(({ input }) => resolve(input).localGroupMaxSeqs()),
@@ -97,6 +98,7 @@ export function createContactMetricsRouter(
           missingOnly: z.boolean().default(false),
           range: z.enum(['all', 'older24h']).default('all'),
           target: z.enum(['metrics', 'groupMembers']).default('metrics'),
+          foreground: z.boolean().optional(),
           fields: z
             .array(
               z.enum([
@@ -121,8 +123,17 @@ export function createContactMetricsRouter(
         }),
       )
       .mutation(({ input }) =>
-        resolve(input).rebuild(input.missingOnly, input.fields, input.range, input.target),
+        resolve(input).rebuild(
+          input.missingOnly,
+          input.fields,
+          input.range,
+          input.target,
+          input.foreground,
+        ),
       ),
+    backgroundRefresh: procedure
+      .input(binding.extend({ taskId: z.string().uuid() }))
+      .mutation(({ input }) => resolve(input).backgroundRefresh(input.taskId)),
     changed: procedure.input(binding).subscription(({ input }) => {
       const runtime = resolve(input);
       return observable<{ base: boolean; relationGraph?: boolean; profiles?: boolean }>((emit) => {

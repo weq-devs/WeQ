@@ -41,6 +41,7 @@ import {
   forwardEntries,
   forwardRecordTarget,
   forwardSenderName,
+  isForwardContinuation,
   type ForwardEntry,
 } from '../lib/forwardRecordActions';
 import { textMarkdownKey } from '../state/textMarkdown';
@@ -408,13 +409,21 @@ const ForwardRow = memo(function ForwardRow({
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const decorationEnabled = useContext(MsgDecorationEnabledContext);
   // 转发行都是「对方」样式，替代无装扮仍依据原始 ID 判断。
-  const { widget: activeWidget, scope: activeScope, bubbleActive, fontActive } = useActiveWidget();
+  const {
+    widget: activeWidget,
+    scope: activeScope,
+    scopes,
+    bubbleActive,
+    fontActive,
+  } = useActiveWidget();
   const decoration = record.decoration;
   const activeFontFx = useActiveFontFx();
   const localBubble =
-    bubbleActive && localDressApplies(activeScope, false, Boolean(decoration?.bubbleId));
+    bubbleActive &&
+    localDressApplies(scopes?.bubble ?? activeScope, false, Boolean(decoration?.bubbleId));
   const localFont =
-    fontActive && localDressApplies(activeScope, false, Boolean(decoration?.fontId));
+    fontActive &&
+    localDressApplies(scopes?.font ?? activeScope, false, Boolean(decoration?.fontId));
   const localWidget = localDressApplies(activeScope, false, Boolean(decoration?.widgetId))
     ? activeWidget
     : null;
@@ -433,6 +442,8 @@ const ForwardRow = memo(function ForwardRow({
   const avatar =
     senderAvatarFromUin(record.senderUin) || record.senderInfo?.avatar?.avatarUrl || null;
   const displayName = forwardSenderName(record);
+  const continuation = isForwardContinuation(entry);
+  const dressed = Boolean(msgDec.bubbleId || localBubble);
   const metadata = {
     msgSeq: record.msgSeq === undefined ? undefined : String(record.msgSeq),
     createdAt: sendTimeMs > 0 ? new Date(sendTimeMs).toISOString() : undefined,
@@ -479,6 +490,10 @@ const ForwardRow = memo(function ForwardRow({
     <div
       ref={rowRef}
       className="weq-forward-row message-line theirs"
+      data-forward-group={entry.groupPosition}
+      data-forward-continuation={continuation || undefined}
+      data-message-group={dressed ? undefined : entry.groupPosition}
+      data-grouped-dress-bubble={dressed && entry.groupPosition ? true : undefined}
       data-bubble={msgDec.bubbleId || undefined}
       data-font={msgDec.fontId || undefined}
       data-weq-system-font={msgDec.systemFont || undefined}
@@ -488,24 +503,30 @@ const ForwardRow = memo(function ForwardRow({
       data-record-font={decoration?.fontId || undefined}
       data-record-widget={decoration?.widgetId || undefined}
     >
-      <header className="weq-forward-author">
-        <ProfileAvatar className="weq-forward-avatar-link" target={profileTarget}>
-          <div className="weq-forward-avatar">
-            {avatar ? (
-              <img src={avatar} alt="" loading="lazy" />
-            ) : (
-              <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
-            )}
-            {widget ? <PendantLayer widget={widget} /> : null}
+      {continuation ? (
+        <span className="sr-only" data-privacy-sensitive>
+          {displayName}
+        </span>
+      ) : (
+        <header className="weq-forward-author">
+          <ProfileAvatar className="weq-forward-avatar-link" target={profileTarget}>
+            <div className="weq-forward-avatar">
+              {avatar ? (
+                <img src={avatar} alt="" loading="lazy" />
+              ) : (
+                <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
+              )}
+              {widget ? <PendantLayer widget={widget} /> : null}
+            </div>
+          </ProfileAvatar>
+          <div className="weq-message-heading">
+            <span className="message-name weq-forward-row-name" data-marquee-text>
+              {displayName}
+            </span>
+            <MessageProvenance message={metadata} />
           </div>
-        </ProfileAvatar>
-        <div className="weq-message-heading">
-          <span className="message-name weq-forward-row-name" data-marquee-text>
-            {displayName}
-          </span>
-          <MessageProvenance message={metadata} />
-        </div>
-      </header>
+        </header>
+      )}
       <div className="weq-forward-row-main">
         <div ref={bubbleRef} className="weq-forward-bubble qq-bubble-shell" data-marquee-text>
           <QqMessageContent

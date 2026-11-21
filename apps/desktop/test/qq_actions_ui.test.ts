@@ -55,6 +55,7 @@ const state = vi.hoisted(() => ({
   refreshSigns: vi.fn(async () => {}),
   refreshTodos: vi.fn(async (_input?: unknown) => {}),
   refreshJoin: vi.fn(async () => {}),
+  refreshAdvanced: vi.fn(async () => {}),
   refreshPeerStats: vi.fn(async () => {}),
   data: {} as Record<string, unknown>,
 }));
@@ -111,6 +112,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'request',
     'todo',
     'groupSettings',
+    'setGroupAdvancedSetting',
     'qzone',
     'inputStatus',
     'inlineButton',
@@ -130,6 +132,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'groupPermissions',
     'albumPermissions',
     'groupJoinSettings',
+    'groupAdvancedSettings',
   ];
   return {
     client: {
@@ -232,6 +235,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 error: state.data[`error:${name}`],
                 refetch: async () => {
                   if (name === 'groupJoinSettings') await state.refreshJoin();
+                  if (name === 'groupAdvancedSettings') await state.refreshAdvanced();
                   return { error: null, data: state.data[name] };
                 },
               }),
@@ -321,6 +325,7 @@ beforeEach(() => {
   state.refreshSigns.mockClear();
   state.refreshTodos.mockClear();
   state.refreshJoin.mockClear();
+  state.refreshAdvanced.mockClear();
   state.refreshPeerStats.mockClear();
   state.data = {
     typingStatus: { mode: 'off', hidden: [] },
@@ -1179,6 +1184,41 @@ describe('QQ 主动操作的实际界面', () => {
     );
     expect(f.host.querySelectorAll('tbody tr[aria-selected="true"]')).toHaveLength(3);
   });
+  it('群文件更多菜单保留勾选，按所在行决定保存单项或整组', async () => {
+    const fileB = { ...file, fileId: 'file-b', fileName: '文件 B' };
+    const fileC = { ...file, fileId: 'file-c', fileName: '文件 C' };
+    const save = vi.fn();
+    const f = fixture(() =>
+      h(GroupFileManager, {
+        groupId: 123,
+        directory: 'folder-a',
+        files: [file, fileB, fileC],
+        folders: [],
+        onChanged: vi.fn(),
+        onSaveSelected: save,
+      }),
+    );
+    const checkbox = (name: string) =>
+      f.host.querySelector<HTMLInputElement>(`input[aria-label="选择 ${name}"]`)!;
+    act(() => f.button('操作 文件 A').click());
+    expect(checkbox('文件 A').checked).toBe(false);
+    expect(f.button('保存所选项目')).toBeNull();
+    await act(async () => menuButton('保存').click());
+    expect(save).toHaveBeenLastCalledWith([file], []);
+
+    act(() => checkbox('文件 A').click());
+    act(() => checkbox('文件 B').click());
+    act(() => f.button('操作 文件 C').click());
+    await act(async () => menuButton('保存').click());
+    expect(save).toHaveBeenLastCalledWith([fileC], []);
+    expect(checkbox('文件 A').checked).toBe(true);
+    expect(checkbox('文件 B').checked).toBe(true);
+    expect(checkbox('文件 C').checked).toBe(false);
+
+    act(() => f.button('操作 文件 B').click());
+    await act(async () => menuButton('保存所选项目').click());
+    expect(save).toHaveBeenLastCalledWith([file, fileB], []);
+  });
   it('写入一项后切源停止余下批次，不向新账号发请求', async () => {
     const files = [file, { ...file, fileId: 'file-b', fileName: '文件 B' }];
     state.data['listing:folder-a'] = { files, folders: [] };
@@ -1858,10 +1898,32 @@ describe('QQ 主动操作的实际界面', () => {
   it('群分类直接展示，普通成员的退群操作独立可见', async () => {
     const f = fixture(() => h(GroupActions, { groupId: 123 }));
     expect(f.host.querySelector('[aria-label="群分类标签"]')).not.toBeNull();
-    expect(f.button('退出群聊')).not.toBeNull();
+    expect(f.button('退出群聊')?.getAttribute('data-danger')).toBe('outline');
     expect(f.button('群管理菜单')).toBeNull();
     expect(f.host.textContent).toContain('其他操作');
     expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('群搜索方式未知时仍可明确选档，并在提交后重新读取', async () => {
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    const select = () => f.host.querySelector<HTMLButtonElement>('[aria-label="群搜索方式"]')!;
+    expect(select().disabled).toBe(false);
+    expect(select().dataset.value).toBe('');
+
+    state.mutate.mockImplementationOnce(async () => {
+      state.data.groupAdvancedSettings = { searchMode: 'number_only' };
+      return { state: 'accepted' };
+    });
+    await act(async () => chooseFormOption(select(), 'number_only'));
+    expect(state.mutate).toHaveBeenCalledWith(
+      'setGroupAdvancedSetting',
+      expect.objectContaining({
+        groupId: 123,
+        change: { key: 'searchMode', value: 'number_only' },
+      }),
+    );
+    expect(state.refreshAdvanced).toHaveBeenCalledOnce();
+    f.update();
+    expect(select().dataset.value).toBe('number_only');
   });
   it('目录同名且未返回数字身份时按操作名称合并显示数量，不产生重复React键', () => {
     state.data.groupJoinSettings = { groupId: 123, categoryId: 37, categoryName: '合成分类' };
@@ -1984,6 +2046,7 @@ describe('QQ 主动操作的实际界面', () => {
     });
     await act(async () => f.button('保存加群方式').click());
     expect(state.refreshJoin).toHaveBeenCalledOnce();
+    expect(state.confirm).not.toHaveBeenCalled();
     expect(f.host.querySelector<HTMLElement>('[aria-label="加群方式"]')!.dataset.value).toBe('1');
     expect(f.button('保存加群方式').disabled).toBe(false);
     await act(async () => f.button('保存加群方式').click());

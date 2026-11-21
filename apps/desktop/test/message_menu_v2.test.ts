@@ -204,6 +204,11 @@ it('方向键在三行按钮间移动，Esc 关闭并归还焦点', async () => 
   const close = vi.fn();
   const origin = document.createElement('button');
   document.body.append(origin);
+  const matches = origin.matches.bind(origin);
+  vi.spyOn(origin, 'matches').mockImplementation(
+    (selector) => selector === ':focus-visible' || matches(selector),
+  );
+  origin.focus();
   await render({
     state: { message, x: 10, y: 10, originElement: origin },
     onForward: vi.fn(),

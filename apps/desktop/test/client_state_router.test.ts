@@ -10,12 +10,18 @@ const context = vi.hoisted(() => ({
   configId: '10001_aabbccdd',
   config: null as UserConfigService | null,
   assistantSessions: [] as Array<{ id: string }>,
+  reportOfficialRead: vi.fn(
+    async (_uid: string, _position: string, _valid: () => boolean, _manual: boolean) => ({
+      state: 'acknowledged',
+    }),
+  ),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
     accountConfig: { getRecord: () => ({ configId: context.configId }) },
     fileResource: { trustPath: vi.fn() },
     assistant: { listSessions: () => context.assistantSessions },
+    unreadInfo: { reportOfficialRead: context.reportOfficialRead },
   };
   return {
     requirePlatform: () => ({ appDataRoot: () => context.root }),
@@ -38,8 +44,36 @@ beforeEach(() => {
   context.configId = '10001_aabbccdd';
   context.config = new UserConfigService({ appDataRoot: () => context.root });
   context.assistantSessions = [];
+  context.reportOfficialRead.mockClear();
 });
 afterEach(() => rmSync(context.root, { recursive: true, force: true }));
+it('自动阅读从账号状态路由进入公众号上报，初始化与手动未读使旧观察失效', async () => {
+  const client = clientStateRouter.createCaller({});
+  const binding = { expectedAccountUin: context.uin, expectedAccountConfigId: context.configId };
+  const key = 'official:u_mail';
+  const position = '0:1700000000:20';
+  await client.accountPatch({
+    ...binding,
+    namespace: 'reads',
+    values: { [key]: position },
+    seed: true,
+  });
+  expect(context.reportOfficialRead).not.toHaveBeenCalled();
+  await client.accountPatch({ ...binding, namespace: 'reads', values: { [key]: { position } } });
+  expect(context.reportOfficialRead).toHaveBeenCalledWith(
+    'u_mail',
+    position,
+    expect.any(Function),
+    false,
+  );
+  const valid = context.reportOfficialRead.mock.calls[0]![2] as () => boolean;
+  expect(valid()).toBe(true);
+  boundClientState(binding).setDirectoryReadState([{ key, position }], true);
+  expect(valid()).toBe(false);
+  context.reportOfficialRead.mockClear();
+  await client.accountPatch({ ...binding, namespace: 'reads', values: { [key]: position } });
+  expect(context.reportOfficialRead).not.toHaveBeenCalled();
+});
 it('计费自动启用默认关闭，经真实共享路由修改后立即生效并跨账号保留', async () => {
   const client = clientStateRouter.createCaller({});
   const normal = networkCost(false, false, 'fixture');

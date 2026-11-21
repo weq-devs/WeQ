@@ -20,9 +20,16 @@ import {
 import type { QQGroupPermissionContext } from '@weq/service/qq-permissions';
 import type { GroupTodoView } from '@weq/service';
 import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/routers/qq_actions';
+import { backgroundTasks } from '../src/main/background_tasks';
+import { albumVideoPublished } from '../src/main/account_task_receipts';
 
-vi.mock('../src/main/account_task_receipts', () => ({
+vi.mock('../src/main/account_task_receipts', async (original) => ({
+  ...(await original<typeof import('../src/main/account_task_receipts')>()),
   recordAccountTask: () => vi.fn(),
+}));
+vi.mock('../src/main/context/app_context', async (original) => ({
+  ...(await original<typeof import('../src/main/context/app_context')>()),
+  getAppContext: () => ({ account: null, services: null }),
 }));
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -96,7 +103,16 @@ function fixture() {
       deleteCategoryTag: empty(),
       getCategoryTags: vi.fn(async () => []),
     },
-    groupAlbumMedia: { deleteMedia: empty(), setLike: empty(), comment: empty() },
+    groupAlbumMedia: {
+      deleteMedia: empty(),
+      setLike: empty(),
+      comment: empty(),
+      getMediaList: vi.fn(async () => ({
+        capabilities: { upload: true },
+        mediaList: [] as unknown[],
+        nextAttachInfo: '',
+      })),
+    },
     webQuery: {
       getQzoneFriendPermissionList: vi.fn(async (_kind: 'blocked' | 'hidden') => []),
       getDaySignedList: vi.fn(async () => []),
@@ -109,6 +125,8 @@ function fixture() {
       deleteGroupNotice: empty(),
       uploadGroupNoticeImage: vi.fn(async () => ({ id: 'pic', width: 1, height: 1 })),
       uploadGroupAlbumImage: empty(),
+      getGroupAlbumList: vi.fn(async () => [{ id: 'album', title: '合成相册' }]),
+      uploadGroupAlbumVideo: vi.fn(async () => ({ videoId: 'published-video' })),
       setQzoneLike: empty(),
       commentQzone: empty(),
       replyQzone: empty(),
@@ -347,6 +365,21 @@ describe('收藏包导入路由', () => {
         keys: [view.items[0]!.key],
       });
       await vi.waitFor(() => expect(add).toHaveBeenCalledOnce());
+      const task = backgroundTasks.snapshot().find((task) => task.kind === 'favorite-import')!;
+      expect(task.foreground).toBe(true);
+      expect((await f.caller.favoriteImportState(binding))?.backgrounded).toBe(false);
+      await expect(
+        f.caller.favoriteImportBackground({
+          ...binding,
+          token: '8f872727-9d76-40ee-bff2-b2dd180b4158',
+        }),
+      ).rejects.toThrow('批次已改变');
+      expect(
+        (await f.caller.favoriteImportBackground({ ...binding, token: view.token })).backgrounded,
+      ).toBe(true);
+      expect(
+        backgroundTasks.snapshot().filter((item) => item.kind === 'favorite-import'),
+      ).toMatchObject([{ id: task.id, foreground: false }]);
       await expect(f.caller.favorite({ ...binding, action: 'delete', emojiId })).rejects.toThrow(
         '等待',
       );
@@ -552,6 +585,18 @@ describe('主动操作的账号与参数边界', () => {
       '账号已切换',
     );
     expect(f.s.interaction.sendGroupSign).toHaveBeenCalledTimes(2);
+  });
+  it('退群提交前复核群主和当前入群身份', async () => {
+    const f = fixture();
+    const input = { ...group, action: 'leave' as const };
+    f.s.groupInfo.listGroupDirectory.mockResolvedValueOnce([{ groupCode: '123', role: 'owner' }]);
+    await expect(f.caller.groupSettings(input)).rejects.toThrow('解散群聊');
+    f.s.groupInfo.listGroupDirectory.mockResolvedValueOnce([{ groupCode: '456', role: 'member' }]);
+    await expect(f.caller.groupSettings(input)).rejects.toThrow('入群身份');
+    expect(f.s.groupModeration.leaveGroup).not.toHaveBeenCalled();
+    await expect(f.caller.groupSettings(input)).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.groupModeration.leaveGroup).toHaveBeenCalledOnce();
+    expect(f.s.groupModeration.leaveGroup).toHaveBeenCalledWith(123);
   });
   it('普通成员只能管理自己上传的文件，不能管理目录或设置群待办', async () => {
     const f = fixture();
@@ -1071,4 +1116,80 @@ describe('在线管理员权限', () => {
     );
     expect(f.s.groupModeration.setAdminPermissions).not.toHaveBeenCalled();
   });
+});
+
+it('宿主接管群相册视频，前后台交接及读回均使用原批次，重复请求不重传', async () => {
+  const f = fixture();
+  const finish = Promise.withResolvers<{ videoId: string }>();
+  f.s.fileResource.resolveLocalFile.mockResolvedValue('/synthetic/video.mp4');
+  f.s.webQuery.uploadGroupAlbumVideo.mockReturnValueOnce(finish.promise);
+  const target = { ...group, albumId: 'album' };
+  const requestId = globalThis.crypto.randomUUID();
+  const input = {
+    ...target,
+    requestId,
+    path: '/synthetic/video.mp4',
+    fileName: 'video.mp4',
+    coverBase64: 'Zml4dHVyZQ==',
+    durationMs: 1000,
+    width: 640,
+    height: 480,
+  };
+  let taskId: string | undefined;
+  try {
+    taskId = await f.caller.albumVideoPublish(input);
+    expect(await f.caller.albumVideoPublish(input)).toBe(taskId);
+    await vi.waitFor(() => expect(f.s.webQuery.uploadGroupAlbumVideo).toHaveBeenCalledOnce());
+    expect(await f.caller.albumVideoStatus(target)).toMatchObject({
+      id: taskId,
+      requestId,
+      foreground: true,
+      statusLabel: '正在上传到 QQ 并发布',
+    });
+    await f.caller.albumVideoBackground({ ...target, taskId });
+    expect(await f.caller.albumVideoStatus(target)).toMatchObject({
+      id: taskId,
+      foreground: false,
+    });
+    const row = {
+      batchId: 'batch',
+      uploader: '10002',
+      video: { id: 'published-video', url: 'https://synthetic.invalid/v.mp4', videoUrls: [] },
+    };
+    f.s.groupAlbumMedia.getMediaList.mockResolvedValueOnce({
+      capabilities: { upload: true },
+      mediaList: [row],
+      nextAttachInfo: '',
+    });
+    expect(
+      await albumVideoPublished(
+        f.s as unknown as QQActionServices,
+        { uin: binding.expectedAccountUin },
+        {
+          groupCode: '123',
+          albumId: 'album',
+          requestId,
+          submitted: true,
+          videoId: 'published-video',
+        },
+        () => {},
+      ),
+    ).toBe(false);
+    f.s.groupAlbumMedia.getMediaList.mockResolvedValueOnce({
+      capabilities: { upload: true },
+      mediaList: [{ ...row, uploader: binding.expectedAccountUin }],
+      nextAttachInfo: '',
+    });
+    finish.resolve({ videoId: 'published-video' });
+    await vi.waitFor(async () =>
+      expect(await f.caller.albumVideoStatus(target)).toMatchObject({
+        id: taskId,
+        status: 'completed',
+      }),
+    );
+    expect(f.s.webQuery.uploadGroupAlbumVideo).toHaveBeenCalledOnce();
+  } finally {
+    finish.resolve({ videoId: 'published-video' });
+    if (taskId) backgroundTasks.remove(taskId);
+  }
 });

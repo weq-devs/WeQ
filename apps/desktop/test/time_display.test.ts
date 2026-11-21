@@ -51,7 +51,7 @@ describe('功能接入统一格式', () => {
         createElement(MessageTimeDivider, { value: iso, precision: 'millisecond' }),
       ),
     ).toContain('title="2026-03-04 14:05:06.000（北京时间）"');
-    expect(normal).toContain('tabindex="0"');
+    expect(normal).not.toContain('tabindex=');
   });
   it('毫秒详情保留精度，缺失值不产生 1970 年占位', () => {
     expect(

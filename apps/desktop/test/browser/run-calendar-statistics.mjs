@@ -54,7 +54,6 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/calendar-statistics.html`,
   );
-  await page.getByRole('group', { name: '统计内容', exact: true }).waitFor();
   await page
     .getByRole('status', { exact: true })
     .filter({ hasText: '等待可用读取连接，将自动继续' })
@@ -66,8 +65,10 @@ try {
       .getAttribute('aria-expanded')) !== 'true'
   )
     throw new Error('任务日志未默认展开');
-  if (!(await page.getByRole('button', { name: '列表日期：2026-11-08', exact: true }).isVisible()))
-    throw new Error('列表日期被扫描日覆盖');
+  if (await page.getByRole('group', { name: '统计内容', exact: true }).count())
+    throw new Error('任务详情仍显示统计筛选');
+  if (await page.getByRole('region', { name: '当天会话', exact: true }).count())
+    throw new Error('任务详情仍显示会话结果');
   await mkdir(output, { recursive: true });
   for (const width of [1100, 390, 320])
     for (const dark of [false, true]) {
@@ -83,21 +84,6 @@ try {
       await page.getByRole('button', { name: '暂停当月统计', exact: true }).click();
       await page.getByRole('button', { name: '继续当月统计', exact: true }).waitFor();
       await page.getByRole('button', { name: '继续当月统计', exact: true }).click();
-      await page
-        .getByRole('group', { name: '统计内容', exact: true })
-        .getByRole('button', { name: '公众号/服务号', exact: true })
-        .click();
-      const option = page.getByRole('button', { name: '公众号/服务号', exact: true });
-      if ((await option.getAttribute('aria-pressed')) !== 'false')
-        throw new Error('组合来源不能取消');
-      await option.click();
-      await option.focus();
-      await page.keyboard.press('Escape');
-      if ((await option.getAttribute('aria-pressed')) !== 'true')
-        throw new Error('Escape 清空了已记忆的统计来源');
-      await page.locator('.weq-overview-calendar-row').first().click();
-      if ((await page.locator('body').getAttribute('data-located')) !== 'true')
-        throw new Error('定位未触发');
       const overflow = await page.evaluate(
         () =>
           document.documentElement.scrollWidth > innerWidth ||
@@ -114,28 +100,24 @@ try {
       await page.getByRole('button', { name: '任务日志', exact: true }).click();
       await page.getByRole('button', { name: '任务日志', exact: true }).click();
     }
-  const mine = page.getByRole('button', { name: '我的设备', exact: true });
-  await mine.click();
-  await page.reload();
-  if ((await mine.getAttribute('aria-pressed')) !== 'false') throw new Error('选择未记忆');
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/calendar-statistics.html?completed=1`,
   );
   const monthRetry = page.getByRole('button', { name: '重试当月统计', exact: true });
   await monthRetry.waitFor();
   if (!(await monthRetry.isEnabled())) throw new Error('完成后当月重试被禁用');
-  const oldRow = await page.locator('.weq-overview-calendar-row').first().innerText();
   await monthRetry.click();
   await page.getByRole('button', { name: '暂停当月统计', exact: true }).waitFor();
-  if ((await page.locator('.weq-overview-calendar-row').first().innerText()) !== oldRow)
-    throw new Error('重试时清除了原有结果');
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/calendar-statistics.html?overview=1`,
   );
-  await page.getByRole('dialog', { name: '会话日历（所有会话）', exact: true }).waitFor();
+  await page.getByRole('dialog', { name: '会话日历（常规视图）', exact: true }).waitFor();
   if (await page.getByRole('group', { name: '统计内容', exact: true }).count())
     throw new Error('会话日历仍有独立的范围选择');
   await page.waitForFunction(() => Number(document.documentElement.dataset.calendarPolls) >= 2);
+  await page.locator('.weq-overview-calendar-row').first().click();
+  if ((await page.locator('body').getAttribute('data-located')) !== 'true')
+    throw new Error('日历定位未触发');
   const left = page.locator('.weq-overview-calendar-left');
   const right = page.locator('.weq-overview-calendar-conversations');
   if (
@@ -317,7 +299,6 @@ try {
     JSON.stringify({
       cases: 18,
       overflow: false,
-      selectionRemembered: true,
       navigation: true,
       stablePolling: true,
       viewScoped: true,

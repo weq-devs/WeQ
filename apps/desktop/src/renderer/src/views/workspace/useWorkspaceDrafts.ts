@@ -14,8 +14,7 @@ import {
   notificationSource,
   conversationNotificationSource,
 } from '../../lib/notificationNavigation.shared';
-import { localDraftToWrite, setLocalDraft } from '@weq/service/draft-edit';
-import { composerDraftRecovery } from '../../lib/composerDraftRecovery';
+import { composerDraftRecovery, type ComposerDraftSnapshot } from '../../lib/composerDraftRecovery';
 import {
   composerAssetIds,
   removeUnusedComposerImages,
@@ -28,6 +27,10 @@ import {
   toIpcElements,
 } from '../../im-template/template/draftElements';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
+import {
+  composerSpeechText,
+  updateComposerSpeechText,
+} from '../../im-template/template/composer.shared';
 
 type DraftInput = {
   binding: QQWriteBinding | null;
@@ -37,7 +40,12 @@ type DraftInput = {
   resolveConversation: (id: string) => Conversation | undefined;
 };
 
-/** 输入只写 ref 和恢复快照；离开会话、切页及退出复用同一保存控制器。 */
+function applyDraft(drafts: ConversationDrafts, conversationId: string, text: string) {
+  if (text) drafts[conversationId] = text;
+  else delete drafts[conversationId];
+}
+
+/** 输入时记录恢复快照，离开会话、切页及退出时同步 QQ 草稿。 */
 export function useWorkspaceDrafts(input: DraftInput) {
   const { binding, messageScope, openedUin, activeConversationId } = input;
   const resolveConversation = useStableCallback(input.resolveConversation);
@@ -64,32 +72,21 @@ export function useWorkspaceDrafts(input: DraftInput) {
     };
   }, [messageScope, source]);
   // 输入先同步保存本机恢复快照；离开时继续写 QQ 草稿，成功后再确认对应快照。
-  const [drafts, setDrafts] = useState<ConversationDrafts>(() => {
-    try {
-      return composerDraftRecovery.load(messageScope);
-    } catch {
-      return {};
-    }
-  });
-  /** 本次会话里被改过、还没落库的会话 id。 */
-  const dirtyDraftsRef = useRef<Set<string>>(new Set(Object.keys(drafts)));
-  const draftVersionsRef = useRef(new Map<string, string | null>());
-  /**
-   * 还没落库的草稿正文（输入框实时值）。**刻意用 ref 而不是 state** —— 每敲一个
-   * 字都 setState 会让整棵 MainView 重渲，这是之前输入卡顿的主因。它只在「切会话 /
-   * 离开消息页 / 退出」时被读取并并进 state 或落库。
-   */
-  const pendingDraftsRef = useRef<ConversationDrafts>({ ...drafts });
+  const [drafts, setDrafts] = useState<ConversationDrafts>({});
+  const savedDraftsRef = useRef(new Map<string, { body: string; version: string | null }>());
+  // 这里只保留未确认的编辑，空串表示清空；每次编辑的对象身份用来识别迟到的保存。
+  const pendingDraftsRef = useRef(new Map<string, ComposerDraftSnapshot>());
   const draftRecoveryFailed = useRef(false);
   useEffect(() => {
     try {
       if (!messageScope) return;
       composerDraftRecovery.migrate(openedUin ?? '', messageScope);
-      const recovered = composerDraftRecovery.load(messageScope);
-      pendingDraftsRef.current = { ...recovered };
-      dirtyDraftsRef.current = new Set(Object.keys(recovered));
-      draftVersionsRef.current.clear();
-      setDrafts(recovered);
+      const recovered = composerDraftRecovery.loadSnapshots(messageScope);
+      pendingDraftsRef.current = new Map(Object.entries(recovered));
+      savedDraftsRef.current.clear();
+      const next: ConversationDrafts = {};
+      for (const [id, snapshot] of Object.entries(recovered)) applyDraft(next, id, snapshot.body);
+      setDrafts(next);
     } catch {
       pushToast({
         key: 'composer-draft-storage',
@@ -110,24 +107,36 @@ export function useWorkspaceDrafts(input: DraftInput) {
   const syncDraftsFromPending = useCallback((): void => {
     setDrafts((current) => {
       const next = { ...current };
-      for (const [id, text] of Object.entries(pendingDraftsRef.current)) {
-        if (text.length) next[id] = text;
-        else delete next[id];
-      }
+      for (const [id, pending] of pendingDraftsRef.current) applyDraft(next, id, pending.body);
       return next;
     });
   }, []);
 
   /**
-   * 输入框改动同步写恢复快照并记在 ref 里，不碰 React state —— 每敲一个字都 setState 会让
-   * 整棵 MainView（含侧边栏 + 聊天区）重渲，这正是之前输入卡顿的主因。
-   * 真正的 state 更新与落库都推迟到 flushDraft（离开会话 / 离开消息页 / 退出）。
+   * 普通输入只更新 ref 和恢复快照，避免逐字重渲 MainView。清空也立即更新回填用的
+   * state，避免页面重挂时读到上一份正文。
    */
   const updateDraft = useCallback(
     (conversationId: string, value: string): void => {
       if (!isCurrent()) return;
+      const previous = pendingDraftsRef.current.get(conversationId);
+      if (previous?.body === value && !draftRecoveryFailed.current) return;
+      const baseVersion = previous
+        ? previous.body === '' && value !== ''
+          ? null
+          : previous.baseVersion
+        : (savedDraftsRef.current.get(conversationId)?.version ?? null);
+      pendingDraftsRef.current.set(conversationId, { body: value, baseVersion });
+      if (value === '') {
+        setDrafts((current) => {
+          if (!Object.hasOwn(current, conversationId)) return current;
+          const next = { ...current };
+          applyDraft(next, conversationId, value);
+          return next;
+        });
+      }
       try {
-        composerDraftRecovery.write(messageScope, conversationId, value);
+        composerDraftRecovery.write(messageScope, conversationId, value, baseVersion);
         draftRecoveryFailed.current = false;
       } catch {
         if (!draftRecoveryFailed.current)
@@ -143,17 +152,11 @@ export function useWorkspaceDrafts(input: DraftInput) {
           });
         draftRecoveryFailed.current = true;
       }
-      // 清空要**保留 key、存空串**（不是 delete）—— 规则与理由见
-      // `@weq/service/draft-edit`：`delete` 会让「清空了」和「没动过」不可区分，
-      // 落库时就会把上一次的旧正文再写回去。
-      pendingDraftsRef.current = setLocalDraft(pendingDraftsRef.current, conversationId, value);
-      dirtyDraftsRef.current.add(conversationId);
     },
     [messageScope, pushToast, resolveConversation, isCurrent],
   );
 
-  // 进入消息页时把 QQ 库里已有的草稿读进来（整表只有几行）。这是唯一一次读 ——
-  // 本机恢复快照优先于 QQ 旧草稿；输入时不逐字写 QQ 库。
+  // 本机未保存的编辑优先展示；已保存的草稿跟随 QQ 库刷新。
   const draftQuery = trpc.account.listDrafts.useQuery(binding ?? undefined, {
     enabled: Boolean(binding),
     refetchOnWindowFocus: false,
@@ -164,22 +167,17 @@ export function useWorkspaceDrafts(input: DraftInput) {
     const rows = draftQuery.data;
     if (!rows) return;
     const next: ConversationDrafts = {};
+    savedDraftsRef.current.clear();
     for (const row of rows) {
-      if (!dirtyDraftsRef.current.has(row.targetUid))
-        draftVersionsRef.current.set(row.targetUid, row.version);
       // 行键里的 targetUid 就是会话 id（c2c 是 uid、群是群号）。
       const text = elementsToComposerText(row.elements ?? []);
-      if (text.length) next[row.targetUid] = text;
+      savedDraftsRef.current.set(row.targetUid, { body: text, version: row.version });
+      applyDraft(next, row.targetUid, text);
     }
     // 不覆盖本次会话里已经改过、还没落库的那几条 —— 以 pendingDraftsRef 为准
     // （state 里的副本可能还没跟上）。
-    const merged: ConversationDrafts = { ...next };
-    for (const id of dirtyDraftsRef.current) {
-      const local = pendingDraftsRef.current[id];
-      if (local) merged[id] = local;
-      else delete merged[id];
-    }
-    setDrafts(merged);
+    for (const [id, pending] of pendingDraftsRef.current) applyDraft(next, id, pending.body);
+    setDrafts(next);
   }, [draftQuery.data]);
 
   /**
@@ -189,7 +187,10 @@ export function useWorkspaceDrafts(input: DraftInput) {
     async (conversationId: string): Promise<void> => {
       const draftBinding = messageBindingRef.current;
       if (!draftBinding || !isCurrent()) return;
-      if (!dirtyDraftsRef.current.has(conversationId)) return;
+      const pending = pendingDraftsRef.current.get(conversationId);
+      if (!pending) return;
+      const stillPending = () =>
+        isCurrent() && pendingDraftsRef.current.get(conversationId) === pending;
       // 主列表之外，隐藏会话 / 最近删除的会话也可能是当前打字的那个，都要能落库。
       const conv = resolveConversation(conversationId);
       if (!conv) return;
@@ -200,9 +201,7 @@ export function useWorkspaceDrafts(input: DraftInput) {
             ? ({ kind: 'c2c', targetUid: conv.otherUser.id } as const)
             : null;
       if (!peer) return;
-      // 脏会话在 pendingDraftsRef 里一定有值（含空串 = 用户已清空）。只读它，
-      // 绝不回退到已落库的旧正文 —— 那正是「删了内容草稿还在」的根因。
-      const text = localDraftToWrite(pendingDraftsRef.current, conversationId);
+      const text = pending.body;
       let savedText = text;
       try {
         const sharedBody = await shareComposerImages(
@@ -227,32 +226,37 @@ export function useWorkspaceDrafts(input: DraftInput) {
           undefined,
           openedUin ?? undefined,
         );
-        if (!isCurrent()) return;
+        if (!stillPending()) return;
         savedText = sharedBody;
         const elements = toIpcElements(composerTextToElements(sharedBody));
         const result = await resolveDraftSave(
           `chat:${peer.kind}:${peer.targetUid}`,
           elements,
-          draftVersionsRef.current.get(conversationId) ?? null,
-          (expectedVersion) =>
-            client.account.saveDraft.mutate({
+          pending.baseVersion,
+          (expectedVersion) => {
+            if (!stillPending()) throw new Error('草稿已更新');
+            return client.account.saveDraft.mutate({
               ...draftBinding,
               kind: peer.kind,
               targetUid: peer.targetUid,
               elements,
               expectedVersion,
-            }),
+            });
+          },
         );
         if (!isCurrent()) return;
-        draftVersionsRef.current.set(conversationId, result.current.version);
         if (!result.local)
           savedText = elementsToComposerText(
             Array.isArray(result.current.value) ? result.current.value : [],
           );
+        if (result.local || stillPending())
+          savedDraftsRef.current.set(conversationId, {
+            body: savedText,
+            version: result.current.version,
+          });
       } catch (e) {
-        if (!isCurrent()) return;
+        if (!stillPending()) return;
         // QQ 写入失败不能删除恢复快照，下次离开时仍可重试。
-        dirtyDraftsRef.current.add(conversationId);
         rememberClientRetry(`chat:${messageScope}:${conversationId}`, async () => {
           if (messageScopeRef.current !== messageScope) {
             useClientPreferences.setState({ error: '请返回原账号后重试聊天草稿保存' });
@@ -266,20 +270,14 @@ export function useWorkspaceDrafts(input: DraftInput) {
         console.error('[MainView] Failed to save draft:', e);
         return;
       }
-      // 落库成功后再同步一次 state —— 会话列表的草稿标记 / 切回来时的回填都读它。
-      // 每次「离开」最多一次，不会退回逐字重渲。
-      // 写库是异步的：期间用户可能又切回这个会话接着改（pending 已变、dirty 已重置）。
-      // 那种情况下这次落库的结果已经不是最新的，state 不能拿它盖掉新正文。
-      if (localDraftToWrite(pendingDraftsRef.current, conversationId) !== text) return;
-      dirtyDraftsRef.current.delete(conversationId);
+      // 用户可能在写库期间继续编辑，旧回执只能确认它对应的那次编辑。
+      if (!stillPending()) return;
+      pendingDraftsRef.current.delete(conversationId);
       forgetClientRetry(`chat:${messageScope}:${conversationId}`);
-      pendingDraftsRef.current[conversationId] = savedText;
       try {
-        if (savedText !== text)
-          composerDraftRecovery.write(messageScope, conversationId, savedText);
         // QQ wire 草稿不保留本机素材标识；带图片的恢复快照需保留到用户清空/发送。
         if (!composerAssetIds(savedText).size)
-          composerDraftRecovery.confirm(messageScope, conversationId, savedText);
+          composerDraftRecovery.confirm(messageScope, conversationId, text, pending.baseVersion);
         if (savedText !== text && activeConversationRef.current !== conversationId) {
           const ids = composerAssetIds(text);
           if (ids.size)
@@ -290,8 +288,7 @@ export function useWorkspaceDrafts(input: DraftInput) {
       }
       setDrafts((current) => {
         const next = { ...current };
-        if (savedText.length) next[conversationId] = savedText;
-        else delete next[conversationId];
+        applyDraft(next, conversationId, savedText);
         return next;
       });
     },
@@ -303,8 +300,10 @@ export function useWorkspaceDrafts(input: DraftInput) {
    * 用在「离开消息页」与「应用退出」这两个场合。
    */
   const flushAllDirtyDrafts = useCallback((): void => {
-    for (const id of [...dirtyDraftsRef.current]) void flushDraft(id);
-  }, [flushDraft]);
+    if (!pendingDraftsRef.current.size) return;
+    syncDraftsFromPending();
+    for (const id of pendingDraftsRef.current.keys()) void flushDraft(id);
+  }, [flushDraft, syncDraftsFromPending]);
   flushDraftRef.current = (conversationId: string) => {
     return flushDraft(conversationId);
   };
@@ -314,7 +313,7 @@ export function useWorkspaceDrafts(input: DraftInput) {
     const onUnload = (): void => {
       const draftBinding = messageBindingRef.current;
       if (!draftBinding || messageScopeRef.current !== messageScope) return;
-      for (const id of [...dirtyDraftsRef.current]) {
+      for (const [id, pending] of pendingDraftsRef.current) {
         const conv = resolveConversation(id);
         if (!conv) continue;
         const peer =
@@ -324,18 +323,16 @@ export function useWorkspaceDrafts(input: DraftInput) {
               ? { kind: 'c2c' as const, targetUid: conv.otherUser.id }
               : null;
         if (!peer) continue;
-        if (composerAssetIds(localDraftToWrite(pendingDraftsRef.current, id)).size) continue;
+        if (composerAssetIds(pending.body).size) continue;
         // 同步路径上 fire-and-forget：unload 阶段拿不到 await 的机会。
         void client.account.saveDraft
           .mutate({
             ...draftBinding,
-            expectedVersion: draftVersionsRef.current.get(id) ?? null,
+            expectedVersion: pending.baseVersion,
             kind: peer.kind,
             targetUid: peer.targetUid,
             // 空串 = 清掉草稿（见 `@weq/service/draft-edit`）。
-            elements: toIpcElements(
-              composerTextToElements(localDraftToWrite(pendingDraftsRef.current, id)),
-            ),
+            elements: toIpcElements(composerTextToElements(pending.body)),
           })
           .catch(() => undefined);
       }
@@ -362,5 +359,19 @@ export function useWorkspaceDrafts(input: DraftInput) {
     syncDraftsFromPending();
   }, [activeConversationId, syncDraftsFromPending]);
 
-  return { drafts, updateDraft, syncDraftsFromPending, flushAllDirtyDrafts };
+  const clearSentSpeechDraft = useCallback(
+    (conversationId: string, text: string) => {
+      if (!isCurrent()) return;
+      const current =
+        pendingDraftsRef.current.get(conversationId)?.body ??
+        savedDraftsRef.current.get(conversationId)?.body ??
+        '';
+      if (composerSpeechText(current).trim() !== text) return;
+      updateDraft(conversationId, updateComposerSpeechText(current, ''));
+      syncDraftsFromPending();
+      void flushDraftRef.current(conversationId);
+    },
+    [isCurrent, syncDraftsFromPending, updateDraft],
+  );
+  return { drafts, updateDraft, clearSentSpeechDraft, syncDraftsFromPending, flushAllDirtyDrafts };
 }

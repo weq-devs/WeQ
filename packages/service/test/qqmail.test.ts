@@ -332,8 +332,10 @@ describe('邮箱生命周期和提醒', () => {
         () => new Promise((resolve) => (completeMark = () => resolve({}))),
       );
       vi.spyOn(auth, 'notificationQuery').mockResolvedValue({ unread: 0 });
+      const onRead = vi.fn();
       const service = new QQMailService(native, '12345678', () => 42, {
         authFactory: () => auth,
+        onRead,
       });
       const controller = new AbortController();
       const resolved = vi.fn();
@@ -356,8 +358,11 @@ describe('邮箱生命周期和提醒', () => {
           { signal: controller.signal, write: true },
         );
         expect(resolved).not.toHaveBeenCalled();
+        expect(onRead).not.toHaveBeenCalled();
         completeMark?.();
         await expect(reading).resolves.toMatchObject({ id, unread: false, html: '正文' });
+        expect(onRead).toHaveBeenCalledOnce();
+        expect(onRead).toHaveBeenCalledWith([id]);
       } finally {
         completeMark?.();
         service.dispose();
@@ -373,8 +378,10 @@ describe('邮箱生命周期和提醒', () => {
         .mockResolvedValueOnce({ item: { ret: 0, emailid: 'read-fixture', content: '正文' } })
         .mockRejectedValueOnce(new MailFailure('network', '已读提交失败'));
     const query = vi.spyOn(auth, 'notificationQuery');
+    const onRead = vi.fn();
     const service = new QQMailService(native, '12345678', () => 42, {
       authFactory: () => auth,
+      onRead,
     });
     const changed = vi.fn();
     service.events.on('change', changed);
@@ -383,6 +390,7 @@ describe('邮箱生命周期和提醒', () => {
       expect(cgi).toHaveBeenCalledTimes(stage === '正文读取' ? 1 : 2);
       expect(query).not.toHaveBeenCalled();
       expect(changed).not.toHaveBeenCalled();
+      expect(onRead).not.toHaveBeenCalled();
     } finally {
       service.dispose();
     }
@@ -399,16 +407,23 @@ describe('邮箱生命周期和提醒', () => {
       vi.spyOn(auth, 'cgi').mockResolvedValue({
         item: { ret: 0, emailid: 'read-fixture', content: '正文' },
       });
+      const onRead = vi.fn();
       const service = new QQMailService(native, '12345678', () => 42, {
         authFactory: () => auth,
+        onRead,
       });
       const changed = vi.fn();
       service.events.on('change', changed);
       try {
         await service.connect();
         changed.mockClear();
+        const ids = operation === 'read' ? ['read-fixture', 'other-fixture'] : ['read-fixture'];
         if (operation === 'open') await service.read('read-fixture');
-        else await service.action(['read-fixture'], operation);
+        else await service.action(ids, operation);
+        if (operation === 'open' || operation === 'read') {
+          expect(onRead).toHaveBeenCalledOnce();
+          expect(onRead).toHaveBeenCalledWith(ids);
+        } else expect(onRead).not.toHaveBeenCalled();
         const unread = operation === 'unread' ? 3 : 1;
         expect(query).toHaveBeenCalledTimes(2);
         await vi.waitFor(() =>
@@ -951,7 +966,9 @@ describe('邮箱生命周期和提醒', () => {
   it('首次只建立基线，两个提醒来源的同一封邮件只接收一次', () => {
     const cursor = new MailNoticeCursor();
     cursor.prime(['old']);
+    cursor.remember('already-read');
     expect(cursor.accept('old')).toBe(false);
+    expect(cursor.accept('already-read')).toBe(false);
     expect(cursor.accept('new')).toBe(true);
     expect(cursor.accept('new')).toBe(false);
   });

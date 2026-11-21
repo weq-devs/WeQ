@@ -68,10 +68,13 @@ export class QQMailService {
   private cursor = new MailNoticeCursor();
   private noticeQueryPrimed = false;
   private noticeSyncVersion = 0;
+  private readonly pendingNoticeReads = new Set<string>();
+  private checkingNoticeReads = false;
   private sending = false;
   private readonly totals = new Map<string, number>();
   private readonly transfers = new Set<AbortController>();
-  private readonly onNotice?: (notice: MailNotice) => void;
+  private readonly onNotice?: (notice: MailNotice) => boolean | undefined;
+  private readonly onRead?: (ids: string[]) => void;
   private showUnread = false;
   private backgroundStopped = false;
   private backgroundConnect: Promise<void> | null = null;
@@ -87,7 +90,9 @@ export class QQMailService {
     options: {
       authFactory?: () => MailAuth;
       notificationsEnabled?: boolean;
-      onNotice?: (notice: MailNotice) => void;
+      /** 返回 true 表示有应用内横幅，需要跟踪这封邮件的已读。 */
+      onNotice?: (notice: MailNotice) => boolean | undefined;
+      onRead?: (ids: string[]) => void;
       socketFactory?: (options: WebSocket.ClientOptions) => MailSocket;
       allowOnline?: () => boolean;
     } = {},
@@ -97,6 +102,7 @@ export class QQMailService {
     this.auth = this.makeAuth();
     this.state.notifications = options.notificationsEnabled ?? false;
     this.onNotice = options.onNotice;
+    this.onRead = options.onRead;
     this.socketFactory =
       options.socketFactory ?? ((options) => new WebSocket('wss://wx.mail.qq.com/socket', options));
   }
@@ -306,8 +312,22 @@ export class QQMailService {
     };
   }
 
-  async read(id: string, signal?: AbortSignal, markRead = true): Promise<MailDetail> {
+  private async readMailItem(id: string, signal?: AbortSignal) {
     const group = id.startsWith('@');
+    const body = await this.scoped((auth) =>
+      auth.cgi(
+        group ? '/groupmail/readmail' : '/read/readmail',
+        { mailid: id, func: group ? 0 : 1 },
+        { signal },
+      ),
+    );
+    const entry = object(body.item);
+    if (text(entry.ret) !== '0')
+      throw new MailFailure('business', '邮件已删除、不可访问或需要额外验证。', text(entry.ret));
+    return entry;
+  }
+
+  async read(id: string, signal?: AbortSignal, markRead = true): Promise<MailDetail> {
     if (isMailThreadId(id)) {
       const match = /^C(\d+)T(.+)$/.exec(id);
       if (!match) throw new MailFailure('business', '会话邮件标识无效。');
@@ -326,16 +346,7 @@ export class QQMailService {
           .filter((item) => item.id),
       };
     }
-    const body = await this.scoped((auth) =>
-      auth.cgi(
-        group ? '/groupmail/readmail' : '/read/readmail',
-        { mailid: id, func: group ? 0 : 1 },
-        { signal },
-      ),
-    );
-    const entry = object(body.item);
-    if (text(entry.ret) !== '0')
-      throw new MailFailure('business', '邮件已删除、不可访问或需要额外验证。', text(entry.ret));
+    const entry = await this.readMailItem(id, signal);
     const summary = mailSummary(entry);
     const html = await this.scoped((auth) =>
       auth.redact(protectMailHtml(text(entry.content), this.attachments)),
@@ -358,6 +369,10 @@ export class QQMailService {
     await this.scoped(async (auth) => {
       await auth.cgi('/mgr/mailmgr', { mailid: ids, func: funcs[action] }, { signal, write: true });
     });
+    if (action === 'read') {
+      // 防止排队中的推送或提醒查询再次提示刚读过的邮件。
+      this.confirmNoticeReads(ids);
+    }
     if (action === 'read' || action === 'unread' || action === 'trash')
       void this.refreshUnread(signal);
     this.events.emit('change', { type: 'changed' });
@@ -435,9 +450,10 @@ export class QQMailService {
     );
   }
 
-  async download(id: string, path: string, signal?: AbortSignal): Promise<void> {
+  async download(id: string, path: string, signal?: AbortSignal, maxBytes?: number): Promise<void> {
     await this.transfer(
-      (auth, active) => downloadMailFile(auth, this.attachments, id, path, active),
+      (auth, active) =>
+        downloadMailFile(auth, this.attachments, id, path, active, undefined, maxBytes),
       signal,
     );
   }
@@ -470,9 +486,67 @@ export class QQMailService {
     if (this.closed || !this.state.notifications) return;
     this.events.emit('change', { type: 'new-mail', notice });
     try {
-      this.onNotice?.(notice);
+      if (this.onNotice?.(notice) === true && this.onRead && !isMailThreadId(notice.id)) {
+        this.pendingNoticeReads.add(notice.id);
+        if (this.pendingNoticeReads.size > 2000)
+          this.pendingNoticeReads.delete(this.pendingNoticeReads.values().next().value!);
+      }
     } catch {
       /* 系统通知失败不影响同步。 */
+    }
+  }
+
+  private confirmNoticeReads(ids: string[]): void {
+    for (const id of ids) {
+      this.pendingNoticeReads.delete(id);
+      this.cursor.remember(id);
+    }
+    try {
+      this.onRead?.(ids);
+    } catch {
+      /* 横幅更新失败不影响已确认的已读状态。 */
+    }
+  }
+
+  private async syncNoticeReads(version: number, signal?: AbortSignal): Promise<void> {
+    if (this.checkingNoticeReads || !this.pendingNoticeReads.size) return;
+    this.checkingNoticeReads = true;
+    const auth = this.auth;
+    try {
+      const ids = [...this.pendingNoticeReads].slice(0, 4);
+      // 只复用只读邮件查询。轮转少量横幅目标，不扫邮箱，也不把缺字段当作已读。
+      for (const id of ids) {
+        this.pendingNoticeReads.delete(id);
+        this.pendingNoticeReads.add(id);
+      }
+      const results = await Promise.allSettled(
+        ids.map(async (id) => {
+          const entry = await this.readMailItem(id, signal);
+          const info = object(entry.info);
+          return text(info.emailid ?? entry.emailid) === id &&
+            text(info.unread ?? entry.unread) === '0'
+            ? id
+            : null;
+        }),
+      );
+      if (
+        this.closed ||
+        signal?.aborted ||
+        this.auth !== auth ||
+        this.noticeSyncVersion !== version
+      )
+        return;
+      const read = results.flatMap((result) =>
+        result.status === 'fulfilled' && result.value && this.pendingNoticeReads.has(result.value)
+          ? [result.value]
+          : [],
+      );
+      if (read.length) {
+        this.confirmNoticeReads(read);
+        this.events.emit('change', { type: 'changed' });
+      }
+    } finally {
+      this.checkingNoticeReads = false;
     }
   }
 
@@ -520,6 +594,7 @@ export class QQMailService {
       }, this.pollIntervalMinutes * 60_000);
       this.pollTimer.unref();
     }
+    void this.syncNoticeReads(version, signal);
   }
 
   private scheduleNoticeRecovery(): void {
@@ -628,6 +703,7 @@ export class QQMailService {
     this.auth = this.makeAuth();
     this.attachments.clear();
     this.totals.clear();
+    this.pendingNoticeReads.clear();
     this.cursor = new MailNoticeCursor();
     this.noticeQueryPrimed = false;
     this.update({

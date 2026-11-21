@@ -671,8 +671,8 @@ function AlbumMediaView({
           <button
             type="button"
             className="group-album-tool"
-            title="上传图片"
-            aria-label="上传图片"
+            title="上传图片或视频"
+            aria-label="上传图片或视频"
             aria-expanded={uploadOpen}
             disabled={state.status === 'loading'}
             onClick={() => setUploadOpen((open) => !open)}
@@ -699,6 +699,7 @@ function AlbumMediaView({
       {state.album && uploadOpen && (
         <div className="group-album-upload">
           <GroupAlbumVideoUpload
+            key={`${groupCode}:${state.album.id}`}
             groupId={Number(groupCode)}
             albumId={state.album.id}
             onChanged={onChanged}

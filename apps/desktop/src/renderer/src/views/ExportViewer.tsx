@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
+  Download,
   ExternalLink,
   FolderOpen,
   FileJson,
@@ -42,6 +43,7 @@ function Part({
   onError: (text: string) => void;
 }) {
   const [failed, setFailed] = useState(false);
+  const [saving, setSaving] = useState(false);
   if (part.type === 'forward')
     return (
       <details className="weq-ev-forward">
@@ -57,63 +59,93 @@ function Part({
       </details>
     );
   if (part.type === 'text') return <span data-privacy-sensitive>{part.text}</span>;
-  if (!part.path || failed)
-    return (
-      <span className="weq-ev-unavailable">
-        <span data-privacy-sensitive>{part.text}</span> · 媒体不可用
-      </span>
-    );
-  const src = mediaUrl('exportviewer', { id, path: part.path });
-  if (part.type === 'image')
-    return (
-      <button
-        type="button"
-        className="weq-ev-image"
-        title="查看原图"
-        aria-label="查看原图"
-        onClick={() =>
-          openMediaPreview({ items: [{ key: src, kind: 'image', src: src, title: part.text }] })
-        }
-      >
-        <img
-          data-privacy-sensitive
-          src={src}
-          alt={part.text}
-          loading="lazy"
-          onError={() => setFailed(true)}
-        />
-      </button>
-    );
-  if (part.type === 'audio')
-    return (
-      <audio controls preload="none" src={src} onError={() => setFailed(true)}>
-        <track kind="captions" />
-      </audio>
-    );
-  if (part.type === 'video')
-    return (
-      <video
+  const unavailable = (
+    <span className="weq-ev-unavailable">
+      <span data-privacy-sensitive>{part.text}</span> · 媒体不可用
+    </span>
+  );
+  const path = part.path;
+  if (!path) return unavailable;
+  const src = mediaUrl('exportviewer', { id, path });
+  const preview = failed ? (
+    unavailable
+  ) : part.type === 'image' ? (
+    <button
+      type="button"
+      className="weq-ev-image"
+      title="查看原图"
+      aria-label="查看原图"
+      onClick={() =>
+        openMediaPreview({
+          items: [{ key: src, kind: 'image', src, title: part.text, saveSource: null }],
+        })
+      }
+    >
+      <img
         data-privacy-sensitive
-        controls
-        preload="none"
         src={src}
+        alt={part.text}
+        loading="lazy"
         onError={() => setFailed(true)}
-      >
-        <track kind="captions" />
-      </video>
-    );
-  return (
+      />
+    </button>
+  ) : part.type === 'audio' ? (
+    <audio controls preload="none" src={src} onError={() => setFailed(true)}>
+      <track kind="captions" />
+    </audio>
+  ) : part.type === 'video' ? (
+    <video data-privacy-sensitive controls preload="none" src={src} onError={() => setFailed(true)}>
+      <track kind="captions" />
+    </video>
+  ) : IS_WEB ? (
+    <span data-privacy-sensitive>{part.text}</span>
+  ) : (
     <button
       type="button"
       onClick={() => {
         void client.exportViewer.revealMedia
-          .mutate({ id, path: part.path! })
+          .mutate({ id, path })
           .catch((e: Error) => onError(e.message));
       }}
     >
       <FolderOpen size={15} />
       <span data-privacy-sensitive>{part.text}</span>
     </button>
+  );
+  const saveLabel = `另存${{ image: '图片', audio: '音频', video: '视频', file: '文件' }[part.type]}`;
+  return (
+    <div className="weq-ev-media">
+      {preview}
+      {IS_WEB ? (
+        <a
+          className="weq-icon-button"
+          href={mediaUrl('exportviewer', { id, path, download: 1, intent: 'interactive' })}
+          download
+          title={saveLabel}
+          aria-label={saveLabel}
+        >
+          <Download size={15} />
+        </a>
+      ) : (
+        <button
+          type="button"
+          className="weq-icon-button"
+          title={saveLabel}
+          aria-label={saveLabel}
+          aria-busy={saving}
+          disabled={saving}
+          onClick={() => {
+            setSaving(true);
+            void client.exportViewer.saveMedia
+              .mutate({ id, path })
+              .catch((e: Error) => onError(e.message))
+              .finally(() => setSaving(false));
+          }}
+        >
+          {saving ? <Loader2 className="animate-spin" size={15} /> : <Download size={15} />}
+        </button>
+      )}
+    </div>
   );
 }
 function Message({
@@ -147,7 +179,7 @@ function Message({
       </header>
       <div className="weq-ev-body">
         {message.parts.map((part) => (
-          <Part key={part.key} part={part} id={id} onError={onError} />
+          <Part key={`${id}/${part.key}`} part={part} id={id} onError={onError} />
         ))}
       </div>
     </article>

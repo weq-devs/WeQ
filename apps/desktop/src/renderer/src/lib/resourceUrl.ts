@@ -138,12 +138,12 @@ export function qqShowUrl(src: string, revision?: number): string {
 /**
  * 红包封面（个性装扮 → 红包封面展柜）。
  *
- * `variant` 缺省走旧行为（离线目录封面 → 在线现查 → aio 兜底）；展柜里传具体的
- * 字段名表示**只认本地 skins.json**，取不到就 404，由前端回退占位。
+ * `variant` 缺省走消息封面链路。展柜指定字段时只读目录记录，`large` 按目录里的
+ * 弹层图、原始竖图、列表封面和背景图依次尝试。
  */
 export function redPackSkinUrl(
   skinId: number,
-  variant?: 'preview' | 'popup' | 'background' | 'image',
+  variant?: 'preview' | 'popup' | 'background' | 'image' | 'large',
 ): string {
   return mediaUrl('redbag', { id: skinId, ...(variant ? { v: variant } : {}) });
 }
@@ -247,8 +247,11 @@ export function dressPendantFrameUrl(itemId: number, frame: number): string {
  * 视频与图片共用这一条:`dressbg` 主进程按文件后缀定 Content-Type(file_response 的
  * MIME 表已含 mp4/webm/mov)并支持 Range,`<video>` 能直接播、也能拖动进度。
  */
-export function dressBackgroundUrl(stamp: string): string {
-  return mediaUrl('dressbg', { v: stamp });
+export function dressBackgroundUrl(
+  stamp: string,
+  conversation?: { kind: 'c2c' | 'group'; conv: string },
+): string {
+  return mediaUrl('dressbg', { v: stamp, ...conversation });
 }
 
 /**

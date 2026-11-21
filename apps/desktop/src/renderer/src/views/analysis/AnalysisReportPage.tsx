@@ -1,10 +1,12 @@
-import { WorkspacePage } from '../../components/WorkspacePages';
+import { useId, useRef } from 'react';
+import { Modal } from '../../components/Dialog';
 import { useViewState } from '../../state/view';
 import { AnnualReportView } from '../annual-report/AnnualReportView';
 import { analysisTitle, type AnalysisReportRequest } from './model';
 import { SavedAnalysisBody } from './SavedAnalysisBody';
 import '../../styles/analysis-tool.css';
 import '../../styles/page-shell.css';
+import '../../styles/workspace-tools.css';
 import { BarChart3, Users, UserRound, X } from 'lucide-react';
 
 /** 年度报告只作旧请求的兼容渲染（新入口在侧栏「年度报告」）。 */
@@ -23,9 +25,19 @@ export function AnalysisReportPage({
   onClose: () => void;
 }) {
   const account = useViewState((state) => state.openedUin);
+  const titleId = useId();
+  const closeRequest = useRef<(() => void) | null>(null);
+  const close = () => (closeRequest.current ?? onClose)();
   if (account !== request.scope.expectedAccountUin) return null;
   return (
-    <WorkspacePage title={analysisTitle(request)} onClose={onClose}>
+    <Modal
+      presentation="modal"
+      width={1000}
+      className="weq-tools-modal"
+      labelledBy={titleId}
+      dismissOnOutside={false}
+      onClose={close}
+    >
       <section className="weq-analysis-result">
         <header className="weq-analysis-result-head">
           <span className="weq-analysis-result-glyph" aria-hidden>
@@ -35,7 +47,7 @@ export function AnalysisReportPage({
             })()}
           </span>
           <span className="weq-analysis-result-title">
-            <strong>{analysisTitle(request)}</strong>
+            <strong id={titleId}>{analysisTitle(request)}</strong>
             {request.kind === 'annual' ? (
               <small>{request.period} · 年度报告</small>
             ) : request.kind === 'member' ? (
@@ -47,7 +59,7 @@ export function AnalysisReportPage({
           <button
             type="button"
             className="weq-page-close"
-            onClick={onClose}
+            onClick={close}
             title="关闭分析报告"
             aria-label="关闭分析报告"
           >
@@ -62,10 +74,15 @@ export function AnalysisReportPage({
               instanceKey={request.id}
             />
           ) : (
-            <SavedAnalysisBody key={request.id} request={request} onClose={onClose} />
+            <SavedAnalysisBody
+              key={request.id}
+              request={request}
+              onClose={onClose}
+              closeRequest={closeRequest}
+            />
           )}
         </div>
       </section>
-    </WorkspacePage>
+    </Modal>
   );
 }

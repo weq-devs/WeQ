@@ -16,12 +16,16 @@ import type { Conversation, ConversationPreferences } from '../im-template/templ
 import type { ChatMsgWire } from '../../../main/ipc/serde';
 import type { NewMessagesWire } from '../../../main/ipc/routers/account';
 import type { WebNotice } from '../../../main/web/notices';
-import { ordinaryNoticeEligible } from '../../../shared/message_notifications';
+import {
+  incomingNoticeEligible,
+  incomingImportantEvents,
+} from '../../../shared/message_notifications';
 import { WEB_NOTICE_OPEN, browserNoticeChannel } from '../lib/browserNotifications';
 import { useNotificationPolicy, claimMessageBanner } from '../lib/notificationPolicy';
 import {
   normalizeNotificationScope,
   normalizeNotificationEvents,
+  notificationScopeIncludes,
   type NotificationEvent,
 } from '@weq/service/notification-settings';
 import { useToast } from '../components/Toast.shared';
@@ -78,15 +82,17 @@ export function useMessageNotifications(options: {
             ...conversation.preference,
             ...options.preferences[conversation.id],
           };
+          const groupAssistant =
+            conversation.type === 'group' &&
+            Boolean(options.groupAssistantIds?.has(conversation.id));
+          const key = `${conversation.type === 'group' ? 'group' : 'c2c'}:${conversation.id}`;
           return [
             [
-              `${conversation.type === 'group' ? 'group' : 'c2c'}:${conversation.id}`,
+              key,
               {
-                muted: Boolean(
-                  preference.muted ||
-                    (conversation.type === 'group' &&
-                      options.groupAssistantIds?.has(conversation.id)),
-                ),
+                key,
+                muted: Boolean(preference.muted || groupAssistant),
+                groupAssistant,
                 name:
                   conversation.type === 'group'
                     ? conversation.group.name
@@ -130,6 +136,7 @@ export function useMessageNotifications(options: {
         title: string;
         body: string;
         count: number;
+        throughSeq: string;
         reasons: NotificationEvent[];
         anchors: Map<NotificationEvent, ChatMsgWire>;
       }
@@ -148,13 +155,12 @@ export function useMessageNotifications(options: {
         document.hasFocus() &&
         latest.current.foregroundConversation === message.conv;
       if (
-        !ordinaryNoticeEligible(message, {
+        !incomingNoticeEligible(message, {
           selfUin: options.selfUin,
           selfUid: options.selfUid,
           openedAt: openedAt.current,
           observedAt,
           freshSeconds: NEW_CONV_FRESH_SEC,
-          muted: policy.muted,
           reading,
         })
       )
@@ -164,42 +170,45 @@ export function useMessageNotifications(options: {
       );
       if (elements.length > 0 && elements.every((element) => /^grayTip/i.test(element.type ?? '')))
         continue;
-      const convKey = `${message.kind}:${message.conv}`;
-      const reasons: NotificationEvent[] = [
-        message.kind === 'group' ? 'groupMessage' : 'directMessage',
-      ];
+      const reasons: NotificationEvent[] = [];
+      if (!policy.muted) reasons.push(message.kind === 'group' ? 'groupMessage' : 'directMessage');
+      const important = incomingImportantEvents(elements, options.selfUin, options.selfUid);
       const mapping = {
         atMe: 'mentionMe',
         atAll: 'mentionAll',
         replyMe: 'replyMe',
-        specialCare: 'specialCare',
         redPacket: 'redPacket',
       } as const;
       for (const highlight of policy.highlights ?? []) {
-        if (highlight.msgSeq !== message.msgSeq || !(highlight.kind in mapping)) continue;
-        const event = mapping[highlight.kind as keyof typeof mapping];
-        if (event !== 'specialCare') {
-          if (!isAccountStateReady()) continue;
-          const selection = normalizeNotificationScope(
-            event,
-            sharedAccountRecords('notifications')[event],
-          );
-          if (selection.mode !== 'all' && !selection.targets.includes(convKey)) continue;
-        }
-        reasons.push(event);
+        if (highlight.msgSeq !== message.msgSeq) continue;
+        if (highlight.kind === 'specialCare' && !policy.muted) reasons.push('specialCare');
+        else if (highlight.kind in mapping)
+          important.add(mapping[highlight.kind as keyof typeof mapping]);
       }
-      const previous = notices.get(convKey);
+      if (important.size && isAccountStateReady()) {
+        const scopes = sharedAccountRecords('notifications');
+        for (const event of important) {
+          if (notificationScopeIncludes(normalizeNotificationScope(scopes[event]), policy))
+            reasons.push(event);
+        }
+      }
+      if (!reasons.length) continue;
+      const previous = notices.get(policy.key);
       const anchor = firstNoticeMessage(previous?.anchor, message);
       const anchors = previous?.anchors ?? new Map<NotificationEvent, ChatMsgWire>();
       for (const reason of reasons)
         anchors.set(reason, firstNoticeMessage(anchors.get(reason), message));
-      notices.set(convKey, {
+      notices.set(policy.key, {
         message,
         anchor,
         anchors,
         title: policy.name || message.conv,
         body: plainContentText(elements).slice(0, 1700) || '[消息]',
-        count: (notices.get(convKey)?.count ?? 0) + 1,
+        count: (previous?.count ?? 0) + 1,
+        throughSeq:
+          previous && BigInt(previous.throughSeq) > BigInt(message.msgSeq)
+            ? previous.throughSeq
+            : message.msgSeq,
         reasons: [...new Set([...(previous?.reasons ?? []), ...reasons])],
       });
     }
@@ -273,6 +282,12 @@ export function useMessageNotifications(options: {
             event: item.reasons.find((event) => currentPolicy[event].banner),
             title,
             detail: body,
+            messageReadTarget: {
+              binding: scope,
+              chatType: item.message.kind === 'group' ? 2 : 1,
+              uid: item.message.conv,
+              seq: item.throughSeq,
+            },
             action: {
               label: '定位消息',
               run: () =>

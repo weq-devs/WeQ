@@ -1,5 +1,6 @@
 import {
   calendarMonthDays,
+  CALENDAR_SOURCE_ORDER,
   type CalendarKind,
   type CalendarTarget,
   type CalendarControlState,
@@ -52,11 +53,12 @@ export const client = {
 };
 function calendarResult(input: {
   day?: string;
-  kinds: CalendarKind[];
+  kinds?: CalendarKind[];
   includeLogs: boolean;
   limit: number;
 }) {
-  const c2c = input.kinds.includes('c2c');
+  const kinds = input.kinds ?? CALENDAR_SOURCE_ORDER;
+  const c2c = kinds.includes('c2c');
   const rows = c2c
     ? Array.from({ length: 80 }, (_, i) => ({
         target: { ...target, conv: String(i), name: `${target.name} ${i}` },
@@ -70,21 +72,21 @@ function calendarResult(input: {
       month: '2026-11',
       day: input.day ?? '2026-11-08',
       snapshot: {
-        enabledKinds: input.kinds,
+        enabledKinds: kinds,
         controls: {
           month: {
-            state: input.kinds.length ? controls.month : 'empty',
-            disabled: !input.kinds.length,
+            state: kinds.length ? controls.month : 'empty',
+            disabled: !kinds.length,
           },
           day: {
-            state: input.kinds.length ? controls.day : 'empty',
-            disabled: !input.kinds.length,
+            state: kinds.length ? controls.day : 'empty',
+            disabled: !kinds.length,
           },
         },
         hasPending:
-          input.kinds.length > 0 &&
+          kinds.length > 0 &&
           (!completed || controls.month === 'running' || controls.day === 'running'),
-        emptyReason: input.kinds.length ? undefined : '未选择统计内容',
+        emptyReason: kinds.length ? undefined : '未选择统计内容',
         days: calendarMonthDays('2026-11').map(({ day }) => ({
           day,
           count: c2c ? 42 : 0,
@@ -92,15 +94,13 @@ function calendarResult(input: {
           errors: [],
         })),
         progress: {
-          completedSources: completed
-            ? input.kinds.length * 30
-            : Math.min(2, input.kinds.length * 30),
-          totalSources: input.kinds.length * 30,
+          completedSources: completed ? kinds.length * 30 : Math.min(2, kinds.length * 30),
+          totalSources: kinds.length * 30,
           failedSources: 0,
         },
         dayProgress: {
-          completedSources: completed ? input.kinds.length : Math.min(1, input.kinds.length),
-          totalSources: input.kinds.length,
+          completedSources: completed ? kinds.length : Math.min(1, kinds.length),
+          totalSources: kinds.length,
           count: c2c ? 142 : 0,
         },
         readState:
@@ -110,7 +110,7 @@ function calendarResult(input: {
         scanDayProgress: {
           day: '2026-11-09',
           completedSources: 0,
-          totalSources: input.kinds.length,
+          totalSources: kinds.length,
           count: 3,
         },
         activeScan: {

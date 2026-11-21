@@ -15,6 +15,13 @@
 import { OperationError, developmentDressToolsEnabled } from '@weq/service';
 
 import { observable } from '@trpc/server/observable';
+import type { TranscribeResult } from '../../transcribe/engine';
+import {
+  ensureQqSyncProxy,
+  qqSyncStatus,
+  qqSyncRequest,
+  setQqSyncPort,
+} from '../../qq_sync/runtime';
 import {
   consumeNotificationClick,
   notificationClickEvents,
@@ -95,6 +102,7 @@ import {
   fetchHomeDress,
   getHost,
   getLogger,
+  getVoiceModel,
   logErrorContext,
   type KeyEvent,
   type VoiceDownloadProgress,
@@ -983,6 +991,31 @@ export const bootstrapRouter = router({
       return true;
     }),
 
+  getQqClientSyncStatus: procedure.query(async () => {
+    const ctx = getAppContext();
+    const status = await qqSyncStatus(requirePlatform().appDataRoot());
+    return { ...status, tasks: ctx.services?.qqClientSync?.status() ?? null };
+  }),
+
+  setQqClientSyncPort: procedure
+    .input(z.object({ port: z.number().int().min(1).max(65535) }).strict())
+    .mutation(({ input }) => setQqSyncPort(requirePlatform().appDataRoot(), input.port)),
+
+  setQqClientSyncEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(async ({ input }) => {
+      const ctx = getAppContext();
+      const root = requirePlatform().appDataRoot();
+      if (input.enabled) await ensureQqSyncProxy(root);
+      requireBootstrap().userConfig.setSettings({ qqClientSyncEnabled: input.enabled });
+      if (!input.enabled && ctx.account)
+        await qqSyncRequest(root, { op: 'forget', uin: String(ctx.account.context.uin) }).catch(
+          () => undefined,
+        );
+      ctx.services?.qqClientSync?.refresh();
+      return true;
+    }),
+
   setReadSyncEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(({ input }) => {
@@ -1360,6 +1393,13 @@ export const bootstrapRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
       requireBootstrap().userConfig.setSettings({ readFromFirstUnread: input.enabled });
+      return true;
+    }),
+
+  setPreserveUnreadUntilRead: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ preserveUnreadUntilRead: input.enabled });
       return true;
     }),
 
@@ -2017,6 +2057,60 @@ export const bootstrapRouter = router({
   }),
 
   // ---- voice transcription models (设置 → 语音转录) ----
+
+  transcribeRecording: procedure
+    .input(
+      z.object({
+        wav: z.instanceof(Uint8Array).refine((value) => {
+          if (value.byteLength <= 44 || value.byteLength > 44 + 16_000 * 2 * 62) return false;
+          const wav = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+          return (
+            wav.toString('ascii', 0, 4) === 'RIFF' &&
+            wav.readUInt32LE(4) === wav.length - 8 &&
+            wav.toString('ascii', 8, 16) === 'WAVEfmt ' &&
+            wav.readUInt32LE(16) === 16 &&
+            wav.readUInt16LE(20) === 1 &&
+            wav.readUInt16LE(22) === 1 &&
+            wav.readUInt32LE(24) === 16_000 &&
+            wav.readUInt16LE(34) === 16 &&
+            wav.toString('ascii', 36, 40) === 'data' &&
+            wav.readUInt32LE(40) === wav.length - 44 &&
+            wav.length % 2 === 0
+          );
+        }, '录音格式或时长无效'),
+      }),
+    )
+    .subscription(({ input }) =>
+      observable<TranscribeResult>((emit) => {
+        const controller = new AbortController();
+        const { signal } = controller;
+        void (async (): Promise<TranscribeResult> => {
+          const boot = requireBootstrap();
+          const modelId = boot.userConfig.getLocalModelId('voice');
+          const model = getVoiceModel(modelId);
+          if (!model || !boot.voiceTranscribe.getModelStatus(modelId)?.downloaded)
+            return { success: false, error: '请先在「设置 → 增强功能 → 增强包」准备本地语音转写' };
+          const { model: modelPath, tokens } = boot.voiceTranscribe.resolveModelPaths(modelId);
+          if (!modelPath || !tokens) return { success: false, error: '本地语音模型文件缺失' };
+          const { transcribeWav } = await import('../../transcribe/engine');
+          return transcribeWav(
+            Buffer.from(input.wav),
+            { model: modelPath, tokens },
+            { engine: model.engine, languages: model.languages, signal },
+          );
+        })().then(
+          (result) => {
+            if (signal.aborted) return;
+            emit.next(result);
+            emit.complete();
+          },
+          (error: unknown) => {
+            if (!signal.aborted) emit.error(error);
+          },
+        );
+        return () => controller.abort();
+      }),
+    ),
 
   setRecognitionConcurrency: procedure
     .input(

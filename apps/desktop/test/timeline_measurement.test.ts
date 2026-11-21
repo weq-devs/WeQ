@@ -18,6 +18,7 @@ it('时间线使用现成行高，不重复读取布局，隐藏时仍保留已�
       scope: 'fixture',
       scrollRef: useRef<HTMLDivElement>(null),
       active,
+      estimateSize: () => 96,
     });
     return null;
   }

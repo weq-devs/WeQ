@@ -1,28 +1,26 @@
 // @ts-nocheck
-/**
- * 消息输入框内联的语音条：按住说话的录音键 + 横向声纹，外加文字转语音。
- *
- * 组件本身是**贴在输入框里**的（占掉正文编辑区那一行），不再是从输入框上沿弹出来的
- * 浮层 —— 位置样式见 composer-media.css 的 `@media (min-width: 761px)` 段。
- *
- * 录音走浏览器原生的 `getUserMedia` + `MediaRecorder`，声纹来自 `AnalyserNode`：
- * 每帧把频谱压成 {@link BAR_COUNT} 根柱子写进一个**固定数组**（原地写，不进 React
- * state），环形组件自己用 rAF 读这个数组直接改 DOM —— 60fps 下不触发任何 React
- * 重渲染，长按录音再久也不会掉帧。
- *
- * 面板本身不进浮层：收起不做按钮（没有外框也没有 ✕），再点一次工具栏那枚麦克风、
- * 或点到输入框外面就关掉它。
- *
- * 「配了才出现」的能力只剩语音转录（设置 → 语音配置里选了离线转录模型）：录音时顺带跑
- * `SpeechRecognition`，松开就把识别文字带出来；回顾态里也能再转一次。
- * 文字转语音与录音共享输入框内的面板，合成与发送复用 `TtsComposer`。
- *
- * 发送只把结果交给上层（`onSendVoice` / `onSendTranscript`），本模块不碰协议。
- */
+/** 输入区语音模式，包含录音、TTS 和群聊 AI 声聊。 */
 
+import { AiVoiceControls, type AiVoiceDraft } from './aiVoicePanel';
 import { FormSelect } from '../../components/FormSelect';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { client } from '../../trpc/client';
+import type { TranscribeResult } from '../../../../main/transcribe/engine';
+import { useTabActive } from '../../components/RetainedTabs.shared';
+import { PagesContext } from '../../components/WorkspacePages.shared';
+import {
+  Captions,
   FileAudio,
   Loader2,
   Mic,
@@ -33,11 +31,19 @@ import {
   Trash2,
   Type,
   Wand2,
+  X,
 } from 'lucide-react';
-import type { RefObject } from 'react';
+import type { ReactNode } from 'react';
 import { cn } from './classNames';
+import { voiceModeContext } from './voicePanel.shared';
 import { pcm16Samples, startRemoteMedia, needsNativeRemoteMedia } from '../../lib/remoteMedia';
-import { encodePcmWav } from './composerSend';
+import {
+  decodeAudio,
+  decodeRecordingToWav,
+  decodeRecordingsToWav,
+  encodePcmWav,
+} from './composerSend';
+import { topSurface } from '../../lib/surfaceEscape';
 import {
   createMediaId,
   formatClipDuration,
@@ -45,76 +51,13 @@ import {
   type VoiceClip,
 } from './composerMedia';
 
-/** 环绕录音键的声纹柱子数量（360 / 56 ≈ 6.4°，密到看起来是连续的一圈）。 */
 const BAR_COUNT = 56;
-
-/** 每根柱子的角度。静态常量：柱子只按位置存在，顺便给它们一个稳定 key。 */
-const RING_BARS = Array.from({ length: BAR_COUNT }, (_, index) => ({
-  angle: (360 / BAR_COUNT) * index,
-}));
-/**
- * 环形半径（柱子根到圆心的距离，px）。
- *
- * 50 是跟舞台 126px、录音键 70px 一起算好的一组值：柱子最长时（scaleY 1.21，
- * 柱高 20px）外缘到半径 +12，整圈 124px，刚好盛在 126px 的舞台里，而且柱子收起时
- * 空出的内圈（直径 76px）还是比录音键大一圈，不会盖到按钮。
- */
-const RING_RADIUS = 50;
 const MAX_RECORD_MS = 60_000;
 const MIN_RECORD_MS = 700;
 const MAX_TTS_CHARS = 200;
 
-type RecorderPhase = 'idle' | 'requesting' | 'recording' | 'review';
-
-// ── SpeechRecognition（浏览器 API，TS 标准库里没有，这里给最小形状） ──────────
-
-type SpeechAlternativeLike = { transcript: string };
-type SpeechResultLike = {
-  isFinal: boolean;
-  length: number;
-  [index: number]: SpeechAlternativeLike;
-};
-type SpeechResultListLike = {
-  length: number;
-  [index: number]: SpeechResultLike;
-};
-type SpeechRecognitionEventLike = { resultIndex: number; results: SpeechResultListLike };
-type SpeechRecognitionLike = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  start(): void;
-  stop(): void;
-  abort(): void;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((event: { error?: string }) => void) | null;
-  onend: (() => void) | null;
-};
-type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
-
-function getRecognitionCtor(): SpeechRecognitionCtor | null {
-  const scope = window as unknown as {
-    SpeechRecognition?: SpeechRecognitionCtor;
-    webkitSpeechRecognition?: SpeechRecognitionCtor;
-  };
-  return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
-}
-
-function recognitionErrorText(code: string | undefined): string {
-  switch (code) {
-    case 'not-allowed':
-    case 'service-not-allowed':
-      return '麦克风或语音识别未授权';
-    case 'no-speech':
-      return '没有听到语音';
-    case 'network':
-      return '语音识别服务不可用（需要联网）';
-    case 'aborted':
-      return '';
-    default:
-      return '语音识别失败';
-  }
-}
+type RecorderPhase = 'idle' | 'requesting' | 'recording' | 'paused' | 'finalizing' | 'review';
+type StopTarget = 'paused' | 'review';
 
 function pickRecorderMime(): string {
   const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
@@ -134,7 +77,7 @@ function describeMicError(error: unknown): string {
 }
 
 /** 录音过程中的峰值采样是有上限的，超了按等距抽稀，画出来仍是整段形状。 */
-function downsamplePeaks(peaks: number[], target = 48): number[] {
+function downsamplePeaks(peaks: number[], target = BAR_COUNT): number[] {
   if (peaks.length <= target) return peaks.slice();
   const out: number[] = [];
   for (let i = 0; i < target; i++) {
@@ -149,44 +92,58 @@ function downsamplePeaks(peaks: number[], target = 48): number[] {
 
 // ── 录音机 ───────────────────────────────────────────────────────────────────
 
-function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
+function useVoiceRecorder() {
   const [phase, setPhase] = useState<RecorderPhase>('idle');
   const [clip, setClip] = useState<VoiceClip | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState('');
+  const [transcriptReady, setTranscriptReady] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [playbackMs, setPlaybackMs] = useState(0);
+  const [playbackDurationMs, setPlaybackDurationMs] = useState(0);
 
-  // 声纹：一个**稳定引用**的定长数组，rAF 里原地写，环形组件直接读。
+  // 定长的音量历史，最新一条从右侧进入。
   const levelsRef = useRef<number[] | null>(null);
   if (!levelsRef.current) levelsRef.current = new Array(BAR_COUNT).fill(0);
   const levels = levelsRef.current;
+  const waveListeners = useRef(new Set<() => void>());
+  const subscribeWave = useCallback((listener: () => void) => {
+    waveListeners.current.add(listener);
+    return () => {
+      waveListeners.current.delete(listener);
+    };
+  }, []);
 
   const phaseRef = useRef<RecorderPhase>('idle');
   const clipRef = useRef<VoiceClip | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const freqRef = useRef<Uint8Array | null>(null);
+  const timeDomainRef = useRef<Uint8Array | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const nativeStopRef = useRef<(() => void) | null>(null);
   const nativeControllerRef = useRef<AbortController | null>(null);
   const nativeSamplesRef = useRef<Float32Array[]>([]);
   const nativeSampleCountRef = useRef(0);
-  const rafRef = useRef<number | null>(null);
+  const levelTimerRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
   const maxTimerRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
-  const holdingRef = useRef(false);
-  const wantStopRef = useRef(false);
-  const discardRef = useRef(false);
+  const captureRequestRef = useRef<symbol | null>(null);
+  const stopTargetRef = useRef<StopTarget>('review');
+  const segmentDurationRef = useRef<number | null>(null);
+  const segmentsRef = useRef<Blob[]>([]);
+  const preparedSegmentsRef = useRef<Blob[] | null>(null);
+  const importedAudioRef = useRef(false);
+  const completedDurationRef = useRef(0);
   const peaksRef = useRef<number[]>([]);
   const lastPeakAtRef = useRef(0);
-  const finalTranscriptRef = useRef('');
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const transcriptionRef = useRef<AbortController | null>(null);
+  const transcriptDraft = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const unmountedRef = useRef(false);
 
@@ -196,15 +153,16 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
   }, []);
 
   const cleanupAudio = useCallback(() => {
+    captureRequestRef.current = null;
     nativeStopRef.current?.();
     nativeStopRef.current = null;
     nativeControllerRef.current?.abort();
     nativeControllerRef.current = null;
     nativeSamplesRef.current = [];
     nativeSampleCountRef.current = 0;
-    if (rafRef.current !== null) {
-      window.cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
+    if (levelTimerRef.current !== null) {
+      window.clearInterval(levelTimerRef.current);
+      levelTimerRef.current = null;
     }
     if (timerRef.current !== null) {
       window.clearInterval(timerRef.current);
@@ -215,167 +173,239 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
       maxTimerRef.current = null;
     }
     analyserRef.current = null;
-    freqRef.current = null;
+    timeDomainRef.current = null;
     const ctx = ctxRef.current;
     ctxRef.current = null;
     if (ctx && ctx.state !== 'closed') void ctx.close().catch(() => {});
     const stream = streamRef.current;
     streamRef.current = null;
     if (stream) for (const track of stream.getTracks()) track.stop();
-    if (levels) for (let i = 0; i < levels.length; i++) levels[i] = 0;
-  }, [levels]);
-
-  const stopRecognition = useCallback(() => {
-    const recognition = recognitionRef.current;
-    recognitionRef.current = null;
-    if (!recognition) return;
-    try {
-      recognition.onresult = null;
-      recognition.onerror = null;
-      recognition.onend = null;
-      recognition.stop();
-    } catch {}
   }, []);
 
-  const startRecognition = useCallback(() => {
-    if (!canTranscribe) return;
-    const Ctor = getRecognitionCtor();
-    if (!Ctor) return;
-    try {
-      const recognition = new Ctor();
-      recognitionRef.current = recognition;
-      recognition.lang = 'zh-CN';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      let finalText = '';
-      recognition.onresult = (event) => {
-        let interim = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
-          const text = result[0]?.transcript ?? '';
-          if (result.isFinal) finalText += text;
-          else interim += text;
-        }
-        finalTranscriptRef.current = finalText;
-        setTranscript(`${finalText}${interim}`.trim());
-      };
-      // 边录边转是「顺带」的：环境不支持 / 没网时就安静地放弃，不要把红字糊到
-      // 面板上（真正需要提示的是回顾态里手点的「转文字」）。
-      recognition.onerror = () => {
-        recognitionRef.current = null;
-      };
-      recognition.start();
-    } catch {
-      recognitionRef.current = null;
-    }
-  }, [canTranscribe]);
-
-  const finalizeRecording = useCallback(() => {
-    if (discardRef.current) {
-      discardRef.current = false;
-      chunksRef.current = [];
-      return;
-    }
-    const duration = performance.now() - startedAtRef.current;
-    const chunks = chunksRef.current;
-    chunksRef.current = [];
-    cleanupAudio();
-
-    if (duration < MIN_RECORD_MS) {
-      setElapsedMs(0);
-      setPhaseSafe('idle');
-      setError('说话时间太短，再按住久一点');
-      return;
-    }
-
-    const blob = new Blob(chunks, {
-      type: recorderRef.current?.mimeType || chunks[0]?.type || 'audio/webm',
-    });
-    const url = URL.createObjectURL(blob);
+  const publishClip = useCallback((blob: Blob, durationMs: number) => {
     const next: VoiceClip = {
       id: createMediaId('voice'),
       source: 'record',
-      url,
+      url: URL.createObjectURL(blob),
       blob,
-      durationMs: duration,
+      durationMs,
       levels: downsamplePeaks(peaksRef.current),
-      transcript: finalTranscriptRef.current,
+      transcript: '',
     };
+    audioRef.current?.pause();
     releaseVoiceClip(clipRef.current);
     clipRef.current = next;
+    preparedSegmentsRef.current = segmentsRef.current;
     setClip(next);
-    setTranscript(finalTranscriptRef.current);
-    setElapsedMs(duration);
-    setPhaseSafe('review');
-  }, [cleanupAudio, setPhaseSafe]);
+    setPlaying(false);
+    setPlaybackMs(0);
+    setPlaybackDurationMs(durationMs);
+  }, []);
 
-  const endRecord = useCallback(() => {
-    holdingRef.current = false;
-    stopRecognition();
-    if (nativeStopRef.current) {
-      nativeStopRef.current();
-      nativeStopRef.current = null;
-      const parts = nativeSamplesRef.current;
-      const samples = new Float32Array(parts.reduce((sum, part) => sum + part.length, 0));
-      let offset = 0;
-      for (const part of parts) {
-        samples.set(part, offset);
-        offset += part.length;
+  const importAudio = useCallback(
+    async (file: File) => {
+      if (phaseRef.current !== 'idle') return;
+      if (!file.size) {
+        setError('音频文件为空');
+        return;
       }
-      chunksRef.current = [new Blob([encodePcmWav(samples, 16000)], { type: 'audio/wav' })];
-      finalizeRecording();
-      return;
-    }
-    const recorder = recorderRef.current;
-    if (recorder && recorder.state !== 'inactive') {
+      const segments = segmentsRef.current;
+      setError(null);
+      setPhaseSafe('finalizing');
       try {
-        recorder.stop();
-      } catch {}
-      return;
-    }
-    if (phaseRef.current === 'requesting') {
-      wantStopRef.current = true;
-    }
-  }, [stopRecognition, finalizeRecording]);
+        const bytes = await file.arrayBuffer();
+        const blob = new Blob([bytes], { type: file.type });
+        const audio = await decodeAudio(bytes);
+        if (unmountedRef.current || segmentsRef.current !== segments) return;
+        if (!Number.isFinite(audio.duration) || audio.duration <= 0) throw new Error();
+        const duration = audio.duration * 1000;
+        segmentsRef.current = [blob];
+        importedAudioRef.current = true;
+        completedDurationRef.current = duration;
+        peaksRef.current = [];
+        levels.fill(0);
+        setElapsedMs(duration);
+        publishClip(blob, duration);
+        setPhaseSafe('paused');
+      } catch {
+        if (unmountedRef.current || segmentsRef.current !== segments) return;
+        setError('无法读取此音频，请选择可播放的音频文件');
+        setPhaseSafe('idle');
+      }
+    },
+    [levels, publishClip, setPhaseSafe],
+  );
+
+  const prepareRecording = useCallback(
+    async (target: StopTarget) => {
+      const segments = segmentsRef.current;
+      const duration = completedDurationRef.current;
+      if (!segments.length) {
+        setPhaseSafe('idle');
+        if (target === 'review') setError('录音太短，请录久一点再结束');
+        return;
+      }
+      const tooShort = target === 'review' && !importedAudioRef.current && duration < MIN_RECORD_MS;
+      const nextPhase = tooShort ? 'paused' : target;
+      setError(tooShort ? '录音太短，请录久一点再结束' : null);
+      if (preparedSegmentsRef.current === segments && clipRef.current) {
+        setPhaseSafe(nextPhase);
+        return;
+      }
+      setPhaseSafe('finalizing');
+      try {
+        let blob = segments[0];
+        if (segments.length > 1) {
+          const recordings = await Promise.all(
+            segments.map(async (part) => new Uint8Array(await part.arrayBuffer())),
+          );
+          const wav = await decodeRecordingsToWav(recordings);
+          blob = new Blob([wav], { type: 'audio/wav' });
+        }
+        if (unmountedRef.current || segmentsRef.current !== segments) return;
+        publishClip(blob, duration);
+        setPhaseSafe(nextPhase);
+      } catch (error) {
+        if (unmountedRef.current || segmentsRef.current !== segments) return;
+        setError(error instanceof Error ? error.message : '录音拼接失败');
+        setPhaseSafe('paused');
+      }
+    },
+    [publishClip, setPhaseSafe],
+  );
+
+  const completeSegment = useCallback(
+    (blob: Blob) => {
+      const duration = segmentDurationRef.current ?? performance.now() - startedAtRef.current;
+      const target = stopTargetRef.current;
+      chunksRef.current = [];
+      cleanupAudio();
+      if (blob.size) {
+        segmentsRef.current = [...segmentsRef.current, blob];
+        completedDurationRef.current = Math.min(
+          MAX_RECORD_MS,
+          completedDurationRef.current + duration,
+        );
+      }
+      setElapsedMs(completedDurationRef.current);
+      void prepareRecording(target);
+    },
+    [cleanupAudio, prepareRecording],
+  );
+
+  const stopCapture = useCallback(
+    (target: StopTarget) => {
+      const phase = phaseRef.current;
+      if (phase === 'requesting') {
+        cleanupAudio();
+        setPhaseSafe(segmentsRef.current.length ? 'paused' : 'idle');
+        return;
+      }
+      if (phase === 'paused' && target === 'review') {
+        void prepareRecording('review');
+        return;
+      }
+      if (phase !== 'recording') return;
+      stopTargetRef.current = target;
+      segmentDurationRef.current = performance.now() - startedAtRef.current;
+      setPhaseSafe('finalizing');
+      if (nativeStopRef.current) {
+        const parts = nativeSamplesRef.current;
+        const samples = new Float32Array(nativeSampleCountRef.current);
+        let offset = 0;
+        for (const part of parts) {
+          samples.set(part, offset);
+          offset += part.length;
+        }
+        completeSegment(
+          samples.length
+            ? new Blob([encodePcmWav(samples, 16000)], { type: 'audio/wav' })
+            : new Blob(),
+        );
+        return;
+      }
+      const recorder = recorderRef.current;
+      if (recorder?.state !== 'inactive') recorder?.stop();
+    },
+    [cleanupAudio, completeSegment, prepareRecording, setPhaseSafe],
+  );
+
+  const endRecord = useCallback(() => stopCapture('review'), [stopCapture]);
+  const pauseRecord = useCallback(() => stopCapture('paused'), [stopCapture]);
+  const releaseHeldRecord = useCallback(() => {
+    if (phaseRef.current === 'recording' || phaseRef.current === 'requesting') endRecord();
+  }, [endRecord]);
+
+  const appendLevel = useCallback(
+    (size: number) => {
+      const level = Math.min(1, size * 3);
+      levels.copyWithin(0, 1);
+      levels[levels.length - 1] = level;
+      peaksRef.current.push(level);
+      for (const listener of waveListeners.current) listener();
+    },
+    [levels],
+  );
 
   const tick = useCallback(() => {
-    rafRef.current = window.requestAnimationFrame(tick);
+    if (phaseRef.current !== 'recording') return;
     const analyser = analyserRef.current;
-    const data = freqRef.current;
-    if (!analyser || !data || !levels) return;
-    analyser.getByteFrequencyData(data);
-    const usable = Math.max(1, Math.floor(data.length * 0.72));
-    let sum = 0;
-    for (let i = 0; i < BAR_COUNT; i++) {
-      // 低频信息多、高频信息少，用幂函数拉开带宽，否则整圈柱子会挤在左侧。
-      const ratio = (i / Math.max(1, BAR_COUNT - 1)) ** 1.5;
-      const index = Math.min(usable - 1, Math.floor(ratio * usable));
-      const value = (data[index] ?? 0) / 255;
-      levels[i] = levels[i] * 0.55 + value * 0.45;
-      sum += value;
-    }
-    const now = performance.now();
-    if (now - lastPeakAtRef.current > 90) {
-      lastPeakAtRef.current = now;
-      const peaks = peaksRef.current;
-      if (peaks.length < 600) peaks.push(Math.min(1, (sum / BAR_COUNT) * 1.7));
-    }
-  }, [levels]);
+    const data = timeDomainRef.current;
+    if (!analyser || !data) return;
+    analyser.getByteTimeDomainData(data);
+    let power = 0;
+    for (const sample of data) power += ((sample - 128) / 128) ** 2;
+    appendLevel(Math.sqrt(power / data.length));
+  }, [appendLevel]);
 
   const beginRecord = useCallback(async () => {
-    if (phaseRef.current === 'recording' || phaseRef.current === 'requesting') return;
-    discardRef.current = false;
-    wantStopRef.current = false;
-    holdingRef.current = true;
-    finalTranscriptRef.current = '';
-    peaksRef.current = [];
+    const phase = phaseRef.current;
+    if (phase !== 'idle' && phase !== 'paused' && phase !== 'review') return;
+    if (
+      transcriptReady ||
+      transcriptionRef.current ||
+      completedDurationRef.current >= MAX_RECORD_MS
+    )
+      return;
+    const request = Symbol('microphone');
+    captureRequestRef.current = request;
+    const current = () => !unmountedRef.current && captureRequestRef.current === request;
+    const fail = (message: string) => {
+      if (!current()) return;
+      cleanupAudio();
+      setElapsedMs(completedDurationRef.current);
+      setError(message);
+      setPhaseSafe(segmentsRef.current.length ? 'paused' : 'idle');
+    };
+    const startClock = () => {
+      startedAtRef.current = performance.now();
+      setPhaseSafe('recording');
+      let displayedSecond = Math.floor(completedDurationRef.current / 1000);
+      timerRef.current = window.setInterval(() => {
+        const elapsed = Math.min(
+          MAX_RECORD_MS,
+          completedDurationRef.current + performance.now() - startedAtRef.current,
+        );
+        const second = Math.floor(elapsed / 1000);
+        if (second === displayedSecond) return;
+        displayedSecond = second;
+        setElapsedMs(elapsed);
+      }, 100);
+      maxTimerRef.current = window.setTimeout(
+        endRecord,
+        MAX_RECORD_MS - completedDurationRef.current,
+      );
+    };
+    if (phase === 'idle') {
+      levels.fill(0);
+      peaksRef.current = [];
+    }
+    stopTargetRef.current = 'review';
+    segmentDurationRef.current = null;
+    lastPeakAtRef.current = 0;
+    audioRef.current?.pause();
     setError(null);
     setTranscribeError(null);
-    setTranscript('');
-    releaseVoiceClip(clipRef.current);
-    clipRef.current = null;
-    setClip(null);
-    setElapsedMs(0);
     setPhaseSafe('requesting');
 
     if (needsNativeRemoteMedia()) {
@@ -384,290 +414,292 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
       nativeSampleCountRef.current = 0;
       const controller = new AbortController();
       nativeControllerRef.current = controller;
+      const maxSamples = Math.floor((MAX_RECORD_MS - completedDurationRef.current) * 16);
       try {
         const stop = await startRemoteMedia(
           { audio: true },
           {
             audio: (bytes) => {
-              if (controller.signal.aborted || phaseRef.current !== 'recording') return;
-              const samples = pcm16Samples(bytes);
-              if (nativeSampleCountRef.current < 16000 * 60) {
-                nativeSamplesRef.current.push(samples);
-                nativeSampleCountRef.current += samples.length;
-              }
-              const peak = samples.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
-              levels.fill(peak);
+              if (!current() || phaseRef.current !== 'recording') return;
+              const remaining = maxSamples - nativeSampleCountRef.current;
+              if (remaining <= 0) return;
+              const samples = pcm16Samples(bytes).subarray(0, remaining);
+              nativeSamplesRef.current.push(samples);
+              nativeSampleCountRef.current += samples.length;
               const now = performance.now();
-              if (now - lastPeakAtRef.current > 90 && peaksRef.current.length < 600) {
+              if (samples.length && now - lastPeakAtRef.current >= 68) {
                 lastPeakAtRef.current = now;
-                peaksRef.current.push(peak);
+                const power = samples.reduce((sum, value) => sum + value * value, 0);
+                appendLevel(Math.sqrt(power / samples.length));
               }
             },
-            error: (message) => {
-              cleanupAudio();
-              setError(message);
-              setPhaseSafe('idle');
-            },
+            error: fail,
           },
           controller.signal,
         );
-        if (unmountedRef.current || !holdingRef.current || controller.signal.aborted) {
+        if (!current()) {
           stop();
-          setPhaseSafe('idle');
           return;
         }
         nativeStopRef.current = stop;
-        startedAtRef.current = performance.now();
-        setPhaseSafe('recording');
-        timerRef.current = window.setInterval(
-          () => setElapsedMs(performance.now() - startedAtRef.current),
-          100,
-        );
-        maxTimerRef.current = window.setTimeout(endRecord, MAX_RECORD_MS);
+        startClock();
       } catch (error) {
-        if (!unmountedRef.current) {
-          setError(error instanceof Error ? error.message : '开始录音失败');
-          setPhaseSafe('idle');
-        }
+        fail(error instanceof Error ? error.message : '开始录音失败');
       }
       return;
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      holdingRef.current = false;
-      setPhaseSafe('idle');
-      setError('当前环境不支持录音');
+      fail('当前环境不支持录音');
       return;
     }
-
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true },
       });
-    } catch (err) {
-      holdingRef.current = false;
-      setPhaseSafe('idle');
-      setError(describeMicError(err));
+    } catch (error) {
+      fail(describeMicError(error));
       return;
     }
-
-    if (unmountedRef.current || !holdingRef.current) {
+    if (!current()) {
       for (const track of stream.getTracks()) track.stop();
-      setPhaseSafe('idle');
       return;
     }
-
     streamRef.current = stream;
-
     const AudioCtor = window.AudioContext ?? window.webkitAudioContext;
     if (AudioCtor) {
       try {
         const ctx = new AudioCtor();
-        await ctx.resume();
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 512;
-        analyser.smoothingTimeConstant = 0.78;
-        ctx.createMediaStreamSource(stream).connect(analyser);
         ctxRef.current = ctx;
+        await ctx.resume();
+        if (!current()) return;
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 1024;
+        ctx.createMediaStreamSource(stream).connect(analyser);
         analyserRef.current = analyser;
-        freqRef.current = new Uint8Array(analyser.frequencyBinCount);
+        timeDomainRef.current = new Uint8Array(analyser.fftSize);
       } catch {
-        // 画不出声纹也要能录 —— 声纹只是装饰。
+        if (!current()) return;
       }
     }
 
-    const mime = pickRecorderMime();
-    let recorder: MediaRecorder;
     try {
-      recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-    } catch {
-      cleanupAudio();
-      holdingRef.current = false;
-      setPhaseSafe('idle');
-      setError('开始录音失败');
-      return;
-    }
-
-    recorderRef.current = recorder;
-    chunksRef.current = [];
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunksRef.current.push(event.data);
-    };
-    recorder.onstop = finalizeRecording;
-    recorder.onerror = () => {
-      cleanupAudio();
-      holdingRef.current = false;
-      setPhaseSafe('idle');
-      setError('录音出错');
-    };
-
-    startedAtRef.current = performance.now();
-    try {
+      const mime = pickRecorderMime();
+      const recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (current() && event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        if (!current()) return;
+        const chunks = chunksRef.current;
+        completeSegment(
+          new Blob(chunks, { type: recorder.mimeType || chunks[0]?.type || 'audio/webm' }),
+        );
+      };
+      recorder.onerror = () => fail('录音出错');
       recorder.start(120);
+      startClock();
+      levelTimerRef.current = window.setInterval(tick, 68);
     } catch {
+      fail('开始录音失败');
+    }
+  }, [
+    appendLevel,
+    cleanupAudio,
+    completeSegment,
+    endRecord,
+    levels,
+    setPhaseSafe,
+    tick,
+    transcriptReady,
+  ]);
+
+  const discard = useCallback(
+    (expectedClipId?: string) => {
+      if (expectedClipId && clipRef.current?.id !== expectedClipId) return;
+      audioRef.current?.pause();
+      segmentsRef.current = [];
+      preparedSegmentsRef.current = null;
+      importedAudioRef.current = false;
+      completedDurationRef.current = 0;
+      levels.fill(0);
       cleanupAudio();
-      holdingRef.current = false;
+      transcriptionRef.current?.abort();
+      transcriptionRef.current = null;
+      transcriptDraft.current = null;
+      setTranscribing(false);
+      const recorder = recorderRef.current;
+      if (recorder && recorder.state !== 'inactive') {
+        try {
+          recorder.stop();
+        } catch {}
+      }
+      releaseVoiceClip(clipRef.current);
+      clipRef.current = null;
+      setClip(null);
+      setTranscript('');
+      setTranscriptReady(false);
+      setTranscribeError(null);
+      setError(null);
+      setElapsedMs(0);
+      setPlaying(false);
+      setPlaybackMs(0);
+      setPlaybackDurationMs(0);
       setPhaseSafe('idle');
-      setError('开始录音失败');
-      return;
-    }
+    },
+    [cleanupAudio, levels, setPhaseSafe],
+  );
 
-    setPhaseSafe('recording');
-    rafRef.current = window.requestAnimationFrame(tick);
-    timerRef.current = window.setInterval(() => {
-      setElapsedMs(performance.now() - startedAtRef.current);
-    }, 100);
-    maxTimerRef.current = window.setTimeout(() => endRecord(), MAX_RECORD_MS);
-    startRecognition();
-    if (wantStopRef.current) endRecord();
-  }, [cleanupAudio, endRecord, finalizeRecording, setPhaseSafe, startRecognition, tick, levels]);
-
-  const discard = useCallback(() => {
-    holdingRef.current = false;
-    discardRef.current = true;
-    const recorder = recorderRef.current;
-    if (recorder && recorder.state !== 'inactive') {
-      try {
-        recorder.stop();
-      } catch {}
-    }
-    stopRecognition();
-    cleanupAudio();
-    releaseVoiceClip(clipRef.current);
-    clipRef.current = null;
-    setClip(null);
-    setTranscript('');
-    setTranscribeError(null);
-    setError(null);
-    setElapsedMs(0);
-    setPlaying(false);
-    setPhaseSafe('idle');
-  }, [cleanupAudio, setPhaseSafe, stopRecognition]);
-
-  const ensureAudio = useCallback(() => {
-    let audio = audioRef.current;
-    if (!audio) {
-      audio = new Audio();
-      audioRef.current = audio;
-    }
+  const playbackAudio = useCallback(() => {
+    const clip = clipRef.current;
+    if (!clip?.url || preparedSegmentsRef.current !== segmentsRef.current) return;
+    const audio = audioRef.current ?? new Audio();
+    audioRef.current = audio;
+    if (audio.src === clip.url) return audio;
+    const updateTime = (exact = false) => {
+      if (clipRef.current !== clip) return;
+      const duration =
+        Number.isFinite(audio.duration) && audio.duration > 0
+          ? audio.duration * 1000
+          : clip.durationMs;
+      if (exact) setPlaybackDurationMs(duration);
+      const position = Math.min(duration, audio.currentTime * 1000);
+      setPlaybackMs((previous) =>
+        exact || Math.floor(previous / 1000) !== Math.floor(position / 1000) ? position : previous,
+      );
+    };
+    audio.onplay = () => {
+      if (clipRef.current === clip) setPlaying(true);
+    };
+    audio.onpause = () => {
+      if (clipRef.current !== clip) return;
+      updateTime(true);
+      setPlaying(false);
+    };
+    audio.onended = () => {
+      if (clipRef.current !== clip) return;
+      updateTime(true);
+      setPlaying(false);
+    };
+    audio.ontimeupdate = () => updateTime();
+    audio.onseeked = () => updateTime(true);
+    audio.ondurationchange = () => updateTime(true);
+    audio.onerror = () => {
+      if (clipRef.current !== clip) return;
+      setPlaying(false);
+      setError('无法播放这段录音');
+    };
+    audio.src = clip.url;
     return audio;
   }, []);
 
   const stopPlayback = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.onended = null;
-    audio.pause();
+    audioRef.current?.pause();
     setPlaying(false);
   }, []);
 
   const togglePlay = useCallback(() => {
-    const current = clipRef.current;
-    if (!current?.url) return;
-    const audio = ensureAudio();
-    if (audio.src !== current.url) {
-      audio.src = current.url;
-      audio.currentTime = 0;
-    }
-    audio.onended = () => setPlaying(false);
-    audio.onpause = () => setPlaying(false);
-    audio.onplay = () => setPlaying(true);
-    if (audio.paused) void audio.play().catch(() => setPlaying(false));
-    else audio.pause();
-  }, [ensureAudio]);
+    const audio = playbackAudio();
+    if (!audio) return;
+    if (audio.paused) {
+      const clip = clipRef.current;
+      void audio.play().catch(() => {
+        if (clipRef.current === clip) setPlaying(false);
+      });
+    } else audio.pause();
+  }, [playbackAudio]);
 
-  /** 回顾态「转文字」：一边播放录音一边跑识别（本机扬声器 → 麦克风回环）。 */
+  const seekPlayback = useCallback(
+    (timeMs: number) => {
+      const audio = playbackAudio();
+      const clip = clipRef.current;
+      if (!audio || !clip || !Number.isFinite(timeMs)) return;
+      const duration =
+        Number.isFinite(audio.duration) && audio.duration > 0
+          ? audio.duration * 1000
+          : clip.durationMs;
+      const next = Math.min(duration, Math.max(0, timeMs));
+      audio.currentTime = next / 1000;
+      setPlaybackMs(next);
+    },
+    [playbackAudio],
+  );
+
+  const readPlaybackMs = useCallback(() => {
+    const audio = audioRef.current;
+    return audio && audio.src === clipRef.current?.url ? audio.currentTime * 1000 : 0;
+  }, []);
+
+  const cancelTranscription = useCallback(() => {
+    transcriptionRef.current?.abort();
+    transcriptionRef.current = null;
+    transcriptDraft.current = null;
+    setTranscribing(false);
+    setTranscript('');
+    setTranscriptReady(false);
+    setTranscribeError(null);
+  }, []);
+
+  const takeTranscriptDraft = useCallback(() => {
+    const text = transcriptDraft.current;
+    transcriptDraft.current = null;
+    return text?.trim();
+  }, []);
+
+  const editTranscript = useCallback((text: string) => {
+    if (transcriptDraft.current !== null) transcriptDraft.current = text;
+    setTranscript(text);
+  }, []);
+
   const transcribeClip = useCallback(async () => {
-    const current = clipRef.current;
-    if (!current || transcribing) return;
-    if (current.source === 'tts') {
-      setTranscript(current.text ?? '');
-      return;
-    }
-    const Ctor = getRecognitionCtor();
-    if (!Ctor) {
-      setTranscribeError('当前环境不支持语音识别');
-      return;
-    }
+    const clip = clipRef.current;
+    if (!clip?.blob || transcriptionRef.current) return;
+    const controller = new AbortController();
+    transcriptionRef.current = controller;
     setTranscribing(true);
     setTranscribeError(null);
     stopPlayback();
-
-    const audio = ensureAudio();
-    if (audio.src !== current.url) audio.src = current.url ?? '';
-    audio.currentTime = 0;
-
-    let recognition: SpeechRecognitionLike;
+    let subscription: { unsubscribe: () => void } | undefined;
+    let onAbort: (() => void) | undefined;
     try {
-      recognition = new Ctor();
-    } catch {
-      setTranscribing(false);
-      setTranscribeError('当前环境不支持语音识别');
-      return;
-    }
-    recognitionRef.current = recognition;
-    recognition.lang = 'zh-CN';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    let finalText = '';
-    recognition.onresult = (event) => {
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const text = result[0]?.transcript ?? '';
-        if (result.isFinal) finalText += text;
-        else interim += text;
+      const wav = await decodeRecordingToWav(new Uint8Array(await clip.blob.arrayBuffer()), 16_000);
+      if (controller.signal.aborted) return;
+      const result = await new Promise<TranscribeResult | undefined>((resolve, reject) => {
+        onAbort = () => resolve(undefined);
+        controller.signal.addEventListener('abort', onAbort, { once: true });
+        subscription = client.bootstrap.transcribeRecording.subscribe(
+          { wav },
+          {
+            onData: resolve,
+            onError: reject,
+            onComplete: () => resolve(undefined),
+          },
+        );
+      });
+      if (controller.signal.aborted || clipRef.current !== clip) return;
+      if (!result?.success) throw new Error(result?.error ?? '本地转写失败');
+      const text = result.text?.trim();
+      if (!text) throw new Error('没有识别到文字');
+      transcriptDraft.current = text;
+      setTranscript(text);
+      setTranscriptReady(true);
+    } catch (error) {
+      if (!controller.signal.aborted)
+        setTranscribeError(error instanceof Error ? error.message : '本地转写失败');
+    } finally {
+      if (onAbort) controller.signal.removeEventListener('abort', onAbort);
+      subscription?.unsubscribe();
+      if (transcriptionRef.current === controller) {
+        transcriptionRef.current = null;
+        setTranscribing(false);
       }
-      setTranscript(`${finalText}${interim}`.trim());
-    };
-    recognition.onerror = (event) => {
-      const message = recognitionErrorText(event.error);
-      if (message) setTranscribeError(message);
-      setTranscribing(false);
-      stopPlayback();
-    };
-
-    try {
-      recognition.start();
-    } catch {
-      setTranscribing(false);
-      setTranscribeError('语音识别启动失败');
-      return;
     }
-
-    audio.onended = () => {
-      try {
-        recognition.stop();
-      } catch {}
-      setTranscribing(false);
-      setPlaying(false);
-    };
-    try {
-      await audio.play();
-    } catch {
-      try {
-        recognition.stop();
-      } catch {}
-      setTranscribing(false);
-      setTranscribeError('无法播放录音，转写中断');
-    }
-  }, [ensureAudio, stopPlayback, transcribing]);
-
-  /** 文字合成的结果塞进同一条回顾流程。 */
-  const loadExternalClip = useCallback(
-    (next: VoiceClip) => {
-      releaseVoiceClip(clipRef.current);
-      clipRef.current = next;
-      setClip(next);
-      setTranscript(next.transcript);
-      setTranscribeError(null);
-      setError(null);
-      setElapsedMs(next.durationMs);
-      setPhaseSafe('review');
-    },
-    [setPhaseSafe],
-  );
+  }, [stopPlayback]);
 
   useEffect(() => {
     // 挂载（含 StrictMode 的模拟重挂载）时都要把「已卸载」标记清掉 —— 它只写在
@@ -675,18 +707,16 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
     // 置 true，之后每次 beginRecord 都会在 getUserMedia 返回后直接放弃：表现就是
     // 「一按就断、不到一秒自己回到待机」。
     unmountedRef.current = false;
-    discardRef.current = false;
-
     return () => {
       unmountedRef.current = true;
-      discardRef.current = true;
+      captureRequestRef.current = null;
+      transcriptionRef.current?.abort();
       const recorder = recorderRef.current;
       if (recorder && recorder.state !== 'inactive') {
         try {
           recorder.stop();
         } catch {}
       }
-      stopRecognition();
       cleanupAudio();
       releaseVoiceClip(clipRef.current);
       const audio = audioRef.current;
@@ -695,155 +725,532 @@ function useVoiceRecorder({ canTranscribe }: { canTranscribe: boolean }) {
         audio.pause();
       }
     };
-  }, [cleanupAudio, stopRecognition]);
+  }, [cleanupAudio]);
 
   return {
     phase,
     levels,
+    subscribeWave,
     clip,
     elapsedMs,
     error,
     transcript,
+    transcriptReady,
     transcribing,
     transcribeError,
     playing,
+    playbackMs,
+    playbackDurationMs,
+    playbackReady: clip !== null && preparedSegmentsRef.current === segmentsRef.current,
+    readPlaybackMs,
+    seekPlayback,
     beginRecord,
+    importAudio,
     endRecord,
+    pauseRecord,
+    releaseHeldRecord,
     discard,
     togglePlay,
     transcribeClip,
-    loadExternalClip,
-    setTranscript,
+    cancelTranscription,
+    takeTranscriptDraft,
+    stopPlayback,
+    editTranscript,
   };
 }
 
 // ── 声纹 ─────────────────────────────────────────────────────────────────────
 
-/**
- * 环绕录音键的一圈声纹。自己跑 rAF 直接改每根柱子的 transform/opacity，
- * 不经过 React 渲染 —— 每帧只做 {@link BAR_COUNT} 次样式写入。
- */
-function VoiceWaveRing({ levels, active }: { levels: number[]; active: boolean }) {
-  // 录音时整圈转成录音红（见 composer-media.css 的 .voice-ring.is-active），
-  // 免得蓝色声纹环配红色录音键。
-  const barRefs = useRef<Array<HTMLSpanElement | null>>([]);
-  const activeRef = useRef(active);
-  activeRef.current = active;
+function drawWaveBars(
+  context: CanvasRenderingContext2D,
+  levels: readonly number[],
+  width: number,
+  height: number,
+  gap: number,
+  color: string,
+) {
+  const stride = (width + gap) / BAR_COUNT;
+  const barWidth = stride - gap;
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = color;
+  context.beginPath();
+  for (let index = 0; index < BAR_COUNT; index++) {
+    const value = levels[Math.floor((index / BAR_COUNT) * levels.length)] ?? 0;
+    const amplitude = height * (0.14 + Math.min(1, value) * 0.86);
+    const y = (height - amplitude) / 2;
+    if (context.roundRect) {
+      context.roundRect(
+        index * stride,
+        y,
+        barWidth,
+        amplitude,
+        Math.min(2, barWidth / 2, amplitude / 2),
+      );
+    } else {
+      context.rect(index * stride, y, barWidth, amplitude);
+    }
+  }
+  context.fill();
+}
 
-  useEffect(() => {
-    let frame = 0;
-    let phase = 0;
-    const step = () => {
-      frame = window.requestAnimationFrame(step);
-      phase += 0.06;
-      const bars = barRefs.current;
-      const flow = Math.floor(phase);
-      for (let i = 0; i < bars.length; i++) {
-        const bar = bars[i];
-        if (!bar) continue;
-        const angle = (360 / BAR_COUNT) * i;
-        let value: number;
-        if (activeRef.current) {
-          value = levels[(i + flow) % levels.length] ?? 0;
-        } else {
-          // 待机：极轻的呼吸，让面板不显得僵。
-          value = 0.09 + 0.05 * Math.sin(phase * 1.6 + i * 0.55);
-        }
-        const scale = 0.16 + Math.min(1, value) * 1.05;
-        bar.style.transform = `rotate(${angle}deg) translateY(-${RING_RADIUS}px) scaleY(${scale})`;
-        bar.style.opacity = `${0.3 + Math.min(1, value) * 0.7}`;
-      }
+/** 采样时重画波形，播放时只移动已绘好的波形和进度线。 */
+function VoiceWave({
+  levels,
+  active,
+  subscribeWave,
+  playback,
+}: {
+  levels: readonly number[];
+  active: boolean;
+  subscribeWave: (listener: () => void) => () => void;
+  playback?: {
+    positionMs: number;
+    durationMs: number;
+    playing: boolean;
+    readPositionMs: () => number;
+    seek: (timeMs: number) => void;
+  };
+}) {
+  const waveRef = useRef<HTMLDivElement | null>(null);
+  const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const playedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const playedWindowRef = useRef<HTMLDivElement | null>(null);
+  const playheadRef = useRef<HTMLDivElement | null>(null);
+  const showPlayback = Boolean(playback);
+
+  useLayoutEffect(() => {
+    const wave = waveRef.current;
+    if (!wave) return;
+    const layers = [baseCanvasRef.current, playedCanvasRef.current].flatMap((canvas) => {
+      const context = canvas?.getContext('2d');
+      return canvas && context ? [{ canvas, context, color: '' }] : [];
+    });
+    if (!layers.length) return;
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let width = 0,
+      height = 0,
+      gap = 0;
+    let frame: number | null = null;
+    const draw = () => {
+      frame = null;
+      if (width <= 0 || height <= 0) return;
+      for (const { context, color } of layers)
+        drawWaveBars(context, levels, width, height, gap, color);
     };
-    frame = window.requestAnimationFrame(step);
-    return () => window.cancelAnimationFrame(frame);
-  }, [levels]);
+    const scheduleDraw = () => {
+      if (frame === null) frame = window.requestAnimationFrame(draw);
+    };
+    const resize = () => {
+      width = wave.clientWidth;
+      height = wave.clientHeight;
+      if (width <= 0 || height <= 0) return;
+      const density = Math.min(2, window.devicePixelRatio || 1);
+      gap = Math.min(3, Math.max(1, window.innerWidth * 0.004), width / (BAR_COUNT * 2));
+      for (const { canvas, context } of layers) {
+        const pixelWidth = Math.round(width * density);
+        const pixelHeight = Math.round(height * density);
+        if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+        if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+        context.setTransform(pixelWidth / width, 0, 0, pixelHeight / height, 0, 0);
+      }
+      scheduleDraw();
+    };
+    const refreshColors = () => {
+      for (const layer of layers) layer.color = window.getComputedStyle(layer.canvas).color;
+      scheduleDraw();
+    };
+    const sizeObserver = new ResizeObserver(resize);
+    sizeObserver.observe(wave);
+    const themeObserver = new MutationObserver(refreshColors);
+    themeObserver.observe(document.documentElement, {
+      attributeFilter: ['class', 'data-theme', 'style'],
+    });
+    refreshColors();
+    resize();
+    const unsubscribe = active
+      ? subscribeWave(() => {
+          if (!motion.matches) scheduleDraw();
+        })
+      : undefined;
+    return () => {
+      unsubscribe?.();
+      sizeObserver.disconnect();
+      themeObserver.disconnect();
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, [levels, active, showPlayback, subscribeWave]);
 
+  const { positionMs, durationMs, playing, readPositionMs } = playback ?? {};
+  useLayoutEffect(() => {
+    const playedWindow = playedWindowRef.current;
+    const playedCanvas = playedCanvasRef.current;
+    const playhead = playheadRef.current;
+    if (
+      !playedWindow ||
+      !playedCanvas ||
+      !playhead ||
+      !durationMs ||
+      typeof positionMs !== 'number'
+    )
+      return;
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let frame = 0;
+    let lastProgress = -1;
+    const paint = (timeMs: number) => {
+      const progress = Math.min(1, Math.max(0, timeMs / durationMs));
+      if (progress === lastProgress) return;
+      lastProgress = progress;
+      // 反向平移裁切窗口和画布，着色区域前进，柱形保持原位。
+      playedWindow.style.transform = `translateX(${(progress - 1) * 100}%)`;
+      playedCanvas.style.transform = `translateX(${(1 - progress) * 100}%)`;
+      playhead.style.transform = `translateX(${progress * 100}%)`;
+    };
+    const tick = () => {
+      paint(readPositionMs?.() ?? positionMs);
+      frame = window.requestAnimationFrame(tick);
+    };
+    const updateMotion = () => {
+      window.cancelAnimationFrame(frame);
+      if (playing && !motion.matches) tick();
+      else paint(positionMs);
+    };
+    updateMotion();
+    motion.addEventListener('change', updateMotion);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      motion.removeEventListener('change', updateMotion);
+    };
+  }, [durationMs, playing, positionMs, readPositionMs]);
   return (
-    <div className={cn('voice-ring', active && 'is-active')} aria-hidden="true">
-      {RING_BARS.map((bar, index) => (
-        <span
-          key={bar.angle}
-          ref={(node) => {
-            barRefs.current[index] = node;
-          }}
-        />
-      ))}
+    <div
+      className={cn('voice-wave', playback && 'is-seekable')}
+      aria-hidden={playback ? undefined : true}
+      ref={waveRef}
+    >
+      <canvas className="voice-wave-canvas" ref={baseCanvasRef} aria-hidden="true" />
+      {playback ? (
+        <>
+          <div className="voice-wave-progress" ref={playedWindowRef} aria-hidden="true">
+            <canvas className="voice-wave-canvas" ref={playedCanvasRef} />
+          </div>
+          <div className="voice-wave-playhead" ref={playheadRef} aria-hidden="true" />
+          <input
+            className="voice-wave-seek"
+            type="range"
+            min={0}
+            max={playback.durationMs}
+            step="any"
+            value={Math.min(playback.positionMs, playback.durationMs)}
+            aria-label="录音播放进度"
+            aria-valuetext={`${formatClipDuration(playback.positionMs)} / ${formatClipDuration(playback.durationMs)}`}
+            onChange={(event) => playback.seek(Number(event.target.value))}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
 
-/** 回顾态的静态声纹（按峰值归一化，小声录的也能看清形状）。 */
-function VoiceReviewWave({ levels }: { levels: number[] }) {
-  const bars = useMemo(() => {
-    const source = levels.length > 0 ? levels : [0.18, 0.42, 0.7, 0.3, 0.55];
-    const peak = Math.max(0.12, ...source);
-    return source.map((value, index) => ({
-      // 柱子只按位置存在：key 由位置派生，而不是直接把 map 的下标丢进 key。
-      id: `peak-${index}`,
-      height: `${Math.max(10, (value / peak) * 100)}%`,
-    }));
-  }, [levels]);
+function RecordingPlayButton({
+  playing,
+  onToggle,
+  className,
+}: {
+  playing: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  const label = playing ? '暂停播放' : '播放录音';
   return (
-    <div className={cn('voice-review-wave')} aria-hidden="true">
-      {bars.map((bar) => (
-        <i key={bar.id} style={{ height: bar.height }} />
-      ))}
-    </div>
+    <button
+      type="button"
+      className={cn('voice-review-play', playing && 'is-playing', className)}
+      title={label}
+      aria-label={label}
+      onClick={onToggle}
+    >
+      {playing ? <Pause size={18} /> : <Play size={18} />}
+    </button>
   );
 }
 
 // ── 面板 ─────────────────────────────────────────────────────────────────────
 
+type RecordingOwner = { id: string; label: string };
+type RecordingInput = 'button' | 'space';
+const VoiceCaptureContext = createContext<{
+  recorder: ReturnType<typeof useVoiceRecorder>;
+  owner: RecordingOwner | null;
+  input: RecordingInput;
+  start: (owner: RecordingOwner, input: RecordingInput) => void;
+  loadAudio: (owner: RecordingOwner, file: File) => void;
+  registerInline: (id: string) => () => void;
+} | null>(null);
+
+/** Recorder lifetime follows the workspace and account. Chat pages can mount independently. */
+export function VoiceWorkspace({
+  children,
+  onReturn,
+  obscured,
+}: {
+  children: ReactNode;
+  onReturn?: (id: string) => void;
+  obscured?: boolean;
+}) {
+  const [returnId, setReturnId] = useState<string | null>(null);
+  const [owner, setOwner] = useState<RecordingOwner | null>(null);
+  const [input, setInput] = useState<RecordingInput>('button');
+  const [inline, setInline] = useState<{ id: string } | null>(null);
+  const recorder = useVoiceRecorder();
+  const pages = useContext(PagesContext);
+  const { takeTranscriptDraft } = recorder;
+  const mode = useMemo(
+    () => ({
+      returnId,
+      setReturnId,
+      takeTranscriptDraft: (conversationId: string) =>
+        owner?.id === conversationId ? takeTranscriptDraft() : undefined,
+    }),
+    [owner?.id, returnId, takeTranscriptDraft],
+  );
+  const registerInline = useCallback((id: string) => {
+    const panel = { id };
+    setInline(panel);
+    return () => setInline((current) => (current === panel ? null : current));
+  }, []);
+  const { beginRecord, importAudio, releaseHeldRecord, phase } = recorder;
+  function start(nextOwner: RecordingOwner, nextInput: RecordingInput) {
+    if (phase !== 'idle' && owner?.id !== nextOwner.id) return;
+    setOwner(nextOwner);
+    setInput(nextInput);
+    void beginRecord();
+  }
+  function loadAudio(nextOwner: RecordingOwner, file: File) {
+    if (phase !== 'idle') return;
+    setOwner(nextOwner);
+    void importAudio(file);
+  }
+  useEffect(() => {
+    if (input !== 'space' || (phase !== 'recording' && phase !== 'requesting')) return;
+    function release(event: KeyboardEvent) {
+      if (event.code !== 'Space') return;
+      event.preventDefault();
+      releaseHeldRecord();
+    }
+    window.addEventListener('keyup', release, true);
+    return () => window.removeEventListener('keyup', release, true);
+  }, [input, phase, releaseHeldRecord]);
+  const openRecording = useCallback(() => {
+    if (!owner) return;
+    setReturnId(owner.id);
+    pages?.select(null);
+    onReturn?.(owner.id);
+  }, [onReturn, owner, pages]);
+  const showBubble =
+    owner && phase !== 'idle' && (phase === 'paused' || obscured || inline?.id !== owner.id);
+  return (
+    <voiceModeContext.Provider value={mode}>
+      <VoiceCaptureContext.Provider
+        value={{ recorder, owner, input, start, loadAudio, registerInline }}
+      >
+        {children}
+      </VoiceCaptureContext.Provider>
+      <RecordingBubble
+        owner={showBubble ? owner : null}
+        status={
+          phase === 'paused'
+            ? '已暂停'
+            : phase === 'finalizing'
+              ? '整理中'
+              : phase === 'review'
+                ? '待发送'
+                : phase === 'requesting'
+                  ? '准备中'
+                  : formatClipDuration(recorder.elapsedMs)
+        }
+        onOpen={openRecording}
+      />
+    </voiceModeContext.Provider>
+  );
+}
+
+const RecordingBubble = memo(function RecordingBubble({
+  owner,
+  status,
+  onOpen,
+}: {
+  owner: RecordingOwner | null;
+  status: string;
+  onOpen: () => void;
+}) {
+  const button = useRef<HTMLButtonElement | null>(null);
+  const position = useRef<{ x: number; y: number } | null>(null);
+  const drag = useRef<{ id: number; x: number; y: number; left: number; top: number } | null>(null);
+  const frame = useRef<number | null>(null);
+  const moved = useRef(false);
+  const paint = useCallback(() => {
+    frame.current = null;
+    const current = position.current;
+    if (!current || !button.current) return;
+    const x = Math.max(8, Math.min(window.innerWidth - 68, current.x));
+    const y = Math.max(8, Math.min(window.innerHeight - 68, current.y));
+    position.current = { x, y };
+    button.current.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  }, []);
+  useLayoutEffect(() => {
+    if (!owner) return;
+    paint();
+    const resize = () => {
+      if (frame.current === null) frame.current = window.requestAnimationFrame(paint);
+    };
+    window.addEventListener('resize', resize);
+    return () => {
+      window.removeEventListener('resize', resize);
+      if (frame.current !== null) window.cancelAnimationFrame(frame.current);
+      frame.current = null;
+      drag.current = null;
+    };
+  }, [owner, paint]);
+  if (!owner) return null;
+  return createPortal(
+    <button
+      ref={button}
+      type="button"
+      className="voice-recording-bubble"
+      title={`返回「${owner.label}」的录音`}
+      aria-label={`返回「${owner.label}」的录音`}
+      onPointerDown={(event) => {
+        if (event.button !== 0 || !event.isPrimary) return;
+        const { left, top } = event.currentTarget.getBoundingClientRect();
+        drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, left, top };
+        moved.current = false;
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        const gesture = drag.current;
+        if (!gesture || gesture.id !== event.pointerId) return;
+        const dx = event.clientX - gesture.x;
+        const dy = event.clientY - gesture.y;
+        if (!moved.current && Math.hypot(dx, dy) < 5) return;
+        moved.current = true;
+        position.current = { x: gesture.left + dx, y: gesture.top + dy };
+        if (frame.current === null) frame.current = window.requestAnimationFrame(paint);
+      }}
+      onLostPointerCapture={() => {
+        drag.current = null;
+      }}
+      onClick={(event) => {
+        if (moved.current && event.detail !== 0) {
+          moved.current = false;
+          return;
+        }
+        onOpen();
+      }}
+    >
+      <Mic size={17} />
+      <span className="weq-number weq-number-inherit">{status}</span>
+    </button>,
+    document.body,
+  );
+});
+
 export function VoicePanel({
-  panelRef,
+  conversationId,
+  conversationLabel,
   canSend,
   sendHint,
-  transcribeEnabled,
   onSendVoice,
   onSendTranscript,
-  onSendAudioFile,
-  onBusyChange,
+  onSendTts,
   ttsProviders = [],
   onSynthesizeSpeech,
-  onOpenAiVoice,
+  groupId,
+  text,
+  onTextChange,
+  onUseTranscriptDraft,
+  onExitVoiceMode,
+  onSendAiVoice,
 }: {
-  panelRef: RefObject<HTMLDivElement | null>;
+  conversationId: string;
+  conversationLabel: string;
   /** 是否可以发送（QQ 在线且允许注入）。 */
   canSend: boolean;
   sendHint: string;
-  /** 设置里选了离线转录模型。 */
-  transcribeEnabled: boolean;
-  onSendVoice: (clip: VoiceClip) => void;
-  onSendTranscript: (text: string) => void;
-  /**
-   * 选了一个本机音频文件（mp3 / m4a / wav / ogg…）当语音条发。
-   *
-   * 字节原样交给上层，由它在渲染层用 WebAudio 解成 24k WAV、再转 SILK 发送 ——
-   * 相当于内置一个格式转换器，不依赖 ffmpeg。
-   */
-  onSendAudioFile: (bytes: Uint8Array, fileName: string) => void;
-  /** 收起不做按钮：这个面板是内嵌在输入框里的，再点一次工具栏那枚麦克风就行。 */
-  onBusyChange: (busy: boolean) => void;
+  onSendVoice: (clip: VoiceClip) => Promise<boolean | undefined>;
+  onSendTranscript: (text: string) => Promise<boolean | undefined>;
+  onSendTts: (bytes: Uint8Array, text: string) => Promise<void>;
   ttsProviders?: TtsVoiceProvider[];
   onSynthesizeSpeech?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
-  onOpenAiVoice?: () => void;
+  groupId?: number;
+  text: string;
+  onTextChange: (text: string) => void;
+  onUseTranscriptDraft: () => void;
+  onExitVoiceMode: () => void;
+  onSendAiVoice: (draft: AiVoiceDraft) => void;
 }) {
-  const [tab, setTab] = useState<'record' | 'tts'>('record');
-  const recorder = useVoiceRecorder({ canTranscribe: transcribeEnabled });
-  const { phase, beginRecord, endRecord } = recorder;
+  const [tab, setTab] = useState<'record' | 'tts' | 'ai'>('record');
+  const tabActive = useTabActive();
+  const { recorder, owner, input, start, loadAudio, registerInline } =
+    useContext(VoiceCaptureContext)!;
+  const ownsRecording = owner?.id === conversationId;
+  const phase = ownsRecording ? recorder.phase : 'idle';
+  const foreignRecording = !!owner && !ownsRecording && recorder.phase !== 'idle';
+  const { endRecord, pauseRecord, stopPlayback } = recorder;
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const busy = phase === 'recording' || phase === 'requesting';
+  const aiSendRef = useRef<HTMLButtonElement | null>(null);
+  const sendingReview = useRef(false);
+  const [reviewSending, setReviewSending] = useState(false);
+  const paused = phase === 'paused';
+  const reviewing = phase === 'review';
+  const canPlayRecording = paused || reviewing;
+  const transcriptReady = reviewing && recorder.transcriptReady;
+  const playback =
+    canPlayRecording && recorder.playbackReady && recorder.playbackDurationMs > 0
+      ? {
+          positionMs: recorder.playbackMs,
+          durationMs: recorder.playbackDurationMs,
+          playing: recorder.playing,
+          readPositionMs: recorder.readPlaybackMs,
+          seek: recorder.seekPlayback,
+        }
+      : undefined;
+  const previewTime =
+    playback && (recorder.playing || playback.positionMs > 0) ? playback.positionMs : undefined;
+  const busy = phase === 'recording' || phase === 'requesting' || phase === 'finalizing';
+  const canResume =
+    recorder.elapsedMs < MAX_RECORD_MS && !recorder.transcribing && !recorder.transcriptReady;
+  const resumeByClick = () => start({ id: conversationId, label: conversationLabel }, 'button');
 
-  /** 选一个本机音频文件当语音发（解码成 WAV 再转 SILK 的活在上层做）。 */
-  async function handlePickAudio(file: File): Promise<void> {
+  function changeTab(next: typeof tab) {
+    if (busy) return;
+    if (next !== 'record' && ownsRecording) {
+      stopPlayback();
+      if (tab === 'record') onUseTranscriptDraft();
+    }
+    setTab(next);
+  }
+
+  async function sendReview(send: () => Promise<boolean | undefined>) {
+    const id = recorder.clip?.id;
+    if (!id || sendingReview.current) return;
+    sendingReview.current = true;
+    setReviewSending(true);
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      if (bytes.byteLength === 0) return;
-      onSendAudioFile(bytes, file.name || 'audio');
-    } catch {
-      // 读不出字节时静默：不打断录音流程。
+      if (await send()) recorder.discard(id);
+    } finally {
+      sendingReview.current = false;
+      setReviewSending(false);
     }
   }
+
+  useLayoutEffect(() => {
+    if (!tabActive) return;
+    return registerInline(conversationId);
+  }, [conversationId, registerInline, tabActive]);
+
+  useEffect(() => {
+    if (ownsRecording && tabActive) return stopPlayback;
+  }, [ownsRecording, stopPlayback, tabActive]);
 
   // 面板自己抢焦点，这样空格长按不会落进正文（正文聚焦时空格就是打字）。
   useEffect(() => {
@@ -851,238 +1258,272 @@ export function VoicePanel({
   }, []);
 
   useEffect(() => {
-    onBusyChange(busy);
-  }, [busy, onBusyChange]);
-
-  // 空格长按 = 按住说话；松开即停。正文 / 输入框聚焦时不抢。
-  useEffect(() => {
-    function isTypingTarget(target: EventTarget | null): boolean {
-      if (!(target instanceof HTMLElement)) return false;
-      if (target.isContentEditable) return true;
-      const tag = target.tagName;
-      return tag === 'INPUT' || tag === 'TEXTAREA';
-    }
-
-    function onKeyDown(event: KeyboardEvent) {
+    const root = rootRef.current;
+    if (!tabActive || !root) return;
+    const document = root.ownerDocument;
+    function handleEscape(event: KeyboardEvent) {
       if (
-        tab !== 'record' ||
-        event.code !== 'Space' ||
-        event.repeat ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      ) {
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229
+      )
         return;
-      }
-      if (isTypingTarget(event.target)) return;
-      if (phase === 'recording' || phase === 'requesting') return;
+      const top = topSurface(document);
+      if (top && !top.contains(root)) return;
       event.preventDefault();
-      void beginRecord();
+      event.stopImmediatePropagation();
+      if (event.repeat || phase === 'finalizing') return;
+      if (phase === 'recording' || phase === 'requesting') pauseRecord();
+      else onExitVoiceMode();
     }
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [onExitVoiceMode, pauseRecord, phase, tabActive]);
 
-    function onKeyUp(event: KeyboardEvent) {
-      if (event.code !== 'Space' || isTypingTarget(event.target)) return;
-      event.preventDefault();
-      endRecord();
-    }
-
-    document.addEventListener('keydown', onKeyDown);
-    document.addEventListener('keyup', onKeyUp);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.removeEventListener('keyup', onKeyUp);
-    };
-  }, [beginRecord, endRecord, phase, tab]);
-
-  // 录音期间的「松手」在 window 上听：录音键在录音中会重渲染（换图标 / 计时器），
-  // 挂在按钮上的 onPointerUp 一旦丢了捕获就收不到 —— 表现就是「按住了却自己断掉」。
-  // window 级监听不依赖捕获，鼠标移出按钮也照样能停。
-  // 只听 pointer，不听 window 的 blur：第一次录音会弹麦克风授权，窗口失焦不该把
-  // 这条正在录的语音掐掉。
-  useEffect(() => {
-    if (phase !== 'recording' && phase !== 'requesting') return;
-
-    const stop = () => endRecord();
-    window.addEventListener('pointerup', stop);
-    window.addEventListener('pointercancel', stop);
-    return () => {
-      window.removeEventListener('pointerup', stop);
-      window.removeEventListener('pointercancel', stop);
-    };
-  }, [endRecord, phase]);
+  // 空格由录音所在页面启动，释放由工作区监听，切页时也能结束录音。
+  function startWithSpace(event: React.KeyboardEvent) {
+    if (
+      tab !== 'record' ||
+      event.code !== 'Space' ||
+      event.repeat ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey
+    )
+      return;
+    const target = event.target as HTMLElement;
+    if (
+      target.isContentEditable ||
+      target.closest('input, textarea, button:not(.voice-record-btn)')
+    )
+      return;
+    event.preventDefault();
+    if (!busy && !foreignRecording && !reviewSending && (phase === 'idle' || canResume))
+      start({ id: conversationId, label: conversationLabel }, 'space');
+  }
 
   return (
     <div
       className={cn('voice-panel')}
-      ref={(node) => {
-        rootRef.current = node;
-        if (panelRef) panelRef.current = node;
-      }}
+      ref={rootRef}
       tabIndex={-1}
+      onKeyDown={startWithSpace}
       aria-label="语音"
     >
-      <div className={cn('voice-panel-head')}>
-        <div className={cn('voice-panel-tabs')} role="tablist" aria-label="语音方式">
+      <div className="voice-mode-switch" role="group" aria-label="语音方式">
+        <button
+          type="button"
+          aria-pressed={tab === 'record'}
+          disabled={busy}
+          onClick={() => changeTab('record')}
+        >
+          <Mic size={16} /> 录音
+        </button>
+        <button
+          type="button"
+          aria-pressed={tab === 'tts'}
+          disabled={busy}
+          onClick={() => changeTab('tts')}
+        >
+          <Type size={16} /> TTS
+        </button>
+        {groupId ? (
           <button
             type="button"
-            role="tab"
-            aria-selected={tab === 'record'}
-            className={cn(tab === 'record' && 'active')}
+            aria-pressed={tab === 'ai'}
             disabled={busy}
-            onClick={() => setTab('record')}
+            onClick={() => changeTab('ai')}
           >
-            <Mic size={14} /> 录音
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'tts'}
-            className={cn(tab === 'tts' && 'active')}
-            disabled={busy}
-            onClick={() => setTab('tts')}
-          >
-            <Type size={14} /> 文字转语音
-          </button>
-        </div>
-        {onOpenAiVoice ? (
-          <button
-            type="button"
-            className={cn('voice-ai-action')}
-            title="AI 声聊"
-            disabled={busy}
-            onClick={onOpenAiVoice}
-          >
-            <Sparkles size={15} />
+            <Sparkles size={16} /> AI 声聊
           </button>
         ) : null}
       </div>
-      {tab === 'tts' ? (
-        <div className={cn('voice-panel-body')}>
-          <TtsComposer
-            providers={ttsProviders}
-            canSend={canSend}
-            sendHint={sendHint}
-            onSendAudio={onSendAudioFile}
-            onSynthesize={onSynthesizeSpeech}
-          />
-        </div>
-      ) : (
-        <div className={cn('voice-panel-body')}>
-          {phase === 'review' && recorder.clip ? (
-            <VoiceReview
-              clip={recorder.clip}
-              transcript={recorder.transcript}
-              transcribing={recorder.transcribing}
-              transcribeError={recorder.transcribeError}
-              playing={recorder.playing}
-              transcribeEnabled={transcribeEnabled}
-              canSend={canSend}
-              sendHint={sendHint}
-              onTogglePlay={recorder.togglePlay}
-              onTranscribe={recorder.transcribeClip}
-              onTranscriptChange={recorder.setTranscript}
-              onDiscard={recorder.discard}
-              onSendVoice={(voiceChanged) =>
-                onSendVoice({ ...recorder.clip, transcript: recorder.transcript, voiceChanged })
-              }
-              onSendTranscript={() => onSendTranscript(recorder.transcript.trim())}
+      {tab !== 'record' ? (
+        <div className="voice-synthesis">
+          <div className="voice-synthesis-field">
+            <span className="voice-synthesis-label">
+              <span className="voice-tts-count" aria-hidden="true">
+                {text.length}/{MAX_TTS_CHARS}
+              </span>
+            </span>
+            <textarea
+              className="voice-tts-input"
+              aria-label="合成文字"
+              value={text}
+              maxLength={Math.max(MAX_TTS_CHARS, text.length)}
+              placeholder="输入要合成语音的文字"
+              onChange={(event) => onTextChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (
+                  tab === 'ai' &&
+                  event.key === 'Enter' &&
+                  (event.metaKey || event.ctrlKey) &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  aiSendRef.current?.click();
+                }
+              }}
+            />
+            {text.length > MAX_TTS_CHARS ? (
+              <span className="voice-error" role="status">
+                语音文字最多 {MAX_TTS_CHARS} 字，请缩短后发送。
+              </span>
+            ) : null}
+          </div>
+          {tab === 'ai' && groupId ? (
+            <AiVoiceControls
+              groupId={groupId}
+              text={text}
+              disabled={!canSend}
+              disabledHint={sendHint}
+              onSend={onSendAiVoice}
+              sendRef={aiSendRef}
             />
           ) : (
-            <div className={cn('voice-stage')}>
-              <div className={cn('voice-pulse', busy && 'active')} aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </div>
-              <VoiceWaveRing levels={recorder.levels} active={phase === 'recording'} />
+            <TtsComposer
+              text={text}
+              providers={ttsProviders}
+              canSend={canSend}
+              sendHint={sendHint}
+              onSendAudio={onSendTts}
+              onSynthesize={onSynthesizeSpeech}
+            />
+          )}
+        </div>
+      ) : (
+        <div
+          className="voice-panel-body"
+          data-wave-phase={phase}
+          data-transcript-ready={transcriptReady}
+        >
+          {foreignRecording ? null : (
+            <VoiceWave
+              levels={playback ? (recorder.clip?.levels ?? []) : recorder.levels}
+              active={phase === 'recording'}
+              subscribeWave={recorder.subscribeWave}
+              playback={playback}
+            />
+          )}
+          {playback ? (
+            <RecordingPlayButton
+              className="voice-stage-play"
+              playing={recorder.playing}
+              onToggle={recorder.togglePlay}
+            />
+          ) : null}
+          {!foreignRecording && !transcriptReady ? (
+            <div className={cn('voice-record-track', (busy || canPlayRecording) && 'is-at-end')}>
               <button
                 type="button"
-                className={cn(
-                  'voice-record-btn',
-                  busy && 'is-recording',
-                  phase === 'requesting' && 'is-waiting',
-                  recorder.error && 'is-error',
-                )}
-                title="按住说话（也可以长按空格）"
-                aria-label="按住说话"
-                onKeyDown={(event) => {
-                  if (event.code === 'Space' || event.key === 'Enter') event.preventDefault();
-                }}
-                onPointerDown={(event) => {
-                  if (event.button !== 0) return;
-                  event.preventDefault();
-                  void beginRecord();
-                }}
-                onPointerUp={(event) => {
-                  event.preventDefault();
-                  endRecord();
+                className="voice-record-btn"
+                title={
+                  canPlayRecording ? '继续录音' : busy ? '结束录音' : '点击录音（也可长按空格）'
+                }
+                aria-label={canPlayRecording ? '继续录音' : busy ? '结束录音' : '点击录音'}
+                disabled={
+                  phase === 'finalizing' || (canPlayRecording && (!canResume || reviewSending))
+                }
+                onClick={() => {
+                  if (busy) endRecord();
+                  else resumeByClick();
                 }}
                 onContextMenu={(event) => event.preventDefault()}
               >
                 {phase === 'requesting' ? (
                   <>
-                    <Loader2 size={20} className={cn('voice-spin')} />
-                    <strong>正在打开麦克风…</strong>
+                    <Loader2 size={20} className="voice-spin" />
+                    <strong>正在开麦…</strong>
                   </>
-                ) : busy ? (
+                ) : phase === 'finalizing' ? (
+                  <Loader2 size={20} className="voice-spin" />
+                ) : busy || canPlayRecording ? (
                   <>
-                    {/* 录音中秒数是主角：大号数字占中间，松手提示只留一行小字垫在下面。 */}
-                    <strong className={cn('voice-record-timer')}>
-                      <span className="weq-number weq-number-inherit">
-                        {formatClipDuration(recorder.elapsedMs)}
-                      </span>
+                    <strong className="voice-record-timer weq-number weq-number-inherit">
+                      {formatClipDuration(previewTime ?? recorder.elapsedMs)}
                     </strong>
-                    <em className={cn('voice-record-note')}>松开结束</em>
+                    <em className="voice-record-note">
+                      {canPlayRecording ? '继续录音' : input === 'space' ? '松开结束' : '点击结束'}
+                    </em>
                   </>
                 ) : (
                   <>
                     <Mic size={22} />
-                    <strong>按住说话</strong>
+                    <strong>点击录音</strong>
                   </>
                 )}
               </button>
             </div>
-          )}
-
-          <div className={cn('voice-panel-foot')}>
-            <span className={cn('voice-hint')}>
-              <kbd>空格</kbd> 长按录音 · 最长 60 秒
+          ) : null}
+          {transcriptReady ? (
+            <span className="voice-review-time weq-number weq-number-inherit">
+              {formatClipDuration(previewTime ?? recorder.elapsedMs)}
             </span>
-            {/* 「选择音频」只在**录制态**出现。进入回顾 / 发送界面后底部已经被试听 +
-              发送按钮占满，这颗胶囊再挤进来就会和它们叠在一起，所以直接收掉 ——
-              要重选音频就退回录制态（点一下麦克风）再选。 */}
-            {phase !== 'review' ? (
-              <label
-                className={cn('voice-pick-audio')}
-                title="选择本机音频文件当语音发送（自动转成 SILK）"
-              >
-                <FileAudio size={13} />
-                选择音频
-                <input
-                  type="file"
-                  accept="audio/*"
-                  hidden
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = '';
-                    if (file) void handlePickAudio(file);
-                  }}
-                />
-              </label>
-            ) : null}
-            {recorder.error ? <span className={cn('voice-error')}>{recorder.error}</span> : null}
-            {!recorder.error && recorder.transcribeError && !busy ? (
-              <span className={cn('voice-error')}>{recorder.transcribeError}</span>
-            ) : null}
-            {!recorder.error && !recorder.transcribeError && transcribeEnabled && busy ? (
-              <span className={cn('voice-hint ok')}>
-                <Sparkles size={12} /> 正在转文字…
+          ) : null}
+          {foreignRecording ? (
+            <p className="voice-other-recording">另一个会话有录音，请通过悬浮球返回。</p>
+          ) : reviewing && recorder.clip ? (
+            <VoiceReview
+              transcript={recorder.transcript}
+              transcriptReady={transcriptReady}
+              transcribing={recorder.transcribing}
+              transcribeError={recorder.transcribeError}
+              canSend={canSend && !reviewSending}
+              sendHint={sendHint}
+              onTranscribe={recorder.transcribeClip}
+              onCancelTranscription={recorder.cancelTranscription}
+              onTranscriptChange={recorder.editTranscript}
+              onDiscard={() => recorder.discard()}
+              onSendVoice={(voiceChanged) =>
+                void sendReview(() =>
+                  onSendVoice({ ...recorder.clip, transcript: recorder.transcript, voiceChanged }),
+                )
+              }
+              onSendTranscript={() =>
+                void sendReview(() => onSendTranscript(recorder.transcript.trim()))
+              }
+            />
+          ) : null}
+
+          {!foreignRecording && phase !== 'review' ? (
+            <div className={cn('voice-panel-foot')}>
+              <span className={cn('voice-hint')}>
+                {paused ? (
+                  <>已暂停 · {formatClipDuration(recorder.elapsedMs)}</>
+                ) : (
+                  <>
+                    <kbd>空格</kbd> 长按录音 · 最长 60 秒
+                  </>
+                )}
               </span>
-            ) : null}
-            {!recorder.error && !recorder.transcribeError && !transcribeEnabled && !busy ? (
-              <span className={cn('voice-hint dim')}>未配置转录模型，仅发送语音</span>
-            ) : null}
-          </div>
+              {paused ? (
+                <button type="button" className="voice-btn ghost" onClick={endRecord}>
+                  结束录音
+                </button>
+              ) : phase === 'idle' ? (
+                <label className={cn('voice-pick-audio')} title="将本机音频导入录音">
+                  <FileAudio size={13} />
+                  选择音频
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    hidden
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = '';
+                      if (file) loadAudio({ id: conversationId, label: conversationLabel }, file);
+                    }}
+                  />
+                </label>
+              ) : null}
+              {ownsRecording && recorder.error ? (
+                <span className="voice-error" role="status">
+                  {recorder.error}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -1092,31 +1533,27 @@ export function VoicePanel({
 // ── 回顾 ─────────────────────────────────────────────────────────────────────
 
 function VoiceReview({
-  clip,
   transcript,
+  transcriptReady,
   transcribing,
   transcribeError,
-  playing,
-  transcribeEnabled,
   canSend,
   sendHint,
-  onTogglePlay,
   onTranscribe,
+  onCancelTranscription,
   onTranscriptChange,
   onDiscard,
   onSendVoice,
   onSendTranscript,
 }: {
-  clip: VoiceClip;
   transcript: string;
+  transcriptReady: boolean;
   transcribing: boolean;
   transcribeError: string | null;
-  playing: boolean;
-  transcribeEnabled: boolean;
   canSend: boolean;
   sendHint: string;
-  onTogglePlay: () => void;
   onTranscribe: () => void;
+  onCancelTranscription: () => void;
   onTranscriptChange: (text: string) => void;
   onDiscard: () => void;
   /** 发送语音；带上「变声标识」勾选态（协议已实现 `extBizInfo.ptt.changeVoice`）。 */
@@ -1124,119 +1561,84 @@ function VoiceReview({
   onSendTranscript: () => void;
 }) {
   const trimmed = transcript.trim();
+  const cancelLabel = transcriptReady ? '取消转文字' : '取消转写';
   const [voiceChanged, setVoiceChanged] = useState(false);
   return (
     <div className={cn('voice-review')}>
-      <div className={cn('voice-review-head')}>
-        <button
-          type="button"
-          className={cn('voice-review-play', playing && 'is-playing')}
-          title={playing ? '暂停' : '试听'}
-          aria-label={playing ? '暂停' : '试听'}
-          onClick={onTogglePlay}
-        >
-          {playing ? <Pause size={18} /> : <Play size={18} />}
-        </button>
-        <VoiceReviewWave levels={clip.levels} />
-        <span className={cn('voice-review-time')}>
-          <span className="weq-number weq-number-inherit">
-            {formatClipDuration(clip.durationMs)}
-          </span>
-        </span>
-        <span className={cn('voice-review-tag')}>
-          {clip.source === 'tts' ? '合成语音' : '录音'}
-        </span>
-      </div>
-
-      {clip.source === 'tts' && clip.text ? (
-        <p className={cn('voice-review-text')}>{clip.text}</p>
+      {transcribeError || transcribing || transcriptReady ? (
+        <div className="voice-transcript-output">
+          {transcribeError ? (
+            <p className="voice-error" role="status">
+              {transcribeError}
+            </p>
+          ) : null}
+          {transcribing ? <p role="status">正在本地转写…</p> : null}
+          {transcriptReady && !transcribing ? (
+            <textarea
+              aria-label="转写结果"
+              value={transcript}
+              onChange={(event) => onTranscriptChange(event.target.value)}
+            />
+          ) : null}
+        </div>
       ) : null}
 
-      {transcribeEnabled ? (
-        trimmed || transcribing || transcribeError ? (
-          <div className={cn('voice-transcript-card', transcribeError && 'is-error')}>
-            <div className={cn('voice-transcript-head')}>
-              <span>
-                {transcribeError ? (
-                  transcribeError
-                ) : (
-                  <>
-                    <Sparkles size={12} /> 转文字
-                  </>
-                )}
-              </span>
-              {transcribing ? (
-                <em>
-                  <Loader2 size={12} className={cn('voice-spin')} /> 识别中
-                </em>
-              ) : null}
-            </div>
-            {!transcribeError && clip.source !== 'tts' ? (
-              <textarea
-                value={transcript}
-                rows={2}
-                placeholder="识别结果可编辑后再发送"
-                onChange={(event) => onTranscriptChange(event.target.value)}
-              />
-            ) : null}
-          </div>
-        ) : (
+      <div className="voice-review-actions">
+        {transcriptReady ? null : (
           <button
+            data-danger="outline"
             type="button"
-            className={cn('voice-transcribe-btn')}
-            title="播放录音并同步识别（需扬声器外放）"
-            disabled={transcribing}
-            onClick={onTranscribe}
+            className="voice-btn ghost"
+            aria-label="删除录音"
+            title="删除录音"
+            onClick={onDiscard}
           >
-            {transcribing ? (
-              <Loader2 size={14} className={cn('voice-spin')} />
-            ) : (
-              <Sparkles size={14} />
-            )}
-            <span>{transcribing ? '转写中…' : '转文字'}</span>
+            <Trash2 size={14} />
           </button>
-        )
-      ) : null}
-
-      <div className={cn('voice-review-actions')}>
+        )}
         <button
-          data-danger="outline"
           type="button"
-          className={cn('voice-btn ghost')}
-          onClick={onDiscard}
+          className="voice-btn ghost voice-transcribe-btn"
+          onClick={transcribing || transcriptReady ? onCancelTranscription : onTranscribe}
         >
-          <Trash2 size={14} /> 删除
+          {transcribing || transcriptReady ? <X size={14} /> : <Captions size={14} />}
+          <span>{transcribing || transcriptReady ? cancelLabel : '转文字'}</span>
         </button>
-        {trimmed ? (
+        {transcriptReady ? (
           <button
             type="button"
-            className={cn('voice-btn ghost')}
+            className="voice-btn primary"
             title={canSend ? '只发这段文字' : sendHint}
-            disabled={!canSend}
+            disabled={!canSend || !trimmed}
             onClick={onSendTranscript}
           >
-            <Type size={14} /> 发送文字
+            <SendHorizontal size={14} /> <span>发送文字</span>
           </button>
-        ) : null}
-        <button
-          type="button"
-          className={cn('voice-btn ghost', voiceChanged && 'is-active')}
-          title="变声标识：勾选后以变声模式发送（收端显示变声角标）"
-          aria-pressed={voiceChanged}
-          disabled={!canSend}
-          onClick={() => setVoiceChanged((value) => !value)}
-        >
-          <Wand2 size={14} /> {voiceChanged ? '变声' : '原声'}
-        </button>
-        <button
-          type="button"
-          className={cn('voice-btn primary')}
-          title={canSend ? '发送这条语音' : sendHint}
-          disabled={!canSend}
-          onClick={() => onSendVoice(voiceChanged)}
-        >
-          <SendHorizontal size={14} /> 发送语音
-        </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={cn('voice-btn ghost', voiceChanged && 'is-active')}
+              title={voiceChanged ? '取消发送变声标识' : '发送变声标识'}
+              aria-label="发送变声标识"
+              aria-pressed={voiceChanged}
+              disabled={!canSend}
+              onClick={() => setVoiceChanged((value) => !value)}
+            >
+              <Wand2 size={14} />
+            </button>
+            <button
+              type="button"
+              className="voice-btn primary"
+              aria-label="发送语音"
+              title={canSend ? '发送这条语音' : sendHint}
+              disabled={!canSend}
+              onClick={() => onSendVoice(voiceChanged)}
+            >
+              <SendHorizontal size={14} /> <span>发送语音</span>
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1284,21 +1686,22 @@ const TTS_MIME: Record<string, string> = {
   flac: 'audio/flac',
 };
 
-export function TtsComposer({
+function TtsComposer({
+  text,
   providers,
   canSend,
   sendHint,
   onSendAudio,
   onSynthesize,
 }: {
+  text: string;
   providers: TtsVoiceProvider[];
   canSend: boolean;
   sendHint: string;
   /** 合成好的音频当一条普通语音条发（上层解成 WAV 再转 SILK）。 */
-  onSendAudio: (bytes: Uint8Array, fileName: string) => void;
+  onSendAudio: (bytes: Uint8Array, text: string) => Promise<void>;
   onSynthesize?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
 }) {
-  const [text, setText] = useState('');
   const [providerId, setProviderId] = useState(providers[0]?.id ?? '');
   const [voice, setVoice] = useState('');
   const [phase, setPhase] = useState<'idle' | 'preview' | 'send'>('idle');
@@ -1308,10 +1711,12 @@ export function TtsComposer({
   const cacheRef = useRef<{ key: string; bytes: Uint8Array; format: string } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const urlRef = useRef<string | null>(null);
+  const mounted = useRef(false);
 
   const body = text.trim();
   const provider = providers.find((item) => item.id === providerId) ?? providers[0] ?? null;
-  const ready = Boolean(onSynthesize) && provider !== null && body.length > 0;
+  const ready =
+    Boolean(onSynthesize) && provider !== null && body.length > 0 && text.length <= MAX_TTS_CHARS;
   const busy = phase !== 'idle';
   /** 缓存键：文字 / 服务商 / 音色任一变了就得重新合成。 */
   const cacheKey = `${provider?.id ?? ''}|${voice.trim()}|${body}`;
@@ -1322,13 +1727,18 @@ export function TtsComposer({
   }, [providerId]);
 
   // 面板卸载（收起）时把试听中的音频停干净，别留个声音在后面念。
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (audioRef.current) {
+        audioRef.current.onpause = null;
+        audioRef.current.onended = null;
+      }
       audioRef.current?.pause();
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   /** 合成（带缓存）。抛错交给调用方提示。 */
   async function synthesize(): Promise<{ bytes: Uint8Array; format: string } | null> {
@@ -1363,7 +1773,7 @@ export function TtsComposer({
     setPhase('preview');
     try {
       const result = await synthesize();
-      if (!result) return;
+      if (!result || !mounted.current) return;
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       const url = URL.createObjectURL(
         new Blob([result.bytes], { type: TTS_MIME[result.format] ?? 'audio/mpeg' }),
@@ -1385,17 +1795,14 @@ export function TtsComposer({
     }
   }
 
-  /**
-   * 合成并发送：字节交给上层的**既有音频链路**（WebAudio 解码 → 24k WAV → SILK），
-   * 与「选择音频文件」走同一条路 —— 乐观预览 / 时长 / 波形都由那条链路自己处理。
-   */
+  /** 合成并发送，沿用语音发送时的 WebAudio 解码与 SILK 转码。 */
   async function handleSend(): Promise<void> {
     if (!ready || !canSend) return;
     setPhase('send');
     try {
       const result = await synthesize();
       if (!result) return;
-      onSendAudio(result.bytes, `tts-${provider?.name ?? 'speech'}.${result.format}`);
+      await onSendAudio(result.bytes, body);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1404,23 +1811,8 @@ export function TtsComposer({
   }
 
   return (
-    <div className={cn('voice-tts')}>
-      <div className={cn('voice-tts-note')}>
-        <Sparkles size={13} />
-        <span>
-          {provider
-            ? `用「${provider.name}」合成，试听满意再发送；转 SILK 由本机完成。`
-            : '还没有配置 TTS 服务商：设置 → 语音配置 → TTS 服务商。'}
-        </span>
-      </div>
-      <textarea
-        className={cn('voice-tts-input')}
-        rows={3}
-        value={text}
-        maxLength={MAX_TTS_CHARS}
-        placeholder="输入要合成语音的文字，例如：在吗？我马上到。"
-        onChange={(event) => setText(event.target.value)}
-      />
+    <div className={cn('voice-tts', 'voice-synthesis-controls')}>
+      {provider ? null : <p className="voice-tts-note">在「设置 → 语音配置」中添加 TTS 服务商。</p>}
       <div className={cn('voice-tts-row')}>
         <label className={cn('voice-tts-voice')}>
           <span>服务商</span>
@@ -1437,10 +1829,6 @@ export function TtsComposer({
             ))}
           </FormSelect>
         </label>
-        <span className={cn('voice-tts-count')}>
-          <span className="weq-number weq-number-inherit">{text.length}</span>/
-          <span className="weq-number weq-number-inherit">{MAX_TTS_CHARS}</span>
-        </span>
       </div>
       <div className={cn('voice-tts-row')}>
         <label className={cn('voice-tts-voice')}>
@@ -1460,7 +1848,7 @@ export function TtsComposer({
           type="button"
           className={cn('voice-btn ghost')}
           // 试听中仍可点（再点一次 = 停止），只避开正在发送的那一瞬。
-          disabled={!ready || phase === 'send'}
+          disabled={!ready || busy}
           onClick={() => void handlePreview()}
         >
           {phase === 'preview' ? (

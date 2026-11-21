@@ -7,8 +7,7 @@
  * 元素 token 通路 —— 与 Ark 面板同款：面板收齐文件 + 封面，交给应用层去发。
  *
  * 交互：
- *   1. 点工具栏那枚「闪传」→ 整块输入框变成落点：点一下开系统文件管理器，
- *      文件 / 文件夹也可以直接拖进来（文件夹递归展开），可多选；
+ *   1. 点工具栏「QQ闪传」直接打开多选文件框；输入区也可追加文件，或拖入文件和文件夹。
  *   2. 选好点「确认」→ 弹一张灯箱卡片：封面预览 + 文件清单，封面可以自己换（≤ 1MB，
  *      PNG / JPEG 原图直通，不重绘不压缩）；
  *   3. 点「发送」→ 应用层走 fileset 协议（封面先就绪、主文件后台传）。
@@ -154,12 +153,14 @@ async function collectEntries(items: DataTransferItemList | null): Promise<File[
 
 export function FlashComposer({
   panelRef,
+  filesInputRef,
   canSend,
   sendHint,
   onSend,
   onClose,
 }: {
   panelRef?: RefObject<HTMLDivElement | null>;
+  filesInputRef: RefObject<HTMLInputElement | null>;
   canSend: boolean;
   sendHint: string;
   /** 交回应用层发送（走 fileset 协议）；**抛出即失败**，面板保留已选文件。 */
@@ -178,8 +179,20 @@ export function FlashComposer({
   const tabActive = useTabActive();
   const lightboxLayer = useOverlayLayer(tabActive && lightbox);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const filesInputRef = useRef<HTMLInputElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const sendButtonRef = useRef<HTMLButtonElement | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!tabActive || !files.length) return;
+    const target = lightbox
+      ? sendButtonRef.current?.disabled
+        ? titleInputRef.current
+        : sendButtonRef.current
+      : confirmButtonRef.current;
+    target?.focus({ preventScroll: true });
+  }, [files, lightbox, tabActive]);
 
   const desc = useMemo(() => flashDescOf(files), [files]);
   const title =
@@ -380,6 +393,7 @@ export function FlashComposer({
         if (panelRef) panelRef.current = node;
       }}
       onKeyDown={(event) => {
+        if (event.key === 'Enter' && event.repeat) event.preventDefault();
         if (event.key === 'Escape') {
           event.stopPropagation();
           if (lightbox) setLightbox(false);
@@ -425,6 +439,7 @@ export function FlashComposer({
           role="button"
           tabIndex={0}
           onKeyDown={(event) => {
+            if (event.repeat) return;
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
               filesInputRef.current?.click();
@@ -441,6 +456,7 @@ export function FlashComposer({
       {files.length > 0 ? (
         <footer className={cn('flash-composer-foot')}>
           <button
+            ref={confirmButtonRef}
             type="button"
             className={cn('flash-btn primary')}
             onClick={() => setLightbox(true)}
@@ -516,6 +532,7 @@ export function FlashComposer({
                   <div className={cn('flash-lightbox-row')}>
                     <span className={cn('flash-lightbox-label')}>标题</span>
                     <input
+                      ref={titleInputRef}
                       type="text"
                       className={cn('flash-lightbox-input')}
                       value={name}
@@ -580,6 +597,7 @@ export function FlashComposer({
                     返回
                   </button>
                   <button
+                    ref={sendButtonRef}
                     type="button"
                     className={cn('flash-btn primary')}
                     title={canSend ? '发送闪传' : sendHint}

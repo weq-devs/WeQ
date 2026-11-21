@@ -5,11 +5,13 @@ import { resolveResource } from './resource';
 export function createSystemTray({
   locale,
   openMainWindow,
+  restart,
   quit,
   platform = process.platform,
 }: {
   locale: string;
   openMainWindow: () => void;
+  restart: () => void;
   quit: () => void;
   platform?: NodeJS.Platform;
 }): Tray {
@@ -33,6 +35,7 @@ export function createSystemTray({
   const menu = Menu.buildFromTemplate([
     { label: labels.showWindow, click: openMainWindow },
     { type: 'separator' },
+    { label: labels.restart, click: restart },
     { label: labels.quit, click: quit },
   ]);
   const tray = new Tray(image);

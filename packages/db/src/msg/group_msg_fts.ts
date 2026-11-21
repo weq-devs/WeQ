@@ -6,6 +6,7 @@ import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
+import { ftsRecordCandidates, type FtsRecordBounds } from './fts_record_candidates';
 
 const SELECT_COLUMNS = `"40001","40010","40021","40020","41701","40050","41702","40003"`;
 
@@ -30,6 +31,18 @@ export class GroupMsgFtsDb {
   constructor(nt: NtHelperBinding, opts: GroupMsgFtsDbOptions) {
     this.dbPath = opts.dbPath;
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
+  }
+
+  searchRecordCandidates(keyword: string, bounds: FtsRecordBounds, limit: number) {
+    return ftsRecordCandidates(
+      this.qq,
+      'group_msg_fts',
+      SELECT_COLUMNS,
+      rowToHit,
+      `%${escapeLike(keyword)}%`,
+      bounds,
+      limit,
+    );
   }
 
   /**

@@ -2,20 +2,19 @@ import { TimeLabel } from './TimeLabel';
 import { clockFormatter, formatDateTime } from '@weq/time';
 import { useContext, type ReactNode } from 'react';
 import { beijingDay } from '../lib/messageCalendar';
+import type { Message } from '../im-template/template/types';
 import '../styles/message-metadata.css';
 import {
   ShowMessageDateContext,
   ShowMessageTimeContext,
   ShowMessageSeqContext,
+  messageSequence,
+  showsRoamingSource,
 } from './MessageProvenance.shared';
 
-type MessageMetadataSource = {
-  msgSeq?: string;
-  createdAt?: string;
-  source?: 'roaming';
-  sourceFormat?: 'native' | 'protocol';
-  localSent?: boolean;
-};
+type MessageMetadataSource = Partial<
+  Pick<Message, 'msgSeq' | 'createdAt' | 'source' | 'sourceFormat' | 'localSent' | 'recall'>
+>;
 
 /** 使用共用提示宿主展示逐条时间，不给正文增加常驻元信息或拦截人名操作。 */
 export function SystemMessageContent({
@@ -48,10 +47,7 @@ export function MessageProvenance({
   const showSeq = useContext(ShowMessageSeqContext);
   const showDate = useContext(ShowMessageDateContext);
   const showTime = useContext(ShowMessageTimeContext);
-  const seq =
-    !system && showSeq && /^\d+$/.test(message.msgSeq ?? '') && BigInt(message.msgSeq!) > 0n
-      ? message.msgSeq
-      : null;
+  const seq = !system && showSeq ? messageSequence(message.msgSeq) : null;
   const date = message.createdAt ? new Date(message.createdAt) : null;
   const day =
     !system && showDate && date && Number.isFinite(date.getTime()) ? beijingDay(date) : null;
@@ -59,7 +55,7 @@ export function MessageProvenance({
     !system && showTime && date && Number.isFinite(date.getTime())
       ? clockFormatter.format(date)
       : null;
-  const roaming = message.source === 'roaming' && !message.localSent;
+  const roaming = showsRoamingSource(message);
   if (!roaming && !seq && !day && !time) return null;
   return (
     <span className="weq-message-provenance">

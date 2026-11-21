@@ -1,6 +1,6 @@
 /** Wire shapes for the unified sidebar search (mirror @weq/service UnifiedSearchService). */
 
-import type { SearchCategory } from '@weq/service';
+import type { MessageCategory, SearchCategory } from '@weq/service';
 import type { ContactSearchHit, GroupSearchHit } from '@weq/service';
 export type { ContactSearchHit, GroupSearchHit } from '@weq/service';
 import {
@@ -15,6 +15,18 @@ import type { CollectionSearchHit } from '@weq/service';
 import type { ContentSearchHit, ContentSearchCategory, ContentSearchCoverage } from '@weq/service';
 export type { ContentSearchHit, ContentSearchTarget } from '@weq/service';
 export type { GeneratedSearchHit } from '@weq/service';
+export const MESSAGE_CATEGORY_LABELS: Record<MessageCategory, string> = {
+  text: '文字',
+  image: '图片',
+  video: '视频',
+  voice: '语音',
+  file: '文件',
+  link: '链接',
+  emoji: '表情',
+  system: '系统',
+  other: '其他',
+};
+
 export type SearchFtsSource = 'buddy' | 'group';
 
 export interface ConversationSearchHit {

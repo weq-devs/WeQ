@@ -23,7 +23,7 @@
 
 import { parseMessageParts, type EmojiItem } from './emojiPacks';
 import { elementPreviewSrc, tokenToElement } from './draftElements';
-import { MAX_ATTACHMENT_BYTES } from './composerMedia';
+import { MAX_BUFFERED_COMPOSER_MEDIA_BYTES } from './composerMedia';
 import { repeatNeedsStickerCatalog, repeatSendPlan } from '../../lib/messageRepeat';
 import { plainElementText } from '@weq/service/message-plain-text';
 
@@ -81,10 +81,13 @@ export async function resolveComposerMedia(
       // 只通过已有资源代理读宿主草稿，不把草稿中的路径字符串直接交给上传器。
       const response = await fetch(previewUrl);
       const unavailable = () => new Error(`草稿图片「${name}」不可用，请检查原图或重新添加。`);
-      if (!response.ok || Number(response.headers.get('content-length')) > MAX_ATTACHMENT_BYTES)
+      if (
+        !response.ok ||
+        Number(response.headers.get('content-length')) > MAX_BUFFERED_COMPOSER_MEDIA_BYTES
+      )
         throw unavailable();
       const blob = await response.blob();
-      if (!blob.size || blob.size > MAX_ATTACHMENT_BYTES) throw unavailable();
+      if (!blob.size || blob.size > MAX_BUFFERED_COMPOSER_MEDIA_BYTES) throw unavailable();
       return { key, name, bytes: new Uint8Array(await blob.arrayBuffer()), previewUrl };
     }),
   ]);
@@ -112,6 +115,7 @@ export type ComposerSendPlan =
       recording: Uint8Array;
       durationSec: number;
       fileName: string;
+      voiceTranscript?: string;
       /** 变声标记（协议已实现）：勾上就带 true。 */
       voiceChanged?: boolean;
     };
@@ -335,6 +339,9 @@ function mapWireElement(
         durationSec: element.duration !== undefined ? Number(element.duration) : 0,
         fileName:
           typeof element.fileName === 'string' && element.fileName ? element.fileName : local.name,
+        ...(element.source === 'tts' && typeof element.pttTranscript === 'string'
+          ? { voiceTranscript: element.pttTranscript }
+          : {}),
         ...(element.voiceChanged === true ? { voiceChanged: true } : {}),
       };
     }
@@ -431,27 +438,41 @@ export function buildComposerSendPlan(input: {
  *
  * 拿不到 WebAudio（非 Electron 环境 / 极老的运行时）时如实报错，不静默发一条空语音。
  */
-export async function decodeRecordingToWav(
+export function decodeRecordingToWav(
   recording: Uint8Array,
   sampleRate: number = VOICE_SAMPLE_RATE,
 ): Promise<Uint8Array> {
-  if (recording.byteLength === 0) throw new Error('录音是空的，无法发送。');
-  // 复制到独立的 ArrayBuffer：`recording` 可能是某个大 buffer 的视图，直接把视图的
-  // buffer 交给 decodeAudioData 会把无关字节也算进去。
-  const bytes = recording.slice();
-  const audioBuffer = await decodeAudio(bytes.buffer as ArrayBuffer);
-  const frames = Math.max(1, Math.ceil(audioBuffer.duration * sampleRate));
+  return decodeRecordingsToWav([recording], sampleRate);
+}
+
+/** 将各次开麦得到的录音段重采样后连续拼接，暂停间隔不进入音频。 */
+export async function decodeRecordingsToWav(
+  recordings: readonly Uint8Array[],
+  sampleRate: number = VOICE_SAMPLE_RATE,
+): Promise<Uint8Array> {
+  const parts: Array<{ buffer: AudioBuffer; frames: number }> = [];
+  for (const recording of recordings) {
+    if (!recording.byteLength) throw new Error('录音是空的，无法发送。');
+    const buffer = await decodeAudio(recording.slice().buffer as ArrayBuffer);
+    parts.push({ buffer, frames: Math.max(1, Math.ceil(buffer.duration * sampleRate)) });
+  }
+  const frames = parts.reduce((total, part) => total + part.frames, 0);
+  if (!frames) throw new Error('录音是空的，无法发送。');
   const offline = createOfflineContext(1, frames, sampleRate);
-  const source = offline.createBufferSource();
-  source.buffer = audioBuffer;
-  source.connect(offline.destination);
-  source.start();
+  let offset = 0;
+  for (const part of parts) {
+    const source = offline.createBufferSource();
+    source.buffer = part.buffer;
+    source.connect(offline.destination);
+    source.start(offset / sampleRate);
+    offset += part.frames;
+  }
   const rendered = await offline.startRendering();
   return encodePcmWav(rendered.getChannelData(0), sampleRate);
 }
 
 /** 用 WebAudio 把一个 ArrayBuffer 解成 AudioBuffer。 */
-async function decodeAudio(buffer: ArrayBuffer): Promise<AudioBuffer> {
+export async function decodeAudio(buffer: ArrayBuffer): Promise<AudioBuffer> {
   const Context = (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext;
   if (!Context) throw new Error('当前环境不支持音频解码（没有 AudioContext），无法发送录音。');
   const context = new Context();

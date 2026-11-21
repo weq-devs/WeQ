@@ -80,10 +80,14 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    useUtils: () => ({}),
     account: {
       qqActions: {
         groupPermissions: { useQuery: () => ({ data: state.permissions, error: null }) },
         albumPermissions: { useQuery: () => ({ data: state.albumRights, error: null }) },
+        albumVideoStatus: {
+          useQuery: () => ({ data: null, refetch: async () => ({ data: null }) }),
+        },
       },
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
@@ -96,7 +100,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       listGroupAlbums: { query: state.albums },
       listGroupAlbumMedia: { query: state.media },
       getGroupAlbumAccessState: { query: state.access },
-      mediaSave: { save: { mutate: state.save } },
+      mediaSave: { save: { mutate: state.save }, background: { mutate: async () => true } },
+      getExportOutputReceipt: {
+        query: async () => ({ status: 'completed', save: { status: 'saved' } }),
+      },
     },
   },
 }));
@@ -334,7 +341,7 @@ it('图片视频筛选和文件名搜索只筛本次结果，网格不挂载逐�
   enter('搜索相册媒体', '不存在');
   expect(document.querySelectorAll('.group-album-media-card')).toHaveLength(0);
   expect(state.media).toHaveBeenCalledOnce();
-  act(() => button('上传图片').click());
+  act(() => button('上传图片或视频').click());
   expect(document.querySelector('[aria-label="上传到群相册"]')).not.toBeNull();
 });
 it('只有显式实况位显示标识，预览静音；普通视频与缺失字段不猜测', async () => {
@@ -559,7 +566,7 @@ it('相册、媒体、上传及预览控件合成布局', async () => {
   capture('list');
   await openFirst();
   capture('media');
-  act(() => button('上传图片').click());
+  act(() => button('上传图片或视频').click());
   capture('upload');
   await act(async () => button('预览 合成照片与视频-0.jpg').click());
   capture('preview');

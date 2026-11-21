@@ -54,6 +54,8 @@ async function mount(group = false, draft = '') {
   document.body.append(host);
   const root = createRoot(host);
   const send = vi.fn(async (_body: string) => {});
+  const sendFlashPhoto = vi.fn(async () => {});
+  const sendBubbleVideo = vi.fn(async () => {});
   cleanups.push(() => {
     act(() => root.unmount());
     host.remove();
@@ -70,12 +72,14 @@ async function mount(group = false, draft = '') {
         onDraftClear: vi.fn(),
         onBack: vi.fn(),
         onSend: send,
+        onSendFlashPhoto: sendFlashPhoto,
+        onSendBubbleVideo: sendBubbleVideo,
         onStartCall: vi.fn(),
         ...{ onSendWindowShake: vi.fn(async () => {}) },
       }),
     ),
   );
-  return { host, send };
+  return { host, send, sendFlashPhoto, sendBubbleVideo };
 }
 
 function clickTitle(host: ParentNode, title: string) {
@@ -84,6 +88,10 @@ function clickTitle(host: ParentNode, title: string) {
   );
   expect(button, title).toBeDefined();
   act(() => button!.click());
+}
+
+function voiceModes(host: ParentNode) {
+  return [...host.querySelectorAll<HTMLButtonElement>('[aria-label="语音方式"] button')];
 }
 
 function choose(label: string) {
@@ -197,45 +205,42 @@ it('群聊语音按钮直接打开录音面板，文字转语音内联并保留 
   clickTitle(host, '语音');
   expect(document.querySelector('[role="menuitem"]')).toBeNull();
   expect(host.querySelector('.composer > .voice-panel')).not.toBeNull();
-  const tts = host.querySelector<HTMLButtonElement>('.voice-panel [role="tab"]:nth-child(2)')!;
+  const [record, tts, ai] = voiceModes(host);
+  expect(record?.getAttribute('aria-pressed')).toBe('true');
   act(() => tts.click());
-  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
-    '文字转语音',
-  );
-  expect(host.querySelector('.voice-panel .voice-tts')).not.toBeNull();
-  expect(host.querySelector('.ai-voice-panel')).toBeNull();
-  clickTitle(host, 'AI 声聊');
-  expect(host.querySelector('.ai-voice-panel')).not.toBeNull();
+  expect(tts.getAttribute('aria-pressed')).toBe('true');
+  expect(host.querySelector('.voice-panel [aria-label="合成文字"]')).not.toBeNull();
+  expect(host.querySelector('.ai-voice-controls')).toBeNull();
+  act(() => ai.click());
+  expect(ai.getAttribute('aria-pressed')).toBe('true');
+  expect(host.querySelector('.ai-voice-controls')).not.toBeNull();
 });
 
 it('私聊的录音和文字转语音直接共用输入框，不提供群 AI 声聊', async () => {
   const { host } = await mount();
   clickTitle(host, '语音');
-  expect(host.querySelector('[aria-label="按住说话"]')).not.toBeNull();
-  const tabs = host.querySelectorAll<HTMLButtonElement>('.voice-panel [role="tab"]');
-  act(() => tabs[1]!.click());
-  expect(host.querySelector('.voice-panel .voice-tts')).not.toBeNull();
-  expect(host.querySelector('[title="AI 声聊"]')).toBeNull();
-  act(() => tabs[0]!.click());
-  expect(host.querySelector('[aria-label="按住说话"]')).not.toBeNull();
+  expect(host.querySelector('[aria-label="点击录音"]')).not.toBeNull();
+  const modes = voiceModes(host);
+  expect(modes.map((button) => button.textContent?.trim())).toEqual(['录音', 'TTS']);
+  act(() => modes[1]!.click());
+  expect(host.querySelector('.voice-panel [aria-label="合成文字"]')).not.toBeNull();
+  act(() => modes[0]!.click());
+  expect(host.querySelector('[aria-label="点击录音"]')).not.toBeNull();
 });
 
-it('正在请求麦克风时不能切换页签或通过工具栏卸载录音面板', async () => {
+it('请求麦克风时锁定语音方式，收起再打开仍保留同一次录音请求', async () => {
   const { host } = await mount();
   const getUserMedia = vi.fn(() => new Promise<MediaStream>(() => {}));
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
   clickTitle(host, '语音');
-  await act(async () => {
-    host
-      .querySelector('[aria-label="按住说话"]')!
-      .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
-  });
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="点击录音"]')!.click());
   expect(getUserMedia).toHaveBeenCalledOnce();
-  expect(host.querySelector<HTMLButtonElement>('.voice-panel [role="tab"]')?.disabled).toBe(true);
-  clickTitle(host, '表情');
+  expect(voiceModes(host).map((button) => button.disabled)).toEqual([true, true]);
   clickTitle(host, '语音');
-  expect(host.querySelector('.voice-panel')).not.toBeNull();
-  expect(host.querySelector('.emoji-panel')).toBeNull();
+  expect(host.querySelector('.voice-panel')).toBeNull();
+  clickTitle(host, '语音');
+  expect(host.querySelector('.voice-panel [aria-label="结束录音"]')).not.toBeNull();
+  expect(getUserMedia).toHaveBeenCalledOnce();
 });
 
 it('发送图片或文件提供五个选项，图片选择发送文件后仍生成文件消息', async () => {
@@ -252,11 +257,41 @@ it('发送图片或文件提供五个选项，图片选择发送文件后仍生�
   Object.defineProperty(fileInput, 'files', { configurable: true, value: [image] });
   await act(async () => fileInput.dispatchEvent(new Event('change', { bubbles: true })));
   expect(host.querySelector('.composer-token-image')).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>('.composer-send')!.click());
+  await sendWithEnter(host);
   expect(send).toHaveBeenCalledOnce();
   expect(composerTextToElements(send.mock.calls[0]![0])).toEqual([
     expect.objectContaining({ kind: 'file', fileName: 'fixture.png' }),
   ]);
+});
+
+async function sendWithEnter(host: HTMLElement) {
+  await act(async () => new Promise(requestAnimationFrame));
+  const editor = host.querySelector('[aria-label="消息"]')!;
+  expect(document.activeElement).toBe(editor);
+  await act(async () => {
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+}
+
+it.each([
+  ['闪照', 'image/png', 'fixture.png', 'sendFlashPhoto'],
+  ['泡泡消息', 'video/mp4', 'fixture.mp4', 'sendBubbleVideo'],
+] as const)('选择%s后按回车才发送，保留文字草稿', async (label, type, name, callback) => {
+  const chat = await mount(false, '保留草稿');
+  const { host, send } = chat;
+  const picker = vi.spyOn(HTMLInputElement.prototype, 'click');
+  clickTitle(host, '发送图片或文件');
+  choose(label);
+  const input = picker.mock.contexts[0] as HTMLInputElement;
+  const file = new File(['fixture'], name, { type });
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(host.querySelector('[aria-label="待发送附件 1 项"]')?.textContent).toContain(label);
+  expect(chat[callback]).not.toHaveBeenCalled();
+  await sendWithEnter(host);
+  expect(chat[callback]).toHaveBeenCalledWith(expect.anything(), { file, name });
+  expect(send).not.toHaveBeenCalled();
+  expect(host.querySelector('[aria-label="消息"]')?.textContent).toBe('保留草稿');
 });
 
 it.each(['image/png', 'video/mp4'])('强制文件发送不读取媒体预览：%s', async (type) => {

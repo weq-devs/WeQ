@@ -118,6 +118,33 @@ export function activeConversationBelongsToView(
   return category === view || directory[view].some((row) => row.id === id && row.type !== 'merged');
 }
 
+export function conversationViewForSearchTarget(
+  directory: ConversationViewDirectory | null,
+  current: ConversationView,
+  options: AllConversationOptions,
+  id: string,
+  preferred?: ConversationView,
+): ConversationView {
+  if (current === 'all') {
+    if (directory && !activeConversationBelongsToView(directory, current, options, { id }))
+      return conversationViewForTarget(directory, id);
+    // 搜索命中可能早于列表分页，先用结果的分类遵守隐藏和删除范围。
+    if (
+      (preferred === 'hidden' && !options.includeHidden) ||
+      (preferred === 'deleted' && !options.includeDeleted)
+    ) {
+      const knownView = conversationViewForTarget(directory, id);
+      const knownRegular =
+        directory && activeConversationBelongsToView(directory, 'regular', options, { id });
+      if (knownView === 'regular' && !knownRegular) return preferred;
+    }
+    return current;
+  }
+  if (directory && activeConversationBelongsToView(directory, current, options, { id }))
+    return current;
+  return preferred ?? conversationViewForTarget(directory, id);
+}
+
 /** 搜索和日历共用同一平铺集合，聚合入口始终只是导航。 */
 export function conversationViewRows(
   directory: ConversationViewDirectory,

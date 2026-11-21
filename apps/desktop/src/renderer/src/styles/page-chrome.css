@@ -62,7 +62,7 @@ html[data-theme]
 
 html[data-theme]
   .weq-workspace-page
-  :is(.weq-collection-head, .weq-market-head, .weq-dress-head, .weq-wtools-pane-head) {
+  :is(.weq-collection-head, .weq-market-head, .weq-wtools-pane-head) {
   padding-right: 56px;
 }
 
@@ -114,7 +114,6 @@ html[data-theme]
   :is(
     .weq-collection-close,
     .weq-market-close,
-    .weq-dress-close,
     .weq-settings-close,
     .weq-wtools-close,
     .weq-notice-dialog > .weq-profile-close
@@ -135,7 +134,6 @@ html[data-theme]
   :is(
     .weq-collection-close,
     .weq-market-close,
-    .weq-dress-close,
     .weq-settings-close,
     .weq-wtools-close,
     .weq-notice-dialog > .weq-profile-close
@@ -149,7 +147,6 @@ html[data-theme]
   :is(
     .weq-collection-close,
     .weq-market-close,
-    .weq-dress-close,
     .weq-settings-close,
     .weq-wtools-close,
     .weq-profile-close,
@@ -258,9 +255,6 @@ html[data-theme] .weq-workspace-page .weq-dress-card.is-active {
 }
 html[data-theme] .weq-workspace-page .weq-dress-kinds {
   flex: 0 1 auto;
-}
-html[data-theme] .weq-workspace-page .weq-dress-search {
-  flex: 1 1 180px;
 }
 html[data-theme]
   .weq-workspace-page
@@ -416,10 +410,6 @@ html[data-theme]
   color: var(--weq-fg-secondary);
 }
 
-/* 商城表情是装扮页的正文，不再叠加第二套页面标题和带框侧栏。 */
-html[data-theme] .weq-workspace-page .weq-dress-body.is-embedded-market {
-  padding: 0;
-}
 html[data-theme]
   .weq-workspace-page
   .weq-market-browser.is-embedded
@@ -459,7 +449,7 @@ html[data-theme='dark'] .weq-workspace-content .weq-mail-workspace {
   }
   html[data-theme]
     .weq-workspace-page
-    :is(.weq-collection-head, .weq-market-head, .weq-dress-head, .weq-wtools-pane-head) {
+    :is(.weq-collection-head, .weq-market-head, .weq-wtools-pane-head) {
     padding-right: 48px;
   }
   html[data-theme]
@@ -467,7 +457,6 @@ html[data-theme='dark'] .weq-workspace-content .weq-mail-workspace {
     :is(
       .weq-collection-close,
       .weq-market-close,
-      .weq-dress-close,
       .weq-settings-close,
       .weq-wtools-close,
       .weq-notice-dialog > .weq-profile-close

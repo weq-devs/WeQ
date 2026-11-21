@@ -8,7 +8,13 @@
  */
 
 import type { BubbleSkin } from './bubble_skin';
-import { DressConfigService, type DressScope, type DressBackgroundSource } from './dress_config';
+import {
+  DressConfigService,
+  type DressScope,
+  type DressScopeKind,
+  type DressScopes,
+  type DressBackgroundSource,
+} from './dress_config';
 import type { DressConfig } from './dress_config';
 import type { PreferencePersistence } from '../common/shared_preferences';
 import { DressSharedCache, type FontDerived, type FontFx } from './dress_shared_cache';
@@ -58,10 +64,12 @@ export interface DressManifest {
   activeFont: number;
   activeWidget: number;
   scope: DressScope;
+  scopes?: DressScopes;
   background: DressBackgroundSource;
   backgroundFile: string;
   widgetId: string;
   backgroundOpacity: number;
+  widgetOpacity: number;
 }
 
 /**
@@ -140,10 +148,12 @@ export class DressService {
       activeFont: cfg.activeFont,
       activeWidget: cfg.activeWidget,
       scope: cfg.scope,
+      scopes: cfg.scopes,
       background: cfg.background,
       backgroundFile: this.config.getBackgroundFile() ?? '',
       widgetId: cfg.widgetId,
       backgroundOpacity: cfg.backgroundOpacity,
+      widgetOpacity: cfg.widgetOpacity,
     };
   }
 
@@ -307,8 +317,8 @@ export class DressService {
   }
 
   /** 切换作用范围。 */
-  setScope(scope: DressScope): DressManifest {
-    this.config.setScope(scope);
+  setScope(scope: DressScope, kind?: DressScopeKind): DressManifest {
+    this.config.setScope(scope, kind);
     return this.read();
   }
 
@@ -327,6 +337,11 @@ export class DressService {
   /** 设置背景不透明度。 */
   setBackgroundOpacity(opacity: number): DressManifest {
     this.config.setBackgroundOpacity(opacity);
+    return this.read();
+  }
+
+  setWidgetOpacity(opacity: number): DressManifest {
+    this.config.setWidgetOpacity(opacity);
     return this.read();
   }
 

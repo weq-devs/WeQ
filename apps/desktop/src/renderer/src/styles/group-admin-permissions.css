@@ -1,0 +1,38 @@
+.weq-group-feature-layer.weq-admin-permissions-layer.weq-nonmodal-layer[tabindex]
+  > .weq-admin-permissions {
+  width: min(340px, calc(100vw - 16px));
+}
+
+.weq-admin-permissions > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.weq-admin-permissions-heading {
+  display: grid;
+}
+
+.weq-admin-permissions-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 4px 12px 10px;
+}
+
+.weq-admin-permissions-body .weq-set-row {
+  min-height: 36px;
+  gap: 8px;
+  padding: 4px 0;
+  border: 0;
+}
+
+.weq-admin-permissions-status {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-admin-permissions-body > p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}

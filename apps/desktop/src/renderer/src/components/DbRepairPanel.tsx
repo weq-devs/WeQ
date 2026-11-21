@@ -428,9 +428,7 @@ export function DbRepairPanel({
     });
   const startRepair = () =>
     act(async () => {
-      const names = selected.filter((name) =>
-        live?.databases.some((row) => row.dbName === name && databaseReadyForRepair(row)),
-      );
+      const names = selectedReady;
       if (!names.length) return;
       if (
         !(await useDialog
@@ -517,7 +515,16 @@ export function DbRepairPanel({
   const waiting = live?.state === 'waiting' && !ending;
   const paused =
     waiting && live?.operation?.kind !== 'repair' && live?.operation?.status === 'cancelled';
-  const rescanning = !!live?.operation && !paused;
+  const continuing =
+    paused ||
+    (waiting &&
+      locked &&
+      scanKind === 'checkup' &&
+      live?.operation?.kind === 'scan' &&
+      live.databases.some(
+        (row) => row.scanStatus === 'completed' && row.deepStatus !== 'completed',
+      ));
+  const rescanning = !!live?.operation && !continuing;
   const databases =
     view?.databases ??
     status.data?.databases
@@ -672,7 +679,7 @@ export function DbRepairPanel({
           onClick={() => void startScan(scanKind)}
         >
           {rescanning ? <RefreshCw size={14} /> : <Play size={14} />}
-          {paused ? '继续扫描' : rescanning ? '重新扫描' : '开始扫描'}
+          {continuing ? '继续扫描' : rescanning ? '重新扫描' : '开始扫描'}
         </button>
       )}
     </div>
@@ -957,10 +964,10 @@ export function DbRepairPanel({
 
         <RepairStorageWarning
           scope={scope}
-          names={selectedReady.length ? selectedReady : readyNames}
+          names={selectedReady}
           backup={backup}
-          enabled={waiting && !running}
-          storage={waiting || repairing ? live?.storage : undefined}
+          enabled={waiting && !running && selectedReady.length > 0}
+          storage={live?.state === 'repairing' ? live.storage : undefined}
           onChangeCache={() => void changeCache()}
           cacheDisabled={repairing || pickCache.isLoading || resetCache.isLoading}
         />
@@ -1680,29 +1687,22 @@ function RepairStorageWarning({
 }) {
   const budget = trpc.dbRepair.repairStorage.useQuery(
     { ...scope, dbNames: names, backup },
-    { enabled: enabled && names.length > 0, retry: false, refetchInterval: enabled ? 2000 : false },
+    { enabled, retry: false, refetchInterval: enabled ? 2000 : false },
   );
-  const estimates =
-    !enabled && storage ? [storage] : enabled ? (budget.data ?? (storage ? [storage] : [])) : [];
+  const estimates = enabled ? (budget.data ?? []) : storage ? [storage] : [];
   const tight = estimates.flatMap((item) =>
     item.space
       .filter((volume) => volume.freeBytes !== null && volume.freeBytes < volume.recommendedBytes)
       .map((volume) => ({ ...volume, cachePath: item.cachePath })),
   );
-  const previousWarning = enabled && storage?.warning;
-  if (!tight.length && !previousWarning)
+  if (!tight.length)
     return budget.error && enabled ? (
       <p className="weq-dbm-alert" role="alert">
         无法检查备份与修复工作区空间：{budget.error.message}
       </p>
     ) : null;
   const grouped = new Map<string, (typeof tight)[number]>();
-  const displayed = tight.length
-    ? tight
-    : estimates.flatMap((item) =>
-        item.space.map((volume) => ({ ...volume, cachePath: item.cachePath })),
-      );
-  for (const volume of displayed) {
+  for (const volume of tight) {
     const key = volume.paths.join(':');
     if (!grouped.has(key) || grouped.get(key)!.requiredBytes < volume.requiredBytes)
       grouped.set(key, volume);
@@ -1713,11 +1713,9 @@ function RepairStorageWarning({
       <div className="weq-dbm-storage-heading">
         <AlertTriangle size={17} aria-hidden />
         <strong>
-          {!tight.length && previousWarning
-            ? '上次修复遇到空间不足'
-            : tight.some((volume) => volume.freeBytes! < volume.requiredBytes)
-              ? '磁盘空间不足'
-              : '磁盘可用空间偏低'}
+          {tight.some((volume) => volume.freeBytes! < volume.requiredBytes)
+            ? '磁盘空间不足'
+            : '磁盘可用空间偏低'}
         </strong>
       </div>
       <p>

@@ -36,6 +36,8 @@ files:
   - "!node_modules/@receptron/laya/**"
   - "!node_modules/@huggingface/tokenizers/**"
 extraResources:
+  - from: out/main/qqSyncWorker.mjs
+    to: out/main/qqSyncWorker.mjs
   - from: out/main/analysisReportsWorker.mjs
     to: out/main/analysisReportsWorker.mjs
   - from: out/main/imageWorker.mjs

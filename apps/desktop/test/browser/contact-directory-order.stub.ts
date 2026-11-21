@@ -1,4 +1,6 @@
 const config = { uin: '99999', configId: 'contact-order-fixture' };
+let preferenceRevision = 0;
+let contactOrder: Record<string, unknown> = {};
 const ready = (value: unknown) => ({
   value,
   state: 'ready',
@@ -72,6 +74,25 @@ const proxy = (path: string[] = []): unknown =>
     get: (_target, key) => {
       if (key === 'useUtils') return () => proxy();
       if (key === 'useSubscription') return () => undefined;
+      if (key === 'useQueries')
+        return (factory: (rpc: unknown) => unknown) =>
+          factory({
+            account: {
+              contactMetrics: {
+                localGroupTimes: () => ({
+                  data: {
+                    done: true,
+                    failed: [],
+                    rows: {
+                      '20001': { time: 1704038407, mine: 1704038407 },
+                      '20002': { time: 1704038408, mine: null },
+                      '20003': { time: null, mine: null },
+                    },
+                  },
+                }),
+              },
+            },
+          });
       if (key === 'useQuery')
         return () =>
           path.join('.') === 'account.mutualMark.get' &&
@@ -87,8 +108,6 @@ const proxy = (path: string[] = []): unknown =>
                           rows: {
                             u_friend0: { time: 1704038407, mine: null },
                             u_friend1: { time: 1704038408, mine: null },
-                            '20001': { time: 1704038407, mine: 1704038407 },
-                            '20002': { time: 1704038408, mine: null },
                           },
                         }
                       : path.join('.') === 'account.contactMetrics.cachedProfiles'
@@ -115,6 +134,11 @@ const proxy = (path: string[] = []): unknown =>
           mutateAsync: async () => 'synthetic-task',
           isLoading: false,
         });
+      if (key === 'mutate' && path.join('.') === 'clientState.patch')
+        return async (patch: { contactOrder?: Record<string, unknown> }) => {
+          contactOrder = { ...contactOrder, ...patch.contactOrder };
+          return { revision: ++preferenceRevision, values: { contactOrder }, records: {} };
+        };
       if (key === 'query' && path.join('.') === 'account.getProfile')
         return async ({ uid }: { uid: string }) =>
           (window as unknown as { contactBirthQa?: { profiles: Record<string, unknown> } })

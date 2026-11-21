@@ -619,6 +619,9 @@ describe('设置二级页现场与活动生命周期', () => {
   });
   it('只挂载当前页，重建恢复输入与滚动，不让旧页继续查询', async () => {
     fixture.mcpPort = 48765;
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+      .mockReturnValue(1000);
     const f = mount('mcp');
     try {
       const body = f.body(),
@@ -635,7 +638,6 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(f.body()).not.toBe(body);
       expect(f.body().querySelector('input')).not.toBe(input);
       expect(f.body().querySelector('input')!.value).toBe('48773');
-      Object.defineProperty(f.body(), 'scrollHeight', { value: 1000 });
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 30));
       });
@@ -650,6 +652,7 @@ describe('设置二级页现场与活动生命周期', () => {
       ).toEqual([]);
     } finally {
       f.dispose();
+      scrollHeight.mockRestore();
     }
   });
   it('凭据离页与锁屏后重建为掩码，不恢复揭示状态', () => {

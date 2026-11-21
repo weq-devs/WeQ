@@ -1,13 +1,5 @@
-import {
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from 'react';
-import { CalendarNavigationContext } from '../lib/calendarNavigation';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { CalendarTaskNavigationContext } from '../lib/calendarNavigation';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
 import type { ToolSearchRequest } from './search/appSearchCatalog';
@@ -78,6 +70,7 @@ export function WorkspaceTools({
   roamingRequest,
   onOpenClone,
   onOpenAssistant,
+  onOpenCalendarTask,
 }: {
   accountScope: string;
   footerControls: ReactNode;
@@ -93,10 +86,10 @@ export function WorkspaceTools({
   roamingRequest?: { targets: RoamingTarget[]; revision: number } | null;
   onOpenClone?: (id: string) => void;
   onOpenAssistant?: (target?: GeneratedSearchHit) => void;
+  onOpenCalendarTask?: (taskId: string) => Promise<boolean>;
 }) {
   const mobile = useMobileWebLayout();
   const [open, setOpen] = useState(false);
-  const navigateCalendar = useContext(CalendarNavigationContext);
   const anchor = useWorkspaceMenu((state) => state.anchor);
   const closeMenu = useWorkspaceMenu((state) => state.close);
   const setTaskSummary = useWorkspaceMenu((state) => state.setTasks);
@@ -272,6 +265,7 @@ export function WorkspaceTools({
     setExpanded(false);
   };
   const close = () => setOpen(false);
+  const toolPage = mobile && tool !== 'analysis-reports';
   const ctx: WorkspaceContext = workspace ?? {
     view: 'messages',
     conversation: currentConversation ?? null,
@@ -488,9 +482,16 @@ export function WorkspaceTools({
         <div className="weq-workspace-menu-body">
           <RetainedTabs snapshotKey="workspace-tools" activeKey="tasks">
             {!hidden && (anchor || expanded) ? (
-              <CalendarNavigationContext.Provider
+              <CalendarTaskNavigationContext.Provider
                 value={
-                  navigateCalendar ? (...args) => leave(() => navigateCalendar(...args)) : null
+                  onOpenCalendarTask
+                    ? async (taskId) => {
+                        if (await onOpenCalendarTask(taskId)) {
+                          close();
+                          closeWorkspace();
+                        }
+                      }
+                    : null
                 }
               >
                 <ExportTool
@@ -521,7 +522,7 @@ export function WorkspaceTools({
                   onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
                   onOpenClone={(id) => leave(() => onOpenClone?.(id))}
                 />
-              </CalendarNavigationContext.Provider>
+              </CalendarTaskNavigationContext.Provider>
             ) : null}
           </RetainedTabs>
         </div>
@@ -549,8 +550,8 @@ export function WorkspaceTools({
         ) : null}
       </Modal>
       <Modal
-        presentation={mobile ? 'page' : 'modal'}
-        mobileChrome={mobile}
+        presentation={toolPage ? 'page' : 'modal'}
+        mobileChrome={toolPage}
         title={APP_NAVIGATION[tool].label}
         dismissOnOutside={false}
         open={open && tool !== 'backfill'}

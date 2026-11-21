@@ -2,6 +2,26 @@ interface QuitEventSource<E extends string> {
   on(event: E, listener: () => void): unknown;
 }
 
+/** 等窗口同意退出且退出清理完成，再登记一次进程重启。 */
+export function scheduleApplicationRelaunch(
+  app: Pick<Electron.App, 'on' | 'removeListener' | 'relaunch'>,
+  options: Electron.RelaunchOptions,
+  signal: AbortSignal,
+): void {
+  const relaunch = (event: Electron.Event) => {
+    if (event.defaultPrevented) return;
+    remove();
+    app.relaunch(options);
+  };
+  const remove = () => {
+    app.removeListener('will-quit', relaunch);
+    signal.removeEventListener('abort', remove);
+  };
+  if (signal.aborted) return;
+  app.on('will-quit', relaunch);
+  signal.addEventListener('abort', remove, { once: true });
+}
+
 /** 全部窗口同意关闭后才停止后台，避免未保存内容取消退出时服务已被关闭。 */
 export function registerAppQuitCleanup(
   app: {

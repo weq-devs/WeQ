@@ -37,6 +37,7 @@ import type { ReactionInteraction } from '../../components/SetEmojiReactions';
 import { isSelfIdentity, selfIdentityValues } from '../../lib/selfIdentity';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 import { type GrayTipMatch, grayTipOf } from './messageRow.shared';
+import type { MessageGroupPosition } from './chatTimelineModel';
 
 /**
  * 一条灰条的**内容**（不含外层容器）。宿主自己决定外面包什么 —— 聊天区包一层带
@@ -120,6 +121,7 @@ export function GrayTipLine({
  */
 export const MessageRow = memo(function MessageRow({
   message,
+  groupPosition,
   conversation,
   user,
   sender,
@@ -132,6 +134,7 @@ export const MessageRow = memo(function MessageRow({
   onRestore,
   onContextMenu,
   onLongPress,
+  onSwipeReply,
   onAction,
   onReedit,
   onDismissUnsent,
@@ -148,10 +151,12 @@ export const MessageRow = memo(function MessageRow({
   reactionPending,
   repeatAction,
   pendingAction,
+  textResult,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
   grayTipClassName,
 }: {
   message: Message;
+  groupPosition?: MessageGroupPosition;
   conversation: Conversation;
   user: User;
   /** 已解析的发送者；不传则本组件自己解析（转发窗口没有 memberMap 时可省）。 */
@@ -171,6 +176,7 @@ export const MessageRow = memo(function MessageRow({
     target?: EventTarget | null,
   ) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
+  onSwipeReply?: (message: Message) => void;
   onReedit?: (message: Message) => Promise<boolean>;
   /** 「可能未送达」占位的移除（见 MessageBubble 的同名 prop）。 */
   onDismissUnsent?: (message: Message) => void;
@@ -187,6 +193,7 @@ export const MessageRow = memo(function MessageRow({
   reactionPending?: ReactionInteraction['pending'];
   repeatAction?: ReactNode;
   pendingAction?: ReactNode;
+  textResult?: ReactNode;
   grayTipClassName?: string;
 }): ReactElement {
   recordMessageCounter('rowRenders');
@@ -258,6 +265,7 @@ export const MessageRow = memo(function MessageRow({
   return (
     <MessageBubble
       message={message}
+      groupPosition={groupPosition}
       conversation={conversation}
       sender={sender ?? user}
       mine={isSelfIdentity(new Set(selfIdentityValues(user)), message.senderId)}
@@ -275,6 +283,7 @@ export const MessageRow = memo(function MessageRow({
       onRestore={onRestore}
       onContextMenu={noopContextMenu}
       onLongPress={noopLongPress}
+      onSwipeReply={onSwipeReply}
       onAction={onAction}
       onReedit={onReedit}
       onDismissUnsent={onDismissUnsent}
@@ -287,6 +296,7 @@ export const MessageRow = memo(function MessageRow({
       reactionInteraction={reactions}
       repeatAction={repeatAction}
       pendingAction={pendingAction}
+      textResult={textResult}
     />
   );
 });

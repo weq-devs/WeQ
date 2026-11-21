@@ -49,6 +49,14 @@ export interface ToastAction {
   source?: NotificationSource;
 }
 
+type MessageBannerBinding = NonNullable<NotificationSource['binding']>;
+interface MessageBannerTarget {
+  binding: MessageBannerBinding;
+  chatType: 1 | 2;
+  uid: string;
+  seq: string;
+}
+
 export interface Toast {
   id: number;
   event: NotificationEvent;
@@ -73,6 +81,8 @@ export interface Toast {
   /** 整条横幅的主操作；关闭、展开和内部按钮仍独立操作。 */
   action?: ToastAction;
   source?: NotificationSource | null;
+  /** 合并消息记录本批最后一个序号，独立于点击定位的首条消息。 */
+  messageReadTarget?: MessageBannerTarget;
 }
 
 /** 就地改一条已在屏上的 toast —— 长任务用它把「进行中」推进成「成功/失败」。 */
@@ -117,6 +127,7 @@ interface ToastStore {
     dismissible?: boolean;
     action?: Toast['action'];
     source?: NotificationSource | null;
+    messageReadTarget?: MessageBannerTarget;
     system?: false;
   }): number;
   /**
@@ -130,6 +141,10 @@ interface ToastStore {
   dismiss(id: number): void;
   /** 对应问题已解决，不受失败通知停留时长或悬停暂停影响。 */
   resolve(key: string): void;
+  dismissReadMessages(
+    binding: MessageBannerBinding,
+    rows: readonly { chatType: number; uid: string; readSeq?: string; readError?: boolean }[],
+  ): void;
   /** 退场动画结束后真正移除 */
   remove(id: number): void;
 }
@@ -195,6 +210,7 @@ const toastStore = create<ToastStore>((set, get) => ({
     dismissible,
     action,
     source,
+    messageReadTarget,
     system,
   }) {
     const state = get();
@@ -230,6 +246,7 @@ const toastStore = create<ToastStore>((set, get) => ({
       dismissible,
       action,
       source,
+      messageReadTarget,
     };
     if (
       system !== false &&
@@ -324,6 +341,29 @@ const toastStore = create<ToastStore>((set, get) => ({
     const ids = state.toasts
       .filter((toast) => toast.key === key && !state.leaving.includes(toast.id))
       .map((toast) => toast.id);
+    if (ids.length) set({ leaving: [...state.leaving, ...ids] });
+  },
+  dismissReadMessages(binding, rows) {
+    const state = get();
+    const banners = state.toasts.filter(
+      ({ id, messageReadTarget: target }) =>
+        target !== undefined &&
+        target.binding.expectedAccountUin === binding.expectedAccountUin &&
+        target.binding.expectedAccountConfigId === binding.expectedAccountConfigId &&
+        !state.leaving.includes(id),
+    );
+    if (!banners.length) return;
+    const readPositions = new Map<string, bigint>();
+    for (const { chatType, uid, readSeq, readError } of rows) {
+      if (!readError && readSeq && /^\d+$/.test(readSeq))
+        readPositions.set(`${chatType}:${uid}`, BigInt(readSeq));
+    }
+    const ids: number[] = [];
+    for (const { id, messageReadTarget: target } of banners) {
+      if (!target || !/^[1-9]\d*$/.test(target.seq)) continue;
+      const readThrough = readPositions.get(`${target.chatType}:${target.uid}`);
+      if (readThrough !== undefined && readThrough >= BigInt(target.seq)) ids.push(id);
+    }
     if (ids.length) set({ leaving: [...state.leaving, ...ids] });
   },
   remove(id) {

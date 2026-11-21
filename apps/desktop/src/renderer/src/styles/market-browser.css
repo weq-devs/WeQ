@@ -49,6 +49,9 @@
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+.weq-market-catalog-total {
+  margin-bottom: 8px;
+}
 .weq-market-back {
   display: none;
 }
@@ -115,6 +118,10 @@
   padding: 0;
   border-bottom: 0;
   background: transparent;
+}
+.weq-market-browser .weq-dress-toolbar-controls .weq-directory-toolbar {
+  flex: none;
+  white-space: nowrap;
 }
 .weq-market-browser .weq-emb-fee-row {
   display: flex;

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { HostBridge } from '@weq/service';
+import type { AccountConfig, HostBridge } from '@weq/service';
 import { DEVELOPMENT_DRESS_FLAG } from '../../../packages/service/src/common/development_dress';
 import { dressupRouter } from '../src/main/ipc/routers/dressup';
 import { marketEmojiRouter } from '../src/main/ipc/routers/market_emoji';
@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
     backgroundOpacity: 0.7,
   },
   active: vi.fn(),
+  homeDress: undefined as AccountConfig['homeDress'],
   bubble: vi.fn(() => ({ itemId: 99 })),
   resolve: vi.fn(),
   key: vi.fn(async () => ({ key: 'synthetic-key' })),
@@ -28,7 +29,12 @@ const state = vi.hoisted(() => ({
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
     services: {
-      accountConfig: { getRecord: () => ({ configId: 'synthetic', homeDress: {} }) },
+      accountConfig: {
+        getRecord: () => ({ configId: 'synthetic', homeDress: state.homeDress }),
+        setHomeDress: (dress: AccountConfig['homeDress']) => {
+          state.homeDress = dress;
+        },
+      },
       dressInstall: {
         read: () => state.manifest,
         messageBubble: () => undefined,
@@ -45,6 +51,7 @@ vi.mock('../src/main/context/app_context', () => ({
 const argv = process.argv;
 beforeEach(() => {
   vi.clearAllMocks();
+  state.homeDress = undefined;
   vi.stubEnv('NODE_ENV', 'development');
   process.argv = [...argv, DEVELOPMENT_DRESS_FLAG];
 });
@@ -111,4 +118,24 @@ it('开发宿主必须再携带参数；开启后保留原覆盖与密钥工具'
   expect((await dress.getState()).manifest.activeBubble).toBe(11);
   expect(await market.getPackKey({ packId: '123' })).toEqual({ key: 'synthetic-key' });
   expect(state.key).toHaveBeenCalledWith('123', undefined);
+});
+
+it('未取得 QQ 装扮快照时仍可用目录里的通话背景', async () => {
+  const { dress } = callers(false);
+  const imageUrl = 'https://example.test/background.jpg';
+  const videoUrl = 'https://example.test/background.mp4';
+  await dress.setCallBackground({ itemId: 44, name: '通话背景', imageUrl, videoUrl });
+  expect(state.homeDress?.callBgCheckedAt).toBeGreaterThan(0);
+  expect((await dress.getState()).own).toMatchObject({
+    callBgId: 44,
+    callBgName: '通话背景',
+    callBgUrl: imageUrl,
+    callBgVideoUrl: videoUrl,
+  });
+  await dress.setCallBackground({ itemId: 0 });
+  expect((await dress.getState()).own).toMatchObject({
+    callBgId: 0,
+    callBgUrl: '',
+    callBgVideoUrl: '',
+  });
 });

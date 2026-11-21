@@ -256,7 +256,7 @@ it('缓存日期筛选超预算时沿原游标退回分页，无关日期不触�
       msgs: { getHiddenDeletedMsgIds: () => [] },
       gapHistory: {
         hasCalendarCache: () => true,
-        calendarConversations: async () => [{ kind: 'group', conv: '42' }],
+        calendarConversations: async () => ['42'],
         calendarPage,
       },
     } as unknown as CalendarSourceServices,

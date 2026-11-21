@@ -153,6 +153,36 @@ html[data-theme='dark'] .weq-ft {
   padding: 6px 10px;
   scrollbar-gutter: stable;
 }
+.weq-ft-batches {
+  padding: 2px 8px 8px;
+}
+.weq-ft-batch {
+  display: grid;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.weq-ft-batch summary {
+  cursor: pointer;
+}
+.weq-ft-batch summary span + span {
+  margin-inline-start: 10px;
+  color: var(--weq-fg-secondary);
+}
+.weq-ft-batch ul {
+  padding-inline-start: 22px;
+}
+.weq-ft-batch-error {
+  color: var(--weq-danger);
+  white-space: pre-wrap;
+}
+.weq-ft-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .weq-ft-loading,
 .weq-ft-empty,
 .weq-ft-error {

@@ -1,16 +1,19 @@
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { afterEach, expect, it } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { AgentLabStore } from '@weq/agentlab';
 import { accountConfigId } from '../src/account/user_config';
 import { DressConfigService } from '../src/account/dress_config';
+import { DressConversationStore } from '../src/account/dress_conversations';
 import { DbToleranceService } from '../src/account/db_tolerance';
 import { IntentSenseService } from '../src/account/intent_sense';
 import { UserConfigService, DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_config';
 import { WeqBackupService } from '../src/bootstrap/backup_service';
+import { ClientStateStore } from '../src/bootstrap/client_state';
 import { buildWeqBackup, readWeqBackup } from '../src/bootstrap/backup_bundle';
 import {
   applyPendingWeqBackupRestore,
@@ -109,6 +112,121 @@ const png = Buffer.from(
   'base64',
 );
 
+it('账号备份随草稿打包图片，恢复到另一个数据源并重新定位 QQ 草稿旧路径', () => {
+  const f = fixture();
+  const name = `${createHash('sha256').update(png).digest('hex')}.png`;
+  const sourceState = weqAccountSettingPath(f.root, f.cache, f.source, 'client-state.json');
+  const image = join(dirname(sourceState), 'draft-media', name);
+  const outside = join(f.root, 'outside', name);
+  for (const path of [image, outside]) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, png);
+  }
+  const key = 'chat:c2c:u_synthetic';
+  const native = [
+    { kind: 'text', textContent: '草稿正文' },
+    { kind: 'pic', localPath: image },
+    { kind: 'pic', localPath: image },
+    { kind: 'pic', localPath: outside },
+  ];
+  const state = new ClientStateStore(sourceState);
+  state.saveDraft(key, native, null);
+  const snapshot = f.service.snapshot({ parts: ['accounts'], accountConfigIds: [f.source] }, {});
+  const bundle = readWeqBackup(snapshot.archive);
+  const media = bundle.files.filter(({ path }) => path.includes('/draft-media/'));
+  expect(media).toEqual([{ path: `accounts/${f.source}/draft-media/${name}`, data: png }]);
+  const stateFile = bundle.files.find(({ path }) => path.endsWith('/client-state.json'))!;
+  expect(stateFile.data.toString()).not.toContain(image);
+  expect(state.draft(key).value).toEqual(native);
+  rmSync(image);
+
+  stageWeqBackupRestore(f.root, snapshot.archive, {
+    parts: ['accounts'],
+    conflict: 'overwrite',
+    scopeMap: { [f.source]: f.local },
+  });
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const localState = weqAccountSettingPath(f.root, f.cache, f.local, 'client-state.json');
+  const restored = join(dirname(localState), 'draft-media', name);
+  expect(readFileSync(restored)).toEqual(png);
+  const local = new ClientStateStore(localState);
+  const expected = native.map((entry) =>
+    entry.localPath === image ? { ...entry, localPath: restored } : entry,
+  );
+  expect(local.draft(key).value).toEqual(expected);
+  local.relocateDraftImages(native);
+  expect(native).toEqual(expected);
+});
+
+it('恢复拒绝缺少包内草稿图片的相对引用，兼容旧备份的绝对路径', () => {
+  const f = fixture();
+  const build = (localPath: string) =>
+    buildWeqBackup([
+      {
+        path: `accounts/${f.source}/client-state.json`,
+        data: Buffer.from(
+          JSON.stringify({
+            values: {},
+            records: {},
+            revision: 1,
+            drafts: {
+              'chat:c2c:u_synthetic': { version: 'legacy', value: [{ kind: 'pic', localPath }] },
+            },
+          }),
+        ),
+      },
+    ]);
+  const name = `${createHash('sha256').update(png).digest('hex')}.png`;
+  const choice = { parts: ['accounts'] as const, conflict: 'overwrite' as const };
+  expect(() =>
+    stageWeqBackupRestore(f.root, build(`draft-media/${name}`), {
+      ...choice,
+      parts: [...choice.parts],
+    }),
+  ).toThrow('备份缺少草稿引用的图片文件');
+  const legacy = join(f.root, 'old', name);
+  stageWeqBackupRestore(f.root, build(legacy), { ...choice, parts: [...choice.parts] });
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const state = new ClientStateStore(
+    weqAccountSettingPath(f.root, f.cache, f.source, 'client-state.json'),
+  );
+  expect(state.draft('chat:c2c:u_synthetic').value).toEqual([{ kind: 'pic', localPath: legacy }]);
+});
+
+it('草稿图片要求内容与文件名一致，恢复遇到同名异内容时保留目标文件', () => {
+  const f = fixture();
+  const name = `${createHash('sha256').update(png).digest('hex')}.png`;
+  const ref = `draft-media/${name}`;
+  const image = { path: `accounts/${f.source}/${ref}`, data: png };
+  const changed = Buffer.concat([png, Buffer.from([1])]);
+  expect(() => buildWeqBackup([{ ...image, data: changed }])).toThrow('备份草稿图片');
+  const config = {
+    path: `accounts/${f.source}/client-state.json`,
+    data: Buffer.from(
+      JSON.stringify({
+        values: {},
+        records: {},
+        revision: 1,
+        drafts: {
+          'chat:c2c:u_synthetic': { version: 'v1', value: [{ kind: 'pic', localPath: ref }] },
+        },
+      }),
+    ),
+  };
+  const root = join(f.root, 'config', 'accounts', f.source);
+  const target = join(root, ref);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, changed);
+  stageWeqBackupRestore(f.root, buildWeqBackup([image, config]), {
+    parts: ['accounts'],
+    conflict: 'overwrite',
+  });
+  const result = applyPendingWeqBackupRestore(f.root, f.cache);
+  expect(result?.error).toContain('目标草稿图片已有不同内容');
+  expect(readFileSync(target)).toEqual(changed);
+  expect(existsSync(join(root, 'client-state.json'))).toBe(false);
+});
+
 it('通用偏好和背景只备份一次，账号备份保留规则与数据源，原件不被改写', async () => {
   const f = fixture();
   const intent = new IntentSenseService(
@@ -136,7 +254,21 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
   const dress = new DressConfigService(join(f.root, 'config', 'accounts', f.source));
   dress.setCustomBackground(outside);
   dress.setBackgroundOpacity(0.4);
+  dress.setWidgetOpacity(0.35);
   dress.setActive('bubble', 123);
+  dress.setScope('fallback', 'font');
+  const conversation = { kind: 'group', conv: '12345', title: '会话' } as const;
+  const conversationDress = new DressConversationStore(
+    join(f.root, 'config', 'accounts', f.source),
+  );
+  conversationDress.setBackgroundFile(conversation, outside);
+  conversationDress.set(conversation, { slot: 'screen', value: 'off' });
+  const background = conversationDress.get(conversation)?.background;
+  if (!background || background === 'off' || background.source !== 'custom')
+    throw new Error('缺少测试背景');
+  expect(
+    conversationDress.backgroundFile({ ...conversation, conv: '99999' }, background.file),
+  ).toBeNull();
   const original = readFileSync(weqAccountSettingPath(f.root, f.cache, f.source, 'dress.json'));
   f.config.migrateSharedAccountPreferences(f.source);
   const snapshot = f.service.snapshot(
@@ -144,7 +276,10 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
     {},
   );
   const bundle = readWeqBackup(snapshot.archive);
-  expect(bundle.files).toHaveLength(WEQ_ACCOUNT_SETTING_FILES.length + 3);
+  expect(bundle.files).toHaveLength(WEQ_ACCOUNT_SETTING_FILES.length + 4);
+  expect(
+    bundle.files.some(({ path }) => path === `accounts/${f.source}/background/${background.file}`),
+  ).toBe(true);
   expect(bundle.files.some((file) => file.path === `accounts/${f.source}/dress.json`)).toBe(false);
   expect(bundle.files.filter((file) => file.path.startsWith('settings/background/'))).toHaveLength(
     1,
@@ -201,9 +336,18 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
     background: 'custom',
     activeBubble: 123,
     backgroundOpacity: 0.4,
+    widgetOpacity: 0.35,
+    scopes: { bubble: 'mine', font: 'fallback', widget: 'mine' },
   });
   expect(restoredDress.getBackgroundFile()).toMatch(/bg-[0-9a-f]{64}\.png$/);
   expect(readFileSync(restoredDress.getBackgroundFile()!)).toEqual(png);
+  const restoredConversation = new DressConversationStore(
+    join(f.root, 'config', 'accounts', f.local),
+  );
+  expect(restoredConversation.get(conversation)).toEqual(conversationDress.get(conversation));
+  expect(readFileSync(restoredConversation.backgroundFile(conversation, background.file)!)).toEqual(
+    png,
+  );
   expect(readFileSync(join(f.localDir, 'nt_msg.db'), 'utf8')).toBe('synthetic original QQ bytes');
 });
 

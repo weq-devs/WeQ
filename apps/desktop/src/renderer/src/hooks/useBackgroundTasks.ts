@@ -52,10 +52,10 @@ export function useBackgroundTasks(enabled: boolean) {
   const tasks = useMemo<BackgroundTaskEntry[]>(
     () => [
       ...(host.data ?? [])
-        .filter((task) => backgroundTaskVisible(task, scope))
+        .filter((task) => !task.foreground && backgroundTaskVisible(task, scope))
         .map((task) => ({ task, source: 'host' as const })),
       ...local
-        .filter((task) => backgroundTaskVisible(task, scope))
+        .filter((task) => !task.foreground && backgroundTaskVisible(task, scope))
         .map((task) => ({ task, source: 'window' as const })),
     ],
     [host.data, local, scope],

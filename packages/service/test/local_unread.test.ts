@@ -93,6 +93,17 @@ describe('QQ 小表直接投影', () => {
     expect(store.resolve({ ...gray, msgSeq: 109, markUnread: true }).unreadCount).toBe(1);
     expect(store.resolve(snapshot({ msgSeq: 109, latestSenderUid: 'u_peer' })).unreadCount).toBe(1);
   });
+  it('防撤回后唯一一条未读减为零，后续普通消息仍计数', () => {
+    const store = new LocalUnreadStore();
+    const row = snapshot({ msgSeq: 109 });
+    expect(store.resolve(row).unreadCount).toBe(1);
+    const recalled = { ...row, recalledSeqs: ['110'] };
+    expect(store.resolve(recalled)).toMatchObject({ readSeq: '109', unreadCount: 0 });
+    expect(store.resolve({ ...recalled, latestSeq: '111' }).unreadCount).toBe(1);
+    expect(
+      store.resolve({ ...recalled, latestSeq: '111', decreasedSeqs: ['110'] }).unreadCount,
+    ).toBe(1);
+  });
   it('手动未读只维持最小标记，新消息和 QQ 阅读继续改变数量', () => {
     const store = new LocalUnreadStore();
     const row = snapshot({ msgSeq: 110 });

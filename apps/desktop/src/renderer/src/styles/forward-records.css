@@ -1,7 +1,23 @@
-.weq-forward-row:has(> .weq-forward-author) {
+.weq-forward-row.message-line {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
   gap: 6px 8px;
+}
+
+.weq-forward-body > [data-forward-continuation] {
+  margin-block-start: calc(var(--weq-forward-group-gap) - var(--weq-forward-row-gap));
+}
+
+.weq-forward-row[data-forward-group='first'] > .weq-forward-author {
+  position: relative;
+  grid-column: 2;
+}
+
+.weq-forward-row[data-forward-group='first'] .weq-forward-avatar-link {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 0;
+  inset-inline-end: calc(100% + 8px);
 }
 
 .weq-forward-row > .weq-forward-author {

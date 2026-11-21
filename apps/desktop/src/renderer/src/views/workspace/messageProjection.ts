@@ -1,6 +1,7 @@
 import { findReplyPreview, type ReplyPreviewIndex } from '../../lib/replyPreview';
 import { timelineRowKey } from '../../../../shared/roaming_timeline';
 import { outgoingSequenceRejected } from '../../lib/outgoingAcknowledgment';
+import type { ComposerSubmission } from '../../lib/localOutgoing';
 import { previewIdentityIds, groupTipText } from '../../lib/conversationPreview';
 import { messageSender, type MemberUinLookup, type SenderProfile } from '../../lib/messageSender';
 import { flashPreviewLabel } from '../../lib/flashShare';
@@ -10,6 +11,7 @@ import { seedMessageBubbles, messageBubble } from '../../lib/messageBubbles';
 import type { Conversation, GroupMember, Message, User } from '../../im-template/template';
 import type { SetEmojiItem } from '@weq/codec';
 import { flashTransferTitle } from '../../components/QqFlashTransfer.shared';
+import { showsRoamingSource } from '../../components/MessageProvenance.shared';
 import type {
   MessageWire,
   ChatMsgWire,
@@ -166,6 +168,38 @@ export function optimisticMessageToTemplate(
   };
 }
 
+export function outgoingPicturePreviews(
+  elements: readonly unknown[],
+): ComposerSubmission['pictures'] {
+  const urls: (string | undefined)[] = [];
+  let bytes = 0;
+  for (const element of elements as readonly (RenderElementWire | null)[]) {
+    if (element?.type !== 'pic') continue;
+    const url = element.data?.localPreviewUrl;
+    urls.push(typeof url === 'string' && url ? url : undefined);
+    if (typeof url === 'string' && url.startsWith('blob:')) {
+      const size = Number(element.data?.fileSize);
+      if (Number.isFinite(size) && size > 0) bytes += size;
+    }
+  }
+  return urls.some(Boolean) ? { urls, bytes } : undefined;
+}
+
+/** QQ 回读更新消息元数据，显示继续使用本端已有的原图。 */
+export function withOutgoingPicturePreviews(
+  elements: Message['qqElements'],
+  previews: readonly (string | undefined)[],
+): Message['qqElements'] {
+  if (!elements || elements.filter((element) => element.type === 'pic').length !== previews.length)
+    return elements;
+  let index = 0;
+  return elements.map((element) => {
+    if (element.type !== 'pic') return element;
+    const url = previews[index++];
+    return url ? { ...element, data: { ...element.data, localPreviewUrl: url } } : element;
+  });
+}
+
 export function messageToTemplate(
   message: MessageWire,
   conversation: Conversation,
@@ -202,6 +236,9 @@ export function messageToTemplate(
   // else's message (sameSender === false). Group → memberMap by uid; c2c → the
   // peer (the only other party). Falls back to a generic label in the bubble.
   const recallRevokerName = resolveRecallRevokerName(message, conversation, memberMap);
+  let body = messageBody(message.elements);
+  if (!body && message.sourceFormat)
+    body = showsRoamingSource(message) ? '[漫游空消息或未解析]' : '[消息内容暂未解析]';
   return {
     id: timelineRowKey(message),
     sourceFormat: message.sourceFormat,
@@ -211,7 +248,7 @@ export function messageToTemplate(
     senderUid: message.senderUid,
     sendTime: message.sendTime,
     sender,
-    body: messageBody(message.elements) || (message.sourceFormat ? '[漫游空消息或未解析]' : ''),
+    body,
     // 闪照：本地库只剩一句兜底文案（元素本体从没落库）。打上标记，让聊天窗按需走
     // 协议拉取把真正的元素补回来；拉不到就继续显示这句话。
     ...(isFlashPhotoPlaceholder(message.elements) ? { flashPhotoPlaceholder: true } : {}),
@@ -242,7 +279,6 @@ export function messageToTemplate(
     qqElements: unknown[];
     setEmojiList?: SetEmojiItem[];
     deletedKind?: 'weq' | 'qq';
-    recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
     recallRevokerName?: string;
     msgId: string;
     msgSeq: string;

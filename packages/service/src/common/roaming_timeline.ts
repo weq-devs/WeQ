@@ -6,6 +6,7 @@ export interface TimelineRow {
   msgRandom?: string;
   localSent?: boolean;
   senderUid?: string;
+  elements?: readonly unknown[];
   msgId: string;
   msgSeq: string;
   source?: 'roaming';
@@ -29,6 +30,32 @@ export function timelineRowKey(row: TimelineRow): string {
     : row.msgId;
 }
 
+export function timelineMessageIdentity(row: TimelineRow): string | null {
+  return row.msgRandom && row.msgRandom !== '0' && row.senderUid
+    ? `${row.msgSeq}:${row.msgRandom}:${row.senderUid}`
+    : null;
+}
+
+export function voiceFileHash(data: {
+  fileName?: unknown;
+  md5?: unknown;
+  md5Bytes?: unknown;
+}): string {
+  for (const hash of [data.md5, data.md5Bytes]) {
+    if (typeof hash === 'string' && /^[a-f0-9]{32}$/i.test(hash)) return hash.toLowerCase();
+  }
+  return /^([a-f0-9]{32})\.amr$/i.exec(String(data.fileName ?? ''))?.[1]?.toLowerCase() ?? '';
+}
+
+/** 旧版语音转写可能改过 QQ 的 random，用原音频核对这类发送缓存。 */
+export function sentVoiceIdentity(row: TimelineRow): string | null {
+  if (!row.senderUid || !row.sendTime || row.elements?.length !== 1) return null;
+  const element = row.elements[0] as { type?: string; data?: Record<string, unknown> } | null;
+  if (element?.type !== 'ptt' || !element.data) return null;
+  const hash = voiceFileHash(element.data);
+  return hash ? `${row.msgSeq}:${row.sendTime}:${row.senderUid}:${hash}` : null;
+}
+
 /** Fill the currently loaded window without extending it or re-anchoring history to latest. */
 export function mergeRoamingWindow<T extends TimelineRow>(
   kind: 'c2c' | 'group',
@@ -45,21 +72,18 @@ export function mergeRoamingWindow<T extends TimelineRow>(
   return incoming.length ? mergeRoamingTimeline(kind, local, incoming) : local;
 }
 
-/** Preserve every local row (including gray tips sharing a seq); cache only fills holes. */
+/** 同身份撤回副本优先显示原文，普通缓存补齐缺口，并保留同序号的其他灰条。 */
 export function mergeRoamingTimeline<T extends TimelineRow>(
   kind: 'c2c' | 'group',
   local: T[],
   cached: T[],
   options: { descending?: boolean; limit?: number; min?: bigint; max?: bigint } = {},
 ): T[] {
-  const identity = (row: T): string | null =>
-    row.msgRandom && row.msgRandom !== '0' && row.senderUid
-      ? `${row.msgSeq}:${row.msgRandom}:${row.senderUid}`
-      : null;
-  const protectedRows = [...local, ...cached].filter((row) => {
+  const identity = timelineMessageIdentity;
+  const cachedRows = [...local.filter((row) => row.source === 'roaming'), ...cached];
+  const protectedRows = cachedRows.filter((row) => {
     const seq = timelineSeq(row.msgSeq);
     return (
-      row.localSent &&
       row.recall &&
       seq !== null &&
       (kind !== 'c2c' || row.ntSeqVerified === true) &&
@@ -67,24 +91,27 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
       (options.max === undefined || seq <= options.max)
     );
   });
+  const protectedIds = new Set(protectedRows.map((row) => `${row.msgSeq}:${row.msgId}`));
   const protectedKeys = new Set(protectedRows.map(identity).filter(Boolean));
   const result = local.filter(
-    (row) => row.source !== 'roaming' && !protectedKeys.has(identity(row)),
+    (row) =>
+      row.source !== 'roaming' &&
+      !protectedKeys.has(identity(row)) &&
+      !protectedIds.has(`${row.msgSeq}:${row.msgId}`),
   );
   const localSeqs = new Set(result.map((row) => row.msgSeq));
   const localIds = new Set(result.map((row) => row.msgId));
   const localIdentities = new Set(result.map(identity).filter(Boolean));
+  const localVoices = new Set(result.map(sentVoiceIdentity).filter(Boolean));
   const nativeRandoms = new Set(
     [...local, ...cached]
       .filter((row) => row.sourceFormat && row.msgRandom && row.msgRandom !== '0')
       .map((row) => `${row.msgSeq}:${row.msgRandom}:${row.senderUid ?? ''}`),
   );
   const added = new Set<string>();
-  const candidates = [
-    ...protectedRows,
-    ...local.filter((item) => item.source === 'roaming'),
-    ...cached,
-  ].filter((row) => (row.localSent && row.recall) || !protectedKeys.has(identity(row)));
+  const candidates = [...protectedRows, ...cachedRows].filter(
+    (row) => row.recall || !protectedKeys.has(identity(row)),
+  );
   const syncedIdentities = new Set(
     candidates
       .filter((row) => !row.localSent)
@@ -99,15 +126,16 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
       (kind === 'c2c' && row.ntSeqVerified !== true) ||
       (options.min !== undefined && seq < options.min) ||
       (options.max !== undefined && seq > options.max) ||
-      (row.sourceFormat
-        ? localIds.has(row.msgId) ||
-          (row.sourceFormat === 'protocol' &&
-            identity(row) !== null &&
-            localIdentities.has(identity(row)))
-        : localSeqs.has(row.msgSeq) ||
-          nativeRandoms.has(
-            `${row.msgSeq}:${row.msgRandom || row.msgId}:${row.senderUid ?? ''}`,
-          )) ||
+      (!row.recall &&
+        (row.sourceFormat
+          ? localIds.has(row.msgId) ||
+            (row.sourceFormat === 'protocol' &&
+              (localIdentities.has(identity(row)) ||
+                (row.localSent && localVoices.has(sentVoiceIdentity(row)))))
+          : localSeqs.has(row.msgSeq) ||
+            nativeRandoms.has(
+              `${row.msgSeq}:${row.msgRandom || row.msgId}:${row.senderUid ?? ''}`,
+            ))) ||
       added.has(row.sourceFormat ? `${row.msgSeq}:${row.msgId}` : row.msgSeq)
     )
       continue;

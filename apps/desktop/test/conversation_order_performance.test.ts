@@ -4,6 +4,9 @@ import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ContactMetricRows } from '@weq/service';
 const metricState = vi.hoisted(() => ({ rows: {} as ContactMetricRows }));
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({ available: false, binding: null, busy: false }),
+}));
 vi.mock('../src/renderer/src/hooks/useContactDirectoryOrder', async () => {
   const order = await import('./support/contact-order.stub');
   return {

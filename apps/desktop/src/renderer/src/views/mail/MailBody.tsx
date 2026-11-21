@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Image, LoaderCircle } from 'lucide-react';
 import type { MailApi } from './api';
-import { inlineMailImages, mailDocument, mailExternalLink } from './content';
+import { mailBodyImages, mailDocument, mailExternalLink } from './content';
 import { useThemeStore } from '../../state/theme';
 
 export function MailBody({ html, api }: { html: string; api: MailApi }) {
@@ -14,6 +14,7 @@ export function MailBody({ html, api }: { html: string; api: MailApi }) {
   const cleanup = useRef<(() => void) | undefined>(undefined);
   const resolved = useThemeStore((state) => state.resolved);
   const accent = useThemeStore((state) => state.accent);
+  const { ids, hasImages } = useMemo(() => mailBodyImages(html), [html]);
   const documentHtml = useMemo(() => mailDocument(html, images, sources), [html, images, sources]);
 
   useEffect(() => {
@@ -27,7 +28,6 @@ export function MailBody({ html, api }: { html: string; api: MailApi }) {
       return;
     }
     const controller = new AbortController();
-    const ids = inlineMailImages(html);
     let index = 0,
       budget = 0;
     setLoading(ids.length > 0);
@@ -61,7 +61,7 @@ export function MailBody({ html, api }: { html: string; api: MailApi }) {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [images, html, api]);
+  }, [images, ids, api]);
 
   const applyTheme = useCallback((): void => {
     const parent = container.current,
@@ -86,21 +86,24 @@ export function MailBody({ html, api }: { html: string; api: MailApi }) {
 
   return (
     <div className="weq-mail-body" ref={container}>
-      <div className="weq-mail-image-tools">
-        <button
-          type="button"
-          aria-pressed={images}
-          onClick={() => {
-            setImages((value) => !value);
-            setSources({});
-          }}
-          title={images ? '隐藏远程图片' : '显示远程图片'}
-        >
-          {loading ? <LoaderCircle size={15} className="weq-mail-spin" /> : <Image size={15} />}
-          {images ? '隐藏图片' : '显示图片'}
-        </button>
-        {imageError ? <span role="status">{imageError}</span> : null}
-      </div>
+      {hasImages || imageError ? (
+        <div className="weq-mail-image-tools">
+          {hasImages ? (
+            <button
+              type="button"
+              aria-pressed={images}
+              onClick={() => {
+                setImages((value) => !value);
+                setSources({});
+              }}
+            >
+              {loading ? <LoaderCircle size={15} className="weq-mail-spin" /> : <Image size={15} />}
+              {images ? '隐藏图片' : '显示图片'}
+            </button>
+          ) : null}
+          {imageError ? <span role="status">{imageError}</span> : null}
+        </div>
+      ) : null}
       <iframe
         ref={frame}
         title="邮件正文"

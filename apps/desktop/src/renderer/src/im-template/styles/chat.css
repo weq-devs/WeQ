@@ -32,67 +32,6 @@
   grid-column: 1 / -1;
 }
 
-/* ===== 聊天背景（个性装扮） =====
- *
- * 挂在 .chat-pane 而不是 .chat-main —— 后者被聊天/联系人/导出三个视图共用，贴在那
- * 会漏到别的页面去（见 styles/index.css 的 --weq-chat-bg 说明）。
- *
- * 720×1280 的手机素材配桌面窗口：cover + 居中，永远填满、只切溢出的那一维。
- *
- * 磨砂：背景图全清晰会盖过消息，所以在图上压一层同色半透明 + 模糊。用 ::after 而不是
- * 直接改 opacity —— opacity 会把挂件动画一起冲淡，而磨砂只该作用在底图上。
- */
-.weq-chat-backdrop {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
-  pointer-events: none;
-}
-
-.weq-chat-backdrop::after {
-  position: absolute;
-  inset: 0;
-  backdrop-filter: blur(var(--weq-chat-backdrop-blur, 3px))
-    saturate(var(--weq-chat-backdrop-saturate, 1.05));
-  -webkit-backdrop-filter: blur(var(--weq-chat-backdrop-blur, 3px))
-    saturate(var(--weq-chat-backdrop-saturate, 1.05));
-  background: color-mix(
-    in srgb,
-    var(--weq-bg-surface) var(--weq-chat-backdrop-veil, 30%),
-    transparent
-  );
-  content: '';
-}
-
-/* 动态聊天背景（本地 mp4/webm/mov）。
- *
- * 与 .weq-chat-backdrop 的 background-image 同一条裁切：cover + 居中。放在容器里而不是
- * 改成 CSS 背景 —— 视频得有真实元素才播得起来。
- *
- * 层级：不给 z-index，靠 DOM 顺序压在容器的 ::after（磨砂纱）之下 —— ::after 生成在
- * 所有子元素之后，自然盖在视频上；挂件是 z-index: 1，仍然在最上面。
- * 容器带 pointer-events: none，视频不会抢消息区的点击（视频本身也没有 controls）。 */
-.weq-chat-backdrop-video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-}
-
-/* 挂件画在磨砂层之上 —— 它是前景装饰，不该跟着底图一起被糊。 */
-.weq-chat-widget {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
 /* .chat-header / .message-scroll / .composer 都是静态定位的，不给层级就会被上面那个
  * absolute 盖住。这里**只给 z-index、不加 position** —— 它们是 .chat-pane 的网格项，
  * 而网格项即使 position:static 也认 z-index（CSS Grid §6 的绘制顺序规则）。加
@@ -112,12 +51,6 @@
 .chat-pane:has(> .weq-chat-backdrop) > .chat-header,
 .chat-pane:has(> .weq-chat-backdrop) > .composer {
   background: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
-}
-
-/* 深色下 --weq-bg-surface 是近黑，同样一层纱会压得更狠，所以模糊给足、纱交给行内的
- * 强度值（见 ChatBackdrop：那是用户可调的，不该被主题覆盖）。 */
-html[data-theme='dark'] .weq-chat-backdrop {
-  --weq-chat-backdrop-blur: 4px;
 }
 
 .chat-pane.with-group-info .message-scroll,
@@ -492,49 +425,6 @@ html[data-theme='dark'] .weq-chat-backdrop {
   background-clip: padding-box;
 }
 
-.unread-jump-button {
-  position: absolute;
-  z-index: 9;
-  top: calc(var(--chat-header-height) + 20px);
-  right: 24px;
-  display: inline-flex;
-  height: 38px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 17px;
-  border: 0;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--card, #ffffff) 96%, transparent);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  color: var(--weq-accent-effective, #1598ff);
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  user-select: none;
-  transition:
-    background 120ms ease-out,
-    box-shadow 120ms ease-out,
-    transform 120ms ease-out;
-}
-
-.unread-jump-button:hover,
-.unread-jump-button:focus-visible {
-  background: var(--card, #ffffff);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
-  outline: 0;
-  transform: translateY(-1px);
-}
-
-.unread-jump-button svg {
-  flex: 0 0 auto;
-}
-
-.chat-pane.with-group-info:not(.group-info-collapsed) .unread-jump-button {
-  right: calc(var(--group-info-panel-width) + 24px);
-}
-
 /* 未读跳转坞 —— 打开会话时按内存快照逐个引导跳转，跳完自动收起。
  *
  * 贴在会话右上角（顶栏下方），三种色调对应告警 / 内容 / 红包：
@@ -663,6 +553,20 @@ html[data-theme='dark'] .weq-chat-backdrop {
   justify-content: flex-end;
 }
 
+.message-avatar-slot {
+  position: relative;
+  flex: 0 0 36px;
+  block-size: 0;
+}
+
+/* 保留头像的交互区域和横向占位，但组内行高只由消息决定。 */
+.message-avatar-slot > :is(.message-avatar-wrap, .message-avatar-button) {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+}
+
 .message-line .avatar {
   width: 36px;
   height: 36px;
@@ -680,7 +584,7 @@ html[data-theme='dark'] .weq-chat-backdrop {
 }
 
 /* 焦点跟随头像或 QQ 秀的绘制尺寸，按钮的行内留白和挂件不参与描边。 */
-html[data-theme] .message-line > .message-avatar-button:focus-visible {
+html[data-theme] .message-line .message-avatar-button:focus-visible {
   outline: none;
 }
 
@@ -769,6 +673,22 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.55));
 }
 
+.weq-unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-unread-divider::before,
+.weq-unread-divider::after {
+  content: '';
+  flex: 1 1 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+}
+
 .message-time-divider {
   align-self: center;
   display: inline-flex;
@@ -780,7 +700,7 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   border-radius: 999px;
   background: color-mix(in srgb, var(--weq-bg-surface, #ffffff) 34%, transparent);
   color: var(--weq-fg-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   line-height: 1.25;
   user-select: none;
@@ -792,6 +712,39 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   min-width: 0;
   max-width: 75%;
   gap: 5px;
+}
+
+.message-bubble[data-swipe-reply]:not(:has(pre)) {
+  touch-action: pan-y pinch-zoom;
+}
+
+.message-bubble[data-swipe-reply] {
+  position: relative;
+  translate: var(--swipe-reply-x, none);
+  transition: translate 180ms ease-out;
+}
+
+.message-bubble[data-swipe-dragging] {
+  transition: none;
+}
+
+.weq-swipe-reply-icon {
+  position: absolute;
+  inset: 50% auto auto calc(100% + 10px);
+  translate: 0 -50%;
+  color: var(--weq-fg-secondary);
+  opacity: var(--swipe-reply-progress, 0);
+  pointer-events: none;
+}
+
+.message-bubble[data-swipe-ready] .weq-swipe-reply-icon {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-bubble[data-swipe-reply] {
+    transition: none;
+  }
 }
 
 .message-bubble:has(.qq-md pre) {
@@ -864,6 +817,34 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   overflow-wrap: anywhere;
   white-space: normal;
   word-break: normal;
+}
+
+.message-line[data-grouped-dress-bubble] .message-content.is-plain-text {
+  --weq-dress-bubble-group-padding: 10px;
+}
+
+.message-line.theirs:is([data-message-group='first'], [data-message-group='middle'])
+  > :is(.message-bubble, .weq-forward-row-main)
+  .message-content {
+  border-end-start-radius: 3px;
+}
+
+.message-line.theirs:is([data-message-group='middle'], [data-message-group='last'])
+  > :is(.message-bubble, .weq-forward-row-main)
+  .message-content {
+  border-start-start-radius: 3px;
+}
+
+.message-line.mine:is([data-message-group='first'], [data-message-group='middle'])
+  > .message-bubble
+  .message-content {
+  border-end-end-radius: 3px;
+}
+
+.message-line.mine:is([data-message-group='middle'], [data-message-group='last'])
+  > .message-bubble
+  .message-content {
+  border-start-end-radius: 3px;
 }
 
 .message-content.code-only {
@@ -1065,14 +1046,13 @@ html[data-theme='dark'] .weq-qqshow-avatar {
 .qq-reply-preview-media img,
 .qq-reply-preview-media .qq-media-image,
 .qq-reply-preview-media .qq-media-mface,
+.qq-reply-preview-media .qq-media-missing,
 .qq-reply-preview-media .qq-mface-wrap,
 .qq-reply-preview-media .qq-media-video,
 .qq-reply-preview-media .qq-market-face,
 .qq-reply-preview-media .qq-market-face img {
   max-width: 96px !important;
   max-height: 56px !important;
-  width: auto !important;
-  height: auto !important;
   border-radius: 4px;
   object-fit: cover;
 }

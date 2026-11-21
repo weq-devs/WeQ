@@ -13,6 +13,11 @@ import {
 } from '../src/renderer/src/components/MessageProvenance.shared';
 import { SystemMessageContent } from '../src/renderer/src/components/MessageProvenance';
 import { HoverTooltip } from '../src/renderer/src/components/HoverTooltip';
+import { roamingMsgToWire } from '../src/main/ipc/roaming_message_wire';
+import {
+  messageToTemplate,
+  toMessageWire,
+} from '../src/renderer/src/views/workspace/messageProjection';
 import { createTemplateDemoData } from './support/templateDemoData';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -33,6 +38,44 @@ const group = demo.conversations.find((item) => item.type === 'group')!;
 const direct = demo.conversations.find((item) => item.type === 'direct')!;
 const message = { ...demo.messages[0]!, createdAt: '2026-10-16T23:35:11Z', msgSeq: '42' };
 const text = (html: string) => new DOMParser().parseFromString(html, 'text/html').body.textContent;
+
+it.each<{ origin: string; retained?: true; localSent?: true; showsRoaming: boolean }>([
+  { origin: '防撤回副本', retained: true, showsRoaming: false },
+  { origin: '本机发送缓存', localSent: true, showsRoaming: false },
+  { origin: '拉取的历史', showsRoaming: true },
+])('按实际来源标注消息（$origin）', ({ retained, localSent, showsRoaming }) => {
+  const wire = roamingMsgToWire({
+    sourceFormat: 'protocol',
+    kind: 'c2c',
+    conv: direct.id,
+    msgId: '10',
+    msgSeq: '42',
+    senderUid: 'u_peer',
+    senderUin: '10002',
+    sendTime: '1700000000',
+    ntSeqVerified: true,
+    localSent,
+    elements: [{ type: 'text', data: { textContent: '撤回前原文' } }],
+    recall: {
+      revokeUid: 'u_peer',
+      sameSender: true,
+      recallTs: 1700000001,
+      retained,
+    },
+  });
+  const projected = messageToTemplate(toMessageWire(wire), direct, user);
+  const content = text(
+    renderToStaticMarkup(
+      createElement(MessageRow, { message: projected, conversation: direct, user }),
+    ),
+  );
+  expect(projected.id).toBe('roaming:protocol:42:10');
+  expect(content).toContain('撤回前原文');
+  expect(content).toContain('撤回了这条消息');
+  expect(content.includes('漫游')).toBe(showsRoaming);
+  const unparsed = messageToTemplate(toMessageWire({ ...wire, elements: [] }), direct, user);
+  expect(unparsed.body.includes('漫游')).toBe(showsRoaming);
+});
 
 describe('撤回灰条的精确身份', () => {
   it.each(['u_self', '10001', 'self:10001'])('自己的 %s 不依赖群成员缓存或昵称', (id) => {
@@ -164,7 +207,7 @@ describe('系统消息共用行', () => {
       vi.unstubAllGlobals();
     }
   });
-  it('灰条时间仅作悬停或聚焦提示，不再接在正文右侧，也不输出 seq', () => {
+  it('灰条保留完整时间提示，不增加独立键盘停靠点或输出 seq', () => {
     const system = {
       ...message,
       qqElements: [
@@ -187,7 +230,7 @@ describe('系统消息共用行', () => {
     expect(line?.querySelector('.weq-graytip')).not.toBeNull();
     expect(line?.querySelector('time')).toBeNull();
     expect(line?.getAttribute('title')).toBe('2026-10-17 07:35:11（北京时间）');
-    expect(line?.getAttribute('tabindex')).toBe('0');
+    expect(line?.getAttribute('tabindex')).toBeNull();
     expect(line?.hasAttribute('data-time-detail')).toBe(false);
     expect(doc.querySelector('.weq-message-seq')).toBeNull();
   });
@@ -205,7 +248,7 @@ describe('系统消息共用行', () => {
         .parseFromString(html, 'text/html')
         .querySelector('.weq-system-message-content');
       expect(line?.hasAttribute('title')).toBe(showDate);
-      expect(line?.getAttribute('tabindex')).toBe(showDate ? '0' : null);
+      expect(line?.getAttribute('tabindex')).toBeNull();
       expect(line?.querySelector('time')).toBeNull();
     }
   });

@@ -13,6 +13,7 @@ import {
   type JsonObject,
 } from './archive';
 import { sourceValue, unixTime, nativeValue } from './archive_value';
+import { qzoneImageCompletionScope } from '../../common/qzone_media_scope';
 import type { GeneratedContentSnapshot } from '../generated_content';
 import { archiveResource } from './archive_resource';
 import { dirname } from 'node:path';
@@ -154,12 +155,18 @@ export async function writeQzoneArchive(
   ): Promise<ArchiveEntry> => {
     const identity = archive.identity('post', authorUin, row.tid);
     const paths = { ...data.mediaPaths, ...row.localMedia };
+    const displayedMedia =
+      qzoneImageCompletionScope(row) === 'repost' ? { images: [], videos: [] } : row;
     const media = await webMedia(
       archive,
       identity,
       [
-        ...row.images.map((url) => ({ url, localPath: paths[url], mediaType: 'image' as const })),
-        ...row.videos.flatMap((video, index) => [
+        ...displayedMedia.images.map((url) => ({
+          url,
+          localPath: paths[url],
+          mediaType: 'image' as const,
+        })),
+        ...displayedMedia.videos.flatMap((video, index) => [
           {
             url: video.videoUrl,
             localPath: paths[video.videoUrl],
@@ -237,6 +244,7 @@ export async function writeQzoneArchive(
           commentNum: null,
           isPrivate: false,
           contentTruncated: original.contentTruncated,
+          localMedia: row.localMedia,
         },
         actor(original.uin, undefined, original.nickname),
         original.uin,

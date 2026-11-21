@@ -5,7 +5,26 @@ import {
   registerAppQuitCleanup,
   registerAppQuitPreparation,
   registerWindowUnloadConfirmation,
+  scheduleApplicationRelaunch,
 } from '../src/main/app_quit_lifecycle';
+
+it('重启等退出清理完成，取消后普通退出不重启，重试只登记一次', () => {
+  const app = Object.assign(new EventEmitter(), { relaunch: vi.fn() });
+  const first = new AbortController();
+  scheduleApplicationRelaunch(app, { args: ['--weq-manual-restart'] }, first.signal);
+  app.emit('will-quit', { defaultPrevented: true });
+  expect(app.relaunch).not.toHaveBeenCalled();
+  first.abort();
+  app.emit('will-quit', { defaultPrevented: false });
+  expect(app.relaunch).not.toHaveBeenCalled();
+
+  const options = { args: ['--weq-manual-restart'] };
+  scheduleApplicationRelaunch(app, options, new AbortController().signal);
+  app.emit('will-quit', { defaultPrevented: false });
+  app.emit('will-quit', { defaultPrevented: false });
+  expect(app.relaunch).toHaveBeenCalledOnce();
+  expect(app.relaunch).toHaveBeenCalledWith(options);
+});
 
 describe('彻底退出的异步清理', () => {
   it('原生更新退出交给安装器，不拦截或改成普通退出', () => {

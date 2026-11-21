@@ -7,6 +7,11 @@ import { notificationEnabled, claimMessageBanner } from '../lib/notificationPoli
 import { useToast } from './Toast.shared';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import { IS_WEB } from '../lib/target.shared';
+
+function mailBannerKey(uin: string, configId: string, id: string): string {
+  return JSON.stringify(['mail', uin, configId, id]);
+}
+
 export function WebNotifications() {
   const enabled = useWebNotices((state) => state.enabled);
   const uin = useViewState((state) => state.openedUin);
@@ -21,15 +26,13 @@ export function WebNotifications() {
         onData: (notice) => {
           if (notice.uin !== useViewState.getState().openedUin || notice.configId !== configId)
             return;
-          const event =
-            notice.kind === 'recall'
-              ? 'recall'
-              : notice.kind === 'keyword'
-                ? 'keyword'
-                : notice.kind === 'mail'
-                  ? 'mail'
-                  : null;
-          if (!event) return;
+          if (notice.kind === 'mail-read') {
+            const { resolve } = useToast.getState();
+            for (const id of notice.mailIds) resolve(mailBannerKey(notice.uin, configId, id));
+            return;
+          }
+          const event = notice.kind;
+          if (event === 'message') return;
           if (
             notificationEnabled(event, 'banner') &&
             (event !== 'keyword' ||
@@ -43,12 +46,26 @@ export function WebNotifications() {
           )
             useToast.getState().push({
               event,
+              key: notice.mail ? mailBannerKey(notice.uin, configId, notice.mail.id) : undefined,
               title: notice.title,
               detail: notice.body,
+              messageReadTarget:
+                event === 'keyword' && notice.target
+                  ? {
+                      binding: {
+                        expectedAccountUin: notice.uin,
+                        expectedAccountConfigId: configId,
+                      },
+                      chatType: notice.target.kind === 'group' ? 2 : 1,
+                      uid: notice.target.conv,
+                      seq: notice.target.seq,
+                    }
+                  : undefined,
               source: notice.mail
                 ? notificationSource(
                     { kind: 'mail', folderId: notice.mail.folderId, mailId: notice.mail.id },
                     '打开这封邮件',
+                    { expectedAccountUin: notice.uin, expectedAccountConfigId: notice.configId },
                   )
                 : notice.target
                   ? notificationSource(

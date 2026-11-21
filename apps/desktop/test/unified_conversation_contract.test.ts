@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { OfficialConversationPane } from '../src/renderer/src/components/OfficialConversationPane';
+import { ReadonlyConversationPane } from '../src/renderer/src/components/ReadonlyConversationPane';
 import { AssistantPanel } from '../src/renderer/src/views/agentlab/AssistantPanel';
 import { applyAssistantStep } from '../src/renderer/src/views/agentlab/assistantTranscript';
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
@@ -15,9 +16,66 @@ import { feedConversationRow } from '../src/renderer/src/lib/conversationDirecto
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { chooseFormOption } from './support/form-controls';
+import { acceptAccountState, bindAccountState } from '../src/renderer/src/lib/clientPreferences';
 
 vi.mock('../src/renderer/src/trpc/client', () => import('./browser/unified-conversation.stub'));
 afterEach(() => vi.unstubAllGlobals());
+
+it('公众号目录仍有未读时，打开会话会提交零序号消息的阅读位置', async () => {
+  vi.stubGlobal('localStorage', new Storage());
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const { user } = createTemplateDemoData();
+  const binding = {
+    expectedAccountUin: user.identityValue,
+    expectedAccountConfigId: 'fixture',
+  };
+  const peerUid = 'u_mail_fixture';
+  const key = `official:${peerUid}`;
+  const position = '0:1794528006:6';
+  const conversation = feedConversationRow(
+    {
+      id: peerUid,
+      name: 'QQ邮箱提醒',
+      sendTime: '1794528006',
+      prompt: null,
+      unreadCount: 1,
+      directoryRead: { key, position },
+    },
+    'official',
+  );
+  if (conversation.type !== 'direct') throw new Error('需要公众号会话');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  requests.length = 0;
+  bindAccountState(binding);
+  acceptAccountState({ revision: 1, values: {}, records: { reads: { [key]: position } } }, binding);
+  try {
+    await act(async () =>
+      root.render(
+        h(
+          ContentSelectionProvider,
+          null,
+          h(ReadonlyConversationPane, {
+            user,
+            conversation,
+            target: { kind: 'official', peerUid },
+            onBack() {},
+          }),
+        ),
+      ),
+    );
+    expect(requests.find((request) => request.name === 'accountPatch')?.input).toMatchObject({
+      ...binding,
+      namespace: 'reads',
+      values: { [key]: { position } },
+    });
+  } finally {
+    await act(async () => root.unmount());
+    bindAccountState(null);
+    host.remove();
+  }
+});
 
 it('助手控制器复用会话页，默认模型设置及会话覆盖独立保存', async () => {
   vi.stubGlobal('localStorage', new Storage());

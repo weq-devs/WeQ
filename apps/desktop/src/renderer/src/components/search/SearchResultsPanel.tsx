@@ -14,6 +14,8 @@ export function SearchResultsPanel({
   user,
   groupMembers,
   resolveGroupMembers,
+  accountBinding,
+  activeRecordFilter,
   renderDetail,
   ...props
 }: Omit<ComponentProps<typeof SearchDropdown>, 'onMore' | 'onNavigate' | 'initialPosition'> & {
@@ -23,6 +25,8 @@ export function SearchResultsPanel({
   user?: ComponentProps<typeof ChatRecordsModal>['user'];
   groupMembers?: ComponentProps<typeof ChatRecordsModal>['groupMembers'];
   resolveGroupMembers?: ComponentProps<typeof ChatRecordsModal>['resolveGroupMembers'];
+  accountBinding?: ComponentProps<typeof ChatRecordsModal>['accountBinding'];
+  activeRecordFilter?: ComponentProps<typeof ChatRecordsModal>['globalRecordFilter'];
   renderDetail: (hit: SearchHit, onBack: () => void) => ReactNode;
 }) {
   const select = (hit: SearchHit) => {
@@ -76,6 +80,8 @@ export function SearchResultsPanel({
                 initialHit={hit}
                 initialKeyword={props.keyword}
                 embeddedKeyword={props.keyword}
+                globalRecordFilter={activeRecordFilter}
+                accountBinding={accountBinding}
                 onClose={navigation.backDetail}
                 onJumpMessage={onJumpMessage}
                 renderers={renderers}
@@ -98,6 +104,8 @@ export function SearchResultsPanel({
         category={navigation.category}
         keyword={props.keyword}
         sources={props.sources}
+        recordFilter={activeRecordFilter}
+        accountBinding={accountBinding}
         initialSnapshot={navigation.moreSnapshot}
         onSnapshot={navigation.rememberMore}
         onNavigate={navigation.rememberMore}

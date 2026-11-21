@@ -4,7 +4,7 @@
  * 三个读法各自服务一处 UI / 逻辑：
  *   • listRecalls          → 某个会话的撤回列表（撤回列表面板）
  *   • recallSummaries      → 有撤回记录的会话目录（「更多 → 防撤回 → 记录」页）
- *   • latestRecallCursor / listRecallsAfter → 撤回通知监听器的增量游标
+ *   • latestRecallBaseline / listRecallsSince → 撤回通知监听器的增量游标
  *
  * 最要紧的行为是**表还没建**（用户从没开过防撤回）时必须优雅返回空，而不是抛
  * "no such table" —— 触发器第一次安装时才会建表。这里用 testkit 的 sqlite stub
@@ -109,8 +109,8 @@ describe('AntiRecallDb recall log (offline fixture)', () => {
 
     expect(await db.listRecalls('group', '777')).toEqual([]);
     expect(await db.recallSummaries()).toEqual([]);
-    expect(await db.latestRecallCursor()).toBe(0n);
-    expect(await db.listRecallsAfter(0n)).toEqual([]);
+    expect(await db.latestRecallBaseline()).toEqual({ recallTs: 0, seen: new Set() });
+    expect(await db.listRecallsSince({ recallTs: 0 })).toEqual([]);
   });
 
   it('listRecalls 按会话 + 表过滤，最新撤回在前', async () => {
@@ -159,23 +159,21 @@ describe('AntiRecallDb recall log (offline fixture)', () => {
     ]);
   });
 
-  it('latestRecallCursor + listRecallsAfter 按 msgid 增量推进（通知监听用）', async () => {
+  it('按撤回时间分页，后撤回的原消息 ID 可以更小', async () => {
     createFixture(true);
     insertRow(10, 'group', '777', 1700000010);
     insertRow(20, 'c2c', 'u_peer', 1700000020);
 
-    expect(await db.latestRecallCursor()).toBe(20n);
-    // 基线之后的才是「本次运行新出现的撤回」—— 基线本身不该被重放。
-    expect(await db.listRecallsAfter(20n)).toEqual([]);
-
-    insertRow(30, 'group', '777', 1700000030);
-    const fresh = await db.listRecallsAfter(20n);
-    expect(fresh.map((r) => r.msgid)).toEqual(['30']);
-
-    // 分页上限生效，且老的在前（游标只往后走）。
-    insertRow(40, 'group', '777', 1700000040);
-    expect((await db.listRecallsAfter(20n, 1)).map((r) => r.msgid)).toEqual(['30']);
-    expect((await db.listRecallsAfter(30n)).map((r) => r.msgid)).toEqual(['40']);
+    const baseline = await db.latestRecallBaseline();
+    expect(baseline).toEqual({ recallTs: 1700000020, seen: new Set(['20']) });
+    insertRow(5, 'group', '777', 1700000020);
+    insertRow(1, 'group', '777', 1700000030);
+    expect(
+      (await db.listRecallsSince({ recallTs: baseline.recallTs }, 1)).map((r) => r.msgid),
+    ).toEqual(['5']);
+    expect(
+      (await db.listRecallsSince({ recallTs: 1700000020, msgId: 5n })).map((r) => r.msgid),
+    ).toEqual(['20', '1']);
   });
 
   it('msgid 超过 2^53 时游标保持精确，同一行不会被反复命中（重复弹通知回归）', async () => {
@@ -187,15 +185,15 @@ describe('AntiRecallDb recall log (offline fixture)', () => {
     expect(big > BigInt(Number.MAX_SAFE_INTEGER)).toBe(true);
     insertRow(big, 'c2c', 'u_LKt3AdAIMP-CUfn6ydzDzw', 1700000500);
 
-    expect(await db.latestRecallCursor()).toBe(big);
-    // 基线（= 该行本身）之后没有新记录：绝不能把这一行当成「新撤回」重放。
-    expect(await db.listRecallsAfter(big)).toEqual([]);
-    expect(await db.listRecallsAfter(await db.latestRecallCursor())).toEqual([]);
-
-    // 再插一条更大的，游标推进到它之后，老的仍不会重放。
-    const bigger = big + 1000n;
-    insertRow(bigger, 'c2c', 'u_LKt3AdAIMP-CUfn6ydzDzw', 1700000600);
-    expect((await db.listRecallsAfter(big)).map((r) => r.msgid)).toEqual([bigger.toString()]);
-    expect(await db.listRecallsAfter(bigger)).toEqual([]);
+    expect(await db.latestRecallBaseline()).toEqual({
+      recallTs: 1700000500,
+      seen: new Set([String(big)]),
+    });
+    const bigger = big + 1n;
+    insertRow(bigger, 'c2c', 'u_LKt3AdAIMP-CUfn6ydzDzw', 1700000500);
+    expect(
+      (await db.listRecallsSince({ recallTs: 1700000500, msgId: big })).map((r) => r.msgid),
+    ).toEqual([String(bigger)]);
+    expect(await db.listRecallsSince({ recallTs: 1700000500, msgId: bigger })).toEqual([]);
   });
 });

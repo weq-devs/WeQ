@@ -29,6 +29,7 @@ export const NAVIGATION_FEATURES = {
   mail: defineFeature('mail.inbox', 'mail', 'QQ 邮箱', ['邮件'], {
     context: ['account'],
     navigation: 'search',
+    tools: ['list_mail_folders', 'list_mail_messages'],
   }),
   channel: defineFeature('channels.inbox', 'channels', 'QQ 频道', ['频道']),
   'guild-direct': defineFeature('channels.direct-messages', 'channels', '频道私聊', [], {

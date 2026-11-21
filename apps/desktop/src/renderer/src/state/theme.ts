@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { preferenceDefaults } from '@weq/service/client-preferences';
 import { changePreference, preferenceValue, PREFERENCES_CHANGED } from '../lib/clientPreferences';
 import { accentColors, normalizeHex } from '../../../shared/theme_colors';
 import '../styles/component-appearance.css';
@@ -10,7 +11,7 @@ export type ThemePreference = 'system' | 'light' | 'dark';
 export type ThemeResolved = 'light' | 'dark';
 export type ThemeBackground = 'plain' | 'paper' | 'grid' | 'dots' | 'wash' | 'telegram';
 export const componentStyles = [
-  { value: 'qqnt', label: 'QQ NT（默认）' },
+  { value: 'qqnt', label: 'QQ NT' },
   { value: 'classic', label: '简约' },
   { value: 'retro', label: '立体' },
 ] as const;
@@ -22,6 +23,7 @@ export const DEFAULT_THEME_SETTINGS = {
   background: 'plain',
   componentStyle: 'qqnt',
   density: 'comfortable',
+  specialNumberFont: preferenceDefaults.specialNumberFont,
 } as const;
 
 const storageKeys = {
@@ -40,12 +42,14 @@ type ThemeState = {
   background: ThemeBackground;
   componentStyle: ThemeComponentStyle;
   density: ThemeDensity;
+  specialNumberFont: boolean;
   initialized: boolean;
   setPreference: (preference: ThemePreference) => void;
   setAccent: (accent: string) => void;
   setBackground: (background: ThemeBackground) => void;
   setComponentStyle: (componentStyle: ThemeComponentStyle) => void;
   setDensity: (density: ThemeDensity) => void;
+  setSpecialNumberFont: (enabled: boolean) => void;
   syncResolved: () => void;
   hydrate: () => void;
 };
@@ -186,6 +190,10 @@ function persist(key: string, value: string) {
   } catch {}
 }
 
+function applySpecialNumberFont(enabled: boolean) {
+  document.documentElement.dataset.specialNumberFont = enabled ? 'on' : 'off';
+}
+
 /* ── 深浅模式切换的「扩散」动画 ────────────────────────────────────────
  * 用 View Transitions API 把切主题的那一帧冻结成新旧两张快照，再让新快照以
  * 点击点为圆心做圆形 clip-path 铺开（CSS 见 styles/index.css）。Chromium
@@ -310,6 +318,11 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     set({ density, initialized: true });
     void changePreference('density', density);
   },
+  setSpecialNumberFont: (specialNumberFont) => {
+    applySpecialNumberFont(specialNumberFont);
+    set({ specialNumberFont });
+    void changePreference('specialNumberFont', specialNumberFont);
+  },
   syncResolved: () => {
     const { preference, accent, background, componentStyle, density } = get();
     const resolved = resolvePreference(preference);
@@ -323,7 +336,9 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     const background = readBackground();
     const componentStyle = readComponentStyle();
     const density = readDensity();
+    const specialNumberFont = preferenceValue('specialNumberFont');
     applyTheme({ preference, accent, background, componentStyle, density });
+    applySpecialNumberFont(specialNumberFont);
     persist(storageKeys.preference, preference);
     persist(storageKeys.accent, accent);
     persist(storageKeys.background, background);
@@ -336,6 +351,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       background,
       componentStyle,
       density,
+      specialNumberFont,
       initialized: true,
     });
   },

@@ -388,6 +388,9 @@ export interface ExportTask {
   networkOverride?: boolean;
   /** 自动调度等后台任务保留记录，但不在创建时展开任务列表。 */
   autoOpenTaskList?: boolean;
+  /** 由保存原页展示，直到交给统一任务列表。 */
+  foreground?: boolean;
+  foregroundBrowserOutput?: boolean;
   content?: ExportContentPolicy;
   completeAvatar?: boolean;
   resourceArchive?: ArchiveOptions;
@@ -889,6 +892,14 @@ export class ExportTaskManager extends EventEmitter {
           t.status = 'failed';
           t.error = '上次资源处理已中断，原来源无法重新定位，请回到发起处重新选择。';
         }
+        // 进程退出后没有原页接管未结束的保存。
+        if (
+          t.foreground &&
+          (t.status === 'paused' ||
+            t.status === 'failed' ||
+            (t.status === 'completed' && (t.save?.status !== 'saved' || t.foregroundBrowserOutput)))
+        )
+          t.foreground = false;
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
         if (t.save?.status === 'saving') {
           t.save.status = 'interrupted';
@@ -1295,8 +1306,9 @@ export class ExportTaskManager extends EventEmitter {
     return saving;
   }
 
-  listTasks(): ExportTaskView[] {
+  listTasks(visibleOnly = false): ExportTaskView[] {
     return [...this.tasks.values()]
+      .filter((task) => !visibleOnly || !task.foreground)
       .sort((a, b) => b.createdAt - a.createdAt)
       .map((task): ExportTaskView => {
         const canResume = this.canResume(task);
@@ -1359,6 +1371,40 @@ export class ExportTaskManager extends EventEmitter {
 
   getTask(id: string): ExportTask | null {
     return this.tasks.get(id) ?? null;
+  }
+
+  backgroundResourceTask(id: string, unfinishedOnly = false): boolean {
+    const task = this.tasks.get(id);
+    if (!task?.resource || !task.foreground) return false;
+    if (
+      unfinishedOnly &&
+      (task.status === 'cancelled' ||
+        (task.status === 'completed' && task.save?.status === 'saved'))
+    )
+      return false;
+    const updatedAt = task.updatedAt;
+    task.foreground = false;
+    task.updatedAt = Date.now();
+    if (!this.saveTasks()) {
+      task.foreground = true;
+      task.updatedAt = updatedAt;
+      throw new Error('无法保存后台任务记录，请重试。');
+    }
+    this.emit('progress', {
+      taskId: id,
+      status: task.status,
+      progress: task.progress,
+      current: task.current,
+      message: '已交给后台',
+    });
+    return true;
+  }
+
+  browserOutputTaken(id: string) {
+    const task = this.tasks.get(id);
+    if (!task?.foregroundBrowserOutput) return;
+    task.foregroundBrowserOutput = false;
+    if (!this.saveTasks()) task.foregroundBrowserOutput = true;
   }
 
   subscribeResourceTransfers(listener: () => void): () => void {
@@ -1959,9 +2005,13 @@ export class ExportTaskManager extends EventEmitter {
     archive?: ArchiveOptions;
     name: string;
     includeIntegrityReport?: boolean;
+    foreground?: boolean;
+    foregroundBrowserOutput?: boolean;
     kind: NonNullable<ExportTask['resource']>['kind'];
     savePolicy?: ExportSavePolicy;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
+    /** 先选目录，待资源生成后用实际文件名与扩展名保存。 */
+    fileNameFromResult?: boolean;
     sourceKey?: string;
     transferTarget?: string | readonly string[];
     run(context: ResourceExportRunContext): Promise<ResourceExportSummary>;
@@ -1971,6 +2021,8 @@ export class ExportTaskManager extends EventEmitter {
     if (opts.resume && resourceResumeKind(opts.resume) !== opts.kind)
       throw new Error('资源续作类型与导出任务不匹配。');
     const output = opts.output ? structuredClone(opts.output) : undefined;
+    if (opts.fileNameFromResult && (!output || opts.savePolicy?.filePath))
+      throw new Error('自动识别文件格式的下载需要先选择文件夹。');
     if (
       opts.archive?.formats?.length === 0 &&
       Object.values(opts.archive.extra ?? {}).some(Boolean)
@@ -2012,6 +2064,8 @@ export class ExportTaskManager extends EventEmitter {
           : {}),
       },
       includeIntegrityReport: opts.includeIntegrityReport,
+      ...(opts.foreground ? { foreground: true, autoOpenTaskList: false } : {}),
+      ...(opts.foreground && opts.foregroundBrowserOutput ? { foregroundBrowserOutput: true } : {}),
       status: 'pending',
       progress: 0,
       current: 0,
@@ -2046,7 +2100,9 @@ export class ExportTaskManager extends EventEmitter {
     if (tracksResourceTransfer(task)) this.beginResourceTransfer(task);
     this.saveTasks();
     const run = opts.run;
-    this.networkRunners.set(id, () => this.runResourceTask(task, run, opts.onPublished));
+    this.networkRunners.set(id, () =>
+      this.runResourceTask(task, run, opts.onPublished, opts.fileNameFromResult),
+    );
     this.enqueue(this.networkRunners.get(id)!, id);
     return id;
   }
@@ -2055,6 +2111,7 @@ export class ExportTaskManager extends EventEmitter {
     task: ExportTask,
     run: (context: ResourceExportRunContext) => Promise<ResourceExportSummary>,
     onPublished?: (directory: string) => void,
+    fileNameFromResult = false,
   ): Promise<void> {
     if (this.deferForNetwork(task.id)) return;
     if (this.tasks.get(task.id) !== task || task.status !== 'pending') return;
@@ -2151,6 +2208,18 @@ export class ExportTaskManager extends EventEmitter {
           !lstatSync(join(directory, summary.fileName)).isFile()
         )
           throw new Error('单文件资源缺失或包含额外产物，未发布结果。');
+        if (fileNameFromResult) {
+          const actual = this.getOutputShape({
+            kind: 'file',
+            name: task.name,
+            fileName: summary.fileName,
+          });
+          if (actual.kind !== 'file') throw new Error('资源输出形态无效。');
+          const policy = task.save?.policy;
+          if (policy?.uniqueFileName && policy.filePath)
+            policy.filePath = join(dirname(policy.filePath), exportOutputFileName(actual));
+          task.resource!.output = actual;
+        }
       } else if (
         task.resource?.kind !== 'mail-messages' &&
         task.resourceArchive?.formats?.length !== 0
@@ -3786,7 +3855,9 @@ export class ExportTaskManager extends EventEmitter {
             async (ref, text) => {
               // Cache the result on the element (wire tag 45923) so this clip is
               // skipped on any later export — and shows up in chat right away.
-              await this.msgsFor(task).setPttTranscript(BigInt(ref.msgId), ref.fileName, text);
+              await this.msgsFor(task).setPttTranscript(BigInt(ref.msgId), ref.fileName, text, {
+                ifEmpty: true,
+              });
             },
             (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
             useOnline ? onlineTranscribe : undefined,

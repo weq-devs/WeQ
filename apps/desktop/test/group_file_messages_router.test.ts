@@ -2,10 +2,16 @@
 import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
-const rpc = vi.hoisted(() => ({ uin: '10001', configId: 'source-a', read: vi.fn() }));
+const rpc = vi.hoisted(() => ({
+  uin: '10001',
+  configId: 'source-a',
+  read: vi.fn(),
+  original: vi.fn(),
+}));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
     accountConfig: { getRecord: () => ({ configId: rpc.configId }) },
+    groupFile: { originalFileId: rpc.original },
   };
   const account = {
     context: {
@@ -35,6 +41,7 @@ beforeEach(() => {
   rpc.uin = '10001';
   rpc.configId = 'source-a';
   rpc.read.mockResolvedValue({ messages: [], nextBefore: null });
+  rpc.original.mockReturnValue(undefined);
 });
 it('离线查询保留大整数 ID，游标不经 number，按群和文件 ID 查询', async () => {
   const before = { msgId: '9007199254740999', msgSeq: '9007199254740998', sendTime: '1794380000' };
@@ -55,11 +62,23 @@ it('离线查询保留大整数 ID，游标不经 number，按群和文件 ID �
   });
   const result = await accountRouter.createCaller({}).findGroupFileMessages({ ...input, before });
   expect(result).toEqual({ messages: [{ ...before, senderUid: 'u_fixture' }], nextBefore: before });
-  expect(rpc.read).toHaveBeenCalledWith('777', 'file', {
-    msgId: BigInt(before.msgId),
-    msgSeq: BigInt(before.msgSeq),
-    sendTime: BigInt(before.sendTime),
-  });
+  expect(rpc.read).toHaveBeenCalledWith(
+    '777',
+    'file',
+    {
+      msgId: BigInt(before.msgId),
+      msgSeq: BigInt(before.msgSeq),
+      sendTime: BigInt(before.sendTime),
+    },
+    undefined,
+  );
+});
+
+it('将当前群已确认的转存来源交给本地消息查询', async () => {
+  rpc.original.mockReturnValue('temporary');
+  await accountRouter.createCaller({}).findGroupFileMessages(input);
+  expect(rpc.original).toHaveBeenCalledWith('777', 'file');
+  expect(rpc.read).toHaveBeenCalledWith('777', 'file', undefined, 'temporary');
 });
 it('拒绝无来源、旧账号、旧数据源及非法查询，不读库', async () => {
   const api = accountRouter.createCaller({});

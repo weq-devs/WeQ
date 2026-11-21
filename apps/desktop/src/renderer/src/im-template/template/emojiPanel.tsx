@@ -98,7 +98,6 @@ export function EmojiPanel({
   onSendRandom,
   onInsertCustomEmoji,
   textOnly = false,
-  onOpenOnlineCatalog,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
   /** 普通表情：插进输入框，可以和文字合成一条消息。 */
@@ -114,7 +113,6 @@ export function EmojiPanel({
   onInsertCustomEmoji?: (file: File) => void;
   /** 纯文本会话不展示必须携带 QQ 媒体元素的表情来源。 */
   textOnly?: boolean;
-  onOpenOnlineCatalog?: () => void;
 }) {
   const [selectedTab, setSelectedTab] = useState(() => lastSelectedTab);
   const [bounceFace, setBounceFace] = useState<EmojiItem | null>(null);
@@ -189,11 +187,6 @@ export function EmojiPanel({
         </h3>
         {!bouncing && tab === 'face' && openBounce ? (
           <span className="emoji-heading-note">弹射：右键 / 长按</span>
-        ) : null}
-        {!bouncing && tab === 'face' && onOpenOnlineCatalog ? (
-          <button type="button" className="weq-set-btn" onClick={onOpenOnlineCatalog}>
-            在线目录
-          </button>
         ) : null}
         {tab === 'fav' ? (
           <FavoriteBundleControls

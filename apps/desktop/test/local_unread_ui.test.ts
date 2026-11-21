@@ -13,6 +13,7 @@ it('设备未读目标不归一成好友，兼容普通与临时私聊', () => {
 it('跳转使用服务端未读数，不以序号差猜测，缺水位不伪造起点', () => {
   expect(buildUnreadDock({ readSeq: '5000', unread: 2, highlights: [] })).toEqual({
     stops: [{ kind: 'unread', seq: '5001' }],
+    firstUnreadSeq: '5001',
   });
   expect(buildUnreadDock({ readSeq: null, unread: 2, highlights: [] })).toBeNull();
 });
@@ -23,6 +24,9 @@ it('排除已读的重要消息，首条未读本身是重要消息时只保留�
   expect(buildUnreadDock({ readSeq: '4998', unread: 1, highlights: [atMe] })?.stops).toEqual([
     { kind: 'atMe', seq: '4999', identity: { senderUid: 'u_fixture' } },
   ]);
+  expect(buildUnreadDock({ readSeq: '4998', unread: 1, highlights: [atMe] })?.firstUnreadSeq).toBe(
+    '4999',
+  );
   expect(buildUnreadDock({ readSeq: null, unread: 0, highlights: [atMe] })?.stops).toEqual([
     { kind: 'atMe', seq: '4999', identity: { senderUid: 'u_fixture' } },
   ]);

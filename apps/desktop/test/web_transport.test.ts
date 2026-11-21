@@ -123,3 +123,44 @@ it('传输层通过实际连接回调报告恢复，并限制 HTTP 批次 URL �
   ).resolves.toBe('WebSocket');
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
+
+it('Remote 完整群目录和聚合批次挂起时，摘要、未读和小查询先完成', async () => {
+  const slow = ['account.listAllGroups', 'account.listHiddenSessions'];
+  const fast = [
+    'account.getUnreadInfos',
+    'account.listRecentContacts',
+    'account.listAssistantSessions',
+    'account.getProfilesByUids',
+    'backgroundTasks.list',
+  ];
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Set<string>();
+  const completed = new Set<string>();
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), location.origin);
+    const paths = url.pathname.slice('/trpc/'.length).split(',');
+    for (const path of paths) started.add(path);
+    if (paths.some((path) => slow.includes(path))) await held;
+    const data = paths.map((path) => ({ result: { data: path } }));
+    return new Response(JSON.stringify(url.searchParams.has('batch') ? data : data[0]));
+  });
+  const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const client = createTRPCUntypedClient({ links: createLinks() });
+  const requests = [...slow, ...fast].map(async (path) => {
+    const result = await client.query(path);
+    completed.add(result as string);
+  });
+  try {
+    await vi.waitFor(() => {
+      expect(slow.every((path) => started.has(path))).toBe(true);
+      expect(completed).toEqual(new Set(fast));
+    });
+  } finally {
+    release();
+    await Promise.all(requests);
+  }
+  expect(completed).toEqual(new Set([...slow, ...fast]));
+});

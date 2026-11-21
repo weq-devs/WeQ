@@ -74,9 +74,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('通知卡片操作匹配', () => {
-  it('没有对应会话的群通知仍可显示，使用通知自带的群名和秒级时间', () => {
+  it.each([
+    [1794326407, '2026-11-10T16:00:07.000Z', '2026-11-11 00:00:07'],
+    [1794843040123, '2026-11-16T15:30:40.123Z', '2026-11-16 23:30:40'],
+  ])('群通知没有对应会话时仍显示自带的群名和时间（%s）', (msgTime, iso, displayTime) => {
     const record = {
-      msgTime: 1794326407,
+      msgTime,
       status: 11,
       verifyStatus: 3,
       groupUin: '123',
@@ -92,11 +95,13 @@ describe('通知卡片操作匹配', () => {
       systemRemark: '',
       sourceTable: 'group_notify_list' as const,
     };
-    expect(groupNotifyToGroupRequest(record, new Map(), new Map())).toMatchObject({
-      id: groupNoticeId(record),
-      createdAt: '2026-11-10T16:00:07.000Z',
+    const request = groupNotifyToGroupRequest(record, new Map(), new Map());
+    expect(request).toMatchObject({
+      id: `group-notify:123:u_peer:${msgTime}`,
+      createdAt: iso,
       group: { id: '123', name: '测试群' },
     });
+    expect(formatNoticeTimestamp(request!.createdAt)).toBe(displayTime);
     expect(
       groupNotifyToGroupRequest({ ...record, groupUin: '0' }, new Map(), new Map()),
     ).toBeNull();

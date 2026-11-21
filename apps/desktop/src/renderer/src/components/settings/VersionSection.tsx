@@ -13,7 +13,7 @@ import * as timeFormat from '@weq/time';
  */
 
 import { useState, type ReactElement } from 'react';
-import { Boxes, Info, RefreshCw } from 'lucide-react';
+import { BellDot, Boxes, Info, RefreshCw } from 'lucide-react';
 import { NumericText } from '../NumericText';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
@@ -148,7 +148,7 @@ export function VersionSection(): ReactElement {
       <DesktopOnly>
         <UpdateCard />
       </DesktopOnly>
-      <Card title="更新标记">
+      <Card title="更新标记" icon={<BellDot size={15} strokeWidth={1.8} />}>
         <EntryBadgeRows kind="updates" />
       </Card>
     </div>

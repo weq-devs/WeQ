@@ -45,7 +45,8 @@ export interface GroupNotifyGroupInfo {
 }
 
 export interface GroupNotify {
-  msgTime: number; // ms
+  /** 61001 去掉末三位。原列有毫秒和微秒两种精度，此值也用于已有的通知标识。 */
+  msgTime: number;
   status: GroupNotifyStatus;
   verifyStatus: GroupNotifyVerifyStatus;
   groupInfo?: GroupNotifyGroupInfo;
@@ -160,7 +161,7 @@ function rowToNotify(
   }
 
   return {
-    msgTime: Number(toBigint(row[0]) / 1000n), // 用户说删除末三位，即除以1000
+    msgTime: Number(toBigint(row[0]) / 1000n),
     status: Number(row[1] ?? 0) as GroupNotifyStatus,
     verifyStatus: Number(row[2] ?? 0) as GroupNotifyVerifyStatus,
     groupInfo,

@@ -860,6 +860,7 @@ function AppearanceSection({
   const setRenderTextMarkdown = trpc.bootstrap.setRenderTextMarkdown.useMutation();
   const setLinkPreview = trpc.bootstrap.setLinkPreview.useMutation();
   const setReadFromFirstUnread = trpc.bootstrap.setReadFromFirstUnread.useMutation();
+  const setPreserveUnreadUntilRead = trpc.bootstrap.setPreserveUnreadUntilRead.useMutation();
   const setAutoFollowLatestMessages = trpc.bootstrap.setAutoFollowLatestMessages.useMutation();
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
   const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
@@ -1069,6 +1070,13 @@ function AppearanceSection({
                   mutation: setReadFromFirstUnread,
                 },
                 {
+                  key: 'preserveUnreadUntilRead' as const,
+                  settingId: 'preserve-unread-until-read',
+                  label: '保留尚未读到的消息的未读计数',
+                  fallback: true,
+                  mutation: setPreserveUnreadUntilRead,
+                },
+                {
                   key: 'autoFollowLatestMessages' as const,
                   settingId: 'auto-follow-latest-messages',
                   label: '自动跟随最新消息',
@@ -1098,27 +1106,40 @@ function AppearanceSection({
                 },
               ]
                 .filter(({ key }) => (key === 'sendWithQqFont') === (category === 'sending'))
+                .filter(
+                  ({ key }) =>
+                    key !== 'preserveUnreadUntilRead' || settings.data?.readFromFirstUnread,
+                )
                 .map(({ key, settingId, label, fallback, mutation }) => (
                   <Row
                     key={key}
                     settingId={settingId}
                     label={label}
+                    indent={key === 'preserveUnreadUntilRead'}
                     control={
-                      <Toggle
-                        checked={settings.data?.[key] ?? fallback}
-                        disabled={!settings.data || mutation.isLoading}
-                        onChange={(enabled) => {
-                          setReadingError(null);
-                          mutation.mutate(
-                            { enabled },
-                            {
-                              onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                              onError: (error) => setReadingError(error.message),
-                            },
-                          );
-                        }}
-                        label={label}
-                      />
+                      <span
+                        data-setting-fallback={
+                          key === 'readFromFirstUnread' && !settings.data?.readFromFirstUnread
+                            ? 'preserve-unread-until-read'
+                            : undefined
+                        }
+                      >
+                        <Toggle
+                          checked={settings.data?.[key] ?? fallback}
+                          disabled={!settings.data || mutation.isLoading}
+                          onChange={(enabled) => {
+                            setReadingError(null);
+                            mutation.mutate(
+                              { enabled },
+                              {
+                                onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                                onError: (error) => setReadingError(error.message),
+                              },
+                            );
+                          }}
+                          label={label}
+                        />
+                      </span>
                     }
                   />
                 ))}

@@ -183,6 +183,7 @@ export function migrateDressData(
     config.fontMeta = fontMeta;
     // 旧清单不能区分自动启用与手动选择，仅迁移资源，不恢复消息覆盖。
     config.scope = manifest.scope;
+    delete config.scopes;
     config.background = manifest.background;
     config.widgetId = manifest.widgetId;
     config.backgroundOpacity = manifest.backgroundOpacity;

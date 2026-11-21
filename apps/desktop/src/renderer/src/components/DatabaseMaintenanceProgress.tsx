@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -92,6 +92,31 @@ function label(step: DatabaseStepProgress, cancelled: boolean): string {
   return `${percent === undefined ? '处理中' : `${percent.toFixed(1)}%`}${step.outcome === 'abnormal' ? ' · 异常' : ''}`;
 }
 
+function groupIntegritySteps(steps: DatabaseStepProgress[]) {
+  const standalone: DatabaseStepProgress[] = [];
+  const groups = new Map<string, { title: string; steps: DatabaseStepProgress[] }>();
+  for (const step of steps) {
+    const isIndex = step.step.startsWith('integrity-index-');
+    const tableName = isIndex
+      ? step.tableName
+      : step.step.startsWith('integrity-records-')
+        ? step.objectName
+        : undefined;
+    if (!tableName && !isIndex) {
+      standalone.push(step);
+      continue;
+    }
+    const key = tableName ? `table:${tableName}` : 'indexes';
+    let group = groups.get(key);
+    if (!group) {
+      group = { title: tableName ?? '索引核对', steps: [] };
+      groups.set(key, group);
+    }
+    group.steps.push(step);
+  }
+  return { standalone, groups: [...groups].reverse() };
+}
+
 export function DatabaseMaintenanceProgress({
   progress,
   batch,
@@ -100,6 +125,7 @@ export function DatabaseMaintenanceProgress({
   showBatch = true,
   showBatchError = true,
   showMaintained = true,
+  actions,
 }: {
   progress: DatabaseTaskProgress;
   batch?: DatabaseMaintenanceOperation & { locked: boolean };
@@ -111,6 +137,7 @@ export function DatabaseMaintenanceProgress({
   showBatchError?: boolean;
   /** 维护锁提示由外层状态卡表达时关闭。 */
   showMaintained?: boolean;
+  actions?: ReactNode;
 }) {
   const [now, setNow] = useState(Date.now);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -142,6 +169,63 @@ export function DatabaseMaintenanceProgress({
       step.objectName ||
       step.completed !== undefined,
   );
+  const currentStep = visibleSteps.at(-1);
+  const renderStep = (step: DatabaseStepProgress, sharedHeading: boolean, grouped = false) => {
+    const isCurrent = step === currentStep;
+    const executing = isCurrent && running && step.status === 'running';
+    const percent = databaseStepPercent(step);
+    const count = countText(step);
+    const rate =
+      executing &&
+      now - step.updatedAt < 5000 &&
+      step.rate &&
+      ['pages', 'bytes'].includes(step.unit ?? '')
+        ? `${step.unit === 'bytes' ? formatBytesOrUnknown(step.rate) : `${Math.round(step.rate).toLocaleString('zh-CN')} 页`}/秒`
+        : undefined;
+    const state =
+      connectionError && executing ? '连接中断' : label(step, progress.status === 'cancelled');
+    return (
+      <div
+        key={`${step.phase}:${step.step}:${step.startedAt}`}
+        className={`weq-db-progress-entry is-${step.status ?? 'running'}${step.outcome ? ` is-${step.outcome}` : ''}`}
+        aria-current={executing ? 'step' : undefined}
+      >
+        <div className="weq-db-progress-entry-body">
+          {!sharedHeading ? (
+            <div className="weq-db-progress-step">
+              <span role={executing ? 'status' : undefined}>{step.message}</span>
+              <strong>{state}</strong>
+            </div>
+          ) : null}
+          {step.objectName && !(grouped && step.step.startsWith('integrity-records-')) ? (
+            <p className="weq-db-progress-object">{step.objectName}</p>
+          ) : null}
+          {step.detail ? <p className="weq-db-progress-detail">{step.detail}</p> : null}
+          {isCurrent && (executing || percent !== undefined) ? (
+            <TaskProgressBar
+              value={percent}
+              status={connectionError ? 'paused' : progress.status}
+              label="当前步骤进度"
+              valueText={count ?? state}
+            />
+          ) : null}
+          {count || step.badPages !== undefined || step.zeroPages || rate ? (
+            <div className="weq-db-progress-readouts">
+              {count ? <span>{count}</span> : null}
+              {step.badPages !== undefined ? (
+                <span>已发现 {step.badPages.toLocaleString('zh-CN')} 个坏页</span>
+              ) : null}
+              {step.zeroPages ? (
+                <span>{step.zeroPages.toLocaleString('zh-CN')} 个全零页</span>
+              ) : null}
+              {rate ? <span>当前速度 {rate}</span> : null}
+            </div>
+          ) : null}
+          {step.status === 'skipped' && !step.detail ? <Minus size={12} aria-hidden /> : null}
+        </div>
+      </div>
+    );
+  };
   const basePlan = stages[progress.kind];
   const plan = progress.steps.some((step) => step.step === 'mapping')
     ? [...basePlan.slice(0, 2), ['mapping', '归属分析'] as const, ...basePlan.slice(2)]
@@ -168,6 +252,7 @@ export function DatabaseMaintenanceProgress({
           </span>
         </div>
       ) : null}
+      {actions}
       {abnormal ? <p className="weq-db-progress-warning">异常步骤 {abnormal}</p> : null}
       {showBatchError && batch?.error ? (
         <p className="weq-db-progress-warning" role="alert">
@@ -181,10 +266,12 @@ export function DatabaseMaintenanceProgress({
         {plan.map(([key, title], index) => {
           const steps = visibleSteps.filter((step) => stageKey(step, progress.kind) === key);
           if (!steps.length && (!running || index <= currentIndex)) return null;
+          const { standalone, groups } =
+            key === 'integrity' ? groupIntegritySteps(steps) : { standalone: steps, groups: [] };
           const active = running && currentKey === key;
           const needsAttention = steps.some(attention);
           const pending = !steps.length;
-          const sharedHeading = steps.length === 1;
+          const sharedHeading = steps.length === 1 && groups.length === 0;
           const open = active || needsAttention || (expanded[key] ?? false);
           const Icon = active ? Loader2 : needsAttention ? AlertTriangle : pending ? Circle : Check;
           return (
@@ -234,66 +321,26 @@ export function DatabaseMaintenanceProgress({
                     <ChevronRight className="weq-db-progress-chevron" size={14} aria-hidden />
                   ) : null}
                 </summary>
-                {steps.map((step) => {
-                  const isCurrent = step === visibleSteps.at(-1);
-                  const executing = isCurrent && running && step.status === 'running';
-                  const percent = databaseStepPercent(step);
-                  const count = countText(step);
-                  const rate =
-                    executing &&
-                    now - step.updatedAt < 5000 &&
-                    step.rate &&
-                    ['pages', 'bytes'].includes(step.unit ?? '')
-                      ? `${step.unit === 'bytes' ? formatBytesOrUnknown(step.rate) : `${Math.round(step.rate).toLocaleString('zh-CN')} 页`}/秒`
-                      : undefined;
-                  const state =
-                    connectionError && executing
-                      ? '连接中断'
-                      : label(step, progress.status === 'cancelled');
+                {standalone.map((step) => renderStep(step, sharedHeading))}
+                {groups.map(([groupKey, group]) => {
+                  const active =
+                    running &&
+                    currentStep?.status === 'running' &&
+                    group.steps.includes(currentStep);
+                  const needsAttention = group.steps.some(attention);
                   return (
-                    <div
-                      key={`${step.phase}:${step.step}:${step.startedAt}`}
-                      className={`weq-db-progress-entry is-${step.status ?? 'running'}${step.outcome ? ` is-${step.outcome}` : ''}`}
-                      aria-current={executing ? 'step' : undefined}
+                    <details
+                      key={groupKey}
+                      className="weq-db-progress-table"
+                      open={active || needsAttention || undefined}
                     >
-                      <div className="weq-db-progress-entry-body">
-                        {!sharedHeading ? (
-                          <div className="weq-db-progress-step">
-                            <span role={executing ? 'status' : undefined}>{step.message}</span>
-                            <strong>{state}</strong>
-                          </div>
-                        ) : null}
-                        {step.objectName ? (
-                          <p className="weq-db-progress-object">{step.objectName}</p>
-                        ) : null}
-                        {step.detail ? (
-                          <p className="weq-db-progress-detail">{step.detail}</p>
-                        ) : null}
-                        {isCurrent && (executing || percent !== undefined) ? (
-                          <TaskProgressBar
-                            value={percent}
-                            status={connectionError ? 'paused' : progress.status}
-                            label="当前步骤进度"
-                            valueText={count ?? state}
-                          />
-                        ) : null}
-                        {count || step.badPages !== undefined || step.zeroPages || rate ? (
-                          <div className="weq-db-progress-readouts">
-                            {count ? <span>{count}</span> : null}
-                            {step.badPages !== undefined ? (
-                              <span>已发现 {step.badPages.toLocaleString('zh-CN')} 个坏页</span>
-                            ) : null}
-                            {step.zeroPages ? (
-                              <span>{step.zeroPages.toLocaleString('zh-CN')} 个全零页</span>
-                            ) : null}
-                            {rate ? <span>当前速度 {rate}</span> : null}
-                          </div>
-                        ) : null}
-                        {step.status === 'skipped' && !step.detail ? (
-                          <Minus size={12} aria-hidden />
-                        ) : null}
-                      </div>
-                    </div>
+                      <summary>
+                        <ChevronRight className="weq-db-progress-chevron" size={14} aria-hidden />
+                        <span>{group.title}</span>
+                        <strong>{active ? '进行中' : needsAttention ? '需查看' : '已完成'}</strong>
+                      </summary>
+                      {group.steps.map((step) => renderStep(step, false, true))}
+                    </details>
                   );
                 })}
               </details>

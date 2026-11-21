@@ -32,7 +32,7 @@ export type ComposeMessageRenderersOptions = {
  */
 export function renderDefaultMessageContent(message: Message) {
   return (
-    <span className="message-content qq-message-inline qq-text-run">
+    <span className="message-content qq-message-inline qq-text-run is-plain-text">
       <QqTextLinks text={message.body} />
     </span>
   );

@@ -5,6 +5,10 @@ export interface TimelineGeometry {
   top: number;
   bottom: number;
 }
+export interface ReadingRestoreOptions {
+  ease?: boolean;
+}
+
 export interface TimelineViewport {
   scrollRevision?(): number;
   cancelScroll?(): void;
@@ -13,7 +17,7 @@ export interface TimelineViewport {
     id: string,
     options?: { align?: 'start' | 'center' | 'end'; flash?: boolean; focus?: boolean },
   ): boolean;
-  restore(position: ConversationReadingPosition): boolean;
+  restore(position: ConversationReadingPosition, options?: ReadingRestoreOptions): boolean;
   geometry(): TimelineGeometry[];
   offset(id: string): number | undefined;
   bottom(): void;

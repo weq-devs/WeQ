@@ -2,17 +2,29 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DialogHost } from '../src/renderer/src/components/Dialog';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
 import type { GroupMemberRole, User } from '../src/renderer/src/im-template/template/types';
 
+const setAdmin = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/trpc/client', () => {
-  const proxy = (): unknown =>
+  const proxy = (path = ''): unknown =>
     new Proxy(() => undefined, {
       get: (_target, key) => {
-        if (key === 'useQuery') return () => ({ data: undefined });
-        if (key === 'useMutation') return () => ({ mutate: vi.fn() });
-        return proxy();
+        if (key === 'useQuery')
+          return () => ({
+            data: path.endsWith('.getAccountConfig')
+              ? { uin: '10001', configId: 'source-a' }
+              : undefined,
+          });
+        if (key === 'useMutation')
+          return () => ({
+            mutate: vi.fn(),
+            mutateAsync: path.endsWith('.setGroupAdmin') ? setAdmin : vi.fn(),
+          });
+        return proxy(`${path}.${String(key)}`);
       },
     });
   return { trpc: proxy(), client: proxy() };
@@ -20,6 +32,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const close of cleanups.splice(0)) close();
+  setAdmin.mockReset();
+  useToast.setState({ toasts: [], leaving: [], seq: 0 });
   vi.unstubAllGlobals();
 });
 function fixture(
@@ -102,7 +116,87 @@ function fixture(
   return { open, button, rename, title, profile, host, peer, conversation };
 }
 
+function mountDialogHost() {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() => root.render(createElement(DialogHost)));
+  cleanups.push(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  return {
+    current: () => document.querySelector<HTMLElement>('.weq-message-modal'),
+    button: (label: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>('.weq-message-modal button')].find(
+        (button) => button.textContent === label,
+      )!,
+  };
+}
+
 describe('群成员头像菜单', () => {
+  it.each([
+    { source: 'message', role: 'member', action: '设为管理员', enable: true },
+    { source: 'sidebar', role: 'admin', action: '取消管理员', enable: false },
+  ] as const)('$action 只在确认后提交', async ({ source, role, action, enable }) => {
+    const f = fixture('owner', true, false, role);
+    const dialog = mountDialogHost();
+    setAdmin.mockResolvedValue({ ok: true, roleSynced: true });
+    f.open(source);
+    act(() => f.button(action)!.click());
+    expect(dialog.current()?.textContent).toContain('目标成员');
+    expect(setAdmin).not.toHaveBeenCalled();
+    await act(async () => dialog.button('取消').click());
+    expect(setAdmin).not.toHaveBeenCalled();
+
+    f.open(source);
+    act(() => f.button(action)!.click());
+    await act(async () => dialog.button(action).click());
+    expect(setAdmin).toHaveBeenCalledOnce();
+    expect(setAdmin).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      groupId: f.conversation.group.identityValue,
+      targetUid: 'u_peer',
+      enable,
+    });
+  });
+
+  it.each([2, null])('管理员满额后弹出人数提示（人数结果 %s）', async (adminCount) => {
+    const f = fixture('owner');
+    const dialog = mountDialogHost();
+    setAdmin.mockResolvedValue({ ok: false, adminCount });
+    f.open('sidebar');
+    act(() => f.button('设为管理员')!.click());
+    await act(async () => dialog.button('设为管理员').click());
+    expect(dialog.current()?.textContent).toContain('管理员人数已达到上限');
+    expect(dialog.current()?.textContent).toContain(
+      adminCount === null ? '当前人数暂无法读取' : '当前 2 人',
+    );
+  });
+
+  it('从管理员头像打开权限面板，点外收起并继续执行同一次点击', () => {
+    const f = fixture('owner', true, false, 'admin');
+    const background = document.createElement('button');
+    const clicked = vi.fn();
+    background.addEventListener('click', clicked);
+    f.host.append(background);
+
+    f.open('message');
+    act(() => f.button('管理员权限')!.click());
+    const panel = () => document.querySelector('[aria-label="目标成员的管理员权限"]');
+    expect(panel()).not.toBeNull();
+
+    act(() => {
+      background.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, cancelable: true }),
+      );
+      background.click();
+    });
+    expect(panel()).toBeNull();
+    expect(clicked).toHaveBeenCalledOnce();
+  });
+
   it('自己的消息头像可点击打开资料卡，并保留群成员身份', () => {
     const f = fixture('owner', true, true);
     const avatar = f.host.querySelector<HTMLButtonElement>('button.message-avatar-button.is-self');

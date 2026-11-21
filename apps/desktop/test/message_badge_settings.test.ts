@@ -243,6 +243,7 @@ it('未读角标按系统图标、主导航、常规视图、联系人和菜单�
       '应用图标未读角标',
       '消息导航未读角标',
       '邮箱导航未读角标',
+      '会话互动红点',
       '群助手',
       '公众号',
       '服务号',
@@ -340,6 +341,30 @@ it('每个消息开关保存失败均保留原值并提示，保存期间不能�
       act(() => toggle.click());
     }
     expect(fixture.save).not.toHaveBeenCalled();
+  } finally {
+    f.close();
+  }
+});
+
+it('首条新消息的未读计数子项默认开启，关闭上级后保留子项的选择', () => {
+  const f = mount();
+  const parent = () => f.toggle('从第一条新消息开始阅读');
+  const child = () => f.toggle('保留尚未读到的消息的未读计数');
+  try {
+    expect(child()).toBeUndefined();
+    act(() => parent().click());
+    f.render();
+    expect(child().getAttribute('aria-checked')).toBe('true');
+    act(() => child().click());
+    f.render();
+    expect(fixture.settings.preserveUnreadUntilRead).toBe(false);
+
+    act(() => parent().click());
+    f.render();
+    expect(child()).toBeUndefined();
+    act(() => parent().click());
+    f.render();
+    expect(child().getAttribute('aria-checked')).toBe('false');
   } finally {
     f.close();
   }

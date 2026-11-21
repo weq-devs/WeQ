@@ -25,7 +25,7 @@ export const backgroundTasksRouter = router({
     }
     return backgroundTasks
       .snapshot()
-      .filter((task) => backgroundTaskVisible(task, input))
+      .filter((task) => !task.foreground && backgroundTaskVisible(task, input))
       .map(
         ({ details: _details, logs: _logs, contactFailures: _contactFailures, ...task }) => task,
       );

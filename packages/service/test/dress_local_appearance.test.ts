@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DressConfigService } from '../src/account/dress_config';
+import { DressConversationStore } from '../src/account/dress_conversations';
 import { DressService } from '../src/account/dress_service';
 import type { DressSharedCache } from '../src/account/dress_shared_cache';
 import { migrateDressData } from '../src/account/dress_migrate';
@@ -21,6 +22,46 @@ afterEach(() => {
 });
 
 describe('本地装扮默认不覆盖消息', () => {
+  it('旧范围迁移到三类，分别调整并重开后仍保留各自设置', () => {
+    const { dir, config } = configFixture();
+    writeFileSync(join(dir, 'dress.json'), JSON.stringify({ scope: 'fallback' }));
+    expect(config.read().scopes).toEqual({
+      bubble: 'fallback',
+      font: 'fallback',
+      widget: 'fallback',
+    });
+    config.setScope('all', 'bubble');
+    config.setScope('mine', 'font');
+    const reopened = new DressConfigService(dir);
+    expect(reopened.read().scopes).toEqual({ bubble: 'all', font: 'mine', widget: 'fallback' });
+    reopened.setScope('mine');
+    expect(config.read().scopes).toEqual({ bubble: 'mine', font: 'mine', widget: 'mine' });
+  });
+
+  it('会话装扮独立持久化，显式关闭保留，恢复跟随后移除例外', () => {
+    const { dir } = configFixture();
+    const store = new DressConversationStore(dir);
+    const direct = { kind: 'c2c', conv: '12345', title: '朋友' } as const;
+    const group = { kind: 'group', conv: '12345', title: '小组' } as const;
+    store.set(direct, { slot: 'callbg', value: 'off' });
+    store.set(direct, { slot: 'screen', value: { widgetId: '1', opacity: 0.6 } });
+    store.set(group, { slot: 'background', value: { source: 'qq', opacity: 0.4 } });
+    const reopened = new DressConversationStore(dir);
+    expect(reopened.get(direct)).toMatchObject({
+      callbg: 'off',
+      screen: { widgetId: '1', opacity: 0.6 },
+    });
+    expect(reopened.get(group)).toMatchObject({ background: { source: 'qq', opacity: 0.4 } });
+    expect(new DressConversationStore(join(dir, 'different-source')).get(direct)).toBeUndefined();
+    reopened.setOpacity(group, 'background', 0);
+    expect(store.get(group)?.background).toEqual({ source: 'qq', opacity: 0 });
+    reopened.set(direct, { slot: 'screen', value: null });
+    expect(() => reopened.setOpacity(direct, 'screen', 0)).toThrow('请先单独选择');
+    expect(store.get(direct)).toEqual({ ...direct, callbg: 'off' });
+    reopened.set(direct, { slot: 'callbg', value: null });
+    expect(store.get(direct)).toBeUndefined();
+  });
+
   it.each(['mine', 'fallback', 'all'] as const)(
     '渲染范围 %s 保存后重开仍保留，不改变激活项',
     (scope) => {
@@ -86,6 +127,21 @@ describe('本地装扮默认不覆盖消息', () => {
     });
     config.setActive('font', 0);
     expect(new DressConfigService(dir).read().activeFont).toBe(0);
+  });
+
+  it('旧配置承接背景不透明度，浮屏挂件的值独立保存且支持全透明', () => {
+    const { dir, config } = configFixture();
+    writeFileSync(
+      join(dir, 'dress.json'),
+      JSON.stringify({ backgroundOpacity: 0.4, widgetId: '1' }),
+    );
+    expect(config.read()).toMatchObject({ backgroundOpacity: 0.4, widgetOpacity: 1 });
+    config.setWidgetOpacity(0);
+    config.setBackgroundOpacity(0.65);
+    config.setWidget('');
+    config.setWidget('1');
+    const manifest = new DressService(new DressConfigService(dir), {} as DressSharedCache).read();
+    expect(manifest).toMatchObject({ backgroundOpacity: 0.65, widgetOpacity: 0, widgetId: '1' });
   });
 
   it('迁移旧资源清单不会重新启用旧版消息覆盖', () => {

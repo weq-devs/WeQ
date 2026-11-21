@@ -16,10 +16,12 @@ import { elementToToken } from './draftElements';
 import { releaseObjectUrl } from '../../lib/objectUrl';
 
 export type ComposerAttachmentKind = 'image' | 'video' | 'file';
+export type ComposerFileSendMode = 'file' | 'emoji' | 'flashPhoto' | 'bubbleVideo';
 
 export type ComposerAttachment = {
   id: string;
   kind: ComposerAttachmentKind;
+  special?: 'flashPhoto' | 'bubbleVideo';
   name: string;
   /** 字节数。 */
   size: number;
@@ -61,8 +63,8 @@ export type VoiceClip = {
 /** 一次最多挂多少个附件（跟 QQ 的量级对齐，也防手滑拖进来一整个目录）。 */
 export const MAX_COMPOSER_ATTACHMENTS = 20;
 
-/** 单个附件大小上限（QQ 普通文件上限 100MB，这里只做前端提示）。 */
-export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+/** 内联图片和需要整段读取的媒体保留此上限。 */
+export const MAX_BUFFERED_COMPOSER_MEDIA_BYTES = 100 * 1024 * 1024;
 
 const IMAGE_MIME = /^image\//;
 const VIDEO_MIME = /^video\//;
@@ -174,13 +176,14 @@ export function readVideoMeta(
 /** 把一个本地文件包装成附件（图片 / 视频顺带读出尺寸、时长）。 */
 export async function createAttachment(
   file: File,
-  sendAs?: 'file' | 'emoji',
+  sendAs?: ComposerFileSendMode,
 ): Promise<ComposerAttachment> {
-  const kind = sendAs === 'emoji' ? 'image' : (sendAs ?? attachmentKindOf(file));
+  const kind = sendAs === 'emoji' ? 'image' : sendAs ? 'file' : attachmentKindOf(file);
   const url = kind === 'file' ? null : URL.createObjectURL(file);
   const attachment: ComposerAttachment = {
     id: createMediaId('att'),
     kind,
+    ...(sendAs === 'flashPhoto' || sendAs === 'bubbleVideo' ? { special: sendAs } : {}),
     name: file.name || '未命名文件',
     size: file.size,
     mime: file.type || 'application/octet-stream',
@@ -297,7 +300,13 @@ export function attachmentKindText(kind: ComposerAttachmentKind): string {
 
 /** 卡片副标题：类型 · 尺寸 / 时长 · 大小（图片只给大小前的几项）。 */
 export function attachmentMetaText(attachment: ComposerAttachment): string {
-  const parts = [attachmentKindText(attachment.kind)];
+  const parts = [
+    attachment.special === 'flashPhoto'
+      ? '闪照'
+      : attachment.special === 'bubbleVideo'
+        ? '泡泡消息'
+        : attachmentKindText(attachment.kind),
+  ];
   if (attachment.kind === 'video' && attachment.duration) {
     parts.push(formatClipDuration(attachment.duration * 1000));
   }

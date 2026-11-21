@@ -6,6 +6,7 @@ import { Modal } from '../components/Dialog';
 import { MailSettingsSection } from '../components/settings/MailSettingsSection';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { PageSnapshotScope } from '../components/PageSnapshots';
+import type { MailOpenTarget } from '../lib/mailNavigation';
 
 export const MailWorkspace = memo(function MailWorkspace({
   active,
@@ -20,7 +21,7 @@ export const MailWorkspace = memo(function MailWorkspace({
   onUnreadChange: (count: number) => void;
   preferences?: { showUnread: boolean; notifications: boolean };
   onOpenRequested?: () => void;
-  searchTarget?: { id: string; folderId: number; revision: string } | null;
+  searchTarget?: MailOpenTarget | null;
 }) {
   const [visited, setVisited] = useState(active);
   const parentActive = useTabActive();

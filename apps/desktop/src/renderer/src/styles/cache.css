@@ -1744,10 +1744,20 @@ html[data-theme='dark'] .weq-avpath-error {
 
 .weq-cache-sysemoji-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 10px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-cache-sysemoji-progress {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
 }
 
 /* 「补全 N 个」——只在 QQ 资源目录缺表情时出现，靠右站位。 */
@@ -5170,6 +5180,16 @@ html[data-theme='dark'] .weq-filerow-name {
 .weq-clean-running span {
   font-size: 12.5px;
   color: var(--weq-fg-secondary);
+}
+.weq-clean-running .weq-task-progress-track {
+  width: min(360px, 100%);
+}
+.weq-clean-running ul {
+  max-width: 100%;
+  margin: 0;
+  padding-inline-start: 20px;
+  text-align: start;
+  overflow-wrap: anywhere;
 }
 
 .weq-clean-done-icon {

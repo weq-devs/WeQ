@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -44,13 +44,20 @@ it.each([
     const rows = [{ msgId: 'message-42', msgSeq: '42', source, ntSeqVerified: verified }];
     let state: ReturnType<typeof useConversationRecoveryPosition>;
     function Probe() {
-      state = useConversationRecoveryPosition({ conv: 'synthetic', kind, rows, enabled: true });
+      const scrollRef = useRef<HTMLDivElement>(null);
+      state = useConversationRecoveryPosition({
+        conv: 'synthetic',
+        kind,
+        rows,
+        enabled: true,
+        scrollRef,
+      });
       return h(
         'div',
         { className: 'weq-readonly-chat' },
         h(
           'div',
-          { className: 'message-scroll' },
+          { className: 'message-scroll', ref: scrollRef },
           h('div', { className: 'message-line', 'data-message-id': timelineRowKey(rows[0]!) }),
         ),
       );
@@ -86,18 +93,20 @@ it('崩溃前滚动即保存锚点，重建后可读取，按账号数据源隔�
   const rows = [{ msgId: 'message-42', msgSeq: '42' }];
   let state: ReturnType<typeof useConversationRecoveryPosition>;
   function Probe() {
+    const scrollRef = useRef<HTMLDivElement>(null);
     state = useConversationRecoveryPosition({
       conv: 'synthetic',
       kind: 'c2c',
       rows,
       enabled: true,
+      scrollRef,
     });
     return h(
       'div',
       { className: 'weq-readonly-chat' },
       h(
         'div',
-        { className: 'message-scroll' },
+        { className: 'message-scroll', ref: scrollRef },
         h('div', { className: 'message-line', 'data-message-id': 'message-42' }),
       ),
     );

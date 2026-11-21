@@ -14,10 +14,16 @@ function git(directory, ...args) {
 }
 
 try {
-  const entry = git(root, 'ls-tree', 'HEAD', '--', 'docs');
+  const [target = 'HEAD', ...extra] = process.argv.slice(2);
+  if (extra.length) throw new Error('用法：node scripts/check-docs-submodule.mjs [--staged|提交]');
+  const tree =
+    target === '--staged'
+      ? git(root, 'write-tree')
+      : git(root, 'rev-parse', '--verify', '--end-of-options', `${target}^{commit}`);
+  const entry = git(root, 'ls-tree', tree, '--', 'docs');
   const sha = /^160000 commit ([a-f0-9]{40})\tdocs$/.exec(entry)?.[1];
-  if (!sha) throw new Error('主仓 HEAD 没有有效的 docs 子模块指针。');
-  const url = git(root, 'config', '-f', '.gitmodules', 'submodule.docs.url');
+  if (!sha) throw new Error(`主仓 ${target} 没有有效的 docs 子模块指针。`);
+  const url = git(root, 'config', '--blob', `${tree}:.gitmodules`, 'submodule.docs.url');
   const temporary = mkdtempSync(join(tmpdir(), 'weq-docs-submodule-'));
   try {
     git(temporary, 'init', '--bare');

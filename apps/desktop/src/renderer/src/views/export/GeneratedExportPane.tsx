@@ -1,4 +1,5 @@
 import { EmptyState } from '../../components/EmptyState';
+import { NumericText } from '../../components/NumericText';
 import { useMemo, useState } from 'react';
 import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
 import { structuredExportOptions } from './StructuredExportControls.shared';
@@ -367,7 +368,11 @@ export function GeneratedExportPane({
                         })
                       }
                     >
-                      {ids === undefined ? '整场持久对话' : `精确选中 ${ids.length} 条消息`}
+                      {ids === undefined ? (
+                        '整场持久对话'
+                      ) : (
+                        <NumericText>{`精确选中 ${ids.length} 条消息`}</NumericText>
+                      )}
                     </CheckPill>
                   </div>
                 </header>

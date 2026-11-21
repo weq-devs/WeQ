@@ -61,7 +61,7 @@ export class MailNoticeCursor {
     return this.initialized;
   }
 
-  private remember(id: string): void {
+  remember(id: string): void {
     if (!id) return;
     this.seen.add(id);
     if (this.seen.size > 2000) {

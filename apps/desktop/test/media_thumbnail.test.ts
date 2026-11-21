@@ -76,9 +76,32 @@ it.each(['fixture.gif', 'fixture.png'])(
     expect(item.ocr).toBeNull();
   },
 );
-it('编辑器本地预览仍优先使用本地资源', async () => {
+it('本地图片预览直接加载，加载失败再回退到 QQ 缩略图', async () => {
   const host = await render({ localPath: '/synthetic/image.png', localPreviewUrl: 'blob:fixture' });
-  expect(host.querySelector('img')!.src).toBe('blob:fixture');
+  const image = host.querySelector('img')!;
+  expect(image.src).toBe('blob:fixture');
+  expect(image.loading).toBe('eager');
+  expect(host.querySelector('[aria-label="正在加载图片"]')).toBeNull();
+  await act(async () => image.dispatchEvent(new Event('error')));
+  const localFile = host.querySelector('img')!;
+  expect(new URL(localFile.src).searchParams.get('path')).toBe('/synthetic/image.png');
+  await act(async () => localFile.dispatchEvent(new Event('error')));
+  expect(new URL(host.querySelector('img')!.src).searchParams.get('v')).toBe('thumb');
+});
+
+it('已回读的图片点开仍显示本地原图，保存时请求 QQ 原图', async () => {
+  const host = await render({
+    fileName: 'sent.png',
+    fileToken: 'uploaded',
+    localPreviewUrl: 'blob:sent-photo',
+    thumbnailUrl: '/qq-thumb.png',
+  });
+  const image = host.querySelector('img')!;
+  expect(image.src).toBe('blob:sent-photo');
+  await act(async () => image.click());
+  const item = state.open.mock.calls[0]![0].items[0];
+  expect(item.src).toBe('blob:sent-photo');
+  expect(new URL(item.saveSource.url).searchParams.get('v')).toBe('original');
 });
 
 it('缩略图损坏时回退原图，不直接显示缺图', async () => {

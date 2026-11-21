@@ -48,6 +48,8 @@ export function ChatMainContent({
   latestMessageSeq,
   onPreviewLatest,
   onJumpToLatest,
+  readThroughViewport,
+  confirmedReadSeq,
   onReadCurrentConversation,
   pendingInteractions,
   onSeeInteractions,
@@ -81,6 +83,7 @@ export function ChatMainContent({
   onMessageAction,
   onDraftChange,
   onDraftClear,
+  onSentSpeechDraft,
   onBackConversation,
   onEditRaw,
   onDeleteMessage,
@@ -140,6 +143,8 @@ export function ChatMainContent({
   | 'onPreviewLatest'
   | 'onJumpToLatest'
   | 'onReadCurrentConversation'
+  | 'readThroughViewport'
+  | 'confirmedReadSeq'
   | 'pendingInteractions'
   | 'onSeeInteractions'
   | 'onLoadMoreGroupMembers'
@@ -167,6 +172,7 @@ export function ChatMainContent({
   | 'draftScope'
   | 'onDraftChange'
   | 'onDraftClear'
+  | 'onSentSpeechDraft'
   | 'onEditRaw'
   | 'onDeleteMessage'
   | 'onDismissUnsentMessage'
@@ -321,6 +327,9 @@ export function ChatMainContent({
       user={user}
       conversation={activeConversation}
       messages={messages}
+      groupConsecutiveMessages={
+        activeConversation?.type === 'direct' || activeConversation?.type === 'group'
+      }
       composerActions={composerActions}
       messageRenderers={messageRenderers}
       loading={loadingMessages}
@@ -330,6 +339,8 @@ export function ChatMainContent({
       latestMessageSeq={latestMessageSeq}
       onPreviewLatest={onPreviewLatest}
       onJumpToLatest={onJumpToLatest}
+      readThroughViewport={readThroughViewport}
+      confirmedReadSeq={confirmedReadSeq}
       onReadCurrentConversation={onReadCurrentConversation}
       pendingInteractions={pendingInteractions}
       onSeeInteractions={onSeeInteractions}
@@ -360,6 +371,7 @@ export function ChatMainContent({
       onMessageAction={onMessageAction}
       onDraftChange={onDraftChange}
       onDraftClear={onDraftClear}
+      onSentSpeechDraft={onSentSpeechDraft}
       onBack={onBackConversation}
       onEditRaw={onEditRaw}
       onDeleteMessage={onDeleteMessage}

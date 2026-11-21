@@ -1,4 +1,8 @@
-import { chooseFormOption } from './form-select.mjs';
+import {
+  chooseDirectorySort,
+  chooseDirectorySortDirection,
+  chooseFormOption,
+} from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -55,7 +59,7 @@ try {
   const groups = page.locator('[data-kind="groups"]');
   for (const list of [friends, groups]) await chooseFormOption(list.getByLabel('分组依据'), 'none');
   const choose = async (list, sort) => {
-    await chooseFormOption(list.getByLabel('排序依据'), sort);
+    await chooseDirectorySort(list, sort);
     const dialog = page.getByRole('dialog', { name: '更新好友/群信息缓存', exact: true });
     if (await dialog.count()) {
       await dialog.getByRole('radio', { name: '不更新', exact: true }).click();
@@ -92,17 +96,17 @@ try {
   }
   await choose(friends, 'uin');
   assert.deepEqual(await details(friends), ['QQ 号：10001', 'QQ 号：10002', 'QQ 号：10003']);
-  await friends.getByRole('button', { name: '改为降序', exact: true }).click();
+  await chooseDirectorySortDirection(friends, '大的在前');
   assert.deepEqual(await details(friends), ['QQ 号：10003', 'QQ 号：10002', 'QQ 号：10001']);
   await choose(groups, 'groupCode');
   assert.deepEqual(await details(groups), ['群号：20001', '群号：20002', '群号：20003']);
-  await groups.getByRole('button', { name: '改为降序', exact: true }).click();
+  await chooseDirectorySortDirection(groups, '大的在前');
   assert.deepEqual(await details(groups), ['群号：20003', '群号：20002', '群号：20001']);
   for (const [sort, expected] of [
     ['intimacy', '亲密度：30'],
     ['likeCount', '获赞：12,580'],
     ['level', 'QQ 等级：20'],
-    ['addedAt', '添加于 2022-09-01'],
+    ['addedAt', '2022-09-01 00:30:00'],
     ['commonFriends', '共同好友：12 人'],
     ['commonGroups', '共同群聊：0 个'],
   ]) {

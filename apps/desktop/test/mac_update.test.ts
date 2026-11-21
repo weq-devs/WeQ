@@ -88,6 +88,7 @@ beforeEach(async () => {
   });
   fixture.run.mockImplementation(async (command, args) => {
     if (command === '/usr/bin/ditto') await mkdir(join(args.at(-1), 'weQ.app'));
+    if (command === '/bin/rm') await rm(args.at(-1), { recursive: true, force: true });
     return { stdout: '', stderr: 'Signature=adhoc\n' };
   });
   vi.stubGlobal('fetch', (url: string | URL | Request, init?: RequestInit) =>
@@ -161,7 +162,25 @@ describe('macOS 更新准备', () => {
       'arm64',
       true,
     );
+    const stagedApp = fixture.verifyBundle.mock.calls.at(-1)?.[0];
+    await expect(realpath(stagedApp)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(fixture.app.quit).not.toHaveBeenCalled();
+  });
+  it('暂存清理失败不掩盖原始安装准备错误', async () => {
+    const original = new Error('发布证书不匹配');
+    const cleanup = new Error('暂存目录不可删除');
+    fixture.verifyBundle.mockResolvedValueOnce('weQ').mockRejectedValueOnce(original);
+    fixture.run
+      .mockImplementationOnce(async (_command, args) => mkdir(join(args.at(-1), 'weQ.app')))
+      .mockRejectedValueOnce(cleanup);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(plan()).rejects.toBe(original);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), expect.any(String), cleanup);
+      expect(fixture.app.quit).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
@@ -242,6 +261,7 @@ describe.runIf(process.platform === 'darwin')('macOS 更新回执', () => {
     fixture.version = prepared.version;
     await finishMacUpdate();
     await expect(realpath(prepared.staging)).rejects.toThrow();
+    await expect(readFile(prepared.report, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     expect(fixture.showErrorBox).not.toHaveBeenCalled();
   });
   it('旧版本运行不能清理恢复副本', async () => {

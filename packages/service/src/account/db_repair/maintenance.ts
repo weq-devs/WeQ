@@ -140,6 +140,8 @@ export class DatabaseMaintenance {
     if (session?.ending || session?.snapshot.state === 'ending')
       throw new Error('正在结束本次维护，请等待数据库解锁。');
     if (session?.pending) throw new Error('数据库维护任务正在执行，请先停止当前操作。');
+    if (session?.lease?.signal?.aborted)
+      throw new Error('持续维护锁已中断，请先结束维护并重新扫描。');
     if (!session || session.snapshot.state === 'ended') {
       if (!targets.length) throw new Error('没有可扫描的数据库。');
       const paths = new Set(targets.map((target) => target.dbPath));

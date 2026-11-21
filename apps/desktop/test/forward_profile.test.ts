@@ -13,6 +13,7 @@ import {
 } from '../src/renderer/src/components/MessageProvenance.shared';
 import { openForwardWindow } from '../src/renderer/src/state/forwardWindow';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+import { forwardEntries } from '../src/renderer/src/lib/forwardRecordActions';
 import { useForwardStore, type ForwardRecordWire } from '../src/renderer/src/state/forwardWindow';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: { account: {} }, trpc: {} }));
@@ -37,9 +38,42 @@ vi.mock('../src/renderer/src/components/QqMessageContent', async () => {
 vi.mock('../src/renderer/src/im-template/template/messageRow', () => ({
   grayTipOf: () => null,
 }));
-vi.mock('../src/renderer/src/im-template/template/messageRow.shared', () => ({
-  grayTipOf: () => null,
-}));
+
+it('转发包允许原序号跳过和媒体插入，但不以同名替代发送者身份', () => {
+  const first: ForwardRecordWire = {
+    msgId: '1',
+    msgSeq: '1',
+    senderUid: 'u_a',
+    senderUin: '10002',
+    sendNick: '同名',
+    sendTime: 1700000000,
+    elements: [{ type: 'text', data: { textContent: '测试' } }],
+  };
+  const second = { ...first, msgId: '2', msgSeq: '50', sendTime: 1700000001 };
+  const positions = (...records: ForwardRecordWire[]) =>
+    forwardEntries({ id: 1, records }).map((entry) => entry.groupPosition);
+  const picture = { ...second, senderUid: undefined, elements: [{ type: 'pic' }] };
+  expect(positions(first, picture, { ...second, senderUin: undefined })).toEqual([
+    'first',
+    'middle',
+    'last',
+  ]);
+  expect(positions(first, picture, { ...second, senderUid: 'u_b' })).toEqual([
+    'first',
+    'last',
+    undefined,
+  ]);
+  expect(positions(first, { ...second, senderUin: undefined })).toEqual(['first', 'last']);
+  for (const boundary of [
+    { ...second, senderUid: undefined, senderUin: '0' },
+    { ...second, senderUid: 'u_b' },
+    { ...second, senderUin: '10003' },
+    { ...second, sendTime: 1700000300 },
+    { ...second, elements: [{ type: 'reply' }] },
+    { ...second, elements: [{ type: 'grayTipPoke' }] },
+  ])
+    expect(positions(first, boundary)).toEqual([undefined, undefined]);
+});
 
 it('实际应用只在名片导航上下文内挂载转发宿主', () => {
   const hosts: string[][] = [];
@@ -111,6 +145,7 @@ it('转发记录沿用时间分隔与元数据设置，仍仅头像打开名片'
         msgId: '1',
         records: [
           record,
+          { ...record, msgId: '5', msgSeq: '71', sendTime: '1700000001' },
           { ...record, msgId: '2', msgSeq: '0', sendTime: '0' },
           { ...record, msgId: '3', msgSeq: undefined, sendTime: '1700000299' },
           { ...record, msgId: '4', msgSeq: undefined, sendTime: '1700000599' },
@@ -134,6 +169,8 @@ it('转发记录沿用时间分隔与元数据设置，仍仅头像打开名片'
     expect(author.textContent).toContain('seq 42');
     expect(author.querySelector('time')?.textContent).toBe('2023-11-15 06:13:20');
     expect(dialog.querySelectorAll('.weq-message-seq')).toHaveLength(1);
+    expect(dialog.querySelectorAll('.weq-forward-author')).toHaveLength(4);
+    expect(dialog.textContent).not.toContain('seq 71');
     expect(dialog.textContent).not.toContain('1970-01-01');
     act(() => {
       name.click();

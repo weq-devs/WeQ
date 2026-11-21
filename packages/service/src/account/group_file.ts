@@ -6,7 +6,9 @@
  */
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
+import { JsonStore } from '../common/json_store';
 import {
+  GROUP_PERMANENT_FILE_BUS_ID,
   groupPermission,
   isTemporaryGroupFile,
   qqResourceOwnedBy,
@@ -45,12 +47,33 @@ const MAX_PAGES = 200;
 const MAX_PERMISSION_DIRECTORIES = 32;
 
 export class GroupFileService {
+  private readonly transferSources?: JsonStore<Record<string, unknown>>;
+
   constructor(
     private readonly nt: Pick<NtHelperBinding, 'sendOidbPacket'>,
     private readonly session: AccountSession,
     private readonly resolvePid: () => number,
     private readonly permissionContext?: (groupId: number) => Promise<QQGroupPermissionContext>,
-  ) {}
+    transferSourcesPath?: string,
+  ) {
+    if (transferSourcesPath)
+      this.transferSources = new JsonStore<Record<string, unknown>>(
+        transferSourcesPath,
+        () => ({}),
+        {
+          normalize(raw) {
+            if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+              throw new Error('群文件转存记录结构无效');
+            return raw as Record<string, unknown>;
+          },
+        },
+      );
+  }
+
+  originalFileId(groupCode: string, fileId: string): string | undefined {
+    const source = this.transferSources?.data[`${groupCode}:${fileId}`];
+    return typeof source === 'string' && source ? source : undefined;
+  }
 
   private async permitted(
     action: QQGroupOperation,
@@ -173,7 +196,11 @@ export class GroupFileService {
     if (matches.length !== 1 || !file || !isTemporaryGroupFile(file))
       throw new Error('该文件不是可确认的未过期临时群文件，请刷新目录');
     check();
-    const result = await TransGroupFile.invoke(this.nt, pid, { groupId, fileId });
+    const result = await TransGroupFile.invoke(this.nt, pid, {
+      groupId,
+      fileId,
+      busId: file.busId,
+    });
     check();
     const folders = directory === '/' ? ['/'] : [directory, '/'];
     for (const folder of folders) {
@@ -181,16 +208,23 @@ export class GroupFileService {
         () => null,
       );
       check();
+      // 104 转存的回执可能仍带 104。以目录里同一文件的永久状态为准。
       const saved = refreshed?.files.find(
         (item) =>
           (item.fileId === result.saveFilePath || item.fileId === fileId) &&
-          item.busId === result.saveBusId &&
+          item.busId === GROUP_PERMANENT_FILE_BUS_ID &&
           item.expireTimeKnown === true &&
           item.expireTime === 0 &&
           item.fileName === file.fileName &&
           item.fileSize === file.fileSize,
       );
-      if (saved) return { state: 'accepted' as const, fileId: saved.fileId, directory: folder };
+      if (!saved) continue;
+      // 聊天附件仍保留临时文件 ID，定位时需要同时识别两个 ID。
+      if (this.transferSources && saved.fileId !== fileId) {
+        this.transferSources.data[`${groupId}:${saved.fileId}`] = fileId;
+        this.transferSources.save();
+      }
+      return { state: 'accepted' as const, fileId: saved.fileId, directory: folder };
     }
     return { state: 'unconfirmed' as const, fileId: null, directory: null };
   }

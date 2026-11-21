@@ -134,6 +134,8 @@ export class WeqBackupService {
           this.root,
           this.config.cacheBaseDir(),
           account.configId,
+          WEQ_BACKUP_LIMITS.maxTotalBytes -
+            files.reduce((total, file) => total + file.data.length, 0),
         );
         files.push(...preferences.files);
         warnings.push(...preferences.warnings);

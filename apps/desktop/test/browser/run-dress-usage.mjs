@@ -35,6 +35,7 @@ const bubble = await sharp({
 })
   .png()
   .toBuffer();
+const portrait = await sharp(bubble).resize(144, 256, { fit: 'fill' }).png().toBuffer();
 const font = await readFile(resolve(root, '../../resources/assistant/fonts/cover.otf'));
 let browser;
 try {
@@ -53,8 +54,12 @@ try {
     const url = new URL(route.request().url());
     if (url.pathname === '/_media/dressfont')
       return route.fulfill({ contentType: 'font/otf', body: font });
+    if (url.pathname === '/_media/dress' && url.searchParams.get('src')?.endsWith('/portrait.png'))
+      return route.fulfill({ contentType: 'image/png', body: portrait });
     if (url.pathname.startsWith('/_media/'))
       return route.fulfill({ contentType: 'image/png', body: bubble });
+    if (url.pathname.startsWith('/_asset/dress/screen/'))
+      return route.fulfill({ path: resolve(root, '../../resources', url.pathname.slice(8)) });
     return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
   });
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/dress-usage.html`;
@@ -64,22 +69,21 @@ try {
       await page.goto(`${url}?theme=${theme}&tools=1`);
       await page.getByRole('heading', { name: '使用中的装扮' }).waitFor();
       assert.equal(
-        await page.getByRole('tab', { name: '使用', exact: true }).getAttribute('aria-selected'),
+        await page.getByRole('tab', { name: '使用中', exact: true }).getAttribute('aria-selected'),
         'true',
       );
-      assert.equal(await page.getByRole('radio').count(), 3);
-      assert.equal(await page.locator('.weq-dress-current').count(), 4);
-      await page.getByRole('radio', { name: '替代无装扮', exact: true }).check();
+      assert.equal(await page.locator('.weq-dress-current').count(), 6);
+      const bubbleScope = page.getByRole('radiogroup', { name: '聊天气泡渲染范围' });
+      await bubbleScope.getByRole('radio', { name: '替代无装扮' }).click();
+      const fallback = bubbleScope.getByRole('radio', { name: '替代无装扮', checked: true });
+      await fallback.waitFor();
       await page
-        .getByRole('radio', { name: '替代无装扮', exact: true })
-        .isChecked()
-        .then((checked) => assert.equal(checked, true));
+        .getByRole('radiogroup', { name: '聊天字体渲染范围' })
+        .getByRole('radio', { name: '仅自己', checked: true })
+        .waitFor();
       await page.locator('.weq-dress-applying').waitFor({ state: 'detached' });
-      await page.getByRole('radio', { name: '仅自己', exact: true }).check();
-      await page.locator('.weq-dress-applying').waitFor({ state: 'detached' });
-      await page.getByRole('radio', { name: '仅自己', exact: true }).focus();
-      await page.keyboard.press('ArrowRight');
-      await page.waitForFunction(() => document.querySelector('input[value="fallback"]').checked);
+      await fallback.press('ArrowRight');
+      await bubbleScope.getByRole('radio', { name: '覆盖全部', checked: true }).waitFor();
       await page.locator('.weq-dress-applying').waitFor({ state: 'detached' });
       assert.equal(await page.locator('.weq-dress-search').count(), 0);
       assert.equal(
@@ -101,16 +105,69 @@ try {
         .waitFor({ state: 'detached' });
       await page.getByRole('button', { name: '选择聊天气泡', exact: true }).click();
       await page.getByRole('tab', { name: '聊天气泡', exact: true }).waitFor();
-      assert.equal(await page.getByRole('radio').count(), 0);
+      assert.equal(await bubbleScope.count(), 0);
       assert.equal(await page.locator('.weq-dress-local-note').count(), 0);
       await page.getByRole('button', { name: '使用', exact: true }).click();
       await page.getByRole('button', { name: '使用中', exact: true }).waitFor();
-      await page.getByRole('tab', { name: '使用', exact: true }).click();
+      await page.getByRole('tab', { name: '使用中', exact: true }).click();
       await page.getByRole('button', { name: '取消使用聊天气泡', exact: true }).waitFor();
     }
+  await page.setViewportSize({ width: 1200, height: 850 });
+  await page.goto(`${url}?tools=1&exceptions=1&backdrop=1`);
+  const background = page.getByRole('article', { name: '聊天背景' });
+  await background.getByRole('slider', { name: '聊天背景不透明度' }).waitFor();
+  await background.getByText('1 个会话单独设置').click();
+  await background.getByRole('button', { name: /项目讨论.*不使用/ }).click();
+  const mode = page.getByRole('radiogroup', { name: '本会话聊天背景' });
+  await mode.waitFor();
+  assert.equal(
+    await mode.getByRole('radio', { name: '不使用' }).getAttribute('aria-checked'),
+    'true',
+  );
+  await page.screenshot({ path: resolve(output, 'conversation-override.png'), fullPage: true });
+  await mode.getByRole('radio', { name: '跟随全局' }).click();
+  await background.getByText('1 个会话单独设置').waitFor({ state: 'detached' });
+
+  await page.goto(`${url}?tools=1&picker=1`);
+  const call = page.getByRole('article', { name: '通话背景' });
+  await call.getByText('1 个会话单独设置').click();
+  await call.getByRole('button', { name: /预览会话.*不使用/ }).click();
+  const callMode = page.getByRole('radiogroup', { name: '本会话通话背景' });
+  await callMode.getByRole('radio', { name: '单独选择' }).click();
+  async function checkVisibleLabel(name) {
+    const option = page.getByRole('button', { name, exact: true });
+    await option.scrollIntoViewIfNeeded();
+    const labelBounds = await option.getByText(name, { exact: true }).boundingBox();
+    const cardBounds = await option.boundingBox();
+    assert.ok(
+      labelBounds.height > 0 &&
+        labelBounds.y + labelBounds.height <= cardBounds.y + cardBounds.height,
+    );
+    return option;
+  }
+  await checkVisibleLabel('通话背景 60');
+  const firstOption = await checkVisibleLabel('通话背景 1');
+  await firstOption.locator('img').waitFor();
+  await page.screenshot({ path: resolve(output, 'conversation-call-picker.png'), fullPage: true });
+  await callMode.getByRole('radio', { name: '跟随全局' }).click();
+  const widgetMode = page.getByRole('radiogroup', { name: '本会话浮屏挂件' });
+  await widgetMode.getByRole('radio', { name: '单独选择' }).click();
+  await checkVisibleLabel('挂件 2016');
+  const firstWidget = await checkVisibleLabel('挂件 1');
+  await firstWidget.locator('svg').waitFor();
+  const widgetRatio = await firstWidget.locator('svg').evaluate((svg) => {
+    const { width, height } = svg.viewBox.baseVal;
+    return width / height;
+  });
+  assert.equal(widgetRatio, 9 / 16);
+  await page.screenshot({
+    path: resolve(output, 'conversation-widget-picker.png'),
+    fullPage: true,
+  });
+
   await page.goto(`${url}?empty=1&tools=1`);
   await page.getByRole('heading', { name: '使用中的装扮' }).waitFor();
-  assert.equal(await page.getByText('未使用', { exact: true }).count(), 4);
+  assert.equal(await page.getByText('未使用', { exact: true }).count(), 6);
   assert.equal(await page.getByText('按消息记录还原', { exact: true }).count(), 3);
   await page.screenshot({ path: resolve(output, 'empty.png'), fullPage: true });
 
@@ -186,7 +243,7 @@ try {
     }
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: 开发工具 8 组深浅色/宽窄屏、三档切换、键盘单选、取消/使用、原始装扮 CSS；普通模式 6 组仅保留背景',
+    'PASS: 开发工具 8 组深浅色/宽窄屏、三档切换、键盘选择、会话例外定位与恢复跟随、取消/使用、原始装扮 CSS；普通模式 6 组仅保留背景',
   );
 } finally {
   await browser?.close();

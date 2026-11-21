@@ -4,6 +4,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { ExportViewer } from '../src/renderer/src/views/ExportViewer';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { ViewerScanEvent } from '../src/main/ipc/routers/export_viewer';
+import type { ExportViewerMessage } from '@weq/service';
 
 const f = vi.hoisted(() => ({
   pick: vi.fn(),
@@ -11,6 +12,7 @@ const f = vi.hoisted(() => ({
   event: (_event: ViewerScanEvent) => {},
   close: vi.fn(async () => true),
   jump: vi.fn(async () => true),
+  saveMedia: vi.fn(async () => undefined),
   local: { kind: 'group', conv: '777', uin: '10001', configId: 'source-a' } as object | null,
   page: {
     messages: [
@@ -41,6 +43,9 @@ const f = vi.hoisted(() => ({
       },
     ],
     total: 1,
+  } as {
+    messages: ExportViewerMessage[];
+    total: number;
   },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -74,6 +79,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       close: { mutate: f.close },
       jump: { mutate: f.jump },
+      saveMedia: { mutate: f.saveMedia },
     },
   },
   trpc: {
@@ -160,6 +166,25 @@ it('打开会话绑定当前账号与数据源，增量入口传递原基线', a
   expect(increment).toHaveBeenCalledWith(
     expect.objectContaining({ baselineDirectory: source.baselineDirectory }),
   );
+});
+it('可预览的归档媒体只在主动另存时提交该归档和媒体路径', async () => {
+  const parts = f.page.messages[0]!.parts;
+  const path = `media/${'a'.repeat(64)}`;
+  parts.push(
+    { key: 'saved', type: 'image', text: '已保存图片', path },
+    { key: 'missing', type: 'video', text: '未保存视频' },
+  );
+  try {
+    await mount();
+    await click('打开归档');
+    expect(f.saveMedia).not.toHaveBeenCalled();
+    expect(host.querySelector('[aria-label="另存视频"]')).toBeNull();
+    await click('另存图片');
+    expect(f.saveMedia).toHaveBeenCalledTimes(1);
+    expect(f.saveMedia).toHaveBeenCalledWith({ id: source.id, path });
+  } finally {
+    parts.splice(-2);
+  }
 });
 it('旧 QQ 号关联本机 UID 后，增量入口传递解析后的 UID', async () => {
   f.pick.mockResolvedValue({

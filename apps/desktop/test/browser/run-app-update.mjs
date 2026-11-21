@@ -58,7 +58,7 @@ try {
       if ((await interval.inputValue()) !== '60') throw new Error('interval default failed');
       for (const value of ['-1', '100000']) {
         await interval.fill(value);
-        await page.getByRole('button', { name: '保存自动检查更新频率', exact: true }).click();
+        await interval.press('Enter');
         if ((await interval.inputValue()) !== value) throw new Error('interval save failed');
       }
       await toggle.click();
@@ -77,6 +77,20 @@ try {
       if (output) await page.screenshot({ path: resolve(output, `${width}-${theme}.png`) });
     }
   }
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/app-update.html?download=1`,
+  );
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'dark';
+  });
+  await page.getByRole('button', { name: '暂停下载', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: '已暂停' }).waitFor();
+  await page.getByRole('button', { name: '继续下载', exact: true }).click();
+  await page.getByRole('button', { name: '后台进行', exact: true }).click();
+  await page.getByRole('button', { name: '后台进行', exact: true }).waitFor({ state: 'hidden' });
+  if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)))
+    throw new Error('update controls overflow at 320px');
   if (errors.length) throw new Error(errors.join('\n'));
   console.log('PASS: update toggle and status; 320/390/1280 light/dark; no overflow');
 } finally {

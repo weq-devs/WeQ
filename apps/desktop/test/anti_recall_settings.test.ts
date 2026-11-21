@@ -214,11 +214,14 @@ describe('页内防撤回摘要与按需工具', () => {
       f.dispose();
     }
   });
-  it('没有旧页签和大型列表，直接展示两类开关与摘要，初始不读会话/记录目录', () => {
+  it('四档设置与独立范围直接可见，初始不读会话或记录目录', () => {
     const f = mount();
     try {
       expect(f.host.querySelector('[role="tablist"]')).toBeNull();
-      expect(f.host.querySelector('[aria-label="防撤回启用范围"]')).not.toBeNull();
+      expect(f.host.querySelector('[aria-label="防撤回保护范围"]')).not.toBeNull();
+      expect(
+        f.host.querySelectorAll('[aria-label="防撤回方式"] button[role="radio"]'),
+      ).toHaveLength(4);
       expect(f.host.querySelector('[aria-label="撤回时通知我"]')).toBeNull();
       expect(
         f.host.querySelector('button[role="combobox"][aria-label="撤回提醒通知方式"]'),
@@ -305,7 +308,7 @@ describe('页内防撤回摘要与按需工具', () => {
   it('通知页独立编辑原名单，不提供保护开关，也不清空已有选择', async () => {
     const f = mount('notifications');
     try {
-      expect(f.host.querySelector('[aria-label="防撤回启用范围"]')).toBeNull();
+      expect(f.host.querySelector('[aria-label="防撤回保护范围"]')).toBeNull();
       expect(
         f.host.querySelector('[aria-label="撤回时通知我"]')?.getAttribute('aria-checked'),
       ).toBeUndefined();
@@ -335,11 +338,11 @@ describe('页内防撤回摘要与按需工具', () => {
     fixture.recordsError = true;
     const f = mount();
     try {
-      const scopeOff = [...f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
-        (button) => button.textContent === '关闭',
+      const scopeOff = f.host.querySelector<HTMLButtonElement>(
+        '[aria-label="防撤回方式"] button[value="off"]',
       )!;
       const scopeSelected = [...f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
-        (button) => button.textContent === '按会话勾选',
+        (button) => button.textContent === '指定会话',
       )!;
       expect(scopeSelected.disabled).toBe(false);
       expect(scopeOff.disabled).toBe(false);
@@ -364,12 +367,20 @@ describe('页内防撤回摘要与按需工具', () => {
     );
     try {
       const original = fixture.status;
-      click('关闭');
-      expect(fixture.saves).toHaveBeenCalledWith('setScope', { scope: 'off' });
+      act(() =>
+        f.host
+          .querySelector<HTMLButtonElement>('[aria-label="防撤回方式"] button[value="off"]')!
+          .click(),
+      );
+      expect(fixture.saves).toHaveBeenCalledWith('setMethod', { method: 'off' });
       fixture.currentSource = false;
       await act(async () => resolve({ ...original, enabled: false, mode: 'selected' }));
       expect(fixture.status).toBe(original);
-      click('关闭');
+      act(() =>
+        f.host
+          .querySelector<HTMLButtonElement>('[aria-label="防撤回方式"] button[value="off"]')!
+          .click(),
+      );
       expect(fixture.saves).toHaveBeenCalledTimes(1);
     } finally {
       f.dispose();

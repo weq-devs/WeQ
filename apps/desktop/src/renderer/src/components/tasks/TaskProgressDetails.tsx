@@ -1,5 +1,5 @@
 import { NumericText } from '../NumericText';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { formatDuration } from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
 import { longTaskProgress, longTaskStatusLabel } from './LongTaskRow.shared';
@@ -14,18 +14,22 @@ export function TaskProgressDetails({
   status,
   statusLabel,
   progress: rawProgress,
+  showProgress = true,
   note,
   startedAt,
   finishedAt,
+  actions,
 }: {
   name: string;
   display?: TaskDisplay;
   status: LongTaskStatus;
   statusLabel?: string;
   progress?: number;
+  showProgress?: boolean;
   note?: string;
   startedAt?: number;
   finishedAt?: number;
+  actions?: ReactNode;
 }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -45,27 +49,32 @@ export function TaskProgressDetails({
         <strong>{display ? <TaskName display={display} /> : name}</strong>
         <span>{statusLabel ?? longTaskStatusLabel(status)}</span>
       </header>
+      {actions}
       {display ? (
         <>
           <TaskOriginalName name={name} display={display} />
           {display.context ? <p>{display.context}</p> : null}
         </>
       ) : null}
-      <div className="weq-task-progress-metric">
-        <span>任务进度</span>
-        <strong>
-          {progress !== undefined ? (
-            <NumericText>{`${progress}%`}</NumericText>
-          ) : status === 'running' ? (
-            '处理中'
-          ) : status === 'pending' ? (
-            '等待开始'
-          ) : (
-            '未提供进度'
-          )}
-        </strong>
-      </div>
-      <TaskProgressBar value={progress} label="任务进度" status={status} />
+      {showProgress ? (
+        <>
+          <div className="weq-task-progress-metric">
+            <span>任务进度</span>
+            <strong>
+              {progress !== undefined ? (
+                <NumericText>{`${progress}%`}</NumericText>
+              ) : status === 'running' ? (
+                '处理中'
+              ) : status === 'pending' ? (
+                '等待开始'
+              ) : (
+                '未提供进度'
+              )}
+            </strong>
+          </div>
+          <TaskProgressBar value={progress} label="任务进度" status={status} />
+        </>
+      ) : null}
       {note ? <p role={status === 'failed' ? 'alert' : undefined}>{note}</p> : null}
       {startedAt ? (
         <div className="weq-task-progress-times">

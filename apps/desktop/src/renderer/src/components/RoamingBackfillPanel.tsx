@@ -3,6 +3,7 @@ import { TimeLabel } from './TimeLabel';
 import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useMemo, useState } from 'react';
 import { TaskProgressBar } from './tasks/TaskProgressBar';
+import { TaskQuickActions, type TaskQuickAction } from './tasks/TaskQuickActions';
 import {
   CalendarRange,
   Check,
@@ -691,6 +692,58 @@ export function RoamingBackfillPanel({
                 const covered = job.plannedSeqs - job.remainingSeqs;
                 const complete = isRoamingJobComplete(job.status);
                 const JobGlyph = jobGlyph[job.status];
+                const actions: TaskQuickAction[] = [];
+                if (['planned', 'paused', 'failed', 'partial', 'cancelled'].includes(job.status)) {
+                  const retry = job.status === 'partial' || job.status === 'cancelled';
+                  actions.push({
+                    id: 'resume',
+                    label: retry ? '重试未补区间' : job.status === 'planned' ? '开始补全' : '继续',
+                    icon: retry ? <RefreshCw size={14} /> : <Play size={14} />,
+                    disabled:
+                      busy ||
+                      mutating ||
+                      job.options.transport === 'native500' ||
+                      job.options.transport === 'sso500' ||
+                      staleBackend,
+                    run: () => {
+                      setError(null);
+                      run.mutate({ id: job.id, ...(retry ? { retryRemaining: true } : {}) });
+                    },
+                  });
+                }
+                if (job.status === 'running') {
+                  actions.push({
+                    id: 'pause',
+                    label: '暂停',
+                    icon: <Pause size={14} />,
+                    disabled: mutating,
+                    run: () => pause.mutate({ id: job.id }),
+                  });
+                }
+                if (!complete && job.status !== 'cancelled') {
+                  actions.push({
+                    id: 'cancel',
+                    label: '取消',
+                    icon: <Square size={14} />,
+                    disabled: mutating || job.status === 'pausing',
+                    run: () => cancel.mutate({ id: job.id }),
+                  });
+                }
+                actions.push({
+                  id: 'remove',
+                  label: '移除补全任务',
+                  icon: <Trash2 size={14} />,
+                  disabled: busy || mutating,
+                  run: async () => {
+                    if (
+                      await confirm('移除任务？', '仅移除任务与断点，已经取得的漫游消息会保留。', {
+                        danger: 'outline',
+                      })
+                    ) {
+                      remove.mutate({ id: job.id });
+                    }
+                  },
+                });
                 return (
                   <article
                     key={job.id}
@@ -738,6 +791,7 @@ export function RoamingBackfillPanel({
                         </small>
                       </span>
                     </header>
+                    <TaskQuickActions variant="detail" actions={actions} />
                     <TaskProgressBar
                       value={roamingJobProgress(job)}
                       label="漫游任务进度"
@@ -833,89 +887,6 @@ export function RoamingBackfillPanel({
                           待复核
                         </span>
                       ) : null}
-                    </div>
-                    <div className="weq-roaming-job-actions">
-                      {['planned', 'paused', 'failed'].includes(job.status) ? (
-                        <button
-                          type="button"
-                          className="weq-roaming-actionbtn is-primary"
-                          disabled={
-                            busy ||
-                            mutating ||
-                            job.options.transport === 'native500' ||
-                            job.options.transport === 'sso500' ||
-                            staleBackend
-                          }
-                          onClick={() => {
-                            setError(null);
-                            run.mutate({ id: job.id });
-                          }}
-                        >
-                          <Play size={14} />
-                          {job.status === 'planned' ? '开始补全' : '继续'}
-                        </button>
-                      ) : null}
-                      {job.status === 'running' ? (
-                        <button
-                          type="button"
-                          className="weq-roaming-actionbtn is-primary"
-                          disabled={mutating}
-                          onClick={() => pause.mutate({ id: job.id })}
-                        >
-                          <Pause size={14} />
-                          暂停
-                        </button>
-                      ) : null}
-                      {job.status === 'partial' || job.status === 'cancelled' ? (
-                        <button
-                          type="button"
-                          className="weq-roaming-actionbtn"
-                          disabled={
-                            busy ||
-                            mutating ||
-                            job.options.transport === 'native500' ||
-                            job.options.transport === 'sso500' ||
-                            staleBackend
-                          }
-                          onClick={() => {
-                            setError(null);
-                            run.mutate({ id: job.id, retryRemaining: true });
-                          }}
-                        >
-                          <RefreshCw size={14} aria-hidden />
-                          重试未补区间
-                        </button>
-                      ) : null}
-                      {!complete && job.status !== 'cancelled' ? (
-                        <button
-                          type="button"
-                          className="weq-roaming-actionbtn"
-                          disabled={mutating || job.status === 'pausing'}
-                          onClick={() => cancel.mutate({ id: job.id })}
-                        >
-                          <Square size={13} />
-                          取消
-                        </button>
-                      ) : null}
-                      <button
-                        data-danger="outline"
-                        type="button"
-                        className="weq-roaming-iconbtn is-danger"
-                        title="移除任务，保留已取得的消息"
-                        aria-label="移除补全任务"
-                        disabled={busy || mutating}
-                        onClick={() => {
-                          void confirm(
-                            '移除任务？',
-                            '仅移除任务与断点，已经取得的漫游消息会保留。',
-                            { danger: 'outline' },
-                          ).then((ok) => {
-                            if (ok) remove.mutate({ id: job.id });
-                          });
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
                     </div>
                     <details className="weq-roaming-receipts">
                       <summary>

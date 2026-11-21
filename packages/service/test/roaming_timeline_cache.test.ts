@@ -89,8 +89,8 @@ it('日历缓存读取仅投影元数据，保留去重/验证身份且不触发
   expect(rows.map((row) => row.msgId)).toEqual(['9007199254740993001']);
   expect(rows[0]?.elements).toEqual([]);
   expect(rows[0]?.ntSeqVerified).toBe(true);
-  expect(await cache.calendarConversations()).toEqual([
-    { kind: 'c2c', conv: 'synthetic-conversation' },
+  expect(await cache.calendarConversations('c2c', ['synthetic-conversation'])).toEqual([
+    'synthetic-conversation',
   ]);
   expect(write).not.toHaveBeenCalled();
 });
@@ -98,7 +98,7 @@ it('日历缓存读取仅投影元数据，保留去重/验证身份且不触发
 it('没有漫游缓存时日历不创建替代库或表', async () => {
   const { cache, nt } = setup();
   const write = vi.spyOn(nt, 'executeSqlWrite');
-  expect(await cache.calendarConversations()).toEqual([]);
+  expect(await cache.calendarConversations('group', ['synthetic-conversation'])).toEqual([]);
   expect(
     await cache.query(
       'group',
@@ -114,6 +114,35 @@ it('没有漫游缓存时日历不创建替代库或表', async () => {
     ),
   ).toEqual([]);
   expect(write).not.toHaveBeenCalled();
+});
+
+it('日历只在请求范围内查找三类缓存，跨批保留会话且忽略未采纳的原生缓存', async () => {
+  const { cache } = setup();
+  const native = {
+    ...message(2),
+    conv: 'native',
+    sourceFormat: 'native' as const,
+    nativeRaw: { elements: [] },
+  };
+  await cache.store([
+    { ...message(1), conv: 'legacy' },
+    native,
+    { ...message(3), conv: 'protocol', sourceFormat: 'protocol' },
+    { ...message(4), conv: 'outside-scope' },
+    { ...message(5, 'c2c', true), conv: 'other-kind' },
+  ]);
+  await cache.storeNative([{ ...native, conv: 'unaccepted' }], false);
+
+  expect(
+    await cache.calendarConversations('group', [
+      'legacy',
+      'unaccepted',
+      'other-kind',
+      ...Array.from({ length: 128 }, (_, index) => `missing-${index}`),
+      'native',
+      'protocol',
+    ]),
+  ).toEqual(['legacy', 'native', 'protocol']);
 });
 
 it('日历缓存先按半开日期过滤再分页，三种来源、同序号与跨日边界不漏不重', async () => {

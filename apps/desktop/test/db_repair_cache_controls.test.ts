@@ -120,12 +120,11 @@ it('重新扫描需确认，取消保留结果和维护锁，确认后结束旧�
   expect(maintenanceQa.snapshot()).toBe(previous);
   expect(maintenanceQa.snapshot()?.locked).toBe(true);
   expect(choice('nt_msg.db').checked).toBe(true);
-  await act(async () => button('深度体检').click());
   await act(async () => button('重新扫描').click());
   await confirm(true);
   expect(maintenanceQa.calls.end).toBe(1);
   expect(maintenanceQa.calls.scan).toEqual([
-    { uin: account.uin, configId: account.configId, kind: 'checkup' },
+    { uin: account.uin, configId: account.configId, kind: 'scan' },
   ]);
   expect(maintenanceQa.snapshot()?.state).toBe('scanning');
 });
@@ -181,6 +180,34 @@ it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止�
   await confirm(true);
   expect(button('更改位置').disabled).toBe(true);
   expect(button('使用默认位置').disabled).toBe(true);
+});
+
+it('等待修复时，空间告警只跟随当前勾选的数据库', async () => {
+  maintenanceQa.ready();
+  maintenanceQa.lowSpace(500_000);
+  maintenanceQa.snapshot()!.storage = {
+    dbName: 'nt_msg.db',
+    cachePath: '/synthetic/cache',
+    phase: 'preparing',
+    warning: 'insufficient-space',
+    space: [
+      {
+        paths: ['/synthetic/cache'],
+        freeBytes: 500_000,
+        requiredBytes: 1_000_000,
+        recommendedBytes: 1_250_000,
+      },
+    ],
+  };
+  const warning = () => host.querySelector('[role="alert"][aria-label="磁盘空间警告"]');
+  await mount();
+  expect(warning()).not.toBeNull();
+  await act(async () => choice('nt_msg.db').click());
+  expect(warning()).toBeNull();
+  await act(async () => choice('profile.db').click());
+  expect(warning()).toBeNull();
+  await act(async () => choice('nt_msg.db').click());
+  expect(warning()).not.toBeNull();
 });
 
 it('查看历史结果与三种导出都不重新体检，导出仍指向原报告', async () => {

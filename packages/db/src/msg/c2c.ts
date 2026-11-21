@@ -164,7 +164,7 @@ export class C2cMsgDb {
     return this.qq.dbPath;
   }
   directoryTimePage(before?: string) {
-    return directoryTimePage(this.qq, 'c2c_msg_table', before);
+    return directoryTimePage(this.qq, before);
   }
   async calendarMessage(part: C2cPartition, id: bigint): Promise<C2cMsg[]> {
     const { clause, value } = partitionWhere(part);
@@ -607,6 +607,15 @@ export class C2cMsgDb {
       blob,
       newRandom,
       msgId,
+    ]);
+  }
+
+  /** 转写只更新正文，并检测期间发生的并发修改。 */
+  async replaceMsgBody(msgId: bigint, before: Uint8Array, after: Uint8Array): Promise<number> {
+    return this.qq.write(`UPDATE ${this.table} SET "40800" = ? WHERE "40001" = ? AND "40800" = ?`, [
+      after,
+      msgId,
+      before,
     ]);
   }
 

@@ -36,12 +36,16 @@ import {
   CalendarDays,
   ArrowLeft,
   Newspaper,
+  LogOut,
+  UserMinus,
+  UserRoundX,
 } from 'lucide-react';
 import {
   memo,
   useCallback,
   useContext,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -71,6 +75,8 @@ import {
 } from '../../lib/contactDirectoryPresentation';
 import { useContactDirectoryOrder, useFrozenDirectory } from '../../hooks/useContactDirectoryOrder';
 import { ContactDirectoryOrder } from '../../components/ContactDirectoryOrder';
+import { SegmentedControl } from '../../components/SegmentedControl';
+import { useContactOnlineStatuses } from '../../hooks/useContactOnlineStatuses';
 import { conversationListSearchText } from '../../lib/conversationListSearchText';
 import { formatConversationTime } from '../../lib/conversationTime';
 import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
@@ -91,6 +97,11 @@ import {
 } from '../../lib/contactRelationship';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { SourceGroup } from '../../components/qq-actions/FriendClue';
+import { useQQAction } from '../../components/qq-actions/shared.shared';
+import {
+  useDeleteFriend,
+  useGroupExitActions,
+} from '../../components/qq-actions/relationshipActions.shared';
 import {
   useContentMultiSelect,
   useRequestContentExport,
@@ -278,6 +289,10 @@ export function ConversationList({
   const createAssistantDirectly = view === 'assistant';
   const createLabel = createAssistantDirectly ? '新建 WeQ 助手会话' : '添加会话';
   const ViewIcon = VIEW_ICONS[view];
+  const searchReturnView = directory?.searchReturnView;
+  const backView = searchReturnView ?? (directory?.returnToRegular ? 'regular' : undefined);
+  const backLabel = backView ? `返回${CONVERSATION_VIEW_LABELS[backView]}` : undefined;
+  const onBack = searchReturnView ? directory?.onReturnToSearchView : directory?.onReturnToRegular;
   const setView = directory?.onViewChange ?? setLocalView;
   const [queries, setQueries] = useState<Partial<Record<ConversationView, string>>>({});
   const keyword = queries[view] ?? '';
@@ -312,6 +327,17 @@ export function ConversationList({
   const showPreview = preferenceValue('showConversationPreview');
   const account = useViewState((state) => state.openedUin);
   const listKey = `${account}:${view}:${keyword}`;
+  useImperativeHandle(
+    directory?.captureListPosition,
+    () => () => {
+      const top = scrollPositions.current.get(listKey) ?? 0;
+      return () => {
+        scrollPositions.current.set(listKey, top);
+        setKeyword(keyword);
+      };
+    },
+    [listKey, keyword, setKeyword],
+  );
   const [pointerInside, setPointerInside] = useState(false);
   useEffect(() => {
     const clear = () => setPointerInside(false);
@@ -698,26 +724,23 @@ export function ConversationList({
         <div className="weq-directory-scope" ref={menuRef}>
           <button
             type="button"
-            title={
-              directory?.returnToRegular
-                ? '返回常规视图'
-                : `会话视图：${CONVERSATION_VIEW_LABELS[view]}`
-            }
-            aria-label={directory?.returnToRegular ? '返回常规视图' : '会话视图'}
-            aria-haspopup={directory?.returnToRegular ? undefined : 'menu'}
-            aria-expanded={directory?.returnToRegular ? undefined : scopeOpen}
+            title={backLabel ?? `会话视图：${CONVERSATION_VIEW_LABELS[view]}`}
+            aria-label={backLabel ?? '会话视图'}
+            aria-haspopup={backLabel ? undefined : 'menu'}
+            aria-expanded={backLabel ? undefined : scopeOpen}
             onClick={() => {
               setCreateOpen(false);
-              if (directory?.returnToRegular) {
-                directory.onReturnToRegular?.();
+              if (backLabel) {
+                setScopeOpen(false);
+                onBack?.();
                 return;
               }
               setScopeOpen(!scopeOpen);
             }}
           >
-            {directory?.returnToRegular ? <ArrowLeft size={16} /> : <ViewIcon size={16} />}
+            {backLabel ? <ArrowLeft size={16} /> : <ViewIcon size={16} />}
           </button>
-          {scopeOpen ? (
+          {scopeOpen && !backLabel ? (
             <div role="menu" className="weq-directory-scope-menu" aria-label="会话视图">
               {VIEW_OPTIONS.map(({ id: item, Icon: ItemIcon }) => (
                 <button
@@ -788,6 +811,9 @@ export function ConversationList({
             const active = conversation.id === activeConversationId;
             const updatedAt = conversation.updatedAt;
             const unreadCount = conversation.unreadCount ?? 0;
+            const showUnreadCount =
+              unreadCount > 0 &&
+              (conversation.type !== 'merged' || markers.aggregates[conversation.mergedKind]);
             const draft = drafts[conversation.id] ?? conversation.draftPreview;
             const hasDraft = showPreview && !active && Boolean(draft?.trim());
             const lastMessage = conversation.lastMessage;
@@ -850,6 +876,7 @@ export function ConversationList({
                     ...preferences[conversation.id],
                   }.muted,
                 );
+            const reminderTone = muted ? 'muted' : 'notice';
             const pinned = isPinned(conversation, preferences);
             const virtualRow = directory?.virtual.find((item) => item.id === conversation.id);
             const canOpenContextMenu = conversation.type !== 'merged' || Boolean(directory?.onPin);
@@ -1036,21 +1063,19 @@ export function ConversationList({
                     </>
                   }
                   status={
-                    unreadCount &&
-                    (conversation.type !== 'merged' ||
-                      markers.aggregates[conversation.mergedKind]) ? (
+                    showUnreadCount ? (
                       <ReminderCount
                         count={unreadCount}
-                        tone={muted ? 'muted' : 'notice'}
+                        tone={reminderTone}
                         className="row-unread"
                       />
-                    ) : !unreadCount &&
-                      conversation.type !== 'merged' &&
+                    ) : conversation.type !== 'merged' &&
                       directory?.interactionBadges?.has(
                         `${conversation.type === 'group' ? 'group' : 'c2c'}:${conversation.id}`,
                       ) ? (
                       <ReminderDot
                         className="row-unread"
+                        tone={reminderTone}
                         role="img"
                         aria-label="有新互动"
                         title="有新互动"
@@ -1258,12 +1283,30 @@ export function ConversationList({
   );
 }
 
+const NO_FILTER_MATCHES: string[] = [];
+
+function useFilteredDirectoryIds(
+  tab: 'friends' | 'groups',
+  active: boolean,
+  ids: string[] | undefined,
+) {
+  const update = useContext(ContactDirectoryContext)?.onFilteredIds;
+  useLayoutEffect(() => {
+    if (active) update?.(tab, ids);
+  }, [active, ids, tab, update]);
+  useLayoutEffect(() => {
+    if (active && update) return () => update(tab, undefined);
+  }, [active, tab, update]);
+}
+
 export function GroupList({
+  active = true,
   conversations,
   activeConversationId,
   onSelect,
   loading,
 }: {
+  active?: boolean;
   conversations: Conversation[];
   activeConversationId: string | null;
   onSelect: (conversationId: string, event?: React.MouseEvent) => void;
@@ -1273,25 +1316,51 @@ export function GroupList({
   const directory = useContext(ContactDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
   const batch = useConversationBatchActions(conversations);
+  const groupAction = useQQAction('group-directory', 'all', { passive: true });
+  const groupExits = useGroupExitActions(groupAction);
   const [actionMenu, setActionMenu] = useState<{
     conversation: Conversation;
     ids: string[];
     x: number;
     y: number;
   } | null>(null);
+  const [membership, setMembership] = useState<'all' | 'member' | 'nonmember'>('all');
+  const hasFilter = membership !== 'all';
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
   const searchable = useMemo(
     () =>
       conversations.filter(
-        (item) =>
-          !needle ||
-          `${conversationTitle(item)} ${conversationSeed(item)} ${item.type === 'group' ? item.group.name : ''}`
-            .toLocaleLowerCase()
-            .includes(needle),
+        (item): item is Extract<Conversation, { type: 'group' }> =>
+          item.type === 'group' &&
+          (membership === 'all' || groupRelationship(item.group, relationships) === membership) &&
+          (!needle ||
+            `${conversationTitle(item)} ${conversationSeed(item)} ${item.group.name}`
+              .toLocaleLowerCase()
+              .includes(needle)),
       ),
-    [conversations, needle],
+    [conversations, membership, needle, relationships],
   );
   const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
+  const menuGroup =
+    !groupSelection.selectionMode &&
+    actionMenu?.ids.length === 1 &&
+    actionMenu.conversation.type === 'group'
+      ? actionMenu.conversation.group
+      : undefined;
+  const menuGroupId = Number(menuGroup?.identityValue);
+  const menuRole =
+    menuGroup && groupRelationship(menuGroup, relationships) === 'member'
+      ? (relationships?.groups.get(menuGroup.identityValue)?.role ??
+        (menuGroup.roleKnown ? menuGroup.role : null))
+      : null;
+  const groupExit =
+    Number.isInteger(menuGroupId) && menuGroupId > 0 && menuGroupId <= 0xffffffff
+      ? menuRole === 'owner'
+        ? groupExits.disband
+        : menuRole === 'member' || menuRole === 'admin'
+          ? groupExits.leave
+          : null
+      : null;
   const metricEntities = useMemo(
     () => conversations.filter((row) => row.type === 'group').map((row) => [`group:${row.id}`]),
     [conversations],
@@ -1314,7 +1383,7 @@ export function GroupList({
           mode: 'none',
           label: '',
           items: sortGroups(
-            searchable.filter((row) => row.type === 'group'),
+            searchable,
             order.preferences.sort,
             order.preferences.descending,
             order.rows,
@@ -1324,9 +1393,7 @@ export function GroupList({
       ];
     const groups = sortGroups(
       searchable.filter(
-        (conversation) =>
-          conversation.type === 'group' &&
-          groupRelationship(conversation.group, relationships) === 'member',
+        (conversation) => groupRelationship(conversation.group, relationships) === 'member',
       ),
       order.preferences.sort,
       order.preferences.descending,
@@ -1408,20 +1475,13 @@ export function GroupList({
     order.rows,
     order.rawGroupNames,
   ]);
-  const categories = useFrozenDirectory(
-    computedCategories,
-    groupSelection.selectionMode,
-    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}`,
-  );
   const historicalCategory = useMemo(
     () => ({
       mode: 'historical',
       label: '历史群聊',
       items: sortGroups(
         searchable.filter(
-          (conversation) =>
-            conversation.type === 'group' &&
-            groupRelationship(conversation.group, relationships) === 'nonmember',
+          (conversation) => groupRelationship(conversation.group, relationships) === 'nonmember',
         ),
         order.preferences.sort,
         order.preferences.descending,
@@ -1444,9 +1504,7 @@ export function GroupList({
       label: '其他群聊',
       items: sortGroups(
         searchable.filter(
-          (conversation) =>
-            conversation.type === 'group' &&
-            groupRelationship(conversation.group, relationships) === 'unknown',
+          (conversation) => groupRelationship(conversation.group, relationships) === 'unknown',
         ),
         order.preferences.sort,
         order.preferences.descending,
@@ -1463,14 +1521,29 @@ export function GroupList({
       order.rawGroupNames,
     ],
   );
+  const shownCategories = useMemo(
+    () =>
+      basis === 'none'
+        ? computedCategories
+        : [...computedCategories, historicalCategory, unknownCategory],
+    [basis, computedCategories, historicalCategory, unknownCategory],
+  );
+  const categories = useFrozenDirectory(
+    shownCategories,
+    groupSelection.selectionMode,
+    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}:${membership}`,
+  );
+  const selectionIds = useMemo(
+    () => [...new Set(categories.flatMap((category) => category.items.map((row) => row.id)))],
+    [categories],
+  );
+  useFilteredDirectoryIds(
+    'groups',
+    active,
+    hasFilter ? (loading ? NO_FILTER_MATCHES : selectionIds) : undefined,
+  );
   const multi = useMultiSelection({
-    ids: [
-      ...new Set(
-        [...categories, ...(basis === 'none' ? [] : [historicalCategory, unknownCategory])].flatMap(
-          (category) => category.items.map((row) => row.id),
-        ),
-      ),
-    ],
+    ids: selectionIds,
     selected: groupSelection.selectedIds,
     onChange: groupSelection.setSelectedIds,
     anchorRef: groupSelection.anchorRef,
@@ -1480,29 +1553,39 @@ export function GroupList({
   });
 
   if (loading) return <ListSkeleton rows={9} />;
-  if (
-    !categories.some((category) => category.items.length) &&
-    !historicalCategory.items.length &&
-    !unknownCategory.items.length
-  )
-    return <EmptyState title="暂无群聊" body="" icon={<Users />} />;
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
-      <ContactDirectoryOrder order={order} />
+      <ContactDirectoryOrder
+        order={order}
+        active={active}
+        filtersApplied={hasFilter}
+        filtersDisabled={groupSelection.selectionMode}
+        filters={
+          <SegmentedControl
+            label="群聊关系"
+            value={membership}
+            onChange={setMembership}
+            options={[
+              { value: 'all', label: '全部' },
+              { value: 'member', label: '我在群内' },
+              { value: 'nonmember', label: '我不在群内' },
+            ]}
+          />
+        }
+      />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
-        {friendDirectory?.openOnlineDirectory ? (
-          <button
-            type="button"
-            className="weq-set-btn"
-            onClick={friendDirectory.openOnlineDirectory}
-          >
-            在线好友与群
-          </button>
-        ) : null}
+        {!selectionIds.length && (
+          <EmptyState
+            title={hasFilter ? '没有符合条件的群聊' : '暂无群聊'}
+            body={hasFilter ? '可调整筛选条件。' : ''}
+            icon={<Users />}
+          />
+        )}
         {categories.map((category) => (
           <GroupNotificationSection
             key={category.mode}
             category={category}
+            filtered={hasFilter}
             activeConversationId={activeConversationId}
             onSelect={onSelect}
             selection={groupSelection}
@@ -1511,24 +1594,6 @@ export function GroupList({
             order={order}
           />
         ))}
-        <GroupNotificationSection
-          category={basis === 'none' ? { ...historicalCategory, items: [] } : historicalCategory}
-          activeConversationId={activeConversationId}
-          onSelect={onSelect}
-          selection={groupSelection}
-          multi={multi}
-          onMenu={setActionMenu}
-          order={order}
-        />
-        <GroupNotificationSection
-          category={basis === 'none' ? { ...unknownCategory, items: [] } : unknownCategory}
-          activeConversationId={activeConversationId}
-          onSelect={onSelect}
-          selection={groupSelection}
-          multi={multi}
-          onMenu={setActionMenu}
-          order={order}
-        />
       </div>
       {groupSelection.selectionMode ? (
         <ConversationBatchToolbar
@@ -1579,6 +1644,18 @@ export function GroupList({
               disabled: !batch.exportAvailable || !batch.rosterIds(actionMenu.ids).length,
               action: () => batch.runRoster(actionMenu.ids),
             },
+            ...(groupExit && menuGroup
+              ? [
+                  {
+                    label: groupExit.label,
+                    icon: menuRole === 'owner' ? <UserRoundX size={16} /> : <LogOut size={16} />,
+                    danger: 'outline',
+                    separatorBefore: true,
+                    disabled: groupExit.disabled,
+                    action: () => void groupExit.run(menuGroupId, displayGroupName(menuGroup)),
+                  },
+                ]
+              : []),
           ]}
         />
       ) : null}
@@ -1589,6 +1666,7 @@ export function GroupList({
 
 function GroupNotificationSection({
   category,
+  filtered,
   activeConversationId,
   onSelect,
   selection,
@@ -1601,9 +1679,11 @@ function GroupNotificationSection({
   const containsActive = category.items.some(
     (conversation) => conversation.id === activeConversationId,
   );
-  const [open, setOpen] = useState(containsActive);
+  const expansion = filtered ? 'filtered' : 'all';
+  const [openByMode, setOpenByMode] = useState({ all: containsActive, filtered: true });
+  const open = openByMode[expansion];
   useEffect(() => {
-    if (containsActive) setOpen(true);
+    if (containsActive) setOpenByMode({ all: true, filtered: true });
   }, [containsActive]);
   const expanded =
     category.mode === 'none' || open || Boolean(directory?.query) || selection.selectionMode;
@@ -1616,7 +1696,7 @@ function GroupNotificationSection({
         className="contact-cat-header"
         hidden={category.mode === 'none'}
         aria-expanded={expanded}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => setOpenByMode((current) => ({ ...current, [expansion]: !open }))}
       >
         <ChevronRight className={cn('contact-cat-caret', open && 'is-open')} size={15} />
         <span className="contact-cat-name">{category.label}</span>
@@ -1738,6 +1818,7 @@ type ContactRowEvents = {
 
 const ContactDirectoryRow = memo(function ContactDirectoryRow({
   contact,
+  onlineStatus = contact.onlineStatusObj,
   categoryId,
   active,
   selectionMode,
@@ -1751,6 +1832,7 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
   events,
 }: {
   contact: Contact;
+  onlineStatus?: Contact['onlineStatusObj'];
   categoryId: string | number;
   active: boolean;
   selectionMode: boolean;
@@ -1834,10 +1916,10 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
               </span>
             ) : (
               <>
-                {!own && contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
+                {!own && onlineStatus && onlineStatus.typeName !== '未知' ? (
                   <span className={cn('contact-card-status')}>
-                    <ContactOnlineStatusIcon status={contact.onlineStatusObj} />
-                    <span>[{contact.onlineStatusObj.displayStatus}]</span>
+                    <ContactOnlineStatusIcon status={onlineStatus} />
+                    <span>[{onlineStatus.displayStatus}]</span>
                   </span>
                 ) : null}
                 {contact.kind !== 'bot' &&
@@ -1860,13 +1942,13 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
           />
         ) : null}
       </button>
-      {own && !detail && contact.onlineStatusObj && contact.onlineStatusObj.typeName !== '未知' ? (
+      {own && !detail && onlineStatus && onlineStatus.typeName !== '未知' ? (
         <div className="weq-contact-self-status-row">
           <OnlineStatus
             uid={contact.uid || contact.id}
             selfUin={contact.identityValue}
             showBaseStatus
-            fallbackText={contact.onlineStatusObj.displayStatus}
+            fallbackText={onlineStatus.displayStatus}
           />
         </div>
       ) : null}
@@ -1903,7 +1985,14 @@ export function ContactList(props: ComponentProps<typeof ContactListContent>) {
   );
 }
 
+type ContactRelationshipFilter = 'all' | 'friend' | 'nonfriend';
+type ContactPresenceFilter = 'all' | 'online' | 'offline';
+
+const onlineContactStatuses = new Set(['在线', 'Q我吧', '离开', '忙碌', '勿扰']);
+const offlineContactStatuses = new Set(['离线', '隐身']);
+
 const ContactListContent = memo(function ContactListContent({
+  active = true,
   contacts,
   categoryDefinitions = EMPTY_CONTACT_OPTIONS,
   specialSections = EMPTY_CONTACT_OPTIONS,
@@ -1912,6 +2001,7 @@ const ContactListContent = memo(function ContactListContent({
   onSelect,
   loading,
 }: {
+  active?: boolean;
   contacts: Contact[];
   categoryDefinitions?: readonly {
     id: number;
@@ -1926,10 +2016,15 @@ const ContactListContent = memo(function ContactListContent({
   loading?: boolean;
 }) {
   const directory = useContext(ContactDirectoryContext);
+  const [relationshipFilter, setRelationshipFilter] = useState<ContactRelationshipFilter>('all');
+  const [presenceFilter, setPresenceFilter] = useState<ContactPresenceFilter>('all');
+  const hasPresenceFilter = presenceFilter !== 'all';
+  const hasFilters = relationshipFilter !== 'all' || hasPresenceFilter;
   const contactIds = useMemo(() => new Set(contacts.map((contact) => contact.id)), [contacts]);
   const relationships = useContext(RelationshipDirectoryContext);
   const conversationDirectory = useContext(ConversationDirectoryContext);
   const friendDirectory = useFriendDirectory();
+  const deleteFriend = useDeleteFriend('contact-directory', { passive: true });
   const requestExport = useRequestContentExport();
   const [actionMenu, setActionMenu] = useState<{
     x: number;
@@ -1979,6 +2074,14 @@ const ContactListContent = memo(function ContactListContent({
   );
   const batch = useConversationBatchActions(conversationRows);
   const selection = useContentMultiSelect({ kind: 'contacts', container: 'friends' });
+  const menuContact = actionMenu?.contact;
+  const menuUid = menuContact?.uid || menuContact?.id;
+  const canRemoveFriend =
+    !selection.selectionMode &&
+    actionMenu?.ids.length === 1 &&
+    Boolean(menuUid?.startsWith('u_')) &&
+    !menuContact?.clone &&
+    personRelationship(menuContact, relationships) === 'friend';
   const allContacts = useMemo(
     () => [
       ...new Map(
@@ -2006,13 +2109,59 @@ const ContactListContent = memo(function ContactListContent({
     timeSeeds,
   );
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
-  const matches = useCallback(
+  const matchesSearchAndRelationship = useCallback(
     (contact: Contact) =>
-      !needle ||
-      `${displayUserName(contact)} ${contact.nick ?? ''} ${contact.identityValue} ${occupationText(contact.extInfo?.occupation) ?? ''}`
-        .toLocaleLowerCase()
-        .includes(needle),
-    [needle],
+      (relationshipFilter === 'all' ||
+        (!contact.clone &&
+          contact.identityLabel !== '设备' &&
+          personRelationship(contact, relationships) === relationshipFilter)) &&
+      (!needle ||
+        `${displayUserName(contact)} ${contact.nick ?? ''} ${contact.identityValue} ${occupationText(contact.extInfo?.occupation) ?? ''}`
+          .toLocaleLowerCase()
+          .includes(needle)),
+    [needle, relationshipFilter, relationships],
+  );
+  // 同一联系人可出现在多个分组。按 UID 去重，避免分组和在线状态回填触发重复读取。
+  const presenceTargetKey = useMemo(
+    () =>
+      JSON.stringify(
+        hasPresenceFilter
+          ? [
+              ...new Set(
+                allContacts
+                  .filter(
+                    (contact) =>
+                      !contact.onlineStatusObj &&
+                      !contact.clone &&
+                      contact.identityLabel !== '设备' &&
+                      matchesSearchAndRelationship(contact),
+                  )
+                  .map((contact) => contact.uid || contact.id),
+              ),
+            ]
+          : [],
+      ),
+    [allContacts, hasPresenceFilter, matchesSearchAndRelationship],
+  );
+  const presenceTargets = useMemo(
+    () => (JSON.parse(presenceTargetKey) as string[]).map((uid) => ({ uid })),
+    [presenceTargetKey],
+  );
+  const { statuses: additionalStatuses, loading: presenceLoading } = useContactOnlineStatuses(
+    presenceTargets,
+    active && !loading && hasPresenceFilter && !selection.selectionMode,
+    Infinity,
+  );
+  const matches = useCallback(
+    (contact: Contact) => {
+      if (!matchesSearchAndRelationship(contact)) return false;
+      if (!hasPresenceFilter) return true;
+      if (contact.clone || contact.identityLabel === '设备') return false;
+      const status = contact.onlineStatusObj ?? additionalStatuses[contact.uid || contact.id];
+      const types = presenceFilter === 'online' ? onlineContactStatuses : offlineContactStatuses;
+      return Boolean(status && types.has(status.typeName));
+    },
+    [matchesSearchAndRelationship, hasPresenceFilter, presenceFilter, additionalStatuses],
   );
   const filtered = useMemo(() => contacts.filter(matches), [contacts, matches]);
 
@@ -2112,10 +2261,17 @@ const ContactListContent = memo(function ContactListContent({
     order.rows,
     order.regions,
   ]);
+  const filteredCategories = useMemo(
+    () =>
+      hasFilters
+        ? computedCategories.filter((category) => category.items.length)
+        : computedCategories,
+    [computedCategories, hasFilters],
+  );
   const categories = useFrozenDirectory(
-    computedCategories,
+    filteredCategories,
     selection.selectionMode,
-    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}`,
+    `${order.scopeKey}:${JSON.stringify(order.preferences)}:${needle}:${relationshipFilter}:${presenceFilter}`,
   );
   // 同一好友在特别关心、亲密关系及普通分组中各有独立的范围位置。
   const selectionRows = useMemo(
@@ -2129,9 +2285,13 @@ const ContactListContent = memo(function ContactListContent({
   );
   const selectionIds = useMemo(() => [...selectionRows.keys()], [selectionRows]);
   const getSelectionId = useCallback((id: string) => selectionRows.get(id)!, [selectionRows]);
+  const filteredIds = useMemo(
+    () => (hasFilters ? [...new Set(loading ? [] : selectionRows.values())] : undefined),
+    [hasFilters, loading, selectionRows],
+  );
+  useFilteredDirectoryIds('friends', active, filteredIds);
 
-  // 默认全部折叠。
-  const [expanded, setExpanded] = useState<Record<string | number, boolean>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const multi = useMultiSelection({
     ids: selectionIds,
     getSelectionId,
@@ -2190,20 +2350,57 @@ const ContactListContent = memo(function ContactListContent({
     return <ListSkeleton rows={9} />;
   }
 
-  if (categories.length === 0 && !friendDirectory?.error && !friendDirectory?.openOnlineDirectory) {
-    return (
-      <EmptyState
-        title="暂无联系人"
-        body="通过 ID 搜索或邀请链接添加联系人。"
-        icon={<UserRound />}
-      />
-    );
-  }
-
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
-      <ContactDirectoryOrder order={order} />
+      <ContactDirectoryOrder
+        order={order}
+        active={active}
+        filtersApplied={hasFilters}
+        filtersDisabled={selection.selectionMode}
+        filters={
+          <>
+            <div className="weq-directory-filter-row">
+              <span>好友关系</span>
+              <SegmentedControl
+                label="好友关系"
+                value={relationshipFilter}
+                onChange={setRelationshipFilter}
+                options={[
+                  { value: 'all', label: '全部' },
+                  { value: 'friend', label: '好友' },
+                  { value: 'nonfriend', label: '非好友' },
+                ]}
+              />
+            </div>
+            <div className="weq-directory-filter-row">
+              <span>在线状态</span>
+              <SegmentedControl
+                label="在线状态"
+                value={presenceFilter}
+                onChange={setPresenceFilter}
+                options={[
+                  { value: 'all', label: '全部' },
+                  { value: 'online', label: '在线' },
+                  { value: 'offline', label: '离线' },
+                ]}
+              />
+            </div>
+          </>
+        }
+      />
       <div className={cn('list-stack', 'contact-cat-list', 'weq-contact-directory-scroll')}>
+        {presenceLoading && (
+          <small className="contact-cat-description" role="status">
+            正在读取在线状态…
+          </small>
+        )}
+        {!categories.length && !presenceLoading && !friendDirectory?.error && (
+          <EmptyState
+            title={hasFilters ? '没有符合条件的联系人' : '暂无联系人'}
+            body={hasFilters ? '可调整筛选条件。' : '通过 ID 搜索或邀请链接添加联系人。'}
+            icon={<UserRound />}
+          />
+        )}
         {friendDirectory?.error && (
           <div className="contact-cat-description" role="alert">
             <small>好友分组读取失败：{friendDirectory.error}</small>
@@ -2218,10 +2415,11 @@ const ContactListContent = memo(function ContactListContent({
           </div>
         )}
         {categories.map((category) => {
+          const expansionKey = JSON.stringify([relationshipFilter, presenceFilter, category.id]);
           const open =
             order.preferences.grouping === 'none' ||
-            Boolean(expanded[category.id]) ||
-            Boolean(needle);
+            Boolean(needle) ||
+            (expanded[expansionKey] ?? hasFilters);
           return (
             <div
               className={cn(
@@ -2330,7 +2528,7 @@ const ContactListContent = memo(function ContactListContent({
                 onClick={() =>
                   setExpanded((current) => ({
                     ...current,
-                    [category.id]: !current[category.id],
+                    [expansionKey]: !open,
                   }))
                 }
               >
@@ -2344,7 +2542,11 @@ const ContactListContent = memo(function ContactListContent({
                   {category.name}
                 </span>
                 <span className={cn('contact-cat-count')}>
-                  {category.count === null ? '-' : (category.count ?? category.items.length)}
+                  {hasFilters
+                    ? category.items.length
+                    : category.count === null
+                      ? '-'
+                      : (category.count ?? category.items.length)}
                 </span>
               </button>
               {open && category.description ? (
@@ -2369,6 +2571,9 @@ const ContactListContent = memo(function ContactListContent({
                       <ContactDirectoryRow
                         key={contact.id}
                         contact={contact}
+                        onlineStatus={
+                          contact.onlineStatusObj ?? additionalStatuses[contact.uid || contact.id]
+                        }
                         categoryId={category.id}
                         active={!selection.selectionMode && contact.id === activeContactId}
                         selectionMode={selection.selectionMode}
@@ -2412,6 +2617,18 @@ const ContactListContent = memo(function ContactListContent({
           y={actionMenu.y}
           onClose={() => setActionMenu(null)}
           label="联系人操作"
+          removeFriend={
+            canRemoveFriend
+              ? {
+                  label: '删除好友',
+                  icon: <UserMinus size={16} />,
+                  danger: 'outline',
+                  separatorBefore: true,
+                  disabled: deleteFriend.disabled,
+                  action: () => void deleteFriend.run(menuUid, displayUserName(menuContact)),
+                }
+              : undefined
+          }
           friendUid={
             actionMenu.ids.length === 1 && contacts.some((row) => row.id === actionMenu.contact.id)
               ? actionMenu.contact.id

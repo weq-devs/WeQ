@@ -24,6 +24,7 @@ vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => {
   const empty: unknown[] = [];
   const detail = { group: { id: 'g', name: '合成群聊' }, members: empty };
+  const dress = { own: { chatBgUrl: '' } };
   const proxy = (path: string[] = []): unknown =>
     new Proxy(() => undefined, {
       get: (_target, key) => {
@@ -35,7 +36,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           };
         if (key === 'useQuery')
           return () => ({
-            data: path.at(-1) === 'getAgentLabGroupDetail' ? detail : empty,
+            data:
+              path.at(-2) === 'dressup' && path.at(-1) === 'getState'
+                ? dress
+                : path.at(-1) === 'getAgentLabGroupDetail'
+                  ? detail
+                  : empty,
             isLoading: false,
             isFetching: false,
             isSuccess: true,

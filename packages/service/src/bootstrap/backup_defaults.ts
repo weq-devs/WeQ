@@ -47,10 +47,12 @@ export function weqDefaultsConfig(current: UserConfig, choice: WeqDefaultsChoice
     activeFont: 0,
     activeWidget: 0,
     scope: 'mine',
+    scopes: { bubble: 'mine', font: 'mine', widget: 'mine' },
     background: 'none',
     backgroundFile: '',
     widgetId: '',
     backgroundOpacity: 1,
+    widgetOpacity: 1,
   });
   if (!choice.clearApi) {
     settings.voiceTranscribe.ttsProviders = structuredClone(

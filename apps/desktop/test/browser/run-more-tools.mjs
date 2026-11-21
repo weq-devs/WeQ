@@ -140,20 +140,20 @@ try {
       }
       for (const name of names) {
         await page.locator('.weq-mobile-more').getByRole('button', { name, exact: true }).click();
-        await page.locator(`.weq-workspace-page[aria-label="${name}"]`).waitFor();
-        await page
-          .locator('.weq-workspace-page')
-          .getByText('正在加载…', { exact: true })
-          .waitFor({ state: 'hidden' });
-        await chrome();
-        assert.equal(await page.locator('.weq-dialog-layer:not([hidden])').count(), 0);
+        const modal = name === '分析报告';
+        const tool = page.getByRole(modal ? 'dialog' : 'region', { name, exact: true });
+        await tool.waitFor();
+        await tool.getByText('正在加载…', { exact: true }).waitFor({ state: 'hidden' });
+        if (!modal) await chrome();
+        assert.equal(await page.locator('.weq-dialog-layer:not([hidden])').count(), Number(modal));
         if (output)
           await page.screenshot({
             path: resolve(output, `more-${names.indexOf(name)}-${width}-${theme}.png`),
           });
-        await swipeBack('.weq-workspace-page:not([hidden])');
+        if (modal) await page.evaluate(() => window.weqMobileNavigation.back());
+        else await swipeBack('.weq-workspace-page:not([hidden])');
         await page.waitForSelector('.weq-mobile-more');
-        assert.equal(await page.locator(`.weq-workspace-page[aria-label="${name}"]`).count(), 0);
+        await tool.waitFor({ state: 'hidden' });
       }
     }
   }
@@ -181,7 +181,7 @@ try {
   await page.evaluate(() => window.moreToolsQa.openDressUp());
   await page.locator('.weq-dress-dialog').waitFor();
   await chrome();
-  await page.locator('.weq-dress-close').click();
+  await page.locator('[data-mobile-tab="messages"]').click();
   await page.locator('.weq-dress-dialog').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.weq-mobile-header').isVisible(), false);
   await page.setViewportSize({ width: 1180, height: 844 });

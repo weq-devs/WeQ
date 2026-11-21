@@ -183,7 +183,7 @@ describe('增强设置与非活动页面资源', () => {
       expect(f.host.querySelectorAll('[role="switch"]')).toHaveLength(2);
       const chosen = f.host.querySelector<HTMLButtonElement>('[aria-label="下载本地文字识别"]')!;
       await act(async () => chosen.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'], foreground: true });
       expect(f.host.querySelector('progress')).toBeNull();
     } finally {
       f.dispose();
@@ -222,7 +222,9 @@ describe('增强设置与非活动页面资源', () => {
         )!;
         expect(action.disabled).toBe(false);
         await act(async () => action.click());
-        expect(fixture.mutate).toHaveBeenLastCalledWith(ready ? { id: 'text' } : { ids: ['text'] });
+        expect(fixture.mutate).toHaveBeenLastCalledWith(
+          ready ? { id: 'text' } : { ids: ['text'], foreground: true },
+        );
         const check = row.querySelector<HTMLButtonElement>('[aria-label="检查本地文字识别更新"]')!;
         expect(check.disabled).toBe(false);
         await act(async () => check.click());
@@ -268,7 +270,7 @@ describe('增强设置与非活动页面资源', () => {
       )!;
       expect(button.disabled).toBe(false);
       await act(async () => button.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'], foreground: true });
     } finally {
       f.dispose();
     }
@@ -314,7 +316,7 @@ describe('增强设置与非活动页面资源', () => {
       const repair = row.querySelector<HTMLButtonElement>('[aria-label="补齐本地文字识别"]')!;
       expect(repair.title).toContain('文字筛图模型');
       await act(async () => repair.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'], foreground: true });
     } finally {
       f.dispose();
     }

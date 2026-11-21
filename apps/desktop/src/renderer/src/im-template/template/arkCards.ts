@@ -454,6 +454,11 @@ export function contactAvatarUrl(kind: 'qq' | 'group', contactId: number): strin
     : `https://p.qlogo.cn/gh/${contactId}/${contactId}/0`;
 }
 
+export function qqContactCardUrl(kind: 'qq' | 'group', contactId: number): string {
+  const type = kind === 'group' ? '&card_type=group' : '';
+  return `mqqapi://card/show_pslcard?src_type=internal&version=1${type}&uin=${contactId}`;
+}
+
 /**
  * 推荐好友 / 推荐群的**本地占位卡**。
  *
@@ -465,10 +470,6 @@ export function contactAvatarUrl(kind: 'qq' | 'group', contactId: number): strin
  */
 export function buildContactPlaceholderArk(kind: 'qq' | 'group', contactId: number): string {
   const title = String(contactId);
-  const jumpUrl =
-    kind === 'qq'
-      ? `mqqapi://card/show_pslcard?src_type=internal&version=1&uin=${contactId}`
-      : `mqqapi://card/show_pslcard?src_type=internal&version=1&card_type=group&uin=${contactId}`;
   return JSON.stringify({
     app: kind === 'qq' ? 'com.tencent.contact.lua' : 'com.tencent.troopsharecard',
     view: 'contact',
@@ -478,7 +479,7 @@ export function buildContactPlaceholderArk(kind: 'qq' | 'group', contactId: numb
         title,
         desc: kind === 'qq' ? '推荐好友' : '推荐群聊',
         avatar: contactAvatarUrl(kind, contactId),
-        jumpUrl,
+        jumpUrl: qqContactCardUrl(kind, contactId),
       },
     },
   });

@@ -1,5 +1,6 @@
 /* 复古沿用现有主题色与画布，只统一共用界面形态，不修改分栏、行高及媒体正文。 */
-html[data-component-style='retro'][data-theme] {
+html[data-component-style='retro'][data-theme],
+[data-component-preview='retro'] {
   --radius: 0px;
   --weq-retro-highlight: var(--weq-bg-surface);
   --weq-retro-lowlight: var(--weq-border-strong);
@@ -9,7 +10,8 @@ html[data-component-style='retro'][data-theme] {
     inset 1px 1px var(--weq-retro-lowlight), inset -1px -1px var(--weq-retro-highlight);
 }
 
-html[data-component-style='retro'][data-theme='dark'] {
+html[data-component-style='retro'][data-theme='dark'],
+html[data-theme='dark'] [data-component-preview='retro'] {
   --weq-retro-highlight: var(--weq-border-strong);
   --weq-retro-lowlight: var(--weq-bg-app);
 }
@@ -68,7 +70,6 @@ html[data-component-style='retro'][data-theme] body
     .weq-search-scope > button[aria-pressed],
     .weq-segmented > button,
     .weq-set-seg-item,
-    .weq-density-options button,
     .contact-tab-switch button,
     .mode-button,
     .ai-voice-chip,
@@ -130,7 +131,6 @@ html[data-component-style='retro'][data-theme]
   body
   :is(
     .weq-segmented,
-    .weq-density-options,
     .contact-tab-switch,
     .ark-seg,
     .redpacket-seg,
@@ -152,7 +152,7 @@ html[data-component-style='retro'][data-theme]
   background: color-mix(in srgb, var(--weq-bg-elevated) 85%, transparent);
   box-shadow: var(--weq-control-shadow);
 
-  &:is(.weq-segmented, .weq-density-options, .contact-tab-switch) {
+  &:is(.weq-segmented, .contact-tab-switch) {
     border: 1px solid var(--weq-skin-border);
   }
 }
@@ -180,9 +180,7 @@ html[data-component-style='retro'][data-theme]
   color: var(--weq-fg-secondary);
 }
 
-html[data-component-style='retro'][data-theme]
-  body
-  :is(.weq-applock-method-icon, .ai-voice-chip-play) {
+html[data-component-style='retro'][data-theme] body .weq-applock-method-icon {
   border-radius: var(--weq-skin-radius);
 }
 
@@ -265,7 +263,7 @@ html[data-component-style='retro'][data-theme]
     .weq-wtools-rv-json,
     .weq-schedule-settings input:not([type='checkbox']):not([type='radio']),
     .weq-schedule-settings .weq-select-trigger,
-    .composer textarea
+    .composer textarea:where(:not(.voice-tts-input))
   ) {
   border: 2px solid var(--weq-skin-border);
   border-radius: 0;

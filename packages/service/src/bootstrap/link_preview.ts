@@ -1,8 +1,7 @@
 /**
  * LinkPreviewService —— 聊天里的裸链接 → 一张卡片（标题/描述/站点/封面图）。
  *
- * 这是本仓库里唯一一处「拿用户消息里的字符串去发网络请求」的地方，所以整条链路是按
- * 「默认不信任」写的，四道闸依次是：
+ * 聊天链接和邮件外链图共用公网请求检查：
  *
  *   1. **协议 / 端口**：只放行 http(s)，且只放行 80/443。攻击者没法用
  *      `http://127.0.0.1:6379/` 之类去捅本机服务。
@@ -284,6 +283,7 @@ async function guardedFetch(
   start: Allowed,
   accept: string,
   signal?: AbortSignal,
+  httpsOnly = false,
 ): Promise<GuardedHit | null> {
   let current = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -310,7 +310,13 @@ async function guardedFetch(
     const location = res.headers.location;
     res.stream.destroy();
     if (!location || Array.isArray(location)) return null;
-    const next = await urlAllowed(new URL(location, current.url).toString());
+    const redirect = new URL(location, current.url);
+    if (
+      httpsOnly &&
+      (redirect.protocol !== 'https:' || redirect.port || redirect.username || redirect.password)
+    )
+      return null;
+    const next = await urlAllowed(redirect.href);
     if (!next) return null;
     current = next;
   }
@@ -348,6 +354,24 @@ async function readWhole(stream: Readable, limit: number): Promise<Buffer | null
     chunks.push(chunk as Buffer);
   }
   return chunks.length > 0 ? Buffer.concat(chunks) : null;
+}
+
+/** 仅下载公网 HTTPS 图片，每次跳转重新校验地址，不携带业务凭据。 */
+export async function fetchPublicImageBytes(
+  url: URL,
+  limit: number,
+  signal: AbortSignal,
+): Promise<Buffer | null> {
+  if (url.protocol !== 'https:' || url.port || url.username || url.password) return null;
+  const active = AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]);
+  const target = await urlAllowed(url.href);
+  if (!target) return null;
+  const hit = await guardedFetch(target, 'image/*', active, true);
+  if (hit?.status !== 200 || !/^\s*image\//i.test(hit.contentType)) {
+    hit?.stream.destroy();
+    return null;
+  }
+  return readWhole(hit.stream, limit);
 }
 
 // ---- HTML 元信息解析 -------------------------------------------------------

@@ -120,11 +120,7 @@ export interface InsertMsgResult {
  */
 export type DeletedKind = 'weq' | 'qq';
 
-/**
- * Recall marker for a message whose QQ recall was intercepted by the anti-recall
- * trigger. The original row survives untouched (renders normally); this only
- * records that a recall happened and who did it, read from `weq_recall_log`.
- */
+/** Recall marker for a message with preserved original content. */
 export interface RecallInfo {
   /** Uid that performed the recall (from the recall gray-tip; '' if unknown). */
   revokeUid: string;
@@ -132,6 +128,8 @@ export interface RecallInfo {
   sameSender: boolean;
   /** When the recall was intercepted (unix seconds). */
   recallTs: number;
+  /** 正文来自防撤回独立副本（本地数据库快照或实时代理推送）。 */
+  retained?: true;
 }
 
 /** Conversation-level `msgId → recall log entry` map (see AntiRecallService.getRecallMap). */
@@ -677,7 +675,12 @@ export class MsgService {
    * `fileName` picks the ptt element when a message carries several. Returns
    * false when the row / element isn't found, or when the value is unchanged.
    */
-  async setPttTranscript(msgId: bigint, fileName: string, text: string): Promise<boolean> {
+  async setPttTranscript(
+    msgId: bigint,
+    fileName: string,
+    text: string,
+    options: { ifEmpty?: boolean; current?: () => boolean } = {},
+  ): Promise<boolean> {
     for (const db of [
       this.session.c2cMsgs,
       this.session.datalineMsgs,
@@ -690,20 +693,32 @@ export class MsgService {
         (el): el is Extract<Element, { kind: 'ptt' }> =>
           el.kind === 'ptt' && (!fileName || el.fileName === fileName),
       );
-      if (!ptt || ptt.pttTranscript === text) return false;
+      if (!ptt || ptt.pttTranscript === text || (options.ifEmpty && ptt.pttTranscript))
+        return false;
       ptt.pttTranscript = text;
       // QQ 写转录结果时同时置这两个 flag（参考行 c2c 7669105866341663773，全库
       // 观测到 45924 恒 1 / 45926 恒 2）。它们是 QQ 判断「这条已经转过文字了」的
       // 依据 —— 只写 45923 的话 QQ 本体不认，还会再转一次。
       ptt.pttFlag45924 = 1;
       ptt.pttFlag45926 = 2;
-      const affected = await db.updateMsgBody(
+      if (options.current && !options.current()) return false;
+      const affected = await db.replaceMsgBody(
         msgId,
+        blob,
         bodyCodec.encode({ elements: elements.map(encodeElement) }),
       );
       return affected > 0;
     }
     return false;
+  }
+
+  async getSentVoiceRows(kind: 'c2c' | 'group', conv: string, seq: bigint) {
+    if (kind === 'group') {
+      return (await this.session.groupMsgs.listBySeqsInPartition(conv, [seq])).map(renderGroup);
+    }
+    return (
+      await this.c2cDbFor(conv).listBySeqsInPartition(await this.c2cPagePartition(conv), [seq])
+    ).map(renderC2c);
   }
 
   /**

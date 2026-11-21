@@ -104,6 +104,96 @@ it('成功获取空名单后不回退旧本地成员', async () => {
   expect((await reopened.getRelationGraph()).nodes).toEqual([]);
 });
 
+it('管理员变更后用新名单同步列表、搜索和名片，保留本地群昵称与退群记录', async () => {
+  const cached = {
+    groupCode: 1n,
+    uid: member.uid,
+    uin: BigInt(member.uin),
+    card: '本地群昵称',
+    adminFlag: 0,
+    memberFlag: 0,
+  };
+  const departed = {
+    ...cached,
+    uid: replacement.uid,
+    uin: BigInt(replacement.uin),
+    memberFlag: 1,
+  };
+  const session = {
+    selfUid: member.uid,
+    context: { uin: String(member.uin) },
+    groupDetail: { listDirectory: async () => [{ groupCode: '1', role: 'member' }] },
+    groupMembers: {
+      listMembersInGroup: async () => [cached],
+      getMember: async () => cached,
+      getMembersByUids: async () => [cached, departed],
+      searchMembersInGroup: async () => ({ items: [cached], total: 1 }),
+    },
+  } as unknown as AccountSession;
+  const service = new GroupInfoService(session, {
+    nt: { sendOidbPacket: vi.fn() },
+    resolvePid: () => 1,
+  });
+  const changed = vi.fn();
+  service.onMemberRolesChanged = changed;
+  const page = vi
+    .spyOn(FetchGroupMemberListPage, 'invoke')
+    .mockResolvedValue({ members: [member], token: '' });
+  await service.syncMemberRoles(1);
+  expect((await service.getMemberInfo(1n, member.uid))?.adminFlag).toBe(0);
+  await service.syncMemberRoles(1);
+  expect(page).toHaveBeenCalledTimes(1);
+
+  page.mockResolvedValue({
+    members: [
+      { ...member, permission: 2 },
+      { ...replacement, permission: 2 },
+    ],
+    token: '',
+  });
+  await service.syncMemberRoles(1, true);
+  const admin = { ...cached, adminFlag: 1 };
+  expect(await service.listMembersInGroup(1n)).toEqual([admin]);
+  expect(await service.getMemberInfo(1n, member.uid)).toEqual(admin);
+  expect(await service.getMembersByUids(1n, [member.uid, replacement.uid])).toEqual([
+    admin,
+    departed,
+  ]);
+  expect(await service.searchMembersInGroup(1n, '本地群昵称')).toEqual({
+    items: [admin],
+    total: 1,
+  });
+  expect(await service.listGroupDirectory()).toEqual([{ groupCode: '1', role: 'admin' }]);
+
+  // 撤销时本地 QQ 可能还保留已同步到库里的管理员标记。
+  cached.adminFlag = 1;
+  page.mockResolvedValue({ members: [member], token: '' });
+  await service.syncMemberRoles(1, true);
+  expect((await service.getMemberInfo(1n, member.uid))?.adminFlag).toBe(0);
+  expect(changed).toHaveBeenCalledTimes(3);
+});
+
+it('设撤管理员后的回读不复用操作前在途的名单', async () => {
+  const { service } = await setup();
+  let release!: () => void;
+  const page = vi
+    .spyOn(FetchGroupMemberListPage, 'invoke')
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ members: [member], token: '' });
+        }),
+    )
+    .mockResolvedValue({ members: [{ ...member, permission: 2 }], token: '' });
+  const initial = service.syncMemberRoles(1);
+  const readback = service.syncMemberRoles(1, true);
+  expect(page).toHaveBeenCalledTimes(1);
+  release();
+  await initial;
+  expect(await readback).toEqual([{ ...member, permission: 2 }]);
+  expect(page).toHaveBeenCalledTimes(2);
+});
+
 it('已更新名单但尚无群资料的群仍参与重算，重开后也不丢失', async () => {
   const { root, service, session } = await setup();
   vi.spyOn(FetchGroupMemberListPage, 'invoke').mockResolvedValue({

@@ -837,11 +837,7 @@ function GroupFileManagerBody({
       )}
       <div className="weq-file-manager-status">
         <span>
-          {chosen.length ? (
-            <NumericText>{`已选 ${chosen.length} 项`}</NumericText>
-          ) : (
-            <NumericText>{`${folders.length} 个文件夹 · ${files.length} 个文件`}</NumericText>
-          )}
+          <NumericText>{`${folders.length} 个文件夹 · ${files.length} 个文件`}</NumericText>
         </span>
         {summary.data && Number.isFinite(summary.data.fileCount) && (
           <span>
@@ -1199,6 +1195,11 @@ function GroupFileManagerBody({
                           )}
                         </span>
                       </small>
+                      {row.kind === 'file' && row.file.expireTime > 0 && (
+                        <small className="weq-file-manager-expiry">
+                          <NumericText>{`到期 ${formatFileTime(row.file.expireTime)}`}</NumericText>
+                        </small>
+                      )}
                     </span>
                   </div>
                 </td>
@@ -1236,8 +1237,6 @@ function GroupFileManagerBody({
                       onClick={(event) => {
                         const rect = event.currentTarget.getBoundingClientRect();
                         const keys = selected.has(row.key) ? [...selected] : [row.key];
-                        if (!selected.has(row.key)) selectionAnchor.current = row.key;
-                        setSelected(new Set(keys));
                         setMenu({ x: rect.left, y: rect.bottom, keys });
                       }}
                     >
@@ -1299,7 +1298,7 @@ function GroupFileManagerBody({
             ...(onSaveSelected
               ? [
                   {
-                    label: '保存所选项目',
+                    label: menuRows.length === 1 ? '保存' : '保存所选项目',
                     icon: <Download size={16} />,
                     disabled: saving || batchActive || loading || !menuRows.length,
                     action: () => void saveRows(menu.keys),

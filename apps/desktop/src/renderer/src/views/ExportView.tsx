@@ -52,6 +52,7 @@ import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { EmojiPackExportPane } from './export/EmojiPackExportPane';
 import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
 import { CurrentTaskList } from '../components/tasks/CurrentTaskList';
+import { TaskQuickActions } from '../components/tasks/TaskQuickActions';
 import { EmptyState } from '../components/EmptyState';
 
 import { preflightExportEstimate } from './export/preflight';
@@ -2697,9 +2698,9 @@ function ExportToolBody({
                           <ScheduleRow
                             key={s.id}
                             schedule={s}
-                            onToggle={() => void onToggleSchedule(s)}
-                            onDelete={() => void onDeleteSchedule(s)}
-                            onRunNow={() => void onRunScheduleNow(s)}
+                            onToggle={() => onToggleSchedule(s)}
+                            onDelete={() => onDeleteSchedule(s)}
+                            onRunNow={() => onRunScheduleNow(s)}
                           />
                           <ScheduleSettings schedule={s} />
                         </div>
@@ -3158,9 +3159,11 @@ function CollectionScope({
             checked={selectedIds !== undefined}
             onChange={(next) => onSelectedIdsChange(next ? [] : undefined)}
           >
-            {selectedIds === undefined
-              ? '导出全部筛选结果'
-              : `精确选中 ${selectedIds.length} 条收藏`}
+            {selectedIds === undefined ? (
+              '导出全部筛选结果'
+            ) : (
+              <NumericText>{`精确选中 ${selectedIds.length} 条收藏`}</NumericText>
+            )}
           </CheckPill>
         </div>
         <div className="weq-exp-search">
@@ -3301,9 +3304,9 @@ function ScheduleRow({
   onRunNow,
 }: {
   schedule: ScheduledTask;
-  onToggle: () => void;
-  onDelete: () => void;
-  onRunNow: () => void;
+  onToggle: () => Promise<void>;
+  onDelete: () => Promise<void>;
+  onRunNow: () => Promise<void>;
 }): ReactElement {
   const next = schedule.nextRunAt;
   const formats = schedule.formats?.length ? schedule.formats : [schedule.format];
@@ -3321,6 +3324,29 @@ function ScheduleRow({
             </span>
           ))}
         </div>
+        <TaskQuickActions
+          variant="detail"
+          actions={[
+            {
+              id: 'run',
+              label: '立即运行',
+              icon: <Zap size={14} />,
+              run: onRunNow,
+            },
+            {
+              id: 'toggle',
+              label: schedule.enabled ? '暂停' : '启用',
+              icon: schedule.enabled ? <Pause size={14} /> : <Play size={14} />,
+              run: onToggle,
+            },
+            {
+              id: 'delete',
+              label: '删除',
+              icon: <Trash2 size={14} />,
+              run: onDelete,
+            },
+          ]}
+        />
         <div className="weq-exp-sched-card-meta">
           <span>
             会话{' '}
@@ -3360,29 +3386,6 @@ function ScheduleRow({
             ))}
           </div>
         ) : null}
-      </div>
-      <div className="weq-exp-sched-card-actions">
-        <button
-          type="button"
-          onClick={onToggle}
-          title={schedule.enabled ? '暂停' : '启用'}
-          aria-label={schedule.enabled ? '暂停' : '启用'}
-        >
-          {schedule.enabled ? <Pause size={14} /> : <Play size={14} />}
-        </button>
-        <button type="button" onClick={onRunNow} title="立即运行" aria-label="立即运行">
-          <Zap size={14} />
-        </button>
-        <button
-          data-danger="outline"
-          type="button"
-          className="is-danger"
-          onClick={onDelete}
-          title="删除"
-          aria-label="删除"
-        >
-          <Trash2 size={14} />
-        </button>
       </div>
     </div>
   );

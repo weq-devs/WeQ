@@ -41,6 +41,7 @@ import { client, trpc } from '@renderer/trpc/client';
 import { openMediaPreview } from './mediaPreviewStore.shared';
 
 import {
+  chatBlobImageSaveSource,
   chatImagePreviewSources,
   MediaItemKeyContext,
   useChatMediaOpen,
@@ -53,6 +54,7 @@ import { cdnImageUrl, cdnVideoCoverUrl, flashPicUrl, useCdn } from '@renderer/li
 import { useMediaSave } from './MediaSaveControls.shared';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
+import { MessageTextResult } from './MessageTextResult';
 import { useTabActive } from './RetainedTabs.shared';
 import { useRemoteClient } from '../lib/remoteClient';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
@@ -66,6 +68,7 @@ import {
 import { MediaLoadingRing, MediaTransferBadge, TransferRing } from './TransferRing';
 import { transferLabel } from '../lib/transferPresentation';
 import { useVideoBuffering } from '../hooks/useVideoBuffering';
+import { intrinsicMediaSize, messageMediaSize, type MediaSize } from '../lib/chatMediaSize';
 import '../styles/media-preview.css';
 
 type Data = Record<string, unknown>;
@@ -120,20 +123,32 @@ function QqFlashCover({
   );
 }
 
-/**
- * Scale (w×h) to fit within (maxW×maxH) preserving aspect ratio, never
- * upscaling. Returns null when the natural size is unknown, so the caller can
- * fall back to a max-bounded box.
- */
-function fitWithin(
-  w: number,
-  h: number,
-  maxW: number,
-  maxH: number,
-): { width: number; height: number } | null {
-  if (!w || !h) return null;
-  const scale = Math.min(maxW / w, maxH / h, 1);
-  return { width: Math.round(w * scale), height: Math.round(h * scale) };
+const decodedPreviewSizes = new Map<string, MediaSize>();
+
+function useMediaPreviewSize(kind: 'pic' | 'video', data: Data, key: string) {
+  const cacheKey = `${kind}:${key}`;
+  const measure = () => ({
+    key: cacheKey,
+    size: messageMediaSize(kind, data, decodedPreviewSizes.get(cacheKey)),
+  });
+  const [preview, setPreview] = useState(measure);
+  let current = preview;
+  if (preview.key !== cacheKey) {
+    current = measure();
+    setPreview(current);
+  }
+  return {
+    size: current.size,
+    remember(width: number, height: number) {
+      const size = decodedPreviewSizes.get(cacheKey) ?? intrinsicMediaSize(width, height);
+      if (!size) return;
+      // 当前气泡沿用首次布局，下次挂载才使用解码尺寸。
+      decodedPreviewSizes.delete(cacheKey);
+      decodedPreviewSizes.set(cacheKey, size);
+      if (decodedPreviewSizes.size > 512)
+        decodedPreviewSizes.delete(decodedPreviewSizes.keys().next().value!);
+    },
+  };
 }
 
 /**
@@ -185,6 +200,7 @@ export function QqImage({
   msgId = '',
   fwd,
   interactive = true,
+  gridTile = false,
 }: {
   data: Data;
   sendTimeMs: number;
@@ -192,6 +208,7 @@ export function QqImage({
   msgId?: string;
   fwd?: ForwardRef;
   interactive?: boolean;
+  gridTile?: boolean;
 }) {
   const limited = useDataSaver((state) => state.enabled);
   const behavior = useDataSaver((state) => state.behavior);
@@ -214,12 +231,6 @@ export function QqImage({
   const h = num(data, 'imgHeight');
   // subType 1 = received animated emoji (served from Emoji/emoji-recv).
   const isAnimatedEmoji = num(data, 'subType') === 1;
-  const maxW = isAnimatedEmoji ? 120 : 200;
-  const maxH = isAnimatedEmoji ? 120 : 400;
-  const fit = fitWithin(w, h, maxW, maxH);
-  const style: CSSProperties = fit
-    ? { width: fit.width, height: fit.height }
-    : { maxWidth: maxW, maxHeight: maxH };
 
   // 定位规则升级后换 URL，避免继续命中此前空文件名误选图片的浏览器缓存。
   const params: Record<string, string | number> = { t: sendTimeMs, name, token, lookup: 2 };
@@ -248,6 +259,12 @@ export function QqImage({
   // 本地路径、CDN 与缓存依次兜底；灯箱沿用这条回退链，不依赖气泡先加载成功。
   const localPath = str(data, 'localPath');
   const localPreviewUrl = str(data, 'localPreviewUrl');
+  const previewSize = useMediaPreviewSize(
+    'pic',
+    data,
+    localPreviewUrl || localPath || originalProxySrc,
+  );
+  const style: CSSProperties = previewSize.size;
   // 闪照：`fileToken` 是老式 offpic 路径（`/uin-id-md5`），三档 URL 全空、没有
   // rkey 可用，但 offpic 本身免 rkey。气泡画固定封面，点开才现取 0 档原图。
   //
@@ -267,6 +284,7 @@ export function QqImage({
     candidates.push(requested ? originalProxySrc : mediaUrl('pic', params));
   const [srcIndex, setSrcIndex] = useState(0);
   const source = candidates[Math.min(srcIndex, candidates.length - 1)] ?? proxySrc;
+  const usingLocalPreview = source === localPreviewUrl;
   const src = mediaRetryUrl(source, attempt);
   const retry = () => {
     setRequested(true);
@@ -307,14 +325,10 @@ export function QqImage({
   // 闪照气泡：固定封面，不加载任何图片。尺寸跟着元素里的宽高走（拿不到就给一个
   // 竖向短图的默认框），点击才现取 0 档原图 —— 拿不到 URL 时连点都点不开。
   if (flash) {
-    // 封面必须有确定尺寸：元素没带宽高时 `style` 只有 max-* 约束，方块会塌成图标大小。
-    const flashStyle: CSSProperties = fit
-      ? { width: fit.width, height: fit.height }
-      : { width: 140, height: 190 };
     return (
       <span className="qq-media-image-preview-wrap">
         <QqFlashCover
-          style={{ ...flashStyle, cursor: flashFullSrc && interactive ? 'zoom-in' : undefined }}
+          style={{ ...style, cursor: flashFullSrc && interactive ? 'zoom-in' : undefined }}
           onClick={
             flashFullSrc && interactive
               ? (event) => {
@@ -376,6 +390,7 @@ export function QqImage({
                       kind: 'image',
                       src: preview?.src ?? previewSrc,
                       originalImage: preview?.originalImage,
+                      saveSource: chatBlobImageSaveSource(previewSrc, params),
                       title: name || (isAnimatedEmoji ? '[表情]' : '[图片]'),
                       ocr: ocrContext,
                       progressTarget,
@@ -398,18 +413,27 @@ export function QqImage({
         }
       >
         {broken ? (
-          <QqMediaMissing label={`该${kindLabel}`} style={style} />
+          <QqMediaMissing
+            label={`该${kindLabel}`}
+            style={gridTile ? undefined : { ...style, minWidth: 0, minHeight: 0, padding: 0 }}
+          />
         ) : (
           <ShimmerImage
             suspendOffscreen
-            mediaLoading={!isAnimatedEmoji}
+            mediaLoading={!isAnimatedEmoji && !usingLocalPreview}
             className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
-            style={style}
+            style={gridTile ? undefined : w && h ? style : { ...style, objectFit: 'contain' }}
+            width={previewSize.size.width}
+            height={previewSize.size.height}
             src={src}
             alt={isAnimatedEmoji ? '[动画表情]' : name || '[图片]'}
             draggable={false}
-            loading="lazy"
+            loading={usingLocalPreview ? 'eager' : 'lazy'}
             decoding="async"
+            onLoad={(event) => {
+              const { naturalWidth, naturalHeight } = event.currentTarget;
+              if (!w || !h) previewSize.remember(naturalWidth, naturalHeight);
+            }}
             onError={() => {
               if (srcIndex < candidates.length - 1) setSrcIndex((index) => index + 1);
               else setBroken(true);
@@ -488,13 +512,6 @@ export function QqVideo({
   const w = num(data, 'videoWidth');
   const h = num(data, 'videoHeight');
   const duration = num(data, 'videoDuration');
-  const fit = fitWithin(w, h, 200, 400);
-  // bubble mode: container already clips to 120×120 circle, fill it entirely.
-  const style: CSSProperties = bubble
-    ? { width: '100%', height: '100%' }
-    : fit
-      ? { width: fit.width, height: fit.height }
-      : { maxWidth: 200, maxHeight: 400 };
 
   // 封面同图片：CDN 直链优先，失败落回代理。原片不参与——那要 OIDB 现签 URL。
   const cdn = useCdn();
@@ -509,6 +526,9 @@ export function QqVideo({
   const thumbLocalPath = str(data, 'thumbLocalPath');
   const localPreviewUrl = str(data, 'localPreviewUrl');
   const localCoverSrc = thumbLocalPath ? localFileUrl(thumbLocalPath) : localPreviewUrl;
+  const previewSize = useMediaPreviewSize('video', data, localCoverSrc || localPath || proxyCover);
+  // 视频气泡填满已有的 120×120 圆形容器。
+  const style: CSSProperties = bubble ? { width: '100%', height: '100%' } : previewSize.size;
   const coverSrc = localCoverSrc
     ? localCoverSrc
     : coverCdn && !coverCdnFailed
@@ -521,7 +541,7 @@ export function QqVideo({
   const missingVideo = videoBroken ? (
     <QqMediaMissing
       label={bubble && templateName ? templateName : '该视频'}
-      style={style}
+      style={{ ...style, minWidth: 0, minHeight: 0, padding: 0 }}
       kind="视频"
       onRetry={
         interactive
@@ -637,6 +657,10 @@ export function QqVideo({
             controls
             autoPlay
             {...buffering.events}
+            onLoadedMetadata={(event) => {
+              const { videoWidth, videoHeight } = event.currentTarget;
+              if (!w || !h) previewSize.remember(videoWidth, videoHeight);
+            }}
             onError={() => {
               buffering.events.onError();
               setVideoBroken(true);
@@ -678,8 +702,13 @@ export function QqVideo({
             mediaLoading
             className="qq-media-video-poster"
             src={coverSrc}
+            style={!w || !h ? { objectFit: 'contain' } : undefined}
             alt={name || '[视频]'}
             draggable={false}
+            onLoad={(event) => {
+              const { naturalWidth, naturalHeight } = event.currentTarget;
+              if (!w || !h) previewSize.remember(naturalWidth, naturalHeight);
+            }}
             onError={() => {
               if (coverSrc === coverCdn) setCoverCdnFailed(true);
               else setPosterBroken(true);
@@ -1113,9 +1142,10 @@ export function QqVoice({
     active && visible && !storedTranscript && !localPreviewUrl && !localPath,
   );
   const canTranscribe = transcribe.available && !localPreviewUrl && !localPath;
-  const result = transcribe.result;
+  const result = storedTranscript && transcribe.result?.automatic ? undefined : transcribe.result;
   const transcribeError =
-    transcribe.error ?? (result && !result.success ? (result.error ?? '识别失败') : null);
+    (storedTranscript ? null : transcribe.error) ??
+    (result && !result.success ? (result.error ?? '识别失败') : null);
   const emotion = result?.emotion ?? null;
   const events = (result?.events ?? []).map(
     (event) => `${event.emoji ? `${event.emoji} ` : ''}${event.label}`,
@@ -1178,11 +1208,6 @@ export function QqVoice({
     }
   };
 
-  const runTranscribe = (e: ReactMouseEvent): void => {
-    e.stopPropagation();
-    transcribe.run();
-  };
-
   // Bar count tracks duration (QQ-style: longer clip → longer strip), with a
   // floor so short clips — notably AI 声聊, which are often 1–5s — always show a
   // visible waveform, and a cap so very long clips stay within the bubble (the
@@ -1192,6 +1217,8 @@ export function QqVoice({
   const shownTranscript =
     (result?.success ? (result.text ?? '') : null) ?? (storedTranscript || null);
   const hasResult = shownTranscript !== null || transcribeError !== null;
+  const canExpand = transcribe.collapsed && hasResult;
+  const transcribeLabel = canExpand ? '展开文字' : transcribeError ? '重试转文字' : '转文字';
 
   return (
     <div className="qq-voice-wrap" ref={wrapRef}>
@@ -1233,12 +1260,16 @@ export function QqVoice({
             </span>
           ) : null}
         </button>
-        {canTranscribe && (shownTranscript === null || transcribeError) ? (
+        {canExpand || (canTranscribe && (shownTranscript === null || transcribeError)) ? (
           <button
             type="button"
             className="qq-voice-transcribe-btn"
-            title="转文字"
-            onClick={runTranscribe}
+            title={canExpand ? '展开转文字结果' : '转文字'}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (canExpand) transcribe.setCollapsed(false);
+              else transcribe.run();
+            }}
             disabled={transcribe.busy}
           >
             {transcribe.busy ? (
@@ -1246,7 +1277,7 @@ export function QqVoice({
             ) : (
               <FileText size={13} strokeWidth={2} aria-hidden />
             )}
-            <span>{transcribe.busy ? '转写中' : transcribeError ? '重试转文字' : '转文字'}</span>
+            <span>{transcribe.busy ? '转写中' : transcribeLabel}</span>
           </button>
         ) : null}
       </div>
@@ -1257,8 +1288,12 @@ export function QqVoice({
         </p>
       ) : null}
 
-      {hasResult ? (
-        <div className={cn('qq-voice-transcript', transcribeError && 'is-error')}>
+      {hasResult && !transcribe.collapsed ? (
+        <MessageTextResult
+          label="转文字结果"
+          error={Boolean(transcribeError)}
+          onCollapse={() => transcribe.setCollapsed(true)}
+        >
           {!transcribeError && (emotion || events.length > 0) ? (
             <div className="qq-voice-tone">
               {emotion ? (
@@ -1274,10 +1309,13 @@ export function QqVoice({
               ))}
             </div>
           ) : null}
-          <span data-privacy-sensitive={Boolean(shownTranscript) || undefined}>
-            {transcribeError ?? (shownTranscript ? shownTranscript : '（未识别到内容）')}
-          </span>
-        </div>
+          {shownTranscript !== null ? (
+            <span data-privacy-sensitive={Boolean(shownTranscript) || undefined}>
+              {shownTranscript || '（未识别到内容）'}
+            </span>
+          ) : null}
+          {transcribeError ? <span role="status">{transcribeError}</span> : null}
+        </MessageTextResult>
       ) : null}
     </div>
   );
@@ -1294,20 +1332,14 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
   const hash = str(data, 'marketEmoticonIdHex');
   const src = mediaUrl('mface', { pack, hash, ...(requested ? { intent: 'interactive' } : {}) });
   useEffect(() => setBroken(false), [src]);
-  const w = num(data, 'previewWidth');
-  const h = num(data, 'previewHeight');
-  const size = 120;
-  const style: CSSProperties =
-    w && h
-      ? { width: Math.min(w, size), aspectRatio: `${w} / ${h}` }
-      : { width: size, height: size };
+  const style = messageMediaSize('mface', data);
 
   if (broken && limited && !behavior.dataSaverEmoji && !requested && pack && hash) {
     return (
       <button
         type="button"
         className="qq-media-missing qq-media-deferred"
-        style={style}
+        style={{ ...style, minWidth: 0, minHeight: 0 }}
         disabled={!interactive}
         aria-label="加载表情"
         onClick={() => {
@@ -1320,7 +1352,7 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
     );
   }
   if (broken || !pack || !hash) {
-    return <QqMediaMissing label="该表情" style={style} />;
+    return <QqMediaMissing label="该表情" style={{ ...style, minWidth: 0, minHeight: 0 }} />;
   }
   // 商城表情与普通图片表情的差异：外层包一层带商城角标的容器，点击弹出
   // 贴近消息的整包小浮层（数据同构本地资源页的商城表情包）。

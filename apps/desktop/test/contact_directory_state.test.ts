@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   config: { uin: '99999', configId: 'synthetic' } as { uin: string; configId: string } | undefined,
   progress: { status: 'running', done: 2, total: 6, failed: 0, phase: '' },
   timeQuery: vi.fn(),
+  groupTimeQuery: vi.fn(),
   profileQuery: vi.fn(),
   joinQuery: vi.fn(),
   maxSeqQuery: vi.fn(),
@@ -34,6 +35,8 @@ vi.mock('../src/renderer/src/lib/clientPreferences', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({}),
+    useQueries: (factory: (rpc: unknown) => unknown) =>
+      factory({ account: { contactMetrics: { localGroupTimes: state.groupTimeQuery } } }),
     account: {
       getAccountConfig: { useQuery: () => ({ data: state.config }) },
       contactMetrics: {
@@ -79,6 +82,7 @@ beforeEach(() => {
   state.config = { uin: state.uin, configId: 'synthetic' };
   state.progress.status = 'running';
   state.timeQuery.mockClear();
+  state.groupTimeQuery.mockReset().mockReturnValue({});
   state.profileQuery.mockClear();
   state.joinQuery.mockClear();
   state.maxSeqQuery.mockReset().mockReturnValue({});
@@ -134,8 +138,31 @@ it('新增读取只在所选依据启用，画像仅请求批量缓存摘要，�
   expect(state.timeQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
   expect(state.profileQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: true });
   preferences({ groups: { grouping: 'none', sort: 'lastSpokeAt', descending: true } });
-  mount('groups', [], true);
+  mount('groups', [['group:12345']], true);
   expect(state.timeQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+  expect(state.groupTimeQuery.mock.calls.at(-1)?.[1]).toMatchObject({ enabled: false });
+});
+
+it('群时间排序直接使用已知值，并区分本人时间待查和已确认无消息', () => {
+  state.groupTimeQuery.mockReturnValue({
+    data: {
+      rows: { '12345': { time: 160 }, '67890': { time: null, mine: null } },
+      done: false,
+      failed: [],
+    },
+  });
+  const groups = mount('groups', [['group:12345'], ['group:67890']]);
+  groups.change({ sort: 'lastMessageAt' });
+  expect(state.groupTimeQuery.mock.calls.at(-1)).toMatchObject([
+    { groupCodes: ['12345', '67890'] },
+    { enabled: true },
+  ]);
+  expect(groups.order().rows['group:12345']?.lastMessageAt).toMatchObject({
+    value: 160,
+    partial: false,
+  });
+  expect(groups.order().rows['group:12345']?.lastSpokeAt).toMatchObject({ partial: true });
+  expect(groups.order().rows['group:67890']?.lastMessageAt).toMatchObject({ state: 'ready' });
 });
 
 it('最大 seq 只在群聊选择该依据时读取，并为无本地序号的群保留空值', () => {

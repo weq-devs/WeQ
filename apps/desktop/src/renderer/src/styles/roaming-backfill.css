@@ -859,16 +859,6 @@
   font-size: 11px;
 }
 
-.weq-roaming-job-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
-}
-.weq-roaming-job-actions .weq-roaming-iconbtn {
-  margin-left: auto;
-}
-
 /* ---- 请求记录 ---- */
 .weq-roaming-receipts {
   border-top: 1px solid var(--weq-border-subtle);

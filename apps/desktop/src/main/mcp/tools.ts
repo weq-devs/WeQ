@@ -21,7 +21,8 @@ import { databasePerformance } from '@weq/db';
 import { listSettings } from '@weq/service/settings-catalog';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { fullModeAllowed } from '../context/full_mode';
-import { assertAccountToolScope } from './account_scope';
+import { assertAccountToolScope, toolExecutionOptions } from './account_scope';
+import { mailAttachmentForTool, mailDetailForTool, mailSummaryForTool } from './mail_tools';
 import {
   listFeaturesInput,
   getFeatureInput,
@@ -123,6 +124,13 @@ function services(): AccountServices {
     throw new Error('当前没有已登录的账号，请先在 WeQ 里进入一个账号。');
   }
   return svc;
+}
+
+async function withMail<T>(run: (mail: AccountServices['mail']) => Promise<T>): Promise<T> {
+  const account = services();
+  const result = await run(account.mail);
+  if (toolContext().services !== account) throw new Error('账号或数据源已切换，请重新查询邮件。');
+  return result;
 }
 
 // ── 在线能力（凭据 / OIDB 协议 / Web CGI）公共小工具 ─────────────────────────
@@ -439,6 +447,7 @@ function flattenElements(elements: readonly unknown[]): string {
 interface AiMsgRowLike {
   msgId?: bigint | number | string;
   msgSeq?: bigint | number | string;
+  msgRandom?: bigint | number | string;
   senderUid: string;
   /** 普通会话 senderUin 可用；数据线各设备共用同一个 uin，判 mine 走 senderUid。 */
   senderUin?: bigint | number | string;
@@ -685,6 +694,68 @@ export const AI_TOOLS: AiTool[] = [
     run: getFeatureDefinition,
   }),
   tool({
+    name: 'list_mail_folders',
+    description:
+      '列出当前账号的 QQ 邮箱文件夹、各文件夹 ID 和邮件数。使用已有 WeQ 邮箱连接；需要在线邮箱。',
+    input: z.object({}),
+    run: async () =>
+      withMail(async (mail) => ({ folders: await mail.folders(toolExecutionOptions().signal) })),
+  }),
+  tool({
+    name: 'list_mail_messages',
+    description:
+      '列出当前账号的 QQ 邮箱邮件摘要。提供 keyword 时从邮箱在线搜索（不限 folderId）；不提供时按文件夹翻页。返回邮件 id 供 get_mail_message，不读取正文或标记已读。',
+    input: z.object({
+      keyword: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe('邮箱搜索关键词；未传则列文件夹'),
+      folderId: z.number().int().min(0).max(100_000).default(1).describe('文件夹 ID；默认收件箱'),
+      page: z.number().int().min(0).max(100_000).default(0).describe('从 0 开始的页码'),
+      limit: z.number().int().min(1).max(50).default(20).describe('每页上限，最多 50'),
+    }),
+    run: async ({ keyword, folderId, page, limit }) =>
+      withMail(async (mail) => {
+        const result = await mail.list(
+          { keyword, folderId, page, pageSize: limit },
+          toolExecutionOptions().signal,
+        );
+        return { ...result, items: result.items.map(mailSummaryForTool) };
+      }),
+  }),
+  tool({
+    name: 'get_mail_message',
+    description:
+      '读取 QQ 邮箱中的一封邮件，不标记已读。返回纯文本、附件 ID，以及可选的指定主机 HTTPS 链接（仅返回，不访问链接）。会话邮件返回子邮件列表，可再传子邮件 id 读正文。',
+    input: z.object({
+      id: z.string().min(1).max(2048).describe('list_mail_messages 返回的邮件 ID'),
+      linkHosts: z
+        .array(
+          z
+            .string()
+            .max(253)
+            .regex(/^[a-z0-9.-]+$/i),
+        )
+        .max(10)
+        .default([])
+        .describe('允许返回的 HTTPS 链接主机名，精确匹配；省略时不提取链接'),
+    }),
+    run: async ({ id, linkHosts }) =>
+      withMail(async (mail) =>
+        mailDetailForTool(await mail.read(id, toolExecutionOptions().signal, false), linkHosts),
+      ),
+  }),
+  tool({
+    name: 'download_mail_attachment',
+    description:
+      '获取 QQ 邮箱附件的本机 MCP 下载路径（上限 64 MiB）。附件 ID 来自 get_mail_message；一段时间后失效可重新读取邮件。用同一个 MCP 服务地址与 Bearer 令牌发起 GET 下载；工具本身不保存文件。',
+    input: z.object({ id: z.string().uuid().describe('get_mail_message 返回的附件 ID') }),
+    run: async ({ id }) => mailAttachmentForTool(services().mail, id),
+  }),
+  tool({
     name: 'list_settings',
     description:
       '列出 WeQ 设置项、稳定 ID、所属页面、搜索别名与恢复默认范围。与设置前端、全局搜索和文档共用同一注册表，可按 page 或 query 筛选。只返回公开定义，不读取当前设置值、账号资料或凭据，也不修改设置。',
@@ -921,13 +992,17 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'list_conversations',
     description:
-      '列出最近会话（私聊与群聊），最新在前。用来给后续工具挑选目标会话——从返回的 conv/kind 接 get_messages / get_messages_by_date 读原文，或先看「最近在跟谁来往」。想按活跃量排行别用它（那用 rank_friends_by_activity / get_period_overview）。',
+      '列出最近会话，最新在前。可由 get_messages / get_messages_by_date 读取的会话会附 conv/kind；其他记录保留原始会话字段。想按活跃量排行用 rank_friends_by_activity / get_period_overview。',
     input: z.object({
       limit: z.number().int().min(1).max(200).default(50).describe('返回条数上限'),
     }),
     run: async ({ limit }) => {
       const contacts = await services().recentContacts.getRecentContact(limit);
-      return contacts.map(recentContactToWire);
+      return contacts.map((contact) => {
+        const row = recentContactToWire(contact);
+        const kind = convKindOf(row.chatType);
+        return kind && row.targetUid ? { ...row, conv: row.targetUid, kind } : row;
+      });
     },
   }),
 
@@ -2328,20 +2403,31 @@ export const AI_TOOLS: AiTool[] = [
       return {
         enabled: status.enabled,
         mode: status.mode,
+        method: status.enabled ? (status.method ?? 'database') : 'off',
+        proxyConnected: status.proxyConnected ?? false,
+        applying: status.applying ?? false,
+        error: status.error || '',
         modeLabel: status.mode === 'all' ? '全部会话' : '仅指定会话',
         protectedTargets: targets,
         installedTriggers: triggerNames,
         qqRunning: status.qqRunning,
-        hint: status.enabled
-          ? `防撤回已开启（${status.mode === 'all' ? '保护全部会话' : `保护 ${status.targets.length} 个指定会话`}）；` +
-            (status.qqRunning
-              ? 'QQ 正在运行，最近一次开关/改目标可能要重启 QQ 后才真正生效。'
-              : '触发器已按当前配置安装。') +
-            '若从未有人撤回，撤回列表为空属正常。' +
-            (status.targets.length > 0
-              ? 'protectedTargets 里的 id 是内部会话标识，给用户展示前请用 find_contact 解析成名字。'
-              : '')
-          : '防撤回未开启，因此也没有拦截撤回的日志记录。',
+        hint:
+          status.error ||
+          (status.enabled
+            ? status.applying
+              ? '正在应用防撤回设置。'
+              : (status.method ?? 'database') === 'database'
+                ? status.qqRunning
+                  ? '数据库触发器改动可能需要重启 QQ 后生效。'
+                  : '数据库触发器保护，关闭 WeQ 后继续生效。'
+                : status.method === 'proxy'
+                  ? status.proxyConnected
+                    ? 'QQ 已连接代理。'
+                    : '等待 QQ 连接代理。'
+                  : status.proxyConnected
+                    ? '通过代理实时留存原文。'
+                    : '通过数据库监听留存及时读到的原文。'
+            : '防撤回已关闭，已有留存记录仍可查看。'),
       };
     },
   }),
@@ -2350,11 +2436,12 @@ export const AI_TOOLS: AiTool[] = [
     name: 'set_anti_recall',
     assistantOnly: true, // 写数据库触发器 + 配置文件 → 只给内置助手，不进只读 MCP server
     description:
-      '开启/取消防撤回。enabled=false 会卸载全部防撤回触发器；enabled=true 会按当前配置（或本次传入的 mode/targets）重建。' +
+      '开启/取消防撤回。method 为 weq（独立留存）、proxy（代理过滤）或 database（数据库触发器）；省略时沿用当前方式。' +
       'mode: selected=只保护 targets 里的会话，all=保护所有会话（无需列 targets）。targets 是会话清单：' +
       'kind=c2c 传对方 uid、kind=group 传群号、kind=dataline 传设备 uid（一般不需要手动加）。' +
       '返回最新状态与 QQ 是否在运行——QQ 开着时触发器可能要到重启 QQ 才真正生效。',
     input: z.object({
+      method: z.enum(['weq', 'proxy', 'database']).optional(),
       enabled: z.boolean().describe('true=开启防撤回，false=关闭'),
       mode: z.enum(['selected', 'all']).optional().describe('保护范围：仅指定会话 / 全部会话'),
       targets: z
@@ -2367,7 +2454,7 @@ export const AI_TOOLS: AiTool[] = [
         .optional()
         .describe('要保护的会话清单（仅 mode=selected 时有意义）'),
     }),
-    run: async ({ enabled, mode, targets }) => {
+    run: async ({ enabled, method, mode, targets }) => {
       const ctx = toolContext();
       if (enabled && ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
         throw new Error('静态账号的数据库是离线快照，QQ 不会写入，防撤回无法生效。');
@@ -2376,20 +2463,23 @@ export const AI_TOOLS: AiTool[] = [
       // 顺序固定：先改清单/范围再翻总开关，确保 applyTriggers 一次对齐终态。
       if (targets) await svc.setTargets(targets);
       if (mode) await svc.setMode(mode);
-      await svc.setEnabled(enabled);
+      if (enabled && method) await svc.setMethod(method);
+      else await svc.setEnabled(enabled);
       const status = await svc.getStatus();
       return {
         ok: true,
         enabled: status.enabled,
         mode: status.mode,
+        method: status.enabled ? (status.method ?? 'database') : 'off',
         protectedTargets: status.targets,
         installedTriggers: status.installed.map((i) => i.name),
         qqRunning: status.qqRunning,
-        hint: status.qqRunning
-          ? 'QQ 正在运行，触发器的变化可能要到 QQ 重启后才真正生效。'
-          : status.enabled
-            ? '防撤回已开启，之后撤回的消息会被拦截并记录到本地日志。'
-            : '防撤回已关闭，QQ 的撤回将正常执行。',
+        hint:
+          (status.method ?? 'database') === 'database' && status.qqRunning
+            ? 'QQ 正在运行，触发器的变化可能要到 QQ 重启后才真正生效。'
+            : status.enabled
+              ? '防撤回已开启，之后撤回的消息会被拦截并记录到本地日志。'
+              : '防撤回已关闭，QQ 的撤回将正常执行。',
       };
     },
   }),
@@ -2408,7 +2498,17 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ kind, conv, limit }) => {
       const svc = services();
-      const rows = (await svc.msgs.getRecalledMessages(kind, conv)) as AiMsgRowLike[];
+      const native = (await svc.msgs.getRecalledMessages(kind, conv)) as AiMsgRowLike[];
+      const cached = (await svc.gapHistory.cachedRecalls(kind, conv)).map((row) => ({
+        ...row,
+        sendTime: Number(row.sendTime),
+      }));
+      const key = (row: AiMsgRowLike) =>
+        `${row.msgSeq}:${row.senderUid}:${row.msgRandom || row.msgId}`;
+      const unique = new Map([...native, ...cached].map((row) => [key(row), row]));
+      const rows = [...unique.values()].sort(
+        (a, b) => Number(b.recall?.recallTs ?? 0) - Number(a.recall?.recallTs ?? 0),
+      );
       const hasMore = rows.length > limit;
       const page = rows.slice(0, limit);
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
@@ -2608,10 +2708,22 @@ export const AI_TOOLS: AiTool[] = [
       const svc = services();
       const id = safeBigint(msgId);
       if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
-      const row =
+      const local =
         kind === 'group'
           ? await svc.msgs.getGroupMessageById(conv, id)
           : await svc.msgs.getC2cMessageById(conv, id);
+      const cached = await svc.gapHistory.findByMsgId(msgId);
+      const row =
+        cached?.recall && cached.kind === kind && cached.conv === conv
+          ? {
+              ...cached,
+              msgId: BigInt(cached.msgId),
+              msgSeq: BigInt(cached.msgSeq),
+              senderUin: BigInt(cached.senderUin || '0'),
+              sendTime: BigInt(cached.sendTime),
+              deletedKind: undefined,
+            }
+          : local;
       if (!row) {
         return {
           found: false,

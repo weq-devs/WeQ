@@ -38,13 +38,14 @@ import { networkFetch } from '@weq/network';
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { toUSVString } from 'node:util';
 import { networkScope, scopedNetworkAllowed, transferBehavior } from '@weq/service/network-scope';
 import { hostDataSaver } from './data_saver';
 import { ManagedDownload } from '@weq/service/managed-download';
 import { avatarResponse } from './avatar_response';
 import { aiImageAssetPath } from './ai_images';
 import { viewerMedia } from './export_viewer';
-import { fileResponse as streamFile } from './file_response';
+import { fileResponse as streamFile, mediaDownloadName } from './file_response';
 import { withCors } from './protocol_response';
 import { decorationImageResponse } from './decoration_image_response';
 import { chatImageResponse } from './chat_image_response';
@@ -719,8 +720,16 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
     if (kind === 'exportviewer') {
       const path = await viewerMedia(q.get('id') ?? '', q.get('path') ?? '');
       if (!path) return notFound('export media unavailable');
-      const response = await fileResponse(path);
+      const response = await streamFile(path, request, { sniffMediaType: true });
       const headers = new Headers(response.headers);
+      if (response.ok && q.get('download') === '1') {
+        const name = mediaDownloadName(path, headers.get('Content-Type') ?? '');
+        const filename = encodeURIComponent(toUSVString(name)).replace(
+          /['()*]/g,
+          (char) => `%${char.charCodeAt(0).toString(16)}`,
+        );
+        headers.set('Content-Disposition', `attachment; filename*=UTF-8''${filename}`);
+      }
       headers.set('Content-Security-Policy', "default-src 'none'; sandbox");
       headers.set('X-Content-Type-Options', 'nosniff');
       headers.set('Cache-Control', 'no-store');
@@ -785,22 +794,26 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
       const cache = getAppContext().bootstrap?.avatarCache;
       if (!cache) return notFound('redbag skin cache unavailable');
 
-      // 「个性装扮 → 红包封面」展柜传 `v=<字段名>`：严格只用本地 skins.json 里记的
-      // 那一条 URL，**不碰在线现查**（需求就是离线目录）。字段缺失直接 404，让前端
-      // 回退到别的图或占位，不会悄悄发一次服务端请求。
       const variant = q.get('v');
-      const localOnly =
+      // 展柜仅使用目录记录的大图及封面。旧皮肤的 popup 可能已从 CDN 下线。
+      let attempts: Array<() => string | null | Promise<string | null>>;
+      if (variant === 'large') {
+        const fields = ['popup', 'image', 'preview', 'background'] as const;
+        attempts = fields.map((field) => () => redPackSkinField(skinId, field));
+      } else if (
         variant === 'preview' ||
         variant === 'popup' ||
         variant === 'background' ||
-        variant === 'image';
-      const attempts: Array<() => Promise<string | null>> = localOnly
-        ? [async () => redPackSkinField(skinId, variant)]
-        : [
-            async () => resourceSkinCover(skinId),
-            () => onlineRedbagCover(skinId),
-            async () => `https://moggy-1251316161.file.myqcloud.com/redpackSkin/${skinId}/aio.png`,
-          ];
+        variant === 'image'
+      ) {
+        attempts = [() => redPackSkinField(skinId, variant)];
+      } else {
+        attempts = [
+          () => resourceSkinCover(skinId),
+          () => onlineRedbagCover(skinId),
+          () => `https://moggy-1251316161.file.myqcloud.com/redpackSkin/${skinId}/aio.png`,
+        ];
+      }
       for (const resolve of attempts) {
         const src = await resolve();
         if (!src) continue;
@@ -903,7 +916,16 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
     // 用户自选的聊天背景:已拷进本账号的装扮目录,路径由清单给 —— 不接受 url 传路径,
     // 免得变成一个能读任意本地文件的口子。
     if (kind === 'dressbg') {
-      const path = services.dressInstall.backgroundFile();
+      const conv = q.get('conv');
+      const conversationKind = q.get('kind');
+      const path = conv
+        ? conversationKind === 'group' || conversationKind === 'c2c'
+          ? services.dressConversations.backgroundFile(
+              { kind: conversationKind, conv },
+              q.get('v') ?? '',
+            )
+          : null
+        : services.dressInstall.backgroundFile();
       return path ? fileResponse(path) : notFound('custom background not set');
     }
 

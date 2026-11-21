@@ -1,12 +1,12 @@
 /* ── 输入框的语音 / 图片 / 文件 ──────────────────────────────────────────────
  * 见 composerMedia.ts（素材模型）、composerMediaStage.tsx（视频 / 文件 / 超级表情
- * 卡片、拖拽落点、预览灯箱）、voicePanel.tsx（按住说话的录音条 + 文字转语音）。
+ * 卡片、拖拽落点、预览灯箱）、voicePanel.tsx（录音和语音合成）。
  *
  * 落点约定：
  *   - 图片像表情一样内联进正文编辑区（.composer-inline-attachment）；
  *   - 视频 / 文件 / 超级表情占掉正文编辑区那一行（.composer-single-stage），
  *     只能单独发；
- *   - 语音条同样占掉那一行（文件末尾 .composer > .voice-panel 的桌面规则）。
+ *   - 语音模式同样占掉正文那一行。
  *
  * 颜色全部走主题 token（--weq-accent-effective / --weq-fg-* / --popover /
  * --im-color-line），因此主题色与深浅模式自动跟随，这里不再各写一份。
@@ -15,16 +15,13 @@
 /* 都在 .composer 里，变量挂在它身上，舞台 / 卡片 / 提示条都能拿到。 */
 .composer {
   --media-danger: #f0483e;
-  /* 录音态专属色：不用 --media-danger 那种正红（大面积糊在圆钮上太吵），换成
-     偏珊瑚的一对红，只给录音键和它的声纹环用。 */
+  /* 录音态声纹用偏珊瑚的红色。 */
   --media-record: #ff6a5e;
-  --media-record-strong: #e8402f;
 }
 
 html[data-theme='dark'] .composer {
   --media-danger: #ff6f64;
   --media-record: #ff8078;
-  --media-record-strong: #e5544b;
 }
 
 /* ── 「只能单独发」的卡片（占掉正文编辑区那一行）─────────────────────────
@@ -279,279 +276,264 @@ button.composer-single-thumb {
 
 /* ── 语音面板 ─────────────────────────────────────────────────────────────── */
 
-.voice-panel {
+.composer > .voice-panel {
+  --weq-field-bg: transparent;
+  --weq-field-disabled-bg: transparent;
+  --weq-skin-input-shadow: none;
   container-type: inline-size;
-  position: absolute;
-  bottom: calc(100% - 1px);
-  left: 12px;
-  z-index: 30;
   display: grid;
-  width: min(400px, calc(100% - 28px));
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-column: 1 / -1;
+  grid-row: 2;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding: 2px var(--composer-side-inset) 6px 0;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
-  border-radius: 14px;
-  background: var(--popover, #ffffff);
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.18);
   outline: none;
 }
 
-/* 没配 TTS 就没有头部，正文独占整格 —— 否则它会被摆进那行 auto 里、按内容高度顶
-   在上边，声纹环就不居中了。 */
-.voice-panel:not(:has(> .voice-panel-head)) {
-  grid-template-rows: minmax(0, 1fr);
-}
-
-.voice-panel-tabs button.active {
-  background: var(--popover, #ffffff);
-  color: var(--weq-accent-effective, #0099ff);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-}
-
-.voice-panel-head {
+.voice-mode-switch {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding-inline-end: 8px;
+  overflow: auto;
+  border-inline-end: 1px solid var(--weq-border-subtle);
+  scrollbar-width: thin;
 }
 
-.voice-panel-tabs {
+.voice-mode-switch button {
   display: flex;
-  gap: 4px;
-  min-width: 0;
-}
-
-.voice-panel-tabs button,
-.voice-ai-action {
-  display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 28px;
+  gap: 6px;
+  min-height: 32px;
   padding: 4px 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--weq-fg-secondary);
   font: inherit;
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-html[data-theme='dark'] .voice-panel-tabs button.active {
-  background: var(--weq-bg-surface);
+.voice-mode-switch button:hover:not(:disabled),
+.voice-mode-switch button[aria-pressed='true'] {
   color: var(--weq-accent-effective);
-  box-shadow: none;
 }
 
-.voice-panel-tabs button:disabled,
-.voice-ai-action:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.voice-mode-switch button[aria-pressed='true'] {
+  font-weight: 600;
+}
+
+.voice-mode-switch button:focus-visible,
+.voice-record-btn:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
 }
 
 .voice-panel-body {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-}
-
-@container (min-width: 640px) {
-  .composer > .voice-panel .voice-tts {
-    grid-template-columns: minmax(0, 1fr) minmax(150px, 24%) minmax(150px, 24%);
-  }
-
-  .composer > .voice-panel .voice-tts-input {
-    grid-row: 2 / span 2;
-    min-height: 60px;
-  }
-
-  .composer > .voice-panel .voice-tts-row {
-    grid-row: 2;
-  }
-
-  .composer > .voice-panel .voice-tts-row + .voice-tts-row {
-    grid-column: 3;
-  }
-
-  .composer > .voice-panel .voice-tts > .voice-review-actions {
-    grid-column: 2 / -1;
-    grid-row: 3;
-  }
-}
-
-/* ── 录音舞台：环形声纹 + 圆形录音键（QQ 原生那套）────────────────────────
- *
- * 尺寸刻意压在 126px 高：语音条是**内联在输入框里**的，这一行的高度得让它塞得进去
- * （见 chatPane 的 composerHeightDefault），否则一开录音整个聊天区就要往下跳。
- */
-
-.voice-stage {
+  --voice-wave-height: 44px;
+  --voice-control-size: 64px;
+  --voice-control-gutter: calc(var(--voice-control-size) + 12px);
+  --voice-wave-center: clamp(32px, calc(50% - 14px), calc(100% - 89px));
   position: relative;
   display: grid;
-  height: 126px;
+  grid-template-rows: minmax(66px, 1fr) auto;
+  gap: 5px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.voice-panel-body[data-transcript-ready='true'] {
+  --voice-control-size: 44px;
+  --voice-wave-center: calc(var(--voice-control-size) / 2);
+}
+
+.voice-panel-body:has(> .voice-review) {
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+:where(html:not([data-weq-layout='single']))
+  .chat-pane:has(.composer.voice-open .voice-panel-body) {
+  --composer-height: max(var(--desktop-composer-height, 190px), 190px) !important;
+}
+
+:where(html:not([data-weq-layout='single']))
+  .chat-pane:has(.composer.voice-open.has-quote .voice-panel-body) {
+  --composer-height: max(var(--desktop-composer-height, 220px), 220px) !important;
+}
+
+.voice-record-track {
+  position: absolute;
+  top: var(--voice-wave-center);
+  left: 50%;
+  display: grid;
+  width: var(--voice-control-size);
+  height: var(--voice-control-size);
   place-items: center;
-}
-
-.voice-ring {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  color: var(--weq-accent-effective, #0099ff);
-}
-
-/* 录音中整圈声纹跟录音键一起转红，蓝环配红钮的撞色就没了。 */
-.voice-ring.is-active {
-  color: var(--media-record);
-}
-
-.voice-ring span {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 2.5px;
-  height: 20px;
-  margin: -10px 0 0 -1.25px;
-  border-radius: 2px;
-  background: currentColor;
-  will-change: transform, opacity;
-}
-
-.voice-pulse {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 76px;
-  height: 76px;
+  pointer-events: none;
   transform: translate(-50%, -50%);
+  transition: left 230ms cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+.voice-record-track.is-at-end {
+  left: calc(100% - var(--voice-control-size) / 2 - 2px);
+}
+
+.voice-wave {
+  position: absolute;
+  z-index: 1;
+  top: var(--voice-wave-center);
+  right: var(--voice-control-gutter);
+  left: 0;
+  height: var(--voice-wave-height);
+  color: var(--media-record);
+  opacity: 0;
+  contain: layout paint;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition:
+    top 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    left 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    right 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    opacity 140ms ease;
+}
+
+.voice-panel-body:is(
+    [data-wave-phase='requesting'],
+    [data-wave-phase='recording'],
+    [data-wave-phase='paused'],
+    [data-wave-phase='finalizing'],
+    [data-wave-phase='review']
+  )
+  .voice-wave {
+  opacity: 1;
+}
+
+.voice-panel-body:is([data-wave-phase='paused'], [data-wave-phase='review']) .voice-wave {
+  left: var(--voice-control-gutter);
+}
+
+.voice-panel-body[data-transcript-ready='true'] .voice-wave {
+  right: 42px;
+}
+
+.voice-wave-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
 
-.voice-pulse i {
+.voice-wave.is-seekable {
+  pointer-events: auto;
+}
+
+.voice-wave:focus-within {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.voice-wave-progress {
   position: absolute;
   inset: 0;
-  border: 1.5px solid color-mix(in srgb, var(--media-record) 40%, transparent);
-  border-radius: 50%;
+  overflow: hidden;
+  color: var(--weq-accent-effective);
+  pointer-events: none;
+  transform: translateX(-100%);
+  will-change: transform;
+}
+
+.voice-wave-progress .voice-wave-canvas {
+  transform: translateX(100%);
+  will-change: transform;
+}
+
+.voice-wave-playhead {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.voice-wave-playhead::before {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--weq-accent-effective);
+  content: '';
+  transform: translate(-50%, -50%);
+}
+
+.voice-wave-seek {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   opacity: 0;
-}
-
-.voice-pulse.active i {
-  animation: voice-pulse 2.1s ease-out infinite;
-}
-
-.voice-pulse.active i:nth-child(2) {
-  animation-delay: 0.7s;
-}
-
-.voice-pulse.active i:nth-child(3) {
-  animation-delay: 1.4s;
-}
-
-@keyframes voice-pulse {
-  0% {
-    opacity: 0.7;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.62);
-  }
-}
-
-.voice-record-btn {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  width: 70px;
-  height: 70px;
-  place-items: center;
-  align-content: center;
-  gap: 2px;
-  border: 0;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle at 34% 26%,
-    color-mix(in srgb, var(--weq-accent-solid, #0099ff) 68%, #ffffff),
-    var(--weq-accent-solid, #0099ff) 72%
-  );
-  color: var(--weq-accent-solid-foreground, #ffffff);
-  cursor: pointer;
-  user-select: none;
+  cursor: ew-resize;
   touch-action: none;
-  box-shadow:
-    0 12px 28px color-mix(in srgb, var(--weq-accent-solid, #0099ff) 40%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.42);
-  transition:
-    transform 150ms ease,
-    box-shadow 220ms ease,
-    background 220ms ease;
 }
 
-.voice-record-btn:hover {
-  transform: translateY(-1px);
+.voice-panel .voice-record-btn {
+  display: grid;
+  width: var(--voice-control-size);
+  height: var(--voice-control-size);
+  place-content: center;
+  justify-items: center;
+  gap: 3px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
 }
 
-.voice-record-btn:active,
-.voice-record-btn.is-recording {
-  transform: scale(0.965);
+.voice-record-track.is-at-end .voice-record-btn {
+  border-color: var(--media-record);
+}
+
+.voice-record-btn > svg {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
 }
 
 .voice-record-btn strong {
-  /* 圆里放不下就折成两行（例如「正在打开麦克风…」），不要撑出圆外。 */
-  max-width: 58px;
+  max-width: 54px;
   font-size: 11px;
-  font-weight: 600;
   line-height: 1.15;
   text-align: center;
 }
 
-/* 录音中的秒数就是主体：大号数字居中，tabular-nums 保证读数不跳。 */
 .voice-record-btn .voice-record-timer {
-  max-width: 62px;
-  font-size: 21px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  line-height: 1;
+  font-size: 19px;
   font-variant-numeric: tabular-nums;
 }
 
-/* 「松开结束」只当附注，压在秒数下面。 */
 .voice-record-note {
-  color: rgba(255, 255, 255, 0.78);
   font-size: 9px;
   font-style: normal;
-  letter-spacing: 0.04em;
 }
 
-/* 录音态：柔和的上下渐变替掉原来那个发白的径向红，红色光晕也收小收淡，
-   只靠颜色 + 轻微缩放表达「正在录」，不靠一大团红光。 */
-.voice-record-btn.is-recording {
-  background: linear-gradient(180deg, var(--media-record), var(--media-record-strong));
-  box-shadow:
-    0 6px 18px color-mix(in srgb, var(--media-record-strong) 30%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
-}
-
-/* 等麦克风那段用浅底 + 深字：原来的灰底白字基本看不清。 */
-.voice-record-btn.is-waiting {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, var(--popover, #ffffff)),
-    color-mix(in srgb, var(--weq-fg-muted, #858585) 20%, var(--popover, #ffffff))
-  );
-  color: var(--weq-fg-secondary, #666666);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--weq-fg-muted, #858585) 20%, transparent);
-}
-
-.voice-record-btn.is-error {
-  background: radial-gradient(
-    circle at 34% 26%,
-    color-mix(in srgb, var(--media-danger) 54%, #ffffff),
-    color-mix(in srgb, var(--media-danger) 82%, transparent) 72%
-  );
+@media (prefers-reduced-motion: reduce) {
+  .voice-record-track,
+  .voice-wave {
+    transition: none;
+  }
 }
 
 .voice-spin {
@@ -567,6 +549,7 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 /* ── 面板脚注 ─────────────────────────────────────────────────────────────── */
 
 .voice-panel-foot {
+  grid-row: 2;
   display: flex;
   min-height: 16px;
   align-items: center;
@@ -606,7 +589,6 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   font-size: 11px;
 }
 
-/* 「选择音频」：脚注里的一枚小胶囊，静默地把本机音频当语音发（自动转 SILK）。 */
 .voice-pick-audio {
   display: inline-flex;
   margin-left: auto;
@@ -635,22 +617,23 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 
 .voice-review {
   display: grid;
-  gap: 10px;
+  grid-template-rows: calc(var(--voice-wave-center) + var(--voice-control-size) / 2) minmax(0, 1fr) auto;
+  gap: 5px;
+  min-width: 0;
+  min-height: 0;
+  transition: grid-template-rows 230ms cubic-bezier(0.2, 0.75, 0.25, 1);
 }
 
-.voice-review-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 7%, transparent);
+@media (prefers-reduced-motion: reduce) {
+  .voice-review {
+    transition: none;
+  }
 }
 
 .voice-review-play {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: var(--voice-control-size);
+  height: var(--voice-control-size);
   flex: 0 0 auto;
   place-items: center;
   border: 0;
@@ -672,139 +655,60 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   background: var(--weq-accent-hover, var(--weq-accent-effective, #0099ff));
 }
 
-.voice-review-wave {
-  display: flex;
-  height: 34px;
-  min-width: 0;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 2px;
-  color: var(--weq-accent-effective, #0099ff);
+.voice-review-play.voice-stage-play {
+  position: absolute;
+  z-index: 2;
+  top: var(--voice-wave-center);
+  left: 0;
+  transform: translateY(-50%);
 }
 
-.voice-review-wave i {
-  display: block;
-  min-height: 10%;
-  flex: 1 1 0;
-  border-radius: 2px;
-  background: currentColor;
-  opacity: 0.62;
+.voice-review-play.voice-stage-play:hover {
+  transform: translateY(-50%) scale(1.04);
 }
 
 .voice-review-time {
-  flex: 0 0 auto;
+  position: absolute;
+  top: var(--voice-wave-center);
+  right: 2px;
   color: var(--weq-fg-secondary, #666666);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  transform: translateY(-50%);
 }
 
-.voice-review-tag {
-  flex: 0 0 auto;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 14%, transparent);
-  color: var(--weq-accent-effective, #0099ff);
-  font-size: 11px;
-}
-
-.voice-review-text {
-  max-height: 68px;
-  margin: 0;
-  padding: 8px 10px;
-  overflow: auto;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 7%, transparent);
-  color: var(--weq-fg-primary, #111111);
-  font-size: 12.5px;
-  line-height: 1.55;
-}
-
-.voice-transcript-card {
+.voice-transcript-output {
+  grid-row: 2;
   display: grid;
-  gap: 6px;
-  padding: 9px 10px;
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective, #0099ff) 26%, transparent);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 8%, transparent);
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  font-size: 12px;
 }
 
-.voice-transcript-card.is-error {
-  border-color: color-mix(in srgb, var(--media-danger) 32%, transparent);
-  background: color-mix(in srgb, var(--media-danger) 8%, transparent);
-  color: var(--media-danger);
+.voice-transcript-output p {
+  margin: 0;
+  line-height: 1.4;
 }
 
-.voice-transcript-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--weq-accent-effective, #0099ff);
-  font-size: 11.5px;
-  font-weight: 600;
-}
-
-.voice-transcript-card.is-error .voice-transcript-head {
-  color: var(--media-danger);
-}
-
-.voice-transcript-head span {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 5px;
-}
-
-.voice-transcript-head em {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 400;
-}
-
-.voice-transcript-card textarea {
+.voice-transcript-output textarea {
+  align-self: stretch;
+  min-height: 0;
   width: 100%;
-  padding: 7px 9px;
-  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
-  border-radius: 9px;
-  background: var(--popover, #ffffff);
-  color: var(--weq-fg-primary, #111111);
-  font-family: inherit;
-  font-size: 12.5px;
-  line-height: 1.55;
-  resize: vertical;
-}
-
-.voice-transcript-card textarea:focus {
-  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
-  outline: none;
-}
-
-.voice-transcribe-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective, #0099ff) 44%, transparent);
-  border-radius: 10px;
+  padding: 3px 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 5px;
   background: transparent;
-  color: var(--weq-accent-effective, #0099ff);
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: background 130ms ease;
+  color: var(--weq-fg-primary);
+  resize: none;
 }
 
-.voice-transcribe-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 10%, transparent);
+.voice-transcript-output:has(> textarea:only-child) {
+  grid-template-rows: minmax(0, 1fr);
 }
 
-.voice-transcribe-btn:disabled {
-  cursor: progress;
-  opacity: 0.7;
+.voice-transcript-output textarea:focus {
+  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+  outline: none;
 }
 
 /* ── 动作按钮 ─────────────────────────────────────────────────────────────── */
@@ -813,7 +717,53 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 5px;
+}
+
+.voice-review > .voice-review-actions {
+  grid-row: 3;
+}
+
+.voice-review-actions > .voice-btn {
+  box-sizing: border-box;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  justify-content: center;
+  padding-block: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.voice-review-actions > .voice-btn.primary:hover:not(:disabled) {
+  transform: none;
+}
+
+@container (max-width: 430px) {
+  .voice-review-actions {
+    gap: 4px;
+  }
+
+  .voice-review-actions .voice-btn {
+    min-width: 28px;
+    gap: 3px;
+    padding-inline: 4px;
+  }
+}
+
+@container (max-width: 320px) {
+  .voice-review-actions {
+    gap: 3px;
+  }
+
+  .voice-review-actions .voice-btn {
+    min-width: 24px;
+    padding-inline: 3px;
+  }
+
+  .voice-review-actions .voice-btn.primary svg {
+    display: none;
+  }
 }
 
 .voice-btn {
@@ -834,6 +784,10 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 .voice-btn.ghost {
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 10%, transparent);
   color: var(--weq-fg-secondary, #666666);
+}
+
+.voice-btn.ghost.voice-transcribe-btn:not(:disabled) {
+  color: var(--weq-fg-primary, #111111);
 }
 
 .voice-btn.ghost:hover:not(:disabled) {
@@ -874,38 +828,27 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 }
 
 .voice-tts-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 8%, transparent);
+  margin: 0;
   color: var(--weq-fg-secondary, #666666);
   font-size: 11.5px;
   line-height: 1.5;
 }
 
-.voice-tts-note svg {
-  flex: 0 0 auto;
-  margin-top: 1px;
-  color: var(--weq-accent-effective, #0099ff);
-}
-
 .voice-tts-input {
   width: 100%;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
+  padding: 5px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: transparent;
   color: var(--weq-fg-primary, #111111);
+  caret-color: var(--weq-accent-ink, var(--weq-accent-effective));
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
-  resize: vertical;
 }
 
 .voice-tts-input:focus {
-  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
+  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
   outline: none;
 }
 
@@ -916,9 +859,10 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 }
 
 .voice-tts-voice {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 3.5em minmax(0, 1fr);
+  width: 100%;
   min-width: 0;
-  flex: 1 1 auto;
   align-items: center;
   gap: 7px;
   color: var(--weq-fg-muted, #858585);
@@ -932,7 +876,7 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
   padding: 5px 8px;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
   border-radius: 8px;
-  background: var(--popover, #ffffff);
+  background: transparent;
   color: var(--weq-fg-primary, #111111);
   font-family: inherit;
   font-size: 12px;
@@ -1176,10 +1120,6 @@ html[data-theme='dark'] .voice-panel-tabs button.active {
 
 /* ── 深色下的阴影一档 ─────────────────────────────────────────────────────── */
 
-html[data-theme='dark'] .voice-panel {
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
-}
-
 html[data-theme='dark'] .composer-single-remove {
   background: #2a2d32;
 }
@@ -1191,78 +1131,73 @@ html[data-theme='dark'] .link-card-preview-card {
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
 }
 
-/* ── 桌面端：语音条内联在输入框里（占掉正文那一行）──────────────────────
- *
- * 小屏（<=760px）保持从输入框上沿弹出的浮层；桌面端它是输入框里的一行 —— 正文
- * 编辑区加 .composer-row-hidden 被藏起来，这一行交给录音键 + 声纹 + 回顾 / TTS。
- *
- * 这一形态下**不要任何外框**：边框、圆角、底色、阴影、头部那条分隔线全部去掉，
- * 声纹环就直接坐在输入框自己的磨砂底上，看着是输入框的一部分，而不是另一个面板。
- */
-
-:where(html:not([data-weq-layout='single'])) .composer > .voice-panel {
-  position: relative;
-  z-index: 6;
-  inset: auto;
-  bottom: auto;
-  left: auto;
-  width: 100%;
-  height: 100%;
+.voice-synthesis {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
   min-height: 0;
-  grid-column: 1 / -1;
-  grid-row: 2;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-/* 没有 ✕ 也没有分隔线：头部只剩「语音」+ 页签（配了 TTS 才有）。 */
-
-:where(html:not([data-weq-layout='single'])) .composer > .voice-panel .voice-panel-head {
-  padding: 0 4px 2px;
-  border-bottom: 0;
-}
-
-:where(html:not([data-weq-layout='single'])) .voice-panel-body {
-  padding: 2px 4px 0;
   overflow: auto;
   scrollbar-width: thin;
-  /* 录音行吃掉剩余高度、脚注贴底，声纹环就在这一行里居中 —— 去掉外框后整块
-       内容是坐在输入框里，而不是顶在上边。 */
-  grid-template-rows: minmax(0, 1fr) auto;
 }
 
-:where(html:not([data-weq-layout='single'])) .voice-panel-body > .voice-stage {
-  align-self: center;
-}
-
-:where(html:not([data-weq-layout='single'])) .voice-panel-body:has(> .voice-tts) {
-  display: block;
-}
-
-:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts {
+.voice-synthesis-field {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 32%);
-  gap: 6px 12px;
+  grid-template-rows: auto minmax(54px, 1fr) auto;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
 }
 
-:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-note,
-:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts > .voice-error {
-  grid-column: 1 / -1;
-}
-
-:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-input {
-  grid-column: 1;
-  grid-row: 2 / span 3;
+.voice-synthesis-field > textarea {
   height: 100%;
-  min-height: 80px;
+  min-height: 54px;
   resize: none;
 }
 
-:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts-row,
-:where(html:not([data-weq-layout='single'])) .voice-panel .voice-tts > .voice-review-actions {
-  grid-column: 2;
+.voice-synthesis-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.voice-synthesis-field:focus-within .voice-synthesis-label {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
+
+.voice-synthesis-controls {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.ai-voice-controls {
+  display: grid;
+  grid-template-rows: minmax(48px, 1fr) auto;
+  gap: 6px;
+}
+
+.ai-voice-controls:has(> .ai-voice-error) {
+  grid-template-rows: minmax(48px, 1fr) auto auto;
+}
+
+.ai-voice-controls .ai-voice-voices {
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+@container (max-width: 375px) {
+  .voice-mode-switch {
+    padding-inline-end: 4px;
+  }
+  .voice-mode-switch button {
+    padding-inline: 5px;
+  }
 }
 
 /* 引用条占正文上面那一行：正文让出一行，整条输入区高度不变（不推挤消息列表）。 */
@@ -1327,46 +1262,35 @@ html[data-theme='dark'] .link-card-preview-card {
   font-size: 10.5px;
 }
 
-:where(html[data-weq-layout='single']) .voice-panel {
-  left: 8px;
-  width: calc(100% - 16px);
-}
-
-/* 小屏面板是浮层，舞台可以放宽裕一点；录音键不放大 —— 环的内圈就那么宽。 */
-
-:where(html[data-weq-layout='single']) .voice-stage {
-  height: 150px;
-}
-
 /* 引用条：小屏依旧放在正文上面，正文整体下移一行（下面那格要留给表情 / 更多面板）。
      这一整套只在面板没开时生效（下面 :not 链），所以不会把面板那三行布局搞乱。 */
 
 :where(html[data-weq-layout='single'])
-  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel)) {
+  .composer.has-quote:not(.voice-open):not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel)) {
   grid-template-rows: auto var(--mobile-composer-editor-height, 42px) 48px;
 }
 
 :where(html[data-weq-layout='single'])
-  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+  .composer.has-quote:not(.voice-open):not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
   > .composer-quote {
   grid-row: 1;
   margin: 0 0 6px;
 }
 
 :where(html[data-weq-layout='single'])
-  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+  .composer.has-quote:not(.voice-open):not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
   > .composer-editor {
   grid-row: 2;
 }
 
 :where(html[data-weq-layout='single'])
-  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+  .composer.has-quote:not(.voice-open):not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
   > :is(.composer-send, .mobile-composer-expand-button) {
   grid-row: 2;
 }
 
 :where(html[data-weq-layout='single'])
-  .composer.has-quote:not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
+  .composer.has-quote:not(.voice-open):not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
   > .composer-tools {
   grid-row: 3;
 }
@@ -1384,7 +1308,7 @@ html[data-theme='dark'] .link-card-preview-card {
 /* 引用条那一行要从输入区高度里要回来，而且只在它真看得见时才加。 */
 
 :where(html[data-weq-layout='single'])
-  .chat-pane:has(.composer.has-quote):not(:has(.composer > .emoji-panel)):not(
+  .chat-pane:has(.composer.has-quote:not(.voice-open)):not(:has(.composer > .emoji-panel)):not(
     :has(.composer > .composer-plus-panel)
   ) {
   --composer-height: calc(
@@ -1395,214 +1319,7 @@ html[data-theme='dark'] .link-card-preview-card {
   ) !important;
 }
 
-/* ── AI 声聊面板（输入框工具栏「AI 声聊」按钮）──────────────────────────────
- *
- * 形态跟链接卡片一致：从输入框上沿弹出来的浮层，不挤占正文那一行 —— 选声线、
- * 试听的同时，输入框里的文字照旧可编辑。**仅群聊**渲染这个面板（私聊连按钮都
- * 没有，见 chatPane 的 canUseAiVoice）。
- *
- * 三块：要说的话（textarea） / 声线（分组 + 每条一个试听键） / 底部（单独发送）。
- * 试听音频是 QQ 的静态样音，URL 由 voiceId 拼出（见 aiVoicePanel.tsx 与
- * docs/develop/ai-voice.md），所以这里只管把播放态画出来。
- *
- * 颜色全部走主题 token，主题色与深浅模式自动跟随。
- */
-
-.ai-voice-panel {
-  position: absolute;
-  bottom: calc(100% - 1px);
-  left: 12px;
-  z-index: 30;
-  display: grid;
-  width: min(520px, calc(100% - 28px));
-  /* 高度上限 = **输入框上沿到会话头下沿**的真实可用高度（与 `.ark-panel` 同一条算法）。
-   *
-   * 早先写的是 `100dvh - 190px`：190 只当输入框高度，既没算标题栏(40) 也没算会话头
-   * (`--chat-header-height`)，窗口一矮面板就顶进标题栏 / 会话头里 —— 上面那截
-   * （标题行 + 关闭按钮）被 `.chat-pane` 的 `overflow: hidden` 截掉，就点不到了。
-   * 超出的内容面板内部滚动；减到 236px 以下就退化到 236px（窗口极矮时宁可盖住会话头，
-   * 也别只剩一条缝）。 */
-  max-height: min(
-    524px,
-    max(
-      236px,
-      calc(100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) - 56px)
-    )
-  );
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  overflow: hidden;
-  /* 面板从输入框往上长，可能压到标题栏的 `-webkit-app-region: drag` 区域；Electron 的
-   * 拖拽命中测试在合成层之外，z-index 挡不住 —— 打一个 no-drag 洞（同 .ark-panel）。 */
-  -webkit-app-region: no-drag;
-  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
-  border-radius: 12px;
-  background: var(--popover, #ffffff);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
-  animation: ai-voice-in 150ms ease-out;
-}
-
-@keyframes ai-voice-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
-
-/* 群聊面板比私聊多一行页签（AI 声聊 / 文字转语音），行高按需覆盖。 */
-.ai-voice-panel.has-tabs {
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-}
-
-.ai-voice-panel.is-direct {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
-/* 页签：只作切换，不抢标题行的位置。主题色 / 深浅模式跟随。 */
-.ai-voice-panel-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 6px 8px 0;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-
-.ai-voice-panel-tabs button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 11px;
-  border: 0;
-  border-radius: 8px 8px 0 0;
-  background: transparent;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background 140ms ease,
-    color 140ms ease;
-}
-
-.ai-voice-panel-tabs button:hover {
-  color: var(--weq-fg-primary, #111111);
-}
-
-.ai-voice-panel-tabs button.active {
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 10%, transparent);
-  color: var(--weq-accent-effective, #0099ff);
-}
-
-/* 文字转语音页签：复用 TtsComposer 的原样式，只去掉外层多余留白。 */
-.ai-voice-tts-body {
-  padding-top: 2px;
-}
-
-.ai-voice-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px 9px 12px;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-
-.ai-voice-head-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--weq-fg-primary, #111111);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.ai-voice-head-title svg {
-  color: var(--weq-accent-effective, #0099ff);
-}
-
-/* 「仅群聊 · 单独发送」这类约束，写在标题旁边让人一眼看到。 */
-.ai-voice-head-tag {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
-  color: color-mix(
-    in srgb,
-    var(--weq-accent-effective, #0099ff) 88%,
-    var(--weq-fg-primary, #111111)
-  );
-  font-size: 10.5px;
-  font-weight: 500;
-  line-height: 1.6;
-  white-space: nowrap;
-}
-
-.ai-voice-close {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  margin-left: auto;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--weq-fg-muted, #858585);
-  cursor: pointer;
-  transition:
-    background 130ms ease,
-    color 130ms ease;
-}
-
-.ai-voice-close:hover {
-  background: color-mix(in srgb, var(--media-danger, #f0483e) 12%, transparent);
-  color: var(--media-danger, #f0483e);
-}
-
-.ai-voice-body {
-  display: grid;
-  gap: 11px;
-  padding: 11px 12px;
-  overflow: auto;
-  scrollbar-width: thin;
-}
-
-.ai-voice-field {
-  display: grid;
-  gap: 5px;
-  margin: 0;
-}
-
-.ai-voice-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--weq-fg-secondary, #666666);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.ai-voice-count {
-  margin-left: auto;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11px;
-  font-style: normal;
-  font-variant-numeric: tabular-nums;
-}
-
-.ai-voice-textarea {
-  width: 100%;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
-  color: var(--weq-fg-primary, #111111);
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.6;
-  resize: vertical;
-}
-
-.ai-voice-textarea:focus {
-  border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 52%, transparent);
-  outline: none;
-}
+/* ── AI 声聊控件 ─────────────────────────────────────────────────────────── */
 
 .ai-voice-voices {
   display: grid;
@@ -1616,23 +1333,6 @@ html[data-theme='dark'] .link-card-preview-card {
   color: var(--weq-fg-secondary, #666666);
   font-size: 12px;
   font-weight: 500;
-}
-
-.ai-voice-voices-head svg {
-  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 84%, transparent);
-}
-
-/* 当前选中的声线名，跟在「声线」后面补一句，省得在列表里找。 */
-.ai-voice-selected {
-  margin-left: auto;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 12%, transparent);
-  color: var(--weq-accent-effective, #0099ff);
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 1.6;
-  font-variant-numeric: tabular-nums;
 }
 
 .ai-voice-voices-list {
@@ -1661,17 +1361,15 @@ html[data-theme='dark'] .link-card-preview-card {
   gap: 5px;
 }
 
-/* 一枚声线 = 名字键 + 试听键，拼成一个胶囊。 */
+/* 声线选择。 */
 .ai-voice-chip {
   display: inline-flex;
   align-items: center;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 78%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 5%, transparent);
-  transition:
-    border-color 130ms ease,
-    background 130ms ease;
+  background: transparent;
+  transition: border-color 130ms ease;
 }
 
 .ai-voice-chip:hover {
@@ -1680,7 +1378,6 @@ html[data-theme='dark'] .link-card-preview-card {
 
 .ai-voice-chip.is-active {
   border-color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 68%, transparent);
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 13%, transparent);
 }
 
 .ai-voice-chip-pick {
@@ -1710,29 +1407,19 @@ html[data-theme='dark'] .link-card-preview-card {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--weq-fg-muted, #858585);
+  color: var(--weq-fg-secondary);
   cursor: pointer;
-  transition:
-    background 130ms ease,
-    color 130ms ease;
 }
 
-.ai-voice-chip-play:hover {
-  background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 16%, transparent);
-  color: var(--weq-accent-effective, #0099ff);
-}
-
-/* 正在播的那条：实心主题色 + 轻微呼吸，扫一眼就知道是哪条在响。 */
+.ai-voice-chip-play:hover:not(:disabled),
 .ai-voice-chip-play.is-playing {
-  background: var(--weq-accent-solid, #0099ff);
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-  animation: ai-voice-pulse 1.4s ease-in-out infinite;
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground);
 }
 
-@keyframes ai-voice-pulse {
-  50% {
-    opacity: 0.72;
-  }
+.ai-voice-chip-play:disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
 }
 
 .ai-voice-error {
@@ -1742,28 +1429,10 @@ html[data-theme='dark'] .link-card-preview-card {
 
 .ai-voice-foot {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  padding: 9px 12px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.ai-voice-hint {
-  display: inline-flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ai-voice-hint svg {
-  flex: 0 0 auto;
-  color: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 82%, transparent);
 }
 
 .ai-voice-btn {
@@ -1801,38 +1470,48 @@ html[data-theme='dark'] .link-card-preview-card {
   box-shadow: none;
 }
 
-/* ── 深色：阴影加一档，输入底压暗（同链接卡片那套处理） ─────────────────── */
-
-html[data-theme='dark'] .ai-voice-panel {
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+:where(html[data-weq-layout='single']) .chat-pane:has(.composer.voice-open) {
+  --mobile-voice-height: clamp(150px, 32dvh, 220px);
+  --composer-height: calc(
+    var(--mobile-voice-height) +
+    62px +
+    var(--mobile-composer-safe-bottom)
+  ) !important;
 }
 
-html[data-theme='dark'] .ai-voice-textarea,
-html[data-theme='dark'] .ai-voice-chip {
-  background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
+:where(html[data-weq-layout='single']) .chat-pane .composer.voice-open {
+  grid-template-rows: var(--mobile-voice-height) 48px;
 }
 
-/* ── 小屏：面板收窄、声线区矮一点，别把整屏顶满 ─────────────────────────── */
-
-:where(html[data-weq-layout='single']) .ai-voice-panel {
-  left: 8px;
-  width: calc(100% - 16px);
-  max-height: min(
-    462px,
-    max(
-      236px,
-      calc(100dvh - var(--chat-header-height, 40px) - var(--composer-height, 190px) - 56px)
-    )
-  );
+:where(html[data-weq-layout='single'])
+  .composer.voice-open
+  > :is(.composer-quote, .mobile-composer-expand-button) {
+  display: none;
 }
 
-:where(html[data-weq-layout='single']) .ai-voice-voices-list {
-  max-height: 188px;
+:where(html[data-weq-layout='single']) .composer.voice-open > .voice-panel {
+  grid-row: 1;
+  gap: 7px;
+  padding-inline-end: 0;
+}
+
+:where(html[data-weq-layout='single']) .composer.voice-open > .composer-tools {
+  grid-row: 2;
+}
+
+:where(html[data-weq-layout='single']) .voice-synthesis {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(68px, 36%) minmax(68px, 1fr);
+  gap: 6px;
+}
+
+:where(html[data-weq-layout='single']) .voice-tts-input {
+  font-size: 16px;
 }
 
 /* ── 弹射表情（emojiBounce / FACEBUBBLE）─────────────────────────────────────
  *
- * 形态与链接卡片 / AI 声聊一致：从输入框上沿弹出来的浮层，不挤占正文那一行，
+ * 形态与链接卡片一致：从输入框上沿弹出来的浮层，不挤占正文那一行，
  * 挑表情 / 填个数的时候输入框里的文字照旧可编辑。
  *
  * 三块：预览 + 数量（左右并排） / 搜索 / 表情网格；底部是「单独发送」。
@@ -3056,4 +2735,48 @@ html[data-theme='dark'] .redpacket-step {
     grid-area: hint;
     text-align: left;
   }
+}
+
+.voice-other-recording {
+  align-self: center;
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.voice-recording-bubble {
+  position: fixed;
+  z-index: 3600;
+  top: 0;
+  left: 0;
+  transform: translate3d(
+    calc(100dvw - 60px - max(16px, env(safe-area-inset-right, 0px))),
+    calc(100dvh - 60px - max(18px, env(safe-area-inset-bottom, 0px))),
+    0
+  );
+  will-change: transform;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 3px;
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 50%;
+  background: var(--weq-bg-elevated, var(--popover));
+  color: var(--weq-fg-primary);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.voice-recording-bubble:active {
+  cursor: grabbing;
+}
+
+.voice-recording-bubble span {
+  font-size: 11px;
 }

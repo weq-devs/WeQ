@@ -1,4 +1,8 @@
-import { timelineViewport, type TimelineViewport } from './timelineViewport';
+import {
+  timelineViewport,
+  type ReadingRestoreOptions,
+  type TimelineViewport,
+} from './timelineViewport';
 
 export interface ConversationReadingPosition {
   scrollTop: number;
@@ -50,6 +54,7 @@ function captureMountedReadingPosition(scroll: HTMLElement): ConversationReading
 export function restoreReadingPosition(
   scroll: HTMLElement,
   position: ConversationReadingPosition,
+  options?: ReadingRestoreOptions,
 ): void {
   const pending = transientPositions.get(position);
   if (
@@ -58,7 +63,7 @@ export function restoreReadingPosition(
       pending.revision !== pending.viewport?.scrollRevision?.())
   )
     return;
-  if (timelineViewport(scroll)?.restore(position)) return;
+  if (timelineViewport(scroll)?.restore(position, options)) return;
   const anchor = Array.from(
     scroll.querySelectorAll<HTMLElement>(
       '.message-line[data-message-id], .weq-system-message-row[data-message-id]',
@@ -71,4 +76,14 @@ export function restoreReadingPosition(
         : anchor.getBoundingClientRect().top - (position.offset ?? 0)) -
       scroll.getBoundingClientRect().top
     : position.scrollTop;
+}
+
+export function restoreReadingPositionAfterPrepend(
+  scroll: HTMLElement,
+  position: ConversationReadingPosition,
+): void {
+  // 普通布局也持续测量行高，进入虚拟列表时沿用同一份锚定。
+  if (position.anchorId && timelineViewport(scroll)?.offset(position.anchorId) !== undefined)
+    return;
+  restoreReadingPosition(scroll, position, { ease: true });
 }

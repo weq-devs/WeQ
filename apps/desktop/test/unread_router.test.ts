@@ -1,5 +1,9 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { boundClientState } from '../src/main/ipc/routers/client_state';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { dbEventBus } from '../src/main/context/app_context';
 
@@ -7,9 +11,12 @@ const fixture = vi.hoisted(() => ({
   uin: '10001',
   staticAccount: false,
   configId: 'source-a',
+  root: '',
+  reportOfficialRead: vi.fn(),
   getUnreadInfos: vi.fn(),
   markRead: vi.fn(),
   markLocalRead: vi.fn(),
+  visibleReadSequence: vi.fn(),
   setReadState: vi.fn(),
   undoReadState: vi.fn(),
   clearLocalReadRecords: vi.fn(),
@@ -26,8 +33,10 @@ vi.mock('../src/main/context/app_context', async () => {
       getUnreadInfos: fixture.getUnreadInfos,
       markReadAndReport: fixture.markRead,
       markLocalRead: fixture.markLocalRead,
+      visibleReadSequence: fixture.visibleReadSequence,
       setReadState: fixture.setReadState,
       undoReadState: fixture.undoReadState,
+      reportOfficialRead: fixture.reportOfficialRead,
       clearLocalReadRecords: fixture.clearLocalReadRecords,
       onCountsChanged: (listener: typeof fixture.countsChanged) => {
         fixture.countsChanged = listener;
@@ -38,6 +47,7 @@ vi.mock('../src/main/context/app_context', async () => {
   return {
     accountEventBus: new EventEmitter(),
     dbEventBus: new EventEmitter(),
+    requirePlatform: () => ({ appDataRoot: () => fixture.root }),
     getAppContext: () => ({
       account: { context: { uin: fixture.uin } },
       accountIsStatic: fixture.staticAccount,
@@ -52,6 +62,8 @@ beforeEach(() => {
   fixture.uin = '10001';
   fixture.staticAccount = false;
   fixture.configId = 'source-a';
+  fixture.root = mkdtempSync(join(tmpdir(), 'weq-read-router-'));
+  fixture.reportOfficialRead.mockResolvedValue({ state: 'acknowledged' });
   fixture.countsChanged = undefined;
   fixture.getUnreadInfos.mockResolvedValue([
     {
@@ -68,8 +80,42 @@ beforeEach(() => {
   fixture.markRead.mockResolvedValue({ changed: true, report: { state: 'disabled' } });
   fixture.markLocalRead.mockResolvedValue(true);
 });
+afterEach(() => rmSync(fixture.root, { recursive: true, force: true }));
 
 describe('未读 IPC', () => {
+  it('公众号手动标为已读进入上报，手动未读及恢复未读的撤销不发已读通知', async () => {
+    const api = accountRouter.createCaller({});
+    const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+    const target = { key: 'official:u_mail', position: '0:1700000000:20' };
+    boundClientState(binding).records('reads', { [target.key]: '0:1699999999:19' });
+    await api.setConversationReadState({
+      ...binding,
+      targets: [],
+      directoryTargets: [target],
+      unread: true,
+    });
+    expect(fixture.reportOfficialRead).not.toHaveBeenCalled();
+    const result = await api.setConversationReadState({
+      ...binding,
+      targets: [],
+      directoryTargets: [target],
+      unread: false,
+    });
+    expect(fixture.reportOfficialRead).toHaveBeenCalledWith(
+      'u_mail',
+      target.position,
+      expect.any(Function),
+      true,
+    );
+    const valid = fixture.reportOfficialRead.mock.calls[0]![2] as () => boolean;
+    expect(valid()).toBe(true);
+    await api.undoConversationReadState({
+      expectedAccountUin: '10001',
+      undoToken: result.undoToken,
+    });
+    expect(valid()).toBe(false);
+    expect(fixture.reportOfficialRead).toHaveBeenCalledOnce();
+  });
   it('清除 WeQ 已读记录要求当前账号及数据源，拒绝旧页面的请求', async () => {
     const api = accountRouter.createCaller({});
     const input = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -159,6 +205,28 @@ describe('未读 IPC', () => {
       }),
     ).rejects.toThrow('数据源已切换');
     expect(fixture.markRead).not.toHaveBeenCalled();
+  });
+  it('按视口标已读只提交确认的序号，换数据源后拒绝迟到的结果', async () => {
+    const api = accountRouter.createCaller({});
+    const input = {
+      ...targets[0]!,
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      visibleSeqs: ['11', '13'],
+    };
+    await expect(api.markViewportRead(input)).resolves.toMatchObject({ changed: false });
+    expect(fixture.markRead).not.toHaveBeenCalled();
+
+    fixture.visibleReadSequence.mockResolvedValueOnce('11');
+    await expect(api.markViewportRead(input)).resolves.toMatchObject({ changed: true });
+    expect(fixture.markRead).toHaveBeenCalledWith(2, '777', '11');
+
+    fixture.visibleReadSequence.mockImplementationOnce(async () => {
+      fixture.configId = 'source-b';
+      return '11';
+    });
+    await expect(api.markViewportRead(input)).rejects.toThrow('数据源已切换');
+    expect(fixture.markRead).toHaveBeenCalledOnce();
   });
   it('手动批量标记及撤销强制账号隔离，结果沿用未读序列化', async () => {
     const api = accountRouter.createCaller({});

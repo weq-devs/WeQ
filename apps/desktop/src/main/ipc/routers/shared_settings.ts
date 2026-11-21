@@ -155,10 +155,18 @@ export const sharedSettingsRouter = router({
           activeBubble: z.number().int().min(0).optional(),
           activeFont: z.number().int().min(0).optional(),
           activeWidget: z.number().int().min(0).optional(),
-          scope: z.enum(['mine', 'all']).optional(),
+          scope: z.enum(['mine', 'fallback', 'all']).optional(),
+          scopes: z
+            .object({
+              bubble: z.enum(['mine', 'fallback', 'all']),
+              font: z.enum(['mine', 'fallback', 'all']),
+              widget: z.enum(['mine', 'fallback', 'all']),
+            })
+            .optional(),
           background: z.enum(['none', 'qq', 'custom']).optional(),
           backgroundOpacity: z.number().min(0).max(1).optional(),
           widgetId: z.string().optional(),
+          widgetOpacity: z.number().min(0).max(1).optional(),
         }),
       )
       .mutation(({ input }) => {
@@ -169,7 +177,13 @@ export const sharedSettingsRouter = router({
           owner.sharedAppearanceDir(),
           sharedPreferencePersistence(owner, 'dress'),
         );
-        config.write({ ...config.read(), ...input, localAppearanceVersion: 1 });
+        const current = config.read();
+        const scopes =
+          input.scopes ??
+          (input.scope
+            ? { bubble: input.scope, font: input.scope, widget: input.scope }
+            : current.scopes);
+        config.write({ ...current, ...input, scopes, localAppearanceVersion: 1 });
         emitDressChanged();
         return config.read();
       }),

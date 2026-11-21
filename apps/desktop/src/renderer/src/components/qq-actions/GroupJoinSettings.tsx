@@ -125,7 +125,7 @@ export function GroupJoinSettings({ groupId }: { groupId: number }) {
                   answer: targetMode === 4 ? answer : undefined,
                 }),
               undefined,
-              `修改 QQ 群 ${groupId} 的加群方式？`,
+              undefined,
               {
                 readback: async () => {
                   const result = await query.refetch();

@@ -34,6 +34,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       getAccountConfig: { useQuery: () => ({ data: undefined }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: { qqOnline: false } }) },
+      qqActions: { qzoneHome: { useInfiniteQuery: () => ({}) } },
     },
   },
   client: {
@@ -100,6 +101,13 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
     },
   };
 }
+async function openPosts(host: HTMLElement) {
+  await act(async () => {
+    Array.from(host.querySelectorAll<HTMLButtonElement>('[aria-label="空间内容"] button'))
+      .find((button) => button.textContent === '说说')!
+      .click();
+  });
+}
 it('好友动态不显示常驻多选按钮，修饰键选择后仍可操作并退出多选', async () => {
   const f = mount(
     createElement(
@@ -144,7 +152,7 @@ it('空间预热不读内容，停稳才读；再次滑动暂停读取但不清�
     await act(async () => {});
     expect(fixture.posts).not.toHaveBeenCalled();
     f.render(page(true));
-    await act(async () => {});
+    await openPosts(f.host);
     expect(fixture.posts).toHaveBeenCalled();
     const content = f.host.querySelector('[data-qzone-tid="a"]');
     expect(content).not.toBeNull();
@@ -192,6 +200,7 @@ it('已在对方空间时，说说头像与昵称一律打开名片', async () =
   );
   try {
     await act(async () => {});
+    await openPosts(f.host);
     const buttons = f.host.querySelectorAll<HTMLButtonElement>(
       '[data-qzone-tid="a"] .weq-qzn-post-head button',
     );
@@ -255,7 +264,12 @@ it('说说卸载后返回先显示缓存，头页校准未完成不重新清空�
                 selfUin: '10001',
                 nickname: '合成自己',
                 active: true,
-                spaceRequest: { accountUin: '10001', uin: '10001', revision: 'posts-revisit' },
+                spaceRequest: {
+                  accountUin: '10001',
+                  uin: '10001',
+                  revision: 'posts-revisit',
+                  catalog: { section: 'posts' },
+                },
               })
             : null,
         ),
@@ -263,10 +277,12 @@ it('说说卸载后返回先显示缓存，头页校准未完成不重新清空�
     );
   try {
     await render(true);
+    await openPosts(host);
     expect(host.textContent).toContain('fixture-a');
     await render(false);
     fixture.posts.mockImplementationOnce(() => new Promise(() => {}));
     await render(true);
+    await openPosts(host);
     expect(host.textContent).toContain('fixture-a');
   } finally {
     act(() => root.unmount());
@@ -292,13 +308,19 @@ it('空间正文不显示重复按钮，修饰键多选仍可通过顶部导出�
         selfUin: '10001',
         nickname: '合成自己',
         active: true,
-        spaceRequest: { accountUin: '10001', uin: '10001', revision: 'fixture-1' },
+        spaceRequest: {
+          accountUin: '10001',
+          uin: '10001',
+          revision: 'fixture-1',
+          catalog: { section: 'posts' },
+        },
       }),
       createElement(Probe),
     ),
   );
   try {
     await act(async () => {});
+    await openPosts(f.host);
     expect(f.host.querySelector('[aria-label="多选说说"]')).toBeNull();
     expect(f.host.querySelector('[aria-label="导出说说范围"]')).toBeNull();
     expect(f.host.querySelectorAll('[aria-label="导出说说"]')).toHaveLength(1);

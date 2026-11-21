@@ -164,7 +164,7 @@ html:root[data-theme][data-component-style] body
   :is(
     input,
     .weq-select-trigger,
-    textarea,
+    textarea:where(:not(.voice-tts-input)),
     .weq-input,
     .weq-set-input,
     .weq-set-select,
@@ -188,8 +188,6 @@ html:root[data-theme][data-component-style] body
     .weq-cache-sql-input,
     .weq-blob-bulk-input,
     .weq-gift-detail-field textarea,
-    .voice-tts-input,
-    .ai-voice-textarea,
     .link-card-field textarea,
     .bounce-input,
     .ark-json,
@@ -256,6 +254,7 @@ html:root[data-theme][data-component-style] body
 html:root[data-theme][data-component-style] body
   :is(
     .search-box,
+    .weq-cp-hex,
     .weq-dress-search,
     .weq-collection-search,
     .weq-titlebar-search:where(.is-expanded),
@@ -266,7 +265,6 @@ html:root[data-theme][data-component-style] body
     .weq-mf-search,
     .weq-mf-mall-search,
     .weq-gift-search,
-    .weq-redpack-wall-search,
     .weq-grouppick-search,
     .weq-rank-search,
     .ark-search,

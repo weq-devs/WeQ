@@ -562,6 +562,10 @@ describe('MessageSendService.sendText（离线集成）', () => {
     nested73: { flag1: 0, flag2: 0, flag3: 0, flag4: 0, flag7: 0 },
     flag96: 0,
   };
+  const defaultGroupDress = [
+    { generalFlags: { bubbleDiyTextId: 0, flag16: 0, widgetId: 0, font: fontWireFields } },
+    { bubble: { id: 0 } },
+  ];
 
   it('手机伪 UID 不查好友目录，装扮准备和发送使用设备身份', async () => {
     const native = fakeNative();
@@ -668,7 +672,9 @@ describe('MessageSendService.sendText（离线集成）', () => {
         elements: [{ kind: 'text', textContent: '账号气泡' }],
         preparedChatFont: preview.font,
       });
-      expect(elemsOf(native.calls[0]!.body).some((elem) => 'bubble' in elem)).toBe(false);
+      expect(elemsOf(native.calls[0]!.body).filter((elem) => 'bubble' in elem)).toEqual(
+        peerType === 'group' ? [{ bubble: { id: 0 } }] : [],
+      );
       expect(saved[0]).toMatchObject({
         localSent: true,
         decoration: { bubbleId: 2116371, fontId: 31001 },
@@ -738,15 +744,18 @@ describe('MessageSendService.sendText（离线集成）', () => {
             bubbleDiyTextId: 0,
             flag16: 0,
             widgetId: 22,
-            font: {
-              fontId2: 0x10000,
-              flag25: 0,
-              flag30: 0,
-              flag31: 0,
-              flag34: 0,
-              nested73: { flag2: 0 },
-              flag96: 0,
-            },
+            font:
+              peerType === 'group'
+                ? fontWireFields
+                : {
+                    fontId2: 0x10000,
+                    flag25: 0,
+                    flag30: 0,
+                    flag31: 0,
+                    flag34: 0,
+                    nested73: { flag2: 0 },
+                    flag96: 0,
+                  },
           },
         },
         { bubble: { id: 11 } },
@@ -848,14 +857,18 @@ describe('MessageSendService.sendText（离线集成）', () => {
         const body = decode(SEND_MESSAGE_REQUEST, call.body) as {
           messageBody: { richText: { elems: Record<string, unknown>[] } };
         };
-        expect(body.messageBody.richText.elems).toHaveLength(2);
-        expect(body.messageBody.richText.elems[0]).toEqual({
-          generalFlags: {
-            bubbleDiyTextId: 0,
-            widgetId: 0,
-            font: { ...fontWireFields, fontId2: [72057, 66173][index] },
+        expect(body.messageBody.richText.elems).toEqual([
+          {
+            generalFlags: {
+              bubbleDiyTextId: 0,
+              ...(peerType === 'group' ? { flag16: 0 } : {}),
+              widgetId: 0,
+              font: { ...fontWireFields, fontId2: [72057, 66173][index] },
+            },
           },
-        });
+          ...(peerType === 'group' ? [{ bubble: { id: 0 } }] : []),
+          { text: { str: ['第一条', '第二条'][index] } },
+        ]);
       }
     },
   );
@@ -1169,21 +1182,22 @@ describe('MessageSendService.sendText（离线集成）', () => {
     };
     expect(Number(body.routingHead?.grp?.groupCode)).toBe(2863253201);
     const elems = body.messageBody?.richText?.elems ?? [];
-    expect(elems).toHaveLength(4);
-    expect(elems[0]).toHaveProperty('replyElement');
-    expect(elems[1]).toHaveProperty('text');
-    expect(elems[3]).toEqual({ text: { str: '你好' } });
+    expect(elems).toHaveLength(6);
+    expect(elems.slice(0, 2)).toEqual(defaultGroupDress);
+    expect(elems[2]).toHaveProperty('replyElement');
+    expect(elems[3]).toHaveProperty('text');
+    expect(elems[5]).toEqual({ text: { str: '你好' } });
   });
 
-  it('私聊文本：routingHead.c2c 带 uin + 解析出的 uid', async () => {
+  it('私聊纯文本：按解析出的 UID 路由并携带同步时间戳', async () => {
     const native = fakeNative();
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);
     await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: 'hi' });
-    const body = decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body) as {
-      routingHead?: { c2c?: { uin?: number; uid?: string } };
-    };
-    expect(body.routingHead?.c2c?.uin).toBe(20002);
-    expect(body.routingHead?.c2c?.uid).toBe('u_friend');
+    const body = decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body);
+    expect(body.routingHead.c2c).toEqual({ uid: 'u_friend' });
+    expect(body.contentHead).toEqual({ type: 1, subType: 0, c2cCmd: 0 });
+    expect(body.syncCookie.msgFlag).toBeGreaterThan(0);
+    expect(body.ctrl).toBeUndefined();
   });
 
   it('私聊文本：目录里没有 uid 的陌生人也发得出去（不带 uid 字段）', async () => {
@@ -1282,14 +1296,16 @@ describe('MessageSendService.sendText（离线集成）', () => {
     async (peerType) => {
       const native = fakeNative();
       const svc = new MessageSendService(native as never, fakeSession(), () => 1);
+      const dress = peerType === 'group' ? defaultGroupDress : [];
       for (const text of [' ', '\n', '\n\n', ' \t\r\n ', '\n 正文 \n']) {
         await svc.sendText({ peerType, targetId: '20002', text });
         const body = decode(SEND_MESSAGE_REQUEST, native.calls.at(-1)!.body);
-        expect(body.messageBody.richText.elems).toEqual([{ text: { str: text } }]);
+        expect(body.messageBody.richText.elems).toEqual([...dress, { text: { str: text } }]);
       }
       await svc.sendText({ peerType, targetId: '20002', text: '', replyToMsgSeq: 7 });
       const body = decode(SEND_MESSAGE_REQUEST, native.calls.at(-1)!.body);
       expect(body.messageBody.richText.elems).toMatchObject([
+        ...dress,
         { replyElement: { origMsgSeq: [7] } },
         { text: { str: ' ' } },
       ]);
@@ -1345,7 +1361,7 @@ describe('MessageSendService.sendText（离线集成）', () => {
     ]);
   });
 
-  it('不带装扮：报文里没有任何装扮 elem（与以前逐字节一致）', async () => {
+  it('群聊未指定装扮时保留默认气泡和字体骨架', async () => {
     const native = fakeNative();
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);
     await svc.sendText({ peerType: 'group', targetId: '2863253201', text: '你好' });
@@ -1354,7 +1370,7 @@ describe('MessageSendService.sendText（离线集成）', () => {
       messageBody?: { richText?: { elems?: Record<string, unknown>[] } };
     };
     const elems = body.messageBody?.richText?.elems ?? [];
-    expect(elems).toEqual([{ text: { str: '你好' } }]);
+    expect(elems).toEqual([...defaultGroupDress, { text: { str: '你好' } }]);
   });
 
   it('非法装扮 id：联网之前就拦下', async () => {
@@ -1666,7 +1682,7 @@ describe('sendForward（合并转发，离线）', () => {
       messageBody?: { richText?: { elems?: { lightApp?: { data: Uint8Array } }[] } };
     };
     expect(cardReq.routingHead?.grp?.groupCode).toBe(2863253201n); // uint64 → bigint
-    const card = cardReq.messageBody?.richText?.elems?.[0]?.lightApp;
+    const card = cardReq.messageBody?.richText?.elems?.find((elem) => elem.lightApp)?.lightApp;
     expect(card).toBeTruthy();
     const cardJson = JSON.parse(
       inflateSync(Buffer.from(card!.data).subarray(1)).toString('utf8'),
@@ -1692,10 +1708,10 @@ describe('sendForward（合并转发，离线）', () => {
       nodes: [{ nickname: '小明', elements: [{ kind: 'text', textContent: '你好' }] }],
     });
     const request = decode(SEND_MESSAGE_REQUEST, native.calls[1]!.body) as {
-      messageBody: { richText: { elems: { lightApp: { data: Uint8Array } }[] } };
+      messageBody: { richText: { elems: { lightApp?: { data: Uint8Array } }[] } };
     };
-    const data = request.messageBody.richText.elems[0]!.lightApp.data;
-    const card = JSON.parse(inflateSync(Buffer.from(data).subarray(1)).toString('utf8'));
+    const elem = request.messageBody.richText.elems.find((entry) => entry.lightApp)!;
+    const card = JSON.parse(arkDataOf(elem));
     expect(card.meta.detail.source).toBe('群聊的聊天记录');
     expect(card.meta.detail.news).toEqual([{ text: '小明: 你好' }]);
   });
@@ -1897,9 +1913,9 @@ function arkDataOf(elem: unknown): string {
 }
 
 /** 解出 PbSendMsg 里的元素数组。 */
-function elemsOf(body: Uint8Array): unknown[] {
+function elemsOf(body: Uint8Array): Record<string, unknown>[] {
   const decoded = decode(SEND_MESSAGE_REQUEST, body) as {
-    messageBody?: { richText?: { elems?: unknown[] } };
+    messageBody?: { richText?: { elems?: Record<string, unknown>[] } };
   };
   return decoded.messageBody?.richText?.elems ?? [];
 }
@@ -1951,8 +1967,8 @@ describe('MessageSendService.sendArkCard（离线集成）', () => {
     expect(native.calls).toHaveLength(1);
     expect(native.calls[0]!.cmd).toBe('MessageSvc.PbSendMsg');
     const elems = elemsOf(native.calls[0]!.body);
-    expect(elems).toHaveLength(1);
-    expect(arkDataOf(elems[0])).toBe(ark);
+    expect(elems).toHaveLength(3);
+    expect(arkDataOf(elems[2])).toBe(ark);
   });
 
   it('非法 JSON：一个字节都不发', async () => {
@@ -2080,7 +2096,8 @@ describe('MessageSendService.sendContactCard（离线集成）', () => {
     expect(sso).toHaveLength(1);
     expect(sso[0]!.cmd).toBe('MessageSvc.PbSendMsg');
     const elems = elemsOf(sso[0]!.body);
-    expect(arkDataOf(elems[0])).toBe(ark);
+    expect(elems).toHaveLength(3);
+    expect(arkDataOf(elems[2])).toBe(ark);
 
     expect(outcome.ok).toBe(true);
     expect(outcome.kind).toBe('group');

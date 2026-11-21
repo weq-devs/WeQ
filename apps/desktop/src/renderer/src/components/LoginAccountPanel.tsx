@@ -234,7 +234,8 @@ export function LoginAccountPanel(): ReactElement {
               'QQ 运行状态尚未确认，请先恢复数据读取权限并重新检查。'
             ) : (
               <>
-                检测到 {overview.qqInstanceCount} 个 QQ 实例正在运行，请先<b>完全退出 QQ</b>。
+                <NumericText>{`检测到 ${overview.qqInstanceCount} 个 QQ 实例正在运行，请先`}</NumericText>
+                <b>完全退出 QQ</b>。
               </>
             )}
           </span>

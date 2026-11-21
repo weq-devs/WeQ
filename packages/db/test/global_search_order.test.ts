@@ -2,7 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { RecentContactDb, ProfileInfoDb, GroupMemberDb } from '@weq/db';
+import {
+  BuddyMsgFtsDb,
+  GroupMsgFtsDb,
+  RecentContactDb,
+  ProfileInfoDb,
+  GroupMemberDb,
+} from '@weq/db';
 import { ChatType } from '@weq/codec';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 
@@ -10,6 +16,35 @@ let root = '';
 afterEach(() => {
   closeAllFixtureDbs();
   if (root) rmSync(root, { recursive: true, force: true });
+});
+
+it('聊天记录候选在截断前按发送者和日期筛选，等时消息按精确 ID 排序', async () => {
+  root = mkdtempSync(join(tmpdir(), 'weq-record-filter-'));
+  const path = join(root, 'fts.db');
+  const sql = fixtureDb(path);
+  for (const table of ['buddy_msg_fts', 'group_msg_fts']) {
+    sql.exec(`CREATE TABLE ${table} (
+      "40001" INTEGER, "40010" INTEGER, "40021" TEXT, "40020" TEXT,
+      "41701" TEXT, "40050" INTEGER, "41702" TEXT, "40003" INTEGER, "40027" INTEGER)`);
+    const insert = sql.prepare(`INSERT INTO ${table} VALUES (?, 1, 'peer', ?, ?, ?, '', ?, 12)`);
+    insert.run(99, 'u_other', '50% 记录', 20, 1);
+    insert.run(98, 'u_sender', '50% 记录', 40, 2);
+    insert.run(97, 'u_sender', '500 记录', 20, 3);
+    insert.run(10, 'u_sender', '50% 记录', 20, 4);
+    insert.run(11, 'u_sender', '50% 记录', 20, 5);
+  }
+  const nt = createSqliteStub();
+  for (const db of [
+    new BuddyMsgFtsDb(nt, { dbPath: path }),
+    new GroupMsgFtsDb(nt, { dbPath: path }),
+  ]) {
+    expect(
+      await db.searchRecordCandidates('50%', { senderUid: 'u_sender', start: 20, end: 20 }, 2),
+    ).toMatchObject([
+      { msgId: 11n, partition: 12n },
+      { msgId: 10n, partition: 12n },
+    ]);
+  }
 });
 
 it('会话按精确、前缀、包含排序，同档按时间，分页保持稳定', async () => {

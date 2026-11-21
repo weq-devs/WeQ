@@ -183,6 +183,7 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
       'auto-transcribe-voice',
       'chat-image-cache',
       'read-first-unread',
+      'preserve-unread-until-read',
       'auto-fetch-missing-messages',
       'auto-fetch-missing-context',
       'missing-message-context-count',
@@ -365,6 +366,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   { id: 'component-style', section: 'appearance', label: '组件风格', from: ['appearance'] },
   { id: 'interface-density', section: 'appearance', label: '界面密度', from: ['appearance'] },
+  {
+    id: 'special-number-font',
+    section: 'appearance',
+    label: '数字字体',
+    aliases: ['特殊数字字体', '跟随界面字体', '数字排版'],
+    from: ['appearance'],
+  },
   {
     id: 'windows-style-controls',
     section: 'appearance',
@@ -659,6 +667,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account', 'chat-messages'],
   },
   {
+    id: 'qq-client-sync',
+    section: 'account',
+    label: '自动同步本人消息与已读',
+    aliases: ['本机 QQ 同步', 'QQ 同步代理', '补投本人消息'],
+    from: ['account'],
+  },
+  {
     id: 'qq-debug-copy',
     section: 'account',
     label: 'QQ 调试副本',
@@ -723,6 +738,12 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['all-conversations-include-hidden', '包含已隐藏会话', '全部会话隐藏范围'],
       ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],
       ['read-first-unread', '从第一条新消息开始阅读'],
+      [
+        'preserve-unread-until-read',
+        '保留尚未读到的消息的未读计数',
+        '保留未读',
+        '按阅读进度标为已读',
+      ],
       ['auto-fetch-missing-messages', '查看时自动拉取缺失的消息', '自动补全消息', '漫游消息'],
       ['auto-fetch-missing-context', '定位到缺失消息时自动拉取上下文'],
       ['missing-message-context-count', '自动拉取上下文条数'],

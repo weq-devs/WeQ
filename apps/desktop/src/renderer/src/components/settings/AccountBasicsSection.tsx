@@ -27,6 +27,7 @@ import {
   FolderOpen,
   KeyRound,
   Radio,
+  RefreshCcw,
   RefreshCw,
   Smartphone,
   Trash2,
@@ -35,6 +36,7 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
+import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 import { DatabaseReadSettings } from './DatabaseReadSettings';
@@ -154,6 +156,43 @@ export function AccountBasicsSection({
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
   const setRestrictedIndicator = trpc.bootstrap.setRestrictedModeIndicatorEnabled.useMutation();
   const setReadSyncEnabled = trpc.bootstrap.setReadSyncEnabled.useMutation();
+  const [qqSyncPortDraft, setQqSyncPortDraft] = useState<string | null>(null);
+  const pushToast = useToast((state) => state.push);
+  const qqSyncStatus = trpc.bootstrap.getQqClientSyncStatus.useQuery(undefined, {
+    enabled: active && page === 'account',
+    staleTime: 0,
+    refetchInterval:
+      active && page === 'account' && settings.data?.qqClientSyncEnabled === true ? 3000 : false,
+  });
+  const setQqClientSync = trpc.bootstrap.setQqClientSyncEnabled.useMutation({
+    onSuccess: () => {
+      void settings.refetch();
+      void qqSyncStatus.refetch();
+    },
+    onError: (error) => showError('QQ 同步启动失败', error.message),
+  });
+  const setQqClientSyncPort = trpc.bootstrap.setQqClientSyncPort.useMutation({
+    onSuccess: async ({ port }) => {
+      await qqSyncStatus.refetch();
+      setQqSyncPortDraft(null);
+      pushToast({
+        tone: 'success',
+        title: 'QQ 同步代理端口已更新',
+        message: `请在 QQ 登录页填写端口 ${port}，然后重新连接。`,
+      });
+    },
+    onError: (error) => showError('更改 QQ 同步代理端口失败', error.message),
+  });
+  const qqSyncPort = qqSyncStatus.data?.port;
+  const newQqSyncPort = Number(qqSyncPortDraft);
+  const canSaveQqSyncPort =
+    qqSyncPort !== undefined &&
+    Number.isInteger(newQqSyncPort) &&
+    newQqSyncPort >= 1 &&
+    newQqSyncPort <= 65535 &&
+    newQqSyncPort !== qqSyncPort &&
+    !setQqClientSync.isPending &&
+    !setQqClientSyncPort.isPending;
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
   const pickExternalChatpicDir = trpc.bootstrap.pickExternalChatpicDir.useMutation();
 
@@ -617,6 +656,79 @@ export function AccountBasicsSection({
                 {reportRead ? '仅自动阅读上报，沿用原设置' : '仅手动标记上报，沿用原设置'}
               </p>
             ) : null}
+          </Card>
+          <Card
+            title="本机 QQ 同步"
+            icon={<RefreshCcw size={15} strokeWidth={1.8} />}
+            resetId="qq-client-sync"
+          >
+            <Row
+              settingId="qq-client-sync"
+              desc="QQ 通过本机代理连接后生效。已读同步沿用上方的上报设置。"
+              control={
+                <Toggle
+                  checked={settings.data?.qqClientSyncEnabled ?? false}
+                  disabled={
+                    settingsLoading || setQqClientSync.isPending || setQqClientSyncPort.isPending
+                  }
+                  onChange={(enabled) => setQqClientSync.mutate({ enabled })}
+                  label="自动同步本人消息与已读"
+                />
+              }
+            />
+            <Row
+              label="代理端口"
+              desc={
+                qqSyncPort === undefined
+                  ? '在 QQ 登录页使用 HTTP 代理，地址为 127.0.0.1。'
+                  : `在 QQ 登录页将 HTTP 代理设为 127.0.0.1:${qqSyncPort}。改端口后需在 QQ 中更新并重新连接。`
+              }
+              control={
+                <form
+                  className="weq-set-btn-group"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (canSaveQqSyncPort) setQqClientSyncPort.mutate({ port: newQqSyncPort });
+                  }}
+                >
+                  <input
+                    className="weq-set-input weq-set-input-sm weq-number"
+                    aria-label="QQ 同步代理端口"
+                    inputMode="numeric"
+                    value={qqSyncPortDraft ?? qqSyncPort ?? ''}
+                    disabled={qqSyncPort === undefined || setQqClientSyncPort.isPending}
+                    onChange={(event) =>
+                      setQqSyncPortDraft(event.target.value.replace(/\D/g, '').slice(0, 5))
+                    }
+                    title="请输入 1–65535 之间的整数"
+                  />
+                  <button
+                    type="submit"
+                    className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
+                    disabled={!canSaveQqSyncPort}
+                  >
+                    保存端口
+                  </button>
+                </form>
+              }
+            />
+            {settings.data?.qqClientSyncEnabled && (
+              <p className="weq-set-note">
+                {qqSyncStatus.data?.running
+                  ? qqSyncStatus.data.accounts.length > 0
+                    ? 'QQ 已连接同步代理'
+                    : '等待 QQ 通过代理连接'
+                  : qqSyncStatus.data?.error || '正在检查代理'}
+                {qqSyncStatus.data?.tasks?.pending
+                  ? ` · 待同步 ${qqSyncStatus.data.tasks.pending} 项`
+                  : ''}
+                {qqSyncStatus.data?.tasks?.error ? ` · ${qqSyncStatus.data.tasks.error}` : ''}
+              </p>
+            )}
+            <p className="weq-set-note">
+              代理独立保持运行，WeQ 重启后自动接续。关闭自动同步会保留转发；停用代理前请先恢复 QQ
+              的网络设置。
+            </p>
           </Card>
           <LongTermAuthorizationSection />
         </>

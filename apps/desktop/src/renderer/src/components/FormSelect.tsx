@@ -282,6 +282,7 @@ type FormSelectProps = Omit<
   value?: string | number;
   defaultValue?: string | number;
   required?: boolean;
+  triggerLabel?: ReactNode;
   onChange?: ChangeEventHandler<HTMLSelectElement>;
   ref?: Ref<HTMLButtonElement>;
 };
@@ -296,6 +297,7 @@ export function FormSelect({
   name,
   form,
   className,
+  triggerLabel,
   ref,
   ...props
 }: FormSelectProps) {
@@ -414,7 +416,7 @@ export function FormSelect({
           else show();
         }}
       >
-        <span className="weq-select-value">{selectedOption?.label}</span>
+        <span className="weq-select-value">{triggerLabel ?? selectedOption?.label}</span>
         <ChevronDown className="weq-select-arrow" size={14} aria-hidden />
       </button>
       <select

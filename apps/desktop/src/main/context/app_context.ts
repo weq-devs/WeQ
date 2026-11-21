@@ -19,12 +19,14 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { AccountQqSync } from '../qq_sync/account';
+import { ensureQqSyncProxy } from '../qq_sync/runtime';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
 import { ConversationInteractionBadges } from './conversation_interactions';
-import { webNotices, type WebNotice } from '../web/notices';
+import { webNotices, type WebNoticeEvent, type WebNoticePayload } from '../web/notices';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
 import { clearFullMode, fullModeAllowed } from './full_mode';
 import { resolveSignerWrapper } from './signer_target';
@@ -35,6 +37,7 @@ import { dirname, join, resolve } from 'node:path';
 import { loadNativeSafe } from '@weq/native';
 import {
   AnnualReportIndexDb,
+  GroupNotifyStatus,
   MessageReadIndexDb,
   withDatabasePriority,
   waitForDatabaseQuiet,
@@ -54,6 +57,7 @@ import { startMcpServer, stopMcpServer } from '../mcp/server';
 import { botRuntime } from '../bot_runtime';
 import { resolveOneBotAppid } from '../bot_runtime/appid';
 import { watchObservedMessages } from '../bot_runtime/observed_messages';
+import { SentVoiceTranscripts } from '../sent_voice_transcripts';
 import type { ControlOneBotConfig } from '@weqbot/control';
 import { startLogRetention } from '../log_retention';
 import { assistantResourceServer } from '../weq_assistant/server';
@@ -138,6 +142,7 @@ import {
   createDressService,
   migrateDressData,
   DressConfigService,
+  DressConversationStore,
   MsgDecorationCacheService,
   TokenUsageStore,
   warmupSigner,
@@ -372,7 +377,7 @@ let groupKeywordNotifier: ((hit: GroupKeywordHit) => void | Promise<void>) | nul
  * 由 app 层注入 —— app_context 保持 Electron-free（web 端共用它）。
  */
 let recallNotifier: ((event: RecallNotifyEvent) => void) | null = null;
-function webNotice(session: AccountSession, notice: Omit<WebNotice, 'uin' | 'configId'>): void {
+function webNotice(session: AccountSession, notice: WebNoticePayload): void {
   const ctx = getAppContext();
   const configId = ctx.services?.accountConfig.getRecord()?.configId;
   if (ctx.account !== session || !configId) return;
@@ -380,7 +385,7 @@ function webNotice(session: AccountSession, notice: Omit<WebNotice, 'uin' | 'con
     ...notice,
     uin: String(session.context.uin),
     configId,
-  } satisfies WebNotice);
+  } satisfies WebNoticeEvent);
 }
 function recallNotificationsEnabled(config: UserConfigService): boolean {
   const { banner, system } = config.getSettings().notificationEvents.recall;
@@ -401,7 +406,7 @@ function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
   });
   recallNotifier?.(event);
 }
-function notifyMail(session: AccountSession, notice: MailNotice): void {
+function notifyMail(session: AccountSession, notice: MailNotice): boolean {
   webNotice(session, {
     kind: 'mail',
     title: 'QQ 邮箱收到新邮件',
@@ -409,6 +414,9 @@ function notifyMail(session: AccountSession, notice: MailNotice): void {
     mail: { folderId: notice.folderId, id: notice.id },
   });
   mailNotifier?.(String(session.context.uin), notice);
+  return (
+    getAppContext().bootstrap?.userConfig.getSettings().notificationEvents.mail.banner === true
+  );
 }
 let mailNotifier: ((uin: string, notice: MailNotice) => void) | null = null;
 export function setMailNotifier(
@@ -535,6 +543,7 @@ function cancelAnnualReportWarmup(): void {
 function mountDbWatch(session: AccountSession): void {
   if (dbWatchHandle) return;
   const isCurrent = () => getAppContext().account === session;
+  let groupRoleNotices: Set<string> | undefined;
   getAppContext().services?.interactionBadges.requestScan();
   contactNoticeWatchHandles = [
     {
@@ -545,13 +554,33 @@ function mountDbWatch(session: AccountSession): void {
     {
       kind: 'group' as const,
       dbPath: session.groupMembers.dbPath,
-      read: async () =>
-        (
-          await Promise.all([
-            session.groupNotifies.listNormal(CONTACT_NOTICE_LIMIT),
-            session.groupNotifies.listDoubt(CONTACT_NOTICE_LIMIT),
-          ])
-        ).flat(),
+      read: async () => {
+        const [normal, doubt] = await Promise.all([
+          session.groupNotifies.listNormal(CONTACT_NOTICE_LIMIT),
+          session.groupNotifies.listDoubt(CONTACT_NOTICE_LIMIT),
+        ]);
+        if (isCurrent()) {
+          const groupInfo = getAppContext().services?.groupInfo;
+          const groups = new Set<number>();
+          const current = new Set<string>();
+          for (const notice of normal) {
+            const groupCode = notice.groupInfo?.groupUin;
+            if (
+              !groupCode ||
+              (notice.status !== GroupNotifyStatus.SetAdmin &&
+                notice.status !== GroupNotifyStatus.RevokeAdmin)
+            )
+              continue;
+            const key = `${groupCode}:${notice.operatedUser?.uid}:${notice.status}:${notice.msgTime}`;
+            current.add(key);
+            if (groupRoleNotices && !groupRoleNotices.has(key)) groups.add(Number(groupCode));
+          }
+          groupRoleNotices = current;
+          for (const groupId of groups)
+            void groupInfo?.syncMemberRoles(groupId, true).catch(() => undefined);
+        }
+        return [...normal, ...doubt];
+      },
     },
   ].map((source) =>
     mountContactNoticeWatch(dbWatch, source, isCurrent, (kind) => {
@@ -580,6 +609,9 @@ function mountDbWatch(session: AccountSession): void {
       onNewMessages: async (change: NewMessages) => {
         const ctx = getAppContext();
         if (ctx.account !== session) return;
+        ctx.services?.contactDirectory?.prioritizeGroupTimes(
+          change.group.map((message) => message.targetGroupCode),
+        );
         if (ctx.account === session) {
           try {
             await ctx.services?.unreadInfo.observeNewMessages(change);
@@ -1107,6 +1139,7 @@ export interface BootstrapServices {
 export interface AccountServices {
   contactDirectory?: ContactDirectoryRuntime;
   msgs: MsgService;
+  sentVoiceTranscripts?: SentVoiceTranscripts;
   recentContacts: RecentContactService;
   /** QQ 频道私聊会话与消息（guild_msg.db / guild1.db，静态本地读取）。 */
   guildDirect: GuildDirectService;
@@ -1117,6 +1150,7 @@ export interface AccountServices {
   officialAccount: OfficialAccountService;
   serviceAccount: ServiceAccountService;
   unreadInfo: UnreadInfoService;
+  qqClientSync?: AccountQqSync;
   interactionBadges: ConversationInteractionBadges;
   accountConfig: AccountConfigService;
   /** Manifest-first, compile-time annual report page service. */
@@ -1220,6 +1254,7 @@ export interface AccountServices {
   redbag: RedBagService;
   /** 个性装扮（气泡/字体/背景）— 新架构：config 账号隔离，cache 全局共享。 */
   dressInstall: import('@weq/service').DressService;
+  dressConversations: DressConversationStore;
   /** 逐条消息装扮解析缓存（来自 DB 列 40801）。同一 itemId 永不重查。 */
   msgDecoration: MsgDecorationCacheService;
 }
@@ -1505,6 +1540,10 @@ export function initAppContext(fileRoot?: string): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = files.config;
+  if (userConfig.getSettings().qqClientSyncEnabled)
+    void ensureQqSyncProxy(platform.appDataRoot()).catch((error) =>
+      getLogger().warn('QQ 同步代理启动失败', { error: String(error) }),
+    );
   // 词云 / 常用语的分词优先用 QQ 自带结巴词典，读不到时用随包的
   // resources/jieba（进程级单例）。账号无关、非关键路径，fire-and-forget 即可。
   void warmJiebaDict([platform.jiebaDictDir(), resolveResource('jieba')]);
@@ -1721,6 +1760,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.unifiedSearch.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
+      await this.services?.qqClientSync?.dispose();
+      await this.services?.sentVoiceTranscripts?.dispose();
+      await this.services?.antiRecall.dispose();
       this.services?.interactionBadges.dispose();
       await waitForUnreadWrites();
       await this.services?.contactDirectory?.dispose();
@@ -1824,6 +1866,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       groupInfo.setOperationGuard(() => {
         if (this.account !== session) throw new Error('账号或数据源已切换，请重新操作');
       });
+      groupInfo.onMemberRolesChanged = () => {
+        if (this.account === session) dbEventBus.emit('group-info-changed', { at: Date.now() });
+      };
       const profile = new ProfileService(session, {
         nt: platform.native.ntHelper,
         resolvePid: resolveOnlinePid,
@@ -1902,6 +1947,19 @@ export function initAppContext(fileRoot?: string): AppContext {
         platform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
         {
+          archivePath: join(
+            userConfig.cacheDir(join('anti_recall', exportConfigId)),
+            'retained.db',
+          ),
+          onArchiveChanged: (message) => {
+            if (getAppContext().account !== session) return;
+            dbEventBus.emit('roaming', {
+              session,
+              kind: message.kind,
+              conv: message.conv,
+              messages: [message],
+            } satisfies RoamingCacheChange);
+          },
           onRecall: (event) => notifyRecall(session, event),
           onObservedRecall: (event) => observeInteractionRecall(session, event),
           notificationsEnabled: () => recallNotificationsEnabled(userConfig),
@@ -1952,6 +2010,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         },
         join(userConfig.cacheDir('roam-msg'), `${session.context.uin}.db`),
         deletedMsgs,
+        antiRecall.archive,
       );
       groupInfo.setAnalysisCache(gapHistory);
       const guildDirect = new GuildDirectService(session);
@@ -1970,8 +2029,50 @@ export function initAppContext(fileRoot?: string): AppContext {
       );
       let generatedSources: GeneratedSearchSources | undefined;
       await dressInstall.prepareMessageRendering();
+      const qqClientSync = new AccountQqSync({
+        antiRecall,
+        root: platform.appDataRoot(),
+        path: join(
+          platform.appDataRoot(),
+          'config',
+          'accounts',
+          exportConfigId,
+          'qq-client-sync.json',
+        ),
+        session,
+        nt: platform.native.ntHelper,
+        enabled: () => this.account === session && userConfig.getSettings().qqClientSyncEnabled,
+        readEnabled: () =>
+          userConfig.getSettings().reportReadEnabled ||
+          userConfig.getSettings().manualReadReportEnabled,
+        current: () => {
+          const record = accountConfig.getRecord();
+          return this.account === session &&
+            !this.accountIsStatic &&
+            fullModeAllowed(this, session) &&
+            record?.qqOnline &&
+            record.qqPid &&
+            record.session?.pid === record.qqPid &&
+            record.session.d2Key
+            ? { pid: record.qqPid, key: record.session.d2Key }
+            : null;
+        },
+      });
       this.services = {
+        qqClientSync,
         msgs,
+        sentVoiceTranscripts: new SentVoiceTranscripts(
+          join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'sent-voice-transcripts.json',
+          ),
+          msgs,
+          session.selfUid ?? '',
+          () => this.account === session,
+        ),
         roamingBackfill,
         interactionBadges: new ConversationInteractionBadges(
           session,
@@ -2000,6 +2101,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             nt: platform.native.ntHelper,
             enabled: () => userConfig.getSettings().reportReadEnabled,
             manualEnabled: () => userConfig.getSettings().manualReadReportEnabled,
+            onAcknowledged: (target) => qqClientSync.read(target),
             resolvePid: () => {
               if (
                 this.account !== session ||
@@ -2102,6 +2204,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
+        dressConversations: new DressConversationStore(
+          join(platform.appDataRoot(), 'config', 'accounts', exportConfigId),
+        ),
         msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,
         mediaDownload,
@@ -2408,6 +2513,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               userConfig.getSettings().notificationEvents.mail.system,
             allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => notifyMail(session, notice),
+            onRead: (mailIds) => webNotice(session, { kind: 'mail-read', mailIds }),
           },
         ),
         groupAlbumMedia: new GroupAlbumMediaService(
@@ -2421,6 +2527,13 @@ export function initAppContext(fileRoot?: string): AppContext {
           session,
           resolveOnlinePid,
           (groupId) => groupInfo.operationContext(groupId),
+          join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'group-file-transfers.json',
+          ),
         ),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid),
         profileExtras: new ProfileExtrasService(
@@ -2474,6 +2587,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             await gapHistory.retainForBatch([message]);
             if (getAppContext().account !== session) return;
             this.services?.unreadInfo.invalidateSent(message.kind, message.conv);
+            this.services?.qqClientSync?.sent(message);
             dbEventBus.emit('roaming', {
               session,
               kind: message.kind,
@@ -2723,6 +2837,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.unifiedSearch.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
+      await this.services?.qqClientSync?.dispose();
+      await this.services?.sentVoiceTranscripts?.dispose();
+      await this.services?.antiRecall.dispose();
       this.services?.interactionBadges.dispose();
       await waitForUnreadWrites();
       await this.services?.contactDirectory?.dispose();
@@ -3042,6 +3159,9 @@ export function initAppContext(fileRoot?: string): AppContext {
         collection: collectionSvc,
         redbag: redbagSvc,
         dressInstall,
+        dressConversations: new DressConversationStore(
+          join(platform.appDataRoot(), 'config', 'accounts', exportConfigId),
+        ),
         msgDecoration: new MsgDecorationCacheService(dressInstall),
         fileSearch,
         mediaDownload,
@@ -3322,12 +3442,23 @@ export function initAppContext(fileRoot?: string): AppContext {
               userConfig.getSettings().notificationEvents.mail.system,
             allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => notifyMail(session, notice),
+            onRead: (mailIds) => webNotice(session, { kind: 'mail-read', mailIds }),
           },
         ),
         groupAlbumMedia: new GroupAlbumMediaService(platform.native.ntHelper, session, livePid),
         gapHistory,
-        groupFile: new GroupFileService(platform.native.ntHelper, session, livePid, (groupId) =>
-          groupInfo.operationContext(groupId),
+        groupFile: new GroupFileService(
+          platform.native.ntHelper,
+          session,
+          livePid,
+          (groupId) => groupInfo.operationContext(groupId),
+          join(
+            platform.appDataRoot(),
+            'config',
+            'accounts',
+            exportConfigId,
+            'group-file-transfers.json',
+          ),
         ),
         peerStats: new PeerStatsService(platform.native.ntHelper, session, livePid),
         profileExtras: new ProfileExtrasService(
@@ -3374,6 +3505,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             await gapHistory.retainForBatch([message]);
             if (getAppContext().account !== session) return;
             this.services?.unreadInfo.invalidateSent(message.kind, message.conv);
+            this.services?.qqClientSync?.sent(message);
             dbEventBus.emit('roaming', {
               session,
               kind: message.kind,
@@ -3587,6 +3719,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       this.services?.unifiedSearch.dispose();
       const agentLabClosed = this.services?.agentLab.close();
       const unreadClosed = this.services?.unreadInfo.dispose();
+      await this.services?.qqClientSync?.dispose();
+      await this.services?.sentVoiceTranscripts?.dispose();
+      await this.services?.antiRecall.dispose();
       this.services?.contentSearch.close();
       this.services?.guildDirect.cancelSearch();
       const closingAccount = this.account;

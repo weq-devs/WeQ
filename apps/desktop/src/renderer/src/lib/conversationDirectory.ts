@@ -1,4 +1,4 @@
-import { createContext } from 'react';
+import { createContext, type RefObject } from 'react';
 import type { Conversation, ConversationPreferences, User } from '../im-template/template/types';
 import type { RoamingTarget } from '@weq/service';
 import type { ConversationScope } from '@weq/service/search-policy';
@@ -45,8 +45,11 @@ export const ConversationDirectoryContext = createContext<{
   views?: ConversationViewDirectory;
   rows?: Conversation[];
   returnToRegular?: boolean;
+  searchReturnView?: ConversationView;
+  captureListPosition?: RefObject<(() => () => void) | null>;
   onViewChange?: (view: ConversationView, fromAggregate?: boolean) => void;
   onReturnToRegular?: () => void;
+  onReturnToSearchView?: () => void;
   onCreateAssistant?: () => void;
   onAssistant?: (sessionId: string) => void;
   onDelete?: (rows: Conversation[]) => Promise<void>;
@@ -85,6 +88,7 @@ export const ContactDirectoryContext = createContext<{
   query: string;
   onQuery: (value: string) => void;
   ids: string[];
+  onFilteredIds?: (tab: 'friends' | 'groups', ids: string[] | undefined) => void;
 } | null>(null);
 
 export interface GuildConversationSession {

@@ -9,7 +9,6 @@ export const FriendDirectoryContext = createContext<{
   available: boolean;
   error?: string;
   retry?: () => void;
-  openOnlineDirectory?: () => void;
   create: () => void;
   edit: (type: 'rename' | 'delete', id: number) => void;
   move: (uids: string[], categoryId?: number) => void;

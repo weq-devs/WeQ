@@ -7,19 +7,21 @@ import {
   type VoiceTranscriptionInput,
 } from '../hooks/useVoiceTranscription';
 
-function VoiceAction({ input, onClose }: { input: VoiceTranscriptionInput; onClose?: () => void }) {
+function VoiceAction({
+  input,
+  stored,
+  onClose,
+}: {
+  input: VoiceTranscriptionInput;
+  stored: boolean;
+  onClose?: () => void;
+}) {
   const voice = useVoiceTranscription(input);
-  if (voice.result?.success) return null;
+  const label = stored || voice.result?.success ? '重新转文字' : '转换为文字';
   return (
     <MessageMenuButton
       type="button"
-      title={
-        voice.busy
-          ? '正在转写语音'
-          : voice.available
-            ? '转换为文字'
-            : '请先在设置中下载本地语音模型'
-      }
+      title={voice.busy ? '正在转写语音' : voice.available ? label : '请先在设置中下载本地语音模型'}
       disabled={!voice.available || voice.busy}
       onClick={() => {
         voice.run();
@@ -27,7 +29,7 @@ function VoiceAction({ input, onClose }: { input: VoiceTranscriptionInput; onClo
       }}
     >
       {voice.busy ? <Loader2 size={17} className="weq-spin" /> : <Captions size={17} />}
-      <span>{voice.busy ? '转写中' : '转换为文字'}</span>
+      <span>{voice.busy ? '转写中' : label}</span>
     </MessageMenuButton>
   );
 }
@@ -52,7 +54,6 @@ export function VoiceTranscribeMenuAction({
   )?.data;
   if (
     !data ||
-    data.pttTranscript ||
     data.localPath ||
     data.localPreviewUrl ||
     typeof data.fileName !== 'string' ||
@@ -61,6 +62,7 @@ export function VoiceTranscribeMenuAction({
     return null;
   return (
     <VoiceAction
+      stored={Boolean(data.pttTranscript)}
       input={{
         t: message.createdAt ? Date.parse(message.createdAt) : 0,
         name: data.fileName,

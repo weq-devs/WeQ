@@ -65,11 +65,13 @@ try {
       },
       { seq, visible },
     );
-  const assertDismissed = async (dock) => {
-    // 等滚动和视口观察回调交付，避免在提示重新出现前就完成断言。
-    await page.evaluate(
+  const settleViewport = () =>
+    page.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     );
+  const assertDismissed = async (dock) => {
+    // 等滚动和视口观察回调交付，避免在提示重新出现前就完成断言。
+    await settleViewport();
     assert.equal(await dock.count(), 0, '已看过的未读提醒不应因翻阅历史而重现');
   };
   for (const count of [25, 50]) {
@@ -114,6 +116,71 @@ try {
     await assertDismissed(mentionDock);
     await assertDismissed(replyDock);
   }
+  const timelineURL = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html`;
+  const send = async () => {
+    const editor = page.getByRole('textbox', { name: '消息', exact: true });
+    await editor.fill('测试发出');
+    await editor.press('Enter');
+    await page.waitForFunction(() => window.timelineTest.sentBodies().length === 1);
+  };
+  for (const [seq, seen] of [
+    [1001, true],
+    [1030, false],
+  ]) {
+    await page.goto(`${timelineURL}?count=150&unread-from=${seq}&delay-unread`);
+    const lateDock = page.getByRole('button', { name: '跳到首条未读', exact: true });
+    await waitForViewport(1001, true);
+    await waitForViewport(seq, seen);
+    await send();
+    await waitForViewport(1151, true);
+    await page.evaluate(() => window.timelineTest.showUnreadDock());
+    if (seen) await assertDismissed(lateDock);
+    else await lateDock.waitFor();
+    await page.mouse.move(600, 400);
+    await page.mouse.wheel(0, -500);
+    await waitForViewport(1151, false);
+    if (seen) await assertDismissed(lateDock);
+    else await lateDock.waitFor();
+  }
+
+  await page.goto(`${timelineURL}?count=50&unread-from=1001&read-progress`);
+  await waitForViewport(1001, true);
+  await page.evaluate(() => window.timelineTest.grow('row-1001'));
+  const read = () => page.evaluate(() => window.timelineTest.readSequences());
+  const wheel = async (delta) => {
+    const before = await page.locator('.message-scroll').evaluate((scroll) => scroll.scrollTop);
+    await page.mouse.move(600, 400);
+    await page.mouse.wheel(0, delta);
+    await page.waitForFunction(
+      (top) => document.querySelector('.message-scroll').scrollTop > top,
+      before,
+    );
+    await settleViewport();
+  };
+  await wheel(150);
+  await waitForViewport(1001, true);
+  assert(!(await read()).includes('1001'), '消息还在屏内时保留未读');
+  const toExit = await page.evaluate(() => {
+    const scroll = document.querySelector('.message-scroll');
+    const row = scroll.querySelector('[data-message-id="row-1001"]');
+    return Math.ceil(row.getBoundingClientRect().bottom - scroll.getBoundingClientRect().top + 8);
+  });
+  await wheel(toExit);
+  await waitForViewport(1001, false);
+  await page.waitForFunction(() => window.timelineTest.readSequences().includes('1001'));
+
+  await page.evaluate(() => window.timelineTest.detachedWindow());
+  await page.locator('.message-scroll').evaluate((scroll) => {
+    scroll.scrollTop = scroll.scrollHeight;
+  });
+  await waitForViewport(1050, true);
+  await settleViewport();
+  assert(!(await read()).includes('1050'), '历史窗口的下沿不是会话底部');
+  await send();
+  await waitForViewport(1051, true);
+  await page.waitForFunction(() => window.timelineTest.readSequences().includes('1050'));
+  assert(!(await read()).includes('1020'), '跳到会话底部保留中间跳过的未读');
+
   if (output) await mkdir(output, { recursive: true });
   const snapshot = () =>
     page.evaluate(() => {

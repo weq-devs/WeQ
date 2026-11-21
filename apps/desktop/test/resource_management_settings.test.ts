@@ -30,6 +30,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           error: null,
         }),
       },
+      resourceCleanup: { status: { useQuery: () => ({ data: null, refetch: async () => ({}) }) } },
     },
   },
   client: {
@@ -214,6 +215,7 @@ it('全部清理仍需确认短语，只提交一次白名单 ID，完成后共�
   });
   expect(f.cleanup).toHaveBeenCalledOnce();
   expect(f.cleanup).toHaveBeenCalledWith({
+    foreground: true,
     ...source,
     instructions: targets.map((target) => ({ id: target.id, variant: 'all' })),
   });

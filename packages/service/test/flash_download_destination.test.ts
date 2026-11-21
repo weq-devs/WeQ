@@ -45,7 +45,17 @@ async function fixture() {
   );
   const manager = new FlashTransferDownloadManager(state);
   await manager.load();
-  return { root, state, output, manager };
+  const completed = new Set<string>();
+  manager.on('task', (task) => {
+    if (task.status === 'done') completed.add(task.id);
+  });
+  const waitForCompleted = () =>
+    vi.waitFor(() => {
+      const files = manager.list().flatMap((task) => task.files);
+      expect(files.length).toBeGreaterThan(0);
+      expect(files.every((file) => file.status === 'done' && completed.has(file.id))).toBe(true);
+    });
+  return { root, state, output, manager, waitForCompleted };
 }
 it('成品与任务状态分离，连续同名下载不覆盖已有文件，清任务不删成品', async () => {
   const f = await fixture();
@@ -56,9 +66,7 @@ it('成品与任务状态分离，连续同名下载不覆盖已有文件，清�
     f.manager.start('batch', 'set', [], f.output),
     f.manager.start('batch', 'set', [], f.output),
   ]);
-  await vi.waitFor(() =>
-    expect(f.manager.list().every((task) => task.status === 'done')).toBe(true),
-  );
+  await f.waitForCompleted();
   const files = f.manager.list().flatMap((task) => task.files);
   expect(new Set(files.map((file) => file.targetPath)).size).toBe(2);
   expect(files.every((file) => file.targetPath.startsWith(f.output))).toBe(true);
@@ -73,9 +81,7 @@ it('新任务目录变化不影响旧记录 targetPath，目标失效不能写�
   const other = join(f.root, 'other');
   await mkdir(other);
   await f.manager.start('batch', 'set', [], other);
-  await vi.waitFor(() =>
-    expect(f.manager.list().every((task) => task.status === 'done')).toBe(true),
-  );
+  await f.waitForCompleted();
   expect(
     f.manager
       .list()
@@ -113,7 +119,7 @@ it('取消收尾完成后可重试原闪传任务，重复点击不会重复下�
   await vi.waitFor(() => expect(f.manager.list()[0]?.canRetry).toBe(true));
   expect(await f.manager.retry(taskId!)).toBe(true);
   expect(await f.manager.retry(taskId!)).toBe(false);
-  await vi.waitFor(() => expect(f.manager.list()[0]?.status).toBe('done'));
+  await f.waitForCompleted();
   expect(await f.manager.retry(taskId!)).toBe(false);
   expect(url).toHaveBeenCalledTimes(2);
   expect(f.manager.list()).toHaveLength(1);
@@ -149,7 +155,7 @@ it('混合完成与取消的闪传只重试取消文件，原成品内容和路�
   release('https://synthetic.invalid/two');
   await vi.waitFor(() => expect(f.manager.list()[0]?.canRetry).toBe(true));
   expect(await f.manager.retry(taskId!)).toBe(true);
-  await vi.waitFor(() => expect(f.manager.list()[0]?.status).toBe('done'));
+  await f.waitForCompleted();
   expect(url.mock.calls).toEqual([['one'], ['two'], ['two']]);
   expect(f.manager.list()[0]?.files[0]?.targetPath).toBe(saved);
   expect(await readFile(saved)).toEqual(content);

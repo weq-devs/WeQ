@@ -114,7 +114,7 @@ it('会话列表与对话气泡都显示克隆体源好友头像，不再回落�
   try {
     await act(async () => {});
     // 会话列表行：每个 clone 会话一个头像，且用的是源好友的 QQ 号。
-    const rows = [...f.host.querySelectorAll<HTMLElement>('.weq-generated-export-row.is-session')];
+    const rows = [...f.host.querySelectorAll<HTMLElement>('.weq-generated-export-row')];
     expect(rows.length).toBeGreaterThan(0);
     const sessionImg = rows[0]!.querySelector<HTMLImageElement>('.weq-generated-export-avatar img');
     expect(sessionImg?.getAttribute('src')).toContain('20001');

@@ -32,13 +32,16 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactElement } fr
 import { screenWidgetAssetsPath, screenWidgetUrl } from '../lib/resourceUrl';
 import { widenLottie } from '../lib/widenLottie';
 import { useLottiePlayback } from '../hooks/useLottiePlayback';
-import { BACKDROP_VEIL_VAR, backdropVeil } from './ChatBackdrop.shared';
+import '../styles/chat-backdrop.css';
 
 export function ChatBackdrop({
   imageUrl,
   videoUrl,
   widgetId,
-  opacity,
+  backgroundOpacity,
+  widgetOpacity,
+  backgroundFollowsGlobal = true,
+  widgetFollowsGlobal = true,
 }: {
   /** 底图 url。空串 = 不画底图(但挂件仍可单独生效)。 */
   imageUrl: string;
@@ -46,31 +49,39 @@ export function ChatBackdrop({
   videoUrl: string;
   /** 浮屏挂件目录名。空串 = 不叠。 */
   widgetId: string;
-  /** 底图强度(0–1)。1 = 最清晰。 */
-  opacity: number;
+  backgroundOpacity: number;
+  widgetOpacity: number;
+  backgroundFollowsGlobal?: boolean;
+  widgetFollowsGlobal?: boolean;
 }): ReactElement | null {
   if (!imageUrl && !videoUrl && !widgetId) return null;
 
-  const style: CSSProperties = { [BACKDROP_VEIL_VAR as string]: backdropVeil(opacity) };
-  if (imageUrl) style.backgroundImage = `url("${imageUrl}")`;
+  const style = {
+    '--weq-chat-backdrop-opacity': backgroundOpacity,
+    '--weq-chat-widget-opacity': widgetOpacity,
+    '--weq-preview-background-opacity': backgroundFollowsGlobal ? undefined : 'initial',
+    '--weq-preview-widget-opacity': widgetFollowsGlobal ? undefined : 'initial',
+  } as CSSProperties;
 
   return (
     <div className="weq-chat-backdrop" style={style} aria-hidden="true">
-      {/* 动态背景:静音 + 循环 + 内联播放。Chromium 只放行静音自动播放,所以 `muted`
-          不是可选项 —— 去掉它这块视频就停在第一帧不动(文件本身有音轨的话)。
-
-          层级:视频是普通子元素,磨砂纱是容器的 ::after(生成在子元素之后,画在上层),
-          挂件 z-index 更高 —— 于是视频 < 纱 < 挂件,与图片背景完全同构。 */}
-      {videoUrl ? (
-        <video
-          className="weq-chat-backdrop-video"
-          src={videoUrl}
-          autoPlay
-          loop
-          muted
-          playsInline
-          preload="auto"
-        />
+      {imageUrl || videoUrl ? (
+        <div
+          className="weq-chat-backdrop-media"
+          style={imageUrl ? { backgroundImage: `url("${imageUrl}")` } : undefined}
+        >
+          {videoUrl ? (
+            <video
+              className="weq-chat-backdrop-video"
+              src={videoUrl}
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="auto"
+            />
+          ) : null}
+        </div>
       ) : null}
       {widgetId ? <ScreenWidget widgetId={widgetId} /> : null}
     </div>
@@ -93,10 +104,13 @@ export function ChatBackdrop({
 export function ScreenWidget({
   widgetId,
   className = 'weq-chat-widget',
+  preserveCanvas = false,
 }: {
   widgetId: string;
   /** 容器类名。预览格要自己的尺寸/圆角,所以可换。 */
   className?: string;
+  /** 缩略图使用原画布，聊天区域则按可用宽度扩展。 */
+  preserveCanvas?: boolean;
 }): ReactElement {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const bindAnimation = useLottiePlayback(containerRef);
@@ -108,7 +122,7 @@ export function ScreenWidget({
   //   不 debounce 的话每次都会销毁再重建动画 → 闪一堆下。
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || preserveCanvas) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const observer = new ResizeObserver(() => {
       const { clientWidth, clientHeight } = el;
@@ -122,11 +136,11 @@ export function ScreenWidget({
       clearTimeout(timer);
       observer.disconnect();
     };
-  }, []);
+  }, [preserveCanvas]);
 
   useEffect(() => {
     // 首帧容器还没量出来,等 ResizeObserver 回填 —— 先按 720×1280 播再重建会闪一下。
-    if (!aspect) return;
+    if (!preserveCanvas && !aspect) return;
     let destroyed = false;
     const loading = new AbortController();
     let anim: import('lottie-web').AnimationItem | undefined;
@@ -151,9 +165,7 @@ export function ScreenWidget({
           renderer: 'svg',
           loop: true,
           autoplay: false,
-          // 画布加宽到容器比例,粒子横向平铺填满新增的区域。窄容器(装扮页那个 9:16 的
-          // 预览格)会原样返回,那里本来就不需要加宽。
-          animationData: widenLottie(data, widgetId, aspect),
+          animationData: preserveCanvas ? data : widenLottie(data, widgetId, aspect),
           // 缺了这个,JSON 里的图片会相对页面 origin 解析而全部 404。
           // 指向 images/ 且带尾斜杠 —— 两个坑都在 screenWidgetAssetsPath 里说明了。
           assetsPath: screenWidgetAssetsPath(widgetId),
@@ -174,7 +186,7 @@ export function ScreenWidget({
       bindAnimation();
       anim?.destroy();
     };
-  }, [widgetId, aspect, bindAnimation]);
+  }, [widgetId, aspect, bindAnimation, preserveCanvas]);
 
   return <div className={className} ref={containerRef} />;
 }

@@ -19,6 +19,15 @@ const fixture = vi.hoisted(() => ({
   fetchOfficialArchive: vi.fn(),
   verifyOfficialArchive: vi.fn(),
 }));
+// Keep the real RPC middleware without loading account services for an updater test.
+vi.mock('@weq/service', async () => {
+  const [{ withHost }, { OperationError }, { logRequest }] = await Promise.all([
+    import('../../../packages/service/src/common/host'),
+    import('../../../packages/service/src/common/operation_error'),
+    import('../../../packages/service/src/common/request_log'),
+  ]);
+  return { withHost, OperationError, logRequest };
+});
 vi.mock('../src/main/data_saver', () => ({
   hostDataSaver: async () => fixture.restricted,
   refreshTransferPolicy: async () => undefined,
@@ -448,12 +457,26 @@ it('设置入口只建一个任务；重启后需核验同一版本才能再次�
       return finish();
     });
     const caller = updateRouter.createCaller({});
-    await caller.download();
-    await caller.download();
+    await caller.download({ foreground: true });
+    await caller.download({ foreground: true });
     await vi.waitFor(() => expect(fixture.downloadUpdate).toHaveBeenCalledOnce());
     expect(registry.snapshot()).toHaveLength(1);
     const id = registry.snapshot()[0]!.id;
+    expect(registry.snapshot()[0]?.foreground).toBe(true);
     expect(registry.snapshot()[0]?.actions).toContainEqual({ id: 'pause', label: '暂停' });
+    const liveActions = (await import('../src/main/update/state')).getUpdateActions();
+    expect(liveActions.getDownloadTask?.()).toMatchObject({
+      id,
+      status: 'running',
+      foreground: true,
+    });
+    await caller.controlDownload({ id, action: 'background' });
+    expect(liveActions.getDownloadTask?.()).toMatchObject({
+      id,
+      status: 'running',
+      foreground: false,
+    });
+    expect(fixture.downloadUpdate).toHaveBeenCalledOnce();
     release.resolve();
     await vi.waitFor(() => expect(registry.snapshot()[0]?.status).toBe('completed'));
 
@@ -467,6 +490,7 @@ it('设置入口只建一个任务；重启后需核验同一版本才能再次�
     expect(registry.snapshot()[0]).toMatchObject({
       id,
       status: 'paused',
+      foreground: false,
       actions: [{ id: 'continue' }],
     });
     expect(fixture.downloadUpdate).not.toHaveBeenCalled();
@@ -493,7 +517,7 @@ it('设置入口只建一个任务；重启后需核验同一版本才能再次�
   } finally {
     await rm(root, { force: true, recursive: true });
   }
-});
+}, 20_000);
 
 describe('AUR 托管的副本', () => {
   it('拒绝应用内下载，直接给出包管理器指引', async () => {

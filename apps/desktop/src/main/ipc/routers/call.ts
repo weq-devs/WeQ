@@ -14,7 +14,12 @@
 
 import { z } from 'zod';
 import { observable } from '@trpc/server/observable';
-import { ensureCallBackground, getLogger } from '@weq/service';
+import {
+  developmentDressToolsEnabled,
+  ensureCallBackground,
+  getLogger,
+  type DressConversationEntry,
+} from '@weq/service';
 import { procedure, router } from '../trpc';
 import { getAppContext, requireAttachEnabled } from '../../context/app_context';
 import { callManagerFor, findCallManager, withCallStart } from '../../call_registry';
@@ -69,13 +74,25 @@ export const callRouter = router({
 
         // 通话背景是装饰：取不到就直接用默认底图，绝不因为它拖慢或挡住拨号。
         // `ensureCallBackground` 自己有缓存策略 —— 快照里查过这一项就不会再联网。
-        const background = await ensureCallBackground(
-          ctx.platform!.native.ntHelper,
-          session,
-          // 会话级服务里就是当前账号的配置服务。
-          ctx.services!.accountConfig,
-          pid,
-        ).catch(() => null);
+        let choice: DressConversationEntry['callbg'];
+        try {
+          choice = developmentDressToolsEnabled()
+            ? ctx.services?.dressConversations.get({ kind: 'c2c', conv: peerUid })?.callbg
+            : undefined;
+        } catch {
+          choice = undefined;
+        }
+        const background =
+          choice === 'off'
+            ? null
+            : (choice ??
+              (await ensureCallBackground(
+                ctx.platform!.native.ntHelper,
+                session,
+                // 会话级服务里就是当前账号的配置服务。
+                ctx.services!.accountConfig,
+                pid,
+              ).catch(() => null)));
         if (getAppContext().account !== session) throw new Error('账号已切换');
 
         const manager = callManagerFor(ctx.platform!, pid);

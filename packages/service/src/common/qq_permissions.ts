@@ -97,10 +97,13 @@ export function groupPermission(action: QQGroupOperation, c: QQGroupPermissionCo
   }
 }
 
+export const GROUP_PERMANENT_FILE_BUS_ID = 102;
+const GROUP_TEMPORARY_FILE_BUS_ID = 104;
+
 export function isTemporaryGroupFile(file: { fileId: string; busId: number; expireTime: number }) {
   return (
     !!file.fileId &&
-    file.busId === 102 &&
+    (file.busId === GROUP_TEMPORARY_FILE_BUS_ID || file.busId === GROUP_PERMANENT_FILE_BUS_ID) &&
     Number.isSafeInteger(file.expireTime) &&
     file.expireTime > Date.now() / 1000
   );

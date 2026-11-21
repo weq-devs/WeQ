@@ -6,6 +6,11 @@ import type { Message } from '../im-template/template/types';
 import type { ForwardRecordWire, ForwardWindowState } from '../state/forwardWindow';
 import { messageContentText } from './messageClipboard';
 import { shouldShowMessageTime } from '../im-template/template/messageTime.shared';
+import {
+  consecutiveMessageGroups,
+  type MessageGroupPosition,
+} from '../im-template/template/chatTimelineModel';
+import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { isArkMultiMsg } from '../components/ForwardWindow.shared';
 
 export type ForwardEntry = {
@@ -14,16 +19,40 @@ export type ForwardEntry = {
   record: ForwardRecordWire;
   sendTimeMs: number;
   showTime: boolean;
+  groupPosition?: MessageGroupPosition;
 };
 
 export function forwardEntries(win: Pick<ForwardWindowState, 'id' | 'records'>): ForwardEntry[] {
   let previousTime: number | undefined;
-  return (win.records ?? []).map((record, index) => {
+  const entries: ForwardEntry[] = (win.records ?? []).map((record, index) => {
     const sendTimeMs = unixDate(record.sendTime)?.getTime() ?? 0;
     const showTime = sendTimeMs > 0 && shouldShowMessageTime(previousTime, sendTimeMs);
     if (sendTimeMs > 0) previousTime = sendTimeMs;
     return { id: `forward:${win.id}:${index}`, index, record, sendTimeMs, showTime };
   });
+  const groups = consecutiveMessageGroups(
+    entries,
+    ({ record, sendTimeMs }) => {
+      if (
+        sendTimeMs <= 0 ||
+        grayTipOf(record) ||
+        record.elements.some(({ type }) => type === 'reply')
+      )
+        return;
+      const senderId = /^[1-9]\d*$/.test(record.senderUin ?? '') ? record.senderUin : undefined;
+      const senderUid = record.senderUid && record.senderUid !== '0' ? record.senderUid : undefined;
+      if (senderId || senderUid) return { senderId, senderUid, time: sendTimeMs };
+    },
+    (_previous, entry) => entry.showTime,
+  );
+  entries.forEach((entry, index) => {
+    entry.groupPosition = groups[index];
+  });
+  return entries;
+}
+
+export function isForwardContinuation({ groupPosition }: ForwardEntry) {
+  return groupPosition === 'middle' || groupPosition === 'last';
 }
 
 export function forwardSenderName(record: ForwardRecordWire) {

@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   Monitor,
   RefreshCw,
+  Reply,
   RotateCcw,
   SendHorizontal,
   TriangleAlert,
@@ -46,10 +47,15 @@ import {
 import { NotificationSourceProvider } from '../../lib/notificationNavigation';
 import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { messageHasIntentText } from '../../lib/intentTimeline';
+import type { MessageGroupPosition } from './chatTimelineModel';
 import '../../styles/chat-interactions.css';
 import '../../styles/message-repeat.css';
 import '../../styles/composer-reedit.css';
 import '../../styles/unsent-message.css';
+
+const swipeReplySlop = 10;
+const swipeReplyDistance = 59;
+const swipeReplyMaxOffset = 89;
 
 // 猜测式回退（newPreview 拼接，见 msg_decoration.ts）常年会有下架/过期 404。加载失败
 // 就把 <img> 本身藏起来，别让浏览器画那个裂图占位——头像本体照常显示，只是没有这个
@@ -190,6 +196,7 @@ export function MessageBubble(props: Parameters<typeof MessageBubbleBody>[0]) {
 
 function MessageBubbleBody({
   message,
+  groupPosition,
   conversation,
   sender,
   mine,
@@ -208,6 +215,7 @@ function MessageBubbleBody({
   onRestore,
   onContextMenu,
   onLongPress,
+  onSwipeReply,
   onAction,
   onReedit,
   onDismissUnsent,
@@ -220,9 +228,11 @@ function MessageBubbleBody({
   reactionInteraction,
   repeatAction,
   pendingAction,
+  textResult,
   avatarBadge,
 }: {
   message: Message;
+  groupPosition?: MessageGroupPosition;
   conversation: Conversation;
   sender: User & Partial<GroupMember>;
   mine: boolean;
@@ -267,6 +277,7 @@ function MessageBubbleBody({
     target?: EventTarget | null,
   ) => void;
   onAction?: (message: Message, action: MessageAction) => void | Promise<void>;
+  onSwipeReply?: (message: Message) => void;
   onReedit?: (message: Message) => Promise<boolean>;
   /**
    * 「可能未送达」（回执 seq=0）占位的移除出口。这类占位没有可信序号，只能一直挂在
@@ -285,6 +296,7 @@ function MessageBubbleBody({
   reactionInteraction?: ReactionInteraction;
   repeatAction?: import('react').ReactNode;
   pendingAction?: import('react').ReactNode;
+  textResult?: import('react').ReactNode;
   /** 本地克隆等展示标识，不改变发送者或 QQ 消息能力。 */
   avatarBadge?: import('react').ReactNode;
 }) {
@@ -297,11 +309,19 @@ function MessageBubbleBody({
         (Number(preferenceValue('showGroupMemberTitle')) << 2)
       : 0,
   );
+  const groupContinuation = groupPosition === 'middle' || groupPosition === 'last';
   const senderNameVisible =
     showSenderName && (conversation.type !== 'group' || Boolean(groupDisplay & 1));
   const longPressTimerRef = useRef<number | null>(null);
   const longPressPointRef = useRef<{ x: number; y: number } | null>(null);
   const longPressAnchorRef = useRef<{ x: number; y: number } | null>(null);
+  const swipeReply = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    started: number;
+    moving: boolean;
+  } | null>(null);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
@@ -316,13 +336,20 @@ function MessageBubbleBody({
     message.decoration ??
     (mine && message.optimistic ? { bubbleId: selfBubbleId, fontId: 0, widgetId: 0 } : undefined);
   // 本地生效装扮按作用范围覆盖消息记录，未覆盖的种类仍使用记录里的装扮。
-  const { widget: activeWidget, scope: activeScope, fontActive, bubbleActive } = useActiveWidget();
+  const {
+    widget: activeWidget,
+    scope: activeScope,
+    scopes,
+    fontActive,
+    bubbleActive,
+  } = useActiveWidget();
   const activeFontFx = useActiveFontFx();
   const recordWidget = Boolean(decoration?.widgetId || (mine && pendantUrl));
   const localFontOverride =
-    fontActive && localDressApplies(activeScope, mine, Boolean(decoration?.fontId));
+    fontActive && localDressApplies(scopes?.font ?? activeScope, mine, Boolean(decoration?.fontId));
   const localBubbleOverride =
-    bubbleActive && localDressApplies(activeScope, mine, Boolean(decoration?.bubbleId));
+    bubbleActive &&
+    localDressApplies(scopes?.bubble ?? activeScope, mine, Boolean(decoration?.bubbleId));
   const localWidget =
     activeWidget && localDressApplies(activeScope, mine, recordWidget) ? activeWidget : null;
   const msgDec = useMsgDecoration(
@@ -423,6 +450,29 @@ function MessageBubbleBody({
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'touch') {
+      resetSwipeReply();
+      if (
+        onSwipeReply &&
+        event.isPrimary &&
+        event.button === 0 &&
+        event.clientX > 24 &&
+        event.target instanceof Element &&
+        !event.target.closest(
+          'a, button, input, textarea, select, video, audio, pre, [contenteditable], [role="button"], [role="slider"]',
+        ) &&
+        !event.currentTarget.querySelector('pre') &&
+        event.currentTarget.ownerDocument.getSelection()?.isCollapsed !== false
+      ) {
+        swipeReply.current = {
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          started: event.timeStamp,
+          moving: false,
+        };
+      }
+    }
     if (IS_WEB || selectionMode || event.pointerType === 'mouse' || event.button !== 0) {
       return;
     }
@@ -436,6 +486,7 @@ function MessageBubbleBody({
     };
     clearLongPress();
     longPressTimerRef.current = window.setTimeout(() => {
+      resetSwipeReply();
       const anchorPoint = longPressAnchorRef.current ?? startPoint;
       selectMessageContent();
       onLongPress(anchorPoint, message, target);
@@ -444,6 +495,35 @@ function MessageBubbleBody({
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const swipe = swipeReply.current;
+    if (swipe?.id === event.pointerId) {
+      const dx = swipe.x - event.clientX;
+      const dy = Math.abs(event.clientY - swipe.y);
+      if (!swipe.moving && (dx < -swipeReplySlop || (dy > swipeReplySlop && dy >= dx))) {
+        resetSwipeReply();
+      } else if (!swipe.moving && dx > swipeReplySlop) {
+        if (event.timeStamp - swipe.started > 450) resetSwipeReply();
+        else swipe.moving = true;
+      }
+      if (swipe.moving) {
+        const distance = Math.max(0, dx);
+        const offset = Math.min(
+          swipeReplyMaxOffset,
+          distance <= swipeReplyDistance
+            ? distance
+            : swipeReplyDistance + (distance - swipeReplyDistance) / 3,
+        );
+        // 跟手只更新当前气泡，不让整条消息在每次移动时重新渲染。
+        const bubble = event.currentTarget;
+        bubble.setAttribute('data-swipe-dragging', '');
+        bubble.toggleAttribute('data-swipe-ready', dx >= swipeReplyDistance && dx >= dy * 1.5);
+        bubble.style.setProperty('--swipe-reply-x', `${-offset}px`);
+        bubble.style.setProperty(
+          '--swipe-reply-progress',
+          String(Math.min(1, distance / swipeReplyDistance)),
+        );
+      }
+    }
     const point = longPressPointRef.current;
     if (!point) {
       return;
@@ -451,6 +531,35 @@ function MessageBubbleBody({
     if (Math.hypot(event.clientX - point.x, event.clientY - point.y) > 10) {
       clearLongPress();
     }
+  }
+
+  function resetSwipeReply() {
+    if (swipeReply.current?.moving) {
+      const bubble = bubbleRef.current;
+      bubble?.removeAttribute('data-swipe-dragging');
+      bubble?.removeAttribute('data-swipe-ready');
+      bubble?.style.removeProperty('--swipe-reply-x');
+      bubble?.style.removeProperty('--swipe-reply-progress');
+    }
+    swipeReply.current = null;
+  }
+
+  function cancelTouch() {
+    resetSwipeReply();
+    clearLongPress();
+  }
+
+  function handlePointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const swipe = swipeReply.current;
+    cancelTouch();
+    if (!swipe?.moving || swipe.id !== event.pointerId) return;
+    const dx = swipe.x - event.clientX;
+    if (
+      dx >= swipeReplyDistance &&
+      dx >= Math.abs(event.clientY - swipe.y) * 1.5 &&
+      event.currentTarget.ownerDocument.getSelection()?.isCollapsed !== false
+    )
+      onSwipeReply?.(message);
   }
 
   function selectMessageContent() {
@@ -523,22 +632,49 @@ function MessageBubbleBody({
     onAvatarClick?.(sender, { x: rect.left, y: rect.bottom });
   }
 
-  const SelfAvatar = onAvatarClick ? 'button' : 'span';
-  const incomingAvatar = !mine ? (
-    conversation.generated?.kind === 'assistant' ? (
-      <span className="avatar weq-asst-avatar" aria-hidden>
-        <FEATURE_ICONS.assistant />
-      </span>
-    ) : (
-      <PendantOverlay
-        name={senderName}
-        uin={sender.identityValue}
-        avatarUrl={senderAvatarUrl}
-        seed={senderSeed}
-        widget={lineWidget}
-      />
-    )
-  ) : null;
+  const AvatarContainer = onAvatarClick ? 'button' : 'span';
+  const avatar = groupContinuation ? null : (
+    <AvatarContainer
+      className={cn(
+        onAvatarClick ? 'message-avatar-button' : 'message-avatar-wrap',
+        mine && 'is-self',
+      )}
+      {...(onAvatarClick
+        ? {
+            type: 'button',
+            title: '查看资料',
+            'aria-label': `查看 ${senderName} 的资料`,
+            onClick: handleAvatarClick,
+          }
+        : {})}
+      onContextMenu={
+        onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
+      }
+    >
+      {!mine && conversation.generated?.kind === 'assistant' ? (
+        <span className="avatar weq-asst-avatar" aria-hidden>
+          <FEATURE_ICONS.assistant />
+        </span>
+      ) : (
+        <PendantOverlay
+          name={senderName}
+          uin={sender.identityValue}
+          avatarUrl={senderAvatarUrl}
+          seed={senderSeed}
+          widget={lineWidget}
+          fallbackUrl={mine && decorationEnabled.widget ? pendantUrl : null}
+        />
+      )}
+      {!mine ? avatarBadge : null}
+    </AvatarContainer>
+  );
+  const avatarSlot = groupPosition ? (
+    <span className="message-avatar-slot" aria-hidden={groupContinuation || undefined}>
+      {avatar}
+    </span>
+  ) : (
+    avatar
+  );
   const renderContext = { message, conversation, sender, mine };
   const renderer = (renderers ?? defaultMessageRenderers).find((item) => item.match(renderContext));
   const content = renderer?.render(renderContext) ?? renderDefaultMessageContent(message);
@@ -555,6 +691,10 @@ function MessageBubbleBody({
         selected && 'is-selected',
       )}
       data-message-id={message.id}
+      data-message-group={msgBubbleId || localBubbleOverride ? undefined : groupPosition}
+      data-grouped-dress-bubble={
+        Boolean(groupPosition && (msgBubbleId || localBubbleOverride)) || undefined
+      }
       data-generated-message-id={
         conversation.generated && !message.generatedPending ? message.id : undefined
       }
@@ -580,88 +720,78 @@ function MessageBubbleBody({
       data-widget={lineWidget?.animated ? lineWidget.itemId : undefined}
     >
       {selectionMode ? <MessageSelectionMark selected={selected ?? false} /> : null}
-      {!mine ? (
-        onAvatarClick ? (
-          <button
-            type="button"
-            className={cn('message-avatar-button')}
-            title="查看资料"
-            aria-label={`查看 ${senderName} 的资料`}
-            onClick={handleAvatarClick}
-            onContextMenu={
-              onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
-            }
-          >
-            {incomingAvatar}
-            {avatarBadge}
-          </button>
-        ) : (
-          <span
-            className={cn('message-avatar-wrap')}
-            onContextMenu={
-              onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
-            }
-          >
-            {incomingAvatar}
-            {avatarBadge}
-          </span>
-        )
-      ) : null}
+      {!mine ? avatarSlot : null}
       <div
         ref={bubbleRef}
         className={cn('message-bubble', active && 'context-active')}
-        onContextMenu={(event) => onContextMenu(event, message)}
+        data-swipe-reply={Boolean(onSwipeReply) || undefined}
+        onContextMenu={(event) => {
+          cancelTouch();
+          onContextMenu(event, message);
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={clearLongPress}
-        onPointerCancel={clearLongPress}
-        onPointerLeave={clearLongPress}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={cancelTouch}
+        onPointerLeave={cancelTouch}
+        onLostPointerCapture={cancelTouch}
         onDragStart={(event) => event.preventDefault()}
       >
-        <div className="weq-message-heading">
-          {senderNameVisible || (conversation.type === 'group' && Boolean(groupDisplay & 6)) ? (
-            <span className={cn('message-name')}>
-              {conversation.type === 'group' ? (
-                <GroupMessageBadge
-                  member={sender}
-                  showLevel={Boolean(groupDisplay & 2)}
-                  showTitle={Boolean(groupDisplay & 4)}
-                />
-              ) : null}
-              {senderNameVisible && onAvatarClick && conversation.generated ? (
-                <button
-                  type="button"
-                  className="weq-message-name-profile"
-                  title="查看资料"
-                  aria-label={`查看 ${senderName} 的名片`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    onAvatarClick(
-                      sender,
-                      event.detail === 0
-                        ? { x: rect.right, y: rect.bottom }
-                        : { x: event.clientX, y: event.clientY },
-                    );
-                  }}
-                >
+        {onSwipeReply ? (
+          <span className="weq-swipe-reply-icon" aria-hidden="true">
+            <Reply size={22} />
+          </span>
+        ) : null}
+        {groupContinuation ? (
+          <span className="sr-only" data-privacy-sensitive>
+            {senderName}
+          </span>
+        ) : (
+          <div className="weq-message-heading">
+            {senderNameVisible || (conversation.type === 'group' && Boolean(groupDisplay & 6)) ? (
+              <span className={cn('message-name')}>
+                {conversation.type === 'group' ? (
+                  <GroupMessageBadge
+                    member={sender}
+                    showLevel={Boolean(groupDisplay & 2)}
+                    showTitle={Boolean(groupDisplay & 4)}
+                  />
+                ) : null}
+                {senderNameVisible && onAvatarClick && conversation.generated ? (
+                  <button
+                    type="button"
+                    className="weq-message-name-profile"
+                    title="查看资料"
+                    aria-label={`查看 ${senderName} 的名片`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      onAvatarClick(
+                        sender,
+                        event.detail === 0
+                          ? { x: rect.right, y: rect.bottom }
+                          : { x: event.clientX, y: event.clientY },
+                      );
+                    }}
+                  >
+                    <span data-privacy-sensitive>{senderName}</span>
+                  </button>
+                ) : senderNameVisible ? (
                   <span data-privacy-sensitive>{senderName}</span>
-                </button>
-              ) : senderNameVisible ? (
-                <span data-privacy-sensitive>{senderName}</span>
-              ) : null}
-              {senderKind === 'bot' ? (
-                <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                  <Bot size={12} strokeWidth={2.4} />
-                </small>
-              ) : null}
-            </span>
-          ) : null}
-          <MessageProvenance
-            message={message}
-            precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
-          />
-        </div>
+                ) : null}
+                {senderKind === 'bot' ? (
+                  <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
+                    <Bot size={12} strokeWidth={2.4} />
+                  </small>
+                ) : null}
+              </span>
+            ) : null}
+            <MessageProvenance
+              message={message}
+              precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
+            />
+          </div>
+        )}
         {repeatAction || optimistic === 'sending' ? (
           <div className="weq-repeat-content">
             {content}
@@ -677,6 +807,7 @@ function MessageBubbleBody({
         ) : (
           content
         )}
+        {textResult}
         {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
             只有群聊 + 有会话内序号时才可查。 */}
         <SetEmojiReactions
@@ -849,31 +980,7 @@ function MessageBubbleBody({
         ) : null}
       </div>
       {selectionMode ? null : renderer?.renderTrailing?.(renderContext)}
-      {mine ? (
-        <SelfAvatar
-          className={cn(onAvatarClick ? 'message-avatar-button' : 'message-avatar-wrap', 'is-self')}
-          {...(onAvatarClick
-            ? {
-                type: 'button',
-                title: '查看资料',
-                'aria-label': `查看 ${senderName} 的资料`,
-                onClick: handleAvatarClick,
-              }
-            : {})}
-          onContextMenu={
-            onAvatarContextMenu ? (event) => onAvatarContextMenu(event, sender) : undefined
-          }
-        >
-          <PendantOverlay
-            name={senderName}
-            uin={sender.identityValue}
-            avatarUrl={senderAvatarUrl}
-            seed={senderSeed}
-            widget={lineWidget}
-            fallbackUrl={decorationEnabled.widget ? pendantUrl : null}
-          />
-        </SelfAvatar>
-      ) : null}
+      {mine ? avatarSlot : null}
     </div>
   );
 }

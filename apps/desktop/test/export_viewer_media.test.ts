@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -35,4 +36,33 @@ it('媒体协议不接受不存在的来源能力和外部路径', async () => {
     new Request('weq-media://exportviewer?id=unknown&path=/etc/passwd'),
   );
   expect(response.status).toBe(404);
+});
+
+it.each([
+  ['89504e470d0a1a0a0000000d49484452', 'image/png', '.png'],
+  ['000000186674797069736f6d0000020069736f6d61766331', 'video/mp4', '.mp4'],
+  ['00000018667479706176696600000000617669666d696631', 'image/avif', '.avif'],
+  ['000000186674797074657374000000007465737400000000', 'application/octet-stream', ''],
+])('无后缀归档媒体 %s 保留原路径，另存按文件头提供名称', async (hex, type, extension) => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-viewer-media-'));
+  roots.push(root);
+  writeFileSync(join(root, 'chat.json'), '[]');
+  mkdirSync(join(root, 'media'));
+  const bytes = Buffer.from(hex, 'hex');
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  writeFileSync(join(root, 'media', hash), bytes);
+  const source = registerViewerSource(await describeViewerFile(join(root, 'chat.json')));
+  ids.push(source.id);
+  const url = `weq-media://exportviewer?id=${source.id}&path=media/${hash}`;
+  const preview = await handleMediaRequest(new Request(url, { headers: { range: 'bytes=2-5' } }));
+  expect(preview.status).toBe(206);
+  expect(preview.headers.get('Content-Type')).toBe(type);
+  expect(preview.headers.get('Content-Disposition')).toBeNull();
+  expect(Buffer.from(await preview.arrayBuffer())).toEqual(bytes.subarray(2, 6));
+  const download = await handleMediaRequest(new Request(`${url}&download=1`));
+  expect(download.headers.get('Content-Disposition')).toBe(
+    `attachment; filename*=UTF-8''${hash}${extension}`,
+  );
+  expect(Buffer.from(await download.arrayBuffer())).toEqual(bytes);
+  expect(readdirSync(join(root, 'media'))).toEqual([hash]);
 });

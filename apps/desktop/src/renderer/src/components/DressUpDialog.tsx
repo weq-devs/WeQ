@@ -10,7 +10,7 @@
  *    那批装扮资源),商城条目还自带 material,都不需要凭证;本地没有的款点击后由后端
  *    在需要时再尝试换链,失败才报错。所以**不再按 qqOnline 禁用任何安装按钮**。
  *  - **装扮搜索**:必须有在线 QQ 实例(商城搜索接口要用在线实例取凭证)。
- *  - **商城表情搜索**:同一顶部输入框搜索离线目录，不需要在线 QQ。
+ *  - **商城表情搜索**:搜索离线目录，不需要在线 QQ。
  *
  * 聊天背景与浮屏挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,浮屏挂件是 bundle 的)。
  */
@@ -24,8 +24,8 @@ import {
   useState,
   type ReactElement,
 } from 'react';
+import { z } from 'zod';
 import {
-  Search,
   Loader2,
   Check,
   Download,
@@ -36,11 +36,22 @@ import {
   Trophy,
   X,
   ChevronRight,
+  ChevronDown,
 } from 'lucide-react';
-import type { BubbleSkin, DressBackgroundSource, DressMallItem, DressScope } from '@weq/service';
+import type {
+  BubbleSkin,
+  DressBackgroundSource,
+  DressMallItem,
+  DressScope,
+  DressScopeKind,
+  DressConversationEntry,
+} from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useAppDialog } from '../lib/dialogUtils';
-import { FormRange } from './FormRange';
+import { DressOpacityControl } from './DressOpacityControl';
+import { SegmentedControl } from './SegmentedControl';
+import { conversationDressLabel } from '../lib/conversationDress';
+import type { ConversationSettingsRequest } from '../lib/conversationSettingsNavigation';
 import {
   dressBackgroundUrl,
   dressFontUrl,
@@ -49,22 +60,27 @@ import {
   isVideoBackground,
 } from '../lib/resourceUrl';
 import { bubblePreviewCss } from '../lib/dressSkin';
-import { syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
+import { resolveChatBackdrop, syncDressSkin, syncDressSkinPreloaded } from '../hooks/useDressSkin';
 import { useNearViewport } from '../hooks/useNearViewport';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useVideoPlaybackSlot } from '../hooks/useVideoPlaybackSlot';
 import { fontFaces } from '../lib/fontFaces';
 import { acquireDecorationStyle } from '../lib/decorationResources';
-import { useDecorationSave } from './DecorationSaveControls.shared';
-import { useMediaSave } from './MediaSaveControls.shared';
+import { useDressDownload } from '../hooks/useDressDownload';
+import { useMultiSelection } from '../hooks/useMultiSelection';
+import { DirectoryToolbar } from './DirectoryToolbar';
 import { IS_WEB } from '../lib/target.shared';
 import { pickAccountFile } from '../lib/accountFilePicker';
-import { BACKDROP_VEIL_VAR, backdropVeil } from './ChatBackdrop.shared';
-import { ScreenWidget } from './ChatBackdrop';
+import type { DressOpacityKind } from './ChatBackdrop.shared';
+import { ChatBackdrop, ScreenWidget } from './ChatBackdrop';
 import { WorkspacePage } from './WorkspacePages';
+import { usePageState } from './PageSnapshots.shared';
+import { PageScrollSnapshot } from './PageScrollSnapshot';
+import { pageValue } from '../lib/pageSnapshots';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import { RedPackSkinWall } from './gift/RedPackSkinWall';
+import { DressSearchForm } from './DressSearchForm';
 import '../styles/dressup.css';
 import { ShimmerImage } from './ShimmerImage';
 import { DRESS_KIND_ICONS } from '../lib/featureIcons.shared';
@@ -81,7 +97,6 @@ export type DressKind =
 
 const KINDS: { id: DressKind; label: string; icon: ReactElement }[] = (
   [
-    { id: 'usage', label: '使用' },
     { id: 'bubble', label: '聊天气泡' },
     { id: 'font', label: '聊天字体' },
     { id: 'widget', label: '头像挂件' },
@@ -90,6 +105,7 @@ const KINDS: { id: DressKind; label: string; icon: ReactElement }[] = (
     { id: 'emoji', label: '商城表情' },
     // 红包封面同样只读，且**完全离线**：只读仓库里的 resources/redpack/skins.json。
     { id: 'redpack', label: '红包封面' },
+    { id: 'usage', label: '使用中' },
   ] satisfies Omit<{ id: DressKind; label: string; icon: ReactElement }, 'icon'>[]
 ).map((entry) => {
   const Icon = DRESS_KIND_ICONS[entry.id];
@@ -98,14 +114,28 @@ const KINDS: { id: DressKind; label: string; icon: ReactElement }[] = (
 
 /** 商城那几类共用一套列表 UI;聊天背景和表情包是各自独立的形状。 */
 type MallKind = 'bubble' | 'font' | 'widget' | 'callbg';
+type CurrentKind = MallKind | 'background' | 'screen';
+
+interface MallBrowseState {
+  view: 'rank' | 'installed';
+  draft: string;
+  keyword: string;
+}
+
+const DEFAULT_MALL_BROWSE: MallBrowseState = { view: 'rank', draft: '', keyword: '' };
+const dressKindSchema = z.custom<DressKind>((value) => KINDS.some(({ id }) => id === value));
+const mallBrowseSchema = z.record(
+  z.enum(['bubble', 'font', 'widget', 'callbg']),
+  z.object({ view: z.enum(['rank', 'installed']), draft: z.string(), keyword: z.string() }),
+);
 
 /** 通话背景没有「安装」概念,选中即用(远程 url 直接给通话窗口引)。 */
-const isCallBg = (kind: MallKind): boolean => kind === 'callbg';
+const isCallBg = (kind: MallKind): kind is 'callbg' => kind === 'callbg';
 
-const SCOPES: Array<{ id: DressScope; label: string; hint: string }> = [
-  { id: 'mine', label: '仅自己', hint: '仅覆盖自己发出的消息' },
-  { id: 'fallback', label: '替代无装扮', hint: '仅替代原本没有对应装扮的消息，保留已有装扮' },
-  { id: 'all', label: '覆盖全部', hint: '覆盖自己和他人消息的对应装扮' },
+const SCOPES: ReadonlyArray<{ value: DressScope; label: string; title: string }> = [
+  { value: 'mine', label: '仅自己', title: '仅覆盖自己发出的消息' },
+  { value: 'fallback', label: '替代无装扮', title: '仅替代原本没有对应装扮的消息，保留已有装扮' },
+  { value: 'all', label: '覆盖全部', title: '覆盖自己和他人消息的对应装扮' },
 ];
 
 /** 排行 / 搜索首屏的骨架卡片数 —— 与一屏可见的卡片量相当,不用撑满整份列表。 */
@@ -271,44 +301,77 @@ function DressListSkeleton(): ReactElement {
 
 export function DressUpDialog({
   onClose,
-  initialKind = 'usage',
+  initialKind,
   initialEmojiPackId,
   initialEmojiPackName,
+  onOpenConversationSettings,
 }: {
   onClose: () => void;
   /** 从全局搜索等入口直达某个页签（表情页签会带上要定位的表情包）。 */
   initialKind?: DressKind;
   initialEmojiPackId?: string;
   initialEmojiPackName?: string;
+  onOpenConversationSettings?: (request: ConversationSettingsRequest) => void;
 }): ReactElement {
   const mobile = useMobileWebLayout();
   const developmentDressTools = useDevelopmentDressTools();
   const dialog = useAppDialog();
-  const decorationSave = useDecorationSave();
-  const mediaSave = useMediaSave();
+  const download = useDressDownload();
   const utils = trpc.useUtils();
 
-  const [selectedKind, setKind] = useState<DressKind>(initialKind);
-  const kind = developmentDressTools ? selectedKind : 'background';
-  /** 输入框里的草稿。回车提交后才变成 keyword,避免每敲一个字打一次接口。 */
-  const [draft, setDraft] = useState('');
-  const [keyword, setKeyword] = useState('');
-  const [emojiDraft, setEmojiDraft] = useState('');
-  const [emojiKeyword, setEmojiKeyword] = useState('');
-  /** 只看已装的那些 —— 与「搜索」并列的一个筛子,不是独立分页。 */
-  const [mineOnly, setMineOnly] = useState(false);
+  const [selectedKind, setSelectedKind] = usePageState<DressKind>(
+    'dress-up:kind',
+    KINDS[0]?.id ?? 'bubble',
+    dressKindSchema,
+  );
+  const explicitKind = useRef(initialKind);
+  useLayoutEffect(() => {
+    if (explicitKind.current) {
+      setSelectedKind(explicitKind.current);
+      explicitKind.current = undefined;
+    }
+  }, [setSelectedKind]);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  function setSelectionMode(enabled: boolean) {
+    setSelecting(enabled);
+    if (!enabled) setSelectedIds(new Set());
+  }
+  function setKind(next: DressKind) {
+    if (next === kind) return;
+    setSelectionMode(false);
+    setSelectedKind(next);
+  }
+  const kind = developmentDressTools ? (explicitKind.current ?? selectedKind) : 'background';
+  const [mallBrowsing, setMallBrowsing] = usePageState('dress-up:mall', {}, mallBrowseSchema);
+  const [emojiDraft, setEmojiDraft] = usePageState('dress-up:emoji-draft', '', pageValue.string);
+  const [emojiKeyword, setEmojiKeyword] = usePageState(
+    'dress-up:emoji-keyword',
+    '',
+    pageValue.string,
+  );
   /** 正在装的 itemId —— 按钮显示转圈,避免重复点击。 */
   const [busyId, setBusyId] = useState(0);
   /** 「取消当前装扮」/「切换范围」进行中 —— 同样会重排聊天列表,也要盖加载态。 */
   const [clearing, setClearing] = useState(false);
   const [scoping, setScoping] = useState(false);
-  /** 清晰度滑块的本地值。拖动时实时预览,松手才落盘(见 commitOpacity)。 */
-  const [opacityDraft, setOpacityDraft] = useState(1);
-
   const state = trpc.account.dressup.getState.useQuery();
   const online = state.data?.qqOnline ?? false;
   const manifest = state.data?.manifest;
-  const scope = manifest?.scope ?? 'mine';
+  const backdrop = resolveChatBackdrop(manifest, state.data?.own.chatBgUrl ?? '');
+  const hasBackground = Boolean(backdrop.imageUrl || backdrop.videoUrl);
+  const backgroundSection = useRef<HTMLElement>(null);
+  const widgetSection = useRef<HTMLElement>(null);
+  const backgroundTarget = useRef<'background' | 'screen' | null>(null);
+  useLayoutEffect(() => {
+    if (kind !== 'background' || !backgroundTarget.current) return;
+    const target =
+      backgroundTarget.current === 'screen' ? widgetSection.current : backgroundSection.current;
+    backgroundTarget.current = null;
+    target?.closest('[data-page-snapshot]')?.dispatchEvent(new Event('weq-page-navigation'));
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: 'start' });
+  }, [kind]);
 
   // 背景和表情包都不走装扮商城,装扮列表 query 一律停掉;下面两处的 kind 因此可以安全窄化。
   const isMall = kind === 'bubble' || kind === 'font' || kind === 'widget' || kind === 'callbg';
@@ -321,7 +384,23 @@ export function DressUpDialog({
           ? 'callbg'
           : 'bubble';
 
-  // 关键词为空 → 排行榜;有关键词 → 搜索。两条 query 互斥启用。
+  const { view, draft, keyword } = mallBrowsing[mallKind] ?? DEFAULT_MALL_BROWSE;
+  const mineOnly = view === 'installed';
+  const listScope = isMall ? JSON.stringify(['dress-up', kind, view, keyword]) : `dress-up:${kind}`;
+  function updateMallBrowse(patch: Partial<MallBrowseState>) {
+    if (
+      (patch.view && patch.view !== view) ||
+      (patch.keyword !== undefined && patch.keyword !== keyword)
+    ) {
+      setSelectedIds(new Set());
+    }
+    setMallBrowsing((current) => ({
+      ...current,
+      [mallKind]: { ...(current[mallKind] ?? DEFAULT_MALL_BROWSE), ...patch },
+    }));
+  }
+
+  // 商城目录中，回车提交关键词后从排行榜切到搜索结果。
   const searching = keyword.length > 0;
   const rank = trpc.account.dressup.rank.useQuery(
     { kind: mallKind },
@@ -358,19 +437,6 @@ export function DressUpDialog({
     };
   }, [manifest, kind]);
 
-  // 清单里的清晰度是权威值,同步进滑块(切账号 / 外部改动都跟得上)。
-  const savedOpacity = manifest?.backgroundOpacity;
-  useEffect(() => {
-    if (savedOpacity !== undefined) setOpacityDraft(savedOpacity);
-  }, [savedOpacity]);
-
-  // 拖动时直接改 CSS 变量做实时预览 —— 不走 tRPC,所以不会每帧写一次文件。
-  useEffect(() => {
-    for (const el of document.querySelectorAll<HTMLElement>('.weq-chat-backdrop')) {
-      el.style.setProperty(BACKDROP_VEIL_VAR, backdropVeil(opacityDraft));
-    }
-  }, [opacityDraft]);
-
   const installBubble = trpc.account.dressup.installBubble.useMutation();
   const installFont = trpc.account.dressup.installFont.useMutation();
   const installWidget = trpc.account.dressup.installWidget.useMutation();
@@ -381,6 +447,7 @@ export function DressUpDialog({
   const setWidget = trpc.account.dressup.setWidget.useMutation();
   const setCallBackground = trpc.account.dressup.setCallBackground.useMutation();
   const setBackgroundOpacity = trpc.account.dressup.setBackgroundOpacity.useMutation();
+  const setWidgetOpacity = trpc.account.dressup.setWidgetOpacity.useMutation();
 
   const refresh = useCallback(async (): Promise<void> => {
     await utils.account.dressup.getState.invalidate();
@@ -401,6 +468,18 @@ export function DressUpDialog({
         // nameForManifest 与卡片上显示的名字可以不同 ——「QQ 正在用的X」那种占位串
         // 显示可以,落盘不行(存进清单就洗不掉,列表会永远显示占位名)。
         const name = nameForManifest;
+        if (isCallBg(mallKind)) {
+          const imageUrl = item.previewLargeUrl || item.previewUrl;
+          if (!imageUrl && !item.videoUrl) throw new Error('这款通话背景没有可用素材');
+          await setCallBackground.mutateAsync({
+            itemId: item.itemId,
+            name,
+            imageUrl,
+            videoUrl: item.videoUrl,
+          });
+          await refresh();
+          return;
+        }
         if (mallKind === 'bubble') {
           // 只带 itemId —— 后端走本地离线 bundle → protocol 唯一下载链(见 dressup 路由)。
           // name/previewUrl 同理:装完只剩 itemId,商城没有按 id 查详情的接口。
@@ -415,7 +494,7 @@ export function DressUpDialog({
             name,
             previewUrl: item.previewLargeUrl || item.previewUrl,
           });
-        } else if (mallKind === 'widget') {
+        } else {
           await installWidget.mutateAsync({
             itemId: item.itemId,
             name,
@@ -423,7 +502,7 @@ export function DressUpDialog({
           });
         }
         const manifest = await setActive.mutateAsync({
-          kind: mallKind as Exclude<MallKind, 'callbg'>,
+          kind: mallKind,
           itemId: item.itemId,
         });
         // setActive 回的就是新清单,直接拿它注入,不必等 refetch 往返。
@@ -458,7 +537,7 @@ export function DressUpDialog({
           return;
         }
         const manifest = await setActive.mutateAsync({
-          kind: target as Exclude<MallKind, 'callbg'>,
+          kind: target,
           itemId: 0,
         });
         await syncDressSkinPreloaded(manifest);
@@ -473,11 +552,10 @@ export function DressUpDialog({
   );
 
   const changeScope = useCallback(
-    async (next: DressScope): Promise<void> => {
-      if (next === scope) return;
+    async (kind: DressScopeKind, next: DressScope): Promise<void> => {
       setScoping(true);
       try {
-        const manifest = await setScope.mutateAsync({ scope: next });
+        const manifest = await setScope.mutateAsync({ kind, scope: next });
         await syncDressSkinPreloaded(manifest);
         await refresh();
       } catch (e) {
@@ -486,7 +564,7 @@ export function DressUpDialog({
         setScoping(false);
       }
     },
-    [scope, setScope, refresh, dialog],
+    [setScope, refresh, dialog],
   );
 
   /**
@@ -529,18 +607,26 @@ export function DressUpDialog({
     [setWidget, refresh, dialog],
   );
 
-  /** 松手才落盘 —— 拖动过程中的实时预览由 previewBackdropOpacity 直接改 CSS 变量。 */
-  const commitOpacity = useCallback(
-    async (value: number): Promise<void> => {
-      try {
-        await setBackgroundOpacity.mutateAsync({ opacity: value });
-        await refresh();
-      } catch (e) {
-        dialog.error('调整清晰度失败', e instanceof Error ? e.message : String(e));
-      }
-    },
-    [setBackgroundOpacity, refresh, dialog],
-  );
+  async function commitOpacity(kind: DressOpacityKind, opacity: number) {
+    try {
+      const mutation = kind === 'background' ? setBackgroundOpacity : setWidgetOpacity;
+      await mutation.mutateAsync({ opacity });
+      await refresh();
+    } catch (e) {
+      dialog.error('调整不透明度失败', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function renderOpacity(kind: DressOpacityKind) {
+    if (kind === 'background' ? !hasBackground : !backdrop.widgetId) return null;
+    return (
+      <DressOpacityControl
+        kind={kind}
+        value={kind === 'background' ? backdrop.backgroundOpacity : backdrop.widgetOpacity}
+        onCommit={(value) => commitOpacity(kind, value)}
+      />
+    );
+  }
 
   /** 任何一种会改动聊天外观的操作正在进行 —— 驱动整个对话框的遮罩。 */
   const applying = busyId !== 0 || clearing || scoping;
@@ -653,6 +739,40 @@ export function DressUpDialog({
     return installed;
   }, [manifest, mallKind, state.data]);
 
+  const catalog = searching ? search : rank;
+  const catalogItems = (searching && !online) || catalog.error ? [] : (catalog.data?.items ?? []);
+  const installedItems = mine
+    .filter((item) => item.name.toLowerCase().includes(keyword.toLowerCase()))
+    .map((item) => ({
+      ...item,
+      videoUrl: mallKind === 'callbg' ? state.data?.own.callBgVideoUrl || undefined : undefined,
+      previewLargeUrl: '',
+    }));
+  const downloadable = isMall
+    ? (mineOnly ? installedItems : catalogItems)
+        .map((item) => ({
+          itemId: item.itemId,
+          name: item.name,
+          mediaUrl:
+            mallKind === 'callbg'
+              ? item.videoUrl || item.previewLargeUrl || item.previewUrl
+              : undefined,
+        }))
+        .filter((item) => mallKind !== 'callbg' || Boolean(item.mediaUrl))
+    : [];
+  const downloadIds = downloadable.map((item) => item.itemId);
+  const downloadsById = new Map(downloadable.map((item) => [item.itemId, item]));
+  const selectedDownloads = downloadable.filter((item) => selectedIds.has(item.itemId));
+  const allSelected = downloadIds.length > 0 && selectedDownloads.length === downloadIds.length;
+  const multi = useMultiSelection({
+    ids: downloadIds,
+    selected: selectedIds,
+    onChange: setSelectedIds,
+    enabled: isMall && selecting,
+    onStart: () => setSelectionMode(true),
+    onExit: () => setSelectionMode(false),
+  });
+
   /**
    * @param previewSrc 已经解析好的预览图 src(可直接进 `<img>`)。空串 = 无预览。
    *                   由调用方给,因为商城条目要经 `weq-media://dress` 代理,而走
@@ -668,22 +788,18 @@ export function DressUpDialog({
   ): ReactElement {
     const isActive = item.itemId === activeId;
     const busy = busyId === item.itemId;
-    const backgroundUrl = isCallBg(mallKind)
-      ? item.videoUrl || item.previewLargeUrl || item.previewUrl
-      : '';
-    const backgroundSource = {
-      kind: 'url' as const,
-      url: backgroundUrl,
-      name: item.name || `通话背景 ${item.itemId}`,
-    };
-    const downloading = isCallBg(mallKind)
-      ? mediaSave.isBusy(backgroundSource)
-      : decorationSave.savingKey === `${mallKind}:${item.itemId}`;
+    const target = downloadsById.get(item.itemId);
+    const key = `${mallKind}:${item.itemId}`;
+    const downloading = download.savingKey === key;
+    const selected = selecting && selectedIds.has(item.itemId);
     // 安装不再按 qqOnline 禁用:资源先走本地离线 bundle(QQ 自带那批装扮资源,
     // 见 nt_helper 的 queryDressResourceUrl),只有本地没有时才需要在线实例去换外链,
     // 那一步的失败由后端在点击时如实报错。离线也能装的款不再被按钮拦住。
     return (
-      <div key={item.itemId} className={`weq-dress-card${isActive ? ' is-active' : ''}`}>
+      <div
+        key={item.itemId}
+        className={`weq-dress-card${isActive ? ' is-active' : ''}${selected ? ' is-selected' : ''}`}
+      >
         <DressCardPreview
           slotKey={`${mallKind}:${item.itemId}`}
           imageSrc={previewSrc}
@@ -701,58 +817,50 @@ export function DressUpDialog({
             )}
           </small>
         </div>
-        <div className="weq-dress-card-actions">
+        {selecting ? (
           <button
             type="button"
-            className="weq-dress-use"
-            title="仅影响 WeQ 本地显示，不影响实际发送"
-            disabled={busy || isActive || applying}
-            onClick={() => void use(item, nameForManifest ?? item.name)}
-          >
-            {busy ? (
-              <Loader2 size={14} className="weq-dress-spin" />
-            ) : isActive ? (
-              <Check size={14} />
-            ) : (
-              <Sparkles size={14} />
-            )}
-            <span>{isActive ? '使用中' : busy ? '装扮中' : '使用'}</span>
-          </button>
-          <button
-            type="button"
-            className="weq-dress-save"
-            title={IS_WEB ? '下载到浏览器' : '下载到所选位置'}
-            aria-label={`下载 ${item.name || item.itemId}`}
-            disabled={
-              applying ||
-              (isCallBg(mallKind) ? mediaSave.disabled || !backgroundUrl : decorationSave.disabled)
-            }
-            onClick={() => {
-              if (mallKind === 'callbg') {
-                void mediaSave.run(backgroundSource, undefined, IS_WEB);
-                return;
-              }
-              void decorationSave.run(
-                {
-                  bubbleId: mallKind === 'bubble' ? item.itemId : 0,
-                  fontId: mallKind === 'font' ? item.itemId : 0,
-                  widgetId: mallKind === 'widget' ? item.itemId : 0,
-                  kind: mallKind,
-                },
-                `${mallKind}:${item.itemId}`,
-                undefined,
-                IS_WEB,
-              );
-            }}
-          >
-            {downloading ? (
-              <Loader2 size={14} className="weq-dress-spin" />
-            ) : (
-              <Download size={14} />
-            )}
-            <span>下载</span>
-          </button>
-        </div>
+            className="weq-dress-card-select"
+            aria-label={`选择 ${item.name || item.itemId}`}
+            aria-pressed={selected}
+            {...multi.itemProps(item.itemId, !target)}
+            disabled={!target}
+          />
+        ) : (
+          <div className="weq-dress-card-actions">
+            <button
+              type="button"
+              className="weq-dress-use"
+              title="仅影响 WeQ 本地显示，不影响实际发送"
+              disabled={busy || isActive || applying}
+              onClick={() => void use(item, nameForManifest ?? item.name)}
+            >
+              {busy ? (
+                <Loader2 size={14} className="weq-dress-spin" />
+              ) : isActive ? (
+                <Check size={14} />
+              ) : (
+                <Sparkles size={14} />
+              )}
+              <span>{isActive ? '使用中' : busy ? '装扮中' : '使用'}</span>
+            </button>
+            <button
+              type="button"
+              className="weq-dress-save"
+              title="创建下载任务"
+              aria-label={`下载 ${item.name || item.itemId}`}
+              disabled={applying || download.disabled || !target}
+              onClick={() => target && void download.run(mallKind, [target], key)}
+            >
+              {downloading ? (
+                <Loader2 size={14} className="weq-dress-spin" />
+              ) : (
+                <Download size={14} />
+              )}
+              <span>下载</span>
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -763,128 +871,212 @@ export function DressUpDialog({
     const font = manifest?.fonts.find((item) => item.itemId === manifest.activeFont);
     const widget = manifest?.widgets.find((item) => item.itemId === manifest.activeWidget);
     const current: Array<{
-      kind: MallKind;
+      kind: CurrentKind;
       label: string;
-      itemId: number;
+      value: string | number;
       name?: string;
       preview?: ReactElement;
       imageSrc?: string;
+      videoSrc?: string;
     }> = [
       {
         kind: 'bubble',
         label: '聊天气泡',
-        itemId: manifest?.activeBubble ?? 0,
+        value: manifest?.activeBubble ?? 0,
         name: bubble?.name,
         preview: bubble ? <BubbleLocalPreview itemId={bubble.itemId} /> : undefined,
       },
       {
         kind: 'font',
         label: '聊天字体',
-        itemId: manifest?.activeFont ?? 0,
+        value: manifest?.activeFont ?? 0,
         name: font?.name,
         preview: font ? <FontLocalPreview itemId={font.itemId} /> : undefined,
       },
       {
         kind: 'widget',
         label: '头像挂件',
-        itemId: manifest?.activeWidget ?? 0,
+        value: manifest?.activeWidget ?? 0,
         name: widget?.name,
         imageSrc: widget ? dressPendantFrameUrl(widget.itemId, 1) : '',
       },
       {
         kind: 'callbg',
         label: '通话背景',
-        itemId: state.data?.own.callBgId ?? 0,
+        value: state.data?.own.callBgId ?? 0,
         name: state.data?.own.callBgName,
         imageSrc: dressUrl(state.data?.own.callBgUrl ?? ''),
+        videoSrc: dressUrl(state.data?.own.callBgVideoUrl ?? ''),
+      },
+      {
+        kind: 'background',
+        label: '聊天背景',
+        value: hasBackground ? (manifest?.background ?? '') : '',
+        name:
+          manifest?.background === 'qq'
+            ? 'QQ 同款'
+            : backdrop.videoUrl
+              ? '自定义视频'
+              : '自定义图片',
+        preview: <ChatBackdrop {...backdrop} widgetId="" />,
+      },
+      {
+        kind: 'screen',
+        label: '浮屏挂件',
+        value: backdrop.widgetId,
+        preview: <ChatBackdrop {...backdrop} imageUrl="" videoUrl="" />,
       },
     ];
+    function chooseCurrent(target: CurrentKind) {
+      if (target === 'background' || target === 'screen') {
+        backgroundTarget.current = target;
+        setKind('background');
+      } else setKind(target);
+    }
+
+    function clearCurrent(target: CurrentKind) {
+      if (target === 'background') void chooseBackground('none');
+      else if (target === 'screen') void chooseWidget('');
+      else void clear(target);
+    }
+
+    const overrides = Object.values(state.data?.conversationOverrides ?? {}).sort((left, right) =>
+      left.title.localeCompare(right.title, 'zh-CN'),
+    );
     return (
-      <div className="weq-dress-usage">
-        <section aria-labelledby="weq-dress-current-title">
+      <section className="weq-dress-usage" aria-labelledby="weq-dress-current-title">
+        <header className="weq-dress-usage-heading">
           <h3 id="weq-dress-current-title">使用中的装扮</h3>
-          <div className="weq-dress-current-list">
-            {current.map((item) => (
-              <div className="weq-dress-current" key={item.kind}>
+          <p className="weq-dress-local-note">全局默认 · 仅影响 WeQ 本地显示</p>
+        </header>
+        <div className="weq-dress-current-list">
+          {current.map((item) => {
+            const { kind, label, value, name } = item;
+            const hasScope = kind === 'bubble' || kind === 'font' || kind === 'widget';
+            const scope = hasScope ? (manifest?.scopes?.[kind] ?? manifest?.scope ?? 'mine') : null;
+            const exceptions: DressConversationEntry[] = hasScope
+              ? []
+              : overrides.filter((entry) => entry[kind] !== undefined);
+            return (
+              <article className="weq-dress-current" key={kind} aria-label={label}>
+                <header className="weq-dress-current-head">
+                  <h4>{label}</h4>
+                  <div className="weq-dress-current-actions">
+                    {value ? (
+                      <button
+                        type="button"
+                        className="weq-dress-current-action"
+                        disabled={applying}
+                        title={`取消使用${label}`}
+                        aria-label={`取消使用${label}`}
+                        onClick={() => clearCurrent(kind)}
+                      >
+                        <X size={16} />
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-sm"
+                      disabled={applying}
+                      aria-label={`选择${label}`}
+                      onClick={() => chooseCurrent(kind)}
+                    >
+                      {value ? '更换' : '选择'}
+                    </button>
+                  </div>
+                </header>
                 <DressCardPreview
-                  slotKey={`current:${item.kind}`}
-                  imageSrc={item.itemId ? (item.imageSrc ?? '') : ''}
-                  alt={item.name || item.label}
+                  slotKey={`current:${kind}`}
+                  imageSrc={value ? (item.imageSrc ?? '') : ''}
+                  videoSrc={value ? item.videoSrc : undefined}
+                  alt={name || label}
                 >
-                  {item.itemId ? (
+                  {value ? (
                     item.preview
                   ) : (
                     <span className="weq-dress-current-empty" aria-hidden>
-                      {KINDS.find((entry) => entry.id === item.kind)?.icon}
+                      {kind === 'screen' ? (
+                        <Sparkles size={24} />
+                      ) : (
+                        KINDS.find((entry) => entry.id === kind)?.icon
+                      )}
                     </span>
                   )}
                 </DressCardPreview>
                 <div className="weq-dress-current-info">
-                  <span>{item.label}</span>
                   <strong>
-                    {item.itemId
-                      ? item.name || (
-                          <>
-                            {item.label}{' '}
-                            <span className="weq-number weq-number-inherit">{item.itemId}</span>
-                          </>
-                        )
-                      : '未使用'}
+                    {value ? name || `${kind === 'screen' ? '挂件' : label} ${value}` : '未使用'}
                   </strong>
-                  {!item.itemId && item.kind !== 'callbg' ? <small>按消息记录还原</small> : null}
+                  {!value && hasScope ? <small>按消息记录还原</small> : null}
                 </div>
-                <div className="weq-dress-current-actions">
-                  {item.itemId ? (
-                    <button
-                      type="button"
-                      className="weq-dress-current-action"
-                      disabled={applying}
-                      title={`取消使用${item.label}`}
-                      aria-label={`取消使用${item.label}`}
-                      onClick={() => void clear(item.kind)}
-                    >
-                      <X size={16} />
-                    </button>
+                <div className="weq-dress-current-options">
+                  {hasScope ? (
+                    <div className="weq-dress-current-scope">
+                      <div className="weq-dress-current-scope-head">
+                        <span>渲染范围</span>
+                        {!value ? <small>选用装扮后生效</small> : null}
+                      </div>
+                      <SegmentedControl
+                        label={`${label}渲染范围`}
+                        value={scope}
+                        options={SCOPES}
+                        disabled={applying || !manifest}
+                        onChange={(next) => {
+                          if (next !== scope) void changeScope(kind, next);
+                        }}
+                      />
+                    </div>
                   ) : null}
-                  <button
-                    type="button"
-                    className="weq-dress-current-action"
-                    disabled={applying}
-                    title={`选择${item.label}`}
-                    aria-label={`选择${item.label}`}
-                    onClick={() => setKind(item.kind)}
-                  >
-                    <ChevronRight size={18} />
-                  </button>
+                  {kind === 'background' ? renderOpacity('background') : null}
+                  {kind === 'screen' ? renderOpacity('widget') : null}
+                  {!hasScope && exceptions.length ? (
+                    <details className="weq-dress-current-exceptions">
+                      <summary>
+                        <ChevronDown size={14} aria-hidden />
+                        {exceptions.length} 个会话单独设置
+                      </summary>
+                      <ul>
+                        {exceptions.map((entry) => {
+                          const name = entry.title || entry.conv;
+                          const selection = conversationDressLabel(entry, kind);
+                          return (
+                            <li key={`${entry.kind}:${entry.conv}`}>
+                              {onOpenConversationSettings ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) =>
+                                    onOpenConversationSettings({
+                                      kind: entry.kind,
+                                      conv: entry.conv,
+                                      title: name,
+                                      anchor: event.currentTarget,
+                                      initialSection: 'dress',
+                                      initialDressSlot: kind,
+                                    })
+                                  }
+                                >
+                                  <span>{name}</span>
+                                  <small>{selection}</small>
+                                  <ChevronRight size={14} aria-hidden />
+                                </button>
+                              ) : (
+                                <div>
+                                  <span>{name}</span>
+                                  <small>{selection}</small>
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </details>
+                  ) : null}
                 </div>
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="weq-dress-usage-scope" aria-labelledby="weq-dress-scope-title">
-          <h3 id="weq-dress-scope-title">渲染范围</h3>
-          <div className="weq-dress-scope" role="radiogroup" aria-label="装扮渲染范围">
-            {SCOPES.map((option) => (
-              <label
-                key={option.id}
-                className={`weq-dress-scope-btn${scope === option.id ? ' is-active' : ''}`}
-                title={option.hint}
-              >
-                <input
-                  type="radio"
-                  name="dress-scope"
-                  value={option.id}
-                  checked={scope === option.id}
-                  disabled={applying || !manifest}
-                  onChange={() => void changeScope(option.id)}
-                />
-                <span>{option.label}</span>
-              </label>
-            ))}
-          </div>
-          <p className="weq-dress-local-note">“使用”仅影响 WeQ 本地显示，不影响实际发送。</p>
-        </section>
-      </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
     );
   }
 
@@ -932,28 +1124,31 @@ export function DressUpDialog({
 
     return (
       <div className="weq-dress-bg">
-        <section className="weq-dress-bg-section">
+        <section
+          ref={backgroundSection}
+          className="weq-dress-bg-section"
+          tabIndex={-1}
+          aria-labelledby="weq-dress-bg-title"
+        >
           <div className="weq-dress-bg-head">
-            <h3>背景图 / 视频</h3>
-            <button
-              type="button"
-              className="weq-dress-pick"
-              onClick={() => void chooseCustomFile()}
-            >
-              <Upload size={13} />
-              {hasCustom ? '重新选择' : '选择图片 / 视频…'}
-            </button>
+            <h3 id="weq-dress-bg-title">背景图 / 视频</h3>
           </div>
           <div className="weq-dress-bg-row">
             {options.map((o) => (
-              <button
+              <div
                 key={o.id}
-                type="button"
                 className={`weq-dress-bg-card${source === o.id ? ' is-active' : ''}`}
-                disabled={o.disabled}
-                title={o.hint}
-                onClick={() => void chooseBackground(o.id)}
+                data-unavailable={o.id === 'qq' && o.disabled}
               >
+                <button
+                  type="button"
+                  className="weq-dress-bg-select"
+                  aria-label={o.label}
+                  aria-pressed={source === o.id}
+                  disabled={o.disabled}
+                  title={o.hint}
+                  onClick={() => void chooseBackground(o.id)}
+                />
                 <div className="weq-dress-bg-preview weq-media-frame">
                   {o.preview ? (
                     o.video ? (
@@ -963,9 +1158,20 @@ export function DressUpDialog({
                     ) : (
                       <ShimmerImage src={o.preview} alt={o.label} loading="lazy" />
                     )
-                  ) : (
+                  ) : o.id !== 'custom' ? (
                     <span className="weq-dress-bg-none">{o.id === 'none' ? '无' : '未设置'}</span>
-                  )}
+                  ) : null}
+                  {o.id === 'custom' ? (
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-sm weq-dress-pick"
+                      aria-label={hasCustom ? '更换背景图片或视频' : '选择背景图片或视频'}
+                      onClick={() => void chooseCustomFile()}
+                    >
+                      <Upload size={13} aria-hidden />
+                      {hasCustom ? '更换' : '选择'}
+                    </button>
+                  ) : null}
                   {source === o.id ? (
                     <span className="weq-dress-bg-check">
                       <Check size={13} strokeWidth={2.5} />
@@ -974,40 +1180,21 @@ export function DressUpDialog({
                 </div>
                 <strong>{o.label}</strong>
                 <small>{o.hint}</small>
-              </button>
+              </div>
             ))}
           </div>
 
-          {/* 背景默认压了一层磨砂,这条调它的厚度 —— 拖到最右接近原图。
-              没有背景时这个控件没有意义,所以只在有背景时出现。 */}
-          {source !== 'none' ? (
-            <label className="weq-dress-opacity">
-              <span>清晰度</span>
-              <FormRange
-                min={0.05}
-                max={1}
-                step={0.05}
-                value={opacityDraft}
-                onChange={(e) => setOpacityDraft(Number(e.target.value))}
-                // 拖动过程只改本地值(实时预览),松手才落盘 —— 否则每一帧都写一次文件。
-                onPointerUp={(e) => void commitOpacity(Number(e.currentTarget.value))}
-                onKeyUp={(e) => void commitOpacity(Number(e.currentTarget.value))}
-              />
-              <em>
-                {
-                  <span className="weq-number weq-number-inherit">
-                    {Math.round(opacityDraft * 100)}
-                  </span>
-                }
-                %
-              </em>
-            </label>
-          ) : null}
+          {renderOpacity('background')}
         </section>
 
-        <section className="weq-dress-bg-section">
+        <section
+          ref={widgetSection}
+          className="weq-dress-bg-section"
+          tabIndex={-1}
+          aria-labelledby="weq-dress-widget-title"
+        >
           <div className="weq-dress-bg-head">
-            <h3>浮屏挂件</h3>
+            <h3 id="weq-dress-widget-title">浮屏挂件</h3>
             <span className="weq-dress-bg-note">叠在背景上循环播放的动画，再点一次取消</span>
           </div>
           <div className="weq-dress-widget-grid">
@@ -1028,6 +1215,7 @@ export function DressUpDialog({
               </button>
             ))}
           </div>
+          {renderOpacity('widget')}
         </section>
       </div>
     );
@@ -1035,31 +1223,21 @@ export function DressUpDialog({
 
   function renderList(): ReactElement {
     if (kind === 'usage') return renderUsage();
-    if (kind === 'redpack') return <RedPackSkinWall />;
     if (kind === 'background') return renderBackground();
-    if (kind === 'emoji')
-      return (
-        <MarketEmojiBrowserLightbox
-          embedded
-          searchQuery={emojiKeyword}
-          initialPackId={initialEmojiPackId}
-          initialPackName={initialEmojiPackName}
-        />
-      );
 
     if (mineOnly) {
-      if (mine.length === 0) {
+      if (installedItems.length === 0) {
         return (
           <div className="weq-dress-empty">
             <Sparkles size={26} />
-            <p>还没有装扮</p>
-            <span>取消「已装」筛选去挑一款,或直接搜索名字</span>
+            <p>{keyword ? '没有匹配的已装装扮' : '还没有装扮'}</p>
+            {!keyword ? <span>可在「热门」挑选装扮</span> : null}
           </div>
         );
       }
       return (
         <div className="weq-dress-grid">
-          {mine.map((m) => {
+          {installedItems.map((m) => {
             // 「已装」里没有商城预览图的款(旧版 40801 自动装遗留的)—— 预览直接画
             // 气泡 / 字体本体:气泡优先本地持久化 PNG,字体走本地 ttf 排样例文字。
             const localPreview =
@@ -1085,10 +1263,8 @@ export function DressUpDialog({
                 // 原样带上 —— use() 会把这两个字段写进清单,置空的话装完又会退回
                 // 「气泡 <id>」+ 空预览(「QQ 正在用的那款」点使用时正好走这条)。
                 previewUrl: m.previewUrl,
-                previewLargeUrl: '',
-                ...(mallKind === 'callbg'
-                  ? { videoUrl: state.data?.own.callBgVideoUrl || undefined }
-                  : {}),
+                previewLargeUrl: m.previewLargeUrl,
+                videoUrl: m.videoUrl,
                 labels: m.installed ? [] : ['QQ 同款'],
                 price: 0,
                 mallName: '',
@@ -1112,28 +1288,26 @@ export function DressUpDialog({
         <div className="weq-dress-empty is-warn">
           <WifiOff size={26} />
           <p>搜索需要登录 QQ 客户端</p>
-          <span>商城搜索要用在线实例取凭证。清空关键词可离线浏览排行榜。</span>
+          <span>登录 QQ 后可搜索商城装扮，也可以清空关键词浏览热门目录。</span>
         </div>
       );
     }
 
-    const query = searching ? search : rank;
     // 用 isInitialLoading 而不是 isLoading:react-query v4 里 disabled 的 query 也是
     // isLoading=true,拿它判断会永远停在「加载中」。首屏等待期用与卡片同构的骨架屏
     // 占位,免得排行榜 / 搜索结果出来时整页从「转圈」跳到「卡片」跳版。
-    if (query.isInitialLoading) {
+    if (catalog.isInitialLoading) {
       return <DressListSkeleton />;
     }
-    if (query.error) {
+    if (catalog.error) {
       return (
         <div className="weq-dress-empty is-error">
           <WifiOff size={26} />
-          <p>{query.error.message}</p>
+          <p>{catalog.error.message}</p>
         </div>
       );
     }
-    const items = searching ? (search.data?.items ?? []) : (rank.data?.items ?? []);
-    if (items.length === 0) {
+    if (catalogItems.length === 0) {
       return (
         <div className="weq-dress-empty">
           <Sparkles size={26} />
@@ -1143,20 +1317,15 @@ export function DressUpDialog({
     }
     return (
       <div className="weq-dress-grid">
-        {items.map((it) => renderCard(it, dressUrl(it.previewLargeUrl || it.previewUrl)))}
+        {catalogItems.map((it) => renderCard(it, dressUrl(it.previewLargeUrl || it.previewUrl)))}
       </div>
     );
   }
 
   return (
     <WorkspacePage title="个性装扮" onClose={onClose} standalone mobileChrome={mobile}>
-      {decorationSave.prompt}
-      {mediaSave.prompt}
+      {download.prompt}
       <div className="weq-dress-dialog" role="region" aria-labelledby="weq-dress-title">
-        <button className="weq-dress-close" onClick={onClose} title="关闭" type="button">
-          <X size={18} strokeWidth={2} />
-        </button>
-
         <header className="weq-dress-head">
           <div className="weq-dress-title-row">
             <Palette size={18} strokeWidth={1.9} />
@@ -1180,112 +1349,129 @@ export function DressUpDialog({
               </button>
             ))}
           </div>
-
-          {/* 背景不走商城,搜索框对它没有意义 —— 留一个禁用的输入框只会让人以为坏了。 */}
-          {isMall || kind === 'emoji' ? (
-            <form
-              className="weq-dress-search"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const next = (kind === 'emoji' ? emojiDraft : draft).trim();
-                if (kind === 'emoji') {
-                  setEmojiKeyword(next);
-                  return;
-                }
-                if (next && !online) {
-                  dialog.error('需要在线 QQ', '装扮商城搜索需要登录该账号的 QQ 客户端以获取凭证。');
-                  return;
-                }
-                setMineOnly(false);
-                setKeyword(next);
-              }}
-            >
-              <Search size={15} strokeWidth={1.8} />
-              <input
-                value={kind === 'emoji' ? emojiDraft : draft}
-                onChange={(e) => (kind === 'emoji' ? setEmojiDraft : setDraft)(e.target.value)}
-                aria-label={kind === 'emoji' ? '搜索表情包' : '搜索装扮'}
-                placeholder={
-                  kind === 'emoji'
-                    ? '搜索表情包,回车确认'
-                    : online
-                      ? '搜索装扮名,回车确认'
-                      : '搜索需要登录 QQ 客户端'
-                }
-                disabled={kind !== 'emoji' && !online}
-                spellCheck={false}
-              />
-              {(kind === 'emoji' ? emojiDraft : draft) ? (
-                <button
-                  type="button"
-                  className="weq-dress-search-clear"
-                  title="清空"
-                  aria-label="清空搜索"
-                  onClick={() => {
-                    if (kind === 'emoji') {
-                      setEmojiDraft('');
-                      setEmojiKeyword('');
-                    } else {
-                      setDraft('');
-                      setKeyword('');
-                    }
-                  }}
-                >
-                  <X size={13} strokeWidth={2} />
-                </button>
-              ) : null}
-            </form>
-          ) : null}
         </header>
-
-        {isMall ? (
-          <div className="weq-dress-toolbar">
-            <button
-              type="button"
-              className={`weq-dress-chip${mineOnly ? ' is-active' : ''}`}
-              onClick={() => setMineOnly((v) => !v)}
-              title="只看已安装的装扮"
-            >
-              已装
-              <span className="weq-dress-chip-n">
-                <span className="weq-number weq-number-inherit">{mine.length}</span>
-              </span>
-            </button>
-            {!mineOnly && !searching && rank.data?.source === 'static' ? (
-              <span className="weq-dress-hint">离线目录</span>
-            ) : null}
-          </div>
-        ) : null}
-
-        {state.error ? (
-          <div className="weq-dress-notice is-bad">
-            <WifiOff size={14} />
-            <span>读取装扮状态失败：{state.error.message}</span>
-          </div>
-        ) : isMall && !state.isInitialLoading && !online ? (
-          <div className="weq-dress-notice">
-            <WifiOff size={14} />
-            <span>
-              QQ 未在线：排行榜与气泡/字体/挂件安装（本地离线资源优先）都能用；只有商城搜索 需要登录
-              QQ 客户端。
-            </span>
-          </div>
-        ) : isMall && !mineOnly && !searching ? (
-          // 排行榜只取第一页(pageSize=20,见 dress_mall),不翻页。不说明的话
-          // 用户会以为商城就这 20 款。
-          <div className="weq-dress-notice is-info">
-            <Trophy size={14} />
-            <span>以下是装扮排行榜前 20 名。并不包含完整列表，其他装扮可以尝试搜索。</span>
-          </div>
-        ) : null}
 
         <div
           id="weq-dress-panel"
           role="tabpanel"
           aria-labelledby={`weq-dress-tab-${kind}`}
-          className={`weq-dress-body${kind === 'emoji' ? ' is-embedded-market' : ''}`}
+          className="weq-dress-panel"
+          {...(isMall ? multi.rootProps : {})}
         >
-          {renderList()}
+          {state.error && (isMall || kind === 'usage' || kind === 'background') ? (
+            <div className="weq-dress-notice is-bad">
+              <WifiOff size={14} />
+              <span>读取装扮状态失败：{state.error.message}</span>
+            </div>
+          ) : null}
+          {isMall ? (
+            <div className="weq-dress-toolbar">
+              <div className="weq-dress-toolbar-leading" role="group" aria-label="装扮列表">
+                <button
+                  type="button"
+                  className={`weq-dress-chip${!mineOnly && !searching ? ' is-active' : ''}`}
+                  aria-pressed={!mineOnly && !searching}
+                  onClick={() => updateMallBrowse(DEFAULT_MALL_BROWSE)}
+                >
+                  热门
+                </button>
+                <button
+                  type="button"
+                  className={`weq-dress-chip${mineOnly ? ' is-active' : ''}`}
+                  aria-pressed={mineOnly}
+                  onClick={() => {
+                    if (!mineOnly) updateMallBrowse({ ...DEFAULT_MALL_BROWSE, view: 'installed' });
+                  }}
+                >
+                  已装
+                  <span className="weq-dress-chip-n weq-number weq-number-inherit">
+                    {mine.length}
+                  </span>
+                </button>
+              </div>
+              <div className="weq-dress-toolbar-controls">
+                <DirectoryToolbar
+                  searchEnabled={false}
+                  noun="装扮"
+                  query=""
+                  onQuery={() => {}}
+                  selecting={selecting}
+                  onSelecting={setSelectionMode}
+                  count={selectedDownloads.length}
+                  allSelected={allSelected}
+                  onSelectAll={() => setSelectedIds(new Set(allSelected ? [] : downloadIds))}
+                />
+                <DressSearchForm
+                  label={mineOnly ? '搜索已装装扮' : '搜索装扮'}
+                  value={draft}
+                  onChange={(value) => updateMallBrowse({ draft: value })}
+                  onSearch={(value) => updateMallBrowse({ keyword: value })}
+                  disabled={!mineOnly && !online}
+                  maxLength={50}
+                />
+              </div>
+              {selecting ? (
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-primary weq-dress-download-selection"
+                  disabled={download.disabled || applying || !selectedDownloads.length}
+                  onClick={async () => {
+                    if (await download.run(mallKind, selectedDownloads, 'selection'))
+                      setSelectedIds((current) => (current === selectedIds ? new Set() : current));
+                  }}
+                >
+                  {download.savingKey === 'selection' ? (
+                    <Loader2 size={14} className="weq-dress-spin" aria-hidden />
+                  ) : (
+                    <Download size={14} aria-hidden />
+                  )}
+                  下载选中
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {isMall && !mineOnly && !searching && !state.error ? (
+            <div className="weq-dress-notice is-info">
+              <Trophy size={14} aria-hidden />
+              <span>
+                {mallKind === 'callbg'
+                  ? '这里展示热门通话背景。'
+                  : rank.data?.source === 'static'
+                    ? '这里展示本地收录的热门装扮。'
+                    : '这里展示当前热门装扮。'}
+                {online
+                  ? '想找其他款式，可以按名称搜索。'
+                  : !state.isInitialLoading
+                    ? '登录 QQ 后可按名称搜索商城。'
+                    : ''}
+              </span>
+            </div>
+          ) : null}
+
+          {kind === 'redpack' ? (
+            <RedPackSkinWall />
+          ) : kind === 'emoji' ? (
+            <MarketEmojiBrowserLightbox
+              embedded
+              embeddedSearch={{
+                keyword: emojiKeyword,
+                form: (
+                  <DressSearchForm
+                    label="搜索表情包"
+                    value={emojiDraft}
+                    onChange={setEmojiDraft}
+                    onSearch={setEmojiKeyword}
+                  />
+                ),
+              }}
+              initialPackId={initialEmojiPackId}
+              initialPackName={initialEmojiPackName}
+            />
+          ) : (
+            <PageScrollSnapshot key={listScope} snapshotKey={listScope} className="weq-dress-body">
+              {renderList()}
+            </PageScrollSnapshot>
+          )}
         </div>
 
         {/* 换装期间盖住整个对话框:样式注入会重排下面的消息列表,期间点别的只会

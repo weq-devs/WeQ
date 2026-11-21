@@ -489,7 +489,7 @@ function MediaPreviewItemBody({
             <span ref={setOcrActions} style={{ display: 'contents' }} />
             {original && usingThumbnail ? (
               originalPending ? (
-                <span className="weq-lightbox-action weq-transfer-control">
+                <span className="weq-lightbox-action weq-lightbox-original weq-transfer-control">
                   <TransferRing
                     size={16}
                     label={originalProgressLabel}
@@ -505,7 +505,7 @@ function MediaPreviewItemBody({
               ) : (
                 <button
                   type="button"
-                  className="weq-lightbox-action"
+                  className="weq-lightbox-action weq-lightbox-original"
                   onClick={() => startOriginal(item.key, original.src, false)}
                 >
                   {originalRequest?.phase === 'failed' ? '重试原图' : '查看原图'}

@@ -4,8 +4,8 @@
   --weq-number-cap-height: 0.75;
 }
 
-/* 已有读数沿用各自字号、字重和布局，只共享 weq-number 的数字排版。 */
-:is(
+/* 计时和列表始终使用等宽数字，字体由外观设置切换。 */
+:where(
   .weq-number:not(:where(input)),
   .weq-time-label,
   .weq-msglist-time,
@@ -57,6 +57,7 @@
   .weq-rp-progress-pct,
   .weq-rp-row-size,
   .weq-overview-calendar-progress strong,
+  .weq-calendar-list-date,
   .weq-density-calendar-grid > button > span,
   .weq-density-calendar-grid > button > small,
   .weq-usage-line-yaxis span,
@@ -74,6 +75,7 @@
   .weq-qzn-space-stats dd,
   .weq-mail-pagination > span,
   .weq-preview-count,
+  .group-keyword-item-scope,
   .weq-graph-overlay-stat,
   .weq-graph-pick-count,
   .weq-graph-slider-value,
@@ -93,7 +95,6 @@
   .unread-dock-count,
   .group-left-member-id,
   .cg-legend-stat,
-  .voice-record-btn .voice-record-timer,
   .voice-tts-count,
   .link-card-count,
   .ai-voice-count,
@@ -136,6 +137,7 @@
   .weq-notice-dialog.weq-notice-panel .notice-card-request .notice-meta time,
   .weq-conversation-actions-target .weq-conversation-copy-number,
   .ca-range-labels strong,
+  .ca-github-axis,
   .ca-person-count,
   .weq-conversation-selection-toolbar > span,
   .weq-overview-calendar-scan-label small,
@@ -157,9 +159,9 @@
   .weq-emoji-bounce-count,
   .weq-perhome-stat strong,
   .weq-msglist-count,
-  .weq-msglist-time,
   .weq-col-loc-coord,
   .weq-collection-page-info,
+  .weq-market-total,
   .weq-wtools-card-id em,
   .weq-wtools-result-uin,
   .weq-wtools-result-pid,
@@ -181,7 +183,6 @@
   .weq-merged-popover-item-time,
   .weq-log-ts,
   .weq-totp-digit,
-  .weq-redbag-detail-result-amount strong,
   .weq-int-batch,
   .weq-intent-popover-row.is-metric > :last-child,
   .weq-int-history time,
@@ -190,6 +191,7 @@
   .weq-mail-list-heading > span,
   .weq-mail-pagination span,
   .weq-media-zoom-controls output,
+  .weq-lightbox-original,
   .weq-extras-energy strong,
   .weq-profile-like-total strong,
   .weq-profile-like-preset,
@@ -199,13 +201,14 @@
   .weq-qzn-page-count,
   .weq-redpack-wall-count,
   .weq-redpack-wall-meta small,
-  html .weq-reminder-count,
+  .weq-reminder-count,
   .weq-remote-code,
   .weq-roaming-job-ratio,
   .weq-roaming-stats dd,
   .weq-roaming-receipt-target small,
   .weq-forward-count,
   .weq-forward-time,
+  .weq-forward-analysis-rank :is(small, strong),
   .weq-warmup-count,
   .weq-workspace-menu-head small,
   .weq-rp-metric-value,
@@ -218,10 +221,30 @@
   .weq-perf-chart-tooltip > time,
   .weq-perf-chart-tooltip > strong
 ):not(:where(.weq-report-root *)) {
-  font-family: var(--weq-font-number);
-  font-size-adjust: cap-height var(--weq-number-cap-height);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
+
+  :root:not([data-special-number-font='off']) & {
+    font-family: var(--weq-font-number);
+    font-size-adjust: cap-height var(--weq-number-cap-height);
+  }
+}
+
+/* 含说明文字的读数行，只让数字等宽。 */
+:where(
+  .group-album-toolbar > span,
+  .weq-db-progress-readouts,
+  .weq-dbm-operation,
+  .weq-dbm-note,
+  .weq-dbm-foot-summary,
+  .weq-dbm-verify,
+  .weq-dbm-budget > span,
+  .weq-dbm-storage-warning dd > span:not(.weq-dbm-path),
+  .weq-dress-current-exceptions > summary,
+  .weq-qzn-status,
+  .weq-forward-analysis-body > p,
+  .weq-forward-analysis-body > section > p
+) {
+  font-variant-numeric: tabular-nums;
 }
 
 /* 可编辑数值与同组表单共用字体，等宽数字不改变文字占位的字形。 */

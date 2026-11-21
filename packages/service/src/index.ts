@@ -23,7 +23,9 @@ export type {
   ForwardCardTarget,
   ForwardExportTarget,
   ForwardRecordTarget,
+  MessageCategory,
 } from './account/message_filter';
+export { MESSAGE_CATEGORIES } from './account/message_filter';
 export { installContentSearchCapture } from './account/content_search_capture';
 export { writeCompositionBundle } from './account/export/composition_export';
 export { fileDigest } from './account/export/archive_resource';
@@ -227,6 +229,12 @@ export type { BubbleSkin, BubbleSlice, MessageBubbleSkin } from './account/bubbl
 export { DressService, createDressService } from './account/dress_service';
 export { DressConfigService } from './account/dress_config';
 export {
+  DressConversationStore,
+  type DressConversation,
+  type DressConversationEntry,
+  type DressConversationSlot,
+} from './account/dress_conversations';
+export {
   DRESS_DERIVE_VERSION,
   DressSharedCache,
   fontFamilyFor,
@@ -248,7 +256,12 @@ export type {
   DressManifest,
   InstalledFont,
 } from './account/dress_service';
-export type { DressScope, DressBackgroundSource } from './account/dress_config';
+export type {
+  DressScope,
+  DressScopeKind,
+  DressScopes,
+  DressBackgroundSource,
+} from './account/dress_config';
 export type {
   BubbleSidecar,
   FontDerived,
@@ -450,12 +463,13 @@ export type {
   AssistantInvestigationPlan,
   AssistantWorkspace,
 } from './account/assistant';
-export type { RenderC2cMsg, RenderGroupMsg, MessagePageOptions } from './account/msg';
+export type { RenderC2cMsg, RenderGroupMsg, MessagePageOptions, RecallInfo } from './account/msg';
 export { DeletedMsgStore } from './account/deleted_msgs';
 export type { DeletedMsgRecord } from './account/deleted_msgs';
 export { AntiRecallService } from './account/anti_recall';
 export type {
   AntiRecallConfig,
+  AntiRecallMethod,
   AntiRecallStatus,
   AntiRecallOptions,
   RecallNotifyEvent,
@@ -1290,7 +1304,7 @@ export {
   safeRelSegments,
   type SanitizeSegmentOpts,
 } from './common/path_sanitize';
-export { buildZip, extractFromZip, readZipEntries } from './common/zip';
+export { buildZip, extractFromZip, readZipEntries, writeZipFile } from './common/zip';
 export type { ZipEntry, ZipWriteEntry } from './common/zip';
 export {
   TtsService,

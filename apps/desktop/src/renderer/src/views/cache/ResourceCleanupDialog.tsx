@@ -29,7 +29,9 @@ import {
 import { ToolSurface, type ToolPresentation } from '../../components/ToolSurface';
 import {
   X,
+  ListTodo,
   Loader2,
+  Square,
   Trash2,
   ShieldCheck,
   Image as ImageIcon,
@@ -58,6 +60,7 @@ import { fmtBytes } from './CacheShared.shared';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useDraftProtection } from '../../lib/draftClose';
 import type { ResourceManagementSnapshot } from './resourceManagement';
+import { TaskProgressBar } from '../../components/tasks/TaskProgressBar';
 
 /** One deletion instruction (target + how much). */
 interface Instruction {
@@ -223,15 +226,25 @@ export function ResourceCleanupDialog({
   );
   const [phrase, setPhrase] = useState('');
   const [result, setResult] = useState<{
-    receipt: CleanupResult;
+    receipt: CleanupResult & { stopped?: boolean };
     targets: CleanupTargetStat[];
   } | null>(null);
 
   const runRef = useRef(0);
   const pending = useRef(false);
+  const [controlling, setControlling] = useState(false);
+  const source = snapshot?.source;
+  const execution = trpc.account.resourceCleanup.status.useQuery(source, {
+    enabled: open && active,
+    refetchOnMount: 'always',
+    refetchInterval: (state) => (pending.current || state?.status === 'running' ? 1000 : false),
+  });
+  const operation = execution.data;
+  const running = stage === 'running' || operation?.status === 'running';
   useEffect(() => {
-    onBusyChange?.(stage === 'running');
-  }, [stage, onBusyChange]);
+    onBusyChange?.(running);
+    return () => onBusyChange?.(false);
+  }, [running, onBusyChange]);
   useEffect(() => {
     if (!active) setPhrase('');
   }, [active]);
@@ -243,7 +256,7 @@ export function ResourceCleanupDialog({
           ? customSel
           : null
       : null;
-  useDraftProtection(embedded ? draft : null, embedded && stage === 'running');
+  useDraftProtection(embedded ? draft : null, embedded && running);
 
   useEffect(
     () => () => {
@@ -307,7 +320,7 @@ export function ResourceCleanupDialog({
     ids: targets.filter((target) => target.present && target.files > 0).map((target) => target.id),
     selected: new Set(Object.keys(customSel)),
     enabled: customMode,
-    disabled: !open || !customMode || stage !== 'pick' || loading || !canAct,
+    disabled: !open || !customMode || stage !== 'pick' || running || loading || !canAct,
     onChange: (next) => {
       const updated: Record<string, CleanupVariant> = {};
       for (const id of next) updated[id] = customSel[id] ?? 'all';
@@ -348,17 +361,17 @@ export function ResourceCleanupDialog({
   };
 
   const runCleanup = async (): Promise<void> => {
-    if (!chosen || pending.current || !activeRef.current || !canAct || loading) return;
+    if (!chosen || running || pending.current || !activeRef.current || !canAct || loading) return;
     if (chosen.preset.extreme && phrase.trim() !== CONFIRM_PHRASE) return;
     pending.current = true;
     const run = ++runRef.current;
-    const source = snapshot?.source;
     setError(null);
     setStage('running');
     try {
       const res = await client.account.resourceCleanup.cleanup.mutate({
         ...source,
         instructions: chosen.instructions,
+        foreground: true,
       });
       if (run !== runRef.current) return;
       setResult({ receipt: res, targets: [...targets] });
@@ -372,7 +385,34 @@ export function ResourceCleanupDialog({
       setStage('confirm');
     } finally {
       pending.current = false;
+      void execution.refetch();
     }
+  };
+
+  const control = async (action: 'stop' | 'background'): Promise<void> => {
+    if (!operation || controlling) return;
+    setControlling(true);
+    setError(null);
+    try {
+      await client.account.resourceCleanup.control.mutate({
+        ...source,
+        taskId: operation.id,
+        action,
+      });
+      if (action === 'background') onClose();
+      else await execution.refetch();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setControlling(false);
+    }
+  };
+  const describeTarget = (description: string) => {
+    const [id, variant, ...rest] = description.split(' · ');
+    const scope = variant === 'ori' ? '原文件' : variant === 'thumb' ? '缩略图' : '';
+    return [targets.find((item) => item.id === id)?.label ?? id, scope, ...rest]
+      .filter(Boolean)
+      .join(' · ');
   };
 
   const setCustomVariant = (id: string, variant: CleanupVariant): void => {
@@ -407,7 +447,7 @@ export function ResourceCleanupDialog({
               type="button"
               className="weq-ra-close"
               onClick={onClose}
-              disabled={stage === 'running'}
+              disabled={running && operation?.foreground !== false}
               aria-label="关闭"
             >
               <X size={18} />
@@ -428,7 +468,7 @@ export function ResourceCleanupDialog({
       ) : null}
 
       <div className="weq-ra-body weq-clean-body">
-        {stage === 'pick' ? (
+        {stage === 'pick' && !running ? (
           <PickStage
             targets={targets}
             loading={loading || !canAct}
@@ -447,7 +487,7 @@ export function ResourceCleanupDialog({
           />
         ) : null}
 
-        {stage === 'confirm' && chosen ? (
+        {stage === 'confirm' && chosen && !running ? (
           <ConfirmStage
             targets={targets}
             chosen={chosen}
@@ -462,15 +502,60 @@ export function ResourceCleanupDialog({
           />
         ) : null}
 
-        {stage === 'running' ? (
+        {running ? (
           <div className="weq-clean-running">
-            <Loader2 size={26} className="weq-spin" />
-            <strong>正在清理…</strong>
-            <span>正在删除文件并释放空间，请稍候</span>
+            <strong role="status">{operation?.statusLabel ?? '正在清理本地资源'}</strong>
+            {operation?.status === 'running' ? (
+              <>
+                <span>
+                  {operation.current ? `${describeTarget(operation.current)} · ` : ''}
+                  <NumericText>{`已处理 ${operation.processed} / ${operation.total} 类 · 失败 ${operation.failed} 个文件`}</NumericText>
+                </span>
+                <TaskProgressBar
+                  label="资源清理进度"
+                  value={
+                    operation.total ? (operation.processed / operation.total) * 100 : undefined
+                  }
+                />
+                <div className="weq-ra-head-actions">
+                  {operation.canStop && (
+                    <button
+                      type="button"
+                      className="weq-set-btn"
+                      disabled={controlling}
+                      onClick={() => void control('stop')}
+                    >
+                      <Square size={14} aria-hidden />
+                      停止后续清理
+                    </button>
+                  )}
+                  {operation.foreground && (
+                    <button
+                      type="button"
+                      className="weq-set-btn"
+                      disabled={controlling}
+                      onClick={() => void control('background')}
+                    >
+                      <ListTodo size={14} aria-hidden />
+                      后台进行
+                    </button>
+                  )}
+                </div>
+                {operation.details?.length ? (
+                  <ul>
+                    {operation.details.map((detail) => (
+                      <li key={detail}>{describeTarget(detail)}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            ) : (
+              <Loader2 size={20} className="weq-spin" aria-label="正在读取清理进度" />
+            )}
           </div>
         ) : null}
 
-        {stage === 'done' && result ? (
+        {!running && stage === 'done' && result ? (
           <DoneStage
             result={result.receipt}
             targets={result.targets}
@@ -490,10 +575,10 @@ export function ResourceCleanupDialog({
     <ToolSurface
       title="清理缓存"
       presentation={presentation}
-      busy={stage === 'running'}
+      busy={running && operation?.foreground !== false}
       draft={draft}
       onClose={() => {
-        if (stage !== 'running') onClose();
+        if (!running || operation?.foreground === false) onClose();
       }}
     >
       {content}
@@ -798,7 +883,7 @@ function DoneStage({
   onClose,
   onAgain,
 }: {
-  result: CleanupResult;
+  result: CleanupResult & { stopped?: boolean };
   targets: CleanupTargetStat[];
   onClose: () => void;
   onAgain: () => void;
@@ -807,14 +892,18 @@ function DoneStage({
   return (
     <div className="weq-clean-done">
       <span className="weq-clean-done-icon">
-        <CheckCircle2 size={40} strokeWidth={1.5} />
+        {result.stopped || failed ? (
+          <AlertTriangle size={40} strokeWidth={1.5} />
+        ) : (
+          <CheckCircle2 size={40} strokeWidth={1.5} />
+        )}
       </span>
       <strong className="weq-clean-done-title">
         已删除逻辑文件量{' '}
         <span className="weq-number weq-number-inherit">{fmtBytes(result.freedBytes)}</span>
       </strong>
       <p className="weq-clean-done-desc">
-        清理完成，共处理{' '}
+        {result.stopped ? '已停止后续清理，共处理 ' : '清理结束，共处理 '}
         <span className="weq-number weq-number-inherit">{result.perTarget.length}</span> 项资源。
         {failed > 0 ? (
           <NumericText>{`部分目标未完全清理，失败计数 ${failed}，详见逐项结果。`}</NumericText>

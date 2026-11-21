@@ -101,9 +101,10 @@ it('手动暂停保留已完成阶段且不冒报取消或失败', async () => {
   await vi.waitFor(async () => expect((await service.get(request.id)).status).toBe('completed'));
   expect(run.mock.calls.map((call) => call[1])).toEqual(['report', 'batches', 'batches', 'graph']);
 });
-it('移除任务不删除报告，重新分析恢复任务；旧入口可打开改过范围的报告', async () => {
+it('移除任务不删除报告，改范围后在前台重新分析；旧入口可打开改过范围的报告', async () => {
   const { service } = await fixture(async () => ({ count: 2 }));
   await service.create(request);
+  await service.background(request.id);
   await service.resume(request.id);
   await vi.waitFor(async () => expect((await service.get(request.id)).status).toBe('completed'));
   await service.hideTask(request.id);
@@ -114,9 +115,43 @@ it('移除任务不删除报告，重新分析恢复任务；旧入口可打开�
   await service.revise(request.id, { startTime: 10, endTime: 20 });
   await vi.waitFor(async () => expect((await service.get(request.id)).status).toBe('completed'));
   expect(await service.create(request)).toMatchObject({
-    taskHidden: false,
+    taskHidden: true,
     request: { scope: { startTime: 10, endTime: 20 } },
   });
+});
+it('将正在统计的前台报告交给后台后，后续阶段和重开都保留任务登记', async () => {
+  const entered = Promise.withResolvers<void>();
+  const finish = Promise.withResolvers<void>();
+  const { root, service } = await fixture(async (_request, stage, signal) => {
+    if (stage === 'batches') {
+      entered.resolve();
+      await finish.promise;
+      signal.throwIfAborted();
+    }
+    return { stage };
+  });
+  await service.create(request);
+  await service.resume(request.id);
+  try {
+    await entered.promise;
+    expect(await service.get(request.id)).toMatchObject({
+      taskHidden: true,
+      completed: ['report'],
+    });
+    await service.background(request.id);
+    await service.pauseForeground(request.id);
+    expect(await service.get(request.id)).toMatchObject({ taskHidden: false, status: 'running' });
+  } finally {
+    finish.resolve();
+  }
+  await vi.waitFor(async () =>
+    expect(await service.get(request.id)).toMatchObject({ taskHidden: false, status: 'completed' }),
+  );
+  await service.dispose();
+  cleanups.pop();
+  const reopened = new AnalysisReportsService(root, async () => null, worker);
+  cleanups.push(() => reopened.dispose());
+  expect((await reopened.list())[0]).toMatchObject({ taskHidden: false, status: 'completed' });
 });
 it('刷新失败保留上次成功结果，切号退出使未完成任务待继续', async () => {
   let fail = false;

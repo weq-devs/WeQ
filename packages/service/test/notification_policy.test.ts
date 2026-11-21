@@ -34,12 +34,12 @@ it('只覆盖已提供的布尔渠道，显式关闭不丢失，也不固化其�
   expect(normalizeNotificationEvents(patch).mail).toEqual({ banner: true, system: false });
 });
 it('范围空名单保持指定空名单，全部模式切换不清理已选会话', () => {
-  expect(normalizeNotificationScope('mentionAll', { mode: 'selected', targets: [] })).toEqual({
+  expect(normalizeNotificationScope({ mode: 'selected', targets: [] })).toEqual({
     mode: 'selected',
     targets: [],
   });
   expect(
-    normalizeNotificationScope('mentionAll', {
+    normalizeNotificationScope({
       mode: 'all',
       targets: ['group:20001', 'group:20001'],
     }),

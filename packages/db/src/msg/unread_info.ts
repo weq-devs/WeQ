@@ -22,6 +22,7 @@ import type { PbNode, PbValue } from '@weq/codec/raw';
 import { RecentContactBody } from '@weq/codec/proto/msg/40051';
 import { MsgType } from '@weq/codec/proto/msg/40900';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
+import { RECALL_UNREAD_INDEX } from './anti_recall';
 import { databaseRequestSignal } from '../query_schedule';
 
 export interface UnreadInfoDbOptions {
@@ -105,6 +106,8 @@ export interface UnreadInfoSnapshot extends UnreadInfoResult {
   latestSenderUid?: string;
   /** 最新序号已确认只有撤回／拍一拍，不是新的正文。 */
   latestSeqNonMessage?: true;
+  /** 防撤回保留了原正文，但这些序号已收到撤回。 */
+  recalledSeqs?: string[];
 
   readError?: true;
 }
@@ -119,6 +122,8 @@ const TEMP_DIRECT_TYPES = [
 // 临时私聊在最近会话表保留来源类型，未读表则与普通私聊共用 1_<uid>。
 const RECENT_UNREAD_TYPE = `CASE WHEN ${RECENT_CHAT_TYPE} IN (${TEMP_DIRECT_TYPES}) THEN 1 ELSE ${RECENT_CHAT_TYPE} END`;
 const RECENT_UNREAD_COLUMNS = `r."40003", r."40020", CASE WHEN r."40011"=${GRAY_TIP} THEN r."40051" END, r."40001", r."40027", ${RECENT_CHAT_TYPE}`;
+const HAS_RECALL_UNREAD_INDEX = `EXISTS(SELECT 1 FROM sqlite_master
+  WHERE type='index' AND name='${RECALL_UNREAD_INDEX}')`;
 const previewProto = new ProtoMsg(RecentContactBody);
 
 interface GrayTipUnreadTarget {
@@ -226,7 +231,7 @@ export class UnreadInfoDb {
       const batch = unique.slice(offset, offset + 256);
       const rows = await this.qq.query(
         `WITH targets(chatType, uid, peer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
-         SELECT t.chatType, t.uid, t.peer, u."48902", ${RECENT_UNREAD_COLUMNS}
+         SELECT t.chatType, t.uid, t.peer, u."48902", ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
          FROM targets t
          LEFT JOIN msg_unread_info_table u ON u."48901" = t.peer
          LEFT JOIN recent_contact_v3_table r ON r."40021" = t.uid AND (${RECENT_UNREAD_TYPE}) = t.chatType`,
@@ -246,11 +251,11 @@ export class UnreadInfoDb {
   /** 账号共享快照由两张小表驱动，包含没有最近会话行的未读记录。 */
   async getAllUnreadInfos(): Promise<UnreadInfoSnapshot[]> {
     const rows = await this.qq.query(
-      `SELECT ${RECENT_UNREAD_TYPE}, r."40021", (${RECENT_UNREAD_TYPE}) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}
+      `SELECT ${RECENT_UNREAD_TYPE}, r."40021", (${RECENT_UNREAD_TYPE}) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
        FROM recent_contact_v3_table r
        WHERE ${RECENT_CHAT_TYPE} IN (1,2,8,134,${TEMP_DIRECT_TYPES})
        UNION ALL
-       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
+       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
     );
     // 同一 SQL 快照分别返回小表行，再线性合并；避免缺行检测逐个重扫最近会话表。
     const merged = new Map<string, SqlRow>();
@@ -314,7 +319,47 @@ export class UnreadInfoDb {
       }
     });
     for (const [chatType, batch] of targets) await this.resolveGrayTipTargets(chatType, batch);
+    if (rows.some((row) => Number(row[10]) === 1)) await this.resolveProtectedRecalls(snapshots);
     return snapshots;
+  }
+
+  private async resolveProtectedRecalls(snapshots: UnreadInfoSnapshot[]): Promise<void> {
+    const targets = snapshots.flatMap((snapshot) => {
+      const { chatType, uid, msgSeq, localReadSeq, latestSeq, readError } = snapshot;
+      if (readError || (chatType !== 1 && chatType !== 2) || latestSeq === null) return [];
+      const serverRead = BigInt(msgSeq ?? 0);
+      const localRead = BigInt(localReadSeq ?? '0');
+      const after = serverRead > localRead ? serverRead : localRead;
+      const through = positiveInt(latestSeq);
+      if (after <= 0n || through === null || through <= after) return [];
+      return [{ snapshot, kind: chatType === 1 ? 'c2c' : 'group', uid, after, through }];
+    });
+    for (let offset = 0; offset < targets.length; offset += 128) {
+      databaseRequestSignal()?.throwIfAborted();
+      const batch = targets.slice(offset, offset + 128);
+      const rows = await this.qq
+        .query(
+          `WITH targets(idx, kind, conv, lo, hi) AS (VALUES ${batch.map(() => '(?,?,?,?,?)').join(',')})
+         SELECT t.idx, r.orig_seq FROM targets t
+         CROSS JOIN weq_recall_log r INDEXED BY ${RECALL_UNREAD_INDEX}
+         WHERE r.table_kind=t.kind AND r.conv=t.conv AND r.orig_seq>t.lo AND r.orig_seq<=t.hi
+         GROUP BY t.idx, r.orig_seq`,
+          batch.flatMap(({ kind, uid, after, through }, idx) => [
+            BigInt(idx),
+            kind,
+            uid,
+            after,
+            through,
+          ]),
+        )
+        .catch(() => []); // 辅助表重建或查询失败时仍交付 QQ 小表。
+      for (const [idx, seq] of rows) {
+        const snapshot = batch[Number(idx)]?.snapshot;
+        if (!snapshot) continue;
+        snapshot.recalledSeqs ??= [];
+        snapshot.recalledSeqs.push(String(seq));
+      }
+    }
   }
 
   private collectGrayTipTarget(

@@ -85,12 +85,16 @@ function mount() {
   const render = (next = {}) => act(() => root.render(h(ChatPane, { ...props, ...next })));
   render();
   const editor = () => host.querySelector<HTMLElement>('.composer-editor')!;
-  const add = async (files: File[], picker = false) => {
+  const add = async (files: File[], source: 'drop' | 'picker' | 'paste' = 'drop') => {
     await act(async () => {
-      if (picker) {
+      if (source === 'picker') {
         const input = host.querySelector<HTMLInputElement>('input[type="file"]:not([accept])')!;
         Object.defineProperty(input, 'files', { configurable: true, value: files });
         input.dispatchEvent(new Event('change', { bubbles: true }));
+      } else if (source === 'paste') {
+        const event = new Event('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'clipboardData', { value: { files, getData: () => '' } });
+        editor().dispatchEvent(event);
       } else {
         const event = new Event('drop', { bubbles: true, cancelable: true });
         Object.defineProperty(event, 'dataTransfer', { value: { files, types: ['Files'] } });
@@ -125,8 +129,8 @@ it('文件选择器支持多选、继续添加和逐项移除，同名同大小�
     expect(
       f.host.querySelector<HTMLInputElement>('input[type="file"]:not([accept])')!.multiple,
     ).toBe(true);
-    await f.add([first, second], true);
-    await f.add([new File(['remove'], 'remove.txt')], true);
+    await f.add([first, second], 'picker');
+    await f.add([new File(['remove'], 'remove.txt')], 'picker');
     expect(f.host.querySelectorAll('.composer-media-tray .composer-single-card')).toHaveLength(3);
     act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="移除 remove.txt"]')!.click());
     await f.send();
@@ -144,6 +148,37 @@ it('文件选择器支持多选、继续添加和逐项移除，同名同大小�
     f.close();
   }
 });
+
+it.each([
+  { source: 'paste', mime: 'application/octet-stream', path: '/tmp/large.bin' },
+  { source: 'drop', mime: 'application/octet-stream', path: '/tmp/large.bin' },
+  { source: 'drop', mime: 'application/octet-stream', path: '' },
+  { source: 'paste', mime: 'video/mp4', path: '' },
+  { source: 'drop', mime: 'image/png', path: '/tmp/large.bin' },
+] as const)(
+  '通过 $source 添加大附件 $mime（本机路径：$path）后按文件交接',
+  async ({ source, mime, path }) => {
+    vi.stubGlobal('weq', path ? { pathForFile: () => path } : undefined);
+    const f = mount();
+    try {
+      const file = new File(['fixture'], 'large.bin', { type: mime });
+      Object.defineProperty(file, 'size', { value: 4 * 1024 ** 3 - 1 });
+      const read = vi.spyOn(file, 'arrayBuffer');
+      await f.add([file], source);
+      expect(f.host.querySelector('.composer-media-tray')?.textContent).toContain(file.name);
+      expect(f.host.querySelector('.composer-attachment-error')).toBeNull();
+      await f.send();
+      expect(f.onSend).toHaveBeenCalledOnce();
+      const [body, locals] = f.onSend.mock.calls[0]!;
+      expect(
+        buildComposerSendPlan({ body, locals: locals ?? [], superStickers: new Map() }),
+      ).toEqual({ kind: 'file', fileName: file.name, ...(path ? { path } : { file }) });
+      expect(read).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  },
+);
 
 it('混合图片、文件和视频一次提交，不忽略图片；某项失败仍交接其余项', async () => {
   const f = mount();
@@ -173,7 +208,7 @@ it('混合图片、文件和视频一次提交，不忽略图片；某项失败�
 it('等待上一项异步交接后再提交下一项，失败后仍按顺序继续且不清除新输入', async () => {
   const f = mount();
   try {
-    await f.add([new File(['a'], 'first.txt'), new File(['b'], 'second.txt')], true);
+    await f.add([new File(['a'], 'first.txt'), new File(['b'], 'second.txt')], 'picker');
     let reject!: (error: Error) => void;
     f.onSend.mockImplementationOnce(
       () =>
@@ -201,20 +236,22 @@ it('等待上一项异步交接后再提交下一项，失败后仍按顺序继�
   }
 });
 
-it('连续添加共用数量上限，超大项跳过后仍接收可用文件', async () => {
+it('连续添加共用数量上限，超过浏览器暂存上限的文件跳过后仍接收可用文件', async () => {
   const f = mount();
   try {
     await f.add(
       Array.from({ length: MAX_COMPOSER_ATTACHMENTS - 1 }, (_, i) => new File(['a'], `${i}.txt`)),
-      true,
+      'picker',
     );
     const huge = new File(['a'], 'huge.bin');
-    Object.defineProperty(huge, 'size', { value: 101 * 1024 * 1024 });
-    await f.add([huge, new File(['a'], 'last.txt'), new File(['a'], 'overflow.txt')], true);
+    Object.defineProperty(huge, 'size', { value: 4 * 1024 ** 3 });
+    await f.add([huge, new File(['a'], 'last.txt'), new File(['a'], 'overflow.txt')], 'picker');
     expect(f.host.querySelectorAll('.composer-media-tray .composer-single-card')).toHaveLength(
       MAX_COMPOSER_ATTACHMENTS,
     );
-    await f.add([new File(['a'], 'extra.txt')], true);
+    expect(f.host.querySelector('.composer-attachment-error')?.textContent).toContain(huge.name);
+    expect(f.host.querySelector('.composer-media-tray')?.textContent).toContain('last.txt');
+    await f.add([new File(['a'], 'extra.txt')], 'picker');
     expect(f.host.querySelector('.composer-attachment-error')?.textContent).toContain(
       String(MAX_COMPOSER_ATTACHMENTS),
     );
@@ -225,10 +262,12 @@ it('连续添加共用数量上限，超大项跳过后仍接收可用文件', a
   }
 });
 
-it('媒体同步交接给原会话，不等待字节读取，切会话后保留新草稿', async () => {
+it.each(['', '/tmp/slow.mp4'])('视频以原路径或句柄交接，切会话后保留新草稿 %s', async (path) => {
+  vi.stubGlobal('weq', path ? { pathForFile: () => path } : undefined);
   const f = mount();
   try {
     const file = new File(['video'], 'slow.mp4', { type: 'video/mp4' });
+    if (path) Object.defineProperty(file, 'size', { value: 100 * 1024 * 1024 + 1 });
     const read = vi.fn(() => new Promise<ArrayBuffer>(() => {}));
     Object.defineProperty(file, 'arrayBuffer', {
       value: read,
@@ -236,7 +275,10 @@ it('媒体同步交接给原会话，不等待字节读取，切会话后保留�
     await f.add([file]);
     act(() => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
     expect(f.onSend).toHaveBeenCalledOnce();
-    expect(f.onSend.mock.calls[0]?.[1]?.[0]?.file).toBe(file);
+    const [body, locals] = f.onSend.mock.calls[0]!;
+    expect(composerTextToElements(body)).toMatchObject([{ kind: 'video' }]);
+    if (path) expect(locals?.[0]?.path).toBe(path);
+    else expect(locals?.[0]?.file).toBe(file);
     expect(read).not.toHaveBeenCalled();
     f.render({ conversation: { ...f.props.conversation, id: 'another' }, draft: '新会话草稿' });
     expect(f.onSend).toHaveBeenCalledOnce();

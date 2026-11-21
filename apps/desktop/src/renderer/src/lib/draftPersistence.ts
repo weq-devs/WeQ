@@ -18,7 +18,7 @@ export async function resolveDraftSave(
     return saveDraftAutomatically(
       key,
       value,
-      preceding?.current.version ?? expectedVersion,
+      preceding?.local ? preceding.current.version : expectedVersion,
       save,
       expectedBinding,
     );
@@ -56,6 +56,16 @@ async function saveDraftAutomatically(
         !value.length)
     )
       return { current: result.current, local: true };
+    // 已有 QQ 草稿被另一端清空后，基于旧版本的正文不能跟着新版本号重写。
+    if (
+      key.startsWith('chat:') &&
+      expectedVersion !== null &&
+      result.current.version !== null &&
+      result.current.value === null &&
+      Array.isArray(value) &&
+      value.length > 0
+    )
+      return { current: result.current, local: false };
     // 持续竞争时退避后继续，版本协调不交给用户重试。
     if (automaticRetries++ >= 3)
       await new Promise((resolve) => setTimeout(resolve, Math.min(automaticRetries * 100, 2000)));

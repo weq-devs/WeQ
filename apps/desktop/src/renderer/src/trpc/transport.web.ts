@@ -49,6 +49,7 @@ const independentReads = new Set([
   'account.listExportTasks',
   'account.roamingBackfill.list',
   'account.flashListDownloadTasks',
+  'account.flashViewDownloads',
   'account.flashDownloadTaskLogs',
   'account.searchQuick',
   'account.searchSlow',

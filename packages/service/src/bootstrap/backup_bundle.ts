@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { buildZip, readZipEntries, type ZipEntry } from '../common/zip';
 import { sniffImageExt } from '../account/export/emoji_export';
 import { isWindowsReservedName } from '../common/path_sanitize';
+import { DRAFT_MEDIA_DIR, isDraftImageName } from '../common/draft_media';
+import { MAX_SHARED_DRAFT_IMAGE_BYTES } from '../common/client_preferences';
 import { WEQ_ACCOUNT_SETTING_FILES, isWeqBackgroundName } from '../common/backup_account_paths';
 import {
   weqCloneStickerReferences,
@@ -89,6 +91,8 @@ export function weqBackupPart(path: string): WeqBackupPart {
     )
       return 'accounts';
     if (parts.length === 4 && parts[2] === 'background' && isWeqBackgroundName(parts[3]!))
+      return 'accounts';
+    if (parts.length === 4 && parts[2] === DRAFT_MEDIA_DIR && isDraftImageName(parts[3]!))
       return 'accounts';
   }
   if (parts[0] === 'clones' && isWeqBackupConfigId(parts[1] ?? '')) {
@@ -211,10 +215,28 @@ export function validateWeqBackground(data: Buffer, extension: string): void {
   throw new Error('自定义背景格式与文件内容不符');
 }
 
+export function validateWeqDraftImage(name: string, data: Buffer): void {
+  const extension = sniffImageExt(data);
+  const suffix = name.slice(64).replace('.jpeg', '.jpg');
+  if (
+    !isDraftImageName(name) ||
+    data.length > MAX_SHARED_DRAFT_IMAGE_BYTES ||
+    !extension ||
+    (suffix && suffix !== extension) ||
+    digest(data) !== name.slice(0, 64)
+  )
+    throw new Error('备份草稿图片格式、体积或内容校验不符');
+}
+
 function validateFile(file: WeqBackupFile): void {
   const part = weqBackupPart(file.path);
   if (file.data.length > WEQ_BACKUP_LIMITS.maxEntryBytes) throw new Error('备份单文件超过 64 MiB');
   if (!file.path.endsWith('.json')) {
+    const parts = file.path.split('/');
+    if (part === 'accounts' && parts[2] === DRAFT_MEDIA_DIR) {
+      validateWeqDraftImage(parts[3]!, file.data);
+      return;
+    }
     if (part === 'accounts' || file.path.startsWith('settings/background/')) {
       validateWeqBackground(file.data, file.path.slice(file.path.lastIndexOf('.')));
       return;

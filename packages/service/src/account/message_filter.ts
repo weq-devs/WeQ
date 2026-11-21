@@ -1,15 +1,20 @@
 import type { RenderElement } from './msg_view';
 import { elementsToText } from './export/element_text';
+import { parseArkData } from '../common/arkCards';
+import { hasTextLink } from '../common/text_links';
 
-export type MessageCategory =
-  | 'text'
-  | 'image'
-  | 'video'
-  | 'voice'
-  | 'file'
-  | 'emoji'
-  | 'system'
-  | 'other';
+export const MESSAGE_CATEGORIES = [
+  'text',
+  'image',
+  'video',
+  'voice',
+  'file',
+  'link',
+  'emoji',
+  'system',
+  'other',
+] as const;
+export type MessageCategory = (typeof MESSAGE_CATEGORIES)[number];
 
 export interface ForwardCardTarget {
   elementIndex: number;
@@ -63,18 +68,31 @@ export function compileMessageFilter(
   return (message) => matchesMessageFilter(message, snapshot, ids);
 }
 
+function categoryOf(element: RenderElement): MessageCategory {
+  if (element.type === 'text' || element.type === 'at') return 'text';
+  if (element.type === 'pic') return 'image';
+  if (element.type === 'video') return 'video';
+  if (element.type === 'ptt') return 'voice';
+  if (['file', 'onlineFile', 'onlineFolder'].includes(element.type)) return 'file';
+  if (['face', 'mface', 'emojiBounce'].includes(element.type)) return 'emoji';
+  if (element.type.startsWith('grayTip')) return 'system';
+  return 'other';
+}
+
+function hasLink(element: RenderElement): boolean {
+  if (element.type === 'text') return hasTextLink(String(element.data?.textContent ?? ''));
+  if (element.type !== 'ark') return false;
+  const news = parseArkData(element.data?.arkData)?.meta?.news;
+  if (!news) return false;
+  return [news.jumpUrl, news.qqdocurl, news.url].some((value) => {
+    if (typeof value !== 'string' || !/^https?:\/\//i.test(value.trim())) return false;
+    return URL.canParse(value);
+  });
+}
+
 export function messageCategory(elements: readonly RenderElement[]): MessageCategory[] {
-  const categories = new Set<MessageCategory>();
-  for (const el of elements) {
-    if (el.type === 'text' || el.type === 'at') categories.add('text');
-    else if (el.type === 'pic') categories.add('image');
-    else if (el.type === 'video') categories.add('video');
-    else if (el.type === 'ptt') categories.add('voice');
-    else if (['file', 'onlineFile', 'onlineFolder'].includes(el.type)) categories.add('file');
-    else if (['face', 'mface', 'emojiBounce'].includes(el.type)) categories.add('emoji');
-    else if (el.type.startsWith('grayTip')) categories.add('system');
-    else categories.add('other');
-  }
+  const categories = new Set(elements.map(categoryOf));
+  if (elements.some(hasLink)) categories.add('link');
   if (!categories.size) categories.add('other');
   return [...categories];
 }
@@ -95,7 +113,17 @@ export function matchesMessageFilter(
     filter.sender !== String(message.senderUin)
   )
     return false;
-  if (filter.category && !messageCategory(message.elements).includes(filter.category)) return false;
+  const { category } = filter;
+  if (category) {
+    const { elements } = message;
+    const matches =
+      category === 'link'
+        ? elements.some(hasLink)
+        : elements.length === 0
+          ? category === 'other'
+          : elements.some((element) => categoryOf(element) === category);
+    if (!matches) return false;
+  }
   if (
     filter.keyword &&
     !elementsToText(message.elements)

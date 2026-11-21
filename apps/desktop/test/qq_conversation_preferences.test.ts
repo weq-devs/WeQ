@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QQConversationControls } from '../src/renderer/src/components/QQConversationControls';
 import { trpc } from '../src/renderer/src/trpc/client';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
+import { chooseFormOption, formSelectSelector } from './support/form-controls';
 
 const mock = vi.hoisted(() => ({
   configId: 'source-a',
@@ -223,10 +224,13 @@ function fixture(kind: 'c2c' | 'group') {
   });
   return Object.assign(host, { render });
 }
+function messagePolicySelect(host: HTMLElement) {
+  return host.querySelector<HTMLButtonElement>(`${formSelectSelector}[aria-label="消息接收"]`)!;
+}
 it('群消息策略保存后自动核对读回，保留群号、策略和账号绑定', async () => {
   const host = fixture('group');
   await act(async () => {
-    host.querySelectorAll<HTMLButtonElement>('[aria-label="消息接收"] button')[1]!.click();
+    chooseFormOption(messagePolicySelect(host), '4');
   });
   expect(host.querySelector('[aria-label="保存消息接收"]')).toBeNull();
   expect(mock.mutate).toHaveBeenCalledWith({
@@ -241,30 +245,23 @@ it('群消息策略保存后自动核对读回，保留群号、策略和账号�
 it('服务端为屏蔽而本机仍为正常提醒时，编辑器显示服务端值并说明缓存未同步', () => {
   mock.serverPolicy = 3;
   const host = fixture('group');
-  expect(host.querySelector('[aria-label="消息接收"] [aria-checked="true"]')?.textContent).toBe(
-    '屏蔽消息',
-  );
+  expect(messagePolicySelect(host).textContent).toBe('屏蔽消息');
   expect(host.textContent).toContain('服务端与本机消息策略尚未同步');
 });
 it('未知服务端策略保留原始编号，不回落为正常提醒', () => {
   mock.serverPolicy = 99;
   const host = fixture('group');
-  expect(host.querySelector('[aria-label="消息接收"] [aria-checked="true"]')).toBeNull();
-  expect(host.textContent).toContain('未识别 (99)');
+  expect(messagePolicySelect(host).textContent).toBe('未识别 (99)');
 });
 it('同号切换数据源后不保留另一来源的策略请求值', async () => {
   const host = fixture('group');
   await act(async () => {
-    host.querySelectorAll<HTMLButtonElement>('[aria-label="消息接收"] button')[1]!.click();
+    chooseFormOption(messagePolicySelect(host), '4');
   });
-  expect(host.querySelector('[aria-label="消息接收"] [aria-checked="true"]')?.textContent).toBe(
-    '接收但不提醒',
-  );
+  expect(messagePolicySelect(host).textContent).toBe('接收但不提醒');
   mock.configId = 'source-b';
   host.render();
-  expect(host.querySelector('[aria-label="消息接收"] [aria-checked="true"]')?.textContent).toBe(
-    '正常提醒',
-  );
+  expect(messagePolicySelect(host).textContent).toBe('正常提醒');
 });
 it.each([0, 1, 2, 3, 4, 99])('好友提醒级别 %s 不能冒充免打扰的权威开关状态', (level) => {
   mock.notifyLevel = level;

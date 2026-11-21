@@ -14,6 +14,9 @@ import { trpc, client } from '../trpc/client';
 import { useDialog } from '../components/Dialog.shared';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
+import type { UpdateDownloadTask } from '../../../main/update/state';
+
+type DownloadControl = 'pause' | 'continue' | 'retry' | 'background';
 
 export type UpdatePhase =
   | 'idle'
@@ -21,6 +24,7 @@ export type UpdatePhase =
   | 'uptodate'
   | 'available'
   | 'downloading'
+  | 'paused'
   | 'downloaded'
   | 'installing'
   | 'error';
@@ -46,6 +50,9 @@ export interface AppUpdate {
   /** 当前运行版本。 */
   current: string;
   progress: UpdateProgress | null;
+  downloadTask: UpdateDownloadTask | null;
+  controllingDownload: boolean;
+  controlDownload(action: DownloadControl): Promise<void>;
   /** 选中的加速站标签（如 `gh-proxy.com`），未知为 ''。 */
   mirrorName: string;
   /** 正在测速的镜像数，null 表示不在测速。 */
@@ -78,7 +85,7 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export function useAppUpdate(): AppUpdate {
+export function useAppUpdate(foreground = false): AppUpdate {
   const utils = trpc.useContext();
   const active = useTabActive();
   const showError = useDialog((s) => s.showError);
@@ -126,6 +133,9 @@ export function useAppUpdate(): AppUpdate {
   }, [preferences.data]);
   const [latest, setLatest] = useState<string | null>(null);
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
+  const [downloadTask, setDownloadTask] = useState<UpdateDownloadTask | null>(null);
+  const [controllingDownload, setControllingDownload] = useState(false);
+  const controlling = useRef(false);
   const [mirror, setMirror] = useState<string | null>(null);
   const [mirrorCount, setMirrorCount] = useState<number | null>(null);
   const installPending = useRef(false);
@@ -162,7 +172,20 @@ export function useAppUpdate(): AppUpdate {
     const es = client.update.onEvent.subscribe(undefined, {
       onData: (e) => {
         if (!current) return;
-        if (e.kind === 'checking') {
+        if (e.kind === 'download-task') {
+          const task = e.task;
+          setDownloadTask(task);
+          if (task?.version) setLatest(task.version);
+          if (task?.progress) setProgress(task.progress);
+          setPhase((previous) => {
+            if (previous === 'installing') return previous;
+            if (task?.status === 'running') return 'downloading';
+            if (task?.status === 'paused') return 'paused';
+            if (task?.status === 'completed') return 'downloaded';
+            if (task?.status === 'failed') return 'error';
+            return previous === 'paused' || previous === 'error' ? 'idle' : previous;
+          });
+        } else if (e.kind === 'checking') {
           setMirrorCount(e.mirrors);
           setPhase((p) => (p === 'idle' ? 'checking' : p));
         } else if (e.kind === 'check-failed') {
@@ -178,7 +201,9 @@ export function useAppUpdate(): AppUpdate {
         } else if (e.kind === 'available') {
           setLatest(e.latest);
           setPhase((p) =>
-            p === 'downloading' || p === 'downloaded' || p === 'installing' ? p : 'available',
+            p === 'downloading' || p === 'paused' || p === 'downloaded' || p === 'installing'
+              ? p
+              : 'available',
           );
         } else if (e.kind === 'downloaded') {
           setProgress(null);
@@ -187,10 +212,11 @@ export function useAppUpdate(): AppUpdate {
           installPending.current = true;
           setPhase('installing');
         } else if (e.kind === 'error') {
+          const wasInstalling = installPending.current;
           installPending.current = false;
           setProgress(null);
           setPhase((p) => (p === 'installing' ? 'downloaded' : p === 'downloading' ? 'error' : p));
-          showError('更新失败', e.message);
+          if (!foreground || wasInstalling) showError('更新失败', e.message);
         }
       },
       onError: (err) => console.error('[update] event subscription error', err),
@@ -200,7 +226,7 @@ export function useAppUpdate(): AppUpdate {
       ps.unsubscribe();
       es.unsubscribe();
     };
-  }, [showError, observe]);
+  }, [foreground, showError, observe]);
 
   const check = useCallback(async (): Promise<void> => {
     setPhase('checking');
@@ -226,6 +252,7 @@ export function useAppUpdate(): AppUpdate {
         utils.update.getState.setData(undefined, null);
         setIncludePrerelease(saved);
         setPhase('idle');
+        setDownloadTask(null);
         setLatest(null);
         setMirror(null);
       } catch (error) {
@@ -240,13 +267,30 @@ export function useAppUpdate(): AppUpdate {
     setProgress({ percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
     setPhase('downloading');
     try {
-      await downloadMut.mutateAsync();
+      await downloadMut.mutateAsync(foreground ? { foreground: true } : undefined);
     } catch (e) {
       setProgress(null);
       setPhase('error');
       showError('启动下载失败', errMsg(e));
     }
-  }, [downloadMut, showError]);
+  }, [downloadMut, foreground, showError]);
+
+  const controlDownload = useCallback(
+    async (action: DownloadControl) => {
+      if (!downloadTask || controlling.current) return;
+      controlling.current = true;
+      setControllingDownload(true);
+      try {
+        await client.update.controlDownload.mutate({ id: downloadTask.id, action });
+      } catch (error) {
+        showError('更新下载操作失败', errMsg(error));
+      } finally {
+        controlling.current = false;
+        setControllingDownload(false);
+      }
+    },
+    [downloadTask, showError],
+  );
 
   const install = useCallback(async (): Promise<void> => {
     if (installPending.current) return;
@@ -275,6 +319,9 @@ export function useAppUpdate(): AppUpdate {
       latest,
       current,
       progress,
+      downloadTask,
+      controllingDownload,
+      controlDownload,
       mirrorName: mirrorLabel(mirror),
       mirrorCount,
       isDev,
@@ -297,6 +344,9 @@ export function useAppUpdate(): AppUpdate {
       latest,
       current,
       progress,
+      downloadTask,
+      controllingDownload,
+      controlDownload,
       mirror,
       mirrorCount,
       isDev,

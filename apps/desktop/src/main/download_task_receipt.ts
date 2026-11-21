@@ -10,9 +10,10 @@ export const downloadTaskReceipt = z.object({
   statusLabel: z.string().optional(),
   progress: z.number().optional(),
   note: z.string().optional(),
+  foreground: z.boolean().optional(),
 });
 
 export function downloadTaskSnapshot(task: BackgroundTask): z.infer<typeof downloadTaskReceipt> {
-  const { id, startedAt, updatedAt, status, statusLabel, progress, note } = task;
-  return { id, startedAt, updatedAt, status, statusLabel, progress, note };
+  const { id, startedAt, updatedAt, status, statusLabel, progress, note, foreground } = task;
+  return { id, startedAt, updatedAt, status, statusLabel, progress, note, foreground };
 }

@@ -16,11 +16,51 @@ import { clearStorageAfterExit, clearStorageNow, storageCleanupResult } from './
 import { DialogLocations } from './dialog_locations';
 import { AppAutostart } from './autostart';
 import { manualRestartArgs } from './startup_window';
-import { prepareDevelopmentRestart } from './development_restart';
+import { scheduleDevelopmentRestart } from './development_restart';
 import { networkFetch } from '@weq/network';
+import { scheduleApplicationRelaunch } from './app_quit_lifecycle';
+import { appImageRelaunchCommand } from './linux_window_backend';
 
 let startup: AppAutostart | null = null;
+let applicationRestart: AbortController | undefined;
 const messageNotifications = new Set<Notification>();
+
+export function cancelApplicationRestart(): void {
+  applicationRestart?.abort();
+  applicationRestart = undefined;
+}
+
+export async function restartApplication(): Promise<void> {
+  if (applicationRestart) return;
+  const request = new AbortController();
+  applicationRestart = request;
+  const { signal } = request;
+  const reset = () => {
+    if (applicationRestart === request) applicationRestart = undefined;
+  };
+
+  try {
+    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+      scheduleDevelopmentRestart(app, signal);
+    } else {
+      const args = manualRestartArgs(process.argv);
+      const appImage = process.platform === 'linux' ? process.env.APPIMAGE?.trim() : undefined;
+      scheduleApplicationRelaunch(
+        app,
+        appImage ? appImageRelaunchCommand(appImage, args) : { args },
+        signal,
+      );
+    }
+    // IPC 调用需要先返回，再关闭发起调用的窗口。
+    setTimeout(() => {
+      if (applicationRestart === request) app.quit();
+    }, 200);
+  } catch (error) {
+    reset();
+    if (!signal.aborted) throw error;
+  }
+}
+
 function appAutostart(): AppAutostart {
   startup ??= new AppAutostart({
     platform: process.platform,
@@ -181,17 +221,7 @@ export const electronHost: HostBridge = {
   clearStorageAfterExit,
   clearStorageNow,
   storageCleanupResult,
-  restartApplication: async () => {
-    if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-      await prepareDevelopmentRestart(app, {
-        appPath: app.getAppPath(),
-        argv: process.argv,
-        nodePath: process.env.npm_node_execpath,
-        logPath: join(app.getPath('logs'), 'development-restart.log'),
-      });
-    } else app.relaunch({ args: manualRestartArgs(process.argv) });
-    setTimeout(() => app.quit(), 200);
-  },
+  restartApplication,
   fetchMedia: (url, opts) => networkFetch(url, opts),
   async validateImageBuffer(bytes) {
     return !nativeImage.createFromBuffer(Buffer.from(bytes)).isEmpty();

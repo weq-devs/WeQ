@@ -18,7 +18,7 @@ import { writeFileAtomicSync } from './atomic_write';
 export interface SharedPreferenceGroups {
   client: PreferencePatch;
   intent: Partial<Omit<IntentSenseConfig, 'conversationOverrides'>>;
-  antiRecall: Partial<Pick<AntiRecallConfig, 'enabled' | 'mode' | 'notifyEnabled'>>;
+  antiRecall: Partial<Pick<AntiRecallConfig, 'enabled' | 'method' | 'mode' | 'notifyEnabled'>>;
   assistant: AssistantConfig;
   dress: Partial<DressConfig>;
   mail: { mailNotifications?: boolean; mailShowUnread?: boolean; mailPollIntervalMinutes?: number };

@@ -78,6 +78,8 @@ export function ReadonlyConversationPane({
       const position = messageReadPosition(row);
       return validReadPosition(position) && newerReadPosition(position, max) ? position : max;
     }, '0'),
+    true,
+    conversation.unreadCount ? conversation.directoryRead?.position : undefined,
   );
   const [hasPage, setHasPage] = useState(() => cache.read<Wire[]>(`readonly:${key}`) !== undefined);
   const [loading, setLoading] = useState(() => cache.read<Wire[]>(`readonly:${key}`) === undefined);

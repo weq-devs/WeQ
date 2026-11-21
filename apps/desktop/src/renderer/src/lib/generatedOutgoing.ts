@@ -1,4 +1,5 @@
 import { parseFlashShareCode } from './flashShare';
+import { voiceFileHash } from '../../../shared/roaming_timeline';
 
 type Row = { msgId: string; sendTime: string; elements: readonly unknown[] };
 type Pending = {
@@ -7,6 +8,7 @@ type Pending = {
   state: string;
   at: number;
   signatures?: string[];
+  awaitingAiVoice?: boolean;
   generatedExistingMsgIds?: string[];
 };
 
@@ -23,8 +25,7 @@ function signaturesOf(row: Row): string[] {
       const code = parseFlashShareCode(String(el.data?.textContent ?? ''));
       if (code) result.push(`flash:${code}`);
     }
-    if (el.type === 'ptt' && el.data?.isAiVoice && el.data.pttTranscript)
-      result.push(`aiVoice:${el.data.pttTranscript}`);
+    if (el.type === 'ptt' && el.data?.isAiVoice) result.push(`aiVoice:${voiceFileHash(el.data)}`);
   }
   return result;
 }
@@ -35,11 +36,15 @@ export function matchGeneratedMessages(
   rows: readonly Row[],
   convId: string,
   consumed: ReadonlyMap<string, string>,
+  includeUnconfirmedAi = false,
 ): Map<string, string> {
   const matches = new Map<string, string>();
   if (
     !pending.some(
-      (item) => item.convId === convId && item.state !== 'failed' && item.signatures?.length,
+      (item) =>
+        item.convId === convId &&
+        item.state !== 'failed' &&
+        (item.signatures?.length || (includeUnconfirmedAi && item.awaitingAiVoice)),
     )
   )
     return matches;
@@ -49,8 +54,17 @@ export function matchGeneratedMessages(
     key: `${convId}:${row.msgId}`,
     signatures: signaturesOf(row),
   }));
-  for (const item of pending) {
-    if (item.convId !== convId || item.state === 'failed' || !item.signatures?.length) continue;
+  // 先认有回执的发送；正在发送的占位只供渲染临时隐藏，等回执再确认并移除。
+  const queue = includeUnconfirmedAi
+    ? [
+        ...pending.filter((item) => !item.awaitingAiVoice),
+        ...pending.filter((item) => item.awaitingAiVoice),
+      ]
+    : pending;
+  for (const item of queue) {
+    if (item.convId !== convId || item.state === 'failed') continue;
+    const unconfirmed = includeUnconfirmedAi && item.awaitingAiVoice && item.state === 'sending';
+    if (!unconfirmed && !item.signatures?.length) continue;
     const existing = new Set(item.generatedExistingMsgIds);
     const candidate = candidates.find(
       ({ row, key, signatures }) =>
@@ -58,7 +72,9 @@ export function matchGeneratedMessages(
         !used.has(key) &&
         (!consumed.has(key) || consumed.get(key) === item.id) &&
         Number(row.sendTime) >= Math.floor(item.at / 1000) - 1 &&
-        signatures.some((signature) => item.signatures?.includes(signature)),
+        signatures.some((signature) =>
+          unconfirmed ? signature.startsWith('aiVoice:') : item.signatures?.includes(signature),
+        ),
     );
     if (candidate) {
       used.add(candidate.key);

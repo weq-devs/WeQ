@@ -1,4 +1,8 @@
-import { chooseFormOption } from './form-select.mjs';
+import {
+  chooseDirectorySort,
+  chooseDirectorySortDirection,
+  chooseFormOption,
+} from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -55,7 +59,7 @@ try {
   await page.goto(url);
   const directory = page.locator('[data-kind="directory"]');
   await chooseFormOption(directory.getByLabel('分组依据'), 'none');
-  await chooseFormOption(directory.getByLabel('排序依据'), 'birthday');
+  await chooseDirectorySort(directory, 'birthday');
   const names = () => directory.locator('.contact-row .row-title-text').allTextContents();
   assert.deepEqual(await names(), ['跨年摩羯座', '前一天', '缓存水瓶座', '准确生日', '后一天']);
   const range = directory.locator('.contact-row').filter({ hasText: '缓存水瓶座' });
@@ -63,7 +67,7 @@ try {
   assert.ok(!(await range.textContent()).includes('月日未记录'));
   const hover = await range.locator('[title*="推断生日"]').getAttribute('title');
   assert.ok(hover.includes('1 月 20 日至2 月 18 日'));
-  await directory.getByRole('button', { name: '改为降序', exact: true }).click();
+  await chooseDirectorySortDirection(directory, '年末的在前');
   assert.deepEqual(await names(), ['后一天', '缓存水瓶座', '准确生日', '前一天', '跨年摩羯座']);
   await chooseFormOption(directory.getByLabel('分组依据'), 'birthYear');
   assert.ok((await directory.locator('.contact-cat-name').allTextContents()).includes('2010 年'));

@@ -1,7 +1,9 @@
 import { ClientStateStore, validateClientState } from './client_state';
 import { isDefaultModelSelection } from '@weq/agentlab';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { extname, isAbsolute, join, relative } from 'node:path';
+import { DRAFT_MEDIA_DIR, isDraftImageName, mapDraftImagePaths } from '../common/draft_media';
+import { MAX_SHARED_DRAFT_IMAGE_BYTES } from '../common/client_preferences';
 import {
   INTENT_TUNING_KEYS,
   isIntentTuningValue,
@@ -12,8 +14,19 @@ import {
   isWeqBackgroundName,
   type WeqAccountSettingFile,
 } from '../common/backup_account_paths';
-import { parseWeqBackupJson, type WeqBackupFile } from './backup_bundle';
+import {
+  parseWeqBackupJson,
+  validateWeqBackground,
+  validateWeqDraftImage,
+  WEQ_BACKUP_LIMITS,
+  type WeqBackupFile,
+} from './backup_bundle';
 import { readWeqBackupFile } from './backup_clones';
+import { isDressScope } from '../account/dress_config';
+import {
+  dressConversationBackgroundFiles,
+  isDressConversationEntries,
+} from '../account/dress_conversations';
 
 function fail(name: string): never {
   throw new Error(`账号偏好备份无效：${name}`);
@@ -36,7 +49,7 @@ export function weqAccountSettingPath(
   scope: string,
   name: WeqAccountSettingFile,
 ): string {
-  if (name === 'dress.json' || name === 'client-state.json')
+  if (name === 'dress.json' || name === 'dress-conversations.json' || name === 'client-state.json')
     return join(root, 'config', 'accounts', scope, name);
   const category =
     name === 'anti-recall.json'
@@ -50,6 +63,10 @@ export function weqAccountSettingPath(
 export function validateWeqAccountPreference(name: WeqAccountSettingFile, value: unknown): void {
   if (name === 'client-state.json') {
     validateClientState(value);
+    return;
+  }
+  if (name === 'dress-conversations.json') {
+    if (!isDressConversationEntries(value)) fail(name);
     return;
   }
   const input = record(value, name);
@@ -147,7 +164,11 @@ export function validateWeqAccountPreference(name: WeqAccountSettingFile, value:
           for (const field of ['name', 'previewUrl'])
             if (entry[field] !== undefined && typeof entry[field] !== 'string') fail(name);
         }
-    if (input.scope !== undefined && input.scope !== 'mine' && input.scope !== 'all') fail(name);
+    if (input.scope !== undefined && !isDressScope(input.scope)) fail(name);
+    if (input.scopes !== undefined) {
+      const scopes = record(input.scopes, name);
+      if (['bubble', 'font', 'widget'].some((kind) => !isDressScope(scopes[kind]))) fail(name);
+    }
     if (
       input.background !== undefined &&
       !['none', 'qq', 'custom'].includes(String(input.background))
@@ -160,14 +181,14 @@ export function validateWeqAccountPreference(name: WeqAccountSettingFile, value:
     )
       fail(`${name}.backgroundFile`);
     if (input.widgetId !== undefined && typeof input.widgetId !== 'string') fail(name);
-    if (
-      input.backgroundOpacity !== undefined &&
-      (typeof input.backgroundOpacity !== 'number' ||
-        !Number.isFinite(input.backgroundOpacity) ||
-        input.backgroundOpacity < 0 ||
-        input.backgroundOpacity > 1)
-    )
-      fail(name);
+    for (const key of ['backgroundOpacity', 'widgetOpacity']) {
+      const opacity = input[key];
+      if (
+        opacity !== undefined &&
+        (typeof opacity !== 'number' || !Number.isFinite(opacity) || opacity < 0 || opacity > 1)
+      )
+        fail(`${name}.${key}`);
+    }
   }
 }
 
@@ -175,9 +196,14 @@ export function snapshotWeqAccountPreferences(
   root: string,
   cache: string,
   scope: string,
+  maxDraftMediaBytes: number = WEQ_BACKUP_LIMITS.maxTotalBytes,
 ): { files: WeqBackupFile[]; warnings: string[] } {
   const files: WeqBackupFile[] = [],
     warnings: string[] = [];
+  const mediaDir = join(root, 'config', 'accounts', scope, DRAFT_MEDIA_DIR);
+  const media = new Map<string, string | undefined>();
+  let draftMediaBytes = 0;
+  let missingDraftImages = false;
   for (const name of WEQ_ACCOUNT_SETTING_FILES) {
     if (name === 'dress.json') continue;
     const path = weqAccountSettingPath(root, cache, scope, name);
@@ -197,7 +223,47 @@ export function snapshotWeqAccountPreferences(
     if (name === 'client-state.json' && input.records && typeof input.records === 'object')
       delete (input.records as Record<string, unknown>).order;
     validateWeqAccountPreference(name, input);
+    if (name === 'client-state.json') {
+      mapDraftImagePaths(input.drafts, (path) => {
+        if (!isAbsolute(path)) return;
+        const name = relative(mediaDir, path);
+        if (!isDraftImageName(name)) return;
+        if (media.has(name)) return media.get(name);
+        let data: Buffer;
+        try {
+          if (
+            realpathSync(mediaDir) !==
+            join(realpathSync(root), 'config', 'accounts', scope, DRAFT_MEDIA_DIR)
+          )
+            throw new Error('草稿图片目录已重定向');
+          data = readWeqBackupFile(join(mediaDir, name), MAX_SHARED_DRAFT_IMAGE_BYTES);
+          validateWeqDraftImage(name, data);
+        } catch {
+          missingDraftImages = true;
+          media.set(name, undefined);
+          return;
+        }
+        draftMediaBytes += data.length;
+        if (draftMediaBytes > maxDraftMediaBytes) throw new Error('草稿图片使备份总体积超过限制');
+        const reference = `${DRAFT_MEDIA_DIR}/${name}`;
+        files.push({ path: `accounts/${scope}/${reference}`, data });
+        media.set(name, reference);
+        return reference;
+      });
+    }
     files.push({ path: `accounts/${scope}/${name}`, data: Buffer.from(JSON.stringify(input)) });
+    if (name === 'dress-conversations.json' && isDressConversationEntries(input))
+      for (const file of dressConversationBackgroundFiles(input)) {
+        const source = join(root, 'config', 'accounts', scope, file);
+        try {
+          const data = readWeqBackupFile(source);
+          validateWeqBackground(data, extname(file));
+          files.push({ path: `accounts/${scope}/background/${file}`, data });
+        } catch {
+          warnings.push('有会话自定义背景无法备份，已保留装扮选择。');
+        }
+      }
   }
+  if (missingDraftImages) warnings.push('部分草稿图片缺失或格式无法备份，已保留原引用。');
   return { files, warnings };
 }

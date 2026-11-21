@@ -1,4 +1,10 @@
-import { timelineRowKey, timelineSeq, type TimelineRow } from '../../../shared/roaming_timeline';
+import {
+  sentVoiceIdentity,
+  timelineMessageIdentity,
+  timelineRowKey,
+  timelineSeq,
+  type TimelineRow,
+} from '../../../shared/roaming_timeline';
 import { replaceEqualDeep } from '@tanstack/react-query';
 
 /** 有界刷新只覆盖尾部；不把未查询到的旧历史解释为已删除。 */
@@ -12,8 +18,20 @@ export function mergeRefreshedWindow<T extends TimelineRow>(
   if (refreshed.length >= limit) {
     const firstSeq = refreshed.map((row) => timelineSeq(row.msgSeq)).find((seq) => seq !== null);
     const keys = new Set(refreshed.map(timelineRowKey));
+    const nativeBoundary = refreshed.filter(
+      (row) => row.source !== 'roaming' && timelineSeq(row.msgSeq) === firstSeq,
+    );
+    const nativeIdentities = new Set(nativeBoundary.map(timelineMessageIdentity).filter(Boolean));
+    const nativeVoices = new Set(nativeBoundary.map(sentVoiceIdentity).filter(Boolean));
     const prefix = current.filter((row) => {
       if (keys.has(timelineRowKey(row))) return false;
+      if (
+        row.localSent &&
+        !row.recall &&
+        (nativeIdentities.has(timelineMessageIdentity(row)) ||
+          nativeVoices.has(sentVoiceIdentity(row)))
+      )
+        return false;
       const seq = timelineSeq(row.msgSeq);
       return firstSeq == null || seq === null || seq <= firstSeq;
     });

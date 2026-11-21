@@ -54,8 +54,10 @@ import {
   forwardIntentText,
   forwardMessage,
   forwardTextClipboard,
+  isForwardContinuation,
   type ForwardEntry,
 } from '../lib/forwardRecordActions';
+import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { MessageSelectionBar } from './MessageSelectionBar';
 import { MessageSelectionMark } from './MessageSelectionMark';
@@ -489,6 +491,7 @@ export function ForwardRecordList({
             {entry.showTime ? <MessageTimeDivider value={entry.sendTimeMs} /> : null}
             <div
               data-message-id={entry.id}
+              data-forward-continuation={isForwardContinuation(entry) || undefined}
               className={`weq-forward-item weq-message-selectable${mode ? ' selection-mode' : ''}${visibleIds.has(entry.id) ? ' is-selected' : ''}`}
               tabIndex={0}
               role="group"
@@ -660,6 +663,8 @@ export function ForwardRecordList({
       {menu && (
         <MessageContextMenu
           state={menu.state}
+          metadataPrecision={grayTipOf(menu.entry.record) ? undefined : 'second'}
+          metadataSequence={menu.entry.record.msgSeq?.toString()}
           onClose={closeMenu}
           onCopy={() => copyOne(menu)}
           onMultiSelect={() => {

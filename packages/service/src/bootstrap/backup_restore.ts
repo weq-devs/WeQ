@@ -18,6 +18,12 @@ import { writeFileAtomicSync } from '../common/atomic_write';
 import { accountOrderDefaults } from '../common/client_preferences';
 import { SCOPED_NOTIFICATION_EVENTS } from '../common/notification_settings';
 import {
+  DRAFT_MEDIA_DIR,
+  draftImageReferenceName,
+  isDraftImageName,
+  mapDraftImagePaths,
+} from '../common/draft_media';
+import {
   buildWeqBackup,
   readWeqBackup,
   parseWeqBackupJson,
@@ -40,6 +46,10 @@ import {
   validateWeqAccountSettings,
 } from './backup_settings';
 import { weqAccountSettingPath } from './backup_accounts';
+import {
+  dressConversationBackgroundFiles,
+  isDressConversationEntries,
+} from '../account/dress_conversations';
 import {
   WEQ_ACCOUNT_SETTING_FILES,
   isWeqBackgroundName,
@@ -98,7 +108,7 @@ interface Operation {
     | 'account-setting'
     | 'shared-background';
   scope?: string;
-  setting?: WeqAccountSettingFile | 'background';
+  setting?: WeqAccountSettingFile | 'background' | typeof DRAFT_MEDIA_DIR;
   file?: string;
   hadOriginal: boolean;
   owned: boolean;
@@ -353,6 +363,9 @@ function readJournal(root: string): Journal | null {
       if (item.setting === 'background') {
         if (typeof item.file !== 'string' || !isWeqBackgroundName(item.file))
           throw new Error('恢复背景目标无效');
+      } else if (item.setting === DRAFT_MEDIA_DIR) {
+        if (typeof item.file !== 'string' || !isDraftImageName(item.file))
+          throw new Error('恢复草稿图片目标无效');
       } else if (
         !WEQ_ACCOUNT_SETTING_FILES.includes(item.setting as WeqAccountSettingFile) ||
         item.file !== undefined
@@ -380,11 +393,22 @@ function target(root: string, cacheRoot: string, op: Operation): string {
   if (op.kind === 'shared') return join(root, 'client-state', 'global.json');
   if (op.kind === 'shared-background') return join(root, 'config', 'appearance', op.file!);
   if (op.kind === 'account') return join(root, 'config', 'accounts', `${op.scope}.json`);
+  if (op.kind === 'account-setting' && op.setting === DRAFT_MEDIA_DIR)
+    return draftImageTarget(root, op.scope!, op.file!);
   if (op.kind === 'account-setting')
     return op.setting === 'background'
       ? join(root, 'config', 'accounts', op.scope!, op.file!)
       : weqAccountSettingPath(root, cacheRoot, op.scope!, op.setting as WeqAccountSettingFile);
   return join(cacheRoot, 'agentlab', op.scope!);
+}
+function draftImageTarget(root: string, scope: string, name: string): string {
+  let directory = root;
+  for (const component of ['config', 'accounts', scope, DRAFT_MEDIA_DIR]) {
+    directory = join(directory, component);
+    if (present(directory) && !lstatSync(directory).isDirectory())
+      throw new Error('恢复草稿图片目录不是普通目录，原件未改动');
+  }
+  return join(directory, name);
 }
 function operationLabel(op: Pick<Operation, 'kind' | 'scope' | 'setting' | 'file'>): string {
   return [op.kind, op.scope, op.setting, op.file].filter((part) => part !== undefined).join(':');
@@ -800,6 +824,20 @@ function prepare(
   };
   let config = configPlan(currentConfig, bundle.files, pending.choice, result.skipped);
   const accountFiles = bundle.files.filter((file) => file.path.startsWith('accounts/'));
+  const draftImages = new Map(
+    accountFiles
+      .filter((file) => file.path.split('/')[2] === DRAFT_MEDIA_DIR)
+      .map((file) => [file.path, file.data]),
+  );
+  const conversationBackgrounds = new Set<string>();
+  for (const file of accountFiles) {
+    if (!file.path.endsWith('/dress-conversations.json')) continue;
+    const entries = parseWeqBackupJson(file.data);
+    if (!isDressConversationEntries(entries)) throw new Error('会话装扮配置无效');
+    const source = weqAccountBackupScope(file.path);
+    for (const name of dressConversationBackgroundFiles(entries))
+      conversationBackgrounds.add(`accounts/${source}/background/${name}`);
+  }
   const hasClones = bundle.files.some((file) => file.path.startsWith('clones/'));
   const existingConfig = config ?? currentConfig;
   const client = bundle.files.find((file) => file.path === 'settings/client.json');
@@ -886,10 +924,12 @@ function prepare(
             activeFont: 0,
             activeWidget: 0,
             scope: 'mine',
+            scopes: { bubble: 'mine', font: 'mine', widget: 'mine' },
             background: 'none',
             backgroundFile: '',
             widgetId: '',
             backgroundOpacity: 1,
+            widgetOpacity: 1,
           };
         }
         add('account-setting', [{ path: '', data: Buffer.from(JSON.stringify(value)) }], scope, {
@@ -913,9 +953,19 @@ function prepare(
         local ? { originalHash: local.hash } : {},
       );
     } else {
+      if (parts[2] === DRAFT_MEDIA_DIR) continue;
       const setting =
         parts[2] === 'background' ? 'background' : (parts[2] as WeqAccountSettingFile);
-      if (setting === 'dress.json' || setting === 'background') continue;
+      if (setting === 'dress.json') continue;
+      if (setting === 'background') {
+        if (conversationBackgrounds.has(file.path)) {
+          const name = parts[3]!;
+          if (!name.startsWith(`bg-${digest(file.data)}.`))
+            throw new Error('会话背景内容与文件名不匹配');
+          add('account-setting', [{ path: '', data: file.data }], scope, { setting, file: name });
+        }
+        continue;
+      }
       let data =
         setting === 'client-state.json'
           ? Buffer.from(
@@ -938,6 +988,30 @@ function prepare(
       if (setting === 'client-state.json') {
         const state = parseWeqBackupJson(data) as Record<string, unknown>;
         if (record(state.records)) delete state.records.order;
+        const plannedImages = new Set<string>();
+        mapDraftImagePaths(state.drafts, (path) => {
+          const name = draftImageReferenceName(path);
+          if (!name) return;
+          const image = draftImages.get(`accounts/${sourceScope}/${path}`);
+          if (!image) throw new Error('备份缺少草稿引用的图片文件');
+          const destination = draftImageTarget(root, scope, name);
+          if (!plannedImages.has(name)) {
+            if (present(destination)) {
+              if (
+                lstatSync(destination).size !== image.length ||
+                !readWeqBackupFile(destination, image.length).equals(image)
+              )
+                throw new Error('目标草稿图片已有不同内容，已保留原件');
+            } else {
+              add('account-setting', [{ path: '', data: image }], scope, {
+                setting: DRAFT_MEDIA_DIR,
+                file: name,
+              });
+            }
+            plannedImages.add(name);
+          }
+          return destination;
+        });
         data = Buffer.from(JSON.stringify(state));
       }
       add('account-setting', [{ path: '', data }], scope, {

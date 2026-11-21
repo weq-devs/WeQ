@@ -1,3 +1,5 @@
-/** 与聊天附件上限一致；传输分段，避免 JSON 请求一次膨胀整个文件。 */
+/** 字节载荷的暂存上限；设备 File 走分片读取，使用独立上限。 */
 export const BROWSER_FILE_MAX_BYTES = 100 * 1024 * 1024;
+/** 私聊文件上传申请的 fileSize 是 uint32。 */
+export const PICKED_BROWSER_FILE_MAX_BYTES = 4 * 1024 ** 3 - 1;
 export const BROWSER_FILE_CHUNK_BYTES = 1024 * 1024;

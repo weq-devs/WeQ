@@ -10,7 +10,8 @@
  * Messages load as a *seq window* (see MsgService): `listLatest` for the newest
  * page, `listBefore` to page up, `listFrom` to re-read the loaded window live.
  */
-import { OperationError } from '@weq/service';
+import { setTimeout as delay } from 'node:timers/promises';
+import { MESSAGE_CATEGORIES, OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { plainContentText } from '@weq/service/message-plain-text';
@@ -51,10 +52,11 @@ import { openFlashDownloadOutput, startFlashDownloads } from './flash_save';
 import { FileUploadStaging } from './album_video_staging';
 import { pickedBrowserFiles } from '../../browser_files';
 import { saveAnalyticsFromWeb } from '../../analytics_save';
-import { webNotices, type WebNotice } from '../../web/notices';
+import { webNotices, type WebNoticeEvent } from '../../web/notices';
 import {
   BROWSER_FILE_CHUNK_BYTES,
   BROWSER_FILE_MAX_BYTES,
+  PICKED_BROWSER_FILE_MAX_BYTES,
 } from '../../../shared/browser_file_upload';
 import {
   assertEmbeddingModelIdentity,
@@ -78,7 +80,11 @@ import {
   saveCompletedExportTask,
   prepareExportDestination,
 } from './export_save';
-import { mergeRoamingTimeline, timelineRowKey } from '../../../shared/roaming_timeline';
+import {
+  mergeRoamingTimeline,
+  timelineRowKey,
+  voiceFileHash,
+} from '../../../shared/roaming_timeline';
 import { SPECIAL_MESSAGE_KINDS } from '@weqbot/protocol/message-fallbacks';
 import {
   PROJECT_GROUP_CODE,
@@ -86,7 +92,11 @@ import {
   PROJECT_GROUP_SHARE_URL,
 } from '../../../shared/project_groups';
 import { observable } from '@trpc/server/observable';
-import { boundClientState, trustSharedDraftMedia } from './client_state';
+import {
+  boundClientState,
+  trustSharedDraftMedia,
+  reportOfficialDirectoryReads,
+} from './client_state';
 import { mkdir, stat, lstat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -537,6 +547,15 @@ function assistantRuntime(binding: {
   );
   return assistant;
 }
+
+const globalRecordFilterInput = z
+  .object({
+    sender: z.string().trim().min(1).max(128).optional(),
+    start: z.number().int().nonnegative().optional(),
+    end: z.number().int().nonnegative().optional(),
+    category: z.enum(MESSAGE_CATEGORIES).optional(),
+  })
+  .optional();
 
 const convInput = z.object({
   kind: z.enum(['c2c', 'group']),
@@ -1133,6 +1152,21 @@ function unreadInfoToWire(
   };
 }
 
+function applyConversationRead(
+  services: AccountServices,
+  chatType: number,
+  uid: string,
+  sequence?: string,
+): ReturnType<AccountServices['unreadInfo']['markReadAndReport']> {
+  const ctx = getAppContext();
+  if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup)
+    return services.unreadInfo.markLocalRead(chatType, uid, sequence).then((changed) => ({
+      changed,
+      report: { state: 'unavailable' as const },
+    }));
+  return services.unreadInfo.markReadAndReport(chatType, uid, sequence);
+}
+
 const browserFileBinding = z.object({
   expectedAccountUin: z.string().min(1),
   expectedAccountConfigId: z.string().min(1),
@@ -1382,8 +1416,8 @@ export const accountRouter = router({
       input.expectedAccountUin,
       input.expectedAccountConfigId,
     );
-    return observable<WebNotice>((emit) => {
-      const receive = (notice: WebNotice) => {
+    return observable<WebNoticeEvent>((emit) => {
+      const receive = (notice: WebNoticeEvent) => {
         if (
           getAppContext().services === services &&
           notice.uin === input.expectedAccountUin &&
@@ -1429,11 +1463,7 @@ export const accountRouter = router({
   pickedFileStart: procedure
     .input(
       browserFileBinding.extend({
-        size: z
-          .number()
-          .int()
-          .positive()
-          .max(2 * 1024 ** 3),
+        size: z.number().int().positive().max(PICKED_BROWSER_FILE_MAX_BYTES),
         name: z.string().min(1).max(255),
       }),
     )
@@ -3000,18 +3030,24 @@ export const accountRouter = router({
     );
     const drafts = await services.drafts.listDrafts();
     requireExpectedAccount(input?.expectedAccountUin, input?.expectedAccountConfigId);
-    for (const draft of drafts) trustSharedDraftMedia(elementsToEditable(draft.elements));
-    return drafts.map((d) => ({
-      storageKey: d.storageKey,
-      chatType: d.chatType,
-      targetUid: d.targetUid,
-      sendTime: d.sendTime.toString(),
-      elements: elementsToEditable(d.elements),
-      version: currentDraftState().observeDraft(
-        `chat:${d.chatType === 2 ? 'group' : 'c2c'}:${d.targetUid}`,
-        elementsToEditable(d.elements),
-      ).version,
-    }));
+    if (!drafts.length) return [];
+    const state = currentDraftState();
+    return drafts.map((d) => {
+      const elements = elementsToEditable(d.elements);
+      state.relocateDraftImages(elements);
+      trustSharedDraftMedia(elements);
+      return {
+        storageKey: d.storageKey,
+        chatType: d.chatType,
+        targetUid: d.targetUid,
+        sendTime: d.sendTime.toString(),
+        elements,
+        version: state.observeDraft(
+          `chat:${d.chatType === 2 ? 'group' : 'c2c'}:${d.targetUid}`,
+          elements,
+        ).version,
+      };
+    });
   }),
 
   /**
@@ -3083,7 +3119,9 @@ export const accountRouter = router({
         expectedBody = snapshot.body;
         const row = snapshot.draft;
         if (snapshot.exists && !row) throw new Error('QQ 草稿原行无法解析，已保留原件');
-        return row ? elementsToEditable(row.elements) : null;
+        const elements = row ? elementsToEditable(row.elements) : null;
+        state.relocateDraftImages(elements);
+        return elements;
       };
       return state.saveExternalDraft(
         key,
@@ -3543,6 +3581,7 @@ export const accountRouter = router({
         let failed = 0;
         try {
           changes = state.setDirectoryReadState(input.directoryTargets, input.unread);
+          if (!input.unread) reportOfficialDirectoryReads(state, input.directoryTargets, true);
         } catch (error) {
           if (!input.targets.length) throw error;
           failed += input.directoryTargets.length;
@@ -3579,7 +3618,19 @@ export const accountRouter = router({
       const services = requireExpectedAccount(input.expectedAccountUin);
       const local = directoryReadUndo.get(services);
       if (local?.token === input.undoToken) {
-        const restored = currentDraftState().undoDirectoryReadState(local.changes);
+        const state = currentDraftState();
+        const restored = state.undoDirectoryReadState(local.changes);
+        reportOfficialDirectoryReads(
+          state,
+          local.changes.flatMap((change) =>
+            change.before.position &&
+            !change.before.marker &&
+            newerReadPosition(change.before.position, change.after.position)
+              ? [{ key: change.key, position: change.before.position }]
+              : [],
+          ),
+          true,
+        );
         local.changes = [];
         const qq = local.qqToken
           ? await services.unreadInfo.undoReadState(local.qqToken)
@@ -3635,21 +3686,36 @@ export const accountRouter = router({
         expectedAccountConfigId: z.string().min(1).optional(),
       }),
     )
+    .mutation(({ input }) =>
+      applyConversationRead(
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
+        input.chatType,
+        input.uid,
+        input.latestSeq,
+      ),
+    ),
+
+  markViewportRead: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        chatType: z.union([z.literal(1), z.literal(2)]),
+        uid: z.string().min(1),
+        visibleSeqs: z
+          .array(z.string().regex(/^[1-9]\d{0,19}$/))
+          .min(1)
+          .max(512),
+      }),
+    )
     .mutation(async ({ input }) => {
-      // 静态账号（离线快照）的库是死的，QQ 不会读 —— 写进去只是自欺欺人。
-      // Android 备份是可写快照，照常放行（与防撤回同一套判定）。
-      const ctx = getAppContext();
-      if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup) {
-        const changed = await requireExpectedAccount(
-          input.expectedAccountUin,
-          input.expectedAccountConfigId,
-        ).unreadInfo.markLocalRead(input.chatType, input.uid, input.latestSeq);
-        return { changed, report: { state: 'unavailable' as const } };
-      }
-      return requireExpectedAccount(
-        input.expectedAccountUin,
-        input.expectedAccountConfigId,
-      ).unreadInfo.markReadAndReport(input.chatType, input.uid, input.latestSeq);
+      const { chatType, uid, visibleSeqs, expectedAccountUin, expectedAccountConfigId } = input;
+      const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+      const sequence = await services.unreadInfo.visibleReadSequence(chatType, uid, visibleSeqs);
+      if (
+        sequence === undefined ||
+        requireExpectedAccount(expectedAccountUin, expectedAccountConfigId) !== services
+      )
+        return { changed: false, report: { state: 'skipped' as const } };
+      return applyConversationRead(services, chatType, uid, sequence);
     }),
 
   getReadReportStatus: procedure.query(() => requireServices().unreadInfo.getReadReportStatus()),
@@ -3709,9 +3775,7 @@ export const accountRouter = router({
           end: z.number().int().nonnegative().optional(),
           sender: z.string().max(128).optional(),
           keyword: z.string().max(512).optional(),
-          category: z
-            .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
-            .optional(),
+          category: z.enum(MESSAGE_CATEGORIES).optional(),
         }),
         cursor: z.object({ time: z.number().int(), rowId: z.string().regex(/^-?\d+$/) }).optional(),
         limit: z.number().int().min(1).max(100).default(30),
@@ -3759,9 +3823,7 @@ export const accountRouter = router({
           end: z.number().int().nonnegative().optional(),
           sender: z.string().max(128).optional(),
           keyword: z.string().max(512).optional(),
-          category: z
-            .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
-            .optional(),
+          category: z.enum(MESSAGE_CATEGORIES).optional(),
         }),
         direction: z.enum(['older', 'newer']),
         anchorMsgId: z.string().regex(/^-?\d+$/),
@@ -4795,13 +4857,19 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      const members = await scopedGroupRead(input, (services) =>
-        services.groupInfo.listMembersInGroup(
+      const members = await scopedGroupRead(input, async (services) => {
+        const rows = await services.groupInfo.listMembersInGroup(
           BigInt(input.groupCode),
           input.limit ?? 100,
           input.offset ?? 0,
-        ),
-      );
+        );
+        if (rows.length && !input.offset && /^[1-9]\d{0,9}$/.test(input.groupCode)) {
+          const groupId = Number(input.groupCode);
+          if (groupId <= 0xffffffff)
+            void services.groupInfo.syncMemberRoles(groupId).catch(() => undefined);
+        }
+        return rows;
+      });
       return members.map(groupMemberToWire);
     }),
 
@@ -5178,15 +5246,22 @@ export const accountRouter = router({
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
         conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
         sources: z.array(z.enum(SEARCH_SOURCES)).optional(),
+        recordFilter: globalRecordFilterInput,
+        ...exportAccountBindingInput.shape,
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().unifiedSearch.slowSearch(
+      const { unifiedSearch } = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return unifiedSearch.slowSearch(
         input.keyword,
         input.limit,
         input.categories,
         input.conversationScope,
         input.sources,
+        input.recordFilter,
       );
     }),
 
@@ -5210,17 +5285,24 @@ export const accountRouter = router({
         keyword: z.string().trim().min(1),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
+        recordFilter: globalRecordFilterInput,
+        ...exportAccountBindingInput.shape,
       }),
     )
     .query(async ({ input }) => {
+      const { unifiedSearch } = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
       return withDatabaseWorkload('bulk', () =>
-        requireServices().unifiedSearch.moreSearch(
+        unifiedSearch.moreSearch(
           input.category,
           input.keyword,
           input.offset,
           input.limit,
           input.conversationScope,
           input.sources,
+          input.recordFilter,
         ),
       );
     }),
@@ -5234,15 +5316,22 @@ export const accountRouter = router({
         keyword: z.string().trim().min(1),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
+        recordFilter: globalRecordFilterInput,
+        ...exportAccountBindingInput.shape,
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().unifiedSearch.conversationRecords(
+      const { unifiedSearch } = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return unifiedSearch.conversationRecords(
         input.source,
         input.conv,
         input.keyword,
         input.offset,
         input.limit,
+        input.recordFilter,
       );
     }),
   /** Get merged-forward / quote-reply cache for one message. */
@@ -5353,12 +5442,15 @@ export const accountRouter = router({
           throw new DOMException('账号已切换，已停止操作', 'AbortError');
         return services.msgs.deleteCachedSentMessage(message, input.hideAfterDelete ?? false);
       }
-      return services.msgs.deleteMessage(
+      const deleted = await services.msgs.deleteMessage(
         BigInt(input.msgId),
         input.kind,
         input.conv,
         input.hideAfterDelete ?? false,
       );
+      if (deleted && input.kind === 'group')
+        services.contactDirectory?.prioritizeGroupTimes([input.conv]);
+      return deleted;
     }),
 
   /** Restore a WeQ-deleted message (write the original 40011/40012 back). */
@@ -5380,7 +5472,10 @@ export const accountRouter = router({
         if (!input.kind || !input.conv) throw new Error('恢复缓存消息需要明确的会话目标');
         return services.msgs.restoreCachedSentMessage(input.msgId, input.kind, input.conv);
       }
-      return services.msgs.restoreMessage(BigInt(input.msgId));
+      const restored = await services.msgs.restoreMessage(BigInt(input.msgId));
+      if (restored && input.kind === 'group' && input.conv)
+        services.contactDirectory?.prioritizeGroupTimes([input.conv]);
+      return restored;
     }),
 
   /**
@@ -5926,20 +6021,57 @@ export const accountRouter = router({
   /** 设置 / 取消群管理员（0x1096_1，仅群主）。 */
   setGroupAdmin: procedure
     .input(
-      z.object({
+      exportAccountBindingInput.extend({
         groupId: z.union([z.string().min(1), z.number().int().positive()]),
         targetUid: z.string().min(1),
         enable: z.boolean(),
       }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      await requireServices().groupModeration.setAdmin({
-        groupId: input.groupId,
-        targetUid: input.targetUid,
-        enable: input.enable,
-      });
-      return { ok: true };
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      const groupId = Number(input.groupId);
+      try {
+        await services.groupModeration.setAdmin({
+          groupId: input.groupId,
+          targetUid: input.targetUid,
+          enable: input.enable,
+        });
+      } catch (error) {
+        if (
+          !input.enable ||
+          !(error instanceof Error) ||
+          !/\bOIDB error 120101004:|\bERR_ADMIN_NUM_LIMIT\b/.test(error.message)
+        )
+          throw error;
+        const members = await scopedGroupRead(input, async (current) =>
+          current === services ? current.groupInfo.syncMemberRoles(groupId, true) : undefined,
+        ).catch(() => undefined);
+        return {
+          ok: false as const,
+          adminCount: members?.filter((member) => member.permission === 2).length ?? null,
+        };
+      }
+      const readRole = async () => {
+        const members = await services.groupInfo.syncMemberRoles(groupId, true);
+        const target = members?.find(
+          (member) => member.uid === input.targetUid.trim() && member.uin > 0,
+        );
+        if (!target) return false;
+        return input.enable
+          ? target.permission === 2
+          : target.permission === 0 || target.permission === 4;
+      };
+      let roleSynced = await readRole().catch(() => null);
+      if (roleSynced === false && getAppContext().services === services) {
+        // 服务端写入回执可能先于成员名单更新；仅重读一次。
+        await delay(800);
+        if (getAppContext().services === services) roleSynced = await readRole().catch(() => null);
+      }
+      return { ok: true as const, roleSynced: roleSynced === true };
     }),
 
   /**
@@ -6055,7 +6187,7 @@ export const accountRouter = router({
       input.expectedAccountConfigId,
     );
     return observable<{ at: number }>((emit) => {
-      const handler = (change: DbChange): void => {
+      const handler = (change: Pick<DbChange, 'at'>): void => {
         if (getAppContext().services === services) emit.next({ at: change.at });
       };
       dbEventBus.on('group-info-changed', handler);
@@ -6709,10 +6841,17 @@ export const accountRouter = router({
         fileName: z.string().min(1).optional(),
         /** 变声标记（协议已实现的 `extBizInfo.ptt.changeVoice`）。 */
         voiceChanged: z.boolean().optional(),
+        voiceTranscript: z.string().max(200).optional(),
+        expectedAccountUin: z.string().optional(),
+        expectedAccountConfigId: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
       const wav = elementsFromEditable(input.wav) as Uint8Array;
       if (!(wav instanceof Uint8Array) || wav.byteLength === 0) {
         throw new Error('语音数据为空，无法发送。');
@@ -6724,7 +6863,8 @@ export const accountRouter = router({
         // 动态 import：voice.ts 依赖 app_context，静态引入会把 wasm 拉进启动路径。
         const { encodeFileToSilk } = await import('../../voice');
         const silk = await encodeFileToSilk(tempPath);
-        return requireServices().messageSend.sendMedia({
+        if (requireServices() !== services) throw new Error('账号已切换，未发送语音。');
+        const outcome = await services.messageSend.sendMedia({
           peerType: input.peerType,
           targetId: input.targetId,
           ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
@@ -6734,7 +6874,21 @@ export const accountRouter = router({
           ...(silk.wav ? { waveform: { wav: silk.wav } } : {}),
           ...(input.fileName ? { fileName: input.fileName } : {}),
           ...(input.voiceChanged ? { voiceChanged: true } : {}),
+          ...(input.voiceTranscript ? { voiceTranscript: input.voiceTranscript } : {}),
         });
+        const seq = input.peerType === 'group' ? outcome.groupSequence : outcome.privateSequence;
+        if (outcome.ok && seq > 0 && input.voiceTranscript) {
+          services.sentVoiceTranscripts?.remember({
+            kind: input.peerType,
+            conv: input.peerType === 'group' ? outcome.targetId : outcome.uid || outcome.targetId,
+            seq: String(seq),
+            random: String(outcome.random),
+            at: Date.now(),
+            hash: '',
+            text: input.voiceTranscript,
+          });
+        }
+        return outcome;
       } finally {
         await unlink(tempPath).catch(() => undefined);
       }
@@ -6860,11 +7014,40 @@ export const accountRouter = router({
    */
   sendAiVoice: outgoingProcedure
     .input(
-      z.object({ groupId: z.string().min(1), voiceId: z.string().min(1), text: z.string().min(1) }),
+      z.object({
+        groupId: z.string().min(1),
+        voiceId: z.string().min(1),
+        text: z.string().min(1),
+        expectedAccountUin: z.string().optional(),
+        expectedAccountConfigId: z.string().optional(),
+      }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      return requireServices().messageSend.sendAiVoice(input);
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      const at = Date.now();
+      const latest = services.sentVoiceTranscripts
+        ? await services.msgs
+            .getGroupLatest(input.groupId, 1, { deferReplyMedia: true })
+            .catch(() => [])
+        : [];
+      if (requireServices() !== services) throw new Error('账号已切换，未发送 AI 声聊。');
+      const outcome = await services.messageSend.sendAiVoice(input);
+      const hash = voiceFileHash({ md5: outcome.fileHash, fileName: outcome.fileName });
+      if (outcome.ok && hash) {
+        services.sentVoiceTranscripts?.remember({
+          kind: 'group',
+          conv: outcome.groupId,
+          seq: String(latest[0]?.msgSeq ?? 0n),
+          at,
+          hash,
+          text: input.text,
+        });
+      }
+      return outcome;
     }),
 
   // ---- Ark 卡片（输入框「Ark 卡片」面板）----
@@ -7408,13 +7591,21 @@ export const accountRouter = router({
         filesetName: z.string().optional().default(''),
         selections: z.array(flashSelectionSchema).min(1),
         directory: z.string().min(1).optional(),
+        viewFilesetId: z.string().min(1).optional(),
+        expectedAccountUin: z.string().optional(),
+        expectedAccountConfigId: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      const svc = requireServices().flashTransferFiles;
+      const current = () =>
+        input.viewFilesetId
+          ? requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId)
+          : requireServices();
+      if (input.viewFilesetId && (!input.expectedAccountUin || !input.expectedAccountConfigId))
+        throw new Error('账号尚未就绪');
+      const svc = current().flashTransferFiles;
       return startFlashDownloads(input, svc.downloads, getHost(), () => {
-        if (requireServices().flashTransferFiles !== svc)
-          throw new Error('账号已切换，请重新开始下载');
+        if (current().flashTransferFiles !== svc) throw new Error('账号已切换，请重新开始下载');
       });
     }),
 
@@ -7424,12 +7615,55 @@ export const accountRouter = router({
     const downloads = services.flashTransferFiles.downloads;
     await downloads.load();
     if (requireServices() !== services) throw new Error('账号已切换');
-    return downloads.list().map(({ logs: _logs, files, ...task }) => ({
-      ...task,
-      logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
-      files: files.map(({ logs: _fileLogs, ...file }) => file),
-    }));
+    return downloads
+      .list((task) => !task.foreground)
+      .map(({ logs: _logs, files, ...task }) => ({
+        ...task,
+        logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
+        files: files.map(({ logs: _fileLogs, ...file }) => file),
+      }));
   }),
+
+  flashViewDownloads: procedure
+    .input(generatedAccountInput.extend({ filesetId: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const current = () =>
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const services = current();
+      const downloads = services.flashTransferFiles.downloads;
+      await downloads.load();
+      if (current() !== services) throw new Error('账号已切换');
+      return downloads
+        .list((file) => file.viewFilesetId === input.filesetId, false)
+        .map((batch) => ({
+          id: batch.id,
+          foreground: batch.foreground === true,
+          status: batch.status,
+          paused: batch.interrupted === true,
+          canRetry: batch.canRetry === true,
+          fileSize: batch.fileSize,
+          downloadedBytes: batch.downloadedBytes,
+          error: batch.error,
+          files: batch.files.map(({ id, relativePath, status, fileSize, downloadedBytes }) => ({
+            id,
+            relativePath,
+            status,
+            fileSize,
+            downloadedBytes,
+          })),
+        }));
+    }),
+
+  flashBackgroundDownload: procedure
+    .input(
+      generatedAccountInput.extend({ taskId: z.string().uuid(), filesetId: z.string().min(1) }),
+    )
+    .mutation(({ input }) =>
+      requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).flashTransferFiles.downloads.background(input.taskId, input.filesetId),
+    ),
 
   flashDownloadTaskLogs: procedure
     .input(generatedAccountInput.extend({ taskId: z.string().min(1), version: z.number() }))
@@ -7443,18 +7677,26 @@ export const accountRouter = router({
 
   /** 取消单个下载任务（进行中的会中断下载）。 */
   flashCancelDownloadTask: procedure
-    .input(z.object({ taskId: z.string().min(1) }))
+    .input(generatedAccountInput.partial().extend({ taskId: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      return requireServices().flashTransferFiles.downloads.cancel(input.taskId);
+      return requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      ).flashTransferFiles.downloads.cancel(input.taskId);
     }),
 
   flashPauseDownloadTask: procedure
-    .input(generatedAccountInput.extend({ taskId: z.string().min(1) }))
+    .input(
+      generatedAccountInput.extend({
+        taskId: z.string().min(1),
+        foregroundOnly: z.boolean().optional(),
+      }),
+    )
     .mutation(({ input }) =>
       requireExpectedAccount(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
-      ).flashTransferFiles.downloads.pause(input.taskId),
+      ).flashTransferFiles.downloads.pause(input.taskId, input.foregroundOnly),
     ),
 
   flashRetryDownloadTask: procedure
@@ -8023,6 +8265,7 @@ export const accountRouter = router({
       );
       const account = getAppContext().account;
       if (!account) throw new Error('账号已关闭，无法查询原消息');
+      const originalFileId = services.groupFile.originalFileId(input.groupCode, input.fileId);
       const page = await account.groupMsgs.findFileMessages(
         input.groupCode,
         input.fileId,
@@ -8033,6 +8276,7 @@ export const accountRouter = router({
               msgId: BigInt(input.before.msgId),
             }
           : undefined,
+        originalFileId,
       );
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
@@ -8494,9 +8738,7 @@ export const accountRouter = router({
               .optional(),
             sender: z.string().max(128).optional(),
             keyword: z.string().max(512).optional(),
-            category: z
-              .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
-              .optional(),
+            category: z.enum(MESSAGE_CATEGORIES).optional(),
           })
           .optional(),
       }),
@@ -8750,9 +8992,7 @@ export const accountRouter = router({
             messageIds: exactMessageIdsInput,
             sender: z.string().max(128).optional(),
             keyword: z.string().max(512).optional(),
-            category: z
-              .enum(['text', 'image', 'video', 'voice', 'file', 'emoji', 'system', 'other'])
-              .optional(),
+            category: z.enum(MESSAGE_CATEGORIES).optional(),
           })
           .optional(),
         formats: z
@@ -8764,7 +9004,7 @@ export const accountRouter = router({
     .query(({ input }) => requireServices().exportManager.preflight(input)),
 
   listExportTasks: procedure.query(() => {
-    return requireServices().exportManager.listTasks();
+    return requireServices().exportManager.listTasks(true);
   }),
 
   pickExportBaselineDirectory: procedure.mutation(() =>
@@ -8864,17 +9104,20 @@ export const accountRouter = router({
   exportTaskDownload: procedure
     .input(exportAccountBindingInput.extend({ taskId: z.string().min(1) }))
     .mutation(({ input }) => {
-      const task = requireExpectedAccount(
+      const manager = requireExpectedAccount(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
-      ).exportManager.getTask(input.taskId);
+      ).exportManager;
+      const task = manager.getTask(input.taskId);
       if (task?.status !== 'completed') throw new Error('导出结果尚未完成。');
       const path = task.bundleDir || task.filePath;
       if (!path) throw new Error('导出结果不存在。');
       const register = getHost().registerDownload;
       if (!register) return null;
       const name = exportDownloadName(task);
-      return register(path, name, task.bundleDir ? 'directory' : 'file');
+      const download = register(path, name, task.bundleDir ? 'directory' : 'file');
+      if (download && task.foregroundBrowserOutput) manager.browserOutputTaken(task.id);
+      return download;
     }),
 
   /** Pause a running task. */
@@ -8989,7 +9232,9 @@ export const accountRouter = router({
   onExportProgress: procedure.subscription(() => {
     return observable<import('@weq/service').TaskProgress>((emit) => {
       const manager = requireServices().exportManager;
-      const handler = (progress: import('@weq/service').TaskProgress) => emit.next(progress);
+      const handler = (progress: import('@weq/service').TaskProgress) => {
+        if (!manager.getTask(progress.taskId)?.foreground) emit.next(progress);
+      };
       manager.on('progress', handler);
       return () => {
         manager.off('progress', handler);
@@ -9312,6 +9557,7 @@ export const accountRouter = router({
         name: z.string(),
         token: z.string().default(''),
         msgId: z.string().default(''),
+        automatic: z.boolean().default(false),
         forward: z
           .object({
             carrierId: z.string(),
@@ -9331,6 +9577,21 @@ export const accountRouter = router({
       if (!boot) return { success: false, error: '原生组件未就绪' };
       if (!services) return { success: false, error: '未打开账号' };
       requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const msgId = !input.forward && /^\d+$/.test(input.msgId) ? BigInt(input.msgId) : null;
+      const readStoredTranscript = async () => {
+        if (msgId === null || !input.automatic) return undefined;
+        const row = await services.msgs.getRawElements(msgId);
+        const voice = row?.elements.find(
+          (element) => element.kind === 'ptt' && element.fileName === input.name,
+        );
+        return voice?.kind === 'ptt' ? voice.pttTranscript : undefined;
+      };
+      await services.sentVoiceTranscripts?.flush();
+      if (ctx.services !== services)
+        return { success: false, error: '账号已切换，已停止语音转写。' };
+      requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const stored = await readStoredTranscript();
+      if (stored) return { success: true, text: stored };
 
       const modelId = boot.userConfig.getLocalModelId('voice');
       if (!modelId) return { success: false, error: '请先下载本地语音模型' };
@@ -9378,14 +9639,21 @@ export const accountRouter = router({
       const text = result.text ?? '';
       if (ctx.services !== services) return { success: false, error: '账号已切换，已停止保存转写' };
       checkSource();
-      if (input.msgId && !input.forward) {
+      if (msgId !== null) {
         // Best-effort: a failed back-write must not lose the text we just got.
         // Only the TEXT goes back to the DB — `pttTranscript` (45923) is the
         // field QQ itself reads, so it must stay a plain string. Emotion and
         // events ride alongside in the response instead.
-        await services.msgs
-          .setPttTranscript(BigInt(input.msgId), input.name, text)
+        const written = await services.msgs
+          .setPttTranscript(msgId, input.name, text, {
+            ifEmpty: input.automatic,
+            current: () => ctx.services === services,
+          })
           .catch(() => false);
+        if (input.automatic && !written) {
+          const currentText = await readStoredTranscript();
+          if (currentText) return { success: true, text: currentText };
+        }
       }
       return {
         success: true,

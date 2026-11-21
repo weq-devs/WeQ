@@ -194,7 +194,7 @@ describe('日志页保留与活动读取', () => {
       f.dispose();
     }
   });
-  it('隐藏时停止轮询，回来保留文件、筛选、暂停跟随和滚动，只补读新内容', async () => {
+  it('隐藏时停止轮询，保留文件、筛选和滚动，恢复跟随后只补读新内容', async () => {
     const f = mount();
     try {
       await flush();
@@ -226,6 +226,12 @@ describe('日志页保留与活动读取', () => {
       expect(view.scrollTop).toBe(300);
       expect(errorFilter.getAttribute('aria-checked')).toBe('false');
       expect(f.host.textContent).toContain('已暂停');
+      expect(f.host.textContent).not.toContain('a-two');
+      expect(fixture.info).toHaveBeenCalledTimes(reads);
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('[title="回到文件尾部"]')!.click(),
+      );
+      await flush();
       expect(f.host.textContent).toContain('a-two');
       expect(fixture.chunk.mock.calls.at(-1)?.[0].offset).toBe(line('a-one').length);
     } finally {
@@ -274,7 +280,7 @@ describe('日志页保留与活动读取', () => {
       f.dispose();
     }
   });
-  it('隐藏期间文件截断后重载正确文件，但不擅自恢复跟随', async () => {
+  it('隐藏期间文件截断时保留暂停状态，恢复跟随后重载正确文件', async () => {
     fixture.text.set('/synthetic/a.log', line('long-previous-content'));
     const f = mount();
     try {
@@ -287,9 +293,14 @@ describe('日志页保留与活动读取', () => {
       fixture.text.set('/synthetic/a.log', line('new'));
       f.render(true);
       await flush();
+      expect(f.host.textContent).toContain('已暂停');
+      expect(f.host.textContent).toContain('long-previous-content');
+      await act(async () =>
+        f.host.querySelector<HTMLButtonElement>('[title="回到文件尾部"]')!.click(),
+      );
+      await flush();
       expect(f.host.textContent).toContain('new');
       expect(f.host.textContent).not.toContain('long-previous-content');
-      expect(f.host.textContent).toContain('已暂停');
     } finally {
       f.dispose();
     }

@@ -1,12 +1,14 @@
 // @vitest-environment node
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { exportViewerRouter } from '../src/main/ipc/routers/export_viewer';
 import {
   closeViewerSources,
   registerViewerSource,
   beginViewerRead,
 } from '../src/main/export_viewer';
-import type { ExportViewerSource } from '@weq/service';
+import { withHost, type ExportViewerSource } from '@weq/service';
 import { tmpdir } from 'node:os';
 import { router } from '../src/main/ipc/trpc';
 import { createWebHost } from '../src/main/web/host';
@@ -67,6 +69,47 @@ beforeEach(() => {
 afterEach(() => closeViewerSources(ids.splice(0)));
 const caller = exportViewerRouter.createCaller({});
 const binding = { expectedUin: '10001', expectedConfigId: 'source-a' };
+it('桌面另存无需账号，取消不落盘且不覆盖同名文件或原件', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-viewer-save-'));
+  try {
+    const dir = join(root, 'archive');
+    await mkdir(join(dir, 'media'), { recursive: true });
+    const path = `media/${'a'.repeat(64)}`;
+    const body = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+    await writeFile(join(dir, path), body);
+    const item = registerViewerSource({ ...source(), root: dir, path: join(dir, 'space.json') });
+    ids.push(item.id);
+    f.ctx.services = null;
+    const target = join(root, 'save.png');
+    const pickSaveTarget = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ path: target, downloadId: null })
+      .mockResolvedValueOnce({ path: target, downloadId: null })
+      .mockResolvedValueOnce({ path: join(dir, path), downloadId: null });
+    const host = { ...createWebHost({ exportDir: root, version: 'test' }), pickSaveTarget };
+    const save = () => withHost(host, () => caller.saveMedia({ id: item.id, path }));
+    await save();
+    expect(await readdir(root)).toEqual(['archive']);
+    await save();
+    expect(pickSaveTarget).toHaveBeenLastCalledWith({
+      defaultName: `${'a'.repeat(64)}.png`,
+      extension: 'png',
+      locationKey: 'export-viewer-media',
+    });
+    expect(await readFile(target)).toEqual(body);
+    await writeFile(target, '已有文件');
+    await expect(save()).rejects.toThrow('目标文件已存在');
+    await expect(save()).rejects.toThrow('目标文件已存在');
+    expect(await readFile(target, 'utf8')).toBe('已有文件');
+    expect(await readFile(join(dir, path))).toEqual(body);
+    closeViewerSources([item.id]);
+    await expect(save()).rejects.toThrow('未找到');
+    expect(pickSaveTarget).toHaveBeenCalledTimes(4);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
 it('Remote 从设备上传 JSON 后真实解析分页，不调用电脑文件框或扫描电脑目录', async () => {
   const host = { ...createWebHost({ exportDir: tmpdir(), version: 'test' }), remoteClient: true };
   const remote = router({ exportViewer: exportViewerRouter }).createCaller({ host }).exportViewer;

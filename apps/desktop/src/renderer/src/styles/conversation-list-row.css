@@ -88,7 +88,7 @@ html[data-theme] .conversation-row .row-pinned {
   line-height: 1.12;
 }
 :is(.app-shell, .weq-conversation-list) .conversation-row .row-meta {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.1;
 }
 .app-shell .weq-contact-directory .row-unread {

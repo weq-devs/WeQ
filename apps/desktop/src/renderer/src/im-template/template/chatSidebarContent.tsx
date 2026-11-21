@@ -106,6 +106,7 @@ export function ChatSidebarContent({
     if (contactTab === 'friends') {
       return (
         <ContactList
+          active={active}
           contacts={contacts}
           categoryDefinitions={categoryDefinitions}
           specialSections={specialContactSections}
@@ -119,6 +120,7 @@ export function ChatSidebarContent({
 
     return (
       <GroupList
+        active={active}
         conversations={conversations}
         activeConversationId={selectedGroupConversationId}
         loading={loading}

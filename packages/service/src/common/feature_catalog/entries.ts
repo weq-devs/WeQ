@@ -38,7 +38,9 @@ export const EXPORT_FEATURES = [
   exportFeature('export.emoji-packs', 'emojipack', '导出表情包', ['表情包导出']),
   exportFeature('export.group-albums', 'album', '群相册导出', ['群相册']),
   exportFeature('export.group-files', 'groupfile', '群文件导出', ['群文件']),
-  exportFeature('export.database', 'database', '明文数据库', ['数据库导出']),
+  exportFeature('export.database', 'database', '明文数据库', ['数据库导出'], {
+    tools: ['decrypt_database'],
+  }),
   exportFeature('export.clone-bot', 'persona-bot', '克隆体机器人', ['克隆机器人导出']),
   exportFeature('export.qzone-albums', 'qzone', '个人空间相册', ['空间相册导出']),
 ] as const;
@@ -81,10 +83,13 @@ export const WORKSPACE_FEATURES = {
   createCloneGroup: defineFeature('assistant.clone-groups.create', 'assistant', '新建克隆体群聊', [
     '克隆群聊',
   ]),
-  selfProfile: defineFeature('contacts.self-profile', 'contacts', '我的资料', [
-    '本人资料',
-    '个人资料',
-  ]),
+  selfProfile: defineFeature(
+    'contacts.self-profile',
+    'contacts',
+    '我的资料',
+    ['本人资料', '个人资料'],
+    { tools: ['get_self_profile', 'get_self_dress'] },
+  ),
   selfProfileEdit: defineFeature(
     'contacts.self-profile.edit',
     'contacts',

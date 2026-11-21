@@ -1,31 +1,61 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GroupAlbumVideoUpload } from '../src/renderer/src/components/qq-actions/GroupAlbumVideoUpload';
-import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
+type HostStatus = {
+  id: string;
+  requestId: string;
+  status: string;
+  foreground: boolean;
+  statusLabel?: string;
+  note?: string;
+  canVerify?: boolean;
+};
 
 const f = vi.hoisted(() => ({
   confirm: true,
   upload: vi.fn(),
-  read: vi.fn(),
+  task: null as HostStatus | null,
+  background: vi.fn(),
+  verify: vi.fn(),
   changed: vi.fn(),
   chunk: vi.fn(),
   discard: vi.fn(),
 }));
 const binding = { expectedAccountUin: 'synthetic', expectedAccountConfigId: 'live' };
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  trpc: {
+    account: {
+      qqActions: {
+        albumVideoStatus: {
+          useQuery() {
+            const [, setRevision] = useState(0);
+            return {
+              data: f.task,
+              refetch: async () => {
+                setRevision((n) => n + 1);
+                return { data: f.task };
+              },
+            };
+          },
+        },
+      },
+    },
+  },
   client: {
     account: {
       pickSendFile: {
         mutate: async () => ({ path: '/synthetic/video.mp4', fileName: 'video.mp4' }),
       },
       qqActions: {
-        albumVideoUpload: { mutate: f.upload },
+        albumVideoPublish: { mutate: f.upload },
+        albumVideoStatus: { query: async () => f.task },
+        albumVideoBackground: { mutate: f.background },
+        albumVideoVerify: { mutate: f.verify },
         albumVideoStart: { mutate: async () => ({ id: 'synthetic-stage' }) },
         albumVideoChunk: { mutate: f.chunk },
         albumVideoDiscard: { mutate: f.discard },
       },
-      listGroupAlbumMedia: { query: f.read },
     },
   },
 }));
@@ -47,18 +77,12 @@ vi.mock('../src/renderer/src/components/qq-actions/shared', () => ({
     binding,
     disabled: false,
     busy: false,
-    perform: async (
-      run: (binding: typeof binding) => Promise<unknown>,
-      refresh: () => Promise<void>,
-      _warning: string,
-      options: { readback: () => Promise<boolean> },
-    ) => {
+    available: true,
+    perform: async (run: (binding: typeof binding) => Promise<unknown>) => {
       if (!f.confirm) return false;
       try {
         await run(binding);
-        const matched = await options.readback();
-        await refresh();
-        return matched;
+        return true;
       } catch {
         return false;
       }
@@ -83,18 +107,12 @@ vi.mock('../src/renderer/src/components/qq-actions/shared.shared', () => ({
     binding,
     disabled: false,
     busy: false,
-    perform: async (
-      run: (binding: typeof binding) => Promise<unknown>,
-      refresh: () => Promise<void>,
-      _warning: string,
-      options: { readback: () => Promise<boolean> },
-    ) => {
+    available: true,
+    perform: async (run: (binding: typeof binding) => Promise<unknown>) => {
       if (!f.confirm) return false;
       try {
         await run(binding);
-        const matched = await options.readback();
-        await refresh();
-        return matched;
+        return true;
       } catch {
         return false;
       }
@@ -106,8 +124,32 @@ const cleanups: (() => void)[] = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.confirm = true;
-  f.upload.mockReset().mockResolvedValue({ state: 'unconfirmed', videoId: 'synthetic-video' });
-  f.read.mockReset().mockResolvedValue([]);
+  f.task = null;
+  f.background.mockReset().mockImplementation(async () => {
+    if (f.task) f.task = { ...f.task, foreground: false };
+    return true;
+  });
+  f.verify.mockReset().mockImplementation(async () => {
+    if (f.task)
+      f.task = {
+        ...f.task,
+        status: 'completed',
+        statusLabel: undefined,
+        canVerify: false,
+        note: '视频已发布到群相册并读回确认',
+      };
+    return true;
+  });
+  f.upload.mockReset().mockImplementation(async ({ requestId }: { requestId: string }) => {
+    f.task = {
+      id: 'synthetic-task',
+      requestId,
+      status: 'running',
+      statusLabel: '正在上传到 QQ 并发布',
+      foreground: true,
+    };
+    return f.task.id;
+  });
   f.changed.mockReset();
   f.chunk.mockReset();
   f.discard.mockReset().mockResolvedValue(true);
@@ -142,10 +184,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   for (const close of cleanups.splice(0)) close();
-  for (const task of localBackgroundTasks.snapshot()) {
-    localBackgroundTasks.finish(task.id, 'cancelled');
-    localBackgroundTasks.remove(task.id);
-  }
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -164,42 +202,65 @@ async function mount() {
   return { host, upload };
 }
 
-it('取消确认不创建任务，选择视频本身不算上传', async () => {
+it('取消确认不提交任务，选择视频本身不算上传', async () => {
   const ui = await mount();
-  expect(localBackgroundTasks.snapshot()).toHaveLength(0);
   f.confirm = false;
   await ui.upload();
-  expect(localBackgroundTasks.snapshot()).toHaveLength(0);
+  expect(f.task).toBeNull();
   expect(f.upload).not.toHaveBeenCalled();
 });
-it('提交视频不等于成功，读回未确认时保留待核对且不重传', async () => {
+it('宿主接管后可显示原位进度，交接不重复提交视频', async () => {
   const ui = await mount();
   await ui.upload();
-  expect(f.upload).toHaveBeenCalledOnce();
-  expect(localBackgroundTasks.snapshot()[0]).toMatchObject({
-    status: 'paused',
-    statusLabel: '上传结果待核对',
-    scope: { uin: binding.expectedAccountUin, configId: binding.expectedAccountConfigId },
-  });
+  expect(ui.host.textContent).toContain('正在上传到 QQ 并发布');
   expect(f.changed).not.toHaveBeenCalled();
+  await act(async () =>
+    ui.host.querySelector<HTMLButtonElement>('[aria-label="在后台继续上传视频"]')!.click(),
+  );
+  expect(f.background).toHaveBeenCalledWith({
+    ...binding,
+    taskId: 'synthetic-task',
+    groupId: 123,
+    albumId: 'synthetic-album',
+  });
+  expect(f.upload).toHaveBeenCalledOnce();
 });
-it('只有原读回确认的视频及上传者匹配才显示完成', async () => {
-  f.read.mockResolvedValue([
-    { video: { id: 'synthetic-video' }, uploader: binding.expectedAccountUin },
-  ]);
+it('宿主未确认时只核对原任务，确认后刷新原相册', async () => {
+  f.upload.mockImplementationOnce(async ({ requestId }) => {
+    f.task = {
+      id: 'synthetic-task',
+      requestId,
+      status: 'paused',
+      statusLabel: '上传结果待核对',
+      foreground: true,
+      canVerify: true,
+    };
+    return f.task.id;
+  });
   const ui = await mount();
   await ui.upload();
-  expect(localBackgroundTasks.snapshot()[0]?.status).toBe('completed');
+  expect(ui.host.textContent).toContain('上传结果待核对');
+  expect(f.changed).not.toHaveBeenCalled();
+  await act(async () =>
+    ui.host.querySelector<HTMLButtonElement>('[aria-label="核对上传结果"]')!.click(),
+  );
+  expect(f.verify).toHaveBeenCalledWith({
+    ...binding,
+    taskId: 'synthetic-task',
+    groupId: 123,
+    albumId: 'synthetic-album',
+  });
   expect(f.changed).toHaveBeenCalledOnce();
+  expect(f.upload).toHaveBeenCalledOnce();
 });
-it('请求发出后报错保留未确认，不诱导自动重传', async () => {
+it('提交响应中断后仅重读受理状态，不自动重传', async () => {
   f.upload.mockRejectedValueOnce(new Error('合成响应中断'));
   const ui = await mount();
   await ui.upload();
-  expect(localBackgroundTasks.snapshot()[0]).toMatchObject({
-    status: 'paused',
-    note: '合成响应中断',
-  });
+  expect(ui.host.textContent).toContain('宿主受理结果待核对');
+  await act(async () =>
+    ui.host.querySelector<HTMLButtonElement>('[aria-label="重新读取上传状态"]')!.click(),
+  );
   expect(f.upload).toHaveBeenCalledOnce();
 });
 
@@ -220,11 +281,11 @@ it('停止宿主分片传输会等待在途分片并释放暂存，不继续上�
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
   await ui.upload();
   await act(async () => vi.waitFor(() => expect(f.chunk).toHaveBeenCalledOnce()));
-  const task = localBackgroundTasks.snapshot().at(-1)!;
-  await act(async () => localBackgroundTasks.act(task.id, 'stop'));
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('running');
+  await act(async () =>
+    ui.host.querySelector<HTMLButtonElement>('[aria-label="停止传输到宿主"]')!.click(),
+  );
   await act(async () => release({ offset: 1024 * 1024 }));
-  expect(localBackgroundTasks.snapshot().at(-1)?.status).toBe('cancelled');
+  expect(ui.host.textContent).toContain('已停止传输视频到宿主');
   expect(f.chunk).toHaveBeenCalledOnce();
   expect(f.discard).toHaveBeenCalledWith(expect.objectContaining({ uploadId: 'synthetic-stage' }));
   expect(f.upload).not.toHaveBeenCalled();

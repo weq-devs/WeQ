@@ -6,6 +6,8 @@ import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useQQReadActivity } from './useQQAutoRefresh';
 import { contactCacheFields, shouldOfferContactRefresh } from '../lib/contactCachePolicy';
+import { queryInputBatches } from '../lib/queryInputBatches';
+import { IS_WEB } from '../lib/target.shared';
 import {
   defaultDescending,
   FRIEND_GROUPS,
@@ -96,14 +98,40 @@ export function useContactDirectoryOrder(
     () => (needsTimes ? seedTimes() : EMPTY_ROWS),
     [needsTimes, seedTimes],
   );
-  const times = trpc.account.contactMetrics.localTimes.useQuery(
-    { ...binding, kind },
-    {
-      enabled: activity.enabled && needsTimes,
-      keepPreviousData: false,
-      refetchInterval: (data) => (data?.done ? 5000 : 250),
-    },
+  const times = trpc.account.contactMetrics.localTimes.useQuery(binding, {
+    enabled: activity.enabled && kind === 'friends' && needsTimes,
+    keepPreviousData: false,
+    refetchInterval: (data) => (data?.done ? 5000 : 250),
+  });
+  const groupTimeInputs = useMemo(() => {
+    if (!enabled || kind !== 'groups' || !needsTimes) return [];
+    const codes = entities.flatMap(([key]) => /^group:([1-9]\d{0,14})$/.exec(key ?? '')?.[1] ?? []);
+    return queryInputBatches(
+      'account.contactMetrics.localGroupTimes',
+      [...new Set(codes)].sort(),
+      (groupCodes) => ({ ...binding, groupCodes }),
+      IS_WEB,
+      256,
+    );
+  }, [enabled, kind, needsTimes, entities, binding]);
+  const groupQueries = trpc.useQueries((rpc) =>
+    groupTimeInputs.map((input) =>
+      rpc.account.contactMetrics.localGroupTimes(input, {
+        enabled: activity.enabled,
+        refetchInterval: (data) => (data?.done ? 5000 : 250),
+      }),
+    ),
   );
+  const previousGroupQueries = useRef(groupQueries);
+  if (
+    groupQueries.length !== previousGroupQueries.current.length ||
+    groupQueries.some((query, index) => {
+      const previous = previousGroupQueries.current[index];
+      return query.data !== previous?.data || query.error !== previous?.error;
+    })
+  )
+    previousGroupQueries.current = groupQueries;
+  const groupTimes = previousGroupQueries.current;
   const maxSeqs = trpc.account.contactMetrics.localGroupMaxSeqs.useQuery(binding, {
     enabled: activity.enabled && needsMaxSeq,
     keepPreviousData: false,
@@ -125,12 +153,10 @@ export function useContactDirectoryOrder(
     const rows: DirectoryRows = { ...(snapshot.data?.rows ?? EMPTY_ROWS) };
     if (needsTimes)
       for (const [key, seed] of Object.entries(seeds)) rows[key] = { ...rows[key], ...seed };
-    if (needsTimes && times.data) {
+    if (kind === 'friends' && needsTimes && times.data) {
       const state = times.data.done ? ('ready' as const) : ('stale' as const);
       for (const aliases of entities) {
-        const key =
-          aliases.find((alias) => alias.startsWith(kind === 'friends' ? 'friend:u_' : 'group:')) ??
-          aliases[0];
+        const key = aliases.find((alias) => alias.startsWith('friend:u_')) ?? aliases[0];
         if (!key) continue;
         const id = key.slice(key.indexOf(':') + 1);
         const value = times.data.rows[id];
@@ -144,12 +170,33 @@ export function useContactDirectoryOrder(
             state,
             attemptedAt: 0,
           },
-          lastSpokeAt: {
-            partial: !times.data.done,
-            value: latest(seeds[key]?.lastSpokeAt?.value, value?.mine),
-            state,
+        };
+      }
+    }
+    for (const [index, result] of groupTimes.entries()) {
+      if (!result.data && !result.error) continue;
+      const failed = new Set(result.data?.failed);
+      for (const code of groupTimeInputs[index]!.groupCodes) {
+        const key = `group:${code}`;
+        const local = result.data?.rows[code];
+        const hasError = result.error || failed.has(code);
+        const cell = (sort: 'lastMessageAt' | 'lastSpokeAt', time: number | null | undefined) => {
+          const seed = seeds[key]?.[sort]?.value;
+          return {
+            value: typeof seed === 'number' && seed > (time ?? 0) ? seed : (time ?? undefined),
+            state: hasError
+              ? ('failed' as const)
+              : time === undefined
+                ? ('stale' as const)
+                : ('ready' as const),
+            partial: time === undefined && !hasError,
             attemptedAt: 0,
-          },
+          };
+        };
+        rows[key] = {
+          ...rows[key],
+          lastMessageAt: cell('lastMessageAt', local?.time),
+          lastSpokeAt: cell('lastSpokeAt', local?.mine),
         };
       }
     }
@@ -183,6 +230,8 @@ export function useContactDirectoryOrder(
     snapshot.data?.rows,
     needsTimes,
     times.data,
+    groupTimeInputs,
+    groupTimes,
     needsMaxSeq,
     maxSeqs.data,
     maxSeqs.error,

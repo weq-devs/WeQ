@@ -20,7 +20,10 @@ vi.mock('../src/main/context/app_context', () => ({
   accountRuntimeCacheRoot: () => fixture.root,
   getAppContext: () => ({
     account: fixture.session,
-    services: { accountConfig: { getRecord: () => ({ configId: 'live' }) } },
+    services: {
+      accountConfig: { getRecord: () => ({ configId: 'live' }) },
+      msgs: { getHiddenDeletedMsgIds: () => [] },
+    },
     platform: { native: { ntHelper: { executeSqlBudgeted: () => [] } } },
   }),
   accountEventBus: {
@@ -46,11 +49,16 @@ it('后台任务重开先恢复原任务，打开详情不扫描，继续后才�
   fixture.read.mockReturnValueOnce(firstRead.promise).mockResolvedValue({ rows: [], done: true });
   const caller = conversationCalendarRouter.createCaller({});
   const scope = { uin: binding.expectedAccountUin, configId: binding.expectedAccountConfigId };
+  const targets = [
+    { kind: 'c2c' as const, conv: '42', name: '测试会话', avatar: null, ancestors: [] },
+  ];
   const { id } = await caller.start({
     ...binding,
     month: '2026-10',
     day: '2026-10-10',
-    targets: [],
+    targets,
+    kinds: ['c2c'],
+    scopeLabel: '常规视图',
   });
   const { taskId } = await caller.background({ ...binding, id });
   await vi.advanceTimersByTimeAsync(100);
@@ -64,8 +72,21 @@ it('后台任务重开先恢复原任务，打开详情不扫描，继续后才�
   expect(backgroundTasks.snapshot().find((task) => task.id === taskId)).toMatchObject({
     status: 'paused',
   });
-  const detail = await caller.task({ ...binding, taskId: taskId! });
+  const taskInput = { ...binding, taskId: taskId! };
+  const detail = await caller.task({ ...taskInput, limit: 0 });
   expect(detail.snapshot.controls.month.state).toBe('paused');
+  await expect(caller.openTask(taskInput)).resolves.toEqual({
+    month: '2026-10',
+    day: '2026-10-10',
+    targets,
+    kinds: ['c2c'],
+    scopeLabel: '常规视图',
+  });
+  await expect(caller.start(taskInput)).resolves.toEqual({
+    id: detail.id,
+    day: '2026-10-10',
+    background: true,
+  });
   expect(fixture.read).toHaveBeenCalledOnce();
   await backgroundTasks.act(taskId!, 'resume');
   await vi.runAllTimersAsync();
@@ -77,6 +98,38 @@ it('后台任务重开先恢复原任务，打开详情不扫描，继续后才�
   restoreCalendarTasks(scope);
   expect(backgroundTasks.snapshot().some((task) => task.id === taskId)).toBe(false);
 });
+
+it('重启后从后台任务详情继续，关闭详情后仍完成余下统计', async () => {
+  vi.setSystemTime(new Date('2026-11-09T12:00:00+08:00'));
+  fixture.root = await mkdtemp(join(tmpdir(), 'weq-calendar-background-resume-'));
+  const firstRead = Promise.withResolvers<{ rows: never[]; done: boolean }>();
+  const resumedRead = Promise.withResolvers<{ rows: never[]; done: boolean }>();
+  fixture.read
+    .mockReturnValueOnce(firstRead.promise)
+    .mockReturnValueOnce(resumedRead.promise)
+    .mockResolvedValue({ rows: [], done: true });
+  const caller = conversationCalendarRouter.createCaller({});
+  const initial = await caller.start({
+    ...binding,
+    month: '2026-11',
+    day: '2026-11-08',
+    targets: [],
+  });
+  const { taskId } = await caller.background({ ...binding, id: initial.id });
+  await vi.advanceTimersByTimeAsync(100);
+  fixture.closing?.(fixture.session);
+  firstRead.resolve({ rows: [], done: true });
+  await waitForCalendarWrites();
+  fixture.session = { ...fixture.session };
+  const restored = await caller.task({ ...binding, taskId, day: '2026-11-07' });
+  await caller.control({ ...binding, id: restored.id, scope: 'month', action: 'continue' });
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(backgroundTasks.snapshot().find((task) => task.id === taskId)?.status).toBe('running');
+  resumedRead.resolve({ rows: [], done: true });
+  await vi.runAllTimersAsync();
+  expect(backgroundTasks.snapshot().find((task) => task.id === taskId)?.status).toBe('completed');
+});
+
 afterEach(async () => {
   fixture.closing?.(fixture.session);
   await waitForCalendarWrites();
@@ -94,18 +147,25 @@ it('账号关闭保存后，新账号实例打开同一来源恢复结果，不�
   const date = '2026-10-08',
     time = Date.parse(`${date}T00:00:00+08:00`) / 1000;
   const target = { kind: 'c2c' as const, conv: 'peer', name: '测试', avatar: null, ancestors: [] };
+  const second = { ...target, conv: 'another-peer' };
   fixture.read.mockResolvedValue({
     rows: [{ conv: target.conv, time, anchor: { id: '1', seq: '1', time } }],
     done: true,
   });
   const caller = conversationCalendarRouter.createCaller({});
-  const input = { ...binding, month: '2026-10', day: date, targets: [target] };
+  const input = { ...binding, month: '2026-10', day: date, targets: [target, second] };
   const first = await caller.start(input);
   await vi.runAllTimersAsync();
   await caller.stop({ ...binding, id: first.id });
   fixture.closing?.(fixture.session);
   await waitForCalendarWrites();
   fixture.session = { ...fixture.session };
+  const narrowed = await caller.start({ ...input, targets: [target] });
+  const reused = await caller.poll({ ...binding, id: narrowed.id, day: date, includeLogs: true });
+  expect(reused.rows[0]?.count).toBe(1);
+  expect(reused.logs?.some((line) => line.text.includes('复用其他会话范围'))).toBe(true);
+  expect(fixture.read).toHaveBeenCalledTimes(1);
+  await caller.stop({ ...binding, id: narrowed.id });
   const next = await caller.start(input);
   const restored = await caller.poll({ ...binding, id: next.id, day: date });
   expect(restored.rows[0]?.count).toBe(1);

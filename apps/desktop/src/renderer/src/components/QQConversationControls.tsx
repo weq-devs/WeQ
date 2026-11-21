@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import {
   BellOff,
+  MoreHorizontal,
   MessageSquareText,
   Pin,
   RefreshCw,
   UserRound,
   UserRoundCog,
+  UserMinus,
   Wifi,
   WifiOff,
 } from 'lucide-react';
@@ -15,9 +17,10 @@ import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useFriendSpecialCare } from '../hooks/useFriendSpecialCare';
 import { groupMemberEditing } from '../lib/groupMemberEditing';
 import { FEATURE_ICONS } from '../lib/featureIcons.shared';
-import { Card } from './settings/controls';
+import { Card, Row } from './settings/controls';
 import { useDialog } from './Dialog.shared';
 import { GroupActions } from './qq-actions/GroupActions';
+import { useDeleteFriend } from './qq-actions/relationshipActions.shared';
 import { QzoneFriendPermissions } from './qq-actions/QzoneFriendPermissions';
 import {
   QQWriteResult,
@@ -31,10 +34,12 @@ import { GROUP_MESSAGE_POLICY_OPTIONS } from './QQConversationControls.shared';
 export function QQConversationControls({
   kind,
   conv,
+  title: conversationName = conv,
   section = 'conversation',
 }: {
   kind: 'c2c' | 'group';
   conv: string;
+  title?: string;
   section?: 'conversation' | 'group-management';
 }) {
   const management = kind === 'group' && section === 'group-management';
@@ -259,7 +264,6 @@ export function QQConversationControls({
               ) : (
                 <QQWriteSelectRow
                   label="消息接收"
-                  segmented
                   icon={<BellOff size={14} strokeWidth={1.8} />}
                   autoSave
                   initial={policySnapshot.data?.rawPolicy ?? null}
@@ -337,9 +341,39 @@ export function QQConversationControls({
               />
             </Card>
           )}
-          {management && <GroupActions key={conv} groupId={Number(conv)} />}
+          {kind === 'c2c' && state.friend && !snapshot.error && (
+            <DeleteFriendSettings key={conv} uid={conv} name={conversationName} />
+          )}
+          {management && (
+            <GroupActions key={conv} groupId={Number(conv)} groupName={conversationName} />
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+function DeleteFriendSettings({ uid, name }: { uid: string; name: string }) {
+  const action = useDeleteFriend(uid);
+  const [removed, setRemoved] = useState(false);
+  if (removed) return null;
+  return (
+    <Card title="其他操作" icon={<MoreHorizontal size={15} strokeWidth={1.8} />}>
+      <Row
+        label="删除好友"
+        control={
+          <button
+            data-danger="outline"
+            type="button"
+            className="weq-set-btn"
+            disabled={action.disabled}
+            onClick={() => void action.run(uid, name).then((done) => done && setRemoved(true))}
+          >
+            <UserMinus size={16} aria-hidden />
+            删除好友
+          </button>
+        }
+      />
+    </Card>
   );
 }

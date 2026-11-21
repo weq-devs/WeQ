@@ -283,7 +283,7 @@ describe('功能搜索实际导航', () => {
   });
   it('群搜索进入临时会话时分别保留真实群名和备注，供群名片使用', () => {
     const setTemporaryConversations = vi.fn();
-    const jumpToConvSeq = vi.fn();
+    const jumpToSearchConversation = vi.fn();
     const open = sourceHandler<(hit: unknown) => void>(
       '../src/renderer/src/views/MainView.tsx',
       'openSearchHit',
@@ -297,7 +297,7 @@ describe('功能搜索实际导航', () => {
         hiddenConversationsById: new Map(),
         deletedConversationsById: new Map(),
         setTemporaryConversations,
-        jumpToConvSeq,
+        jumpToSearchConversation,
         groupAvatarSrc: () => null,
         fallbackPreference: {},
         centerWindowOnSeq: vi.fn(),
@@ -315,13 +315,12 @@ describe('功能搜索实际导航', () => {
       name: '真实群名',
       remark: '群备注',
     });
-    expect(jumpToConvSeq).toHaveBeenCalledWith(
+    expect(jumpToSearchConversation).toHaveBeenCalledWith(
       'group',
       '20001',
       undefined,
+      undefined,
       false,
-      undefined,
-      undefined,
       undefined,
     );
   });
@@ -380,12 +379,10 @@ describe('功能搜索实际导航', () => {
   ] as const)('%s 重置旧表情包目标并定位 %s 页签', (query, kind) => {
     const context = {
       ...navigationContext(),
-      setDressUpEmojiTarget: vi.fn(),
-      setDressUpSearchKind: vi.fn(),
+      setDressUpTarget: vi.fn(),
     };
     searchHandler(context)(searchAppEntries(query, true)[0]!);
-    expect(context.setDressUpEmojiTarget).toHaveBeenCalledWith(null);
-    expect(context.setDressUpSearchKind).toHaveBeenCalledWith(kind);
+    expect(context.setDressUpTarget).toHaveBeenCalledWith({ kind, revision: expect.any(Number) });
     expect(context.setDressUpOpen).toHaveBeenLastCalledWith(true);
   });
   it('频道私聊切到频道会话视图并进消息页，不沿用旧的消息定位', () => {

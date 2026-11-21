@@ -64,7 +64,7 @@ type DirectoryInput = {
   >;
   buddyRequests: QueryData<BuddyRequestWire[]>;
   groupNotifies: QueryData<Array<Omit<GroupNotifyWire, 'sourceTable'> & { sourceTable: string }>>;
-  onlineStatusByUid: ReturnType<typeof useContactOnlineStatuses>;
+  onlineStatusByUid: ReturnType<typeof useContactOnlineStatuses>['statuses'];
   specialCare: {
     data?: { items: Array<{ uin: string; uid: string; name: string }>; fansCount: number | null };
     isError: boolean;

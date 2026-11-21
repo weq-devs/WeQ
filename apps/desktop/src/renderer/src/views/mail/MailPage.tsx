@@ -22,12 +22,12 @@ import {
   Folder,
   Forward,
   Inbox,
+  Link,
   LoaderCircle,
   Mail,
   MailOpen,
   Paperclip,
   PenLine,
-  Power,
   RefreshCw,
   Reply,
   ReplyAll,
@@ -36,6 +36,7 @@ import {
   Settings,
   Star,
   Trash2,
+  Unlink,
   X,
 } from 'lucide-react';
 import type {
@@ -77,6 +78,7 @@ import { readWithRetry } from '../../lib/autoRead';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useRequestContentExport } from '../../state/contentSelection.shared';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
+import type { MailOpenTarget } from '../../lib/mailNavigation';
 
 const initialStatus: MailStatus = {
   state: 'disconnected',
@@ -114,7 +116,7 @@ export function MailPage({
   active?: boolean;
   onUnreadChange?: (unread: number) => void;
   onOpenRequested?: () => void;
-  searchTarget?: { id: string; folderId: number; revision: string } | null;
+  searchTarget?: MailOpenTarget | null;
   onOpenSettings?: () => void;
 }) {
   const notificationToast = useToastApi();
@@ -280,7 +282,7 @@ export function MailPage({
         composeDirty &&
         !(await useDialog
           .getState()
-          .confirm('打开搜索命中的邮件？', '当前写信内容尚未保存，确认后将退出写信。', {
+          .confirm('打开这封邮件？', '当前写信内容尚未保存，确认后将退出写信。', {
             danger: 'outline',
             okLabel: '打开邮件',
             tone: 'warning',
@@ -288,11 +290,27 @@ export function MailPage({
       )
         return;
       if (!mounted.current || currentSearch.current?.revision !== searchTarget.revision) return;
-      chooseFolder(searchTarget.folderId);
+      if (searchTarget.folderId === undefined) {
+        setThreadRoot(null);
+        setShowCompose(false);
+        clearChecked();
+      } else {
+        chooseFolder(searchTarget.folderId);
+      }
       setSelectedId(searchTarget.id);
       setSearchReadRevision((value) => value + 1);
     })();
-  }, [active, ready, searchTarget, chooseFolder, showCompose, composeDirty, setSelectedId]);
+  }, [
+    active,
+    ready,
+    searchTarget,
+    chooseFolder,
+    showCompose,
+    composeDirty,
+    clearChecked,
+    setShowCompose,
+    setSelectedId,
+  ]);
 
   const connect = useCallback(async () => {
     setError('');
@@ -669,8 +687,10 @@ export function MailPage({
             >
               {loading || status.state === 'connecting' ? (
                 <LoaderCircle size={17} className="weq-mail-spin" />
-              ) : (
+              ) : ready ? (
                 <RefreshCw size={17} />
+              ) : (
+                <Link size={17} />
               )}
             </button>
           )}
@@ -682,7 +702,7 @@ export function MailPage({
               disabled={composeBusy}
               onClick={() => void disconnect()}
             >
-              <Power size={17} />
+              <Unlink size={17} />
             </button>
           ) : null}
           <button
@@ -735,7 +755,7 @@ export function MailPage({
             {status.state === 'connecting' ? (
               <LoaderCircle size={16} className="weq-mail-spin" />
             ) : (
-              <Power size={16} />
+              <Link size={16} />
             )}
             连接当前 QQ
           </button>

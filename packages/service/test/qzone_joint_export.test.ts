@@ -74,9 +74,18 @@ async function waitForTask(manager: ExportTaskManager, id: string, saved = false
   }
 }
 async function run(
-  opts: { posts?: boolean; otherUrl?: string; repeats?: boolean; video?: boolean } = {},
+  opts: {
+    posts?: boolean;
+    otherUrl?: string;
+    repeats?: boolean;
+    video?: boolean;
+    repost?: QzoneEmotion['repost'];
+  } = {},
 ) {
-  const fetchMsgList = vi.fn(async () => ({ list: [structuredClone(post)], total: 1 }));
+  const fetchMsgList = vi.fn(async () => ({
+    list: [structuredClone({ ...post, repost: opts.repost })],
+    total: 1,
+  }));
   const fetchAlbumPage = vi.fn(async () => ({
     albums: [
       {
@@ -185,6 +194,37 @@ it('空间增量同时更新说说与相册分卷，复用整包媒体根，查�
   for (const resource of afterAlbum.resources.filter((resource) => resource.status === 'saved'))
     expect(readFileSync(join(saved, String(resource.path))).length).toBeGreaterThan(0);
 });
+it.each([false, true])('归档保留转发原帖的媒体，借用配图只挂在原帖：%s', async (mirrored) => {
+  const originalImage = mirrored ? image : 'https://synthetic.invalid/other-repost.png';
+  state.different = true;
+  const { task } = await run({
+    repost: {
+      tid: 'original',
+      uin: '20003',
+      nickname: '原作者',
+      content: '被转发的说说',
+      contentTruncated: false,
+      images: [originalImage],
+      videos: [],
+    },
+  });
+  expect(task.status).toBe('completed');
+  const archive = readArchive(
+    JSON.parse(readFileSync(join(task.bundleDir!, '合成空间.json'), 'utf8')),
+  );
+  const original = archive.records.find((record) => record.data.sourceId === 'original');
+  const matching = archive.resources.filter((item) => item.url === originalImage);
+  expect(matching).toHaveLength(1);
+  const resource = matching[0];
+  expect(original?.data.content).toContainEqual({
+    type: 'media',
+    mediaType: 'image',
+    resourceIds: [resource?.id],
+  });
+  expect(resource).toMatchObject({ status: 'saved' });
+  const bytes = readFileSync(join(task.bundleDir!, String(resource?.path)));
+  expect(resource?.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+});
 it('不同 URL 的相同内容只保留一份文件，不按图片名字或 URL 路径猜相同', async () => {
   const { task } = await run({ otherUrl: 'https://synthetic.invalid/other.png?quality=original' });
   expect(state.urls).toHaveLength(2);
@@ -230,10 +270,26 @@ it('相册视频仅能取得封面时保留复用图片，但不计为完整视�
   expect(task.stages.find((stage) => stage.key === 'file')?.failed).toBe(1);
   expect(state.urls).toEqual([image]);
 });
-it('取消后不继续下载或创建替代媒体', async () => {
+it('取消不下载媒体，也不拦住同一媒体池的新请求', async () => {
   const media = new QzoneMediaStore(join(root, 'media'));
   const controller = new AbortController();
   controller.abort();
   await expect(media.save(image, 'image', controller.signal)).rejects.toThrow();
   expect(state.urls).toHaveLength(0);
+  expect((await media.save(image, 'image')).ok).toBe(true);
+  expect(state.urls).toEqual([image]);
+});
+
+it('内容寻址目标冲突不覆盖旧文件，移开冲突后可重试同一媒体', async () => {
+  const media = new QzoneMediaStore(root);
+  const bytes = Buffer.from('89504e470d0a1a0a00', 'hex');
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const destination = join(root, sha256);
+  writeFileSync(destination, 'existing file');
+  await expect(media.save(image, 'image')).rejects.toThrow('同名资源内容冲突');
+  expect(readFileSync(destination, 'utf8')).toBe('existing file');
+  rmSync(destination);
+  await expect(media.save(image, 'image')).resolves.toMatchObject({ ok: true, fileName: sha256 });
+  expect(readFileSync(destination)).toEqual(bytes);
+  expect(readdirSync(root)).toEqual([sha256]);
 });

@@ -9,3 +9,8 @@
   width: 110px;
   min-width: 0;
 }
+
+.weq-update-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}

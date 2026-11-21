@@ -1,6 +1,7 @@
 import {
   useEffect,
   useCallback,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -8,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { formatDateTime } from '@weq/time';
 import {
   BookmarkPlus,
   Copy,
@@ -25,6 +27,7 @@ import {
 import { MessageMenuFeedbackContext } from '../../lib/messageMenuFeedback';
 import { MessageMenuButton } from '../../components/MessageMenuButton';
 import { MessageMenuContext } from '../../components/MessageMenuButton.shared';
+import { messageSequence, showsRoamingSource } from '../../components/MessageProvenance.shared';
 import type { Message } from './types';
 import { cn } from './classNames';
 import { canRepeatMessage, forwardUnsupportedReason } from '../../lib/messageRepeat';
@@ -63,6 +66,8 @@ export type MessageContextMenuState = {
 
 type Props = {
   state: MessageContextMenuState;
+  metadataPrecision?: 'second' | 'millisecond';
+  metadataSequence?: string;
   onClose?: () => void;
   onCopy: (message: Message) => void | Promise<void>;
   onForward?: (message: Message) => void;
@@ -115,6 +120,15 @@ export function MessageContextMenu(props: Props) {
   const tabActive = useTabActive();
   const { layer, scope } = useOverlayLayerScope(tabActive);
   const message = state.message;
+  const metadataId = useId();
+  const time = props.metadataPrecision
+    ? formatDateTime(message.createdAt, props.metadataPrecision)
+    : '';
+  const seq = props.metadataPrecision
+    ? messageSequence(props.metadataSequence ?? message.msgSeq)
+    : null;
+  const roaming = Boolean(props.metadataPrecision && showsRoamingSource(message));
+  const hasMetadata = Boolean(time || seq || roaming);
   const originElement = state.originElement;
   const menuRef = useRef<HTMLDivElement>(null);
   const focusedIndex = useRef(0);
@@ -307,6 +321,7 @@ export function MessageContextMenu(props: Props) {
           hidden={!tabActive}
           role="menu"
           aria-label="消息操作"
+          aria-describedby={hasMetadata ? metadataId : undefined}
           data-hover-delay="0"
           className={cn(
             'message-context-menu',
@@ -491,6 +506,15 @@ export function MessageContextMenu(props: Props) {
               ])}
             </div>
           </div>
+          {hasMetadata ? (
+            <p className="message-menu-metadata" id={metadataId} aria-hidden="true">
+              {time ? <span>{time}（北京时间）</span> : null}
+              {seq ? <span>seq {seq}</span> : null}
+              {roaming ? (
+                <span>{message.sourceFormat === 'native' ? 'QQ 原生漫游' : 'WeQ 漫游缓存'}</span>
+              ) : null}
+            </p>
+          ) : null}
           <div className="message-menu-feedback" ref={setFeedbackHost} />
         </div>
       </MessageMenuFeedbackContext.Provider>

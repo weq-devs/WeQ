@@ -70,6 +70,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             'setWidget',
             'setCallBackground',
             'setBackgroundOpacity',
+            'setWidgetOpacity',
           ].map((name) => [name, { useMutation: () => ({}) }]),
         ),
       },

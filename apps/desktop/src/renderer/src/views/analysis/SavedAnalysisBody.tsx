@@ -1,29 +1,43 @@
 import { FormSelect } from '../../components/FormSelect';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Play, RefreshCw, Square } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { ListTodo, Loader2, Play, RefreshCw, Square } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { analysisPeriod } from '@weq/service/analysis-report';
 import { eventTimeFormatter } from '@weq/time';
 import { BuddyAnalyticsDialog } from '../../components/BuddyAnalyticsDialog';
 import { GroupAnalyticsDialog } from '../../components/GroupAnalyticsDialog';
 import { MemberAnalyticsDialog } from '../../components/MemberAnalyticsDialog';
+import { useDialog } from '../../components/Dialog.shared';
 import type { AnalysisReportRequest } from './model';
 
 export function SavedAnalysisBody({
   request,
   onClose,
+  closeRequest,
 }: {
   request: Exclude<AnalysisReportRequest, { kind: 'annual' }>;
   onClose: () => void;
+  closeRequest?: RefObject<(() => void) | null>;
 }) {
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(Boolean(request.existing));
   const [error, setError] = useState('');
   const [positionError, setPositionError] = useState('');
   const [version, setVersion] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const position = useRef<number | null>(null);
   const restored = useRef<number | null>(null);
-  const input = useMemo(() => ({ ...request.scope, id: request.id }), [request]);
+  const { expectedAccountUin, expectedAccountConfigId } = request.scope;
+  const input = useMemo(
+    () => ({ expectedAccountUin, expectedAccountConfigId, id: request.id }),
+    [expectedAccountUin, expectedAccountConfigId, request.id],
+  );
+  const initial = useRef(request);
+  const creating = useRef<Promise<unknown> | null>(null);
+  const ownsRun = useRef(!request.existing);
+  const mounted = useRef(false);
+  const pending = useRef<Promise<unknown> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const confirm = useDialog((state) => state.confirm);
   const query = trpc.account.analysisReports.get.useQuery(input, {
     enabled: ready,
     refetchOnWindowFocus: false,
@@ -31,19 +45,33 @@ export function SavedAnalysisBody({
     refetchInterval: (data) => (data?.status === 'running' ? 1000 : false),
   });
   useEffect(() => {
-    let active = true;
-    void client.account.analysisReports.create
-      .mutate(request)
-      .then(() => {
-        if (active) setReady(true);
-      })
-      .catch((reason: unknown) => {
-        if (active) setError(String(reason));
-      });
+    mounted.current = true;
+    if (!initial.current.existing) {
+      creating.current ??= client.account.analysisReports.create.mutate(initial.current);
+      void creating.current.then(
+        () => {
+          if (mounted.current) setReady(true);
+        },
+        (reason: unknown) => {
+          ownsRun.current = false;
+          if (mounted.current) setError(String(reason));
+        },
+      );
+    }
     return () => {
-      active = false;
+      mounted.current = false;
+      // StrictMode remounts effects synchronously. An actual removal relinquishes the foreground run.
+      queueMicrotask(() => {
+        if (mounted.current || !ownsRun.current) return;
+        void Promise.allSettled([creating.current, pending.current])
+          .then(() => {
+            if (!mounted.current && ownsRun.current)
+              return client.account.analysisReports.pauseForeground.mutate(input);
+          })
+          .catch(() => undefined);
+      });
     };
-  }, [request]);
+  }, [input]);
   const saved = query.data;
   const versions = trpc.account.analysisReports.versions.useQuery(input, {
     enabled: ready,
@@ -99,29 +127,78 @@ export function SavedAnalysisBody({
       }
     },
   });
-  async function act(action: 'resume' | 'cancel' | 'refresh') {
+  async function perform(action: () => Promise<unknown>) {
+    if (pending.current) return;
+    const operation = Promise.resolve().then(action);
+    pending.current = operation;
+    setBusy(true);
+    setError('');
     try {
-      setError('');
+      await operation;
+    } catch (reason) {
+      if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      pending.current = null;
+      if (mounted.current) setBusy(false);
+    }
+  }
+  const act = (action: 'resume' | 'cancel' | 'refresh') =>
+    perform(async () => {
       if (action === 'refresh') setVersion(0);
       if (action === 'cancel') await client.account.analysisReports.cancel.mutate(input);
-      else
+      else {
+        ownsRun.current = true;
         await client.account.analysisReports.resume.mutate({
           ...input,
           refresh: action === 'refresh',
         });
+      }
       await query.refetch();
-    } catch (reason) {
-      setError(String(reason));
-    }
-  }
-  const range = (next: { start: number; end: number }) => {
-    setVersion(0);
-    void client.account.analysisReports.revise
-      .mutate({ ...input, startTime: next.start, endTime: next.end })
-      .then(() => query.refetch())
-      .catch((reason: unknown) => setError(String(reason)));
-  };
+    });
+  const range = (next: { start: number; end: number }) =>
+    void perform(async () => {
+      setVersion(0);
+      ownsRun.current = true;
+      await client.account.analysisReports.revise.mutate({
+        ...input,
+        startTime: next.start,
+        endTime: next.end,
+      });
+      await query.refetch();
+    });
   const running = saved?.status === 'running';
+  const foreground = saved?.taskHidden === true;
+  useLayoutEffect(() => {
+    if (!closeRequest) return;
+    closeRequest.current = () => {
+      if (pending.current) return;
+      if (ownsRun.current && (!saved || (foreground && (running || saved.status === 'paused')))) {
+        void perform(async () => {
+          if (
+            running &&
+            !(await confirm(
+              '暂停并关闭分析报告？',
+              '已完成的阶段会保留。稍后可从「已保存的分析报告」继续。',
+              { okLabel: '暂停并关闭', cancelLabel: '返回报告' },
+            ))
+          )
+            return;
+          await creating.current;
+          await client.account.analysisReports.pauseForeground.mutate(input);
+          ownsRun.current = false;
+          if (mounted.current) onClose();
+        });
+      } else {
+        ownsRun.current = false;
+        onClose();
+      }
+    };
+    return () => {
+      closeRequest.current = null;
+    };
+  });
+  const stage =
+    running && saved.logs.at(-1)?.text.startsWith('正在计算') ? saved.logs.at(-1)?.text : undefined;
   const data = (version ? historical.data?.results : undefined) ?? saved?.results;
   const historyError = version > 0 ? historical.error : undefined;
   return (
@@ -166,12 +243,10 @@ export function SavedAnalysisBody({
               }[saved.status]
             : '正在读取报告'}
         </span>
-        {saved && saved.status !== 'completed' && (
+        {stage && <span>{stage}</span>}
+        {saved && request.kind === 'group' && saved.status !== 'completed' && (
           <span>
-            <span className="weq-number weq-number-inherit">{saved.completed.length}</span> /{' '}
-            <span className="weq-number weq-number-inherit">
-              {request.kind === 'group' ? 3 : 1}
-            </span>
+            <span className="weq-number weq-number-inherit">{saved.completed.length}</span> / 3
           </span>
         )}
         {saved && (versions.data?.length ?? 0) > 1 ? (
@@ -192,10 +267,28 @@ export function SavedAnalysisBody({
               ))}
           </FormSelect>
         ) : null}
+        {running && foreground && (
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={busy}
+            onClick={() =>
+              void perform(async () => {
+                await client.account.analysisReports.background.mutate(input);
+                ownsRun.current = false;
+                if (mounted.current) onClose();
+              })
+            }
+          >
+            <ListTodo size={16} aria-hidden />
+            后台进行
+          </button>
+        )}
         {saved && (
           <button
             type="button"
             className="weq-set-iconbtn"
+            disabled={busy}
             title={running ? '取消分析' : saved.status === 'completed' ? '重新分析' : '继续分析'}
             aria-label={
               running ? '取消分析' : saved.status === 'completed' ? '重新分析' : '继续分析'

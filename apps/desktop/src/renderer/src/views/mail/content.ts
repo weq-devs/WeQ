@@ -3,6 +3,8 @@ import DOMPurify from 'dompurify';
 import { validMailAddress } from '@weq/service/mail-wire';
 import type { MailAddress, MailDetail } from '@weq/service/mail';
 
+const mailImageData = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/i;
+
 export function mailError(error: unknown): string {
   return error instanceof Error ? error.message : '邮箱操作失败，请重试。';
 }
@@ -130,24 +132,21 @@ export function mailBodyFragment(html: string, images: boolean): DocumentFragmen
   }
   for (const image of fragment.querySelectorAll('img')) {
     const value = image.getAttribute('src') ?? '';
-    if (
-      value &&
-      !value.startsWith('https://') &&
-      !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(value)
-    )
-      image.removeAttribute('src');
+    if (!mailImageData.test(value)) image.removeAttribute('src');
   }
   return fragment;
 }
 
-export function inlineMailImages(html: string): string[] {
-  return [
+export function mailBodyImages(html: string): { ids: string[]; hasImages: boolean } {
+  const fragment = mailBodyFragment(html, true);
+  const ids = [
     ...new Set(
-      [...mailBodyFragment(html, false).querySelectorAll('img[data-mail-inline]')]
+      [...fragment.querySelectorAll('img[data-mail-inline]')]
         .map((image) => image.getAttribute('data-mail-inline') ?? '')
         .filter((id) => /^[0-9a-f-]{36}$/i.test(id)),
     ),
-  ].slice(0, 100);
+  ];
+  return { ids, hasImages: ids.length > 0 || fragment.querySelector('img[src]') !== null };
 }
 
 export function mailDocument(
@@ -159,12 +158,12 @@ export function mailDocument(
   if (images)
     for (const image of fragment.querySelectorAll('img[data-mail-inline]')) {
       const value = sources[image.getAttribute('data-mail-inline') ?? ''];
-      if (value && /^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(value))
-        image.setAttribute('src', value);
+      if (value && mailImageData.test(value)) image.setAttribute('src', value);
     }
   const holder = document.createElement('div');
   holder.append(fragment);
-  const csp = `default-src 'none'; script-src 'none'; img-src data:${images ? ' https:' : ''}; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'`;
+  const csp =
+    "default-src 'none'; script-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
   const style = `html{color:var(--mail-fg);color-scheme:var(--mail-scheme)}
 body{margin:0;padding:20px;font:14px/1.65 system-ui,sans-serif;overflow-wrap:anywhere;background:transparent}
 img,table{max-width:100%}img{height:auto}img:not([src]){display:none}

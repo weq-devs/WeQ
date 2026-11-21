@@ -342,7 +342,7 @@ function isAlbumPlaceholderUrl(url: string): boolean {
 }
 
 export async function collectAlbumMedia(
-  services: AccountServices,
+  services: Pick<AccountServices, 'groupAlbumMedia'>,
   groupCode: string,
   albumId: string,
   signal?: AbortSignal,

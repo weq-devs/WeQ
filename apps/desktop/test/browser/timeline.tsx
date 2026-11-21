@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, useState } from 'react';
+import { createElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../support/templateDemoData';
@@ -11,6 +11,7 @@ import {
 import {
   captureReadingPosition,
   restoreReadingPosition,
+  restoreReadingPositionAfterPrepend,
 } from '../../src/renderer/src/lib/conversationReadingPosition';
 import {
   revealTimelineMessage,
@@ -29,6 +30,7 @@ const demo = createTemplateDemoData();
 const params = new URLSearchParams(location.search);
 const entryCount = Number(params.get('count') ?? 3000);
 const delayedEntry = params.has('delayed');
+const delayMedia = params.has('delay-media');
 const unreadFrom = Number(params.get('unread-from'));
 const unreadDock =
   unreadFrom > 1000
@@ -88,6 +90,7 @@ const conversation = {
 };
 const message = (seq: number): Message => ({
   id: `row-${seq}`,
+  ...(params.has('read-progress') ? { msgId: String(seq) } : {}),
   conversationId: conversation.id,
   senderId: seq % 3 ? 'u_peer' : user.id,
   senderUid: seq % 3 ? 'u_peer' : 'u_self',
@@ -98,19 +101,29 @@ const message = (seq: number): Message => ({
     ? { bubbleId: cachedBubble.itemId, fontId: 0, widgetId: 0, cachedBubble }
     : undefined,
   qqElements:
-    seq % 19 === 0
-      ? [
-          {
-            type: 'pic',
-            data: {
-              fileName: `fixture-${seq}.png`,
-              localPreviewUrl: image,
-              imgWidth: 300,
-              imgHeight: 180 + (seq % 5) * 80,
-            },
+    params.has('image-grid') && seq === 1004
+      ? Array.from({ length: 4 }, (_, index) => ({
+          type: 'pic',
+          data: {
+            fileName: `grid-${index}.png`,
+            localPreviewUrl: image,
+            imgWidth: 300,
+            imgHeight: 400,
           },
-        ]
-      : undefined,
+        }))
+      : seq % 19 === 0
+        ? [
+            {
+              type: 'pic',
+              data: {
+                fileName: `fixture-${seq}.png`,
+                ...(delayMedia && seq === 1102
+                  ? { localPreviewUrl: `${location.origin}/timeline-delayed.svg` }
+                  : { localPreviewUrl: image, imgWidth: 300, imgHeight: 180 + (seq % 5) * 80 }),
+              },
+            },
+          ]
+        : undefined,
 });
 const scroll = () => document.querySelector<HTMLElement>('.message-scroll')!;
 const bridge: Record<string, unknown> = {};
@@ -129,12 +142,22 @@ if (params.has('resize-diagnostics')) {
 function Fixture() {
   const rootRef = useRef<HTMLDivElement>(null);
   const sentBodies = useRef<string[]>([]);
+  const readSequences = useRef(new Set<string>());
+  const [unreadReady, setUnreadReady] = useState(!params.has('delay-unread'));
+  const readProgress = params.has('read-progress');
   const mobileInput = params.has('mobile-input');
   useMobileWebViewport(rootRef, mobileInput);
   const [conversationId, setConversationId] = useState(conversation.id);
   const [messages, setMessages] = useState(() =>
     Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) => message(i + 1001)),
   );
+  const pendingPrepend = useRef<ReturnType<typeof captureReadingPosition>>(undefined);
+  useLayoutEffect(() => {
+    const pending = pendingPrepend.current;
+    if (!pending) return;
+    pendingPrepend.current = undefined;
+    restoreReadingPositionAfterPrepend(scroll(), pending);
+  }, [messages]);
   const [loading, setLoading] = useState(delayedEntry);
   const [jumpRequest, setJumpRequest] = useState<{ messageId: string; revision: number }>();
   useEffect(() => {
@@ -145,7 +168,7 @@ function Fixture() {
     }, 100);
     return () => clearTimeout(timer);
   }, []);
-  const [atLatest, setAtLatest] = useState(true);
+  const [atLatest, setAtLatest] = useState(!params.has('delay-unread'));
   const [active, setActive] = useState(true);
   const [initialPosition, setInitialPosition] = useState(!params.has('entry'));
   const selection = useContentMultiSelect({
@@ -156,6 +179,8 @@ function Fixture() {
   Object.assign(bridge, {
     virtualThreshold: TIMELINE_VIRTUAL_THRESHOLD,
     sentBodies: () => sentBodies.current,
+    readSequences: () => [...readSequences.current],
+    showUnreadDock: () => setUnreadReady(true),
     beginEntry: () => {
       setConversationId((id) => `${id}-loading`);
       setMessages([]);
@@ -178,9 +203,10 @@ function Fixture() {
     jump: (id: string) => revealTimelineMessage(scroll(), id, true),
     requestJump: (messageId: string) => setJumpRequest({ messageId, revision: Date.now() }),
     capture: () => captureReadingPosition(scroll()),
-    restore: (position: Parameters<typeof restoreReadingPosition>[1]) =>
-      restoreReadingPosition(scroll(), position),
+    restore: (position: Parameters<typeof restoreReadingPosition>[1], ease = false) =>
+      restoreReadingPosition(scroll(), position, { ease }),
     prepend: () => {
+      pendingPrepend.current = captureReadingPosition(scroll(), { transient: true });
       setAtLatest(false);
       setMessages((rows) => [...Array.from({ length: 50 }, (_, i) => message(951 + i)), ...rows]);
     },
@@ -272,7 +298,13 @@ function Fixture() {
       user,
       conversation: { ...conversation, id: conversationId },
       messages,
-      unreadDock,
+      groupConsecutiveMessages: params.has('grouped'),
+      unreadDock: unreadReady ? (unreadDock ?? null) : undefined,
+      readThroughViewport: readProgress,
+      confirmedReadSeq: readProgress ? '1000' : undefined,
+      onReadCurrentConversation: (_, seqs) => {
+        for (const seq of seqs ?? []) readSequences.current.add(seq);
+      },
       jumpRequest,
       messageRenderers: [qqMessageRenderer],
       atLatest,

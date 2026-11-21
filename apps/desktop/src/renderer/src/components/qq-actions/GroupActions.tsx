@@ -14,6 +14,7 @@ import {
   ListTodo,
   Tags,
   UsersRound,
+  UserRoundX,
 } from 'lucide-react';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { Card, Row } from '../settings/controls';
@@ -36,11 +37,21 @@ import { GroupJoinSettings } from './GroupJoinSettings';
 import { GroupAdvancedSettings } from './GroupAdvancedSettings';
 import { ActionFeedback, ActionIcon } from './shared';
 import { useQQAction, useQQGroupPermissions, withQQAccountScope } from './shared.shared';
+import { useGroupExitActions } from './relationshipActions.shared';
 
-function GroupActionsBody({ groupId }: { groupId: number }) {
+function GroupActionsBody({
+  groupId,
+  groupName = 'QQ 群',
+}: {
+  groupId: number;
+  groupName?: string;
+}) {
   const a = useQQAction(`group:${groupId}`);
   const permissions = useQQGroupPermissions(groupId, a);
   const canManage = permissions.data?.canManage === true;
+  const exits = useGroupExitActions(a);
+  const role = permissions.error ? null : permissions.data?.role;
+  const exit = role === 'owner' ? exits.disband : role ? exits.leave : null;
   const [tag, setTag] = useState('');
   const groupRefresh = useQQAutoRefresh(a.available);
   const info = trpc.account.qqActions.groupJoinSettings.useQuery(
@@ -187,42 +198,26 @@ function GroupActionsBody({ groupId }: { groupId: number }) {
             ) : null}
           </section>
         </Card>
-        <Card title="其他操作" icon={<MoreHorizontal size={15} strokeWidth={1.8} />}>
-          <Row
-            label="退出群聊"
-            control={
-              <button
-                data-danger="solid"
-                type="button"
-                className="weq-set-btn weq-set-btn-danger"
-                aria-label="退出群聊"
-                disabled={a.disabled || permissions.data?.role === null}
-                onClick={() =>
-                  void a.perform(
-                    (b) =>
-                      client.account.qqActions.groupSettings.mutate({
-                        ...b,
-                        groupId,
-                        action: 'leave',
-                      }),
-                    undefined,
-                    `退出 QQ 群 ${groupId}？重新加入需要再次申请，不能自动恢复。`,
-                    {
-                      danger: 'solid',
-                      readback: async () => {
-                        const rows = await client.account.listAllGroups.query();
-                        return !rows.some((row) => String(row.groupCode) === String(groupId));
-                      },
-                    },
-                  )
-                }
-              >
-                <LogOut size={16} />
-                退出群聊
-              </button>
-            }
-          />
-        </Card>
+        {exit && (
+          <Card title="其他操作" icon={<MoreHorizontal size={15} strokeWidth={1.8} />}>
+            <Row
+              label={exit.label}
+              control={
+                <button
+                  data-danger="outline"
+                  type="button"
+                  className="weq-set-btn"
+                  aria-label={exit.label}
+                  disabled={exit.disabled}
+                  onClick={() => void exit.run(groupId, groupName)}
+                >
+                  {role === 'owner' ? <UserRoundX size={16} /> : <LogOut size={16} />}
+                  {exit.label}
+                </button>
+              }
+            />
+          </Card>
+        )}
         <ActionFeedback action={a} />
       </div>
     </section>

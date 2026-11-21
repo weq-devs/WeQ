@@ -21,6 +21,7 @@ import type { AccountSession } from '@weq/account';
 import { classifyChatType } from '@weq/codec';
 import type { AccountServices } from './app_context';
 import { backgroundTasks } from '../background_tasks';
+import { GroupDirectoryTimeCache } from './group_directory_times';
 const validContactUid = (uid: string) => /^u_[A-Za-z0-9_-]+$/.test(uid);
 type RefreshContact = { uid: string; uin: bigint };
 
@@ -60,6 +61,7 @@ const refreshCheckpoint = z.object({
   startedAt: z.number(),
   updatedAt: z.number(),
   status: z.enum(['running', 'paused', 'completed', 'failed', 'cancelled']),
+  foreground: z.boolean().optional(),
   plan: z.record(z.string(), z.array(z.string())).optional(),
   done: z.array(z.string()),
   graphDone: z.boolean(),
@@ -152,7 +154,8 @@ export class ContactDirectoryRuntime {
   private groupMeta = new Map<string, Record<string, unknown>>();
   private scope: { uin: string; configId: string };
   private readonly selfUid: string;
-  private readonly timeReaders: Record<'friends' | 'groups', DirectoryTimeReader>;
+  private readonly friendTimes: DirectoryTimeReader;
+  private readonly groupTimes: GroupDirectoryTimeCache;
   private readonly stopProfileWatch?: () => void;
 
   constructor(
@@ -175,18 +178,37 @@ export class ContactDirectoryRuntime {
       { normalize: (value) => z.object({ task: refreshCheckpoint.optional() }).parse(value) },
     );
     this.selfUid = session.selfUid;
-    this.timeReaders = {
-      friends: new DirectoryTimeReader(
-        (cursor) => session.c2cMsgs.directoryTimePage(cursor),
-        this.selfUid,
-        session.context.uin,
-      ),
-      groups: new DirectoryTimeReader(
-        (cursor) => session.groupMsgs.directoryTimePage(cursor),
-        this.selfUid,
-        session.context.uin,
-      ),
-    };
+    this.friendTimes = new DirectoryTimeReader(
+      (cursor) => session.c2cMsgs.directoryTimePage(cursor),
+      this.selfUid,
+      session.context.uin,
+    );
+    const groupSourcePath = session.groupMsgs.sourcePath;
+    const groupSource = createHash('sha256')
+      .update(JSON.stringify([this.scope.uin, this.selfUid, configId, groupSourcePath ?? source]))
+      .digest('hex');
+    const readGroupTimes = <T>(read: () => Promise<T>) =>
+      withDatabasePriority(
+        'background',
+        async () => {
+          this.assertCurrent();
+          const result = await read();
+          this.assertCurrent();
+          return result;
+        },
+        this.lifetime.signal,
+      );
+    this.groupTimes = new GroupDirectoryTimeCache(
+      join(cacheDir, `group-directory-times-${groupSource}.json`),
+      groupSourcePath,
+      (codes) =>
+        readGroupTimes(() =>
+          session.groupMsgs.recentDirectoryTimes(codes, this.selfUid, this.scope.uin),
+        ),
+      (code) =>
+        readGroupTimes(() => session.groupMsgs.directoryTimes(code, this.selfUid, this.scope.uin)),
+      this.lifetime.signal,
+    );
     services.groupInfo.setMemberRosterCache(join(cacheDir, 'group-members'));
     services.groupInfo.setGroupProfileCache(join(cacheDir, 'group-profiles'));
     this.history = new ContactHistoryService(cacheDir);
@@ -242,16 +264,19 @@ export class ContactDirectoryRuntime {
     this.stopProfileWatch = services.intentSense?.onCachedProfilesChanged?.(() => {
       if (this.isCurrent()) this.cache.emit('profilesChanged');
     });
-    if (session.c2cMsgs?.sourcePath)
+    const friendSourcePath = session.c2cMsgs?.sourcePath;
+    for (const dbPath of new Set([friendSourcePath, groupSourcePath])) {
+      if (!dbPath) continue;
       this.watches.push(
         watcher.mount({
-          dbPath: session.c2cMsgs.sourcePath,
+          dbPath,
           onDbFileChangeHook: () => {
-            this.timeReaders.friends.invalidate();
-            this.timeReaders.groups.invalidate();
+            if (dbPath === friendSourcePath) this.friendTimes.invalidate();
+            if (dbPath === groupSourcePath) this.groupTimes.invalidate();
           },
         }),
       );
+    }
     for (const dbPath of new Set([session.profileInfo.dbPath, session.groupMembers.dbPath])) {
       this.watches.push(
         watcher.mount({
@@ -291,15 +316,24 @@ export class ContactDirectoryRuntime {
     };
   }
 
-  async localTimes(kind: 'friends' | 'groups') {
+  async localTimes() {
     this.assertCurrent();
     const result = await withDatabasePriority(
       'background',
-      () => this.timeReaders[kind].read(),
+      () => this.friendTimes.read(),
       this.lifetime.signal,
     );
     this.assertCurrent();
     return result;
+  }
+  async localGroupTimes(groupCodes: readonly string[]) {
+    this.assertCurrent();
+    const result = await this.groupTimes.read([...new Set(groupCodes)]);
+    this.assertCurrent();
+    return result;
+  }
+  prioritizeGroupTimes(groupCodes: readonly string[]) {
+    if (this.isCurrent()) this.groupTimes.prioritize(groupCodes);
   }
   async localGroupMaxSeqs() {
     this.assertCurrent();
@@ -330,18 +364,27 @@ export class ContactDirectoryRuntime {
 
   /** 进度校准不复制整份联系人指标缓存。 */
   status() {
+    const task = backgroundTasks.snapshot().find((item) => item.id === this.taskId);
+    const groupGraph = this.target === 'groupMembers' && this.cache.progress.phase === '整理结果';
     return {
       taskId: this.taskId,
       target: this.target,
+      foreground: task?.foreground,
+      actions: task?.actions ?? [],
+      statusLabel: task?.statusLabel,
       relationGraphRevision: this.relationGraphRevision,
       progress: this.preparing
         ? { ...this.cache.progress, status: 'running' as const, phase: '本地资料' }
-        : { ...this.cache.progress },
+        : {
+            ...this.cache.progress,
+            phase: groupGraph ? '重新计算群交集' : this.cache.progress.phase,
+          },
     };
   }
 
   private refreshPresentation({ missingOnly, target }: RefreshOptions) {
     return {
+      destination: target === 'groupMembers' ? ('group-intersection' as const) : undefined,
       name:
         target === 'groupMembers'
           ? '更新全部群成员并重算群交集'
@@ -388,6 +431,7 @@ export class ContactDirectoryRuntime {
         id: saved.id,
         kind: 'contacts',
         scope: this.scope,
+        foreground: saved.foreground,
         startedAt: saved.startedAt,
         updatedAt: saved.updatedAt,
         status,
@@ -417,6 +461,23 @@ export class ContactDirectoryRuntime {
       });
     this.checkpointWrite = write;
     return write;
+  }
+
+  async backgroundRefresh(id: string) {
+    const refresh = this.refresh;
+    this.assertCurrent();
+    if (refresh?.id !== id || refresh.options.target !== 'groupMembers')
+      throw new Error('群成员更新批次已改变，请刷新');
+    if (!refresh.foreground) return;
+    refresh.foreground = false;
+    try {
+      await this.persistRefresh();
+    } catch (error) {
+      refresh.foreground = true;
+      throw error;
+    }
+    backgroundTasks.setForeground(id, false);
+    this.cache.emit('changed');
   }
 
   private saveRefreshSoon() {
@@ -871,6 +932,7 @@ export class ContactDirectoryRuntime {
     fields?: ContactMetric[],
     range: 'all' | 'older24h' = 'all',
     target: 'metrics' | 'groupMembers' = 'metrics',
+    foreground = false,
   ) {
     if (this.disposed || !this.current()) throw new Error('账号已切换');
     if (
@@ -883,6 +945,7 @@ export class ContactDirectoryRuntime {
       return this.taskId;
     }
     const options = { missingOnly, fields, range, target };
+    const showInPage = target === 'groupMembers' && foreground;
     this.target = target;
     this.needsRebuild = true;
     this.completed = new Set();
@@ -896,6 +959,7 @@ export class ContactDirectoryRuntime {
       ...this.refreshPresentation(options),
       kind: 'contacts',
       scope: this.scope,
+      foreground: showInPage,
       statusLabel: '本地资料',
       progress: 0,
     });
@@ -907,6 +971,7 @@ export class ContactDirectoryRuntime {
       startedAt: now,
       updatedAt: now,
       status: 'running',
+      foreground: showInPage,
       done: [],
       graphDone: false,
       failures: [],
@@ -1450,6 +1515,7 @@ export class ContactDirectoryRuntime {
     this.services.groupInfo.disposeGroupProfiles();
     this.disposed = true;
     this.lifetime.abort();
+    this.groupTimes.flush();
     this.stopPreparing = 'cancel';
     this.checkAgain = false;
     this.pendingKinds.clear();

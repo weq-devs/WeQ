@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import assert from 'node:assert/strict';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -14,9 +15,20 @@ const cacheDir = await mkdtemp(resolve(root, 'node_modules/.cache/timeline-scrol
 const baseline = process.env.WEQ_TIMELINE_BASELINE_REF;
 const width = Number(process.env.WEQ_SCROLL_WIDTH ?? 1280);
 const cachedBubbles = process.env.WEQ_SCROLL_CACHED_BUBBLES === '1';
+const grouped = process.env.WEQ_SCROLL_GROUPED === '1';
+const imageGrid = process.env.WEQ_SCROLL_IMAGE_GRID === '1';
+const touchReply = process.env.WEQ_SCROLL_TOUCH_REPLY === '1';
+const fixtureFlags = [
+  cachedBubbles && '&cached-bubbles=1',
+  grouped && '&grouped=1',
+  imageGrid && '&image-grid=1',
+]
+  .filter(Boolean)
+  .join('');
 const server = await createServer({
   configFile: false,
   root,
+  define: touchReply ? { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') } : undefined,
   cacheDir,
   optimizeDeps: { entries: ['test/browser/timeline.html'] },
   plugins: [
@@ -62,7 +74,11 @@ try {
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
   });
-  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  const page = await browser.newPage({
+    viewport: { width, height: 900 },
+    isMobile: touchReply,
+    hasTouch: touchReply,
+  });
   await page.route('**/*', (route) =>
     new URL(route.request().url()).hostname === '127.0.0.1' ||
     route.request().url().startsWith('data:')
@@ -70,9 +86,102 @@ try {
       : route.abort(),
   );
   await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=25${cachedBubbles ? '&cached-bubbles=1' : ''}`,
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=25${fixtureFlags}`,
   );
   await page.waitForSelector('[data-message-id="row-1001"]');
+  if (touchReply) {
+    const cdp = await page.context().newCDPSession(page);
+    const target = page.locator('[data-message-id="row-1003"] .message-content');
+    const swipe = async (dx, dy, whileDragging) => {
+      await target.scrollIntoViewIfNeeded();
+      const bounds = await target.boundingBox();
+      const x = bounds.x + Math.min(80, bounds.width / 2);
+      const y = bounds.y + bounds.height / 2;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (const fraction of [0.25, 0.5, 0.75, 1]) {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [{ x: x + dx * fraction, y: y + dy * fraction }],
+        });
+      }
+      await whileDragging?.(bounds);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    };
+    const quote = page.getByLabel('待发送的引用');
+    await target.scrollIntoViewIfNeeded();
+    const before = await page.locator('.message-scroll').evaluate((element) => element.scrollTop);
+    await swipe(0, -100);
+    await page.waitForFunction(
+      (top) => document.querySelector('.message-scroll').scrollTop > top + 5,
+      before,
+    );
+    assert.equal(await quote.count(), 0);
+    await swipe(-80, 0, async (bounds) => {
+      assert.ok((await target.boundingBox()).x < bounds.x - 50, '气泡应在松手前跟随手指');
+      const arrow = page.locator('[data-message-id="row-1003"] .weq-swipe-reply-icon');
+      assert.equal(await arrow.evaluate((element) => getComputedStyle(element).opacity), '1');
+      assert.equal(await quote.count(), 0);
+    });
+    await quote.waitFor();
+    assert.match(await quote.textContent(), /合成消息 1003/);
+    const editor = page.locator('.composer-editor').first();
+    assert.ok(await editor.evaluate((element) => document.activeElement === element));
+    await page.keyboard.insertText('引用后直接输入');
+    assert.match(await editor.textContent(), /引用后直接输入/);
+    await cdp.detach();
+    await page.reload();
+    await page.waitForSelector('[data-message-id="row-1001"]');
+  }
+  if (imageGrid) {
+    const grid = page.locator('[data-message-id="row-1004"] .qq-image-grid');
+    await grid.waitFor();
+    const layout = await grid.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return [...element.querySelectorAll('.qq-image-grid-tile > span button.qq-media-wrap')].map(
+        (button) => {
+          const rect = button.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            square: Math.abs(rect.width - rect.height) < 1,
+            within: rect.right <= bounds.right + 1 && rect.bottom <= bounds.bottom + 1,
+          };
+        },
+      );
+    });
+    assert.equal(layout.length, 4);
+    assert.ok(
+      layout.every((tile) => tile.square && tile.within),
+      JSON.stringify(layout),
+    );
+    assert.equal(layout[0].y, layout[2].y);
+    assert.ok(layout[0].x < layout[1].x && layout[1].x < layout[2].x);
+    assert.equal(layout[3].x, layout[0].x);
+    assert.ok(layout[3].y > layout[0].y);
+  }
+  if (grouped && !cachedBubbles) {
+    const layout = await page.evaluate(() => {
+      const first = document.querySelector('[data-message-id="row-1003"]');
+      const last = document.querySelector('[data-message-id="row-1004"]');
+      const upper = first.querySelector('.message-content');
+      const lower = last.querySelector('.message-content');
+      return {
+        firstAvatar: Boolean(first.querySelector('.avatar')),
+        lastAvatar: Boolean(last.querySelector('.avatar')),
+        leftOffset: Math.abs(
+          upper.getBoundingClientRect().left - lower.getBoundingClientRect().left,
+        ),
+        gap: last.getBoundingClientRect().top - first.getBoundingClientRect().bottom,
+        joins: [
+          getComputedStyle(upper).borderEndStartRadius,
+          getComputedStyle(lower).borderStartStartRadius,
+        ],
+      };
+    });
+    assert.ok(layout.firstAvatar && !layout.lastAvatar);
+    assert.ok(layout.leftOffset < 1 && layout.gap >= 3 && layout.gap <= 5, JSON.stringify(layout));
+    assert.deepEqual(layout.joins, ['3px', '3px']);
+  }
   await page.evaluate(() => {
     window.scrollProbe = { active: false, phase: '', samples: [] };
     const sample = () => {
@@ -86,6 +195,11 @@ try {
           .filter((rect) => rect.bottom > bounds.top && rect.top < bounds.bottom);
         const top = Math.min(...visible.map((rect) => rect.top));
         const bottom = Math.max(...visible.map((rect) => rect.bottom));
+        const anchor = state.anchorId
+          ? rows
+              .find((row) => row.querySelector(`[data-message-id="${state.anchorId}"]`))
+              ?.querySelector(`[data-message-id="${state.anchorId}"]`)
+          : null;
         state.samples.push({
           frameAt: performance.now(),
           decoratedRows: scroll.querySelectorAll('.message-line[data-bubble="21009"]').length,
@@ -99,6 +213,7 @@ try {
           blankTop: Math.max(0, top - bounds.top),
           blankBottom: Math.max(0, bounds.bottom - bottom),
           blank: !visible.length || top - bounds.top > 48 || bounds.bottom - bottom > 48,
+          anchorTop: anchor ? anchor.getBoundingClientRect().top - bounds.top : null,
         });
       }
       requestAnimationFrame(sample);
@@ -114,14 +229,18 @@ try {
         }),
       count,
     );
-  await page.evaluate(() => {
+  const beforePrepend = await page.evaluate(() => {
     window.scrollProbe.active = true;
     window.scrollProbe.phase = 'prepend-cross-threshold';
+    const position = window.timelineTest.capture();
+    window.scrollProbe.anchorId = position.anchorId;
     window.timelineTest.prepend();
+    return position;
   });
   await frames(8);
   await page.evaluate(() => {
     window.scrollProbe.active = false;
+    window.scrollProbe.anchorId = null;
     window.timelineTest.setCount(3000);
   });
   await frames(4);
@@ -142,9 +261,21 @@ try {
     window.scrollProbe.active = false;
     return window.scrollProbe.samples;
   });
+  if (!baseline) {
+    for (const { phase, anchorTop } of samples) {
+      if (phase !== 'prepend-cross-threshold') continue;
+      assert.ok(
+        anchorTop !== null && Math.abs(anchorTop - beforePrepend.offset) <= 2,
+        `跨虚拟化阈值翻页后阅读位置变化 ${JSON.stringify({ anchorTop, beforePrepend })}`,
+      );
+    }
+  }
   const report = {
     width,
     cachedBubbles,
+    grouped,
+    imageGrid,
+    touchReply,
     baseline: baseline ?? null,
     samples: samples.length,
     blankFrames: samples.filter((sample) => sample.blank),
@@ -174,6 +305,156 @@ try {
   if (report.bubbleFallbackFrames.length) throw new Error('快速滚动出现默认气泡');
   if (cachedBubbles && report.minDecoratedRows < 1) throw new Error('缺少实际气泡行');
   if (report.maxMounted >= 150) throw new Error('预挂载恢复为大规模全量挂载');
+  if (!baseline && width >= 1000 && !cachedBubbles) {
+    let finishImage;
+    const pendingImage = new Promise((resolve) => {
+      finishImage = resolve;
+    });
+    await page.route('**/timeline-delayed.svg', async (route) => {
+      await pendingImage;
+      await route.fulfill({
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="600"><rect width="300" height="600" fill="teal"/></svg>',
+      });
+    });
+    await page.goto(
+      `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=180&delay-media${fixtureFlags}`,
+    );
+    await page.waitForFunction(() => window.timelineTest?.jump);
+    const imageRequest = page.waitForRequest('**/timeline-delayed.svg');
+    await page.evaluate(() => window.timelineTest.jump('row-1102'));
+    await imageRequest;
+    const media = page.locator('[data-message-id="row-1102"] img.qq-media-image');
+    const next = page.locator('[data-message-id="row-1103"]');
+    await next.waitFor();
+    await frames(4);
+    const before = { image: await media.boundingBox(), next: await next.boundingBox() };
+    finishImage();
+    await page.waitForFunction(() => {
+      const image = document.querySelector('[data-message-id="row-1102"] img.qq-media-image');
+      return image?.naturalHeight === 600 && Number(getComputedStyle(image).opacity) > 0;
+    });
+    await frames(4);
+    const after = { image: await media.boundingBox(), next: await next.boundingBox() };
+    if (
+      Math.abs(before.image.height - after.image.height) > 1 ||
+      Math.abs(before.next.y - after.next.y) > 1
+    )
+      throw new Error(`未知尺寸的图片改变了消息位置 ${JSON.stringify({ before, after })}`);
+
+    await page.evaluate(() => {
+      const scroll = document.querySelector('.message-scroll');
+      const row = document.querySelector('[data-message-id="row-1103"]').parentElement;
+      scroll.scrollTop +=
+        row.getBoundingClientRect().bottom - scroll.getBoundingClientRect().top + 72;
+    });
+    await frames(4);
+    const drift = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const scroll = document.querySelector('.message-scroll');
+          const row = document.querySelector('[data-message-id="row-1103"]');
+          const next = document.querySelector('[data-message-id="row-1104"]');
+          scroll.addEventListener(
+            'scroll',
+            () => {
+              const top = next.getBoundingClientRect().top;
+              const observer = new ResizeObserver(() => {
+                observer.disconnect();
+                resolve(next.getBoundingClientRect().top - top);
+              });
+              observer.observe(row.parentElement);
+              row.style.minHeight = `${row.getBoundingClientRect().height + 40}px`;
+            },
+            { once: true },
+          );
+          scroll.scrollTop -= 10;
+        }),
+    );
+    if (Math.abs(drift) > 1) throw new Error(`向上滚动时行高变化移动了锚点 ${drift}px`);
+    const waitForScrollIdle = () =>
+      page.evaluate(
+        () =>
+          new Promise((resolve, reject) => {
+            const scroll = document.querySelector('.message-scroll');
+            let timer;
+            const finish = (error) => {
+              clearTimeout(timer);
+              clearTimeout(deadline);
+              scroll.removeEventListener('scroll', schedule);
+              if (error) reject(error);
+              else resolve();
+            };
+            const schedule = () => {
+              clearTimeout(timer);
+              timer = setTimeout(finish, 200);
+            };
+            const deadline = setTimeout(() => finish(new Error('滚动未停止')), 3000);
+            // 等最后一次滚动事件交付后再验停滚缓动，包含行高补偿触发的滚动。
+            scroll.addEventListener('scroll', schedule);
+            schedule();
+          }),
+      );
+    for (const [reducedMotion, interrupt] of [
+      ['no-preference', false],
+      ['reduce', false],
+      ['no-preference', true],
+    ]) {
+      await page.emulateMedia({ reducedMotion });
+      await waitForScrollIdle();
+      const animation = await page.evaluate((interrupt) => {
+        const scroll = document.querySelector('.message-scroll');
+        const saved = window.timelineTest.capture();
+        const start = scroll.scrollTop;
+        // 固定动画帧时间，避免宿主繁忙时一帧跨过整段缓动。
+        const request = window.requestAnimationFrame;
+        const cancel = window.cancelAnimationFrame;
+        const callbacks = new Map();
+        let nextId = 0;
+        window.requestAnimationFrame = (callback) => {
+          callbacks.set(++nextId, callback);
+          return nextId;
+        };
+        window.cancelAnimationFrame = (id) => void callbacks.delete(id);
+        const frame = (time) => {
+          for (const [id, callback] of [...callbacks]) {
+            if (callbacks.delete(id)) callback(time);
+          }
+          return start - scroll.scrollTop;
+        };
+        try {
+          const time = performance.now();
+          window.timelineTest.restore({ ...saved, offset: saved.offset + 40 }, true);
+          const immediate = start - scroll.scrollTop;
+          const intermediate = frame(time + 32);
+          if (interrupt)
+            scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 10 }));
+          return { immediate, intermediate, final: frame(time + 150) };
+        } finally {
+          window.requestAnimationFrame = request;
+          window.cancelAnimationFrame = cancel;
+        }
+      }, interrupt);
+      if (reducedMotion === 'reduce') {
+        assert.ok(Math.abs(animation.immediate - 40) <= 1, '启用减少动态效果时应立即定位');
+      } else {
+        assert.ok(Math.abs(animation.immediate) <= 1, '缓动开始时位置突然跳变');
+        assert.ok(animation.intermediate > 1 && animation.intermediate < 39, '缺少缓动中间帧');
+        const expected = interrupt ? animation.intermediate : 40;
+        assert.ok(Math.abs(animation.final - expected) <= 1, '缓动未收敛或被滚轮打断');
+      }
+    }
+    await page.evaluate(() => window.timelineTest.jump('row-1175'));
+    await media.waitFor({ state: 'detached' });
+    await page.evaluate(() => window.timelineTest.jump('row-1102'));
+    await page.waitForFunction(() => {
+      const image = document.querySelector('[data-message-id="row-1102"] img.qq-media-image');
+      return image?.getBoundingClientRect().height === 360;
+    });
+    console.log(
+      JSON.stringify({ delayedImageHeight: after.image.height, backwardAnchorDrift: drift }),
+    );
+  }
 } finally {
   await browser?.close();
   await server.close();

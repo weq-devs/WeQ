@@ -43,9 +43,13 @@ export function withQQAccountScope<P extends object>(
     );
   };
 }
-export function useQQAction(scope: string, feedback: QQWriteFeedback = 'all') {
+export function useQQAction(
+  scope: string,
+  feedback: QQWriteFeedback = 'all',
+  { passive = false } = {},
+) {
   const ownerDocument = useRenderDocument();
-  const session = useQQWriteSession(`actions:${scope}`);
+  const session = useQQWriteSession(`actions:${scope}`, passive);
   const confirm = useDialog((s) => s.confirm);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);

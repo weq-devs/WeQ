@@ -46,7 +46,8 @@
  * ──────────────────────────────────────────────────────────────────── */
 
 :root,
-html[data-theme='light'] {
+html[data-theme='light'],
+[data-component-preview] {
   --background: oklch(0.99 0 0);
   --foreground: oklch(0.2 0 0);
   --card: oklch(1 0 0);
@@ -148,7 +149,8 @@ html[data-theme='light'] {
 }
 
 html[data-theme='dark'],
-.dark {
+.dark,
+:where(html[data-theme='dark']) [data-component-preview] {
   --weq-list-selected-background: color-mix(
     in srgb,
     var(--weq-accent-effective) 18%,
@@ -567,9 +569,7 @@ html body.weq-tool-window {
   }
 
   .weq-number:not(:where(input)) {
-    font-family: var(--weq-font-number);
     font-weight: 500;
-    letter-spacing: 0;
     font-variant-numeric: tabular-nums;
   }
 
@@ -5156,30 +5156,24 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .weq-cp-hex {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  min-width: 98px;
   height: 30px;
   padding: 0 10px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 8px;
-  background: #ffffff;
-  color: #6b7785;
   font-family: var(--font-mono);
   font-size: 12px;
 }
 
-.weq-cp-hex:focus-within {
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 52%, transparent);
+.weq-cp-hex > span {
+  color: var(--weq-accent-ink);
 }
 
 .weq-cp-hex input {
-  width: 64px;
-  border: 0;
-  background: transparent;
-  outline: none;
-  color: #1f2933;
+  width: 6ch;
+  padding: 0;
   font: inherit;
+  text-align: center;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .weq-cp-presets {
@@ -6673,16 +6667,6 @@ html[data-theme='dark'] .weq-set-toggle-track {
 
 html[data-theme='dark'] .weq-cp-swatch {
   border-color: rgba(17, 23, 31, 0.92);
-}
-
-html[data-theme='dark'] .weq-cp-hex {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: #141920;
-  color: #99a7b8;
-}
-
-html[data-theme='dark'] .weq-cp-hex input {
-  color: #edf2f7;
 }
 
 html[data-theme='dark'] .weq-cp-preview-hex {
@@ -9742,13 +9726,15 @@ html[data-theme='dark'] .weq-call-recording-play {
 }
 
 .weq-forward-body {
+  --weq-forward-row-gap: 12px;
+  --weq-forward-group-gap: 4px;
   flex: 1 1 auto;
   overflow-y: auto;
   padding: 8px 12px 12px;
   background: #fafafa;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--weq-forward-row-gap);
 }
 
 /* 转发窗口 / 合成转发预览里的居中灰条行（撤回、戳一戳、群提示、群通话结束…）。
@@ -20446,6 +20432,10 @@ html[data-theme='dark'] .essence-unknown {
   padding: 16px 18px 8px;
 }
 
+.weq-chatrecords-head > .weq-dialog-x {
+  flex: none;
+}
+
 /* 顶栏搜索按钮进入的「当前会话」模式：标题下方带会话名小标签。 */
 .weq-chatrecords-title-wrap {
   display: flex;
@@ -20462,6 +20452,10 @@ html[data-theme='dark'] .essence-unknown {
   max-width: 320px;
   font-size: 12px;
   color: var(--weq-fg-muted);
+}
+
+.weq-chatrecords-fixed-conv > span {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -29,6 +29,7 @@ import {
   type ReactNode,
 } from 'react';
 import { QzoneCardNavigationContext, qzoneCardTarget } from '../../lib/qzoneNavigation';
+import { MailCardNavigationContext, mailCardId } from '../../lib/mailNavigation';
 import {
   GroupAlbumCardNavigationContext,
   inspectGroupAlbumArk,
@@ -91,13 +92,13 @@ function ArkShell({
   className,
   children,
   footer,
-  onActivate,
+  activation,
 }: {
   jump?: string;
   className?: string;
   children: ReactNode;
   footer?: ReactNode;
-  onActivate?: () => void;
+  activation?: { label: string; open: () => void };
 }): ReactElement {
   const navigate = useContext(QzoneCardNavigationContext);
   const openGroupAlbum = useContext(GroupAlbumCardNavigationContext);
@@ -106,10 +107,10 @@ function ArkShell({
   const groupAlbumTarget =
     albumNavigation.target ?? (directAlbum?.state === 'target' ? directAlbum.target : null);
   const navigationBlocked =
-    !onActivate && (albumNavigation.blocked || directAlbum?.state === 'invalid');
+    !activation && (albumNavigation.blocked || directAlbum?.state === 'invalid');
   const target = jump ? qzoneCardTarget(jump) : null;
   const onOpen =
-    onActivate ??
+    activation?.open ??
     (navigationBlocked
       ? undefined
       : groupAlbumTarget && openGroupAlbum
@@ -117,31 +118,26 @@ function ArkShell({
         : target && navigate
           ? () => navigate(target)
           : openHandler(jump));
+  const linkTitle = groupAlbumTarget && openGroupAlbum ? '查看群相册' : jump;
   return (
     <div
       className={className ? `weq-ark-container ${className}` : 'weq-ark-container'}
-      role={onActivate ? 'button' : onOpen ? 'link' : undefined}
+      role={activation ? 'button' : onOpen ? 'link' : undefined}
       aria-disabled={navigationBlocked || undefined}
       title={
         navigationBlocked
           ? '卡片目标无效或存在冲突'
-          : onActivate
-            ? '查看群名片'
-            : groupAlbumTarget && openGroupAlbum
-              ? '查看群相册'
-              : onOpen
-                ? jump
-                : undefined
+          : (activation?.label ?? (onOpen ? linkTitle : undefined))
       }
       onClick={(event) => {
-        if (onActivate) event.stopPropagation();
+        if (activation) event.stopPropagation();
         onOpen?.();
       }}
       tabIndex={onOpen ? 0 : undefined}
       onKeyDown={(event) => {
         if (onOpen && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault();
-          if (onActivate) event.stopPropagation();
+          if (activation) event.stopPropagation();
           onOpen();
         }
       }}
@@ -179,7 +175,7 @@ function ContactCard({ v, group }: { v: ArkValues; group?: GroupShareTarget }): 
     <>
       <ArkShell
         jump={group ? undefined : v.jump}
-        onActivate={group ? () => setOpen(true) : undefined}
+        activation={group ? { label: '查看群名片', open: () => setOpen(true) } : undefined}
         className={group ? 'weq-ark-contact weq-ark-group-share' : 'weq-ark-contact'}
         footer={<ArkFooter source={v.footerSource} icon={v.footerIcon} />}
       >
@@ -344,13 +340,20 @@ function GenericCard({
  * QQ邮箱通知卡。显示 title（发件人）、subTitle（邮件主题）、content（正文预览）。
  */
 function ArkMail({ p }: { p: ArkPayload }): ReactElement {
+  const navigate = useContext(MailCardNavigationContext);
   const title = s(p, 'title');
   const subTitle = s(p, 'subTitle');
   const content = s(p, 'content');
   const jumpUrl = s(p, 'mailUrl') || s(p, 'mailUrlByCode') || undefined;
+  const id = navigate && jumpUrl ? mailCardId(jumpUrl) : null;
 
   return (
-    <ArkShell jump={jumpUrl}>
+    <ArkShell
+      jump={jumpUrl}
+      activation={
+        navigate && id ? { label: '在 QQ 邮箱中打开', open: () => navigate(id) } : undefined
+      }
+    >
       {title ? <div className="weq-ark-title">{title}</div> : null}
       {subTitle ? (
         <div className="weq-ark-desc" style={{ fontWeight: 500, marginBottom: 6 }}>

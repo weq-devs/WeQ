@@ -1,62 +1,41 @@
 /**
- * AntiRecallService — anti-recall feature bound to the current account.
- *
- * Ties four things together:
- *   • persisted config (per account): master switch + the set of conversations
- *     the user chose to protect + the per-conversation recall-notification set.
- *     Stored as one JSON file, modeled on {@link DeletedMsgStore} (load on
- *     construct, persist on mutate, silent on I/O error).
- *   • the SQL-trigger installer {@link AntiRecallDb} (in @weq/db) that actually
- *     writes/drops the `BEFORE UPDATE … RAISE(IGNORE)` triggers on nt_msg.db.
- *   • a `qqRunning` hint alongside every write: install/uninstall works whether
- *     or not QQ is open (each trigger DDL is a short, lock-releasing write), but
- *     QQ may keep serving from its already-open connection's cached schema, so a
- *     freshly (un)installed trigger can take until QQ's next restart to actually
- *     (stop) firing. The renderer surfaces `qqRunning` to warn about exactly that.
- *   • a background monitor (a {@link DbWatchService} on nt_msg.db) that drains the
- *     `weq_recall_log` table the trigger writes and raises the injected
- *     `onRecall` hook for conversations whose notification switch is on. The
- *     monitor baselines on start / whenever protection is (re)enabled, so records
- *     that pre-date this run never notify (启动时老记录不通知).
- *
- * The renderer drives it through the anti_recall tRPC router:
- *   getStatus        → { …config, installed, qqRunning }  (installed = live triggers)
- *   setEnabled       → flip master switch, reconcile triggers
- *   setMode          → 'selected' | 'all' (永久全选), reconcile triggers
- *   setTargets       → replace protected-conversation set, reconcile triggers
- *   setNotify        → notification master switch + per-conversation set
- *   listRecalls      → recorded recalls of one conversation (撤回记录面板)
- *   listRecallConversations → per-conversation summary of recorded recalls (目录)
- *
- * Settings writes are **optimistic**: they persist config, kick the (potentially
- * slow, SQLCipher) trigger reconcile off in the background, and return the
- * desired state immediately so the UI never blocks. A later `getStatus` reads the
- * live trigger set as the source of truth.
+ * 防撤回配置与运行状态。三种保护方式共用会话名单，原有配置迁移为数据库触发器方式。
+ * WeQ 原文副本按账号来源持久保存，数据库监听与代理推送汇入同一撤回记录。
+ * 配置保存后串行应用触发器；状态返回实际读回的安装结果及应用中的标记。
  */
 
 import {
+  QqDb,
   AntiRecallDb,
-  expectedAntiRecallTriggers,
   withDatabaseSignal,
   withDatabasePriority,
   assertDatabaseWritable,
   type AntiRecallTarget,
   type AntiRecallTriggerInfo,
+  type RecallBaseline,
   type RecallConvSummary,
+  type RecallCursor,
   type RecallLogRow,
 } from '@weq/db';
+import { isDatalineUid } from '@weq/codec';
 import { type AccountSession, algoFor } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { JsonStore } from '../common/json_store';
 import type { PreferencePersistence } from '../common/shared_preferences';
 import { DbWatchService, type DbWatchHandle, type DbWatchTask } from './db_watch';
+import { RecallArchive } from './recall_archive';
+import { createNtMsgDbHook } from './nt_msg_hook';
+import type { GapFetchedMessage } from './gap_history';
 import { getLogger, logErrorContext } from '../common/logger';
 
 const logger = getLogger().child({ scope: 'anti-recall' });
 
 /** Persisted anti-recall config for one account. */
+export type AntiRecallMethod = 'weq' | 'proxy' | 'database';
+
 export interface AntiRecallConfig {
-  /** Master switch. When false, no triggers are installed regardless of targets/mode. */
+  method?: AntiRecallMethod;
+  /** 总开关；关闭后停止收集和过滤，并卸下触发器。 */
   enabled: boolean;
   /**
    * `'selected'` (default) — only `targets` are protected.
@@ -85,6 +64,10 @@ export interface AntiRecallStatus extends AntiRecallConfig {
   installed: AntiRecallTriggerInfo[];
   /** True while QQ is running — installs are deferred / the UI warns to restart. */
   qqRunning: boolean;
+  proxyConnected?: boolean;
+  error?: string;
+  applying?: boolean;
+  restartSuggested?: boolean;
 }
 
 /** One intercepted recall handed to the injected notifier. */
@@ -101,6 +84,8 @@ export interface RecallNotifyEvent {
 
 export interface AntiRecallOptions {
   readOnly?: boolean;
+  archivePath?: string;
+  onArchiveChanged?: (message: GapFetchedMessage) => void;
   preferences?: PreferencePersistence<AntiRecallConfig>;
   notificationsEnabled?: () => boolean;
   onObservedRecall?: (event: RecallNotifyEvent) => void;
@@ -115,6 +100,7 @@ export interface AntiRecallOptions {
 const DEFAULT_CONFIG: AntiRecallConfig = {
   enabled: false,
   mode: 'selected',
+  method: 'database',
   targets: [],
   notifyEnabled: false,
   notifyTargets: [],
@@ -155,17 +141,22 @@ export class AntiRecallService {
   private monitorGeneration = 0;
   private reconcileAbort = new AbortController();
   private recallBaseline: Promise<void> | null = null;
-  /**
-   * 撤回记录的读取游标（`weq_recall_log` 的最大 msgid）。null = 尚未建立基线，
-   * 下次 drain 只记录当前最大值、不通知 —— 保证启动 / 刚开启保护时不会把历史记录
-   * 当新撤回弹出来。
-   *
-   * 必须是 `bigint`：msgid（QQ 40001）是 7.7e18 量级的 64 位整数，超过
-   * `Number.MAX_SAFE_INTEGER`（2^53）。之前用 `number` 存游标时 `Number(msgid)`
-   * 会向下取整，游标永远停在新记录**下面**，`msgid > cursor` 反复命中同一行 ——
-   * 这就是「同一条撤回过一会儿弹一次」的根因。整条链路（含 db 层比较）都不许碰 Number。
-   */
-  private recallCursor: bigint | null = null;
+  /** 记录最后一秒已交付的撤回，下一次读取仍包含这一秒。 */
+  private lastRecall: RecallBaseline | null = null;
+  readonly archive?: RecallArchive;
+  private proxyConnected = false;
+  private error = '';
+  private proxyError = '';
+  private restartSuggested = false;
+  private installed: AntiRecallTriggerInfo[] = [];
+  private applying = false;
+  private reconcileQueue: Promise<void> = Promise.resolve();
+  private reconcileRevision = 0;
+  private snapshotScanPending = false;
+  private snapshotBaselining = true;
+  private readonly startedAtSeconds = Math.floor(Date.now() / 1000);
+  private snapshotScan: Promise<void> | null = null;
+  private readonly deliveredRecalls = new Set<string>();
 
   constructor(
     private readonly session: AccountSession,
@@ -181,6 +172,7 @@ export class AntiRecallService {
         return {
           enabled: parsed.enabled === true,
           mode: parsed.mode === 'all' ? 'all' : 'selected',
+          method: parsed.method === 'weq' || parsed.method === 'proxy' ? parsed.method : 'database',
           targets: Array.isArray(parsed.targets)
             ? parsed.targets
                 .filter(
@@ -198,6 +190,24 @@ export class AntiRecallService {
         };
       },
     });
+    if (opts.archivePath && !opts.readOnly)
+      this.archive = new RecallArchive(
+        platform.native.ntHelper,
+        opts.archivePath,
+        (kind, conv) => this.protects(kind, conv),
+        (message) => {
+          this.publishRecall({
+            kind: isDatalineUid(message.conv) ? 'dataline' : message.kind,
+            conv: message.conv,
+            msgId: message.msgId,
+            senderUid: message.senderUid,
+            revokeUid: message.recall!.revokeUid,
+            origSeq: message.msgSeq,
+            recallTs: message.recall!.recallTs,
+          });
+          opts.onArchiveChanged?.(message);
+        },
+      );
     if (opts.preferences) this.reconcileInBackground();
   }
 
@@ -215,18 +225,67 @@ export class AntiRecallService {
     return (
       this.config.enabled &&
       (this.config.mode === 'all' ||
-        this.config.targets.some((target) => target.kind === kind && target.id === conv))
+        this.config.targets.some(
+          (target) =>
+            (target.kind === kind || (kind === 'c2c' && target.kind === 'dataline')) &&
+            target.id === conv,
+        ))
     );
+  }
+
+  protection() {
+    return {
+      enabled: this.config.enabled,
+      method: this.config.method ?? 'database',
+      mode: this.config.mode,
+      targets: this.config.targets,
+    };
+  }
+  setProxyState(connected: boolean, error = '') {
+    this.proxyConnected = connected;
+    this.proxyError = error;
+  }
+  async setMethod(method: 'off' | AntiRecallMethod): Promise<AntiRecallStatus> {
+    const prior = this.config.enabled ? (this.config.method ?? 'database') : 'off';
+    if (prior !== method && (prior === 'database' || method === 'database') && this.isQqRunning())
+      this.restartSuggested = true;
+    this.config = {
+      ...this.config,
+      enabled: method !== 'off',
+      method: method === 'off' ? this.config.method : method,
+    };
+    this.resetRecallBaseline();
+    this.reconcileInBackground();
+    return this.optimisticStatus();
+  }
+  private publishRecall(event: RecallNotifyEvent) {
+    if (this.archive && (this.snapshotBaselining || event.recallTs < this.startedAtSeconds)) return;
+    const key = `${event.kind}:${event.conv}:${event.msgId}`;
+    if (this.deliveredRecalls.has(key)) return;
+    this.deliveredRecalls.add(key);
+    if (this.deliveredRecalls.size > 10000)
+      this.deliveredRecalls.delete(this.deliveredRecalls.values().next().value!);
+    this.opts.onObservedRecall?.(event);
+    if (
+      this.config.notifyTargets.includes(notifyKey(event.kind, event.conv)) &&
+      this.notificationsEnabled(this.config)
+    )
+      this.opts.onRecall?.(event);
   }
 
   /** Current config + live trigger state + whether QQ is running. */
   async getStatus(): Promise<AntiRecallStatus> {
     const installed = this.opts.readOnly ? [] : await this.openDb().status();
+    this.installed = installed;
     return {
       ...this.config,
       notifyEnabled: this.notificationsEnabled(this.config),
       settingsRevision: this.opts.preferences?.revision?.(),
       installed,
+      proxyConnected: this.proxyConnected,
+      error: this.error || (this.protection().method === 'database' ? '' : this.proxyError),
+      applying: this.applying,
+      restartSuggested: this.restartSuggested,
       qqRunning: this.isQqRunning(),
     };
   }
@@ -380,16 +439,109 @@ export class AntiRecallService {
     if (this.monitorHandle) return;
     const generation = ++this.monitorGeneration;
     this.monitor = new DbWatchService({ intervalMs: 1_000 });
+    const snapshotHook = this.archive
+      ? createNtMsgDbHook(this.session, {
+          onDbChanged: () => {
+            void this.scanSnapshots();
+          },
+          onNewMessages: async (change) => {
+            await this.archive!.observeNative([
+              ...change.c2c,
+              ...change.group,
+              ...(change.dataline ?? []),
+            ]);
+            await this.scanSnapshots();
+          },
+        })
+      : undefined;
     const task: DbWatchTask = {
       dbPath: this.session.msgDbPath,
-      onDbFileChangeHook: () => {
+      dispose: () => snapshotHook?.dispose?.(),
+      onDbFileChangeHook: (file) => {
         const reads = this.monitorReads;
         if (generation !== this.monitorGeneration || !reads) return;
+        if (this.config.enabled) snapshotHook?.onDbFileChangeHook(file);
         return withDatabaseSignal(reads.signal, () => this.drainRecalls(reads));
       },
     };
     this.monitorHandle = this.monitor.mount(task);
     this.resetRecallBaseline();
+    snapshotHook?.onDbFileChangeHook({
+      dbPath: this.session.msgDbPath,
+      prevTotal: 0,
+      total: 0,
+      delta: 0,
+      files: [],
+      at: Date.now(),
+    });
+  }
+
+  private async scanSnapshots() {
+    if (!this.archive || !this.config.enabled) return;
+    if (this.snapshotScan) {
+      this.snapshotScanPending = true;
+      return;
+    }
+    const generation = this.monitorGeneration;
+    this.snapshotScan = (async () => {
+      const ids = await this.archive!.pendingNativeIds();
+      const db = new QqDb(this.platform.native.ntHelper, {
+        dbPath: this.session.msgDbPath,
+        key: this.session.context.dbKey,
+        algo: algoFor(this.session.context, this.session.msgDbPath),
+      });
+      for (const kind of ['c2c', 'group', 'dataline'] as const) {
+        if (generation !== this.monitorGeneration) return;
+        const selected = ids
+          .filter((row) =>
+            kind === 'group'
+              ? row.kind === 'group'
+              : row.kind === 'c2c' && isDatalineUid(row.conv) === (kind === 'dataline'),
+          )
+          .map((row) => row.id);
+        if (!selected.length) continue;
+        const table =
+          kind === 'group'
+            ? 'group_msg_table'
+            : kind === 'dataline'
+              ? 'dataline_msg_table'
+              : 'c2c_msg_table';
+        const candidates = await db.query(
+          `SELECT "40001" FROM ${table}
+          WHERE "40001" IN (SELECT CAST(value AS INTEGER) FROM json_each(?))
+          AND instr("40800",X'd0fc1508')>0`,
+          [JSON.stringify(selected)],
+        );
+        if (!candidates.length) continue;
+        const source =
+          kind === 'group'
+            ? this.session.groupMsgs
+            : kind === 'dataline'
+              ? this.session.datalineMsgs
+              : this.session.c2cMsgs;
+        const rows = await source.listByMsgIds(candidates.map((row) => BigInt(String(row[0]))));
+        await this.archive!.observeNative(rows);
+      }
+    })()
+      .catch((error) => {
+        this.error = (error as Error).message;
+      })
+      .finally(() => {
+        this.snapshotBaselining = false;
+        this.snapshotScan = null;
+        if (this.snapshotScanPending && generation === this.monitorGeneration) {
+          this.snapshotScanPending = false;
+          void this.scanSnapshots();
+        }
+      });
+    await this.snapshotScan;
+  }
+
+  async dispose() {
+    this.stopMonitor();
+    await this.snapshotScan;
+    await this.reconcileQueue;
+    await this.archive?.close();
   }
 
   /** Stop the recall monitor. Idempotent. */
@@ -399,7 +551,7 @@ export class AntiRecallService {
     this.monitorReads?.abort();
     this.monitorReads = null;
     this.recallBaseline = null;
-    this.recallCursor = null;
+    this.lastRecall = null;
     this.monitorHandle?.unmount();
     this.monitorHandle = null;
     this.monitor = null;
@@ -419,9 +571,11 @@ export class AntiRecallService {
     if (this.opts.readOnly) return;
     const db = this.openDb();
     try {
-      const allConversations = this.config.enabled && this.config.mode === 'all';
-      const active = this.config.enabled ? this.config.targets : [];
+      const enabled = this.config.enabled && (this.config.method ?? 'database') === 'database';
+      const allConversations = enabled && this.config.mode === 'all';
+      const active = enabled ? this.config.targets : [];
       await db.reconcile(active, allConversations);
+      this.installed = await db.status();
     } finally {
       db.close();
     }
@@ -434,29 +588,36 @@ export class AntiRecallService {
    */
   private reconcileInBackground(): void {
     if (this.opts.readOnly) return;
-    void withDatabasePriority(
-      'background',
-      () => this.applyTriggers(),
-      this.reconcileAbort.signal,
-    ).catch((error) => {
-      if (this.reconcileAbort.signal.aborted) return;
-      logger.warn('anti-recall reconcile failed', {
-        event: 'anti-recall-reconcile-failed',
-        ...logErrorContext(error),
+    this.applying = true;
+    const revision = ++this.reconcileRevision;
+    this.reconcileQueue = this.reconcileQueue
+      .catch(() => undefined)
+      .then(() =>
+        withDatabasePriority('background', () => this.applyTriggers(), this.reconcileAbort.signal),
+      )
+      .then(() => {
+        if (revision === this.reconcileRevision) this.error = '';
+      })
+      .catch((error) => {
+        if (revision === this.reconcileRevision && !this.reconcileAbort.signal.aborted)
+          this.error = (error as Error).message;
+      })
+      .finally(() => {
+        if (revision === this.reconcileRevision) this.applying = false;
       });
-    });
   }
 
-  /** Status snapshot built from the desired config (no DB read). */
+  /** 当前配置与最近一次实际读回的触发器状态。 */
   private optimisticStatus(): AntiRecallStatus {
-    const allConversations =
-      !this.opts.readOnly && this.config.enabled && this.config.mode === 'all';
-    const active = !this.opts.readOnly && this.config.enabled ? this.config.targets : [];
     return {
       ...this.config,
       notifyEnabled: this.notificationsEnabled(this.config),
       settingsRevision: this.opts.preferences?.revision?.(),
-      installed: expectedAntiRecallTriggers(allConversations, active),
+      installed: this.installed,
+      proxyConnected: this.proxyConnected,
+      error: this.error || (this.protection().method === 'database' ? '' : this.proxyError),
+      applying: this.applying,
+      restartSuggested: this.restartSuggested,
       qqRunning: this.isQqRunning(),
     };
   }
@@ -465,20 +626,11 @@ export class AntiRecallService {
     return this.opts.notificationsEnabled?.() ?? config.notifyEnabled;
   }
 
-  private shouldNotify(row: RecallLogRow): boolean {
-    const config = this.config;
-    return (
-      config.notifyTargets.includes(notifyKey(row.kind, row.conv)) &&
-      this.notificationsEnabled(config)
-    );
-  }
-
   /**
-   * Baseline the recall cursor: the next drain records the current max msgid and
-   * raises nothing. Called on start and whenever protection is (re)enabled.
+   * Capture existing recalls on start and whenever protection is (re)enabled.
    */
   private resetRecallBaseline(): void {
-    this.recallCursor = null;
+    this.lastRecall = null;
     this.monitorReads?.abort();
     this.monitorReads = null;
     this.recallBaseline = null;
@@ -499,8 +651,8 @@ export class AntiRecallService {
   private async initRecallBaseline(reads: AbortController): Promise<void> {
     try {
       const db = this.openDb();
-      const cursor = await db.latestRecallCursor();
-      if (this.monitorCurrent(reads)) this.recallCursor = cursor;
+      const baseline = await db.latestRecallBaseline();
+      if (this.monitorCurrent(reads)) this.lastRecall = baseline;
     } catch (error) {
       if (!this.monitorCurrent(reads)) return;
       // Leave the cursor null — the next drain will baseline instead.
@@ -528,22 +680,24 @@ export class AntiRecallService {
     // 只读包装复用账号连接；close 会关闭同库其他读者的 native 缓存。
     const db = this.openDb();
     try {
-      if (this.recallCursor === null) {
-        const cursor = await db.latestRecallCursor();
-        if (this.monitorCurrent(reads)) this.recallCursor = cursor;
+      const last = this.lastRecall;
+      if (last === null) {
+        await this.initRecallBaseline(reads);
         return;
       }
-      let cursor = this.recallCursor;
-      for (let page = 0; page < 20; page++) {
-        const rows = await db.listRecallsAfter(cursor, 200);
+      let cursor: RecallCursor = { recallTs: last.recallTs };
+      for (;;) {
+        const rows = await db.listRecallsSince(cursor);
         if (!this.monitorCurrent(reads)) return;
-        if (rows.length === 0) break;
         for (const row of rows) {
           if (!this.monitorCurrent(reads)) return;
-          // msgid 是 64 位整数，必须用 BigInt 比较：Number() 会向下取整，
-          // 让游标卡在新记录下面、同一行被反复命中（重复弹通知）。
-          const rowMsgId = BigInt(row.msgid);
-          if (rowMsgId > cursor) cursor = rowMsgId;
+          cursor = { recallTs: row.recallTs, msgId: BigInt(row.msgid) };
+          if (row.recallTs > last.recallTs) {
+            last.recallTs = row.recallTs;
+            last.seen.clear();
+          }
+          if (last.seen.has(row.msgid)) continue;
+          last.seen.add(row.msgid);
           try {
             const event = {
               kind: row.kind,
@@ -554,8 +708,23 @@ export class AntiRecallService {
               origSeq: row.origSeq,
               recallTs: row.recallTs,
             };
-            this.opts.onObservedRecall?.(event);
-            if (this.shouldNotify(row)) this.opts.onRecall?.(event);
+            if (this.archive && row.kind !== 'dataline' && this.protects(row.kind, row.conv)) {
+              const source = row.kind === 'group' ? this.session.groupMsgs : this.session.c2cMsgs;
+              await this.archive.observeNative(await source.listByMsgIds([BigInt(row.msgid)]));
+              await this.archive.observe(
+                [],
+                [
+                  {
+                    kind: row.kind,
+                    conv: row.conv,
+                    localId: row.msgid,
+                    senderUid: row.senderUid,
+                    revokeUid: row.revokeUid,
+                    at: row.recallTs,
+                  },
+                ],
+              );
+            } else this.publishRecall(event);
           } catch (error) {
             logger.warn('anti-recall notify hook failed', {
               event: 'anti-recall-notify-failed',
@@ -565,7 +734,6 @@ export class AntiRecallService {
         }
         if (rows.length < 200) break;
       }
-      if (this.monitorCurrent(reads)) this.recallCursor = cursor;
     } catch (error) {
       if (!this.monitorCurrent(reads)) return;
       logger.debug('anti-recall drain failed', {

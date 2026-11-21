@@ -841,6 +841,8 @@ export interface AppSettings {
   startupPage: 'home' | 'messages' | 'last';
   /** 向 QQ 服务端上报在 WeQ 中阅读的位置，默认开启。 */
   reportReadEnabled: boolean;
+  /** 通过本机代理同步本人消息及已读到 QQ。 */
+  qqClientSyncEnabled: boolean;
   /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认开启。 */
   manualReadReportEnabled: boolean;
   /**
@@ -922,6 +924,8 @@ export interface AppSettings {
   showContactUnreadCount: boolean;
   /** 进入会话时恢复阅读位置，从第一条新消息继续阅读。 */
   readFromFirstUnread: boolean;
+  /** 逐步确认前台视口内连续读到的消息，依赖从首条未读开始。 */
+  preserveUnreadUntilRead: boolean;
   /** 停留在消息底部时自动跟随新消息。 */
   autoFollowLatestMessages: boolean;
   /** 发送成功后定位到当前会话的最新消息。 */
@@ -1238,6 +1242,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showWindowOnAutostart: false,
   startupPage: 'home',
   reportReadEnabled: true,
+  qqClientSyncEnabled: false,
   manualReadReportEnabled: true,
   autoLockMinutes: 0,
   appLock: { enabled: false, method: 'totp' },
@@ -1279,6 +1284,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showMessageUnreadBadge: true,
   showContactUnreadCount: false,
   readFromFirstUnread: false,
+  preserveUnreadUntilRead: true,
   jumpToLatestAfterSend: true,
   autoFollowLatestMessages: true,
   showScrollToBottomButton: true,
@@ -2057,6 +2063,7 @@ export class UserConfigService {
           ? s.startupPage
           : d.startupPage,
       reportReadEnabled: s?.reportReadEnabled ?? d.reportReadEnabled,
+      qqClientSyncEnabled: s?.qqClientSyncEnabled ?? d.qqClientSyncEnabled,
       manualReadReportEnabled: s?.manualReadReportEnabled ?? d.manualReadReportEnabled,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
@@ -2084,6 +2091,7 @@ export class UserConfigService {
       showMessageUnreadBadge: s?.showMessageUnreadBadge ?? d.showMessageUnreadBadge,
       showContactUnreadCount: s?.showContactUnreadCount ?? d.showContactUnreadCount,
       readFromFirstUnread: s?.readFromFirstUnread ?? d.readFromFirstUnread,
+      preserveUnreadUntilRead: s?.preserveUnreadUntilRead ?? d.preserveUnreadUntilRead,
       jumpToLatestAfterSend: s?.jumpToLatestAfterSend ?? d.jumpToLatestAfterSend,
       autoFollowLatestMessages: s?.autoFollowLatestMessages ?? d.autoFollowLatestMessages,
       showScrollToBottomButton: s?.showScrollToBottomButton ?? d.showScrollToBottomButton,
@@ -2249,6 +2257,7 @@ export class UserConfigService {
       showWindowOnAutostart: patch.showWindowOnAutostart ?? current.showWindowOnAutostart,
       startupPage: patch.startupPage ?? current.startupPage,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
+      qqClientSyncEnabled: patch.qqClientSyncEnabled ?? current.qqClientSyncEnabled,
       manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {
@@ -2277,6 +2286,7 @@ export class UserConfigService {
       showMessageUnreadBadge: patch.showMessageUnreadBadge ?? current.showMessageUnreadBadge,
       showContactUnreadCount: patch.showContactUnreadCount ?? current.showContactUnreadCount,
       readFromFirstUnread: patch.readFromFirstUnread ?? current.readFromFirstUnread,
+      preserveUnreadUntilRead: patch.preserveUnreadUntilRead ?? current.preserveUnreadUntilRead,
       jumpToLatestAfterSend: patch.jumpToLatestAfterSend ?? current.jumpToLatestAfterSend,
       autoFollowLatestMessages: patch.autoFollowLatestMessages ?? current.autoFollowLatestMessages,
       showScrollToBottomButton: patch.showScrollToBottomButton ?? current.showScrollToBottomButton,

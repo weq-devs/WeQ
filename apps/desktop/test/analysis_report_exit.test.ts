@@ -41,7 +41,7 @@ it.each(requests)('$kind 报告的顶部始终提供退出按钮，不依赖正�
   const close = vi.fn();
   try {
     act(() => root.render(h(AnalysisReportPage, { request, onClose: close })));
-    const button = host.querySelector<HTMLButtonElement>('[aria-label="关闭分析报告"]');
+    const button = document.querySelector<HTMLButtonElement>('[aria-label="关闭分析报告"]');
     expect(button).not.toBeNull();
     act(() => button!.click());
     expect(close).toHaveBeenCalledOnce();

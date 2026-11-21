@@ -10,7 +10,8 @@
 
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { z } from 'zod';
 import { MarketFaceDetail } from '../../components/MarketFaceLightbox';
 import { ArrowLeft, Store, X, RefreshCw, Loader2, Download, SearchX, Sticker } from 'lucide-react';
 import type { MarketPackFeeType, ExportSavePolicy } from '@weq/service';
@@ -21,6 +22,9 @@ import { useExportSavePolicy } from '../../hooks/useExportSavePolicy';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { DirectoryToolbar } from '../../components/DirectoryToolbar';
 import { WorkspacePage } from '../../components/WorkspacePages';
+import { PageScrollSnapshot } from '../../components/PageScrollSnapshot';
+import { usePageDataCache, usePageState } from '../../components/PageSnapshots.shared';
+import { pageValue } from '../../lib/pageSnapshots';
 import { ServerSavePrompt } from '../../components/ServerSavePrompt';
 import { MARKET_DOWNLOAD_MAX_PACKS } from '../../../../shared/market_emoji';
 import '../../styles/export.css';
@@ -40,6 +44,15 @@ interface CatalogEntry {
   mark: string;
   feeType: MarketPackFeeType;
 }
+
+interface CatalogPage {
+  entries: CatalogEntry[];
+  total: number;
+  nextCursor: string | null;
+}
+
+const EMPTY_CATALOG: CatalogPage = { entries: [], total: 0, nextCursor: null };
+const feeSchema = z.set(z.enum(['free', 'paid', 'svip', 'vip', 'unknown']));
 
 const FEE_META: Record<MarketPackFeeType, { label: string; tone: string }> = {
   free: { label: '免费', tone: 'free' },
@@ -281,7 +294,7 @@ interface MarketEmojiBrowserProps {
   initialPackId?: string;
   initialPackName?: string;
   embedded?: boolean;
-  searchQuery?: string;
+  embeddedSearch?: { keyword: string; form: ReactNode };
 }
 
 export function MarketEmojiBrowserLightbox(props: MarketEmojiBrowserProps): ReactElement {
@@ -302,7 +315,7 @@ function DevelopmentMarketEmojiBrowser({
   initialPackId,
   initialPackName,
   embedded = false,
-  searchQuery,
+  embeddedSearch,
 }: MarketEmojiBrowserProps): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
@@ -314,19 +327,34 @@ function DevelopmentMarketEmojiBrowser({
   const pending = useRef(false);
   const [input, setInput] = useState('');
   const [localQuery, setQuery] = useState('');
-  const query = searchQuery ?? localQuery;
-  const [feeSel, setFeeSel] = useState<Set<MarketPackFeeType>>(new Set());
-  const [latest, setLatest] = useState(false);
-
-  const [entries, setEntries] = useState<CatalogEntry[]>([]);
-  const [total, setTotal] = useState(0);
-  const [done, setDone] = useState(false);
+  const query = embeddedSearch?.keyword ?? localQuery;
+  const [feeSel, setFeeSel] = usePageState<Set<MarketPackFeeType>>(
+    'market-emoji:fees',
+    new Set(),
+    feeSchema,
+    false,
+    embedded,
+  );
+  const [latest, setLatest] = usePageState(
+    'market-emoji:latest',
+    false,
+    pageValue.boolean,
+    false,
+    embedded,
+  );
+  const catalogCache = usePageDataCache();
+  const catalogKey = JSON.stringify(['market-emoji', query, [...feeSel].sort(), latest]);
+  const [result, setResult] = useState(() => ({
+    key: catalogKey,
+    page: (embedded ? catalogCache.read<CatalogPage>(catalogKey) : undefined) ?? EMPTY_CATALOG,
+  }));
+  const catalog = result.key === catalogKey ? result.page : EMPTY_CATALOG;
+  const { entries, total, nextCursor } = catalog;
+  const done = nextCursor === null;
   const [loading, setLoading] = useState(false);
-  // cursor / done 也存一份 ref，且随响应同步更新：IntersectionObserver 回调持有
-  // 旧渲染闭包，而 done 状态要等 React commit 后才翻转——闭包读到旧值会把
-  // 最后一页再拉一次（重复）。同步写 ref 堵死该窗口。
-  const cursorRef = useRef<string | null>(null);
-  const doneRef = useRef(false);
+  // 响应到达后同步更新游标，防止观察器在 React 提交前再次请求同一页。
+  const catalogRef = useRef(catalog);
+  const request = useRef(0);
   const loadingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -401,19 +429,26 @@ function DevelopmentMarketEmojiBrowser({
 
   // 防抖：输入停 300ms 落到 query。
   useEffect(() => {
-    if (searchQuery !== undefined) return;
+    if (embeddedSearch) return;
     const t = setTimeout(() => setQuery(input.trim()), 300);
     return () => clearTimeout(t);
-  }, [input, searchQuery]);
+  }, [input, embeddedSearch]);
 
-  // query / feeSel 变化 → 重置结果重新拉第一页。
+  // 复用已加载的页，让恢复的滚动位置可以落在首屏之后。
   useEffect(() => {
-    let cancelled = false;
+    const revision = ++request.current;
+    const cancel = () => {
+      request.current++;
+    };
+    const cached = embedded ? catalogCache.read<CatalogPage>(catalogKey) : undefined;
+    catalogRef.current = cached ?? EMPTY_CATALOG;
+    setResult({ key: catalogKey, page: catalogRef.current });
     loadingRef.current = false;
-    cursorRef.current = null;
-    doneRef.current = false;
-    setEntries([]);
-    setDone(false);
+    if (cached) {
+      setLoading(false);
+      return cancel;
+    }
+    loadingRef.current = true;
     setLoading(true);
     (async () => {
       try {
@@ -424,30 +459,26 @@ function DevelopmentMarketEmojiBrowser({
           limit: PAGE,
           cursor: null,
         });
-        if (cancelled) return;
-        setEntries(page.entries);
-        setTotal(page.total);
-        cursorRef.current = page.nextCursor;
-        if (page.nextCursor === null) {
-          doneRef.current = true;
-          setDone(true);
-        }
+        if (request.current !== revision) return;
+        catalogRef.current = page;
+        setResult({ key: catalogKey, page });
+        if (embedded) catalogCache.write(catalogKey, page);
       } catch {
-        if (!cancelled) {
-          doneRef.current = true;
-          setDone(true);
-        }
+        // 请求失败时保留空目录。
       } finally {
-        if (!cancelled) setLoading(false);
+        if (request.current === revision) {
+          loadingRef.current = false;
+          setLoading(false);
+        }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [query, feeSel, latest]);
+    return cancel;
+  }, [query, feeSel, latest, embedded, catalogCache, catalogKey]);
 
   const loadMore = useCallback(async (): Promise<void> => {
-    if (loadingRef.current || doneRef.current || cursorRef.current === null) return;
+    const current = catalogRef.current;
+    if (loadingRef.current || current.nextCursor === null) return;
+    const revision = request.current;
     loadingRef.current = true;
     setLoading(true);
     try {
@@ -456,23 +487,25 @@ function DevelopmentMarketEmojiBrowser({
         feeTypes: latest ? undefined : feeSel.size ? [...feeSel] : undefined,
         latest: latest || undefined,
         limit: PAGE,
-        cursor: cursorRef.current,
+        cursor: current.nextCursor,
       });
-      setEntries((prev) => [...prev, ...page.entries]);
-      setTotal(page.total);
-      cursorRef.current = page.nextCursor;
-      if (page.nextCursor === null) {
-        doneRef.current = true;
-        setDone(true);
-      }
+      if (request.current !== revision) return;
+      const merged = { ...page, entries: [...current.entries, ...page.entries] };
+      catalogRef.current = merged;
+      setResult({ key: catalogKey, page: merged });
+      if (embedded) catalogCache.write(catalogKey, merged);
     } catch {
-      doneRef.current = true;
-      setDone(true);
+      if (request.current !== revision) return;
+      const stopped = { ...current, nextCursor: null };
+      catalogRef.current = stopped;
+      setResult({ key: catalogKey, page: stopped });
     } finally {
-      loadingRef.current = false;
-      setLoading(false);
+      if (request.current === revision) {
+        loadingRef.current = false;
+        setLoading(false);
+      }
     }
-  }, [query, feeSel, latest]);
+  }, [query, feeSel, latest, embedded, catalogCache, catalogKey]);
 
   // 返回目录时重新观察哨兵，详情页隐藏的目录不触发加载。
   useEffect(() => {
@@ -503,6 +536,29 @@ function DevelopmentMarketEmojiBrowser({
     setFeeSel(new Set());
   };
 
+  const catalogTotal =
+    loading && entries.length === 0 ? (
+      '搜索中…'
+    ) : (
+      <NumericText>{`共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}</NumericText>
+    );
+  const selectionTools = (
+    <DirectoryToolbar
+      searchEnabled={!embeddedSearch}
+      noun="表情包"
+      query={input}
+      onQuery={setInput}
+      selecting={selection.selectionMode}
+      onSelecting={selection.setSelectionMode}
+      count={selection.selectedIds.size}
+      onSelectAll={() =>
+        selection.setSelectedIds(
+          (current) => new Set([...current, ...entries.map((entry) => entry.id)]),
+        )
+      }
+    />
+  );
+
   const body = (
     <div
       className={`weq-market-browser${selectedId ? ' has-detail' : ''}${embedded ? ' is-embedded' : ''}`}
@@ -515,8 +571,8 @@ function DevelopmentMarketEmojiBrowser({
         <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
       )}
       {embedded ? (
-        <div className="weq-market-summary">
-          {selectedId ? (
+        selectedId && (
+          <div className="weq-market-summary">
             <button
               type="button"
               className="weq-market-back icon-button"
@@ -526,15 +582,14 @@ function DevelopmentMarketEmojiBrowser({
             >
               <ArrowLeft size={18} />
             </button>
-          ) : null}
-          <span className="weq-market-total" role="status">
-            {loading && entries.length === 0 ? (
-              '搜索中…'
-            ) : (
-              <NumericText>{`共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}</NumericText>
-            )}
-          </span>
-        </div>
+            <span className="weq-market-total" role="status">
+              {catalogTotal}
+            </span>
+            {embeddedSearch ? (
+              <div className="weq-dress-toolbar-controls">{embeddedSearch.form}</div>
+            ) : null}
+          </div>
+        )
       ) : (
         <header className="weq-market-head">
           {selectedId ? (
@@ -551,15 +606,7 @@ function DevelopmentMarketEmojiBrowser({
           <div className="weq-market-title">
             <Store size={18} strokeWidth={1.9} />
             <h2 id="weq-market-title">商城表情</h2>
-            {total > 0 ? (
-              <span className="weq-market-total">
-                {loading && entries.length === 0 ? (
-                  '搜索中…'
-                ) : (
-                  <NumericText>{`共 ${total.toLocaleString('en-US')} 套${query || feeSel.size || latest ? ' · 已过滤' : ''}`}</NumericText>
-                )}
-              </span>
-            ) : null}
+            {total > 0 ? <span className="weq-market-total">{catalogTotal}</span> : null}
           </div>
           <button
             type="button"
@@ -580,21 +627,8 @@ function DevelopmentMarketEmojiBrowser({
 
       <div className="weq-emb-body">
         <div className="weq-market-catalog" hidden={!!selectedId} {...packMulti.rootProps}>
-          <div className="weq-market-catalog-tools">
-            <DirectoryToolbar
-              searchEnabled={searchQuery === undefined}
-              noun="表情包"
-              query={input}
-              onQuery={setInput}
-              selecting={selection.selectionMode}
-              onSelecting={selection.setSelectionMode}
-              count={selection.selectedIds.size}
-              onSelectAll={() =>
-                selection.setSelectedIds(
-                  (current) => new Set([...current, ...entries.map((entry) => entry.id)]),
-                )
-              }
-            />
+          <div className={embedded ? 'weq-dress-toolbar' : 'weq-market-catalog-tools'}>
+            {!embedded ? selectionTools : null}
             <div className="weq-emb-fee-row" {...feeMulti.rootProps}>
               <button
                 type="button"
@@ -627,6 +661,12 @@ function DevelopmentMarketEmojiBrowser({
                 </button>
               ))}
             </div>
+            {embedded ? (
+              <div className="weq-dress-toolbar-controls">
+                {selectionTools}
+                {!selectedId ? embeddedSearch?.form : null}
+              </div>
+            ) : null}
           </div>
           {selection.selectionMode ? (
             <div className="weq-market-selection-actions">
@@ -664,7 +704,16 @@ function DevelopmentMarketEmojiBrowser({
             </div>
           ) : null}
 
-          <div className="weq-market-catalog-scroll">
+          <PageScrollSnapshot
+            key={catalogKey}
+            snapshotKey={catalogKey}
+            className="weq-market-catalog-scroll"
+          >
+            {embedded ? (
+              <div className="weq-market-total weq-market-catalog-total" role="status">
+                {catalogTotal}
+              </div>
+            ) : null}
             {loading && entries.length === 0 ? (
               <div className="weq-emb-pack-list-state">
                 <Loader2 size={16} className="weq-emb-spin" />
@@ -701,7 +750,7 @@ function DevelopmentMarketEmojiBrowser({
                 )}
               </>
             )}
-          </div>
+          </PageScrollSnapshot>
         </div>
 
         <div className="weq-emb-right" hidden={!selectedId}>

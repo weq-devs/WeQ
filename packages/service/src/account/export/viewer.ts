@@ -198,9 +198,12 @@ function message(
                   type: scalar(el.type),
                   data: { fileName: label.length <= 1024 ? label : '' },
                 }) ?? undefined);
+        // Formal archives distinguish an unavailable receipt from legacy rows without a path.
         const path =
-          scalar(data.exportPath) ||
-          (label || el.type === 'face' || el.type === 'mface' ? fallback : undefined);
+          data.unavailableArchiveResource === true
+            ? undefined
+            : scalar(data.exportPath) ||
+              (label || el.type === 'face' || el.type === 'mface' ? fallback : undefined);
         parts.push({
           type,
           text: text(label || scalar(data.faceText) || `[${el.type}]`),

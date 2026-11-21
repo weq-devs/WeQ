@@ -87,6 +87,8 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     showGroupAssistantMessageCount: () =>
       b.setShowGroupAssistantMessageCount({ enabled: defaults.showGroupAssistantMessageCount }),
     readFromFirstUnread: () => b.setReadFromFirstUnread({ enabled: defaults.readFromFirstUnread }),
+    preserveUnreadUntilRead: () =>
+      b.setPreserveUnreadUntilRead({ enabled: defaults.preserveUnreadUntilRead }),
     jumpToLatestAfterSend: () =>
       b.setJumpToLatestAfterSend({ enabled: defaults.jumpToLatestAfterSend }),
     autoFollowLatestMessages: () =>
@@ -170,6 +172,10 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
 
   if (!ctx.authorize)
     bind('startup-system:autostart', undefined, false, () => b.setAutostart({ enabled: false }));
+
+  bind('qq-client-sync:enabled', current.qqClientSyncEnabled, defaults.qqClientSyncEnabled, () =>
+    b.setQqClientSyncEnabled({ enabled: defaults.qqClientSyncEnabled }),
+  );
 
   const readSync = (automatic: boolean, manual: boolean) =>
     automatic === manual ? automatic : automatic ? '仅自动阅读上报' : '仅手动标记上报';
@@ -427,8 +433,14 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     );
     if (selected.has('recall-scope') || selected.has('recall-notifications')) {
       const recall = await sharedAntiRecallStatus();
-      bind('recall-scope:scope', recall.enabled ? recall.mode : 'off', 'off', async () =>
-        shared.antiRecall.setScope({ scope: 'off' }),
+      bind(
+        'recall-scope:method',
+        recall.enabled ? (recall.method ?? 'database') : 'off',
+        'off',
+        async () => shared.antiRecall.setMethod({ method: 'off' }),
+      );
+      bind('recall-scope:scope', recall.mode, 'selected', async () =>
+        shared.antiRecall.setMode({ mode: 'selected' }),
       );
       if (services)
         bind('recall-scope:targets', recall.targets, [], async () =>

@@ -40,6 +40,7 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { account: { mediaPreviewPage: { query: mocks.page } } },
   trpc: {
+    useUtils: () => ({}),
     account: {
       getGroupAlbumAccessState: { useQuery: () => ({ data: { ocrLocalModelId: 'fixture' } }) },
       ocrCacheLookup: { useQuery: () => ({ data: undefined }) },
@@ -738,4 +739,46 @@ it('真实消息渲染入口接入混排、双向分页、实时追加和账号�
   mocks.configId = 'fixture-b';
   await act(async () => root.render(scene(messages)));
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+
+it('同一消息的连续图片组成网格，按原媒体位置打开并继续翻看', async () => {
+  const picture = (name: string) => ({
+    type: 'pic',
+    data: { fileName: `${name}.png`, fileToken: name, imgWidth: 12, imgHeight: 8 },
+  });
+  const elements = [
+    picture('first'),
+    { type: 'video', data: { fileToken: 'video', fileName: 'video.webm' } },
+    picture('next'),
+    { type: 'text', data: { textContent: '\n' } },
+    picture('last'),
+    { type: 'text', data: { textContent: '原有正文' } },
+    picture('after-text'),
+  ];
+  const message = { msgId: '4', sendTime: 1, elements };
+  await act(async () =>
+    root.render(
+      h(
+        'div',
+        null,
+        h(
+          ChatMediaGallery,
+          { messages: [message] },
+          h(QqMessageContent, { elements, msgId: '4', sendTimeMs: 1000 }),
+        ),
+        h(MediaPreviewHost),
+      ),
+    ),
+  );
+  const tiles = document.querySelectorAll<HTMLButtonElement>('.qq-image-grid button.qq-media-wrap');
+  expect([...tiles].map((tile) => tile.getAttribute('aria-label'))).toEqual([
+    '查看图片：next.png',
+    '查看图片：last.png',
+  ]);
+  expect(document.querySelector('.qq-message-body')?.textContent).toContain('原有正文');
+  await act(async () => tiles[0]!.click());
+  expect(document.querySelector('.weq-preview-count')?.textContent).toBe('3 / 5');
+  await act(async () => button('下一项媒体').click());
+  expect(document.querySelector('.weq-preview-count')?.textContent).toBe('4 / 5');
+  expect(document.querySelector('.weq-unified-preview img')?.getAttribute('alt')).toBe('last.png');
 });

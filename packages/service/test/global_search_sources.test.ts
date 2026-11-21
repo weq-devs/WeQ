@@ -35,6 +35,55 @@ function generated(): GeneratedSearchSources {
 }
 
 describe('全局搜索来源与类型', () => {
+  it('全局组合筛选的预览、会话分页及详情共用同一候选和消息分类', async () => {
+    const hit = (msgId: number, partition: number) => ({
+      msgId: BigInt(msgId),
+      msgSeq: BigInt(msgId),
+      partition: BigInt(partition),
+      senderUid: 'u_sender',
+      targetUid: String(partition),
+      chatType: 2,
+      sendTime: 50n,
+      content: '合成记录',
+    });
+    const candidate = vi.fn(async () => [hit(7, 100), hit(6, 100), hit(5, 200)]);
+    const originals = [7, 6, 5].map((id) => ({
+      msgId: BigInt(id),
+      senderUin: 12345n,
+      elements: [
+        { kind: 'text', textContent: id === 6 ? '正文无网址' : '网址 https://example.com' },
+      ],
+    }));
+    const service = new UnifiedSearchService({
+      buddyMsgFts: { searchRecordCandidates: async () => [] },
+      groupMsgFts: { searchRecordCandidates: candidate },
+      groupMsgs: {
+        listByMsgIds: async () => originals,
+        listBySeqsInPartition: async (_partition: string, ids: bigint[]) =>
+          originals.filter((message) => ids.includes(message.msgId)),
+      },
+      groupMembers: { getMembersByUids: async () => [] },
+      groupDetail: { detailsByGroupCodes: async () => [] },
+      uidMap: { uidByUin: () => 'u_sender' },
+    } as unknown as AccountSession);
+    const filter = { category: 'link' as const, sender: '12345', start: 40, end: 60 };
+    const preview = await service.slowSearch('合成', 1, ['chatRecord'], 'all', ['qq'], filter);
+    const first = await service.moreSearch('chatRecord', '合成', 0, 1, 'all', ['qq'], filter);
+    const next = await service.moreSearch('chatRecord', '合成', 1, 1, 'all', ['qq'], filter);
+    expect(candidate).toHaveBeenCalledOnce();
+    expect(candidate).toHaveBeenCalledWith(
+      '合成',
+      { senderUid: 'u_sender', start: 40, end: 60 },
+      501,
+    );
+    expect(preview.messageHits).toEqual(first.items);
+    expect(first.hasMore).toBe(true);
+    expect(next.hasMore).toBe(false);
+    expect(first.total).toBe(2);
+    const details = await service.conversationRecords('group', '100', '合成', 0, 20, filter);
+    expect(details.total).toBe(1);
+    expect(details.items.map(({ msgId }) => msgId)).toEqual(['7']);
+  });
   it('类型取来源适用集合的并集，功能来源没有类型', () => {
     expect(searchCategoriesForSources(['app'])).toEqual([]);
     expect(searchCategoriesForSources(['assistant', 'app'])).toEqual(['chatRecord']);

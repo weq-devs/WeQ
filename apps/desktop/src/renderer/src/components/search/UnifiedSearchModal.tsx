@@ -23,7 +23,12 @@ import {
 import { client } from '../../trpc/client';
 import { SearchPositionRestore, type SearchPosition } from './searchPosition';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
-import type { ConversationScope, SearchSource } from '@weq/service/search-policy';
+import type {
+  ConversationScope,
+  GlobalChatRecordFilter,
+  SearchSource,
+} from '@weq/service/search-policy';
+import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import '../../styles/search-more.css';
 
 export interface SearchMoreSnapshot extends SearchPosition {
@@ -45,6 +50,8 @@ export function SearchMoreResults({
   onSnapshot,
   conversationScope = 'all',
   sources,
+  recordFilter,
+  accountBinding,
 }: {
   category: SearchCategory;
   keyword: string;
@@ -56,6 +63,8 @@ export function SearchMoreResults({
   onSnapshot?: (snapshot: SearchMoreSnapshot) => void;
   conversationScope?: ConversationScope;
   sources?: readonly SearchSource[];
+  recordFilter?: GlobalChatRecordFilter;
+  accountBinding?: QQWriteBinding;
 }): ReactElement {
   const activity = useQQReadActivity(true);
   const readEnabled = useRef(activity.enabled);
@@ -73,9 +82,23 @@ export function SearchMoreResults({
   const nextOffset = useRef(restored.current?.nextOffset ?? 0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const selectedFocusKey = useRef<string | null>(restored.current?.focusKey ?? null);
+  const expectedAccountUin = accountBinding?.expectedAccountUin;
+  const expectedAccountConfigId = accountBinding?.expectedAccountConfigId;
+  const relevantFilter = category === 'chatRecord' ? recordFilter : undefined;
+  const requestKey = JSON.stringify([
+    category,
+    keyword,
+    sources ?? conversationScope,
+    relevantFilter,
+  ]);
   const restoredRequest = useRef(
     restored.current
-      ? JSON.stringify([category, restored.current.keyword, sources ?? conversationScope])
+      ? JSON.stringify([
+          category,
+          restored.current.keyword,
+          sources ?? conversationScope,
+          relevantFilter,
+        ])
       : null,
   );
 
@@ -95,6 +118,9 @@ export function SearchMoreResults({
           limit: 30,
           conversationScope: sources ? 'all' : conversationScope,
           ...(sources ? { sources: [...sources] } : {}),
+          ...(relevantFilter
+            ? { recordFilter: relevantFilter, expectedAccountUin, expectedAccountConfigId }
+            : {}),
         })) as MoreSearchResult;
         if (run !== runRef.current) return;
         nextOffset.current = offset + result.items.length;
@@ -124,14 +150,19 @@ export function SearchMoreResults({
         }
       }
     },
-    [category, conversationScope, sources],
+    [
+      category,
+      conversationScope,
+      sources,
+      relevantFilter,
+      expectedAccountUin,
+      expectedAccountConfigId,
+    ],
   );
 
   // Reset + fetch first page when the keyword settles.
   useLayoutEffect(() => {
-    if (
-      restoredRequest.current === JSON.stringify([category, keyword, sources ?? conversationScope])
-    ) {
+    if (restoredRequest.current === requestKey) {
       return () => {
         ++runRef.current;
       };
@@ -157,7 +188,7 @@ export function SearchMoreResults({
       pending.current = false;
       window.clearTimeout(timer);
     };
-  }, [keyword, fetchPage, category, conversationScope, sources]);
+  }, [keyword, fetchPage, requestKey]);
 
   const previousActivity = useRef(activity);
   const currentData = useRef(data);

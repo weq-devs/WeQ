@@ -3,6 +3,7 @@ import { client } from '../trpc/client';
 import {
   searchCategorySupportsSources,
   type ConversationScope,
+  type GlobalChatRecordFilter,
   type SearchSource,
 } from '@weq/service/search-policy';
 import { isSlowSearchCategory } from '../components/search/types';
@@ -12,6 +13,7 @@ import type {
   SearchCategoryStates,
   SlowSearchResult,
 } from '../components/search/types';
+import type { QQWriteBinding } from './useQQWriteSession';
 
 interface CategoryResult {
   quick?: QuickSearchResult;
@@ -28,6 +30,8 @@ export function useGlobalSearch(
   categories: readonly SearchCategory[],
   accountKey: string | null,
   filter: readonly SearchSource[] | ConversationScope = 'all',
+  recordFilter?: GlobalChatRecordFilter,
+  binding?: QQWriteBinding,
 ) {
   const query = keyword.trim();
   const sources = typeof filter === 'string' ? undefined : filter;
@@ -40,7 +44,16 @@ export function useGlobalSearch(
     [categories, sources],
   );
   const [revision, setRevision] = useState(0);
-  const key = JSON.stringify([accountKey, query, enabledCategories, filter, revision]);
+  const expectedAccountUin = binding?.expectedAccountUin;
+  const expectedAccountConfigId = binding?.expectedAccountConfigId;
+  const key = JSON.stringify([
+    accountKey,
+    query,
+    enabledCategories,
+    filter,
+    recordFilter,
+    revision,
+  ]);
   const [state, setState] = useState<SearchState>(() => ({ key, results: {} }));
   const currentKey = useRef(key);
   currentKey.current = key;
@@ -66,10 +79,17 @@ export function useGlobalSearch(
           ...(sources ? { sources: [...sources] } : {}),
         };
         if (isSlowSearchCategory(category)) {
-          void client.account.searchSlow.query(input).then(
-            (slow) => update(category, { slow, error: false }),
-            () => update(category, { error: true }),
-          );
+          void client.account.searchSlow
+            .query({
+              ...input,
+              ...(category === 'chatRecord' && recordFilter
+                ? { recordFilter, expectedAccountUin, expectedAccountConfigId }
+                : {}),
+            })
+            .then(
+              (slow) => update(category, { slow, error: false }),
+              () => update(category, { error: true }),
+            );
         } else {
           void client.account.searchQuick.query(input).then(
             (quick) => update(category, { quick, error: false }),
@@ -82,7 +102,17 @@ export function useGlobalSearch(
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [key, query, enabledCategories, accountKey, conversationScope, sources]);
+  }, [
+    key,
+    query,
+    enabledCategories,
+    accountKey,
+    conversationScope,
+    sources,
+    recordFilter,
+    expectedAccountUin,
+    expectedAccountConfigId,
+  ]);
 
   return useMemo(() => {
     // 按分类顺序合并，响应先后不改变同分结果顺序；新请求第一帧即隔离旧数据。

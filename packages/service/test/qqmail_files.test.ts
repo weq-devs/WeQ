@@ -43,11 +43,11 @@ function auth(): MailAuth {
     () => null,
   );
 }
-function response(status: number, data = '', location?: string): IncomingMessage {
+function response(status: number, data: string | Buffer = '', location?: string): IncomingMessage {
   const value = new IncomingMessage(new Socket());
   value.statusCode = status;
   value.headers = location ? { location } : {};
-  value.push(Buffer.from(data));
+  value.push(typeof data === 'string' ? Buffer.from(data) : data);
   value.push(null);
   return value;
 }
@@ -84,6 +84,38 @@ describe('邮箱附件协议', () => {
       Buffer.concat([cipher.update(bytes), cipher.final()]),
     );
     expect(() => encryptMailPart(bytes, { key: Buffer.alloc(3), iv }, 0)).toThrow('加密参数');
+  });
+  it('加密附件建档原样提交邮箱返回的密钥和 IV', async () => {
+    const path = join(await directory(), 'fixture.txt');
+    const bytes = Buffer.from('fixture');
+    await writeFile(path, bytes);
+    const account = auth();
+    const key = Buffer.alloc(32, 0xfb);
+    const iv = Buffer.alloc(16, 0xff);
+    const keyBase64 = key.toString('base64url');
+    const ivBase64 = iv.toString('base64url');
+    const cgi = vi
+      .spyOn(account, 'cgi')
+      .mockResolvedValueOnce({ key_b64: keyBase64, iv_b64: ivBase64 })
+      .mockResolvedValueOnce({
+        fileid: 'fixture-file',
+        dns: 'upload.cstore.qq.com',
+        upload_key: 'fixture-key',
+      });
+    const request = vi.fn<StorageRequest>().mockResolvedValue({ etag: 'fixture-etag' });
+    const cipher = createCipheriv('aes-256-ctr', key, iv);
+    const ciphertext = Buffer.concat([cipher.update(bytes), cipher.final()]);
+    const signal = new AbortController().signal;
+
+    await uploadMailFile(account, new MailAttachmentRegistry(), path, signal, request);
+
+    expect(cgi).toHaveBeenCalledWith(
+      '/attach/create',
+      expect.objectContaining({ enc_key: keyBase64, enc_iv: ivBase64 }),
+      { signal, write: true },
+    );
+    expect(request).toHaveBeenCalledWith(expect.any(URL), 'PUT', ciphertext, signal);
+    account.dispose();
   });
   it('多片上传的初始化、PUT、ETag和完成确认不混入邮箱 Cookie', async () => {
     const path = join(await directory(), 'fixture.bin');
@@ -171,6 +203,64 @@ describe('邮箱附件协议', () => {
 });
 
 describe('邮箱附件下载', () => {
+  it.each(['明文', '密文', '损坏'] as const)('按原文件摘要处理附件响应：%s', async (mode) => {
+    const root = await directory();
+    const account = auth();
+    const registry = new MailAttachmentRegistry();
+    const file = { fileid: 'file', mailid: 'mail', name: 'fixture.pdf' };
+    const plain = Buffer.alloc(MAIL_PART_SIZE + 17, 0x5a);
+    const md5 = createHash('md5').update(plain).digest('hex');
+    const sha = createHash('sha1').update(plain).digest('hex');
+    const key = Buffer.alloc(32, 0x31);
+    const iv = Buffer.alloc(16, 0x42);
+    const cipher = createCipheriv('aes-256-ctr', key, iv);
+    const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
+    if (mode === '损坏') encrypted[MAIL_PART_SIZE] = 0xff ^ encrypted[MAIL_PART_SIZE]!;
+    const cgi = vi
+      .spyOn(account, 'cgi')
+      .mockImplementation(async (path) =>
+        path === '/attach/download'
+          ? { attach_list: { attach: [{ ...file, md5, sha }] } }
+          : { key_b64: key.toString('base64url'), iv_b64: iv.toString('base64url') },
+      );
+    vi.spyOn(account, 'downloadCredentials').mockResolvedValue({
+      url: new URL('https://wx.mail.qq.com/attach/download'),
+      cookie: 'fixture-cookie',
+    });
+    const [attachment] = registry.fromMessage(
+      { normal_attach: [{ ...file, size: plain.length }] },
+      file.mailid,
+    );
+    const destination = join(root, file.name);
+    const signal = new AbortController().signal;
+    const download = downloadMailFile(
+      account,
+      registry,
+      attachment!.id,
+      destination,
+      signal,
+      async () => response(200, mode === '明文' ? plain : encrypted),
+    );
+
+    if (mode === '损坏') {
+      await expect(download).rejects.toThrow('内容校验失败');
+      expect(await readdir(root)).toEqual([]);
+    } else {
+      await download;
+      expect((await readFile(destination)).equals(plain)).toBe(true);
+      expect(await readdir(root)).toEqual([file.name]);
+    }
+    if (mode === '明文') {
+      expect(cgi).toHaveBeenCalledTimes(1);
+    } else {
+      expect(cgi).toHaveBeenCalledWith(
+        '/attach/get_enc_key',
+        { bizid: 50, size: plain.length, md5, filename: file.name },
+        { signal },
+      );
+    }
+    account.dispose();
+  });
   it('跨主机重定向不转发邮箱 Cookie，不覆盖目标文件', async () => {
     const root = await directory(),
       account = auth(),

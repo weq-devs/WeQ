@@ -100,18 +100,6 @@ html[data-theme='dark'] .message-scroll {
   background: transparent;
 }
 
-html[data-theme='dark'] .unread-jump-button {
-  background: rgba(35, 38, 42, 0.96);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.34);
-  color: #4db3ff;
-}
-
-html[data-theme='dark'] .unread-jump-button:hover,
-html[data-theme='dark'] .unread-jump-button:focus-visible {
-  background: #2b2f34;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.42);
-}
-
 /* 未读跳转坞（深色）：卡片面用略亮的深灰，描边跟着色调走。 */
 html[data-theme='dark'] .unread-dock-button {
   background: #23262a;

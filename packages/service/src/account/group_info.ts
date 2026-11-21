@@ -8,6 +8,7 @@ import {
   qqResourceOwnedBy,
   type QQGroupOperation,
   type QQGroupPermissionContext,
+  type QQGroupRole,
 } from '../common/qq_permissions';
 import type { ContactMetricsService } from './contact_metrics';
 import type { ContactHistoryService } from './contact_history';
@@ -30,6 +31,20 @@ import {
 const ONLINE_MEMBERS_TTL_MS = 60_000;
 /** 单群翻页上限，兜底防止服务端 token 不收敛。 */
 const ONLINE_MEMBERS_MAX_PAGES = 200;
+
+function onlineMemberRole(permission: number): QQGroupRole | undefined {
+  switch (permission) {
+    case 1:
+      return 'owner';
+    case 2:
+      return 'admin';
+    case 0:
+    case 4:
+      return 'member';
+    default:
+      return undefined;
+  }
+}
 import type {
   GroupEssence,
   GroupMemberLevelInfo,
@@ -315,7 +330,7 @@ export class GroupInfoService {
         customTitle: row.specialTitle,
         memberLevel: row.level,
       }));
-    return this.memberPreviews.read(`${code}:${onlineAllowed}`, {
+    const result = await this.memberPreviews.read(`${code}:${onlineAllowed}`, {
       local: () =>
         this.session.groupMembers.listMembersInGroup(BigInt(code), GROUP_PREVIEW_CANDIDATES, 0),
       friends: async () =>
@@ -345,11 +360,13 @@ export class GroupInfoService {
             }
           : undefined,
     });
+    return { ...result, members: this.applyMemberRoles(BigInt(code), result.members) };
   }
   private contactHistory?: ContactHistoryService;
   private readonly groupProfiles: GroupProfileReader;
   contactMetrics?: ContactMetricsService;
   contactMembersObserved?: (groupId: number, members: GroupMemberListItem[]) => Promise<void>;
+  onMemberRolesChanged?: () => void;
 
   contactMembershipSnapshot(friendUids: string[]) {
     return this.session.groupMembers.contactMembershipSnapshot(friendUids);
@@ -381,6 +398,11 @@ export class GroupInfoService {
   >();
   /** 同一群的并发拉取合并，避免 0xFE7_3 被并发打爆触发风控。 */
   private onlineMembersInflight = new Map<number, Promise<GroupMemberListItem[]>>();
+  private memberRoleReads = new Map<number, number>();
+  private memberRoleSnapshots = new Map<
+    number,
+    { pid: number; byUid: Map<string, GroupMemberListItem> }
+  >();
   private messagePoliciesInflight?: { pid: number; task: Promise<GroupMessagePolicySnapshot[]> };
   private analysis: AnalyticsMessageSource;
 
@@ -584,6 +606,74 @@ export class GroupInfoService {
     });
     this.onlineMembersInflight.set(groupId, task);
     return task;
+  }
+
+  /** 群通知或写操作成功后，等旧分页结束，再读变更后的完整名单。 */
+  async syncMemberRoles(groupId: number, fresh = false) {
+    const pid = this.online?.resolvePid();
+    if (pid === undefined) return;
+    if (fresh) {
+      await this.onlineMembersInflight.get(groupId)?.catch(() => undefined);
+      if (this.online?.resolvePid() !== pid) return;
+    } else {
+      const last = this.memberRoleReads.get(groupId);
+      if (last !== undefined && Date.now() - last < ONLINE_MEMBERS_TTL_MS) return;
+    }
+    this.memberRoleReads.set(groupId, Date.now());
+    if (this.memberRoleReads.size > 200)
+      this.memberRoleReads.delete(this.memberRoleReads.keys().next().value!);
+    const before = this.onlineMembersCache.get(groupId);
+    await this.fetchOnlineMembers(groupId, { force: fresh, observe: false });
+    const result = this.onlineMembersCache.get(groupId);
+    // 历史名单回退不是本次读回。写操作也不能使用发包前已有的缓存。
+    if (
+      result?.pid !== pid ||
+      Date.now() - result.at >= ONLINE_MEMBERS_TTL_MS ||
+      (fresh && result === before) ||
+      this.online?.resolvePid() !== pid
+    )
+      return;
+    const previous = this.memberRoleSnapshots.get(groupId);
+    const byUid = new Map(result.members.filter((member) => member.uid).map((m) => [m.uid, m]));
+    this.memberRoleSnapshots.delete(groupId);
+    this.memberRoleSnapshots.set(groupId, { pid, byUid });
+    if (this.memberRoleSnapshots.size > 200)
+      this.memberRoleSnapshots.delete(this.memberRoleSnapshots.keys().next().value!);
+    if (
+      previous?.pid !== pid ||
+      previous.byUid.size !== byUid.size ||
+      [...byUid.values()].some((member) => {
+        const old = previous.byUid.get(member.uid);
+        return old?.uin !== member.uin || old.permission !== member.permission;
+      })
+    )
+      this.onMemberRolesChanged?.();
+    return result.members;
+  }
+
+  private memberRoles(groupCode: bigint) {
+    const cached = this.memberRoleSnapshots.get(Number(groupCode));
+    if (!cached) return undefined;
+    try {
+      return this.online?.resolvePid() === cached.pid ? cached.byUid : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private applyMemberRoles(groupCode: bigint, members: GroupMember[]): GroupMember[] {
+    const roles = this.memberRoles(groupCode);
+    return roles ? members.map((member) => this.applyMemberRole(member, roles)) : members;
+  }
+
+  private applyMemberRole(member: GroupMember, roles?: ReadonlyMap<string, GroupMemberListItem>) {
+    if (member.memberFlag !== 0) return member;
+    const online = roles?.get(member.uid);
+    if (!online || String(online.uin) !== String(member.uin)) return member;
+    const role = onlineMemberRole(online.permission);
+    if (!role || role === 'owner') return member;
+    const adminFlag = role === 'admin' ? 1 : 0;
+    return member.adminFlag === adminFlag ? member : { ...member, adminFlag };
   }
 
   /**
@@ -878,7 +968,14 @@ export class GroupInfoService {
    * List all groups with detailed metadata.
    */
   async listGroupDirectory() {
-    return this.session.groupDetail.listDirectory();
+    const rows = await this.session.groupDetail.listDirectory();
+    if (!this.session.selfUid) return rows;
+    return rows.map((row) => {
+      if (row.role === 'owner') return row;
+      const self = this.memberRoles(BigInt(row.groupCode))?.get(this.session.selfUid);
+      if (!self || String(self.uin) !== this.session.context.uin) return row;
+      return { ...row, role: onlineMemberRole(self.permission) ?? row.role };
+    });
   }
 
   private async operationState(
@@ -963,7 +1060,7 @@ export class GroupInfoService {
     groupId: string | number,
     targetUid?: string,
     refresh = false,
-  ): Promise<QQGroupPermissionContext> {
+  ): Promise<QQGroupPermissionContext & { joined: boolean }> {
     this.operationGuard?.();
     const code = String(groupId);
     const [directory, detail, member, state] = await Promise.all([
@@ -972,11 +1069,12 @@ export class GroupInfoService {
       targetUid ? this.getMemberInfo(BigInt(code), targetUid) : Promise.resolve(null),
       this.operationState(groupId, refresh),
     ]);
-    const role = directory.find((row) => row.groupCode === code)?.role ?? null;
+    const entry = directory.find((row) => row.groupCode === code);
     this.operationGuard?.();
     return {
       ...state,
-      role,
+      joined: Boolean(entry),
+      role: entry?.role ?? null,
       isSelf:
         targetUid !== undefined &&
         qqResourceOwnedBy(targetUid, { uid: this.session.selfUid, uin: this.session.context.uin }),
@@ -1309,7 +1407,10 @@ export class GroupInfoService {
    * List all members of a group (active only).
    */
   async listMembersInGroup(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
-    return this.session.groupMembers.listMembersInGroup(groupCode, limit, offset);
+    return this.applyMemberRoles(
+      groupCode,
+      await this.session.groupMembers.listMembersInGroup(groupCode, limit, offset),
+    );
   }
 
   /**
@@ -1326,14 +1427,18 @@ export class GroupInfoService {
    * query — used by the "群成员等级排行" lightbox, which infinite-scrolls.
    */
   async listMembersByLevel(groupCode: bigint, limit = 100, offset = 0): Promise<GroupMember[]> {
-    return this.session.groupMembers.listMembersByLevel(groupCode, limit, offset);
+    return this.applyMemberRoles(
+      groupCode,
+      await this.session.groupMembers.listMembersByLevel(groupCode, limit, offset),
+    );
   }
 
   /**
    * Get info for a specific member in a group.
    */
   async getMemberInfo(groupCode: bigint, uid: string): Promise<GroupMember | null> {
-    return this.session.groupMembers.getMember(groupCode, uid);
+    const member = await this.session.groupMembers.getMember(groupCode, uid);
+    return member ? this.applyMemberRole(member, this.memberRoles(groupCode)) : null;
   }
 
   /**
@@ -1341,14 +1446,20 @@ export class GroupInfoService {
    * that are not in the loaded member page.
    */
   async getMembersByUids(groupCode: bigint, uids: string[]): Promise<GroupMember[]> {
-    return this.session.groupMembers.getMembersByUids(groupCode, uids);
+    return this.applyMemberRoles(
+      groupCode,
+      await this.session.groupMembers.getMembersByUids(groupCode, uids),
+    );
   }
 
   /**
    * Batch-fetch members by uin (QQ number). Used for group-receipt payer lookup.
    */
   async getMembersByUins(groupCode: bigint, uins: bigint[]): Promise<GroupMember[]> {
-    return this.session.groupMembers.getMembersByUins(groupCode, uins);
+    return this.applyMemberRoles(
+      groupCode,
+      await this.session.groupMembers.getMembersByUins(groupCode, uins),
+    );
   }
 
   /**
@@ -1362,7 +1473,13 @@ export class GroupInfoService {
     limit?: number,
     offset?: number,
   ): Promise<{ items: GroupMember[]; total: number }> {
-    return this.session.groupMembers.searchMembersInGroup(groupCode, keyword, limit, offset);
+    const result = await this.session.groupMembers.searchMembersInGroup(
+      groupCode,
+      keyword,
+      limit,
+      offset,
+    );
+    return { ...result, items: this.applyMemberRoles(groupCode, result.items) };
   }
 
   /**

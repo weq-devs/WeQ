@@ -1,4 +1,8 @@
-import { chooseFormOption } from './form-select.mjs';
+import {
+  chooseDirectorySort,
+  chooseDirectorySortDirection,
+  chooseFormOption,
+} from './form-select.mjs';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -54,10 +58,10 @@ try {
   await page.goto(url);
   const directory = page.locator('[data-kind="directory"]');
   await chooseFormOption(directory.getByLabel('分组依据'), 'none');
-  await chooseFormOption(directory.getByLabel('排序依据'), 'sigUpdateTime');
+  await chooseDirectorySort(directory, 'sigUpdateTime');
   const names = () => directory.locator('.contact-row .row-title-text').allTextContents();
   assert.deepEqual(await names(), ['合成联系人b', '合成联系人a', '合成联系人c']);
-  await directory.getByRole('button', { name: '改为升序', exact: true }).click();
+  await chooseDirectorySortDirection(directory, '早的在前');
   assert.deepEqual(await names(), ['合成联系人a', '合成联系人b', '合成联系人c']);
   await chooseFormOption(directory.getByLabel('分组依据'), 'occupation');
   assert.deepEqual(

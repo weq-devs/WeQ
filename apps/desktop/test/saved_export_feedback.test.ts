@@ -159,11 +159,17 @@ it('保存位置存在时提供打开与文件夹定位，另存失败仍能打�
     expect(host.querySelector('[aria-label="打开保存结果"]')).not.toBeNull();
     expect(host.textContent).toContain('上次保存：/saved/fixture.json');
     expect(host.textContent).not.toContain('尚未保存');
-    act(() => host.querySelector<HTMLButtonElement>('[aria-label="重试保存"]')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.click());
+    act(() =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+        .find((item) => item.textContent?.includes('重试保存'))!
+        .click(),
+    );
     expect(noop).toHaveBeenLastCalledWith(task);
     task.save = { ...task.save!, status: 'interrupted' };
     render();
-    expect(host.querySelector('[aria-label="重试保存"]')).not.toBeNull();
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.click());
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('重试保存');
     task.save = { policy: { mode: 'before', directory: '/fixture/export' }, status: 'pending' };
     render();
     expect(host.querySelector('[aria-label="打开保存结果"]')).toBeNull();

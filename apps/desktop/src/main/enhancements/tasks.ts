@@ -16,7 +16,11 @@ interface PreparationTaskPort {
   resume?(id: EnhancementPackId): void;
 }
 const pending = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, Promise<void>>>();
-const requestedActions = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, string>>();
+const requestedActions = new WeakMap<
+  PreparationTaskPort,
+  Map<EnhancementPackId, { action: string; foreground: boolean }>
+>();
+const taskIds = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, string>>();
 const enhancementReceipt = downloadTaskReceipt.extend({ name: z.string(), action: z.string() });
 const enhancementReceipts = z.record(z.enum(ENHANCEMENT_PACK_IDS), enhancementReceipt);
 const stores = new WeakMap<PreparationTaskPort, JsonStore<z.infer<typeof enhancementReceipts>>>();
@@ -75,6 +79,30 @@ export function enhancementTaskNeedsInput(packs: EnhancementPacks, id: Enhanceme
   return status === 'running' || status === 'paused' || status === 'failed';
 }
 
+export function enhancementDownloadTask(packs: PreparationTaskPort, id: EnhancementPackId) {
+  const taskId = taskIds.get(packs)?.get(id) ?? stores.get(packs)?.data[id]?.id;
+  const task = backgroundTasks.snapshot().find((entry) => entry.id === taskId);
+  if (!task) return null;
+  const { status, statusLabel, progress, note, foreground } = task;
+  return { id: task.id, status, statusLabel, progress, note, foreground };
+}
+
+export function backgroundEnhancementDownload(
+  packs: PreparationTaskPort,
+  id: EnhancementPackId,
+  taskId: string,
+) {
+  const task = enhancementDownloadTask(packs, id);
+  if (task?.id !== taskId) throw new Error('增强包下载已改变，请刷新');
+  if (!task.foreground) return;
+  const store = stores.get(packs);
+  const saved = store?.data[id];
+  if (store && saved?.id === taskId) {
+    store.replace({ ...store.data, [id]: { ...saved, foreground: false } }, true);
+  }
+  backgroundTasks.setForeground(taskId, false);
+}
+
 export function forgetEnhancementTask(packs: EnhancementPacks, taskId: string): boolean {
   const store = stores.get(packs);
   const id = ENHANCEMENT_PACK_IDS.find((key) => store?.data[key]?.id === taskId);
@@ -94,6 +122,7 @@ export function forgetRemovedPackTask(packs: EnhancementPacks, id: EnhancementPa
 export async function startEnhancementDownloads(
   packs: EnhancementPacks,
   requested: readonly EnhancementPackId[],
+  foreground = false,
 ): Promise<void> {
   const previous = await packs.list();
   const ids = [...new Set(requested)].filter(
@@ -105,13 +134,16 @@ export async function startEnhancementDownloads(
       const pack = previous.find((entry) => entry.id === id);
       return [
         id,
-        !pack
-          ? '准备增强包'
-          : pack.needsRepair
-            ? '补齐增强包'
-            : pack.installed
-              ? '更新增强包'
-              : '安装增强包',
+        {
+          foreground,
+          action: !pack
+            ? '准备增强包'
+            : pack.needsRepair
+              ? '补齐增强包'
+              : pack.installed
+                ? '更新增强包'
+                : '安装增强包',
+        },
       ];
     }),
   );
@@ -124,7 +156,13 @@ export async function startEnhancementDownloads(
   for (const id of ids) {
     const pack = previous.find((entry) => entry.id === id);
     if (pack)
-      void trackEnhancementPreparation(packs, id, pack.name, actions.get(id)).catch(() => {});
+      void trackEnhancementPreparation(
+        packs,
+        id,
+        pack.name,
+        actions.get(id)?.action,
+        foreground,
+      ).catch(() => {});
   }
 }
 
@@ -133,7 +171,8 @@ export function trackEnhancementPreparation(
   packs: PreparationTaskPort,
   id: EnhancementPackId,
   name: string,
-  action = requestedActions.get(packs)?.get(id) ?? '准备增强包',
+  action = requestedActions.get(packs)?.get(id)?.action ?? '准备增强包',
+  foreground = requestedActions.get(packs)?.get(id)?.foreground,
 ): Promise<void> {
   let tasks = pending.get(packs);
   if (!tasks) {
@@ -148,7 +187,13 @@ export function trackEnhancementPreparation(
     saved &&
     (saved.status === 'running' || saved.status === 'paused' || saved.status === 'failed') &&
     backgroundTasks.snapshot().some((entry) => entry.id === saved.id);
-  const taskId = useSaved ? saved.id : backgroundTasks.start(presentation(name, action));
+  const taskId = useSaved
+    ? saved.id
+    : backgroundTasks.start({ ...presentation(name, action), foreground });
+  const ids = taskIds.get(packs) ?? new Map<EnhancementPackId, string>();
+  ids.set(id, taskId);
+  taskIds.set(packs, ids);
+  if (useSaved && foreground !== undefined) backgroundTasks.setForeground(taskId, foreground);
   if (useSaved) action = saved.action;
   const persist = () => {
     const task = backgroundTasks.snapshot().find((entry) => entry.id === taskId);
@@ -157,6 +202,7 @@ export function trackEnhancementPreparation(
     if (
       previous?.id === taskId &&
       previous.status === task.status &&
+      previous.foreground === task.foreground &&
       previous.statusLabel === task.statusLabel
     )
       return;

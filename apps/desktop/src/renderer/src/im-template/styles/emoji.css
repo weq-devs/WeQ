@@ -680,10 +680,8 @@ html[data-theme='dark'] .emoji-lb {
   vertical-align: -0.45em;
 }
 
-/* 图片类媒体（见 QqMessageContent 的 BLOCK_MEDIA_KINDS）各占一行：包一层块级容器后，
-   图片既不会和文字排在同一行，也不会和另一张图片并排。换行由块级容器提供，文字里
-   紧贴媒体的那个换行符在渲染时已剥掉，所以不会多出一个空行。 */
-.message-content .qq-media-line {
+/* 各媒体行独占一行。相邻普通图片可在同一媒体行组成网格。 */
+.message-content .qq-media-line:not(.qq-image-grid) {
   display: block;
 }
 
@@ -886,10 +884,9 @@ html[data-theme='dark'] .emoji-lb {
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 9%, transparent);
 }
 
-/* 自己那一行：强调色底 + 左侧色条（起手就把「我也贴了」标出来）。 */
+/* 用浅色底突出本人所在行。 */
 .reaction-likers-row.is-self {
   background: color-mix(in srgb, var(--likers-accent) 12%, transparent);
-  box-shadow: inset 2px 0 0 var(--likers-accent);
 }
 
 .reaction-likers-row.is-self:hover {
@@ -1521,8 +1518,10 @@ html[data-theme='dark'] .qq-flash-cover {
   background: rgba(0, 0, 0, 0.03);
 }
 
-.qq-voice-transcript {
-  max-width: 280px;
+.qq-message-text-result {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: min(100%, 280px);
   padding: 7px 11px;
   border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: 4px 12px 12px 12px;
@@ -1536,12 +1535,21 @@ html[data-theme='dark'] .qq-flash-cover {
 
 /* Keep the transcript reading light-on-... it stays a light bubble even under my
    own messages (it's a result panel, not part of the accent strip). */
-.message-line.mine .qq-voice-transcript {
+.message-line.mine .qq-message-text-result {
   align-self: flex-end;
   border-radius: 12px 4px 12px 12px;
 }
 
-.qq-voice-transcript.is-error {
+.message-bubble > .qq-message-text-result {
+  width: fit-content;
+}
+
+.qq-message-text-result:focus-visible {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 2px;
+}
+
+.qq-message-text-result.is-error {
   background: #fdf2f2;
   border-color: rgba(220, 80, 80, 0.25);
   color: #c0392b;

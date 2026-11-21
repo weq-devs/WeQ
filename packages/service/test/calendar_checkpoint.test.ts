@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   ConversationCalendarJob,
+  calendarTargetKey,
   type CalendarBatch,
   type CalendarSource,
   type CalendarTarget,
@@ -320,6 +321,150 @@ it('无效检查点整份拒绝，不部分提交错误计数或超范围游标'
   expect(job.restore(other)).toBe(false);
   job.cancel();
 });
+
+it('切换范围复用已结束日期的同范围计数及子集明细，保留零结果并继续读取新增来源', async () => {
+  const second = { ...target, conv: 'second' };
+  const quiet = { ...target, conv: 'quiet' };
+  const group = { ...target, kind: 'group' as const };
+  const added = { ...target, kind: 'assistant' as const };
+  const previousTargets = [target, second, quiet, group];
+  const newTargets = [second, quiet, group, added];
+  const coverage = (targets: CalendarTarget[]) =>
+    new Map(targets.map((target) => [calendarTargetKey(target), 'visible']));
+  const detail = async () => ({
+    rows: [row('1'), { ...row('2'), conv: second.conv }],
+    done: true,
+  });
+  const count = vi.fn(async () => 7);
+  const groupDetail = async () => ({ rows: [row('3')], done: true });
+  const previous = new ConversationCalendarJob(
+    '2026-11',
+    previousTargets,
+    [
+      { kind: 'c2c', count, page: detail },
+      { kind: 'group', count, page: groupDetail },
+    ],
+    undefined,
+    undefined,
+    coverage(previousTargets),
+  );
+  previous.keepAlive(day);
+  await finish(previous);
+  const c2cRead = vi.fn(async () => ({ rows: [], done: true }));
+  const assistantRead = vi.fn(async () => ({ rows: [row('4')], done: true }));
+  const next = new ConversationCalendarJob(
+    '2026-11',
+    newTargets,
+    [
+      { kind: 'c2c', page: c2cRead },
+      { kind: 'group', page: groupDetail },
+      { kind: 'assistant', page: assistantRead },
+    ],
+    undefined,
+    undefined,
+    coverage(newTargets),
+  );
+  const checkpoint = previous.checkpoint();
+  expect(next.reuseCompleted(checkpoint)).toBe(9);
+  expect(next.reuseCompleted(checkpoint)).toBe(0);
+  const saved = (day: string, kind: CalendarSource['kind']) =>
+    next.checkpoint().work.find((work) => work.day === day && work.kind === kind);
+  expect(saved(day, 'c2c')).toMatchObject({ counted: true, detailed: true, count: 1 });
+  expect(saved(day, 'c2c')?.rows.map((entry) => entry.key)).toEqual([calendarTargetKey(second)]);
+  expect(saved('2026-11-07', 'c2c')?.counted).toBe(false);
+  expect(saved('2026-11-07', 'group')).toMatchObject({ counted: true, detailed: false, count: 7 });
+  expect(saved('2026-11-09', 'group')?.counted).toBe(false);
+  expect(saved(day, 'assistant')?.counted).toBe(false);
+  next.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(assistantRead).toHaveBeenCalledOnce();
+  expect(c2cRead).not.toHaveBeenCalled();
+  expect(next.snapshot(day).rows).toHaveLength(3);
+  previous.cancel();
+  next.cancel();
+  await finish(next);
+});
+
+it('跨范围复用隔离消息可见性，不把今天读到的结果当成完整的历史日期', async () => {
+  const source: CalendarSource = {
+    kind: 'c2c',
+    page: async () => ({ rows: [row('1')], done: true }),
+  };
+  const job = (fingerprint: string) =>
+    new ConversationCalendarJob(
+      '2026-11',
+      [target],
+      [source],
+      undefined,
+      undefined,
+      new Map([[calendarTargetKey(target), fingerprint]]),
+    );
+  const previous = job('old');
+  vi.setSystemTime(new Date('2026-11-08T12:00:00+08:00'));
+  previous.keepAlive(day);
+  await finish(previous);
+  vi.setSystemTime(new Date('2026-11-09T12:00:00+08:00'));
+  const checkpoint = previous.checkpoint();
+  const unchanged = job('old');
+  const changed = job('new');
+  expect(unchanged.reuseCompleted(checkpoint)).toBe(7);
+  expect(unchanged.snapshot(day).days.find((item) => item.day === day)?.complete).toBe(false);
+  expect(changed.reuseCompleted(checkpoint)).toBe(0);
+  expect(changed.restore(checkpoint)).toBe(true);
+  expect(changed.snapshot(day).days.find((item) => item.day === day)?.count).toBe(0);
+});
+
+it('重启后按账号、数据源和月份发现可复用检查点，索引不依赖任务回执', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-calendar-related-'));
+  roots.push(root);
+  const source: CalendarSource = { kind: 'c2c', page: async () => ({ rows: [], done: true }) };
+  const makeJob = () =>
+    new ConversationCalendarJob(
+      '2026-11',
+      [target],
+      [source],
+      undefined,
+      undefined,
+      new Map([[calendarTargetKey(target), 'visible']]),
+    );
+  const previous = makeJob();
+  const store = new CalendarCheckpointStore(
+    root,
+    'account-A:source-A:month:wide',
+    () => previous.checkpoint(),
+    undefined,
+    'account-A:source-A:month',
+  );
+  previous.keepAlive(day);
+  await finish(previous);
+  await store.flush();
+  const next = makeJob();
+  const related = new CalendarCheckpointStore(
+    root,
+    'account-A:source-A:month:narrow',
+    () => next.checkpoint(),
+    undefined,
+    'account-A:source-A:month',
+  );
+  expect(await related.load()).toBeUndefined();
+  for await (const candidate of related.loadRelated())
+    expect(next.reuseCompleted(candidate)).toBe(8);
+  expect(next.snapshot(day).days.find((item) => item.day === day)).toMatchObject({
+    count: 0,
+    complete: true,
+  });
+  const isolated = new CalendarCheckpointStore(
+    root,
+    'account-A:source-B:month:narrow',
+    () => next.checkpoint(),
+    undefined,
+    'account-A:source-B:month',
+  );
+  expect((await isolated.loadRelated().next()).done).toBe(true);
+  await writeFile(store.path, '{broken');
+  expect((await related.loadRelated().next()).done).toBe(true);
+});
+
 it('重新打开仅续查超时来源，保留原游标与结果，不解除手动暂停或吞掉其他错误', async () => {
   const page = vi.fn<CalendarSource['page']>(async (_s, _e, cursor) => {
     if (!cursor) return { rows: [row('1')], cursor: 1, done: false };

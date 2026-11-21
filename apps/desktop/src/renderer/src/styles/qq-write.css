@@ -59,7 +59,7 @@ textarea.weq-qq-write-input {
 .weq-qq-write-input:disabled {
   opacity: 0.55;
 }
-.weq-qq-write-field > button {
+.weq-qq-write-field > .weq-set-iconbtn {
   width: 30px;
   height: 30px;
   flex-shrink: 0;

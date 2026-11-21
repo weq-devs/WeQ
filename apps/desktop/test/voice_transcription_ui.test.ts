@@ -107,6 +107,9 @@ function rightClick() {
       .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
   );
 }
+function transcript() {
+  return host.querySelector<HTMLElement>('[aria-label="转文字结果"]');
+}
 function click(title: string) {
   const button = document.querySelector<HTMLButtonElement>(`button[title="${title}"]`)!;
   expect(button).not.toBeNull();
@@ -143,6 +146,29 @@ afterEach(() => {
 });
 
 describe('语音消息转换入口', () => {
+  it('右键收起已有结果，消息重新挂载后仍可展开原文字', async () => {
+    state.model = '';
+    render({ stored: '已有文字' });
+    expect(transcript()?.textContent).toBe('已有文字');
+    act(() =>
+      transcript()!.dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(document.querySelector('[aria-label="转文字结果操作"]')).not.toBeNull();
+    expect(document.querySelector('.message-context-menu')).toBeNull();
+    click('收起');
+    await settle();
+    expect(transcript()).toBeNull();
+    act(() => root.render(null));
+    render({ stored: '已有文字' });
+    expect(transcript()).toBeNull();
+    click('展开转文字结果');
+    await settle();
+    expect(transcript()?.textContent).toBe('已有文字');
+    expect(state.transcribe).not.toHaveBeenCalled();
+  });
+
   it('设置页使用独立自动开关保存偏好，并沿用设置和菜单样式', async () => {
     expect(
       resolveSettingsTarget({ section: 'chat-messages', settingId: 'auto-transcribe-voice' }),
@@ -206,7 +232,7 @@ describe('语音消息转换入口', () => {
     ).toBe('true');
     await act(async () => finish({ success: true, text: '识别完成' }));
     await settle();
-    expect(host.querySelector('.qq-voice-transcript')?.textContent).toBe('识别完成');
+    expect(transcript()?.textContent).toBe('识别完成');
     expect(document.querySelector('button[title="转换为文字"]')).toBeNull();
     expect(state.transcribe).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -228,7 +254,7 @@ describe('语音消息转换入口', () => {
     expect(state.transcribe).toHaveBeenCalledOnce();
     render({ identity: 'another.silk', stored: '已有文字' });
     await settle();
-    expect(host.querySelector('.qq-voice-transcript')?.textContent).toBe('已有文字');
+    expect(transcript()?.textContent).toBe('已有文字');
     expect(state.transcribe).toHaveBeenCalledOnce();
   });
 
@@ -247,6 +273,23 @@ describe('语音消息转换入口', () => {
     ).toBe('true');
   });
 
+  it('迟到的自动转写让位给合成原文，用户可从菜单重新转写', async () => {
+    state.automatic = true;
+    state.transcribe.mockResolvedValueOnce({ success: true, text: '自动结果' });
+    render();
+    act(() => state.intersection?.([{ isIntersecting: true }]));
+    await settle();
+    render({ stored: '合成原文' });
+    expect(transcript()?.textContent).toBe('合成原文');
+    rightClick();
+    click('重新转文字');
+    await settle();
+    expect(state.transcribe).toHaveBeenLastCalledWith(
+      expect.objectContaining({ automatic: false }),
+    );
+    expect(transcript()?.textContent).toBe('合成语音文字');
+  });
+
   it.each(['response', 'exception'])(
     '%s 失败不自动循环重试，气泡允许手动重试，空成功结果也不重复转换',
     async (failure) => {
@@ -257,7 +300,7 @@ describe('语音消息转换入口', () => {
       render();
       act(() => state.intersection?.([{ isIntersecting: true }]));
       await settle();
-      expect(host.querySelector('.qq-voice-transcript')?.textContent).toBe('合成失败');
+      expect(transcript()?.textContent).toBe('合成失败');
       act(() => state.intersection?.([{ isIntersecting: false }]));
       act(() => state.intersection?.([{ isIntersecting: true }]));
       await settle();
@@ -265,7 +308,7 @@ describe('语音消息转换入口', () => {
       click('转文字');
       await settle();
       expect(state.transcribe).toHaveBeenCalledTimes(2);
-      expect(host.querySelector('.qq-voice-transcript')?.textContent).toBe('（未识别到内容）');
+      expect(transcript()?.textContent).toBe('（未识别到内容）');
       render();
       await settle();
       expect(state.transcribe).toHaveBeenCalledTimes(2);

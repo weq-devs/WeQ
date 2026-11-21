@@ -11,7 +11,12 @@ import { useGroupMemberRefresh } from '../src/renderer/src/hooks/useGroupMemberR
 const state = vi.hoisted(() => ({
   uin: '99999',
   config: { uin: '99999', configId: 'fixture' },
-  snapshot: { taskId: 'existing', target: 'metrics', progress: { status: 'running' } },
+  snapshot: {
+    taskId: 'existing',
+    target: 'metrics',
+    foreground: false,
+    progress: { status: 'running' },
+  },
   confirm: vi.fn(async () => false),
   focusTask: vi.fn(),
   openTasks: vi.fn(),
@@ -60,6 +65,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   state.uin = '99999';
+  state.snapshot.foreground = false;
   state.snapshot.progress.status = 'running';
   vi.clearAllMocks();
 });
@@ -85,6 +91,25 @@ function mount(group: boolean) {
   });
   return { host, render, onRefresh };
 }
+
+it('联系人刷新入口能返回前台群交集，图谱入口保留当前页和同一批次', async () => {
+  state.snapshot.target = 'groupMembers';
+  state.snapshot.foreground = true;
+  const onNavigate = vi.fn();
+  window.addEventListener('weq:notification-navigate', onNavigate);
+  try {
+    const graph = mount(true);
+    await act(async () => graph.host.querySelector('button')!.click());
+    expect(onNavigate).not.toHaveBeenCalled();
+    const contacts = mount(false);
+    await act(async () => contacts.host.querySelector('button')!.click());
+    expect(onNavigate).toHaveBeenCalledOnce();
+    expect(state.focusTask).not.toHaveBeenCalled();
+    expect(state.rebuild).not.toHaveBeenCalled();
+  } finally {
+    window.removeEventListener('weq:notification-navigate', onNavigate);
+  }
+});
 it.each(['metrics', 'groupMembers'])(
   '%s 任务运行或暂停时，两个手动入口均直接聚焦原任务',
   async (target) => {

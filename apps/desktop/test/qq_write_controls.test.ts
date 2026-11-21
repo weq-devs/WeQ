@@ -118,7 +118,7 @@ afterEach(() => {
 });
 
 describe('QQ 写控件', () => {
-  it('分段选择保持未知状态，保存失败回退，期间切换缓存以最新值回退', async () => {
+  it('下拉选择保持未知状态，保存失败时回退到最新读取值', async () => {
     const f = fixture();
     let finish!: (ok: boolean) => void;
     const save = vi.fn(
@@ -134,7 +134,6 @@ describe('QQ 写控件', () => {
             label: '消息接收',
             initial,
             disabled: false,
-            segmented: true,
             autoSave: true,
             options: [
               { value: 1, label: '提醒' },
@@ -145,18 +144,14 @@ describe('QQ 写控件', () => {
         ),
       );
     render(null);
-    expect(f.host.textContent).toContain('尚未读取');
-    expect(f.host.querySelector('[aria-checked="true"]')).toBeNull();
-    act(() => f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')[1]!.click());
+    const select = f.host.querySelector<HTMLButtonElement>(formSelectSelector)!;
+    expect(select.textContent).toBe('尚未读取');
+    act(() => chooseFormOption(select, '2'));
     expect(save).toHaveBeenCalledWith(2);
-    expect(
-      [...f.host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].every(
-        (button) => button.disabled,
-      ),
-    ).toBe(true);
+    expect(select.disabled).toBe(true);
     render(1);
     await act(async () => finish(false));
-    expect(f.host.querySelector('[aria-checked="true"]')?.textContent).toBe('提醒');
+    expect(select.textContent).toBe('提醒');
     expect(save).toHaveBeenCalledOnce();
   });
   it('编辑中的备注不被迟到缓存覆盖，受理后仍可主动再次提交相同值', async () => {

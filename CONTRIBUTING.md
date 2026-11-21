@@ -29,10 +29,22 @@ pnpm dev --prepare-only # 只准备开发环境，不启动应用
 
 日常改动按[最小充分验证](./docs/develop/testing.md#日常开发选择最小充分验证)选择检查，并在 PR 中简述实际验证范围与结果。CI 执行全量门禁。Windows 本地失败时先查清是否为路径、换行、大小写或原生模块差异。
 
-发版前或需要全量复核时运行 `pnpm ci:local`，一次汇总 lint、格式、类型与测试结果。
+发版前或需要全量复核时运行 `pnpm ci:local`，一次汇总当前工作树的 lint、格式、生成文档、类型和测试结果。开发启动、集成、编排及打包脚本与线上 CI 共用测试入口。线上另有干净检出和跨平台验证。
 
 - `--fix` 先做全仓格式化和自动修复，适用于全量整理。日常只格式化本任务文件。
 - `--full` 增加 Web 打包冒烟，`--fail-fast` 首次失败即停，`--list` 只列步骤。
+
+核对待提交和待推送的内容时用对应 Git 基准。推送前先 `git fetch`；`@{upstream}` 是当前分支跟踪的远端分支，例如 `dev` 跟踪 `origin/dev`。
+
+```bash
+git diff --cached                       # 待提交内容
+git log --oneline '@{upstream}..HEAD'  # 待推送提交
+git diff '@{upstream}...HEAD'           # 待推送改动，相对于共同祖先
+node scripts/check-docs-submodule.mjs --staged  # 校验暂存的文档指针与配置
+node scripts/check-docs-submodule.mjs HEAD      # 校验要推送的提交，可传入具体 SHA
+```
+
+`test:changed` 使用当前工作树。即使为 Vitest 传入 `--changed=origin/dev`，也会同时使用暂存和未暂存改动。需要验证具体提交时，以该 SHA 的线上 CI 结果为准。
 
 需要单独跑某一步时，等价命令是：
 
