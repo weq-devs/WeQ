@@ -1,14 +1,14 @@
-.weq-home-hitokoto-controls {
-  display: flex;
+.weq-home-hitokoto-label {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.weq-home-hitokoto-controls .weq-set-iconbtn {
+.weq-home-hitokoto-label .weq-set-iconbtn {
   color: var(--weq-fg-secondary);
 }
 
-.weq-home-hitokoto-controls .weq-set-iconbtn[aria-expanded='true'] {
+.weq-home-hitokoto-label .weq-set-iconbtn[aria-expanded='true'] {
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
   color: var(--weq-accent-effective);
 }

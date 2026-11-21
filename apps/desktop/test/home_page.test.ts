@@ -148,7 +148,14 @@ describe('主页显示与偏好', () => {
     let cleanup: ReturnType<typeof revealSetting> | undefined;
     try {
       const trigger = view.host.querySelector('[aria-label="一言屏蔽词"]');
+      act(() => {
+        cleanup = revealSetting(view.host, { settingId: 'home-hitokoto' });
+      });
+      expect(document.activeElement).toBe(
+        view.host.querySelector('[role="switch"][aria-label="一言"]'),
+      );
       expect(wordsEditor()).toBeNull();
+      cleanup?.();
       act(() => {
         cleanup = revealSetting(view.host, { settingId: 'home-blocked-words' });
       });

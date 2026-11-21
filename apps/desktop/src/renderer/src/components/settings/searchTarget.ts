@@ -80,14 +80,18 @@ export function revealSetting(
       'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="switch"]:not([disabled]), button:not([disabled]), a[href], summary';
     const enabled = (node: HTMLElement | null): node is HTMLElement =>
       Boolean(node) && !node?.matches(':disabled');
-    // 顺序：元素本身 → 行内控件 → 最近的控件祖先（标签在按钮里时定位到按钮）
+    const rowControl = element.querySelector<HTMLElement>(':scope > .weq-set-row-ctrl');
+    const childControl =
+      rowControl?.querySelector<HTMLElement>(primaryControl) ??
+      element.querySelector<HTMLElement>(primaryControl);
+    // 顺序：元素本身 → 行右侧控件 → 其他子控件 → 最近的控件祖先
     // → 自定义 tabindex 元素 → 容器。
     const control = interactive(element)
       ? enabled(element)
         ? element
         : null
-      : enabled(element.querySelector<HTMLElement>(primaryControl))
-        ? element.querySelector<HTMLElement>(primaryControl)
+      : enabled(childControl)
+        ? childControl
         : enabled(element.closest<HTMLElement>(primaryControl))
           ? element.closest<HTMLElement>(primaryControl)
           : (element.querySelector<HTMLElement>('[tabindex="0"]') ??

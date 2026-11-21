@@ -114,19 +114,9 @@ export function HomeSettingsSection() {
         ))}
         <Row
           settingId="home-hitokoto"
-          control={
-            <div
-              className="weq-home-hitokoto-controls"
-              data-setting-fallback={
-                !showHitokoto && !settings.isLoading ? 'home-blocked-words' : undefined
-              }
-            >
-              <Toggle
-                label="一言"
-                checked={(home ?? DEFAULT_HOME_SETTINGS).showHitokoto}
-                disabled={disabled}
-                onChange={(enabled) => void update({ showHitokoto: enabled })}
-              />
+          label={
+            <span className="weq-home-hitokoto-label">
+              一言
               {showHitokoto ? (
                 <button
                   ref={trigger}
@@ -149,6 +139,20 @@ export function HomeSettingsSection() {
                   <ListFilter size={16} aria-hidden />
                 </button>
               ) : null}
+            </span>
+          }
+          control={
+            <div
+              data-setting-fallback={
+                !showHitokoto && !settings.isLoading ? 'home-blocked-words' : undefined
+              }
+            >
+              <Toggle
+                label="一言"
+                checked={(home ?? DEFAULT_HOME_SETTINGS).showHitokoto}
+                disabled={disabled}
+                onChange={(enabled) => void update({ showHitokoto: enabled })}
+              />
             </div>
           }
         />
