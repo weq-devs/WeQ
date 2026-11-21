@@ -2040,6 +2040,21 @@ describe('QQ 主动操作的实际界面', () => {
       }),
     );
   });
+  it('加群方式尚未读取时只显示占位，读回后从选项中移除', async () => {
+    state.data.groupJoinSettings = { groupId: 123, option: null };
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    const trigger = f.button('加群方式');
+    await act(async () => trigger.click());
+    const placeholder = document.querySelector<HTMLElement>('[role="option"][data-value=""]')!;
+    expect(placeholder.getAttribute('aria-disabled')).toBe('true');
+    await act(async () => placeholder.click());
+    expect(state.mutate).not.toHaveBeenCalled();
+
+    state.data.groupJoinSettings = { groupId: 123, option: 2 };
+    f.update();
+    expect(trigger.dataset.value).toBe('2');
+    expect(document.querySelector('[role="option"][data-value=""]')).toBeNull();
+  });
   it.each([1, 2, 3])('入群方式 %s 选中即提交，自动读回且无需保存按钮', async (mode) => {
     state.data.groupJoinSettings = { groupId: 123, option: mode === 2 ? 1 : 2 };
     const f = fixture(() => h(GroupActions, { groupId: 123 }));

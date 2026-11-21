@@ -69,7 +69,6 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
     <div className="weq-group-management-join">
       <Row
         label="入群验证"
-        desc={canManage && !asking ? '无需填写问题的选项会立即提交' : undefined}
         control={
           <FormSelect
             className="weq-set-input"
@@ -88,9 +87,11 @@ export function GroupJoinSettings({ groupId, canManage }: { groupId: number; can
               }
             }}
           >
-            <option value="" data-placeholder>
-              {query.isFetching ? '读取中…' : '尚未读取加群方式'}
-            </option>
+            {mode === '' && (
+              <option value="" disabled data-placeholder>
+                {query.isFetching ? '读取中…' : '尚未读取加群方式'}
+              </option>
+            )}
             <option value={1}>允许任何人</option>
             <option value={2}>需要审核</option>
             <option value={3}>不允许加入</option>
