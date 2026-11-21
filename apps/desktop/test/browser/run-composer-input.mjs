@@ -300,6 +300,12 @@ try {
           await editor.fill('中文选词');
           await editor.dispatchEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true });
           assert.equal(await editor.textContent(), '中文选词');
+          const shortHeight = await editor.evaluate(async (node) => {
+            await new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            );
+            return node.clientHeight;
+          });
           await editor.fill('多行正文\n'.repeat(10));
           const expand = page.locator('.mobile-composer-expand-button');
           await expand.waitFor({ state: 'visible' });
@@ -318,6 +324,10 @@ try {
             );
           });
           assert(expandFits, '长文展开按钮超出输入框或遮挡正文');
+          await editor.fill('单行');
+          await expand.waitFor({ state: 'hidden' });
+          assert.equal(await editor.evaluate((node) => node.clientHeight), shortHeight);
+          await editor.fill('多行正文\n'.repeat(10));
           await expand.tap();
           const expanded = page.locator('.mobile-composer-expanded-editor');
           assert.equal(await expanded.getAttribute('enterkeyhint'), 'enter');
