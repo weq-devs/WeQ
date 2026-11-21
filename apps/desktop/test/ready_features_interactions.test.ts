@@ -133,6 +133,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         },
         getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.config } }) },
         qqActions: {
+          groupSelectedTags: { useQuery: () => ({ data: undefined }) },
+          groupJoinManagement: { useQuery: () => ({ data: undefined }) },
           albumPermissions: {
             useQuery: () => ({
               data: {

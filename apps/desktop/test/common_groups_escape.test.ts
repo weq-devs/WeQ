@@ -41,6 +41,7 @@ vi.mock('../src/renderer/src/components/groupProfile/GroupProfileSurface', () =>
 const cleanups: Array<() => void> = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: false }));
   vi.stubGlobal(
     'ResizeObserver',
     class {

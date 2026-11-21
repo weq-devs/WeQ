@@ -20,6 +20,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getAccountConfig: { useQuery: () => ({ data: undefined }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       getGroupExtendedProfile: { useQuery: () => ({ data: undefined, isFetching: false }) },
+      qqActions: {
+        groupSelectedTags: { useQuery: () => ({ data: undefined }) },
+        groupJoinManagement: { useQuery: () => ({ data: undefined }) },
+      },
       groupMemberPreview: {
         useQuery: () => ({ data: undefined, isFetching: false, error: null, refetch: vi.fn() }),
       },

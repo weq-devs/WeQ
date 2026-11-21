@@ -53,6 +53,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         changed: { useSubscription: () => {} },
       },
       qqActions: {
+        groupSelectedTags: { useQuery: () => ({ data: undefined }) },
+        groupJoinManagement: { useQuery: () => ({ data: undefined }) },
         groupJoinSettings: {
           useQuery: (...args: unknown[]) => {
             state.groupQuery(...args);

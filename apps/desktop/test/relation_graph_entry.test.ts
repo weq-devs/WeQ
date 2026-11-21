@@ -42,7 +42,8 @@ vi.mock('../src/renderer/src/components/relationGraph/GraphCanvas', () => ({
           {
             key: node.id,
             'data-kind': node.kind,
-            onClick: () => onSelect(node, { x: 320, y: 240 }),
+            onClick: (event: React.MouseEvent<HTMLButtonElement>) =>
+              onSelect(node, { x: 320, y: 240 }, event),
           },
           showRemarks && node.kind === 'person' ? node.remark || node.label : node.label,
         ),
