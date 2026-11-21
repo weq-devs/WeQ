@@ -123,7 +123,9 @@ it('撤回和拍一拍按同会话同序号的正文归因，缺行不猜，普�
   const recall = preview.encode({
     preview: [{ elementType: ElementType.GRAY_TIP, subType: GrayTipSubType.REVOKE }],
   });
-  const contact = sql.prepare('INSERT INTO recent_contact_v3_table VALUES (?,110,?,?,5,?,?,?,NULL)');
+  const contact = sql.prepare(
+    'INSERT INTO recent_contact_v3_table VALUES (?,110,?,?,5,?,?,?,NULL)',
+  );
   // 私聊拍一拍摘要的 ID 可以不同于共号的正文，发送者也可以相反。
   contact.run('u_own', 1, 'u_peer', poke, 91001, 10);
   contact.run('u_inbound', 1, 'u_self', poke, 91002, 11);
