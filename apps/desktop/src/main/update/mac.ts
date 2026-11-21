@@ -21,6 +21,11 @@ import {
 const run = promisify(execFile);
 const reportPath = () => join(app.getPath('userData'), 'updates', 'mac-install.json');
 
+async function removeMacStaging(staging: string): Promise<void> {
+  // Electron 的文件系统会把 app.asar 当成虚拟目录，系统 rm 按真实文件清理。
+  await run('/bin/rm', ['-rf', '--', staging], { timeout: 120_000 });
+}
+
 export function usesMacVerifiedArchiveUpdater(): boolean {
   return process.platform === 'darwin';
 }
@@ -72,7 +77,9 @@ export async function prepareMacUpdate(
     await writeMacUpdateResult(plan, 'prepared');
     return plan;
   } catch (error) {
-    await rm(staging, { recursive: true, force: true });
+    await removeMacStaging(staging).catch((cleanupError) => {
+      console.warn('[update] 无法清理 macOS 更新暂存目录', staging, cleanupError);
+    });
     throw error;
   }
 }
@@ -152,7 +159,7 @@ export async function finishMacUpdate(): Promise<void> {
       record.phase === 'prepared' ||
       (record.phase === 'installed' && plan.version === app.getVersion())
     ) {
-      await rm(plan.staging, { recursive: true, force: true });
+      await removeMacStaging(plan.staging);
     } else {
       dialog.showErrorBox(
         '上次更新未完成',
