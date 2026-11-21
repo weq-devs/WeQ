@@ -1,3 +1,12 @@
+/* ================= 群通话窗口 =================
+ *
+ * 横屏布局：顶部标题栏 / 左侧主舞台 + 缩略条 / 右侧可收起成员栏。
+ *
+ * 舞台（视频与头像网格）固定用深色底：视频画面、白字名牌和半透明控件都在
+ * 深底上才稳定，不随浅色主题一起变亮。标题栏、成员栏和弹窗继续走语义 token，
+ * 跟随主题与用户强调色。
+ */
+
 .weq-group-call-window {
   position: fixed;
   inset: 0;
@@ -5,235 +14,772 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 20px;
   background: var(--weq-bg-surface);
   color: var(--weq-fg-primary);
-  overflow: auto;
+  overflow: hidden;
+}
+
+.weq-group-call-window[hidden],
+.weq-group-call-window [hidden] {
+  display: none;
 }
 
 .weq-group-call-inline {
-  height: min(580px, 92dvh);
+  height: min(720px, 92dvh);
   overflow: hidden;
+  padding: 0;
 }
 
 .weq-group-call-inline .weq-group-call-window {
   position: relative;
 }
 
-.weq-group-call-window[hidden],
-.weq-group-call-stage [hidden] {
-  display: none;
-}
+/* ── 标题栏 ── */
 
-.weq-group-call-heading,
-.weq-group-call-list-heading,
-.weq-group-call-footer,
-.weq-group-call-pages {
+.weq-group-call-heading {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 14px;
+  min-height: 56px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--weq-border-subtle);
 }
 
-.weq-group-call-heading h2,
-.weq-group-call-invite h2 {
-  font-size: 19px;
-  font-weight: 650;
-  margin: 0 0 4px;
-}
-
-.weq-group-call-heading > div {
+.weq-group-call-title {
   min-width: 0;
+  max-width: 40%;
 }
 
-.weq-group-call-heading h2,
-.weq-group-call-notice {
+.weq-group-call-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 22px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.weq-group-call-notice {
-  max-width: 42%;
-}
-
-.weq-group-call-heading p,
-.weq-group-call-window small,
-.weq-group-call-avatar-stage span {
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
+.weq-group-call-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--weq-fg-secondary);
+  white-space: nowrap;
 }
 
-.weq-group-call-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(210px, 250px);
-  gap: 14px;
-  min-height: 220px;
+.weq-group-call-state.is-connected,
+.weq-group-call-state.is-connecting {
+  color: var(--weq-accent-effective);
+  font-weight: 600;
+}
+
+.weq-group-call-state.is-ended,
+.weq-group-call-state.is-failed {
+  color: var(--weq-list-alert-ink);
+}
+
+.weq-group-call-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.45;
+}
+
+.weq-group-call-notice {
   flex: 1;
-}
-
-.weq-group-call-stage {
-  min-height: 220px;
+  min-width: 0;
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--weq-accent-effective);
   overflow: hidden;
-  position: relative;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  background: color-mix(in srgb, var(--weq-accent-effective) 10%, var(--weq-bg-surface));
-  border: 1px solid var(--weq-border-subtle);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.weq-group-call-stage canvas {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #111318;
+.weq-group-call-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 
-.weq-group-call-stage video {
-  z-index: 1;
-  position: absolute;
-  inset: auto 12px 12px auto;
-  width: min(27%, 132px);
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 9px;
-  transform: scaleX(-1);
-}
-
-.weq-group-call-stage-name {
-  z-index: 1;
-  position: absolute;
-  inset: auto auto 12px 12px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  color: white;
-  background: rgb(0 0 0 / 65%);
-}
-
-.weq-group-call-avatar-stage {
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-  padding: 24px;
-}
-
-.weq-group-call-people {
-  min-height: 0;
-  overflow: auto;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 12px;
-  padding: 12px;
-}
-
-.weq-group-call-list-heading .weq-set-btn {
+.weq-group-call-action {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-}
-
-.weq-group-call-people ul {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0 0;
-  display: grid;
-  gap: 2px;
-}
-
-.weq-group-call-people li {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  padding: 4px;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
   border-radius: 8px;
-}
-
-.weq-group-call-people li.is-selected {
-  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
-}
-
-.weq-group-call-member {
-  display: flex;
-  align-items: center;
-  text-align: left;
-  gap: 7px;
-  flex: 1;
-  min-width: 0;
-  padding: 2px;
-  border: 0;
-  color: inherit;
+  border: 1px solid var(--weq-border-subtle);
   background: transparent;
-  border-radius: 6px;
-}
-
-.weq-group-call-member:not(:disabled),
-.weq-group-call-member-action {
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
   cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
 }
 
+.weq-group-call-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+}
+
+.weq-group-call-action[aria-expanded='true'] {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 38%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-group-call-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.weq-group-call-action:focus-visible,
+.weq-group-call-icon-btn:focus-visible,
 .weq-group-call-member:focus-visible,
-.weq-group-call-member-action:focus-visible {
+.weq-group-call-thumb:focus-visible,
+.weq-group-call-ended-close:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
-.weq-group-call-choice > span:not(.weq-avatar-fallback),
-.weq-group-call-member > span:not(.weq-avatar-fallback),
-.weq-group-call-waiting li > span:last-child {
+.weq-group-call-error {
+  flex: 0 0 auto;
+  margin: 8px 16px 0;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border-left: 2px solid var(--weq-danger-solid-background);
+  background: color-mix(in srgb, var(--weq-danger-solid-background) 8%, transparent);
+  color: var(--weq-list-alert-ink);
+  font-size: 12.5px;
+}
+
+/* ── 主体：舞台 + 成员栏 ── */
+
+.weq-group-call-body {
+  position: relative;
   flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 288px;
+  transition: grid-template-columns 200ms ease;
+}
+
+.weq-group-call-window[data-rail='closed'] .weq-group-call-body {
+  grid-template-columns: minmax(0, 1fr) 0px;
+}
+
+.weq-group-call-window[data-rail='closed'] .weq-group-call-rail {
+  border-left-color: transparent;
+}
+
+.weq-group-call-stage-column {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 14px 16px;
+}
+
+/* ── 主舞台 ── */
+
+.weq-group-call-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 16px;
+  background:
+    radial-gradient(
+      120% 110% at 50% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 14%, #0d0f13) 0%,
+      #0d0f13 62%
+    ),
+    #0d0f13;
+  color: #fff;
+}
+
+.weq-group-call-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0d0f13;
+}
+
+.weq-group-call-placeholder {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  padding: 20px;
+  text-align: center;
+}
+
+.weq-group-call-placeholder :is(img, .weq-avatar-fallback) {
+  border-radius: 999px;
+}
+
+.weq-group-call-placeholder strong {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.weq-group-call-placeholder span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgb(255 255 255 / 62%);
+}
+
+.weq-group-call-plate {
+  position: absolute;
+  z-index: 3;
+  left: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 46%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 52%);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  font-size: 12.5px;
+}
+
+.weq-group-call-plate span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.weq-group-call-choice small,
-.weq-group-call-member small {
+.weq-group-call-plate svg {
+  flex-shrink: 0;
+  color: color-mix(in srgb, #e5484d 70%, #fff);
+}
+
+/* 本端预览：右上角画中画。放右上而不是右下，避免和底部控件叠在一起。 */
+.weq-group-call-self {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  right: 14px;
+  width: min(24%, 200px);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  background: #000;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 35%);
+}
+
+.weq-group-call-self video {
   display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.weq-group-call-self span {
+  position: absolute;
+  left: 6px;
+  bottom: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 45%);
+  color: #fff;
+  font-size: 10.5px;
+}
+
+/* ── 纯语音：头像网格 ── */
+
+.weq-group-call-grid {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  /* 底部留出悬浮控件的高度，否则最后一行头像会被压住。 */
+  padding: 22px 22px 92px;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 12px;
+  align-content: center;
+  overflow: auto;
+}
+
+.weq-group-call-grid li {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 18px 10px 14px;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 5%);
+  border: 1px solid rgb(255 255 255 / 7%);
+}
+
+.weq-group-call-grid :is(img, .weq-avatar-fallback) {
+  border-radius: 999px;
+}
+
+.weq-group-call-grid strong {
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-group-call-grid span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: rgb(255 255 255 / 58%);
+}
+
+.weq-group-call-grid span.is-muted {
+  color: color-mix(in srgb, #e5484d 55%, #fff);
+}
+
+/* ── 底部控件：悬浮玻璃条 ── */
+
+.weq-group-call-controls {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 28px);
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 10%);
+  background: rgb(14 16 20 / 72%);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 35%);
+}
+
+.weq-group-call-controls .weq-call-actions {
+  position: static;
+  transform: none;
+  margin: 0;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.weq-group-call-controls .weq-call-btn {
+  width: 46px;
+  height: 46px;
+  color: #fff;
+  border-color: rgb(255 255 255 / 12%);
+  background: rgb(255 255 255 / 8%);
+}
+
+.weq-group-call-controls .weq-call-btn:hover:not(:disabled) {
+  background: rgb(255 255 255 / 16%);
+}
+
+.weq-group-call-controls .weq-call-btn.is-off,
+.weq-group-call-controls .weq-call-btn.is-active {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
+  color: color-mix(in srgb, var(--weq-accent-effective) 60%, #fff);
+}
+
+.weq-group-call-controls .weq-call-btn.is-hangup {
+  width: 54px;
+  height: 54px;
+  border-color: transparent;
+  background: #e5484d;
+  color: #fff;
+  box-shadow: 0 10px 26px color-mix(in srgb, #e5484d 40%, transparent);
+}
+
+.weq-group-call-controls .weq-call-btn.is-hangup:hover:not(:disabled) {
+  background: #d93d42;
+}
+
+/* ── 画面缩略条 ── */
+
+.weq-group-call-strip {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 1px 1px 0;
+  scrollbar-width: thin;
+}
+
+.weq-group-call-thumb {
+  position: relative;
+  flex: 0 0 152px;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background: #0d0f13;
+  color: #fff;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.weq-group-call-thumb:hover {
+  border-color: rgb(255 255 255 / 26%);
+}
+
+.weq-group-call-thumb[aria-selected='true'] {
+  border-color: var(--weq-accent-effective);
+  box-shadow: 0 0 0 1px var(--weq-accent-effective);
+}
+
+.weq-group-call-thumb canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weq-group-call-thumb-avatar {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #14171d;
+}
+
+.weq-group-call-thumb-avatar :is(img, .weq-avatar-fallback) {
+  border-radius: 999px;
+}
+
+.weq-group-call-thumb-name {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 7px 4px;
+  background: linear-gradient(transparent, rgb(0 0 0 / 80%));
+  font-size: 11px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-group-call-thumb-name svg {
+  flex-shrink: 0;
+  color: color-mix(in srgb, #e5484d 65%, #fff);
+}
+
+/* ── 成员栏 ── */
+
+.weq-group-call-rail {
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+  transition:
+    transform 200ms ease,
+    visibility 200ms ease;
+}
+
+.weq-group-call-rail-inner {
+  width: 288px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 12px 10px;
+}
+
+.weq-group-call-rail-heading {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
   color: var(--weq-fg-secondary);
 }
 
-.weq-group-call-member :is(img, svg, .weq-avatar-fallback),
-.weq-group-call-choice :is(img, svg, .weq-avatar-fallback),
-.weq-group-call-waiting :is(img, .weq-avatar-fallback) {
-  flex-shrink: 0;
-}
-
-.weq-group-call-member-action {
+.weq-group-call-icon-btn {
   display: grid;
   place-items: center;
   width: 26px;
   height: 26px;
+  padding: 0;
   border: 0;
-  border-radius: 5px;
-  color: var(--weq-fg-secondary);
+  border-radius: 7px;
   background: transparent;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 }
 
-.weq-group-call-member-action:hover,
-.weq-group-call-member-action[aria-pressed='true'] {
-  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+.weq-group-call-icon-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
   color: var(--weq-fg-primary);
 }
 
-.weq-group-call-waiting {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--weq-border-subtle);
+.weq-group-call-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
-.weq-group-call-window .weq-call-actions {
-  position: static;
-  flex: 0 0 auto;
-  transform: none;
-  justify-content: center;
-  align-self: center;
-  padding: 0;
+.weq-group-call-icon-btn.is-danger:hover:not(:disabled) {
+  color: var(--weq-list-alert-ink);
+  background: color-mix(in srgb, var(--weq-danger-solid-background) 10%, transparent);
 }
+
+.weq-group-call-people {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  scrollbar-width: thin;
+}
+
+.weq-group-call-people > li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 10px;
+  transition: background 120ms ease;
+}
+
+.weq-group-call-people > li:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+}
+
+.weq-group-call-people > li.is-focused {
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-group-call-member {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weq-group-call-member:disabled {
+  cursor: default;
+}
+
+.weq-group-call-member-avatar {
+  position: relative;
+  flex-shrink: 0;
+  display: grid;
+}
+
+.weq-group-call-member-avatar :is(img, .weq-avatar-fallback) {
+  border-radius: 999px;
+}
+
+.weq-group-call-member-mic {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  border: 1px solid var(--weq-border-subtle);
+  background: var(--weq-bg-surface);
+  color: var(--weq-list-alert-ink);
+}
+
+.weq-group-call-member-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-group-call-member-name small {
+  display: block;
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--weq-fg-muted);
+}
+
+.weq-group-call-self-tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-effective);
+  font-size: 10.5px;
+  line-height: 15px;
+}
+
+.weq-group-call-member-video {
+  flex-shrink: 0;
+  color: var(--weq-fg-secondary);
+  opacity: 0.85;
+}
+
+.weq-group-call-member-video.is-off {
+  opacity: 0.35;
+}
+
+.weq-group-call-member-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  /* 常驻可见但压低存在感：悬停时提亮。全部藏起来会让「静音某人」无从发现。 */
+  opacity: 0.6;
+  transition: opacity 120ms ease;
+}
+
+.weq-group-call-people > li:hover .weq-group-call-member-actions,
+.weq-group-call-people > li:focus-within .weq-group-call-member-actions,
+.weq-group-call-people > li[data-silent='true'] .weq-group-call-member-actions {
+  opacity: 1;
+}
+
+.weq-group-call-member-actions .weq-group-call-icon-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.weq-group-call-member-actions .weq-group-call-icon-btn[aria-pressed='true'] {
+  color: var(--weq-accent-effective);
+}
+
+.weq-group-call-waiting {
+  flex: 0 0 auto;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--weq-border-subtle);
+  font-size: 12px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-group-call-waiting ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+
+.weq-group-call-waiting li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-group-call-waiting li :is(img, .weq-avatar-fallback) {
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+.weq-group-call-waiting li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 已结束 ── */
+
+.weq-group-call-ended {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  background: rgb(8 10 14 / 78%);
+  backdrop-filter: blur(6px);
+}
+
+.weq-group-call-ended svg {
+  color: rgb(255 255 255 / 70%);
+}
+
+.weq-group-call-ended strong {
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.weq-group-call-ended span {
+  font-size: 12.5px;
+  color: rgb(255 255 255 / 62%);
+}
+
+.weq-group-call-ended-close {
+  margin-top: 6px;
+  height: 34px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #101318;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.weq-group-call-ended-close:hover {
+  background: rgb(255 255 255 / 88%);
+}
+
+/* ── 邀请 / 移出弹窗 ── */
 
 .weq-group-call-invite {
   display: grid;
@@ -241,20 +787,31 @@
   padding: 18px;
 }
 
+.weq-group-call-invite h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+
 .weq-group-call-search {
   display: flex;
   gap: 8px;
   align-items: center;
-  border: 1px solid var(--weq-border-subtle);
   padding: 7px 10px;
+  border: 1px solid var(--weq-border-subtle);
   border-radius: 8px;
+}
+
+.weq-group-call-search:focus-within {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
 }
 
 .weq-group-call-search input {
   width: 100%;
+  border: 0;
   background: transparent;
   color: inherit;
-  border: 0;
+  outline: none;
 }
 
 .weq-group-call-choices {
@@ -280,6 +837,23 @@
   accent-color: var(--weq-accent-effective);
 }
 
+.weq-group-call-choice > span:not(.weq-avatar-fallback),
+.weq-group-call-waiting li > span:last-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-group-call-choice small {
+  display: block;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-group-call-choice :is(img, svg, .weq-avatar-fallback) {
+  flex-shrink: 0;
+}
+
 .weq-group-call-selected {
   display: flex;
   flex-wrap: wrap;
@@ -288,29 +862,73 @@
   overflow: auto;
 }
 
-.weq-group-call-footer {
+.weq-group-call-footer,
+.weq-group-call-pages {
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 8px;
 }
 
-.weq-group-call-error {
-  border-left: 2px solid var(--weq-danger-solid-background);
-  padding-left: 8px;
-  margin: 0;
-}
+/* ── 窄屏：成员栏改为浮层，不挤压舞台 ── */
 
-@media (max-width: 660px) {
-  .weq-group-call-window {
-    padding: 12px;
-    gap: 10px;
+/* 舞台变窄时把名牌挪到左上，避免和底部悬浮控件叠在一起。 */
+@media (max-width: 720px) {
+  .weq-group-call-plate {
+    top: 14px;
+    bottom: auto;
   }
+}
 
-  .weq-group-call-layout {
+@media (max-width: 860px) {
+  .weq-group-call-body,
+  .weq-group-call-window[data-rail='closed'] .weq-group-call-body {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(160px, 1fr) minmax(92px, 150px);
-    min-height: 266px;
   }
 
-  .weq-group-call-stage {
-    min-height: 160px;
+  .weq-group-call-rail {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 6;
+    width: min(300px, 86%);
+    border-left: 1px solid var(--weq-border-subtle);
+    box-shadow: -18px 0 40px rgb(0 0 0 / 28%);
+  }
+
+  .weq-group-call-rail-inner {
+    width: 100%;
+  }
+
+  .weq-group-call-window[data-rail='closed'] .weq-group-call-rail {
+    transform: translateX(100%);
+    visibility: hidden;
+  }
+
+  .weq-group-call-title {
+    max-width: 48%;
+  }
+}
+
+@media (max-height: 560px) {
+  .weq-group-call-heading {
+    min-height: 48px;
+  }
+
+  .weq-group-call-stage-column {
+    padding: 10px 10px 10px 12px;
+  }
+
+  .weq-group-call-thumb {
+    flex-basis: 124px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-group-call-body,
+  .weq-group-call-rail,
+  .weq-group-call-thumb,
+  .weq-group-call-action,
+  .weq-group-call-icon-btn {
+    transition: none;
   }
 }

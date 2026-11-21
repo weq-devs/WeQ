@@ -167,30 +167,43 @@ interface RemoteVideo {
   timestamp: number;
 }
 
-export function useGroupRemoteVideo(
-  id: string,
-  live: boolean,
-  activeUins: ReadonlySet<number>,
-  selected: number | undefined,
-) {
+/**
+ * 群通话的远端画面。
+ *
+ * 每个成员只解码一次（`OffscreenCanvas` 里保存最新一帧），再画到界面注册的
+ * 任意多块 `<canvas>` 上 —— 主舞台和缩略条可以同时显示同一个人。
+ */
+export function useGroupRemoteVideo(id: string, live: boolean, activeUins: ReadonlySet<number>) {
   const streams = useRef(new Map<number, RemoteVideo>());
-  const target = useRef<HTMLCanvasElement>(null);
+  const targets = useRef(new Map<number, Set<HTMLCanvasElement>>());
   const [ready, setReady] = useState<ReadonlySet<number>>(new Set());
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
   const paint = useCallback((uin: number) => {
     const frame = streams.current.get(uin)?.canvas;
-    const canvas = target.current;
-    if (!frame?.width || !canvas) return;
-    if (canvas.width !== frame.width || canvas.height !== frame.height) {
-      canvas.width = frame.width;
-      canvas.height = frame.height;
+    if (!frame?.width) return;
+    for (const canvas of targets.current.get(uin) ?? []) {
+      if (canvas.width !== frame.width || canvas.height !== frame.height) {
+        canvas.width = frame.width;
+        canvas.height = frame.height;
+      }
+      canvas.getContext('2d')?.drawImage(frame, 0, 0);
     }
-    canvas.getContext('2d')?.drawImage(frame, 0, 0);
   }, []);
-  useEffect(() => {
-    if (selected !== undefined) paint(selected);
-  }, [selected, paint]);
+  /** 挂上一块画布并返回清理函数；画布挂载时立即补画当前帧。 */
+  const register = useCallback(
+    (uin: number, canvas: HTMLCanvasElement) => {
+      const set = targets.current.get(uin) ?? new Set<HTMLCanvasElement>();
+      set.add(canvas);
+      targets.current.set(uin, set);
+      paint(uin);
+      return () => {
+        const current = targets.current.get(uin);
+        if (!current) return;
+        current.delete(canvas);
+        if (!current.size) targets.current.delete(uin);
+      };
+    },
+    [paint],
+  );
   useEffect(() => {
     const removed: number[] = [];
     for (const [uin, stream] of streams.current) {
@@ -234,7 +247,7 @@ export function useGroupRemoteVideo(
                 }
                 canvas.getContext('2d')?.drawImage(frame, 0, 0);
                 if (first) setReady((prior) => (prior.has(uin) ? prior : new Set([...prior, uin])));
-                if (selectedRef.current === uin) paint(uin);
+                paint(uin);
               } finally {
                 frame.close();
               }
@@ -276,7 +289,7 @@ export function useGroupRemoteVideo(
       },
     },
   );
-  return { target, ready };
+  return { ready, register };
 }
 
 function avcCodec(data: Uint8Array): string | undefined {

@@ -91,6 +91,25 @@ export function applicationToolPopupOptions(
         sandbox: true,
       },
     };
+  // 群通话是横屏布局：主舞台 + 缩略条 + 成员栏，需要比私聊通话宽得多。
+  if (url === 'about:blank' && frameName === 'weq-group-call')
+    return {
+      title: 'WeQ · 群通话',
+      width: 1180,
+      height: 720,
+      minWidth: 760,
+      minHeight: 520,
+      frame: true,
+      ...windowDecorationOptions(),
+      autoHideMenuBar: true,
+      ...floatingWindowTypeOption(),
+      webPreferences: {
+        preload: undefined,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    };
   if (url === 'about:blank' && frameName === 'weq-call')
     return {
       title: 'WeQ · 语音通话',
