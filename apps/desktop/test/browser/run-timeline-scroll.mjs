@@ -20,8 +20,9 @@ const imageGrid = process.env.WEQ_SCROLL_IMAGE_GRID === '1';
 const touchReply = process.env.WEQ_SCROLL_TOUCH_REPLY === '1';
 const fixtureFlags = [
   cachedBubbles && '&cached-bubbles=1',
-  grouped && '&grouped=1',
-  imageGrid && '&image-grid=1',
+  (grouped || touchReply) && '&grouped=1',
+  (imageGrid || touchReply) && '&image-grid=1',
+  touchReply && '&show-message-seq=1',
 ]
   .filter(Boolean)
   .join('');
@@ -91,10 +92,26 @@ try {
   await page.waitForSelector('[data-message-id="row-1001"]');
   if (touchReply) {
     const cdp = await page.context().newCDPSession(page);
-    const target = page.locator('[data-message-id="row-1003"] .message-content');
-    const swipe = async (dx, dy, whileDragging) => {
+    const first = page.locator('[data-message-id="row-1003"]');
+    const last = page.locator('[data-message-id="row-1004"]');
+    const text = first.locator('.message-content');
+    const avatar = first.locator('.avatar');
+    const meta = first.locator('.weq-message-provenance');
+    const image = last.locator('button.qq-media-wrap').first();
+    const arrow = first.locator('.weq-swipe-reply-icon');
+    const scroll = page.locator('.message-scroll');
+    const xOf = (locator) => locator.evaluate((element) => element.getBoundingClientRect().x);
+    const waitForX = async (locator, x) =>
+      page.waitForFunction(
+        ([element, x]) => Math.abs(element.getBoundingClientRect().x - x) < 0.5,
+        [await locator.elementHandle(), x],
+      );
+    const near = (actual, expected) =>
+      assert.ok(Math.abs(actual - expected) < 1, `${actual} ≠ ${expected}`);
+    const swipe = async (target, dx, dy, onMove, beforeStart) => {
       await target.scrollIntoViewIfNeeded();
       const bounds = await target.boundingBox();
+      await beforeStart?.();
       const x = bounds.x + Math.min(80, bounds.width / 2);
       const y = bounds.y + bounds.height / 2;
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
@@ -103,24 +120,77 @@ try {
           type: 'touchMove',
           touchPoints: [{ x: x + dx * fraction, y: y + dy * fraction }],
         });
+        if (onMove) {
+          await page.evaluate(
+            () =>
+              new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+          );
+          await onMove(fraction, bounds);
+        }
       }
-      await whileDragging?.(bounds);
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     };
     const quote = page.getByLabel('待发送的引用');
-    await target.scrollIntoViewIfNeeded();
-    const before = await page.locator('.message-scroll').evaluate((element) => element.scrollTop);
-    await swipe(0, -100);
+    await text.scrollIntoViewIfNeeded();
+    const before = await scroll.evaluate((element) => element.scrollTop);
+    await swipe(text, 0, -100);
     await page.waitForFunction(
       (top) => document.querySelector('.message-scroll').scrollTop > top + 5,
       before,
     );
     assert.equal(await quote.count(), 0);
-    await swipe(-80, 0, async (bounds) => {
-      assert.ok((await target.boundingBox()).x < bounds.x - 50, '气泡应在松手前跟随手指');
-      const arrow = page.locator('[data-message-id="row-1003"] .weq-swipe-reply-icon');
-      assert.equal(await arrow.evaluate((element) => getComputedStyle(element).opacity), '1');
-      assert.equal(await quote.count(), 0);
+    let start;
+    await swipe(
+      image,
+      -36,
+      0,
+      async (fraction, bounds) => {
+        if (fraction !== 1) return;
+        near(await xOf(image), bounds.x - 36);
+        near(await xOf(avatar), start.avatar);
+      },
+      async () => {
+        start = { avatar: await xOf(avatar), image: await xOf(image) };
+      },
+    );
+    assert.equal(await quote.count(), 0);
+    assert.equal(await page.locator('[role="dialog"]').count(), 0);
+    await waitForX(image, start.image);
+
+    const parts = [text, avatar, meta];
+    let initial;
+    await swipe(
+      text,
+      -52,
+      0,
+      async (fraction) => {
+        if (fraction === 0.25) return;
+        for (const [index, part] of parts.entries()) {
+          near(await xOf(part), initial.parts[index] - 52 * fraction);
+        }
+        near(await xOf(last), initial.neighbor);
+        near(await xOf(arrow), initial.edge - 52 * fraction);
+        assert.equal(
+          await arrow.evaluate((element) => getComputedStyle(element).visibility),
+          'visible',
+        );
+      },
+      async () => {
+        initial = {
+          parts: await Promise.all(parts.map(xOf)),
+          neighbor: await xOf(last),
+          edge: await scroll.evaluate((element) => element.getBoundingClientRect().right),
+        };
+        assert.equal(
+          await arrow.evaluate((element) => getComputedStyle(element).visibility),
+          'hidden',
+        );
+      },
+    );
+    await waitForX(text, initial.parts[0]);
+    assert.equal(await quote.count(), 0);
+    await swipe(text, -80, 0, async (fraction) => {
+      if (fraction === 1) assert.equal(await quote.count(), 0);
     });
     await quote.waitFor();
     assert.match(await quote.textContent(), /合成消息 1003/);
