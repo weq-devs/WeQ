@@ -450,14 +450,21 @@ it('设备行使用 QQ 存储别名，零序号读档保留同秒消息并忽略
   const insert = sql.prepare('INSERT INTO dataline_msg_table VALUES (?,?,2,?,?,?)');
   insert.run(20, 8, phone, phone, time);
   insert.run(21, 8, phone, phone, time);
+  insert.run(26, 8, phone, phone, time);
+  insert.run(23, 8, pc, phone, time);
   insert.run(99, 8, pc, phone, time + 1);
+  insert.run(25, 134, phone, phone, time);
+  sql.prepare('INSERT INTO dataline_msg_table VALUES (22,8,5,?,?,?)').run(phone, phone, time);
   const expected = {
     chatType: 8,
     peer: `8_${phone}`,
     latestSeq: '0',
     deviceRead: `0:${time}:20`,
-    deviceLatest: `0:${time}:21`,
+    deviceLatest: `0:${time}:26`,
   };
   expect((await db.getUnreadInfos([{ chatType: 8, uid: phone }]))[0]).toMatchObject(expected);
   expect(await db.getAllUnreadInfos()).toEqual([expect.objectContaining(expected)]);
+  const target = { chatType: 8, uid: phone };
+  expect(await db.countDeviceIncoming(target, expected.deviceRead, expected.deviceLatest)).toBe(2);
+  expect(await db.countDeviceIncoming(target, `0:${time}:21`, expected.deviceLatest)).toBe(1);
 });

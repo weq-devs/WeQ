@@ -242,7 +242,7 @@ export class UnreadInfoService {
     for (const [key, version] of this.targetVersions) this.targetVersions.set(key, version + 1);
     this.local.clear();
     const targets = [...this.snapshots.values()];
-    this.project(targets);
+    await this.project(targets);
     this.publish(targets);
     await this.local.flush();
     this.invalidate();
@@ -380,19 +380,53 @@ export class UnreadInfoService {
     for (const listener of this.countListeners) listener(changed);
   }
 
-  private project(targets: UnreadInfoTarget[]): void {
-    for (const target of targets) {
-      const row = this.snapshots.get(this.key(target));
-      if (row && !row.readError) this.results.set(row.peer, this.resolve(row));
-    }
+  private async project(targets: UnreadInfoTarget[]): Promise<void> {
+    const revision = this.manualRevision;
+    await Promise.all(
+      targets.map(async (target) => {
+        const row = this.snapshots.get(this.key(target));
+        if (!row || row.readError) return;
+        try {
+          const count = this.isDeviceSnapshot(row) ? await this.countDeviceUnread(row) : undefined;
+          if (
+            !this.disposed &&
+            revision === this.manualRevision &&
+            this.snapshots.get(row.peer) === row
+          )
+            this.results.set(row.peer, this.resolve(row, count));
+        } catch {
+          this.invalidate();
+        }
+      }),
+    );
   }
 
-  private resolve(row: UnreadInfoSnapshot): ResolvedUnreadInfo {
+  private isDeviceSnapshot(row: UnreadInfoSnapshot): boolean {
+    return (
+      classifyChatType(row.chatType) === 'dataline' &&
+      isDatalineUid(row.uid) &&
+      !isDatalineSelfUid(row.uid)
+    );
+  }
+
+  private async countDeviceUnread(row: UnreadInfoSnapshot): Promise<number> {
+    const through = row.deviceLatest;
+    if (!through) return 0;
+    const after = this.local.deviceReadFloor(row);
+    if (!newerReadPosition(through, after)) return 0;
+    return withDatabasePriority(
+      'interactive',
+      () => this.session.unreadInfo.countDeviceIncoming(row, after, through),
+      this.reads.signal,
+    );
+  }
+
+  private resolve(row: UnreadInfoSnapshot, deviceCount?: number): ResolvedUnreadInfo {
     const archived = this.archivedRecalls.get(row.peer);
     const snapshot = archived
       ? { ...row, recalledSeqs: [...new Set([...(row.recalledSeqs ?? []), ...archived])] }
       : row;
-    return this.local.resolve(snapshot, this.confirmedSent.get(row.peer));
+    return this.local.resolve(snapshot, this.confirmedSent.get(row.peer), deviceCount);
   }
 
   private async applySnapshots(
@@ -426,12 +460,19 @@ export class UnreadInfoService {
           this.reads.signal,
         )
       : [empty, empty];
+    const counts = await Promise.all(
+      rows.map((row) =>
+        this.isDeviceSnapshot(row) ? this.countDeviceUnread(row).catch(() => null) : undefined,
+      ),
+    );
     if (this.disposed) return;
     const pending = new Set(sent && recalled ? [] : ranges.map(({ peer }) => peer));
     const changed: UnreadInfoTarget[] = [];
-    for (const row of rows) {
+    for (const [index, row] of rows.entries()) {
       if (!accepts(row) || versions.get(row.peer) !== this.sequenceRefreshes.get(row.peer))
         continue;
+      const count = counts[index];
+      if (count === null) continue;
       const retry = pending.has(row.peer);
       if (retry) this.sequenceRefreshes.set(row.peer, Symbol());
       else this.sequenceRefreshes.delete(row.peer);
@@ -446,7 +487,7 @@ export class UnreadInfoService {
         else this.archivedRecalls.delete(row.peer);
       }
       const previous = this.results.get(row.peer);
-      const result = this.resolve(row);
+      const result = this.resolve(row, count);
       if (
         previous?.unreadCount === result.unreadCount &&
         previous?.readSeq === result.readSeq &&
@@ -495,6 +536,7 @@ export class UnreadInfoService {
             (row) =>
               !row.readError &&
               (this.sequenceRefreshes.has(row.peer) ||
+                this.isDeviceSnapshot(row) ||
                 JSON.stringify(this.snapshots.get(row.peer)) !== JSON.stringify(row)),
           ),
           () => revision === this.manualRevision,
@@ -639,7 +681,7 @@ export class UnreadInfoService {
     const changed = this.local.markRead(target.chatType, target.uid, sequence);
     if (changed) {
       this.manualRevision++;
-      this.project([target]);
+      await this.project([target]);
       this.publish([target]);
       await this.local.flush();
     }
@@ -672,7 +714,7 @@ export class UnreadInfoService {
       };
     });
     const local = changes.filter((row) => row.change);
-    this.project(local);
+    await this.project(local);
     this.publish(local);
     await this.local.flush();
     for (const row of changes) {
@@ -725,10 +767,10 @@ export class UnreadInfoService {
       : this.targetVersions.get(this.key(row)) === row.version;
   }
 
-  private restoreLocalRead(row: ManualReadEntry) {
+  private async restoreLocalRead(row: ManualReadEntry) {
     if (!row.change || !this.local.restoreManualRead(row.chatType, row.uid, row.change)) return;
     this.manualRevision++;
-    this.project([row]);
+    await this.project([row]);
     this.publish([row]);
   }
 
@@ -756,7 +798,7 @@ export class UnreadInfoService {
         } catch {
           this.queueWrite(row, version, async () => {
             if (!(await undo()) || this.targetVersions.get(this.key(row)) !== version) return;
-            this.restoreLocalRead(row);
+            await this.restoreLocalRead(row);
             await this.local.flush();
             await this.refreshWrittenTargets([{ ...row, version }]);
           });
@@ -766,7 +808,7 @@ export class UnreadInfoService {
       }
       if (resetRevision !== this.localResetRevision) throw new Error('撤销记录已失效');
       if (this.targetVersions.get(this.key(row)) !== version) continue;
-      this.restoreLocalRead(row);
+      await this.restoreLocalRead(row);
       restored.push(row);
     }
     await this.local.flush();
@@ -972,7 +1014,7 @@ export class UnreadInfoService {
         !rows.some(
           (row) =>
             row.sendTime === cursor.sendTime &&
-            row.senderUid &&
+            row.senderUid === uid &&
             !isDatalineSelfUid(row.senderUid) &&
             row.msgType !== BigInt(MsgType.GRAY_TIP),
         )
@@ -988,7 +1030,7 @@ export class UnreadInfoService {
     const changed = this.local.markDeviceRead(snapshot, position);
     if (changed) {
       this.manualRevision++;
-      this.project([target]);
+      await this.project([target]);
       this.publish([target]);
       await this.local.flush();
     }

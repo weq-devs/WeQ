@@ -208,12 +208,24 @@ export class LocalUnreadStore {
     this.revision++;
   }
 
-  resolve(snapshot: UnreadInfoSnapshot, confirmedSent: readonly string[] = []): ResolvedUnreadInfo {
+  deviceReadFloor(snapshot: UnreadInfoSnapshot): string | undefined {
+    const local = this.positions.get(snapshot.peer)?.deviceRead;
+    return local && newerReadPosition(local, snapshot.deviceRead) ? local : snapshot.deviceRead;
+  }
+
+  resolve(
+    snapshot: UnreadInfoSnapshot,
+    confirmedSent: readonly string[] = [],
+    deviceCount?: number,
+  ): ResolvedUnreadInfo {
     if (snapshot.readError) return snapshot;
     const row = this.positions.get(snapshot.peer);
     const device = classifyChatType(snapshot.chatType) === 'dataline';
-    if (device && (snapshot.deviceRead || snapshot.deviceLatest || row?.deviceRead))
-      return this.resolveDevice(snapshot, row);
+    if (
+      device &&
+      (deviceCount !== undefined || snapshot.deviceRead || snapshot.deviceLatest || row?.deviceRead)
+    )
+      return this.resolveDevice(snapshot, row, deviceCount);
     const databaseRead = [String(snapshot.msgSeq ?? 0), snapshot.localReadSeq ?? '0'].reduce(
       (a, b) => (BigInt(a) > BigInt(b) ? a : b),
     );
@@ -312,6 +324,7 @@ export class LocalUnreadStore {
   private resolveDevice(
     snapshot: UnreadInfoSnapshot,
     row: ReadPosition | undefined,
+    count?: number,
   ): ResolvedUnreadInfo {
     const qqRead = snapshot.deviceRead;
     if (qqRead && row?.deviceRead && !newerReadPosition(row.deviceRead, qqRead)) {
@@ -328,7 +341,10 @@ export class LocalUnreadStore {
       ? newerReadPosition(snapshot.deviceLatest, floor)
       : !row?.deviceRead &&
         ((snapshot.localUnreadCount ?? 0) > 0 || (snapshot.storedUnreadCount ?? 0) > 0);
-    return { ...snapshot, unreadCount: hasUnread || manuallyUnread ? 1 : 0 };
+    return {
+      ...snapshot,
+      unreadCount: Math.max(count ?? Number(hasUnread), Number(Boolean(manuallyUnread))),
+    };
   }
 
   async flush(): Promise<void> {

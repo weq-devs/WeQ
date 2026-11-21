@@ -15,7 +15,6 @@ import {
   ProtoMsg,
   isDatalineSelfUid,
   isDatalineUid,
-  DATALINE_UID_TO_DEVICE,
 } from '@weq/codec';
 import {
   appendNode,
@@ -145,7 +144,6 @@ function readPosition(time: bigint, id: bigint): string {
   return `0:${time}:${BigInt.asIntN(64, id)}`;
 }
 
-const deviceSelfUid = Object.keys(DATALINE_UID_TO_DEVICE).find(isDatalineSelfUid)!;
 const previewProto = new ProtoMsg(RecentContactBody);
 
 interface GrayTipUnreadTarget {
@@ -254,7 +252,7 @@ export class UnreadInfoDb {
       const batch = unique.slice(offset, offset + 256);
       const rows = await this.qq.query(
         `WITH targets(chatType, uid, storagePeer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
-         SELECT t.chatType, t.uid, CAST(t.chatType AS INTEGER) || '_' || t.uid, COALESCE(u."48902", old."48902"), ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}, r."40050"
+         SELECT t.chatType, t.uid, CAST(t.chatType AS INTEGER) || '_' || t.uid, COALESCE(u."48902", old."48902"), ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
          FROM targets t
          LEFT JOIN msg_unread_info_table u ON u."48901" = t.storagePeer
          LEFT JOIN msg_unread_info_table old ON old."48901" = (CAST(t.chatType AS INTEGER) || '_' || t.uid) AND old."48901" != t.storagePeer
@@ -279,11 +277,11 @@ export class UnreadInfoDb {
   /** 账号共享快照由两张小表驱动，包含没有最近会话行的未读记录。 */
   async getAllUnreadInfos(): Promise<UnreadInfoSnapshot[]> {
     const rows = await this.qq.query(
-      `SELECT ${RECENT_UNREAD_TYPE}, r."40021", (${RECENT_UNREAD_TYPE}) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}, r."40050"
+      `SELECT ${RECENT_UNREAD_TYPE}, r."40021", (${RECENT_UNREAD_TYPE}) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
        FROM recent_contact_v3_table r
        WHERE ${RECENT_CHAT_TYPE} IN (1,2,8,134,${TEMP_DIRECT_TYPES})
        UNION ALL
-       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
+       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
     );
     // 同一 SQL 快照分别返回小表行，再线性合并；避免缺行检测逐个重扫最近会话表。
     const merged = new Map<string, SqlRow>();
@@ -362,9 +360,9 @@ export class UnreadInfoDb {
       }
     });
     await Promise.all(
-      snapshots.flatMap((snapshot, idx) =>
+      snapshots.flatMap((snapshot) =>
         snapshot.chatType === 8 || snapshot.chatType === 134
-          ? [this.resolveDeviceLatest(snapshot, rows[idx]!)]
+          ? [this.resolveDeviceLatest(snapshot)]
           : [],
       ),
     );
@@ -373,37 +371,42 @@ export class UnreadInfoDb {
     return snapshots;
   }
 
-  private async resolveDeviceLatest(snapshot: UnreadInfoSnapshot, row: SqlRow) {
-    const { chatType, uid, deviceIncomingTime, deviceRead, latestSenderUid } = snapshot;
-    if (snapshot.readError || !isDatalineUid(uid)) return;
-    const time = positiveInt(row[11]);
-    const id = row[7] == null ? 0n : BigInt(String(row[7]));
-    const incomingTime = positiveInt(deviceIncomingTime);
-    if (
-      time &&
-      id &&
-      latestSenderUid &&
-      !isDatalineSelfUid(latestSenderUid) &&
-      Number(row[9]) === chatType &&
-      (!incomingTime || incomingTime <= time) &&
-      !(row[6] instanceof Uint8Array)
-    ) {
-      snapshot.deviceLatest = readPosition(time, id);
-      return;
-    }
-    const through = incomingTime ?? time;
-    if (!through) return;
-    // QQ 保存最近收件时间。摘要被电脑发出的消息覆盖时，只看有界的收件区间。
+  async countDeviceIncoming(
+    target: UnreadInfoTarget,
+    after: string | undefined,
+    through: string,
+  ): Promise<number> {
+    const [, endTime, endId] = through.split(':').map(BigInt);
+    const [, startTime, startId] = after?.split(':').map(BigInt) ?? [0n, 0n, 0n];
+    const [row] = await this.qq.query(
+      `SELECT COUNT(*) FROM dataline_msg_table
+       WHERE "40021"=? AND "40010"=? AND "40020"=? AND "40011"<>?
+         AND ("40050","40001")>(?,?) AND ("40050","40001")<=(?,?)`,
+      [
+        target.uid,
+        BigInt(target.chatType),
+        target.uid,
+        BigInt(GRAY_TIP),
+        startTime!,
+        startId!,
+        endTime!,
+        endId!,
+      ],
+    );
+    return Number(row?.[0] ?? 0);
+  }
+
+  private async resolveDeviceLatest(snapshot: UnreadInfoSnapshot) {
+    const { chatType, uid, deviceRead } = snapshot;
+    if (snapshot.readError || !isDatalineUid(uid) || isDatalineSelfUid(uid)) return;
     const readTime = BigInt(deviceRead?.split(':')[1] ?? 0);
-    const from = incomingTime ?? (readTime || through);
-    if (from > through) return;
+    // 只读取入站尾部的时间和 ID。同一秒按 ID 排序，自发消息及系统提示不会抬高尾部。
     const [message] = await this.qq
       .query(
         `SELECT "40050", "40001" FROM dataline_msg_table
-       WHERE "40021"=? AND "40010"=? AND "40050" BETWEEN ? AND ?
-         AND "40020"<>? AND "40020"<>'' AND "40011"<>?
-       ORDER BY "40050" DESC, "40001" DESC LIMIT 1`,
-        [uid, BigInt(chatType), from, through, deviceSelfUid, BigInt(GRAY_TIP)],
+         WHERE "40021"=? AND "40010"=? AND "40020"=? AND "40011"<>? AND "40050">=?
+         ORDER BY "40050" DESC, "40001" DESC LIMIT 1`,
+        [uid, BigInt(chatType), uid, BigInt(GRAY_TIP), readTime],
       )
       .catch(() => {
         snapshot.readError = true;

@@ -33,10 +33,15 @@ function setup() {
   const getUnreadInfos = vi.fn(async (targets: Array<{ chatType: number; uid: string }>) =>
     targets.map(snapshot),
   );
+  const countDeviceIncoming = vi.fn(async () => 0);
+  const datalineMessage = vi.fn(async (_part: { uid: string }, _id: bigint) => [
+    { senderUid: _part.uid, sendTime: 1700000000n, msgType: 2n },
+  ]);
   const session = {
     selfUid: 'u_self',
     context: { uin: '10001' },
-    unreadInfo: { markRead, getUnreadInfos },
+    unreadInfo: { markRead, getUnreadInfos, countDeviceIncoming },
+    datalineMsgs: { calendarMessage: datalineMessage },
     uidMap: { sortNoByUid: () => 7n },
     c2cMsgs: { listBySeqsInPartition: listFrom, calendarMessage },
   } as unknown as AccountSession;
@@ -55,6 +60,7 @@ function setup() {
     listFrom,
     getUnreadInfos,
     calendarMessage,
+    countDeviceIncoming,
     enableManual: () => {
       manualEnabled = true;
     },
@@ -392,6 +398,8 @@ it('设备阅读用本人 UID 和原发送时间，不写普通序号或送入�
     deviceLatest: '0:1700000000:20',
   };
   f.getUnreadInfos.mockResolvedValue([device]);
+  f.countDeviceIncoming.mockResolvedValueOnce(3).mockResolvedValueOnce(2);
+  expect((await f.service.getUnreadInfos([{ chatType: 8, uid }]))[0]?.unreadCount).toBe(3);
   f.nt.sendPacket.mockResolvedValueOnce(
     Buffer.from(
       encode(ReadedReport.respSchema, {
@@ -401,7 +409,7 @@ it('设备阅读用本人 UID 和原发送时间，不写普通序号或送入�
   );
   expect(
     await f.service.markReadAndReport(8, uid, undefined, {
-      devicePosition: '0:1700000000:20',
+      devicePosition: '0:1700000000:18',
     }),
   ).toMatchObject({ changed: true, report: { state: 'pending' } });
   await settled(f.service);
@@ -410,5 +418,14 @@ it('设备阅读用本人 UID 和原发送时间，不写普通序号或送入�
   );
   expect(f.markRead).not.toHaveBeenCalled();
   expect(f.acknowledged).not.toHaveBeenCalled();
+  expect((await f.service.getUnreadInfos([{ chatType: 8, uid }]))[0]?.unreadCount).toBe(2);
+  expect(f.countDeviceIncoming).toHaveBeenLastCalledWith(
+    expect.objectContaining({ uid, chatType: 8 }),
+    '0:1700000000:18',
+    '0:1700000000:20',
+  );
+  const caughtUp = { ...device, deviceRead: device.deviceLatest };
+  f.getUnreadInfos.mockResolvedValue([caughtUp]);
+  await f.service.compareQqCounts();
   expect((await f.service.getUnreadInfos([{ chatType: 8, uid }]))[0]?.unreadCount).toBe(0);
 });
