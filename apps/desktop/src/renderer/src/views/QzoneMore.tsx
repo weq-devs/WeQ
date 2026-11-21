@@ -348,22 +348,12 @@ function Guestbook({ space }: { space: Space }) {
   );
   return (
     <>
-      {state.first?.greeting || state.first?.audit ? (
-        <section className="weq-qzn-post" aria-label="留言板信息">
-          {state.first.greeting ? (
-            <>
-              <h3 className="weq-qzn-more-title">主人寄语</h3>
-              <p className="weq-qzn-content" data-privacy-sensitive>
-                <QzoneInlineText content={state.first.greeting} />
-              </p>
-            </>
-          ) : null}
-          {state.first.audit ? (
-            <p className="weq-qzn-status">
-              {state.first.audit.enabled ? '留言审核已开启' : '留言审核已关闭'}
-              {state.first.audit.count !== null ? `，${state.first.audit.count} 条待审核` : ''}
-            </p>
-          ) : null}
+      {state.first?.greeting ? (
+        <section aria-label="主人寄语">
+          <h3 className="weq-qzn-more-title">主人寄语</h3>
+          <p className="weq-qzn-content" data-privacy-sensitive>
+            <QzoneInlineText content={state.first.greeting} />
+          </p>
         </section>
       ) : null}
       {state.items.map((entry) => (
