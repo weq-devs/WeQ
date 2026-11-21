@@ -933,7 +933,7 @@ function VoiceWave({
   }, [durationMs, playing, positionMs, readPositionMs]);
   return (
     <div
-      className={cn('voice-wave', playback && 'is-seekable')}
+      className={cn('voice-wave', playback && !playback.disabled && 'is-seekable')}
       aria-hidden={playback ? undefined : true}
       ref={waveRef}
     >
@@ -944,6 +944,7 @@ function VoiceWave({
             <canvas className="voice-wave-canvas" ref={playedCanvasRef} />
           </div>
           <div className="voice-wave-playhead" ref={playheadRef} aria-hidden="true" />
+          {/* 用 inert 暂停定位交互，避免全局禁用样式覆盖滑块的透明度。 */}
           <input
             className="voice-wave-seek"
             type="range"
@@ -951,7 +952,7 @@ function VoiceWave({
             max={playback.durationMs}
             step="any"
             value={Math.min(playback.positionMs, playback.durationMs)}
-            disabled={playback.disabled}
+            inert={playback.disabled}
             aria-label="录音播放进度"
             aria-valuetext={`${formatClipDuration(playback.positionMs)} / ${formatClipDuration(playback.durationMs)}`}
             onChange={(event) => playback.seek(Number(event.target.value))}

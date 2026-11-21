@@ -438,7 +438,7 @@ button.composer-single-thumb {
   pointer-events: auto;
 }
 
-.voice-wave:focus-within {
+:root[data-weq-input-modality='keyboard'] .voice-wave:has(> .voice-wave-seek:focus-visible) {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: -2px;
 }
@@ -467,13 +467,12 @@ button.composer-single-thumb {
 
 .voice-wave-playhead::before {
   position: absolute;
-  top: 50%;
+  inset: 0 auto 0 0;
   width: 2px;
-  height: 24px;
   border-radius: 2px;
   background: var(--weq-accent-effective);
   content: '';
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
 }
 
 .voice-wave-seek {
