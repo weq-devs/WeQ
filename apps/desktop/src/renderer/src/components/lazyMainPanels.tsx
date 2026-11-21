@@ -136,6 +136,13 @@ export const MergeForwardDialog = lazyPanel<
 >(() =>
   import('./mergeForward/MergeForwardDialog').then((m) => ({ default: m.MergeForwardDialog })),
 );
+export const ForwardedConversationsDialog = lazyPanel<
+  ComponentProps<typeof import('./mergeForward/MergeForwardTargets').ForwardedConversationsDialog>
+>(() =>
+  import('./mergeForward/MergeForwardTargets').then((m) => ({
+    default: m.ForwardedConversationsDialog,
+  })),
+);
 export const DeletedMessagesModal = lazyPanel<
   ComponentProps<typeof import('./compose/DeletedMessagesModal').DeletedMessagesModal>
 >(() =>

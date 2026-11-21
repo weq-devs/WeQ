@@ -94,7 +94,11 @@ const ACTION_ICONS = {
 
 function sourceActionIcon(source?: NotificationSource | null): NonNullable<ToastAction['icon']> {
   if (source?.target.kind === 'task') return 'task';
-  if (source?.target.kind === 'conversation' || source?.target.kind === 'generated-reply')
+  if (
+    source?.target.kind === 'conversation' ||
+    source?.target.kind === 'forwarded-conversations' ||
+    source?.target.kind === 'generated-reply'
+  )
     return 'conversation';
   if (source?.target.kind === 'app' && source.target.target.kind === 'setting') return 'settings';
   return 'open';

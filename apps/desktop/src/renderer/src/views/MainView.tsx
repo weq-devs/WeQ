@@ -161,6 +161,7 @@ import {
   onNotificationNavigation,
   conversationNotificationSource,
   messageNotificationSource,
+  type NotificationTarget,
 } from '../lib/notificationNavigation.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useOpenAnnouncement } from '../lib/announcementPresentation';
@@ -321,6 +322,7 @@ import {
   GroupLeftMembersDialog,
   AddMessageModal,
   MergeForwardDialog,
+  ForwardedConversationsDialog,
   CompositionWorkspace,
   DeletedMessagesModal,
   RecalledMessagesModal,
@@ -625,6 +627,8 @@ function calendarTargetForConversation(row: ConcreteConversation): OverviewCalen
 function isMobileShell(): boolean {
   return isSingleColumnLayout();
 }
+
+type ForwardedConversations = Extract<NotificationTarget, { kind: 'forwarded-conversations' }>;
 
 export function MainView(): ReactElement {
   const queryClient = useQueryClient();
@@ -1761,6 +1765,8 @@ function MainWorkspace(): ReactElement {
     senderMode: 'conversation' | 'global';
     members: MfPerson[];
   } | null>(null);
+  const [forwardedConversations, setForwardedConversations] =
+    useState<ForwardedConversations | null>(null);
   const compositionWindow = useCompositionWindow();
   const { open: openGroupResourceWindow, windows: groupResourceWindows } = useGroupResourceWindows({
     ownerKey: messageScope,
@@ -9465,8 +9471,49 @@ function MainWorkspace(): ReactElement {
     return () => window.removeEventListener(OPEN_FEATURE_EVENT, openFeatureLink);
   }, [openFeatureLink]);
 
+  const openForwardedConversations = (target: ForwardedConversations) => {
+    const { binding, targets } = target;
+    const isCurrent = () => {
+      const current = sharedAccountBinding();
+      return (
+        !useAppLock.getState().locked &&
+        useViewState.getState().openedUin === binding.expectedAccountUin &&
+        current?.expectedAccountUin === binding.expectedAccountUin &&
+        current.expectedAccountConfigId === binding.expectedAccountConfigId
+      );
+    };
+    if (!isCurrent()) return;
+    if (targets.length > 1) {
+      setForwardedConversations(target);
+      return;
+    }
+    const [destination] = targets;
+    if (!destination) return;
+    settingsNavigation.navigate(() => {
+      if (!isCurrent()) return;
+      const directory = conversationViewsRef.current;
+      const type = destination.kind === 'group' ? 'group' : 'direct';
+      if (
+        !directory ||
+        !Object.values(directory).some((rows: readonly Conversation[]) =>
+          rows.some((row) => row.id === destination.id && row.type === type),
+        )
+      ) {
+        pushToast({ tone: 'info', title: '目标会话当前不可打开' });
+        return;
+      }
+      setSettingsOpen(false);
+      setForwardedConversations(null);
+      jumpToConvSeq(destination.kind, destination.id);
+    });
+  };
+
   const openNotificationTarget = useStableCallback(
     (target: import('../lib/notificationNavigation').NotificationTarget) => {
+      if (target.kind === 'forwarded-conversations') {
+        openForwardedConversations(target);
+        return;
+      }
       settingsNavigation.navigate(() => {
         setSettingsOpen(false);
         if (target.kind === 'app') {
@@ -10870,10 +10917,20 @@ function MainWorkspace(): ReactElement {
               senderMode={mergeForwardDraft.senderMode}
               members={mergeForwardDraft.members}
               targets={mergeForwardTargets}
+              binding={pinSession.binding}
               sendAvailable={mergeForwardSendAvailable}
               onClose={() => setMergeForwardDraft(null)}
               onPersist={persistMergeForwardDraft}
               onForward={forwardMergeDraft}
+            />
+          ) : null}
+          {forwardedConversations && !interactionViewportLocked ? (
+            <ForwardedConversationsDialog
+              targets={forwardedConversations.targets}
+              onOpenTarget={(target) =>
+                openNotificationTarget({ ...forwardedConversations, targets: [target] })
+              }
+              onClose={() => setForwardedConversations(null)}
             />
           ) : null}
           <CompositionWorkspace

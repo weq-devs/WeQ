@@ -28,3 +28,7 @@
 html[data-theme='dark'] .weq-mf-targets-header {
   color: var(--weq-fg-primary);
 }
+
+.weq-mf-forwarded-picker .weq-mf-target-scroll {
+  max-height: min(60dvh, 480px);
+}

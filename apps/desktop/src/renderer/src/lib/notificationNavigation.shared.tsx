@@ -1,5 +1,6 @@
 import { createContext, type ReactNode } from 'react';
 import type { AppSearchTarget } from '../components/search/appSearchCatalog';
+import type { MfTarget } from '../components/mergeForward/model';
 import type { QzoneCardTarget } from './qzoneNavigation';
 import type { GroupResourceRequest } from '../hooks/useGroupResourceWindows';
 import type { GroupWorkspaceTab, ContactWorkspaceTab } from './profileNavigation';
@@ -16,6 +17,11 @@ export type NotificationTarget =
       conv: string;
       seq?: string;
       msgId?: string;
+    }
+  | {
+      kind: 'forwarded-conversations';
+      targets: readonly MfTarget[];
+      binding: NonNullable<ReturnType<typeof accountBinding>>;
     }
   | { kind: 'mail'; folderId?: number; mailId: string }
   | { kind: 'task'; id: string }

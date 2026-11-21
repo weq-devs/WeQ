@@ -6,7 +6,14 @@ import { startSequentialForward } from '../src/renderer/src/components/Sequentia
 import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { DEFAULT_FORWARD_OPTIONS } from '../src/renderer/src/lib/sequentialForward';
-import { MergeForwardTargets } from '../src/renderer/src/components/mergeForward/MergeForwardTargets';
+import {
+  ForwardedConversationsDialog,
+  MergeForwardTargets,
+} from '../src/renderer/src/components/mergeForward/MergeForwardTargets';
+import { MergeForwardDialog } from '../src/renderer/src/components/mergeForward/MergeForwardDialog';
+import { createEmptyDraft, createNode } from '../src/renderer/src/components/mergeForward/model';
+import { bindAccountState } from '../src/renderer/src/lib/clientPreferences';
+import { onNotificationNavigation } from '../src/renderer/src/lib/notificationNavigation.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 
@@ -355,6 +362,94 @@ it('转发目标的群助手独立入口保留内外已选群', () => {
     expect(host.querySelector('.weq-mf-target.checked')?.textContent).toContain('合成目标群');
   } finally {
     act(() => root.unmount());
+    host.remove();
+  }
+});
+
+it.each([1, 2])('合并转发回执可打开本次选中的 %i 个会话', async (count) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.spyOn(window, 'focus').mockImplementation(() => {});
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'original' };
+  const self = { uid: 'u_self', uin: '10001', name: '本人' };
+  const peer = { ...target, id: 'u_peer', kind: 'c2c' as const, conv: '10002', name: '好友' };
+  const chosen = [peer, target].slice(0, count);
+  const send = vi.fn(async () => {});
+  const navigate = vi.fn();
+  const unsubscribe = onNotificationNavigation(navigate);
+
+  function View() {
+    const [forwarding, setForwarding] = useState(true);
+    return createElement(
+      'div',
+      null,
+      forwarding
+        ? createElement(MergeForwardDialog, {
+            initialDraft: {
+              ...createEmptyDraft(),
+              nodes: [createNode(self, [{ t: 'text', id: 'text', text: '消息' }])],
+            },
+            self,
+            senderMode: 'conversation',
+            targets: [peer, target],
+            binding,
+            sendAvailable: true,
+            onClose: () => setForwarding(false),
+            onPersist: vi.fn(),
+            onForward: send,
+          })
+        : null,
+      createElement(ToastHost),
+    );
+  }
+
+  try {
+    bindAccountState(binding);
+    act(() => root.render(createElement(View)));
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label^="下一步"]')!.click());
+    for (const choice of chosen)
+      act(() =>
+        document
+          .querySelector<HTMLButtonElement>(
+            `[title="${choice.kind === 'c2c' ? `${choice.name} ${choice.conv}` : choice.name}"]`,
+          )!
+          .click(),
+      );
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[data-weq-dialog-confirm]')!.click(),
+    );
+    expect(send.mock.calls).toEqual(chosen.map((choice) => [expect.anything(), choice, binding]));
+
+    const open = host.querySelector<HTMLButtonElement>('.weq-toast-open')!;
+    bindAccountState({ ...binding, expectedAccountConfigId: 'different' });
+    await act(async () => open.click());
+    expect(navigate).not.toHaveBeenCalled();
+    bindAccountState(binding);
+    await act(async () => open.click());
+    expect(navigate.mock.calls).toEqual([
+      [{ kind: 'forwarded-conversations', targets: chosen, binding }],
+    ]);
+
+    if (count > 1) {
+      const onOpenTarget = vi.fn();
+      act(() =>
+        root.render(
+          createElement(ForwardedConversationsDialog, {
+            targets: chosen,
+            onOpenTarget,
+            onClose: vi.fn(),
+          }),
+        ),
+      );
+      act(() => document.querySelector<HTMLButtonElement>('[title="合成目标群 777"]')!.click());
+      expect(onOpenTarget.mock.calls).toEqual([[target]]);
+    }
+  } finally {
+    unsubscribe();
+    act(() => root.unmount());
+    bindAccountState(null);
     host.remove();
   }
 });

@@ -8,8 +8,18 @@ import { CompositionButton } from './CompositionButton';
  * 支持按名字 / QQ 号过滤。
  */
 
-import { useMemo, useState, type ReactElement } from 'react';
-import { Check, Search, Users, ArrowLeft, ChevronRight, FolderOpen, SearchX } from 'lucide-react';
+import { useId, useMemo, useState, type ReactElement } from 'react';
+import {
+  Check,
+  Search,
+  Users,
+  ArrowLeft,
+  ChevronRight,
+  FolderOpen,
+  SearchX,
+  X,
+} from 'lucide-react';
+import { Modal } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { cn } from '../../im-template/template/classNames';
 import type { MfTarget } from './model';
@@ -128,11 +138,26 @@ function TargetRow({
     <CompositionButton
       type="button"
       className={cn('weq-mf-target', checked && 'checked')}
+      title={target.kind === 'c2c' && target.conv ? `${target.name} ${target.conv}` : target.name}
       {...selectionProps}
     >
       <span className={cn('weq-mf-target-check', checked && 'on')}>
         {checked ? <Check size={13} strokeWidth={3} /> : null}
       </span>
+      <TargetIdentity target={target} />
+    </CompositionButton>
+  );
+}
+
+function TargetIdentity({
+  target,
+  showGroupCode = false,
+}: {
+  target: MfTarget;
+  showGroupCode?: boolean;
+}): ReactElement {
+  return (
+    <>
       {target.kind === 'group' && !target.avatarUrl ? (
         <span className="weq-mf-avatar-fallback weq-mf-target-avatar">
           <Users size={16} strokeWidth={1.75} />
@@ -146,9 +171,52 @@ function TargetRow({
         />
       )}
       <span className="weq-mf-target-name">{target.name}</span>
-      {target.kind === 'c2c' && target.conv ? (
+      {(target.kind === 'c2c' || showGroupCode) && target.conv ? (
         <span className="weq-mf-target-uin">{target.conv}</span>
       ) : null}
-    </CompositionButton>
+    </>
+  );
+}
+
+export function ForwardedConversationsDialog({
+  targets,
+  onOpenTarget,
+  onClose,
+}: {
+  targets: readonly MfTarget[];
+  onOpenTarget: (target: MfTarget) => void;
+  onClose: () => void;
+}): ReactElement {
+  const titleId = useId();
+  return (
+    <Modal
+      width={400}
+      className="weq-mf-forwarded-picker"
+      labelledBy={titleId}
+      onClose={onClose}
+      focusContainerOnOpen
+    >
+      <header className="weq-mf-picker-head">
+        <strong id={titleId}>选择转发会话</strong>
+        <span className="weq-mf-picker-spacer" />
+        <CompositionButton type="button" className="weq-mf-icon-btn" title="关闭" onClick={onClose}>
+          <X size={16} aria-hidden />
+        </CompositionButton>
+      </header>
+      <div className="weq-mf-target-scroll">
+        {targets.map((target) => (
+          <CompositionButton
+            key={target.id}
+            type="button"
+            className="weq-mf-target"
+            title={target.conv ? `${target.name} ${target.conv}` : target.name}
+            onClick={() => onOpenTarget(target)}
+          >
+            <TargetIdentity target={target} showGroupCode />
+            <ChevronRight size={16} aria-hidden />
+          </CompositionButton>
+        ))}
+      </div>
+    </Modal>
   );
 }

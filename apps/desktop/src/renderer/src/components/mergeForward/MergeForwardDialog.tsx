@@ -20,11 +20,13 @@ import { Modal } from '../Dialog';
 import { useToast } from '../Toast.shared';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
 import { isSingleColumnLayout } from '../../lib/responsiveLayout';
+import { notificationSource } from '../../lib/notificationNavigation.shared';
 import { MergeForwardComposer } from './MergeForwardComposer';
 import { MergeForwardTargets } from './MergeForwardTargets';
 import { senderAvatarUrl } from './model';
 import type { MfPerson } from './SenderPicker';
 import { draftTitle, draftToJson, type MfDraft, type MfTarget } from './model';
+import type { CompositionBinding } from './workspaceModel';
 import { cn } from '../../im-template/template/classNames';
 
 export function MergeForwardDialog({
@@ -33,6 +35,7 @@ export function MergeForwardDialog({
   members,
   senderMode,
   targets,
+  binding,
   sendAvailable,
   onClose,
   onPersist,
@@ -45,13 +48,14 @@ export function MergeForwardDialog({
   senderMode: 'conversation' | 'global';
   /** 可转发到的全部会话。 */
   targets: MfTarget[];
+  binding: CompositionBinding | null;
   /** QQ 在线且已注入 —— 决定「转发」能不能点。 */
   sendAvailable: boolean;
   onClose: () => void;
   /** 保存为可续编的合成记录。 */
   onPersist: (draft: MfDraft) => Promise<void> | void;
   /** 发送接缝：真正的合并转发发包在这里接入（本分支不实现）。 */
-  onForward: (draft: MfDraft, target: MfTarget) => Promise<void>;
+  onForward: (draft: MfDraft, target: MfTarget, binding?: CompositionBinding) => Promise<void>;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const [draft, setDraft] = useState<MfDraft>(initialDraft);
@@ -90,7 +94,7 @@ export function MergeForwardDialog({
     let failed = 0;
     for (const target of picked) {
       try {
-        await onForward(draft, target);
+        await onForward(draft, target, binding ?? undefined);
       } catch (error) {
         failed += 1;
         pushToast({
@@ -106,7 +110,18 @@ export function MergeForwardDialog({
       await onPersist(draft);
       return;
     }
-    pushToast({ tone: 'success', title: '已转发', message: `${picked.length} 个会话` });
+    pushToast({
+      tone: 'success',
+      title: '已转发',
+      summary: `${picked.length} 个会话`,
+      source: binding
+        ? notificationSource(
+            { kind: 'forwarded-conversations', targets: picked, binding },
+            picked.length === 1 ? '打开转发会话' : '选择转发会话',
+            binding,
+          )
+        : undefined,
+    });
     onClose();
   }
 
