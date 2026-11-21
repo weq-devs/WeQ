@@ -19,6 +19,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { PNG } from 'pngjs';
 import { getLogger, logErrorContext } from '../common/logger';
 import { pngSize } from '../common/zip';
 
@@ -38,6 +39,37 @@ export interface BubbleGeometry {
   imageSize: { w: number; h: number };
   /** 由 zoom_point 生成，区别于有固有尺寸的 Android NinePatchDrawable。 */
   configuredPatch?: true;
+}
+
+/** 底图上下两端完全透明的源像素行数。null 表示没有可用的静态轮廓。 */
+export interface BubbleTransparentInsets {
+  top: number;
+  bottom: number;
+}
+
+export function readBubbleTransparentInsets(png: Buffer): BubbleTransparentInsets | null {
+  const size = pngSize(png);
+  // 旧缓存预热只解码常规尺寸的非隔行 PNG。隔行解压在解码器里没有输出上限。
+  if (
+    !size?.w ||
+    !size.h ||
+    size.w * size.h > 256 * 1024 ||
+    png[28] !== 0 ||
+    png.length > 512 * 1024
+  )
+    return null;
+  try {
+    const { data, width } = PNG.sync.read(png);
+    let first = 3;
+    let last = data.length - 1;
+    while (first <= last && data[first] === 0) first += 4;
+    if (first > last) return null;
+    while (data[last] === 0) last -= 4;
+    const stride = width * 4;
+    return { top: Math.floor(first / stride), bottom: Math.floor((data.length - last) / stride) };
+  } catch {
+    return null;
+  }
 }
 
 export function bubbleConfigMetadata(json: unknown): {
@@ -73,6 +105,7 @@ export function bubbleConfigMetadata(json: unknown): {
 /** 一款气泡渲染所需的全部参数。 */
 export interface BubbleSkin extends BubbleGeometry {
   itemId: number;
+  transparentInsets?: BubbleTransparentInsets | null;
   /**
    * 商城里的款名(如「橘子汽水」)。装的时候由调用方从商城条目带进来 —— 商城只有
    * 排行榜和搜索两个查询、没有「按 itemId 查详情」，装的那一刻不记下来就补不回来。
@@ -144,6 +177,7 @@ export function buildLocalBubbleSkin(input: LocalBubbleInput): BubbleSkin | null
     return {
       itemId: input.itemId,
       ...geometry,
+      transparentInsets: input.animation?.frameCount ? null : readBubbleTransparentInsets(png),
       textColor,
       ...(input.linkColor ? { linkColor: argbToCss(input.linkColor) } : {}),
       localFile: input.pngPath,

@@ -704,6 +704,7 @@ function MessageBubbleBody({
       data-message-id={message.id}
       data-swipe-reply={Boolean(onSwipeReply) || undefined}
       data-message-group={msgBubbleId || localBubbleOverride ? undefined : groupPosition}
+      data-grouped-dress-bubble={msgBubbleId || localBubbleOverride ? groupPosition : undefined}
       data-generated-message-id={
         conversation.generated && !message.generatedPending ? message.id : undefined
       }

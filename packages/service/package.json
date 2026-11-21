@@ -99,6 +99,7 @@
     "linkify-it": "^6.1.0",
     "marked": "^16.4.2",
     "parse5": "8.0.1",
+    "pngjs": "5.0.0",
     "postcss": "8.5.30",
     "postcss-value-parser": "4.2.0",
     "remark-parse": "11.0.0",
@@ -110,6 +111,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.6",
+    "@types/pngjs": "6.0.5",
     "@types/qrcode": "^1.5.5",
     "@types/ws": "8.18.1",
     "@weq/testkit": "workspace:*",

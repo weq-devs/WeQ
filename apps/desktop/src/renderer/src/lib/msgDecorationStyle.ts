@@ -19,6 +19,7 @@ import {
   bubbleContentAlignmentCss,
   bubbleContentPaddingCss,
   bubbleFrameAnimationCss,
+  bubbleGroupSpacingCss,
   bubbleLinkMentionRules,
   bubbleMenuHighlightCss,
   bubbleRestrictsTextColor,
@@ -131,6 +132,7 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
       `  min-height: ${minHeight};`,
       `}`,
       bubbleContentAlignmentCss(sel),
+      bubbleGroupSpacingCss(skin, sel),
       fractionalBubbleBase(metrics, sel),
     ];
 

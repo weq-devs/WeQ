@@ -831,6 +831,21 @@ html[data-theme='dark'] .weq-qqshow-avatar {
   word-break: normal;
 }
 
+/* 只缩同行之间的透明留白。译文、表态等跟在气泡后时，保留它们的间隔。 */
+.message-line:is([data-grouped-dress-bubble='middle'], [data-grouped-dress-bubble='last']) :is(
+    .message-bubble,
+    .weq-forward-bubble
+  )
+  > .message-content {
+  margin-block-start: calc(-1 * var(--weq-bubble-group-trim-start, 0px));
+}
+
+.message-line:is([data-grouped-dress-bubble='first'], [data-grouped-dress-bubble='middle'])
+  :is(.message-bubble, .weq-forward-bubble)
+  > .message-content:last-child {
+  margin-block-end: calc(-1 * var(--weq-bubble-group-trim-end, 0px));
+}
+
 .message-line.theirs:is([data-message-group='first'], [data-message-group='middle'])
   > :is(.message-bubble, .weq-forward-row-main)
   .message-content {

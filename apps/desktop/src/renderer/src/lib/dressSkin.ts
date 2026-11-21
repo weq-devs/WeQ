@@ -77,7 +77,7 @@
  * 又不会糊住字。完整时间轴待原生对照，缺失帧延迟时使用手机包装层的 50ms 下限。
  */
 
-import type { DressScope, DressScopes, FontFx, ResolvedWidget } from '@weq/service';
+import type { BubbleSkin, DressScope, DressScopes, FontFx, ResolvedWidget } from '@weq/service';
 import { fontFaces, type FontLease } from './fontFaces';
 import { manageDecorationAnimation, validDecorationFrames } from './decorationResources';
 import {
@@ -94,6 +94,7 @@ export interface BubbleSkinCss {
   slice: { left: number; top: number; right: number; bottom: number };
   imageSize: { w: number; h: number };
   configuredPatch?: true;
+  transparentInsets?: BubbleSkin['transparentInsets'];
   textColor: string;
   linkColor?: string;
   /**
@@ -543,6 +544,31 @@ export function bubbleContentPaddingCss({ topPad, rightPad, bottomPad }: BubbleM
   return `  padding: ${topPad} ${rightPad} ${bottomPad};`;
 }
 
+/** 组内只扣掉固定区里完全透明的外沿，保留原布局盒、前景和字体绘制尺寸。 */
+export function bubbleGroupSpacingCss(skin: BubbleSkinCss, sel: string): string {
+  const insets = skin.transparentInsets;
+  if (!insets || skin.animationFrameCount) return '';
+  const { top, bottom } = skin.slice;
+  const scale = skin.configuredPatch
+    ? Math.min(BUBBLE_SCALE, (2 * BUBBLE_TEXT_PADDING.vertical) / (top + bottom))
+    : BUBBLE_SCALE;
+  // 后一行的点击区域最多向前进入 3px，留在 4px 的组内间隔内。
+  const trim = (edge: number, inset: number, max: number) =>
+    Math.max(0, Math.min(max, Math.floor(Math.min(edge, inset) * scale)));
+  const leading = trim(top, insets.top, 3);
+  const trailing = trim(bottom, insets.bottom, BUBBLE_TEXT_PADDING.vertical);
+  // 装饰已撑到边缘的紧凑款式保留原间距。
+  if (!Number.isFinite(leading + trailing) || leading + trailing < 3) return '';
+  return `${sel} {
+  --weq-bubble-group-trim-start: ${px(leading)};
+  --weq-bubble-group-trim-end: ${px(trailing)};
+}
+${fractionalBubbleSelectors(sel)} {
+  --weq-bubble-group-trim-start: max(0px, calc(${px(leading)} - 1px / var(--weq-bubble-dpr)));
+  --weq-bubble-group-trim-end: max(0px, calc(${px(trailing)} - 1px / var(--weq-bubble-dpr)));
+}`;
+}
+
 /**
  * 把一款气泡的核心九宫格规则涂到给定的元素选择器上。
  *
@@ -691,6 +717,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
   const rules = [
     m.frameAnim?.keyframes ?? '',
     baseBubbleRule(skin, m, sel),
+    bubbleGroupSpacingCss(skin, sel),
     fractionalBubbleBase(m, sel),
   ];
 

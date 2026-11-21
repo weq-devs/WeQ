@@ -498,6 +498,7 @@ const ForwardRow = memo(function ForwardRow({
       data-forward-group={entry.groupPosition}
       data-forward-continuation={continuation || undefined}
       data-message-group={dressed ? undefined : entry.groupPosition}
+      data-grouped-dress-bubble={dressed ? entry.groupPosition : undefined}
       data-bubble={msgDec.bubbleId || undefined}
       data-font={msgDec.fontId || undefined}
       data-weq-system-font={msgDec.systemFont || undefined}

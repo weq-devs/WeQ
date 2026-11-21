@@ -68,8 +68,10 @@ import {
   bubbleConfigMetadata,
   buildLocalBubbleSkin,
   readBubbleGeometry,
+  readBubbleTransparentInsets,
   type BubbleGeometry,
   type BubbleSkin,
+  type BubbleTransparentInsets,
   type MessageBubbleSkin,
 } from './bubble_skin';
 import { downloadUrlToFile } from './media_url';
@@ -156,6 +158,7 @@ export interface FontDerived {
 /** 气泡元数据 sidecar。 */
 export interface BubbleSidecar extends BubbleGeometry {
   itemId: number;
+  transparentInsets?: BubbleTransparentInsets | null;
   textColor: string;
   linkColor?: string;
   zoomPoint?: [number, number];
@@ -219,21 +222,35 @@ export class DressSharedCache {
       const [json, info] = await Promise.all([readFile(sidecarPath, 'utf8'), stat(path)]);
       if (!info.isFile()) return;
       const png = await readFile(path);
-      let meta = JSON.parse(json) as BubbleSidecar;
+      const saved = JSON.parse(json) as BubbleSidecar;
+      let meta = saved;
+      let persistGeometry = false;
       if (!meta.slice || !meta.imageSize || !meta.textColor || !pngSize(png)) return;
       if (meta.geometryVersion !== BUBBLE_GEOMETRY_VERSION) {
         const config = await this.readCachedBubbleConfig(itemId);
         const refreshed = refreshBubbleSidecar(meta, png, config);
         if (!refreshed) return;
         meta = refreshed;
-        if (config)
-          await writeFileAtomic(sidecarPath, JSON.stringify(meta, null, 2)).catch(() => {});
+        persistGeometry = Boolean(config);
+      }
+      if (meta.transparentInsets === undefined) {
+        meta = {
+          ...meta,
+          transparentInsets: meta.animationFrameCount ? null : readBubbleTransparentInsets(png),
+        };
+      }
+      if (persistGeometry || saved.transparentInsets === undefined) {
+        const updated = persistGeometry
+          ? meta
+          : { ...saved, transparentInsets: meta.transparentInsets };
+        await writeFileAtomic(sidecarPath, JSON.stringify(updated, null, 2)).catch(() => {});
       }
       const skin: MessageBubbleSkin = {
         itemId,
         slice: meta.slice,
         imageSize: meta.imageSize,
         configuredPatch: meta.configuredPatch,
+        transparentInsets: meta.transparentInsets,
         textColor: meta.textColor,
         linkColor: meta.linkColor,
         localFile: join(this.bubblesDir, `${itemId}.png`),
@@ -353,6 +370,7 @@ export class DressSharedCache {
         slice: sidecar.slice,
         imageSize: sidecar.imageSize,
         configuredPatch: sidecar.configuredPatch,
+        transparentInsets: sidecar.transparentInsets,
         textColor: sidecar.textColor,
         linkColor: sidecar.linkColor,
         localFile,
@@ -514,6 +532,7 @@ export class DressSharedCache {
       slice: skin.slice,
       imageSize: skin.imageSize,
       configuredPatch: skin.configuredPatch,
+      transparentInsets: skin.transparentInsets,
       textColor: skin.textColor,
       linkColor: skin.linkColor,
       zoomPoint: config?.zoomPoint,
