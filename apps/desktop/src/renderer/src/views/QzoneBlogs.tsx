@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { NumericText } from '../components/NumericText';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
+import { QzoneCommentRow } from '../components/QzoneCommentRow';
 import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { openExternalLink } from '../lib/openExternalLink';
@@ -18,7 +19,7 @@ import { qzoneMediaSource } from '../lib/qzone';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { client, trpc } from '../trpc/client';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
-import { QzonePageContext, timeText, useNearViewport } from './qzoneShared.shared';
+import { QzonePageContext, useNearViewport } from './qzoneShared.shared';
 
 type BlogInput = Omit<
   Parameters<typeof client.account.qzone.blog.query>[0],
@@ -260,26 +261,17 @@ function BlogCard({
         </button>
       </QzoneActionsRow>
       {commentsOpen ? (
-        <section className="weq-qzn-blog-comments" aria-label="日志评论">
+        <section className="weq-qzn-interaction" aria-label="日志评论">
           {commentItems.map((comment) => (
-            <div className="weq-qzn-blog-comment" key={comment.id}>
-              <QzonePersonHeader
-                size={24}
-                uin={comment.uin}
-                nickname={comment.nickname || comment.uin || '空间用户'}
-                onSpace={comment.uin ? onSpace : undefined}
-                time={
-                  comment.time ? (
-                    <time>
-                      <NumericText>{timeText(comment.time)}</NumericText>
-                    </time>
-                  ) : null
-                }
-              />
-              <p className="weq-qzn-content" data-privacy-sensitive>
-                {comment.text}
-              </p>
-            </div>
+            <QzoneCommentRow
+              key={comment.id}
+              uin={comment.uin}
+              nickname={comment.nickname}
+              time={comment.time}
+              onSpace={onSpace}
+            >
+              <p data-privacy-sensitive>{comment.text}</p>
+            </QzoneCommentRow>
           ))}
           {comments.error || !commentItems.length || commentsRepeated ? (
             <State

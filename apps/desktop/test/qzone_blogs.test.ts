@@ -28,7 +28,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
-vi.mock('../src/renderer/src/components/QzoneProfileAvatar', () => ({
+vi.mock('../src/renderer/src/components/QzoneProfileAvatar', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/components/QzoneProfileAvatar')>()),
   QzonePersonHeader: ({ nickname }: { nickname: string }) => h('span', null, nickname),
 }));
 

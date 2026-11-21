@@ -98,6 +98,7 @@ import { QzoneBlogs } from './QzoneBlogs';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
+import { QzoneCommentRow } from '../components/QzoneCommentRow';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
 import { contentReferenceKey, type ContentReference } from '../../../shared/content_selection';
@@ -2612,23 +2613,18 @@ function Interaction({
       roots.find((root) => root.id === source.parentCommentId)?.uin,
     );
     return (
-      <div
-        className={`weq-qzn-comment${comment.isReply ? ' is-reply' : ''}${focusedComment?.id === comment.id ? ' is-notification-target' : ''}`}
-        ref={focusedComment?.id === comment.id ? focusRef : undefined}
+      <QzoneCommentRow
         key={comment.id}
-      >
-        <QzoneProfileAvatar
-          size={26}
-          uin={comment.uin}
-          nickname={comment.nickname}
-          onSpace={onSpace}
-        />
-        <div>
-          <div className="weq-qzn-comment-line">
-            <QzonePersonButton uin={comment.uin} nickname={comment.nickname} onSpace={onSpace}>
-              <QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />
-            </QzonePersonButton>
-            {comment.isReply ? (
+        uin={comment.uin}
+        nickname={comment.nickname}
+        time={comment.time}
+        onSpace={onSpace}
+        name={<QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />}
+        className={`${comment.isReply ? 'is-reply' : ''}${focusedComment?.id === comment.id ? ' is-notification-target' : ''}`.trim()}
+        rowRef={focusedComment?.id === comment.id ? focusRef : undefined}
+        inline={
+          comment.isReply ? (
+            <>
               <span>
                 {' '}
                 回复{' '}
@@ -2648,28 +2644,26 @@ function Interaction({
                 )}
                 ：
               </span>
-            ) : null}
-            {comment.isReply ? (
               <span className="weq-qzn-reply-message">
                 <QzoneText content={comment.content} onSpace={onSpace} />
               </span>
-            ) : null}
-          </div>
-          {!comment.isReply ? (
-            <p>
-              <QzoneText content={comment.content} onSpace={onSpace} />
-            </p>
-          ) : null}
-          <Pictures images={comment.images} />
-          <div className="weq-qzn-comment-meta">
-            <time>{timeText(comment.time)}</time>
-            <button type="button" disabled={!root} onClick={() => root && onReply?.(source, root)}>
-              回复
-            </button>
-          </div>
-          {renderReply?.(source)}
-        </div>
-      </div>
+            </>
+          ) : null
+        }
+        actions={
+          <button type="button" disabled={!root} onClick={() => root && onReply?.(source, root)}>
+            回复
+          </button>
+        }
+        afterMeta={renderReply?.(source)}
+      >
+        {!comment.isReply ? (
+          <p>
+            <QzoneText content={comment.content} onSpace={onSpace} />
+          </p>
+        ) : null}
+        <Pictures images={comment.images} />
+      </QzoneCommentRow>
     );
   };
   return (
