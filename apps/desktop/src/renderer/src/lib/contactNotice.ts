@@ -1,6 +1,7 @@
 import { eventTimeFormatter } from '@weq/time';
 import type { ContactRequest, GroupJoinRequest } from '../im-template/template/types';
 import { notificationInlineText } from '../../../shared/notification_copy';
+import { groupNoticeSequenceId, type NoticeOperationWire } from '../../../shared/contact_notices';
 
 export function friendNoticeCopy(notice: ContactRequest) {
   const name = notificationInlineText(notice.user.displayName, 24);
@@ -57,23 +58,78 @@ export function groupNoticeId(notify: { groupUin: string; operatedUid: string; m
   return `group-notify:${notify.groupUin}:${notify.operatedUid}:${notify.msgTime}`;
 }
 
-export type NoticeOperation = {
+export type NoticeOperation = NoticeOperationWire & {
   kind: 'friend' | 'doubtFriend' | 'group' | 'filteredGroup';
-  token: string;
-  uid: string;
-  uin: string;
-  groupId: string;
-  name: string;
-  groupName: string;
-  message: string;
 };
+
+export type NoticeInbox = { operations: NoticeOperation[]; error?: string };
+
+export function groupNoticeReadId(notice: Pick<GroupJoinRequest, 'id' | 'sequence' | 'isDoubt'>) {
+  return notice.sequence && /^[1-9]\d{0,19}$/.test(notice.sequence)
+    ? groupNoticeSequenceId(notice.sequence, Boolean(notice.isDoubt))
+    : notice.id;
+}
+
+export function noticeBadgeList<T extends ContactRequest | GroupJoinRequest>(
+  notices: T[],
+  operations: NoticeOperation[],
+) {
+  const { remaining } = bindNoticeOperations(notices, operations);
+  const legacyIds = new Map<string, string>();
+  const ids = notices.map((notice) => {
+    const id = 'direction' in notice ? notice.id : groupNoticeReadId(notice);
+    if (id !== notice.id) legacyIds.set(id, notice.id);
+    return id;
+  });
+  for (const { noticeId } of remaining) if (noticeId) ids.push(noticeId);
+  return { ids, legacyIds };
+}
+
+export function confirmedGroupNoticeReads(
+  ids: string[],
+  normal?: string | null,
+  filtered?: string | null,
+) {
+  const normalThrough = normal == null ? null : BigInt(normal);
+  const filteredThrough = filtered == null ? null : BigInt(filtered);
+  return new Set(
+    ids.filter((id) => {
+      const identity = /^group-notify-seq:(normal|filtered):(\d{1,20})$/.exec(id);
+      if (!identity?.[2]) return false;
+      const through = identity[1] === 'normal' ? normalThrough : filteredThrough;
+      return through !== null && BigInt(identity[2]) <= through;
+    }),
+  );
+}
+
+export function latestNormalNoticeSequence(
+  notices: GroupJoinRequest[],
+  onlineOnly: NoticeOperation[],
+): string | undefined {
+  let latest = 0n;
+  const sequences = [
+    ...notices.filter((notice) => !notice.isDoubt).map((notice) => notice.sequence),
+    ...onlineOnly.filter((notice) => notice.kind === 'group').map((notice) => notice.sequence),
+  ];
+  for (const sequence of sequences) {
+    if (!sequence || !/^[1-9]\d{0,19}$/.test(sequence)) continue;
+    const value = BigInt(sequence);
+    if (value > latest && value <= 0xffffffffffffffffn) latest = value;
+  }
+  return latest > 0n ? latest.toString() : undefined;
+}
 
 /** 同一个人的多次申请只把最新一张待处理卡片绑定到当前在线请求。 */
 export function bindNoticeOperations<T extends ContactRequest | GroupJoinRequest>(
   notices: T[],
   operations: NoticeOperation[],
 ): { cards: Array<{ notice: T; operation?: NoticeOperation }>; remaining: NoticeOperation[] } {
-  const remaining = new Set(operations);
+  const unique = new Map<string, NoticeOperation>();
+  for (const operation of operations) {
+    const key = operation.noticeId ?? `${operation.kind}:${operation.token}`;
+    if (!unique.has(key) || operation.kind === 'doubtFriend') unique.set(key, operation);
+  }
+  const remaining = new Set(unique.values());
   const cards = notices.map((notice) => ({
     notice,
     operation: undefined as NoticeOperation | undefined,
@@ -87,13 +143,19 @@ export function bindNoticeOperations<T extends ContactRequest | GroupJoinRequest
         (Boolean(op.uid) && op.uid === n.user.id) ||
         (Boolean(op.uin) && op.uin === n.user.identityValue);
       if ('direction' in n)
-        return sameUser && n.direction === 'incoming' && n.status === 'pending' && !op.groupId;
+        return (
+          sameUser &&
+          n.direction === 'incoming' &&
+          n.status === 'pending' &&
+          !op.groupId &&
+          (!op.noticeId?.startsWith('buddy-request:') || op.noticeId === n.id)
+        );
       return (
-        sameUser &&
         n.action === '申请加入' &&
         n.handleState === 'pending' &&
         op.groupId === n.group.id &&
-        Boolean(n.isDoubt) === (op.kind === 'filteredGroup')
+        Boolean(n.isDoubt) === (op.kind === 'filteredGroup') &&
+        (n.sequence && op.sequence ? n.sequence === op.sequence : sameUser)
       );
     });
     if (candidate) {

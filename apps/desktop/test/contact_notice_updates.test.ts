@@ -12,7 +12,7 @@ const f = vi.hoisted(() => ({
     account: {
       listBuddyRequests: { invalidate: vi.fn() },
       listGroupNotifies: { invalidate: vi.fn() },
-      qqActions: { requests: { invalidate: vi.fn() } },
+      qqActions: { requestInbox: { invalidate: vi.fn() } },
     },
   },
 }));
@@ -54,7 +54,7 @@ function fixture(panel: 'friend' | 'group' | null = null) {
   f.utils.account.listGroupNotifies.invalidate.mockImplementation(() =>
     queryClient.invalidateQueries(['local', 'group']),
   );
-  f.utils.account.qqActions.requests.invalidate.mockImplementation(({ kind }) =>
+  f.utils.account.qqActions.requestInbox.invalidate.mockImplementation(({ kind }) =>
     queryClient.invalidateQueries(['online', kind]),
   );
   const root = createRoot(document.createElement('div'));
@@ -133,7 +133,7 @@ it.each(['friend', 'group'] as const)(
     expect(reads.online).toHaveBeenCalledTimes(6);
     const allowed = kind === 'friend' ? ['friend', 'doubtFriend'] : ['group', 'filteredGroup'];
     expect(
-      f.utils.account.qqActions.requests.invalidate.mock.calls.every(
+      f.utils.account.qqActions.requestInbox.invalidate.mock.calls.every(
         ([input]) => allowed.includes(input.kind) && input.expectedAccountConfigId === 'source-a',
       ),
     ).toBe(true);

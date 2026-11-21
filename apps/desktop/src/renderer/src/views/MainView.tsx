@@ -110,6 +110,7 @@ import {
 } from '../lib/startupQueries';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
 import { useContactNoticeUpdates } from '../hooks/useContactNoticeUpdates';
+import { useOnlineNoticeInbox } from '../components/qq-actions/RequestActions.shared';
 import { CONTACT_NOTICE_LIMIT } from '../../../shared/contact_notices';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { useStableCallback } from '../hooks/useStableCallback';
@@ -179,7 +180,13 @@ import { closeForwardWindows } from '../state/forwardWindow';
 import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useAccountNoticeUnread } from '../hooks/useAccountNoticeUnread';
-import { friendNoticeCopy, groupNoticeCopy } from '../lib/contactNotice';
+import {
+  confirmedGroupNoticeReads,
+  friendNoticeCopy,
+  groupNoticeCopy,
+  groupNoticeReadId,
+  noticeBadgeList,
+} from '../lib/contactNotice';
 import {
   ContactWorkspaceNavigationContext,
   ProfileNavigationContext,
@@ -2833,8 +2840,53 @@ function MainWorkspace(): ReactElement {
     categoryById,
     botUids,
   ]);
-  const friendNoticeIds = useMemo(() => contactRequests.map((r) => r.id), [contactRequests]);
-  const groupNoticeIds = useMemo(() => groupRequests.map((r) => r.id), [groupRequests]);
+  const friendNoticeInbox = useOnlineNoticeInbox(
+    false,
+    pinSession.available && (onlineReady || shell.contactNotice === 'friend'),
+    pinSession.binding,
+  );
+  const groupNoticeInbox = useOnlineNoticeInbox(
+    true,
+    pinSession.available && (onlineReady || shell.contactNotice === 'group'),
+    pinSession.binding,
+  );
+  const { ids: friendNoticeIds } = useMemo(
+    () => noticeBadgeList(contactRequests, friendNoticeInbox.operations),
+    [contactRequests, friendNoticeInbox.operations],
+  );
+  const { ids: groupNoticeIds, legacyIds: legacyGroupNoticeIds } = useMemo(
+    () => noticeBadgeList(groupRequests, groupNoticeInbox.operations),
+    [groupRequests, groupNoticeInbox.operations],
+  );
+  const { readSequence, filteredReadSequence, canReportRead } = groupNoticeInbox;
+  const confirmedGroupNoticeIds = useMemo(
+    () => confirmedGroupNoticeReads(groupNoticeIds, readSequence, filteredReadSequence),
+    [groupNoticeIds, readSequence, filteredReadSequence],
+  );
+  const reportViewedGroupNotices = useStableCallback((sequence: string) => {
+    const binding = pinSession.binding;
+    if (
+      !binding ||
+      !canReportRead ||
+      readSequence == null ||
+      BigInt(sequence) <= BigInt(readSequence)
+    )
+      return;
+    void client.account.qqActions.reportGroupNoticeRead
+      .mutate({ ...binding, sequence })
+      .then((confirmed) => {
+        if (confirmed === null) return;
+        utils.account.qqActions.requestInbox.setData({ ...binding, kind: 'group' }, (previous) => {
+          if (
+            !previous ||
+            (previous.readSequence !== null && BigInt(previous.readSequence) >= BigInt(confirmed))
+          )
+            return previous;
+          return { ...previous, readSequence: confirmed };
+        });
+      })
+      .catch((error) => console.error('[contact-notice] 群通知已读同步失败', error));
+  });
   const handledFriendNotices = useMemo(
     () =>
       new Set(
@@ -2849,8 +2901,10 @@ function MainWorkspace(): ReactElement {
   const handledGroupNotices = useMemo(
     () =>
       new Set(
-        groupRequests.flatMap(({ id, handleState }) =>
-          handleState === 'agreed' || handleState === 'refused' ? [id] : [],
+        groupRequests.flatMap((notice) =>
+          notice.handleState === 'agreed' || notice.handleState === 'refused'
+            ? [groupNoticeReadId(notice)]
+            : [],
         ),
       ),
     [groupRequests],
@@ -2862,7 +2916,7 @@ function MainWorkspace(): ReactElement {
     return notice && friendNoticeCopy(notice);
   });
   const describeGroupNotice = useStableCallback((id: string) => {
-    const notice = groupRequests.find((item) => item.id === id);
+    const notice = groupRequests.find((item) => groupNoticeReadId(item) === id);
     return notice && groupNoticeCopy(notice);
   });
   const friendNoticeCount = useAccountNoticeUnread(
@@ -2870,7 +2924,7 @@ function MainWorkspace(): ReactElement {
     'friend',
     friendNoticeIds,
     shell.contactNotice === 'friend',
-    buddyRequests.isSuccess,
+    buddyRequests.isSuccess || friendNoticeInbox.ready,
     {
       title: '好友通知',
       onOpen: openFriendNotice,
@@ -2883,11 +2937,13 @@ function MainWorkspace(): ReactElement {
     'group',
     groupNoticeIds,
     shell.contactNotice === 'group',
-    groupNotifies.isSuccess,
+    groupNotifies.isSuccess || groupNoticeInbox.ready,
     {
       title: '群通知',
       onOpen: openGroupNotice,
       handledIds: handledGroupNotices,
+      confirmedReadIds: confirmedGroupNoticeIds,
+      legacyIds: legacyGroupNoticeIds,
       describe: describeGroupNotice,
     },
   );
@@ -10146,6 +10202,7 @@ function MainWorkspace(): ReactElement {
                       <ContactNoticeDialog
                         open
                         requests={contactRequests}
+                        onlineInbox={friendNoticeInbox}
                         onClose={shell.backContactNotice}
                         onOpenProfile={(member, anchor) =>
                           setMemberCard({ member, anchor, groupContext: null })
@@ -10155,6 +10212,12 @@ function MainWorkspace(): ReactElement {
                       <GroupNoticeDialog
                         open
                         requests={groupRequests}
+                        onlineInbox={groupNoticeInbox}
+                        onViewed={
+                          canReportRead && readSequence != null
+                            ? reportViewedGroupNotices
+                            : undefined
+                        }
                         onClose={shell.backContactNotice}
                         onOpenProfile={(member, anchor, group) =>
                           setMemberCard({ member, anchor, groupContext: group ?? null })

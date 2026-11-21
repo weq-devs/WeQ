@@ -171,6 +171,7 @@ export interface BuddyRequestWire {
 
 export interface GroupNotifyWire {
   msgTime: number;
+  sequence?: string;
   status: number;
   verifyStatus: number;
   groupUin: string;
@@ -781,6 +782,7 @@ export function buddyRequestToWire(r: BuddyRequest): BuddyRequestWire {
 export function groupNotifyToWire(n: GroupNotify): GroupNotifyWire {
   return {
     msgTime: n.msgTime,
+    sequence: n.sequence?.toString(),
     status: n.status,
     verifyStatus: n.verifyStatus,
     groupUin: n.groupInfo?.groupUin.toString() ?? '0',

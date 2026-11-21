@@ -46,7 +46,10 @@ export function RequestActions({ operation }: { operation: NoticeOperation }) {
                     await (operation.groupId
                       ? utils.account.listGroupNotifies.invalidate()
                       : utils.account.listBuddyRequests.invalidate());
-                    await utils.account.qqActions.requests.invalidate();
+                    await Promise.all([
+                      utils.account.qqActions.requests.invalidate(),
+                      utils.account.qqActions.requestInbox.invalidate(),
+                    ]);
                   },
                   `${approve ? '同意' : '拒绝'} ${operation.name}${operation.groupId ? ` 加入 ${operation.groupName}` : ' 的好友申请'}？`,
                   {
@@ -56,7 +59,11 @@ export function RequestActions({ operation }: { operation: NoticeOperation }) {
                         ...a.binding!,
                         kind: operation.kind,
                       });
-                      return !rows.some((row) => row.token === operation.token);
+                      return !rows.some((row) =>
+                        operation.noticeId
+                          ? row.noticeId === operation.noticeId
+                          : row.token === operation.token,
+                      );
                     },
                   },
                 )

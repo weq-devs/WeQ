@@ -3,6 +3,11 @@ export type NoticeSeenState = { seen: string[]; readThrough: number };
 
 /** 使用原始记录时间，不受昵称、资料补齐或申请状态影响。 */
 export function noticeTimestamp(id: string): number | null {
+  const sequence = /^group-notify-seq:(?:normal|filtered):(\d{1,20})$/.exec(id)?.[1];
+  if (sequence) {
+    const time = Number(BigInt(sequence) / 1000n);
+    return Number.isSafeInteger(time) && time > 0 ? time : null;
+  }
   const match = /^(?:buddy-request:[^:]+|group-notify:[^:]+:[^:]*):(\d+)$/.exec(id);
   if (!match) return null;
   const time = Number(match[1]);

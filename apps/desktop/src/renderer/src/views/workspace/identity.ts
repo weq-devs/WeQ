@@ -308,6 +308,7 @@ export function groupNotifyToGroupRequest(
 
   return {
     id: groupNoticeId(notify),
+    sequence: notify.sequence,
     handleState,
     action: GROUP_NOTIFY_ACTION[notify.status] ?? '群通知',
     message: notify.remark || null,

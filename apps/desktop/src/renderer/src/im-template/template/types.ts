@@ -472,6 +472,7 @@ export type GroupNoticeHandleState = 'none' | 'pending' | 'agreed' | 'refused';
 
 export type GroupJoinRequest = {
   id: string;
+  sequence?: string;
   /** 61003：无需处理 / 待处理 / 已同意 / 已拒绝。 */
   handleState: GroupNoticeHandleState;
   /** 这条通知在说什么（申请加入 / 退出群聊 / 被移出…）。 */

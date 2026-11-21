@@ -236,6 +236,7 @@ export type BuddyRequestWire = {
 
 export type GroupNotifyWire = {
   msgTime: number;
+  sequence?: string;
   status: number;
   verifyStatus: number;
   groupUin: string;

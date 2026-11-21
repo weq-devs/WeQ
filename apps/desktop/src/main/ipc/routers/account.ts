@@ -1598,6 +1598,9 @@ export const accountRouter = router({
     },
     (input) => requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
     assertCurrentAccountWritable,
+    () =>
+      process.platform === 'darwin' &&
+      requireBootstrap().userConfig.getSettings().reportReadEnabled,
   ),
   qqWrite: createQQWriteRouter(
     (input) => {
