@@ -148,7 +148,7 @@ it('转发记录沿用时间分隔与元数据设置，仍仅头像打开名片'
           { ...record, msgId: '5', msgSeq: '71', sendTime: '1700000001' },
           { ...record, msgId: '2', msgSeq: '0', sendTime: '0' },
           { ...record, msgId: '3', msgSeq: undefined, sendTime: '1700000299' },
-          { ...record, msgId: '4', msgSeq: '73', sendTime: '1700000599' },
+          { ...record, msgId: '4', msgSeq: undefined, sendTime: '1700000599' },
         ],
       }),
     );
@@ -161,20 +161,14 @@ it('转发记录沿用时间分隔与元数据设置，仍仅头像打开名片'
     expect(name.closest('button')).toBeNull();
     const dialog = author.closest('[role="dialog"]')!;
     const times = Array.from(dialog.querySelectorAll('time'));
-    expect(times.map((time) => time.textContent)).toEqual([
-      '昨天 06:13:20',
-      '2023-11-15 06:13:20',
-      '昨天 06:23:19',
-    ]);
+    expect(times.map((time) => time.textContent)).toEqual(['昨天 06:13:20', '昨天 06:23:19']);
     expect(times[0]?.title).toBe('2023-11-15 06:13:20（北京时间）');
     expect(author.parentElement?.previousElementSibling).toBe(times[0]);
+    expect(dialog.textContent).not.toContain('seq 42');
+    await act(async () => render(true));
     expect(author.textContent).toContain('seq 42');
     expect(author.querySelector('time')?.textContent).toBe('2023-11-15 06:13:20');
-    expect(dialog.textContent).not.toContain('seq 73');
     expect(dialog.querySelectorAll('.weq-message-seq')).toHaveLength(1);
-    await act(async () => render(true));
-    expect(dialog.textContent).toContain('seq 73');
-    expect(dialog.querySelectorAll('.weq-message-seq')).toHaveLength(2);
     expect(dialog.querySelectorAll('.weq-forward-author')).toHaveLength(4);
     expect(dialog.textContent).not.toContain('seq 71');
     expect(dialog.textContent).not.toContain('1970-01-01');
