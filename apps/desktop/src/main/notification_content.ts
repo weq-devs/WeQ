@@ -30,7 +30,7 @@ export async function groupKeywordNotificationIncluded(
     )?.notifyLevel;
     conversation.groupAssistant = contactLevel === 2 || group?.notifyLevel === 2;
     conversation.muted =
-      conversation.groupAssistant || mutedFromNotifyLevel(contactLevel ?? group?.notifyLevel);
+      conversation.groupAssistant || mutedFromNotifyLevel(group?.notifyLevel ?? contactLevel);
   }
   return notificationScopeIncludes(scope, conversation);
 }
