@@ -113,6 +113,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'request',
     'todo',
     'groupSettings',
+    'setGroupSelectedTags',
     'setGroupAdvancedSetting',
     'qzone',
     'inputStatus',
@@ -127,6 +128,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     'favoriteImportState',
     'requests',
     'tags',
+    'groupSelectedTags',
     'todoList',
     'todoLocalList',
     'groupReadTools',
@@ -313,6 +315,11 @@ function value(host: HTMLElement, label: string, next: string) {
     node.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+function textButton(host: HTMLElement, label: string) {
+  return [...host.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === label,
+  )!;
+}
 const menuButton = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
     (button) => button.textContent === label,
@@ -349,6 +356,7 @@ beforeEach(() => {
     favorites: [{ emojiId: 'favorite-a', position: 1, desc: '原备注', local: null }],
     requests: [{ token: 'request-a', name: '申请人', groupName: '群 A', message: '留言' }],
     tags: [],
+    groupSelectedTags: [],
     todoList: [],
     todoLocalList: [],
     groupReadTools: {
@@ -1944,14 +1952,14 @@ describe('QQ 主动操作的实际界面', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const f = fixture(() => h(GroupActions, { groupId: 123 }));
-      expect(f.host.querySelectorAll('[aria-label="分类标签目录"] li')).toHaveLength(2);
+      expect(f.host.querySelectorAll('[aria-label="群标签和分类候选"] li')).toHaveLength(2);
       expect(f.host.textContent).toContain('同名目录项 (2 条)');
       state.data.tags = [
         { id: null, name: '同名目录项', type: null },
         { id: null, name: '另一目录项', type: null },
       ];
       f.update();
-      expect(f.host.querySelectorAll('[aria-label="分类标签目录"] li')).toHaveLength(2);
+      expect(f.host.querySelectorAll('[aria-label="群标签和分类候选"] li')).toHaveLength(2);
       expect(f.host.textContent).not.toContain('同名目录项 (2 条)');
       expect(errors).not.toHaveBeenCalled();
     } finally {
@@ -1980,6 +1988,70 @@ describe('QQ 主动操作的实际界面', () => {
     state.data.groupJoinSettings = { groupId: 999, categoryId: 2, categoryName: '其他群' };
     f.update();
     expect(f.button('添加分类标签').disabled).toBe(true);
+  });
+  it('新增目录项后自动勾选，点完成时保留群的已有标签，失败后仅重试保存', async () => {
+    state.data.groupJoinSettings = { groupId: 123, categoryId: 37 };
+    state.data.groupSelectedTags = ['原有标签'];
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    const pressed = (name: string) => textButton(f.host, name)?.getAttribute('aria-pressed');
+    expect(pressed('原有标签')).toBe('true');
+    value(f.host, '分类标签名称', ' 新标签 ');
+    await act(async () => f.button('添加分类标签').click());
+    expect(pressed('新标签')).toBe('true');
+    expect(state.mutate).toHaveBeenCalledTimes(1);
+    expect(state.mutate).toHaveBeenCalledWith(
+      'groupSettings',
+      expect.objectContaining({ action: 'addTag', tag: '新标签' }),
+    );
+
+    state.mutate.mockRejectedValueOnce(new Error('保存失败'));
+    await act(async () => textButton(f.host, '完成').click());
+    expect(pressed('新标签')).toBe('true');
+    expect(textButton(f.host, '完成').disabled).toBe(false);
+    state.mutate.mockImplementationOnce(async () => {
+      state.data.groupSelectedTags = ['新标签', '原有标签'];
+      return { state: 'accepted' };
+    });
+    await act(async () => textButton(f.host, '完成').click());
+    expect(state.mutate).toHaveBeenLastCalledWith(
+      'setGroupSelectedTags',
+      expect.objectContaining({
+        groupId: 123,
+        before: ['原有标签'],
+        tags: ['原有标签', '新标签'],
+      }),
+    );
+    expect(state.mutate.mock.calls.map(([name]) => name)).toEqual([
+      'groupSettings',
+      'setGroupSelectedTags',
+      'setGroupSelectedTags',
+    ]);
+    expect(textButton(f.host, '完成').disabled).toBe(true);
+  });
+  it('已有候选可直接勾选，取消更改复原，选满时仍可取消勾选', async () => {
+    state.data.groupJoinSettings = { groupId: 123, categoryId: 37 };
+    state.data.groupSelectedTags = Array.from({ length: 20 }, (_, i) => `已有 ${i}`);
+    state.data.tags = [{ name: '候选' }];
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(textButton(f.host, '候选').disabled).toBe(true);
+    expect(f.button('添加分类标签').disabled).toBe(true);
+    await act(async () => textButton(f.host, '已有 0').click());
+    expect(textButton(f.host, '已有 0').getAttribute('aria-pressed')).toBe('false');
+    await act(async () => textButton(f.host, '候选').click());
+    expect(textButton(f.host, '候选').getAttribute('aria-pressed')).toBe('true');
+    await act(async () => textButton(f.host, '取消更改').click());
+    expect(textButton(f.host, '候选').getAttribute('aria-pressed')).toBe('false');
+    expect(state.mutate).not.toHaveBeenCalled();
+  });
+  it('未取得完整标签时不允许新增自动勾选或应用', () => {
+    state.data.groupJoinSettings = { groupId: 123, categoryId: 37 };
+    state.data.groupSelectedTags = null;
+    state.data.tags = [{ name: '候选' }];
+    const f = fixture(() => h(GroupActions, { groupId: 123 }));
+    expect(textButton(f.host, '候选').disabled).toBe(true);
+    expect(f.button('添加分类标签').disabled).toBe(true);
+    expect(textButton(f.host, '重新读取')).toBeTruthy();
+    expect(state.mutate).not.toHaveBeenCalled();
   });
   it('收藏备注未知回执保留编辑草稿，取消也必须确认', async () => {
     const f = fixture(() => h(FavoriteActions));

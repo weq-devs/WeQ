@@ -5,6 +5,7 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { z } from 'zod';
 import { observeUpload, transferIdInput } from './transfer_progress';
 import {
+  GROUP_SELECTED_TAG_LIMIT,
   KICK_MEMBER_PER_DAY_CHOICES,
   parseCustomFaceId,
   PROFILE_LIKE_MAX_PER_REQUEST,
@@ -29,6 +30,7 @@ import { updateFavoriteImportTask } from '../../favorite_import_task';
 import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 import { runResumableExport } from '../../resumable_exports';
 import { groupNoticeSequenceId, type NoticeOperationWire } from '../../../shared/contact_notices';
+import { sameGroupTags } from '../../../shared/group_tags';
 import {
   albumMediaDeleteAllowed,
   groupPermission,
@@ -43,6 +45,14 @@ const text = z.string().trim().min(1).max(4096);
 const id = z.string().min(1).max(1024);
 const groupId = z.number().int().positive().max(0xffffffff);
 const group = binding.extend({ groupId });
+const groupTags = z
+  .array(
+    z
+      .string()
+      .min(1)
+      .refine((tag) => Boolean(tag.trim())),
+  )
+  .refine((tags) => new Set(tags).size === tags.length, '群标签不能重复');
 const requestInboxBinding = binding.extend({
   kind: z.enum(['friend', 'doubtFriend', 'group', 'filteredGroup']),
 });
@@ -1519,6 +1529,31 @@ export function createQQActionsRouter(
     tags: procedure
       .input(binding.extend({ category: z.number().int().min(0).max(0xffffffff) }))
       .query(({ input: i }) => read(i, (s) => s.groupModeration.getCategoryTags(i.category))),
+    groupSelectedTags: procedure
+      .input(group)
+      .query(({ input: i }) => read(i, (s) => s.groupModeration.getSelectedTags(i.groupId))),
+    setGroupSelectedTags: procedure
+      .input(
+        group.extend({
+          before: groupTags,
+          tags: groupTags.refine(
+            (tags) => tags.length <= GROUP_SELECTED_TAG_LIMIT,
+            '群标签最多 20 个',
+          ),
+        }),
+      )
+      .mutation(({ input: i }) =>
+        write(i, async (s, current) => {
+          await manager(s, i.groupId, current);
+          const latest = await s.groupModeration.getSelectedTags(i.groupId);
+          current();
+          if (latest === null) throw new Error('暂未取得当前群的完整标签，请刷新后重试');
+          if (sameGroupTags(latest, i.tags)) return;
+          if (!sameGroupTags(latest, i.before))
+            throw new Error('群标签已在其他端改变，请刷新后重新选择');
+          return s.groupModeration.setSelectedTags(i.groupId, i.tags);
+        }),
+      ),
     qzoneHome: procedure
       .input(
         binding.extend({

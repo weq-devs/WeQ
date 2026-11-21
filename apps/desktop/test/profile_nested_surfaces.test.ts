@@ -85,6 +85,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       groupMemberPreview: { useQuery: () => ({ data: undefined }) },
       listGroupLeftMembers: { useQuery: () => ({ data: [], isFetching: false }) },
       qqActions: {
+        groupSelectedTags: { useQuery: () => ({}) },
         groupPermissions: { useQuery: () => ({ data: undefined }) },
         groupJoinManagement: { useQuery: () => ({ data: undefined }) },
         todoList: { useQuery: () => ({ data: [] }) },

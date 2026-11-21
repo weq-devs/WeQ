@@ -113,6 +113,8 @@ function fixture() {
       addCategoryTag: empty(),
       deleteCategoryTag: empty(),
       getCategoryTags: vi.fn(async () => []),
+      getSelectedTags: vi.fn(async (_groupId: number): Promise<string[] | null> => ['原有标签']),
+      setSelectedTags: empty(),
     },
     groupAlbumMedia: {
       deleteMedia: empty(),
@@ -577,6 +579,22 @@ describe('加群方式读回', () => {
     });
     await expect(f.caller.groupSettings(input)).rejects.toThrow('账号已切换');
     expect(f.s.groupModeration.addCategoryTag).toHaveBeenCalledTimes(1);
+  });
+  it('群标签按群校验权限和列表，允许明确清空，已应用后重试不重复写入', async () => {
+    const f = fixture();
+    const input = { ...group, before: ['原有标签'], tags: [] };
+    await expect(f.caller.groupSelectedTags(group)).resolves.toEqual(['原有标签']);
+    await expect(f.caller.setGroupSelectedTags(input)).resolves.toEqual({ state: 'accepted' });
+    expect(f.s.groupModeration.setSelectedTags).toHaveBeenCalledWith(123, []);
+    f.s.groupModeration.getSelectedTags.mockResolvedValueOnce([]);
+    await expect(f.caller.setGroupSelectedTags(input)).resolves.toEqual({ state: 'accepted' });
+    f.s.groupModeration.getSelectedTags.mockResolvedValueOnce(['另一端修改']);
+    await expect(f.caller.setGroupSelectedTags(input)).rejects.toThrow('其他端改变');
+    f.s.groupModeration.getSelectedTags.mockResolvedValueOnce(null);
+    await expect(f.caller.setGroupSelectedTags(input)).rejects.toThrow('完整标签');
+    f.s.groupInfo.listGroupDirectory.mockResolvedValueOnce([{ groupCode: '123', role: 'member' }]);
+    await expect(f.caller.setGroupSelectedTags(input)).rejects.toThrow('管理员权限');
+    expect(f.s.groupModeration.setSelectedTags).toHaveBeenCalledTimes(1);
   });
 });
 

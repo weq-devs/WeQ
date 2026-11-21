@@ -86,6 +86,10 @@ export function useGroupProfile(
     enabled,
     ...PROFILE_QUERY_OPTIONS,
   });
+  const selectedTags = trpc.account.qqActions.groupSelectedTags.useQuery(
+    { ...binding!, groupId: Number(conversation.id) },
+    { enabled: false },
+  );
   const preview = trpc.account.groupMemberPreview.useQuery(
     { ...binding!, groupCode: conversation.id },
     {
@@ -148,7 +152,7 @@ export function useGroupProfile(
     knownName && knownName !== conversation.id
       ? knownName
       : cloudName.data?.name || knownName || conversation.id;
-  const group = local
+  const localGroup = local
     ? {
         ...conversation.group,
         name: displayName,
@@ -167,6 +171,16 @@ export function useGroupProfile(
         addressName: local.address?.locationName ?? conversation.group.addressName,
       }
     : { ...conversation.group, name: displayName, entranceQ };
+  const confirmedTags = enabled ? selectedTags.data : null;
+  const group = confirmedTags
+    ? {
+        ...localGroup,
+        customLabels: confirmedTags,
+        customLabelRecords: localGroup.customLabelRecords?.filter(
+          (record) => record.content !== undefined && confirmedTags.includes(record.content),
+        ),
+      }
+    : localGroup;
   return {
     conversation: { ...conversation, group },
     ownerUid: local?.ownerUid,

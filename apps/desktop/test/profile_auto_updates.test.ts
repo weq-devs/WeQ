@@ -31,6 +31,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       contactMetrics: { snapshot: { useQuery: () => ({ data: { rows: {} } }) } },
       groupMemberPreview: { useQuery: () => ({}) },
       qqActions: {
+        groupSelectedTags: { useQuery: () => ({}) },
+        groupJoinManagement: { useQuery: () => ({}) },
         qzoneFriendPermissionList: {
           useQuery: (input: { kind: string }, options: object) =>
             useQuery(['permissions', input], rpc.permissions, options),

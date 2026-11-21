@@ -12,6 +12,7 @@ const mock = vi.hoisted(() => ({
   snapshots: vi.fn(),
   names: vi.fn(),
   extended: vi.fn(),
+  tags: vi.fn(),
 }));
 vi.mock('../src/renderer/src/state/view', () => ({
   useViewState: (select) => select({ openedUin: '10001' }),
@@ -27,6 +28,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: mock.config } }) },
+      qqActions: {
+        groupSelectedTags: { useQuery: mock.tags },
+        groupJoinManagement: { useQuery: () => ({}) },
+      },
       groupMemberPreview: {
         useQuery: (input, options) =>
           useQuery({
@@ -69,6 +74,7 @@ function fixture(input = group, previewMembers = true) {
   mock.snapshots.mockReset().mockResolvedValue({ rows: {} });
   mock.names.mockReset().mockResolvedValue({ name: '补全的群名称' });
   mock.extended.mockReset().mockResolvedValue({ groupId: 12345, joinedAt: 1704038407 });
+  mock.tags.mockReset().mockReturnValue({});
   const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const host = document.createElement('div'),
     root = createRoot(host);
@@ -80,7 +86,7 @@ function fixture(input = group, previewMembers = true) {
     const result = useGroupProfile(input, previewMembers);
     return h(
       'span',
-      null,
+      { 'data-tags': result.conversation.group.customLabels?.join(',') ?? '' },
       `${result.scope}:${result.conversation.group.name}:${result.joinedAt}:${result.members.map((row) => row.displayName).join(',')}`,
     );
   }
@@ -91,6 +97,21 @@ function fixture(input = group, previewMembers = true) {
   }
   return { host, render };
 }
+it('群名片使用本次在线读回，即使本地仍保留已移除的标签', () => {
+  const { host, render } = fixture(
+    {
+      ...group,
+      group: { ...group.group, customLabels: ['旧标签'] },
+    },
+    false,
+  );
+  mock.tags.mockReturnValue({ data: ['新标签'] });
+  render();
+  expect(host.firstElementChild?.getAttribute('data-tags')).toBe('新标签');
+  mock.tags.mockReturnValue({ data: [] });
+  render();
+  expect(host.firstElementChild?.getAttribute('data-tags')).toBe('');
+});
 it('快速名片关闭成员预览查询，完整资料页保留原来的预览读取', async () => {
   const { render } = fixture(group, false);
   render();

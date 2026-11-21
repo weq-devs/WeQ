@@ -18,6 +18,8 @@ import {
   DeleteGroupCategoryTag,
   GetGroupAtAllRemain,
   GetGroupCategoryTags,
+  GetGroupSelectedTags,
+  SetGroupSelectedTags,
   GetGroupTodoList,
   GroupTodo,
   KickGroupMember,
@@ -453,6 +455,14 @@ export class GroupModerationService {
   /** 群分类下的资料标签（OIDB 0x967C_0）。 */
   async getCategoryTags(groupClass: number): Promise<GroupCategoryTag[]> {
     return GetGroupCategoryTags.invoke(this.nt, this.resolvePid(), { groupClass });
+  }
+
+  async getSelectedTags(groupId: number): Promise<string[] | null> {
+    return GetGroupSelectedTags.invoke(this.nt, this.resolvePid(), { groupId });
+  }
+
+  async setSelectedTags(groupId: number, tags: readonly string[]): Promise<void> {
+    await SetGroupSelectedTags.invoke(this.nt, this.resolvePid(), { groupId, tags });
   }
 
   /** 添加资料标签（OIDB 0x967D_0）。 */

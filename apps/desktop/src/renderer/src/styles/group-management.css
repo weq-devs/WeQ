@@ -66,6 +66,38 @@
   overflow-wrap: anywhere;
 }
 
+.weq-group-management-tags > li[data-selected] {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+}
+
+.weq-group-management-tag-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 24px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.weq-group-management-tag-toggle:disabled {
+  cursor: default;
+}
+
+.weq-group-management-tag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .weq-group-management-tags > li > .weq-set-iconbtn {
   flex: none;
   width: 24px;
@@ -101,5 +133,9 @@
   .weq-group-management-tags > li > .weq-set-iconbtn {
     width: 44px;
     height: 44px;
+  }
+
+  .weq-group-management-tag-toggle {
+    min-height: 44px;
   }
 }

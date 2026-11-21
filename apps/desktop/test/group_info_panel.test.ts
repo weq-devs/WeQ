@@ -43,7 +43,10 @@ vi.mock('../src/renderer/src/trpc/client', async (importOriginal) => ({
   trpc: {
     account: {
       getAccountConfig: { useQuery: () => ({ data: undefined }) },
-      qqActions: { groupJoinManagement: { useQuery: () => ({ data: undefined }) } },
+      qqActions: {
+        groupJoinManagement: { useQuery: () => ({ data: undefined }) },
+        groupSelectedTags: { useQuery: () => ({}) },
+      },
       contactMetrics: {
         groupFriendSources: {
           useQuery: () => ({
