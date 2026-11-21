@@ -315,6 +315,7 @@ function AssistantSettingsFields({
               <Row
                 settingId="weq-assistant-local-lightweight"
                 label="本地模型轻量模式"
+                desc="在沙箱模式下使用本机模型进行纯文字对话时，省去完整工具列表以减少上下文占用。查找会话、浏览群文件根目录等常见查询仍可按需使用工具。"
                 control={
                   <Toggle
                     label="本地模型轻量模式"
