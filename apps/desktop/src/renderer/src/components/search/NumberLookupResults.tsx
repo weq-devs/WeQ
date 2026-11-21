@@ -1,3 +1,8 @@
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
+import { useContext } from 'react';
+import { profileTargetUser } from '../../lib/profileNavigation';
+import { sharedGroupConversation } from '../ark/groupShareCard';
 import { RefreshCw, UserRound, UsersRound } from 'lucide-react';
 import { useNumberLookup, type NumberLookupProfile } from '../../hooks/useNumberLookup';
 import { SearchAvatar } from './SearchResultCard';
@@ -16,6 +21,7 @@ export function NumberLookupResults({
   kinds?: readonly ('user' | 'group')[];
 }) {
   const lookup = useNumberLookup(keyword, kinds);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   return (
     <section className="weq-search-section" aria-label="QQ号/群号">
       <div className="weq-search-section-header">
@@ -44,7 +50,37 @@ export function NumberLookupResults({
                   title={`查看${label}名片`}
                   aria-label={`查看${label}名片`}
                   disabled={!onOpenProfile}
-                  onClick={(event) => onOpenProfile?.(result.data!, event.currentTarget)}
+                  onClick={(event) => {
+                    const profile = result.data;
+                    if (!profile || !onOpenProfile) return;
+                    const anchor = event.currentTarget;
+                    const user =
+                      profile.kind === 'user'
+                        ? profileTargetUser({
+                            identity: profile.id,
+                            name: profile.name || profile.id,
+                          })
+                        : null;
+                    const openChat =
+                      profile.kind === 'group'
+                        ? chatShortcut?.({
+                            kind: 'group',
+                            conversation: sharedGroupConversation({
+                              code: profile.id,
+                              name: profile.name || profile.id,
+                              avatar: groupAvatarSrc(profile.id) ?? '',
+                            }),
+                          })
+                        : user
+                          ? chatShortcut?.({ kind: 'direct', user })
+                          : undefined;
+                    activateProfile(
+                      event,
+                      () => onOpenProfile(profile, anchor),
+                      openChat,
+                      profile.id,
+                    );
+                  }}
                 >
                   <SearchAvatar
                     url={

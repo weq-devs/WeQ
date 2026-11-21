@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 import { FormSelect } from '../FormSelect';
 import { useContext, useEffect, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
@@ -37,6 +39,7 @@ function GroupWorkspace({
 }) {
   const active = useTabActive();
   const directory = useContext(ConversationDirectoryContext);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const [groupCard, setGroupCard] = useState<{
     conversation: GroupConversation;
     anchor: HTMLButtonElement;
@@ -180,11 +183,13 @@ function GroupWorkspace({
                             name: name(code),
                             avatar: avatarFromGroupCode(code) ?? '',
                           });
-                    setGroupCard({
-                      conversation,
-                      anchor: event.currentTarget,
-                      known: known?.type === 'group',
-                    });
+                    const anchor = event.currentTarget;
+                    activateProfile(
+                      event,
+                      () => setGroupCard({ conversation, anchor, known: known?.type === 'group' }),
+                      chatShortcut?.({ kind: 'group', conversation }),
+                      code,
+                    );
                   }}
                 >
                   <ExternalLink size={14} />

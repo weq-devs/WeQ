@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 /**
  * ARK 卡片渲染器（QQ 结构化卡片）。
  *
@@ -98,7 +100,11 @@ function ArkShell({
   className?: string;
   children: ReactNode;
   footer?: ReactNode;
-  activation?: { label: string; open: () => void };
+  activation?: {
+    label: string;
+    open: () => void;
+    getChatShortcut?: () => (() => void) | undefined;
+  };
 }): ReactElement {
   const navigate = useContext(QzoneCardNavigationContext);
   const openGroupAlbum = useContext(GroupAlbumCardNavigationContext);
@@ -130,15 +136,19 @@ function ArkShell({
           : (activation?.label ?? (onOpen ? linkTitle : undefined))
       }
       onClick={(event) => {
-        if (activation) event.stopPropagation();
-        onOpen?.();
+        if (activation) {
+          event.stopPropagation();
+          activateProfile(event, activation.open, activation.getChatShortcut?.());
+        } else onOpen?.();
       }}
       tabIndex={onOpen ? 0 : undefined}
       onKeyDown={(event) => {
         if (onOpen && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault();
-          if (activation) event.stopPropagation();
-          onOpen();
+          if (activation) {
+            event.stopPropagation();
+            activateProfile(event, activation.open);
+          } else onOpen();
         }
       }}
     >
@@ -166,6 +176,7 @@ function ArkFooter({ source, icon }: { source?: string; icon?: string }): ReactE
 function ContactCard({ v, group }: { v: ArkValues; group?: GroupShareTarget }): ReactElement {
   const directory = useContext(ConversationDirectoryContext);
   const [open, setOpen] = useState(false);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const known = group
     ? directory?.real?.find((conv) => conv.type === 'group' && conv.id === group.code)
     : undefined;
@@ -175,7 +186,15 @@ function ContactCard({ v, group }: { v: ArkValues; group?: GroupShareTarget }): 
     <>
       <ArkShell
         jump={group ? undefined : v.jump}
-        activation={group ? { label: '查看群名片', open: () => setOpen(true) } : undefined}
+        activation={
+          conversation
+            ? {
+                label: '查看群名片',
+                open: () => setOpen(true),
+                getChatShortcut: () => chatShortcut?.({ kind: 'group', conversation }),
+              }
+            : undefined
+        }
         className={group ? 'weq-ark-contact weq-ark-group-share' : 'weq-ark-contact'}
         footer={<ArkFooter source={v.footerSource} icon={v.footerIcon} />}
       >

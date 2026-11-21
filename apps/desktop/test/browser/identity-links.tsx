@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { ProfileChatShortcutContext } from '../../src/renderer/src/lib/chatNavigation';
 import { TitleBar } from '../../src/renderer/src/im-template/template/TitleBar';
 import { MobileWebNavigation } from '../../src/renderer/src/components/MobileWebNavigation';
 import { QzonePersonIdentity } from '../../src/renderer/src/components/QzoneProfileAvatar';
@@ -29,9 +30,11 @@ const user = {
 };
 const noop = () => {};
 const open = (kind: string, uin: string) => {
-  document.documentElement.dataset.identityTarget = `${kind}:${uin}`;
+  const { dataset } = document.documentElement;
+  dataset.identityTarget = `${kind}:${uin}`;
+  dataset.identityActivations = `${dataset.identityActivations ?? ''}|${dataset.identityTarget}`;
 };
-createRoot(document.getElementById('root')!).render(
+const workspace = (
   <ProfileNavigationContext.Provider value={(user) => open('profile', user.identityValue)}>
     <QzoneProfileContext.Provider value={(uin) => open('profile', uin)}>
       <QzonePersonContext.Provider
@@ -96,5 +99,17 @@ createRoot(document.getElementById('root')!).render(
         </main>
       </QzonePersonContext.Provider>
     </QzoneProfileContext.Provider>
-  </ProfileNavigationContext.Provider>,
+  </ProfileNavigationContext.Provider>
+);
+createRoot(document.getElementById('root')!).render(
+  <ProfileChatShortcutContext.Provider
+    value={
+      params.has('shortcut')
+        ? (target) =>
+            target.kind === 'direct' ? () => open('chat', target.user.identityValue) : undefined
+        : null
+    }
+  >
+    {workspace}
+  </ProfileChatShortcutContext.Provider>,
 );

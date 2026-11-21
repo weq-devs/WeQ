@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 import { eventTimeFormatter } from '@weq/time';
 import { useContext, useState } from 'react';
 import { trpc } from '../../trpc/client';
@@ -25,6 +27,7 @@ export function SourceGroup({
   const session = useQQWriteSession(`friend-clue-group:${code}`, true);
   const directory = useContext(ConversationDirectoryContext);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const groupId = Number(code);
   const query = trpc.account.qqActions.groupJoinSettings.useQuery(
     { ...session.binding!, groupId },
@@ -66,7 +69,15 @@ export function SourceGroup({
           title="查看来源群名片"
           aria-label="查看来源群名片"
           data-privacy-sensitive
-          onClick={(event) => setAnchor(event.currentTarget)}
+          onClick={(event) => {
+            const anchor = event.currentTarget;
+            activateProfile(
+              event,
+              () => setAnchor(anchor),
+              chatShortcut?.({ kind: 'group', conversation }),
+              code,
+            );
+          }}
         >
           <GroupAvatar code={code} size={24} />
           <span title={label}>{label}</span>

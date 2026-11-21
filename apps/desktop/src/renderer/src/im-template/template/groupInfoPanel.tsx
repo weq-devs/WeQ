@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import {
@@ -15,6 +17,7 @@ import {
   SearchX,
 } from 'lucide-react';
 import {
+  useContext,
   memo,
   useCallback,
   useEffect,
@@ -52,6 +55,7 @@ export type GroupSidebarFeature = 'announcements' | 'todos' | 'sign' | 'essence'
 type GroupMember = GroupConversationView['members'][number];
 type GroupMemberEvents = {
   open?: (member: GroupMember, anchor: { x: number; y: number }) => void;
+  openChat?: (member: GroupMember) => (() => void) | undefined;
   menu?: (event: ReactMouseEvent, member: GroupMember) => void;
 };
 
@@ -62,6 +66,7 @@ const GroupMemberRow = memo(function GroupMemberRow({
   member: GroupMember;
   events: GroupMemberEvents;
 }) {
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   return (
     <div
       className={cn(
@@ -76,7 +81,17 @@ const GroupMemberRow = memo(function GroupMemberRow({
       onContextMenu={events.menu ? (event) => events.menu?.(event, member) : undefined}
       onClick={
         events.open
-          ? (event) => events.open?.(member, { x: event.clientX, y: event.clientY })
+          ? (event) => {
+              const anchor = { x: event.clientX, y: event.clientY };
+              activateProfile(
+                event,
+                () => events.open?.(member, anchor),
+                events.openChat
+                  ? events.openChat(member)
+                  : chatShortcut?.({ kind: 'direct', user: member }),
+                member.id,
+              );
+            }
           : undefined
       }
       onKeyDown={
@@ -85,7 +100,9 @@ const GroupMemberRow = memo(function GroupMemberRow({
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
                 const rect = event.currentTarget.getBoundingClientRect();
-                events.open?.(member, { x: rect.left + rect.width / 2, y: rect.bottom });
+                activateProfile(event, () =>
+                  events.open?.(member, { x: rect.left + rect.width / 2, y: rect.bottom }),
+                );
               }
             }
           : undefined
@@ -124,14 +141,17 @@ const GroupMemberRow = memo(function GroupMemberRow({
 function GroupMemberRows({
   members,
   onOpenMember,
+  getMemberChatShortcut,
   onMemberContextMenu,
 }: {
   members: GroupMember[];
   onOpenMember?: GroupMemberEvents['open'];
+  getMemberChatShortcut?: GroupMemberEvents['openChat'];
   onMemberContextMenu?: GroupMemberEvents['menu'];
 }) {
   const events = useEventContextValue<GroupMemberEvents>({
     open: onOpenMember,
+    openChat: getMemberChatShortcut,
     menu: onMemberContextMenu,
   });
   return members.map((member) => (
@@ -154,6 +174,7 @@ export function GroupInfoPanel({
   profileLoading,
   onOpenDetail,
   onOpenMember,
+  getMemberChatShortcut,
   onMemberContextMenu,
   onOpenLeftMembers,
   onAddMember,
@@ -196,6 +217,7 @@ export function GroupInfoPanel({
    */
   onOpenLeftMembers?: () => void;
   onAddMember?: () => void;
+  getMemberChatShortcut?: GroupMemberEvents['openChat'];
   onMemberContextMenu?: (
     event: ReactMouseEvent,
     member: GroupConversationView['members'][number],
@@ -552,6 +574,7 @@ export function GroupInfoPanel({
         <GroupMemberRows
           members={rows}
           onOpenMember={onOpenMember}
+          getMemberChatShortcut={getMemberChatShortcut}
           onMemberContextMenu={onMemberContextMenu}
         />
         {searching && rows.length > 0 && memberSearch?.hasMore ? (

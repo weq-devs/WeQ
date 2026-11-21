@@ -5,9 +5,12 @@
  * 共同成员。点成员交给应用层打开标准资料卡（`MemberProfileCard`），这里不自己造一套
  * 用户卡片 —— 头像、资料字段、私聊入口都与聊天里点成员完全一致。
  */
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 
 import { NumericText } from '../NumericText';
-import { useMemo } from 'react';
+import { useContext, useMemo } from 'react';
+import { profileTargetUser } from '../../lib/profileNavigation';
 import { ArrowLeftRight, X } from 'lucide-react';
 import type { RawNode, RelationGraphData } from './types';
 import { groupAvatar, personAvatar } from './graphModel';
@@ -51,6 +54,7 @@ export function OverlapPairCard({
     });
   }, [data, selection.a, selection.b]);
 
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const nameA = groupA?.name || selection.a;
   const nameB = groupB?.name || selection.b;
   const smaller = Math.min(
@@ -122,10 +126,27 @@ export function OverlapPairCard({
               className="weq-ov-paircard-row"
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
-                onOpenMember(
-                  node,
-                  { x: rect.left + rect.width / 2, y: rect.bottom },
-                  { code: selection.a, name: nameA },
+                const user = profileTargetUser({
+                  identity: node.uid,
+                  uin: node.uin,
+                  name: displayName(node),
+                });
+                const openChat = user && chatShortcut?.({ kind: 'direct', user });
+                activateProfile(
+                  event,
+                  () =>
+                    onOpenMember(
+                      node,
+                      { x: rect.left + rect.width / 2, y: rect.bottom },
+                      { code: selection.a, name: nameA },
+                    ),
+                  openChat
+                    ? () => {
+                        onClose();
+                        openChat();
+                      }
+                    : undefined,
+                  node.uid,
                 );
               }}
             >

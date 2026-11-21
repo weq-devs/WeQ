@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../lib/chatNavigation';
+import { activateProfile } from '../lib/profileClick';
 /**
  * 联系人页右侧的好友通知 / 群通知面板，不注册全窗口详情页。
  *
@@ -5,7 +7,8 @@
  * `requests` 是已经取好的申请列表。
  */
 import { ArrowLeft } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useContext, useEffect, useRef } from 'react';
+import { sharedGroupConversation } from './ark/groupShareCard';
 import { cn } from '../im-template/template/classNames';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
@@ -423,6 +426,7 @@ function NoticeGroupName({
   name: string;
   onOpenGroupProfile?: NoticeGroupProfileHandler;
 }) {
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   if (!code || !onOpenGroupProfile)
     return (
       <span className="notice-group-name" title={name}>
@@ -437,7 +441,16 @@ function NoticeGroupName({
       aria-label={`查看 ${name} 的群名片`}
       onClick={(event) => {
         event.stopPropagation();
-        onOpenGroupProfile({ code, name }, event.currentTarget);
+        const anchor = event.currentTarget;
+        activateProfile(
+          event,
+          () => onOpenGroupProfile({ code, name }, anchor),
+          chatShortcut?.({
+            kind: 'group',
+            conversation: sharedGroupConversation({ code, name, avatar: '' }),
+          }),
+          code,
+        );
       }}
     >
       {name}
@@ -454,6 +467,7 @@ function NoticeAvatar({
   group?: { code: string; name: string };
   onOpenProfile?: NoticeProfileHandler;
 }) {
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const name = displayUserName(user);
   const avatar = <Avatar name={name} avatarUrl={user.avatarUrl} seed={user.identityValue} />;
   const identity = (
@@ -479,7 +493,12 @@ function NoticeAvatar({
           event.detail === 0
             ? { x: rect.right, y: rect.bottom }
             : { x: event.clientX, y: event.clientY };
-        onOpenProfile(user, anchor, group);
+        activateProfile(
+          event,
+          () => onOpenProfile(user, anchor, group),
+          chatShortcut?.({ kind: 'direct', user }),
+          user.identityValue,
+        );
       }}
     >
       {identity}

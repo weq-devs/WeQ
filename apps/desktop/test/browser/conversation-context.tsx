@@ -21,6 +21,7 @@ const row = (id: string, day: number): Conversation => ({
     id,
     name: id === '10001' ? '产品讨论组' : '一段用于验证两行排版的很长很长的同名群聊标题',
     remark: '',
+    avatarUrl: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg"/%3E',
   },
   updatedAt: `2030-01-${String(day).padStart(2, '0')}T00:00:00Z`,
   lastMessage: null,
@@ -48,6 +49,7 @@ function Fixture() {
   const [assistant, setAssistant] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [selected, setSelected] = useState('');
+  const [profile, setProfile] = useState('');
   const [marked, setMarked] = useState<string[]>([]);
   Object.assign(window, {
     conversationContextQa: {
@@ -75,6 +77,7 @@ function Fixture() {
           groupAssistantIds: assistant ? new Set(rows.map((row) => row.id)) : undefined,
           onVirtual: () => {},
           onCreate: () => {},
+          onOpenProfile: (target) => setProfile(target.id),
           onPin: (_, value) => setPinned(value),
           onRoaming: () => {},
           onReadState: (targets) => setMarked(targets.map((target) => target.id)),
@@ -95,7 +98,12 @@ function Fixture() {
               </div>
             </aside>
           </div>
-          <output className="qa-output" data-selected={selected} data-marked={marked.join(',')} />
+          <output
+            className="qa-output"
+            data-selected={selected}
+            data-profile={profile}
+            data-marked={marked.join(',')}
+          />
         </div>
       </ConversationDirectoryContext.Provider>
     </ContentSelectionProvider>

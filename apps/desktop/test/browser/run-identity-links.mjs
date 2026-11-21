@@ -11,6 +11,7 @@ const browsers = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright')
 const browserType = browsers[process.env.WEQ_IDENTITY_BROWSER ?? 'chromium'];
 const server = await createServer({
   configFile: false,
+  optimizeDeps: { entries: ['test/browser/identity-links.html'] },
   root,
   cacheDir: resolve(root, 'node_modules/.vite-identity-links'),
   plugins: [react(), tailwind()],
@@ -155,6 +156,41 @@ try {
       }
     }
   }
+  const shortcutUrl = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/identity-links.html?action=profile&shortcut`;
+  await page.goto(shortcutUrl);
+  const author = page.getByRole('button', { name: '查看 合成作者 的资料' });
+  await author.dblclick();
+  await page.waitForTimeout(350);
+  assert.equal(await page.locator('html').getAttribute('data-identity-activations'), '|chat:10002');
+  await author.click();
+  await page.waitForFunction(
+    () => document.documentElement.dataset.identityTarget === 'profile:10002',
+  );
+  await author.click();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(350);
+  assert.equal(
+    await page.locator('html').getAttribute('data-identity-activations'),
+    '|chat:10002|profile:10002',
+  );
+  await author.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(
+    await page.locator('html').getAttribute('data-identity-activations'),
+    '|chat:10002|profile:10002|profile:10002',
+  );
+  const touch = await browser.newPage({ hasTouch: true, isMobile: true });
+  await touch.route('**/*', (route) =>
+    new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+  );
+  await touch.goto(`${shortcutUrl}&mobile`);
+  await touch.getByRole('button', { name: '查看 合成作者 的资料' }).tap();
+  assert.equal(
+    await touch.locator('html').getAttribute('data-identity-activations'),
+    '|profile:10002',
+  );
+  await touch.close();
+  cases += 5;
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, errors }));
 } finally {

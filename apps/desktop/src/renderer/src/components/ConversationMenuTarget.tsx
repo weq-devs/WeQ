@@ -1,4 +1,5 @@
-import { useId } from 'react';
+import type { MouseEvent } from 'react';
+import { activateProfile } from '../lib/profileClick';
 import { NumericText } from './NumericText';
 import { Avatar } from '../im-template/template/primitives';
 import { CopyButton } from './CopyButton';
@@ -14,6 +15,7 @@ export function ConversationMenuTarget({
   count,
   containedCount,
   onOpenProfile,
+  onOpenChat,
 }: {
   name: string;
   avatarUrl?: string | null;
@@ -23,8 +25,17 @@ export function ConversationMenuTarget({
   count: number;
   containedCount?: number;
   onOpenProfile?: (anchor: HTMLElement) => void;
+  onOpenChat?: (event: MouseEvent) => void;
 }) {
-  const profileId = useId();
+  function activate(event: MouseEvent<HTMLButtonElement>) {
+    const anchor = event.currentTarget;
+    activateProfile(
+      event,
+      () => onOpenProfile?.(anchor),
+      onOpenChat ? () => onOpenChat(event) : undefined,
+      identity,
+    );
+  }
   const numberLabel = kind === 'group' ? '群号' : /^\d+$/.test(identity) ? 'QQ 号' : 'ID';
   const avatar = avatarUrl ? (
     <Avatar resolution="small" name={name} avatarUrl={avatarUrl} seed={identity} />
@@ -37,22 +48,28 @@ export function ConversationMenuTarget({
   return (
     <>
       {avatar && onOpenProfile ? (
-        <label htmlFor={profileId} className="weq-conversation-menu-avatar" title="查看名片">
+        <button
+          type="button"
+          className="weq-conversation-menu-avatar"
+          title="查看名片"
+          aria-label={`查看${name}的名片`}
+          tabIndex={-1}
+          onClick={activate}
+        >
           {avatar}
-        </label>
+        </button>
       ) : (
         avatar
       )}
       <span>
         {onOpenProfile ? (
           <button
-            id={profileId}
             type="button"
             role="menuitem"
             aria-haspopup="dialog"
             aria-label={`查看${name}的名片`}
             className="weq-conversation-menu-profile"
-            onClick={(event) => onOpenProfile(event.currentTarget)}
+            onClick={activate}
           >
             {heading}
           </button>

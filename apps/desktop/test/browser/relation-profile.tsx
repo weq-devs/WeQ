@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { ProfileChatShortcutContext } from '../../src/renderer/src/lib/chatNavigation';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RelationGraphView } from '../../src/renderer/src/components/relationGraph/RelationGraphView';
 import { MemberProfileCard } from '../../src/renderer/src/components/MemberProfileCard';
@@ -34,6 +35,13 @@ function Fixture() {
 }
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={new QueryClient()}>
-    <Fixture />
+    <ProfileChatShortcutContext.Provider
+      value={(target) => () => {
+        document.documentElement.dataset.openedProfileChat =
+          target.kind === 'direct' ? target.user.id : target.conversation.id;
+      }}
+    >
+      <Fixture />
+    </ProfileChatShortcutContext.Provider>
   </QueryClientProvider>,
 );

@@ -372,7 +372,7 @@ import {
   type ConversationSettingsSection,
 } from '../lib/conversationSettingsNavigation';
 import { FriendDirectoryControls } from '../components/FriendDirectoryControls';
-import { RelationshipDirectoryContext } from '../lib/contactRelationship';
+import { groupRelationship, RelationshipDirectoryContext } from '../lib/contactRelationship';
 import {
   projectGroupEssence,
   hasCompleteEssenceSnapshot,
@@ -485,6 +485,7 @@ import {
   ChatNavigationContext,
   GroupMessagePreviewContext,
   GroupSpeechPreviewContext,
+  ProfileChatShortcutContext,
   type ProfileChatTarget,
 } from '../lib/chatNavigation';
 import { readProfilePreviewPage, type ProfilePreviewCursor } from '../lib/profileMessagePreview';
@@ -8878,6 +8879,8 @@ function MainWorkspace(): ReactElement {
               [id]: { conversation: known, appearedAt: Date.now() },
             },
       );
+    setSpecialChat(null);
+    setMobileConversationList(false);
     setArkFeedState(null);
     shell.openConversation(id);
     setConversationLocate({ id, revision: Date.now() });
@@ -11237,7 +11240,56 @@ function MainWorkspace(): ReactElement {
     notificationConversationId,
     notificationConversationKind,
   ]);
-  return notificationContent(
+  const navigateProfileChat = useStableCallback((target: ProfileChatTarget) => {
+    void openProfileChat(target).catch(() =>
+      pushToast({
+        tone: 'info',
+        durationKind: 'failure',
+        title: '暂时无法打开会话，请稍后重试',
+        source: notificationOrigin,
+      }),
+    );
+  });
+  const profileChatShortcut = useStableCallback((target: ProfileChatTarget) => {
+    if (target.kind === 'direct') {
+      const peer = target.user;
+      if (
+        peer.clone ||
+        (user.uid && (peer.id === user.uid || peer.uid === user.uid)) ||
+        peer.identityValue === user.identityValue ||
+        (!/^u_[A-Za-z0-9_-]+$/.test(peer.id) &&
+          (peer.identityLabel !== 'QQ' || !/^[1-9]\d{4,19}$/.test(peer.identityValue)))
+      )
+        return;
+    } else {
+      const { id, group, generated, lastMessage } = target.conversation;
+      if (
+        generated ||
+        !(
+          lastMessage ||
+          recentContactsData.some((contact) => contact.targetUid === id) ||
+          hiddenConversationsById.has(id) ||
+          deletedConversationsById.has(id) ||
+          groupRelationship(group, relationshipDirectory) === 'member'
+        )
+      )
+        return;
+    }
+    return () =>
+      settingsNavigation.navigate(() => {
+        if (useViewState.getState().openedUin !== openedUin) return;
+        if (searchPanelOpen) {
+          returnFromSearchTarget.current = true;
+          setSearchDismissed(true);
+          setSearchFocused(false);
+        }
+        if (privatePreview) closePrivatePreview();
+        setMemberCard(null);
+        setNumberGroupCard(null);
+        navigateProfileChat(target);
+      });
+  });
+  const workspace = notificationContent(
     notificationOrigin,
     <ConversationSettingsNavigationContext.Provider value={openProfileConversationSettings}>
       <GroupResourceNavigationContext.Provider value={openGroupResourceWindow}>
@@ -11331,18 +11383,7 @@ function MainWorkspace(): ReactElement {
                       });
                     }}
                   >
-                    <ChatNavigationContext.Provider
-                      value={(target) => {
-                        void openProfileChat(target).catch(() =>
-                          pushToast({
-                            tone: 'info',
-                            durationKind: 'failure',
-                            title: '暂时无法打开会话，请稍后重试',
-                            source: notificationOrigin,
-                          }),
-                        );
-                      }}
-                    >
+                    <ChatNavigationContext.Provider value={navigateProfileChat}>
                       <QzoneCardNavigationContext.Provider
                         value={(target) => {
                           flushAllDirtyDrafts();
@@ -11670,5 +11711,10 @@ function MainWorkspace(): ReactElement {
         </CalendarNavigationContext.Provider>
       </GroupResourceNavigationContext.Provider>
     </ConversationSettingsNavigationContext.Provider>,
+  );
+  return (
+    <ProfileChatShortcutContext.Provider value={profileChatShortcut}>
+      {workspace}
+    </ProfileChatShortcutContext.Provider>
   );
 }

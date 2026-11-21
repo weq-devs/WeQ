@@ -10,6 +10,9 @@
  *
  * 下方控制条按「力图 / 重合图」两套设置切换。
  */
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
+import { profileTargetUser } from '../../lib/profileNavigation';
 import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 import { createPortal } from 'react-dom';
@@ -164,6 +167,7 @@ export function RelationGraphView({
   const [groupCardId, setGroupCardId] = useState<string | null>(null);
   const groupAnchorRef = useRef<HTMLSpanElement | null>(null);
   const directory = useContext(ConversationDirectoryContext);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const document = useRenderDocument();
   const memberRefresh = useGroupMemberRefresh();
   const { refresh, refreshing, ready } = memberRefresh;
@@ -328,28 +332,48 @@ export function RelationGraphView({
             graph={graph}
             showRemarks={showRemarks}
             selectedId={selectedId}
-            onSelect={(node, anchor) => {
-              setSelectedId(node && node.kind !== 'self' ? node.id : null);
-              setGroupCardId(null);
-              if (node?.kind === 'person') {
-                onOpenMember?.(
-                  data.nodes.find((person) => person.uid === node.id) ?? {
-                    uid: node.id,
-                    uin: node.uin ?? '',
-                    nick: node.label,
-                    card: '',
-                    groupCount: node.groupCount ?? 0,
-                    groupCodes: [],
-                    intimacy: node.intimacy ?? 0,
-                    isFriend: Boolean(node.isFriend),
-                  },
-                  anchor,
-                );
-              } else if (node?.kind === 'group' && groupAnchorRef.current) {
-                groupAnchorRef.current.style.left = `${anchor.x}px`;
-                groupAnchorRef.current.style.top = `${anchor.y}px`;
-                setGroupCardId(node.code);
-              }
+            onSelect={(node, anchor, event) => {
+              const show = () => {
+                setSelectedId(node && node.kind !== 'self' ? node.id : null);
+                setGroupCardId(null);
+                if (node?.kind === 'person') {
+                  onOpenMember?.(
+                    data.nodes.find((person) => person.uid === node.id) ?? {
+                      uid: node.id,
+                      uin: node.uin ?? '',
+                      nick: node.label,
+                      card: '',
+                      groupCount: node.groupCount ?? 0,
+                      groupCodes: [],
+                      intimacy: node.intimacy ?? 0,
+                      isFriend: Boolean(node.isFriend),
+                    },
+                    anchor,
+                  );
+                } else if (node?.kind === 'group' && groupAnchorRef.current) {
+                  groupAnchorRef.current.style.left = `${anchor.x}px`;
+                  groupAnchorRef.current.style.top = `${anchor.y}px`;
+                  setGroupCardId(node.code);
+                }
+              };
+              const user =
+                node?.kind === 'person'
+                  ? profileTargetUser({ identity: node.id, uin: node.uin, name: node.label })
+                  : null;
+              const openChat =
+                user && onOpenMember
+                  ? chatShortcut?.({ kind: 'direct', user })
+                  : node?.kind === 'group'
+                    ? chatShortcut?.({
+                        kind: 'group',
+                        conversation: sharedGroupConversation({
+                          code: node.code,
+                          name: node.label,
+                          avatar: groupAvatar(node.code),
+                        }),
+                      })
+                    : undefined;
+              activateProfile(event, show, openChat, node?.id);
             }}
           />
         ) : null}

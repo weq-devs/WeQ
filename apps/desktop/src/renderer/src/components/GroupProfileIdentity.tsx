@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../lib/chatNavigation';
+import { activateProfile } from '../lib/profileClick';
 import { useContext, useState, type ReactNode } from 'react';
 import { GroupProfileDialog } from '../im-template/template/profilePanes';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
@@ -20,6 +22,7 @@ export function GroupProfileIdentity({
 }) {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const directory = useContext(ConversationDirectoryContext);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const known = directory?.real?.find((row) => row.type === 'group' && row.id === code);
   const conversation =
     known?.type === 'group'
@@ -36,7 +39,13 @@ export function GroupProfileIdentity({
         title={`查看 ${name || code} 的群名片`}
         onClick={(event) => {
           event.stopPropagation();
-          setAnchor(event.currentTarget);
+          const anchor = event.currentTarget;
+          activateProfile(
+            event,
+            () => setAnchor(anchor),
+            chatShortcut?.({ kind: 'group', conversation }),
+            code,
+          );
         }}
       >
         {children}

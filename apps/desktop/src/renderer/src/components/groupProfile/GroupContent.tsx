@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 import { NumericText } from '../NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useContext, useState } from 'react';
@@ -230,6 +232,7 @@ export function GroupMemberPreview({
   onOpen: (member: GroupMember, anchor: { x: number; y: number }) => void;
 }) {
   const directory = useContext(RelationshipDirectoryContext);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const unique = mergeGroupPreviewMembers(
     members.filter(
       (member) => member.memberFlag !== 1 && member.id && member.identityValue !== '0',
@@ -250,7 +253,12 @@ export function GroupMemberPreview({
             aria-label={`查看 ${displayUserName(member)} 的资料`}
             onClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
-              onOpen(member, { x: rect.right, y: rect.bottom });
+              activateProfile(
+                event,
+                () => onOpen(member, { x: rect.right, y: rect.bottom }),
+                chatShortcut?.({ kind: 'direct', user: member }),
+                member.id,
+              );
             }}
           >
             <Avatar

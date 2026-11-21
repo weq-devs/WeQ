@@ -18,7 +18,11 @@ export function GraphCanvas({
 }: {
   graph: BuiltGraph;
   selectedId: string | null;
-  onSelect: (node: GNode | null, anchor: { x: number; y: number }) => void;
+  onSelect: (
+    node: GNode | null,
+    anchor: { x: number; y: number },
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => void;
   showRemarks?: boolean;
 }) {
   const privacy = usePrivacyStore((state) => state.effective);
@@ -39,6 +43,7 @@ export function GraphCanvas({
   const edgeGpuRef = useRef<ReturnType<typeof createGraphEdgeGpu>>(null);
 
   const hoverRef = useRef<GNode | null>(null);
+  const clickedNode = useRef<GNode | null | undefined>(undefined);
   const selectedRef = useRef<string | null>(selectedId);
   selectedRef.current = selectedId;
 
@@ -360,6 +365,7 @@ export function GraphCanvas({
   }
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    clickedNode.current = undefined;
     if (e.button !== 0) return;
     const rect = wrapRef.current!.getBoundingClientRect();
     const sx = e.clientX - rect.left;
@@ -479,7 +485,7 @@ export function GraphCanvas({
     if (clicked) {
       hoverRef.current = null;
       setHoverNode(null);
-      onSelect(node, { x: e.clientX, y: e.clientY });
+      clickedNode.current = node;
       scheduleDraw();
     }
   }
@@ -506,6 +512,11 @@ export function GraphCanvas({
       className="weq-graph-canvas-wrap"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
+      onClick={(event) => {
+        const node = clickedNode.current;
+        clickedNode.current = undefined;
+        if (node !== undefined) onSelect(node, { x: event.clientX, y: event.clientY }, event);
+      }}
       onPointerUp={(e) => endPointer(e)}
       onPointerCancel={(e) => endPointer(e, true)}
       onLostPointerCapture={(e) => endPointer(e, true)}

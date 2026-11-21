@@ -1,3 +1,4 @@
+import { activateProfile } from '../../lib/profileClick';
 import { EmptyState } from '../EmptyState';
 import { useContext, useId, useRef, useState } from 'react';
 import { X, RefreshCw, UsersRound } from 'lucide-react';
@@ -12,13 +13,14 @@ import { NumericText } from '../NumericText';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
 import { sharedGroupConversation } from '../ark/groupShareCard';
-import { ChatNavigationContext } from '../../lib/chatNavigation';
+import { ChatNavigationContext, ProfileChatShortcutContext } from '../../lib/chatNavigation';
 import '../../styles/common-relationships.css';
 
 function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?: () => void }) {
   const session = useQQWriteSession(`common-relationships:${uin}`, true);
   const directory = useContext(ConversationDirectoryContext);
   const openChat = useContext(ChatNavigationContext);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const titleId = useId();
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -139,7 +141,28 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
                   className="weq-common-group-avatar weq-common-group-target"
                   title={`查看 ${group.name || group.groupCode} 的群名片`}
                   aria-label={`查看 ${group.name || group.groupCode} 的群名片`}
-                  onClick={() => setSelectedCode(group.groupCode)}
+                  onClick={(event) => {
+                    const code = group.groupCode;
+                    const open = chatShortcut?.({
+                      kind: 'group',
+                      conversation: sharedGroupConversation({
+                        code,
+                        name: group.name || code,
+                        avatar: avatarFromGroupCode(code) ?? '',
+                      }),
+                    });
+                    activateProfile(
+                      event,
+                      () => setSelectedCode(code),
+                      open &&
+                        (() => {
+                          setOpen(false);
+                          onNavigate?.();
+                          open();
+                        }),
+                      code,
+                    );
+                  }}
                 >
                   <GroupAvatar code={group.groupCode} size={40} />
                   <span className="weq-common-group-info">

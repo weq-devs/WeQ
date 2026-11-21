@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../lib/chatNavigation';
+import { activateProfile } from '../lib/profileClick';
 /**
  * Renders a QQ message's elements as React nodes, upgrading `face` elements to
  * <FaceEmoji>. Plugs into the im-template via a MessageRenderer.
@@ -337,6 +339,7 @@ function trimBoundaryNewline(element: RenderElement, side: 'start' | 'end'): Ren
 
 function MentionNode({ data = {} }: { data?: Record<string, unknown> }) {
   const open = useContext(ProfileNavigationContext);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const conv = useContext(ConvContext);
   const kind = useContext(ForwardKindContext);
   const text = String(data.textContent ?? '');
@@ -355,13 +358,17 @@ function MentionNode({ data = {} }: { data?: Record<string, unknown> }) {
     if (!open || !user) return;
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
-    open(
-      user,
+    const anchor =
       'key' in event || event.detail === 0
         ? { x: rect.right, y: rect.bottom }
-        : { x: event.clientX, y: event.clientY },
-      kind === 'group' && /^[1-9]\d*$/.test(conv) ? { code: conv, name: '' } : undefined,
-    );
+        : { x: event.clientX, y: event.clientY };
+    const show = () =>
+      open(
+        user,
+        anchor,
+        kind === 'group' && /^[1-9]\d*$/.test(conv) ? { code: conv, name: '' } : undefined,
+      );
+    activateProfile(event, show, chatShortcut?.({ kind: 'direct', user }), user.identityValue);
   }
 
   return (

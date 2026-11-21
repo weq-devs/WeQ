@@ -140,6 +140,7 @@ export const MessageRow = memo(function MessageRow({
   onDismissUnsent,
   onStartOutgoing,
   onAvatarClick,
+  getAvatarChatShortcut,
   onAvatarContextMenu,
   selectionMode = false,
   selected = false,
@@ -182,6 +183,7 @@ export const MessageRow = memo(function MessageRow({
   onDismissUnsent?: (message: Message) => void;
   onStartOutgoing?: (message: Message) => void;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
+  getAvatarChatShortcut?: (sender: User) => (() => void) | undefined;
   onAvatarContextMenu?: (event: ReactMouseEvent, sender: User) => void;
   selectionMode?: boolean;
   selected?: boolean;
@@ -289,6 +291,7 @@ export const MessageRow = memo(function MessageRow({
       onDismissUnsent={onDismissUnsent}
       onStartOutgoing={onStartOutgoing}
       onAvatarClick={onAvatarClick}
+      getAvatarChatShortcut={getAvatarChatShortcut}
       onAvatarContextMenu={onAvatarContextMenu}
       selectionMode={selectionMode}
       selected={selected}

@@ -12,8 +12,12 @@
  * 视觉沿用黑白名单选择器（{@link GroupPickerModal}）：scrim + Esc 关闭 +
  * 可搜索列表，#0099ff 主题、细描边、小圆角。
  */
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { profileTargetUser } from '../../lib/profileNavigation';
+import type { MouseEvent } from 'react';
 import { Activity, Award, ChevronLeft, Heart, Search, Users2, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
@@ -510,18 +514,28 @@ function memberOpener(
   group?: { code: string; name: string },
 ) {
   if (!onOpenMember || !source?.uid) return undefined;
-  return (element: HTMLElement) => {
-    const rect = element.getBoundingClientRect();
-    onOpenMember(
-      {
-        uid: source.uid,
-        uin: source.uin,
-        nick: source.nick,
-        card: source.card,
-        groupCode: group?.code,
-        groupName: group?.name,
-      },
-      { x: rect.right - 24, y: rect.bottom },
+  return (
+    event: MouseEvent<HTMLButtonElement>,
+    chatShortcut: React.ContextType<typeof ProfileChatShortcutContext>,
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const user = profileTargetUser({ identity: source.uid, uin: source.uin, name: source.nick });
+    activateProfile(
+      event,
+      () =>
+        onOpenMember(
+          {
+            uid: source.uid,
+            uin: source.uin,
+            nick: source.nick,
+            card: source.card,
+            groupCode: group?.code,
+            groupName: group?.name,
+          },
+          { x: rect.right - 24, y: rect.bottom },
+        ),
+      user ? chatShortcut?.({ kind: 'direct', user }) : undefined,
+      source.uid,
     );
   };
 }
@@ -540,8 +554,9 @@ function RankRow({
   subtitle?: string | null;
   value: string;
   /** 传了就整行可点（打开资料卡）。 */
-  onOpen?: (element: HTMLElement) => void;
+  onOpen?: ReturnType<typeof memberOpener>;
 }) {
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const top = rank <= 3 ? ` is-top is-top${rank}` : '';
   const body = (
     <>
@@ -567,7 +582,7 @@ function RankRow({
       type="button"
       className="weq-rank-row is-clickable"
       title="查看资料卡"
-      onClick={(event) => onOpen(event.currentTarget)}
+      onClick={(event) => onOpen(event, chatShortcut)}
     >
       {body}
     </button>

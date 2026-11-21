@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { IS_WEB } from '../../lib/target.shared';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
@@ -221,6 +223,7 @@ function MessageBubbleBody({
   onDismissUnsent,
   onStartOutgoing,
   onAvatarClick,
+  getAvatarChatShortcut,
   onAvatarContextMenu,
   selected,
   selectionMode,
@@ -286,6 +289,7 @@ function MessageBubbleBody({
   onDismissUnsent?: (message: Message) => void;
   onStartOutgoing?: (message: Message) => void;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
+  getAvatarChatShortcut?: (sender: User) => (() => void) | undefined;
   /** 右键头像：弹出「@他 / 戳一戳」轻互动菜单。 */
   onAvatarContextMenu?: (event: ReactMouseEvent, sender: User) => void;
   /** 多选：这一行被选中（整行高亮 + 勾选标）。 */
@@ -633,13 +637,23 @@ function MessageBubbleBody({
     }
   }
 
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   function handleAvatarClick(event: ReactMouseEvent<HTMLButtonElement>) {
-    if (event.detail) {
-      onAvatarClick?.(sender, { x: event.clientX, y: event.clientY });
-      return;
-    }
     const rect = event.currentTarget.getBoundingClientRect();
-    onAvatarClick?.(sender, { x: rect.left, y: rect.bottom });
+    const anchor =
+      event.detail === 0
+        ? { x: rect.left, y: rect.bottom }
+        : { x: event.clientX, y: event.clientY };
+    activateProfile(
+      event,
+      () => onAvatarClick?.(sender, anchor),
+      getAvatarChatShortcut
+        ? getAvatarChatShortcut(sender)
+        : !mine && !conversation.generated
+          ? chatShortcut?.({ kind: 'direct', user: sender })
+          : undefined,
+      sender.id || sender.identityValue,
+    );
   }
 
   const AvatarContainer = onAvatarClick ? 'button' : 'span';
@@ -771,13 +785,7 @@ function MessageBubbleBody({
                     aria-label={`查看 ${senderName} 的名片`}
                     onClick={(event) => {
                       event.stopPropagation();
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      onAvatarClick(
-                        sender,
-                        event.detail === 0
-                          ? { x: rect.right, y: rect.bottom }
-                          : { x: event.clientX, y: event.clientY },
-                      );
+                      handleAvatarClick(event);
                     }}
                   >
                     <span data-privacy-sensitive>{senderName}</span>

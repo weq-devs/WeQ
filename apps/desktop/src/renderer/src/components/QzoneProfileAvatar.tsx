@@ -1,5 +1,8 @@
+import { ProfileChatShortcutContext } from '../lib/chatNavigation';
+import { activateProfile } from '../lib/profileClick';
 import { useContext, type ReactNode, type CSSProperties } from 'react';
 import { QzoneProfileContext, QzonePersonContext } from '../lib/qzoneNavigation';
+import { profileTargetUser } from '../lib/profileNavigation';
 import { QqAvatar } from './QqAvatar';
 import '../styles/identity-links.css';
 
@@ -20,6 +23,7 @@ export function QzonePersonButton({
   style?: CSSProperties;
 }) {
   const openProfile = useContext(QzoneProfileContext);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const context = useContext(QzonePersonContext);
   const showProfile = context.spaceUin === uin || context.action === 'profile';
   const openSpace = onSpace ?? context.onSpace;
@@ -35,12 +39,16 @@ export function QzonePersonButton({
         event.stopPropagation();
         if (showProfile) {
           const rect = event.currentTarget.getBoundingClientRect();
-          openProfile?.(
-            uin,
-            nickname || uin,
+          const anchor =
             event.detail === 0
               ? { x: rect.right, y: rect.bottom }
-              : { x: event.clientX, y: event.clientY },
+              : { x: event.clientX, y: event.clientY };
+          const user = profileTargetUser({ identity: uin, name: nickname || uin });
+          activateProfile(
+            event,
+            () => openProfile?.(uin, nickname || uin, anchor),
+            user && chatShortcut ? chatShortcut({ kind: 'direct', user }) : undefined,
+            uin,
           );
         } else openSpace?.(uin, nickname);
       }}

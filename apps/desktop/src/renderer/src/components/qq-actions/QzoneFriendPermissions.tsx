@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 import { EmptyState } from '../EmptyState';
 import { useContext, useState } from 'react';
 import { trpc } from '../../trpc/client';
@@ -16,6 +18,7 @@ import '../../styles/qzone-permissions.css';
 function PermissionProfile({ uin, name }: { uin: string; name: string }) {
   const active = useTabActive();
   const navigate = useContext(ProfileNavigationContext);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const providedName = name.trim() !== uin ? name.trim() : '';
   const profile = trpc.account.getProfileByUin.useQuery(
     { uin },
@@ -35,7 +38,14 @@ function PermissionProfile({ uin, name }: { uin: string; name: string }) {
       disabled={!navigate}
       onClick={(event) => {
         const user = profileTargetUser({ identity: profile.data?.uid || uin, uin, name: nickname });
-        if (user) navigate?.(user, { x: event.clientX, y: event.clientY });
+        if (!user || !navigate) return;
+        const anchor = { x: event.clientX, y: event.clientY };
+        activateProfile(
+          event,
+          () => navigate(user, anchor),
+          chatShortcut?.({ kind: 'direct', user }),
+          uin,
+        );
       }}
     >
       <QqAvatar uin={uin} size={24} />

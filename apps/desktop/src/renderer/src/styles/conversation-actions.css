@@ -63,7 +63,9 @@
   width: 32px;
   height: 32px;
 }
-.weq-conversation-menu-avatar {
+.weq-conversation-actions-target .weq-conversation-menu-avatar {
+  min-height: 0;
+  padding: 0;
   cursor: pointer;
 }
 .weq-conversation-actions-target > span,

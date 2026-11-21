@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 import { EmptyState } from '../EmptyState';
 import { useContext, useEffect, useId, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
@@ -32,6 +34,7 @@ export function GroupCardMemberList({
   onOpenMember?: (member: GroupMember, anchor: { x: number; y: number }) => void;
 }) {
   const titleId = useId();
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const title =
     kind === 'addedFriends' ? '在本群添加的好友' : kind === 'friends' ? '群内好友' : '群成员';
   const { active, binding, key } = useGroupReadScope();
@@ -211,7 +214,19 @@ export function GroupCardMemberList({
               disabled={!onOpenMember}
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
-                onOpenMember?.(member, { x: rect.right, y: rect.bottom });
+                const openChat = !generated
+                  ? chatShortcut?.({ kind: 'direct', user: member })
+                  : undefined;
+                activateProfile(
+                  event,
+                  () => onOpenMember?.(member, { x: rect.right, y: rect.bottom }),
+                  openChat &&
+                    (() => {
+                      onClose();
+                      openChat();
+                    }),
+                  member.id,
+                );
               }}
             >
               <Avatar

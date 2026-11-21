@@ -9,6 +9,10 @@ export const ChatNavigationContext = createContext<((target: ProfileChatTarget) 
   null,
 );
 
+export const ProfileChatShortcutContext = createContext<
+  ((target: ProfileChatTarget) => (() => void) | undefined) | null
+>(null);
+
 export const ProfilePreviewSourceContext = createContext<'member' | 'contact'>('member');
 export const GroupSpeechPreviewContext = createContext<{
   open: (person: ProfilePerson, source: 'member' | 'contact') => void;

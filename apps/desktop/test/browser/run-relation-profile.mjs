@@ -10,6 +10,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const server = await createServer({
   configFile: false,
+  optimizeDeps: { entries: ['test/browser/relation-profile.html'] },
   root,
   cacheDir: resolve(root, 'node_modules/.vite-relation-profile'),
   plugins: [react(), tailwind()],
@@ -37,6 +38,7 @@ try {
       : {}),
   });
   const page = await browser.newPage();
+  page.setDefaultNavigationTimeout(60_000);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/*', (route) =>
@@ -212,6 +214,17 @@ try {
         assert.equal(await page.locator('.weq-graph-detail').count(), 0);
         await page.keyboard.press('Escape');
         await card.waitFor({ state: 'detached' });
+        if (width === 1180 && theme === 'light') {
+          target = await findTarget();
+          await page.mouse.dblclick(target.x, target.y);
+          assert.equal(
+            await page.locator('html').getAttribute('data-opened-profile-chat'),
+            mode === 'people' ? 'u_fixture' : '20001',
+          );
+          await page.waitForTimeout(350);
+          assert.equal(await card.count(), 0, '双击只打开会话');
+          cases++;
+        }
         cases++;
       }
     }

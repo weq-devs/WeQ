@@ -1,3 +1,5 @@
+import { ProfileChatShortcutContext } from '../lib/chatNavigation';
+import { activateProfile } from '../lib/profileClick';
 import { useContext, type ReactNode } from 'react';
 import {
   ProfileNavigationContext,
@@ -19,6 +21,7 @@ export function ProfileAvatar({
   className?: string;
 }) {
   const open = useContext(ProfileNavigationContext);
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const user = target ? profileTargetUser(target) : null;
   if (!enabled || !open || !user)
     return className ? <span className={className}>{children}</span> : children;
@@ -36,12 +39,15 @@ export function ProfileAvatar({
       onClick={(event) => {
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
-        open(
-          user,
+        const anchor =
           event.detail === 0
             ? { x: rect.right, y: rect.bottom }
-            : { x: event.clientX, y: event.clientY },
-          target?.group,
+            : { x: event.clientX, y: event.clientY };
+        activateProfile(
+          event,
+          () => open(user, anchor, target?.group),
+          chatShortcut?.({ kind: 'direct', user }),
+          user.identityValue,
         );
       }}
     >

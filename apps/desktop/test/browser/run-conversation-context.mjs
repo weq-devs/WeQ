@@ -10,6 +10,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const server = await createServer({
   configFile: false,
+  optimizeDeps: { entries: ['test/browser/conversation-context.html'] },
   root,
   cacheDir: resolve(root, 'node_modules/.vite-conversation-context'),
   define: { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') },
@@ -143,6 +144,23 @@ try {
         cases++;
       }
     }
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/conversation-context.html`;
+  for (const [selector, double] of [
+    ['.weq-conversation-menu-profile', true],
+    ['.weq-conversation-menu-avatar', true],
+    ['.weq-conversation-menu-avatar', false],
+  ]) {
+    await page.goto(url);
+    await page.locator('[data-conversation-id="10001"]').click({ button: 'right' });
+    const target = page.getByRole('menu').locator(selector);
+    if (double) await target.dblclick();
+    else await target.click();
+    await page.getByRole('menu').waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('output').getAttribute('data-selected'), double ? '10001' : '');
+    assert.equal(await page.locator('output').getAttribute('data-profile'), double ? '' : '10001');
+    cases++;
   }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, errors }));

@@ -1329,12 +1329,11 @@ function ChatPaneContent({
     member: User;
     anchor: { x: number; y: number };
   } | null>(null);
-  const clonePrivateTarget =
-    cloneMemberProfile &&
+  const clonePrivateTargetFor = (member: User) =>
     directory?.virtual.find(
-      (item) =>
-        item.kind === 'persona' && `virtual:${item.ownerId}` === cloneMemberProfile.member.id,
+      (item) => item.kind === 'persona' && `virtual:${item.ownerId}` === member.id,
     );
+  const clonePrivateTarget = cloneMemberProfile && clonePrivateTargetFor(cloneMemberProfile.member);
   const effectiveOpenGroupMember = dataLine
     ? undefined
     : restrictedSource
@@ -1343,6 +1342,11 @@ function ChatPaneContent({
         : (member: User, anchor: { x: number; y: number }) =>
             setCloneMemberProfile({ member, anchor })
       : onOpenGroupMember;
+  const cloneChatShortcut = useStableCallback((member: User) => {
+    if (!restrictedSource || conversation?.type !== 'group' || member.id === user.id) return;
+    const target = clonePrivateTargetFor(member);
+    if (target) return () => directory?.onVirtual(target);
+  });
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
   const mobileComposerMeasureFrame = useRef<number | null>(null);
@@ -6538,6 +6542,7 @@ function ChatPaneContent({
                               ? rowAvatar
                               : undefined
                           }
+                          getAvatarChatShortcut={restrictedSource ? cloneChatShortcut : undefined}
                           onAvatarContextMenu={!selectionMode ? rowAvatarMenu : undefined}
                         />
                       </Fragment>,
@@ -6757,6 +6762,7 @@ function ChatPaneContent({
               onOpenFiles={onOpenGroupFiles ? () => onOpenGroupFiles(conversation) : undefined}
               onClose={mobileGroupInfoOpen ? closeMobileGroupInfo : undefined}
               onOpenMember={effectiveOpenGroupMember}
+              getMemberChatShortcut={restrictedSource ? cloneChatShortcut : undefined}
               onMemberContextMenu={!selectionMode ? openAvatarMenu : undefined}
               onLoadMoreMembers={onLoadMoreGroupMembers}
               onAddMember={onAddGroupMember}

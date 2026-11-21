@@ -157,6 +157,10 @@ export function MergedSessionPanel({
     x: number;
     y: number;
   } | null>(null);
+  const menuGroup =
+    actionMenu?.ids.length === 1 && actionMenu.conversation.type === 'group'
+      ? actionMenu.conversation
+      : null;
   useClientPreferences((state) => state.tick);
   const keepPosition = preferenceValue('keepConversationPositionOnHover');
   const showPreview = preferenceValue('showConversationPreview');
@@ -860,6 +864,22 @@ export function MergedSessionPanel({
               identity={actionMenu.conversation.id}
               kind={actionMenu.conversation.type}
               count={actionMenu.ids.length}
+              onOpenProfile={
+                menuGroup && directory?.onOpenProfile
+                  ? (anchor) => {
+                      directory.onOpenProfile?.(menuGroup, anchor);
+                      setActionMenu(null);
+                    }
+                  : undefined
+              }
+              onOpenChat={
+                menuGroup && directory?.onOpenProfile
+                  ? () => {
+                      setActionMenu(null);
+                      onSelectConversation(menuGroup);
+                    }
+                  : undefined
+              }
             />
           }
           onClose={() => setActionMenu(null)}

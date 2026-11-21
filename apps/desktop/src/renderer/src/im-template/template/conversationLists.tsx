@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
+import { activateProfile } from '../../lib/profileClick';
 import { NumericText } from '../../components/NumericText';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
@@ -1132,6 +1134,14 @@ export function ConversationList({
                     }
                   : undefined
               }
+              onOpenChat={
+                singleMenuConversation && directory?.onOpenProfile
+                  ? (event) => {
+                      setActionMenu(null);
+                      selectConversation(singleMenuConversation.id, event);
+                    }
+                  : undefined
+              }
               containedCount={
                 actionMenu.conversation.type === 'merged' &&
                 actionMenu.conversation.mergedKind === 'groupAssistant'
@@ -1687,6 +1697,7 @@ function GroupNotificationSection({
   }, [containsActive]);
   const expanded =
     category.mode === 'none' || open || Boolean(directory?.query) || selection.selectionMode;
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const visibleCount = useProgressiveRowCount(expanded ? category.items.length : 0);
   if (category.items.length === 0) return null;
   return (
@@ -1757,7 +1768,15 @@ function GroupNotificationSection({
                     y: rect.top + 20,
                   });
                 }}
-                onClick={(event) => onSelect(conversation.id, event)}
+                onClick={(event) => {
+                  if (selection.selectionMode) return;
+                  activateProfile(
+                    event,
+                    () => onSelect(conversation.id),
+                    chatShortcut?.({ kind: 'group', conversation }),
+                    conversation.id,
+                  );
+                }}
               >
                 <Avatar
                   resolution="small"
@@ -1809,7 +1828,7 @@ const EMPTY_CONTACT_OPTIONS = [] as const;
 
 type ContactRowEvents = {
   selection: ReturnType<typeof useMultiSelection<string>>['itemProps'];
-  select: (contact: Contact) => void;
+  select: (contact: Contact, event: MouseEvent<HTMLButtonElement>) => void;
   dragStart: (contact: Contact, event: DragEvent<HTMLButtonElement>) => void;
   dragEnd: () => void;
   menu: (contact: Contact, event: MouseEvent<HTMLButtonElement>) => void;
@@ -1875,7 +1894,7 @@ const ContactDirectoryRow = memo(function ContactDirectoryRow({
         onDragEnd={events.dragEnd}
         onContextMenu={(event) => events.menu(contact, event)}
         onKeyDown={(event) => events.keyDown(contact, event)}
-        onClick={() => events.select(contact)}
+        onClick={(event) => events.select(contact, event)}
       >
         <span className="contact-relation-avatar">
           <Avatar
@@ -2302,10 +2321,17 @@ const ContactListContent = memo(function ContactListContent({
     onStart: () => selection.setSelectionMode(true),
     onExit: () => selection.setSelectionMode(false),
   });
+  const chatShortcut = useContext(ProfileChatShortcutContext);
   const rowEvents = useEventContextValue<ContactRowEvents>({
     selection: multi.itemProps,
-    select: (contact) => {
-      if (!selection.selectionMode) onSelect(contact);
+    select: (contact, event) => {
+      if (selection.selectionMode) return;
+      activateProfile(
+        event,
+        () => onSelect(contact),
+        chatShortcut?.({ kind: 'direct', user: contact }),
+        contact.id,
+      );
     },
     dragStart: (contact, event) => {
       const ids =
