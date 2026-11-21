@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
+import { ChatMainContent } from '../src/renderer/src/im-template/template/chatMainContent';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { messagePerformanceSnapshot } from '../src/renderer/src/lib/messagePerformance';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useStableCallback } from '../src/renderer/src/hooks/useStableCallback';
 import { mergeRefreshedWindow } from '../src/renderer/src/lib/conversationRefresh';
 import { messageGroups } from '../src/renderer/src/im-template/template/chatTimelineModel';
@@ -145,20 +147,23 @@ it('前插同人发言时移动组头像，且只在缺口可见时拆组', () =
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (messages: Message[], overrides: Partial<Parameters<typeof ChatPane>[0]> = {}) =>
+  const render = (
+    messages: Message[],
+    overrides: Partial<Parameters<typeof ChatMainContent>[0]> = {},
+  ) =>
     act(() =>
       root.render(
-        h(ChatPane, {
+        h(ChatMainContent, {
+          view: 'messages',
           user: demo.user,
-          conversation,
+          activeConversation: conversation,
           messages,
-          groupConsecutiveMessages: true,
-          draft: '',
-          loading: false,
-          onSend: vi.fn(),
-          onDraftChange: vi.fn(),
-          onDraftClear: vi.fn(),
-          onBack: vi.fn(),
+          loadingMessages: false,
+          conversationPrefs: {},
+          drafts: {},
+          onBackContact: vi.fn(),
+          onBackGroup: vi.fn(),
+          onBackConversation: vi.fn(),
           ...overrides,
         }),
       ),
@@ -167,6 +172,13 @@ it('前插同人发言时移动组头像，且只在缺口可见时拆组', () =
   const avatar = (id: string) => line(id).querySelector('.avatar');
   try {
     render(rows.slice(1));
+    expect(avatar('3')).not.toBeNull();
+    act(() =>
+      acceptPreferences(
+        { revision: 1, values: { groupConsecutiveMessages: true }, records: {} },
+        false,
+      ),
+    );
     const old = line('2');
     expect(avatar('2')).not.toBeNull();
     expect(avatar('3')).toBeNull();
@@ -196,8 +208,11 @@ it('前插同人发言时移动组头像，且只在缺口可见时拆组', () =
     render(multipleMissing, { resolvedGapIds: new Set(['gap:1:4']) });
     expect(avatar('3')).toBeNull();
     expect(line('gap:1:4')).toBeNull();
+    act(() => acceptPreferences({ revision: 2, values: {}, records: {} }, false));
+    expect(avatar('3')).not.toBeNull();
   } finally {
     act(() => root.unmount());
+    acceptPreferences({ revision: 2, values: {}, records: {} }, false);
     host.remove();
   }
 });

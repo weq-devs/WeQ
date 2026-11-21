@@ -91,7 +91,7 @@ export const MESSAGE_FEATURES = [
   messageFeature(
     'timeline.grouping',
     '连续发言分组',
-    '主聊天按发送者和时间归组，保留每条消息的引用、定位与多选。',
+    '可开启聊天和合并转发记录的同人发言分组，保留单条消息的引用、定位与多选。',
     {
       context: ['account', 'conversation'],
       docs: ['guide/chat-view.md#feature-messages.timeline.grouping'],
@@ -100,13 +100,13 @@ export const MESSAGE_FEATURES = [
   messageFeature(
     'timeline.unread-boundary',
     '聊天内未读分界',
-    '在时间线标出未读起点，浏览历史时显示剩余未读条数。',
+    '可开关时间线上的未读分界线，浏览历史时仍可查看剩余未读条数。',
     {
       context: ['account', 'conversation'],
       docs: ['guide/chat-view.md#feature-messages.timeline.unread-boundary'],
     },
   ),
-  messageFeature('reply.touch', '触屏横滑引用', '向左滑动消息气泡，松手引用并聚焦输入框。', {
+  messageFeature('reply.touch', '触屏横滑引用', '默认开启。向左滑动消息，松手引用并聚焦输入框。', {
     docs: ['guide/chat-view.md#feature-messages.reply.touch'],
   }),
   messageFeature(

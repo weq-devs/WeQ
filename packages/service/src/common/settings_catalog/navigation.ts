@@ -165,6 +165,7 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
   if (
     [
       'custom-message-display',
+      'group-consecutive-messages',
       'message-seq',
       'message-date',
       'message-time',
@@ -184,6 +185,8 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
       'chat-image-cache',
       'read-first-unread',
       'preserve-unread-until-read',
+      'unread-divider',
+      'swipe-to-quote',
       'auto-fetch-missing-messages',
       'auto-fetch-missing-context',
       'missing-message-context-count',
@@ -745,6 +748,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
         '保留未读',
         '按阅读进度标为已读',
       ],
+      ['unread-divider', '显示未读分界线', '以下为未读消息', '未读起点'],
+      ['swipe-to-quote', '触屏左滑引用', '滑动回复', '左滑回复'],
       ['auto-fetch-missing-messages', '查看时自动拉取缺失的消息', '自动补全消息', '漫游消息'],
       ['auto-fetch-missing-context', '定位到缺失消息时自动拉取上下文'],
       ['missing-message-context-count', '自动拉取上下文条数'],
@@ -765,6 +770,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['quote-backspace-remove', '按退格键移除引用', '退格取消引用', 'Backspace'],
       ['auto-transcribe-voice', '语音消息自动转文字', '语音自动识别'],
       ['custom-message-display', '内容显示', '自定义消息显示'],
+      ['group-consecutive-messages', '合并连续发言', '连续发言分组', '消息分组'],
       ['message-seq', '显示消息序号（seq）'],
       ['message-date', '显示发送日期'],
       ['message-time', '显示发送时间', '显示发送时间（精确到秒）'],

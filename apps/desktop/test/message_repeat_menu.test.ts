@@ -6,6 +6,7 @@ import { MessageContextMenu } from '../src/renderer/src/im-template/template/mes
 import { createTemplateDemoData } from './support/templateDemoData';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { MessageRow } from '../src/renderer/src/im-template/template/messageRow';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import type { Message } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -73,6 +74,14 @@ describe('消息菜单及触屏操作', () => {
         ),
       );
       expect(host.querySelector('[data-swipe-reply]')).not.toBeNull();
+      act(() =>
+        acceptPreferences({ revision: 1, values: { swipeToQuote: false }, records: {} }, false),
+      );
+      pointer('pointerdown', 150);
+      pointer('pointermove', 75);
+      pointer('pointerup', 75);
+      expect(quote()).toBeNull();
+      act(() => acceptPreferences({ revision: 2, values: {}, records: {} }, false));
       for (const [start, end, y] of [
         [24, -60, 100],
         [150, 225, 100],

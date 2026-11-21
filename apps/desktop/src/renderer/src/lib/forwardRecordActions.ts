@@ -22,7 +22,10 @@ export type ForwardEntry = {
   groupPosition?: MessageGroupPosition;
 };
 
-export function forwardEntries(win: Pick<ForwardWindowState, 'id' | 'records'>): ForwardEntry[] {
+export function forwardEntries(
+  win: Pick<ForwardWindowState, 'id' | 'records'>,
+  groupMessages: boolean,
+): ForwardEntry[] {
   let previousTime: number | undefined;
   const entries: ForwardEntry[] = (win.records ?? []).map((record, index) => {
     const sendTimeMs = unixDate(record.sendTime)?.getTime() ?? 0;
@@ -30,6 +33,7 @@ export function forwardEntries(win: Pick<ForwardWindowState, 'id' | 'records'>):
     if (sendTimeMs > 0) previousTime = sendTimeMs;
     return { id: `forward:${win.id}:${index}`, index, record, sendTimeMs, showTime };
   });
+  if (!groupMessages) return entries;
   const groups = consecutiveMessageGroups(
     entries,
     ({ record, sendTimeMs }) => {

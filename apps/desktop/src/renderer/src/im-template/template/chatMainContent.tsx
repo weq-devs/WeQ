@@ -5,6 +5,7 @@ import { ToolDetailPane } from './toolsPane';
 import { RetainedTabs, TabActivity } from '../../components/RetainedTabs';
 import { ArrowLeft } from 'lucide-react';
 import { APP_NAVIGATION } from '../../lib/appNavigation';
+import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
 import type { ProfileActionRegistry } from './profileActions';
 import type { ContactWorkspaceTab, GroupWorkspaceTab } from '../../lib/profileNavigation';
 import type { ToolPaneGroup, ToolPaneItem } from './toolRegistry';
@@ -250,6 +251,7 @@ export function ChatMainContent({
   onOpenTool?: (item: ToolPaneItem) => void;
   onSelectTool?: (item: ToolPaneItem) => void;
 }) {
+  const groupMessages = useClientPreferences(() => preferenceValue('groupConsecutiveMessages'));
   if (view === 'contacts') {
     return (
       <>
@@ -328,7 +330,8 @@ export function ChatMainContent({
       conversation={activeConversation}
       messages={messages}
       groupConsecutiveMessages={
-        activeConversation?.type === 'direct' || activeConversation?.type === 'group'
+        groupMessages &&
+        (activeConversation?.type === 'direct' || activeConversation?.type === 'group')
       }
       composerActions={composerActions}
       messageRenderers={messageRenderers}

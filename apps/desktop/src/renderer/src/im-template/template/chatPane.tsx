@@ -869,6 +869,8 @@ function ChatPaneContent({
   const tabActive = useTabActive();
   useClientPreferences((state) => state.tick);
   const autoFetchGaps = tabActive && preferenceValue('autoFetchMissingMessages');
+  const showUnreadDivider = preferenceValue('showUnreadDivider');
+  const swipeToQuote = preferenceValue('swipeToQuote');
   const directory = useContext(ConversationDirectoryContext);
   const [body, setBody] = useState('');
   const draftMediaFingerprint = JSON.stringify([...composerAssetIds(body)].sort());
@@ -6415,7 +6417,7 @@ function ChatPaneContent({
                             }
                           />
                         ) : null}
-                        {message.id === unreadBoundaryId ? (
+                        {showUnreadDivider && message.id === unreadBoundaryId ? (
                           <div
                             className="weq-unread-divider"
                             role="separator"
@@ -6459,6 +6461,7 @@ function ChatPaneContent({
                           onContextMenu={rowContext}
                           onLongPress={rowLongPress}
                           onSwipeReply={
+                            swipeToQuote &&
                             composerVisible &&
                             !readOnly &&
                             !currentPreference.blocked &&

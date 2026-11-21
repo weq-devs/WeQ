@@ -14,6 +14,7 @@ import {
 import { openForwardWindow } from '../src/renderer/src/state/forwardWindow';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { forwardEntries } from '../src/renderer/src/lib/forwardRecordActions';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useForwardStore, type ForwardRecordWire } from '../src/renderer/src/state/forwardWindow';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({ client: { account: {} }, trpc: {} }));
@@ -51,7 +52,7 @@ it('转发包允许原序号跳过和媒体插入，但不以同名替代发送�
   };
   const second = { ...first, msgId: '2', msgSeq: '50', sendTime: 1700000001 };
   const positions = (...records: ForwardRecordWire[]) =>
-    forwardEntries({ id: 1, records }).map((entry) => entry.groupPosition);
+    forwardEntries({ id: 1, records }, true).map((entry) => entry.groupPosition);
   const picture = { ...second, senderUid: undefined, elements: [{ type: 'pic' }] };
   expect(positions(first, picture, { ...second, senderUin: undefined })).toEqual([
     'first',
@@ -166,6 +167,14 @@ it('转发记录沿用时间分隔与元数据设置，仍仅头像打开名片'
     expect(author.parentElement?.previousElementSibling).toBe(times[0]);
     expect(dialog.textContent).not.toContain('seq 42');
     await act(async () => render(true));
+    expect(dialog.querySelectorAll('.weq-forward-author')).toHaveLength(5);
+    expect(dialog.textContent).toContain('seq 71');
+    act(() =>
+      acceptPreferences(
+        { revision: 1, values: { groupConsecutiveMessages: true }, records: {} },
+        false,
+      ),
+    );
     expect(author.textContent).toContain('seq 42');
     expect(author.querySelector('time')?.textContent).toBe('2023-11-15 06:13:20');
     expect(dialog.querySelectorAll('.weq-message-seq')).toHaveLength(1);
@@ -193,6 +202,7 @@ it('转发记录沿用时间分隔与元数据设置，仍仅头像打开名片'
     expect(useForwardStore.getState().windows).toHaveLength(1);
   } finally {
     act(() => root.unmount());
+    acceptPreferences({ revision: 2, values: {}, records: {} }, false);
     expect(useForwardStore.getState().windows).toHaveLength(0);
     host.remove();
     now.mockRestore();
