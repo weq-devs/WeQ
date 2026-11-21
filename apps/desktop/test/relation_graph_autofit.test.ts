@@ -275,6 +275,7 @@ describe('群交集持续自适应', () => {
     pointer('pointerdown');
     pointer('pointermove', 21, 1);
     pointer('pointerup', 21);
+    pointer('click', 21);
     expect(onSelect).toHaveBeenCalledTimes(1);
     tick(0.9);
     expect(fit).toHaveBeenCalledTimes(1);
@@ -282,7 +283,7 @@ describe('群交集持续自适应', () => {
     const view = fit.mock.results.at(-1)!.value;
     const x = node.x * view.scale + view.x;
     const y = node.y * view.scale + view.y;
-    for (const type of ['pointerdown', 'pointerup']) {
+    for (const type of ['pointerdown', 'pointerup', 'click']) {
       act(() =>
         host
           .querySelector('.weq-graph-canvas-wrap')!
@@ -309,6 +310,8 @@ describe('群交集持续自适应', () => {
       pointer('pointermove', 30, 10);
       if (target === '节点') expect(graph.nodes[0].fx).not.toBeNull();
       pointer('pointerup', 30);
+      pointer('click', 30);
+      expect(onSelect).not.toHaveBeenCalled();
       tick(0.1);
       expect(fit).not.toHaveBeenCalled();
       graph = { ...graph, nodes: graph.nodes.slice(0, 1) };

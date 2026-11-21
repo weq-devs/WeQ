@@ -206,61 +206,65 @@ describe('分块压缩正式 JSONL', () => {
       expect((await readViewerPage(reopened, { offset: 400 })).messages[0]?.msgId).toBe('400');
     }));
 
-  it.each([false, true])('完整任务支持压缩导出及多格式=%s 的增量续写', async (multiple) =>
-    fixture(async (root) => {
-      let count = 1;
-      const messages = {
-        takeSalvageSkips: () => [],
-        async *exportC2cMessages() {
-          for (let i = 1; i <= count; i++)
-            yield {
-              msgId: BigInt(i),
-              msgSeq: BigInt(i),
-              targetUid: 'peer',
-              targetUin: 10002n,
-              senderUid: 'peer',
-              senderUin: 10002n,
-              sendTime: 1793800000n,
-              elements: [{ type: 'text', data: { textContent: `消息 ${i}` } }],
-            };
-        },
-      } as unknown as MsgService;
-      const manager = new ExportTaskManager(messages, join(root, 'cache'), {
-        exportAccountUin: '10001',
-      });
-      const id = await manager.startTask({
-        kind: 'c2c',
-        conv: 'peer',
-        name: '压缩测试',
-        format,
-        ...(multiple ? { formats: [format, 'jsonl' as const] } : {}),
-        includeIntegrityReport: false,
-        savePolicy: multiple
-          ? { mode: 'before', directory: root }
-          : { mode: 'before', filePath: join(root, `export.${format}`) },
-      });
-      await vi.waitFor(
-        () => expect(manager.getTask(id)?.status, manager.getTask(id)?.error).toBe('completed'),
-        { timeout: 10000 },
-      );
-      const path = manager.getTask(id)!.filePath!;
-      expect(path.endsWith('.jsonl.gz')).toBe(true);
-      expect((await scanArchiveFile(path, format)).messageCount).toBe(1);
-      const before = await readFile(path);
-      count = 2;
-      expect(manager.resumeTask(id, true)).toBe(true);
-      await vi.waitFor(
-        () => expect(manager.getTask(id)?.status, manager.getTask(id)?.error).toBe('completed'),
-        { timeout: 10000 },
-      );
-      const after = await readFile(path);
-      expect(after.subarray(0, before.length)).toEqual(before);
-      expect((await scanArchiveFile(path, format)).messageCount).toBe(2);
-      if (multiple) {
-        const plain = manager.getTask(id)!.publishedOutputs!.jsonl!;
-        expect((await readArchiveFile(plain, 'jsonl')).archive.records).toHaveLength(2);
-      }
-      expect((await readdir(root)).some((name) => name.endsWith('.jsonl'))).toBe(false);
-    }),
+  it.each([false, true])(
+    '完整任务支持压缩导出及多格式=%s 的增量续写',
+    async (multiple) =>
+      fixture(async (root) => {
+        let count = 1;
+        const messages = {
+          takeSalvageSkips: () => [],
+          async *exportC2cMessages() {
+            for (let i = 1; i <= count; i++)
+              yield {
+                msgId: BigInt(i),
+                msgSeq: BigInt(i),
+                targetUid: 'peer',
+                targetUin: 10002n,
+                senderUid: 'peer',
+                senderUin: 10002n,
+                sendTime: 1793800000n,
+                elements: [{ type: 'text', data: { textContent: `消息 ${i}` } }],
+              };
+          },
+        } as unknown as MsgService;
+        const manager = new ExportTaskManager(messages, join(root, 'cache'), {
+          exportAccountUin: '10001',
+        });
+        const id = await manager.startTask({
+          kind: 'c2c',
+          conv: 'peer',
+          name: '压缩测试',
+          format,
+          ...(multiple ? { formats: [format, 'jsonl' as const] } : {}),
+          includeIntegrityReport: false,
+          savePolicy: multiple
+            ? { mode: 'before', directory: root }
+            : { mode: 'before', filePath: join(root, `export.${format}`) },
+        });
+        await vi.waitFor(
+          () => expect(manager.getTask(id)?.status, manager.getTask(id)?.error).toBe('completed'),
+          { timeout: 10000 },
+        );
+        const path = manager.getTask(id)!.filePath!;
+        expect(path.endsWith('.jsonl.gz')).toBe(true);
+        expect((await scanArchiveFile(path, format)).messageCount).toBe(1);
+        const before = await readFile(path);
+        count = 2;
+        expect(manager.resumeTask(id, true)).toBe(true);
+        await vi.waitFor(
+          () => expect(manager.getTask(id)?.status, manager.getTask(id)?.error).toBe('completed'),
+          { timeout: 10000 },
+        );
+        const after = await readFile(path);
+        expect(after.subarray(0, before.length)).toEqual(before);
+        expect((await scanArchiveFile(path, format)).messageCount).toBe(2);
+        if (multiple) {
+          const plain = manager.getTask(id)!.publishedOutputs!.jsonl!;
+          expect((await readArchiveFile(plain, 'jsonl')).archive.records).toHaveLength(2);
+        }
+        expect((await readdir(root)).some((name) => name.endsWith('.jsonl'))).toBe(false);
+      }),
+    // 完整导出和增量续写各有 10 秒等待预算。
+    25_000,
   );
 });
