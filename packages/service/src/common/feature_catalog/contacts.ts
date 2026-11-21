@@ -36,6 +36,12 @@ export const CONTACT_GROUP_FEATURES = [
     navigation: 'context',
     docs: ['guide/contact-directory.md#feature-contacts.directory.order'],
   }),
+  defineFeature('contacts.intimacy-ranking', 'contacts', '好友亲密度排行', ['QQ 亲密度'], {
+    summary: '查看 QQ 资料中的好友亲密度排行；未知分值排在最后。',
+    context: ['account'],
+    navigation: 'context',
+    tools: ['list_friends_by_intimacy'],
+  }),
   contact('profile', '联系人名片与资料', '先显示本地资料，沿用设置中的名片内容及顺序。', {
     tools: [
       'get_user_profile',

@@ -149,6 +149,19 @@ export const MESSAGE_FEATURES = [
     tools: ['transcribe_voice_message'],
     docs: ['guide/voice-transcribe.md'],
   }),
+  messageFeature('flash.share', '分享 QQ 闪传', '在闪传文件列表获取分享链接。', {
+    navigation: 'context',
+    tools: ['get_flash_share_link'],
+  }),
+  messageFeature('red-packet.send', '发 QQ 红包', '填写红包信息，生成二维码后在手机 QQ 支付。', {
+    context: ['account', 'conversation'],
+    navigation: 'context',
+    tools: ['get_red_bag_passwords', 'pack_red_bag'],
+  }),
+  messageFeature('red-packet.detail', 'QQ 红包详情与领取', '从红包消息查看领取记录或领取红包。', {
+    navigation: 'context',
+    tools: ['get_red_bag_detail', 'grab_red_bag'],
+  }),
   messageFeature('reaction', '表情回应', '在适用的群消息上添加或取消表情回应。', {
     navigation: 'context',
     tools: ['set_message_reaction'],

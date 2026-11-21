@@ -38,7 +38,9 @@ export const EXPORT_FEATURES = [
   exportFeature('export.emoji-packs', 'emojipack', '导出表情包', ['表情包导出']),
   exportFeature('export.group-albums', 'album', '群相册导出', ['群相册']),
   exportFeature('export.group-files', 'groupfile', '群文件导出', ['群文件']),
-  exportFeature('export.database', 'database', '明文数据库', ['数据库导出']),
+  exportFeature('export.database', 'database', '明文数据库', ['数据库导出'], {
+    tools: ['decrypt_database'],
+  }),
   exportFeature('export.clone-bot', 'persona-bot', '克隆体机器人', ['克隆机器人导出']),
   exportFeature('export.qzone-albums', 'qzone', '个人空间相册', ['空间相册导出']),
 ] as const;

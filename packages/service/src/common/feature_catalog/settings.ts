@@ -98,7 +98,10 @@ export const SETTING_FEATURES = SETTINGS_CATALOG.map(
       desktopOnly: setting.desktopOnly === true,
       ...(setting.id === 'llm-default-model' ? { operation: 'default-chat-model' as const } : {}),
       ...(setting.id === 'database-manager'
-        ? { tools: ['list_databases', 'list_db_tables', 'get_db_columns'] }
+        ? { tools: ['list_databases', 'list_db_tables', 'get_db_columns', 'execute_sql'] }
+        : {}),
+      ...(setting.id === 'anti-recall'
+        ? { tools: ['get_anti_recall_status', 'set_anti_recall'] }
         : {}),
     }) satisfies FeatureDefinition & {
       settingId: string;
