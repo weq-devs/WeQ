@@ -31,10 +31,16 @@ export class QzoneMediaStore {
             (result) => result.ok,
           )
         : this.download(url, kind, signal)
-    ).then((result) => {
-      if (!result.ok) this.requests.delete(key);
-      return result;
-    });
+    ).then(
+      (result) => {
+        if (!result.ok) this.requests.delete(key);
+        return result;
+      },
+      (error) => {
+        this.requests.delete(key);
+        throw error;
+      },
+    );
     this.requests.set(key, work);
     return work;
   }
@@ -69,7 +75,12 @@ export class QzoneMediaStore {
         return { ...outcome, fileName };
       })();
       this.contents.set(outcome.sha256, publish);
-      return await publish;
+      try {
+        return await publish;
+      } catch (error) {
+        this.contents.delete(outcome.sha256);
+        throw error;
+      }
     } finally {
       await rm(temporary, { force: true });
     }

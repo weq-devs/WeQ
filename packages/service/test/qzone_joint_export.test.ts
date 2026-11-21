@@ -270,10 +270,26 @@ it('相册视频仅能取得封面时保留复用图片，但不计为完整视�
   expect(task.stages.find((stage) => stage.key === 'file')?.failed).toBe(1);
   expect(state.urls).toEqual([image]);
 });
-it('取消后不继续下载或创建替代媒体', async () => {
+it('取消不下载媒体，也不拦住同一媒体池的新请求', async () => {
   const media = new QzoneMediaStore(join(root, 'media'));
   const controller = new AbortController();
   controller.abort();
   await expect(media.save(image, 'image', controller.signal)).rejects.toThrow();
   expect(state.urls).toHaveLength(0);
+  expect((await media.save(image, 'image')).ok).toBe(true);
+  expect(state.urls).toEqual([image]);
+});
+
+it('内容寻址目标冲突不覆盖旧文件，移开冲突后可重试同一媒体', async () => {
+  const media = new QzoneMediaStore(root);
+  const bytes = Buffer.from('89504e470d0a1a0a00', 'hex');
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const destination = join(root, sha256);
+  writeFileSync(destination, 'existing file');
+  await expect(media.save(image, 'image')).rejects.toThrow('同名资源内容冲突');
+  expect(readFileSync(destination, 'utf8')).toBe('existing file');
+  rmSync(destination);
+  await expect(media.save(image, 'image')).resolves.toMatchObject({ ok: true, fileName: sha256 });
+  expect(readFileSync(destination)).toEqual(bytes);
+  expect(readdirSync(root)).toEqual([sha256]);
 });
