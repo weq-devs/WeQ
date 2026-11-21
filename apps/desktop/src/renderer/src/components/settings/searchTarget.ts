@@ -3,6 +3,8 @@ import type { NotificationConversation } from '../../lib/notificationSettingsNav
 
 // 与 app-search.css 的淡出动画时长保持一致。
 export const SETTINGS_SEARCH_HIGHLIGHT_MS = 2000;
+/** 搜索命中后，由入口自行决定是否展开其内容。 */
+export const REVEAL_SETTING_EVENT = 'weq-reveal-setting';
 
 export interface SettingsSearchTarget extends SettingsTarget {
   revision: number;
@@ -98,6 +100,7 @@ export function revealSetting(
     if (navigate) {
       element.scrollIntoView?.({ block: 'center', behavior: 'instant' });
       focused?.focus({ preventScroll: true });
+      element.dispatchEvent(new Event(REVEAL_SETTING_EVENT));
     }
     onLocated?.();
     observer.disconnect();
@@ -108,7 +111,12 @@ export function revealSetting(
     subtree: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ['aria-label', 'data-setting-id', 'data-notification-record'],
+    attributeFilter: [
+      'aria-label',
+      'data-setting-id',
+      'data-setting-fallback',
+      'data-notification-record',
+    ],
   });
   locate();
   return () => {

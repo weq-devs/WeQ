@@ -1,7 +1,28 @@
-.weq-home-words {
-  padding-top: 12px;
-  border-top: 1px solid var(--weq-border-subtle);
+.weq-home-hitokoto-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.weq-home-words button {
-  justify-self: end;
+
+.weq-home-hitokoto-controls .weq-set-iconbtn {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-home-hitokoto-controls .weq-set-iconbtn[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-home-words-popover {
+  padding: 12px;
+}
+
+.weq-home-words-popover p {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-home-words-popover .weq-autosave-status:empty {
+  display: none;
 }

@@ -6,7 +6,10 @@ import { ChatHome } from '../src/renderer/src/views/ChatHome';
 import { HomeSettingsSection } from '../src/renderer/src/components/settings/HomeSettingsSection';
 import { SETTINGS_GROUPS } from '../src/renderer/src/components/settings/navigation';
 import { searchAppEntries } from '../src/renderer/src/components/search/appSearchCatalog';
-import { findSettingElement } from '../src/renderer/src/components/settings/searchTarget';
+import {
+  findSettingElement,
+  revealSetting,
+} from '../src/renderer/src/components/settings/searchTarget';
 
 const fixture = vi.hoisted(() => ({
   home: {
@@ -70,7 +73,11 @@ beforeEach(() => {
     return fixture.home;
   });
   fixture.invalidate.mockReset();
-  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  vi.spyOn(window, 'matchMedia').mockReturnValue({
+    matches: true,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  } as unknown as MediaQueryList);
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -93,54 +100,67 @@ function mount(component: typeof HomeSettingsSection | typeof ChatHome) {
   };
 }
 
+function wordsEditor() {
+  const input = document.querySelector<HTMLTextAreaElement>(
+    '[aria-label="一言屏蔽词（每行一个）"]',
+  );
+  return input?.closest('[hidden]') ? null : input;
+}
+
+function openWords(host: HTMLElement) {
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="一言屏蔽词"]')!.click());
+  return wordsEditor()!;
+}
+
 describe('主页显示与偏好', () => {
   it('关闭一言隐藏屏蔽词但保留内容，搜索回到一言开关，重开恢复草稿', () => {
     fixture.home.blockedWords = ['保留词'];
+    const invalidDraft = '草稿词'.repeat(70);
     const view = mount(HomeSettingsSection);
     try {
-      const input = view.host.querySelector('textarea')!;
+      const input = openWords(view.host);
       act(() => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
           input,
-          '草稿词',
+          invalidDraft,
         );
         input.dispatchEvent(new Event('input', { bubbles: true }));
       });
       fixture.home = { ...fixture.home, showHitokoto: false };
       view.render();
-      expect(view.host.querySelector('textarea')).toBeNull();
+      expect(wordsEditor()).toBeNull();
+      expect(view.host.querySelector('[aria-label="一言屏蔽词"]')).toBeNull();
       expect(
         findSettingElement(view.host, { settingId: 'home-blocked-words' })?.dataset.settingId,
       ).toBe('home-hitokoto');
       fixture.home = { ...fixture.home, showHitokoto: true };
       view.render();
-      expect(view.host.querySelector('textarea')?.value).toBe('草稿词');
+      expect(wordsEditor()).toBeNull();
+      expect(openWords(view.host).value).toBe(invalidDraft);
       expect(fixture.home.blockedWords).toEqual(['保留词']);
       expect(fixture.save).not.toHaveBeenCalled();
     } finally {
       view.close();
     }
   });
-  it('主页开关与一言屏蔽词位于同一张卡片，保留定位标识', () => {
+  it('搜索一言屏蔽词打开浮层并聚焦输入，Esc 收起后焦点回到图标', () => {
     const view = mount(HomeSettingsSection);
+    let cleanup: ReturnType<typeof revealSetting> | undefined;
     try {
-      const cards = view.host.querySelectorAll('.weq-set-card');
-      expect(cards).toHaveLength(1);
-      expect(cards[0]!.querySelector('.weq-set-card-title')?.textContent).toBe('主页');
-      for (const id of [
-        'home-prefer-qqshow',
-        'home-tags',
-        'home-greeting',
-        'home-hitokoto',
-        'home-blocked-words',
-      ]) {
-        expect(cards[0]!.querySelector(`[data-setting-id="${id}"]`)).not.toBeNull();
-      }
-      expect(cards[0]!.querySelector('.weq-set-card')).toBeNull();
-      expect(cards[0]!.querySelector('label')?.htmlFor).toBe(
-        cards[0]!.querySelector('textarea')?.id,
+      const trigger = view.host.querySelector('[aria-label="一言屏蔽词"]');
+      expect(wordsEditor()).toBeNull();
+      act(() => {
+        cleanup = revealSetting(view.host, { settingId: 'home-blocked-words' });
+      });
+      const editor = wordsEditor()!;
+      expect(document.activeElement).toBe(editor);
+      act(() =>
+        editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
       );
+      expect(wordsEditor()).toBeNull();
+      expect(document.activeElement).toBe(trigger);
     } finally {
+      cleanup?.();
       view.close();
     }
   });
@@ -255,7 +275,7 @@ describe('主页显示与偏好', () => {
         view.host.querySelector<HTMLButtonElement>('[aria-label="个性标签"]')!.click(),
       );
       expect(fixture.save).toHaveBeenLastCalledWith({ showTags: false });
-      const input = view.host.querySelector('textarea')!;
+      const input = openWords(view.host);
       act(() => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
           input,
@@ -277,7 +297,7 @@ describe('主页显示与偏好', () => {
   it('后台重读不覆盖屏蔽词草稿，保存失败时保留输入', async () => {
     const view = mount(HomeSettingsSection);
     try {
-      const input = view.host.querySelector('textarea')!;
+      const input = openWords(view.host);
       act(() => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
           input,
@@ -293,6 +313,9 @@ describe('主页显示与偏好', () => {
       expect(input.value).toBe('尚未保存');
       expect(fixture.home.blockedWords).toEqual(['后台更新']);
       expect(fixture.invalidate).not.toHaveBeenCalled();
+      expect(
+        input.closest('[role="dialog"]')?.querySelector('[aria-label="重试保存"]'),
+      ).not.toBeNull();
     } finally {
       view.close();
     }
