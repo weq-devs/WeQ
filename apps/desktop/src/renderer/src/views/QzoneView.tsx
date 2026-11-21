@@ -93,7 +93,7 @@ import { QzoneBlogs } from './QzoneBlogs';
 import { QzoneMore, moreSpacePanes, type QzoneMorePane } from './QzoneMore';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
-import { QzoneActionsRow } from '../components/QzoneActionsRow';
+import { QzoneActionsRow, QzoneCommentToggle } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
 import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { ContentReferenceToolbar } from '../components/ContentReferenceToolbar';
@@ -2074,16 +2074,11 @@ function PostActionsBody({
             writePending={likePending}
           />
         </QzoneLikesPopover>
-        <button
-          type="button"
-          aria-expanded={expanded === 'comments'}
-          title="评论"
-          onClick={() => setExpanded(expanded === 'comments' ? null : 'comments')}
-        >
-          <MessageCircle size={16} />
-          <span className="weq-qzn-action-label">评论</span>{' '}
-          <span className="weq-number">{commentCount ?? '?'}</span>
-        </button>
+        <QzoneCommentToggle
+          expanded={expanded === 'comments'}
+          count={commentCount}
+          onToggle={() => setExpanded(expanded === 'comments' ? null : 'comments')}
+        />
         <QzoneForwardAction
           key={`${selfUin}:${hostUin}:${post.tid}:${refresh}`}
           onClick={() => setForwardOpen(true)}

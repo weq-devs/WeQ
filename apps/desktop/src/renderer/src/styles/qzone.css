@@ -748,17 +748,7 @@
 }
 .weq-qzn-more-toolbar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
   margin-bottom: 12px;
-}
-.weq-qzn-more-toolbar select {
-  width: auto;
-}
-.weq-qzn-export-status {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 .weq-qzn-more-title {
   margin: 0;

@@ -1,3 +1,4 @@
+import { MessageCircle } from 'lucide-react';
 import { useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
 
 export function QzoneActionsRow({
@@ -33,5 +34,23 @@ export function QzoneActionsRow({
     <div ref={ref} className="weq-qzn-actions-fit" title={title}>
       <div className="weq-qzn-actions">{children}</div>
     </div>
+  );
+}
+
+export function QzoneCommentToggle({
+  expanded,
+  count,
+  onToggle,
+}: {
+  expanded: boolean;
+  count: number | null;
+  onToggle: () => void;
+}) {
+  return (
+    <button type="button" aria-expanded={expanded} title="评论" onClick={onToggle}>
+      <MessageCircle size={16} aria-hidden />
+      <span className="weq-qzn-action-label">评论</span>{' '}
+      <span className="weq-number">{count ?? '?'}</span>
+    </button>
   );
 }

@@ -2,6 +2,8 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import type { QzoneShare, QzoneShareCategory } from '@weqbot/protocol/web';
 import { RefreshCw } from 'lucide-react';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { FormSelect } from '../components/FormSelect';
+import { QzoneActionsRow, QzoneCommentToggle } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
 import { QzoneInlineText } from '../components/QzoneEmoji';
 import { QzoneFeedLinks } from '../components/QzoneFeedLinks';
@@ -65,7 +67,7 @@ function useMorePages<P extends Page>(
   key: string,
   start: number,
   load: (input: Request, offset: number) => Promise<P>,
-  { background = false, staleTime }: { background?: boolean; staleTime?: number } = {},
+  staleTime?: number,
 ) {
   const { active, refresh, configId, target, error, retryConfig } = useSpaceRequest(space);
   const { run, cancel } = useQzoneRequests();
@@ -79,7 +81,7 @@ function useMorePages<P extends Page>(
     refetchOnWindowFocus: false,
     staleTime,
     queryFn: ({ pageParam = start, signal }) =>
-      run((requestId) => load({ ...target, requestId }, pageParam), background, signal),
+      run((requestId) => load({ ...target, requestId }, pageParam), false, signal),
     getNextPageParam: (last: P, pages: P[]) => {
       if (!last.items.length || last.next === null) return undefined;
       if (pages.length > 1) {
@@ -127,65 +129,6 @@ function PageEnd({ state, empty }: { state: PagedState; empty: string }) {
   ) : null;
 }
 
-function ShareExport({
-  space,
-  category,
-  enabled,
-}: {
-  space: Space;
-  category: QzoneShareCategory;
-  enabled: boolean;
-}) {
-  const { target, active } = useSpaceRequest(space);
-  const { run } = useQzoneRequests();
-  const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState('');
-  return (
-    <>
-      <button
-        type="button"
-        className="weq-set-btn"
-        disabled={!active || !enabled || pending}
-        onClick={(event) => {
-          const ownerDocument = event.currentTarget.ownerDocument;
-          setPending(true);
-          setMessage('');
-          void run(
-            (requestId) =>
-              client.account.qzone.exportShares.mutate({ ...target, category, requestId }),
-            true,
-          )
-            .then((result) => {
-              if (!result) return;
-              if (result.downloadUrl) {
-                const anchor = ownerDocument.createElement('a');
-                anchor.href = result.downloadUrl;
-                anchor.download = '';
-                anchor.click();
-              }
-              setMessage(
-                result.downloadUrl
-                  ? `已导出 ${result.count} 条分享`
-                  : `已导出 ${result.count} 条分享至 ${result.path}`,
-              );
-            })
-            .catch((error: unknown) =>
-              setMessage(error instanceof Error ? error.message : '导出分享失败。'),
-            )
-            .finally(() => setPending(false));
-        }}
-      >
-        {pending ? '正在导出…' : '导出此分类'}
-      </button>
-      {message ? (
-        <span role="status" className="weq-qzn-export-status">
-          {message}
-        </span>
-      ) : null}
-    </>
-  );
-}
-
 function Shares({ space }: { space: Space }) {
   const [category, setCategory] = useState<QzoneShareCategory>(0);
   const state = useMorePages(space, `shares:${category}`, 1, (input, page) =>
@@ -194,9 +137,8 @@ function Shares({ space }: { space: Space }) {
   return (
     <>
       <div className="weq-qzn-more-toolbar">
-        <select
+        <FormSelect
           aria-label="分享分类"
-          className="weq-set-input"
           value={category}
           onChange={(event) => setCategory(Number(event.target.value) as QzoneShareCategory)}
         >
@@ -205,8 +147,7 @@ function Shares({ space }: { space: Space }) {
               {label}
             </option>
           ))}
-        </select>
-        <ShareExport space={space} category={category} enabled={state.items.length > 0} />
+        </FormSelect>
       </div>
       {state.items.map((share) => (
         <SharePost key={share.id} space={space} share={share} />
@@ -217,13 +158,13 @@ function Shares({ space }: { space: Space }) {
 }
 
 function SharePost({ space, share }: { space: Space; share: QzoneShare }) {
-  const ref = useRef<HTMLElement>(null);
-  const near = useNearViewport(ref, true);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentCount, setCommentCount] = useState<number | null>(null);
   const href = qzoneLinkTarget(share.originalUrl);
   const cover = qzoneMediaSource(share.previewUrl);
   const title = share.title || '分享';
   return (
-    <article ref={ref} className="weq-qzn-post">
+    <article className="weq-qzn-post">
       <header className="weq-qzn-post-head">
         <QzonePersonHeader
           uin={space.hostUin}
@@ -259,28 +200,48 @@ function SharePost({ space, share }: { space: Space; share: QzoneShare }) {
           </>
         )}
       </div>
-      {near ? <ShareCommentList space={space} shareId={share.id} /> : null}
+      <QzoneActionsRow>
+        <QzoneCommentToggle
+          expanded={commentsOpen}
+          count={commentCount}
+          onToggle={() => setCommentsOpen((open) => !open)}
+        />
+      </QzoneActionsRow>
+      {commentsOpen ? (
+        <ShareCommentList space={space} shareId={share.id} onCount={setCommentCount} />
+      ) : null}
     </article>
   );
 }
 
-function ShareCommentList({ space, shareId }: { space: Space; shareId: string }) {
-  const { items, loading, error, onNext, onRetry } = useMorePages(
+function ShareCommentList({
+  space,
+  shareId,
+  onCount,
+}: {
+  space: Space;
+  shareId: string;
+  onCount: (count: number) => void;
+}) {
+  const { first, items, loading, error, onNext, onRetry } = useMorePages(
     space,
     `share-comments:${shareId}`,
     1,
     (input, page) => client.account.qzone.shareComments.query({ ...input, shareId, page }),
-    { background: true, staleTime: 60_000 },
+    60_000,
   );
+  const count = first?.total;
+  useEffect(() => {
+    if (count !== undefined) onCount(count);
+  }, [count, onCount]);
   const more = useRef<HTMLDivElement>(null);
   const nearEnd = useNearViewport(more, false, Boolean(onNext) && !error);
   useEffect(() => {
     if (nearEnd && !loading && !error) onNext?.();
   }, [nearEnd, loading, error, onNext]);
-  if (!items.length && !loading && !error) return null;
-
   return (
     <section className="weq-qzn-interaction" aria-label="分享评论">
+      {count === 0 && !loading && !error ? <p className="weq-qzn-status">暂无评论</p> : null}
       {items.map((row) => (
         <div key={row.id}>
           {[row, ...row.replies].map((comment, index) => (
