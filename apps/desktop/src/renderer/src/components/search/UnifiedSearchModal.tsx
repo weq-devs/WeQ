@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type ReactElement,
+  type ReactNode,
 } from 'react';
 import { ArrowLeft, RefreshCw, SearchX } from 'lucide-react';
 import { SearchResultCard } from './SearchResultCard';
@@ -51,6 +52,7 @@ export function SearchMoreResults({
   conversationScope = 'all',
   sources,
   recordFilter,
+  filters,
   accountBinding,
 }: {
   category: SearchCategory;
@@ -64,6 +66,7 @@ export function SearchMoreResults({
   conversationScope?: ConversationScope;
   sources?: readonly SearchSource[];
   recordFilter?: GlobalChatRecordFilter;
+  filters?: ReactNode;
   accountBinding?: QQWriteBinding;
 }): ReactElement {
   const activity = useQQReadActivity(true);
@@ -82,9 +85,15 @@ export function SearchMoreResults({
   const nextOffset = useRef(restored.current?.nextOffset ?? 0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const selectedFocusKey = useRef<string | null>(restored.current?.focusKey ?? null);
+  const backRef = useRef<HTMLButtonElement>(null);
   const expectedAccountUin = accountBinding?.expectedAccountUin;
   const expectedAccountConfigId = accountBinding?.expectedAccountConfigId;
   const relevantFilter = category === 'chatRecord' ? recordFilter : undefined;
+  const isQQMessageSearch = Boolean(filters);
+  const heading = isQQMessageSearch ? '筛选 QQ 消息' : `${CATEGORY_META[category].label}搜索`;
+  useLayoutEffect(() => {
+    if (isQQMessageSearch && !restored.current) backRef.current?.focus({ preventScroll: true });
+  }, [isQQMessageSearch]);
   const requestKey = JSON.stringify([
     category,
     keyword,
@@ -117,7 +126,7 @@ export function SearchMoreResults({
           offset,
           limit: 30,
           conversationScope: sources ? 'all' : conversationScope,
-          ...(sources ? { sources: [...sources] } : {}),
+          ...(relevantFilter ? { sources: ['qq'] } : sources ? { sources: [...sources] } : {}),
           ...(relevantFilter
             ? { recordFilter: relevantFilter, expectedAccountUin, expectedAccountConfigId }
             : {}),
@@ -263,12 +272,16 @@ export function SearchMoreResults({
   );
 
   return (
-    <div className="weq-search-dropdown weq-search-more-results">
+    <div
+      className="weq-search-dropdown weq-search-more-results"
+      data-field-popup-host={filters ? '' : undefined}
+    >
       <div className="weq-search-more-head">
         <button
           type="button"
           className="weq-search-more-back"
           data-search-back
+          ref={backRef}
           onClick={onBack}
           title="返回搜索总览"
           aria-label="返回搜索总览"
@@ -276,15 +289,16 @@ export function SearchMoreResults({
           <ArrowLeft size={18} aria-hidden />
         </button>
         <h3 id="weq-search-more-title" className="weq-search-more-title">
-          {CATEGORY_META[category].label}搜索
+          {heading}
         </h3>
       </div>
+      {filters}
       <div
         className="weq-search-more-body"
         ref={scrollRef}
         onScroll={onScroll}
         role="listbox"
-        aria-label={`${CATEGORY_META[category].label}搜索结果`}
+        aria-label={filters ? 'QQ 消息筛选结果' : `${heading}结果`}
         aria-busy={loading || loadingMore}
       >
         {error === 'initial' ? (
@@ -292,12 +306,22 @@ export function SearchMoreResults({
         ) : loading ? (
           <SearchListSkeleton rows={5} />
         ) : data && data.items.length === 0 ? (
-          <EmptyState icon={<SearchX />} title="无结果" />
+          <EmptyState
+            icon={<SearchX />}
+            title="无结果"
+            body={
+              data.limited && isQQMessageSearch
+                ? '本轮候选中没有匹配消息，可缩小时间范围再查。'
+                : undefined
+            }
+          />
         ) : data ? (
           <>
             <div className="weq-search-more-total">
               {data.changed ? (
                 <NumericText>{`已载入 ${data.items.length} 条 · 结果可能已更新${data.limited ? ' · 候选池有上限' : ''}`}</NumericText>
+              ) : data.limited && isQQMessageSearch ? (
+                <NumericText>{`本轮候选 · ${data.total} 个会话`}</NumericText>
               ) : data.limited ? (
                 <NumericText>{`当前候选 ${data.total} 条 · 超出本轮检索上限`}</NumericText>
               ) : (

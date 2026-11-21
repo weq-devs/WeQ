@@ -156,6 +156,15 @@ describe('全局搜索来源与类型', () => {
     const details = await service.conversationRecords('group', '100', '合成', 0, 20, filter);
     expect(details.total).toBe(1);
     expect(details.items.map(({ msgId }) => msgId)).toEqual(['7']);
+    const cleared = await service.moreSearch('chatRecord', '合成', 0, 20, 'all', ['qq'], {});
+    expect(cleared.items).toHaveLength(2);
+    expect(candidate).toHaveBeenLastCalledWith(
+      '合成',
+      { senderUid: undefined, start: undefined, end: undefined },
+      501,
+    );
+    const unfilteredDetails = await service.conversationRecords('group', '100', '合成', 0, 20, {});
+    expect(unfilteredDetails.items.map(({ msgId }) => msgId)).toEqual(['7', '6']);
   });
   it('类型取来源适用集合的并集，功能来源没有类型', () => {
     expect(searchCategoriesForSources(['app'])).toEqual([]);

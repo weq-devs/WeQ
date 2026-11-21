@@ -124,3 +124,88 @@ html[data-theme='dark'] .weq-search-detail .weq-chatrecords {
 .weq-search-detail .weq-chatrecords-msg:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
+
+.weq-search-more-results[data-field-popup-host] .weq-search-more-total {
+  padding: 8px 14px 4px;
+}
+
+.weq-qq-message-filters {
+  display: grid;
+  flex: none;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-qq-message-filter-scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+  gap: 8px;
+}
+
+.weq-qq-message-filter-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@container (max-width: 580px) {
+  .weq-qq-message-filter-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.weq-qq-message-filter-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  min-width: 0;
+}
+
+.weq-qq-message-filter-field > .weq-select-trigger,
+.weq-qq-message-sender > .weq-set-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-qq-message-filter-field > .weq-select-trigger {
+  padding: 5px 9px;
+  border: var(--weq-skin-input-border-width, 1px) solid
+    var(--weq-field-border, var(--weq-border-strong));
+  border-radius: var(--weq-skin-input-radius, 6px);
+  background: var(--weq-field-bg, var(--weq-bg-surface));
+  font-size: 13px;
+}
+
+.weq-qq-message-filter-field > .weq-select-trigger:is(:hover, :focus-visible) {
+  border-color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
+
+.weq-qq-message-sender {
+  position: relative;
+  min-width: 0;
+}
+
+.weq-qq-message-sender > .weq-set-input[readonly] {
+  padding-inline-end: 32px;
+  text-overflow: ellipsis;
+}
+
+.weq-qq-message-sender > button {
+  position: absolute;
+  inset-inline-end: 5px;
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--weq-fg-secondary);
+}

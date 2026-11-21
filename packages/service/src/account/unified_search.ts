@@ -39,7 +39,6 @@ import {
   contentSourcesCoverage,
   DEFAULT_SEARCH_SOURCES,
   searchCategorySupportsSources,
-  hasGlobalChatRecordFilter,
   type GlobalChatRecordFilter,
   type SearchSource,
 } from './search_policy';
@@ -552,12 +551,7 @@ export class UnifiedSearchService {
         return [];
       }
     };
-    if (
-      (enabled('chatRecord') &&
-        selected.includes('qq') &&
-        !hasGlobalChatRecordFilter(recordFilter)) ||
-      enabled('file')
-    )
+    if ((enabled('chatRecord') && selected.includes('qq') && !recordFilter) || enabled('file'))
       void this.ensureIndexes();
     const generated = (category: 'cloneMessage' | 'assistantMessage') => {
       const sources = this.options.generatedSources?.();
@@ -868,7 +862,7 @@ export class UnifiedSearchService {
   ): Promise<{ items: ConversationRecordHit[]; total: number; limited?: boolean }> {
     const needle = keyword.trim();
     if (!needle) return { items: [], total: 0 };
-    if (filter && hasGlobalChatRecordFilter(filter)) {
+    if (filter) {
       const partition = await this.conversationPartition(source, conv);
       if (partition === undefined) return { items: [], total: 0 };
       const snapshot = await this.filteredRecords(needle, filter);
@@ -1125,7 +1119,8 @@ export class UnifiedSearchService {
     recordFilter?: GlobalChatRecordFilter,
     onFailure?: (category: SearchCategory, error: unknown) => void,
   ) {
-    if (recordFilter && hasGlobalChatRecordFilter(recordFilter)) {
+    if (recordFilter) {
+      // 即使条件全清空，QQ 消息筛选仍查询私聊与群聊索引。
       const snapshot =
         sources.includes('qq') && (scope === 'all' || scope === 'real')
           ? await this.filteredRecords(keyword, recordFilter)

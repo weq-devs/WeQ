@@ -79,6 +79,7 @@ export function CalendarDateField({
         <Modal
           presentation="popover"
           anchor={trigger.current}
+          portalTarget={trigger.current?.closest('[data-field-popup-host]')}
           anchorPlacement="below"
           labelledBy={id}
           width={318}
@@ -118,6 +119,7 @@ export function CalendarDateField({
             minDay={min}
             maxDay={max}
             dateOnly
+            statusText="北京时间"
             allowEmpty
             month={month}
             onMonthChange={setMonth}

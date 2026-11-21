@@ -5,6 +5,7 @@ import { SearchDropdown } from './SearchDropdown';
 import { SearchMoreResults } from './UnifiedSearchModal';
 import { ChatRecordsModal } from './ChatRecordsModal';
 import { isInlineSearchHit } from './searchNavigation';
+import { QQMessageSearchFilters } from './QQMessageSearchFilters';
 import { CATEGORY_META, type SearchHit } from './types';
 
 export function SearchResultsPanel({
@@ -15,10 +16,12 @@ export function SearchResultsPanel({
   groupMembers,
   resolveGroupMembers,
   accountBinding,
-  activeRecordFilter,
   renderDetail,
   ...props
-}: Omit<ComponentProps<typeof SearchDropdown>, 'onMore' | 'onNavigate' | 'initialPosition'> & {
+}: Omit<
+  ComponentProps<typeof SearchDropdown>,
+  'onMore' | 'onNavigate' | 'initialPosition' | 'onFilterQQMessages'
+> & {
   navigation: ReturnType<typeof useSearchReturn>;
   onJumpMessage: ComponentProps<typeof ChatRecordsModal>['onJumpMessage'];
   renderers?: ComponentProps<typeof ChatRecordsModal>['renderers'];
@@ -26,9 +29,9 @@ export function SearchResultsPanel({
   groupMembers?: ComponentProps<typeof ChatRecordsModal>['groupMembers'];
   resolveGroupMembers?: ComponentProps<typeof ChatRecordsModal>['resolveGroupMembers'];
   accountBinding?: ComponentProps<typeof ChatRecordsModal>['accountBinding'];
-  activeRecordFilter?: ComponentProps<typeof ChatRecordsModal>['globalRecordFilter'];
   renderDetail: (hit: SearchHit, onBack: () => void) => ReactNode;
 }) {
+  const refinement = navigation.qqMessages;
   const select = (hit: SearchHit) => {
     const bulletinGroup =
       hit.category === 'chatRecord' && hit.source === 'group' && hit.matchedBulletins
@@ -81,7 +84,7 @@ export function SearchResultsPanel({
                 initialHit={hit}
                 initialKeyword={props.keyword}
                 embeddedKeyword={props.keyword}
-                globalRecordFilter={activeRecordFilter}
+                globalRecordFilter={refinement?.filter}
                 accountBinding={accountBinding}
                 onClose={navigation.backDetail}
                 onJumpMessage={onJumpMessage}
@@ -101,11 +104,16 @@ export function SearchResultsPanel({
   if (navigation.category) {
     return (
       <SearchMoreResults
-        key={navigation.category}
+        key={refinement ? 'qqMessages' : navigation.category}
         category={navigation.category}
         keyword={props.keyword}
         sources={props.sources}
-        recordFilter={activeRecordFilter}
+        recordFilter={refinement?.filter}
+        filters={
+          refinement ? (
+            <QQMessageSearchFilters {...refinement} onChange={navigation.setQQMessages} />
+          ) : undefined
+        }
         accountBinding={accountBinding}
         initialSnapshot={navigation.moreSnapshot}
         onSnapshot={navigation.rememberMore}
@@ -125,6 +133,7 @@ export function SearchResultsPanel({
       }
       onNavigate={(position) => navigation.remember({ kind: 'dropdown', position })}
       onMore={navigation.expand}
+      onFilterQQMessages={navigation.filterQQMessages}
     />
   );
 }

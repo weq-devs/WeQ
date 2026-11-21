@@ -10,7 +10,13 @@ import '../../src/renderer/src/styles/workspace-tools.css';
 function Fixture() {
   const [query, setQuery] = useState('资料');
   const [categories, setCategories] = useState<SearchCategory[]>(['contact', 'chatRecord']);
-  const navigation = useSearchReturn('synthetic', query, categories);
+  const [sources, setSources] = useState<('qq' | 'clone' | 'assistant' | 'app')[]>([
+    'qq',
+    'clone',
+    'assistant',
+    'app',
+  ]);
+  const navigation = useSearchReturn('synthetic', query, categories, sources);
   return (
     <TitleBarSearch
       query={query}
@@ -24,10 +30,12 @@ function Fixture() {
           onJumpMessage={() => {}}
           renderDetail={() => null}
           keyword={query}
+          sources={sources}
+          onSourcesChange={setSources}
           categories={categories}
           onCategoriesChange={setCategories}
           quick={{
-            contacts: Array.from({ length: 3 }, (_, index) => ({
+            contacts: Array.from({ length: query === '零命中' ? 0 : 3 }, (_, index) => ({
               category: 'contact',
               uid: `person-${index}`,
               uin: '',
@@ -46,7 +54,7 @@ function Fixture() {
           }}
           quickLoading={false}
           slow={{
-            chatRecords: Array.from({ length: 3 }, (_, index) => ({
+            chatRecords: Array.from({ length: query === '零命中' ? 0 : 3 }, (_, index) => ({
               category: 'chatRecord',
               source: 'group',
               partition: `group-${index}`,
@@ -78,6 +86,7 @@ function Fixture() {
   );
 }
 
+document.documentElement.dataset.componentStyle = 'qqnt';
 document.body.style.cssText =
   'margin:0;padding:16px;box-sizing:border-box;height:100dvh;background:var(--weq-bg-surface);color:var(--weq-fg-primary);font-family:system-ui;';
 createRoot(document.getElementById('root')!).render(<Fixture />);
