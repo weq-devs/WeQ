@@ -1,11 +1,13 @@
-import { useRef, useState } from 'react';
-import { Share2 } from 'lucide-react';
+import { useContext, useRef, useState } from 'react';
+import { Forward, Share2 } from 'lucide-react';
 import { client } from '../trpc/client';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
+import { QzoneShareForwardContext } from '../lib/qzoneNavigation';
 import type { PublicJson } from '../lib/qzonePublic';
-import { CopyButton } from './CopyButton';
 import { EditorDialog } from './EditorDialog';
+import { useToastApi } from './Toast.shared';
 import { QqArk } from './ark/QqArk';
+import { MergeForwardTargets } from './mergeForward/MergeForwardTargets';
 
 type ShareTarget = { hostUin: string; tid: string } | { feed: PublicJson };
 type ShareResult = Awaited<ReturnType<typeof client.account.qqActions.qzoneOrdinaryShare.mutate>>;
@@ -15,8 +17,128 @@ type ShareState = { scope: string } & (
   | { kind: 'ready'; result: ShareResult }
 );
 
+function QzoneShareDialog({
+  current,
+  binding,
+  available,
+  generate,
+  onClose,
+}: {
+  current: ShareState;
+  binding: QQWriteBinding | null;
+  available: boolean;
+  generate: () => void;
+  onClose: () => boolean;
+}) {
+  const forward = useContext(QzoneShareForwardContext);
+  const toast = useToastApi();
+  const sending = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState(() => new Set<string>());
+  const [outcomes, setOutcomes] = useState<
+    { id: string; name: string; status: 'sent' | 'unconfirmed' | 'failed'; error?: string }[]
+  >([]);
+  const settled = new Set(outcomes.filter(({ status }) => status !== 'failed').map(({ id }) => id));
+  const targets = forward?.targets.filter(({ id }) => !settled.has(id)) ?? [];
+  const picked = targets.filter(({ id }) => selected.has(id));
+
+  async function send() {
+    if (
+      !forward ||
+      !binding ||
+      !available ||
+      current.kind !== 'ready' ||
+      sending.current ||
+      !picked.length
+    )
+      return;
+    sending.current = true;
+    setBusy(true);
+    const next = outcomes.filter(({ id }) => !selected.has(id));
+    const failed = new Set<string>();
+    for (const target of picked) {
+      const { id, name } = target;
+      try {
+        const status = (await forward.send(current.result.ark, target, binding)) ?? 'sent';
+        next.push({ id, name, status });
+      } catch (error) {
+        failed.add(id);
+        next.push({
+          id,
+          name,
+          status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    sending.current = false;
+    setBusy(false);
+    setSelected(failed);
+    setOutcomes(next);
+    if (next.every(({ status }) => status === 'sent') && onClose())
+      toast.push({ tone: 'success', title: `已转发到 ${next.length} 个会话` });
+  }
+
+  return (
+    <EditorDialog title="分享卡片" busy={busy} onClose={onClose}>
+      <div className="weq-qzn-share-result">
+        {current.kind === 'loading' ? <p role="status">正在生成分享卡片…</p> : null}
+        {current.kind === 'error' ? (
+          <>
+            <p role="alert">{current.message}</p>
+            <button type="button" className="weq-set-btn" disabled={!available} onClick={generate}>
+              重试生成
+            </button>
+          </>
+        ) : null}
+        {current.kind === 'ready' ? (
+          <>
+            <QqArk arkData={current.result.ark} />
+            {current.result.notice ? <p>{current.result.notice}</p> : null}
+            {outcomes.length ? (
+              <ul aria-live="polite">
+                {outcomes.map(({ id, name, status, error }) => (
+                  <li key={id}>
+                    {name}：
+                    {status === 'sent'
+                      ? '已转发'
+                      : status === 'unconfirmed'
+                        ? '发送结果未确认，请先核对会话'
+                        : error}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {targets.length ? (
+              <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
+            ) : !outcomes.length ? (
+              <p>没有可转发的会话</p>
+            ) : null}
+            <div className="weq-qq-action-bar">
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-primary"
+                disabled={!available || !picked.length}
+                onClick={() => void send()}
+              >
+                <Forward size={15} aria-hidden />
+                {busy
+                  ? '正在转发…'
+                  : current.result.requires_confirmation
+                    ? '确认并转发'
+                    : '转发到会话'}
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </EditorDialog>
+  );
+}
+
 export function useQzoneShareCard(
   binding: QQWriteBinding | null,
+  available: boolean,
   target: ShareTarget | null,
   key: string,
 ) {
@@ -27,10 +149,14 @@ export function useQzoneShareCard(
     binding?.expectedAccountConfigId,
     key,
   ]);
+  const latestScope = useRef(scope);
+  latestScope.current = scope;
   const current = state?.scope === scope ? state : null;
+  if (state && !current) setState(null);
   const generate = () => {
-    if (!binding || !target || current?.kind === 'loading') return;
+    if (!binding || !available || !target || current?.kind === 'loading') return;
     const request = ++attempt.current;
+    const isCurrent = () => attempt.current === request && latestScope.current === scope;
     setState({ kind: 'loading', scope });
     void Promise.resolve()
       .then(() =>
@@ -39,10 +165,10 @@ export function useQzoneShareCard(
           : client.account.qqActions.qzoneFeedShare.mutate({ ...binding, ...target }),
       )
       .then((result) => {
-        if (attempt.current === request) setState({ kind: 'ready', scope, result });
+        if (isCurrent()) setState({ kind: 'ready', scope, result });
       })
       .catch((error: unknown) => {
-        if (attempt.current === request)
+        if (isCurrent())
           setState({
             kind: 'error',
             scope,
@@ -55,41 +181,24 @@ export function useQzoneShareCard(
       ? {
           label: '分享卡片',
           icon: <Share2 size={16} aria-hidden />,
-          disabled: !binding,
+          disabled: !binding || !available,
           action: generate,
         }
       : null,
     dialog: current ? (
-      <EditorDialog
-        title="分享卡片"
+      <QzoneShareDialog
+        key={scope}
+        current={current}
+        binding={binding}
+        available={available}
+        generate={generate}
         onClose={() => {
+          if (latestScope.current !== scope) return false;
           attempt.current++;
           setState(null);
+          return true;
         }}
-      >
-        <div className="weq-qzn-share-result">
-          {current.kind === 'loading' ? <p role="status">正在生成分享卡片…</p> : null}
-          {current.kind === 'error' ? (
-            <>
-              <p role="alert">{current.message}</p>
-              <button type="button" className="weq-set-btn" disabled={!binding} onClick={generate}>
-                重试生成
-              </button>
-            </>
-          ) : null}
-          {current.kind === 'ready' ? (
-            <>
-              <QqArk arkData={current.result.ark} />
-              {current.result.notice ? <p>{current.result.notice}</p> : null}
-              <div className="weq-qq-action-bar">
-                <CopyButton text={current.result.ark} className="weq-set-btn weq-set-btn-primary">
-                  {current.result.requires_confirmation ? '确认并复制卡片' : '复制卡片'}
-                </CopyButton>
-              </div>
-            </>
-          ) : null}
-        </div>
-      </EditorDialog>
+      />
     ) : null,
   };
 }

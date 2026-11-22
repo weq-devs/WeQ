@@ -229,6 +229,9 @@
   gap: 8px;
   min-width: 0;
 }
+.weq-qzn-share-result .weq-mf-target-scroll {
+  max-height: min(36dvh, 18rem);
+}
 .weq-qzn .weq-select-trigger,
 .weq-qzn-composer .weq-select-trigger {
   padding: 6px 8px;

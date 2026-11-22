@@ -1,5 +1,7 @@
 import { createContext } from 'react';
 import type { QzoneFeatureSection } from '@weq/service/feature-catalog';
+import type { MfTarget } from '../components/mergeForward/model';
+import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 
 export interface QzoneSpaceRequest {
   accountUin: string;
@@ -31,6 +33,15 @@ export const QzoneCardNavigationContext = createContext<((target: QzoneCardTarge
   null,
 );
 export const QzonePublicNavigationContext = createContext<(() => void) | null>(null);
+
+export const QzoneShareForwardContext = createContext<{
+  targets: MfTarget[];
+  send: (
+    ark: string,
+    target: MfTarget,
+    binding: QQWriteBinding,
+  ) => Promise<undefined | 'unconfirmed'>;
+} | null>(null);
 
 /** 只接收可验证的空间永久链接，不从标题、摘要或图片链接推测身份。 */
 export function qzoneCardTarget(value: string, depth = 0): QzoneCardTarget | null {

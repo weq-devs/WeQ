@@ -96,19 +96,53 @@ function mount(pureFace = false, override?: RepeatElement[]) {
     },
   };
 }
-async function copyMenu(target: Element) {
+function openMenu(target: Element) {
   act(() =>
     target.dispatchEvent(
       new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 }),
     ),
   );
-  const copy = [
-    ...document.querySelectorAll<HTMLButtonElement>('.message-context-menu button'),
-  ].find((button) => button.textContent?.trim() === '复制');
+  return document.querySelector('.message-context-menu')!;
+}
+async function copyMenu(target: Element, label = '复制') {
+  const copy = [...openMenu(target).querySelectorAll('button')].find(
+    (button) => button.getAttribute('aria-label') === label,
+  );
   expect(copy).toBeDefined();
   await act(async () => copy!.click());
 }
 describe('聊天内容复制交互', () => {
+  const ark = '{"app":"example.unknown","meta":{"original":"kept"}}';
+  const forward = { type: 'multiMsg', data: { resId: 'fixture-record', title: '聊天记录' } };
+  it.each([
+    ['未知 ARK', { type: 'ark', data: { arkData: ark } }, JSON.parse(ark)],
+    ['聊天记录', forward, forward],
+  ] as const)('右键复制 %s 的卡片 JSON，不经过摘要', async (_title, element, expected) => {
+    const write = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+    const f = mount(false, [element]);
+    try {
+      await copyMenu(f.host.querySelector('.message-bubble')!, '复制 JSON');
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(write.mock.calls[0]![0])).toEqual(expected);
+      expect(copied).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  });
+
+  it('普通消息不显示卡片 JSON 操作', () => {
+    const f = mount();
+    try {
+      expect(
+        openMenu(f.host.querySelector('.message-bubble')!).querySelector(
+          '[aria-label="复制 JSON"]',
+        ),
+      ).toBeNull();
+    } finally {
+      f.close();
+    }
+  });
+
   it('表情弹射与文字同发时，两者都显示在气泡里', () => {
     const f = mount(false, [
       { type: 'text', data: { textContent: '一起发送的文字' } },

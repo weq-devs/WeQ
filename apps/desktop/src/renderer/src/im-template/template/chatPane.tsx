@@ -570,7 +570,7 @@ export type ChatPaneProps = {
    * 应用层，由它补 peerType / targetId 再走 IPC。
    * 抛出即失败：面板会显示原因并保留已填内容。
    */
-  onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<void>;
+  onSendArk?: (conversation: Conversation, payload: ArkPayload) => Promise<unknown>;
   /**
    * 闪传文件框「发送」—— 面板收齐文件 + 封面后交回应用层，由它补 peerType / targetId
    * 再走 IPC（与 onSendArk 同）。抛出即失败：面板保留已选文件并显示原因。

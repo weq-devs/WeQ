@@ -1173,7 +1173,9 @@ it('主页按可见性补全说说，保留原位互动，并与说说页共用�
       (item) => item.textContent === '分享卡片',
     )!;
     await act(async () => share.click());
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('确认并复制卡片');
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('分享提醒');
+    expect(dialog.textContent).toContain('确认并转发');
     await act(async () =>
       document.querySelector<HTMLButtonElement>('[aria-label="关闭分享卡片"]')!.click(),
     );

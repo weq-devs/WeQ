@@ -166,7 +166,8 @@ export function QzonePostArchive({
   const binding =
     write.available && write.binding?.expectedAccountUin === selfUin ? write.binding : null;
   const share = useQzoneShareCard(
-    binding,
+    write.binding?.expectedAccountUin === selfUin ? write.binding : null,
+    write.available,
     ordinaryPost ? { hostUin, tid } : null,
     `${hostUin}:${tid}`,
   );

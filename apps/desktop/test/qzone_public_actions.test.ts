@@ -1,8 +1,13 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, type ContextType } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { QzonePublicPane } from '../src/renderer/src/views/QzonePublicView';
-import { QzoneProfileContext } from '../src/renderer/src/lib/qzoneNavigation';
+import {
+  QzoneProfileContext,
+  QzoneShareForwardContext,
+} from '../src/renderer/src/lib/qzoneNavigation';
+
+const shareArk = '{"app":"com.tencent.structmsg","meta":{"news":{"title":"空间分享"}}}';
 
 const state = vi.hoisted(() => ({
   like: vi.fn(async () => ({})),
@@ -11,7 +16,7 @@ const state = vi.hoisted(() => ({
   })),
   forward: vi.fn(async () => ({})),
   share: vi.fn(async (_input: unknown) => ({
-    ark: '{}',
+    ark: shareArk,
     requires_confirmation: false,
     notice: null,
   })),
@@ -118,12 +123,34 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
   };
   const profile = vi.fn();
   const space = vi.fn();
+  const friend = {
+    id: 'friend',
+    kind: 'c2c' as const,
+    conv: '10003',
+    name: '合成好友',
+    avatarUrl: null,
+  };
+  const group = {
+    id: 'group',
+    kind: 'group' as const,
+    conv: '10004',
+    name: '合成群',
+    avatarUrl: null,
+  };
+  const send = vi
+    .fn<NonNullable<ContextType<typeof QzoneShareForwardContext>>['send']>()
+    .mockResolvedValue(undefined);
+  send.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('测试发送失败'));
   await act(async () =>
     root.render(
       h(
         QzoneProfileContext.Provider,
         { value: profile },
-        h(QzonePublicPane, { selfUin: '10001', onSpace: space }),
+        h(
+          QzoneShareForwardContext.Provider,
+          { value: { targets: [friend, group], send } },
+          h(QzonePublicPane, { selfUin: '10001', onSpace: space }),
+        ),
       ),
     ),
   );
@@ -141,10 +168,26 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
     expectedAccountConfigId: 'source-a',
     feed: expect.objectContaining({ cell_feed_transfer: 'opaque-feed-transfer' }),
   });
-  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('复制卡片');
-  await act(async () =>
-    document.querySelector<HTMLButtonElement>('[aria-label="关闭分享卡片"]')!.click(),
-  );
+  const dialog = document.querySelector('[role="dialog"]')!;
+  const button = (label: string) =>
+    [...dialog.querySelectorAll('button')].find((item) => item.textContent?.trim() === label)!;
+  expect(send).not.toHaveBeenCalled();
+  expect(button('转发到会话').disabled).toBe(true);
+  await act(async () => {
+    button('合成好友10003').click();
+    button('合成群').click();
+  });
+  expect(send).not.toHaveBeenCalled();
+  await act(async () => button('转发到会话').click());
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+  expect(send.mock.calls).toEqual([
+    [shareArk, friend, binding],
+    [shareArk, group, binding],
+  ]);
+  expect(dialog.textContent).toContain('测试发送失败');
+  await act(async () => button('转发到会话').click());
+  expect(send.mock.calls.slice(2)).toEqual([[shareArk, group, binding]]);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
   space.mockClear();
   act(() => host.querySelector<HTMLButtonElement>('.weq-qzn-person-info > button')!.click());
   expect(space).toHaveBeenCalledWith('10002', '原作者');

@@ -263,7 +263,7 @@ import {
   useContentSelectionScope,
   useRequestContentExport,
 } from '../state/contentSelection.shared';
-import { useQQWriteSession } from '../hooks/useQQWriteSession';
+import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { conversationWindowKey } from '../lib/conversationWindowCache';
 import { firstPageKey } from '../lib/conversationFirstPage';
 import { applyReplyMedia, needsReplyMedia } from '../lib/replyMedia';
@@ -466,7 +466,7 @@ import {
 } from '../lib/calendarNavigation';
 import { conversationListSearchText } from '../lib/conversationListSearchText';
 import { calendarCloneRevision, calendarAssistantRevision } from '../lib/calendarSourceRevision';
-import { QzoneCardNavigationContext } from '../lib/qzoneNavigation';
+import { QzoneCardNavigationContext, QzoneShareForwardContext } from '../lib/qzoneNavigation';
 import { MailCardNavigationContext, type MailOpenTarget } from '../lib/mailNavigation';
 import {
   findLinkedAppEntry,
@@ -8064,7 +8064,11 @@ function MainWorkspace(): ReactElement {
    *
    * 失败一律抛错（面板显示原因并保留已填内容），不把「调用了」当「发成功」。
    */
-  async function sendArkCard(conversation: Conversation, payload: ArkPayload): Promise<void> {
+  async function sendArkCard(
+    conversation: Conversation,
+    payload: ArkPayload,
+    binding?: QQWriteBinding,
+  ): Promise<undefined | 'unconfirmed'> {
     const pushToast = sourceToastPush(conversationNotificationSource(conversation));
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
@@ -8244,6 +8248,7 @@ function MainWorkspace(): ReactElement {
       startOptimistic(payload.arkData);
       const outcome = await client.account.sendArkCard.mutate({
         ...outgoingReceipt(optimisticId),
+        ...binding,
         peerType: target.peerType,
         targetId: target.targetId,
         arkData: payload.arkData,
@@ -8263,7 +8268,7 @@ function MainWorkspace(): ReactElement {
             '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条（常见于签名 / 内容不合规）。' +
             '请让对方确认是否收到；若没有，换一种内容重发。',
         });
-        return;
+        return 'unconfirmed';
       }
     } catch (error) {
       // 失败不删卡：留着那张卡片 + 「发送失败」标识，比一个只闪现几秒的 toast 有用。
@@ -9788,6 +9793,22 @@ function MainWorkspace(): ReactElement {
     }),
   );
   const replyJump = useStableCallback(jumpToSeq);
+  const forwardQzoneShare = useStableCallback(
+    async (ark: string, target: MfTarget, binding: QQWriteBinding) => {
+      if (
+        binding.expectedAccountUin !== useViewState.getState().openedUin ||
+        binding.expectedAccountConfigId !== configId
+      )
+        throw new Error('账号数据源已切换，未转发');
+      const conversation = conversations.find((item) => item.id === target.id);
+      if (!conversation || conversation.type === 'merged') throw new Error('目标会话已不存在');
+      return sendArkCard(conversation, { type: 'ark', arkData: ark }, binding);
+    },
+  );
+  const qzoneShareForward = useMemo(
+    () => ({ targets: mergeForwardTargets, send: forwardQzoneShare }),
+    [mergeForwardTargets, forwardQzoneShare],
+  );
   const returnToRecording = useStableCallback((id: string) => {
     setSpecialChat(null);
     setArkFeedState(null);
@@ -11648,7 +11669,11 @@ function MainWorkspace(): ReactElement {
                                           }
                                         >
                                           <MailCardNavigationContext.Provider value={openMailCard}>
-                                            {chatContent}
+                                            <QzoneShareForwardContext.Provider
+                                              value={qzoneShareForward}
+                                            >
+                                              {chatContent}
+                                            </QzoneShareForwardContext.Provider>
                                           </MailCardNavigationContext.Provider>
                                         </VoiceWorkspace>
                                       </GroupSpeechPreviewContext.Provider>

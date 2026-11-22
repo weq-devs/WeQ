@@ -14,9 +14,8 @@ export function QzoneFeedShareMenu({
   feedKey: string;
 }) {
   const session = useQQAction(`qzone-share:${feedKey}`, 'failure-only', { passive: true });
-  const binding =
-    session.available && session.binding?.expectedAccountUin === selfUin ? session.binding : null;
-  const share = useQzoneShareCard(binding, { feed }, feedKey);
+  const binding = session.binding?.expectedAccountUin === selfUin ? session.binding : null;
+  const share = useQzoneShareCard(binding, session.available, { feed }, feedKey);
   return (
     <>
       {share.action ? <QzoneCardMore actions={[share.action]} /> : null}

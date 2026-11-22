@@ -7151,12 +7151,18 @@ export const accountRouter = router({
       z.object({
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
+        expectedAccountUin: z.string().min(1).optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
         arkData: z.string().min(1).max(200_000),
       }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      return requireServices().messageSend.sendArkCard(input);
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      requireQqOnlineForAlbum(services);
+      return services.messageSend.sendArkCard(input);
     }),
 
   /**
