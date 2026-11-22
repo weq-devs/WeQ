@@ -193,7 +193,7 @@ export default defineConfig({
     cacheDir: resolve(import.meta.dirname, 'node_modules/.vite-desktop'),
     plugins: [
       ...rendererLogging.plugins,
-      developmentReload.rendererPlugin(),
+      developmentReload.rendererPlugin({ clearOnMenuRestart: true }),
       developmentWeb(resolve(import.meta.dirname, '../..'), {
         plugins: [createDevelopmentReload().rendererPlugin()],
       }),

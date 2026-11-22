@@ -42,3 +42,7 @@ allowBuilds:
 # 必然撞上校验。lockfile 的真实性由各处开头的 `pnpm install --frozen-lockfile`
 # 兜底，这里关掉冗余的二次校验。
 verifyDepsBeforeRun: false
+
+# 让菜单重启和源码热重载共用 electron-vite 的 Electron 子进程生命周期。
+patchedDependencies:
+  electron-vite@6.0.0: patches/electron-vite@6.0.0.patch

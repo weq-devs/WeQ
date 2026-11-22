@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,10 +14,14 @@ const { DEVELOPMENT_RELOAD_APPLY, DEVELOPMENT_RELOAD_STATUS } = await tsImport(
   '../apps/desktop/src/shared/development_reload.ts',
   import.meta.url,
 );
+const { DEVELOPMENT_RESTART_EXIT_CODE } = await tsImport(
+  '../apps/desktop/src/main/development_restart.ts',
+  import.meta.url,
+);
 
 const run = promisify(execFile);
 
-test('真实 electron-vite 监听：成功后等待点击，连续构建合并，失败不重载，界面热更新照常', {
+test('真实 electron-vite：菜单和开发更新都在原 Vite 会话中重启 Electron', {
   timeout: 30_000,
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'weq-watch-'));
@@ -43,9 +47,23 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
     'console.log("fixture"); if(import.meta.hot) import.meta.hot.accept();',
   );
   const log = join(root, 'started.jsonl');
+  const menuRestart = join(root, 'menu-restart');
   const main = join(root, 'main.js');
   const source = (value) =>
-    `import {appendFileSync} from 'node:fs'; appendFileSync(${JSON.stringify(log)}, JSON.stringify({value:${value},pid:process.pid,url:process.env.ELECTRON_RENDERER_URL,restarting:process.env.WEQ_DEV_RESTART})+'\\n'); setInterval(()=>{},1000);`;
+    `import {appendFileSync,existsSync,readFileSync,unlinkSync} from 'node:fs';
+      const request = ${JSON.stringify(menuRestart)};
+      appendFileSync(${JSON.stringify(log)}, JSON.stringify({
+        value:${value},pid:process.pid,parent:process.ppid,url:process.env.ELECTRON_RENDERER_URL,
+        restarting:process.env.WEQ_DEV_RESTART,managed:process.env.WEQ_DEV_RESTART_MANAGED,
+        args:process.argv.slice(2)
+      })+'\\n');
+      setInterval(()=>{
+        if (!existsSync(request)) return;
+        const code = Number.parseInt(readFileSync(request,'utf8'), 10);
+        if (!Number.isInteger(code)) return;
+        unlinkSync(request);
+        process.exit(code);
+      },25);`;
   await writeFile(main, source(1));
   await writeFile(join(root, 'preload.js'), 'export const value = 1;');
   const { stdout } = await run(
@@ -79,14 +97,12 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
     export default {
       main: {...mainLogging.config, plugins:[...mainLogging.plugins, successfulDevelopmentReload('main',reload)], build: {watch: ${JSON.stringify(watch.main)}, rollupOptions: {input: ${JSON.stringify(main)}}}},
       preload: {...preloadLogging.config, plugins:[...preloadLogging.plugins, successfulDevelopmentReload('preload',reload)], build: {watch: ${JSON.stringify(watch.preload)}, rollupOptions: {input: ${JSON.stringify(join(root, 'preload.js'))}}}},
-      renderer: {root: ${JSON.stringify(root)}, plugins:[reload.rendererPlugin()], server: {host:'127.0.0.1',port:0}, build:{rollupOptions:{input:${JSON.stringify(join(root, 'index.html'))}}}}
+      renderer: {root: ${JSON.stringify(root)}, plugins:[reload.rendererPlugin({clearOnMenuRestart:true})], server: {host:'127.0.0.1',port:0}, build:{rollupOptions:{input:${JSON.stringify(join(root, 'index.html'))}}}}
     };
   `,
   );
   const require = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
-  const pkg = require.resolve('electron-vite/package.json');
-  const manifest = JSON.parse(await readFile(pkg, 'utf8'));
-  const bin = join(dirname(pkg), manifest.bin['electron-vite']);
+  const runner = fileURLToPath(new URL('./run-dev-electron.mjs', import.meta.url));
   const env = {
     ...process.env,
     ELECTRON_EXEC_PATH: process.execPath,
@@ -105,7 +121,7 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
     'WEQ_DEV_RESTART',
   ])
     delete env[key];
-  child = spawn(process.execPath, [bin, 'dev'], {
+  child = spawn(process.execPath, [runner, '--', '--user-data-dir=fixture', '--weq-autostart'], {
     cwd: root,
     env,
     detached: process.platform !== 'win32',
@@ -141,6 +157,8 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
   await until(async () => (await starts()).length === 1);
   const first = (await starts())[0];
   assert.equal(first.restarting, undefined);
+  assert.equal(first.managed, '1');
+  assert.deepEqual(first.args, ['--user-data-dir=fixture', '--weq-autostart']);
   assert.match(output, /初始构建完成/);
   assert.doesNotMatch(output, /watching for file changes|build started|built in \d+ms/);
   const client = await (await fetch(`${first.url}/@vite/client`)).text();
@@ -184,6 +202,21 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
   assert.equal((await starts())[1].value, 3);
   assert.equal((await starts())[1].restarting, '1');
   assert.match(output, /主进程增量构建完成（构建已恢复）/);
+  await writeFile(main, source(4));
+  await until(() => pending?.ready && pending.restart);
+  await writeFile(menuRestart, String(DEVELOPMENT_RESTART_EXIT_CODE));
+  await until(async () => (await starts()).length === 3 && pending === null);
+  const [, hot, manual] = await starts();
+  assert.equal(hot.url, first.url);
+  assert.equal(manual.url, first.url);
+  assert.equal(hot.parent, first.parent);
+  assert.equal(manual.parent, first.parent);
+  assert.equal(new Set([first.pid, hot.pid, manual.pid]).size, 3);
+  assert.equal(manual.value, 4);
+  assert.equal(manual.restarting, '1');
+  assert.deepEqual(manual.args, ['--user-data-dir=fixture', '--weq-manual-restart']);
+  assert.match(output, /正在重启 WeQ 应用/);
+  assert.equal(output.match(/初始构建完成/g).length, 1);
   output = '';
   await writeFile(join(root, 'preload.js'), 'export const = ;');
   await until(() => /Expected|PARSE_ERROR|Unexpected/.test(output));
@@ -195,7 +228,7 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
   apply();
   await until(() => reloads === 1);
   assert.equal(reloads, 1);
-  assert.equal((await starts()).length, 2);
+  assert.equal((await starts()).length, 3);
   await fetch(`${first.url}/renderer.js`);
   await writeFile(
     join(root, 'renderer.js'),
@@ -211,4 +244,8 @@ test('真实 electron-vite 监听：成功后等待点击，连续构建合并�
   assert.equal(reloads, 1, 'HTML 完整刷新先提示');
   apply();
   await until(() => reloads === 2);
+  const closed = once(child, 'close');
+  await writeFile(menuRestart, '0');
+  assert.deepEqual(await closed, [0, null], output);
+  assert.equal((await starts()).length, 3);
 });

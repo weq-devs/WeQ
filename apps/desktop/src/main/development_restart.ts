@@ -1,5 +1,6 @@
-// electron-vite 透传 Electron 的退出码，由当前 pnpm dev 会话接手下一轮。
+// electron-vite 收到该退出码后，在当前监听和 Vite 服务内重启 Electron。
 export const DEVELOPMENT_RESTART_EXIT_CODE = 75;
+export const DEVELOPMENT_MENU_RESTART = 'weq:development-menu-restart';
 
 /** 只有窗口放行且退出清理完成，才向开发启动器提交重启。 */
 export function scheduleDevelopmentRestart(

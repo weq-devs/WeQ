@@ -10,9 +10,6 @@ import {
   type LoggerContext,
   type LogLevel,
 } from '@weq/service/console-output';
-import { DEVELOPMENT_RESTART_EXIT_CODE } from './development_restart';
-import { manualRestartArgs } from './startup_window';
-
 export { terminalColor };
 
 export function developmentRecord(
@@ -114,7 +111,16 @@ export function createDevelopmentOutput(
     const benignInput = Boolean(system && benignSystemInputDiagnostic(system[2]!));
     if (!debug && benignInput) return;
     const vite = /^\s*(?:\d{1,2}:\d{2}:\d{2}(?:\s*[AP]M)?\s+)?\[vite\]\s*(.*)$/.exec(text);
-    const scope = system ? 'electron-system' : vite ? 'vite' : 'dev-process';
+    const chromium = /^\[\d+:(?:\d+:)?\d{4}\/\d{6}\.\d+:(INFO|WARNING|ERROR|FATAL):[^\]]+\] /.exec(
+      text,
+    );
+    const scope = system
+      ? 'electron-system'
+      : vite
+        ? 'vite'
+        : chromium
+          ? 'chromium'
+          : 'dev-process';
     const lifecycle: Record<string, string> = {
       'starting electron app...': '正在启动应用',
       'restarting electron app...': '正在重启应用',
@@ -129,12 +135,13 @@ export function createDevelopmentOutput(
         : (lifecycle[text.trim()] ?? text);
     if (continuation || /^\s+at\s|^\s*\^/.test(text)) sink(`         ${text}\n`);
     else {
+      const severity = chromium?.[1] ?? message;
       const level =
         buildTiming || benignInput
           ? 'debug'
-          : /\b(?:error|fatal|failed)\b/i.test(message)
+          : /\b(?:error|fatal|failed)\b/i.test(severity)
             ? 'error'
-            : text.includes('[PLUGIN_TIMINGS]') || /\bwarn(?:ing)?\b/i.test(message)
+            : text.includes('[PLUGIN_TIMINGS]') || /\bwarn(?:ing)?\b/i.test(severity)
               ? 'warn'
               : 'info';
       sink(
@@ -271,37 +278,20 @@ export function superviseDevelopmentChild(
   });
 }
 
-export async function launchDevelopment(
+export function launchDevelopment(
   command: string,
   args: string[],
   cwd: string,
   env: NodeJS.ProcessEnv,
 ): Promise<number> {
   const processGroup = process.platform !== 'win32';
-  const childEnv = developmentChildEnvironment({ ...env, WEQ_DEV_RESTART_MANAGED: '1' });
-  let launchArgs = args;
-  for (;;) {
-    const status = await superviseDevelopmentChild(
-      spawn(command, launchArgs, {
-        cwd,
-        env: childEnv,
-        stdio: ['inherit', 'pipe', 'pipe'],
-        detached: processGroup,
-      }),
-      processGroup,
-    );
-    if (status !== DEVELOPMENT_RESTART_EXIT_CODE) return status;
-
-    launchArgs = manualRestartArgs([command, ...args]);
-    childEnv.WEQ_DEV_RESTART = '1';
-    childEnv.WEQ_DEV_STARTED_AT = String(Date.now());
-    process.stdout.write(
-      developmentRecord(
-        'info',
-        '正在重启 WeQ 开发服务',
-        { scope: 'startup' },
-        terminalColor('stdout'),
-      ),
-    );
-  }
+  return superviseDevelopmentChild(
+    spawn(command, args, {
+      cwd,
+      env: developmentChildEnvironment(env),
+      stdio: ['inherit', 'pipe', 'pipe'],
+      detached: processGroup,
+    }),
+    processGroup,
+  );
 }

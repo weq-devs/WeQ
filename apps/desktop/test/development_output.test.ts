@@ -103,6 +103,17 @@ describe('开发进程输出', () => {
     expect(lines.at(-1)).toContain('ERROR dev-process');
     expect(lines.at(-1)).toContain(macInputDiagnostics[0]);
   });
+  it('区分 Chromium 诊断和启动器输出，保留 Chromium 自报的级别和原文', () => {
+    const lines: string[] = [];
+    const output = createDevelopmentOutput((line) => lines.push(line), false);
+    output.write(
+      '[7478:1122/200355.584856:ERROR:net/socket/ssl_client_socket_impl.cc:962] handshake failed; net_error -200\n',
+    );
+    output.write('[42:7:1122/200355.584856:WARNING:fixture.cc:1] retry after an error\n');
+    expect(lines[0]).toContain('ERROR chromium');
+    expect(lines[0]).toContain('net_error -200');
+    expect(lines[1]).toContain('WARN  chromium');
+  });
   it('管道继承真实终端颜色，NO_COLOR 优先，已有 ANSI 在无色输出中移除', () => {
     expect(terminalColor('stderr', { WEQ_DEV_STDERR_TTY: '1' })).toBe(true);
     expect(

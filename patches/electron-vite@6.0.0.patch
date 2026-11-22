@@ -1,0 +1,111 @@
+diff --git a/dist/chunks/lib-CLhLGLN3.js b/dist/chunks/lib-CLhLGLN3.js
+--- a/dist/chunks/lib-CLhLGLN3.js
++++ b/dist/chunks/lib-CLhLGLN3.js
+@@ -1,6 +1,6 @@
+ import { createLogger, createServer as createServer$1, mergeConfig, build } from 'vite';
+ import colors from 'picocolors';
+-import { r as resolveConfig, c as resolveHostname, s as startElectron } from './lib-DoUt4oMD.js';
++import { r as resolveConfig, c as resolveHostname, s as startElectron, i as isElectronStopping } from './lib-DoUt4oMD.js';
+ import 'node:path';
+ import 'node:fs';
+ import 'node:module';
+@@ -18,6 +18,21 @@
+         const logger = createLogger(inlineConfig.logLevel);
+         let server;
+         let ps;
++        let restartPending = false;
++        const launchElectron = () => {
++            ps = startElectron(inlineConfig.root, (code, signal) => {
++                if (!isElectronStopping()) {
++                    const requested = code !== null && options.restartOnExit?.(code);
++                    if (requested || restartPending) {
++                        restartPending = false;
++                        launchElectron();
++                        logger.info(colors.green(`\nrestarting electron app...\n`));
++                        return;
++                    }
++                }
++                process.exit(code ?? (signal ? 1 : 0));
++            });
++        };
+         const errorHook = (e) => {
+             logger.error(`${colors.bgRed(colors.white(' ERROR '))} ${colors.red(e.message)}`);
+         };
+@@ -25,11 +40,9 @@
+         if (mainViteConfig && !options.rendererOnly) {
+             const watchHook = () => {
+                 logger.info(colors.green(`\nelectron main process rebuilt successfully`));
+-                if (ps) {
+-                    ps.removeAllListeners();
++                if (ps && !restartPending) {
++                    restartPending = true;
+                     ps.kill();
+-                    ps = startElectron(inlineConfig.root);
+-                    logger.info(colors.green(`\nrestarting electron app...\n`));
+                 }
+             };
+             await doBuild(mainViteConfig, watchHook, errorHook);
+@@ -70,7 +83,7 @@
+             });
+             server.printUrls();
+         }
+-        ps = startElectron(inlineConfig.root);
++        launchElectron();
+         logger.info(colors.green(`\nstarting electron app...\n`));
+     }
+ }
+diff --git a/dist/chunks/lib-DoUt4oMD.js b/dist/chunks/lib-DoUt4oMD.js
+--- a/dist/chunks/lib-DoUt4oMD.js
++++ b/dist/chunks/lib-DoUt4oMD.js
+@@ -266,7 +266,7 @@
+     }
+     return '';
+ }
+-function startElectron(root) {
++function startElectron(root, onClose) {
+     ensureElectronEntryFile(root);
+     const electronPath = getElectronPath();
+     const isDev = process.env.NODE_ENV_ELECTRON_VITE === 'development';
+@@ -288,12 +288,16 @@
+     // `code` is null when the child was terminated by a signal, and `process.exit` ignores
+     // its second argument, so passing the listener directly would report every crash as a
+     // successful exit. Map a signal death to a non-zero status instead.
+-    ps.on('close', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
++    ps.on('close', onClose ?? ((code, signal) => process.exit(code ?? (signal ? 1 : 0))));
+     setupElectronSignalHandlers(ps);
+     return ps;
+ }
+ let electronPs;
+ let signalHandlersRegistered = false;
++let electronStopping = false;
++function isElectronStopping() {
++    return electronStopping;
++}
+ function setupElectronSignalHandlers(child) {
+     electronPs = child;
+     if (signalHandlersRegistered)
+@@ -301,6 +305,7 @@
+     const signals = process.platform === 'win32' ? ['SIGINT', 'SIGTERM'] : ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGUSR2'];
+     for (const signal of signals) {
+         process.on(signal, () => {
++            electronStopping = true;
+             const child = electronPs;
+             if (!child?.pid || child.exitCode !== null || child.signalCode !== null)
+                 return;
+@@ -1822,4 +1827,4 @@
+     }
+ }
+ 
+-export { ConfigFactory as C, MainConfigFactory as M, PreloadConfigFactory as P, RendererConfigFactory as R, loadEnv as a, bytecodePlugin as b, resolveHostname as c, defineConfig as d, externalizeDepsPlugin as e, asyncFlatten as f, getElectronPath as g, loadConfigFromFile as l, resolveConfig as r, startElectron as s };
++export { isElectronStopping as i, ConfigFactory as C, MainConfigFactory as M, PreloadConfigFactory as P, RendererConfigFactory as R, loadEnv as a, bytecodePlugin as b, resolveHostname as c, defineConfig as d, externalizeDepsPlugin as e, asyncFlatten as f, getElectronPath as g, loadConfigFromFile as l, resolveConfig as r, startElectron as s };
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -162,6 +162,7 @@
+ 
+ declare function createServer(inlineConfig: InlineConfig | undefined, options: {
+     rendererOnly?: boolean;
++    restartOnExit?: (code: number) => boolean;
+ }): Promise<void>;
+ 
+ /**

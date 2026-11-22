@@ -6,6 +6,7 @@ import {
   DEVELOPMENT_RELOAD_STATUS,
   type DevelopmentReloadStatus,
 } from '../shared/development_reload';
+import { DEVELOPMENT_MENU_RESTART } from './development_restart';
 
 type Target = 'main' | 'preload';
 
@@ -21,6 +22,13 @@ export function createDevelopmentReload() {
     id ? { id, restart: callbacks.has('main'), ready: unavailable.size === 0 } : null;
   const notify = () => {
     for (const listener of listeners) listener();
+  };
+  const clear = () => {
+    if (!id) return;
+    id = undefined;
+    callbacks.clear();
+    page = undefined;
+    notify();
   };
   const controller = {
     status,
@@ -41,10 +49,7 @@ export function createDevelopmentReload() {
     apply(requestId: unknown) {
       if (!id || id !== requestId || unavailable.size || applying) return;
       const apply = callbacks.get('main') ?? callbacks.get('preload') ?? page;
-      id = undefined;
-      callbacks.clear();
-      page = undefined;
-      notify();
+      clear();
       applying = true;
       try {
         apply?.();
@@ -52,7 +57,7 @@ export function createDevelopmentReload() {
         applying = false;
       }
     },
-    rendererPlugin(): Plugin {
+    rendererPlugin({ clearOnMenuRestart = false } = {}): Plugin {
       return {
         name: 'weq-development-reload-prompt',
         apply: 'serve',
@@ -76,7 +81,11 @@ export function createDevelopmentReload() {
             controller.apply(data?.id);
             client.send(DEVELOPMENT_RELOAD_STATUS, status());
           });
-          server.httpServer?.once('close', () => listeners.delete(publish));
+          if (clearOnMenuRestart) process.on(DEVELOPMENT_MENU_RESTART, clear);
+          server.httpServer?.once('close', () => {
+            listeners.delete(publish);
+            if (clearOnMenuRestart) process.off(DEVELOPMENT_MENU_RESTART, clear);
+          });
         },
       };
     },

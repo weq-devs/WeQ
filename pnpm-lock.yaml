@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  electron-vite@6.0.0: bdbef2491f3a7222468b97d4fc4f046dd333d820b6563de80c5fa0b5c2cb1b4a
+
 importers:
 
   .:
@@ -367,7 +370,7 @@ importers:
         version: 25.1.8(bluebird@3.7.2)(electron-builder-squirrel-windows@25.1.8)(supports-color@7.2.0)
       electron-vite:
         specifier: ^6.0.0
-        version: 6.0.0(supports-color@7.2.0)(vite@8.3.4(@types/node@22.19.20)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))
+        version: 6.0.0(patch_hash=bdbef2491f3a7222468b97d4fc4f046dd333d820b6563de80c5fa0b5c2cb1b4a)(supports-color@7.2.0)(vite@8.3.4(@types/node@22.19.20)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))
       happy-dom:
         specifier: ^21.0.1
         version: 21.0.1
@@ -7755,7 +7758,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron-vite@6.0.0(supports-color@7.2.0)(vite@8.3.4(@types/node@22.19.20)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)):
+  electron-vite@6.0.0(patch_hash=bdbef2491f3a7222468b97d4fc4f046dd333d820b6563de80c5fa0b5c2cb1b4a)(supports-color@7.2.0)(vite@8.3.4(@types/node@22.19.20)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)):
     dependencies:
       '@babel/core': 7.29.7(supports-color@7.2.0)
       '@babel/plugin-transform-arrow-functions': 7.29.7(@babel/core@7.29.7(supports-color@7.2.0))

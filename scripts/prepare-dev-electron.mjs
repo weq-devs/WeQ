@@ -2,13 +2,11 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const desktop = join(root, 'apps/desktop');
-const require = createRequire(join(desktop, 'package.json'));
 function run(command, args, { input } = {}) {
   return new Promise((resolve, reject) => {
     const child = execFile(
@@ -37,15 +35,6 @@ const bundleIdentity = {
   CFBundleDisplayName: 'WeQ Dev',
   CFBundleIconFile: 'weq.icns',
 };
-
-/** 解析依赖包的可执行入口。Windows 上 pnpm 只有 `.CMD`，spawn 找不到，故不经过 pnpm。 */
-async function resolveBin(specifier, binName) {
-  const packagePath = require.resolve(`${specifier}/package.json`);
-  const { bin } = JSON.parse(await readFile(packagePath, 'utf8'));
-  const entry = typeof bin === 'string' ? bin : bin?.[binName];
-  if (!entry) throw new Error(`找不到 ${specifier} 的可执行入口。`);
-  return join(dirname(packagePath), entry);
-}
 
 async function hash(path) {
   const digest = createHash('sha256');
@@ -250,7 +239,7 @@ export async function launchDevElectron(args = [], environment = process.env, ex
   );
   return launchDevelopment(
     process.execPath,
-    [await resolveBin('electron-vite', 'electron-vite'), 'dev', ...args],
+    [fileURLToPath(new URL('./run-dev-electron.mjs', import.meta.url)), ...args],
     desktop,
     env,
   );
