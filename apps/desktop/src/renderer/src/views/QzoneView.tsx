@@ -1740,17 +1740,6 @@ function HomePost({
   );
 }
 
-const idlePostCompletion = { post: false, repost: false };
-const emptyPostCompletionError = { post: '', repost: '' };
-
-function missingPostImages(source: QzoneEmotion, current: QzoneEmotion, scope: 'post' | 'repost') {
-  const images = scope === 'repost' ? current.repost?.images : current.images;
-  return (
-    source.imageTotal != null &&
-    source.imageTotal > Math.max(source.imageReturned ?? 0, images?.length ?? 0)
-  );
-}
-
 function Post({
   selfUin,
   hostUin,
@@ -1792,30 +1781,24 @@ function Post({
 }) {
   const localRef = useRef<HTMLElement>(null);
   const ref = articleRef ?? localRef;
-  const imageScope = qzoneImageCompletionScope(sourcePost);
-  const needsCompletion = Boolean(
-    sourcePost.contentTruncated ||
-      sourcePost.repost?.contentTruncated ||
-      missingPostImages(sourcePost, sourcePost, imageScope),
-  );
-  const visible = useNearViewport(ref, false, needsCompletion);
+  const visible = useNearViewport(ref);
   const { refresh } = useContext(QzonePageContext);
   const readsPaused = useContext(QzoneReadPauseContext);
   const { run, cancel } = useQzoneRequests();
-  const sourceSignature = useMemo(() => JSON.stringify(sourcePost), [sourcePost]);
+  const sourceSignature = JSON.stringify(sourcePost);
   const [completed, setCompleted] = useState<{ signature: string; post: QzoneEmotion } | null>(
     null,
   );
   const completedRef = useRef(completed);
   completedRef.current = completed;
   const post = completed?.signature === sourceSignature ? completed.post : sourcePost;
-  const [completing, setCompleting] = useState(idlePostCompletion);
-  const [completionError, setCompletionError] = useState(emptyPostCompletionError);
+  const [completing, setCompleting] = useState({ post: false, repost: false });
+  const [completionError, setCompletionError] = useState({ post: '', repost: '' });
   const [retry, setRetry] = useState(0);
   const attempted = useRef('');
   useEffect(() => {
     if (readsPaused) {
-      setCompleting(idlePostCompletion);
+      setCompleting({ post: false, repost: false });
       return undefined;
     }
     const attempt = `${sourceSignature}:${refresh}:${retry}`;
@@ -1824,10 +1807,14 @@ function Post({
     const ownTextNeeded = observed.contentTruncated === true;
     const originalTextNeeded = observed.repost?.contentTruncated === true;
     const textNeeded = ownTextNeeded || originalTextNeeded;
-    const imagesNeeded = missingPostImages(sourcePost, observed, imageScope);
+    const imageScope = qzoneImageCompletionScope(sourcePost);
+    const observedImages = imageScope === 'repost' ? observed.repost?.images : observed.images;
+    const imagesNeeded =
+      sourcePost.imageTotal != null &&
+      sourcePost.imageTotal > Math.max(sourcePost.imageReturned ?? 0, observedImages?.length ?? 0);
     if (!textNeeded && !imagesNeeded) {
-      setCompleting(idlePostCompletion);
-      setCompletionError(emptyPostCompletionError);
+      setCompleting({ post: false, repost: false });
+      setCompletionError({ post: '', repost: '' });
     }
     if (!visible || (!textNeeded && !imagesNeeded) || attempted.current === attempt)
       return undefined;
@@ -1838,7 +1825,7 @@ function Post({
       post: ownTextNeeded || (imagesNeeded && imageScope === 'post'),
       repost: originalTextNeeded || (imagesNeeded && imageScope === 'repost'),
     });
-    setCompletionError(emptyPostCompletionError);
+    setCompletionError({ post: '', repost: '' });
     const input = { selfUin, hostUin, tid: sourcePost.tid };
     void (async () => {
       let next = {
@@ -1913,7 +1900,7 @@ function Post({
       completedRef.current = { signature: sourceSignature, post: next };
       setCompleted(completedRef.current);
       setCompletionError({ post: issues.post.join(' · '), repost: issues.repost.join(' · ') });
-      setCompleting(idlePostCompletion);
+      setCompleting({ post: false, repost: false });
     })();
     return () => {
       live = false;
@@ -1923,7 +1910,6 @@ function Post({
   }, [
     readsPaused,
     visible,
-    imageScope,
     sourceSignature,
     sourcePost,
     selfUin,
@@ -3731,6 +3717,7 @@ function RelatedCard({
             ) : null}
             <span title={relatedActionLine(activity)}>{relatedActionLine(activity)}</span>
           </span>
+  const visible = useNearViewport(ref, true);
           {excerpt ? (
             <span className="weq-qzn-related-post-line" title={excerpt}>
               {excerpt}
@@ -3781,7 +3768,7 @@ function RelatedCard({
   );
 }
 
-const FeedCard = memo(function FeedCard({
+function FeedCard({
   feed,
   body,
   selfUin,
@@ -3821,7 +3808,6 @@ const FeedCard = memo(function FeedCard({
     feed.appid === 311 &&
     (body.unsupported ||
       !(body.text.trim() || body.repost || body.images.length || body.videos.length));
-  const visible = useNearViewport(ref, true, needsLookup);
   const settledLookup = useRef<{ feed: QzoneFeed; refresh: number } | null>(null);
   useEffect(() => {
     if (
@@ -3940,7 +3926,7 @@ const FeedCard = memo(function FeedCard({
       )}
     </article>
   );
-});
+}
 
 function Composer({
   selfUin,
