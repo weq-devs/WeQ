@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 export const submissions: unknown[] = [];
-function usePlan(callbacks: { onSuccess?: () => void }) {
+function usePlan(callbacks: { onSuccess?: (job: { id: string }) => void }) {
   const [isLoading, setLoading] = useState(false);
   return {
     isLoading,
@@ -10,7 +10,7 @@ function usePlan(callbacks: { onSuccess?: () => void }) {
       setLoading(true);
       setTimeout(() => {
         setLoading(false);
-        callbacks.onSuccess?.();
+        callbacks.onSuccess?.({ id: 'synthetic-roaming-job' });
       }, 100);
     },
   };
@@ -23,7 +23,7 @@ const proxy = (path: string[] = []): unknown =>
         return () => ({
           data:
             name === 'list'
-              ? { historyVersion: 2, supportsImmediateStart: true, jobs: [], online: true }
+              ? { historyVersion: 2, supportsBackgroundPlanning: true, jobs: [], online: true }
               : name === 'exportCalendar'
                 ? [{ day: '2026-10-28', count: 100 }]
                 : [],

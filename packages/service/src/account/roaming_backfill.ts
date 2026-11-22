@@ -261,13 +261,12 @@ export class RoamingBackfillManager {
   private jobs: RoamingJob[] = [];
   private control: AbortController | null = null;
   private active: string | null = null;
-  private planning = false;
   private planningId?: string;
   private disposed = false;
   private loadError: string | null = null;
 
   static async waitForIdle(path: string): Promise<void> {
-    await flights.get(path);
+    for (let flight = flights.get(path); flight; flight = flights.get(path)) await flight;
   }
 
   constructor(
@@ -389,7 +388,7 @@ export class RoamingBackfillManager {
     return this.active;
   }
   scanning(): boolean {
-    return this.planning;
+    return this.planningId !== undefined;
   }
   private save(): void {
     writeFileAtomicSync(this.path, JSON.stringify({ version: 1, jobs: this.jobs }));
@@ -402,11 +401,21 @@ export class RoamingBackfillManager {
   }
   private idle(): void {
     if (this.loadError) throw new Error(this.loadError);
-    if (this.disposed || this.active || this.planning || flights.has(this.path))
+    if (this.disposed || this.active || this.scanning() || flights.has(this.path))
       throw new Error('当前账号已有批量补全在运行或收尾。');
   }
 
   async plan(options: RoamingJobOptions, startImmediately = false) {
+    return this.launchScan(this.createJob(options, startImmediately));
+  }
+
+  submit(options: RoamingJobOptions) {
+    const job = this.createJob(options, true);
+    this.scanInBackground(job);
+    return roamingJobSummary(job);
+  }
+
+  private createJob(options: RoamingJobOptions, startImmediately: boolean): RoamingJob {
     this.idle();
     if (options.transport === 'native500') throw Error('SDK 历史通道已移除，请新建纯协议任务。');
     if (options.transport === 'sso500' || options.transport === 'sso30')
@@ -441,24 +450,43 @@ export class RoamingBackfillManager {
       this.jobs.pop();
       throw error;
     }
-    return this.scanPlan(job);
+    return job;
+  }
+
+  private trackFlight(flight: Promise<unknown>): void {
+    const release = (): void => {
+      // 检查交接给拉取时，旧检查收尾不能清掉已经登记的拉取。
+      if (flights.get(this.path) === tracked) flights.delete(this.path);
+    };
+    const tracked = flight.then(release, release);
+    flights.set(this.path, tracked);
+  }
+
+  private launchScan(job: RoamingJob) {
+    this.planningId = job.id;
+    // 先让提交回执返回，再读取会话；检查期间仍占用同一个任务的运行位置。
+    const scan = yieldToEventLoop().then(() => this.scanPlan(job));
+    this.trackFlight(scan);
+    return scan;
+  }
+
+  private scanInBackground(job: RoamingJob): void {
+    void this.launchScan(job).catch((error: unknown) => {
+      if (!this.disposed) console.warn('[漫游] 缺失消息检查失败', error);
+    });
   }
 
   private async scanPlan(job: RoamingJob): Promise<ReturnType<typeof roamingJobSummary>> {
     const { options } = job;
     const startImmediately = job.planning?.startImmediately;
-    this.planning = true;
-    this.planningId = job.id;
     try {
       for (const target of options.targets.slice(job.targets.length)) {
         if (this.disposed) throw new Error('账号已关闭。');
         if (job.status !== 'running') return roamingJobSummary(job);
-        const plan = sequencePlan(
-          await this.deps.listSeqWindow(target, options.range),
-          options.beforeOldest,
-        );
+        const window = await this.deps.listSeqWindow(target, options.range);
         if (this.disposed) throw new Error('账号已关闭。');
         if (job.status !== 'running') return roamingJobSummary(job);
+        const plan = sequencePlan(window, options.beforeOldest);
         job.targets.push({
           ...target,
           snapshot: plan.snapshot,
@@ -466,7 +494,10 @@ export class RoamingBackfillManager {
           remaining: copy(plan.ranges),
           pending: copy(plan.ranges),
         });
-        if (job.targets.length % 16 === 0) this.save();
+        if (job.targets.length % 16 === 0 && job.targets.length < options.targets.length) {
+          this.save();
+          await yieldToEventLoop();
+        }
       }
       const noGaps = startImmediately && job.targets.every((target) => target.ranges.length === 0);
       job.status = noGaps ? 'completed' : 'planned';
@@ -476,11 +507,7 @@ export class RoamingBackfillManager {
         : '仅扫描本地锚点，未发起在线拉取。';
       delete job.planning;
       this.save();
-      if (startImmediately && !noGaps) {
-        this.planning = false;
-        this.planningId = undefined;
-        return this.start(job.id);
-      }
+      if (startImmediately && !noGaps) return this.startPull(job);
       return roamingJobSummary(job);
     } catch (error) {
       if (this.disposed) throw error;
@@ -491,7 +518,6 @@ export class RoamingBackfillManager {
       this.save();
       throw error;
     } finally {
-      this.planning = false;
       this.planningId = undefined;
     }
   }
@@ -512,9 +538,13 @@ export class RoamingBackfillManager {
         Object.assign(job, previous);
         throw error;
       }
-      void this.scanPlan(job).catch((error: unknown) => console.warn('[漫游] 继续扫描失败', error));
+      this.scanInBackground(job);
       return roamingJobSummary(job);
     }
+    return this.startPull(job, retryRemaining);
+  }
+
+  private startPull(job: RoamingJob, retryRemaining = false) {
     const previous = {
       status: job.status,
       note: job.note,
@@ -536,15 +566,14 @@ export class RoamingBackfillManager {
         target.pending = previous.pending[index]!;
       throw error;
     }
-    this.active = id;
+    this.active = job.id;
     const controller = new AbortController();
     this.control = controller;
     const flight = this.run(job, controller.signal).finally(() => {
       this.active = null;
       this.control = null;
-      flights.delete(this.path);
     });
-    flights.set(this.path, flight);
+    this.trackFlight(flight);
     return roamingJobSummary(job);
   }
 
@@ -585,7 +614,7 @@ export class RoamingBackfillManager {
 
   async close(): Promise<void> {
     this.dispose();
-    await flights.get(this.path);
+    await RoamingBackfillManager.waitForIdle(this.path);
   }
 
   private async run(job: RoamingJob, signal: AbortSignal): Promise<void> {

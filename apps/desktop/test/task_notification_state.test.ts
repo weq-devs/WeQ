@@ -1,6 +1,9 @@
 import { expect, it } from 'vitest';
 import { TaskNotificationTracker } from '../src/renderer/src/lib/taskNotificationState';
-import type { WorkspaceTaskIndicator } from '../src/renderer/src/lib/workspaceIndicators';
+import {
+  summarizeWorkspaceTasks,
+  type WorkspaceTaskIndicator,
+} from '../src/renderer/src/lib/workspaceIndicators';
 const task = (patch: Partial<WorkspaceTaskIndicator> = {}): WorkspaceTaskIndicator => ({
   id: 'task-1',
   activity: 'running',
@@ -45,4 +48,42 @@ it('主动取消不是失败，已有专用进度的转发不重复派发，移�
   ).toEqual([]);
   tracker.update('a', [task({ id: 'removed' })], true);
   expect(tracker.update('a', [], true)[0]?.event).toBeNull();
+});
+
+it('漫游检查与拉取贡献同一进行中任务，进度静默，检查失败仍提醒', () => {
+  const tracker = new TaskNotificationTracker();
+  tracker.update('a', [], true);
+  const scanning = summarizeWorkspaceTasks({
+    roaming: [
+      {
+        id: 'roam',
+        status: 'running',
+        planning: { startImmediately: true },
+        options: { targets: [{ name: '合成群' }] },
+        targets: [],
+      },
+    ],
+    scanning: true,
+  });
+  expect(scanning.running).toBe(1);
+  expect(tracker.update('a', scanning.items, true)[0]?.event).toBeNull();
+  const failed = summarizeWorkspaceTasks({
+    roaming: [
+      {
+        id: 'roam',
+        status: 'failed',
+        planning: { startImmediately: true },
+        options: { targets: [{ name: '合成群' }] },
+        targets: [],
+      },
+    ],
+  });
+  expect(tracker.update('a', failed.items, true)[0]).toMatchObject({
+    event: 'taskFailure',
+    task: { id: 'roaming:roam', notificationName: '拉取漫游消息 · 合成群' },
+  });
+  const resumed = summarizeWorkspaceTasks({
+    roaming: [{ id: 'roam', status: 'running', targets: [{ name: '合成群' }] }],
+  });
+  expect(tracker.update('a', resumed.items, true)[0]?.event).toBeNull();
 });

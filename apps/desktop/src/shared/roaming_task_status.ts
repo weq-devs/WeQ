@@ -7,7 +7,12 @@ export function roamingJobProgress(job: {
   status: RoamingJobStatus;
   plannedSeqs: number;
   pendingSeqs: number;
+  planning?: { startImmediately: boolean };
+  targets: readonly unknown[];
+  options: { targets: readonly unknown[] };
 }): number | undefined {
+  if (job.planning && job.options.targets.length)
+    return (100 * job.targets.length) / job.options.targets.length;
   if (isRoamingJobComplete(job.status)) return 100;
   if (!job.plannedSeqs) return undefined;
   const checked = job.plannedSeqs - job.pendingSeqs;

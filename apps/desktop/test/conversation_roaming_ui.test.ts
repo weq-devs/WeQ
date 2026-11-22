@@ -18,7 +18,10 @@ const fixture = vi.hoisted(() => ({
   contacts: vi.fn(),
   readError: false,
   invalidate: vi.fn(),
-  planCallbacks: {} as { onSuccess?: () => void; onError?: (e: { message: string }) => void },
+  planCallbacks: {} as {
+    onSuccess?: (job: { id: string }) => void;
+    onError?: (e: { message: string }) => void;
+  },
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -33,7 +36,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       roamingBackfill: {
         list: {
           useQuery: () => ({
-            data: { historyVersion: 2, supportsImmediateStart: true, jobs: [], online: true },
+            data: { historyVersion: 2, supportsBackgroundPlanning: true, jobs: [], online: true },
             error: fixture.readError ? new Error('合成任务状态读取失败') : null,
             isFetching: false,
           }),
@@ -405,7 +408,7 @@ describe('漫游目标范围', () => {
       f.close();
     }
   });
-  it('一次开始自动检查并拉取，成功后转交任务面板，配置页不重复展示任务', () => {
+  it('收到任务回执即转交该任务，提交失败留在配置页', () => {
     const submitted = vi.fn();
     const f = mount(
       h(RoamingBackfillPanel, {
@@ -427,11 +430,12 @@ describe('漫游目标范围', () => {
         expect.objectContaining({ startImmediately: true, beforeOldest: false, intervalMs: 500 }),
       );
       expect(submitted).not.toHaveBeenCalled();
-      act(() => fixture.planCallbacks.onError?.({ message: '合成检查失败' }));
-      expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成检查失败');
+      act(() => fixture.planCallbacks.onError?.({ message: '合成提交失败' }));
+      expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('合成提交失败');
       expect(submitted).not.toHaveBeenCalled();
-      act(() => fixture.planCallbacks.onSuccess?.());
+      act(() => fixture.planCallbacks.onSuccess?.({ id: 'synthetic-roaming-job' }));
       expect(submitted).toHaveBeenCalledOnce();
+      expect(submitted).toHaveBeenCalledWith('synthetic-roaming-job');
     } finally {
       f.close();
     }

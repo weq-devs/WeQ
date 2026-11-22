@@ -283,11 +283,24 @@ describe('durable manual roaming jobs', () => {
     expect(f.manager.list()[0]).toMatchObject({ status: 'completed', pendingSeqs: 0 });
   });
 
-  it('一次提交自动检查并启动，保留原有覆盖统计与断点', async () => {
+  it('检查读取未返回时已提交真实任务，之后用同一任务自动拉取', async () => {
     const f = setup([5n, 1n]);
-    const job = await f.manager.plan(options(), true);
-    expect(job.status).toBe('running');
-    await f.done();
+    const scan = Promise.withResolvers<Awaited<ReturnType<RoamingBackfillDeps['listSeqWindow']>>>();
+    vi.mocked(f.deps.listSeqWindow).mockReturnValueOnce(scan.promise);
+    const job = f.manager.submit(options());
+    expect(job).toMatchObject({
+      status: 'running',
+      planning: { startImmediately: true },
+      targets: [],
+    });
+    expect(f.manager.list()).toEqual([job]);
+    expect(JSON.parse(readFileSync(f.path, 'utf8')).jobs[0].id).toBe(job.id);
+    expect(f.manager.scanning()).toBe(true);
+    expect(f.deps.listSeqWindow).not.toHaveBeenCalled();
+    expect(() => f.manager.submit(options())).toThrow('已有批量补全');
+    const idle = f.done();
+    scan.resolve({ seqs: [5n, 1n], below: null, above: null });
+    await idle;
     expect(f.manager.list()[0]).toMatchObject({
       id: job.id,
       status: 'completed',
@@ -296,6 +309,34 @@ describe('durable manual roaming jobs', () => {
       observed: 3,
     });
     expect(f.fetch).toHaveBeenCalledOnce();
+  });
+
+  it('后台检查失败留在原任务中，继续检查只读取尚未完成的会话', async () => {
+    const f = setup([5n, 1n]);
+    const second = { kind: 'group' as const, conv: '12346', name: 'Second group' };
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(f.deps.listSeqWindow)
+      .mockResolvedValueOnce({ seqs: [], below: null, above: null })
+      .mockRejectedValueOnce(new Error('合成读取失败'))
+      .mockResolvedValueOnce({ seqs: [], below: null, above: null });
+    const job = f.manager.submit(options({ targets: [target, second] }));
+    await f.done();
+    expect(f.manager.list()[0]).toMatchObject({
+      id: job.id,
+      status: 'failed',
+      planning: { startImmediately: true },
+      targets: [{ conv: target.conv }],
+      note: '合成读取失败',
+    });
+    expect(f.fetch).not.toHaveBeenCalled();
+    f.manager.start(job.id);
+    await f.done();
+    expect(f.manager.list()[0]).toMatchObject({ id: job.id, status: 'completed' });
+    expect(vi.mocked(f.deps.listSeqWindow).mock.calls.map(([item]) => item.conv)).toEqual([
+      target.conv,
+      second.conv,
+      second.conv,
+    ]);
   });
 
   it.each([[1n, 2n], []])('无候选区间不联网，也不宣称全部历史完整：%#', async (...seqs) => {
@@ -344,24 +385,32 @@ describe('durable manual roaming jobs', () => {
   it('检查期间关闭账号保留原任务；重新打开不会自动拉取，继续只扫描剩余会话', async () => {
     const f = setup([5n, 1n]);
     const second = { kind: 'group' as const, conv: '12346', name: 'Second group' };
+    const started = Promise.withResolvers<void>();
+    const scan = Promise.withResolvers<Awaited<ReturnType<RoamingBackfillDeps['listSeqWindow']>>>();
     vi.mocked(f.deps.listSeqWindow)
       .mockImplementationOnce(async () => ({ seqs: [], below: null, above: null }))
-      .mockImplementationOnce(async () => {
-        f.manager.dispose();
-        return { seqs: [5n, 1n], below: null, above: null };
+      .mockImplementationOnce(() => {
+        started.resolve();
+        return scan.promise;
       });
-    await expect(f.manager.plan(options({ targets: [target, second] }), true)).rejects.toThrow(
-      '账号已关闭',
-    );
+    const job = f.manager.submit(options({ targets: [target, second] }));
+    await started.promise;
+    let closed = false;
+    const closing = f.manager.close().then(() => {
+      closed = true;
+    });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    scan.resolve({ seqs: [5n, 1n], below: null, above: null });
+    await closing;
     const reopened = f.make();
     const saved = reopened.list()[0]!;
-    expect(saved).toMatchObject({ status: 'paused', targets: [{ conv: target.conv }] });
+    expect(saved).toMatchObject({ id: job.id, status: 'paused', targets: [{ conv: target.conv }] });
     expect(f.fetch).not.toHaveBeenCalled();
     vi.mocked(f.deps.listSeqWindow).mockResolvedValue({ seqs: [], below: null, above: null });
     expect(reopened.start(saved.id)).toMatchObject({ id: saved.id, status: 'running' });
-    await vi.waitFor(() =>
-      expect(reopened.list()[0]).toMatchObject({ id: saved.id, status: 'completed' }),
-    );
+    await f.done();
+    expect(reopened.list()[0]).toMatchObject({ id: saved.id, status: 'completed' });
     expect(vi.mocked(f.deps.listSeqWindow).mock.calls.map(([item]) => item.conv)).toEqual([
       target.conv,
       second.conv,

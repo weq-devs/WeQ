@@ -5696,6 +5696,7 @@ export const accountRouter = router({
         scanning: services.roamingBackfill.scanning(),
         historyVersion: 2,
         supportsImmediateStart: true,
+        supportsBackgroundPlanning: true,
         onlineAllowed: access.attachEnabled,
         online: access.qqOnline && access.attachEnabled,
       };
@@ -5727,7 +5728,9 @@ export const accountRouter = router({
       .mutation(({ input }) => {
         const services = requireServices();
         const { startImmediately, ...options } = input;
-        return services.roamingBackfill.plan(options, startImmediately);
+        return startImmediately
+          ? services.roamingBackfill.submit(options)
+          : services.roamingBackfill.plan(options);
       }),
     start: procedure
       .input(z.object({ id: z.string().uuid(), retryRemaining: z.boolean().default(false) }))

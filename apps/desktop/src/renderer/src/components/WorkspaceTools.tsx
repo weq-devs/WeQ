@@ -657,7 +657,7 @@ export function WorkspaceTools({
               key={JSON.stringify([accountKey, roamingTargets, roamingSeed])}
               initialTargets={roamingTargets}
               targetMode={roamingTargets.length ? 'fixed' : 'select'}
-              onSubmitted={() => useWorkspaceMenu.getState().openTasks()}
+              onSubmitted={(id) => useWorkspaceMenu.getState().focusTask(`roaming:${id}`)}
             />
           ) : null}
         </RetainedTabs>

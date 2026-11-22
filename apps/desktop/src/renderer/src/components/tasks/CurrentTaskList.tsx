@@ -332,7 +332,8 @@ export function CurrentTaskList({
     });
   }
   for (const job of roaming.data?.jobs ?? []) {
-    const display = roamingTaskDisplay(job.planning ? job.options.targets : job.targets);
+    const targets = job.planning ? job.options.targets : job.targets;
+    const display = roamingTaskDisplay(targets);
     const complete = isRoamingJobComplete(job.status);
     const actions: TaskQuickAction[] = [];
     const refresh = () => utils.account.roamingBackfill.list.invalidate();
@@ -350,8 +351,9 @@ export function CurrentTaskList({
     if (['planned', 'paused', 'failed', 'partial', 'cancelled'].includes(job.status))
       actions.push({
         id: 'resume',
-        label:
-          job.status === 'planned'
+        label: job.planning
+          ? '继续检查'
+          : job.status === 'planned'
             ? '开始补全'
             : job.status === 'partial' || job.status === 'cancelled'
               ? '重试未补区间'
@@ -421,12 +423,7 @@ export function CurrentTaskList({
       name: taskDisplayTitle(display),
       display,
       createdAt: job.createdAt,
-      kind:
-        job.targets.length === 1
-          ? job.targets[0]!.kind === 'group'
-            ? '群聊'
-            : '私聊'
-          : '多个会话',
+      kind: targets.length === 1 ? (targets[0]!.kind === 'group' ? '群聊' : '私聊') : '多个会话',
       status,
       statusLabel:
         job.planning && job.status === 'running'
@@ -440,9 +437,7 @@ export function CurrentTaskList({
                   ? '未发现可补全的缺口'
                   : '候选缺口已覆盖'
                 : undefined,
-      progress: job.planning
-        ? (100 * job.targets.length) / job.options.targets.length
-        : roamingJobProgress(job),
+      progress: roamingJobProgress(job),
       note: job.options.range
         ? `${job.options.range.start ? taskDate(job.options.range.start * 1000) : '不限起始'} 至 ${job.options.range.end ? taskDate(job.options.range.end * 1000) : '不限结束'}`
         : undefined,

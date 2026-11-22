@@ -20,6 +20,7 @@ export interface WorkspaceTaskIndicator {
   waiting?: boolean;
   cancelled?: boolean;
   notificationHandled?: boolean;
+  showProgressNotification?: boolean;
   showResultBadge?: boolean;
   /** 记录与提醒照常保留，但后台步骤不抢占当前界面。 */
   autoOpenTaskList?: boolean;
@@ -65,9 +66,10 @@ export function summarizeWorkspaceTasks({
   roaming?: {
     id: string;
     status: RoamingJobStatus;
-    planning?: unknown;
+    planning?: { startImmediately: boolean };
     updatedAt?: number;
     targets?: { name: string }[];
+    options?: { targets: { name: string }[] };
   }[];
   scanning?: boolean;
   flash?: (Pick<FlashDownloadTask, 'id' | 'status'> &
@@ -128,12 +130,11 @@ export function summarizeWorkspaceTasks({
     });
   }
   for (const task of roaming) {
+    const targets = task.planning ? task.options?.targets : task.targets;
     items.push({
       id: `roaming:${task.id}`,
       name: '消息加载任务',
-      notificationName: task.targets
-        ? taskNoticeTitle(roamingTaskDisplay(task.targets))
-        : '拉取漫游消息',
+      notificationName: targets ? taskNoticeTitle(roamingTaskDisplay(targets)) : '拉取漫游消息',
       paused: task.status === 'paused',
       cancelled: task.status === 'cancelled',
       activity: ['running', 'pausing'].includes(task.status)
@@ -146,6 +147,7 @@ export function summarizeWorkspaceTasks({
       result: `${task.status}:${task.updatedAt ?? ''}`,
       failed: task.status === 'failed',
       autoOpenTaskList: false,
+      showProgressNotification: false,
     });
   }
   if (scanning && !roaming.some((job) => job.planning))

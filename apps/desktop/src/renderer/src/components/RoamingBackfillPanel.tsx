@@ -96,7 +96,7 @@ export function RoamingBackfillPanel({
   targetMode?: 'select' | 'fixed';
   /** 统一任务列表仅展开选中任务，沿用原有续作、回执与覆盖口径。 */
   taskId?: string;
-  onSubmitted?: () => void;
+  onSubmitted?: (taskId: string) => void;
 }) {
   const utils = trpc.useUtils();
   const confirm = useDialog((s) => s.confirm);
@@ -142,12 +142,12 @@ export function RoamingBackfillPanel({
   const staleBackend = Boolean(
     state.data &&
       (state.data.historyVersion !== 2 ||
-        (surface !== 'tasks' && !state.data.supportsImmediateStart)),
+        (surface !== 'tasks' && !state.data.supportsBackgroundPlanning)),
   );
   const plan = trpc.account.roamingBackfill.plan.useMutation({
-    onSuccess: () => {
+    onSuccess: (job) => {
       refresh();
-      onSubmitted?.();
+      onSubmitted?.(job.id);
     },
     onError,
   });
@@ -656,12 +656,12 @@ export function RoamingBackfillPanel({
                   }
                   onClick={submit}
                 >
-                  {plan.isLoading || state.data?.scanning ? (
+                  {plan.isLoading ? (
                     <Loader2 size={15} className="weq-roaming-spin" />
                   ) : (
                     <CloudDownload size={15} />
                   )}
-                  {plan.isLoading || state.data?.scanning ? '正在检查缺失消息…' : '开始拉取'}
+                  {plan.isLoading ? '正在提交…' : '开始拉取'}
                 </button>
               </footer>
             </section>
@@ -691,13 +691,20 @@ export function RoamingBackfillPanel({
               jobs.map((job) => {
                 const covered = job.plannedSeqs - job.remainingSeqs;
                 const complete = isRoamingJobComplete(job.status);
+                const submittedTargets = job.planning ? job.options.targets : job.targets;
                 const JobGlyph = jobGlyph[job.status];
                 const actions: TaskQuickAction[] = [];
                 if (['planned', 'paused', 'failed', 'partial', 'cancelled'].includes(job.status)) {
                   const retry = job.status === 'partial' || job.status === 'cancelled';
                   actions.push({
                     id: 'resume',
-                    label: retry ? '重试未补区间' : job.status === 'planned' ? '开始补全' : '继续',
+                    label: job.planning
+                      ? '继续检查'
+                      : retry
+                        ? '重试未补区间'
+                        : job.status === 'planned'
+                          ? '开始补全'
+                          : '继续',
                     icon: retry ? <RefreshCw size={14} /> : <Play size={14} />,
                     disabled:
                       busy ||
@@ -764,7 +771,9 @@ export function RoamingBackfillPanel({
                         <strong>
                           {job.status === 'completed' && job.plannedSeqs === 0
                             ? '未发现可补全的缺口'
-                            : labels[job.status]}
+                            : job.planning && job.status === 'running'
+                              ? '检查缺失消息'
+                              : labels[job.status]}
                         </strong>
                         <small>
                           <Clock3 size={12} />
@@ -774,19 +783,24 @@ export function RoamingBackfillPanel({
                           <Users size={12} />
                           {
                             <span className="weq-number weq-number-inherit">
-                              {job.targets.length}
+                              {submittedTargets.length}
                             </span>
                           }{' '}
                           个会话
                         </small>
                       </span>
-                      <span className="weq-roaming-job-ratio" title="已覆盖候选 / 候选总数">
-                        <small>已覆盖</small>
-                        <span className="weq-number weq-number-inherit">{format(covered)}</span>
+                      <span
+                        className="weq-roaming-job-ratio"
+                        title={job.planning ? '已检查会话 / 所选会话' : '已覆盖候选 / 候选总数'}
+                      >
+                        <small>{job.planning ? '已检查' : '已覆盖'}</small>
+                        <span className="weq-number weq-number-inherit">
+                          {format(job.planning ? job.targets.length : covered)}
+                        </span>
                         <small>
                           /{' '}
                           <span className="weq-number weq-number-inherit">
-                            {format(job.plannedSeqs)}
+                            {format(job.planning ? submittedTargets.length : job.plannedSeqs)}
                           </span>
                         </small>
                       </span>
@@ -794,7 +808,7 @@ export function RoamingBackfillPanel({
                     <TaskQuickActions variant="detail" actions={actions} />
                     <TaskProgressBar
                       value={roamingJobProgress(job)}
-                      label="漫游任务进度"
+                      label={job.planning ? '检查缺失消息进度' : '漫游任务进度'}
                       status={complete ? 'completed' : job.status}
                     />
                     <div className="weq-roaming-job-targets">

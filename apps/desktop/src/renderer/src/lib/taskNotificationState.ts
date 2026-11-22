@@ -34,8 +34,12 @@ export class TaskNotificationTracker {
       const presented =
         presentation.visible ||
         (!before && task.autoOpenTaskList !== false && presentation.autoOpen);
-      const notify = (event: NotificationEvent, phase: string) =>
-        result.push({ task, event: presented && event !== 'taskFailure' ? null : event, phase });
+      const notify = (event: NotificationEvent, phase: string) => {
+        const silent =
+          (presented && event !== 'taskFailure') ||
+          (event === 'progress' && task.showProgressNotification === false);
+        result.push({ task, event: silent ? null : event, phase });
+      };
       if (task.waiting && !before?.waiting) {
         notify('taskFailure', '等待处理');
       } else if (task.cancelled) {
