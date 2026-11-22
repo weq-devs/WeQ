@@ -92,6 +92,7 @@ const f = vi.hoisted(() => ({
   hiddenDeletionReply: undefined as (() => Promise<string[]>) | undefined,
   deletionSets: {} as { deleted?: Set<string>; hidden?: Set<string> },
   headRefreshes: 0,
+  recentInvalidations: 0,
   freshPreview: false,
   previewTarget: null as string | null,
   groups: [] as Array<{
@@ -257,6 +258,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               };
             if (key === 'query' && path.at(-1) === 'listRecentContacts')
               return { items: f.recent, total: f.recent.length };
+            if (key === 'invalidate' && path.at(-1) === 'listRecentContacts')
+              f.recentInvalidations++;
             if (path.at(-1) === 'peerQqShow') return null;
             if (
               [
@@ -547,6 +550,7 @@ afterEach(() => {
   f.hiddenDeletionReply = undefined;
   f.deletionSets = {};
   f.headRefreshes = 0;
+  f.recentInvalidations = 0;
   f.freshPreview = false;
   f.previewTarget = null;
   f.groups = [];
@@ -1023,6 +1027,7 @@ it.each([
 ])(
   '自动已读只用目标会话小表水位：摘要 $summarySeq，快照身份 $mismatch',
   async ({ summarySeq, mismatch }) => {
+    if (mismatch === 'none') vi.useFakeTimers();
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     useViewState.getState().setOpenedUin('90001');
@@ -1065,7 +1070,9 @@ it.each([
           ],
         }),
       );
+      if (mismatch === 'none') await act(async () => vi.advanceTimersByTimeAsync(200));
       f.markedRead = [];
+      const unreadReadsBefore = f.unreadReads.length;
       let release: (() => void) | undefined;
       if (mismatch === 'switched')
         f.unreadReply = () =>
@@ -1095,6 +1102,10 @@ it.each([
       if (mismatch === 'none') {
         expect(f.markedRead).toHaveLength(1);
         expect(f.markedRead[0]).toMatchObject({ chatType: 2, uid: '10002', latestSeq: '100' });
+        await act(async () => vi.advanceTimersByTimeAsync(200));
+        const reads = f.unreadReads.slice(unreadReadsBefore);
+        expect(reads.length).toBeGreaterThan(0);
+        for (const { targets } of reads) expect(targets).toEqual([{ chatType: 2, uid: '10002' }]);
       } else expect(f.markedRead).toHaveLength(0);
     } finally {
       act(() => root.unmount());
@@ -1181,6 +1192,7 @@ it('首条新消息模式在消息滑出上沿或触底时提交已读，并保�
       ['101', '102'],
       ['101', '102', '105'],
     ]);
+    expect(f.recentInvalidations).toBe(0);
   } finally {
     await act(async () => root.unmount());
     client.clear();

@@ -5392,16 +5392,16 @@ function MainWorkspace(): ReactElement {
                 targets: [{ chatType: request.chatType, uid: conv.id }],
               });
               if (stillCurrent()) applyUnreadRows(rows, binding);
-              if (changed.changed) void utils.account.listRecentContacts.invalidate();
             }
           } catch (error) {
             console.error('[unread] markConversationRead failed', error);
           } finally {
             finishUpdate();
-            if (useViewState.getState().openedUin === openedUin)
-              requestUnreadRefreshRef.current?.(
-                visibleSeqs ? { chatType, uid: conv.id } : undefined,
-              );
+            if (
+              messageScopeRef.current === source &&
+              useViewState.getState().openedUin === openedUin
+            )
+              requestUnreadRefreshRef.current?.({ chatType, uid: conv.id });
           }
         }
       })().finally(() => {
@@ -5410,7 +5410,7 @@ function MainWorkspace(): ReactElement {
       readRequestsRef.current.set(key, entry);
       return entry.promise;
     },
-    [openedUin, utils, applyUnreadRows, messageScopeRef, messageBindingRef, selectionRef],
+    [openedUin, applyUnreadRows, messageScopeRef, messageBindingRef, selectionRef],
   );
 
   async function changeConversationReadState(rows: Conversation[], unread: boolean) {
