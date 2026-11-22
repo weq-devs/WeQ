@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { launchQq } from '../src/main/qq_launch';
+import { launchQq, restartQq } from '../src/main/qq_launch';
 
 const f = vi.hoisted(() => ({
   exists: vi.fn(() => true),
@@ -98,5 +98,67 @@ describe('启动已安装的 QQ', () => {
     await expect(
       launchQq({ kind: 'darwin', qqExePath: () => '/Applications/QQ.app/Contents/MacOS/QQ' }),
     ).rejects.toThrow('启动被拒绝');
+  });
+});
+
+describe('重新启动 QQ', () => {
+  const normal = '/Applications/QQ.app/Contents/MacOS/QQ';
+  const debug = '/Users/test/Applications/QQ-WeQ.app/Contents/MacOS/QQ';
+
+  it('结束当前账号的调试副本，确认旧进程退出后重开同一副本', async () => {
+    let running = true;
+    const stopRequested = Promise.withResolvers<void>();
+    const kill = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 'SIGTERM') stopRequested.resolve();
+      if (signal === 0 && !running) throw Object.assign(new Error(), { code: 'ESRCH' });
+      return true;
+    });
+    f.execFile.mockImplementation((command, _args, _options, callback) => {
+      if (command === '/bin/ps') callback(null, ` 1234 ${normal}\n 2345 ${debug}\n`);
+      else callback(null);
+    });
+    const request = restartQq(
+      { kind: 'darwin', qqExePath: () => normal, resolveQqPid: () => 2345 },
+      '10001',
+      debug,
+    );
+    try {
+      await Promise.race([stopRequested.promise, request]);
+      expect(kill).toHaveBeenCalledWith(2345, 'SIGTERM');
+      expect(kill).not.toHaveBeenCalledWith(1234, 'SIGTERM');
+      expect(f.execFile).toHaveBeenCalledTimes(1);
+      running = false;
+      await request;
+      expect(f.execFile).toHaveBeenLastCalledWith(
+        '/usr/bin/open',
+        ['-a', '/Users/test/Applications/QQ-WeQ.app'],
+        expect.any(Object),
+        expect.any(Function),
+      );
+    } finally {
+      running = false;
+      await request.catch(() => undefined);
+      kill.mockRestore();
+    }
+  });
+
+  it('存在多个实例且无法归属时，不结束任何进程', async () => {
+    const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+    f.execFile.mockImplementation((_command, _args, _options, callback) =>
+      callback(null, ` 1234 ${normal}\n 2345 ${debug}\n`),
+    );
+    try {
+      await expect(
+        restartQq(
+          { kind: 'darwin', qqExePath: () => normal, resolveQqPid: () => null },
+          '10001',
+          debug,
+        ),
+      ).rejects.toThrow('检测到多个 QQ 实例');
+      expect(kill).not.toHaveBeenCalled();
+      expect(f.execFile).toHaveBeenCalledTimes(1);
+    } finally {
+      kill.mockRestore();
+    }
   });
 });

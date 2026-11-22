@@ -38,12 +38,14 @@ const mock = vi.hoisted(() => ({
     qqClientSyncEnabled: false,
   },
   proxyStatus: undefined as ReturnType<typeof waitingProxy> | undefined,
+  qqRunning: null as boolean | null,
   access: undefined as OnlineAccess | undefined,
   failed: false,
   queryOptions: vi.fn(),
   save: vi.fn(),
   saveProxyIndicator: vi.fn(),
   launchQq: vi.fn(),
+  restartQq: vi.fn(),
   error: vi.fn(),
 }));
 vi.mock('../src/renderer/src/components/settings/LongTermAuthorizationSection', () => ({
@@ -65,20 +67,25 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                     ? mock.access
                     : method === 'getQqClientSyncStatus'
                       ? mock.proxyStatus
-                      : undefined,
+                      : method === 'getQqProcessState'
+                        ? { running: mock.qqRunning, canRestart: mock.qqRunning === true }
+                        : undefined,
               isError: method === 'getGroupAlbumAccessState' && mock.failed,
               isLoading: false,
               refetch: async () => ({ data: mock.settings }),
             };
           };
         if (key === 'useMutation')
-          return (options?: { onSuccess?: () => unknown }) => ({
+          return (options?: { onSuccess?: () => unknown; onSettled?: () => unknown }) => ({
             mutateAsync: mock.save,
+            reset: () => {},
             mutate: (input?: { enabled: boolean }) => {
               const method = path.at(-1);
               if (method === 'setQqProxyIndicatorEnabled' && input) mock.saveProxyIndicator(input);
               if (method === 'launchQq') mock.launchQq();
+              if (method === 'restartQq') mock.restartQq();
               void options?.onSuccess?.();
+              void options?.onSettled?.();
             },
           });
         return proxy([...path, String(key)]);
@@ -104,6 +111,7 @@ beforeEach(() => {
     qqClientSyncEnabled: false,
   };
   mock.proxyStatus = undefined;
+  mock.qqRunning = null;
   mock.access = { ...ready };
   mock.failed = false;
   mock.queryOptions.mockClear();
@@ -112,6 +120,7 @@ beforeEach(() => {
   });
   mock.error.mockClear();
   mock.launchQq.mockClear();
+  mock.restartQq.mockClear();
   mock.saveProxyIndicator.mockReset().mockImplementation(({ enabled }) => {
     mock.settings.qqProxyIndicatorEnabled = enabled;
   });
@@ -146,6 +155,7 @@ function mount(showProxyIndicator = false) {
 it('代理断开提示使用当前账号，指向代理卡片，关闭提示后仍可查看等待任务', async () => {
   mock.settings.qqClientSyncEnabled = true;
   mock.proxyStatus = waitingProxy();
+  mock.qqRunning = true;
   const f = mount(true);
   const indicator = () =>
     f.host.querySelector<HTMLButtonElement>('button[aria-label="QQ 代理未连接"]');
@@ -154,9 +164,22 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   act(() => indicator()?.click());
   const panel = document.querySelector<HTMLElement>('.weq-restricted-panel')!;
   expect(panel.textContent).toContain('端口填 19082');
-  act(() =>
-    [...panel.querySelectorAll('button')].find((b) => b.textContent === '启动 QQ')?.click(),
-  );
+  const action = (surface: HTMLElement, label: string) =>
+    [...surface.querySelectorAll('button')].find((button) => button.textContent === label);
+  for (const surface of [panel, card]) {
+    expect(action(surface, '重新启动 QQ')).toBeDefined();
+    expect(action(surface, '启动 QQ')).toBeUndefined();
+  }
+  act(() => action(panel, '重新启动 QQ')!.click());
+  expect(mock.restartQq).toHaveBeenCalledOnce();
+  expect(mock.launchQq).not.toHaveBeenCalled();
+  mock.qqRunning = null;
+  f.render();
+  expect(action(panel, '打开 QQ')).toBeDefined();
+  mock.qqRunning = false;
+  f.render();
+  expect(action(card, '启动 QQ')).toBeDefined();
+  act(() => action(panel, '启动 QQ')!.click());
   expect(mock.launchQq).toHaveBeenCalledOnce();
   const openSettings = vi.fn();
   const unsubscribe = onOpenSettingsRequest(openSettings);

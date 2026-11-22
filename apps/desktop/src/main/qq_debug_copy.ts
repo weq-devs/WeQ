@@ -72,6 +72,10 @@ export class QqDebugCopyManager {
     this.path = join(options.home ?? homedir(), 'Applications/QQ-WeQ.app');
     this.run = options.run ?? runOwnedChild;
   }
+
+  get executablePath(): string {
+    return join(this.path, 'Contents', 'MacOS', 'QQ');
+  }
   private async command(command: string, args: readonly string[], input?: string): Promise<string> {
     const result = await this.run(command, args, {
       input,

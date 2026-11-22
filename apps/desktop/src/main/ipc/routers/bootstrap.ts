@@ -133,7 +133,7 @@ import { startEnhancementDownloads } from '../../enhancements/tasks';
 import { assertRuntimeFilesIdle, runtimeFileBusyPaths } from '../../context/runtime_files';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import { resolveSignerWrapper } from '../../context/signer_target';
-import { launchQq, runningQqCount } from '../../qq_launch';
+import { launchQq, qqRestartInProgress, restartQq, runningQqCount } from '../../qq_launch';
 import { QqDebugCopyManager } from '../../qq_debug_copy';
 import {
   QQ_DEBUG_COPY_ACTIONS,
@@ -161,6 +161,11 @@ function requireDebugCopyDesktop(): QqDebugCopyManager {
   if (!getHost().canReveal || requirePlatform().kind !== 'darwin')
     throw new Error('请在运行 QQ 的 Mac 上打开 WeQ 桌面端管理调试副本。');
   return qqDebugCopy;
+}
+
+function currentLiveAccountUin(): string | null {
+  const { account, accountIsStatic } = getAppContext();
+  return account && !accountIsStatic ? String(account.context.uin) : null;
 }
 
 /** Result of the QQ data-directory picker. */
@@ -554,9 +559,26 @@ export const bootstrapRouter = router({
     return requireBootstrap().globalConfig.refresh();
   }),
 
+  /** 进程状态与代理、登录状态分别检测。仅有在线计数时，零不能证明 QQ 已退出。 */
+  getQqProcessState: procedure.query(async () => {
+    const platform = requirePlatform();
+    const count = await runningQqCount(platform.kind);
+    const uin = currentLiveAccountUin();
+    const canRestart = count !== null ? count > 0 : Boolean(uin && platform.resolveQqPid(uin));
+    const running =
+      count !== null ? count > 0 : canRestart || (platform.launcherCount() ?? 0) > 0 || null;
+    return { running, canRestart, restarting: qqRestartInProgress() };
+  }),
+
   /** 启动宿主上已安装的 QQ，不自动登录或更改在线功能设置。 */
   launchQq: procedure.mutation(async () => {
+    if (qqRestartInProgress()) throw new Error('正在重新启动 QQ，请稍候。');
     await launchQq(requirePlatform());
+    return true;
+  }),
+
+  restartQq: procedure.mutation(async () => {
+    await restartQq(requirePlatform(), currentLiveAccountUin(), qqDebugCopy.executablePath);
     return true;
   }),
 

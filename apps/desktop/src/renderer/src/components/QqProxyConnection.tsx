@@ -8,6 +8,7 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { useViewState } from '../state/view';
 import { trpc } from '../trpc/client';
+import { useTabActive } from './RetainedTabs.shared';
 import { SettingsNavigateContext } from './settings/controls.shared';
 import '../styles/restricted-mode.css';
 
@@ -42,24 +43,65 @@ export function QqProxyRecovery({
   onLaunch: () => void;
   beforeOpenSettings?: () => void;
 }) {
-  const launch = trpc.bootstrap.launchQq.useMutation({ onSuccess: onLaunch });
+  const active = useTabActive();
+  const qqProcess = trpc.bootstrap.getQqProcessState.useQuery(undefined, {
+    enabled: active,
+    staleTime: 0,
+    refetchInterval: active ? 3000 : false,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
+  const running = qqProcess.isError ? null : (qqProcess.data?.running ?? null);
+  const canRestart = running === true && qqProcess.data?.canRestart === true;
+  const refresh = () => {
+    void qqProcess.refetch();
+    onLaunch();
+  };
+  const launch = trpc.bootstrap.launchQq.useMutation({ onSettled: refresh });
+  const restart = trpc.bootstrap.restartQq.useMutation({ onSettled: refresh });
+  const restarting = restart.isLoading || qqProcess.data?.restarting === true;
+  const busy = qqProcess.isInitialLoading || launch.isLoading || restarting;
+  const failure = restart.error ?? launch.error;
+  const label = restarting
+    ? '正在重新启动 QQ'
+    : launch.isLoading
+      ? '正在打开 QQ'
+      : canRestart
+        ? '重新启动 QQ'
+        : running === false
+          ? '启动 QQ'
+          : '打开 QQ';
   return (
     <>
       <p className="weq-set-note">
-        请在运行 WeQ 的电脑上操作。若 QQ 已运行，请先完全退出，再启动 QQ。
+        {running === true
+          ? '重新启动 QQ 后，在登录页配置代理。'
+          : running === false
+            ? '启动 QQ 后，在登录页配置代理。'
+            : '如果 QQ 已运行，请重新启动 QQ，再在登录页配置代理。'}
       </p>
-      {launch.error && <p role="alert">{launch.error.message}</p>}
+      {failure && <p role="alert">{failure.message}</p>}
       <div className="weq-restricted-actions">
-        <button
-          type="button"
-          className="weq-set-btn weq-set-btn-primary"
-          onClick={() => launch.mutate()}
-          disabled={launch.isLoading}
-          aria-busy={launch.isLoading}
-        >
-          <Play size={14} aria-hidden />
-          {launch.isLoading ? '正在启动 QQ' : '启动 QQ'}
-        </button>
+        {(running !== true || canRestart || restarting) && (
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-primary"
+            onClick={() => {
+              if (canRestart) {
+                launch.reset();
+                restart.mutate();
+              } else {
+                restart.reset();
+                launch.mutate();
+              }
+            }}
+            disabled={busy}
+            aria-busy={busy}
+          >
+            <Play size={14} aria-hidden />
+            {label}
+          </button>
+        )}
         {beforeOpenSettings && (
           <QqProxySettingsLink beforeNavigate={beforeOpenSettings}>设置代理</QqProxySettingsLink>
         )}
