@@ -473,7 +473,7 @@ it.each(['短昵称', 'VeryLongNicknameWithoutAnySpaces'.repeat(4)])(
       expect(header.querySelector('button time')).toBeNull();
     }
     const original = view.host.querySelector('.weq-qzn-repost')!;
-    expect(original.querySelector('time')?.textContent).toBe('2026年11月04日');
+    expect(original.querySelector('time')?.textContent).toBe('2026-11-04');
     const reply = view.host.querySelector('.weq-qzn-comment.is-reply')!;
     expect(reply.querySelector(':scope > .weq-qzn-profile-avatar')).not.toBeNull();
     expect(reply.querySelector('.weq-qzn-comment-line')?.textContent).toBe(
@@ -829,7 +829,7 @@ it('通知头像与昵称分开，动作文字和摘要共用同一内容列', a
   capture(view.host, 'identity-related');
 });
 
-it('与我相关自动读取五页即停，向上滚动不续页，向下滚动才开始下一轮', async () => {
+it('与我相关自动读取五页即停，点击加载更多互动才开始下一轮', async () => {
   state.related.mockReset().mockImplementation(async ({ offset }: { offset: number }) => ({
     feeds: [
       {
@@ -857,15 +857,17 @@ it('与我相关自动读取五页即停，向上滚动不续页，向下滚动�
   expect(state.related).toHaveBeenCalledTimes(5);
   const scroll = view.host.querySelector('.weq-qzn-scroll')!;
   await act(async () =>
-    scroll.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true })),
+    scroll.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true })),
   );
   await act(async () => {
     await vi.advanceTimersByTimeAsync(2000);
   });
   expect(state.related).toHaveBeenCalledTimes(5);
-  await act(async () =>
-    scroll.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true })),
+  const loadMore = [...scroll.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent === '加载更多互动',
   );
+  expect(loadMore).toBeDefined();
+  await act(async () => loadMore!.click());
   for (let index = 0; index < 8; index++)
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);

@@ -9,6 +9,14 @@
  */
 import { createContext, useContext, useEffect, useState, type RefObject } from 'react';
 
+export const moreSpacePanes = {
+  shares: '分享',
+  visitors: '访客',
+  guestbook: '留言板',
+  videos: '视频',
+};
+export type QzoneMorePane = keyof typeof moreSpacePanes;
+
 /** 当前页是否可见 + 刷新代数（供子组件决定是否继续读）。 */
 export const QzonePageContext = createContext({ active: true, refresh: 0 });
 /** 上游明确不可用时暂停自动读取，保留已读内容。 */

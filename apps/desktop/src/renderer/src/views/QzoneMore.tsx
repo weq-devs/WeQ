@@ -15,7 +15,7 @@ import { qzoneLinkTarget, qzoneMediaSource } from '../lib/qzone';
 import { client, trpc } from '../trpc/client';
 import { QzoneAutoPage } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
-import { QzonePageContext } from './qzoneShared.shared';
+import { QzonePageContext, type QzoneMorePane } from './qzoneShared.shared';
 import { QzoneVideoGrid } from './QzoneVideoGrid';
 
 const shareCategories = {
@@ -30,14 +30,6 @@ const shareCategories = {
   17: '微博',
   18: '音乐',
 } satisfies Record<QzoneShareCategory, string>;
-
-export const moreSpacePanes = {
-  shares: '分享',
-  visitors: '访客',
-  guestbook: '留言板',
-  videos: '视频',
-};
-export type QzoneMorePane = keyof typeof moreSpacePanes;
 
 type Space = {
   selfUin: string;

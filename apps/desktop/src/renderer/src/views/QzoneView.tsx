@@ -75,7 +75,13 @@ import { QzoneSettingsSection } from '../components/settings/QzoneSettingsSectio
 import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
 import { QzoneAutoPage, QzonePageButton } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
-import { QzonePageContext, QzoneReadPauseContext, useNearViewport } from './qzoneShared.shared';
+import {
+  QzonePageContext,
+  QzoneReadPauseContext,
+  moreSpacePanes,
+  useNearViewport,
+  type QzoneMorePane,
+} from './qzoneShared.shared';
 import '../styles/qzone.css';
 import {
   QzoneProfileContext,
@@ -87,7 +93,7 @@ import {
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzoneSpaceHome, type QzoneHomePostProps } from './QzoneSpaceHome';
 import { QzoneBlogs } from './QzoneBlogs';
-import { QzoneMore, moreSpacePanes, type QzoneMorePane } from './QzoneMore';
+import { QzoneMore } from './QzoneMore';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
 import { QzoneActionsRow, QzoneCommentToggle } from '../components/QzoneActionsRow';

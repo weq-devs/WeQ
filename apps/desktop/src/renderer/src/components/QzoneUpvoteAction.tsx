@@ -15,7 +15,7 @@ import { QzoneInlineText } from './QzoneEmoji';
 import { ShimmerImage } from './ShimmerImage';
 import type { ConversationMenuAction } from './ConversationActionsMenu';
 import { QzoneCardMore } from './QzoneCardMore';
-import { useQzoneShareCard } from './QzoneShareCard';
+import { useQzoneShareCard } from './useQzoneShareCard';
 import { isOrdinaryQzonePost } from '../lib/qzonePublic';
 import '../styles/qzone-archive.css';
 import {
