@@ -67,7 +67,26 @@ try {
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/mobile-overlay-surfaces.html`;
   if (output) await mkdir(output, { recursive: true });
   let cases = 0;
-  for (const surface of ['qr', 'gift', 'gift-detail', 'album', 'files', 'failure', 'export']) {
+  const surfaces = [
+    'qr',
+    'gift',
+    'gift-detail',
+    'album',
+    'files',
+    'failure',
+    'export',
+    'editor',
+    'kick',
+    'left-members',
+    'baseline',
+    'dress',
+  ];
+  const requested = process.argv.slice(2);
+  assert(
+    requested.every((surface) => surfaces.includes(surface)),
+    '未知的弹窗名称',
+  );
+  for (const surface of requested.length ? requested : surfaces) {
     for (const [width, height] of [
       [320, 640],
       [390, 844],
@@ -149,9 +168,40 @@ try {
           const footer = page.locator('[role="dialog"] footer button').last();
           if (await footer.count()) {
             // 即使提交因空选择被禁用，底部取消按钮也必须可触及。
-            const cancel = page.locator('[role="dialog"] footer button').first();
-            await cancel.scrollIntoViewIfNeeded();
-            await cancel.click({ trial: true });
+            const buttons = page.locator('[role="dialog"] footer button:not(:disabled)');
+            for (const button of ['editor', 'dress'].includes(surface)
+              ? await buttons.all()
+              : [buttons.first()]) {
+              await button.scrollIntoViewIfNeeded();
+              await button.click({ trial: true });
+              const { x, width: buttonWidth } = await button.boundingBox();
+              assert(x >= geometry.left && x + buttonWidth <= geometry.right + 1, context);
+            }
+          }
+          if (surface === 'editor') {
+            const lastField = page.locator('[role="dialog"] input').last();
+            await lastField.scrollIntoViewIfNeeded();
+            await lastField.click({ trial: true });
+            const { x, width: fieldWidth } = await lastField.boundingBox();
+            assert(x >= geometry.left && x + fieldWidth <= geometry.right + 1, context);
+          }
+          if (surface === 'dress') {
+            const shops = page.getByRole('button', { name: '商城', exact: true });
+            const shop = shops.last();
+            await shop.scrollIntoViewIfNeeded();
+            const { x, width: shopWidth } = await shop.boundingBox();
+            assert(x >= geometry.left && x + shopWidth <= geometry.right + 1, context);
+            await shop.click();
+            const picker = page.getByRole('dialog', { name: '选择装扮' });
+            await picker.waitFor();
+            const box = await picker.boundingBox();
+            assert(
+              box.y >= viewport.top + 23 &&
+                box.y + box.height <= viewport.top + viewport.height - 11,
+              context,
+            );
+            await picker.getByRole('button', { name: /合成款 7/ }).click({ trial: true });
+            await picker.getByTitle('返回', { exact: true }).click();
           }
           if (surface === 'gift-detail') {
             const send = page.locator('.weq-gift-send');

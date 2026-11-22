@@ -3,11 +3,12 @@
  * Supports nesting, hex editing for bytes, and numeric inputs.
  */
 
-import { useId, useRef, useState } from 'react';
+import { useId, useState } from 'react';
 import { X, Save, ChevronLeft, ChevronRight, Hash, Type, Binary, Box, Copy } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';
-import { useSurfaceEscape } from '../lib/surfaceEscape';
+import { Modal } from './Dialog';
 import { useToastApi } from './Toast.shared';
+import '../styles/msg-element-editor.css';
 
 export interface Props {
   msgId: string;
@@ -25,9 +26,7 @@ export function MsgElementEditor({
   onSave,
 }: Props) {
   const notificationToast = useToastApi();
-  const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  useSurfaceEscape(dialogRef, onClose, true, true);
   const [elements, setElements] = useState<any[]>(JSON.parse(JSON.stringify(initialElements)));
   const [activeIndex, setActiveIndex] = useState(0);
   const [saving, setSending] = useState(false);
@@ -80,95 +79,90 @@ export function MsgElementEditor({
   };
 
   return (
-    <div className="weq-editor-overlay" role="presentation" onMouseDown={onClose}>
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        className="weq-editor-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="weq-editor-header">
-          <div className="weq-editor-title">
-            <h3 id={titleId}>修改本地消息元件（不同步服务器）</h3>
-            <code>
-              msgId: <span className="weq-number weq-number-inherit">{msgId}</span>
-              {msgSeq !== undefined && (
-                <>
-                  {' '}
-                  • seq: <span className="weq-number weq-number-inherit">{msgSeq}</span>
-                </>
-              )}
-            </code>
-          </div>
-          <button
-            className="weq-editor-close"
-            onClick={onClose}
-            aria-label="关闭消息编辑器"
-            title="关闭消息编辑器"
-          >
-            <X size={18} />
-          </button>
-        </header>
-
-        <div className="weq-editor-tabs">
-          {elements.map((_, i) => (
-            <button
-              // biome-ignore lint/suspicious/noArrayIndexKey: tab 按位置选中,索引即语义键
-              key={i}
-              className={cn('weq-editor-tab', i === activeIndex && 'active')}
-              onClick={() => setActiveIndex(i)}
-            >
-              <span className="weq-editor-tab-index">
-                #<span className="weq-number weq-number-inherit">{i + 1}</span>
-              </span>
-              <span className="weq-editor-tab-kind">{elements[i]?.kind || 'unknown'}</span>
-            </button>
-          ))}
+    <Modal
+      onClose={onClose}
+      labelledBy={titleId}
+      className="weq-msg-editor"
+      layerClassName="weq-msg-editor-layer"
+    >
+      <header className="weq-editor-header">
+        <div className="weq-editor-title">
+          <h3 id={titleId}>修改本地消息元件（不同步服务器）</h3>
+          <code>
+            msgId: <span className="weq-number weq-number-inherit">{msgId}</span>
+            {msgSeq !== undefined && (
+              <>
+                {' '}
+                • seq: <span className="weq-number weq-number-inherit">{msgSeq}</span>
+              </>
+            )}
+          </code>
         </div>
+        <button
+          className="weq-editor-close"
+          onClick={onClose}
+          aria-label="关闭消息编辑器"
+          title="关闭消息编辑器"
+        >
+          <X size={18} />
+        </button>
+      </header>
 
-        <main className="weq-editor-body">
-          {activeElement ? (
-            <div className="weq-editor-content">
-              <ObjectEditor value={activeElement} onChange={updateActiveElement} path={[]} />
-            </div>
-          ) : (
-            <div className="weq-editor-empty">无效的元件数据</div>
-          )}
-        </main>
-
-        <footer className="weq-editor-footer">
-          <div className="weq-editor-pager">
-            <button disabled={activeIndex <= 0} onClick={() => setActiveIndex(activeIndex - 1)}>
-              <ChevronLeft size={16} /> 上一个
-            </button>
-            <span className="weq-editor-pager-count">
-              <span className="weq-number weq-number-inherit">{activeIndex + 1}</span> /{' '}
-              <span className="weq-number weq-number-inherit">{elements.length}</span>
+      <div className="weq-editor-tabs">
+        {elements.map((_, i) => (
+          <button
+            // biome-ignore lint/suspicious/noArrayIndexKey: tab 按位置选中,索引即语义键
+            key={i}
+            className={cn('weq-editor-tab', i === activeIndex && 'active')}
+            onClick={() => setActiveIndex(i)}
+          >
+            <span className="weq-editor-tab-index">
+              #<span className="weq-number weq-number-inherit">{i + 1}</span>
             </span>
-            <button
-              disabled={activeIndex >= elements.length - 1}
-              onClick={() => setActiveIndex(activeIndex + 1)}
-            >
-              下一个 <ChevronRight size={16} />
-            </button>
-          </div>
-          <div className="weq-editor-actions">
-            <button className="weq-btn-cancel" onClick={() => void copyJson()}>
-              <Copy size={16} /> 复制 JSON
-            </button>
-            <button className="weq-btn-cancel" onClick={onClose}>
-              取消
-            </button>
-            <button className="weq-btn-save" onClick={handleSave} disabled={saving}>
-              <Save size={16} /> {saving ? '保存中...' : '确认修改'}
-            </button>
-          </div>
-        </footer>
+            <span className="weq-editor-tab-kind">{elements[i]?.kind || 'unknown'}</span>
+          </button>
+        ))}
       </div>
-    </div>
+
+      <main className="weq-editor-body">
+        {activeElement ? (
+          <div className="weq-editor-content">
+            <ObjectEditor value={activeElement} onChange={updateActiveElement} path={[]} />
+          </div>
+        ) : (
+          <div className="weq-editor-empty">无效的元件数据</div>
+        )}
+      </main>
+
+      <footer className="weq-editor-footer">
+        <div className="weq-editor-pager">
+          <button disabled={activeIndex <= 0} onClick={() => setActiveIndex(activeIndex - 1)}>
+            <ChevronLeft size={16} /> 上一个
+          </button>
+          <span className="weq-editor-pager-count">
+            <span className="weq-number weq-number-inherit">{activeIndex + 1}</span> /{' '}
+            <span className="weq-number weq-number-inherit">{elements.length}</span>
+          </span>
+          <button
+            disabled={activeIndex >= elements.length - 1}
+            onClick={() => setActiveIndex(activeIndex + 1)}
+          >
+            下一个 <ChevronRight size={16} />
+          </button>
+        </div>
+        <div className="weq-editor-actions">
+          <button className="weq-btn-cancel" onClick={() => void copyJson()}>
+            <Copy size={16} /> 复制 JSON
+          </button>
+          <button className="weq-btn-cancel" onClick={onClose}>
+            取消
+          </button>
+          <button className="weq-btn-save" onClick={handleSave} disabled={saving}>
+            <Save size={16} /> {saving ? '保存中...' : '确认修改'}
+          </button>
+        </div>
+      </footer>
+    </Modal>
   );
 }
 

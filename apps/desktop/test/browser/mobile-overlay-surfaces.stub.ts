@@ -11,6 +11,13 @@ const data: Record<string, unknown> = {
   'account.giftMall.list': { giftList: [gift], attachInfo: '', isEnd: true },
   'account.giftMall.search': { giftList: [gift], attachInfo: '', isEnd: true },
   'account.giftMall.detail': { giftInfo: gift },
+  'account.dressup.getState': { qqOnline: true },
+  'account.dressup.rank': {
+    items: Array.from({ length: 8 }, (_, index) => ({
+      itemId: index + 10,
+      name: `合成款 ${index}`,
+    })),
+  },
   'bootstrap.getSettings': { voiceTranscribe: { modelId: '' } },
 };
 const results = new Map<string, object>();

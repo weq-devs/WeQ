@@ -9,6 +9,11 @@ import { FailureLightbox } from '../../src/renderer/src/views/export/FailureLigh
 import { ExportLightbox } from '../../src/renderer/src/views/export/ExportLightbox';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { useDialog } from '../../src/renderer/src/components/Dialog.shared';
+import { GroupLeftMembersDialog } from '../../src/renderer/src/components/GroupLeftMembersDialog';
+import { GroupMemberKickDialog } from '../../src/renderer/src/components/GroupMemberModerationDialogs';
+import { MsgElementEditor } from '../../src/renderer/src/components/MsgElementEditor';
+import { MsgDressEditor } from '../../src/renderer/src/components/mergeForward/MsgDressEditor';
+import { BaselinePicker } from '../../src/renderer/src/views/export/BaselinePicker';
 import { attachMobileHistory, mobileBack } from '../../src/renderer/src/hooks/useMobileNavigation';
 import { subscribeResponsiveLayout } from '../../src/renderer/src/lib/responsiveLayout';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
@@ -20,6 +25,16 @@ import '../../src/renderer/src/styles/mobile-web.css';
 ensureThemeInitialized();
 subscribeResponsiveLayout(() => {});
 const noop = () => {};
+const editorElements = [
+  {
+    kind: 'grayTipPoke',
+    elementId: '1234567890123456789',
+    grayTipXmlContent: '<gtip align="center">合成消息</gtip>',
+    tipJson: JSON.stringify({ text: '合成消息'.repeat(16) }),
+    zNestedFields: [{ longUnbrokenFieldName: '最后一个字段' }],
+  },
+  { kind: 'text', text: '另一个元件' },
+];
 function Fixture() {
   const [surface, show] = useState('none');
   const [closed, setClosed] = useState(0);
@@ -56,6 +71,33 @@ function Fixture() {
       <style>{'html,body,#root{height:100%;margin:0;overflow:hidden}'}</style>
       <RedBagQrcodeHost />
       <DialogHost />
+      {surface === 'editor' && (
+        <MsgElementEditor
+          msgId="1234567890123456789"
+          elements={editorElements}
+          onClose={close}
+          onSave={async () => {}}
+        />
+      )}
+      {surface === 'kick' && (
+        <GroupMemberKickDialog memberName={'Sample'.repeat(60)} onCancel={close} onConfirm={noop} />
+      )}
+      {surface === 'dress' && (
+        <MsgDressEditor decoration={undefined} onClose={close} onChange={noop} />
+      )}
+      {surface === 'left-members' && (
+        <GroupLeftMembersDialog
+          groupName="合成群"
+          members={Array.from({ length: 12 }, (_, index) => ({
+            id: `u_fixture_${index}`,
+            displayName: `合成成员 ${index}`,
+            identity: `3000${index}`,
+          }))}
+          loading={false}
+          onClose={close}
+        />
+      )}
+      {surface === 'baseline' && <BaselinePicker onClose={close} onSelect={noop} />}
       {surface.startsWith('gift') && (
         <GiftMallPanel peer="u_fixture" peerName="合成用户" onClose={close} />
       )}

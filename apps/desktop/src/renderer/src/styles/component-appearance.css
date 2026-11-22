@@ -195,10 +195,7 @@ html[data-component-style][data-theme]:not([data-component-style='classic'])
 /* 只给真实浮层加外框。内嵌页面及页面内的结果列表不属于浮层。 */
 html[data-component-style][data-theme] body .weq-nonmodal-layer[tabindex] > :first-child,
 html[data-component-style][data-theme] body .weq-dialog-layer > .weq-modal,
-html[data-component-style][data-theme]
-  body
-  :is(.weq-overlay-layer, .weq-editor-overlay)
-  > [role='dialog'],
+html[data-component-style][data-theme] body .weq-overlay-layer > [role='dialog'],
 html[data-component-style][data-theme] body .weq-window-layer > .weq-window-surface,
 html[data-component-style][data-theme]
   body

@@ -233,73 +233,71 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
     },
     dialog:
       pending && pendingPlan ? (
-        <OverlayLayer onClose={() => settle(null)}>
-          <div className="modal-scrim weq-export-auth-scrim">
-            <section
-              role="dialog"
-              aria-modal="true"
-              aria-label={pendingPlan.elevate ? '需要提权' : '准备在线功能'}
-              className="weq-export-authorization"
-            >
-              <header>
-                <strong>
-                  <ShieldAlert size={17} />
-                  {pendingPlan.elevate ? '需要提权' : '准备在线功能'}
-                </strong>
-                <button
-                  type="button"
-                  className="weq-exp-tool"
-                  title="返回导出配置"
-                  aria-label="返回导出配置"
-                  onClick={() => settle(null)}
-                >
-                  <X size={16} />
-                </button>
-              </header>
-              <ul>
-                {pendingPlan.capture ? <li>官方语音转写抓包</li> : null}
-                {pendingPlan.roaming ? <li>拉取漫游消息</li> : null}
-                {pendingPlan.ocr ? <li>官方图片识别</li> : null}
-                {pendingPlan.media ? <li>在线媒体补全</li> : null}
-              </ul>
-              {requests
-                .filter(() => busy)
-                .map((request, index) => (
-                  <AuthorizationForm
-                    key={`${request.kind}:${request.token}`}
-                    request={request}
-                    showLongTermAuthorization={
-                      index === requests.findLastIndex((item) => !item.title.includes('长期授权'))
-                    }
-                    onOpenLongTermAuthorization={() => settle(null)}
-                  />
-                ))}
-              {error ? <p role="alert">{error}</p> : null}
-              <footer>
-                {pendingPlan.elevate && !busy && (
-                  <LongTermAuthorizationLink
-                    className="weq-exp-btn"
-                    beforeNavigate={() => settle(null)}
-                  />
-                )}
-                <button
-                  type="button"
+        <OverlayLayer className="modal-scrim weq-export-auth-scrim" onClose={() => settle(null)}>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label={pendingPlan.elevate ? '需要提权' : '准备在线功能'}
+            className="weq-export-authorization"
+          >
+            <header>
+              <strong>
+                <ShieldAlert size={17} />
+                {pendingPlan.elevate ? '需要提权' : '准备在线功能'}
+              </strong>
+              <button
+                type="button"
+                className="weq-exp-tool"
+                title="返回导出配置"
+                aria-label="返回导出配置"
+                onClick={() => settle(null)}
+              >
+                <X size={16} />
+              </button>
+            </header>
+            <ul>
+              {pendingPlan.capture ? <li>官方语音转写抓包</li> : null}
+              {pendingPlan.roaming ? <li>拉取漫游消息</li> : null}
+              {pendingPlan.ocr ? <li>官方图片识别</li> : null}
+              {pendingPlan.media ? <li>在线媒体补全</li> : null}
+            </ul>
+            {requests
+              .filter(() => busy)
+              .map((request, index) => (
+                <AuthorizationForm
+                  key={`${request.kind}:${request.token}`}
+                  request={request}
+                  showLongTermAuthorization={
+                    index === requests.findLastIndex((item) => !item.title.includes('长期授权'))
+                  }
+                  onOpenLongTermAuthorization={() => settle(null)}
+                />
+              ))}
+            {error ? <p role="alert">{error}</p> : null}
+            <footer>
+              {pendingPlan.elevate && !busy && (
+                <LongTermAuthorizationLink
                   className="weq-exp-btn"
-                  onClick={() => settle(skipExportAuthorization(pending.options, pendingPlan))}
-                >
-                  跳过需提权项目
-                </button>
-                <button
-                  type="button"
-                  className="weq-exp-btn is-primary"
-                  disabled={busy}
-                  onClick={() => void authorize()}
-                >
-                  {busy ? '等待授权' : pendingPlan.elevate ? '提权并继续' : '启用并继续'}
-                </button>
-              </footer>
-            </section>
-          </div>
+                  beforeNavigate={() => settle(null)}
+                />
+              )}
+              <button
+                type="button"
+                className="weq-exp-btn"
+                onClick={() => settle(skipExportAuthorization(pending.options, pendingPlan))}
+              >
+                跳过需提权项目
+              </button>
+              <button
+                type="button"
+                className="weq-exp-btn is-primary"
+                disabled={busy}
+                onClick={() => void authorize()}
+              >
+                {busy ? '等待授权' : pendingPlan.elevate ? '提权并继续' : '启用并继续'}
+              </button>
+            </footer>
+          </section>
         </OverlayLayer>
       ) : null,
   };

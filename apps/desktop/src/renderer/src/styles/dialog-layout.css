@@ -101,6 +101,9 @@ html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft:hov
     inset: var(--weq-mobile-viewport-top, 0px) 0 auto;
     height: var(--weq-dialog-viewport-height);
     min-height: 0;
+    /* 固定网格轨道，避免宽内容或高表单将遮罩的可用区域撑开。 */
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     padding: var(--weq-dialog-top-gap) max(12px, var(--weq-safe-right)) var(--weq-dialog-bottom-gap)
       max(12px, var(--weq-safe-left));
   }
@@ -110,14 +113,19 @@ html[data-theme='dark'] .weq-message-modal .weq-dialog-foot .weq-action-soft:hov
     max-height: var(--weq-dialog-max-height);
   }
 
-  .weq-web-dialog-layer.is-anchored-popover[tabindex] > :first-child {
-    max-width: calc(100vw - var(--weq-safe-left) - var(--weq-safe-right) - 16px);
-    max-height: calc(
+  .weq-web-dialog-layer.is-anchored-popover {
+    --weq-dialog-max-width: calc(100vw - var(--weq-safe-left) - var(--weq-safe-right) - 16px);
+    --weq-dialog-max-height: calc(
       var(--weq-mobile-viewport-height, 100dvh) -
       var(--weq-safe-top) -
       var(--weq-mobile-safe-bottom, var(--weq-safe-bottom)) -
       16px
     );
+  }
+
+  .weq-web-dialog-layer.is-anchored-popover[tabindex] > :first-child {
+    max-width: var(--weq-dialog-max-width);
+    max-height: var(--weq-dialog-max-height);
     overflow: auto;
   }
 

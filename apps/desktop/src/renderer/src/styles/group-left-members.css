@@ -1,7 +1,7 @@
 .weq-overlay-layer.weq-group-left-members-layer[tabindex] > section.weq-group-left-members {
   width: min(360px, calc(100vw - 16px));
-  max-width: calc(100vw - 16px);
-  max-height: min(480px, calc(100dvh - 16px));
+  max-width: var(--weq-dialog-max-width, 100%);
+  max-height: min(480px, var(--weq-dialog-max-height, calc(100dvh - 16px)));
   border-radius: 6px;
   background: var(--weq-bg-surface);
 }

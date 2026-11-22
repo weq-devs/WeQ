@@ -29,7 +29,7 @@ it('names the editor and close action, traps focus, and restores it after Escape
     const trigger = host.querySelector<HTMLButtonElement>('#editor-trigger')!;
     trigger.focus();
     act(() => trigger.click());
-    const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
     const labelId = dialog.getAttribute('aria-labelledby');
     expect(labelId).toBeTruthy();
     expect(document.getElementById(labelId!)?.textContent).toContain('修改本地消息元件');
@@ -53,7 +53,7 @@ it('names the editor and close action, traps focus, and restores it after Escape
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
       ),
     );
-    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
   } finally {
     act(() => root.unmount());

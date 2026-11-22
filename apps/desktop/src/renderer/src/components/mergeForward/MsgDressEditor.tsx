@@ -20,6 +20,8 @@ import { trpc } from '../../trpc/client';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { useRenderDocument } from '../../lib/renderDocument';
 import { useSurfaceEscape } from '../../lib/surfaceEscape';
+import { IS_WEB } from '../../lib/target.shared';
+import { useMobileWebViewport } from '../../hooks/useMobileWebViewport';
 import { dressUrl } from '../../lib/resourceUrl';
 import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { closeFromScrim } from '../../im-template/template/modalUtils';
@@ -29,6 +31,7 @@ import { QqAvatar } from '../QqAvatar';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { useBubbleFontFx } from '../../hooks/useBubbleFontFx';
 import { segsToRenderElements, type MfDecoration, type MfSeg } from './model';
+import '../../styles/dialog-layout.css';
 
 type DressKind = 'bubble' | 'font' | 'widget';
 
@@ -118,6 +121,8 @@ export function MsgDressEditor({
 }): ReactElement {
   const document = useRenderDocument();
   const layer = useOverlayLayer(true);
+  const layerRef = useRef<HTMLDivElement>(null);
+  useMobileWebViewport(layerRef, IS_WEB);
   const ref = useRef<HTMLDivElement>(null);
   // 在提交和子层自动聚焦前记住触发点，关闭时回到原窗口的原控件。
   const returnFocus = useRef(document.activeElement as HTMLElement | null);
@@ -175,7 +180,8 @@ export function MsgDressEditor({
 
   return createPortal(
     <div
-      className="weq-mf-dress-layer"
+      ref={layerRef}
+      className={cn('weq-mf-dress-layer', IS_WEB && 'weq-web-dialog-layer')}
       style={{ zIndex: layer }}
       role="presentation"
       onMouseDown={closeFromScrim(onClose)}
@@ -307,6 +313,8 @@ function DressMallPicker({
 }): ReactElement {
   const document = useRenderDocument();
   const layer = useOverlayLayer(true);
+  const layerRef = useRef<HTMLDivElement>(null);
+  useMobileWebViewport(layerRef, IS_WEB);
   const ref = useRef<HTMLDivElement>(null);
   const returnFocus = useRef(document.activeElement as HTMLElement | null);
   useSurfaceEscape(ref, onBack, true, true);
@@ -335,7 +343,8 @@ function DressMallPicker({
 
   return createPortal(
     <div
-      className="weq-mf-dress-layer weq-mf-dress-layer-sub"
+      ref={layerRef}
+      className={cn('weq-mf-dress-layer weq-mf-dress-layer-sub', IS_WEB && 'weq-web-dialog-layer')}
       style={{ zIndex: layer }}
       role="presentation"
       onMouseDown={closeFromScrim(onBack)}

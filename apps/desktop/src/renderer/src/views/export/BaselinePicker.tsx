@@ -122,155 +122,153 @@ export function BaselinePicker({
     </>
   );
   return (
-    <OverlayLayer onClose={onClose}>
-      <div className="modal-scrim weq-export-auth-scrim">
-        <section
-          role="dialog"
-          aria-modal="true"
-          aria-label="选择增量基线"
-          className="weq-export-authorization weq-export-baseline-picker"
-        >
-          <header>
-            <strong>
-              <FolderOpen size={17} />
-              选择增量基线
-            </strong>
+    <OverlayLayer className="modal-scrim weq-export-auth-scrim" onClose={onClose}>
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="选择增量基线"
+        className="weq-export-authorization weq-export-baseline-picker"
+      >
+        <header>
+          <strong>
+            <FolderOpen size={17} />
+            选择增量基线
+          </strong>
+          <button
+            type="button"
+            className="weq-exp-tool"
+            title="关闭基线选择"
+            aria-label="关闭基线选择"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        </header>
+        {remote ? (
+          <p role="status">WeQ Remote 不支持选择电脑已有的增量基线，请新建导出。</p>
+        ) : (
+          <div className="weq-export-baseline-root">
+            <input
+              aria-label="基线所在文件夹"
+              disabled={busy}
+              value={directory}
+              onChange={(event) => {
+                setDirectory(event.target.value);
+                setLoaded(false);
+              }}
+              placeholder="导出文件夹或上级文件夹"
+            />
             <button
               type="button"
               className="weq-exp-tool"
-              title="关闭基线选择"
-              aria-label="关闭基线选择"
-              onClick={onClose}
+              title="浏览基线所在文件夹"
+              aria-label="浏览基线所在文件夹"
+              disabled={busy}
+              onClick={() => {
+                const current = revision.current;
+                void client.account.pickExportBaselineDirectory
+                  .mutate()
+                  .then((path) => {
+                    if (path && revision.current === current) void load(path);
+                  })
+                  .catch((e) => {
+                    if (revision.current === current) setError(String(e));
+                  });
+              }}
             >
-              <X size={16} />
-            </button>
-          </header>
-          {remote ? (
-            <p role="status">WeQ Remote 不支持选择电脑已有的增量基线，请新建导出。</p>
-          ) : (
-            <div className="weq-export-baseline-root">
-              <input
-                aria-label="基线所在文件夹"
-                disabled={busy}
-                value={directory}
-                onChange={(event) => {
-                  setDirectory(event.target.value);
-                  setLoaded(false);
-                }}
-                placeholder="导出文件夹或上级文件夹"
-              />
-              <button
-                type="button"
-                className="weq-exp-tool"
-                title="浏览基线所在文件夹"
-                aria-label="浏览基线所在文件夹"
-                disabled={busy}
-                onClick={() => {
-                  const current = revision.current;
-                  void client.account.pickExportBaselineDirectory
-                    .mutate()
-                    .then((path) => {
-                      if (path && revision.current === current) void load(path);
-                    })
-                    .catch((e) => {
-                      if (revision.current === current) setError(String(e));
-                    });
-                }}
-              >
-                <FolderOpen size={16} />
-              </button>
-              <button
-                type="button"
-                className="weq-exp-tool"
-                title="读取导出文件夹列表"
-                aria-label="读取导出文件夹列表"
-                disabled={busy || !directory}
-                onClick={() => void load(directory)}
-              >
-                <RefreshCw size={16} />
-              </button>
-            </div>
-          )}
-          {busy ? <p role="status">正在读取导出列表</p> : null}
-          {error ? <p role="alert">{error}</p> : null}
-          {truncated ? <p role="status">列表未列全，请选择更具体的文件夹。</p> : null}
-          {loaded && !groups.length ? (
-            <p role="status">未找到导出基线，可新建导出或选择其他文件夹。</p>
-          ) : null}
-          {loaded
-            ? groups.map((group) => {
-                const key = keyFor(group),
-                  matches = items.filter((item) => keyFor(item) === key);
-                return (
-                  <fieldset key={key}>
-                    <legend>
-                      {group.conv} ·{' '}
-                      <NumericText>
-                        {matches.length === 0
-                          ? '未找到相同会话，可创建或重新选择'
-                          : matches.length === 1
-                            ? '已找到相同会话'
-                            : `找到 ${matches.length} 个相同会话，请选择`}
-                      </NumericText>
-                    </legend>
-                    {matches.map((item) => (
-                      <label className="weq-export-baseline-entry" key={item.directory}>
-                        <input
-                          type="radio"
-                          name={`baseline-${key}`}
-                          checked={choices[key] === item.directory}
-                          onChange={() =>
-                            setChoices((previous) => ({ ...previous, [key]: item.directory }))
-                          }
-                        />
-                        <span>{info(item)}</span>
-                      </label>
-                    ))}
-                    <label className="weq-export-baseline-new">
-                      <input
-                        type="radio"
-                        name={`baseline-${key}`}
-                        checked={choices[key] === ''}
-                        onChange={() => setChoices((previous) => ({ ...previous, [key]: '' }))}
-                      />
-                      为此会话创建新导出
-                    </label>
-                  </fieldset>
-                );
-              })
-            : null}
-          {items.some((item) => !allowed.has(keyFor(item))) ? (
-            <details open>
-              <summary>其他会话的导出文件夹</summary>
-              {items
-                .filter((item) => !allowed.has(keyFor(item)))
-                .map((item) => (
-                  <div className="weq-export-baseline-entry" key={item.directory}>
-                    <span>{info(item)}</span>
-                  </div>
-                ))}
-            </details>
-          ) : null}
-          <footer>
-            <button type="button" className="weq-exp-btn" onClick={() => onSelect(null)}>
-              新建导出
+              <FolderOpen size={16} />
             </button>
             <button
               type="button"
-              className="weq-exp-btn is-primary"
-              disabled={!ready}
-              onClick={() =>
-                onSelect({
-                  directory,
-                  byConversation: { ...choices },
-                })
-              }
+              className="weq-exp-tool"
+              title="读取导出文件夹列表"
+              aria-label="读取导出文件夹列表"
+              disabled={busy || !directory}
+              onClick={() => void load(directory)}
             >
-              使用所选基线
+              <RefreshCw size={16} />
             </button>
-          </footer>
-        </section>
-      </div>
+          </div>
+        )}
+        {busy ? <p role="status">正在读取导出列表</p> : null}
+        {error ? <p role="alert">{error}</p> : null}
+        {truncated ? <p role="status">列表未列全，请选择更具体的文件夹。</p> : null}
+        {loaded && !groups.length ? (
+          <p role="status">未找到导出基线，可新建导出或选择其他文件夹。</p>
+        ) : null}
+        {loaded
+          ? groups.map((group) => {
+              const key = keyFor(group),
+                matches = items.filter((item) => keyFor(item) === key);
+              return (
+                <fieldset key={key}>
+                  <legend>
+                    {group.conv} ·{' '}
+                    <NumericText>
+                      {matches.length === 0
+                        ? '未找到相同会话，可创建或重新选择'
+                        : matches.length === 1
+                          ? '已找到相同会话'
+                          : `找到 ${matches.length} 个相同会话，请选择`}
+                    </NumericText>
+                  </legend>
+                  {matches.map((item) => (
+                    <label className="weq-export-baseline-entry" key={item.directory}>
+                      <input
+                        type="radio"
+                        name={`baseline-${key}`}
+                        checked={choices[key] === item.directory}
+                        onChange={() =>
+                          setChoices((previous) => ({ ...previous, [key]: item.directory }))
+                        }
+                      />
+                      <span>{info(item)}</span>
+                    </label>
+                  ))}
+                  <label className="weq-export-baseline-new">
+                    <input
+                      type="radio"
+                      name={`baseline-${key}`}
+                      checked={choices[key] === ''}
+                      onChange={() => setChoices((previous) => ({ ...previous, [key]: '' }))}
+                    />
+                    为此会话创建新导出
+                  </label>
+                </fieldset>
+              );
+            })
+          : null}
+        {items.some((item) => !allowed.has(keyFor(item))) ? (
+          <details open>
+            <summary>其他会话的导出文件夹</summary>
+            {items
+              .filter((item) => !allowed.has(keyFor(item)))
+              .map((item) => (
+                <div className="weq-export-baseline-entry" key={item.directory}>
+                  <span>{info(item)}</span>
+                </div>
+              ))}
+          </details>
+        ) : null}
+        <footer>
+          <button type="button" className="weq-exp-btn" onClick={() => onSelect(null)}>
+            新建导出
+          </button>
+          <button
+            type="button"
+            className="weq-exp-btn is-primary"
+            disabled={!ready}
+            onClick={() =>
+              onSelect({
+                directory,
+                byConversation: { ...choices },
+              })
+            }
+          >
+            使用所选基线
+          </button>
+        </footer>
+      </section>
     </OverlayLayer>
   );
 }
