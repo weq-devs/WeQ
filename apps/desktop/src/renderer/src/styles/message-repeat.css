@@ -1,8 +1,11 @@
-.message-bubble:has(> .weq-repeat-content) {
+.message-bubble:has(> .weq-repeat-content > .weq-message-repeat) {
   margin-right: 40px;
   max-width: calc(75% - 40px);
 }
 .weq-repeat-content {
+  display: contents;
+}
+.weq-repeat-content:has(> :is(.weq-message-repeat, .weq-message-sending)) {
   position: relative;
   display: grid;
   width: fit-content;
@@ -28,9 +31,12 @@
   font: 600 12px / 1 var(--im-font-body, sans-serif);
   cursor: pointer;
 }
-.message-line.mine .message-bubble:has(> .weq-repeat-content) {
+.message-line.mine .message-bubble:has(> .weq-repeat-content > .weq-message-repeat) {
   margin-left: 40px;
   margin-right: 0;
+}
+.message-line.mine .weq-repeat-content {
+  justify-items: end;
 }
 .message-line.mine .weq-repeat-content > :is(.weq-message-repeat, .weq-message-sending) {
   left: -38px;

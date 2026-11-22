@@ -42,6 +42,7 @@ export function ChatTimeline({
   ) => ReactNode;
 }) {
   const ids = useMemo(() => messages.map(({ id }) => id), [messages]);
+  const keys = useMemo(() => messages.map(({ id, outgoingId }) => outgoingId ?? id), [messages]);
   const rowSpacing = useCallback(
     (index: number) => {
       if (index === messages.length - 1) return 0;
@@ -54,7 +55,15 @@ export function ChatTimeline({
     (index: number) => estimateTimelineRowHeight(messages[index]) + rowSpacing(index),
     [messages, rowSpacing],
   );
-  const timeline = useVirtualTimeline({ ids, orderedIds, scrollRef, scope, active, estimateSize });
+  const timeline = useVirtualTimeline({
+    ids,
+    keys,
+    orderedIds,
+    scrollRef,
+    scope,
+    active,
+    estimateSize,
+  });
   const { containerRef } = timeline;
   const captureContent = useCallback(
     (element: HTMLDivElement | null) => {

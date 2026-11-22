@@ -803,24 +803,21 @@ function MessageBubbleBody({
             <MessageProvenance
               message={message}
               precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
+              animate={Boolean(message.optimistic || message.outgoingId)}
             />
           </div>
         )}
-        {repeatAction || optimistic === 'sending' ? (
-          <div className="weq-repeat-content">
-            {content}
-            {optimistic === 'sending' ? (
-              <OutgoingSendProgress
-                transferId={message.transferId}
-                outgoingToHost={message.outgoingToHost}
-              />
-            ) : (
-              repeatAction
-            )}
-          </div>
-        ) : (
-          content
-        )}
+        <div className="weq-repeat-content">
+          {content}
+          {optimistic === 'sending' ? (
+            <OutgoingSendProgress
+              transferId={message.transferId}
+              outgoingToHost={message.outgoingToHost}
+            />
+          ) : (
+            repeatAction
+          )}
+        </div>
         {textResult}
         {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
             只有群聊 + 有会话内序号时才可查。 */}

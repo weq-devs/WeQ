@@ -6408,17 +6408,15 @@ function ChatPaneContent({
                     }
                     const sender = resolveMessageSender(message, conversation, user);
                     out.push(
-                      <Fragment key={message.id}>
-                        {shouldShowMessageTime(previous?.createdAt, message.createdAt) ? (
-                          <MessageTimeDivider
-                            value={message.createdAt}
-                            precision={
-                              conversation.generated || message.optimistic
-                                ? 'millisecond'
-                                : 'second'
-                            }
-                          />
-                        ) : null}
+                      <Fragment key={virtualRow.key}>
+                        <MessageTimeDivider
+                          value={message.createdAt}
+                          visible={shouldShowMessageTime(previous?.createdAt, message.createdAt)}
+                          animate={Boolean(message.optimistic || message.outgoingId)}
+                          precision={
+                            conversation.generated || message.optimistic ? 'millisecond' : 'second'
+                          }
+                        />
                         {showUnreadDivider && message.id === unreadBoundaryId ? (
                           <div
                             className="weq-unread-divider"
@@ -6556,7 +6554,7 @@ function ChatPaneContent({
                           role="listitem"
                           aria-posinset={index + 1}
                           aria-setsize={visibleMessages.length}
-                          key={message.id}
+                          key={virtualRow.key}
                           data-index={index}
                           style={{ paddingBlockEnd: rowSpacing(index) }}
                           ref={timeline.measure}

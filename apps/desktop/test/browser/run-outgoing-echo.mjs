@@ -106,6 +106,46 @@ try {
               settled,
               metrics.map(({ width, height }) => ({ width, height })),
             );
+            if (width === 390 && theme === 'light') {
+              const content = page.locator('.message-content').first();
+              const node = await content.elementHandle();
+              const before = await content.boundingBox();
+              const seq = page.getByText('seq 12', { exact: true });
+              await page.evaluate(() => window.echoQA.setStage('acked'));
+              await seq.waitFor();
+              await page.waitForFunction(() =>
+                document
+                  .querySelector('.weq-message-seq')
+                  ?.getAnimations()
+                  .some((a) => a.playState === 'running'),
+              );
+              assert.equal(await content.evaluate((element, old) => element === old, node), true);
+              assert.deepEqual(await content.boundingBox(), before);
+              await page.evaluate(() => window.echoQA.setStage('confirmed'));
+              await page.waitForFunction(() =>
+                [...document.querySelectorAll('time')].some(
+                  (time) =>
+                    time.textContent === '11:00:02' &&
+                    time.getAnimations().some((a) => a.playState === 'running'),
+                ),
+              );
+              assert.equal(await content.evaluate((element, old) => element === old, node), true);
+              await page.emulateMedia({ reducedMotion: 'reduce' });
+              await page.evaluate(() => window.echoQA.setStage('qq'));
+              await page.getByRole('status', { name: '发送中', exact: true }).first().waitFor();
+              await page.evaluate(() => window.echoQA.setStage('confirmed'));
+              await page.getByText('11:00:02', { exact: true }).first().waitFor();
+              assert.equal(await seq.evaluate((element) => element.getAnimations().length), 0);
+              assert.equal(
+                await page
+                  .getByText('11:00:02', { exact: true })
+                  .first()
+                  .evaluate((element) => element.getAnimations().length),
+                0,
+              );
+              await page.evaluate(() => window.echoQA.setStage('qq'));
+              await page.getByRole('status', { name: '发送中', exact: true }).first().waitFor();
+            }
             await page.emulateMedia({ reducedMotion: 'reduce' });
             assert.ok(
               await page

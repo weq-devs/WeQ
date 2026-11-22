@@ -2,6 +2,7 @@ import { TimeLabel } from './TimeLabel';
 import { clockFormatter, formatDateTime } from '@weq/time';
 import { useContext, type ReactNode } from 'react';
 import { beijingDay } from '../lib/messageCalendar';
+import { useOutgoingMetadataMotion } from '../hooks/useOutgoingMetadataMotion';
 import type { Message } from '../im-template/template/types';
 import '../styles/message-metadata.css';
 import {
@@ -39,10 +40,12 @@ export function MessageProvenance({
   message,
   system = false,
   precision = 'second',
+  animate = false,
 }: {
   message: MessageMetadataSource;
   system?: boolean;
   precision?: 'second' | 'millisecond';
+  animate?: boolean;
 }) {
   const showSeq = useContext(ShowMessageSeqContext);
   const showDate = useContext(ShowMessageDateContext);
@@ -55,6 +58,9 @@ export function MessageProvenance({
     !system && showTime && date && Number.isFinite(date.getTime())
       ? clockFormatter.format(date)
       : null;
+  const timeText = [day, time].filter(Boolean).join(' ');
+  const seqRef = useOutgoingMetadataMotion<HTMLSpanElement>(seq, animate);
+  const timeRef = useOutgoingMetadataMotion<HTMLTimeElement>(timeText || null, animate);
   const roaming = showsRoamingSource(message);
   if (!roaming && !seq && !day && !time) return null;
   return (
@@ -71,13 +77,13 @@ export function MessageProvenance({
         </span>
       ) : null}
       {seq ? (
-        <span className="weq-message-seq" title="会话内消息序号">
+        <span ref={seqRef} className="weq-message-seq" title="会话内消息序号">
           seq <span className="weq-number weq-number-inherit">{seq}</span>
         </span>
       ) : null}
       {day || time ? (
-        <TimeLabel value={message.createdAt} precision={precision} tabbable={false}>
-          {[day, time].filter(Boolean).join(' ')}
+        <TimeLabel ref={timeRef} value={message.createdAt} precision={precision} tabbable={false}>
+          {timeText}
         </TimeLabel>
       ) : null}
     </span>

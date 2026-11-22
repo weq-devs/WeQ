@@ -442,6 +442,8 @@ export type OptimisticMessage = {
   error?: string;
   /** 客户端 `random`（回执带回）—— 对账主键。 */
   cid?: string;
+  /** 发送请求的 random，正式记录可能先于 RPC 回执到达。 */
+  requestRandom?: string;
   /** 回执给出的会话内真实 seq（群聊 / 私聊同一套）—— 用于排序与缺口判定。 */
   seq?: string;
   /** 普通会话零序号的未确认标记；成功设备回执除外。 */

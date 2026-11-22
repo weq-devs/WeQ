@@ -257,7 +257,8 @@ export function useChatTimelineNavigation({
   useLayoutEffect(() => {
     if (!tabActive) return;
     const conversationId = conversation?.id ?? null;
-    const newestId = visibleMessages[visibleMessages.length - 1]?.id ?? null;
+    const newest = visibleMessages.at(-1);
+    const newestId = newest?.outgoingId ?? newest?.id ?? null;
     const wasAtLatest = scrollAtLatestRef.current;
     scrollAtLatestRef.current = atLatest;
     if (loading || (loadingNewer && wasAtLatest))
@@ -339,7 +340,9 @@ export function useChatTimelineNavigation({
     const prevId = lastMessageIdRef.current;
     // The window was swapped wholesale (reply-jump rebuild) when the previous
     // tail is no longer present — that's not a live arrival.
-    const replaced = prevId !== null && !visibleMessages.some((message) => message.id === prevId);
+    const replaced =
+      prevId !== null &&
+      !visibleMessages.some(({ id, outgoingId }) => (outgoingId ?? id) === prevId);
     const appended = countAppendedMessages(prevId, visibleMessages, user.id);
     lastMessageIdRef.current = newestId;
 

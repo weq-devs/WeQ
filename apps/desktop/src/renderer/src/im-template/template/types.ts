@@ -359,6 +359,8 @@ export type MessageAction = {
 
 export type Message = {
   id: string;
+  /** 正式记录接管本地回显时沿用的渲染标识，消息操作仍使用 id。 */
+  outgoingId?: string;
   deletedKind?: 'weq' | 'qq';
   recall?: RecallInfo;
   recallRevokerName?: string;

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import {
   formatDateTime,
   formatDuration,
@@ -15,12 +15,14 @@ export function TimeLabel({
   children,
   className,
   tabbable = true,
+  ref,
 }: {
   value: TimeValue;
   precision?: TimePrecision;
   children?: ReactNode;
   className?: string;
   tabbable?: boolean;
+  ref?: Ref<HTMLTimeElement>;
 }) {
   const full = formatDateTime(value, precision);
   if (!full) return <>{children}</>;
@@ -28,6 +30,7 @@ export function TimeLabel({
     precision === 'day' || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value));
   return (
     <time
+      ref={ref}
       className={className ? `weq-time-label ${className}` : 'weq-time-label'}
       dateTime={dateOnly ? full : timeDate(value)?.toISOString()}
       title={`${full}（北京时间）`}

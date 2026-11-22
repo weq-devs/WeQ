@@ -216,13 +216,11 @@ import type { LoadSelectionMessages } from '../lib/messageSelection';
 import {
   mergeOptimisticInto,
   captureOutgoingAfterSeq,
-  matchForwardMessages,
   type ComposerSubmission,
   type OutgoingRemoval,
 } from '../lib/localOutgoing';
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
 import { OutgoingQueue } from '../lib/outgoingQueue';
-import { matchGeneratedMessages } from '../lib/generatedOutgoing';
 import { newOutgoingRequestId, useOutgoingReceipts } from '../hooks/useOutgoingReceipts';
 import { useTransferActivity } from '../lib/transferActivity';
 import { TransferActivityProvider } from '../components/TransferActivityProvider';
@@ -230,7 +228,11 @@ import { readVideoMeta } from '../im-template/template/composerMedia';
 import { releaseObjectUrl, retainObjectUrl } from '../lib/objectUrl';
 import { useDismissUnsentOutgoing } from '../hooks/useDismissUnsentOutgoing';
 import { useOutgoingConversationPreviews } from '../hooks/useOutgoingConversationPreviews';
-import { reconcileFileMessages } from '../lib/fileSendReconcile';
+import {
+  matchOutgoingEchoes,
+  outgoingEchoKey,
+  rememberOutgoingEcho,
+} from './workspace/outgoingEcho';
 import {
   createUnreadRefresh,
   createUnreadTargetRefresh,
@@ -1803,10 +1805,7 @@ function MainWorkspace(): ReactElement {
   });
   // 发出去但还没被 QQ 同步回来的合并转发（乐观渲染；不写库、不落缓存文件）。
   const [optimisticForwards, setOptimisticForwards] = useState<OptimisticForward[]>([]);
-  const consumedForwardMessages = useRef(new Map<string, string>());
-  useEffect(() => {
-    consumedForwardMessages.current.clear();
-  }, [messageScope]);
+  const outgoingEchoAliases = useMemo(() => new Map<string, string>(), [messageScope]);
   // 同上，但发出去的是 Ark 卡片（推荐好友 / 推荐群 / 位置 / 图文 / 自定义 JSON）。
   const [optimisticArks, setOptimisticArks] = useState<OptimisticArk[]>([]);
   // 同上，但发出去的是普通消息（文本 / @ / 表情 / 图片 / 视频 / 语音 / 文件…）。
@@ -1900,11 +1899,6 @@ function MainWorkspace(): ReactElement {
   );
   const dismissFailedOutgoing = useFailedOutgoingRemoval(applyOutgoingRemoval, refreshAfterRemoval);
   const dismissUnsentOutgoing = useDismissUnsentOutgoing(applyOutgoingRemoval, refreshAfterRemoval);
-  const consumedFileMessages = useRef(new Set<string>());
-  const consumedGeneratedMessages = useRef(new Map<string, string>());
-  useEffect(() => {
-    consumedGeneratedMessages.current.clear();
-  }, [messageScope]);
   const gapFetchCursors = useRef(new Map<string, number>());
   const gapFetchQueue = useRef(Promise.resolve());
   const automaticGapAttempts = useRef(new Set<string>());
@@ -4676,44 +4670,58 @@ function MainWorkspace(): ReactElement {
     ],
   );
 
-  const forwardMatches = useMemo(
-    () =>
-      selectedConversation
-        ? matchForwardMessages(
-            optimisticForwards,
-            loadedMessageWires.filter((wire) => isMineMessage(wire, selectedConversation, user)),
-            selectedConversation.id,
-            consumedForwardMessages.current,
-          )
-        : new Map<string, string>(),
-    [optimisticForwards, loadedMessageWires, selectedConversation, user],
-  );
-  const visibleGeneratedMatches = useMemo(() => {
+  const outgoingEchoes = useMemo(() => {
     if (
       !selectedConversation ||
-      !optimisticMessages.some((item) => item.awaitingAiVoice || item.signatures?.length)
+      ![...optimisticMessages, ...optimisticArks, ...optimisticForwards].some(
+        (item) => item.convId === selectedConversation.id && item.state !== 'failed',
+      )
     )
-      return new Map<string, string>();
-    return matchGeneratedMessages(
-      optimisticMessages,
-      loadedMessageWires.filter((wire) => isMineMessage(wire, selectedConversation, user)),
-      selectedConversation.id,
-      consumedGeneratedMessages.current,
-      true,
-    );
-  }, [optimisticMessages, loadedMessageWires, selectedConversation, user]);
+      return new Map<string, never>();
+    return matchOutgoingEchoes({
+      convId: selectedConversation.id,
+      direct: selectedConversation.type === 'direct',
+      rows: loadedMessageWires.filter(
+        (wire) => isRenderableMessage(wire) && isMineMessage(wire, selectedConversation, user),
+      ),
+      messages: optimisticMessages,
+      arks: optimisticArks,
+      forwards: optimisticForwards,
+      aliases: outgoingEchoAliases,
+    });
+  }, [
+    optimisticForwards,
+    optimisticArks,
+    optimisticMessages,
+    loadedMessageWires,
+    selectedConversation,
+    user,
+    outgoingEchoAliases,
+  ]);
+  const outgoingEchoIds = useMemo(
+    () => new Map([...outgoingEchoes].map(([id, { row }]) => [timelineRowKey(row), id])),
+    [outgoingEchoes],
+  );
+  const pendingPictureEchoes = useMemo(() => {
+    const previews = new Map<string, SentPicturePreviews['urls']>();
+    for (const item of optimisticMessages) {
+      if (!outgoingEchoes.has(item.id)) continue;
+      const picture = outgoingPicturePreviews(item.elements);
+      if (picture) previews.set(item.id, picture.urls);
+    }
+    return previews;
+  }, [optimisticMessages, outgoingEchoes]);
 
   const templateContext = messageTemplateContext(selectedConversation);
   const sentPictureEchoes = useMemo(() => {
     const byId = new Map<string, SentPicturePreviews['urls']>();
-    const outgoingIds = new Set<string>();
-    if (!selectedConversation) return { byId, outgoingIds };
+    if (!selectedConversation) return byId;
     const outgoing = new Map(
       sentPicturePreviews
         .filter((item) => item.convId === selectedConversation.id)
         .map((item) => [item.cid, item]),
     );
-    if (!outgoing.size) return { byId, outgoingIds };
+    if (!outgoing.size) return byId;
     for (const wire of loadedMessageWires) {
       const item = outgoing.get(wire.msgRandom ?? '');
       if (
@@ -4724,9 +4732,8 @@ function MainWorkspace(): ReactElement {
       )
         continue;
       byId.set(timelineRowKey(wire), item.urls);
-      outgoingIds.add(item.id);
     }
-    return { byId, outgoingIds };
+    return byId;
   }, [loadedMessageWires, sentPicturePreviews, selectedConversation, user]);
   const messageTemplateCache = useMemo(
     () => new WeakMap<MessageWire, { message: Message; identityRevision: symbol }>(),
@@ -4752,6 +4759,28 @@ function MainWorkspace(): ReactElement {
     );
     const replyIndex = messageReplyIndex;
 
+    const claimedEchoIds = new Set<string>();
+    const projectEcho = (mapped: Message, wire: MessageWire) => {
+      const alias =
+        outgoingEchoIds.get(mapped.id) ??
+        outgoingEchoKey(outgoingEchoAliases, selectedConversation.id, wire);
+      const outgoingId =
+        alias && !claimedEchoIds.has(alias) && isMineMessage(wire, selectedConversation, user)
+          ? alias
+          : undefined;
+      if (outgoingId) claimedEchoIds.add(outgoingId);
+      const previews =
+        sentPictureEchoes.get(mapped.id) ??
+        (outgoingId && !mapped.recall && !mapped.deletedKind
+          ? pendingPictureEchoes.get(outgoingId)
+          : undefined);
+      const elements = previews
+        ? withOutgoingPicturePreviews(mapped.qqElements, previews)
+        : mapped.qqElements;
+      return outgoingId || elements !== mapped.qqElements
+        ? { ...mapped, outgoingId, qqElements: elements }
+        : mapped;
+    };
     const real = loadedMessageWires
       .filter((message) => isRenderableMessage(message))
       .map((message) => {
@@ -4802,7 +4831,7 @@ function MainWorkspace(): ReactElement {
               message: updated,
               identityRevision: messageIdentityRevision,
             });
-          return updated;
+          return projectEcho(updated, message);
         }
         const mapped = messageToTemplate(
           message,
@@ -4818,35 +4847,22 @@ function MainWorkspace(): ReactElement {
           message: mapped,
           identityRevision: messageIdentityRevision,
         });
-        return mapped;
+        return projectEcho(mapped, message);
       });
-    // 乐观渲染的合并转发（见 {@link mergeOptimisticInto}）。
-    const pending = optimisticForwards
-      .filter((item) => item.convId === selectedConversation.id && !forwardMatches.has(item.id))
-      .map((item) => optimisticToTemplate(item, selectedConversation, optimisticSender));
-    // 乐观 Ark 卡片（同上）。
-    const pendingArks = optimisticArks
-      .filter((item) => item.convId === selectedConversation.id)
-      .map((item) => optimisticArkToTemplate(item, selectedConversation, optimisticSender));
-    // 乐观普通消息（文本 / @ / 表情 / 图片 / 语音 / 文件…）。
-    const pendingMessages = optimisticMessages
-      .filter(
-        (item) =>
-          item.convId === selectedConversation.id &&
-          !sentPictureEchoes.outgoingIds.has(item.id) &&
-          !visibleGeneratedMatches.has(item.id),
-      )
-      .map((item) => optimisticMessageToTemplate(item, selectedConversation, optimisticSender));
-    // 确认过的序号按原规则插入；失败按创建时间定位，其余无可靠位置的占位仍留在末尾。
-    const visible = sentPictureEchoes.byId.size
-      ? real.map((message) => {
-          const previews = sentPictureEchoes.byId.get(message.id);
-          if (!previews) return message;
-          const elements = withOutgoingPicturePreviews(message.qqElements, previews);
-          return elements === message.qqElements ? message : { ...message, qqElements: elements };
-        })
-      : real;
-    const mapped = mergeOptimisticInto(visible, [...pending, ...pendingArks, ...pendingMessages]);
+    const isPending = (item: { convId: string; id: string }) =>
+      item.convId === selectedConversation.id && !outgoingEchoes.has(item.id);
+    // 同一帧用真实记录接管显示，保留渲染键，消息操作仍使用真实 ID。
+    const mapped = mergeOptimisticInto(real, [
+      ...optimisticForwards
+        .filter(isPending)
+        .map((item) => optimisticToTemplate(item, selectedConversation, optimisticSender)),
+      ...optimisticArks
+        .filter(isPending)
+        .map((item) => optimisticArkToTemplate(item, selectedConversation, optimisticSender)),
+      ...optimisticMessages
+        .filter(isPending)
+        .map((item) => optimisticMessageToTemplate(item, selectedConversation, optimisticSender)),
+    ]);
     recordMessagePhase('mapping', performance.now() - mappingStarted);
     return mapped;
   }, [
@@ -4859,165 +4875,39 @@ function MainWorkspace(): ReactElement {
     optimisticArks,
     optimisticMessages,
     sentPictureEchoes,
-    forwardMatches,
-    visibleGeneratedMatches,
+    pendingPictureEchoes,
+    outgoingEchoes,
+    outgoingEchoIds,
+    outgoingEchoAliases,
     messageTemplateCache,
     messageIdentityRevision,
     messageReplyIndex,
     profileByUid,
   ]);
 
-  /**
-   * 与渲染使用同一份纯对账结果，回执更新也触发；一条真实回声只消费一次。
-   */
   useEffect(() => {
-    if (!forwardMatches.size) return;
-    for (const [id, key] of forwardMatches) {
-      while (consumedForwardMessages.current.size >= 512)
-        consumedForwardMessages.current.delete(
-          consumedForwardMessages.current.keys().next().value!,
-        );
-      consumedForwardMessages.current.set(key, id);
-    }
-    setOptimisticForwards((current) => {
-      const next = current.filter((item) => !forwardMatches.has(item.id));
-      return next.length === current.length ? current : next;
-    });
-  }, [forwardMatches]);
-
-  /**
-   * Ark 卡片的真消息同步回来之后，把对应的乐观条目收掉。判据按可靠性排队：
-   *
-   *   1. **cid（首选，= 客户端 random）**：`wire.msgRandom` 与发送时记下的 random 相等
-   *      —— 精确对账，连位置卡片这种「服务端会重写卡片内容」的也能收掉；群聊私聊通吃；
-   *   2. **seq（辅助）**：回执给出的会话内真实 seq（群聊 = 库里 40003；私聊实测也是
-   *      「本地 max + 1」那一套）。作为 cid 之后的次要对账判据；
-   *   3. **内容签名**（`arkCardSignature`）：位置卡片走坐标，其余走 ark JSON 本体 ——
-   *      cid 拿不到时的兜底（例如位置卡片那条 trpc 回包解析不出 random）。
-   *
-   * 签名可能撞（同一条位置连发两次、同一张卡连发两次），所以按**出现次数**消耗：
-   * 同步回来几条就收掉几条，剩下的继续挂着等下一批。
-   *
-   * 只对**当前会话**的乐观条目对账：`loadedMessageWires` 是当前打开的会话，而
-   * `optimisticArks` 可能还有别的会话的条目。seq 判据尤其需要这道闸 —— 它是会话内序号，
-   * 别的会话完全可能有同一个数字。
-   *
-   * 依赖里带上 `optimisticArks` 本身：cid / seq 是**拿到回执才补上**的，如果那一刻
-   * 真消息已经到了，必须再跑一轮才能收掉它（没得改时返回同一个数组，不会死循环）。
-   */
-  useEffect(() => {
-    if (optimisticArks.length === 0) return;
-    const openConvId = selectedConversation?.id;
-    if (!openConvId) return;
-    const cids = new Set<string>();
-    const seqs = new Set<string>();
-    const signatures = new Map<string, number>();
-    for (const wire of loadedMessageWires) {
-      if (wire.msgRandom && wire.msgRandom !== '0') cids.add(wire.msgRandom);
-      if (wire.msgSeq) seqs.add(String(wire.msgSeq));
-      for (const element of wire.elements ?? []) {
-        if ((element as { type?: string }).type !== 'ark') continue;
-        const signature = arkCardSignature(
-          String((element as { data?: { arkData?: unknown } }).data?.arkData ?? ''),
-        );
-        if (signature) signatures.set(signature, (signatures.get(signature) ?? 0) + 1);
-      }
-    }
-    if (cids.size === 0 && seqs.size === 0 && signatures.size === 0) return;
-    // 与普通消息那条同一套：结论在 updater 外面算好，不在 updater 里消耗 `signatures`
-    // 的计数（开发构建会把 updater 跑两遍、以第二遍为准，副作用会让它漏判）。
-    const dropIds = new Set<string>();
-    for (const item of optimisticArks) {
-      // 别的会话的条目不在这个窗口里，原样留着（见上方注释）。
-      if (item.convId !== openConvId) continue;
-      if (item.cid && cids.has(item.cid)) {
-        dropIds.add(item.id);
-        continue;
-      }
-      if (item.seq && seqs.has(item.seq)) {
-        dropIds.add(item.id);
-        continue;
-      }
-      const left = signatures.get(item.signature);
-      if (!left) continue;
-      signatures.set(item.signature, left - 1);
-      dropIds.add(item.id);
-    }
-    if (dropIds.size === 0) return;
-    setOptimisticArks((current) => {
-      const next = current.filter((item) => !dropIds.has(item.id));
-      return next.length === current.length ? current : next;
-    });
-  }, [loadedMessageWires, optimisticArks, selectedConversation]);
-
-  /**
-   * 普通消息（文本 / 表情 / 媒体 / 文件…）的真消息同步回来后把乐观条目收掉。
-   *
-   * 判据与 Ark 同：cid（= 客户端 `random`）首选 —— 发送前已知、回执带回、库里 40002
-   * 同名；seq 作为次要对账（会话内序号，所以必须限定当前会话）。媒体消息同步本来就
-   * 比文本慢，未命中前乐观条目继续显示本地预览。
-   */
-  useEffect(() => {
-    if (!optimisticMessages.some((item) => item.fileSync && item.state !== 'failed')) {
-      consumedFileMessages.current.clear();
-    }
-    if (optimisticMessages.length === 0) return;
-    const openConvId = selectedConversation?.id;
-    if (!openConvId) return;
-    const cids = new Set<string>();
-    const seqs = new Set<string>();
-    for (const wire of loadedMessageWires) {
-      if (wire.msgRandom && wire.msgRandom !== '0') cids.add(wire.msgRandom);
-      if (wire.msgSeq) seqs.add(String(wire.msgSeq));
-    }
-    // 对账结论必须在 updater **外面**算完：updater 里一旦消耗 `signatures` 的计数，它
-    // 就不再纯净 —— React 的开发构建会把 updater 跑两遍，**第二次的结果才是最终值**
-    // （react-dom `updateReducerImpl`：多跑的那遍丢掉结果，再用同一份 base state 跑一遍）。
-    // 第一遍把计数减到 0，第二遍就会当成「签名没命中」而保留乐观消息；闪传 / AI 声聊拿不到
-    // cid / seq、只能靠签名对账，于是卡片永远收不掉。
-    const dropIds = reconcileFileMessages(
-      optimisticMessages,
-      loadedMessageWires.filter((wire) => isMineMessage(wire, selectedConversation, user)),
-      openConvId,
-      consumedFileMessages.current,
-    );
-    const generated = matchGeneratedMessages(
-      optimisticMessages,
-      loadedMessageWires.filter((wire) => isMineMessage(wire, selectedConversation, user)),
-      openConvId,
-      consumedGeneratedMessages.current,
-    );
-    for (const [id, key] of generated) {
-      dropIds.add(id);
-      while (consumedGeneratedMessages.current.size >= 512)
-        consumedGeneratedMessages.current.delete(
-          consumedGeneratedMessages.current.keys().next().value!,
-        );
-      consumedGeneratedMessages.current.set(key, id);
-    }
-    for (const item of optimisticMessages) {
-      if (item.convId !== openConvId) continue;
-      if (item.cid && cids.has(item.cid)) {
-        dropIds.add(item.id);
-        continue;
-      }
-      if (item.seq && seqs.has(item.seq)) {
-        dropIds.add(item.id);
-      }
-    }
-    if (dropIds.size === 0) return;
-    // 乐观条目被真消息收掉后，它持有的本地预览 blob 也就没人用了（闪照）。
-    for (const id of dropIds) {
+    if (!selectedConversation || !outgoingEchoes.size) return;
+    const confirmedIds = new Set<string>();
+    for (const [id, { row, confirmed }] of outgoingEchoes) {
+      // AI 声聊回声可能早于回执，先接管显示，回执确认后再释放本地占位。
+      if (!confirmed) continue;
+      rememberOutgoingEcho(outgoingEchoAliases, selectedConversation.id, row, id);
+      confirmedIds.add(id);
       const url = optimisticBlobs.current.get(id);
-      if (!url) continue;
-      optimisticBlobs.current.delete(id);
-      releaseObjectUrl(url);
+      if (url) {
+        optimisticBlobs.current.delete(id);
+        releaseObjectUrl(url);
+      }
     }
-    setOptimisticMessages((current) => {
-      const next = current.filter((item) => !dropIds.has(item.id));
+    if (!confirmedIds.size) return;
+    const removeSynced = <T extends { id: string }>(current: T[]) => {
+      const next = current.filter((item) => !confirmedIds.has(item.id));
       return next.length === current.length ? current : next;
-    });
-  }, [loadedMessageWires, optimisticMessages, selectedConversation, user]);
+    };
+    setOptimisticMessages(removeSynced);
+    setOptimisticArks(removeSynced);
+    setOptimisticForwards(removeSynced);
+  }, [outgoingEchoAliases, outgoingEchoes, selectedConversation]);
 
   // 凭据登记事件可能早于能力轮询，立即刷新以恢复特殊消息补拉。
   useEffect(() => {
@@ -7308,6 +7198,12 @@ function MainWorkspace(): ReactElement {
         current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
       );
     };
+    const registerRequestRandom = () => {
+      // 与协议默认 random 一样使用正的 31 位值，保证正式回声先到时也能精确对账。
+      const random = (crypto.getRandomValues(new Uint32Array(1))[0]! % 0x7fff_fffe) + 1;
+      patchOptimistic({ requestRandom: String(random) });
+      return random;
+    };
 
     let plan: ComposerSendPlan;
     let transferId: string | undefined;
@@ -7428,6 +7324,7 @@ function MainWorkspace(): ReactElement {
         const wav = await decodeRecordingToWav(plan.recording);
         outcome = await client.account.sendVoice.mutate({
           ...outgoingReceipt(optimisticId),
+          random: registerRequestRandom(),
           expectedAccountUin: user.identityValue,
           expectedAccountConfigId,
           peerType: target.peerType,
@@ -7461,6 +7358,7 @@ function MainWorkspace(): ReactElement {
       } else {
         outcome = await client.account.sendElements.mutate({
           ...outgoingReceipt(optimisticId),
+          random: registerRequestRandom(),
           expectedAccountUin: user.identityValue,
           ...(expectedAccountConfigId ? { expectedAccountConfigId } : {}),
           peerType: target.peerType,

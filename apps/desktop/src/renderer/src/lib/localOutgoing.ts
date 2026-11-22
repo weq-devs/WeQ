@@ -8,6 +8,7 @@ export interface LocalOutgoingRecord {
   seq?: string;
   afterSeq?: string;
   cid?: string;
+  requestRandom?: string;
   seqRejected?: boolean;
   fileSync?: { fileId: string };
 }

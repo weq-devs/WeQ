@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { reconcileFileMessages } from '../src/renderer/src/lib/fileSendReconcile';
+import { matchFileMessages } from '../src/renderer/src/lib/fileSendReconcile';
 
 const at = Date.parse('2026-10-20T03:00:00.500Z');
 const pending = (id = 'pending', overrides = {}) => ({
@@ -20,23 +20,23 @@ const wire = (msgId = 'new', overrides = {}) => ({
 
 describe('文件发送回显对账', () => {
   it('群文件没有 random 或序号回执时，按文件 ID 收起临时气泡', () => {
-    expect(reconcileFileMessages([pending()], [wire()], 'group', new Set())).toEqual(
-      new Set(['pending']),
+    expect(matchFileMessages([pending()], [wire()], 'group', new Map())).toEqual(
+      new Map([['pending', 'group:new']]),
     );
   });
 
   it('真消息先到、发送回执后到时，回执补齐后仍可完成对账', () => {
-    const consumed = new Set<string>();
+    const consumed = new Map<string, string>();
     expect(
-      reconcileFileMessages(
+      matchFileMessages(
         [pending('pending', { state: 'sending', fileSync: { fileId: '', existingMsgIds: [] } })],
         [wire()],
         'group',
         consumed,
       ).size,
     ).toBe(0);
-    expect(reconcileFileMessages([pending()], [wire()], 'group', consumed)).toEqual(
-      new Set(['pending']),
+    expect(matchFileMessages([pending()], [wire()], 'group', consumed)).toEqual(
+      new Map([['pending', 'group:new']]),
     );
   });
 
@@ -48,7 +48,7 @@ describe('文件发送回显对账', () => {
         elements: [{ type: 'file', data: { fileToken: 'other-id', fileName: 'same.txt' } }],
       }),
     ];
-    expect(reconcileFileMessages([pending()], messages, 'group', new Set()).size).toBe(0);
+    expect(matchFileMessages([pending()], messages, 'group', new Map()).size).toBe(0);
     for (const overrides of [
       { convId: 'other' },
       { state: 'failed' },
@@ -56,42 +56,43 @@ describe('文件发送回显对账', () => {
       { fileSync: undefined },
     ]) {
       expect(
-        reconcileFileMessages([pending('pending', overrides)], [wire()], 'group', new Set()).size,
+        matchFileMessages([pending('pending', overrides)], [wire()], 'group', new Map()).size,
       ).toBe(0);
     }
   });
 
   it('一条真消息只匹配一次，后续同步到第二条才收掉第二个临时气泡', () => {
-    const consumed = new Set<string>();
+    const consumed = new Map<string, string>();
     expect(
-      reconcileFileMessages([pending('first'), pending('second')], [wire()], 'group', consumed),
-    ).toEqual(new Set(['first']));
-    expect(reconcileFileMessages([pending('second')], [wire()], 'group', consumed).size).toBe(0);
-    reconcileFileMessages([pending('second')], [], 'other', consumed);
-    expect(reconcileFileMessages([pending('second')], [wire()], 'group', consumed).size).toBe(0);
+      matchFileMessages([pending('first'), pending('second')], [wire()], 'group', consumed),
+    ).toEqual(new Map([['first', 'group:new']]));
+    consumed.set('group:new', 'first');
+    expect(matchFileMessages([pending('second')], [wire()], 'group', consumed).size).toBe(0);
+    matchFileMessages([pending('second')], [], 'other', consumed);
+    expect(matchFileMessages([pending('second')], [wire()], 'group', consumed).size).toBe(0);
     expect(
-      reconcileFileMessages([pending('second')], [wire(), wire('second')], 'group', consumed),
-    ).toEqual(new Set(['second']));
+      matchFileMessages([pending('second')], [wire(), wire('second')], 'group', consumed),
+    ).toEqual(new Map([['second', 'group:second']]));
   });
 
   it('重复加载同一条消息不会多消耗，未知时间和空文件 ID 不匹配', () => {
     expect(
-      reconcileFileMessages(
+      matchFileMessages(
         [pending('first'), pending('second')],
         [wire(), wire()],
         'group',
-        new Set(),
+        new Map(),
       ),
-    ).toEqual(new Set(['first']));
+    ).toEqual(new Map([['first', 'group:new']]));
     expect(
-      reconcileFileMessages([pending()], [wire('new', { sendTime: '' })], 'group', new Set()).size,
+      matchFileMessages([pending()], [wire('new', { sendTime: '' })], 'group', new Map()).size,
     ).toBe(0);
     expect(
-      reconcileFileMessages(
+      matchFileMessages(
         [pending('pending', { fileSync: { fileId: '', existingMsgIds: [] } })],
         [wire()],
         'group',
-        new Set(),
+        new Map(),
       ).size,
     ).toBe(0);
   });

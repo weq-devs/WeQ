@@ -39,6 +39,7 @@ const observeTimelineRect: typeof observeElementRect = (instance, callback) =>
 
 export function useVirtualTimeline({
   ids,
+  keys = ids,
   scrollRef,
   scope,
   active = true,
@@ -46,6 +47,7 @@ export function useVirtualTimeline({
   estimateSize,
 }: {
   ids: string[];
+  keys?: string[];
   scrollRef: RefObject<HTMLDivElement | null>;
   scope: string;
   active?: boolean;
@@ -98,7 +100,7 @@ export function useVirtualTimeline({
     }
     return result;
   }, [ids, orderedIds]);
-  const key = useCallback((position: number) => ids[position]!, [ids]);
+  const key = useCallback((position: number) => keys[position]!, [keys]);
   const instanceRef = useRef<Virtualizer<HTMLDivElement, HTMLDivElement> | null>(null);
   const rangeExtractor = useCallback(
     (range: Range) => {
@@ -107,7 +109,7 @@ export function useVirtualTimeline({
         timelineViewportRange(
           range,
           instance?.scrollRect?.height ?? 0,
-          (position) => instance?.itemSizeCache.get(ids[position]!),
+          (position) => instance?.itemSizeCache.get(key(position)),
           instance?.scrollDirection ?? null,
           (position) => instance?.measurementsCache[position]?.size ?? estimateSize(position),
         ),
@@ -126,7 +128,7 @@ export function useVirtualTimeline({
       }
       return [...rendered].sort((a, b) => a - b);
     },
-    [ids, index, scrollRef, estimateSize],
+    [key, index, scrollRef, estimateSize],
   );
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: ids.length,
@@ -387,7 +389,7 @@ export function useVirtualTimeline({
         const result: TimelineGeometry[] = [];
         let order = 0;
         for (const row of current.virtualizer.measurementsCache) {
-          const id = String(row.key);
+          const id = current.ids[row.index]!;
           // 缺口是独立的逻辑选择项；未挂载时使用该行顶部的估计位置，挂载后以 DOM 覆盖。
           while (order < current.orderedIds.length && current.orderedIds[order] !== id) {
             result.push({
@@ -497,7 +499,7 @@ export function useVirtualTimeline({
     enabled,
     virtualizer,
     margin,
-    items: virtualItems ?? ids.map((id, index) => ({ key: id, index, start: 0 })),
+    items: virtualItems ?? keys.map((key, index) => ({ key, index, start: 0 })),
     totalSize: enabled ? virtualizer.getTotalSize() : 0,
     measure,
     containerRef,

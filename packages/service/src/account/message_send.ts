@@ -210,6 +210,7 @@ export interface SendAiVoiceOutcome {
 export interface SendMediaParams {
   peerType: SendPeerType;
   targetId: string | number;
+  random?: number;
   /** 群临时会话的来源群号（会话行的 `60001`）；给了就走 grpTmp 路由。 */
   tempGroupCode?: GroupTempSource;
   kind: 'image' | 'record' | 'video';
@@ -253,6 +254,8 @@ export interface SendElementsParams {
   onUploaded?: () => void;
   peerType: SendPeerType;
   targetId: string | number;
+  /** 调用方可提前登记对账用的客户端 random。 */
+  random?: number;
   /** 群临时会话的来源群号（会话行的 `60001`）；给了就走 grpTmp 路由。 */
   tempGroupCode?: GroupTempSource;
   /** 至少一个元素；媒体元素会自动走上传（需 uid）。 */
@@ -947,6 +950,7 @@ export class MessageSendService {
       targetId: params.targetId,
       ...(params.tempGroupCode !== undefined ? { tempGroupCode: params.tempGroupCode } : {}),
       elements: [element],
+      random: params.random,
       ...(params.kind === 'record' && params.voiceTranscript
         ? { voiceTranscript: params.voiceTranscript }
         : {}),
@@ -1225,6 +1229,7 @@ export class MessageSendService {
         ? { userUid: target.uid }
         : {}),
       elements: this.withImageFallback(elements),
+      random: params.random,
       // 显式携带当前字体原值；服务器历史回填字体不代表实时推送也带字体。
       ...(dress ? { dress } : {}),
       ...(needUpload

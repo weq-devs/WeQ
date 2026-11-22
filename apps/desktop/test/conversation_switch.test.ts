@@ -153,7 +153,9 @@ const f = vi.hoisted(() => ({
   send: undefined as ComponentProps<typeof ChatMainContent>['onSend'] | undefined,
   sendCalls: [] as string[],
   sendPending: false,
-  sendReceipt: undefined as { ok: true; groupSequence: number; random: number } | undefined,
+  sendReply: undefined as
+    | ((random?: number) => Promise<{ ok: true; groupSequence: number; random: number }>)
+    | undefined,
   sendError: undefined as string | undefined,
   messageCommits: [] as Array<{ id?: string; rows: string[] }>,
   atLatest: true as ComponentProps<typeof ChatMainContent>['atLatest'],
@@ -198,7 +200,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               };
             if (
               path.at(-1) === 'getGroupAlbumAccessState' &&
-              (f.sendPending || f.sendError || f.sendReceipt)
+              (f.sendPending || f.sendError || f.sendReply)
             )
               return { ...empty, data: { qqOnline: true, attachEnabled: true } };
             return path.join('.') === 'account.getAccountConfig'
@@ -246,7 +248,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return () => ({ mutate: vi.fn(), mutateAsync: refetch, isLoading: false });
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
-          return async (input?: UnreadInput & { beforeSeq?: string; afterSeq?: string }) => {
+          return async (
+            input?: UnreadInput & { beforeSeq?: string; afterSeq?: string; random?: number },
+          ) => {
             if (path.at(-1) === 'searchQuick')
               return { conversations: [], friends: [], groupMembers: [], groups: f.searchGroups };
             if (path.at(-1) === 'searchSlow')
@@ -272,8 +276,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             ) {
               f.sendCalls.push(path.at(-1)!);
               if (f.sendError) throw new Error(f.sendError);
+              if (path.at(-1) === 'sendElements' && f.sendReply) return f.sendReply(input?.random);
               if (f.sendPending) return new Promise(() => {});
-              if (path.at(-1) === 'sendElements') return f.sendReceipt;
             }
             if (path.at(-1) === 'consumeGroupKeywordJump') {
               f.notificationReads.group++;
@@ -585,7 +589,7 @@ afterEach(() => {
   f.send = undefined;
   f.sendCalls = [];
   f.sendPending = false;
-  f.sendReceipt = undefined;
+  f.sendReply = undefined;
   f.sendError = undefined;
   f.messageCommits = [];
   f.markedRead = [];
@@ -634,12 +638,19 @@ it('电脑请求不返回时，发送内容仍立即在本端回显且不查询�
   }
 });
 
-it('发送图片在发送缓存和 QQ 正式记录接管后都保留本地原图', async () => {
+it('图片回声早于发送回执时也只显示一行，随后 QQ 回读保留气泡身份和本地原图', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   useViewState.getState().setOpenedUin('90001');
   f.refreshRows = [];
-  f.sendReceipt = { ok: true, groupSequence: 11, random: 123 };
+  let requestRandom: number | undefined;
+  let accept!: () => void;
+  f.sendReply = (random) => {
+    requestRandom = random;
+    return new Promise((resolve) => {
+      accept = () => resolve({ ok: true, groupSequence: 11, random: random! });
+    });
+  };
   const picture = { fileName: 'photo.png', fileToken: 'uploaded' };
   const url = 'blob:sent-photo';
   const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
@@ -660,17 +671,23 @@ it('发送图片在发送缓存和 QQ 正式记录接管后都保留本地原图
         .click(),
     );
     await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [] }));
+    let sending!: ReturnType<NonNullable<typeof f.send>>;
     await act(async () => {
-      await f.send!(elementToToken({ kind: 'pic', fileName: 'photo.png', localPreviewUrl: url }), [
-        { key: url, name: 'photo.png', previewUrl: url, bytes: new Uint8Array([1]) },
-      ]);
+      sending = f.send!(
+        elementToToken({ kind: 'pic', fileName: 'photo.png', localPreviewUrl: url }),
+        [{ key: url, name: 'photo.png', previewUrl: url, bytes: new Uint8Array([1]) }],
+      );
     });
+    expect(requestRandom).toBeGreaterThan(0);
+    const optimisticId = f.messages[0]?.id;
+    expect(optimisticId).toMatch(/^optimistic-/);
+    const commits = f.messageCommits.length;
     expect(f.messages[0]?.qqElements?.[0]?.data?.localPreviewUrl).toBe(url);
 
     const sent: TestMessage = {
       msgId: 'cache-11',
       msgSeq: '11',
-      msgRandom: '123',
+      msgRandom: String(requestRandom),
       sendTime: String(Math.floor(Date.now() / 1000)),
       senderUid: '',
       senderUin: '90001',
@@ -680,10 +697,15 @@ it('发送图片在发送缓存和 QQ 正式记录接管后都保留本地原图
     await act(async () => f.dbChanged!());
     expect(f.messages).toHaveLength(1);
     expect(f.messages[0]?.msgId).toBe('cache-11');
+    expect(f.messages[0]?.outgoingId).toBe(optimisticId);
     expect(f.messages[0]?.optimistic).toBeUndefined();
     expect(f.messages[0]?.qqElements?.[0]?.data).toEqual({ ...picture, localPreviewUrl: url });
     releaseObjectUrl(url);
     expect(revoke).not.toHaveBeenCalledWith(url);
+    await act(async () => {
+      accept();
+      await sending;
+    });
 
     const readbackPicture = { ...picture, thumbnailUrl: '/qq-thumb.png' };
     f.refreshRows = [
@@ -692,10 +714,12 @@ it('发送图片在发送缓存和 QQ 正式记录接管后都保留本地原图
     await act(async () => f.dbChanged!());
     expect(f.messages).toHaveLength(1);
     expect(f.messages[0]?.msgId).toBe('qq-11');
+    expect(f.messages[0]?.outgoingId).toBe(optimisticId);
     expect(f.messages[0]?.qqElements?.[0]?.data).toEqual({
       ...readbackPicture,
       localPreviewUrl: url,
     });
+    expect(f.messageCommits.slice(commits).every(({ rows }) => rows.length === 1)).toBe(true);
     expect(revoke).not.toHaveBeenCalledWith(url);
   } finally {
     await act(async () => root.unmount());

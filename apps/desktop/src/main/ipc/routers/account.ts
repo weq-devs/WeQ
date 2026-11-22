@@ -6721,6 +6721,7 @@ export const accountRouter = router({
         expectedAccountUin: z.string().min(1).optional(),
         expectedAccountConfigId: z.string().min(1).optional(),
         transferId: transferIdInput,
+        random: z.number().int().positive().max(0x7fff_ffff).optional(),
         tempGroupCode: z.string().min(1).optional(),
         elements: z.array(z.any()).min(1),
         dress: z.any().optional(),
@@ -6769,6 +6770,7 @@ export const accountRouter = router({
           targetId: input.targetId,
           ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
           elements: elements as never,
+          random: input.random,
           ...(input.preparedChatFont !== undefined
             ? { preparedChatFont: input.preparedChatFont }
             : {}),
@@ -6918,6 +6920,7 @@ export const accountRouter = router({
         targetId: z.string().min(1),
         tempGroupCode: z.string().min(1).optional(),
         wav: z.any(),
+        random: z.number().int().positive().max(0x7fff_ffff).optional(),
         durationSec: z.number().min(0).max(3600).optional(),
         fileName: z.string().min(1).optional(),
         /** 变声标记（协议已实现的 `extBizInfo.ptt.changeVoice`）。 */
@@ -6950,6 +6953,7 @@ export const accountRouter = router({
           targetId: input.targetId,
           ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
           kind: 'record',
+          random: input.random,
           source: silk.silk,
           durationSec: input.durationSec ?? silk.durationSec,
           ...(silk.wav ? { waveform: { wav: silk.wav } } : {}),

@@ -1288,8 +1288,9 @@ describe('MessageSendService.sendText（离线集成）', () => {
   });
   it('发送成功后等待持久化，并保留真实 wire 内容与回执编号', async () => {
     const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
+    const native = fakeNative();
     const svc = new MessageSendService(
-      fakeNative() as never,
+      native as never,
       fakeSession(),
       () => 1,
       undefined,
@@ -1297,7 +1298,14 @@ describe('MessageSendService.sendText（离线集成）', () => {
         saved.push(row);
       },
     );
-    const outcome = await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '持久消息' });
+    const outcome = await svc.sendElements({
+      peerType: 'c2c',
+      targetId: 'u_friend',
+      elements: [{ kind: 'text', textContent: '持久消息' }],
+      random: 12345,
+    });
+    expect(decode(SEND_MESSAGE_REQUEST, native.calls[0]!.body)).toMatchObject({ random: 12345 });
+    expect(outcome.random).toBe(12345);
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({
       kind: 'c2c',

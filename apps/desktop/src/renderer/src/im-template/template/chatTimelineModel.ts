@@ -4,7 +4,9 @@ import { grayTipOf } from './messageRow.shared';
 import { shouldShowMessageTime } from './messageTime.shared';
 
 export function countAppendedMessages(lastId: string | null, messages: Message[], selfId: string) {
-  const index = lastId ? messages.findIndex((message) => message.id === lastId) : -1;
+  const index = lastId
+    ? messages.findIndex(({ id, outgoingId }) => (outgoingId ?? id) === lastId)
+    : -1;
   let count = 0;
   for (let i = index < 0 ? Math.max(0, messages.length - 1) : index + 1; i < messages.length; i++)
     if (messages[i]!.senderId !== selfId) count++;
