@@ -24,6 +24,7 @@
 
 import type { QzoneUpvotePreview } from '@weqbot/protocol';
 import { qzoneLinkTarget } from './qzone';
+import type { QzoneEmotion } from '../views/qzone_types';
 
 export type PublicJson = Record<string, unknown>;
 
@@ -82,6 +83,7 @@ export function publicMediaSource(value: unknown): string | null {
 export interface PublicMedia {
   key: string;
   kind: 'image' | 'video';
+  videoId?: string;
   src: string;
   poster: string;
   width: number;
@@ -187,13 +189,15 @@ function mediaFromItems(items: unknown, prefix: string): PublicMedia[] {
         '';
       const cover = asObject(video.cover);
       const poster = cover ? pickImageUrl(cover) : '';
-      const key = `${prefix}:v:${asString(video.id) || index}`;
+      const videoId = asString(video.id);
+      const key = `${prefix}:v:${videoId || index}`;
       if (!src && !poster) continue;
       if (seen.has(key)) continue;
       seen.add(key);
       media.push({
         key,
         kind: 'video',
+        videoId,
         src,
         poster,
         width: asNumber(video.width) ?? 0,
@@ -445,7 +449,7 @@ export function publicGridMedia(media: PublicMedia[]): {
             {
               coverUrl: item.poster,
               videoUrl: item.src,
-              videoId: item.key,
+              videoId: item.videoId ?? '',
               duration: item.durationMs,
               mediaIndex,
             },
@@ -462,6 +466,31 @@ const homeFeedTypes: Partial<Record<number, string>> = {
   311: '说说',
 };
 
+export function isOrdinaryQzonePost(uin: string, tid: string): boolean {
+  return (
+    /^[1-9]\d{4,19}$/.test(uin) &&
+    /^[\da-f]{24}$/i.test(tid) &&
+    String(Number.parseInt(tid.slice(0, 8).match(/../g)!.reverse().join(''), 16)) === uin
+  );
+}
+
+/** Without the original share resource CreateShare cannot target this feed. */
+export function canShareQzoneFeed(feed: PublicJson): boolean {
+  const mask = asObject(feed.cell_common)?.operate_mask;
+  const share = asObject(asObject(feed.cell_operation)?.share_outside);
+  const resource = asObject(share?.share_access_resource);
+  return Boolean(
+    (mask === undefined ||
+      (typeof mask === 'number' &&
+        Number.isSafeInteger(mask) &&
+        mask >= 0 &&
+        !(mask & (1 << 17)))) &&
+      asString(resource?.busi_id) &&
+      asString(resource?.resource_id) &&
+      asString(feed.cell_feed_transfer),
+  );
+}
+
 /** 个人主页与推荐流共用 cell 结构。只有可核对作者的说说能走普通详情。 */
 export function projectQzoneHomeFeed(view: PublicFeedView) {
   const common = asObject(view.feed.cell_common);
@@ -472,14 +501,37 @@ export function projectQzoneHomeFeed(view: PublicFeedView) {
   const title = asString(common?.title).trim();
   const tid = asString(asObject(common?.union_id)?.feed_id);
   const detailId =
-    (appId === null || appId === 311) &&
-    /^[\da-f]{24}$/i.test(tid) &&
-    String(Number.parseInt(tid.slice(0, 8).match(/../g)!.reverse().join(''), 16)) ===
-      view.author.uin
-      ? tid
+    (appId === null || appId === 311) && isOrdinaryQzonePost(view.author.uin, tid)
+      ? tid.toLowerCase()
       : null;
   const href = detailId
     ? null
     : qzoneLinkTarget(asString(asObject(view.feed.cell_operation)?.qq_url));
   return { type, title, detailId, href };
+}
+
+export function qzoneHomePostPreview(view: PublicFeedView, tid: string): QzoneEmotion {
+  return {
+    tid,
+    time: view.time,
+    content: view.text,
+    commentNum: view.commentCount,
+    forwardNum: view.forwardCount ?? undefined,
+    isPrivate: false,
+    ...publicGridMedia(view.media),
+  };
+}
+
+export function mergeQzoneHomePost(preview: QzoneEmotion, detail: QzoneEmotion): QzoneEmotion {
+  if (preview.tid !== detail.tid) throw new Error('补全结果与当前说说不匹配。');
+  // For a repost, the flat home media can belong to the quoted post.
+  const keepPreviewMedia = !detail.repost && !detail.images.length && !detail.videos.length;
+  return {
+    ...detail,
+    time: detail.time || preview.time,
+    commentNum: detail.commentNum ?? preview.commentNum,
+    forwardNum: detail.forwardNum ?? preview.forwardNum,
+    images: keepPreviewMedia ? preview.images : detail.images,
+    videos: keepPreviewMedia ? preview.videos : detail.videos,
+  };
 }

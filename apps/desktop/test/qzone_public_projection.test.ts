@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  canShareQzoneFeed,
   mergePublicComments,
   projectPublicCommentsPage,
   projectPublicComment,
@@ -117,6 +118,19 @@ const COMMENT = {
 };
 
 describe('空友 feed 投影', () => {
+  it('分享使用服务端给出的原始资源，不从动态编号猜测，也不展示被禁止的入口', () => {
+    const feed = {
+      cell_common: FEED.cell_common,
+      cell_feed_transfer: 'opaque-feed-transfer',
+      cell_operation: {
+        share_outside: { share_access_resource: { busi_id: 'zone', resource_id: 'entry' } },
+      },
+    };
+    expect(canShareQzoneFeed(feed)).toBe(true);
+    expect(canShareQzoneFeed({ ...feed, cell_feed_transfer: undefined })).toBe(false);
+    expect(canShareQzoneFeed({ ...feed, cell_operation: {} })).toBe(false);
+    expect(canShareQzoneFeed({ ...feed, cell_common: { operate_mask: 1 << 17 } })).toBe(false);
+  });
   it('主页按应用识别内容类型，站外卡片与普通说说详情保持各自的有效目标', () => {
     const app = (appId: number, uin = '10002', qqUrl = 'https://example.com/post') =>
       projectQzoneHomeFeed(

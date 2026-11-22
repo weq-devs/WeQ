@@ -46,8 +46,10 @@ import { QzoneForwardAction } from '../components/QzoneForwardAction';
 import { QzoneLikesPopover } from '../components/QzoneLikesPopover';
 import { QzoneTime } from '../components/QzoneTime';
 import { QzoneUpvoteAction } from '../components/QzoneUpvoteAction';
+import { QzoneFeedShareMenu } from '../components/QzoneShareCard';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import {
+  canShareQzoneFeed,
   mergePublicComments,
   projectPublicCommentsPage,
   projectPublicComment,
@@ -641,6 +643,11 @@ function PublicFeedCard({
             )}
             {view.author.followed ? '已关注' : '关注'}
           </button>
+        ) : null}
+        {canShareQzoneFeed(view.feed) ? (
+          <div className="weq-qzn-post-tools">
+            <QzoneFeedShareMenu selfUin={selfUin} feed={view.feed} feedKey={view.key} />
+          </div>
         ) : null}
       </header>
       {view.text ? (

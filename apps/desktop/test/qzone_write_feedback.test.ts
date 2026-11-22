@@ -25,6 +25,10 @@ const state = vi.hoisted(() => ({
     mediaTypes: [],
   })),
   detail: vi.fn(),
+  homePages: [] as { feeds: Record<string, unknown>[] }[],
+  offscreenTid: '',
+  archiveState: vi.fn(),
+  share: vi.fn(),
   posts: vi.fn(),
   forwards: vi.fn(),
   likes: vi.fn(),
@@ -91,7 +95,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
       qqActions: {
-        qzoneHome: { useInfiniteQuery: () => ({}) },
+        qzoneHome: { useInfiniteQuery: () => ({ data: { pages: state.homePages } }) },
         qzoneSpaceProfile: { useQuery: () => ({}) },
       },
     },
@@ -99,7 +103,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: { getSettings: { query: state.settings } },
     account: {
-      qqActions: { qzone: { mutate: state.write }, qzoneForward: { mutate: state.forward } },
+      qqActions: {
+        qzone: { mutate: state.write },
+        qzoneForward: { mutate: state.forward },
+        qzoneOrdinaryShare: { mutate: state.share },
+      },
       qzone: {
         uploadImage: { mutate: state.uploadImage },
         publish: { mutate: state.publish },
@@ -115,6 +123,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         interactions: { query: state.interactions },
         nativeDetail: { query: state.nativeDetail },
         detail: { query: state.detail },
+        archiveState: { query: state.archiveState },
         cancel: { mutate: async () => {} },
       },
     },
@@ -128,8 +137,14 @@ beforeEach(() => {
     'IntersectionObserver',
     class {
       constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
-      observe() {
-        this.callback([{ isIntersecting: true }]);
+      observe(element: Element) {
+        this.callback([
+          {
+            isIntersecting:
+              element.closest('[data-qzone-tid]')?.getAttribute('data-qzone-tid') !==
+              state.offscreenTid,
+          },
+        ]);
       }
       disconnect() {}
     },
@@ -160,6 +175,14 @@ beforeEach(() => {
   state.publish.mockClear();
   state.nativeDetail.mockClear();
   state.detail.mockReset();
+  state.homePages = [];
+  state.offscreenTid = '';
+  state.archiveState
+    .mockReset()
+    .mockResolvedValue({ capabilitiesObserved: true, showUpvote: false });
+  state.share
+    .mockReset()
+    .mockResolvedValue({ ark: '{}', requires_confirmation: true, notice: '分享提醒' });
   state.likes.mockReset().mockResolvedValue({ likes: [], coverage: 'observed', selfLiked: null });
   state.posts.mockReset().mockResolvedValue({
     total: 1,
@@ -195,7 +218,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-async function mount(strict = false) {
+async function mount(strict = false, pane = '说说') {
   let active = true;
   const host = document.createElement('div');
   document.body.append(host);
@@ -223,11 +246,13 @@ async function mount(strict = false) {
     host.remove();
   };
   await act(async () => update());
-  await act(async () => {
-    Array.from(host.querySelectorAll<HTMLButtonElement>('[aria-label="空间内容"] button'))
-      .find((button) => button.textContent === '说说')!
-      .click();
-  });
+  const openPane = async (label: string) =>
+    act(async () => {
+      Array.from(host.querySelectorAll<HTMLButtonElement>('[aria-label="空间内容"] button'))
+        .find((button) => button.textContent === label)!
+        .click();
+    });
+  if (pane !== '主页') await openPane(pane);
   await act(async () => {
     await vi.waitFor(() => expect(state.summary).toHaveBeenCalled());
   });
@@ -239,6 +264,7 @@ async function mount(strict = false) {
     button,
     count,
     update: () => act(() => update()),
+    openPane,
     setActive: async (value: boolean) => {
       active = value;
       await act(async () => update());
@@ -1058,6 +1084,68 @@ it('移除原生详情对照按钮和重复正文，正常浏览不新增详情�
   expect(view.host.textContent).not.toContain('合成原生正文');
   expect(view.count()).toContain('评论 2');
   capture(view.host, 'standard-post');
+});
+
+it('主页按可见性补全说说，保留原位互动，并与说说页共用分享入口', async () => {
+  const tid = '112700000100000001000000';
+  state.offscreenTid = '112700000200000001000000';
+  state.homePages = [
+    {
+      feeds: [tid, state.offscreenTid].map((feedId, index) => ({
+        cell_common: { app_id: 311, time: index + 1, union_id: { feed_id: feedId } },
+        cell_user_info: { user: { uin: '10001', nick: '合成自己' } },
+        cell_summary: { summary: [{ type: 0, content: index ? '屏外说说' : '主页预览' }] },
+        cell_comment: { num: 2 },
+      })),
+    },
+  ];
+  const post = {
+    tid,
+    content: '补全后的说说',
+    time: 1,
+    images: [],
+    videos: [],
+    isPrivate: false,
+    commentNum: 2,
+  };
+  state.archiveState.mockResolvedValue({
+    capabilitiesObserved: true,
+    showUpvote: true,
+    upvote: { count: 0, users: [] },
+  });
+  state.detail.mockResolvedValue({ post, contentHasMore: false });
+  state.posts.mockResolvedValue({ total: 1, list: [post] });
+  const view = await mount(false, '主页');
+  await act(async () => vi.waitFor(() => expect(view.host.textContent).toContain(post.content)));
+  expect(state.detail).toHaveBeenCalledTimes(1);
+  expect(state.detail).toHaveBeenCalledWith(expect.objectContaining({ hostUin: '10001', tid }));
+  expect(view.host.textContent).not.toContain('查看详情');
+  expect(view.host.textContent).toContain('屏外说说');
+  expect(view.button('推').textContent).toContain('0');
+  await openComments(view.host);
+  expect(view.host.querySelector('[aria-label="说说评论"]')).not.toBeNull();
+
+  for (const pane of ['主页', '说说']) {
+    if (pane === '说说') await view.openPane(pane);
+    await act(async () => view.button('更多操作').click());
+    const menu = document.querySelector('[role="menu"]')!;
+    const share = [...menu.querySelectorAll('button')].find(
+      (item) => item.textContent === '分享卡片',
+    )!;
+    await act(async () => share.click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('确认并复制卡片');
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[aria-label="关闭分享卡片"]')!.click(),
+    );
+  }
+  expect(state.share).toHaveBeenCalledTimes(2);
+  expect(state.share).toHaveBeenLastCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    hostUin: '10001',
+    tid,
+  });
+  expect(state.write).not.toHaveBeenCalled();
 });
 it('截断正文在原帖内按需补充，并带准确时间定位且保留未知完整性提示', async () => {
   state.posts.mockResolvedValue({

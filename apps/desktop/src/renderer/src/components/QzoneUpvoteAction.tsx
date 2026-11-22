@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArchiveX, Heart, Loader2, MoreHorizontal, RefreshCw, Send, Undo2 } from 'lucide-react';
+import { ArchiveX, Heart, Loader2, RefreshCw, Send, Trash2, Undo2 } from 'lucide-react';
 import type { QzoneUpvotePreview } from '@weqbot/protocol';
 import { client } from '../trpc/client';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
@@ -13,8 +13,10 @@ import { useToast } from './Toast.shared';
 import { qzoneMediaSource, qzonePlainText } from '../lib/qzone';
 import { QzoneInlineText } from './QzoneEmoji';
 import { ShimmerImage } from './ShimmerImage';
-import { ConversationActionsMenu } from './ConversationActionsMenu';
-import { visibleViewport } from '../lib/visibleViewport';
+import type { ConversationMenuAction } from './ConversationActionsMenu';
+import { QzoneCardMore } from './QzoneCardMore';
+import { useQzoneShareCard } from './QzoneShareCard';
+import { isOrdinaryQzonePost } from '../lib/qzonePublic';
 import '../styles/qzone-archive.css';
 import {
   qzoneCardTarget,
@@ -140,6 +142,7 @@ export function QzonePostArchive({
   enabled,
   refresh,
   onSpace,
+  onDeleted,
   render,
 }: {
   selfUin: string;
@@ -149,6 +152,7 @@ export function QzonePostArchive({
   enabled: boolean;
   refresh: number;
   onSpace?: (uin: string, nickname?: string) => void;
+  onDeleted?: () => void;
   render: (controls: QzonePostArchiveControls) => ReactNode;
 }) {
   const requests = useQzoneRequests();
@@ -157,9 +161,15 @@ export function QzonePostArchive({
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [archive, setArchive] = useState<ArchiveView | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number; above: boolean } | null>(null);
-  const menuTrigger = useRef<HTMLButtonElement>(null);
   const write = useQQAction(`qzone-archive:${hostUin}:${tid}`, 'failure-only');
+  const ordinaryPost = isOrdinaryQzonePost(hostUin, tid);
+  const binding =
+    write.available && write.binding?.expectedAccountUin === selfUin ? write.binding : null;
+  const share = useQzoneShareCard(
+    binding,
+    ordinaryPost ? { hostUin, tid } : null,
+    `${hostUin}:${tid}`,
+  );
   const writeScope = `${selfUin}:${hostUin}:${tid}:${time}:${write.binding?.expectedAccountConfigId}`;
   const latestWriteScope = useRef(writeScope);
   latestWriteScope.current = writeScope;
@@ -300,11 +310,43 @@ export function QzonePostArchive({
           ] as const
         ).filter(([, allowed]) => allowed)
       : [];
-  const canManage = operations.length > 0;
-  const closeMenu = () => {
-    setMenu(null);
-    menuTrigger.current?.focus({ preventScroll: true });
-  };
+  const actions: ConversationMenuAction[] = operations.map(([action, , label, Icon]) => ({
+    label,
+    icon: <Icon size={16} aria-hidden />,
+    disabled: write.disabled,
+    action: () => void perform(action),
+  }));
+  if (share.action) actions.unshift(share.action);
+  if (ordinaryPost && selfUin === hostUin && onDeleted) {
+    actions.push({
+      label: '删除说说',
+      icon: <Trash2 size={16} aria-hidden />,
+      danger: 'outline',
+      disabled: write.disabled || !binding,
+      separatorBefore: actions.length > 0,
+      action: () => {
+        let confirmed = false;
+        void write
+          .perform(
+            async (binding) => {
+              const result = await client.account.qqActions.removeQzonePost.mutate({
+                ...binding,
+                hostUin,
+                tid,
+              });
+              confirmed = result.state === 'confirmed';
+              return result;
+            },
+            undefined,
+            '删除这条 QQ 空间说说？',
+            { danger: 'outline', requireReadback: true, readback: async () => confirmed },
+          )
+          .then((done) => {
+            if (done) onDeleted();
+          });
+      },
+    });
+  }
   const showRetry = error && !canViewUpvotes;
   const retryRead = () => setRetry((current) => current + 1);
   return render({
@@ -318,55 +360,10 @@ export function QzonePostArchive({
       )
     ) : null,
     menu:
-      canManage || showRetry ? (
+      actions.length || showRetry || share.dialog ? (
         <>
-          {canManage ? (
-            <>
-              <button
-                ref={menuTrigger}
-                type="button"
-                className="weq-qzn-archive-menu-button"
-                title="空友爱看管理"
-                aria-label="空友爱看管理"
-                aria-haspopup="menu"
-                aria-expanded={menu !== null}
-                aria-busy={write.pending}
-                onClick={(event) => {
-                  if (menu) {
-                    closeMenu();
-                    return;
-                  }
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  const viewport = visibleViewport(event.currentTarget.ownerDocument.defaultView);
-                  const below = viewport.top + viewport.height - rect.bottom;
-                  const above =
-                    below < operations.length * 44 + 22 && rect.top - viewport.top > below;
-                  setMenu({ x: rect.right, y: above ? rect.top - 4 : rect.bottom + 4, above });
-                }}
-              >
-                {write.pending ? (
-                  <Loader2 size={16} className="weq-spin" />
-                ) : (
-                  <MoreHorizontal size={16} />
-                )}
-              </button>
-              {menu ? (
-                <ConversationActionsMenu
-                  x={menu.x}
-                  y={menu.y}
-                  dropdown={menu.above ? 'above' : true}
-                  label="空友爱看管理操作"
-                  onClose={closeMenu}
-                  actions={operations.map(([action, , label, Icon]) => ({
-                    label,
-                    icon: <Icon size={16} aria-hidden />,
-                    disabled: write.disabled,
-                    action: () => void perform(action),
-                  }))}
-                />
-              ) : null}
-            </>
-          ) : null}
+          <QzoneCardMore actions={actions} busy={write.pending} />
+          {share.dialog}
           {showRetry ? (
             <button
               type="button"

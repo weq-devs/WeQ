@@ -229,10 +229,6 @@
   gap: 8px;
   min-width: 0;
 }
-.weq-qzn-post-detail-management {
-  padding-block-start: 12px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
 .weq-qzn .weq-select-trigger,
 .weq-qzn-composer .weq-select-trigger {
   padding: 6px 8px;

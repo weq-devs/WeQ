@@ -26,7 +26,7 @@ function Scene() {
           <QzonePostArchive
             selfUin="10001"
             hostUin={query.get('mode') === 'manage' ? '10001' : '10002'}
-            tid="fixture"
+            tid={query.get('mode') === 'manage' ? '1127000000f1536501000000' : 'fixture'}
             time={1700000000}
             enabled
             refresh={0}

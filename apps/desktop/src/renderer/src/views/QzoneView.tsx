@@ -85,7 +85,7 @@ import {
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
-import { QzoneSpaceHome } from './QzoneSpaceHome';
+import { QzoneSpaceHome, type QzoneHomePostProps } from './QzoneSpaceHome';
 import { QzoneBlogs } from './QzoneBlogs';
 import { QzoneMore, moreSpacePanes, type QzoneMorePane } from './QzoneMore';
 import { QzonePublicPane } from './QzonePublicView';
@@ -102,6 +102,7 @@ import { QzoneRelatedRound, qzoneSelfLiked, type QzoneReplyTarget } from '../lib
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
+import { mergeQzoneHomePost, qzoneHomePostPreview } from '../lib/qzonePublic';
 import { qzoneReplyPresentation } from '../lib/qzoneReplyPresentation';
 import {
   projectQzoneRelated,
@@ -955,6 +956,10 @@ function SpaceContent({
   );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
   const [refreshes, setRefreshes] = useState<Partial<Record<Pane, number>>>({});
+  const [deletedPosts, setDeletedPosts] = useState<ReadonlySet<string>>(() => new Set());
+  const onDeleted = useCallback((tid: string) => {
+    setDeletedPosts((previous) => new Set([...previous, tid.toLowerCase()]));
+  }, []);
   useEffect(() => {
     if (
       !albumRequest ||
@@ -1030,6 +1035,9 @@ function SpaceContent({
           selfUin={selfUin}
           hostUin={hostUin}
           onSpace={onSpace}
+          PostCard={HomePost}
+          deletedPosts={deletedPosts}
+          onDeleted={onDeleted}
         />
       </QzonePage>
       <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts ?? 0}>
@@ -1040,6 +1048,8 @@ function SpaceContent({
             nickname={ownerNickname || nickname}
             onSpace={onSpace}
             onOwnerNickname={onOwnerNickname}
+            deletedPosts={deletedPosts}
+            onDeleted={onDeleted}
           />
         </div>
       </QzonePage>
@@ -1190,18 +1200,25 @@ interface PostsSnapshot {
   pages: number[];
   bridge: { offset: number; done: boolean; indices: [string, number][] } | null;
 }
+
+const noDeletedPosts: ReadonlySet<string> = new Set();
+
 function Posts({
   selfUin,
   hostUin,
   nickname,
   onSpace,
   onOwnerNickname,
+  deletedPosts = noDeletedPosts,
+  onDeleted,
 }: {
   selfUin: string;
   hostUin: string;
   nickname: string;
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
+  deletedPosts?: ReadonlySet<string>;
+  onDeleted?: (tid: string) => void;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
   const dataCache = usePageDataCache();
@@ -1209,9 +1226,10 @@ function Posts({
   const [cached] = useState(() => dataCache.read<PostsSnapshot>(cacheKey));
   const lastRefresh = useRef(refresh);
   const [posts, setPosts] = useState<QzoneEmotion[]>(cached?.posts ?? []);
+  const visiblePosts = posts.filter((post) => !deletedPosts.has(post.tid.toLowerCase()));
   const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin });
   const multi = useMultiSelection({
-    ids: posts.map((post) => post.tid),
+    ids: visiblePosts.map((post) => post.tid),
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
     anchorRef: selection.anchorRef,
@@ -1327,23 +1345,34 @@ function Posts({
       {loading && posts.length > 0 && headRequest.current ? (
         <LoadingStatus text={`正在刷新…${pageCountLabel}`} />
       ) : null}
-      {posts.map((post) => (
+      {visiblePosts.map((post) => (
         <Post
           key={post.tid}
           selfUin={selfUin}
           hostUin={hostUin}
           nickname={nickname}
           post={post}
+          onDeleted={
+            onDeleted
+              ? () => {
+                  if (selection.selectedIds.has(post.tid))
+                    selection.setSelectedIds(
+                      (ids) => new Set([...ids].filter((id) => id !== post.tid)),
+                    );
+                  onDeleted(post.tid);
+                }
+              : undefined
+          }
           selectionProps={multi.itemProps(post.tid)}
           selected={selection.selectedIds.has(post.tid)}
           onSpace={onSpace}
         />
       ))}
-      {error || (loading && !posts.length) || (!loading && !posts.length) ? (
+      {error || !visiblePosts.length ? (
         <State
           loading={loading}
           error={error}
-          empty="这个空间暂无可查看的说说"
+          empty={done || !posts.length ? '这个空间暂无可查看的说说' : ''}
           progress={pageCountLabel}
           retry={() => setRetry((value) => value + 1)}
         />
@@ -1402,6 +1431,81 @@ function CompletionStatus({
   );
 }
 
+function HomePost({
+  feed,
+  tid,
+  selfUin,
+  onSpace,
+  onDeleted,
+  selectionProps,
+  selected,
+}: QzoneHomePostProps) {
+  const hostUin = feed.author.uin;
+  const ref = useRef<HTMLElement>(null);
+  const visible = useNearViewport(ref, true);
+  const { refresh } = useContext(QzonePageContext);
+  const { run, cancel } = useQzoneRequests();
+  const [retry, setRetry] = useState(0);
+  const attempted = useRef('');
+  const [detail, setDetail] = useState<QzoneEmotion | null>(null);
+  const [status, setStatus] = useState({ loading: false, error: '' });
+  const preview = useMemo(() => qzoneHomePostPreview(feed, tid), [feed, tid]);
+  const post = useMemo(
+    () => (detail ? mergeQzoneHomePost(preview, detail) : preview),
+    [preview, detail],
+  );
+  useEffect(() => {
+    const revision = `${refresh}:${retry}`;
+    if (!visible || attempted.current === revision) return;
+    let active = true;
+    setStatus({ loading: true, error: '' });
+    // The home feed is a flat preview. Read the normalized post only as it nears the viewport.
+    void run(
+      (requestId) => client.account.qzone.detail.query({ selfUin, hostUin, tid, requestId }),
+      true,
+    )
+      .then((value) => {
+        if (!active) return;
+        if (value.post?.tid !== tid) throw new Error('补全结果与当前说说不匹配。');
+        setDetail(value.post);
+        setStatus({ loading: false, error: '' });
+      })
+      .catch(() => {
+        if (active) setStatus({ loading: false, error: '未能补全说说，已保留主页预览' });
+      })
+      .finally(() => {
+        if (active) attempted.current = revision;
+      });
+    return () => {
+      active = false;
+      cancel();
+    };
+  }, [visible, selfUin, hostUin, tid, refresh, retry, run, cancel]);
+  return (
+    <Post
+      selfUin={selfUin}
+      hostUin={hostUin}
+      nickname={feed.author.nick || hostUin}
+      portrait={feed.author.portrait}
+      post={post}
+      onSpace={onSpace}
+      onDeleted={() => onDeleted(tid)}
+      articleRef={ref}
+      initialLikeCount={feed.likeCount}
+      initialViewCount={feed.viewCount}
+      selectionProps={selectionProps}
+      selected={selected}
+      previewStatus={
+        <CompletionStatus
+          {...status}
+          loading={visible && status.loading}
+          retry={() => setRetry((current) => current + 1)}
+        />
+      }
+    />
+  );
+}
+
 function Post({
   selfUin,
   hostUin,
@@ -1413,6 +1517,11 @@ function Post({
   links = [],
   focusComment,
   readComments,
+  onDeleted,
+  portrait,
+  initialLikeCount,
+  initialViewCount,
+  previewStatus,
   selectionProps,
   selected = false,
 }: {
@@ -1426,6 +1535,11 @@ function Post({
   links?: ReturnType<typeof projectQzoneFeed>['links'];
   focusComment?: RelatedComment | null;
   readComments?: () => Promise<QzoneInteraction>;
+  onDeleted?: () => void;
+  portrait?: string;
+  initialLikeCount?: number | null;
+  initialViewCount?: number | null;
+  previewStatus?: ReactNode;
   selectionProps?: MultiSelectionItemProps;
   selected?: boolean;
 }) {
@@ -1588,6 +1702,7 @@ function Post({
         <QzonePersonHeader
           uin={hostUin}
           nickname={nickname}
+          url={portrait}
           onSpace={onSpace}
           size={34}
           time={
@@ -1608,10 +1723,11 @@ function Post({
         {menu ? <div className="weq-qzn-post-tools">{menu}</div> : null}
       </div>
       {post.content.trim() ? (
-        <p className="weq-qzn-content">
+        <p className="weq-qzn-content" data-privacy-sensitive>
           <QzoneText content={post.content} onSpace={onSpace} />
         </p>
       ) : null}
+      {previewStatus}
       <CompletionStatus
         loading={completing.post}
         error={completionError.post}
@@ -1654,6 +1770,9 @@ function Post({
         onSpace={onSpace}
         focusComment={focusComment}
         readComments={readComments}
+        onDeleted={onDeleted}
+        initialLikeCount={initialLikeCount}
+        initialViewCount={initialViewCount}
         render={render}
       />
     </article>
@@ -1777,8 +1896,10 @@ function PostActionsBody({
   post,
   onSpace,
   initialLikeCount = null,
+  initialViewCount = null,
   focusComment,
   readComments,
+  onDeleted,
   render,
 }: {
   selfUin: string;
@@ -1786,8 +1907,10 @@ function PostActionsBody({
   post: InteractionPost;
   onSpace: (uin: string, nickname?: string) => void;
   initialLikeCount?: number | null;
+  initialViewCount?: number | null;
   focusComment?: RelatedComment | null;
   readComments?: () => Promise<QzoneInteraction>;
+  onDeleted?: () => void;
   render: (slots: PostActionSlots) => ReactElement;
 }) {
   const [expanded, setExpanded] = useState<'comments' | 'likes' | null>(
@@ -1999,7 +2122,7 @@ function PostActionsBody({
         <span className="weq-qzn-views" title="浏览量（非去重访客数）">
           <Eye size={16} />
           <span className="weq-qzn-action-label">浏览量</span>{' '}
-          <span className="weq-number">{likes?.reportedViewCount ?? '?'}</span>
+          <span className="weq-number">{likes?.reportedViewCount ?? initialViewCount ?? '?'}</span>
         </span>
       </QzoneActionsRow>
       {likeError && (
@@ -2098,6 +2221,7 @@ function PostActionsBody({
       enabled={visible && !readsPaused}
       refresh={refresh}
       onSpace={onSpace}
+      onDeleted={onDeleted}
       render={({ tag, menu, upvote }) => render({ tag, menu, actions: renderActions(upvote) })}
     />
   );

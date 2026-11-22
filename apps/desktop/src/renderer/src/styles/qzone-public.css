@@ -17,12 +17,13 @@
   overflow-wrap: anywhere;
 }
 
-.weq-qzn-public-post .weq-qzn-post-head > div {
+.weq-qzn-public-post .weq-qzn-post-head > .weq-qzn-person-header {
   min-width: 0;
   flex: 1;
 }
 
 .weq-qzn-public-follow {
+  flex: none;
   margin-left: auto;
   display: inline-flex;
   align-items: center;

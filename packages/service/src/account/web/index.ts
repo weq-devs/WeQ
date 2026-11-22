@@ -744,8 +744,12 @@ export class WebQueryService {
 
   async qzoneOrdinaryShare(hostUin: string, tid: string) {
     const detail = await this.qzoneOrdinaryDetail(hostUin, tid);
+    return this.qzoneFeedShare(detail.feed);
+  }
+
+  async qzoneFeedShare(feed: Record<string, unknown>) {
     const cred = await this.creds.forDomain(QZONE_DOMAIN);
-    return getQzoneShareArk(cred, detail.feed);
+    return getQzoneShareArk(cred, feed);
   }
 
   async removeQzonePost(hostUin: string, tid: string, current: () => void) {

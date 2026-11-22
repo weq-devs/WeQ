@@ -1,7 +1,8 @@
-import { useContext, useState } from 'react';
-import { Eye, FileText, MessageCircle, Repeat2, ThumbsUp, Trash2 } from 'lucide-react';
-import { client, trpc } from '../trpc/client';
+import { useContext, useMemo, useState, type ComponentType } from 'react';
+import { Eye, MessageCircle, Repeat2, ThumbsUp } from 'lucide-react';
+import { trpc } from '../trpc/client';
 import {
+  canShareQzoneFeed,
   projectPublicCommentsPage,
   projectPublicFeed,
   projectQzoneHomeFeed,
@@ -10,19 +11,18 @@ import {
   type PublicFeedView,
 } from '../lib/qzonePublic';
 import { useQQAction } from '../components/qq-actions/shared.shared';
-import { EditorDialog } from '../components/EditorDialog';
-import { CopyButton } from '../components/CopyButton';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
 import { QzoneInlineText } from '../components/QzoneEmoji';
 import { QzoneFeedLinks } from '../components/QzoneFeedLinks';
 import { QzonePersonHeader } from '../components/QzoneProfileAvatar';
 import { QzoneTime } from '../components/QzoneTime';
-import { QqArk } from '../components/ark/QqArk';
-import { ActionFeedback } from '../components/qq-actions/shared';
+import { QzoneFeedShareMenu } from '../components/QzoneShareCard';
+import { useContentMultiSelect } from '../state/contentSelection.shared';
+import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneHomeOverview } from './QzoneHomeOverview';
 import { QzoneAutoPage } from './QzonePagination';
-import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
+import { QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext } from './qzoneShared.shared';
 
 function FeedContent({ feed }: { feed: PublicFeedView }) {
@@ -57,6 +57,16 @@ function FeedContent({ feed }: { feed: PublicFeedView }) {
 }
 
 type OpenSpace = (uin: string, nickname?: string) => void;
+
+export type QzoneHomePostProps = {
+  feed: PublicFeedView;
+  tid: string;
+  selfUin: string;
+  onSpace: OpenSpace;
+  onDeleted: (tid: string) => void;
+  selectionProps?: MultiSelectionItemProps;
+  selected?: boolean;
+};
 
 function FeedComments({
   comments,
@@ -95,14 +105,14 @@ function FeedComments({
 
 function HomeFeedCard({
   feed,
+  selfUin,
   onSpace,
-  openDetail,
 }: {
   feed: PublicFeedView;
+  selfUin: string;
   onSpace: OpenSpace;
-  openDetail: (hostUin: string, tid: string) => void;
 }) {
-  const { type, detailId } = projectQzoneHomeFeed(feed);
+  const { type } = projectQzoneHomeFeed(feed);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const comments = projectPublicCommentsPage(feed.feed).comments;
   const counts = [
@@ -122,10 +132,14 @@ function HomeFeedCard({
           time={<QzoneTime value={feed.time} />}
         />
         <span className="weq-qzn-feed-kind">{type}</span>
+        {canShareQzoneFeed(feed.feed) ? (
+          <div className="weq-qzn-post-tools">
+            <QzoneFeedShareMenu selfUin={selfUin} feed={feed.feed} feedKey={feed.key} />
+          </div>
+        ) : null}
       </header>
       <FeedContent feed={feed} />
-      {detailId ||
-      comments.length ||
+      {comments.length ||
       feed.viewCount !== null ||
       counts.some(([, , count]) => count !== null) ? (
         <QzoneActionsRow>
@@ -153,12 +167,6 @@ function HomeFeedCard({
               </span>
             );
           })}
-          {detailId ? (
-            <button type="button" onClick={() => openDetail(feed.author.uin, detailId)}>
-              <FileText size={16} aria-hidden />
-              查看详情
-            </button>
-          ) : null}
           {feed.viewCount !== null ? (
             <span className="weq-qzn-views" title="浏览量（非去重访客数）">
               <Eye size={16} aria-hidden />
@@ -172,113 +180,20 @@ function HomeFeedCard({
   );
 }
 
-function OrdinaryDetail({
-  hostUin,
-  tid,
-  selfUin,
-  onClose,
-  onSpace,
-  refresh,
-}: {
-  hostUin: string;
-  tid: string;
-  selfUin: string;
-  onClose: () => void;
-  onSpace: OpenSpace;
-  refresh: () => Promise<unknown>;
-}) {
-  const action = useQQAction(`qzone-ordinary:${hostUin}:${tid}`, 'failure-only');
-  const input = { ...action.binding!, hostUin, tid };
-  const detail = trpc.account.qqActions.qzoneOrdinaryDetail.useQuery(input, {
-    enabled: action.available,
-    retry: false,
-  });
-  const share = trpc.account.qqActions.qzoneOrdinaryShare.useMutation();
-  const feed = projectPublicFeed(detail.data?.feed);
-  return (
-    <EditorDialog title="空间动态" onClose={onClose} busy={action.pending}>
-      {detail.isFetching ? <LoadingStatus /> : null}
-      {detail.error ? <p role="alert">{detail.error.message}</p> : null}
-      {feed ? <FeedContent feed={feed} /> : null}
-      {feed ? (
-        <FeedComments comments={projectPublicCommentsPage(feed.feed).comments} onSpace={onSpace} />
-      ) : null}
-      {detail.data || share.data || share.error ? (
-        <section className="weq-qzn-share-result" aria-label="分享卡片">
-          {share.data ? <QqArk arkData={share.data.ark} /> : null}
-          {share.data?.notice ? <p>{share.data.notice}</p> : null}
-          {share.error ? <p role="alert">{share.error.message}</p> : null}
-          <div className="weq-qq-action-bar">
-            {detail.data && !share.data ? (
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={share.isLoading || !action.available}
-                onClick={() => share.mutate(input)}
-              >
-                {share.isLoading ? '正在生成…' : share.error ? '重试生成' : '生成分享卡片'}
-              </button>
-            ) : null}
-            {share.data ? (
-              <CopyButton text={share.data.ark} className="weq-set-btn weq-set-btn-primary">
-                {share.data.requires_confirmation ? '确认并复制卡片' : '复制卡片'}
-              </CopyButton>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-      {detail.data && hostUin === selfUin ? (
-        <footer className="weq-qzn-post-detail-management">
-          <button
-            type="button"
-            className="weq-set-btn"
-            data-danger="outline"
-            disabled={action.disabled}
-            onClick={() => {
-              let confirmed = false;
-              void action
-                .perform(
-                  async (binding) => {
-                    const result = await client.account.qqActions.removeQzonePost.mutate({
-                      ...binding,
-                      hostUin,
-                      tid,
-                    });
-                    confirmed = result.state === 'confirmed';
-                    return result;
-                  },
-                  refresh,
-                  '删除这条 QQ 空间说说？',
-                  {
-                    danger: 'outline',
-                    requireReadback: true,
-                    readback: async () => confirmed,
-                    readbackSuccessText: '说说已删除',
-                  },
-                )
-                .then((done) => {
-                  if (done) onClose();
-                });
-            }}
-          >
-            <Trash2 size={15} aria-hidden />
-            删除说说
-          </button>
-        </footer>
-      ) : null}
-      <ActionFeedback action={action} />
-    </EditorDialog>
-  );
-}
-
 export function QzoneSpaceHome({
   selfUin,
   hostUin,
   onSpace,
+  PostCard,
+  deletedPosts,
+  onDeleted,
 }: {
   selfUin: string;
   hostUin: string;
   onSpace: OpenSpace;
+  PostCard: ComponentType<QzoneHomePostProps>;
+  deletedPosts: ReadonlySet<string>;
+  onDeleted: (tid: string) => void;
 }) {
   const { active } = useContext(QzonePageContext);
   const session = useQQAction(`qzone-home:${hostUin}`, 'failure-only');
@@ -298,19 +213,45 @@ export function QzoneSpaceHome({
       retry: false,
     },
   );
-  const rows = new Map<string, PublicFeedView>();
-  const pages = query.data?.pages ?? [];
-  for (const [pageIndex, page] of pages.entries()) {
-    for (const [index, raw] of page.feeds.entries()) {
-      const feed = projectPublicFeed(raw, index);
-      if (!feed || feed.advertisement) continue;
-      const key = feed.key.startsWith('#') ? `${pageIndex}:${feed.key}` : feed.key;
-      if (!rows.has(key)) rows.set(key, feed);
+  const rows = useMemo(() => {
+    const result = new Map<string, { feed: PublicFeedView; tid: string | null }>();
+    for (const [pageIndex, page] of (query.data?.pages ?? []).entries()) {
+      for (const [index, raw] of page.feeds.entries()) {
+        const feed = projectPublicFeed(raw, index);
+        if (!feed || feed.advertisement) continue;
+        const tid = projectQzoneHomeFeed(feed).detailId;
+        if (tid && deletedPosts.has(tid.toLowerCase())) continue;
+        const key = tid
+          ? `post:${tid.toLowerCase()}`
+          : feed.key.startsWith('#')
+            ? `${pageIndex}:${feed.key}`
+            : feed.key;
+        if (!result.has(key)) result.set(key, { feed, tid });
+      }
     }
-  }
+    return result;
+  }, [query.data?.pages, deletedPosts]);
+  const selectableIds = useMemo(
+    () =>
+      [...rows.values()].flatMap(({ feed, tid }) =>
+        tid && feed.author.uin === hostUin ? [tid] : [],
+      ),
+    [hostUin, rows],
+  );
+  const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin });
+  const multi = useMultiSelection({
+    ids: selectableIds,
+    selected: selection.selectedIds,
+    onChange: selection.setSelectedIds,
+    anchorRef: selection.anchorRef,
+    enabled: selection.selectionMode,
+    disabled: !selectableIds.length,
+    onStart: () => selection.setSelectionMode(true),
+    onExit: () => selection.setSelectionMode(false),
+  });
+  const pages = query.data?.pages ?? [];
   const cursor = pages.at(-1)?.next_cursor;
   const cursorStalled = !!cursor && pages.slice(0, -1).some((page) => page.next_cursor === cursor);
-  const [selected, setSelected] = useState<{ hostUin: string; tid: string } | null>(null);
   const error = query.error?.message ?? '';
   const next = () => void query.fetchNextPage({ cancelRefetch: false });
   const retry = () => (query.hasNextPage ? next() : void query.refetch());
@@ -342,14 +283,30 @@ export function QzoneSpaceHome({
       ) : error ? (
         <State loading={false} error={error} empty="" retry={retry} />
       ) : null}
-      {[...rows].map(([key, feed]) => (
-        <HomeFeedCard
-          key={key}
-          feed={feed}
-          onSpace={onSpace}
-          openDetail={(hostUin, tid) => setSelected({ hostUin, tid })}
-        />
-      ))}
+      <div {...multi.rootProps}>
+        {[...rows].map(([key, { feed, tid }]) =>
+          tid ? (
+            <PostCard
+              key={key}
+              selfUin={selfUin}
+              feed={feed}
+              tid={tid}
+              onSpace={onSpace}
+              onDeleted={(deletedTid) => {
+                if (selection.selectedIds.has(deletedTid))
+                  selection.setSelectedIds(
+                    (ids) => new Set([...ids].filter((id) => id !== deletedTid)),
+                  );
+                onDeleted(deletedTid);
+              }}
+              selectionProps={feed.author.uin === hostUin ? multi.itemProps(tid) : undefined}
+              selected={selection.selectedIds.has(tid)}
+            />
+          ) : (
+            <HomeFeedCard key={key} selfUin={selfUin} feed={feed} onSpace={onSpace} />
+          ),
+        )}
+      </div>
       {cursorStalled ? (
         <p role="alert" className="weq-qzn-status">
           主页分页未推进，请刷新核对。
@@ -357,15 +314,6 @@ export function QzoneSpaceHome({
       ) : null}
       {available && query.hasNextPage && !query.error ? (
         <QzoneAutoPage key={pages.length} loading={query.isFetching} onNext={next} />
-      ) : null}
-      {selected && available ? (
-        <OrdinaryDetail
-          {...selected}
-          selfUin={selfUin}
-          onClose={() => setSelected(null)}
-          onSpace={onSpace}
-          refresh={() => query.refetch()}
-        />
       ) : null}
     </div>
   );

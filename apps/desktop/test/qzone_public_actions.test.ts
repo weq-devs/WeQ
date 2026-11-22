@@ -10,12 +10,25 @@ const state = vi.hoisted(() => ({
     reply: { id: 'new', user: { uid: 'self' }, content: [{ type: 0, content: '新回复' }] },
   })),
   forward: vi.fn(async () => ({})),
+  share: vi.fn(async (_input: unknown) => ({
+    ark: '{}',
+    requires_confirmation: false,
+    notice: null,
+  })),
+}));
+vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
+  useQQWriteSession: () => ({
+    binding: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
+    available: true,
+    busy: false,
+  }),
 }));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({ QqAvatar: () => null }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: { getSettings: { query: async () => ({ qzoneForwardQuotePrevious: true }) } },
     account: {
+      qqActions: { qzoneFeedShare: { mutate: state.share } },
       qzone: { cancel: { mutate: async () => {} } },
       qzonePublic: {
         me: { query: async () => ({ uin: '10001', uid: 'self', nick: '自己', publicUid: 'self' }) },
@@ -33,6 +46,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                 cell_comment: { num: 1 },
                 cell_foward_info: { retweet_count: 2 },
                 cell_visitor: { view_num: 9 },
+                cell_operation: {
+                  share_outside: {
+                    share_access_resource: { busi_id: 'zone', resource_id: 'post-a' },
+                  },
+                },
+                cell_feed_transfer: 'opaque-feed-transfer',
               },
             ],
             has_more: false,
@@ -114,6 +133,18 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
   act(() => avatar.click());
   expect(space).toHaveBeenCalledWith('10002', '原作者');
   expect(profile).not.toHaveBeenCalled();
+  expect(state.share).not.toHaveBeenCalled();
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.click());
+  await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
+  expect(state.share).toHaveBeenCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    feed: expect.objectContaining({ cell_feed_transfer: 'opaque-feed-transfer' }),
+  });
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('复制卡片');
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="关闭分享卡片"]')!.click(),
+  );
   space.mockClear();
   act(() => host.querySelector<HTMLButtonElement>('.weq-qzn-person-info > button')!.click());
   expect(space).toHaveBeenCalledWith('10002', '原作者');

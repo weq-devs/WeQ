@@ -138,8 +138,12 @@ try {
         await header.getByRole('button', { name: '空友爱看', exact: true }).click();
         assert.equal(await page.getByLabel('当前用户').textContent(), '空友爱看');
       } else {
-        await header.getByRole('button', { name: '空友爱看管理', exact: true }).click();
-        const operations = page.getByRole('menu', { name: '空友爱看管理操作', exact: true });
+        await header.getByRole('button', { name: '更多操作', exact: true }).click();
+        const operations = page.getByRole('menu', { name: '空间动态操作', exact: true });
+        assert.equal(
+          await operations.getByRole('menuitem', { name: '分享卡片' }).isDisabled(),
+          true,
+        );
         assert.equal(
           await operations.getByRole('menuitem', { name: '投稿至空友爱看' }).isDisabled(),
           true,

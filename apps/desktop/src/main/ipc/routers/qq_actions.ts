@@ -1594,6 +1594,9 @@ export function createQQActionsRouter(
         }),
       )
       .mutation(({ input: i }) => read(i, (s) => s.webQuery.qzoneOrdinaryShare(i.hostUin, i.tid))),
+    qzoneFeedShare: procedure
+      .input(binding.extend({ feed: z.record(z.string(), z.unknown()) }))
+      .mutation(({ input: i }) => read(i, (s) => s.webQuery.qzoneFeedShare(i.feed))),
     removeQzonePost: procedure
       .input(
         binding.extend({
