@@ -29,6 +29,8 @@ const state = vi.hoisted(() => ({
   blogs: vi.fn(),
   blog: vi.fn(),
   blogComments: vi.fn(),
+  shares: vi.fn(),
+  shareComments: vi.fn(),
   homePages: [] as { feeds: Record<string, unknown>[] }[],
   offscreenTid: '',
   archiveState: vi.fn(),
@@ -132,6 +134,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         blogs: { query: state.blogs },
         blog: { query: state.blog },
         blogComments: { query: state.blogComments },
+        shares: { query: state.shares },
+        shareComments: { query: state.shareComments },
         archiveState: { query: state.archiveState },
         cancel: { mutate: async () => {} },
       },
@@ -204,6 +208,8 @@ beforeEach(() => {
     items: [{ id: '90', uin: '10002', nickname: '评论者', text: '共享日志评论', time: 1600000000 }],
     nextOffset: null,
   });
+  state.shares.mockReset().mockResolvedValue({ items: [], next: null });
+  state.shareComments.mockReset();
   state.homePages = [];
   state.offscreenTid = '';
   state.archiveState
@@ -248,13 +254,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-async function mount(strict = false, pane = '说说', { blogOnly = false } = {}) {
+async function mount(strict = false, pane = '说说', { timelineOnly = false } = {}) {
   let active = true;
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const queryClient = new QueryClient(
-    blogOnly ? undefined : { defaultOptions: { queries: { cacheTime: 0 } } },
+    timelineOnly ? undefined : { defaultOptions: { queries: { cacheTime: 0 } } },
   );
   const update = () => {
     const view = h(QzoneView, {
@@ -285,7 +291,8 @@ async function mount(strict = false, pane = '说说', { blogOnly = false } = {})
         .click();
     });
   if (pane !== '主页') await openPane(pane);
-  if (!blogOnly) await act(async () => vi.waitFor(() => expect(state.summary).toHaveBeenCalled()));
+  if (!timelineOnly)
+    await act(async () => vi.waitFor(() => expect(state.summary).toHaveBeenCalled()));
   const button = (label: string) =>
     host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
   const count = () => host.querySelector('.weq-qzn-actions')!.textContent;
@@ -1244,7 +1251,7 @@ it('主页取日志并集，按编号合并而不按时间，切换栏目复用�
       ],
     },
   ];
-  const view = await mount(false, '主页', { blogOnly: true });
+  const view = await mount(false, '主页', { timelineOnly: true });
   const titles = () => [...view.host.querySelectorAll('article h3')].map((h) => h.textContent);
   await act(async () =>
     vi.waitFor(() => expect(titles()).toEqual(['仅列表日志', '共享日志', '仅主页日志'])),
@@ -1275,6 +1282,87 @@ it('主页取日志并集，按编号合并而不按时间，切换栏目复用�
   expect(state.blog).toHaveBeenCalledOnce();
   expect(state.blog).toHaveBeenCalledWith(expect.objectContaining({ hostUin: '10001', blogId }));
   expect(state.blogComments).toHaveBeenCalledOnce();
+});
+
+it('主页补全历史分享，保留不同发布，并与分享页共用评论分页', async () => {
+  const shareId = '1600000007';
+  const homeTime = 1600000008;
+  const listed = (id: string, title: string, publishedTime: number) => ({
+    id,
+    category: 4,
+    title,
+    memo: '分享附言',
+    publishedAt: '',
+    publishedTime,
+    originalUrl: 'https://example.com/same-link',
+    previewUrl: 'https://qpic.cn/cover.jpg',
+  });
+  const feed = (id: string, uin: string, title = '') => ({
+    cell_common: {
+      app_id: 202,
+      cell_id: id,
+      time: homeTime,
+      title,
+      union_id: { feed_id: '1600000009' },
+    },
+    cell_user_info: { user: { uin } },
+    cell_origin: { cell_common: { cell_id: '1600000009' } },
+  });
+  state.shares.mockResolvedValue({
+    items: [
+      listed('1600000009', '仅列表分享', homeTime + 1),
+      listed(shareId, '补齐分享标题', homeTime - 1),
+    ],
+    next: null,
+  });
+  state.homePages = [{ feeds: [feed(shareId, '10001'), feed(shareId, '10002', '另一人的分享')] }];
+  const comment = (id: string, text: string) => ({
+    id,
+    text,
+    uin: '10002',
+    nickname: '评论者',
+    publishedAt: '',
+    replies: [],
+  });
+  state.shareComments.mockResolvedValueOnce({
+    items: [comment('1', '第一页评论')],
+    total: 4,
+    next: 2,
+  });
+  state.shareComments.mockResolvedValueOnce({
+    items: [comment('2', '第二页评论')],
+    total: 4,
+    next: null,
+  });
+  const view = await mount(false, '主页', { timelineOnly: true });
+  const cards = () => [...view.host.querySelectorAll('.weq-qzn-scroll:not([hidden]) article')];
+  const target = () => cards().find((card) => card.textContent?.includes('补齐分享标题'))!;
+  await act(async () => vi.waitFor(() => expect(target()?.textContent).toContain('分享附言')));
+  expect(cards()).toHaveLength(3);
+  expect(cards()[0]?.textContent).toContain('仅列表分享');
+  expect(cards()[2]?.textContent).toContain('另一人的分享');
+  expect(
+    target().querySelector<HTMLButtonElement>('[title="https://example.com/same-link"]'),
+  ).not.toBeNull();
+  expect(state.shareComments).not.toHaveBeenCalled();
+  const showComments = () =>
+    act(async () => target().querySelector<HTMLButtonElement>('button[title="评论"]')!.click());
+  await showComments();
+  await act(async () => vi.waitFor(() => expect(target().textContent).toContain('第二页评论')));
+  expect(state.shareComments).toHaveBeenNthCalledWith(
+    1,
+    expect.objectContaining({ hostUin: '10001', shareId, page: 1 }),
+  );
+  expect(state.shareComments).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({ hostUin: '10001', shareId, page: 2 }),
+  );
+  await view.openPane('分享');
+  await act(async () => vi.waitFor(() => expect(target()).toBeDefined()));
+  await showComments();
+  expect(target().textContent).toContain('第二页评论');
+  expect(state.shares).toHaveBeenCalledOnce();
+  expect(state.shareComments).toHaveBeenCalledTimes(2);
 });
 
 it.each([true, false])('删除仅在单条读回确认后从两个栏目移除，确认=%s', async (confirmed) => {

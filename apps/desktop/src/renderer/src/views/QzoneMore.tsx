@@ -2,7 +2,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { formatUnixTime } from '@weq/time';
 import type { QzoneShare, QzoneShareCategory } from '@weqbot/protocol/web';
 import { RefreshCw } from 'lucide-react';
-import { useContext, useEffect, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { FormSelect } from '../components/FormSelect';
 import { QzoneActionsRow, QzoneCommentToggle } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
@@ -42,9 +42,15 @@ type Request = Pick<Space, 'selfUin' | 'hostUin'> & {
   expectedAccountConfigId: string;
 };
 type Page = { items: { id: string }[]; next: number | null };
+type ReadScope = { active?: boolean; refresh?: number };
 
-function useSpaceRequest({ selfUin, hostUin }: Pick<Space, 'selfUin' | 'hostUin'>) {
-  const { active, refresh } = useContext(QzonePageContext);
+function useSpaceRequest(
+  { selfUin, hostUin }: Pick<Space, 'selfUin' | 'hostUin'>,
+  scope?: ReadScope,
+) {
+  const page = useContext(QzonePageContext);
+  const active = scope?.active ?? page.active;
+  const refresh = scope?.refresh ?? page.refresh;
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: active });
   const configId = config.data?.uin === selfUin ? config.data.configId : '';
   return {
@@ -62,9 +68,12 @@ function useMorePages<P extends Page>(
   key: string,
   start: number,
   load: (input: Request, offset: number) => Promise<P>,
-  staleTime?: number,
+  options?: { staleTime: number; scope?: ReadScope },
 ) {
-  const { active, refresh, configId, target, error, retryConfig } = useSpaceRequest(space);
+  const { active, refresh, configId, target, error, retryConfig } = useSpaceRequest(
+    space,
+    options?.scope,
+  );
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
     if (!active) cancel();
@@ -74,7 +83,7 @@ function useMorePages<P extends Page>(
     enabled: active && Boolean(configId),
     retry: false,
     refetchOnWindowFocus: false,
-    staleTime,
+    staleTime: options?.staleTime,
     queryFn: ({ pageParam = start, signal }) =>
       run((requestId) => load({ ...target, requestId }, pageParam), false, signal),
     getNextPageParam: (last: P, pages: P[]) => {
@@ -89,17 +98,22 @@ function useMorePages<P extends Page>(
       return last.next;
     },
   });
-  const pages = query.data?.pages ?? [];
-  const items = new Map<string, P['items'][number]>();
-  for (const page of pages) {
-    for (const item of page.items as P['items']) if (!items.has(item.id)) items.set(item.id, item);
-  }
+  const pages = query.data?.pages;
+  const items = useMemo(() => {
+    const distinct = new Map<string, P['items'][number]>();
+    for (const page of pages ?? []) {
+      for (const item of page.items as P['items'])
+        if (!distinct.has(item.id)) distinct.set(item.id, item);
+    }
+    return [...distinct.values()] as P['items'];
+  }, [pages]);
   const failure = error ?? query.error;
   return {
-    first: pages[0],
-    pageCount: pages.length,
+    first: pages?.[0],
+    pageCount: pages?.length ?? 0,
     configId,
-    items: [...items.values()] as P['items'],
+    refresh,
+    items,
     error: failure instanceof Error ? failure.message : failure ? '读取失败，请重试。' : '',
     loading: query.isFetching || (active && !configId && !error),
     onNext:
@@ -124,11 +138,27 @@ function PageEnd({ state, empty }: { state: PagedState; empty: string }) {
   ) : null;
 }
 
-function Shares({ space }: { space: Space }) {
-  const [category, setCategory] = useState<QzoneShareCategory>(0);
-  const state = useMorePages(space, `shares:${category}`, 1, (input, page) =>
-    client.account.qzone.shares.query({ ...input, category, page }),
+export function useQzoneShareIndex(
+  space: Pick<Space, 'selfUin' | 'hostUin'>,
+  category: QzoneShareCategory = 0,
+  scope?: ReadScope,
+) {
+  return useMorePages(
+    space,
+    `shares:${category}`,
+    1,
+    (input, page) => client.account.qzone.shares.query({ ...input, category, page }),
+    { staleTime: 60_000, scope },
   );
+}
+
+export type QzoneShareIndex = ReturnType<typeof useQzoneShareIndex>;
+
+function Shares({ space, shareIndex }: { space: Space; shareIndex: QzoneShareIndex }) {
+  const [category, setCategory] = useState<QzoneShareCategory>(0);
+  const { active } = useContext(QzonePageContext);
+  const filtered = useQzoneShareIndex(space, category, { active: active && category !== 0 });
+  const state = category === 0 ? shareIndex : filtered;
   return (
     <>
       <div className="weq-qzn-more-toolbar">
@@ -145,7 +175,12 @@ function Shares({ space }: { space: Space }) {
         </FormSelect>
       </div>
       {state.items.map((share) => (
-        <SharePost key={share.id} space={space} share={share} />
+        <QzoneSharePost
+          key={`${state.configId}:${share.id}`}
+          space={space}
+          share={share}
+          refresh={shareIndex.refresh}
+        />
       ))}
       <PageEnd
         key={category}
@@ -156,25 +191,70 @@ function Shares({ space }: { space: Space }) {
   );
 }
 
-function SharePost({ space, share }: { space: Space; share: QzoneShare }) {
+export function QzoneSharePost({
+  space,
+  share,
+  refresh,
+  timeline,
+}: {
+  space: Space;
+  share: QzoneShare;
+  refresh: number;
+  timeline?: {
+    time: number;
+    portrait?: string;
+    content?: ReactNode;
+    tools?: ReactNode;
+    counts?: ReactNode;
+    commentCount?: number | null;
+    commentPreview?: ReactNode;
+  };
+}) {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentCount, setCommentCount] = useState<number | null>(null);
-  const href = qzoneLinkTarget(share.originalUrl);
-  const cover = qzoneMediaSource(share.previewUrl);
-  const title = share.title || '分享';
+  const time = timeline?.time || formatUnixTime(share.publishedTime, 'minute') || share.publishedAt;
   return (
     <article className="weq-qzn-post">
       <header className="weq-qzn-post-head">
         <QzonePersonHeader
+          url={timeline?.portrait}
           uin={space.hostUin}
           nickname={space.nickname || space.hostUin}
           onSpace={space.onSpace}
           size={34}
-          time={
-            <QzoneTime value={formatUnixTime(share.publishedTime, 'minute') || share.publishedAt} />
-          }
+          time={<QzoneTime value={time} />}
         />
+        {timeline ? <span className="weq-qzn-feed-kind">分享</span> : null}
+        {timeline?.tools}
       </header>
+      {timeline?.content ?? <ShareContent share={share} space={space} />}
+      <QzoneActionsRow>
+        <QzoneCommentToggle
+          expanded={commentsOpen}
+          count={commentCount ?? timeline?.commentCount ?? null}
+          onToggle={() => setCommentsOpen((open) => !open)}
+        />
+        {timeline?.counts}
+      </QzoneActionsRow>
+      {commentsOpen ? (
+        <ShareCommentList
+          space={space}
+          shareId={share.id}
+          refresh={refresh}
+          onCount={setCommentCount}
+          preview={timeline?.commentPreview}
+        />
+      ) : null}
+    </article>
+  );
+}
+
+function ShareContent({ space, share }: { space: Space; share: QzoneShare }) {
+  const href = qzoneLinkTarget(share.originalUrl);
+  const cover = qzoneMediaSource(share.previewUrl);
+  const title = share.title || '分享';
+  return (
+    <>
       {share.memo ? (
         <p className="weq-qzn-content" data-privacy-sensitive>
           <QzoneInlineText content={share.memo} />
@@ -191,6 +271,8 @@ function SharePost({ space, share }: { space: Space; share: QzoneShare }) {
                 kind: share.category === 18 ? 'music' : 'link',
               },
             ]}
+            ownerUin={space.hostUin}
+            ownerNickname={space.nickname}
           />
         ) : (
           <>
@@ -201,35 +283,29 @@ function SharePost({ space, share }: { space: Space; share: QzoneShare }) {
           </>
         )}
       </div>
-      <QzoneActionsRow>
-        <QzoneCommentToggle
-          expanded={commentsOpen}
-          count={commentCount}
-          onToggle={() => setCommentsOpen((open) => !open)}
-        />
-      </QzoneActionsRow>
-      {commentsOpen ? (
-        <ShareCommentList space={space} shareId={share.id} onCount={setCommentCount} />
-      ) : null}
-    </article>
+    </>
   );
 }
 
 function ShareCommentList({
   space,
   shareId,
+  refresh,
   onCount,
+  preview,
 }: {
   space: Space;
   shareId: string;
+  refresh: number;
   onCount: (count: number) => void;
+  preview?: ReactNode;
 }) {
   const { first, items, loading, error, onNext, onRetry, pageCount } = useMorePages(
     space,
     `share-comments:${shareId}`,
     1,
     (input, page) => client.account.qzone.shareComments.query({ ...input, shareId, page }),
-    60_000,
+    { staleTime: 60_000, scope: { refresh } },
   );
   const count = first?.total;
   useEffect(() => {
@@ -237,6 +313,7 @@ function ShareCommentList({
   }, [count, onCount]);
   return (
     <section className="weq-qzn-interaction" aria-label="分享评论">
+      {!first ? preview : null}
       {count === 0 && !loading && !error ? <p className="weq-qzn-status">暂无评论</p> : null}
       {items.map((row) => (
         <div key={row.id}>
@@ -367,18 +444,25 @@ function Videos({ space }: { space: Space }) {
   );
 }
 
-const moreComponents: Record<QzoneMorePane, (props: { space: Space }) => ReactNode> = {
+const moreComponents: Record<
+  QzoneMorePane,
+  (props: { space: Space; shareIndex: QzoneShareIndex }) => ReactNode
+> = {
   shares: Shares,
   visitors: Visitors,
   guestbook: Guestbook,
   videos: Videos,
 };
 
-export function QzoneMore({ pane, ...space }: Space & { pane: QzoneMorePane }) {
+export function QzoneMore({
+  pane,
+  shareIndex,
+  ...space
+}: Space & { pane: QzoneMorePane; shareIndex: QzoneShareIndex }) {
   const Content = moreComponents[pane];
   return (
     <div className="weq-qzn-timeline">
-      <Content space={space} />
+      <Content space={space} shareIndex={shareIndex} />
     </div>
   );
 }

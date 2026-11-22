@@ -104,7 +104,7 @@ import {
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzoneSpaceHome, type QzoneHomePostProps } from './QzoneSpaceHome';
 import { QzoneBlogs, useQzoneBlogIndex } from './QzoneBlogs';
-import { QzoneMore } from './QzoneMore';
+import { QzoneMore, useQzoneShareIndex } from './QzoneMore';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
 import { QzoneActionsRow, QzoneCommentToggle } from '../components/QzoneActionsRow';
@@ -1048,14 +1048,18 @@ function SpaceContent({
   );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
   const readsEnabled = useContext(QzoneReadsEnabled);
-  const blogActivity = useQQReadActivity(
-    active && readsEnabled && (pane === 'home' || pane === 'blogs'),
+  const indexActivity = useQQReadActivity(
+    active && readsEnabled && (pane === 'home' || pane === 'blogs' || pane === 'shares'),
   );
   const blogIndex = useQzoneBlogIndex({
     selfUin,
     hostUin,
-    active: blogActivity.enabled,
+    active: indexActivity.enabled && (pane === 'home' || pane === 'blogs'),
     refresh: refreshKey,
+  });
+  const shareIndex = useQzoneShareIndex({ selfUin, hostUin }, 0, {
+    active: indexActivity.enabled && (pane === 'home' || pane === 'shares'),
+    refresh: refreshKey + indexActivity.revision,
   });
   const [removedTids, setRemovedTids] = usePageState(
     `deleted-posts:${selfUin}:${hostUin}`,
@@ -1160,6 +1164,7 @@ function SpaceContent({
           onSpace={onSpace}
           PostCard={HomePost}
           blogIndex={blogIndex}
+          shareIndex={shareIndex}
           nickname={nickname}
           onOwnerNickname={onOwnerNickname}
           deletedPosts={deletedPosts}
@@ -1192,6 +1197,7 @@ function SpaceContent({
         <QzonePage key={key} active={active && pane === key} refreshKey={refreshes[key] ?? 0}>
           <QzoneMore
             pane={key}
+            shareIndex={shareIndex}
             selfUin={selfUin}
             hostUin={hostUin}
             nickname={nickname}

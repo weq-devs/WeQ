@@ -518,6 +518,15 @@ export function qzoneHomeBlogId(view: PublicFeedView): string | null {
   return /^[1-9]\d{0,15}$/.test(id) ? id : null;
 }
 
+/** 分享列表与评论 CGI 使用外层分享的 cell_id，不是被分享内容或动态的 feed_id。 */
+export function qzoneHomeShareId(view: PublicFeedView): string | null {
+  const common = asObject(view.feed.cell_common);
+  if (asNumber(common?.app_id) !== 202 || !/^[1-9]\d{4,19}$/.test(view.author.uin)) return null;
+  const id = common?.cell_id;
+  if (typeof id === 'number' && Number.isSafeInteger(id) && id > 0) return String(id);
+  return typeof id === 'string' && /^[1-9]\d{0,31}$/.test(id) ? id : null;
+}
+
 export function qzoneHomePostPreview(view: PublicFeedView, tid: string): QzoneEmotion {
   return {
     tid,

@@ -1,3 +1,4 @@
+import type { QzoneShare } from '@weqbot/protocol/web';
 import { useContext, useEffect, useMemo, useState, type ComponentType } from 'react';
 import { Eye, MessageCircle, Repeat2, ThumbsUp } from 'lucide-react';
 import { trpc } from '../trpc/client';
@@ -8,9 +9,11 @@ import {
   projectQzoneHomeFeed,
   publicGridMedia,
   qzoneHomeBlogId,
+  qzoneHomeShareId,
   type PublicCommentView,
   type PublicFeedView,
 } from '../lib/qzonePublic';
+import { qzoneLinkTarget, qzoneMediaSource } from '../lib/qzone';
 import { useQQAction } from '../components/qq-actions/shared.shared';
 import { QzoneActionsRow } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
@@ -28,16 +31,24 @@ import {
   type QzoneBlog,
   type QzoneBlogIndex,
 } from './QzoneBlogs';
+import { QzoneSharePost, type QzoneShareIndex } from './QzoneMore';
 import { QzoneAutoPage } from './QzonePagination';
 import { QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext } from './qzoneShared.shared';
 import { qzoneNickname } from '../lib/qzonePeople';
 
-function FeedContent({ feed }: { feed: PublicFeedView }) {
-  const { type, title, href } = projectQzoneHomeFeed(feed);
-  const { images, videos } = publicGridMedia(feed.media);
+function FeedContent({ feed, share }: { feed: PublicFeedView; share?: QzoneShare }) {
+  const preview = projectQzoneHomeFeed(feed);
+  const { type } = preview;
+  const title = share?.title || preview.title;
+  const href = qzoneLinkTarget(share?.originalUrl ?? '') ?? preview.href;
+  const grid = publicGridMedia(feed.media);
+  const { videos } = grid;
+  const shareCover = qzoneMediaSource(share?.previewUrl ?? '');
+  const images = !grid.images.length && !videos.length && shareCover ? [shareCover] : grid.images;
   const cover = href && type === '分享' && !videos.length ? images[0] : undefined;
-  const text = feed.text === title ? '' : feed.text;
+  const memo = share?.memo || feed.text;
+  const text = memo === title ? '' : memo;
   return (
     <>
       {title && !href ? (
@@ -49,13 +60,20 @@ function FeedContent({ feed }: { feed: PublicFeedView }) {
         <p className="weq-qzn-content" data-privacy-sensitive>
           <QzoneInlineText content={text} />
         </p>
-      ) : !title && !href && !feed.media.length ? (
+      ) : !title && !href && !images.length && !videos.length ? (
         <p className="weq-qzn-content weq-qzn-status">动态内容暂不可预览</p>
       ) : null}
       <QzoneMediaGrid images={cover ? images.slice(1) : images} videos={videos} />
       {href ? (
         <QzoneFeedLinks
-          links={[{ href, text: title || `打开${type}`, cover }]}
+          links={[
+            {
+              href,
+              text: title || `打开${type}`,
+              cover,
+              kind: share?.category === 18 ? 'music' : 'link',
+            },
+          ]}
           ownerUin={feed.author.uin}
           ownerNickname={feed.author.nick}
         />
@@ -76,16 +94,15 @@ export type QzoneHomePostProps = {
   selected?: boolean;
 };
 
-function FeedComments({
+function FeedCommentRows({
   comments,
   onSpace,
 }: {
   comments: PublicCommentView[];
   onSpace: OpenSpace;
 }) {
-  if (!comments.length) return null;
   return (
-    <section className="weq-qzn-interaction" aria-label="评论预览">
+    <>
       {comments.map((comment, index) => (
         <div key={comment.id || index}>
           {[comment, ...comment.replies].map((row, replyIndex) => (
@@ -107,7 +124,7 @@ function FeedComments({
           ))}
         </div>
       ))}
-    </section>
+    </>
   );
 }
 
@@ -210,25 +227,37 @@ function HomeFeedCard({
           ) : null}
         </QzoneActionsRow>
       ) : null}
-      {commentsOpen ? <FeedComments comments={comments} onSpace={onSpace} /> : null}
+      {commentsOpen ? (
+        <section className="weq-qzn-interaction" aria-label="评论预览">
+          <FeedCommentRows comments={comments} onSpace={onSpace} />
+        </section>
+      ) : null}
     </article>
   );
 }
 
 type HomeRow =
   | { kind: 'feed'; time: number; feed: PublicFeedView; tid: string | null }
-  | { kind: 'blog'; time: number; blog: QzoneBlog; feed?: PublicFeedView };
+  | { kind: 'blog'; time: number; blog: QzoneBlog; feed?: PublicFeedView }
+  | { kind: 'share'; time: number; share: QzoneShare; feed?: PublicFeedView };
+
+function homeShareKey(uin: string, id: string) {
+  return `share:${uin}:${id}`;
+}
 
 function homeRows(
   pages: readonly { feeds: readonly unknown[] }[],
   blogs: readonly QzoneBlog[],
+  shares: readonly QzoneShare[],
   hostUin: string,
   deletedPosts: ReadonlySet<string>,
 ) {
   const rows = new Map<string, HomeRow>();
   const byBlogId = new Map(blogs.map((blog) => [blog.id, blog]));
+  const byShareId = new Map(shares.map((share) => [share.id, share]));
   let feedFloor = Number.POSITIVE_INFINITY;
   let blogFloor = Number.POSITIVE_INFINITY;
+  let shareFloor = Number.POSITIVE_INFINITY;
   for (const [pageIndex, page] of pages.entries()) {
     for (const [index, raw] of page.feeds.entries()) {
       const feed = projectPublicFeed(raw, index);
@@ -252,6 +281,24 @@ function homeRows(
         rows.set(key, { kind: 'blog', blog, feed, time: feed.time || qzoneBlogSortTime(blog) });
         continue;
       }
+      const shareId = qzoneHomeShareId(feed);
+      if (shareId) {
+        const key = homeShareKey(feed.author.uin, shareId);
+        if (rows.has(key)) continue;
+        const indexed = feed.author.uin === hostUin ? byShareId.get(shareId) : undefined;
+        const share = indexed ?? {
+          id: shareId,
+          category: null,
+          memo: '',
+          publishedAt: '',
+          publishedTime: null,
+          title: '',
+          originalUrl: '',
+          previewUrl: '',
+        };
+        rows.set(key, { kind: 'share', share, feed, time: feed.time || share.publishedTime || 0 });
+        continue;
+      }
       const key = tid
         ? `post:${tid}`
         : feed.key.startsWith('#')
@@ -266,7 +313,18 @@ function homeRows(
     const key = `blog:${hostUin}:${blog.id}`;
     if (!rows.has(key)) rows.set(key, { kind: 'blog', blog, time });
   }
-  return { rows: [...rows].sort((a, b) => b[1].time - a[1].time), feedFloor, blogFloor };
+  for (const share of shares) {
+    const time = share.publishedTime ?? 0;
+    if (time > 0) shareFloor = Math.min(shareFloor, time);
+    const key = homeShareKey(hostUin, share.id);
+    if (!rows.has(key)) rows.set(key, { kind: 'share', share, time });
+  }
+  return {
+    rows: [...rows].sort((a, b) => b[1].time - a[1].time),
+    feedFloor,
+    blogFloor,
+    shareFloor,
+  };
 }
 
 export function QzoneSpaceHome({
@@ -275,6 +333,7 @@ export function QzoneSpaceHome({
   onSpace,
   PostCard,
   blogIndex,
+  shareIndex,
   nickname,
   onOwnerNickname,
   deletedPosts,
@@ -285,6 +344,7 @@ export function QzoneSpaceHome({
   onSpace: OpenSpace;
   PostCard: ComponentType<QzoneHomePostProps>;
   blogIndex: QzoneBlogIndex;
+  shareIndex: QzoneShareIndex;
   nickname: string;
   onOwnerNickname: (uin: string, nickname: string) => void;
   deletedPosts: ReadonlySet<string>;
@@ -308,9 +368,10 @@ export function QzoneSpaceHome({
       retry: false,
     },
   );
-  const { rows, feedFloor, blogFloor } = useMemo(
-    () => homeRows(query.data?.pages ?? [], blogIndex.items, hostUin, deletedPosts),
-    [query.data?.pages, blogIndex.items, hostUin, deletedPosts],
+  const { rows, feedFloor, blogFloor, shareFloor } = useMemo(
+    () =>
+      homeRows(query.data?.pages ?? [], blogIndex.items, shareIndex.items, hostUin, deletedPosts),
+    [query.data?.pages, blogIndex.items, shareIndex.items, hostUin, deletedPosts],
   );
   const ownerNick = rows.find(
     ([, { feed }]) => feed?.author.uin === hostUin && qzoneNickname(hostUin, feed.author.nick),
@@ -342,10 +403,18 @@ export function QzoneSpaceHome({
   const error = query.error?.message ?? '';
   const next = () => void query.fetchNextPage({ cancelRefetch: false });
   const retry = () => (query.hasNextPage ? next() : void query.refetch());
-  const moreFeeds = available && query.hasNextPage && !error;
-  const moreBlogs = blogIndex.hasNextPage && !blogIndex.error;
-  // 哪个来源的已读范围更浅，就先续哪边；不为合并一次把两边的历史都扫完。
-  const nextBlogPage = moreBlogs && (!moreFeeds || blogFloor > feedFloor);
+  // 先续已读范围最浅的来源，不为合并提前扫完整历史。
+  const nextPage = [
+    { floor: feedFloor, next: available && query.hasNextPage && !error ? next : undefined },
+    {
+      floor: blogFloor,
+      next: blogIndex.hasNextPage && !blogIndex.error ? blogIndex.next : undefined,
+    },
+    { floor: shareFloor, next: !shareIndex.error ? shareIndex.onNext : undefined },
+  ]
+    .filter((source) => source.next)
+    .sort((a, b) => b.floor - a.floor)[0]?.next;
+  const loading = query.isFetching || blogIndex.loading || shareIndex.loading;
   return (
     <div className="weq-qzn-timeline weq-qzn-home">
       {binding ? (
@@ -360,20 +429,16 @@ export function QzoneSpaceHome({
       {!rows.length ? (
         !available ? (
           <State
-            loading={blogIndex.loading}
+            loading={blogIndex.loading || shareIndex.loading}
             error=""
             empty="当前无法读取在线主页"
             progress="可查看「说说」或「相册」。"
           />
         ) : (
           <State
-            loading={query.isFetching || blogIndex.loading}
+            loading={loading}
             error={error}
-            empty={
-              query.isSuccess && !moreFeeds && !blogIndex.loading
-                ? '这个空间暂无可查看的动态。'
-                : ''
-            }
+            empty={query.isSuccess && !nextPage && !loading ? '这个空间暂无可查看的动态。' : ''}
             retry={retry}
           />
         )
@@ -382,6 +447,41 @@ export function QzoneSpaceHome({
       ) : null}
       <div {...multi.rootProps}>
         {rows.map(([key, row]) => {
+          if (row.kind === 'share') {
+            const { feed, share } = row;
+            return (
+              <QzoneSharePost
+                key={`${shareIndex.configId}:${key}`}
+                share={share}
+                refresh={shareIndex.refresh}
+                space={{
+                  selfUin,
+                  hostUin: feed?.author.uin ?? hostUin,
+                  nickname: feed?.author.nick || nickname,
+                  onSpace,
+                }}
+                timeline={{
+                  time: feed?.time ?? 0,
+                  portrait: feed?.author.portrait,
+                  content: feed ? <FeedContent feed={feed} share={share} /> : undefined,
+                  tools:
+                    feed && canShareQzoneFeed(feed.feed) ? (
+                      <div className="weq-qzn-post-tools">
+                        <QzoneFeedShareMenu selfUin={selfUin} feed={feed.feed} feedKey={feed.key} />
+                      </div>
+                    ) : undefined,
+                  counts: feed ? <FeedReadCounts feed={feed} /> : undefined,
+                  commentCount: feed?.commentCount,
+                  commentPreview: feed ? (
+                    <FeedCommentRows
+                      comments={projectPublicCommentsPage(feed.feed).comments}
+                      onSpace={onSpace}
+                    />
+                  ) : undefined,
+                }}
+              />
+            );
+          }
           if (row.kind === 'blog') {
             const { blog, feed } = row;
             if (feed && !blogIndex.configId)
@@ -439,16 +539,24 @@ export function QzoneSpaceHome({
       {blogIndex.error ? (
         <State loading={false} error={blogIndex.error} empty="" retry={blogIndex.retry} />
       ) : null}
+      {shareIndex.error ? (
+        <State
+          loading={false}
+          error={`历史分享：${shareIndex.error}`}
+          empty=""
+          retry={shareIndex.onRetry}
+        />
+      ) : null}
       {cursorStalled ? (
         <p role="alert" className="weq-qzn-status">
           主页分页未推进，请刷新核对。
         </p>
       ) : null}
-      {moreFeeds || moreBlogs ? (
+      {nextPage ? (
         <QzoneAutoPage
-          key={`${pages.length}:${blogIndex.pages}`}
-          loading={query.isFetching || blogIndex.loading}
-          onNext={nextBlogPage ? blogIndex.next : next}
+          key={`${pages.length}:${blogIndex.pages}:${shareIndex.pageCount}`}
+          loading={loading}
+          onNext={nextPage}
         />
       ) : null}
     </div>
