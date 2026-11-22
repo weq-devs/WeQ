@@ -204,6 +204,7 @@ export async function fetchSourceJson<T>(
     fetcher?: NetworkFetch;
     maxBytes?: number;
     sources?: readonly string[];
+    onSourceFailure?: (source: string, error: unknown) => void;
   } = {},
 ): Promise<T> {
   const sources = orderSources(options.sources ?? downloadSources(url));
@@ -248,8 +249,10 @@ export async function fetchSourceJson<T>(
         recordSourceHealth(source, true);
         return value;
       } catch (failure) {
-        if (!controller.signal.aborted && !options.signal?.aborted)
+        if (!controller.signal.aborted && !options.signal?.aborted) {
           recordSourceHealth(source, false);
+          options.onSourceFailure?.(source, failure);
+        }
         throw failure;
       } finally {
         controller.abort();

@@ -114,6 +114,24 @@ describe('开发进程输出', () => {
     expect(lines[0]).toContain('net_error -200');
     expect(lines[1]).toContain('WARN  chromium');
   });
+  it.each(['info', 'debug'])('%s 模式按连接诊断和 HTTPS 请求结果分别显示', (level) => {
+    vi.stubEnv('WEQ_LOG_LEVEL', level);
+    onTestFinished(() => vi.unstubAllEnvs());
+    const lines: string[] = [];
+    const output = createDevelopmentOutput((line) => lines.push(line), false);
+    const diagnostic =
+      '[7478:1122/200355.584856:ERROR:net/socket/ssl_client_socket_impl.cc:962] handshake failed; returned -1, SSL error code 1, net_error ';
+    output.write(`${diagnostic}-100\n`);
+    output.write(`${diagnostic}-200\n`);
+    output.write(`${diagnostic}-202\n`);
+    output.write('20:03:55 ERROR chromium  HTTPS 请求失败 required.example\n');
+    expect(lines.filter((line) => line.includes('DEBUG chromium'))).toHaveLength(
+      level === 'debug' ? 2 : 0,
+    );
+    expect(lines.filter((line) => line.includes('ERROR chromium'))).toHaveLength(2);
+    expect(lines.join('')).toContain('net_error -202');
+    expect(lines.join('')).toContain('required.example');
+  });
   it('管道继承真实终端颜色，NO_COLOR 优先，已有 ANSI 在无色输出中移除', () => {
     expect(terminalColor('stderr', { WEQ_DEV_STDERR_TTY: '1' })).toBe(true);
     expect(

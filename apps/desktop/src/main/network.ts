@@ -1,7 +1,9 @@
-import { net } from 'electron';
+import { app, net, session, type Session } from 'electron';
 import { networkInterfaces } from 'node:os';
 import type { Readable } from 'node:stream';
 import { setNetworkTransport, clearSourceHealth, type NetworkFetch } from '@weq/network';
+
+const ANNOUNCEMENT_PARTITION = 'weq-announcements';
 
 function chromiumHeaders(source: Record<string, string | string[] | undefined>): Headers {
   const headers = new Headers();
@@ -18,7 +20,7 @@ function chromiumHeaders(source: Record<string, string | string[] | undefined>):
   return headers;
 }
 
-function chromiumRead(url: string, source: Request, headers: Headers) {
+function chromiumRead(url: string, source: Request, headers: Headers, requestSession?: Session) {
   return new Promise<Response>((resolve, reject) => {
     const { method, referrerPolicy, signal } = source;
     signal.throwIfAborted();
@@ -30,6 +32,7 @@ function chromiumRead(url: string, source: Request, headers: Headers) {
       redirect: 'manual',
       credentials: 'omit',
       bypassCustomProtocolHandlers: true,
+      session: requestSession,
     });
     let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
     let finished = false;
@@ -115,7 +118,11 @@ function chromiumRead(url: string, source: Request, headers: Headers) {
 }
 
 /** Chromium 的 Response.url 不可靠；读取请求手动跟随跳转并记录真实最终地址。 */
-export const electronNetworkFetch: NetworkFetch = async (input, init) => {
+async function chromiumFetch(
+  input: Parameters<NetworkFetch>[0],
+  init?: RequestInit,
+  requestSession?: Session,
+): Promise<Response> {
   const request = new Request(input, init);
   const options = {
     ...init,
@@ -131,7 +138,7 @@ export const electronNetworkFetch: NetworkFetch = async (input, init) => {
   let url = request.url;
   const headers = new Headers(request.headers);
   for (let redirects = 0; redirects <= 20; redirects++) {
-    const response = await chromiumRead(url, request, headers);
+    const response = await chromiumRead(url, request, headers, requestSession);
     Object.defineProperties(response, {
       url: { value: url },
       redirected: { value: redirects > 0 },
@@ -156,10 +163,49 @@ export const electronNetworkFetch: NetworkFetch = async (input, init) => {
     url = next.toString();
   }
   throw new TypeError('下载重定向次数过多');
-};
+}
 
-export function installDesktopNetwork() {
+export const electronNetworkFetch: NetworkFetch = (input, init) => chromiumFetch(input, init);
+
+export const electronAnnouncementFetch: NetworkFetch = (input, init) =>
+  chromiumFetch(
+    input,
+    init,
+    process.env.WEQ_DEV_CONSOLE === '1' ? session.fromPartition(ANNOUNCEMENT_PARTITION) : undefined,
+  );
+
+type ReportTlsFailure = (host: string, error: string) => void;
+
+function observeDevelopmentNetworkFailures(report: ReportTlsFailure) {
+  // 公告使用独立会话，官方源、镜像及重定向都由公告刷新统一判定结果。
+  const announcements = session.fromPartition(ANNOUNCEMENT_PARTITION);
+  let active = true;
+  const observe = (current: Session) => {
+    if (current === announcements) return;
+    current.webRequest.onErrorOccurred({ urls: ['https://*/*'] }, ({ url, error }) => {
+      if (
+        active &&
+        (error === 'net::ERR_CONNECTION_CLOSED' || error === 'net::ERR_CERT_COMMON_NAME_INVALID')
+      ) {
+        report(new URL(url).hostname, error);
+      }
+    });
+  };
+  observe(session.defaultSession);
+  app.on('session-created', observe);
+  return () => {
+    active = false;
+    app.off('session-created', observe);
+    session.defaultSession.webRequest.onErrorOccurred(null);
+  };
+}
+
+export function installDesktopNetwork(reportTlsFailure: ReportTlsFailure) {
   setNetworkTransport(electronNetworkFetch);
+  const stopObserving =
+    process.env.WEQ_DEV_CONSOLE === '1'
+      ? observeDevelopmentNetworkFailures(reportTlsFailure)
+      : undefined;
   const fingerprint = () => JSON.stringify([net.online, networkInterfaces()]);
   let previous = fingerprint();
   const timer = setInterval(() => {
@@ -172,6 +218,7 @@ export function installDesktopNetwork() {
   timer.unref();
   return () => {
     clearInterval(timer);
+    stopObserving?.();
     setNetworkTransport();
   };
 }

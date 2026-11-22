@@ -114,6 +114,12 @@ export function createDevelopmentOutput(
     const chromium = /^\[\d+:(?:\d+:)?\d{4}\/\d{6}\.\d+:(INFO|WARNING|ERROR|FATAL):[^\]]+\] /.exec(
       text,
     );
+    // 套接字诊断没有请求地址，同一请求可能输出多次。HTTPS 请求的最终失败另行记录。
+    const requestTlsDiagnostic =
+      /^\[\d+:(?:\d+:)?\d{4}\/\d{6}\.\d+:ERROR:net\/socket\/ssl_client_socket_impl\.cc:\d+\] handshake failed; returned -1, SSL error code \d+, net_error -(?:100|200)$/.test(
+        text,
+      );
+    if (requestTlsDiagnostic && !debug) return;
     const scope = system
       ? 'electron-system'
       : vite
@@ -137,7 +143,7 @@ export function createDevelopmentOutput(
     else {
       const severity = chromium?.[1] ?? message;
       const level =
-        buildTiming || benignInput
+        buildTiming || benignInput || requestTlsDiagnostic
           ? 'debug'
           : /\b(?:error|fatal|failed)\b/i.test(severity)
             ? 'error'

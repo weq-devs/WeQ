@@ -15,6 +15,7 @@ import {
   type OfficialAnnouncement,
 } from '@weq/network/announcement-metadata';
 import releaseKeys from '@weq/network/release-keys';
+import { getLogger } from '@weq/service';
 import { writeFileAtomic } from '@weq/service/atomic-write';
 import { notificationInlineText } from '../shared/notification_copy';
 
@@ -27,6 +28,7 @@ const receiptsSchema = z.object({
 });
 type Receipts = z.infer<typeof receiptsSchema>;
 type FeedStatus = 'loading' | 'ready' | 'cached' | 'unavailable';
+const logger = getLogger().child({ scope: 'announcements' });
 type VerifiedFeed = { feed: AnnouncementFeed; envelope: unknown; signature: string };
 
 interface AnnouncementHostOptions {
@@ -54,6 +56,7 @@ export class Announcements {
   private readonly loaded: Promise<void>;
   private current?: VerifiedFeed;
   private status: FeedStatus = 'loading';
+  private lastRefreshWarning?: 'cached' | 'unavailable';
   private receipts: Receipts = { read: [], reminded: [] };
   private updates: Promise<unknown> = Promise.resolve();
   private pending?: Promise<void>;
@@ -208,7 +211,20 @@ export class Announcements {
             throw new Error('官方公告修订未前进');
           return value;
         },
-        { ...options, sources },
+        {
+          ...options,
+          sources,
+          onSourceFailure: (source, failure) => {
+            const error =
+              failure instanceof Error
+                ? (/(?:net::)?ERR_[A-Z0-9_]+/.exec(failure.message)?.[0] ?? failure.name)
+                : undefined;
+            logger.debug(mirror ? '公告镜像请求失败' : '公告官方源请求失败', {
+              address: new URL(source).hostname,
+              code: error,
+            });
+          },
+        },
       );
     try {
       const next = await read([ANNOUNCEMENT_URL], false).catch((error: unknown) => {
@@ -229,6 +245,15 @@ export class Announcements {
       if (signal.aborted) return;
       this.status = current ? 'cached' : officialMissing ? 'ready' : 'unavailable';
     }
+    const warning = this.status === 'ready' ? undefined : this.status;
+    if (warning && this.lastRefreshWarning !== warning) {
+      logger.warn(
+        warning === 'cached'
+          ? '官方公告刷新失败，显示已验签缓存'
+          : '官方公告暂不可用，可在公告页重试',
+      );
+    }
+    this.lastRefreshWarning = warning;
     this.emit();
   }
 

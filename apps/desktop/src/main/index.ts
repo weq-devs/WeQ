@@ -56,7 +56,7 @@ import {
 } from './protocol_register';
 import { registerUdpCaptureStorage } from './udp_capture_register';
 import { getAppContext, accountEventBus } from './context/app_context';
-import { installDesktopNetwork } from './network';
+import { electronAnnouncementFetch, installDesktopNetwork } from './network';
 import { configureReleaseFeeds } from './update/release_feed';
 import { desktopAnnouncementPlatform, startAnnouncements } from './announcements';
 import { handleGroupKeywordHit } from './group_keyword_notify';
@@ -958,7 +958,9 @@ void app.whenReady().then(async () => {
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
   setHost(electronHost);
-  const stopNetwork = installDesktopNetwork();
+  const stopNetwork = installDesktopNetwork((host, error) =>
+    logger.error('HTTPS 请求失败', { scope: 'chromium', address: host, code: error }),
+  );
   app.once('will-quit', stopNetwork);
   accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
   if (!accountTarget)
@@ -985,6 +987,7 @@ void app.whenReady().then(async () => {
       dataRoot: updateDataRoot,
       platform: desktopAnnouncementPlatform(process.platform),
       version: app.getVersion(),
+      fetcher: electronAnnouncementFetch,
       bannerEnabled: () =>
         userConfig?.getSettings().notificationEvents.officialAnnouncement.banner ?? true,
     }),

@@ -11,6 +11,7 @@ import {
   type OfficialAnnouncement,
   type SignedAnnouncementFeed,
 } from '@weq/network/announcement-metadata';
+import { configureConsoleLogger } from '@weq/service';
 import {
   normalizeNotificationEvents,
   notificationGroupState,
@@ -156,6 +157,57 @@ describe('宿主官方公告', () => {
     origin = signed(3, [regular]);
     await instance.refresh();
     expect(await instance.list()).toMatchObject({ status: 'ready', unread: 1 });
+  });
+
+  it('单个来源失败只记调试日志，刷新降级按连续状态告警一次', async () => {
+    const lines: string[] = [];
+    configureConsoleLogger({
+      development: true,
+      processName: 'announcement-test',
+      env: { WEQ_LOG_LEVEL: 'debug', NO_COLOR: '1' },
+      sink: (line) => lines.push(line),
+    });
+    try {
+      const { instance, fetcher } = host();
+      const fetchFeed = fetcher.getMockImplementation()!;
+      let mirrorAttempts = 0;
+      fetcher.mockImplementation(async (input, init) => {
+        const source = String(input);
+        if (source !== ANNOUNCEMENT_URL && mirrorAttempts++ === 0)
+          throw new Error('net::ERR_CONNECTION_CLOSED');
+        return fetchFeed(input, init);
+      });
+
+      origin = 'offline';
+      await instance.refresh();
+      await instance.refresh();
+      expect(lines.filter((line) => line.includes('WARN  announcements'))).toHaveLength(1);
+      expect(lines.join('')).toContain('官方公告暂不可用');
+
+      lines.length = 0;
+      mirrorAttempts = 0;
+      mirror = signed(1, [regular]);
+      await instance.refresh();
+      expect(await instance.list()).toMatchObject({ status: 'ready' });
+      expect(lines.join('')).toMatch(/DEBUG announcements.*公告镜像请求失败/);
+      expect(lines.join('')).toContain('net::ERR_CONNECTION_CLOSED');
+      expect(lines.join('')).not.toMatch(/(?:WARN |ERROR) announcements/);
+
+      mirror = null;
+      await instance.refresh();
+      await instance.refresh();
+      expect(await instance.list()).toMatchObject({ status: 'cached' });
+      expect(lines.filter((line) => line.includes('WARN  announcements'))).toHaveLength(1);
+      expect(lines.join('')).toContain('显示已验签缓存');
+
+      origin = signed(2, [regular]);
+      await instance.refresh();
+      origin = 'offline';
+      await instance.refresh();
+      expect(lines.filter((line) => line.includes('WARN  announcements'))).toHaveLength(2);
+    } finally {
+      configureConsoleLogger({ development: false, processName: 'announcement-test', env: {} });
+    }
   });
 
   it('升级后保留发布公告，只对低于公告版本的宿主返回更新入口', async () => {
