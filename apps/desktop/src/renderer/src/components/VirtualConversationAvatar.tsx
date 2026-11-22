@@ -41,6 +41,7 @@ function AvatarImg({
     );
   return (
     <img
+      key={image.retryKey}
       className={className}
       ref={image.ref}
       src={image.src}
@@ -48,6 +49,7 @@ function AvatarImg({
       width={size}
       height={size}
       loading="lazy"
+      onLoad={image.onLoad}
       onError={image.onError}
     />
   );

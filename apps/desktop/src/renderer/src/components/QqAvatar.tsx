@@ -26,9 +26,10 @@ export function QqAvatar({
     url || (uin ? qqAvatarUrl(uin) : null),
     true,
     size <= 64 ? 'small' : 'big',
+    uin,
   );
   const resolved = raw ? resourceForRenderDocument(raw, ownerDocument) : raw;
-  const image = useAvatarImage(resolved);
+  const image = useAvatarImage(resolved, { uin });
   if (!resolved || image.failed) {
     return (
       <span
@@ -44,6 +45,7 @@ export function QqAvatar({
 
   return (
     <img
+      key={image.retryKey}
       ref={image.ref}
       src={image.src}
       alt=""

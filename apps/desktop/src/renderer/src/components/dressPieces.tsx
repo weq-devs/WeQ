@@ -35,7 +35,6 @@ export function AvatarOrb({
 }) {
   const active = useTabActive();
   const [revision, setRevision] = useState(0);
-  const [failedSource, setFailedSource] = useState<string | null>(null);
   const [freshAvatar, setFreshAvatar] = useState<{
     source: string;
     revision: number;
@@ -47,10 +46,7 @@ export function AvatarOrb({
     freshAvatar?.source === resolved && freshAvatar.revision === revision
       ? freshAvatar.url
       : resolved;
-  const image = useAvatarImage(displayed);
-  useEffect(() => {
-    setFailedSource(null);
-  }, [resolved]);
+  const image = useAvatarImage(displayed, { identitySource: avatarSource });
   useEffect(() => {
     if (!refreshOnFocus || !active) return;
     const refresh = () => {
@@ -76,7 +72,6 @@ export function AvatarOrb({
         if (controller.signal.aborted || !blob.size) return;
         ownedUrl = URL.createObjectURL(blob);
         setFreshAvatar({ source: resolved, revision, url: ownedUrl });
-        setFailedSource(null);
       })
       .catch(() => {
         /* 保留已有头像，聚焦后可重试。 */
@@ -88,15 +83,16 @@ export function AvatarOrb({
   }, [active, refreshOnFocus, resolved, revision]);
   return (
     <span ref={image.observeRef} className={`weq-orb${widgetUrl ? ' has-widget' : ''}`}>
-      {resolved && failedSource !== resolved && !image.failed ? (
+      {resolved && !image.failed ? (
         <img
-          key={displayed}
+          key={image.retryKey ? `retry:${displayed}` : displayed}
           ref={image.ref}
           src={image.src}
           alt={nickname}
           className="weq-orb-img is-round"
           draggable={false}
-          onError={() => setFailedSource(resolved)}
+          onLoad={image.onLoad}
+          onError={image.onError}
         />
       ) : (
         <span className="weq-orb-img is-round weq-orb-fallback">

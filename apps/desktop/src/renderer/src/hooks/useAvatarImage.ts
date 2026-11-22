@@ -7,15 +7,21 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { cachedAvatarUrl } from '../lib/avatarCache';
+import { cachedAvatarUrl, qqAvatarIdentity, qqAvatarIdentityForUin } from '../lib/avatarCache';
+import { avatarRecovery, type AvatarSuccess } from '../lib/avatarRecovery';
 import { dataSaverActive } from '../lib/dataSaver';
+import { thumbnailPolicyRequest } from '../lib/resourceUrl';
 import { webAvatarCache, webAvatarKey } from '../lib/webAvatarCache';
 
 export const WebAvatarScope = createContext<string | null>(null);
 const noSubscription = () => () => {};
 
 /** 头像缓存独立于页面与正文；屏外节点不发起图片请求。 */
-export function useAvatarImage(source: string | null | undefined, original?: string | null) {
+export function useAvatarImage(
+  source: string | null | undefined,
+  options?: { original?: string | null; uin?: string | null; identitySource?: string | null },
+) {
+  const { original, uin, identitySource = source } = options ?? {};
   const scope = useContext(WebAvatarScope);
   const key = scope && source ? webAvatarKey(scope, source) : null;
   const originalUrl = key && original ? cachedAvatarUrl(original) : null;
@@ -25,6 +31,12 @@ export function useAvatarImage(source: string | null | undefined, original?: str
   const [target, observeRef] = useState<HTMLElement | null>(null);
   const [loadedSource, setLoadedSource] = useState<string>();
   const [failedSource, setFailedSource] = useState<string>();
+  const [rejectedRecovery, setRejectedRecovery] = useState<AvatarSuccess>();
+  const identity = qqAvatarIdentity(identitySource) ?? qqAvatarIdentityForUin(uin);
+  const revision = /[?&]_weq_avatar_remote=1(?:&|$)/.test(identitySource ?? '')
+    ? identitySource?.match(/[?&]_weq_avatar_refresh=(\d+)/)?.[1]
+    : undefined;
+  const recoveryKey = identity && source ? JSON.stringify([scope, identity, revision]) : null;
   const subscribe = useCallback(
     (listener: () => void) => {
       if (!key) return noSubscription();
@@ -43,27 +55,71 @@ export function useAvatarImage(source: string | null | undefined, original?: str
     () => (key ? webAvatarCache.peek(key, fallbackKey) : undefined),
     () => undefined,
   );
-  const src = key ? snapshot?.src : (source ?? undefined);
-  const loaded = Boolean(src && (snapshot?.ready || loadedSource === src));
-  const failed = Boolean(snapshot?.failed || (src && failedSource === src));
+  const preferred = key ? snapshot?.src : (source ?? undefined);
+  const preferredFailed = Boolean(snapshot?.failed || (preferred && failedSource === preferred));
+  const subscribeRecovery = useCallback(
+    (listener: () => void) =>
+      recoveryKey && preferredFailed
+        ? avatarRecovery.subscribe(recoveryKey, listener)
+        : noSubscription(),
+    [recoveryKey, preferredFailed],
+  );
+  const recovery = useSyncExternalStore(
+    subscribeRecovery,
+    () => (recoveryKey && preferredFailed ? avatarRecovery.peek(recoveryKey) : undefined),
+    () => undefined,
+  );
+  const candidate = recovery !== rejectedRecovery ? recovery : undefined;
+  const candidateKey = candidate?.webKey;
+  const reuseKey = candidateKey !== key && candidateKey !== fallbackKey ? candidateKey : undefined;
+  const subscribeReuse = useCallback(
+    (listener: () => void) =>
+      reuseKey ? webAvatarCache.subscribe(reuseKey, listener) : noSubscription(),
+    [reuseKey],
+  );
+  const reused = useSyncExternalStore(
+    subscribeReuse,
+    () => (reuseKey ? webAvatarCache.peek(reuseKey) : undefined),
+    () => undefined,
+  );
+  const direct = candidate && !candidateKey ? candidate.src : undefined;
+  let recoveredSrc = reused?.src ?? direct;
+  if (direct && dataSaverActive()) {
+    recoveredSrc = /^(weq-media:|weq-avatar:)/.test(direct)
+      ? thumbnailPolicyRequest(direct).src
+      : undefined;
+  }
+  const src = recoveredSrc ?? preferred;
+  const loaded = Boolean(
+    src && ((!preferredFailed && snapshot?.ready) || reused?.ready || loadedSource === src),
+  );
+  const failed = preferredFailed && !recoveredSrc;
+
+  useEffect(() => {
+    if (!key || !recoveryKey || !snapshot?.ready || !snapshot.src) return;
+    const webKey = webAvatarCache.peek(key) === snapshot ? key : fallbackKey;
+    if (webKey) avatarRecovery.remember(recoveryKey, { src: snapshot.src, webKey });
+  }, [key, recoveryKey, snapshot, fallbackKey]);
 
   useLayoutEffect(() => {
     setFailedSource(undefined);
-  }, [src]);
+    setRejectedRecovery(undefined);
+  }, [preferred, source, recoveryKey]);
   useLayoutEffect(() => {
     setLoadedSource(image?.complete && image.naturalWidth > 0 ? src : undefined);
   }, [image, src]);
   const observed = target ?? image;
   useEffect(() => {
-    if (!key || !source || !observed) return;
+    if ((!key && !reuseKey) || !source || !observed) return;
     const doc = observed.ownerDocument;
     const Observer = doc.defaultView?.IntersectionObserver;
     let visible = !Observer;
     let release: (() => void) | undefined;
     let releaseOriginal: (() => void) | undefined;
+    let releaseReuse: (() => void) | undefined;
     const isVisible = () => visible && doc.visibilityState !== 'hidden';
     const refreshOriginal = () => {
-      if (!fallbackKey || !originalUrl) return;
+      if (!key || !fallbackKey || !originalUrl) return;
       const preferred = webAvatarCache.peek(key);
       if (isVisible() && !preferred?.ready) {
         const ready = webAvatarCache.peek(fallbackKey)?.ready;
@@ -78,14 +134,20 @@ export function useAvatarImage(source: string | null | undefined, original?: str
         deactivate?.();
       }
     };
-    const unsubscribe = fallbackKey ? webAvatarCache.subscribe(key, refreshOriginal) : undefined;
+    const unsubscribe =
+      key && fallbackKey ? webAvatarCache.subscribe(key, refreshOriginal) : undefined;
     const refresh = () => {
       if (isVisible()) {
-        release ??= webAvatarCache.activate(key);
-        void webAvatarCache.load(key, source);
+        if (key) {
+          release ??= webAvatarCache.activate(key);
+          void webAvatarCache.load(key, source);
+        }
+        if (reuseKey) releaseReuse ??= webAvatarCache.activate(reuseKey);
       } else {
         release?.();
         release = undefined;
+        releaseReuse?.();
+        releaseReuse = undefined;
       }
       refreshOriginal();
     };
@@ -104,19 +166,36 @@ export function useAvatarImage(source: string | null | undefined, original?: str
       unsubscribe?.();
       release?.();
       releaseOriginal?.();
+      releaseReuse?.();
     };
-  }, [key, source, observed, fallbackKey, originalUrl]);
+  }, [key, source, observed, fallbackKey, originalUrl, reuseKey]);
   return {
     src,
+    // 同地址也要换掉失败的 DOM 节点，否则浏览器不会重新加载。
+    retryKey: recoveredSrc === preferred ? recoveredSrc : undefined,
     ref,
     observeRef,
     loaded,
     failed,
     onLoad: () => {
-      if (src) setLoadedSource(src);
+      if (!src) return;
+      setLoadedSource(src);
+      // 主页临时 Blob 归该组件所有，只有已复核的 CDN 地址可供别处复用。
+      const reusable = src.startsWith('blob:') ? identitySource : src;
+      if (
+        !preferredFailed &&
+        !key &&
+        recoveryKey &&
+        reusable &&
+        /^(https?:|weq-media:|weq-avatar:)/.test(reusable)
+      )
+        avatarRecovery.remember(recoveryKey, { src: reusable });
     },
     onError: () => {
-      if (src) setFailedSource(src);
+      if (!src) return;
+      setLoadedSource(undefined);
+      if (recoveredSrc) setRejectedRecovery(candidate);
+      else setFailedSource(src);
     },
   };
 }

@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QqAvatar } from '../src/renderer/src/components/QqAvatar';
 import { WebAvatarScope } from '../src/renderer/src/hooks/useAvatarImage';
+import { refreshUserAvatar } from '../src/renderer/src/hooks/useAvatarUrl';
 import { Avatar } from '../src/renderer/src/im-template/template/primitives';
 import { cachedAvatarUrl } from '../src/renderer/src/lib/avatarCache';
 import { setPreferCdnFlag } from '../src/renderer/src/lib/cdn';
@@ -70,16 +71,120 @@ it('重复包装的头像仍复用规范地址，不丢显式刷新参数，不�
   expect(new URL(cachedAvatarUrl(external)!).searchParams.get('src')).toBe(external);
 });
 
-it('Remote 会话缩略图失败时无需打开名片即可加载原图，成功的缩略图不再请求原图', async () => {
+it('桌面端的失败头像会复用同一人随后加载成功的另一来源，与同号群隔离', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const select = (surface: string) => host.querySelector(`.${surface} img`);
+  const uin = '12345';
+  try {
+    act(() =>
+      root.render(
+        createElement(
+          'div',
+          null,
+          createElement(
+            'div',
+            { className: 'small' },
+            createElement(Avatar, {
+              name: '联系人',
+              resolution: 'small',
+              avatarUrl: `https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=${uin}`,
+            }),
+          ),
+          createElement(
+            'div',
+            { className: 'card' },
+            createElement(QqAvatar, {
+              uin,
+              size: 128,
+              url: 'https://qh.qlogo.cn/g?b=qq&ek=fixture&s=0',
+            }),
+          ),
+          createElement(
+            'div',
+            { className: 'group' },
+            createElement(QqAvatar, {
+              url: `https://p.qlogo.cn/gh/${uin}/${uin}/0`,
+            }),
+          ),
+        ),
+      ),
+    );
+    act(() => {
+      select('small')!.dispatchEvent(new Event('error'));
+      select('group')!.dispatchEvent(new Event('error'));
+    });
+    expect(select('small')).toBeNull();
+    act(() => select('card')!.dispatchEvent(new Event('load')));
+    expect(select('small')?.getAttribute('src')).toBe(select('card')?.getAttribute('src'));
+    expect(select('group')).toBeNull();
+
+    act(() => select('small')!.dispatchEvent(new Event('error')));
+    expect(select('small')).toBeNull();
+    act(() => select('card')!.dispatchEvent(new Event('load')));
+    expect(select('small')?.getAttribute('src')).toBe(select('card')?.getAttribute('src'));
+
+    act(() => refreshUserAvatar(uin));
+    act(() => select('small')!.dispatchEvent(new Event('error')));
+    expect(select('small')).toBeNull();
+    act(() => select('card')!.dispatchEvent(new Event('load')));
+    expect(select('small')?.getAttribute('src')).toContain('_weq_avatar_remote=1');
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('同地址已有成功记录时，失败的头像使用新节点重新加载', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        createElement(
+          'div',
+          null,
+          createElement(QqAvatar, { uin: '12346', className: 'first' }),
+          createElement(QqAvatar, { uin: '12346', className: 'second' }),
+        ),
+      ),
+    );
+    const first = host.querySelector('img.first')!;
+    const second = host.querySelector('img.second')!;
+    act(() => first.dispatchEvent(new Event('load')));
+    act(() => second.dispatchEvent(new Event('error')));
+    const retried = host.querySelector('img.second');
+    expect(retried).not.toBe(second);
+    expect(retried?.getAttribute('src')).toBe(first.getAttribute('src'));
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('Remote 缩略图失败可自行补取原图，另一处原图失败也会复用后续加载成功的缩略图', async () => {
   const scope = 'chat-avatar-fixture';
   const own = '/_media/avatar?scope=user&uin=10001&v=big';
   const peer = '/_media/avatar?scope=user&uin=10002&v=big';
   const ownThumbnail = cachedAvatarUrl(own, 'small')!;
   const peerThumbnail = cachedAvatarUrl(peer, 'small')!;
+  const loaded = () => new Response(new Blob(['avatar'], { type: 'image/png' }));
+  let loadPeerThumbnail!: (response: Response) => void;
+  const pendingThumbnail = new Promise<Response>((resolve) => {
+    loadPeerThumbnail = resolve;
+  });
   const fetchImage = vi.fn(async (src: string) =>
-    src === ownThumbnail
+    src === ownThumbnail || src === peer
       ? new Response(null, { status: 404 })
-      : new Response(new Blob(['avatar'], { type: 'image/png' })),
+      : src === peerThumbnail
+        ? pendingThumbnail
+        : loaded(),
   );
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('IntersectionObserver', undefined);
@@ -106,6 +211,7 @@ it('Remote 会话缩略图失败时无需打开名片即可加载原图，成功
           { value: scope },
           createElement(Avatar, { name: '本人', avatarUrl: own, resolution: 'small' }),
           createElement(Avatar, { name: '对方', avatarUrl: peer, resolution: 'small' }),
+          createElement(QqAvatar, { url: peer, size: 128, className: 'peer-card' }),
         ),
       );
     });
@@ -113,14 +219,18 @@ it('Remote 会话缩略图失败时无需打开名片即可加载原图，成功
       await vi.waitFor(() =>
         expect(webAvatarCache.peek(webAvatarKey(scope, own)!)?.ready).toBe(true),
       );
+      expect(webAvatarCache.peek(webAvatarKey(scope, peer)!)?.failed).toBe(true);
     });
+    expect(host.querySelector('img.peer-card')).toBeNull();
+    await act(async () => loadPeerThumbnail(loaded()));
     const srcs = [...host.querySelectorAll('img')].map((image) => image.getAttribute('src'));
     expect(srcs).toEqual([
       webAvatarCache.peek(webAvatarKey(scope, own)!)?.src,
       webAvatarCache.peek(webAvatarKey(scope, peerThumbnail)!)?.src,
+      webAvatarCache.peek(webAvatarKey(scope, peerThumbnail)!)?.src,
     ]);
     expect(fetchImage.mock.calls.map(([src]) => src).sort()).toEqual(
-      [ownThumbnail, own, peerThumbnail].sort(),
+      [ownThumbnail, own, peerThumbnail, peer].sort(),
     );
   } finally {
     act(() => root.unmount());

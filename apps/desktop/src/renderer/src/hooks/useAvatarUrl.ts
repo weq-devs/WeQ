@@ -1,34 +1,16 @@
 import { useSyncExternalStore } from 'react';
-import { cachedAvatarUrl, refreshAvatarUrl } from '../lib/avatarCache';
+import {
+  cachedAvatarUrl,
+  qqAvatarIdentity,
+  qqAvatarIdentityForUin,
+  refreshAvatarUrl,
+} from '../lib/avatarCache';
 import { avatarFetchUrl } from '../lib/resourceUrl';
 import { useDataSaver } from '../lib/dataSaver';
 
 const revisions = new Map<string, number>();
 const listeners = new Set<() => void>();
 let serial = Date.now();
-
-function avatarKey(src: string | null | undefined): string | null {
-  if (!src) return null;
-  try {
-    const url = new URL(src, 'https://weq.invalid');
-    if (url.searchParams.get('scope') === 'group') {
-      const id = url.searchParams.get('uid') ?? url.searchParams.get('uin');
-      return id ? `group:${id}` : null;
-    }
-    if (url.searchParams.get('scope') === 'user' && url.searchParams.get('uin'))
-      return `user:${url.searchParams.get('uin')}`;
-    const upstream = url.searchParams.get('src') ?? url.searchParams.get('fb');
-    const remote = new URL(upstream ?? src, 'https://weq.invalid');
-    if (!/^https?:$/.test(remote.protocol) || !/(^|\.)qlogo\.cn$/i.test(remote.hostname))
-      return null;
-    const group = remote.pathname.match(/^\/gh\/(\d+)\//)?.[1];
-    if (group) return `group:${group}`;
-    const uin = remote.searchParams.get('nk');
-    return uin && /^\d+$/.test(uin) ? `user:${uin}` : null;
-  } catch {
-    return null;
-  }
-}
 
 export function refreshGroupAvatar(groupCode: string): void {
   refreshAvatar(`group:${groupCode}`);
@@ -57,10 +39,11 @@ export function useAvatarUrl(
   src: string | null | undefined,
   wrap = true,
   variant: 'big' | 'small' = 'big',
+  uin?: string | null,
 ): string | null {
   const limited = useDataSaver((state) => state.enabled);
   useDataSaver((state) => state.behavior.dataSaverAvatars);
-  const key = avatarKey(src);
+  const key = qqAvatarIdentity(src) ?? qqAvatarIdentityForUin(uin);
   const getSnapshot = () => (key ? (revisions.get(key) ?? 0) : 0);
   const revision = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   let resolved = wrap || key ? cachedAvatarUrl(src, limited ? 'small' : variant) : (src ?? null);

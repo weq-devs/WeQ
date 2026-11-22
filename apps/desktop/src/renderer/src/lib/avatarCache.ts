@@ -9,6 +9,42 @@ import { avatarFetchUrl, mediaUrl } from './resourceUrl';
 import { preferCdnEnabled } from './cdn';
 import { avatarFromUin, fixProfileAvatarUrl } from './avatarResolver';
 
+export function qqAvatarIdentityForUin(uin: string | null | undefined): string | null {
+  return uin && /^\d+$/.test(uin) && uin !== '0' ? `user:${uin}` : null;
+}
+
+/** 当前头像的身份，不含原图／缩略图规格。历史头像和其他图片不参与共享。 */
+export function qqAvatarIdentity(src: string | null | undefined): string | null {
+  if (!src || /^(blob:|data:)/.test(src)) return null;
+  try {
+    const url = new URL(src, 'https://weq.invalid');
+    const localAvatar =
+      (url.protocol === 'weq-media:' && url.hostname === 'avatar') ||
+      url.pathname === '/_media/avatar';
+    if (localAvatar && url.searchParams.get('scope') === 'group') {
+      const id = url.searchParams.get('uid') ?? url.searchParams.get('uin');
+      return id ? `group:${id}` : null;
+    }
+    if (localAvatar && url.searchParams.get('scope') === 'user') {
+      const identity = qqAvatarIdentityForUin(url.searchParams.get('uin'));
+      if (identity) return identity;
+    }
+    const fetchAvatar =
+      (url.protocol === 'weq-avatar:' && url.hostname === 'fetch') ||
+      url.pathname === '/_avatar/fetch';
+    const upstream =
+      (localAvatar && url.searchParams.get('fb')) || (fetchAvatar && url.searchParams.get('src'));
+    const remote = upstream ? new URL(upstream) : url;
+    if (!/^https?:$/.test(remote.protocol) || !/(^|\.)qlogo\.cn$/i.test(remote.hostname))
+      return null;
+    const group = remote.pathname.match(/^\/gh\/(\d+)\//)?.[1];
+    if (group) return `group:${group}`;
+    return remote.pathname === '/g' ? qqAvatarIdentityForUin(remote.searchParams.get('nk')) : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build the local-first avatar URL: the main process resolves the peer's cached
  * `nt_data/avatar` file (via the uid hash formula) and only hits the CDN — the

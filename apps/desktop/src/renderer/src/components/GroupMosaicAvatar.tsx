@@ -25,7 +25,17 @@ function MosaicImg({ uin }: { uin: string }): ReactElement {
   const image = useAvatarImage(src);
   if (!src || image.failed)
     return <span ref={image.observeRef} className="weq-group-mosaic-fallback" aria-hidden />;
-  return <img ref={image.ref} src={image.src} alt="" loading="lazy" onError={image.onError} />;
+  return (
+    <img
+      key={image.retryKey}
+      ref={image.ref}
+      src={image.src}
+      alt=""
+      loading="lazy"
+      onLoad={image.onLoad}
+      onError={image.onError}
+    />
+  );
 }
 
 export function GroupMosaicAvatar({
