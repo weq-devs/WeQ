@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QzoneProfile } from '@weqbot/protocol/web';
 import { Pencil, RefreshCw, Save, UserRound } from 'lucide-react';
-import { useContext, useEffect, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { EditorDialog } from '../components/EditorDialog';
 import { NumericText } from '../components/NumericText';
 import { QzoneInlineText } from '../components/QzoneEmoji';
@@ -53,48 +53,59 @@ function OverviewError({ message, retry }: { message: string; retry: () => void 
 
 export function QzoneHomeOverview({
   binding,
+  available,
   hostUin,
   blogCount,
   onOwnerNickname,
 }: {
   binding: QQWriteBinding;
+  available: boolean;
   hostUin: string;
   blogCount?: number;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
+  const enabled = active && available;
   const [dialog, setDialog] = useState<'personal' | 'edit' | null>(null);
   const profile = trpc.account.qqActions.qzoneSpaceProfile.useQuery(
     { ...binding, hostUin },
-    { enabled: active, retry: false, refetchOnWindowFocus: false },
+    { enabled, retry: false, refetchOnWindowFocus: false },
   );
-  const target = {
-    selfUin: binding.expectedAccountUin,
-    expectedAccountConfigId: binding.expectedAccountConfigId,
-    hostUin,
-  };
-  const { run, cancel } = useQzoneRequests();
-  useEffect(() => {
-    if (!active) cancel();
-  }, [active, cancel]);
-  const metadata = useQuery({
-    queryKey: ['qzone-home-metadata', target, refresh],
-    enabled: active,
+  const { expectedAccountUin: selfUin, expectedAccountConfigId } = binding;
+  const queryKey = useMemo(
+    () => ['qzone-home-metadata', { selfUin, expectedAccountConfigId, hostUin }] as const,
+    [selfUin, expectedAccountConfigId, hostUin],
+  );
+  const { run } = useQzoneRequests();
+  const queryClient = useQueryClient();
+  const { data, error, isFetching, refetch } = useQuery({
+    queryKey,
+    enabled,
     retry: false,
+    staleTime: 0,
+    refetchOnMount: true,
     refetchOnWindowFocus: false,
-    queryFn: ({ signal }) =>
+    queryFn: ({ queryKey: [, target], signal }) =>
       run(
         (requestId) => client.account.qzone.homeMetadata.query({ ...target, requestId }),
-        true,
+        false,
         signal,
       ),
   });
+  const previousRefresh = useRef(refresh);
+  useEffect(() => {
+    if (!enabled) {
+      void queryClient.cancelQueries({ queryKey, exact: true });
+    } else if (previousRefresh.current !== refresh) {
+      previousRefresh.current = refresh;
+      void refetch({ cancelRefetch: false });
+    }
+  }, [enabled, queryClient, queryKey, refresh, refetch]);
   const profileData = profile.data;
   const ownerNick = profileData?.personal.nickname;
   useEffect(() => {
     if (ownerNick) onOwnerNickname(hostUin, ownerNick);
   }, [hostUin, ownerNick, onOwnerNickname]);
-  const data = metadata.data;
   const counts = [
     ['累计访问', data?.totalCount],
     ['今日访问', data?.todayCount],
@@ -107,7 +118,7 @@ export function QzoneHomeOverview({
   const name = profileData?.name.trim();
   const description = profileData?.description.trim();
   const greeting = data?.greeting;
-  const canEdit = hostUin === target.selfUin && Boolean(profileData);
+  const canEdit = available && hostUin === selfUin && Boolean(profileData);
   return (
     <header className="weq-qzn-home-overview">
       <div className="weq-qzn-home-heading">
@@ -145,34 +156,33 @@ export function QzoneHomeOverview({
           ) : null}
         </div>
       </div>
-      {counts.some(([, value]) => value != null) ? (
-        <dl className="weq-qzn-home-stats" aria-label="空间统计">
-          {counts.map(([label, value]) =>
-            value == null ? null : (
-              <OverviewRow key={label} label={label}>
-                <NumericText>{value.toLocaleString('zh-CN')}</NumericText>
-              </OverviewRow>
-            ),
-          )}
-        </dl>
-      ) : null}
-      {greeting ? (
-        <p className="weq-qzn-home-greeting">
-          <span>主人寄语</span>
-          <span data-privacy-sensitive>
-            <QzoneInlineText content={greeting} />
-          </span>
-        </p>
-      ) : null}
+      <dl className="weq-qzn-home-stats" aria-label="空间统计" aria-busy={!data && isFetching}>
+        {counts.map(([label, value]) => (
+          <OverviewRow key={label} label={label}>
+            <NumericText>{value == null ? '—' : value.toLocaleString('zh-CN')}</NumericText>
+          </OverviewRow>
+        ))}
+      </dl>
+      <div className="weq-qzn-home-note">
+        {greeting ? (
+          <details className="weq-qzn-home-greeting">
+            <summary>
+              主人寄语
+              <span data-privacy-sensitive>
+                <QzoneInlineText content={greeting} />
+              </span>
+            </summary>
+            <p data-privacy-sensitive>
+              <QzoneInlineText content={greeting} />
+            </p>
+          </details>
+        ) : null}
+        {error && !data && available ? (
+          <OverviewError message="空间统计读取失败" retry={() => void refetch()} />
+        ) : null}
+      </div>
       {profile.error ? (
         <OverviewError message={profile.error.message} retry={() => void profile.refetch()} />
-      ) : null}
-      {metadata.isFetching && !data ? <LoadingStatus text="正在读取空间统计…" /> : null}
-      {metadata.error ? (
-        <OverviewError
-          message={metadata.error instanceof Error ? metadata.error.message : '空间统计读取失败'}
-          retry={() => void metadata.refetch()}
-        />
       ) : null}
       {dialog === 'personal' ? (
         <EditorDialog title="个人资料" onClose={() => setDialog(null)} width={440}>

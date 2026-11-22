@@ -1,4 +1,5 @@
 /** Qzone's known web capabilities, rendered in the local WeQ UI. */
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormSelect } from '../components/FormSelect';
 import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
@@ -1667,6 +1668,8 @@ function HomePost({
   feed,
   tid,
   selfUin,
+  configId,
+  available,
   onSpace,
   onDeleted,
   selectionProps,
@@ -1674,46 +1677,44 @@ function HomePost({
 }: QzoneHomePostProps) {
   const hostUin = feed.author.uin;
   const ref = useRef<HTMLElement>(null);
-  const visible = useNearViewport(ref, true);
-  const { refresh } = useContext(QzonePageContext);
-  const { run, cancel } = useQzoneRequests();
-  const [retry, setRetry] = useState(0);
-  const attempted = useRef('');
-  const [detail, setDetail] = useState<QzoneEmotion | null>(null);
-  const [status, setStatus] = useState({ loading: false, error: '' });
+  const visible = useNearViewport(ref, false, available);
+  const { run } = useQzoneRequests();
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(
+    () => ['qzone-home-post', configId, { selfUin, hostUin, tid }] as const,
+    [configId, selfUin, hostUin, tid],
+  );
+  const {
+    data: detail,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey,
+    enabled: visible,
+    staleTime: 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    queryFn: async ({ queryKey: [, , input], signal }) => {
+      const value = await run(
+        (requestId) => client.account.qzone.detail.query({ ...input, requestId }),
+        true,
+        signal,
+      );
+      if (value.post?.tid !== input.tid) throw new Error('补全结果与当前说说不匹配。');
+      return value.post;
+    },
+  });
+  const wasVisible = useRef(false);
+  useEffect(() => {
+    if (!visible && wasVisible.current) void queryClient.cancelQueries({ queryKey, exact: true });
+    wasVisible.current = visible;
+  }, [visible, queryClient, queryKey]);
   const preview = useMemo(() => qzoneHomePostPreview(feed, tid), [feed, tid]);
   const album = useMemo(() => qzoneHomeAlbumMedia(feed), [feed]);
   const post = useMemo(
     () => (detail ? mergeQzoneHomePost(preview, detail) : preview),
     [preview, detail],
   );
-  useEffect(() => {
-    const revision = `${refresh}:${retry}`;
-    if (!visible || attempted.current === revision) return;
-    let active = true;
-    setStatus({ loading: true, error: '' });
-    // The home feed is a flat preview. Read the normalized post only as it nears the viewport.
-    void run(
-      (requestId) => client.account.qzone.detail.query({ selfUin, hostUin, tid, requestId }),
-      true,
-    )
-      .then((value) => {
-        if (!active) return;
-        if (value.post?.tid !== tid) throw new Error('补全结果与当前说说不匹配。');
-        setDetail(value.post);
-        setStatus({ loading: false, error: '' });
-      })
-      .catch(() => {
-        if (active) setStatus({ loading: false, error: '未能补全说说，已保留主页预览' });
-      })
-      .finally(() => {
-        if (active) attempted.current = revision;
-      });
-    return () => {
-      active = false;
-      cancel();
-    };
-  }, [visible, selfUin, hostUin, tid, refresh, retry, run, cancel]);
   return (
     <Post
       selfUin={selfUin}
@@ -1730,11 +1731,13 @@ function HomePost({
       selectionProps={selectionProps}
       selected={selected}
       previewStatus={
-        <CompletionStatus
-          {...status}
-          loading={visible && status.loading}
-          retry={() => setRetry((current) => current + 1)}
-        />
+        isError && !detail && available ? (
+          <CompletionStatus
+            loading={false}
+            error="未能补全说说，已保留主页预览"
+            retry={() => void refetch()}
+          />
+        ) : null
       }
     />
   );

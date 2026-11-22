@@ -201,39 +201,54 @@
   white-space: nowrap;
 }
 .weq-qzn-home-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 4.25rem), 1fr));
+  gap: 6px 12px;
   margin: 0;
   font-size: 12px;
+  line-height: 1.5;
 }
-.weq-qzn-home-stats > div {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
+.weq-qzn-home-stats dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .weq-qzn-home-stats dt,
 .weq-qzn-personal-profile dt,
-.weq-qzn-home-greeting > span:first-child {
+.weq-qzn-home-greeting > summary {
   color: var(--muted-foreground);
 }
 .weq-qzn-home-stats dd,
 .weq-qzn-personal-profile dd {
   margin: 0;
 }
-.weq-qzn-home-greeting,
 .weq-qzn-home-overview .weq-qzn-status,
 .weq-qzn-home-overview .weq-qzn-error {
   margin: 0;
 }
-.weq-qzn-home-greeting {
+.weq-qzn-home-note {
+  min-width: 0;
+  min-height: 18px;
   font-size: 12px;
+  line-height: 18px;
+}
+.weq-qzn-home-greeting > summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.weq-qzn-home-greeting > summary > span {
+  margin-inline-start: 8px;
+  color: var(--foreground);
+}
+.weq-qzn-home-greeting[open] > summary > span {
+  display: none;
+}
+.weq-qzn-home-greeting > p {
+  margin: 4px 0 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-}
-.weq-qzn-home-greeting > span:first-child {
-  margin-inline-end: 8px;
 }
 .weq-qzn-personal-profile {
   display: grid;

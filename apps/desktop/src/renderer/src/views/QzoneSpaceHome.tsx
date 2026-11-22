@@ -93,6 +93,8 @@ export type QzoneHomePostProps = {
   feed: PublicFeedView;
   tid: string;
   selfUin: string;
+  configId: string;
+  available: boolean;
   onSpace: OpenSpace;
   onDeleted: (tid: string) => void;
   selectionProps?: MultiSelectionItemProps;
@@ -357,9 +359,8 @@ export function QzoneSpaceHome({
 }) {
   const { active } = useContext(QzonePageContext);
   const session = useQQAction(`qzone-home:${hostUin}`, 'failure-only');
-  const binding =
-    session.available && session.binding?.expectedAccountUin === selfUin ? session.binding : null;
-  const available = Boolean(binding);
+  const binding = session.binding?.expectedAccountUin === selfUin ? session.binding : null;
+  const available = Boolean(binding && session.available);
   const query = trpc.account.qqActions.qzoneHome.useInfiniteQuery(
     { ...session.binding!, hostUin },
     {
@@ -426,6 +427,7 @@ export function QzoneSpaceHome({
         <QzoneHomeOverview
           key={binding.expectedAccountConfigId}
           binding={binding}
+          available={available}
           hostUin={hostUin}
           blogCount={blogIndex.total}
           onOwnerNickname={onOwnerNickname}
@@ -519,10 +521,12 @@ export function QzoneSpaceHome({
             );
           }
           const { feed, tid } = row;
-          return tid ? (
+          return tid && binding ? (
             <PostCard
               key={key}
               selfUin={selfUin}
+              configId={binding.expectedAccountConfigId}
+              available={available}
               feed={feed}
               tid={tid}
               onSpace={onSpace}

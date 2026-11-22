@@ -26,6 +26,7 @@ const state = vi.hoisted(() => ({
     mediaTypes: [],
   })),
   detail: vi.fn(),
+  homeMetadata: vi.fn(),
   blogs: vi.fn(),
   blog: vi.fn(),
   blogComments: vi.fn(),
@@ -127,7 +128,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         posts: {
           query: state.posts,
         },
-        homeMetadata: { query: async () => ({ postCount: 1, photoCount: 0 }) },
+        homeMetadata: { query: state.homeMetadata },
         people: { query: async () => ({}) },
         summary: { query: state.summary },
         likes: { query: state.likes },
@@ -223,6 +224,7 @@ beforeEach(() => {
   state.albumDetail.mockReset();
   state.videos.mockReset().mockResolvedValue({ items: [], next: null });
   state.homePages = [];
+  state.homeMetadata.mockReset().mockResolvedValue({ postCount: 1, photoCount: 0 });
   state.offscreenTid = '';
   state.archiveState
     .mockReset()
@@ -464,11 +466,15 @@ it('严格模式选图失败后显示错误并允许重新选图', async () => {
   expect(dialog.querySelector('[role="alert"]')).toBeNull();
   expect(input.disabled).toBe(false);
 });
-function capture(host: HTMLElement, name = 'feedback') {
+function capture(
+  host: HTMLElement,
+  name = 'feedback',
+  selector = '.weq-qzn-post, .weq-qzn-related-card',
+) {
   const directory = process.env.WEQ_QZONE_FEEDBACK_LAYOUT;
   if (!directory) return;
   mkdirSync(directory, { recursive: true });
-  const post = host.querySelector('.weq-qzn-post, .weq-qzn-related-card')!;
+  const post = host.querySelector(selector)!;
   const styles = ['index', 'qzone', 'qq-actions', 'qq-write', 'qzone-actions', 'identity-links']
     .map(
       (name) =>
@@ -1157,7 +1163,32 @@ it('移除原生详情对照按钮和重复正文，正常浏览不新增详情�
   capture(view.host, 'standard-post');
 });
 
-it('主页按可见性补全说说，保留原位互动，并与说说页共用分享入口', async () => {
+it('主页先显示已读统计并在后台刷新，首次读取时保留统计位置', async () => {
+  const first = Promise.withResolvers<{ postCount: number; greeting?: string }>();
+  const refresh = Promise.withResolvers<{ postCount: number; greeting?: string }>();
+  state.homeMetadata.mockReturnValueOnce(first.promise).mockReturnValueOnce(refresh.promise);
+  const view = await mount(false, '主页', { timelineOnly: true });
+  const stats = () => view.host.querySelector<HTMLDListElement>('[aria-label="空间统计"]')!;
+  const values = () => [...stats().querySelectorAll('dd')].map((node) => node.textContent);
+  expect(stats().getAttribute('aria-busy')).toBe('true');
+  const placeholders = values();
+  expect(placeholders[0]).toBe('—');
+  capture(view.host, 'home-stats-loading', '.weq-qzn-home-overview');
+  await act(async () => first.resolve({ postCount: 725, greeting: '合成寄语\n第二行' }));
+  await act(async () => vi.waitFor(() => expect(values()).toContain('725')));
+  expect(values()).toHaveLength(placeholders.length);
+  capture(view.host, 'home-stats-ready', '.weq-qzn-home-overview');
+
+  await view.openPane('说说');
+  await view.openPane('主页');
+  await act(async () => vi.waitFor(() => expect(state.homeMetadata).toHaveBeenCalledTimes(2)));
+  expect(values()).toContain('725');
+  expect(stats().getAttribute('aria-busy')).toBe('false');
+  await act(async () => refresh.resolve({ postCount: 726 }));
+  await act(async () => vi.waitFor(() => expect(values()).toContain('726')));
+});
+
+it('主页按可见性补全并复用说说，保留原位互动，并与说说页共用分享入口', async () => {
   const tid = '112700000100000001000000';
   state.offscreenTid = '112700000200000001000000';
   state.homePages = [
@@ -1186,7 +1217,7 @@ it('主页按可见性补全说说，保留原位互动，并与说说页共用�
   });
   state.detail.mockResolvedValue({ post, contentHasMore: false });
   state.posts.mockResolvedValue({ total: 1, list: [post] });
-  const view = await mount(false, '主页');
+  const view = await mount(false, '主页', { timelineOnly: true });
   await act(async () => vi.waitFor(() => expect(view.host.textContent).toContain(post.content)));
   expect(state.detail).toHaveBeenCalledTimes(1);
   expect(state.detail).toHaveBeenCalledWith(expect.objectContaining({ hostUin: '10001', tid }));
@@ -1219,6 +1250,10 @@ it('主页按可见性补全说说，保留原位互动，并与说说页共用�
     tid,
   });
   expect(state.write).not.toHaveBeenCalled();
+  await view.openPane('主页');
+  const home = view.host.querySelector('.weq-qzn-home')!;
+  expect(home.textContent).toContain(post.content);
+  expect(state.detail).toHaveBeenCalledTimes(1);
 });
 it('主页取日志并集，按编号合并而不按时间，切换栏目复用详情和评论', async () => {
   const blogId = '1600000007';
