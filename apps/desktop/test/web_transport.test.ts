@@ -1,7 +1,11 @@
-import { afterEach, expect, it, vi } from 'vitest';
+// @vitest-environment node
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createTRPCUntypedClient } from '@trpc/client';
+import { createServer } from 'node:http';
+import { initTRPC, TRPCError } from '@trpc/server';
 import { observable } from '@trpc/server/observable';
 import { useWebConnection } from '../src/renderer/src/state/webConnection';
+import { createTrpcHandler } from '../src/main/web/trpc_adapter';
 
 const socket = vi.hoisted(() => vi.fn(() => ({})));
 vi.mock('@trpc/client', async (importOriginal) => ({
@@ -13,10 +17,163 @@ vi.mock('@trpc/client', async (importOriginal) => ({
       observer.complete();
     }),
 }));
+beforeEach(() => {
+  vi.stubGlobal('location', Object.assign(new URL('http://localhost'), { reload: vi.fn() }));
+});
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+it('真实 HTTP 查询同批返回，快结果先交付，慢项保留自己的业务错误', async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const t = initTRPC.create();
+  const router = t.router({
+    slow: t.procedure.query(async () => {
+      await held;
+      throw new TRPCError({ code: 'NOT_FOUND', message: '该合成业务项不存在' });
+    }),
+    fast: t.procedure.query(() => '快结果'),
+  });
+  const handle = createTrpcHandler(router);
+  const requests: string[] = [];
+  const server = createServer((req, res) => {
+    requests.push(req.url ?? '');
+    handle(req, res);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('缺少测试监听地址');
+  const origin = `http://127.0.0.1:${address.port}`;
+  const realFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+    realFetch(new URL(input instanceof Request ? input.url : input, origin), init),
+  );
+  const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const client = createTRPCUntypedClient({ links: createLinks() });
+  let delivered: unknown;
+  const slow = client.query('slow').catch((error: unknown) => error);
+  const fast = client.query('fast').then(
+    (value) => {
+      delivered = value;
+    },
+    (error: unknown) => {
+      delivered = error;
+    },
+  );
+  try {
+    await vi.waitFor(() => expect(delivered).toBe('快结果'));
+    expect(requests).toHaveLength(1);
+    release();
+    expect(await slow).toMatchObject({ data: { code: 'NOT_FOUND' } });
+  } finally {
+    release();
+    await Promise.allSettled([slow, fast]);
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+it('逐字节拆分的中英文、表情和正文 BOM 在两个并发批次里完整解码', async () => {
+  const encoder = new TextEncoder();
+  const expected = ['中文😀\uFEFF名字', '第二个🚀\uFEFF结果'];
+  let called = 0;
+  vi.stubGlobal('fetch', async () => {
+    const data = expected[called++];
+    const encoded = encoder.encode(`{"0":${JSON.stringify({ result: { data } })}\n}`);
+    let offset = 0;
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        pull(stream) {
+          if (offset >= encoded.length) stream.close();
+          else stream.enqueue(encoded.subarray(offset, ++offset));
+        },
+      }),
+      { headers: { Vary: 'Accept-Encoding, TRPC-Batch-Mode' } },
+    );
+  });
+  const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const client = createTRPCUntypedClient({ links: createLinks() });
+  const results = await Promise.all([
+    client.query('synthetic', 'a'.repeat(1200)),
+    client.query('synthetic', 'b'.repeat(1200)),
+  ]);
+  expect(results).toEqual(expected);
+  expect(called).toBe(2);
+});
+
+it.each([false, true])('批次鉴权失效保留错误并触发登录重载，流式=%s', async (streaming) => {
+  const denied = {
+    error: { message: '会话失效', code: -32001, data: { code: 'UNAUTHORIZED', httpStatus: 401 } },
+  };
+  const encoded = JSON.stringify(denied);
+  const fetcher = vi.fn(async () =>
+    streaming
+      ? new Response(`{"0":${encoded}\n,"1":${encoded}\n}`, {
+          headers: { Vary: 'trpc-batch-mode' },
+        })
+      : new Response(encoded, { status: 401 }),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const client = createTRPCUntypedClient({ links: createLinks() });
+  const result = await Promise.allSettled([client.query('one'), client.query('two')]);
+  expect(result).toEqual(
+    Array.from({ length: 2 }, () => ({
+      status: 'rejected',
+      reason: expect.objectContaining({ data: { code: 'UNAUTHORIZED', httpStatus: 401 } }),
+    })),
+  );
+  expect(location.reload).toHaveBeenCalledOnce();
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it('取消同批中的单项时保留其他读取，最后一个未完成查询取消后释放正文', async () => {
+  const cancel = vi.fn();
+  let body!: ReadableStreamDefaultController<Uint8Array>;
+  const fetcher = vi.fn(
+    async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            body = controller;
+          },
+          cancel,
+        }),
+        { headers: { Vary: 'trpc-batch-mode' } },
+      ),
+  );
+  vi.stubGlobal('fetch', fetcher);
+  const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const client = createTRPCUntypedClient({ links: createLinks() });
+  const first = new AbortController();
+  const last = new AbortController();
+  const dropped = client
+    .query('first', undefined, { signal: first.signal })
+    .catch((error) => error);
+  const fast = client.query('fast');
+  const pending = client.query('last', undefined, { signal: last.signal }).catch((error) => error);
+  try {
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    first.abort();
+    expect(await dropped).toBeInstanceOf(Error);
+    expect(cancel).not.toHaveBeenCalled();
+    body.enqueue(new TextEncoder().encode('{"1":{"result":{"data":"已收到"}}\n'));
+    await expect(fast).resolves.toBe('已收到');
+    last.abort();
+    expect(await pending).toBeInstanceOf(Error);
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+  } finally {
+    first.abort();
+    last.abort();
+    if (!cancel.mock.calls.length) body?.close();
+    await Promise.allSettled([dropped, fast, pending]);
+  }
+});
+
 it('成功读取和主动取消都清理期限及正文，不残留后台请求', async () => {
   vi.useFakeTimers();
   const { fetchRpcWithDeadline } = await import('../src/renderer/src/trpc/httpDeadline');

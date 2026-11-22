@@ -38,28 +38,40 @@ export async function fetchRpcWithDeadline(
       () => {},
     );
     const response = await Promise.race([work, interrupted]);
+    controller.signal.removeEventListener('abort', interrupt);
     if (!response.body) {
       cleanup();
       return response;
     }
     const reader = response.body.getReader();
-    const cancel = () => {
-      void reader.cancel(controller.signal.reason).catch(() => {});
+    const stopReading = (reason: unknown) => {
+      void reader.cancel(reason).catch(() => {});
+      reader.releaseLock();
     };
-    controller.signal.addEventListener('abort', cancel, { once: true });
     let ended = false;
+    let abortBody: () => void;
     const finish = () => {
       ended = true;
       cleanup();
-      controller.signal.removeEventListener('abort', cancel);
+      controller.signal.removeEventListener('abort', abortBody);
     };
     const body = new ReadableStream<Uint8Array>({
+      start(stream) {
+        // 正文共享一次取消监听，避免每个数据块都在同一个间断 Promise 上留下回调。
+        abortBody = () => {
+          if (ended) return;
+          finish();
+          stream.error(controller.signal.reason);
+          stopReading(controller.signal.reason);
+        };
+        controller.signal.addEventListener('abort', abortBody, { once: true });
+        if (controller.signal.aborted) abortBody();
+      },
       async pull(stream) {
         if (ended) return;
         try {
-          const chunk = await Promise.race([reader.read(), interrupted]);
+          const chunk = await reader.read();
           if (ended) return;
-          if (controller.signal.aborted) throw controller.signal.reason;
           if (chunk.done) {
             finish();
             reader.releaseLock();
@@ -68,14 +80,14 @@ export async function fetchRpcWithDeadline(
         } catch (error) {
           if (ended) return;
           finish();
-          void reader.cancel(error).catch(() => {});
+          stopReading(error);
           stream.error(error);
         }
       },
       cancel(reason) {
         finish();
         controller.abort(reason);
-        void reader.cancel(reason).catch(() => {});
+        stopReading(reason);
       },
     });
     return new Response(body, {

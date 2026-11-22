@@ -10,17 +10,19 @@
 
 import {
   createWSClient,
-  httpBatchLink,
   httpLink,
   splitLink,
   wsLink,
+  unstable_httpBatchStreamLink,
   type TRPCLink,
 } from '@trpc/client';
+import { observable } from '@trpc/server/observable';
 import type { AppRouter } from '../../../shared/router';
 import { useWebConnection } from '../state/webConnection';
 import { networkClientId } from '../lib/networkClientId';
 import { HTTP_BATCH_MAX_URL_LENGTH } from '../lib/unreadRequests';
 import { fetchRpcWithDeadline } from './httpDeadline';
+import { prepareRpcBatchResponse } from './httpBatchStream';
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
@@ -98,7 +100,40 @@ export function createLinks(): TRPCLink<AppRouter>[] {
       return res;
     },
   };
-  const batchOptions = { ...httpOptions, maxURLLength: HTTP_BATCH_MAX_URL_LENGTH };
+  const batchOptions = {
+    ...httpOptions,
+    maxURLLength: HTTP_BATCH_MAX_URL_LENGTH,
+    // 流内字符串可能包含 U+FEFF，分块解码时也要保留。
+    textDecoder: new TextDecoder('utf-8', { ignoreBOM: true }),
+    async fetch(input: RequestInfo | URL, init?: RequestInit) {
+      return prepareRpcBatchResponse(await httpOptions.fetch(input, init), input);
+    },
+  };
+  const expiredBatches = new WeakSet<Response>();
+  const readBatch = (): TRPCLink<AppRouter> => (runtime) => {
+    const request = unstable_httpBatchStreamLink<AppRouter>(batchOptions)(runtime);
+    return (operation) =>
+      observable((observer) =>
+        request(operation).subscribe({
+          next: (value) => observer.next(value),
+          error: (error) => {
+            // 流式响应先送出 200，稍后的鉴权错误仍按原会话失效流程处理。
+            const response = error.meta?.response;
+            if (
+              error.data?.code === 'UNAUTHORIZED' &&
+              response instanceof Response &&
+              response.status === 200 &&
+              !expiredBatches.has(response)
+            ) {
+              expiredBatches.add(response);
+              location.reload();
+            }
+            observer.error(error);
+          },
+          complete: () => observer.complete(),
+        }),
+      );
+  };
   const reads = splitLink<AppRouter>({
     condition: (op) =>
       independentReads.has(op.path) ||
@@ -108,11 +143,11 @@ export function createLinks(): TRPCLink<AppRouter>[] {
     true: httpLink(httpOptions),
     false: splitLink({
       condition: (op) => conversationBatchedReads.has(op.path),
-      true: httpBatchLink(batchOptions),
+      true: readBatch(),
       false: splitLink({
         condition: (op) => aggregateDirectoryReads.has(op.path),
-        true: httpBatchLink(batchOptions),
-        false: httpBatchLink(batchOptions),
+        true: readBatch(),
+        false: readBatch(),
       }),
     }),
   });
