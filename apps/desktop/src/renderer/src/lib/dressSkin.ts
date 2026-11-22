@@ -29,8 +29,8 @@
  *  3. **必须给 min-width / min-height。** 小于四角固定区之和的尺寸会让对角切片互相
  *     挤压,浏览器按比例压缩,气泡就变形了。
  *
- * 素材是移动端 2x 的,网页按 {@link BUBBLE_SCALE} 缩。slice 是源图坐标所以不缩,只缩
- * border-image-width / min-size；正文 padding 使用独立的手机布局规则。
+ * slice 保留素材坐标；桌面按 QQNT 的方式把九宫格向左右外扩，缩小横向固定区。
+ * 纵向尺寸继续按 Android 的 density / 2 映射，供连续消息的透明留白计算复用。
  *
  * ## 右键高亮
  *
@@ -80,6 +80,7 @@
 import type { BubbleSkin, DressScope, DressScopes, FontFx, ResolvedWidget } from '@weq/service';
 import { fontFaces, type FontLease } from './fontFaces';
 import { manageDecorationAnimation, validDecorationFrames } from './decorationResources';
+import { isMobileClient } from './responsiveLayout';
 import {
   dressBubbleUrl,
   dressBubbleFrameUrl,
@@ -151,11 +152,11 @@ function scopeFilter(scope: DressScope, kind: 'bubble' | 'font' | 'widget'): str
   return scope === 'fallback' ? `:not([data-record-${kind}])` : '';
 }
 
-/** Android BubbleBackGroundDrawable 按 density / 2 绘制；映射到 CSS 为半尺寸。 */
+// Android 9.3.85 的 density / 2 和 padding.j 普通装扮留白。
 const BUBBLE_SCALE = 0.5;
-// Android 9.3.85 padding.j 的非 token 装扮分支：水平 10+12dp，竖直 8+9dp。
-// 采用初始普通文本留白，不把 token/纯表情等未完整移植的分支混入装扮。
 const BUBBLE_TEXT_PADDING = { horizontal: 22, vertical: 17 };
+// QQNT 桌面贴图外扩 6px，横向固定区和正文留白由真实短消息轮廓标定。
+const DESKTOP_BUBBLE_INLINE = { scale: 1 / 3, outset: 6, padding: 10 };
 
 const STYLE_ID = 'weq-dress-skin';
 
@@ -419,7 +420,7 @@ function fxLayerDecls(): string[] {
  *    只剩边缘一圈可见（实测可见像素 9441 → 4399）；带上 `fill` 才是「完整裁形 +
  *    零溢出」（可见 9441 与不遮罩持平，溢出 2346 → 56 像素）。
  *  - **`-webkit-mask-box-image-width` 不能省**。默认宽度取 slice 的**源图像素值**，
- *    而气泡底图是按 `BUBBLE_SCALE` 缩小画的；不给宽度，遮罩棱角会和气泡对不上。
+ *    而气泡底图的边角会缩小绘制；不给宽度，遮罩棱角会和气泡对不上。
  *
  * 只作用于该行独立的炫彩绘制层。对方行的
  * 帧图层整体被 `scaleX(-1)` 镜像（见 {@link fontFxRules}），遮罩也跟着翻 —— 而对方
@@ -427,13 +428,14 @@ function fxLayerDecls(): string[] {
  */
 export function fxClipMaskCss(
   sel: string,
-  opts: { imageUrl: string; slice: string; width: string },
+  { imageUrl, slice, width, inlineOutset }: BubbleMetrics,
 ): string {
   return [
     `${sel} {`,
-    `  -webkit-mask-box-image-source: url("${opts.imageUrl}");`,
-    `  -webkit-mask-box-image-slice: ${opts.slice};`,
-    `  -webkit-mask-box-image-width: ${opts.width};`,
+    `  -webkit-mask-box-image-source: url("${imageUrl}");`,
+    `  -webkit-mask-box-image-slice: ${slice};`,
+    `  -webkit-mask-box-image-width: ${width};`,
+    ...(inlineOutset ? [`  -webkit-mask-box-image-outset: 0 ${px(inlineOutset)};`] : []),
     `}`,
   ].join('\n');
 }
@@ -476,6 +478,7 @@ export function bubbleLinkMentionRules(sel: string, linkColor?: string): string 
 
 /** 一款气泡的九宫格几何量 + 静态底图 —— 聊天渲染与本地预览共用同一份计算。 */
 interface BubbleMetrics {
+  inlineOutset: number;
   frameAnim: { keyframes: string; animation: string } | null;
   /** 静态底图 url(恒为本地九宫格 PNG,见 {@link bubbleImageUrl})。 */
   imageUrl: string;
@@ -489,12 +492,17 @@ interface BubbleMetrics {
   minHeight: string;
 }
 
-export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
+export function bubbleMetrics(skin: BubbleSkinCss, mobileClient = isMobileClient()): BubbleMetrics {
   const { left, top, right, bottom } = skin.slice;
+  const inlineScale = mobileClient ? BUBBLE_SCALE : DESKTOP_BUBBLE_INLINE.scale;
+  const inlineOutset = mobileClient ? 0 : DESKTOP_BUBBLE_INLINE.outset;
+  const horizontalPadding = mobileClient
+    ? BUBBLE_TEXT_PADDING.horizontal
+    : DESKTOP_BUBBLE_INLINE.padding;
 
   // Skia 按各自轴压缩固定边；直接交给 CSS 的重叠处理会一起压缩四边。
-  const edge = (size: number, sum: number) => {
-    const nominal = px(size * BUBBLE_SCALE);
+  const edge = (size: number, sum: number, scale: number) => {
+    const nominal = px(size * scale);
     return skin.configuredPatch === true && size > 0
       ? `min(${nominal}, ${(100 * size) / sum}%)`
       : nominal;
@@ -503,12 +511,12 @@ export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
   const horizontal = left + right;
   const vertical = top + bottom;
   const edges = [
-    [top, vertical],
-    [right, horizontal],
-    [bottom, vertical],
-    [left, horizontal],
+    [top, vertical, BUBBLE_SCALE],
+    [right, horizontal, inlineScale],
+    [bottom, vertical, BUBBLE_SCALE],
+    [left, horizontal, inlineScale],
   ] as const;
-  const width = edges.map(([size, sum]) => edge(size, sum)).join(' ');
+  const width = edges.map(([size, sum, scale]) => edge(size, sum, scale)).join(' ');
 
   const frameAnim =
     validDecorationFrames(skin.animationFrameCount) && skin.animationFrameTimeMs
@@ -521,27 +529,35 @@ export function bubbleMetrics(skin: BubbleSkinCss): BubbleMetrics {
       : null;
 
   return {
+    inlineOutset,
     frameAnim,
     imageUrl: bubbleImageUrl(skin),
     slice,
     width,
     physicalWidth: edges
-      .map(([size, sum]) =>
+      .map(([size, sum, scale]) =>
         size
-          ? `round(down, min(calc(${px(size * BUBBLE_SCALE)} * var(--weq-bubble-dpr)), ${(100 * size) / sum}%), 1px)`
+          ? `round(down, min(calc(${px(size * scale)} * var(--weq-bubble-dpr)), ${(100 * size) / sum}%), 1px)`
           : '0px',
       )
       .join(' '),
-    rightPad: px(BUBBLE_TEXT_PADDING.horizontal),
+    rightPad: px(horizontalPadding),
     topPad: px(BUBBLE_TEXT_PADDING.vertical),
     bottomPad: px(BUBBLE_TEXT_PADDING.vertical),
-    minWidth: skin.configuredPatch === true ? '0px' : px(horizontal * BUBBLE_SCALE),
+    minWidth:
+      skin.configuredPatch === true
+        ? '0px'
+        : px(Math.max(0, horizontal * inlineScale - 2 * inlineOutset)),
     minHeight: skin.configuredPatch === true ? '0px' : px(vertical * BUBBLE_SCALE),
   };
 }
 
 export function bubbleContentPaddingCss({ topPad, rightPad, bottomPad }: BubbleMetrics): string {
   return `  padding: ${topPad} ${rightPad} ${bottomPad};`;
+}
+
+export function bubblePaintOutsetCss({ inlineOutset }: BubbleMetrics): string {
+  return inlineOutset ? `  border-image-outset: 0 ${px(inlineOutset)};` : '';
 }
 
 /** 组内只扣掉固定区里完全透明的外沿，保留原布局盒、前景和字体绘制尺寸。 */
@@ -596,6 +612,7 @@ function baseBubbleRule(skin: BubbleSkinCss, m: BubbleMetrics, sel: string): str
     `  border-image-source: url("${m.imageUrl}");`,
     `  border-image-slice: ${m.slice};`,
     `  border-image-width: ${m.width};`,
+    bubblePaintOutsetCss(m),
     `  border-image-repeat: stretch;`,
     `  border-radius: 0;`,
     // 正文留白与图像切片独立，预览、本地覆盖和逐消息装扮共用同一计算。
@@ -658,11 +675,13 @@ export function ninePatchLayer(
     preview?: boolean;
   },
 ): string {
+  const inlineInset = px(-m.inlineOutset);
+  const width = m.inlineOutset ? `(100% + ${px(2 * m.inlineOutset)})` : '100%';
   const rule = [
     `${opts.fractionalOnly ? fractionalBubbleSelectors(sel) : sel} {`,
     `  content: "";`,
     `  position: absolute;`,
-    `  inset: 0;`,
+    `  inset: 0 ${inlineInset};`,
     `  z-index: ${opts.zIndex};`,
     `  pointer-events: none;`,
     `  border-style: solid;`,
@@ -689,8 +708,8 @@ export function ninePatchLayer(
   // 避免撑高聊天区的滚动范围。正文与引用继续使用原有布局盒。
   return `${rule}
 ${fractionalBubbleSelectors(sel)} {
-  inset: auto 0 0 auto;
-  width: calc(100% * var(--weq-bubble-dpr));
+  inset: auto ${inlineInset} 0 auto;
+  width: calc(${width} * var(--weq-bubble-dpr));
   height: calc(100% * var(--weq-bubble-dpr));
   border-image-width: ${m.physicalWidth};
   transform-origin: bottom right;
@@ -725,11 +744,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
   rules.push(
     fxClipMaskCss(
       `${bubbleLineSelector(scope)}[data-fontfx] ${BUBBLE_CONTENT} > .${FONT_FX_LAYER_CLASS}`,
-      {
-        imageUrl: m.imageUrl,
-        slice: m.slice,
-        width: m.width,
-      },
+      m,
     ),
   );
 

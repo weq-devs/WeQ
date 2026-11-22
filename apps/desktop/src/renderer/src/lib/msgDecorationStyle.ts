@@ -22,6 +22,7 @@ import {
   bubbleGroupSpacingCss,
   bubbleLinkMentionRules,
   bubbleMenuHighlightCss,
+  bubblePaintOutsetCss,
   bubbleRestrictsTextColor,
   fontFxRules,
   toFontFxSkin,
@@ -125,6 +126,7 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
       `  border-image-source: url("${imageUrl}");`,
       `  border-image-slice: ${slice};`,
       `  border-image-width: ${width};`,
+      bubblePaintOutsetCss(metrics),
       `  border-image-repeat: stretch;`,
       `  border-radius: 0;`,
       bubbleContentPaddingCss(metrics),
@@ -138,11 +140,7 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
 
     // 遮罩只作用于独立的字体绘制层，不裁掉气泡前景装饰。
     rules.push(
-      fxClipMaskCss(lineContentSel('bubble', skin.itemId, ` > .${FONT_FX_LAYER_CLASS}`), {
-        imageUrl,
-        slice,
-        width,
-      }),
+      fxClipMaskCss(lineContentSel('bubble', skin.itemId, ` > .${FONT_FX_LAYER_CLASS}`), metrics),
     );
 
     // 我方/非镜像侧的动效叠加层(先于镜像规则注入,对方的同名选择器靠后覆盖)。
