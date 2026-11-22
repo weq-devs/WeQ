@@ -73,7 +73,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   trpc: {
-    bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } },
+    bootstrap: {
+      getSettings: { useQuery: () => ({ data: {} }) },
+      getQqClientSyncStatus: { useQuery: () => ({ data: undefined }) },
+    },
     useUtils: () => ({
       account: {
         getSelfProfile: { invalidate: state.invalidate },

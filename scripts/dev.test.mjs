@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -139,10 +139,12 @@ test('真实 pnpm 将文档站作为独立工作区安装，根目录文档命�
     private: true,
     scripts: { 'docs:check': manifest.scripts['docs:check'] },
   });
+  // 夹具沿用工作区配置，但不安装 electron-vite 等应用依赖。
   await writeFile(
     join(root, 'pnpm-workspace.yaml'),
-    await readFile(new URL('../pnpm-workspace.yaml', import.meta.url)),
+    `${await readFile(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8')}\nallowUnusedPatches: true\n`,
   );
+  await cp(new URL('../patches/', import.meta.url), join(root, 'patches'), { recursive: true });
   await rm(join(root, 'pnpm-lock.yaml'));
   await writeJson(join(root, 'docs/package.json'), {
     name: '@weq/docs',

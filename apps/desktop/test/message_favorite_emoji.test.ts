@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   mutate: vi.fn(),
   query: vi.fn(),
   favorites: vi.fn(),
+  panelFavorites: vi.fn(),
   overview: vi.fn(),
   cancel: vi.fn(),
   setData: vi.fn(),
@@ -51,7 +52,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         qqActions: {
           favorites: { invalidate: state.favorites, cancel: state.cancel, setData: state.setData },
         },
-        emojiPanel: { overview: { invalidate: state.overview } },
+        emojiPanel: {
+          overview: { invalidate: state.overview },
+          favorites: { invalidate: state.panelFavorites },
+        },
       },
     }),
   },
@@ -181,6 +185,7 @@ describe('添加到表情按钮', () => {
       expect(state.mutate).toHaveBeenCalledWith({ ...binding, url });
       expect(state.favorites).toHaveBeenCalledOnce();
       expect(state.overview).toHaveBeenCalledOnce();
+      expect(state.panelFavorites).toHaveBeenCalledOnce();
       expect(close).toHaveBeenCalledOnce();
       state.perform.mockResolvedValue(false);
       await act(async () => host.querySelector('button')!.click());

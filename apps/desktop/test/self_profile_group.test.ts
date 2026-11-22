@@ -10,6 +10,9 @@ import {
 
 vi.mock('../src/renderer/src/components/OnlineStatus', () => ({ OnlineStatus: () => null }));
 vi.mock('../src/renderer/src/components/VipBadge', () => ({ VipBadge: () => null }));
+vi.mock('../src/renderer/src/components/QqProxyConnection', () => ({
+  QqProxyIndicator: () => null,
+}));
 vi.mock('../src/renderer/src/components/RestrictedMode', () => ({
   RestrictedModeIndicator: () => null,
 }));

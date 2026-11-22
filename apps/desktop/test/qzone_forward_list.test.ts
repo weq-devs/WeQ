@@ -163,21 +163,31 @@ it('进入可见范围自动读取一次，离开再回来复用缓存', async (
   expect(query).toHaveBeenCalledOnce();
   expect(host.querySelector('[aria-label="转发"]')?.textContent).toContain('1288');
 });
-it('切换动态清空旧缓存，旧请求迟到不能覆盖新数量', async () => {
-  let finish!: (value: ReturnType<typeof result>) => void;
+it('切换动态丢弃迟到的旧结果，等待新动态的转发数量', async () => {
+  let finishOld!: (value: ReturnType<typeof result>) => void;
+  let finishNew!: (value: ReturnType<typeof result>) => void;
   query
     .mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          finish = resolve;
+          finishOld = resolve;
         }),
     )
-    .mockResolvedValueOnce({ ...result(), reportedTotal: 9 });
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishNew = resolve;
+        }),
+    );
   await setup();
   await act(async () =>
     root.render(h(QzoneForwardAction, { target: { ...target, tid: 'other' }, onClick: () => {} })),
   );
-  expect(host.querySelector('[aria-label="转发"]')?.textContent).toContain('9');
-  await act(async () => finish(result()));
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(host.querySelector('[aria-label="转发"]')?.textContent).toContain('?');
+  await act(async () => finishOld(result()));
+  expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ tid: 'other' }));
+  expect(host.querySelector('[aria-label="转发"]')?.textContent).toContain('?');
+  await act(async () => finishNew({ ...result(), reportedTotal: 9 }));
   expect(host.querySelector('[aria-label="转发"]')?.textContent).toContain('9');
 });

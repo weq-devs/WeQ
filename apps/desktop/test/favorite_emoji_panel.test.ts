@@ -32,25 +32,21 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       qqActions: { favorites: { useQuery: () => ({ data: undefined }) } },
       emojiPanel: {
-        overview: {
+        catalog: { useQuery: () => ({ data: { faces: [], recent: [] } }) },
+        favorites: {
           useQuery: () => ({
-            data: {
-              faces: [],
-              recent: [],
-              tags: [],
-              favorites: [
-                {
-                  id: 'favorite',
-                  hash: 'aabbccddeeff',
-                  scope: 'personal',
-                  bucket: '',
-                  oriFile: 'aabbccddeeff.gif',
-                  thumbFile: 'aabbccddeeff.png',
-                  original: { scope: 'recv', bucket: '2026-09', file: 'aabbccddeeff.gif' },
-                  remoteUrl: '',
-                },
-              ],
-            },
+            data: [
+              {
+                id: 'favorite',
+                hash: 'aabbccddeeff',
+                scope: 'personal',
+                bucket: '',
+                oriFile: 'aabbccddeeff.gif',
+                thumbFile: 'aabbccddeeff.png',
+                original: { scope: 'recv', bucket: '2026-09', file: 'aabbccddeeff.gif' },
+                remoteUrl: '',
+              },
+            ],
           }),
         },
       },

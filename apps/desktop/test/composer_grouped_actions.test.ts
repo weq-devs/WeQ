@@ -19,7 +19,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           ? () => ({ data: undefined, isLoading: false })
           : key === 'useMutation'
             ? () => ({ mutate: vi.fn() })
-            : key === 'overview'
+            : key === 'catalog'
               ? {
                   useQuery: () => ({
                     data: {

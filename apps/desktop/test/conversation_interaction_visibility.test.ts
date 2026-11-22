@@ -153,36 +153,38 @@ it('前台最新消息可确认撤回横幅，但未露出的角标互动不随�
   }
 
   const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect');
+  let visibility: ReturnType<typeof observe>;
   function show(atLatest: boolean, latestMessageSeq: string, visibleId: string) {
+    visibility?.dispose();
     bounds.mockImplementation(function (this: HTMLElement) {
       if (!this.dataset.messageId) return new DOMRect(0, 0, 300, 100);
       return new DOMRect(0, this.dataset.messageId === visibleId ? 20 : 120, 300, 20);
     });
     act(() => root.render(h(Harness, { atLatest, latestMessageSeq })));
-    return observe();
+    visibility = observe();
+    visibility?.syncRows();
   }
 
-  let cleanup: ReturnType<typeof observe>;
   try {
-    show(false, '102', latest.id)?.();
-    show(true, '103', latest.id)?.();
+    show(false, '102', latest.id);
+    show(true, '103', latest.id);
     expect(onSeeInteractions).not.toHaveBeenCalled();
 
-    show(true, '102', earlier.id)?.();
+    show(true, '102', earlier.id);
     expect(onSeeInteractions.mock.calls).toEqual([[[conversationInteractionId(recall)]]]);
     onSeeInteractions.mockClear();
 
     focus.mockReturnValue(false);
-    cleanup = show(true, '102', latest.id);
+    show(true, '102', latest.id);
     expect(onSeeInteractions).not.toHaveBeenCalled();
     focus.mockReturnValue(true);
     window.dispatchEvent(new Event('focus'));
     expect(onSeeInteractions.mock.calls).toEqual([[[conversationInteractionId(banner)], true]]);
     onSeeInteractions.mockClear();
-    show(true, '102', seqless.id)?.();
+    show(true, '102', seqless.id);
     expect(onSeeInteractions.mock.calls).toEqual([[[conversationInteractionId(offPage)]]]);
   } finally {
-    cleanup?.();
+    visibility?.dispose();
     act(() => root.unmount());
     bounds.mockRestore();
     focus.mockRestore();

@@ -15,6 +15,7 @@ import { QzoneScopePicker } from '../src/renderer/src/views/export/QzoneScopePic
 import type { QzoneFeed } from '../src/renderer/src/views/qzone_types';
 
 const fixture = vi.hoisted(() => ({
+  accountConfig: vi.fn(),
   feeds: vi.fn(
     async (_input: {
       cursor?: string;
@@ -60,7 +61,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     bootstrap: { getSettings: { useQuery: () => ({ data: undefined }) } },
     useUtils: () => ({}),
     account: {
-      getAccountConfig: { useQuery: () => ({ data: undefined }) },
+      getAccountConfig: { useQuery: () => ({ data: fixture.accountConfig() }) },
       getGroupAlbumAccessState: { useQuery: () => ({ data: { qqOnline: false } }) },
       qqActions: { qzoneHome: { useInfiniteQuery: () => ({}) } },
     },
@@ -71,6 +72,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         related: { query: fixture.related },
         feeds: { query: fixture.feeds },
         posts: { query: fixture.posts },
+        blogs: { query: async () => ({ items: [], nextOffset: null }) },
+        shares: { query: async () => ({ items: [], next: null }) },
         detail: {
           query: async () => ({
             post: {
@@ -98,6 +101,7 @@ vi.mock('../src/renderer/src/views/QzonePublicView', () => ({
   QzonePublicPane: () => createElement('div', null, '合成公共空间'),
 }));
 afterEach(() => {
+  fixture.accountConfig.mockReset();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
@@ -125,6 +129,12 @@ async function openPosts(host: HTMLElement) {
     Array.from(host.querySelectorAll<HTMLButtonElement>('[aria-label="空间内容"] button'))
       .find((button) => button.textContent === '说说')!
       .click();
+  });
+}
+async function waitForQueryRender(check: () => void) {
+  await vi.waitFor(async () => {
+    await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    check();
   });
 }
 it('好友动态不显示常驻多选按钮，修饰键选择后仍可操作并退出多选', async () => {
@@ -505,6 +515,7 @@ it('空间正文不显示重复按钮，修饰键多选仍可通过顶部导出�
 });
 it('说说标签只读取指定说说，离开后回来仍是同一条', async () => {
   vi.stubGlobal('localStorage', new Storage());
+  fixture.accountConfig.mockReturnValue({ uin: '10001', configId: 'live' });
   const page = (show: boolean) =>
     createElement(
       PageSnapshots,
@@ -526,17 +537,19 @@ it('说说标签只读取指定说说，离开后回来仍是同一条', async (
     );
   const f = mount(page(true));
   try {
-    await act(async () => {});
     expect(f.host.querySelector('[aria-current="page"]')?.textContent).toBe('合成空间 的说说');
-    expect(f.host.querySelector('[data-qzone-tid="linked"]')?.textContent).toContain(
-      'fixture-linked',
+    await waitForQueryRender(() =>
+      expect(f.host.querySelector('[data-qzone-tid="linked"]')?.textContent ?? '').toContain(
+        'fixture-linked',
+      ),
     );
     expect(f.host.querySelectorAll('[data-qzone-tid]')).toHaveLength(1);
     expect(fixture.posts).not.toHaveBeenCalled();
     f.render(page(false));
     f.render(page(true));
-    await act(async () => {});
-    expect(f.host.querySelector('[data-qzone-tid="linked"]')).not.toBeNull();
+    await waitForQueryRender(() =>
+      expect(f.host.querySelector('[data-qzone-tid="linked"]')).not.toBeNull(),
+    );
     expect(fixture.posts).not.toHaveBeenCalled();
     act(() =>
       f.host.querySelector<HTMLButtonElement>('[aria-label="关闭 合成空间 的说说"]')!.click(),
@@ -548,6 +561,7 @@ it('说说标签只读取指定说说，离开后回来仍是同一条', async (
   }
 });
 it('单条说说的作者头像和昵称按设置打开空间或名片', async () => {
+  fixture.accountConfig.mockReturnValue({ uin: '10001', configId: 'live' });
   const profile = vi.fn();
   const page = (personClickAction: 'space' | 'profile') =>
     createElement(
@@ -572,7 +586,7 @@ it('单条说说的作者头像和昵称按设置打开空间或名片', async (
       '[data-qzone-tid="linked"] .weq-qzn-post-head button',
     );
   try {
-    await act(async () => {});
+    await waitForQueryRender(() => expect(authorButtons()).toHaveLength(2));
     act(() => authorButtons()[0]!.click());
     act(() => authorButtons()[1]!.click());
     expect(profile.mock.calls.map(([uin, name]) => [uin, name])).toEqual([

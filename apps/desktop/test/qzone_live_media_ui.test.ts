@@ -66,12 +66,13 @@ beforeEach(() => {
     'IntersectionObserver',
     class {
       constructor(private callback: IntersectionObserverCallback) {}
-      observe() {
+      observe(target: Element) {
         this.callback(
-          [{ isIntersecting: true } as IntersectionObserverEntry],
+          [{ target, isIntersecting: true } as IntersectionObserverEntry],
           this as unknown as IntersectionObserver,
         );
       }
+      unobserve() {}
       disconnect() {}
     },
   );
