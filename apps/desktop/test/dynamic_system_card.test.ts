@@ -14,6 +14,46 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
+
+it.each([' 幸福常在 ', ' '])('个签卡片使用原消息正文并省去不可操作的互动项（%j）', (body) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const demo = createTemplateDemoData();
+  const conversation = demo.conversations.find((row) => row.type === 'direct')!;
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(MessageRow, {
+          message: {
+            id: 'synthetic-signature',
+            conversationId: conversation.id,
+            senderId: 'u_peer',
+            createdAt: new Date(0).toISOString(),
+            qqElements: [
+              {
+                type: 'qqDynamic',
+                data: {
+                  dynamicType: 1,
+                  dynamicDesc: { mainDesc: '更新了个签' },
+                  dynamicDesc2: { mainDesc: body },
+                  dynamicTags: [{ tagId: 76, tagContent: '点个赞' }],
+                },
+              },
+            ],
+          },
+          conversation,
+          user: demo.user,
+        }),
+      ),
+    );
+    expect(host.textContent).toContain(body.trim() || '原消息未保存个签内容');
+    expect(host.textContent).not.toContain('点个赞');
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
 const meta = (appid = '311') =>
   JSON.stringify({
     jump_schema: `mqqapi://qzoneschema/?schema=${encodeURIComponent(btoa(`mqzone://arouse/detail?appid=${appid}&uin=10001&cellid=synthetic_post&loginfrom=synthetic`))}`,

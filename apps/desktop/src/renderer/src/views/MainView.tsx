@@ -285,6 +285,7 @@ import {
   groupMemberPagesOptions,
   refreshGroupMemberPages,
 } from '../lib/groupMemberRefresh';
+import { GrayTipNamesContext } from '../lib/grayTipProfile';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { RailAccountFooter } from '../components/RailAccountFooter';
@@ -11733,7 +11734,9 @@ function MainWorkspace(): ReactElement {
   );
   return (
     <ProfileChatShortcutContext.Provider value={profileChatShortcut}>
-      {workspace}
+      <GrayTipNamesContext.Provider value={previewDisplayNames}>
+        {workspace}
+      </GrayTipNamesContext.Provider>
     </ProfileChatShortcutContext.Provider>
   );
 }

@@ -1,9 +1,18 @@
+import { createContext } from 'react';
 import type { Conversation, Message, User } from '../im-template/template/types';
 import { profileTargetUser, type ProfileTarget } from './profileNavigation';
 import { selfIdentityValues } from './selfIdentity';
 
+/** 复用会话已批量读取的本地昵称与备注。 */
+export const GrayTipNamesContext = createContext<ReadonlyMap<string, string> | null>(null);
+
 /** 人名按全部身份别名精确匹配；UID、QQ 号占位不能挡住后面的可读昵称。 */
-export function createGrayTipNameResolver(conversation?: Conversation, message?: Message) {
+export function createGrayTipNameResolver(
+  conversation?: Conversation,
+  message?: Message,
+  user?: User,
+  fallbackNames?: ReadonlyMap<string, string> | null,
+) {
   const people = [
     ...(conversation?.type === 'group'
       ? conversation.members
@@ -18,12 +27,17 @@ export function createGrayTipNameResolver(conversation?: Conversation, message?:
       if (!byIdentity.has(identity)) byIdentity.set(identity, person);
     }
   }
+  const self = new Set(selfIdentityValues(user));
   return (identities: readonly string[], labels: readonly string[]): string => {
     const names = identities.flatMap((identity) => {
       const person = byIdentity.get(identity);
       return person ? [person.displayName, person.username] : [];
     });
-    const candidates = [...names, ...labels].map((value) => value?.trim() || '').filter(Boolean);
+    const selfName = identities.some((identity) => self.has(identity)) ? user?.displayName : '';
+    const profiles = fallbackNames ? identities.map((identity) => fallbackNames.get(identity)) : [];
+    const candidates = [...names, ...labels, selfName, ...profiles]
+      .map((value) => value?.trim() || '')
+      .filter(Boolean);
     return (
       candidates.find(
         (value) => !value.startsWith('u_') && !/^\d+$/.test(value) && !identities.includes(value),

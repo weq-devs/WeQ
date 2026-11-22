@@ -1,9 +1,13 @@
-import { useMemo } from 'react';
+import { useContext, useMemo } from 'react';
 import type { Conversation, Message, User } from '../im-template/template/types';
 import { DOMParser, type Node } from '@xmldom/xmldom';
 import { SELF_LABEL, isSelfIdentity, selfIdentityValues } from '../lib/selfIdentity';
 import { GrayTipPerson } from './GrayTipPerson';
-import { createGrayTipNameResolver, createGrayTipPersonKey } from '../lib/grayTipProfile';
+import {
+  createGrayTipNameResolver,
+  createGrayTipPersonKey,
+  GrayTipNamesContext,
+} from '../lib/grayTipProfile';
 import littleIconUrl from '@resources/img/little_icon.png';
 
 interface GrayTipPokeMessageProps {
@@ -128,12 +132,13 @@ export function GrayTipPokeMessage({
   user,
 }: GrayTipPokeMessageProps) {
   const { grayTipXmlContent, tipJson } = element.data || {};
+  const fallbackNames = useContext(GrayTipNamesContext);
 
   const content = useMemo(() => {
     // 「自己」的身份串集合：灰条里我这半可能只带 uid（uin 属性里塞的也是 uid），
     // 只认 uin 会漏判，统一收进集合再比对。
     const self = new Set(selfIdentityValues(user));
-    const personName = createGrayTipNameResolver(conversation, message);
+    const personName = createGrayTipNameResolver(conversation, message, user, fallbackNames);
     if (grayTipXmlContent) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(grayTipXmlContent, 'text/xml');
@@ -275,7 +280,7 @@ export function GrayTipPokeMessage({
     }
 
     return null;
-  }, [grayTipXmlContent, tipJson, conversation, message, user, element.data]);
+  }, [grayTipXmlContent, tipJson, conversation, message, user, element.data, fallbackNames]);
 
   return content;
 }

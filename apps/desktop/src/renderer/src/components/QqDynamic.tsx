@@ -10,7 +10,6 @@
  *   - mainDesc/subDesc 各带一个十六进制颜色（QQ 原生拿来给文案上色），完全没用到；
  *   - 发布者只有 uin/uid，没有昵称头像，之前干脆不显示是谁；
  *   - dynamicMeta 里的跳转链接 (jumpUrl/jump_h5) 没接，卡片点了没反应；
- *   - dynamicTags（如生日祝福语、装扮好评语）整个没画；
  *   - dynamicType=11（互动认证/认识多久）正文其实压根不在 mainDesc 里，而是塞在
  *     dynamicMeta 一段 base64 编码的嵌套 protobuf 里，之前完全是空的。
  *
@@ -155,7 +154,8 @@ export function QqDynamic({
   const accentColor = desc?.subDesc || '#8c8c8c';
 
   const headline = desc?.mainDesc?.trim() || headerLabel;
-  const content = desc2?.mainDesc?.trim() || '';
+  const isSignature = dynamicType === 1;
+  const content = desc2?.mainDesc?.trim() || (isSignature ? '原消息未保存个签内容' : '');
   const publisherName =
     publisher?.remark || publisher?.nick || (primaryUin ? `QQ号 ${primaryUin}` : '');
 
@@ -228,7 +228,7 @@ export function QqDynamic({
           </div>
         ) : null}
 
-        {tags && tags.length > 0 ? (
+        {!isSignature && tags && tags.length > 0 ? (
           <div className="weq-dynamic-tags">
             {tags.map((t) => (
               <span

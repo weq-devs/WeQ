@@ -8,7 +8,7 @@ import { GrayTipXmlMessage } from '../src/renderer/src/components/GrayTipXmlMess
 import { GrayTipRevokeMessage } from '../src/renderer/src/components/GrayTipRevokeMessage';
 import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
 import { GrayTipLine } from '../src/renderer/src/im-template/template/messageRow';
-import { grayTipProfileTarget } from '../src/renderer/src/lib/grayTipProfile';
+import { GrayTipNamesContext, grayTipProfileTarget } from '../src/renderer/src/lib/grayTipProfile';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
 import { createTemplateDemoData } from './support/templateDemoData';
 import type { GroupMember } from '../src/renderer/src/im-template/template/types';
@@ -494,6 +494,56 @@ it('共用灰条行传递自己的身份，无名片宿主时只显示文字', (
   const fallback = mount(h(GrayTipLine, { gt, conversation: group, message, user: self }), false);
   expect(fallback.people()).toHaveLength(0);
   expect(fallback.host.textContent).toBe('自己');
+});
+
+it('私聊戳一戳的普通 XML 灰条按 UID 显示自己的昵称', () => {
+  const conversation = demo.conversations.find((item) => item.type === 'direct')!;
+  const user = { ...self, displayName: '自己的昵称' };
+  const f = mount(
+    h(GrayTipLine, {
+      conversation,
+      user,
+      gt: {
+        kind: 'grayTipXml',
+        el: {
+          type: 'grayTipXml',
+          data: {
+            grayTipXmlContent: `<gtip><qq uin="u_self" nm=""/><nor txt="戳了戳"/><qq uin="${conversation.otherUser.id}" nm=""/></gtip>`,
+          },
+        },
+      },
+    }),
+  );
+  expect(f.host.textContent).toBe(`自己的昵称戳了戳${conversation.otherUser.displayName}`);
+  act(() => f.people()[0]!.click());
+  expect(f.open.mock.calls[0]![0]).toMatchObject({ id: 'u_self', identityValue: '10001' });
+});
+
+it('群邀请的两个人可分别从群名片和本地个人资料显示名称', () => {
+  const f = mount(
+    h(
+      GrayTipNamesContext.Provider,
+      {
+        value: new Map([
+          [alice.id, '个人昵称'],
+          [bob.id, '受邀者昵称'],
+        ]),
+      },
+      h(GrayTipXmlMessage, {
+        conversation: { ...group, members: [{ ...alice, displayName: '邀请者群名片' }] },
+        element: {
+          type: 'grayTipXml',
+          data: {
+            grayTipXmlContent:
+              '<gtip><qq uin="u_alice" jp="10002"/><nor txt="邀请"/><qq uin="u_bob" jp="10003"/><nor txt="加入了群聊。"/></gtip>',
+          },
+        },
+      }),
+    ),
+  );
+  expect(f.host.textContent).toBe('邀请者群名片邀请受邀者昵称加入了群聊。');
+  act(() => f.people()[1]!.click());
+  expect(f.open.mock.calls[0]![0]).toMatchObject({ id: 'u_bob', identityValue: '10003' });
 });
 
 it('灰条名片的合成布局', () => {

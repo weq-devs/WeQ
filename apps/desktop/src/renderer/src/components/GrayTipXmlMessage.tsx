@@ -3,7 +3,11 @@ import type { Conversation, Message, User } from '../im-template/template/types'
 import { DOMParser, type Node } from '@xmldom/xmldom';
 import { FaceEmoji } from './FaceEmoji';
 import { GrayTipPerson } from './GrayTipPerson';
-import { createGrayTipNameResolver, createGrayTipPersonKey } from '../lib/grayTipProfile';
+import {
+  createGrayTipNameResolver,
+  createGrayTipPersonKey,
+  GrayTipNamesContext,
+} from '../lib/grayTipProfile';
 import { ReplyJumpContext } from '../state/messageContext';
 import '../styles/gray-tip-message.css';
 
@@ -43,6 +47,7 @@ export function GrayTipXmlMessage({
 }: GrayTipXmlMessageProps) {
   const { grayTipXmlContent } = element.data || {};
   const jumpToMessage = useContext(ReplyJumpContext);
+  const fallbackNames = useContext(GrayTipNamesContext);
 
   const content = useMemo(() => {
     if (!grayTipXmlContent) return null;
@@ -52,7 +57,7 @@ export function GrayTipXmlMessage({
     const gtip = doc.getElementsByTagName('gtip')[0];
     if (!gtip) return null;
 
-    const personName = createGrayTipNameResolver(conversation, message);
+    const personName = createGrayTipNameResolver(conversation, message, user, fallbackNames);
 
     const personKey = createGrayTipPersonKey();
     const messageLinks = new Map<string, number>();
@@ -121,7 +126,7 @@ export function GrayTipXmlMessage({
     });
 
     return <div className="weq-graytip text-center text-xs py-2">{nodes}</div>;
-  }, [grayTipXmlContent, conversation, message, user, jumpToMessage]);
+  }, [grayTipXmlContent, conversation, message, user, jumpToMessage, fallbackNames]);
 
   return content;
 }
