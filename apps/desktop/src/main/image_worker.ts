@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type Sharp from 'sharp';
+import { decodeBmpPreview } from './bmp_preview';
 import type { ImageReply, ImageRequest } from './image_worker_protocol';
 import { PREVIEW_MAX_SIDE } from './image_worker_protocol';
 
@@ -20,11 +21,19 @@ async function run(request: ImageRequest & { id: number }): Promise<void> {
   let reply: ImageReply;
   try {
     const input = typeof request.input === 'string' ? request.input : Buffer.from(request.input);
-    const image = sharp(input, {
+    const options = {
       limitInputPixels: request.maxPixels,
       sequentialRead: true,
       animated: false,
-    });
+    };
+    const bmp =
+      request.operation === 'preview' &&
+      Buffer.isBuffer(input) &&
+      input[0] === 0x42 &&
+      input[1] === 0x4d
+        ? decodeBmpPreview(input, request.maxPixels)
+        : undefined;
+    const image = bmp ? sharp(bmp.pixels, { ...options, raw: bmp.raw }) : sharp(input, options);
     if (request.operation === 'metadata') {
       const { width, height, pageHeight, pages } = await image.metadata();
       reply = { id: request.id, result: { width, height, pageHeight, pages } };

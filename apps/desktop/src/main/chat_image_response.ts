@@ -10,7 +10,16 @@ const MAX_ANIMATED_BYTES = 8 * 1024 * 1024;
 const MAX_ANIMATED_FRAME_PIXELS = 4 * 1024 * 1024;
 const MAX_FALLBACK_BYTES = 32 * 1024 * 1024;
 const MAX_FALLBACK_ANIMATED_BYTES = 8 * 1024 * 1024;
-const PREVIEW_UNAVAILABLE = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160" viewBox="0 0 320 160"><rect width="320" height="160" rx="12" fill="#e5e7eb"/><text x="160" y="75" text-anchor="middle" font-size="18" fill="#374151">图片无法安全预览</text><text x="160" y="104" text-anchor="middle" font-size="13" fill="#4b5563">点击查看原图</text></svg>`;
+// 外层跟随图片框尺寸，内层按比例容纳文案，竖图使用 cover 时也不会裁字。
+const PREVIEW_UNAVAILABLE = `<svg xmlns="http://www.w3.org/2000/svg">
+  <rect width="100%" height="100%" fill="#e5e7eb"/>
+  <svg width="100%" height="100%" viewBox="0 0 160 72">
+    <g text-anchor="middle" font-family="sans-serif">
+      <text x="80" y="34" font-size="14" fill="#374151">图片无法安全预览</text>
+      <text x="80" y="54" font-size="11" fill="#4b5563">点击查看原图</text>
+    </g>
+  </svg>
+</svg>`;
 
 /**
  * 原生解码整体不可用时的最后兜底：直接把磁盘上已有的文件（QQ 缩略图或原图）
