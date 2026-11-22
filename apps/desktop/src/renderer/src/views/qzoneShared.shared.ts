@@ -22,6 +22,67 @@ export const QzonePageContext = createContext({ active: true, refresh: 0 });
 /** 上游明确不可用时暂停自动读取，保留已读内容。 */
 export const QzoneReadPauseContext = createContext(false);
 
+type VisibilityListener = (near: boolean) => void;
+type ViewportTarget = { near?: boolean; listeners: Set<VisibilityListener> };
+type ViewportPool = { observer: IntersectionObserver; targets: Map<Element, ViewportTarget> };
+const viewportPools = new WeakMap<Document | Element, ViewportPool>();
+
+function observeNearViewport(
+  element: HTMLElement,
+  once: boolean,
+  setNear: VisibilityListener,
+): (() => void) | undefined {
+  const document = element.ownerDocument;
+  const Observer = document.defaultView?.IntersectionObserver;
+  if (!Observer) {
+    setNear(true);
+    return;
+  }
+  const root = element.closest('.weq-qzn-scroll');
+  const key = root ?? document;
+  let pool = viewportPools.get(key);
+  if (!pool) {
+    const targets = new Map<Element, ViewportTarget>();
+    const observer = new Observer(
+      (entries) => {
+        for (const { target, isIntersecting } of entries) {
+          const observation = targets.get(target);
+          if (!observation) continue;
+          observation.near = isIntersecting;
+          for (const listener of observation.listeners) listener(isIntersecting);
+        }
+      },
+      { root, rootMargin: '300px' },
+    );
+    pool = { observer, targets };
+    viewportPools.set(key, pool);
+  }
+  const { observer, targets } = pool;
+  let target = targets.get(element);
+  if (!target) {
+    target = { listeners: new Set() };
+    targets.set(element, target);
+    observer.observe(element);
+  }
+  const observation = target;
+  const stop = () => {
+    if (!observation.listeners.delete(notify) || observation.listeners.size) return;
+    targets.delete(element);
+    if (targets.size) observer.unobserve(element);
+    else {
+      observer.disconnect();
+      viewportPools.delete(key);
+    }
+  };
+  const notify = (near: boolean) => {
+    if (near && once) stop();
+    setNear(near);
+  };
+  observation.listeners.add(notify);
+  if (observation.near !== undefined) notify(observation.near);
+  return stop;
+}
+
 /** 元素是否进入（或接近）滚动容器视口；`once` 只触发一次。 */
 export function useNearViewport(
   ref: RefObject<HTMLElement | null>,
@@ -37,16 +98,7 @@ export function useNearViewport(
     }
     const element = ref.current;
     if (!element) return undefined;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries.some((entry) => entry.isIntersecting);
-        setNear(visible);
-        if (visible && once) observer.disconnect();
-      },
-      { root: element.closest('.weq-qzn-scroll'), rootMargin: '300px' },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
+    return observeNearViewport(element, once, setNear);
   }, [ref, once, active, enabled]);
   return active && enabled && near;
 }

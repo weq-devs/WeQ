@@ -220,6 +220,7 @@ it('好友动态续页保留重叠卡片与配图，切换栏目后不重读已�
           this as unknown as IntersectionObserver,
         );
       }
+      unobserve() {}
       disconnect() {}
     },
   );
