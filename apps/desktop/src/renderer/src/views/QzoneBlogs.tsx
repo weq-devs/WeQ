@@ -252,7 +252,9 @@ export function QzoneBlogCard({
           <QzoneMediaGrid images={blog.images} videos={[]} />
         </>
       )}
-      {expanded && detail.isFetching ? <LoadingStatus text="正在读取全文…" /> : null}
+      {expanded && !detail.data && detail.isFetching ? (
+        <LoadingStatus text="正在读取全文…" />
+      ) : null}
       {expanded && detail.error ? (
         <State
           loading={false}

@@ -1,8 +1,8 @@
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { formatUnixTime } from '@weq/time';
 import type { QzoneShare, QzoneShareCategory } from '@weqbot/protocol/web';
 import { RefreshCw } from 'lucide-react';
-import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { FormSelect } from '../components/FormSelect';
 import { QzoneActionsRow, QzoneCommentToggle } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
@@ -52,14 +52,18 @@ function useSpaceRequest(
   const active = scope?.active ?? page.active;
   const refresh = scope?.refresh ?? page.refresh;
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: active });
-  const configId = config.data?.uin === selfUin ? config.data.configId : '';
+  const configId = (config.data?.uin === selfUin ? config.data.configId : undefined) ?? '';
+  const target = useMemo(
+    () => ({ selfUin, hostUin, expectedAccountConfigId: configId }),
+    [selfUin, hostUin, configId],
+  );
   return {
     active,
     refresh,
     error: config.error,
     retryConfig: config.refetch,
     configId,
-    target: { selfUin, hostUin, expectedAccountConfigId: configId || '' },
+    target,
   };
 }
 
@@ -68,22 +72,20 @@ function useMorePages<P extends Page>(
   key: string,
   start: number,
   load: (input: Request, offset: number) => Promise<P>,
-  options?: { staleTime: number; scope?: ReadScope },
+  scope?: ReadScope,
 ) {
-  const { active, refresh, configId, target, error, retryConfig } = useSpaceRequest(
-    space,
-    options?.scope,
-  );
-  const { run, cancel } = useQzoneRequests();
-  useEffect(() => {
-    if (!active) cancel();
-  }, [active, cancel]);
+  const { active, refresh, configId, target, error, retryConfig } = useSpaceRequest(space, scope);
+  const { run } = useQzoneRequests();
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(() => ['qzone-more', target, key, start] as const, [target, key, start]);
+  const enabled = active && Boolean(configId);
   const query = useInfiniteQuery({
-    queryKey: ['qzone-more', target, key, refresh],
-    enabled: active && Boolean(configId),
+    queryKey,
+    enabled,
     retry: false,
     refetchOnWindowFocus: false,
-    staleTime: options?.staleTime,
+    staleTime: 60_000,
+    refetchOnMount: true,
     queryFn: ({ pageParam = start, signal }) =>
       run((requestId) => load({ ...target, requestId }, pageParam), false, signal),
     getNextPageParam: (last: P, pages: P[]) => {
@@ -98,6 +100,21 @@ function useMorePages<P extends Page>(
       return last.next;
     },
   });
+  const { refetch } = query;
+  const previousRefresh = useRef(refresh);
+  useEffect(() => {
+    if (!enabled) {
+      void queryClient.cancelQueries({
+        queryKey,
+        exact: true,
+        predicate: (query) => !query.isActive(),
+      });
+      return;
+    }
+    if (previousRefresh.current === refresh) return;
+    previousRefresh.current = refresh;
+    void refetch({ cancelRefetch: false });
+  }, [enabled, queryClient, queryKey, refresh, refetch]);
   const pages = query.data?.pages;
   const items = useMemo(() => {
     const distinct = new Map<string, P['items'][number]>();
@@ -116,25 +133,31 @@ function useMorePages<P extends Page>(
     items,
     error: failure instanceof Error ? failure.message : failure ? '读取失败，请重试。' : '',
     loading: query.isFetching || (active && !configId && !error),
+    initialLoading: !pages && (query.isFetching || (active && !configId && !error)),
+    paging: query.isFetchingNextPage,
     onNext:
       active && query.hasNextPage
         ? () => void query.fetchNextPage({ cancelRefetch: false })
         : undefined,
-    onRetry: () =>
-      void (error ? retryConfig() : query.hasNextPage ? query.fetchNextPage() : query.refetch()),
+    onRetry: () => void (error ? retryConfig() : refetch()),
   };
 }
 
 type PagedState = Pick<
   ReturnType<typeof useMorePages>,
-  'error' | 'loading' | 'onNext' | 'onRetry' | 'pageCount'
+  'error' | 'loading' | 'initialLoading' | 'paging' | 'onNext' | 'onRetry' | 'pageCount'
 >;
 
 function PageEnd({ state, empty }: { state: PagedState; empty: string }) {
-  return state.error || empty || (state.loading && !state.onNext) ? (
-    <State loading={state.loading} error={state.error} retry={state.onRetry} empty={empty} />
+  return state.error || empty || state.initialLoading ? (
+    <State loading={state.initialLoading} error={state.error} retry={state.onRetry} empty={empty} />
   ) : state.onNext ? (
-    <QzoneAutoPage key={state.pageCount} loading={state.loading} onNext={state.onNext} />
+    <QzoneAutoPage
+      key={state.pageCount}
+      loading={state.loading}
+      showLoading={state.paging}
+      onNext={state.onNext}
+    />
   ) : null;
 }
 
@@ -148,7 +171,7 @@ export function useQzoneShareIndex(
     `shares:${category}`,
     1,
     (input, page) => client.account.qzone.shares.query({ ...input, category, page }),
-    { staleTime: 60_000, scope },
+    scope,
   );
 }
 
@@ -300,13 +323,14 @@ function ShareCommentList({
   onCount: (count: number) => void;
   preview?: ReactNode;
 }) {
-  const { first, items, loading, error, onNext, onRetry, pageCount } = useMorePages(
-    space,
-    `share-comments:${shareId}`,
-    1,
-    (input, page) => client.account.qzone.shareComments.query({ ...input, shareId, page }),
-    { staleTime: 60_000, scope: { refresh } },
-  );
+  const { first, items, loading, initialLoading, paging, error, onNext, onRetry, pageCount } =
+    useMorePages(
+      space,
+      `share-comments:${shareId}`,
+      1,
+      (input, page) => client.account.qzone.shareComments.query({ ...input, shareId, page }),
+      { refresh },
+    );
   const count = first?.total;
   useEffect(() => {
     if (count !== undefined) onCount(count);
@@ -314,7 +338,7 @@ function ShareCommentList({
   return (
     <section className="weq-qzn-interaction" aria-label="分享评论">
       {!first ? preview : null}
-      {count === 0 && !loading && !error ? <p className="weq-qzn-status">暂无评论</p> : null}
+      {count === 0 ? <p className="weq-qzn-status">暂无评论</p> : null}
       {items.map((row) => (
         <div key={row.id}>
           {[row, ...row.replies].map((comment, index) => (
@@ -333,7 +357,7 @@ function ShareCommentList({
           ))}
         </div>
       ))}
-      {loading && !onNext ? <LoadingStatus text="正在加载评论…" /> : null}
+      {initialLoading ? <LoadingStatus text="正在加载评论…" /> : null}
       {error ? (
         <p className="weq-qzn-error" role="status">
           {error}{' '}
@@ -344,7 +368,7 @@ function ShareCommentList({
         </p>
       ) : null}
       {onNext && !error ? (
-        <QzoneAutoPage key={pageCount} loading={loading} onNext={onNext} />
+        <QzoneAutoPage key={pageCount} loading={loading} showLoading={paging} onNext={onNext} />
       ) : null}
     </section>
   );

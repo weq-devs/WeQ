@@ -123,14 +123,24 @@ export function QzoneHomeOverview({
     <header className="weq-qzn-home-overview">
       <div className="weq-qzn-home-heading">
         <div className="weq-qzn-home-title">
-          <h2 data-privacy-sensitive={Boolean(name) || undefined}>
+          <h2 data-privacy-sensitive={Boolean(name) || undefined} title={name}>
             <QzoneInlineText content={name || 'QQ 空间'} />
           </h2>
-          {description ? (
-            <p data-privacy-sensitive>
-              <QzoneInlineText content={description} />
-            </p>
-          ) : null}
+          <div className="weq-qzn-home-note">
+            {description ? (
+              <details className="weq-qzn-home-greeting" data-privacy-sensitive>
+                <summary>
+                  空间简介
+                  <span>
+                    <QzoneInlineText content={description} />
+                  </span>
+                </summary>
+                <p>
+                  <QzoneInlineText content={description} />
+                </p>
+              </details>
+            ) : null}
+          </div>
         </div>
         <div className="weq-qzn-home-tools">
           <button
@@ -142,13 +152,14 @@ export function QzoneHomeOverview({
             <UserRound size={14} aria-hidden />
             个人资料
           </button>
-          {canEdit ? (
+          {hostUin === selfUin ? (
             <button
               type="button"
               className="weq-set-btn"
               aria-label="编辑空间资料"
               title="编辑空间资料"
               aria-haspopup="dialog"
+              disabled={!canEdit}
               onClick={() => setDialog('edit')}
             >
               <Pencil size={14} aria-hidden />

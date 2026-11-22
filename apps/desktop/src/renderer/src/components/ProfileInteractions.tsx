@@ -373,7 +373,7 @@ export function SignatureInteractions({
               ))}
             </div>
             <ProfileLikeSummary users={likeUsers} total={item.likes} />
-            {likes.isFetching ? (
+            {!likes.data && !likeUsers.length && likes.isFetching ? (
               <p className="weq-profile-like-summary" role="status">
                 读取中…
               </p>
@@ -514,7 +514,7 @@ function QuestionDetail({
     <>
       {first ? <ProfileLikeSummary users={first.likeUsers} total={first.likes} /> : null}
       <CommentRows items={items} />
-      {detail.isFetching || more.isFetching ? <p role="status">读取中…</p> : null}
+      {!first && detail.isFetching ? <p role="status">读取中…</p> : null}
       {detail.error ? (
         <button
           className="weq-set-btn weq-set-btn-soft weq-retry-button"

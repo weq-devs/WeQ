@@ -14,10 +14,12 @@ export function LoadingStatus({ text = '正在加载…' }: { text?: string }) {
 
 export function QzoneAutoPage({
   loading,
+  showLoading = loading,
   onNext,
   delay = 0,
 }: {
   loading: boolean;
+  showLoading?: boolean;
   onNext: () => void;
   delay?: number;
 }) {
@@ -52,7 +54,7 @@ export function QzoneAutoPage({
   }, [active, loading, delay]);
   return (
     <div ref={sentinel} className="weq-qzn-page-sentinel">
-      {loading ? <LoadingStatus /> : null}
+      {showLoading ? <LoadingStatus /> : null}
     </div>
   );
 }

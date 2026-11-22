@@ -365,15 +365,14 @@ describe('主聊天区域的频道私聊', () => {
       style.remove();
     }
   });
-  it('导航在频道网站与主聊天区之间卸载重建，恢复所选频道会话并重新读取消息', async () => {
+  it('切换到频道私聊保留频道网站，并恢复所选私聊会话', async () => {
     const openDirect = vi.fn();
     const workspace = (direct: boolean, explicitTarget = false) =>
       createElement(
         PageSnapshots,
         { scope: 'synthetic' },
-        direct
-          ? mainChat('synthetic-node', explicitTarget ? {} : { searchTarget: null })
-          : createElement(ChannelView, { onOpenDirect: openDirect }),
+        createElement(ChannelView, { active: !direct, onOpenDirect: openDirect }),
+        direct ? mainChat('synthetic-node', explicitTarget ? {} : { searchTarget: null }) : null,
       );
     const f = mount(workspace(false));
     try {
@@ -387,8 +386,8 @@ describe('主聊天区域的频道私聊', () => {
       expect(browser.isConnected).toBe(true);
       await act(async () => f.render(workspace(true, true)));
       expect(rpc.sessions).toHaveBeenCalledOnce();
-      expect(f.host.querySelector('.weq-channel-browser')).toBeNull();
-      expect(browser.isConnected).toBe(false);
+      expect(browser.closest('section')?.hidden).toBe(true);
+      expect(browser.isConnected).toBe(true);
       expect(f.host.querySelector('.weq-guild-direct-side')).toBeNull();
       expect(rpc.latest).toHaveBeenCalledWith({
         nodeId: 'synthetic-node',
@@ -399,7 +398,9 @@ describe('主聊天区域的频道私聊', () => {
       expect(f.host.querySelector('.has-selected-session')).not.toBeNull();
       await act(async () => f.render(workspace(false)));
       expect(f.host.querySelector('.weq-channel-browser')).not.toBeNull();
-      expect(f.host.querySelector('[aria-label="合成频道浏览现场"]')).not.toBe(browser);
+      expect(f.host.querySelector('[aria-label="合成频道浏览现场"]')).toBe(browser);
+      expect(browser.closest('section')?.hidden).toBe(false);
+      expect(browser.value).toBe('保留的频道现场');
       expect(f.host.querySelector('.weq-guild-direct')).toBeNull();
       await act(async () =>
         f.host.querySelector<HTMLButtonElement>('[aria-label="频道私聊"]')!.click(),

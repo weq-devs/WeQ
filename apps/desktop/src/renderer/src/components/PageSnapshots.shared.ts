@@ -22,18 +22,21 @@ export const SnapshotContext = createContext<{
   data: PageDataCache;
 } | null>(null);
 
-export function usePageDataCache() {
+export function usePageDataCache(fallback?: PageDataCache) {
   const context = useContext(SnapshotContext);
   return useMemo(
     () => ({
       read<T>(name: string): T | undefined {
-        return context?.data.get<T>(JSON.stringify([context.key, name]));
+        return context
+          ? context.data.get<T>(JSON.stringify([context.key, name]))
+          : fallback?.get<T>(name);
       },
       write(name: string, value: unknown): void {
-        context?.data.put(JSON.stringify([context.key, name]), value);
+        if (context) context.data.put(JSON.stringify([context.key, name]), value);
+        else fallback?.put(name, value);
       },
     }),
-    [context],
+    [context, fallback],
   );
 }
 

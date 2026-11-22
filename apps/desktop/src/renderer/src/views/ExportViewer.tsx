@@ -240,7 +240,8 @@ export function ExportViewer({
       enabled: Boolean(source) && active,
       retry: false,
       staleTime: 30000,
-      cacheTime: 0,
+      cacheTime: 60_000,
+      refetchOnMount: true,
     },
   );
   const local = trpc.exportViewer.local.useQuery(
@@ -602,7 +603,7 @@ export function ExportViewer({
               <p className="weq-ev-notice">此文件没有稳定的会话标识，仅离线查看。</p>
             ) : null}
             <div className="weq-ev-messages" aria-busy={page.isFetching}>
-              {page.isFetching ? (
+              {!page.data && page.isFetching ? (
                 <p role="status">正在读取消息…</p>
               ) : page.data?.messages.length ? (
                 page.data.messages.map((m) => (

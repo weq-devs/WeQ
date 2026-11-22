@@ -50,7 +50,8 @@ export function FileDirExplorer(): ReactElement {
         offset,
         limit,
       }),
-    [state.category, state.search, state.sort, state.order, refreshKey].join('\u0000'),
+    [state.category, state.search, state.sort, state.order].join('\u0000'),
+    refreshKey,
   );
 
   const onRefresh = async (): Promise<void> => {
@@ -103,7 +104,11 @@ export function FileDirExplorer(): ReactElement {
                 <FileCard key={e.relPath} entry={e} />
               ))}
             </div>
-            {list.entries.length > 0 || list.done ? (
+            {list.error ? (
+              <div className="weq-cache-grid-state is-error" role="status">
+                {list.error}
+              </div>
+            ) : list.entries.length > 0 || list.done ? (
               <ListFooter
                 loading={list.loading}
                 done={list.done}

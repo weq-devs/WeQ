@@ -1,3 +1,4 @@
+import { usePageDataCache } from './PageSnapshots.shared';
 import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -141,7 +142,9 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
       target.legacyFocus,
     ],
   );
-  const [page, setPage] = useState<GroupAlbumFeedPage | null>(null),
+  const cache = usePageDataCache();
+  const cacheKey = JSON.stringify(['group-album-feed', input]);
+  const [page, setPage] = useState(() => cache.read<GroupAlbumFeedPage>(cacheKey) ?? null),
     [error, setError] = useState<string | null>(null),
     [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState<string>(),
@@ -180,8 +183,10 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
         )
           throw new Error('群相册评论分页位置重复，未合并本页');
         const next = cursor ? mergeGroupAlbumFeedPages(pageRef.current, value) : value;
-        if (!cursor) seenCursors.current.clear();
-        else seenCursors.current.add(cursor);
+        if (!cursor) {
+          seenCursors.current.clear();
+          cache.write(cacheKey, next);
+        } else seenCursors.current.add(cursor);
         pageRef.current = next;
         setPage(next);
       })
@@ -196,7 +201,7 @@ function GroupAlbumFeedBody({ target, binding, groupName, onClose, onOpenAlbum }
       generation.current++;
       controller.abort();
     };
-  }, [input, cursor, revision, activity.enabled, activity.revision]);
+  }, [input, cursor, revision, activity.enabled, activity.revision, cache, cacheKey]);
   const previews = useMemo<PreviewMedia[]>(
     () =>
       (page?.media ?? [])

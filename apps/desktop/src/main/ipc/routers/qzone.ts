@@ -76,10 +76,15 @@ function online(selfUin: string): AccountServices {
 }
 
 async function request<T>(
-  input: { selfUin: string; requestId: string },
+  input: { selfUin: string; requestId: string; expectedAccountConfigId?: string },
   run: (services: AccountServices, signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const services = online(input.selfUin);
+  if (
+    input.expectedAccountConfigId !== undefined &&
+    services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId
+  )
+    throw new Error('账号数据源已切换，请重新打开空间。');
   if (pending.has(input.requestId)) throw new Error('空间请求已在运行。');
   if ([...pending.values()].filter((entry) => entry.services === services).length >= 4)
     throw new Error('请等待当前空间内容加载完成。');
@@ -95,17 +100,6 @@ async function request<T>(
   } finally {
     pending.delete(input.requestId);
   }
-}
-
-function readBound<T>(
-  input: z.infer<typeof boundTarget>,
-  run: (services: AccountServices, signal: AbortSignal) => Promise<T>,
-) {
-  return request(input, (services, signal) => {
-    if (services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId)
-      throw new Error('账号数据源已切换，请重新打开空间。');
-    return run(services, signal);
-  });
 }
 
 export const qzoneRouter = router({
@@ -186,7 +180,12 @@ export const qzoneRouter = router({
       ),
     ),
   detail: procedure
-    .input(post.extend({ time: z.number().int().positive().optional() }))
+    .input(
+      post.extend({
+        time: z.number().int().positive().optional(),
+        expectedAccountConfigId: z.string().min(1).optional(),
+      }),
+    )
     .query(({ input }) =>
       request(input, async (services, signal) => {
         const detail = await services.webQuery.getQzonePostDetail(
@@ -252,42 +251,42 @@ export const qzoneRouter = router({
   homeMetadata: procedure
     .input(boundTarget)
     .query(({ input }) =>
-      readBound(input, (services, signal) =>
+      request(input, (services, signal) =>
         services.webQuery.qzoneHomeMetadata(input.selfUin, input.hostUin, signal),
       ),
     ),
   blogs: procedure
     .input(boundTarget.extend({ offset: contentOffset }))
     .query(({ input }) =>
-      readBound(input, (services, signal) =>
+      request(input, (services, signal) =>
         services.webQuery.qzoneBlogs(input.hostUin, input.offset, signal),
       ),
     ),
   blog: procedure
     .input(blog)
     .query(({ input }) =>
-      readBound(input, (services, signal) =>
+      request(input, (services, signal) =>
         services.webQuery.qzoneBlog(input.hostUin, input.blogId, signal),
       ),
     ),
   blogComments: procedure
     .input(blog.extend({ offset: contentOffset }))
     .query(({ input }) =>
-      readBound(input, (services, signal) =>
+      request(input, (services, signal) =>
         services.webQuery.qzoneBlogComments(input.hostUin, input.blogId, input.offset, signal),
       ),
     ),
   shares: procedure
     .input(boundTarget.extend({ category, page: pageNumber }))
     .query(({ input }) =>
-      readBound(input, (services, signal) =>
+      request(input, (services, signal) =>
         services.webQuery.qzoneShares(input.hostUin, input.category, input.page, signal),
       ),
     ),
   shareComments: procedure
     .input(boundTarget.extend({ shareId: z.string().regex(/^\d{1,32}$/), page: pageNumber }))
     .query(({ input }) =>
-      readBound(input, (services, signal) =>
+      request(input, (services, signal) =>
         services.webQuery.qzoneShareComments(input.hostUin, input.shareId, input.page, signal),
       ),
     ),
@@ -302,7 +301,7 @@ export const qzoneRouter = router({
       locationKey: 'qzone-shares',
     });
     if (!target) return null;
-    const items = await readBound(input, async (services, signal) => {
+    const items = await request(input, async (services, signal) => {
       const shares = new Map<
         string,
         Awaited<ReturnType<typeof services.webQuery.qzoneShares>>['items'][number]
@@ -338,21 +337,21 @@ export const qzoneRouter = router({
   visitors: procedure
     .input(boundTarget.extend({ page: pageNumber }))
     .query(({ input }) =>
-      readBound(input, (services, signal) =>
+      request(input, (services, signal) =>
         services.webQuery.qzoneVisitors(input.hostUin, input.page, signal),
       ),
     ),
   guestbook: procedure
     .input(boundTarget.extend({ offset: contentOffset }))
     .query(({ input }) =>
-      readBound(input, (services, signal) =>
+      request(input, (services, signal) =>
         services.webQuery.qzoneGuestbook(input.hostUin, input.offset, signal),
       ),
     ),
   videos: procedure
     .input(boundTarget.extend({ offset: contentOffset }))
     .query(({ input }) =>
-      readBound(input, (services, signal) =>
+      request(input, (services, signal) =>
         services.webQuery.qzoneVideos(input.hostUin, input.offset, signal),
       ),
     ),

@@ -1317,37 +1317,16 @@ function LinkedPost({
   onSpace: (uin: string, nickname?: string) => void;
   focusComment?: RelatedComment;
 }) {
-  const { run, cancel } = useQzoneRequests();
   const { active } = useContext(QzonePageContext);
-  const [post, setPost] = useState<QzoneEmotion | null>(null);
-  const [error, setError] = useState('');
-  const [retry, setRetry] = useState(0);
+  const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: active });
+  const configId = config.data?.uin === selfUin ? config.data.configId : '';
+  const { query } = useQzonePostDetail(selfUin, hostUin, tid, configId ?? '', active, false);
+  const post = query.data;
+  const error = config.error ?? query.error;
   const ref = useRef<HTMLDivElement>(null);
-  const shownTid = useRef('');
   useEffect(() => {
-    if (!active) return;
-    let live = true;
-    setError('');
-    setPost((current) => (current?.tid === tid ? current : null));
-    if (shownTid.current !== tid) ref.current?.scrollIntoView({ block: 'start' });
-    shownTid.current = tid;
-    void run(
-      (requestId) => client.account.qzone.detail.query({ selfUin, hostUin, tid, requestId }),
-      true,
-    )
-      .then((result) => {
-        if (!live) return;
-        if (!result.post || result.post.tid !== tid) throw new Error('这条说说不存在或无权查看');
-        setPost(result.post);
-      })
-      .catch((cause) => {
-        if (live) setError(cause instanceof Error ? cause.message : String(cause));
-      });
-    return () => {
-      live = false;
-      cancel();
-    };
-  }, [active, selfUin, hostUin, tid, retry, run, cancel]);
+    if (active) ref.current?.scrollIntoView({ block: 'start' });
+  }, [active, tid]);
   return (
     <div ref={ref} className="weq-qzn-linked-post">
       {post ? (
@@ -1361,10 +1340,10 @@ function LinkedPost({
         />
       ) : error ? (
         <p role="alert">
-          {error}
+          {error instanceof Error ? error.message : '读取说说失败。'}
           <button
             type="button"
-            onClick={() => setRetry((value) => value + 1)}
+            onClick={() => void (configId ? query.refetch() : config.refetch())}
             className="weq-retry-button"
           >
             <RefreshCw size={14} aria-hidden />
@@ -1664,6 +1643,40 @@ function CompletionStatus({
   );
 }
 
+function useQzonePostDetail(
+  selfUin: string,
+  hostUin: string,
+  tid: string,
+  configId: string,
+  enabled: boolean,
+  background: boolean,
+) {
+  const { run } = useQzoneRequests();
+  const queryKey = useMemo(
+    () => ['qzone-home-post', configId, { selfUin, hostUin, tid }] as const,
+    [configId, selfUin, hostUin, tid],
+  );
+  const query = useQuery({
+    queryKey,
+    enabled: enabled && Boolean(configId),
+    refetchOnMount: true,
+    staleTime: 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    queryFn: async ({ queryKey: [, expectedAccountConfigId, input], signal }) => {
+      const value = await run(
+        (requestId) =>
+          client.account.qzone.detail.query({ ...input, requestId, expectedAccountConfigId }),
+        background,
+        signal,
+      );
+      if (value.post?.tid !== input.tid) throw new Error('这条说说不存在或无权查看。');
+      return value.post;
+    },
+  });
+  return { queryKey, query };
+}
+
 function HomePost({
   feed,
   tid,
@@ -1678,32 +1691,11 @@ function HomePost({
   const hostUin = feed.author.uin;
   const ref = useRef<HTMLElement>(null);
   const visible = useNearViewport(ref, false, available);
-  const { run } = useQzoneRequests();
   const queryClient = useQueryClient();
-  const queryKey = useMemo(
-    () => ['qzone-home-post', configId, { selfUin, hostUin, tid }] as const,
-    [configId, selfUin, hostUin, tid],
-  );
   const {
-    data: detail,
-    isError,
-    refetch,
-  } = useQuery({
     queryKey,
-    enabled: visible,
-    staleTime: 60_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    queryFn: async ({ queryKey: [, , input], signal }) => {
-      const value = await run(
-        (requestId) => client.account.qzone.detail.query({ ...input, requestId }),
-        true,
-        signal,
-      );
-      if (value.post?.tid !== input.tid) throw new Error('补全结果与当前说说不匹配。');
-      return value.post;
-    },
-  });
+    query: { data: detail, isError, refetch },
+  } = useQzonePostDetail(selfUin, hostUin, tid, configId, visible, true);
   const wasVisible = useRef(false);
   useEffect(() => {
     if (!visible && wasVisible.current) void queryClient.cancelQueries({ queryKey, exact: true });

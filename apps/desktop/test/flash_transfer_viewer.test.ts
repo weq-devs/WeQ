@@ -16,6 +16,15 @@ const fixture = vi.hoisted(() => ({
     }),
   ),
   list: vi.fn(async (_input: unknown) => [] as unknown[]),
+  directory: vi.fn(async (_input: unknown) => ({
+    files: ['a.txt', 'b.txt'].map((name) => ({
+      name,
+      fileId: name,
+      status: 2,
+      fileSize: 100,
+      isDir: false,
+    })),
+  })),
   background: vi.fn(async (_input: unknown) => true),
   pause: vi.fn(async (_input: unknown) => true),
   toast: vi.fn(),
@@ -42,16 +51,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       flashViewDownloads: { query: fixture.list },
       flashBackgroundDownload: { mutate: fixture.background },
       flashPauseDownloadTask: { mutate: fixture.pause },
-      flashListFiles: {
-        query: async () => ({
-          files: ['a.txt', 'b.txt'].map((name) => ({
-            name,
-            fileId: name,
-            status: 2,
-            fileSize: 100,
-          })),
-        }),
-      },
+      flashListFiles: { query: fixture.directory },
       flashStartDownloads: { mutate: fixture.start },
     },
   },
@@ -170,5 +170,47 @@ it('无可下载文件时不跳转，也不提示创建成功', async () => {
     expect(fixture.toast).toHaveBeenCalledWith({ tone: 'warning', message: '没有可下载的文件' });
   } finally {
     act(() => root.unmount());
+  }
+});
+
+it('返回已读目录立即显示缓存，刷新失败保留旧文件', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const directory = { name: '下级目录', fileId: 'child', status: 2, fileSize: 0, isDir: true };
+  fixture.directory.mockResolvedValueOnce({ files: [directory] });
+  fixture.directory.mockResolvedValueOnce({
+    files: [{ ...directory, name: '子目录文件.txt', fileId: 'child-file', isDir: false }],
+  });
+  let failRefresh!: (error: Error) => void;
+  fixture.directory.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        failRefresh = reject;
+      }),
+  );
+  try {
+    await act(async () =>
+      root.render(
+        h(FlashTransferViewer, {
+          filesetId: 'fixture',
+          title: '合成资料',
+          onClose() {},
+        }),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLElement>('.weq-ft-card')!.click());
+    expect(host.textContent).toContain('子目录文件.txt');
+
+    await act(async () => host.querySelector<HTMLElement>('.weq-ft-crumb-link')!.click());
+    expect(host.textContent).toContain('下级目录');
+    expect(host.textContent).not.toContain('子目录文件.txt');
+    expect(host.querySelector('[aria-label="正在读取文件"]')).toBeNull();
+
+    await act(async () => failRefresh(new Error('目录读取失败')));
+    expect(host.textContent).toContain('目录读取失败');
+    expect(host.textContent).toContain('下级目录');
+  } finally {
+    await act(async () => root.unmount());
   }
 });

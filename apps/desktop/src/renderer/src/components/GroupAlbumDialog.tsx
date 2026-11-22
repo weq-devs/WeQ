@@ -41,6 +41,8 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { resourceForRenderDocument, useRenderDocument } from '../lib/renderDocument';
+import { usePageDataCache } from './PageSnapshots.shared';
+import { PageDataCache } from '../lib/pageDataCache';
 import { GroupResourceNavigation } from './GroupResourceNavigation';
 import '../styles/group-album-browser.css';
 
@@ -168,6 +170,8 @@ function GroupAlbumDialogBody({
     };
   }, [groupCode, binding, initialAlbums, albumRevision, activity.enabled, activity.revision]);
 
+  const [mediaCache] = useState(() => new PageDataCache());
+  const pageCache = usePageDataCache(mediaCache);
   const activeTitle = mediaState.album?.title || '';
   const bodyTitle = mediaState.album ? activeTitle : '群相册';
 
@@ -178,10 +182,12 @@ function GroupAlbumDialogBody({
     mediaController.current = controller;
     const revision = ++run.current;
     if (!mediaState.album) listPosition.current = body.current?.scrollTop ?? 0;
+    const cacheKey = JSON.stringify(['group-album-media', binding, groupCode, album.id]);
+    const cached = pageCache.read<AlbumMediaWire[]>(cacheKey);
     setMediaState((previous) => ({
-      status: 'loading',
+      status: cached !== undefined ? 'ready' : 'loading',
       album,
-      items: previous.album?.id === album.id ? previous.items : [],
+      items: previous.album?.id === album.id ? previous.items : (cached ?? []),
       error: null,
     }));
     try {
@@ -200,6 +206,7 @@ function GroupAlbumDialogBody({
         controller.signal,
       );
       if (!alive.current || revision !== run.current) return;
+      pageCache.write(cacheKey, items);
       setMediaState({ status: 'ready', album, items, error: null });
     } catch (e) {
       if (!alive.current || revision !== run.current) return;

@@ -103,6 +103,7 @@ export interface PagedResult<T> {
 export function usePagedList<T>(
   fetchPage: (offset: number, limit: number) => Promise<{ entries: T[]; total: number }>,
   filterKey: string,
+  refreshKey = 0,
 ): PagedResult<T> {
   const active = useTabActive(),
     revision = useContext(ResourceRevisionContext);
@@ -116,6 +117,8 @@ export function usePagedList<T>(
   const [done, setDone] = useState(false);
 
   const offsetRef = useRef(0);
+  const previousFilter = useRef(filterKey);
+  const reload = useRef(true);
   const loadingRef = useRef(false);
   const doneRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -126,25 +129,38 @@ export function usePagedList<T>(
   fetchRef.current = fetchPage;
 
   const loadMore = useCallback(async (): Promise<void> => {
-    if (!activeRef.current || loadingRef.current || doneRef.current) return;
+    if (!activeRef.current || loadingRef.current || (doneRef.current && !reload.current)) return;
     needed.current = false;
     loadingRef.current = true;
     setLoading(true);
     setError(null);
     const gen = genRef.current;
     try {
-      const page = await fetchRef.current(offsetRef.current, PAGE);
-      if (gen !== genRef.current || !activeRef.current) return;
-      setTotal(page.total);
-      setEntries((prev) => [...prev, ...page.entries]);
-      offsetRef.current += page.entries.length;
-      if (page.entries.length < PAGE || offsetRef.current >= page.total) {
-        doneRef.current = true;
-        setDone(true);
-      }
+      const refresh = reload.current;
+      const through = offsetRef.current;
+      const fetch = fetchRef.current;
+      let offset = refresh ? 0 : through;
+      let total = 0;
+      let exhausted = false;
+      const entries: T[] = [];
+      do {
+        const page = await fetch(offset, PAGE);
+        if (gen !== genRef.current || !activeRef.current) return;
+        entries.push(...page.entries);
+        total = page.total;
+        offset += page.entries.length;
+        exhausted = page.entries.length < PAGE || offset >= total;
+      } while (refresh && offset < through && !exhausted);
+      offsetRef.current = offset;
+      doneRef.current = exhausted;
+      reload.current = false;
+      setTotal(total);
+      setDone(exhausted);
+      setEntries((previous) => (refresh ? entries : [...previous, ...entries]));
     } catch (e) {
       if (gen !== genRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
+      reload.current = false;
       doneRef.current = true;
       setDone(true);
     } finally {
@@ -155,19 +171,23 @@ export function usePagedList<T>(
     }
   }, []);
 
-  // Reset + reload whenever the filter changes.
+  // 同一筛选刷新时保留已显示的范围，切换筛选时重新读取。
   useEffect(() => {
     genRef.current += 1;
-    offsetRef.current = 0;
     loadingRef.current = false;
-    doneRef.current = false;
-    setEntries([]);
-    setTotal(0);
-    setDone(false);
+    if (previousFilter.current !== filterKey) {
+      previousFilter.current = filterKey;
+      offsetRef.current = 0;
+      doneRef.current = false;
+      setEntries([]);
+      setTotal(0);
+      setDone(false);
+    }
+    reload.current = true;
     setError(null);
     needed.current = true;
     void loadMore();
-  }, [filterKey, revision, loadMore]);
+  }, [filterKey, revision, refreshKey, loadMore]);
   useEffect(() => {
     if (active) {
       if (needed.current) void loadMore();
@@ -199,7 +219,7 @@ export function usePagedList<T>(
     return () => io.disconnect();
   }, [active, loadMore, done, entries.length]);
 
-  return { entries, total, loading, error, done, sentinelRef };
+  return { entries, total, loading: loading && !reload.current, error, done, sentinelRef };
 }
 
 // ── cursor-paged infinite scroll (emoji / avatar / media grids) ─────────────────

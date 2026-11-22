@@ -239,11 +239,15 @@ function GroupNoticeActionsBody({
           </div>
         )}
       </div>
-      {notices.isFetching && canManage && (
-        <p role="status" className="weq-content-status">
-          读取在线公告中…
-        </p>
-      )}
+      {notices.isFetching &&
+        canManage &&
+        !notices.data &&
+        !entries.length &&
+        !currentAnnouncement?.trim() && (
+          <p role="status" className="weq-content-status">
+            读取在线公告中…
+          </p>
+        )}
       {notices.error && canManage && (
         <p role="alert" className="weq-content-error">
           {notices.error.message}

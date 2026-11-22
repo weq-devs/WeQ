@@ -3,10 +3,13 @@ import { StrictMode, act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { QzoneBlogs, qzoneBlogTime, useQzoneBlogIndex } from '../src/renderer/src/views/QzoneBlogs';
+import { QzoneMore, useQzoneShareIndex } from '../src/renderer/src/views/QzoneMore';
 import { QzonePageContext } from '../src/renderer/src/views/qzoneShared.shared';
 
 const rpc = vi.hoisted(() => ({
   list: vi.fn(),
+  visitors: vi.fn(),
+  configId: 'live',
   detail: vi.fn(),
   comments: vi.fn(),
   cancel: vi.fn(async () => {}),
@@ -14,13 +17,14 @@ const rpc = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     account: {
-      getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: 'live' } }) },
+      getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: rpc.configId } }) },
     },
   },
   client: {
     account: {
       qzone: {
         blogs: { query: rpc.list },
+        visitors: { query: rpc.visitors },
         blog: { query: rpc.detail },
         blogComments: { query: rpc.comments },
         cancel: { mutate: rpc.cancel },
@@ -179,6 +183,87 @@ it('日志在 StrictMode 和暂停后可读，摘要断行，正文和评论按�
     await act(async () => root.unmount());
     cache.clear();
     host.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('重进访客页时保留同一账号的结果，刷新失败与切换来源分别处理', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const scope = {
+    selfUin: '10001',
+    hostUin: '10002',
+    nickname: '空间主人',
+    onSpace() {},
+  };
+  function Visitors() {
+    const shareIndex = useQzoneShareIndex(scope, 0, { active: false });
+    return h(QzoneMore, { ...scope, pane: 'visitors', shareIndex });
+  }
+  const client = new QueryClient({ logger: { log() {}, warn() {}, error() {} } });
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const render = (refresh: number | null) =>
+    act(async () => {
+      root.render(
+        h(
+          QueryClientProvider,
+          { client },
+          refresh === null
+            ? null
+            : h(QzonePageContext.Provider, { value: { active: true, refresh } }, h(Visitors)),
+        ),
+      );
+    });
+  const flush = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  rpc.visitors.mockResolvedValueOnce({
+    status: 'ok',
+    items: [{ id: 'visitor', uin: '10003', nickname: '已读访客', time: 1600000000 }],
+    next: null,
+  });
+  let failRefresh!: (reason: Error) => void;
+  try {
+    await render(0);
+    await flush();
+    expect(host.textContent).toContain('已读访客');
+
+    await render(null);
+    await render(1);
+    expect(host.textContent).toContain('已读访客');
+    expect(rpc.visitors).toHaveBeenCalledTimes(1);
+
+    rpc.visitors.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failRefresh = reject;
+        }),
+    );
+    await render(2);
+    expect(rpc.visitors).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain('已读访客');
+    expect(host.querySelector('[role="status"]')).toBeNull();
+
+    await act(async () => failRefresh(new Error('访客读取失败')));
+    await flush();
+    expect(host.textContent).toContain('已读访客');
+    expect(host.textContent).toContain('访客读取失败');
+
+    rpc.configId = 'other-source';
+    rpc.visitors.mockResolvedValueOnce({ status: 'ok', items: [], next: null });
+    await render(2);
+    await flush();
+    expect(host.textContent).not.toContain('已读访客');
+    expect(rpc.visitors).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        expectedAccountConfigId: 'other-source',
+      }),
+    );
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    rpc.configId = 'live';
     vi.unstubAllGlobals();
   }
 });

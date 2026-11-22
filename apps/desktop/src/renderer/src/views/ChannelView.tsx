@@ -11,17 +11,19 @@ import { IS_WEB } from '../lib/target.shared';
 import '../styles/channel.css';
 
 export function ChannelView({
+  active = true,
   initialDirectOpen = false,
   onOpenDirect,
 }: {
+  active?: boolean;
   initialDirectOpen?: boolean;
   onOpenDirect: () => void;
 }): ReactElement {
   useEffect(() => {
-    if (initialDirectOpen) onOpenDirect();
-  }, [initialDirectOpen, onOpenDirect]);
+    if (active && initialDirectOpen) onOpenDirect();
+  }, [active, initialDirectOpen, onOpenDirect]);
   return (
-    <section className="weq-channel-workspace" aria-label="QQ 频道">
+    <section className="weq-channel-workspace" aria-label="QQ 频道" hidden={!active}>
       <div className="weq-channel-browser">
         {IS_WEB ? (
           <ExternalSiteView

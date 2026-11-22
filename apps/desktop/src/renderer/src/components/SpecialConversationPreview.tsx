@@ -39,7 +39,13 @@ export interface PreviewProps {
 }
 
 const PAGE_SIZE = 50;
-const queryOptions = { retry: false, cacheTime: 0, refetchOnWindowFocus: false } as const;
+const queryOptions = {
+  retry: false,
+  cacheTime: 60_000,
+  staleTime: 0,
+  refetchOnMount: true,
+  refetchOnWindowFocus: false,
+} as const;
 
 /** 预览只读取记录，不挂载会提交阅读水位的聊天页。 */
 export function SpecialConversationPreview(props: PreviewProps) {

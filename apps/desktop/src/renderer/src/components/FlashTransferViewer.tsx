@@ -18,6 +18,8 @@ import {
   type ReactElement,
   type ComponentProps,
 } from 'react';
+import { usePageDataCache } from './PageSnapshots.shared';
+import { PageDataCache } from '../lib/pageDataCache';
 import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import {
   ArrowLeft,
@@ -168,6 +170,47 @@ const downloadLabel = {
 const activeDownload = (batch: DownloadBatch) =>
   batch.status === 'pending' || batch.status === 'resolving' || batch.status === 'downloading';
 
+type FlashDirectory = Awaited<ReturnType<typeof client.account.flashListFiles.query>>;
+
+function flashDirectoryKey(filesetId: string, parentId: string, zipFileId: string): string {
+  return JSON.stringify(['flash-directory', filesetId, parentId, zipFileId]);
+}
+
+function flashCrumbs(title: string, parentId: string, zipFileId: string): Crumb[] {
+  const root = { name: title || '闪传文件', id: '', zipFileId: '' };
+  return parentId || zipFileId ? [root, { name: '所在目录', id: parentId, zipFileId }] : [root];
+}
+
+function flashDirectoryEntries(
+  result: FlashDirectory,
+  pathCrumbs: Crumb[],
+  filesetId: string,
+  zipFileId: string,
+): FlashEntry[] {
+  const prefix = pathCrumbs
+    .slice(1)
+    .map((c) => c.name)
+    .join('/');
+  const isZipCtx = zipFileId.length > 0;
+  return (result.files ?? []).map((raw) => {
+    const name = raw.name || '未知文件';
+    const path = prefix ? `${prefix}/${name}` : name;
+    const status = isZipCtx ? 2 : Number(raw.status ?? 0);
+    return {
+      name,
+      isDir: raw.isDir === true,
+      fileSize: Number(raw.fileSize ?? 0),
+      fileId: raw.fileId || '',
+      physicalId: raw.physicalId || '',
+      filesetId: raw.filesetId || filesetId,
+      status,
+      path,
+      isZipContent: isZipCtx,
+      zipFileId: isZipCtx ? zipFileId : '',
+    } as FlashEntry;
+  });
+}
+
 export function FlashTransferViewer({
   filesetId,
   title,
@@ -184,10 +227,19 @@ export function FlashTransferViewer({
   const searchRoot = useRef<HTMLDivElement>(null);
   const searchHandled = useRef(false);
   const pushToast = useToast((s) => s.push);
-  const [crumbs, setCrumbs] = useState<Crumb[]>([
-    { name: title || '闪传文件', id: '', zipFileId: '' },
-  ]);
-  const [entries, setEntries] = useState<FlashEntry[]>([]);
+  const [directoryCache] = useState(() => new PageDataCache());
+  const pageCache = usePageDataCache(directoryCache);
+  const listRequest = useRef(0);
+  const parentId = initialTarget?.parentId ?? '';
+  const zipFileId = initialTarget?.zipFileId ?? '';
+  const [crumbs, setCrumbs] = useState(() => flashCrumbs(title, parentId, zipFileId));
+  const [initialDirectory] = useState(() =>
+    pageCache.read<FlashDirectory>(flashDirectoryKey(filesetId, parentId, zipFileId)),
+  );
+  const [entries, setEntries] = useState(() =>
+    initialDirectory ? flashDirectoryEntries(initialDirectory, crumbs, filesetId, zipFileId) : [],
+  );
+  const [hasDirectory, setHasDirectory] = useState(initialDirectory !== undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Map<string, FlashEntry>>(new Map());
@@ -332,30 +384,17 @@ export function FlashTransferViewer({
     async (pathCrumbs: Crumb[], parentId: string, zipFileId: string): Promise<void> => {
       setLoading(true);
       setError(null);
+      const request = ++listRequest.current;
+      const key = flashDirectoryKey(filesetId, parentId, zipFileId);
+      const cached = pageCache.read<FlashDirectory>(key);
+      setEntries(cached ? flashDirectoryEntries(cached, pathCrumbs, filesetId, zipFileId) : []);
+      setHasDirectory(cached !== undefined);
       try {
         const res = await client.account.flashListFiles.query({ filesetId, parentId, zipFileId });
-        const prefix = pathCrumbs
-          .slice(1)
-          .map((c) => c.name)
-          .join('/');
-        const isZipCtx = zipFileId.length > 0;
-        const list = (res.files ?? []).map((raw) => {
-          const name = raw.name || '未知文件';
-          const path = prefix ? `${prefix}/${name}` : name;
-          const status = isZipCtx ? 2 : Number(raw.status ?? 0);
-          return {
-            name,
-            isDir: raw.isDir === true,
-            fileSize: Number(raw.fileSize ?? 0),
-            fileId: raw.fileId || '',
-            physicalId: raw.physicalId || '',
-            filesetId: raw.filesetId || filesetId,
-            status,
-            path,
-            isZipContent: isZipCtx,
-            zipFileId: isZipCtx ? zipFileId : '',
-          } as FlashEntry;
-        });
+        if (listRequest.current !== request) return;
+        const list = flashDirectoryEntries(res, pathCrumbs, filesetId, zipFileId);
+        pageCache.write(key, res);
+        setHasDirectory(true);
         setEntries(list);
         if (
           initialTarget &&
@@ -368,26 +407,24 @@ export function FlashTransferViewer({
           else setError('未找到搜索中的文件，可能已移动或过期；原搜索结果仍保留');
         }
       } catch (e) {
-        setEntries([]);
-        setError(e instanceof Error ? e.message : String(e));
+        if (listRequest.current === request) setError(e instanceof Error ? e.message : String(e));
       } finally {
-        setLoading(false);
+        if (listRequest.current === request) setLoading(false);
       }
     },
-    [filesetId, initialTarget],
+    [filesetId, initialTarget, pageCache],
   );
 
   // 初始加载根目录。
   useEffect(() => {
-    const root = { name: title || '闪传文件', id: '', zipFileId: '' };
-    const parentId = initialTarget?.parentId ?? '',
-      zipFileId = initialTarget?.zipFileId ?? '';
-    const crumbs =
-      parentId || zipFileId ? [root, { name: '所在目录', id: parentId, zipFileId }] : [root];
+    const crumbs = flashCrumbs(title, parentId, zipFileId);
     setCrumbs(crumbs);
     searchHandled.current = false;
     void fetchList(crumbs, parentId, zipFileId);
-  }, [fetchList, title, initialTarget]);
+    return () => {
+      ++listRequest.current;
+    };
+  }, [fetchList, title, parentId, zipFileId]);
   useSearchTargetFocus(
     searchRoot,
     'data-flash-file-id',
@@ -663,7 +700,11 @@ export function FlashTransferViewer({
               <span>全选</span>
             </label>
             <span className="weq-ft-count">
-              {loading ? '读取中' : <NumericText>{`${entries.length} 项`}</NumericText>}
+              {loading && !hasDirectory ? (
+                '读取中'
+              ) : (
+                <NumericText>{`${entries.length} 项`}</NumericText>
+              )}
             </span>
             {current.zipFileId ? (
               <span className="weq-ft-toolbar-hint">正在浏览压缩包内容</span>
@@ -797,11 +838,7 @@ export function FlashTransferViewer({
                 })}
               </section>
             )}
-            {loading ? (
-              <div className="weq-ft-loading">
-                <Loader2 size={22} strokeWidth={1.9} className="weq-spin" aria-hidden />
-              </div>
-            ) : error ? (
+            {error ? (
               <div className="weq-ft-error">
                 <p>加载失败：{error}</p>
                 <button
@@ -813,7 +850,12 @@ export function FlashTransferViewer({
                   重试
                 </button>
               </div>
-            ) : entries.length === 0 ? (
+            ) : null}
+            {loading && !hasDirectory ? (
+              <div className="weq-ft-loading" role="status" aria-label="正在读取文件">
+                <Loader2 size={22} strokeWidth={1.9} className="weq-spin" aria-hidden />
+              </div>
+            ) : !hasDirectory ? null : entries.length === 0 ? (
               <div className="weq-ft-empty">
                 <FolderOpen size={34} strokeWidth={1.5} aria-hidden />
                 <p>这里没有文件</p>

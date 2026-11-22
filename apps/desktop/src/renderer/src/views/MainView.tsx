@@ -2807,6 +2807,12 @@ function MainWorkspace(): ReactElement {
     history: shellHistory,
   });
 
+  const channelActive = shell.view === 'channel' || shell.view === 'guild-direct';
+  const [channelVisited, setChannelVisited] = useState(channelActive);
+  useEffect(() => {
+    if (channelActive) setChannelVisited(true);
+  }, [channelActive]);
+
   const { drafts, updateDraft, clearSentSpeechDraft, syncDraftsFromPending, flushAllDirtyDrafts } =
     useWorkspaceDrafts({
       binding: pinSession.binding,
@@ -10160,6 +10166,18 @@ function MainWorkspace(): ReactElement {
                     onSpaceChange={setCurrentQzoneUin}
                   />
                 ) : null}
+                {channelActive || channelVisited ? (
+                  <ChannelView
+                    key={messageScope}
+                    active={channelActive}
+                    initialDirectOpen={shell.view === 'guild-direct'}
+                    onOpenDirect={() => {
+                      setMobileConversationList(true);
+                      changeConversationView('guild');
+                      shell.switchView('messages');
+                    }}
+                  />
+                ) : null}
                 {assistantVisited ? (
                   <AssistantConversationPane
                     accountScope={messageScope}
@@ -10254,18 +10272,10 @@ function MainWorkspace(): ReactElement {
                         searchTarget={collectionSearchTarget}
                         onClose={() => shell.switchView('messages')}
                       />
-                    ) : shell.view === 'qzone' || shell.view === 'mail' ? null : shell.view ===
-                        'channel' || shell.view === 'guild-direct' ? (
-                      <ChannelView
-                        key={messageScope}
-                        initialDirectOpen={shell.view === 'guild-direct'}
-                        onOpenDirect={() => {
-                          setMobileConversationList(true);
-                          changeConversationView('guild');
-                          shell.switchView('messages');
-                        }}
-                      />
-                    ) : shell.view === 'contacts' && shell.contactNotice === 'friend' ? (
+                    ) : shell.view === 'qzone' ||
+                      shell.view === 'mail' ||
+                      channelActive ? null : shell.view === 'contacts' &&
+                      shell.contactNotice === 'friend' ? (
                       <ContactNoticeDialog
                         open
                         requests={contactRequests}

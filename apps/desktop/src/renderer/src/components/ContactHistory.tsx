@@ -368,9 +368,9 @@ function HistoryQuery({
               </button>
               {selected === row.id ? (
                 <div className="contact-history-detail" data-privacy-sensitive>
-                  {difference.isFetching ? (
+                  {!difference.data && difference.isFetching ? (
                     <p role="status">正在读取版本…</p>
-                  ) : difference.error ? (
+                  ) : !difference.data && difference.error ? (
                     <p role="alert">版本读取失败：{difference.error.message}</p>
                   ) : difference.data ? (
                     <>

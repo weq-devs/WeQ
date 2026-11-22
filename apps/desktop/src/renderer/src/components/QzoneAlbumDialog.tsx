@@ -1,3 +1,5 @@
+import { usePageDataCache } from './PageSnapshots.shared';
+import { PageDataCache } from '../lib/pageDataCache';
 import { NumericText } from './NumericText';
 /**
  * QzoneAlbumDialog — 左栏「更多功能 → 空间相册」查看器（大灯箱卡片）。
@@ -80,6 +82,8 @@ interface QzoneAlbumPhotoWire {
 }
 
 /** Native placeholder IDs are not unique; keep selections tied to the actual media. */
+type AlbumMediaPage = { photos: QzoneAlbumPhotoWire[]; totalInAlbum: number };
+
 function photoKey(photo: QzoneAlbumPhotoWire): string {
   return qzoneAlbumMediaKey(photo);
 }
@@ -245,6 +249,9 @@ export function QzoneAlbumDialog({
   /** 选中的相册：null = 相册列表页。 */
   const [selected, setSelected] = useState<QzoneAlbumWire | null>(null);
   const [media, setMedia] = useState<QzoneAlbumPhotoWire[]>([]);
+  const [hasMedia, setHasMedia] = useState(false);
+  const [mediaCache] = useState(() => new PageDataCache());
+  const pageCache = usePageDataCache(mediaCache);
   const [mediaTotal, setMediaTotal] = useState(0);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaLoadingMore, setMediaLoadingMore] = useState(false);
@@ -261,20 +268,25 @@ export function QzoneAlbumDialog({
     (album: QzoneAlbumWire) => {
       const run = ++runRef.current;
       setSelected(album);
-      mediaLenRef.current = 0;
-      mediaPages.current.clear();
+      const key = JSON.stringify(['qzone-album-media', selfUin, hostUin, album.id]);
+      const cached = pageCache.read<AlbumMediaPage>(key);
+      mediaLenRef.current = cached?.photos.length ?? 0;
+      mediaPages.current = new Set(cached ? [0] : []);
       setMediaLoadingMore(false);
-      setMedia([]);
-      setMediaTotal(0);
+      setHasMedia(Boolean(cached));
+      setMedia(cached?.photos ?? []);
+      setMediaTotal(cached?.totalInAlbum ?? 0);
       setMediaError(null);
       setMediaLoading(true);
       void client.account.qzoneAlbumMedia
         .query({ hostUin, topicId: album.id, pageStart: 0, pageNum: PAGE_NUM })
         .then((res) => {
           if (run !== runRef.current) return;
-          const page = res as { photos: QzoneAlbumPhotoWire[]; totalInAlbum: number } | null;
+          const page = res as AlbumMediaPage | null;
           if (!page || !Array.isArray(page.photos)) throw new Error('未取得相册媒体列表。');
-          const photos = page?.photos ?? [];
+          const photos = page.photos;
+          pageCache.write(key, page);
+          setHasMedia(true);
           mediaPages.current.add(0);
           mediaLenRef.current = photos.length;
           setMedia(photos);
@@ -289,7 +301,7 @@ export function QzoneAlbumDialog({
           setMediaLoading(false);
         });
     },
-    [hostUin],
+    [selfUin, hostUin, pageCache],
   );
 
   useEffect(() => {
@@ -685,7 +697,7 @@ export function QzoneAlbumDialog({
             embedded={embedded}
             photos={media}
             total={mediaTotal}
-            loading={mediaLoading}
+            loading={mediaLoading && !hasMedia}
             loadingMore={mediaLoadingMore}
             error={mediaError}
             hasMore={hasMore}
@@ -1117,20 +1129,21 @@ export function MediaView({
         {embedded && (photos.length > 0 || sharedSelection.selectionMode) ? toolbar : null}
       </div>
       {embedded ? null : toolbar}
-      {loading ? (
-        <MediaGridSkeleton />
-      ) : error ? (
-        <div className="weq-qzal-empty is-error">
+      {error ? (
+        <div className="weq-qzal-empty is-error" role="alert">
           <Inbox size={26} />
           <span>媒体加载失败</span>
           <small>{error}</small>
         </div>
-      ) : photos.length === 0 ? (
+      ) : null}
+      {loading ? (
+        <MediaGridSkeleton />
+      ) : photos.length === 0 && !error ? (
         <div className="weq-qzal-empty">
           <Inbox size={26} />
           <span>这个相册是空的</span>
         </div>
-      ) : (
+      ) : photos.length > 0 ? (
         <>
           <div className="weq-qzal-media-grid" {...rootProps}>
             {photos.map((photo, index) => {
@@ -1219,7 +1232,7 @@ export function MediaView({
             </div>
           ) : null}
         </>
-      )}
+      ) : null}
     </div>
   );
 }
