@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
@@ -105,12 +106,16 @@ function mount(element: Parameters<ReturnType<typeof createRoot>['render']>[0]) 
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  act(() => root.render(element));
+  const client = new QueryClient({ defaultOptions: { queries: { cacheTime: Infinity } } });
+  const render = (node: Parameters<typeof root.render>[0]) =>
+    act(() => root.render(createElement(QueryClientProvider, { client }, node)));
+  render(element);
   return {
     host,
-    render: (element: Parameters<typeof root.render>[0]) => act(() => root.render(element)),
+    render,
     close: () => {
       act(() => root.unmount());
+      client.clear();
       host.remove();
     },
   };
@@ -318,9 +323,9 @@ it('侧滑用的空间预览已有真实栏目和骨架，但不读取动态或�
     f.close();
   }
 });
-it('已在对方空间时，说说头像与昵称一律打开名片', async () => {
+it('空间标签、主人和作者随名称补全更新，说说仍用昵称打开名片', async () => {
   const profile = vi.fn();
-  const f = mount(
+  const view = (remark: string) =>
     createElement(
       QzoneProfileContext.Provider,
       { value: profile },
@@ -328,13 +333,27 @@ it('已在对方空间时，说说头像与昵称一律打开名片', async () =
         selfUin: '10001',
         nickname: '合成自己',
         active: true,
+        localProfiles: new Map([['fixture-friend', { uin: '10002', isFriend: true, remark }]]),
         spaceRequest: { accountUin: '10001', uin: '10002', revision: 'profile-entry' },
       }),
-    ),
-  );
+    );
+  const f = mount(view(''));
+  const tab = () => f.host.querySelector('.weq-qzn-space-title')?.textContent?.trim();
+  const owner = () => f.host.querySelector('.weq-qzn-owner-profile .weq-qzn-name')?.textContent;
+  const author = () =>
+    f.host.querySelector('[data-qzone-tid="a"] .weq-qzn-post-head .weq-qzn-name')?.textContent;
   try {
     await act(async () => {});
+    expect(tab()).toBe('10002 的空间');
+    expect(owner()).toBe('10002');
     await openPosts(f.host);
+    expect(tab()).toBe('合成空间 的空间');
+    expect(owner()).toBe('合成空间');
+    expect(author()).toBe('合成空间');
+    f.render(view('  好友备注  '));
+    expect(tab()).toBe('好友备注 的空间');
+    expect(owner()).toBe('好友备注');
+    expect(author()).toBe('好友备注');
     const buttons = f.host.querySelectorAll<HTMLButtonElement>(
       '[data-qzone-tid="a"] .weq-qzn-post-head button',
     );
@@ -384,43 +403,35 @@ it('空友爱看标签在页面卸载重建后仍能从快照恢复', async () =
 
 it('说说卸载后返回复用已读缓存，不重读头页', async () => {
   vi.stubGlobal('localStorage', new Storage());
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  const host = document.createElement('div');
-  const root = createRoot(host);
-  const render = (show: boolean) =>
-    act(async () =>
-      root.render(
-        createElement(
-          PageSnapshots,
-          { scope: 'posts-revisit' },
-          show
-            ? createElement(QzoneView, {
-                selfUin: '10001',
-                nickname: '合成自己',
-                active: true,
-                spaceRequest: {
-                  accountUin: '10001',
-                  uin: '10001',
-                  revision: 'posts-revisit',
-                  catalog: { section: 'posts' },
-                },
-              })
-            : null,
-        ),
-      ),
+  const page = (show: boolean) =>
+    createElement(
+      PageSnapshots,
+      { scope: 'posts-revisit' },
+      show
+        ? createElement(QzoneView, {
+            selfUin: '10001',
+            nickname: '合成自己',
+            active: true,
+            spaceRequest: {
+              accountUin: '10001',
+              uin: '10001',
+              revision: 'posts-revisit',
+              catalog: { section: 'posts', source: 'fixture' },
+            },
+          })
+        : null,
     );
+  const { host, render, close } = mount(page(true));
   try {
-    await render(true);
     await openPosts(host);
     expect(host.textContent).toContain('fixture-a');
-    await render(false);
-    await render(true);
+    render(page(false));
+    render(page(true));
     await openPosts(host);
     expect(host.textContent).toContain('fixture-a');
     expect(fixture.posts).toHaveBeenCalledTimes(1);
   } finally {
-    act(() => root.unmount());
-    host.remove();
+    close();
   }
 });
 it('空间正文不显示重复按钮，修饰键多选仍可通过顶部导出交出离散 tid', async () => {

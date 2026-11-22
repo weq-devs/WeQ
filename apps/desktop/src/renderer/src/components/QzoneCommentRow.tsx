@@ -1,7 +1,6 @@
 import type { ReactNode, Ref } from 'react';
-import { QzonePersonButton, QzoneProfileAvatar } from './QzoneProfileAvatar';
+import { QzoneName, QzonePersonButton, QzoneProfileAvatar } from './QzoneProfileAvatar';
 import { QqAvatar } from './QqAvatar';
-import { QzoneInlineText } from './QzoneEmoji';
 import { QzoneTime } from './QzoneTime';
 
 export function QzoneCommentRow({
@@ -9,7 +8,6 @@ export function QzoneCommentRow({
   nickname,
   time,
   onSpace,
-  name,
   inline,
   actions,
   afterMeta,
@@ -21,7 +19,6 @@ export function QzoneCommentRow({
   nickname: string;
   time: number | string;
   onSpace: (uin: string, nickname?: string) => void;
-  name?: ReactNode;
   inline?: ReactNode;
   actions?: ReactNode;
   afterMeta?: ReactNode;
@@ -29,11 +26,7 @@ export function QzoneCommentRow({
   rowRef?: Ref<HTMLDivElement>;
   children?: ReactNode;
 }) {
-  const label = name ?? (
-    <span className="weq-qzn-name" data-privacy-sensitive={Boolean(nickname || uin) || undefined}>
-      <QzoneInlineText content={nickname || uin || '空间用户'} />
-    </span>
-  );
+  const label = <QzoneName content={nickname || '空间用户'} uin={uin} />;
   return (
     <div className={className ? `weq-qzn-comment ${className}` : 'weq-qzn-comment'} ref={rowRef}>
       {uin ? (

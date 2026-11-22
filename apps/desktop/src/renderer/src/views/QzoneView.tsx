@@ -45,6 +45,7 @@ import { TabActivity } from '../components/RetainedTabs';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { pageValue } from '../lib/pageSnapshots';
 import {
+  QzoneName,
   QzonePersonIdentity,
   QzonePersonButton,
   QzonePersonHeader,
@@ -120,6 +121,7 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
 import { mergeQzoneHomePost, qzoneHomePostPreview } from '../lib/qzonePublic';
 import { qzoneReplyPresentation } from '../lib/qzoneReplyPresentation';
+import { QzonePeopleContext, qzoneNickname, type QzoneLocalProfile } from '../lib/qzonePeople';
 import {
   projectQzoneRelated,
   qzoneRelatedKey,
@@ -238,6 +240,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   previewOnly = false,
   selfUin,
   nickname,
+  localProfiles,
   spaceRequest,
   onSpaceChange,
 }: {
@@ -246,6 +249,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   previewOnly?: boolean;
   selfUin: string;
   nickname: string;
+  localProfiles?: ReadonlyMap<string, QzoneLocalProfile>;
   spaceRequest?: QzoneSpaceRequest | null;
   onSpaceChange?: (uin: string) => void;
 }) {
@@ -272,6 +276,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
             active={active}
             selfUin={selfUin}
             nickname={nickname}
+            localProfiles={localProfiles}
             spaceRequest={spaceRequest}
             onSpaceChange={onSpaceChange}
             personClickAction={settings.data?.qzonePersonClickAction ?? 'space'}
@@ -282,15 +287,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   ) : null;
 });
 
-type QzonePeople = {
-  names: Record<string, string>;
-  request: (uin: string) => void;
-};
-const QzonePeopleContext = createContext<QzonePeople>({
-  names: {},
-  request: () => {},
-});
-function useQzonePeople(selfUin: string, enabled: boolean): QzonePeople {
+function useQzoneNicknames(selfUin: string, enabled: boolean) {
   const [names, setNames] = useState<Record<string, string>>({});
   const known = useRef(names);
   known.current = names;
@@ -326,7 +323,10 @@ function useQzonePeople(selfUin: string, enabled: boolean): QzonePeople {
           true,
         )
           .then((result) => {
-            if (active.current) setNames((current) => ({ ...current, ...result }));
+            if (!active.current) return;
+            const resolved = Object.entries(result).filter(([id, name]) => qzoneNickname(id, name));
+            if (resolved.length)
+              setNames((current) => ({ ...current, ...Object.fromEntries(resolved) }));
           })
           .catch(() => {
             /* Preserve the supplied display name when a public nickname is unavailable. */
@@ -349,41 +349,6 @@ function useQzonePeople(selfUin: string, enabled: boolean): QzonePeople {
   return useMemo(() => ({ names, request }), [names, request]);
 }
 
-/** Display names may be remarks; the hover title always uses the public nickname. */
-function QzoneName({
-  content,
-  uin,
-  preferNickname = false,
-  freezeLabel = false,
-}: {
-  content: string;
-  uin?: string;
-  preferNickname?: boolean;
-  freezeLabel?: boolean;
-}) {
-  const people = useContext(QzonePeopleContext);
-  useEffect(() => {
-    if (uin) people.request(uin);
-  }, [uin, people.request]);
-  const nickname = uin ? people.names[uin] : undefined;
-  const label =
-    !freezeLabel && nickname && (preferNickname || !content || content === uin)
-      ? nickname
-      : content;
-  const plainNickname = nickname ? qzonePlainText(nickname) : '';
-  return (
-    <span
-      className="weq-qzn-name"
-      title={uin ? (plainNickname ? `${plainNickname} (${uin})` : `QQ ${uin}`) : undefined}
-      onMouseEnter={() => {
-        if (uin) people.request(uin);
-      }}
-    >
-      <QzoneInlineText content={label} />
-    </span>
-  );
-}
-
 function QzoneText({
   content,
   onSpace,
@@ -402,7 +367,9 @@ function QzoneText({
             nickname={part.text.slice(1)}
             onSpace={onSpace}
           >
-            <QzoneName content={part.text} uin={part.uin} />
+            <span className="weq-qzn-name">
+              <QzoneInlineText content={part.text} />
+            </span>
           </QzonePersonButton>
         ) : part.kind === 'emoji' ? (
           <QzoneEmoji key={`${part.offset}:${part.code}`} code={part.code} />
@@ -417,6 +384,7 @@ function QzoneText({
 export function QzoneView({
   selfUin,
   nickname,
+  localProfiles,
   active = true,
   loadingPreview = false,
   spaceRequest,
@@ -425,6 +393,7 @@ export function QzoneView({
 }: {
   selfUin: string;
   nickname: string;
+  localProfiles?: ReadonlyMap<string, QzoneLocalProfile>;
   active?: boolean;
   loadingPreview?: boolean;
   spaceRequest?: QzoneSpaceRequest | null;
@@ -434,7 +403,7 @@ export function QzoneView({
 }): ReactElement {
   const readsEnabled = useContext(QzoneReadsEnabled);
   const activity = useQQReadActivity(active && readsEnabled);
-  const people = useQzonePeople(selfUin, activity.enabled);
+  const { names, request } = useQzoneNicknames(selfUin, activity.enabled);
   const initialSpace = spaceRequest?.accountUin === selfUin ? spaceRequest : null;
   const initialSection = initialSpace ? requestedOwnerTab(initialSpace) : null;
   const initialTab =
@@ -479,10 +448,31 @@ export function QzoneView({
   );
   const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
   const rememberOwnerName = useCallback((uin: string, name: string) => {
-    const value = name.trim();
-    if (!value || value === uin) return;
+    const value = qzoneNickname(uin, name);
+    if (!value) return;
     setOwnerNames((current) => (current[uin] === value ? current : { ...current, [uin]: value }));
   }, []);
+  const profilesByUin = useMemo(() => {
+    const profiles = new Map<string, QzoneLocalProfile>();
+    for (const profile of localProfiles?.values() ?? []) profiles.set(profile.uin, profile);
+    return profiles;
+  }, [localProfiles]);
+  const people = useMemo(
+    () => ({
+      nickname: (uin: string, fallback?: string) =>
+        (uin === selfUin ? qzoneNickname(uin, nickname) : '') ||
+        qzoneNickname(uin, profilesByUin.get(uin)?.nick) ||
+        qzoneNickname(uin, ownerNames[uin]) ||
+        qzoneNickname(uin, names[uin]) ||
+        qzoneNickname(uin, fallback),
+      remark: (uin: string) => {
+        const profile = profilesByUin.get(uin);
+        return uin !== selfUin && profile?.isFriend ? qzoneNickname(uin, profile.remark) : '';
+      },
+      request,
+    }),
+    [selfUin, nickname, profilesByUin, ownerNames, names, request],
+  );
   const [albumRequests, setAlbumRequests] = useState<Record<string, QzoneAlbumRequest>>({});
   const [postRequests, setPostRequests] = usePageState(
     'linked-posts',
@@ -490,8 +480,8 @@ export function QzoneView({
     linkedPostRequestsSchema,
   );
   const rememberSpaceName = useCallback((uin: string, name: string) => {
-    const value = name.trim();
-    if (!value || value === uin) return;
+    const value = qzoneNickname(uin, name);
+    if (!value) return;
     setSpaceNames((current) =>
       current[uin] && current[uin] !== uin ? current : { ...current, [uin]: value },
     );
@@ -516,6 +506,12 @@ export function QzoneView({
   useEffect(() => {
     setVisited((current) => (current.includes(tab) ? current : [...current, tab]));
   }, [tab]);
+  const spaceNickname = (uin: string) =>
+    people.nickname(uin, spaceNames[uin] || postRequests[uin]?.nickname) || uin;
+  const activeTabName =
+    tab === 'space' || tab === 'person-posts'
+      ? people.remark(hostUin) || spaceNickname(hostUin)
+      : '';
   useLayoutEffect(() => {
     const bar = tabBar.current;
     const selected = bar?.querySelector<HTMLElement>('[aria-current="page"]');
@@ -525,7 +521,7 @@ export function QzoneView({
     const target = item.getBoundingClientRect();
     if (target.left < bounds.left) bar.scrollLeft += target.left - bounds.left;
     else if (target.right > bounds.right) bar.scrollLeft += target.right - bounds.right;
-  }, [tab, hostUin]);
+  }, [tab, hostUin, activeTabName]);
   const refreshPage = (key: string) =>
     setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   const [compose, setCompose] = useState(false);
@@ -562,8 +558,7 @@ export function QzoneView({
         );
         navigationBacks.current.push(remove);
       }
-      const firstName = name || people.names[value] || value;
-      rememberSpaceName(value, firstName);
+      if (name) rememberSpaceName(value, name);
       setHostUin(value);
       if (nextTab !== 'posts') {
         const setOwners = nextTab === 'person-posts' ? setPostOwners : setSpaces;
@@ -572,17 +567,7 @@ export function QzoneView({
       setTab(nextTab);
       return true;
     },
-    [
-      selfUin,
-      hostUin,
-      tab,
-      people.names,
-      rememberSpaceName,
-      setTab,
-      setSpaces,
-      setPostOwners,
-      setHostUin,
-    ],
+    [selfUin, hostUin, tab, rememberSpaceName, setTab, setSpaces, setPostOwners, setHostUin],
   );
   useEffect(() => {
     if (
@@ -641,8 +626,6 @@ export function QzoneView({
   ]);
   const currentOwner = tab === 'space' || tab === 'person-posts' ? hostUin : selfUin;
   const linkedTid = tab === 'person-posts' ? postRequests[hostUin]?.tid : undefined;
-  const linkedAuthorName = (uin: string) =>
-    spaceNames[uin] || postRequests[uin]?.nickname || ownerNames[uin] || people.names[uin] || uin;
   const closeOwnerTab = (section: OwnerTab, uin: string) => {
     if (section === 'space') {
       setSpaces((current) => current.filter((value) => value !== uin));
@@ -756,7 +739,8 @@ export function QzoneView({
             {(['space', 'person-posts'] as const).flatMap((section) =>
               (section === 'space' ? spaces : postOwners).map((uin) => {
                 const postsOnly = section === 'person-posts';
-                const name = postsOnly ? linkedAuthorName(uin) : spaceNames[uin] || uin;
+                const name = spaceNickname(uin);
+                const label = people.remark(uin) || name;
                 const ownPosts = postsOnly && uin === selfUin;
                 const suffix = postsOnly ? '的说说' : '的空间';
                 return (
@@ -775,7 +759,7 @@ export function QzoneView({
                           '我的说说'
                         ) : (
                           <>
-                            <QzoneName content={name} uin={uin} freezeLabel /> {suffix}
+                            <QzoneName content={name} uin={uin} /> {suffix}
                           </>
                         )}
                       </span>
@@ -783,7 +767,7 @@ export function QzoneView({
                     <button
                       type="button"
                       aria-label={
-                        ownPosts ? '关闭我的说说' : `关闭 ${qzonePlainText(name)} ${suffix}`
+                        ownPosts ? '关闭我的说说' : `关闭 ${qzonePlainText(label)} ${suffix}`
                       }
                       onClick={() => closeOwnerTab(section, uin)}
                     >
@@ -894,8 +878,7 @@ export function QzoneView({
             refreshKey={refreshes[`space:${uin}`] ?? 0}
             selfUin={selfUin}
             hostUin={uin}
-            nickname={spaceNames[uin] || uin}
-            ownerNickname={ownerNames[uin]}
+            nickname={spaceNickname(uin)}
             albumRequest={albumRequests[uin]}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
@@ -903,7 +886,7 @@ export function QzoneView({
         ))}
         {postOwners.map((uin) => {
           const request = postRequests[uin];
-          const ownerName = uin === selfUin ? nickname : linkedAuthorName(uin);
+          const ownerName = spaceNickname(uin);
           const commentText =
             initialSpace?.revision === request?.revision && initialSpace?.target?.kind === 'post'
               ? initialSpace.target.commentText
@@ -1017,7 +1000,6 @@ function SpaceContent({
   selfUin,
   hostUin,
   nickname,
-  ownerNickname,
   albumRequest,
   publication = null,
   onSpace,
@@ -1028,14 +1010,12 @@ function SpaceContent({
   selfUin: string;
   hostUin: string;
   nickname: string;
-  ownerNickname?: string;
   albumRequest?: QzoneAlbumRequest;
   publication?: QzonePublication | null;
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
   const openProfile = useContext(QzoneProfileContext);
-  const [ownerLabel] = useState(nickname || hostUin);
   const handledAlbum = useRef<string | null>(null);
   type Pane = 'home' | 'posts' | 'blogs' | 'albums' | QzoneMorePane;
   const [pane, setPane] = useState<Pane>(publication ? 'posts' : 'home');
@@ -1158,9 +1138,7 @@ function SpaceContent({
         ))}
         {openProfile ? (
           <div className="weq-qzn-owner-profile">
-            <QzonePersonIdentity uin={hostUin} nickname={ownerLabel} onSpace={onSpace} size={24}>
-              <QzoneName content={ownerLabel} uin={hostUin} freezeLabel />
-            </QzonePersonIdentity>
+            <QzonePersonIdentity uin={hostUin} nickname={nickname} onSpace={onSpace} size={24} />
           </div>
         ) : null}
       </nav>
@@ -1172,7 +1150,8 @@ function SpaceContent({
           onSpace={onSpace}
           PostCard={HomePost}
           blogIndex={blogIndex}
-          nickname={ownerNickname || nickname}
+          nickname={nickname}
+          onOwnerNickname={onOwnerNickname}
           deletedPosts={deletedPosts}
           onDeleted={onDeleted}
         />
@@ -1187,7 +1166,7 @@ function SpaceContent({
           <Posts
             selfUin={selfUin}
             hostUin={hostUin}
-            nickname={ownerNickname || nickname}
+            nickname={nickname}
             onSpace={onSpace}
             onOwnerNickname={onOwnerNickname}
             publishedPost={publication?.post}
@@ -1197,12 +1176,7 @@ function SpaceContent({
         </div>
       </QzonePage>
       <QzonePage active={active && pane === 'blogs'} refreshKey={refreshes.blogs ?? 0}>
-        <QzoneBlogs
-          key={hostUin}
-          index={blogIndex}
-          nickname={ownerNickname || nickname}
-          onSpace={onSpace}
-        />
+        <QzoneBlogs key={hostUin} index={blogIndex} nickname={nickname} onSpace={onSpace} />
       </QzonePage>
       {(Object.keys(moreSpacePanes) as QzoneMorePane[]).map((key) => (
         <QzonePage key={key} active={active && pane === key} refreshKey={refreshes[key] ?? 0}>
@@ -1210,7 +1184,7 @@ function SpaceContent({
             pane={key}
             selfUin={selfUin}
             hostUin={hostUin}
-            nickname={ownerNickname || nickname}
+            nickname={nickname}
             onSpace={onSpace}
           />
         </QzonePage>
@@ -1881,9 +1855,7 @@ function Post({
               {tag}
             </div>
           }
-        >
-          <QzoneName content={nickname} uin={hostUin} />
-        </QzonePersonHeader>
+        />
         {menu ? <div className="weq-qzn-post-tools">{menu}</div> : null}
       </div>
       {post.content.trim() ? (
@@ -1973,12 +1945,7 @@ function Repost({
               {tag}
             </div>
           }
-        >
-          <QzoneName
-            content={original.nickname || original.uin || '原作者'}
-            uin={validUin ? original.uin : undefined}
-          />
-        </QzonePersonHeader>
+        />
         {menu ? <div className="weq-qzn-post-tools">{menu}</div> : null}
       </div>
       {original.content.trim() ? (
@@ -2345,9 +2312,7 @@ function PostActionsBody({
             size={34}
             onSpace={onSpace}
             time={<QzoneTime value={post.time} />}
-          >
-            <QzoneName content={hostUin} uin={hostUin} />
-          </QzonePersonHeader>
+          />
           <p className="weq-qzn-content">
             <QzoneText content={post.content ?? ''} onSpace={onSpace} />
           </p>
@@ -2360,12 +2325,7 @@ function PostActionsBody({
                 size={26}
                 onSpace={onSpace}
                 time={<QzoneTime value={post.repost.timeLabel} />}
-              >
-                <QzoneName
-                  content={post.repost.nickname || post.repost.uin}
-                  uin={post.repost.uin}
-                />
-              </QzonePersonHeader>
+              />
               <p className="weq-qzn-content">
                 <QzoneText content={post.repost.content} onSpace={onSpace} />
               </p>
@@ -2684,9 +2644,7 @@ function Interaction({
                 nickname={like.nickname}
                 onSpace={onSpace}
                 size={20}
-              >
-                <QzoneName content={like.nickname || like.uin} uin={like.uin} preferNickname />
-              </QzonePersonIdentity>
+              />
             </span>
           ))}
         </div>
@@ -2726,7 +2684,6 @@ function Interaction({
         nickname={comment.nickname}
         time={comment.time}
         onSpace={onSpace}
-        name={<QzoneName content={comment.nickname || comment.uin} uin={comment.uin} />}
         className={`${comment.isReply ? 'is-reply' : ''}${focusedComment?.id === comment.id ? ' is-notification-target' : ''}`.trim()}
         rowRef={focusedComment?.id === comment.id ? focusRef : undefined}
         inline={
@@ -3656,9 +3613,7 @@ function RelatedCard({
                 nickname={activity.actorName}
                 onSpace={onSpace}
               >
-                <span className="weq-qzn-name">
-                  <QzoneInlineText content={activity.actorName || activity.actorUin} />
-                </span>
+                <QzoneName content={activity.actorName} uin={activity.actorUin} />
               </QzonePersonButton>
             ) : null}
             <span title={relatedActionLine(activity)}>{relatedActionLine(activity)}</span>
@@ -3819,9 +3774,7 @@ function FeedCard({
               {tag}
             </div>
           }
-        >
-          <QzoneName content={feed.nickname || String(feed.uin)} uin={String(feed.uin)} />
-        </QzonePersonHeader>
+        />
         <span className="weq-qzn-feed-kind">
           {(
             { 311: '说说', 2: '日志', 4: '相册', 202: '分享', 216: '动态' } as Record<

@@ -55,10 +55,12 @@ export function QzoneHomeOverview({
   binding,
   hostUin,
   blogCount,
+  onOwnerNickname,
 }: {
   binding: QQWriteBinding;
   hostUin: string;
   blogCount?: number;
+  onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
   const [dialog, setDialog] = useState<'personal' | 'edit' | null>(null);
@@ -88,6 +90,10 @@ export function QzoneHomeOverview({
       ),
   });
   const profileData = profile.data;
+  const ownerNick = profileData?.personal.nickname;
+  useEffect(() => {
+    if (ownerNick) onOwnerNickname(hostUin, ownerNick);
+  }, [hostUin, ownerNick, onOwnerNickname]);
   const data = metadata.data;
   const counts = [
     ['累计访问', data?.totalCount],

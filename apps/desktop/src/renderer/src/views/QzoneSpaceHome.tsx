@@ -1,4 +1,4 @@
-import { useContext, useMemo, useState, type ComponentType } from 'react';
+import { useContext, useEffect, useMemo, useState, type ComponentType } from 'react';
 import { Eye, MessageCircle, Repeat2, ThumbsUp } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import {
@@ -31,6 +31,7 @@ import {
 import { QzoneAutoPage } from './QzonePagination';
 import { QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext } from './qzoneShared.shared';
+import { qzoneNickname } from '../lib/qzonePeople';
 
 function FeedContent({ feed }: { feed: PublicFeedView }) {
   const { type, title, href } = projectQzoneHomeFeed(feed);
@@ -275,6 +276,7 @@ export function QzoneSpaceHome({
   PostCard,
   blogIndex,
   nickname,
+  onOwnerNickname,
   deletedPosts,
   onDeleted,
 }: {
@@ -284,6 +286,7 @@ export function QzoneSpaceHome({
   PostCard: ComponentType<QzoneHomePostProps>;
   blogIndex: QzoneBlogIndex;
   nickname: string;
+  onOwnerNickname: (uin: string, nickname: string) => void;
   deletedPosts: ReadonlySet<string>;
   onDeleted: (tid: string) => void;
 }) {
@@ -309,6 +312,12 @@ export function QzoneSpaceHome({
     () => homeRows(query.data?.pages ?? [], blogIndex.items, hostUin, deletedPosts),
     [query.data?.pages, blogIndex.items, hostUin, deletedPosts],
   );
+  const ownerNick = rows.find(
+    ([, { feed }]) => feed?.author.uin === hostUin && qzoneNickname(hostUin, feed.author.nick),
+  )?.[1].feed?.author.nick;
+  useEffect(() => {
+    if (ownerNick) onOwnerNickname(hostUin, ownerNick);
+  }, [hostUin, ownerNick, onOwnerNickname]);
   const selectableIds = useMemo(
     () =>
       rows.flatMap(([, row]) =>
@@ -345,6 +354,7 @@ export function QzoneSpaceHome({
           binding={binding}
           hostUin={hostUin}
           blogCount={blogIndex.total}
+          onOwnerNickname={onOwnerNickname}
         />
       ) : null}
       {!rows.length ? (
@@ -381,7 +391,7 @@ export function QzoneSpaceHome({
                 key={key}
                 blog={blog}
                 input={feed ? { ...blogIndex.input, hostUin: feed.author.uin } : blogIndex.input}
-                nickname={feed?.author.nick || nickname}
+                nickname={feed ? feed.author.nick : nickname}
                 onSpace={onSpace}
                 timeline={{
                   time: feed?.time ?? 0,

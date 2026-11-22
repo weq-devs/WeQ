@@ -10154,6 +10154,7 @@ function MainWorkspace(): ReactElement {
                     readEnabled={qzonePageReady}
                     selfUin={user.identityValue}
                     nickname={user.displayName}
+                    localProfiles={profileByUid}
                     spaceRequest={scopedQzoneRequest(qzoneSpaceRequest, messageScope)}
                     onSpaceChange={setCurrentQzoneUin}
                   />

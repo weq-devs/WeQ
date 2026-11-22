@@ -1,12 +1,34 @@
 import { ProfileChatShortcutContext } from '../lib/chatNavigation';
 import { activateProfile } from '../lib/profileClick';
-import { useContext, type ReactNode, type CSSProperties } from 'react';
+import { useContext, useEffect, type ReactNode, type CSSProperties } from 'react';
 import { QzoneProfileContext, QzonePersonContext } from '../lib/qzoneNavigation';
 import { profileTargetUser } from '../lib/profileNavigation';
 import { qzonePlainText } from '../lib/qzone';
+import { QzonePeopleContext } from '../lib/qzonePeople';
 import { QqAvatar } from './QqAvatar';
 import { QzoneInlineText } from './QzoneEmoji';
 import '../styles/identity-links.css';
+
+export function QzoneName({ content, uin }: { content: string; uin?: string | null }) {
+  const { nickname, remark, request } = useContext(QzonePeopleContext);
+  const nick = uin ? nickname(uin, content) : '';
+  const alias = uin ? remark(uin) : '';
+  useEffect(() => {
+    if (uin && !nick && !alias) request(uin);
+  }, [uin, nick, alias, request]);
+  const title = qzonePlainText(nick);
+  return (
+    <span
+      className="weq-qzn-name"
+      title={uin ? (title ? `${title} (${uin})` : `QQ ${uin}`) : undefined}
+      onMouseEnter={() => {
+        if (uin && !nick) request(uin);
+      }}
+    >
+      <QzoneInlineText content={alias || nick || uin || content} />
+    </span>
+  );
+}
 
 /** 昵称与头像共用设置，当前空间主人始终打开名片。 */
 export function QzonePersonButton({
@@ -27,9 +49,11 @@ export function QzonePersonButton({
   const openProfile = useContext(QzoneProfileContext);
   const chatShortcut = useContext(ProfileChatShortcutContext);
   const context = useContext(QzonePersonContext);
+  const people = useContext(QzonePeopleContext);
   const showProfile = context.spaceUin === uin || context.action === 'profile';
   const openSpace = onSpace ?? context.onSpace;
-  const label = qzonePlainText(nickname || uin);
+  const nick = people.nickname(uin, nickname);
+  const label = qzonePlainText(people.remark(uin) || nick || uin);
   return (
     <button
       type="button"
@@ -46,14 +70,14 @@ export function QzonePersonButton({
             event.detail === 0
               ? { x: rect.right, y: rect.bottom }
               : { x: event.clientX, y: event.clientY };
-          const user = profileTargetUser({ identity: uin, name: nickname || uin });
+          const user = profileTargetUser({ identity: uin, name: nick || uin });
           activateProfile(
             event,
-            () => openProfile?.(uin, nickname || uin, anchor),
+            () => openProfile?.(uin, nick || uin, anchor),
             user && chatShortcut ? chatShortcut({ kind: 'direct', user }) : undefined,
             uin,
           );
-        } else openSpace?.(uin, nickname);
+        } else openSpace?.(uin, nick || nickname);
       }}
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
@@ -93,11 +117,7 @@ export function QzonePersonHeader({
       <div className="weq-qzn-person-info">
         {uin ? (
           <QzonePersonButton uin={uin} nickname={nickname} onSpace={onSpace}>
-            {children ?? (
-              <span className="weq-qzn-name">
-                <QzoneInlineText content={nickname} />
-              </span>
-            )}
+            {children ?? <QzoneName content={nickname} uin={uin} />}
           </QzonePersonButton>
         ) : (
           <span className="weq-qzn-name">{children ?? <QzoneInlineText content={nickname} />}</span>
@@ -133,11 +153,7 @@ export function QzonePersonIdentity({
       className={`weq-qzn-identity-link ${className}`}
     >
       <QqAvatar uin={uin} url={url} size={size} />
-      {children ?? (
-        <span className="weq-qzn-name">
-          <QzoneInlineText content={nickname || uin} />
-        </span>
-      )}
+      {children ?? <QzoneName content={nickname || uin} uin={uin} />}
     </QzonePersonButton>
   );
 }
