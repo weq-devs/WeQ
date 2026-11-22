@@ -1028,7 +1028,15 @@ export const bootstrapRouter = router({
     const connected =
       status.running &&
       (liveAccount ? status.accounts.includes(accountUin) : status.accounts.length > 0);
-    return { ...status, accountUin, connectionExpected, connected, tasks: sync?.status() ?? null };
+    const connecting = status.running && status.connecting === true && status.accounts.length === 0;
+    return {
+      ...status,
+      accountUin,
+      connectionExpected,
+      connected,
+      connecting,
+      tasks: sync?.status() ?? null,
+    };
   }),
 
   setQqProxyIndicatorEnabled: procedure

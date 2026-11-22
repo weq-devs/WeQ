@@ -87,6 +87,7 @@ it('切换端口保留已建立的隧道，端口占用或保存失败时保留�
   const proxy = new QqSyncProxy();
   proxies.push(proxy);
   const originalPort = await proxy.start(0);
+  expect(proxy.status().connecting).toBe(false);
 
   async function tunnel(port: number) {
     const client = connect(port, '127.0.0.1');
@@ -108,6 +109,10 @@ it('切换端口保留已建立的隧道，端口占用或保存失败时保留�
     }),
   ).rejects.toThrow('配置写入失败');
   const original = await tunnel(originalPort);
+  expect(proxy.status().connecting).toBe(true);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 16_000);
+  expect(proxy.status().connecting).toBe(false);
+  clock.mockRestore();
 
   const nextPort = await proxy.start(0, persist);
   expect(persist).toHaveBeenCalledOnce();

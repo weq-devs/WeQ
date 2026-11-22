@@ -44,6 +44,7 @@ import { FullFunctionSetup } from './FullFunctionSetup';
 import { NotificationMethodSelect } from './NotificationMethodSelect';
 import { CopyButton } from '../CopyButton';
 import { QqProxyRecovery } from '../QqProxyConnection';
+import { QQ_PROXY_CONNECTING, qqProxySetupGuide } from '../QqProxyConnection.shared';
 import { formatExpiry } from './AccountBasicsSection.shared';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
@@ -184,7 +185,7 @@ export function AccountBasicsSection({
       pushToast({
         tone: 'success',
         title: 'QQ 代理端口已更新',
-        message: `请在 QQ 登录页填写端口 ${port}，然后重新连接。`,
+        message: `请到 QQ 登录窗口的「网络设置」更新端口为 ${port}，再登录。`,
       });
     },
     onError: (error) => showError('更改 QQ 代理端口失败', error.message),
@@ -197,9 +198,11 @@ export function AccountBasicsSection({
       ? '正在检查代理'
       : proxy.connected
         ? 'QQ 已连接代理'
-        : proxy.running
-          ? 'QQ 代理未连接'
-          : proxy.error || '本机代理尚未启动';
+        : proxy.connecting
+          ? QQ_PROXY_CONNECTING
+          : proxy.running
+            ? 'QQ 代理未连接'
+            : proxy.error || '本机代理尚未启动';
   const syncTasks = settings.data?.qqClientSyncEnabled ? proxy?.tasks : null;
   const taskError = syncTasks?.error;
   const proxyStatusDetails = [
@@ -718,11 +721,7 @@ export function AccountBasicsSection({
             />
             <Row
               label="代理端口"
-              desc={
-                qqSyncPort === undefined
-                  ? '在 QQ 登录页使用 HTTP 代理，地址为 127.0.0.1。'
-                  : `在 QQ 登录页选择 HTTP 代理，地址填 127.0.0.1，端口填 ${qqSyncPort}，用户名和密码留空。改端口后需在 QQ 中更新并重新登录。`
-              }
+              desc={qqProxySetupGuide(qqSyncPort)}
               control={
                 <form
                   className="weq-set-btn-group"

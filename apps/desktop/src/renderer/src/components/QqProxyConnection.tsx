@@ -1,6 +1,6 @@
 import { useCallback, useContext, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, Network, Play, X } from 'lucide-react';
+import { ChevronRight, LoaderCircle, Network, Play, X } from 'lucide-react';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useRenderDocument } from '../lib/renderDocument';
@@ -8,6 +8,7 @@ import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { useViewState } from '../state/view';
 import { trpc } from '../trpc/client';
+import { QQ_PROXY_CONNECTING, qqProxySetupGuide } from './QqProxyConnection.shared';
 import { useTabActive } from './RetainedTabs.shared';
 import { SettingsNavigateContext } from './settings/controls.shared';
 import '../styles/restricted-mode.css';
@@ -115,10 +116,12 @@ const DISCONNECTED = 'QQ 代理未连接';
 function DisconnectedIndicator({
   port,
   error,
+  connecting,
   onLaunch,
 }: {
   port: number;
   error: string;
+  connecting: boolean;
   onLaunch: () => void;
 }) {
   const document = useRenderDocument();
@@ -131,21 +134,26 @@ function DisconnectedIndicator({
   useSurfaceEscape(panel, close, open, false);
   useSurfaceOutside(panel, close, open, { anchor: trigger.current, consume: false });
 
+  const title = connecting ? QQ_PROXY_CONNECTING : DISCONNECTED;
+  const Icon = connecting ? LoaderCircle : Network;
+  const animation = connecting ? 'weq-restricted-progress-icon' : undefined;
+  const tone = connecting ? ' is-entering' : '';
   return (
     <div className="weq-titlebar-restriction">
       <div>
         <button
           ref={trigger}
           type="button"
-          className="weq-restricted-indicator"
-          title={DISCONNECTED}
-          aria-label={DISCONNECTED}
+          className={`weq-restricted-indicator${tone}`}
+          title={title}
+          aria-label={title}
+          aria-busy={connecting}
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >
-          <Network size={15} aria-hidden />
-          <span>{DISCONNECTED}</span>
+          <Icon size={15} className={animation} aria-hidden />
+          <span>{title}</span>
         </button>
       </div>
       {open &&
@@ -154,13 +162,13 @@ function DisconnectedIndicator({
             ref={panel}
             role="dialog"
             aria-labelledby={titleId}
-            className="weq-restricted-panel"
+            className={`weq-restricted-panel${tone}`}
             style={{ zIndex: layer }}
           >
             <header>
               <h2 id={titleId}>
-                <Network size={18} aria-hidden />
-                {DISCONNECTED}
+                <Icon size={18} className={animation} aria-hidden />
+                {title}
               </h2>
               <button
                 type="button"
@@ -174,7 +182,7 @@ function DisconnectedIndicator({
             </header>
             <div className="weq-restricted-body">
               {error && <p role="status">{error}</p>}
-              <p>{`在 QQ 登录页选择 HTTP 代理，地址填 127.0.0.1，端口填 ${port}，用户名和密码留空，然后重新登录。`}</p>
+              <p>{qqProxySetupGuide(port)}</p>
               <QqProxyRecovery onLaunch={onLaunch} beforeOpenSettings={close} />
             </div>
           </section>,
@@ -210,6 +218,7 @@ export function QqProxyIndicator() {
       key={uin}
       port={data.port}
       error={data.error}
+      connecting={data.connecting === true}
       onLaunch={() => void status.refetch()}
     />
   );

@@ -24,6 +24,7 @@ function waitingProxy() {
     accountUin: '10001',
     connectionExpected: true,
     connected: false,
+    connecting: false,
     running: true,
     port: 19082,
     error: '',
@@ -163,7 +164,18 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   expect(card.querySelector('[role="status"]')?.textContent).toBe('QQ 代理未连接 · 待同步 7 项');
   act(() => indicator()?.click());
   const panel = document.querySelector<HTMLElement>('.weq-restricted-panel')!;
-  expect(panel.textContent).toContain('端口填 19082');
+  mock.proxyStatus = { ...waitingProxy(), connecting: true };
+  f.render();
+  const progress = f.host.querySelector<HTMLButtonElement>(
+    'button[aria-label="正在确认 QQ 代理连接"]',
+  );
+  expect(progress?.getAttribute('aria-busy')).toBe('true');
+  expect(panel.querySelector('h2')?.textContent).toBe('正在确认 QQ 代理连接');
+  expect(card.querySelector('[role="status"]')?.textContent).toBe(
+    '正在确认 QQ 代理连接 · 待同步 7 项',
+  );
+  mock.proxyStatus = waitingProxy();
+  f.render();
   const action = (surface: HTMLElement, label: string) =>
     [...surface.querySelectorAll('button')].find((button) => button.textContent === label);
   for (const surface of [panel, card]) {

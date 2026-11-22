@@ -32,12 +32,15 @@ interface Tunnel {
   id: number;
   client: Socket;
   upstream?: Socket;
+  connectRequestedAt?: number;
   framer: FrameBuffer;
   template?: Template;
   waiting: Set<() => void>;
   filtering?: boolean;
   fragmentTimer?: ReturnType<typeof setTimeout>;
 }
+
+const CONNECT_TIMEOUT_MS = 15_000;
 
 /** 登录前导字节透传，已识别的完整 MSF 帧供解密和边界判断。 */
 export class FrameBuffer {
@@ -136,12 +139,18 @@ export class QqSyncProxy {
       if (tunnel.template?.outer.uin === uin) tunnel.template = undefined;
   }
   status() {
+    const tunnels = [...this.tunnels.values()];
+    const recent = Date.now() - CONNECT_TIMEOUT_MS;
     return {
       running: Boolean(this.server?.listening),
-      tunnels: this.tunnels.size,
+      tunnels: tunnels.length,
+      connecting: tunnels.some(
+        ({ connectRequestedAt, template }) =>
+          !template && connectRequestedAt !== undefined && connectRequestedAt > recent,
+      ),
       accounts: [
         ...new Set(
-          [...this.tunnels.values()]
+          tunnels
             .filter((tunnel) => {
               const template = tunnel.template;
               return (
@@ -204,7 +213,7 @@ export class QqSyncProxy {
     this.tunnels.set(tunnel.id, tunnel);
     let buffer: Buffer = Buffer.alloc(0);
     let phase: 'hello' | 'socks' | 'connecting' | 'stream' = 'hello';
-    const timeout = setTimeout(() => client.destroy(), 15000);
+    const timeout = setTimeout(() => client.destroy(), CONNECT_TIMEOUT_MS);
     const cleanup = () => {
       clearTimeout(timeout);
       clearTimeout(tunnel.fragmentTimer);
@@ -229,6 +238,7 @@ export class QqSyncProxy {
         client.destroy();
         return;
       }
+      tunnel.connectRequestedAt = Date.now();
       const upstream = connect({ host, port, allowHalfOpen: true });
       tunnel.upstream = upstream;
       upstream.setNoDelay(true);

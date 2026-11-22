@@ -13,6 +13,7 @@ export interface SyncProxyStatus {
   running: boolean;
   tunnels: number;
   accounts: string[];
+  connecting?: boolean;
   delivered: number;
   pid: number;
   port?: number;

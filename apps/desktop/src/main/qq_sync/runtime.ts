@@ -162,6 +162,7 @@ export async function qqSyncStatus(root: string) {
     port,
     accounts: [] as string[],
     tunnels: 0,
+    connecting: false,
     delivered: 0,
     pid: 0,
     error,
