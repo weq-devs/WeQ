@@ -65,8 +65,9 @@ import { pushMobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { QzoneEmoji, QzoneInlineText } from '../components/QzoneEmoji';
 import {
   projectQzoneFeed,
-  qzoneMediaSource,
   mergeQzonePosts,
+  mergeQzonePostImages,
+  qzoneFriendFeedKey,
   qzonePlainText,
   qzoneTextParts,
 } from '../lib/qzone';
@@ -151,17 +152,20 @@ const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : '加载失败，请重试。';
 
 const QzoneReadsEnabled = createContext(true);
+const TIMELINE_REENTRY_REFRESH_MS = 5 * 60_000;
 
-/** 子页离开即卸载，滚动与阅读现场单独保存。 */
+/** 长列表切换栏目时保留已读卡片和图片；其它子页仍按需挂载。 */
 function QzonePage({
   active,
   refreshKey,
   pauseReadsDuringNavigation = true,
+  retainTimeline = false,
   children,
 }: {
   active: boolean;
   refreshKey: number;
   pauseReadsDuringNavigation?: boolean;
+  retainTimeline?: boolean;
   children: ReactElement;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
@@ -169,21 +173,30 @@ function QzonePage({
   const activity = useQQReadActivity(active && (!pauseReadsDuringNavigation || readsEnabled));
   const position = useRef(0);
   const previousActive = useRef(false);
-  const [entry, setEntry] = useState({ active, refresh: 0 });
+  const leftAt = useRef<number | null>(null);
+  const [entry, setEntry] = useState({ active, visited: active, refresh: 0 });
   let entryRefresh = entry.refresh;
   if (entry.active !== active) {
-    if (active && position.current <= 48) entryRefresh++;
-    setEntry({ active, refresh: entryRefresh });
+    if (
+      active &&
+      position.current <= 48 &&
+      (!retainTimeline ||
+        (leftAt.current !== null && Date.now() - leftAt.current >= TIMELINE_REENTRY_REFRESH_MS))
+    )
+      entryRefresh++;
+    setEntry({ active, visited: entry.visited || active, refresh: entryRefresh });
   }
   useLayoutEffect(() => {
     if (active && !previousActive.current) {
       if (scroll.current) scroll.current.scrollTop = position.current;
     }
+    if (!active && previousActive.current) leftAt.current = Date.now();
     previousActive.current = active;
   }, [active]);
+  const refresh = refreshKey + entryRefresh + (retainTimeline ? 0 : activity.revision);
   const context = useMemo(
-    () => ({ active: activity.enabled, refresh: refreshKey + entryRefresh + activity.revision }),
-    [activity.enabled, activity.revision, refreshKey, entryRefresh],
+    () => ({ active: activity.enabled, refresh }),
+    [activity.enabled, refresh],
   );
   return (
     <div
@@ -195,7 +208,7 @@ function QzonePage({
       }}
     >
       <QzonePageContext.Provider value={context}>
-        {active ? children : null}
+        {active || (retainTimeline && entry.visited) ? children : null}
       </QzonePageContext.Provider>
     </div>
   );
@@ -678,7 +691,10 @@ export function QzoneView({
             <button
               type="button"
               aria-current={tab === 'feeds' ? 'page' : undefined}
-              onClick={() => setTab('feeds')}
+              onClick={() => {
+                if (tab === 'feeds') refreshPage('feeds');
+                else setTab('feeds');
+              }}
             >
               {QZONE_SECTION_FEATURES.feeds.label}
             </button>
@@ -780,7 +796,11 @@ export function QzoneView({
           </div>
         ) : null}
         {visited.includes('feeds') || tab === 'feeds' ? (
-          <QzonePage active={active && tab === 'feeds'} refreshKey={refreshes.feeds ?? 0}>
+          <QzonePage
+            active={active && tab === 'feeds'}
+            refreshKey={refreshes.feeds ?? 0}
+            retainTimeline
+          >
             <Feeds selfUin={selfUin} onSpace={openSpace} />
           </QzonePage>
         ) : null}
@@ -981,7 +1001,11 @@ function SpaceContent({
   useEffect(() => {
     if (previousRefresh.current === refreshKey) return;
     previousRefresh.current = refreshKey;
-    setRefreshes((current) => ({ ...current, [pane]: (current[pane] ?? 0) + 1 }));
+    setRefreshes((current) => ({
+      ...current,
+      [pane]: (current[pane] ?? 0) + 1,
+      ...(pane !== 'posts' ? { posts: (current.posts ?? 0) + 1 } : {}),
+    }));
   }, [refreshKey, pane]);
   return (
     <div className="weq-qzn-owner-space" hidden={!active}>
@@ -996,7 +1020,11 @@ function SpaceContent({
         <button
           type="button"
           aria-current={pane === 'posts' ? 'page' : undefined}
-          onClick={() => setPane('posts')}
+          onClick={() => {
+            if (pane === 'posts')
+              setRefreshes((current) => ({ ...current, posts: (current.posts ?? 0) + 1 }));
+            else setPane('posts');
+          }}
         >
           说说
         </button>
@@ -1046,7 +1074,11 @@ function SpaceContent({
           onDeleted={onDeleted}
         />
       </QzonePage>
-      <QzonePage active={active && pane === 'posts'} refreshKey={refreshes.posts ?? 0}>
+      <QzonePage
+        active={active && pane === 'posts'}
+        refreshKey={refreshes.posts ?? 0}
+        retainTimeline
+      >
         <div className="weq-qzn-timeline">
           <Posts
             selfUin={selfUin}
@@ -1233,13 +1265,14 @@ function Posts({
   const lastRefresh = useRef(refresh);
   const [posts, setPosts] = useState<QzoneEmotion[]>(cached?.posts ?? []);
   const visiblePosts = posts.filter((post) => !deletedPosts.has(post.tid.toLowerCase()));
-  const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin });
+  const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin }, active);
   const multi = useMultiSelection({
     ids: visiblePosts.map((post) => post.tid),
     selected: selection.selectedIds,
     onChange: selection.setSelectedIds,
     anchorRef: selection.anchorRef,
     enabled: selection.selectionMode,
+    disabled: !active,
     onStart: () => selection.setSelectionMode(true),
     onExit: () => selection.setSelectionMode(false),
   });
@@ -1264,6 +1297,7 @@ function Posts({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
+  const settledRequest = useRef(cached && refresh === 0 ? '0:0:0' : null);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
     if (!fetchedPages.current.size) return;
@@ -1277,7 +1311,8 @@ function Posts({
     } satisfies PostsSnapshot);
   }, [posts, done, cacheKey, dataCache]);
   useEffect(() => {
-    if (!active) {
+    const request = `${refresh}:${pageRequest}:${retry}`;
+    if (!active || settledRequest.current === request) {
       setLoading(false);
       return;
     }
@@ -1299,8 +1334,11 @@ function Posts({
         if (page.nickname) onOwnerNickname(hostUin, page.nickname);
         const previous = currentPosts.current;
         const hadPosts = previous.length > 0;
-        const merged = mergeQzonePosts(previous, page.list).sort((a, b) => b.time - a.time);
-        const overlaps = page.list.some((post) => previous.some((old) => old.tid === post.tid));
+        const previousIds = new Set(previous.map((post) => post.tid));
+        const merged = mergeQzonePosts(previous, page.list, pageOffset === 0).sort(
+          (a, b) => b.time - a.time,
+        );
+        const overlaps = page.list.some((post) => previousIds.has(post.tid));
         if (
           refreshing &&
           hadPosts &&
@@ -1338,7 +1376,10 @@ function Posts({
         if (live) setError(errorText(error));
       })
       .finally(() => {
-        if (live) setLoading(false);
+        if (live) {
+          settledRequest.current = request;
+          setLoading(false);
+        }
       });
     return () => {
       live = false;
@@ -1578,9 +1619,10 @@ function Post({
     const originalTextNeeded = observed.repost?.contentTruncated === true;
     const textNeeded = ownTextNeeded || originalTextNeeded;
     const imageScope = qzoneImageCompletionScope(sourcePost);
+    const observedImages = imageScope === 'repost' ? observed.repost?.images : observed.images;
     const imagesNeeded =
       sourcePost.imageTotal != null &&
-      sourcePost.imageTotal > (sourcePost.imageReturned ?? sourcePost.images.length);
+      sourcePost.imageTotal > Math.max(sourcePost.imageReturned ?? 0, observedImages?.length ?? 0);
     if (!textNeeded && !imagesNeeded) {
       setCompleting({ post: false, repost: false });
       setCompletionError({ post: '', repost: '' });
@@ -1651,9 +1693,8 @@ function Post({
             true,
           );
           if (!live) return;
-          const safe = urls.map(qzoneMediaSource).filter((url): url is string => Boolean(url));
           const current = imageScope === 'repost' ? (next.repost?.images ?? []) : next.images;
-          const images = safe.length >= current.length ? safe : [...new Set([...current, ...safe])];
+          const images = mergeQzonePostImages(current, urls);
           if (imageScope === 'repost' && next.repost) {
             next.repost = { ...next.repost, images };
             next.images = [];
@@ -2695,7 +2736,7 @@ interface FeedSnapshot {
   pages: string[];
   seenCursors: string[];
   stalledPages: number;
-  bridge: { cursor: string | undefined; keys: string[] } | null;
+  bridge: { cursor: string | undefined; keys: string[]; incomplete: boolean } | null;
 }
 function FeedTimeline({
   selfUin,
@@ -2714,9 +2755,10 @@ function FeedTimeline({
 }) {
   const { active, refresh } = useContext(QzonePageContext);
   const dataCache = usePageDataCache();
-  const cacheKey = JSON.stringify(['feeds', selfUin, scope, kind, filter]);
+  const cacheKey = JSON.stringify(['feeds', selfUin, scope, kind]);
   const [cached] = useState(() => dataCache.read<FeedSnapshot>(cacheKey));
   const [incomplete, setIncomplete] = useState(cached?.incomplete ?? false);
+  const incompleteRef = useRef(incomplete);
   const title = kind === 'friends' ? '好友动态' : '与我相关';
   const relatedRound = useRef(new QzoneRelatedRound());
   const lastRefresh = useRef(refresh);
@@ -2732,6 +2774,7 @@ function FeedTimeline({
   const lastCursor = useRef(cursor);
   const headRequest = useRef(Boolean(cached));
   const [pageRequest, setPageRequest] = useState(0);
+  const settledRequest = useRef(cached && kind === 'friends' && refresh === 0 ? '0:0:0' : null);
   const loadCursor = useCallback((value: string) => {
     headRequest.current = false;
     setCursor(value);
@@ -2744,9 +2787,11 @@ function FeedTimeline({
   const nextCursor = useRef<string | undefined>(cached?.nextCursor);
   const seenCursors = useRef(new Set<string>(cached?.seenCursors));
   const stalledPages = useRef(cached?.stalledPages ?? 0);
-  const bridgeTail = useRef<{ cursor: string | undefined; keys: Set<string> } | null>(
-    cached?.bridge ? { ...cached.bridge, keys: new Set(cached.bridge.keys) } : null,
-  );
+  const bridgeTail = useRef<{
+    cursor: string | undefined;
+    keys: Set<string>;
+    incomplete: boolean;
+  } | null>(cached?.bridge ? { ...cached.bridge, keys: new Set(cached.bridge.keys) } : null);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
     if (!feeds || !fetchedPages.current.size) return;
@@ -2764,8 +2809,10 @@ function FeedTimeline({
   }, [feeds, incomplete, done, cacheKey, dataCache]);
   useEffect(() => {
     const recovery = `${refresh}:${retry}`;
+    const request = `${refresh}:${pageRequest}:${retry}`;
     if (
       !active ||
+      settledRequest.current === request ||
       (kind === 'related' && (suspended.current === recovery || relatedRound.current.exhausted))
     ) {
       setLoading(false);
@@ -2797,22 +2844,34 @@ function FeedTimeline({
       .then((page) => {
         if (!live) return;
         fetchedPages.current.add(pageCursor ?? 'head');
-        setIncomplete('incomplete' in page && page.incomplete === true);
-        const key = (feed: QzoneFeed): string =>
-          kind === 'related'
-            ? qzoneRelatedKey(feed)
-            : `${feed.uin}:${feed.appid}:${feed.key || `${feed.time}:${feed.html}`}`;
+        let carriedTail = false;
+        let pageIncomplete = page.incomplete === true;
+        const key = kind === 'related' ? qzoneRelatedKey : qzoneFriendFeedKey;
         const merged = new Map(accumulated.current.map((feed) => [key(feed), feed]));
         const previousSize = merged.size;
         const incoming = page.feeds.map((feed) => [key(feed), feed] as const);
         const overlaps = incoming.some(([id]) => merged.has(id));
-        for (const [id, feed] of incoming) merged.set(id, feed);
-        if (refreshing && previousSize > 0 && !overlaps && page.hasMore && page.nextCursor) {
-          if (kind === 'related') seenCursors.current.clear();
-          bridgeTail.current ??= {
-            cursor: nextCursor.current,
-            keys: new Set(accumulated.current.map(key)),
-          };
+        for (const [id, feed] of incoming)
+          if (pageCursor === undefined || kind === 'related' || !merged.has(id))
+            merged.set(id, feed);
+        const recovering = kind === 'friends' && incompleteRef.current && !nextCursor.current;
+        if (
+          refreshing &&
+          previousSize > 0 &&
+          (!overlaps || recovering) &&
+          page.hasMore &&
+          page.nextCursor
+        ) {
+          if (!overlaps && !recovering) {
+            bridgeTail.current ??= {
+              cursor: nextCursor.current,
+              keys: new Set(accumulated.current.map(key)),
+              incomplete: incompleteRef.current,
+            };
+          } else if (recovering) {
+            bridgeTail.current = null;
+          }
+          seenCursors.current.clear();
           nextCursor.current = page.nextCursor;
           stalledPages.current = 0;
           setDone(false);
@@ -2821,6 +2880,8 @@ function FeedTimeline({
           if (tail && page.feeds.some((feed) => tail.keys.has(key(feed)))) {
             nextCursor.current = tail.cursor;
             bridgeTail.current = null;
+            carriedTail = true;
+            pageIncomplete = tail.incomplete;
           } else {
             stalledPages.current = merged.size === previousSize ? stalledPages.current + 1 : 0;
             if (pageCursor) seenCursors.current.add(pageCursor);
@@ -2836,13 +2897,19 @@ function FeedTimeline({
             if (!nextCursor.current) bridgeTail.current = null;
           }
           setDone(!nextCursor.current);
+        } else if (kind === 'friends' && !recovering) {
+          carriedTail = true;
+          pageIncomplete = incompleteRef.current;
         }
         if (
+          !carriedTail &&
           page.hasMore &&
           !nextCursor.current &&
           (kind !== 'related' || !refreshing || previousSize === 0 || !overlaps)
         )
-          setIncomplete(true);
+          pageIncomplete = true;
+        incompleteRef.current = pageIncomplete;
+        setIncomplete(pageIncomplete);
         accumulated.current = [...merged.values()].sort((a, b) => b.time - a.time);
         setFeeds(accumulated.current);
       })
@@ -2854,7 +2921,10 @@ function FeedTimeline({
         }
       })
       .finally(() => {
-        if (live) setLoading(false);
+        if (live) {
+          if (kind === 'friends') settledRequest.current = request;
+          setLoading(false);
+        }
       });
     return () => {
       live = false;
@@ -3053,7 +3123,7 @@ function FeedTimeline({
       (kind === 'friends' ? feeds : undefined)
         ?.filter((feed) => feed.uin > 0)
         .map((feed) => {
-          const key = `${feed.uin}:${feed.appid}:${feed.key || feed.time}`;
+          const key = qzoneFriendFeedKey(feed);
           const cached = projections.current.get(key);
           const reusable = cached?.html === feed.html && cached.projector === currentProjector;
           const body = reusable ? cached.body : currentProjector(feed.html);
@@ -3101,6 +3171,7 @@ function FeedTimeline({
     selected: feedSelection.selectedIds,
     onChange: feedSelection.setSelectedIds,
     enabled: feedSelection.selectionMode,
+    disabled: !active,
     onStart: () => feedSelection.setSelectionMode(true),
     onExit: () => feedSelection.setSelectionMode(false),
     anchorRef: feedSelection.anchorRef,
@@ -3243,7 +3314,7 @@ function FeedTimeline({
         const selectable = feedReferences.has(id);
         return (
           <div
-            key={`${feed.uin}:${feed.appid}:${feed.key || feed.time}`}
+            key={qzoneFriendFeedKey(feed)}
             {...(selectable ? feedMulti.itemProps(id) : {})}
             className={`weq-reference-item${feedSelection.selectedIds.has(id) ? ' is-selected' : ''}`}
           >
@@ -3290,6 +3361,17 @@ function FeedTimeline({
                 onNext={() => loadCursor(continuation)}
               />
             )
+          ) : incomplete && kind === 'friends' ? (
+            <State
+              loading={false}
+              error="QQ 暂未返回可继续读取的位置，已保留加载的动态。"
+              empty=""
+              progress={pageCountLabel}
+              retry={() => {
+                stalledPages.current = 0;
+                setRetry((value) => value + 1);
+              }}
+            />
           ) : !incomplete && kind !== 'related' && !shown?.length ? (
             <EmptyState
               icon={<Images />}
@@ -3572,9 +3654,17 @@ function FeedCard({
   const { refresh } = useContext(QzonePageContext);
   const [loading, setLoading] = useState(false);
   const needsLookup =
-    feed.appid === 311 && (body.unsupported || (!body.text.trim() && !body.repost));
+    feed.appid === 311 &&
+    (body.unsupported ||
+      !(body.text.trim() || body.repost || body.images.length || body.videos.length));
+  const settledLookup = useRef<{ feed: QzoneFeed; refresh: number } | null>(null);
   useEffect(() => {
-    if (!visible || !needsLookup) return undefined;
+    if (
+      !visible ||
+      !needsLookup ||
+      (settledLookup.current?.feed === feed && settledLookup.current.refresh === refresh)
+    )
+      return;
     let live = true;
     setLoading(true);
     void lookup(feed, tid)
@@ -3583,7 +3673,10 @@ function FeedCard({
       })
       .catch(() => {})
       .finally(() => {
-        if (live) setLoading(false);
+        if (live) {
+          settledLookup.current = { feed, refresh };
+          setLoading(false);
+        }
       });
     return () => {
       live = false;

@@ -11,8 +11,30 @@ import {
   useCurrentContentSelection,
 } from '../src/renderer/src/state/contentSelection.shared';
 import { QzoneScopePicker } from '../src/renderer/src/views/export/QzoneScopePicker';
+import type { QzoneFeed } from '../src/renderer/src/views/qzone_types';
 
 const fixture = vi.hoisted(() => ({
+  feeds: vi.fn(
+    async (_input: {
+      cursor?: string;
+    }): Promise<{
+      feeds: QzoneFeed[];
+      hasMore: boolean;
+      nextCursor?: string;
+    }> => ({
+      feeds: [
+        {
+          uin: 10002,
+          nickname: '合成好友',
+          appid: 311,
+          key: 'abcdef123456',
+          time: 1,
+          html: '<div class="f-info">fixture-feed</div>',
+        },
+      ],
+      hasMore: false,
+    }),
+  ),
   related: vi.fn(async ({ offset }: { offset: number }) => ({
     feeds: [{ uin: 10002, appid: 0, key: `interaction-${offset}`, time: offset + 1, html: '' }],
     hasMore: true,
@@ -46,21 +68,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       qzone: {
         related: { query: fixture.related },
-        feeds: {
-          query: async () => ({
-            feeds: [
-              {
-                uin: '10002',
-                nickname: '合成好友',
-                appid: 311,
-                key: 'abcdef123456',
-                time: 1,
-                html: '<div class="f-info">fixture-feed</div>',
-              },
-            ],
-            hasMore: false,
-          }),
-        },
+        feeds: { query: fixture.feeds },
         posts: { query: fixture.posts },
         detail: {
           query: async () => ({
@@ -190,6 +198,77 @@ it('与我相关自动读取五页后，点击加载更多才从当前游标继�
   }
 });
 
+it('好友动态续页保留重叠卡片与配图，切换栏目后不重读已完成的页', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      constructor(private readonly callback: IntersectionObserverCallback) {}
+      observe(target: Element) {
+        this.callback(
+          [
+            {
+              target,
+              isIntersecting: target.classList.contains('weq-qzn-page-sentinel'),
+            } as IntersectionObserverEntry,
+          ],
+          this as unknown as IntersectionObserver,
+        );
+      }
+      disconnect() {}
+    },
+  );
+  const first: QzoneFeed = {
+    uin: 10002,
+    nickname: '合成好友',
+    appid: 311,
+    key: 'abcdef123456',
+    time: 2,
+    html: '<div class="f-single-content"><div class="f-info">第一页</div><img src="https://a1.qpic.cn/one.jpg" /></div>',
+  };
+  fixture.feeds
+    .mockResolvedValueOnce({ feeds: [first], hasMore: true, nextCursor: 'second' })
+    .mockResolvedValueOnce({
+      feeds: [
+        { ...first, html: first.html.replace('one.jpg', 'overlap.jpg') },
+        { ...first, key: 'abcdef123457', time: 1, html: '<div class="f-info">第二页</div>' },
+      ],
+      hasMore: false,
+    });
+  const f = mount(createElement(QzoneView, { selfUin: '10001', nickname: '合成自己' }));
+  const select = (name: string) =>
+    [...f.host.querySelectorAll<HTMLButtonElement>('[aria-label="空间栏目"] button')]
+      .find((button) => button.textContent === name)!
+      .click();
+  try {
+    await act(async () => {});
+    const picture = f.host.querySelector<HTMLImageElement>('.weq-qzn-picture img')!;
+    expect(picture?.src).toContain('one.jpg');
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(fixture.feeds.mock.calls.map(([input]) => input.cursor)).toEqual([undefined, 'second']);
+    expect(f.host.textContent).toContain('第二页');
+    expect(f.host.querySelector('.weq-qzn-picture img')).toBe(picture);
+    expect(picture.src).toContain('one.jpg');
+    await act(async () => select('空友爱看'));
+    await act(async () => select('好友动态'));
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(fixture.feeds).toHaveBeenCalledTimes(2);
+    expect(f.host.querySelector('.weq-qzn-picture img')).toBe(picture);
+    fixture.feeds.mockResolvedValueOnce({ feeds: [first], hasMore: true, nextCursor: 'second' });
+    await act(async () => select('好友动态'));
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(fixture.feeds.mock.calls.map(([input]) => input.cursor)).toEqual([
+      undefined,
+      'second',
+      undefined,
+    ]);
+    expect(f.host.textContent).toContain('第二页');
+  } finally {
+    f.close();
+    vi.useRealTimers();
+  }
+});
+
 it('空间预热不读内容，停稳才读；再次滑动暂停读取但不清空已显示内容', async () => {
   const page = (readEnabled: boolean) =>
     createElement(QzoneWorkspace, {
@@ -212,6 +291,9 @@ it('空间预热不读内容，停稳才读；再次滑动暂停读取但不清�
     f.render(page(false));
     await act(async () => {});
     expect(f.host.querySelector('[data-qzone-tid="a"]')).toBe(content);
+    expect(fixture.posts).toHaveBeenCalledTimes(calls);
+    f.render(page(true));
+    await act(async () => {});
     expect(fixture.posts).toHaveBeenCalledTimes(calls);
   } finally {
     f.close();
@@ -300,7 +382,7 @@ it('空友爱看标签在页面卸载重建后仍能从快照恢复', async () =
   }
 });
 
-it('说说卸载后返回先显示缓存，头页校准未完成不重新清空正文', async () => {
+it('说说卸载后返回复用已读缓存，不重读头页', async () => {
   vi.stubGlobal('localStorage', new Storage());
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -332,10 +414,10 @@ it('说说卸载后返回先显示缓存，头页校准未完成不重新清空�
     await openPosts(host);
     expect(host.textContent).toContain('fixture-a');
     await render(false);
-    fixture.posts.mockImplementationOnce(() => new Promise(() => {}));
     await render(true);
     await openPosts(host);
     expect(host.textContent).toContain('fixture-a');
+    expect(fixture.posts).toHaveBeenCalledTimes(1);
   } finally {
     act(() => root.unmount());
     host.remove();

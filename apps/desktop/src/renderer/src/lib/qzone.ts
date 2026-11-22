@@ -545,9 +545,53 @@ export function projectQzoneFeed(
   };
 }
 
-export function mergeQzonePosts<T extends { tid: string }>(old: T[], next: T[]): T[] {
+export function qzoneFriendFeedKey(feed: {
+  uin: number;
+  appid: number;
+  key: string;
+  time: number;
+  html: string;
+}) {
+  return JSON.stringify([feed.uin, feed.appid, feed.key || [feed.time, feed.html]]);
+}
+
+/** QQ's /psc thumbnail and original can share the same opaque photo path. */
+export function qzonePictureKey(source: string): string {
+  const url = new URL(source);
+  if (
+    url.pathname === '/psc' &&
+    /\.(?:qpic\.cn|photo\.store\.qq\.com|photo\.qq\.com)$/.test(url.hostname)
+  ) {
+    const identity = url.search.match(/^\?(\/[\w.*-]+\/[\w.*-]+!)\/[a-z0-9]+(?:&|$)/i)?.[1];
+    if (identity) return `psc:${identity}`;
+  }
+  return source;
+}
+
+export function mergeQzonePostImages(current: string[], returned: string[]): string[] {
+  const images = new Map<string, string>();
+  for (const raw of returned) {
+    const source = qzoneMediaSource(raw);
+    if (source) images.set(qzonePictureKey(source), source);
+  }
+  if (images.size >= current.length) return [...images.values()];
+  const merged = new Map<string, string>();
+  for (const raw of current) {
+    const source = qzoneMediaSource(raw);
+    if (source) merged.set(qzonePictureKey(source), source);
+  }
+  for (const [id, source] of images) merged.set(id, source);
+  return [...merged.values()];
+}
+
+export function mergeQzonePosts<T extends { tid: string }>(
+  old: T[],
+  next: T[],
+  update = true,
+): T[] {
   const values = new Map(old.map((post) => [post.tid, post]));
-  for (const post of next) if (post.tid) values.set(post.tid, post);
+  for (const post of next)
+    if (post.tid && (update || !values.has(post.tid))) values.set(post.tid, post);
   return [...values.values()];
 }
 

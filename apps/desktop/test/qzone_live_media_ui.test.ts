@@ -92,6 +92,23 @@ afterEach(async () => {
 });
 
 describe('空间实况展示', () => {
+  it('补齐同一张照片时保留已加载缩略图，原缩略图失效时才切源', async () => {
+    const thumbnailUrl = 'https://a1.qpic.cn/psc?/album/photo.one!/c&ek=1';
+    const originalUrl = 'https://r.photo.store.qq.com/psc?/album/photo.one!/o';
+    const otherUrl = 'https://a1.qpic.cn/psc?/album/photo.two!/c&ek=1';
+    await act(async () => root.render(h(QzoneMediaGrid, { images: [thumbnailUrl] })));
+    const thumbnail = host.querySelector('img')!;
+    await act(async () => thumbnail.dispatchEvent(new Event('load')));
+    await act(async () => root.render(h(QzoneMediaGrid, { images: [originalUrl, otherUrl] })));
+    expect(host.querySelector('img')).toBe(thumbnail);
+    expect(thumbnail.src).toBe(thumbnailUrl);
+    expect([...host.querySelectorAll('img')].map((image) => image.src)).toEqual([
+      thumbnailUrl,
+      otherUrl,
+    ]);
+    await act(async () => thumbnail.dispatchEvent(new Event('error')));
+    expect(host.querySelector('img')?.src).toBe(originalUrl);
+  });
   it('省流量暂缓图片后保留占位和预览入口，而不是替换成不可点击的错误文本', async () => {
     const policy = useDataSaver.getState();
     useDataSaver.setState({ enabled: true });

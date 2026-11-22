@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import { GetQzoneFeedMediaDetail } from '@weqbot/protocol';
+import { qzonePaginationLimiter as protocolPaginationLimiter } from '@weqbot/protocol/web';
 import { WebQueryService } from '../src/account/web';
 import { WebCredentialProvider } from '../src/account/web/credential';
 import { getQzoneFeeds, mapMsgList } from '../src/account/web/qzone';
+import { DEFAULT_QZONE_PAGINATION, qzonePaginationLimiter } from '../src/common/qzone_pagination';
 import {
   fetchQzonePostDetail,
   fetchQzonePostImages,
@@ -23,6 +25,13 @@ import {
 } from '../src/account/web/qzone_album';
 
 const cred = { uin: '10001', skey: 'synthetic', pskey: 'synthetic' };
+const paginationLimiters = [protocolPaginationLimiter, qzonePaginationLimiter];
+beforeAll(() => {
+  for (const limiter of paginationLimiters) limiter.configure({ windowSeconds: 10, maxPages: 100 });
+});
+afterAll(() => {
+  for (const limiter of paginationLimiters) limiter.configure(DEFAULT_QZONE_PAGINATION);
+});
 const jsonp = (value: unknown) => `_Callback(${JSON.stringify(value)});`;
 function mockBody(value: unknown) {
   const fetch = vi.fn(async (_url: string) => new Response(jsonp(value)));
@@ -444,6 +453,72 @@ describe('separate feed recipes', () => {
     expect(url.searchParams.get('scope')).toBe('7');
     expect(url.searchParams.get('pagenum')).toBe('2');
     expect(url.searchParams.get('externparam')).toBe('basetime=123&pagenum=2');
+  });
+  it('continues a friend feed without externparam and carries QQ pagination state', async () => {
+    const firstBody = {
+      code: 0,
+      data: {
+        data: [{ uin: 10002, key: 'first' }],
+        main: {
+          hasMoreFeeds: true,
+          begintime: 1795300000,
+          pagenum: 2,
+          aisortEndTime: 1795400000,
+          aisortBeginTime: 1795200000,
+          aisortNextTime: 1795300001,
+          aisortOffset: 12,
+          icServerTime: 1795400002,
+          uinlist: '10002,10003',
+          daylist: '20261121',
+          dayspac: 1,
+        },
+      },
+    };
+    const fetch = mockBody({});
+    fetch.mockResolvedValueOnce(new Response(jsonp(firstBody)));
+    fetch.mockResolvedValueOnce(
+      new Response(
+        jsonp({
+          code: 0,
+          data: {
+            data: [{ uin: 10003, key: 'second' }],
+            main: { hasMoreFeeds: 1, pagenum: 3, externparam: 'opaque+/= state' },
+          },
+        }),
+      ),
+    );
+    fetch.mockResolvedValueOnce(
+      new Response(
+        jsonp({ code: 0, data: { data: [], main: { hasMoreFeeds: 1, icServerTime: 1795400100 } } }),
+      ),
+    );
+
+    const first = await getQzoneFeeds(cred, cred.uin);
+    expect(first.nextCursor).toBeTruthy();
+    const second = await getQzoneFeeds(cred, cred.uin, 1, 10, undefined, first.nextCursor);
+    expect(second.feeds.map((feed) => feed.key)).toEqual(['second']);
+    expect(second.nextCursor).toBeTruthy();
+    const query = new URL(fetch.mock.calls[1]![0]).searchParams;
+    expect(Object.fromEntries(query)).toMatchObject({
+      begintime: '1795300000',
+      pagenum: '2',
+      aisortEndTime: '1795400000',
+      aisortBeginTime: '1795200000',
+      getAisort: '1795300001',
+      aisortOffset: '12',
+      icServerTime: '1795400002',
+      uinlist: '10002,10003',
+      daylist: '20261121',
+      dayspac: '1',
+      refresh: '0',
+    });
+    expect(query.has('externparam')).toBe(false);
+    const stalled = await getQzoneFeeds(cred, cred.uin, 1, 10, undefined, second.nextCursor);
+    expect(stalled).toEqual({ feeds: [], hasMore: true });
+    const continued = new URL(fetch.mock.calls[2]![0]).searchParams;
+    expect(continued.get('pagenum')).toBe('3');
+    expect(continued.get('begintime')).toBe('1795300000');
+    expect(continued.get('externparam')).toBe('opaque+/= state');
   });
   it('accepts only a forward bounded R17 server offset', () => {
     for (const offset of [undefined, 0, 9, 100001, 'bogus'])

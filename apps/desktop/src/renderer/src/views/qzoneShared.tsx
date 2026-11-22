@@ -16,7 +16,7 @@ import { ShimmerImage } from '../components/ShimmerImage';
 import { MediaLoadingRing, MediaTransferBadge } from '../components/TransferRing';
 import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import { mediaTransferTarget } from '../../../shared/transfer_progress';
-import { qzoneMediaSource } from '../lib/qzone';
+import { qzoneMediaSource, qzonePictureKey } from '../lib/qzone';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { client } from '../trpc/client';
 import { applyQzoneVideoTypes, type QzoneVideoType } from '../lib/qzoneMediaTypes';
@@ -207,7 +207,9 @@ export function QzoneVideo({
 }
 
 function Picture({ url, index, onOpen }: { url: string; index: number; onOpen: () => void }) {
-  const src = albumMediaUrl(url);
+  const [loadedUrl, setLoadedUrl] = useState<string>();
+  const displayUrl = loadedUrl ?? url;
+  const src = albumMediaUrl(displayUrl);
   return (
     <button
       type="button"
@@ -215,7 +217,16 @@ function Picture({ url, index, onOpen }: { url: string; index: number; onOpen: (
       aria-label={`查看空间图片 ${index + 1}`}
       onClick={onOpen}
     >
-      <ShimmerImage src={src} alt={`空间图片 ${index + 1}`} loading="lazy" mediaLoading />
+      <ShimmerImage
+        src={src}
+        alt={`空间图片 ${index + 1}`}
+        loading="lazy"
+        mediaLoading
+        onLoad={() => setLoadedUrl(displayUrl)}
+        onError={() => {
+          if (displayUrl !== url) setLoadedUrl(undefined);
+        }}
+      />
       <MediaTransferBadge target={mediaTransferTarget({ kind: 'url', url: src })} />
     </button>
   );
@@ -310,14 +321,18 @@ export function QzoneMediaGrid({
     return true;
   });
   const covers = new Set(uniqueVideos.map((video) => qzoneMediaSource(video.coverUrl)));
-  const urls = [
-    ...new Set(
-      images.map(qzoneMediaSource).filter((url): url is string => Boolean(url) && !covers.has(url)),
-    ),
-  ];
-  const count = urls.length + uniqueVideos.length;
-  const media: ({ kind: 'image'; url: string } | { kind: 'video'; video: QzoneMediaVideo })[] =
-    urls.map((url) => ({ kind: 'image', url }));
+  const urls = new Map<string, string>();
+  for (const source of images) {
+    const url = qzoneMediaSource(source);
+    if (url && !covers.has(url)) {
+      const key = qzonePictureKey(url);
+      if (!urls.has(key)) urls.set(key, url);
+    }
+  }
+  const count = urls.size + uniqueVideos.length;
+  const media: ({ kind: 'image'; url: string } | { kind: 'video'; video: QzoneMediaVideo })[] = [
+    ...urls.values(),
+  ].map((url) => ({ kind: 'image', url }));
   for (const video of [...uniqueVideos].sort(
     (a, b) => (a.mediaIndex ?? Infinity) - (b.mediaIndex ?? Infinity),
   )) {
@@ -350,7 +365,7 @@ export function QzoneMediaGrid({
         {media.map((entry, index) =>
           entry.kind === 'image' ? (
             <Picture
-              key={entry.url}
+              key={qzonePictureKey(entry.url)}
               url={entry.url}
               index={index}
               onOpen={() => setPreview(index)}
