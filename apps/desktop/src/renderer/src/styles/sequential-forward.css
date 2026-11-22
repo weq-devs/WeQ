@@ -35,11 +35,6 @@
 .weq-sequential-forward .weq-mf-targets {
   height: min(32dvh, 240px);
 }
-.weq-sequential-forward .weq-mf-target-avatar {
-  flex: 0 0 30px;
-  width: 30px;
-  height: 30px;
-}
 .weq-sequential-forward header,
 .weq-sequential-forward footer,
 .weq-forward-status {

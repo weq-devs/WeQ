@@ -1,13 +1,17 @@
-import { useContext, useRef, useState } from 'react';
-import { Forward, Share2 } from 'lucide-react';
+import { useContext, useId, useRef, useState } from 'react';
+import { Forward, Loader2, Share2, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
+import { useModalBackground } from '../lib/modalBackground';
 import { QzoneShareForwardContext } from '../lib/qzoneNavigation';
 import type { PublicJson } from '../lib/qzonePublic';
-import { EditorDialog } from './EditorDialog';
+import { Modal } from './Dialog';
+import { NumericText } from './NumericText';
+import { useTabActive } from './RetainedTabs.shared';
 import { useToastApi } from './Toast.shared';
 import { QqArk } from './ark/QqArk';
 import { MergeForwardTargets } from './mergeForward/MergeForwardTargets';
+import '../styles/qzone-actions.css';
 
 type ShareTarget = { hostUin: string; tid: string } | { feed: PublicJson };
 type ShareResult = Awaited<ReturnType<typeof client.account.qqActions.qzoneOrdinaryShare.mutate>>;
@@ -32,6 +36,10 @@ function QzoneShareDialog({
 }) {
   const forward = useContext(QzoneShareForwardContext);
   const toast = useToastApi();
+  const titleId = useId();
+  const dialog = useRef<HTMLDivElement>(null);
+  const active = useTabActive();
+  useModalBackground(dialog, active);
   const sending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState(() => new Set<string>());
@@ -80,59 +88,125 @@ function QzoneShareDialog({
   }
 
   return (
-    <EditorDialog title="分享卡片" busy={busy} onClose={onClose}>
-      <div className="weq-qzn-share-result">
-        {current.kind === 'loading' ? <p role="status">正在生成分享卡片…</p> : null}
-        {current.kind === 'error' ? (
-          <>
-            <p role="alert">{current.message}</p>
-            <button type="button" className="weq-set-btn" disabled={!available} onClick={generate}>
-              重试生成
+    <Modal
+      width={560}
+      labelledBy={titleId}
+      className="weq-mf-modal"
+      onClose={busy ? undefined : onClose}
+      dismissOnOutside={false}
+      focusContainerOnOpen
+    >
+      <div
+        ref={dialog}
+        className="weq-mf weq-qzn-share"
+        data-picking={current.kind === 'ready' && targets.length > 0 ? '' : undefined}
+        aria-busy={busy}
+      >
+        <header className="weq-mf-head">
+          <div className="weq-mf-head-title">
+            <strong id={titleId}>分享卡片</strong>
+          </div>
+          <button
+            type="button"
+            className="weq-mf-icon-btn"
+            title="关闭分享卡片"
+            aria-label="关闭分享卡片"
+            disabled={busy}
+            onClick={onClose}
+          >
+            <X size={16} aria-hidden />
+          </button>
+        </header>
+        <div className="weq-mf-body weq-qzn-share-body">
+          {current.kind === 'loading' ? (
+            <p className="weq-qzn-share-status" role="status">
+              正在生成分享卡片…
+            </p>
+          ) : null}
+          {current.kind === 'error' ? (
+            <p className="weq-qzn-share-status" role="alert">
+              {current.message}
+            </p>
+          ) : null}
+          {current.kind === 'ready' ? (
+            <>
+              <section className="weq-qzn-share-preview" aria-label="卡片预览">
+                <QqArk arkData={current.result.ark} />
+              </section>
+              {current.result.notice ? (
+                <p className="weq-qzn-share-status">{current.result.notice}</p>
+              ) : null}
+              {outcomes.length ? (
+                <ul className="weq-qzn-share-outcomes" aria-live="polite">
+                  {outcomes.map(({ id, name, status, error }) => (
+                    <li key={id}>
+                      {name}：
+                      {status === 'sent'
+                        ? '已转发'
+                        : status === 'unconfirmed'
+                          ? '发送结果未确认，请先核对会话'
+                          : error}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {targets.length ? (
+                <div className="weq-qzn-share-picker" inert={busy}>
+                  <MergeForwardTargets
+                    targets={targets}
+                    selected={selected}
+                    onChange={setSelected}
+                  />
+                </div>
+              ) : !outcomes.length ? (
+                <p className="weq-qzn-share-status">没有可转发的会话</p>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+        <footer className="weq-mf-foot">
+          {current.kind === 'ready' && targets.length ? (
+            <span className="weq-qzn-share-count" role="status">
+              <NumericText>{`已选 ${picked.length} 个会话`}</NumericText>
+            </span>
+          ) : null}
+          <div className="weq-mf-foot-group weq-mf-foot-actions">
+            <button type="button" className="weq-mf-soft" disabled={busy} onClick={onClose}>
+              {current.kind === 'ready' && !targets.length && outcomes.length ? '关闭' : '取消'}
             </button>
-          </>
-        ) : null}
-        {current.kind === 'ready' ? (
-          <>
-            <QqArk arkData={current.result.ark} />
-            {current.result.notice ? <p>{current.result.notice}</p> : null}
-            {outcomes.length ? (
-              <ul aria-live="polite">
-                {outcomes.map(({ id, name, status, error }) => (
-                  <li key={id}>
-                    {name}：
-                    {status === 'sent'
-                      ? '已转发'
-                      : status === 'unconfirmed'
-                        ? '发送结果未确认，请先核对会话'
-                        : error}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {targets.length ? (
-              <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
-            ) : !outcomes.length ? (
-              <p>没有可转发的会话</p>
-            ) : null}
-            <div className="weq-qq-action-bar">
+            {current.kind === 'error' ? (
               <button
                 type="button"
-                className="weq-set-btn weq-set-btn-primary"
-                disabled={!available || !picked.length}
+                className="weq-mf-primary"
+                disabled={!available}
+                onClick={generate}
+              >
+                重试生成
+              </button>
+            ) : null}
+            {current.kind === 'ready' ? (
+              <button
+                type="button"
+                className="weq-mf-primary"
+                disabled={busy || !available || !picked.length}
                 onClick={() => void send()}
               >
-                <Forward size={15} aria-hidden />
+                {busy ? (
+                  <Loader2 size={15} className="weq-spin" aria-hidden />
+                ) : (
+                  <Forward size={15} aria-hidden />
+                )}
                 {busy
                   ? '正在转发…'
                   : current.result.requires_confirmation
                     ? '确认并转发'
                     : '转发到会话'}
               </button>
-            </div>
-          </>
-        ) : null}
+            ) : null}
+          </div>
+        </footer>
       </div>
-    </EditorDialog>
+    </Modal>
   );
 }
 

@@ -23717,6 +23717,7 @@ html[data-theme='dark'] .weq-mf-preview {
 
 .weq-mf-search-input {
   flex: 1;
+  min-width: 0;
   border: 0;
   color: var(--weq-fg-primary);
   font-size: 13px;
@@ -23786,6 +23787,11 @@ html[data-theme='dark'] .weq-mf-preview {
 .weq-mf-target-avatar {
   flex: 0 0 auto;
   border-radius: 50%;
+}
+
+.weq-mf-target-avatar {
+  width: 30px;
+  height: 30px;
 }
 
 .weq-mf-person-name,
