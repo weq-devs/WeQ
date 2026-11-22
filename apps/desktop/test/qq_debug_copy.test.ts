@@ -157,6 +157,14 @@ it('副本准备失败时不退出普通 QQ', async () => {
   expect(f.run.mock.calls.some(([cmd]) => cmd === '/bin/kill')).toBe(false);
   expect(f.run.mock.calls.some(([cmd]) => cmd === '/usr/bin/open')).toBe(false);
 });
+it('切换时若调试副本已在运行，回到已有窗口', async () => {
+  const f = await fixture();
+  await f.manager.perform('prepare');
+  f.processes(`51 ${f.source}/Contents/MacOS/QQ\n52 ${f.target}/Contents/MacOS/QQ`);
+  const status = await f.manager.perform('switch');
+  expect(status.runningPids).toEqual([52]);
+  expect(f.run.mock.calls.find(([cmd]) => cmd === '/usr/bin/open')?.[1]).toEqual(['-a', f.target]);
+});
 it('普通 QQ 未退出时不强杀也不启动副本，并释放管理锁', async () => {
   const f = await fixture();
   await f.manager.perform('prepare');
@@ -183,6 +191,7 @@ it('普通 QQ 未退出时不强杀也不启动副本，并释放管理锁', asy
 });
 it('未创建时只检测，不写副本或启动 QQ；读取端权限单独报告', async () => {
   const f = await fixture();
+  expect(await f.manager.isConfigured()).toBe(false);
   f.noReader();
   expect(await f.manager.status()).toMatchObject({
     state: 'missing',
@@ -201,6 +210,7 @@ it('准备副本保留原 entitlement，只在副本增加 get-task-allow，校�
     version: '7.0.1-1',
     readerReady: true,
   });
+  expect(await f.manager.isConfigured()).toBe(true);
   expect(await readFile(join(f.source, 'Contents/Resources/entitlements.json'), 'utf8')).toBe(
     before,
   );

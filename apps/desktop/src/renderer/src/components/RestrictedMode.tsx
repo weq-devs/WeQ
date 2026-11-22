@@ -229,6 +229,7 @@ export function RestrictedModeHost() {
     refetchOnWindowFocus: true,
   });
   const passiveBanner = globalSettings.data?.restrictedModeBannerEnabled !== false;
+  const checkInterval = open ? 2000 : 5000;
   useEffect(() => {
     if (!active) return;
     const subscription = client.account.onOnlineCredentialsReady.subscribe(undefined, {
@@ -241,7 +242,8 @@ export function RestrictedModeHost() {
   }, [active, uin, utils]);
   const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
     enabled: active,
-    refetchInterval: 5000,
+    refetchInterval: checkInterval,
+    refetchIntervalInBackground: open,
     staleTime: 4000,
     refetchOnWindowFocus: true,
   });
@@ -329,14 +331,33 @@ export function RestrictedModeHost() {
   ]);
   const online = trpc.bootstrap.probeOnline.useQuery(undefined, {
     enabled: !active,
-    refetchInterval: 5000,
+    refetchInterval: checkInterval,
+    refetchIntervalInBackground: open,
   });
   const dataAccess = trpc.bootstrap.qqDataAccess.useQuery(undefined, {
     enabled: IS_MAC,
     retry: false,
     refetchOnWindowFocus: false,
     staleTime: 5000,
+    refetchInterval: open ? checkInterval : false,
+    refetchIntervalInBackground: open,
   });
+  const dataStatus = dataAccess.data?.status;
+  const diskBlocked = dataAccess.isError || dataStatus === 'denied' || dataStatus === 'error';
+  const previousDiskBlocked = useRef(diskBlocked);
+  useEffect(() => {
+    const restored =
+      previousDiskBlocked.current &&
+      !diskBlocked &&
+      (dataStatus === 'readable' || dataStatus === 'not-found');
+    previousDiskBlocked.current = diskBlocked;
+    if (!restored) return;
+    void Promise.all([
+      utils.bootstrap.listAccounts.invalidate(),
+      utils.bootstrap.listAccountConfigs.invalidate(),
+      utils.bootstrap.describeInstall.invalidate(),
+    ]);
+  }, [diskBlocked, dataStatus, utils]);
   useEffect(() => {
     let next = active
       ? restrictionReasons({
@@ -359,7 +380,7 @@ export function RestrictedModeHost() {
       }
     }
     if (dataAccess.isError && !next.some((reason) => reason.code === 'checking'))
-      next.push({ code: 'checking', title: '数据读取状态检查失败', guidance: '请重新检查。' });
+      next.push({ code: 'checking', title: '数据读取状态检查失败', guidance: '稍后会自动再试。' });
     useRestrictedMode.getState().setReasons(next, sourceKey);
   }, [
     active,
@@ -587,7 +608,7 @@ export function RestrictedModeHost() {
     if (operationBusy.current) return;
     const source = access.data?.source ? { ...access.data.source } : undefined;
     if (enable && (!active || !source || source.expectedAccountUin !== uin)) {
-      setError('当前来源尚未确认，请重新检查后再启用 QQ 在线能力。');
+      setError('当前账号来源尚待确认，请稍后再启用 QQ 在线能力。');
       return;
     }
     operationBusy.current = true;
@@ -649,12 +670,10 @@ export function RestrictedModeHost() {
     setLoginRequested(binding);
     await (active ? access.refetch() : online.refetch());
   }
-  const retryLabel =
+  const canRetryCredentials =
     accessMatches &&
     reasons.some((reason) => reason.code === 'credentials') &&
-    !reasons.some((reason) => reason.code === 'data-access')
-      ? '重试获取在线凭据'
-      : '重新检查';
+    !reasons.some((reason) => reason.code === 'data-access');
   const actions =
     showDebugCopy && !awaitingAuthorization ? (
       <RestrictedQqAction
@@ -663,8 +682,7 @@ export function RestrictedModeHost() {
         busy={busy || entering}
         onOpened={afterDebugQqOpened}
         onEnable={() => refresh(true)}
-        onRetry={() => refresh()}
-        retryLabel={retryLabel}
+        onRetryCredentials={canRetryCredentials ? () => refresh() : undefined}
       />
     ) : (
       <>
@@ -686,18 +704,20 @@ export function RestrictedModeHost() {
             ) : (
               <Play size={14} />
             )}
-            {launching ? '正在启动 QQ' : '启动 QQ'}
+            {launching ? '正在打开 QQ' : '打开 QQ'}
           </button>
         )}
-        <button
-          type="button"
-          className="weq-set-btn"
-          disabled={busy || launching}
-          onClick={() => void refresh()}
-        >
-          <RefreshCw size={14} />
-          {busy ? '正在检查' : retryLabel}
-        </button>
+        {canRetryCredentials && (
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={busy || launching}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={14} />
+            {busy ? '正在获取凭据' : '重试获取在线凭据'}
+          </button>
+        )}
         {reasons.some((r) => r.code === 'disabled') && (
           <button
             type="button"

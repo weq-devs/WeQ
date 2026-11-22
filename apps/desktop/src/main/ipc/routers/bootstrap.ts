@@ -562,23 +562,47 @@ export const bootstrapRouter = router({
   /** 进程状态与代理、登录状态分别检测。仅有在线计数时，零不能证明 QQ 已退出。 */
   getQqProcessState: procedure.query(async () => {
     const platform = requirePlatform();
+    if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
+      const { phase, runningPids, sourceRunningPids } = await qqDebugCopy.status();
+      const switchingToDebugCopy = sourceRunningPids.length > 0;
+      const running = switchingToDebugCopy || runningPids.length > 0;
+      return {
+        running,
+        canRestart: running,
+        switchingToDebugCopy,
+        restarting: qqRestartInProgress() || phase !== 'idle',
+      };
+    }
     const count = await runningQqCount(platform.kind);
     const uin = currentLiveAccountUin();
     const canRestart = count !== null ? count > 0 : Boolean(uin && platform.resolveQqPid(uin));
     const running =
       count !== null ? count > 0 : canRestart || (platform.launcherCount() ?? 0) > 0 || null;
-    return { running, canRestart, restarting: qqRestartInProgress() };
+    return { running, canRestart, switchingToDebugCopy: false, restarting: qqRestartInProgress() };
   }),
 
   /** 启动宿主上已安装的 QQ，不自动登录或更改在线功能设置。 */
   launchQq: procedure.mutation(async () => {
     if (qqRestartInProgress()) throw new Error('正在重新启动 QQ，请稍候。');
-    await launchQq(requirePlatform());
+    const platform = requirePlatform();
+    if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
+      const status = await qqDebugCopy.status();
+      await qqDebugCopy.perform(status.runningPids.length ? 'activate' : 'open');
+    } else await launchQq(platform);
     return true;
   }),
 
   restartQq: procedure.mutation(async () => {
-    await restartQq(requirePlatform(), currentLiveAccountUin(), qqDebugCopy.executablePath);
+    if (qqRestartInProgress()) throw new Error('正在重新启动 QQ，请稍候。');
+    const platform = requirePlatform();
+    const uin = currentLiveAccountUin();
+    if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
+      const status = await qqDebugCopy.status();
+      if (status.sourceRunningPids.length) await qqDebugCopy.perform('switch');
+      else if (status.runningPids.length) {
+        await restartQq({ ...platform, qqExePath: () => qqDebugCopy.executablePath }, uin);
+      } else await qqDebugCopy.perform('open');
+    } else await restartQq(platform, uin);
     return true;
   }),
 

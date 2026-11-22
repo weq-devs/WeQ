@@ -39,6 +39,9 @@ const mock = vi.hoisted(() => ({
   runningCount: null as number | null,
   dataAccess: { status: 'unsupported', applicationPath: '', issues: [] } as QqDataAccess,
   dataRefetch: vi.fn(),
+  accessOptions: vi.fn(),
+  onlineOptions: vi.fn(),
+  diskOptions: vi.fn(),
   invalidateBootstrap: vi.fn(async () => {}),
   openSettings: vi.fn(async () => true),
   onlineFailed: false,
@@ -81,12 +84,15 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     useUtils: () => utils,
     account: {
       getGroupAlbumAccessState: {
-        useQuery: () => ({
-          data: mock.access,
-          dataUpdatedAt: mock.updatedAt,
-          isError: mock.failed,
-          refetch: mock.refetch,
-        }),
+        useQuery: (_input: unknown, options: unknown) => {
+          mock.accessOptions(options);
+          return {
+            data: mock.access,
+            dataUpdatedAt: mock.updatedAt,
+            isError: mock.failed,
+            refetch: mock.refetch,
+          };
+        },
       },
     },
     bootstrap: {
@@ -106,12 +112,15 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         }),
       },
       qqDataAccess: {
-        useQuery: () => ({
-          data: mock.dataAccess,
-          isFetching: false,
-          isError: false,
-          refetch: mock.dataRefetch,
-        }),
+        useQuery: (_input: unknown, options: unknown) => {
+          mock.diskOptions(options);
+          return {
+            data: mock.dataAccess,
+            isFetching: false,
+            isError: false,
+            refetch: mock.dataRefetch,
+          };
+        },
       },
       getSettings: {
         useQuery: () => ({
@@ -125,11 +134,14 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       sipEnabled: { useQuery: () => ({ data: mock.sip, refetch: mock.refetch }) },
       signerStatus: { useQuery: () => ({ data: undefined }) },
       probeOnline: {
-        useQuery: () => ({
-          data: { count: mock.onlineCount, runningCount: mock.runningCount },
-          isError: mock.onlineFailed,
-          refetch: mock.refetch,
-        }),
+        useQuery: (_input: unknown, options: unknown) => {
+          mock.onlineOptions(options);
+          return {
+            data: { count: mock.onlineCount, runningCount: mock.runningCount },
+            isError: mock.onlineFailed,
+            refetch: mock.refetch,
+          };
+        },
       },
     },
   },
@@ -463,15 +475,13 @@ it.each(['取消', 'Escape', '移除副本'])(
   },
 );
 
-it('手动启用提交完整来源，不修改自动偏好；普通重新检查不升级为手动请求', async () => {
+it('菜单自动检查不发起手动启用，主动启用提交完整来源', async () => {
   const source = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
   mock.access = { ...ready, attachEnabled: false, source };
   const f = fixture();
   act(() => useRestrictedMode.getState().setOpen(true));
-  await act(async () =>
-    [...f.host.querySelectorAll<HTMLButtonElement>('button')]
-      .find((button) => button.textContent === '重新检查')!
-      .click(),
+  expect(mock.accessOptions).toHaveBeenLastCalledWith(
+    expect.objectContaining({ refetchInterval: 2000, refetchIntervalInBackground: true }),
   );
   expect(mock.requestFull).not.toHaveBeenCalled();
   expect(mock.refreshRkeys).not.toHaveBeenCalled();
@@ -486,6 +496,10 @@ it('手动启用提交完整来源，不修改自动偏好；普通重新检查�
   expect(f.host.textContent).toContain('尚未恢复 QQ 在线能力');
   expect(useToast.getState().toasts.some((toast) => toast.title === '已启用 QQ 在线能力')).toBe(
     false,
+  );
+  act(() => useRestrictedMode.getState().setOpen(false));
+  expect(mock.accessOptions).toHaveBeenLastCalledWith(
+    expect.objectContaining({ refetchInterval: 5000, refetchIntervalInBackground: false }),
   );
 });
 it.each([false, true])('凭据不全时可主动补读，SIP 开启：%s', async (sip) => {
@@ -502,24 +516,23 @@ it.each([false, true])('凭据不全时可主动补读，SIP 开启：%s', async
   expect(mock.requestFull).not.toHaveBeenCalled();
 });
 it.each(['missing', 'ready', 'outdated', 'invalid', 'unmanaged'] as const)(
-  'SIP 副本 %s 状态的嵌入面板只显示一个重新检查，点击同时刷新副本和在线状态',
-  async (state) => {
+  'SIP 副本 %s 状态直接提供副本设置',
+  (state) => {
     mock.sip = true;
     mock.debugState = state;
     mock.access = { ...ready, hasD2: false };
     const f = fixture();
     act(() => useRestrictedMode.getState().setOpen(true));
-    const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')].filter(
-      (button) => button.textContent === '重新检查',
-    );
-    expect(buttons).toHaveLength(1);
-    await act(async () => buttons[0]!.click());
-    expect(mock.invalidateDebug).toHaveBeenCalledOnce();
-    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+    const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')];
+    expect(
+      buttons.find((button) => button.textContent === '副本设置')?.closest('details'),
+    ).toBeNull();
+    expect(buttons.some((button) => button.textContent === '重新检查')).toBe(false);
+    expect(mock.refreshRkeys).not.toHaveBeenCalled();
     expect(mock.requestFull).not.toHaveBeenCalled();
   },
 );
-it('副本、数据读取提示和多项授权同时出现时，通用检查及长期授权入口仍各只有一份', async () => {
+it('副本、数据读取提示和多项授权同时出现时，保留独立的长期授权入口', () => {
   Object.defineProperty(window, 'weq', { configurable: true, value: { authorization: {} } });
   mock.sip = true;
   mock.access = { ...ready, hasD2: false };
@@ -529,12 +542,9 @@ it('副本、数据读取提示和多项授权同时出现时，通用检查及�
   event('attach:confirm-hint', { token: 42 });
   act(() => useRestrictedMode.getState().setOpen(true));
   const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')];
-  expect(buttons.filter((button) => button.textContent === '重新检查')).toHaveLength(1);
+  expect(buttons.filter((button) => button.textContent === '重新检查')).toHaveLength(0);
   expect(buttons.filter((button) => button.textContent === '重新检测')).toHaveLength(0);
   expect(buttons.filter((button) => button.textContent === '管理长期授权')).toHaveLength(1);
-  await act(async () => buttons.find((button) => button.textContent === '重新检查')!.click());
-  expect(mock.invalidateDebug).toHaveBeenCalledOnce();
-  expect(mock.dataRefetch).toHaveBeenCalledOnce();
   expect(mock.send).not.toHaveBeenCalled();
   expect(useRestrictedMode.getState().requests).toHaveLength(2);
 });
@@ -542,7 +552,7 @@ it('等待副本刷新时切换来源，不把旧来源检查继续应用到新�
   mock.sip = true;
   mock.access = {
     ...ready,
-    hasD2: false,
+    hasGuid: false,
     source: { expectedAccountUin: '10001', expectedAccountConfigId: 'old' },
   };
   let finish = () => {};
@@ -556,7 +566,7 @@ it('等待副本刷新时切换来源，不把旧来源检查继续应用到新�
   act(() => useRestrictedMode.getState().setOpen(true));
   await act(async () =>
     [...f.host.querySelectorAll<HTMLButtonElement>('button')]
-      .find((button) => button.textContent === '重新检查')!
+      .find((button) => button.textContent === '重试获取在线凭据')!
       .click(),
   );
   mock.access = {
@@ -617,28 +627,33 @@ it('启动数据授权只在「在线能力受限」详情显示，运行中的 
   expect(f.host.textContent).toContain('/System/Applications/Utilities/Terminal.app');
   expect(
     [...f.host.querySelectorAll('button')].filter((b) => b.textContent === '重新检查'),
-  ).toHaveLength(1);
+  ).toHaveLength(0);
   await act(async () =>
     [...f.host.querySelectorAll('button')].find((b) => b.textContent === '打开系统设置')!.click(),
   );
   expect(mock.openSettings).toHaveBeenCalledOnce();
 });
 
-it('在线能力受限统一重试在数据恢复后刷新账号并收起提示，不虚报 QQ 在线能力', async () => {
+it('自动检查发现数据恢复时刷新账号并收起提示', () => {
   useViewState.setState({ view: 'startup', openedUin: null });
   mock.onlineCount = null;
   mock.dataAccess = { status: 'denied', applicationPath: '/fixture/Electron.app', issues: [] };
-  mock.dataRefetch.mockImplementation(async () => {
-    mock.dataAccess = { ...mock.dataAccess, status: 'readable' };
-    mock.onlineCount = 1;
-    return { data: mock.dataAccess };
-  });
   const f = fixture(true);
   act(() => useRestrictedMode.getState().setOpen(true));
-  await act(async () =>
-    [...f.host.querySelectorAll('button')].find((b) => b.textContent === '重新检查')!.click(),
+  expect(mock.onlineOptions).toHaveBeenLastCalledWith(
+    expect.objectContaining({ refetchInterval: 2000 }),
   );
+  expect(mock.diskOptions).toHaveBeenCalledWith(expect.objectContaining({ refetchInterval: 2000 }));
+  mock.dataAccess = { ...mock.dataAccess, status: 'readable' };
+  mock.onlineCount = 1;
+  f.render();
   expect(mock.invalidateBootstrap).toHaveBeenCalledTimes(3);
+  expect(mock.onlineOptions).toHaveBeenLastCalledWith(
+    expect.objectContaining({ refetchInterval: 5000 }),
+  );
+  expect(mock.diskOptions).toHaveBeenCalledWith(
+    expect.objectContaining({ refetchInterval: false }),
+  );
   expect(useRestrictedMode.getState().reasons).toEqual([]);
   expect(f.host.querySelector('[role="dialog"]')).toBeNull();
   expect(useToast.getState().toasts.some((toast) => toast.title === '已启用 QQ 在线能力')).toBe(
@@ -679,7 +694,7 @@ it('启动 QQ 的旧来源迟到错误不显示到同号新来源', async () => 
   act(() => useRestrictedMode.getState().setOpen(true));
   act(() =>
     [...f.host.querySelectorAll<HTMLButtonElement>('button')]
-      .find((button) => button.textContent === '启动 QQ')!
+      .find((button) => button.textContent === '打开 QQ')!
       .click(),
   );
   mock.access = { ...mock.access, source: { ...source, expectedAccountConfigId: 'synthetic-b' } };
@@ -787,7 +802,7 @@ function submitAuthorization(form: HTMLFormElement) {
 
 describe('在线能力受限启动 QQ', () => {
   function launchButton(host: HTMLElement) {
-    return [...host.querySelectorAll('button')].find((button) => button.textContent === '启动 QQ');
+    return [...host.querySelectorAll('button')].find((button) => button.textContent === '打开 QQ');
   }
   it.each([
     ['main', 'missing'],
@@ -802,7 +817,6 @@ describe('在线能力受限启动 QQ', () => {
     useViewState.setState({ view, openedUin: view === 'main' ? '10001' : null });
     const f = fixture();
     act(() => useRestrictedMode.getState().setOpen(true));
-    expect(launchButton(f.host)).toBeUndefined();
     expect(f.host.textContent).toContain('QQ 调试副本');
     const button = [...f.host.querySelectorAll('button')].find(
       (item) => item.textContent === (state === 'missing' ? '准备并打开 QQ' : '打开 QQ'),
@@ -827,7 +841,7 @@ describe('在线能力受限启动 QQ', () => {
     expect(panel.querySelector('.weq-qq-debug-checks')).toBeNull();
     expect(panel.querySelector('.weq-qq-debug-details')).toBeNull();
     expect(
-      panel.querySelectorAll('.weq-restricted-qq > .weq-restricted-actions > button'),
+      panel.querySelectorAll('.weq-restricted-qq > .weq-restricted-actions > .weq-set-btn-primary'),
     ).toHaveLength(1);
     const launch = [...panel.querySelectorAll('button')].find(
       (item) => item.textContent === '登录其他账号',
@@ -944,7 +958,7 @@ describe('在线能力受限启动 QQ', () => {
     act(() => useRestrictedMode.getState().setOpen(true));
     act(() => launchButton(f.host)!.click());
     const launching = [...f.host.querySelectorAll('button')].find(
-      (button) => button.textContent === '正在启动 QQ',
+      (button) => button.textContent === '正在打开 QQ',
     );
     expect(launching?.disabled).toBe(true);
     expect(
@@ -968,7 +982,7 @@ describe('在线能力受限启动 QQ', () => {
 });
 
 describe('非阻塞提权入口', () => {
-  it('重新检查与提权共用一行操作区，多项授权时只显示一次且不提交表单', async () => {
+  it('自动检查期间多项授权仍各自保留提权按钮', () => {
     Object.defineProperty(window, 'weq', { configurable: true, value: { authorization: {} } });
     const f = fixture();
     event('elev:request-password', { token: 41 });
@@ -977,17 +991,13 @@ describe('非阻塞提权入口', () => {
     const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')].filter(
       (button) => button.textContent === '重新检查',
     );
-    expect(buttons).toHaveLength(1);
+    expect(buttons).toHaveLength(0);
     expect(
       [...f.host.querySelectorAll('button')].filter(
         (button) => button.textContent === '管理长期授权',
       ),
     ).toHaveLength(1);
-    const row = buttons[0]!.closest('.weq-restricted-actions')!;
-    expect(row.querySelector('[type="submit"]')?.textContent).toBe('提权');
-    expect(row.closest('form')).not.toBeNull();
-    await act(async () => buttons[0]!.click());
-    expect(mock.refetch).toHaveBeenCalled();
+    expect(f.host.querySelectorAll('form button[type="submit"]')).toHaveLength(2);
     expect(mock.send).not.toHaveBeenCalled();
     expect(useRestrictedMode.getState().requests).toHaveLength(2);
   });

@@ -76,6 +76,13 @@ export class QqDebugCopyManager {
   get executablePath(): string {
     return join(this.path, 'Contents', 'MacOS', 'QQ');
   }
+
+  async isConfigured(): Promise<boolean> {
+    return (
+      (this.options.platform ?? process.platform) === 'darwin' &&
+      (this.busy || (await this.owned()))
+    );
+  }
   private async command(command: string, args: readonly string[], input?: string): Promise<string> {
     const result = await this.run(command, args, {
       input,
@@ -383,11 +390,13 @@ export class QqDebugCopyManager {
           action === 'switch'
         ) {
           this.phase = 'launching';
+          const activate =
+            action === 'activate' || (action === 'switch' && (await this.pids()).length > 0);
           const env = { ...process.env };
           delete env.ELECTRON_RUN_AS_NODE;
           const opened = await this.run(
             '/usr/bin/open',
-            [...(action === 'activate' ? [] : ['-n']), '-a', this.path],
+            [...(activate ? [] : ['-n']), '-a', this.path],
             {
               env,
               timeoutMs: 15_000,

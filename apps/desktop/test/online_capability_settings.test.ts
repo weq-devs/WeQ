@@ -69,7 +69,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                     : method === 'getQqClientSyncStatus'
                       ? mock.proxyStatus
                       : method === 'getQqProcessState'
-                        ? { running: mock.qqRunning, canRestart: mock.qqRunning === true }
+                        ? {
+                            running: mock.qqRunning,
+                            canRestart: mock.qqRunning === true,
+                            switchingToDebugCopy: mock.qqRunning === true,
+                          }
                         : undefined,
               isError: method === 'getGroupAlbumAccessState' && mock.failed,
               isLoading: false,
@@ -180,7 +184,8 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
     [...surface.querySelectorAll('button')].find((button) => button.textContent === label);
   for (const surface of [panel, card]) {
     expect(action(surface, '重新启动 QQ')).toBeDefined();
-    expect(action(surface, '启动 QQ')).toBeUndefined();
+    expect(action(surface, '打开 QQ')).toBeUndefined();
+    expect(surface.textContent).toContain('再打开调试副本');
   }
   act(() => action(panel, '重新启动 QQ')!.click());
   expect(mock.restartQq).toHaveBeenCalledOnce();
@@ -190,14 +195,14 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   expect(action(panel, '打开 QQ')).toBeDefined();
   mock.qqRunning = false;
   f.render();
-  expect(action(card, '启动 QQ')).toBeDefined();
-  act(() => action(panel, '启动 QQ')!.click());
+  expect(action(card, '打开 QQ')).toBeDefined();
+  act(() => action(panel, '打开 QQ')!.click());
   expect(mock.launchQq).toHaveBeenCalledOnce();
   const openSettings = vi.fn();
   const unsubscribe = onOpenSettingsRequest(openSettings);
   try {
     act(() =>
-      [...panel.querySelectorAll('button')].find((b) => b.textContent === '设置代理')?.click(),
+      [...panel.querySelectorAll('button')].find((b) => b.textContent === '代理设置')?.click(),
     );
     expect(openSettings).toHaveBeenCalledWith('qqProxyConnection');
     expect(panel.isConnected).toBe(false);

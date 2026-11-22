@@ -62,8 +62,8 @@ export function startupRestrictionReasons(input: {
       code: 'checking',
       title: 'QQ 在线状态待确认',
       guidance: input.probe?.runningCount
-        ? '已检测到 QQ 正在运行，但暂时无法确认账号登录状态；请先处理数据读取或授权问题后重新检查。'
-        : '暂时无法读取 QQ 的登录状态，请重新检查。',
+        ? 'QQ 正在运行。请按提示处理读取权限，WeQ 会继续检查登录状态。'
+        : '暂时无法读取 QQ 的登录状态，稍后会自动再试。',
     });
   } else if (input.probe?.count === 0) {
     reasons.push(offlineRestriction(input.sipEnabled));
@@ -79,7 +79,13 @@ export function restrictionReasons(input: {
 }): Restriction[] {
   if (!input.access)
     return input.failed
-      ? [{ code: 'checking', title: '状态检查失败', guidance: '请重新检查 QQ 与在线功能状态。' }]
+      ? [
+          {
+            code: 'checking',
+            title: '状态检查失败',
+            guidance: '稍后会自动检查 QQ 与在线功能状态。',
+          },
+        ]
       : [];
   const access = input.access;
   const reasons: Restriction[] = [];
@@ -119,7 +125,7 @@ export function restrictionReasons(input: {
     reasons.push({
       code: 'checking',
       title: '状态检查失败',
-      guidance: '暂时无法确认最新状态，请重新检查。',
+      guidance: '暂时无法确认最新状态，稍后会自动再试。',
     });
   return reasons;
 }

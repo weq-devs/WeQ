@@ -276,9 +276,8 @@ async function mountAction(needsQq = true, busy = false) {
   const root = createRoot(host);
   const onOpened = vi.fn(async () => {});
   const onEnable = vi.fn(async () => {});
-  const onRetry = vi.fn(async () => {});
   await act(async () =>
-    root.render(createElement(RestrictedQqAction, { needsQq, busy, onOpened, onEnable, onRetry })),
+    root.render(createElement(RestrictedQqAction, { needsQq, busy, onOpened, onEnable })),
   );
   close = () => {
     act(() => root.unmount());
@@ -288,14 +287,11 @@ async function mountAction(needsQq = true, busy = false) {
     host,
     render: async () => {
       await act(async () =>
-        root.render(
-          createElement(RestrictedQqAction, { needsQq, busy, onOpened, onEnable, onRetry }),
-        ),
+        root.render(createElement(RestrictedQqAction, { needsQq, busy, onOpened, onEnable })),
       );
     },
     onOpened,
     onEnable,
-    onRetry,
     primary: () => host.querySelector<HTMLButtonElement>('.weq-restricted-actions > button')!,
   };
 }
@@ -365,10 +361,13 @@ it('普通 QQ 在线且凭据读取中仍提供明确的切换副本入口', asy
   f.data!.sourceRunningPids = [51];
   const v = await mountAction(false, true);
   const button = [...v.host.querySelectorAll('button')].find(
-    (item) => item.textContent === '退出普通 QQ 并打开副本',
+    (item) => item.textContent === '重新启动 QQ',
   )!;
   expect(button).toBeDefined();
   expect(button.disabled).toBe(false);
+  expect(v.primary()).toBe(button);
+  expect(v.host.textContent).not.toContain('启用 QQ 在线能力');
+  expect(v.host.textContent).toContain('再打开调试副本');
   await act(async () => button.click());
   expect(f.action).toHaveBeenCalledWith({ action: 'switch' });
   expect(v.onOpened).toHaveBeenCalledOnce();

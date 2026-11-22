@@ -39,7 +39,6 @@ it.each([
   ['components/settings/BackupSection.tsx', 'setPreview(null)}'],
   ['components/QqDebugCopyPermissions.tsx', 'onClick={onClose}'],
   ['components/RestrictedQqAction.tsx', 'setSettingsOpen(true)'],
-  ['components/RestrictedQqAction.tsx', 'onRetry()'],
 ])('普通入口和辅助操作不显式升级为主动作：%s', (file, marker) => {
   expect(buttonClass(file!, marker!)).not.toContain('weq-set-btn-primary');
 });

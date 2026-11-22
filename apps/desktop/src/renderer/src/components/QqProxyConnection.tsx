@@ -1,6 +1,6 @@
 import { useCallback, useContext, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, LoaderCircle, Network, Play, X } from 'lucide-react';
+import { LoaderCircle, Network, Play, RefreshCw, Settings, X } from 'lucide-react';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { useRenderDocument } from '../lib/renderDocument';
@@ -9,6 +9,7 @@ import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { useViewState } from '../state/view';
 import { trpc } from '../trpc/client';
 import { QQ_PROXY_CONNECTING, qqProxySetupGuide } from './QqProxyConnection.shared';
+import { QQ_DEBUG_COPY_SWITCH_GUIDE } from './RestrictedQqAction.shared';
 import { useTabActive } from './RetainedTabs.shared';
 import { SettingsNavigateContext } from './settings/controls.shared';
 import '../styles/restricted-mode.css';
@@ -31,8 +32,8 @@ export function QqProxySettingsLink({
         else requestOpenSettings('qqProxyConnection');
       }}
     >
+      <Settings size={14} aria-hidden />
       {children}
-      <ChevronRight size={14} aria-hidden />
     </button>
   );
 }
@@ -69,18 +70,16 @@ export function QqProxyRecovery({
       ? '正在打开 QQ'
       : canRestart
         ? '重新启动 QQ'
-        : running === false
-          ? '启动 QQ'
-          : '打开 QQ';
+        : '打开 QQ';
+  const Icon = canRestart ? RefreshCw : Play;
   return (
     <>
-      <p className="weq-set-note">
-        {running === true
-          ? '重新启动 QQ 后，在登录页配置代理。'
-          : running === false
-            ? '启动 QQ 后，在登录页配置代理。'
-            : '如果 QQ 已运行，请重新启动 QQ，再在登录页配置代理。'}
-      </p>
+      {canRestart && qqProcess.data?.switchingToDebugCopy && (
+        <p className="weq-set-note">{QQ_DEBUG_COPY_SWITCH_GUIDE}</p>
+      )}
+      {running === true && !canRestart && (
+        <p className="weq-set-note">请退出 QQ，重新打开后在登录窗口配置代理。</p>
+      )}
       {failure && <p role="alert">{failure.message}</p>}
       <div className="weq-restricted-actions">
         {(running !== true || canRestart || restarting) && (
@@ -99,12 +98,16 @@ export function QqProxyRecovery({
             disabled={busy}
             aria-busy={busy}
           >
-            <Play size={14} aria-hidden />
+            {busy ? (
+              <LoaderCircle size={14} className="weq-restricted-progress-icon" aria-hidden />
+            ) : (
+              <Icon size={14} aria-hidden />
+            )}
             {label}
           </button>
         )}
         {beforeOpenSettings && (
-          <QqProxySettingsLink beforeNavigate={beforeOpenSettings}>设置代理</QqProxySettingsLink>
+          <QqProxySettingsLink beforeNavigate={beforeOpenSettings}>代理设置</QqProxySettingsLink>
         )}
       </div>
     </>
