@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { useAccountNoticeUnread } from '../src/renderer/src/hooks/useAccountNoticeUnread';
-import { mergeNoticeSeen, type NoticeSeenState } from '../src/shared/notice_seen';
+import { mergeNoticeSeen, type NoticeReadSnapshot } from '../src/shared/notice_seen';
 
 const rpc = vi.hoisted(() => ({ query: vi.fn(), mutate: vi.fn(), subscribe: vi.fn() }));
 const toast = vi.hoisted(() => ({
@@ -26,8 +26,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
-let state: NoticeSeenState | null;
-let receive: (state: NoticeSeenState | null) => void;
+let state: NoticeReadSnapshot | null;
+let receive: (state: NoticeReadSnapshot | null) => void;
 const cleanups: (() => void)[] = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -193,5 +193,72 @@ describe('各端通知已读同步接线', () => {
     await act(async () => window.dispatchEvent(new Event('focus')));
     expect(state?.seen).toEqual(ids);
     error.mockRestore();
+  });
+  it('Remote 不查 QQ 也应用分箱水位，迟到的共享快照不重新点亮', async () => {
+    const root = createRoot(document.createElement('div'));
+    cleanups.push(() => act(() => root.unmount()));
+    const ids = ['normal:200001', 'normal:200002', 'filtered:200001'].map(
+      (id) => `group-notify-seq:${id}`,
+    );
+    let count = -1;
+    function Probe() {
+      count = useAccountNoticeUnread('10001:source-a', 'group', ids, false, true);
+      return null;
+    }
+    state = { seen: [], readThrough: 0, qqGroupRead: { normal: '200001' } };
+    await act(async () => root.render(h(Probe)));
+    expect(count).toBe(2);
+    await act(async () =>
+      receive({ seen: [], readThrough: 0, qqGroupRead: { filtered: '200001' } }),
+    );
+    expect(count).toBe(1);
+    await act(async () => receive({ seen: [], readThrough: 0, qqGroupRead: { normal: '200000' } }));
+    expect(count).toBe(1);
+    expect(rpc.mutate).not.toHaveBeenCalled();
+  });
+  it.each(['friend', 'group'] as const)('只提交实际展示的补载条目：%s', async (kind) => {
+    const root = createRoot(document.createElement('div'));
+    cleanups.push(() => act(() => root.unmount()));
+    const prefix = kind === 'friend' ? 'buddy-request:u_a' : 'group-notify:123:u_a';
+    const initial = `${prefix}:100`;
+    const during = `${prefix}:200`;
+    const after = `${prefix}:300`;
+    let count = -1;
+    function Probe({ ids, open }: { ids: string[]; open: boolean }) {
+      count = useAccountNoticeUnread('10001:source-a', kind, ids, open, true);
+      return null;
+    }
+    rpc.query.mockImplementationOnce(() => new Promise(() => {}));
+    const render = (ids: string[], open: boolean) =>
+      act(async () => root.render(h(Probe, { ids, open })));
+    await render([initial], true);
+    await render([initial, during], true);
+    await render([initial, during], false);
+    await render([initial, during, after], false);
+    expect(rpc.mutate).not.toHaveBeenCalled();
+    await act(async () => receive(null));
+    expect(state?.seen).toEqual([initial, during]);
+    expect(count).toBe(1);
+  });
+  it('已读的旧群通知 ID 对上序号后写回，另一端只拿到在线条目也能去重', async () => {
+    const root = createRoot(document.createElement('div'));
+    cleanups.push(() => act(() => root.unmount()));
+    const old = 'group-notify:123:u_a:200';
+    const canonical = 'group-notify-seq:normal:200001';
+    const next = 'group-notify-seq:normal:200002';
+    state = { seen: [old], readThrough: 200 };
+    let count = -1;
+    function Probe({ alias }: { alias: boolean }) {
+      count = useAccountNoticeUnread('10001:source-a', 'group', [canonical, next], false, true, {
+        title: '群通知',
+        onOpen: () => {},
+        legacyIds: alias ? new Map([[canonical, old]]) : undefined,
+      });
+      return null;
+    }
+    await act(async () => root.render(h(Probe, { alias: true })));
+    expect(state?.seen).toContain(canonical);
+    await act(async () => root.render(h(Probe, { alias: false })));
+    expect(count).toBe(1);
   });
 });

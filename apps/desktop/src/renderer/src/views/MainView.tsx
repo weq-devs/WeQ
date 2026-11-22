@@ -182,7 +182,6 @@ import { Undo2 } from 'lucide-react';
 import { useReadStateUndo } from '../hooks/useReadStateUndo';
 import { useAccountNoticeUnread } from '../hooks/useAccountNoticeUnread';
 import {
-  confirmedGroupNoticeReads,
   friendNoticeCopy,
   groupNoticeCopy,
   groupNoticeReadId,
@@ -2882,11 +2881,8 @@ function MainWorkspace(): ReactElement {
     () => noticeBadgeList(groupRequests, groupNoticeInbox.operations),
     [groupRequests, groupNoticeInbox.operations],
   );
-  const { readSequence, filteredReadSequence, canReportRead } = groupNoticeInbox;
-  const confirmedGroupNoticeIds = useMemo(
-    () => confirmedGroupNoticeReads(groupNoticeIds, readSequence, filteredReadSequence),
-    [groupNoticeIds, readSequence, filteredReadSequence],
-  );
+  const { readSequence, canReportRead } = groupNoticeInbox;
+  const viewingContactNotices = messageActivity.enabled && shell.view === 'contacts';
   const reportViewedGroupNotices = useStableCallback((sequence: string) => {
     const binding = pinSession.binding;
     if (
@@ -2947,7 +2943,7 @@ function MainWorkspace(): ReactElement {
     noticeAccountKey,
     'friend',
     friendNoticeIds,
-    shell.contactNotice === 'friend',
+    viewingContactNotices && shell.contactNotice === 'friend',
     buddyRequests.isSuccess || friendNoticeInbox.ready,
     {
       title: '好友通知',
@@ -2960,13 +2956,12 @@ function MainWorkspace(): ReactElement {
     noticeAccountKey,
     'group',
     groupNoticeIds,
-    shell.contactNotice === 'group',
+    viewingContactNotices && shell.contactNotice === 'group',
     groupNotifies.isSuccess || groupNoticeInbox.ready,
     {
       title: '群通知',
       onOpen: openGroupNotice,
       handledIds: handledGroupNotices,
-      confirmedReadIds: confirmedGroupNoticeIds,
       legacyIds: legacyGroupNoticeIds,
       describe: describeGroupNotice,
     },

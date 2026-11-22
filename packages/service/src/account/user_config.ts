@@ -75,9 +75,18 @@ export function clientKeyExpiryMs(c: ClientKey): number {
   return c.fetchedAt + c.ttlSeconds * 1000;
 }
 
+export type AccountNoticeRead = {
+  seen: string[];
+  readThrough: number;
+  /** 只由电脑端从 QQ 服务端结果更新，与 WeQ 展示记录独立。 */
+  qqGroupRead?: Partial<Record<'normal' | 'filtered', string>>;
+  /** QQ 水位可能先到，此时 WeQ 尚未建立通知历史基线。 */
+  baselinePending?: true;
+};
+
 export interface AccountConfig {
   /** WeQ 各端共用的通知阅读记录，与 QQ 申请处理状态独立。 */
-  noticeSeen?: Partial<Record<'friend' | 'group', { seen: string[]; readThrough: number }>>;
+  noticeSeen?: Partial<Record<'friend' | 'group', AccountNoticeRead>>;
   /** 兼容读取视图的邮箱偏好；宿主全局保存，不保存邮箱票据。 */
   mailNotifications?: boolean;
   /** 左侧导航显示邮箱未读数；旧配置默认显示。 */
@@ -400,7 +409,7 @@ export class AccountConfigService {
     this.patch({ mailNotifications: enabled });
   }
 
-  setNoticeSeen(kind: 'friend' | 'group', state: { seen: string[]; readThrough: number }): void {
+  setNoticeSeen(kind: 'friend' | 'group', state: AccountNoticeRead): void {
     this.patch({ noticeSeen: { ...this.getRecord()?.noticeSeen, [kind]: state } });
   }
 

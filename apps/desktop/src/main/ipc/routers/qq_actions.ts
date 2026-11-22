@@ -141,6 +141,11 @@ export function createQQActionsRouter(
   resolveStatus = resolve,
   assertWritable?: (input: QQWriteBinding) => void,
   canReportGroupNoticeRead: () => boolean = () => false,
+  confirmGroupNoticeRead?: (
+    input: QQWriteBinding,
+    box: 'normal' | 'filtered',
+    sequence: string,
+  ) => void,
 ) {
   const busy = new WeakSet<QQActionServices>();
   const favoriteImports = new WeakMap<
@@ -1366,12 +1371,16 @@ export function createQQActionsRouter(
       .query(({ input }) =>
         read(input, async (s) => (await loadRequestInbox(s, input.kind)).operations),
       ),
-    requestInbox: procedure.input(requestInboxBinding).query(({ input }) =>
-      read(input, async (s) => ({
-        ...(await loadRequestInbox(s, input.kind)),
-        canReportRead: input.kind === 'group' && canReportGroupNoticeRead(),
-      })),
-    ),
+    requestInbox: procedure.input(requestInboxBinding).query(async ({ input }) => {
+      const inbox = await read(input, (s) => loadRequestInbox(s, input.kind));
+      if (inbox.readSequence !== null && (input.kind === 'group' || input.kind === 'filteredGroup'))
+        confirmGroupNoticeRead?.(
+          input,
+          input.kind === 'group' ? 'normal' : 'filtered',
+          inbox.readSequence,
+        );
+      return { ...inbox, canReportRead: input.kind === 'group' && canReportGroupNoticeRead() };
+    }),
     reportGroupNoticeRead: procedure
       .input(binding.extend({ sequence: z.string().regex(/^[1-9]\d{0,19}$/) }))
       .mutation(async ({ input }) => {
@@ -1391,7 +1400,11 @@ export function createQQActionsRouter(
             throw new Error('账号、QQ 运行时或已读上报设置已改变');
         };
         const confirmed = await services.groupNotify.reportNoticeRead(sequence, current);
-        return confirmed?.toString() ?? null;
+        if (confirmed === undefined) return null;
+        current();
+        const readSequence = confirmed.toString();
+        confirmGroupNoticeRead?.(input, 'normal', readSequence);
+        return readSequence;
       }),
     request: procedure
       .input(

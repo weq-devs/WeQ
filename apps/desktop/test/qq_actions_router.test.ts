@@ -35,7 +35,7 @@ vi.mock('../src/main/context/app_context', async (original) => ({
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
 const group = { ...binding, groupId: 123 };
 const empty = () => vi.fn(async (..._args: unknown[]) => {});
-function fixture() {
+function fixture(confirmGroupRead?: Parameters<typeof createQQActionsRouter>[4]) {
   let active = true;
   const record = { qqPid: 101 };
   const s = {
@@ -193,6 +193,7 @@ function fixture() {
         readSequence: 50n,
       })),
       handleOnlineRequest: empty(),
+      reportNoticeRead: vi.fn(async (_sequence: bigint): Promise<bigint | undefined> => 52n),
     },
     fileResource: {
       resolveLocalFile: vi.fn(async (_path: string): Promise<string | null> => null),
@@ -236,7 +237,7 @@ function fixture() {
       throw new Error('账号已切换');
     return s as unknown as QQActionServices;
   };
-  const actions = createQQActionsRouter(resolve);
+  const actions = createQQActionsRouter(resolve, resolve, undefined, () => true, confirmGroupRead);
   return {
     s,
     record,
@@ -999,6 +1000,29 @@ describe('主动操作的账号与参数边界', () => {
       'group-notify-seq:normal:56',
     ]);
     expect(rows[0]).toMatchObject({ uid: 'u_friend', uin: '10002', groupId: '123' });
+  });
+  it('只发布 QQ 确认的位置，按箱区分，切号的旧请求不发布', async () => {
+    const publish = vi.fn();
+    const f = fixture(publish);
+    await f.caller.requestInbox({ ...binding, kind: 'group' });
+    await f.caller.requestInbox({ ...binding, kind: 'filteredGroup' });
+    await f.caller.requestInbox({ ...binding, kind: 'friend' });
+    expect(publish.mock.calls.map(([, box, sequence]) => [box, sequence])).toEqual([
+      ['normal', '50'],
+      ['filtered', '50'],
+    ]);
+    await expect(f.caller.reportGroupNoticeRead({ ...binding, sequence: '55' })).resolves.toBe(
+      '52',
+    );
+    expect(publish.mock.lastCall?.slice(1)).toEqual(['normal', '52']);
+    f.s.groupNotify.reportNoticeRead.mockImplementationOnce(async () => {
+      f.switchAccount();
+      return 55n;
+    });
+    await expect(f.caller.reportGroupNoticeRead({ ...binding, sequence: '55' })).rejects.toThrow(
+      '切换',
+    );
+    expect(publish).toHaveBeenCalledTimes(3);
   });
   it.each(['group', 'filteredGroup'] as const)(
     '%s 保留 UID 或 QQ 号可识别的待处理申请',

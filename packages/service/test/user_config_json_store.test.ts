@@ -231,7 +231,12 @@ describe('AccountConfigService.setA1Payload', () => {
     const { s, dir } = svc();
     s.setA1Payload('deadbeef');
     s.setNoticeSeen('friend', { seen: ['buddy-request:u_peer:100'], readThrough: 100 });
-    s.setNoticeSeen('group', { seen: ['group-notify:123:u_peer:200'], readThrough: 200 });
+    const group = {
+      seen: ['group-notify:123:u_peer:200'],
+      readThrough: 200,
+      qqGroupRead: { normal: '200001', filtered: '190001' },
+    };
+    s.setNoticeSeen('group', group);
     const session = {
       context: { uin: '12345', dbKey: 'k', algos: {} },
     } as unknown as ConstructorParameters<typeof AccountConfigService>[0];
@@ -239,7 +244,7 @@ describe('AccountConfigService.setA1Payload', () => {
     reopened.save({ dataDir: '/tmp/data-12345' });
     expect(reopened.getRecord()?.noticeSeen).toEqual({
       friend: { seen: ['buddy-request:u_peer:100'], readThrough: 100 },
-      group: { seen: ['group-notify:123:u_peer:200'], readThrough: 200 },
+      group,
     });
     expect(reopened.getRecord()?.a1Payload).toBe('deadbeef');
     reopened.save({ dataDir: '/tmp/other-source' });

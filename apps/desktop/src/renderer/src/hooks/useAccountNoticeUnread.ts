@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { client } from '../trpc/client';
-import type { NoticeSeenState } from '../../../shared/notice_seen';
-import { mergeNoticeSeen } from '../../../shared/notice_seen';
+import {
+  mergeNoticeSeen,
+  newerGroupNoticeRead,
+  type GroupNoticeRead,
+  type NoticeReadSnapshot,
+  type NoticeSeenState,
+} from '../../../shared/notice_seen';
 import { useNoticeUnread } from './useNoticeUnread';
 import type { NewNoticeNotification } from './useNewNoticeNotification';
 
@@ -14,7 +19,11 @@ export function useAccountNoticeUnread(
   ready: boolean,
   notification?: NewNoticeNotification,
 ) {
-  const [remote, setRemote] = useState<{ key: string; state: NoticeSeenState | null } | null>(null);
+  const [remote, setRemote] = useState<{
+    key: string;
+    state: NoticeSeenState | null;
+    qqGroupRead: GroupNoticeRead | undefined;
+  } | null>(null);
   const scope = `${accountKey}:${kind}`;
   const transport = useMemo(() => {
     if (!accountKey) return null;
@@ -27,17 +36,29 @@ export function useAccountNoticeUnread(
     let active = true;
     let pending: NoticeSeenState | null = null;
     let writing = false;
-    const receive = (state: NoticeSeenState | null) => {
+    const receive = (snapshot: NoticeReadSnapshot | null) => {
       if (!active) return;
       setRemote((previous) => {
-        const merged = state
-          ? mergeNoticeSeen(previous?.key === scope ? previous.state : null, state)
-          : previous?.key === scope
-            ? previous.state
-            : null;
-        return previous?.key === scope && JSON.stringify(previous.state) === JSON.stringify(merged)
-          ? previous
-          : { key: scope, state: merged };
+        const current = previous?.key === scope ? previous : null;
+        const state =
+          snapshot && !snapshot.baselinePending
+            ? mergeNoticeSeen(current?.state, snapshot)
+            : (current?.state ?? null);
+        const known = current?.qqGroupRead;
+        const normal = newerGroupNoticeRead(known?.normal, snapshot?.qqGroupRead?.normal);
+        const filtered = newerGroupNoticeRead(known?.filtered, snapshot?.qqGroupRead?.filtered);
+        if (
+          current &&
+          normal === known?.normal &&
+          filtered === known?.filtered &&
+          JSON.stringify(current.state) === JSON.stringify(state)
+        )
+          return current;
+        return {
+          key: scope,
+          state,
+          qqGroupRead: normal || filtered ? { normal, filtered } : undefined,
+        };
       });
     };
     const flush = async () => {
@@ -100,19 +121,15 @@ export function useAccountNoticeUnread(
   }, [transport]);
   const sync = useMemo(
     () =>
-      remote?.key === scope && transport
-        ? { state: remote.state, publish: transport.publish }
+      transport
+        ? {
+            state: remote?.key === scope ? remote.state : undefined,
+            qqGroupRead: remote?.key === scope ? remote.qqGroupRead : undefined,
+            publish: transport.publish,
+          }
         : undefined,
     [remote, scope, transport],
   );
-  const unread = useNoticeUnread(
-    accountKey,
-    kind,
-    ids,
-    open,
-    ready && Boolean(sync),
-    sync,
-    notification,
-  );
+  const unread = useNoticeUnread(accountKey, kind, ids, open, ready, sync, notification);
   return unread?.length ?? 0;
 }

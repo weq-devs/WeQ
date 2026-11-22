@@ -3,8 +3,10 @@ import {
   mergeNoticeSeen,
   noticeTimestamp,
   NOTICE_SEEN_LIMIT,
+  type GroupNoticeRead,
   type NoticeSeenState,
 } from '../../../shared/notice_seen';
+import { confirmedGroupNoticeReads } from '../lib/contactNotice';
 import { type NewNoticeNotification, useNewNoticeNotification } from './useNewNoticeNotification';
 
 export { NOTICE_SEEN_LIMIT };
@@ -45,7 +47,11 @@ export function useNoticeUnread(
   ids: string[],
   open: boolean,
   ready: boolean,
-  sync?: { state: SeenState | null; publish: (state: SeenState) => void },
+  sync?: {
+    state: SeenState | null | undefined;
+    qqGroupRead?: GroupNoticeRead;
+    publish: (state: SeenState) => void;
+  },
   notification?: NewNoticeNotification,
 ) {
   const key = `weq:notice-seen:${accountKey}:${kind}`;
@@ -106,54 +112,72 @@ export function useNoticeUnread(
     };
   }, [key, snapshot]);
   const { seen, readThrough, initialized } = snapshot;
-  const confirmedReadIds = notification?.confirmedReadIds;
+  const synchronized = !sync || sync.state !== undefined;
+  const { normal, filtered } = sync?.qqGroupRead ?? {};
   const legacyIds = notification?.legacyIds;
   const readIds = useMemo(() => {
     void revision;
-    if (!confirmedReadIds?.size && !legacyIds?.size) return seen;
-    const read = new Set([...seen, ...(confirmedReadIds ?? [])]);
+    if (!normal && !filtered && !legacyIds?.size) return seen;
+    const read = new Set([...seen, ...confirmedGroupNoticeReads(ids, normal, filtered)]);
     for (const [id, legacy] of legacyIds ?? []) if (seen.has(legacy)) read.add(id);
     return read;
-  }, [seen, revision, confirmedReadIds, legacyIds]);
+  }, [seen, revision, ids, normal, filtered, legacyIds]);
   const unread = useMemo(() => {
     void revision;
-    if (!accountKey || !ready) return null;
+    if (!accountKey || !ready || !synchronized) return null;
     if (!initialized) return [];
     return [...new Set(ids)].filter((id) => {
       const time = noticeTimestamp(id);
       return !readIds.has(id) && (time === null || time >= readThrough);
     });
-  }, [accountKey, ready, initialized, ids, readIds, readThrough, revision]);
+  }, [accountKey, ready, synchronized, initialized, ids, readIds, readThrough, revision]);
   useEffect(() => {
-    if (!unread || (initialized && (!open || !unread.length))) return;
+    if (!accountKey || !ready) return;
     // 首次成功读取只建立历史基线；空列表也要保存，后续新增才能正常提醒。
-    // 合并其他窗口的已读；优先保留较新的标识，时间水位覆盖被淘汰的较早历史。
+    const baseline = synchronized && !initialized;
+    const viewed = baseline || open ? ids.filter((id) => !seen.has(id)) : [];
+    // 把旧版已读提升到规范 ID，之后只有在线条目时也能认出同一条。
+    for (const [id, legacy] of legacyIds ?? [])
+      if (!seen.has(id) && seen.has(legacy)) viewed.push(id);
+    if (!baseline && !viewed.length) return;
     const stored = readSeen(key);
-    const merged = new Set([...(stored?.seen ?? []), ...seen]);
-    for (const id of ids) {
-      merged.delete(id);
-      merged.add(id);
-    }
-    const retained = [...merged]
-      .sort((a, b) => (noticeTimestamp(a) ?? 0) - (noticeTimestamp(b) ?? 0))
-      .slice(-NOTICE_SEEN_LIMIT);
+    const state = mergeNoticeSeen(stored, {
+      seen: [...seen, ...viewed],
+      readThrough,
+    });
+    if (
+      initialized &&
+      state.readThrough === readThrough &&
+      state.seen.length === seen.size &&
+      state.seen.every((id) => seen.has(id))
+    )
+      return;
     seen.clear();
-    for (const id of retained) seen.add(id);
+    for (const id of state.seen) seen.add(id);
     snapshot.initialized = true;
-    snapshot.readThrough = latestTimestamp(ids, Math.max(readThrough, stored?.readThrough ?? 0));
+    snapshot.readThrough = state.readThrough;
     try {
-      window.localStorage.setItem(
-        key,
-        JSON.stringify({ seen: retained, readThrough: snapshot.readThrough }),
-      );
+      window.localStorage.setItem(key, JSON.stringify(state));
       window.dispatchEvent(new CustomEvent(NOTICE_READ_EVENT, { detail: key }));
     } catch {
       // 存储不可用时仍在当前会话清除红点。
     }
     setRevision((value) => value + 1);
-  }, [open, unread, key, ids, seen, readThrough, initialized, snapshot]);
+  }, [
+    accountKey,
+    ready,
+    synchronized,
+    open,
+    key,
+    ids,
+    seen,
+    readThrough,
+    initialized,
+    snapshot,
+    legacyIds,
+  ]);
   useEffect(() => {
-    if (!sync || !ready || !accountKey || !snapshot.initialized) return;
+    if (!sync || !synchronized || !ready || !accountKey || !snapshot.initialized) return;
     const state = mergeNoticeSeen(readSeen(key), {
       seen: [...snapshot.seen],
       readThrough: snapshot.readThrough,
@@ -166,7 +190,7 @@ export function useNoticeUnread(
     }
     const remote = sync.state && mergeNoticeSeen(null, sync.state);
     if (JSON.stringify(state) !== JSON.stringify(remote)) sync.publish(state);
-  }, [sync, ready, accountKey, key, revision, snapshot]);
+  }, [sync, synchronized, ready, accountKey, key, revision, snapshot]);
   const unreadForDisplay = open && unread ? [] : unread;
   useNewNoticeNotification(key, ids, unreadForDisplay, readIds, readThrough, notification);
   return unreadForDisplay;

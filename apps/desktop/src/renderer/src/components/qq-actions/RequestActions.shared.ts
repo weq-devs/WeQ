@@ -70,7 +70,6 @@ export function useOnlineNoticeInbox(
     error: normal.error?.message || filtered.error?.message,
     ready: normal.isSuccess || filtered.isSuccess,
     readSequence: normal.data?.readSequence,
-    filteredReadSequence: filtered.data?.readSequence,
     canReportRead: enabled && normal.data?.canReportRead === true,
   };
 }

@@ -9,7 +9,6 @@ export type NewNoticeNotification = {
   title: string;
   onOpen: () => void;
   handledIds?: ReadonlySet<string>;
-  confirmedReadIds?: ReadonlySet<string>;
   legacyIds?: ReadonlyMap<string, string>;
   describe?: (id: string) => { title: string; summary: string } | undefined;
 };

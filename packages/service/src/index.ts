@@ -157,6 +157,7 @@ export {
 export type {
   AccountConfig,
   AccountConfigMetadata,
+  AccountNoticeRead,
   DownloadRkey,
   ClientKey,
 } from './account/user_config';

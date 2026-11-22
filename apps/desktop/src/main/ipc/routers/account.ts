@@ -155,9 +155,8 @@ import { createSearchTargetsRouter } from './search_targets';
 import { createMessageNotificationsRouter } from './message_notifications';
 import { groupAlbumReferences } from '../../../shared/content_selection';
 import { createContactMetricsRouter } from './contact_metrics';
-import { createNoticeReadRouter } from './notice_read';
+import { createNoticeReadSync } from './notice_read';
 import { readMessageHistoryPage } from './message_history_page';
-import { mergeNoticeSeen } from '../../../shared/notice_seen';
 import type {
   ConversationInteraction,
   ConversationInteractionSnapshot,
@@ -1375,6 +1374,17 @@ export async function retryRecordedClone(id: string, scope: BackgroundTaskScope,
   });
 }
 
+const noticeRead = createNoticeReadSync((input) => {
+  const config = requireExpectedAccount(
+    input.expectedAccountUin,
+    input.expectedAccountConfigId,
+  ).accountConfig;
+  return {
+    getNoticeSeen: (kind) => config.getRecord()?.noticeSeen?.[kind] ?? null,
+    setNoticeSeen: (kind, state) => config.setNoticeSeen(kind, state),
+  };
+});
+
 export const accountRouter = router({
   outgoing: outgoingRouter,
   transfers: transferProgressRouter,
@@ -1442,20 +1452,7 @@ export const accountRouter = router({
         interactionBadges.acknowledge(input.ids, input.bannerOnly);
       }),
   }),
-  noticeRead: createNoticeReadRouter((input) => {
-    const config = requireExpectedAccount(
-      input.expectedAccountUin,
-      input.expectedAccountConfigId,
-    ).accountConfig;
-    return {
-      getNoticeSeen: (kind) => config.getRecord()?.noticeSeen?.[kind] ?? null,
-      mergeNoticeSeen: (kind, state) => {
-        const merged = mergeNoticeSeen(config.getRecord()?.noticeSeen?.[kind], state);
-        config.setNoticeSeen(kind, merged);
-        return merged;
-      },
-    };
-  }),
+  noticeRead: noticeRead.router,
   contactMetrics: createContactMetricsRouter((input) => {
     const runtime = requireExpectedAccount(
       input.expectedAccountUin,
@@ -1606,6 +1603,7 @@ export const accountRouter = router({
     () =>
       process.platform === 'darwin' &&
       requireBootstrap().userConfig.getSettings().reportReadEnabled,
+    noticeRead.confirmGroupRead,
   ),
   qqWrite: createQQWriteRouter(
     (input) => {
