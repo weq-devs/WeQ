@@ -107,8 +107,10 @@ import {
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzoneSpaceHome, type QzoneHomePostProps } from './QzoneSpaceHome';
-import { QzoneBlogs, useQzoneBlogIndex } from './QzoneBlogs';
-import { QzoneMore, useQzoneShareIndex } from './QzoneMore';
+import { QzoneBlogs } from './QzoneBlogs';
+import { useQzoneBlogIndex } from './QzoneBlogs.shared';
+import { QzoneMore } from './QzoneMore';
+import { useQzoneShareIndex } from './QzoneMore.shared';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
 import { QzoneActionsRow, QzoneCommentToggle } from '../components/QzoneActionsRow';

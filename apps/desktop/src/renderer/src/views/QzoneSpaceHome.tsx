@@ -26,13 +26,10 @@ import { QzoneFeedShareMenu } from '../components/QzoneShareCard';
 import { useContentMultiSelect } from '../state/contentSelection.shared';
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneHomeOverview } from './QzoneHomeOverview';
-import {
-  QzoneBlogCard,
-  qzoneBlogSortTime,
-  type QzoneBlog,
-  type QzoneBlogIndex,
-} from './QzoneBlogs';
-import { QzoneSharePost, type QzoneShareIndex } from './QzoneMore';
+import { QzoneBlogCard } from './QzoneBlogs';
+import { qzoneBlogSortTime, type QzoneBlog, type QzoneBlogIndex } from './QzoneBlogs.shared';
+import { QzoneSharePost } from './QzoneMore';
+import type { QzoneShareIndex } from './QzoneMore.shared';
 import { QzoneAutoPage } from './QzonePagination';
 import { QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext } from './qzoneShared.shared';

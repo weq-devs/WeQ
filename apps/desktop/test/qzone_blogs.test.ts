@@ -2,8 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode, act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import { QzoneBlogs, qzoneBlogTime, useQzoneBlogIndex } from '../src/renderer/src/views/QzoneBlogs';
-import { QzoneMore, useQzoneShareIndex } from '../src/renderer/src/views/QzoneMore';
+import { QzoneBlogs } from '../src/renderer/src/views/QzoneBlogs';
+import { qzoneBlogTime, useQzoneBlogIndex } from '../src/renderer/src/views/QzoneBlogs.shared';
+import { QzoneMore } from '../src/renderer/src/views/QzoneMore';
+import { useQzoneShareIndex } from '../src/renderer/src/views/QzoneMore.shared';
 import { QzonePageContext } from '../src/renderer/src/views/qzoneShared.shared';
 
 const rpc = vi.hoisted(() => ({
