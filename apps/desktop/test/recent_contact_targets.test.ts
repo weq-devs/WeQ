@@ -124,7 +124,7 @@ it('实时变更读取屏外目标，同轮去重，重连默认校准当前可�
   expect(api.read).toHaveBeenLastCalledWith({ ...binding, targetUids: ['u_1000'] });
 });
 
-it('连续滚动合并重叠目标，新出现的会话不排在旧目标冷却之后', async () => {
+it('滚动只校准新进入视口的会话，重排与保持可见不发请求，离开后仍可校准', async () => {
   const f = fixture();
   api.read.mockResolvedValue([]);
   f.render(['u_1000']);
@@ -136,15 +136,21 @@ it('连续滚动合并重叠目标，新出现的会话不排在旧目标冷却�
     await vi.advanceTimersByTimeAsync(0);
   });
   expect(api.read.mock.calls.map(([input]) => input.targetUids)).toEqual([['u_1000'], ['u_1001']]);
-  f.render(['u_1000', 'u_1001']);
+  f.render(['u_1001', 'u_1000']);
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(499);
+    await vi.advanceTimersByTimeAsync(500);
   });
   expect(api.read).toHaveBeenCalledTimes(2);
+  f.render(['u_1001']);
+  f.render(['u_1000', 'u_1001']);
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(0);
   });
-  expect(api.read).toHaveBeenCalledTimes(3);
+  expect(api.read.mock.calls.map(([input]) => input.targetUids)).toEqual([
+    ['u_1000'],
+    ['u_1001'],
+    ['u_1000'],
+  ]);
 });
 
 it('同水位灰条更新首屏与分页副本，旧结果不回灌更晚的消息', async () => {

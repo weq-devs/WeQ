@@ -271,6 +271,7 @@ import {
   focusComposerEnd,
   getActiveComposerMentionTrigger,
   getActiveComposerSlashTrigger,
+  getActiveComposerTriggers,
   insertComposerNode,
   isNodeInside,
   replaceComposerTextRange,
@@ -2831,18 +2832,17 @@ function ChatPaneContent({
     }
 
     saveComposerSelection(editor);
+    const triggers = composerMenuTriggers(editor);
     if (
       autoReplaceSlash &&
-      tabActive &&
-      slashEnabled &&
+      triggers.slash?.query &&
       preferenceValue('slashEmojiAutoReplace') &&
-      !composerComposing.current &&
       !currentPreference.blocked &&
       !sending
     ) {
-      const trigger = getActiveComposerSlashTrigger(editor, composerSelectionRef.current);
-      const key = trigger ? `${trigger.start}:${trigger.end}:${trigger.query}` : null;
-      if (trigger?.query && key !== slashDismissed.current) {
+      const trigger = triggers.slash;
+      const key = `${trigger.start}:${trigger.end}:${trigger.query}`;
+      if (key !== slashDismissed.current) {
         const exact = searchSlashEmojis(shortcuts.data?.faces ?? [], trigger.query).filter(
           (item) => item.code === trigger.query.toLowerCase(),
         );
@@ -2857,16 +2857,26 @@ function ChatPaneContent({
     if (editor === composerEditorRef.current) {
       scheduleMobileComposerMeasure(editor);
     }
-    updateMentionMenu(editor);
-    updateSlashMenu(editor);
+    updateComposerMenus(editor, triggers);
   }
 
-  function updateSlashMenu(editor = currentComposerEditor()) {
+  function composerMenuTriggers(editor: HTMLElement | null) {
+    return getActiveComposerTriggers(editor, composerSelectionRef.current, {
+      mention: conversation?.type === 'group',
+      slash: tabActive && slashEnabled && !composerComposing.current,
+    });
+  }
+
+  function updateComposerMenus(
+    editor: HTMLDivElement | null,
+    triggers = composerMenuTriggers(editor),
+  ) {
+    updateMentionMenu(triggers.mention);
     if (!editor || !tabActive || !slashEnabled || composerComposing.current) {
       setSlashMenu(null);
       return;
     }
-    const trigger = getActiveComposerSlashTrigger(editor, composerSelectionRef.current);
+    const trigger = triggers.slash;
     const key = trigger ? `${trigger.start}:${trigger.end}:${trigger.query}` : null;
     if (slashDismissed.current && slashDismissed.current !== key) slashDismissed.current = null;
     if (!trigger || key === slashDismissed.current) {
@@ -4252,8 +4262,7 @@ function ChatPaneContent({
     // 用事件源而不是 currentComposerEditor()：桌面的窄输入框与移动端展开态是两个
     // 编辑器，按「当前该用哪个」去猜会在切换瞬间扫错对象。
     saveComposerSelection(event.currentTarget);
-    updateMentionMenu(event.currentTarget);
-    updateSlashMenu(event.currentTarget);
+    updateComposerMenus(event.currentTarget);
   }
 
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -4970,15 +4979,9 @@ function ChatPaneContent({
     void addFiles(clipboardFiles(event.dataTransfer));
   }
 
-  function updateMentionMenu(editor = currentComposerEditor()) {
+  function updateMentionMenu(trigger: ReturnType<typeof getActiveComposerMentionTrigger>) {
     const request = ++mentionRequest.current;
-    if (!editor || conversation?.type !== 'group') {
-      setMentionMenu(null);
-      return;
-    }
-
-    const trigger = getActiveComposerMentionTrigger(editor, composerSelectionRef.current);
-    if (!trigger) {
+    if (!trigger || conversation?.type !== 'group') {
       setMentionMenu(null);
       return;
     }
@@ -7512,13 +7515,11 @@ function ChatPaneContent({
             onKeyUp={rescanMentionOnKeyUp}
             onMouseUp={() => {
               saveComposerSelection(composerEditorRef.current);
-              updateMentionMenu(composerEditorRef.current);
-              updateSlashMenu(composerEditorRef.current);
+              updateComposerMenus(composerEditorRef.current);
             }}
             onFocus={() => {
               saveComposerSelection(composerEditorRef.current);
-              updateMentionMenu(composerEditorRef.current);
-              updateSlashMenu(composerEditorRef.current);
+              updateComposerMenus(composerEditorRef.current);
             }}
             onBlur={() => saveComposerSelection(composerEditorRef.current)}
             onPaste={handleComposerPaste}
@@ -7602,13 +7603,11 @@ function ChatPaneContent({
               onKeyUp={rescanMentionOnKeyUp}
               onMouseUp={() => {
                 saveComposerSelection(expandedComposerEditorRef.current);
-                updateMentionMenu(expandedComposerEditorRef.current);
-                updateSlashMenu(expandedComposerEditorRef.current);
+                updateComposerMenus(expandedComposerEditorRef.current);
               }}
               onFocus={() => {
                 saveComposerSelection(expandedComposerEditorRef.current);
-                updateMentionMenu(expandedComposerEditorRef.current);
-                updateSlashMenu(expandedComposerEditorRef.current);
+                updateComposerMenus(expandedComposerEditorRef.current);
               }}
               onBlur={() => saveComposerSelection(expandedComposerEditorRef.current)}
               onPaste={handleComposerPaste}

@@ -930,6 +930,17 @@ function MainWorkspace(): ReactElement {
     previousContactSummaries.current = contactPreviews.summaries;
   }, [contactPreviews]);
   const recentContactsData = contactPreviews.rows;
+  const recentContactsByUid = useMemo(
+    () => new Map(recentContactsData.map((row) => [row.targetUid, row])),
+    [recentContactsData],
+  );
+  const profileContactRows = useMemo(
+    () =>
+      IS_WEB
+        ? selectProfileContacts(recentContactsByUid, visibleConversationIds)
+        : recentContactsData,
+    [recentContactsByUid, recentContactsData, visibleConversationIds],
+  );
   const allGroups = trpc.account.listAllGroups.useQuery(
     { limit: 2000 },
     {
@@ -4434,51 +4445,41 @@ function MainWorkspace(): ReactElement {
     let disposed = false;
     let cancel: (() => void) | undefined;
     let offset = 0;
-    const rows = selectProfileContacts(
-      recentContactsData,
-      IS_WEB ? visibleConversationIds : undefined,
-    );
+    if (!profileContactRows.length) return;
     const resolveBatch = () => {
       if (disposed) return;
       if (initialMessagesPendingRef.current || document.visibilityState === 'hidden') {
         cancel = scheduleBackgroundLoad(resolveBatch, 500);
         return;
       }
-      const batch = rows.slice(offset, offset + 30);
+      const batch = profileContactRows.slice(offset, offset + 30);
       const { uids, groups } = conversationProfileTargets(batch);
       for (const [code, ids] of groups)
         resolvePreviewMembers(code, ids, new Set(), () => !disposed);
       resolveProfiles(uids);
       offset += batch.length;
-      if (offset < rows.length) cancel = scheduleBackgroundLoad(resolveBatch);
+      if (offset < profileContactRows.length) cancel = scheduleBackgroundLoad(resolveBatch);
     };
     cancel = scheduleBackgroundLoad(resolveBatch, 100);
     return () => {
       disposed = true;
       cancel?.();
     };
-  }, [
-    recentContactsData,
-    visibleConversationIds,
-    groupInfoRevision,
-    resolvePreviewMembers,
-    resolveProfiles,
-  ]);
+  }, [profileContactRows, groupInfoRevision, resolvePreviewMembers, resolveProfiles]);
 
   useEffect(() => {
     const binding = messageBindingRef.current;
     if (!IS_WEB || !binding) return;
     const source = messageScope;
-    const visible = new Set(visibleConversationIds);
-    const missing = recentContactsData.filter(
+    const missing = profileContactRows.filter(
       (contact) =>
-        visible.has(contact.targetUid) &&
         chatTypeKind(contact.chatType) === 'group' &&
         /^\d+$/.test(contact.targetUid) &&
         !contact.targetDisplayName &&
         !contact.targetRemark &&
         !groupNameByCode.get(contact.targetUid),
     );
+    if (!missing.length) return;
     let disposed = false;
     let cancel: () => void;
     const resolveNames = () => {
@@ -4513,8 +4514,7 @@ function MainWorkspace(): ReactElement {
       cancel();
     };
   }, [
-    visibleConversationIds,
-    recentContactsData,
+    profileContactRows,
     groupNameByCode,
     messageScope,
     utils,
@@ -10355,9 +10355,7 @@ function MainWorkspace(): ReactElement {
                             initialReadingPosition={initialReadingPosition}
                             atLatest={anchoredToLatest}
                             latestMessageSeq={
-                              recentContactsData.find(
-                                (contact) => contact.targetUid === selectedUid,
-                              )?.msgSeq
+                              selectedUid ? recentContactsByUid.get(selectedUid)?.msgSeq : undefined
                             }
                             onPreviewLatest={(conversation) =>
                               void previewConversation(conversation, 'latest')

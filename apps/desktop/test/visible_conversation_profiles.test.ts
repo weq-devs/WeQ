@@ -11,12 +11,15 @@ const direct = (id: string, sender = '') => ({
   preview: null,
 });
 
-it('可见行选择按实际视口，不默认扫描最新三十条或全目录，滚动后只选新可见行', () => {
+it('按视口次序从目录索引取行，跳过重复及尚未入库的会话', () => {
   const rows = Array.from({ length: 600 }, (_, index) => direct(`u_${index}`));
-  expect(selectProfileContacts(rows, ['u_200', 'u_201'])).toEqual(rows.slice(200, 202));
-  expect(selectProfileContacts(rows, ['u_500'])).toEqual([rows[500]]);
-  expect(selectProfileContacts(rows, [])).toEqual([]);
-  expect(selectProfileContacts(rows)).toBe(rows);
+  const index = new Map(rows.map((row) => [row.targetUid, row]));
+  expect(selectProfileContacts(index, ['u_201', 'missing', 'u_200', 'u_201'])).toEqual([
+    rows[201],
+    rows[200],
+  ]);
+  expect(selectProfileContacts(index, ['u_500'])).toEqual([rows[500]]);
+  expect(selectProfileContacts(index, [])).toEqual([]);
 });
 
 it('补全私聊对方而不只补最后发送者，去重并忽略设备及非 UID', () => {
@@ -35,7 +38,8 @@ it('群名片按群隔离，只查询可见群的预览身份，不把群号当�
     { ...direct('67890', 'u_sender'), chatType: 2 },
     { ...direct('99999', 'u_offscreen'), chatType: 2 },
   ];
-  const targets = conversationProfileTargets(selectProfileContacts(rows, ['12345', '67890']));
+  const index = new Map(rows.map((row) => [row.targetUid, row]));
+  const targets = conversationProfileTargets(selectProfileContacts(index, ['12345', '67890']));
   expect(targets.uids).toEqual(['u_sender']);
   expect([...targets.groups]).toEqual([
     ['12345', ['u_sender']],

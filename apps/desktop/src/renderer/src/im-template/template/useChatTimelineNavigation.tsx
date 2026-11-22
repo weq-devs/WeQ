@@ -8,9 +8,11 @@ import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
 import type { Conversation, Message, UnreadDockStop } from './types';
 import { unreadHighlightKey } from './unreadDock';
 import type { ChatPaneProps } from './chatPane';
+import type { TimelineVisibility } from './chatTimeline';
 import { countAppendedMessages, unreadTimelineBoundary } from './chatTimelineModel';
 
 type ViewportReadRow = { seq: string; bottom: number };
+type ObservedTimelineRow = { id: string; report: boolean; seq?: string; readable: boolean };
 const READ_GESTURE_MS = 1000;
 
 export function useChatTimelineNavigation({
@@ -711,7 +713,7 @@ export function useChatTimelineNavigation({
   ]);
 
   const entryPending = unreadDock === undefined && Boolean(onReadCurrentConversation);
-  const observeMessageVisibility = useCallback(() => {
+  const observeMessageVisibility = useCallback((): TimelineVisibility | undefined => {
     const scroll = messageScrollRef.current;
     if (
       !tabActive ||
@@ -727,36 +729,16 @@ export function useChatTimelineNavigation({
           visitStops(navigationKey, [unreadSeq]);
           break;
         }
-    const targets = new Map<Element, string>();
-    const viewportRows = new Map<HTMLElement, { id: string; seq: string; readable: boolean }>();
     const observeRead = viewportReadEnabled && !loading && !loadingNewer;
-    for (const target of scroll.querySelectorAll<HTMLElement>('[data-message-id]')) {
-      const id = target.dataset.messageId ?? '';
-      if (
-        dockTargets?.has(id) ||
-        interactionTargets?.targets.has(id) ||
-        interactionTargets?.latestBannerTarget?.id === id
-      )
-        targets.set(target, id);
-      if (!entryPending && !observeRead) continue;
-      const index = target.closest<HTMLElement>('.weq-virtual-timeline-row')?.dataset.index;
-      const message = index === undefined ? undefined : visibleMessages[Number(index)];
-      if (
-        message?.id === id &&
-        message.conversationId === conversation?.id &&
-        !message.optimistic &&
-        (!message.source || message.ntSeqVerified) &&
-        message.msgSeq &&
-        /^[1-9]\d{0,19}$/.test(message.msgSeq)
-      )
-        viewportRows.set(target, {
-          id,
-          seq: message.msgSeq,
-          readable:
-            observeRead && Boolean(message.msgId) && target.classList.contains('message-line'),
-        });
-    }
-    if (!targets.size && !viewportRows.size) return;
+    if (
+      !entryPending &&
+      !observeRead &&
+      !dockTargets?.size &&
+      !interactionTargets?.targets.size &&
+      !interactionTargets?.latestBannerTarget
+    )
+      return;
+    let rows = new Map<Element, ObservedTimelineRow>();
     const clearVisibleRead = () => {
       viewportRead.visible.clear();
       viewportRead.scrollTop = undefined;
@@ -810,7 +792,8 @@ export function useChatTimelineNavigation({
         )
           ready.add(seq);
       };
-      for (const [target, { id, seq, readable }] of viewportRows) {
+      for (const [target, { id, seq, readable }] of rows) {
+        if (!seq) continue;
         const rect = target.getBoundingClientRect();
         const shown = Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top);
         if (entryPending && shown > 0) {
@@ -851,7 +834,7 @@ export function useChatTimelineNavigation({
     };
     let readFrame: number | undefined;
     const scheduleRead = () => {
-      if (!viewportRows.size || readFrame !== undefined) return;
+      if ((!observeRead && !entryPending) || readFrame !== undefined) return;
       readFrame = window.requestAnimationFrame(() => {
         readFrame = undefined;
         sampleViewport();
@@ -879,19 +862,19 @@ export function useChatTimelineNavigation({
       }
     };
     const probe = () => {
-      if (entryPending && viewportRows.size) sampleViewport();
+      if (entryPending) sampleViewport();
       else scheduleRead();
+      if (!dockTargets?.size && !interactionTargets) return;
       const bounds = scroll.getBoundingClientRect();
       if (bounds.height <= 0) return;
       const seen: string[] = [];
-      for (const [target, id] of targets) {
+      for (const [target, { id, report: shouldReport }] of rows) {
+        if (!shouldReport) continue;
         const rect = target.getBoundingClientRect();
         if (rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom) seen.push(id);
       }
       report(seen);
     };
-    // 虚拟列表预挂载不等于可见，重获焦点时也需要检查。
-    probe();
     const observer =
       typeof IntersectionObserver === 'undefined'
         ? undefined
@@ -900,8 +883,8 @@ export function useChatTimelineNavigation({
               scheduleRead();
               report(
                 entries.flatMap(({ target, intersectionRatio }) => {
-                  const id = targets.get(target);
-                  return intersectionRatio > 0 && id ? [id] : [];
+                  const row = rows.get(target);
+                  return intersectionRatio > 0 && row?.report ? [row.id] : [];
                 }),
               );
             },
@@ -910,22 +893,68 @@ export function useChatTimelineNavigation({
               threshold: observeRead ? [Number.EPSILON, 0.5] : Number.EPSILON,
             },
           );
-    for (const target of new Set([...targets.keys(), ...viewportRows.keys()]))
-      observer?.observe(target);
-    if (viewportRows.size) scroll.addEventListener('scroll', onViewportScroll, { passive: true });
-    if (interactionTargets || viewportRows.size) {
+    let initialSync = true;
+    const syncRows = () => {
+      const next = new Map<Element, ObservedTimelineRow>();
+      for (const target of scroll.querySelectorAll<HTMLElement>('[data-message-id]')) {
+        const existing = rows.get(target);
+        if (existing && existing.id === target.dataset.messageId) {
+          next.set(target, existing);
+          continue;
+        }
+        const id = target.dataset.messageId ?? '';
+        const shouldReport = Boolean(
+          dockTargets?.has(id) ||
+            interactionTargets?.targets.has(id) ||
+            interactionTargets?.latestBannerTarget?.id === id,
+        );
+        let seq: string | undefined;
+        let readable = false;
+        if (entryPending || observeRead) {
+          const index = target.closest<HTMLElement>('.weq-virtual-timeline-row')?.dataset.index;
+          const message = index === undefined ? undefined : visibleMessages[Number(index)];
+          if (
+            message?.id === id &&
+            message.conversationId === conversation?.id &&
+            !message.optimistic &&
+            (!message.source || message.ntSeqVerified) &&
+            message.msgSeq &&
+            /^[1-9]\d{0,19}$/.test(message.msgSeq)
+          ) {
+            seq = message.msgSeq;
+            readable =
+              observeRead && Boolean(message.msgId) && target.classList.contains('message-line');
+          }
+        }
+        if (shouldReport || seq) next.set(target, { id, report: shouldReport, seq, readable });
+      }
+      for (const target of rows.keys()) if (!next.has(target)) observer?.unobserve(target);
+      for (const target of next.keys()) if (!rows.has(target)) observer?.observe(target);
+      rows = next;
+      // 预挂载不等于可见。首次及无观察器时直接检查，滚动时复用原有订阅。
+      if (initialSync || !observer) probe();
+      else if (entryPending) sampleViewport();
+      else scheduleRead();
+      initialSync = false;
+    };
+    if (observeRead || entryPending)
+      scroll.addEventListener('scroll', onViewportScroll, { passive: true });
+    if (interactionTargets || observeRead || entryPending) {
       window.addEventListener('focus', probe);
       window.addEventListener('blur', clearVisibleRead);
       document.addEventListener('visibilitychange', probe);
     }
-    return () => {
-      observer?.disconnect();
-      observer?.takeRecords();
-      scroll.removeEventListener('scroll', onViewportScroll);
-      if (readFrame !== undefined) window.cancelAnimationFrame(readFrame);
-      window.removeEventListener('focus', probe);
-      window.removeEventListener('blur', clearVisibleRead);
-      document.removeEventListener('visibilitychange', probe);
+    return {
+      syncRows,
+      dispose: () => {
+        observer?.disconnect();
+        observer?.takeRecords();
+        scroll.removeEventListener('scroll', onViewportScroll);
+        if (readFrame !== undefined) window.cancelAnimationFrame(readFrame);
+        window.removeEventListener('focus', probe);
+        window.removeEventListener('blur', clearVisibleRead);
+        document.removeEventListener('visibilitychange', probe);
+      },
     };
   }, [
     loading,

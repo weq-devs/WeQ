@@ -26,10 +26,17 @@ export function useRecentContactTargets(
   const current = useRef<{
     scope: string;
     queue: ReturnType<typeof createUnreadTargetRefresh>;
+    visibleIds: ReadonlySet<string>;
   } | null>(null);
   useEffect(() => {
     if (!uin || !configId || !active) return;
     const binding = { expectedAccountUin: uin, expectedAccountConfigId: configId };
+    const headKey = recentContactHeadOptions(binding).queryKey;
+    const directoryKey = getQueryKey(
+      trpc.account.listRecentContacts,
+      { ...binding, limit: RECENT_DIRECTORY_SIZE },
+      'infinite',
+    );
     let stopped = false;
     const patch = (page: Page, rows: Page['items']): Page => {
       const items = patchRecentContactRows(page.items, rows);
@@ -51,19 +58,12 @@ export function useRecentContactTargets(
           if (stopped) return true;
           const rows = await client.account.listRecentContactTargets.query(input);
           if (stopped) return true;
-          cache.setQueryData<Page>(recentContactHeadOptions(binding).queryKey, (page) =>
-            page ? patch(page, rows) : page,
-          );
-          cache.setQueryData<InfiniteData<Page>>(
-            getQueryKey(
-              trpc.account.listRecentContacts,
-              { ...binding, limit: RECENT_DIRECTORY_SIZE },
-              'infinite',
-            ),
-            (directory) =>
-              directory
-                ? { ...directory, pages: directory.pages.map((page) => patch(page, rows)) }
-                : directory,
+          if (!rows.length) continue;
+          cache.setQueryData<Page>(headKey, (page) => (page ? patch(page, rows) : page));
+          cache.setQueryData<InfiniteData<Page>>(directoryKey, (directory) =>
+            directory
+              ? { ...directory, pages: directory.pages.map((page) => patch(page, rows)) }
+              : directory,
           );
         }
         return true;
@@ -72,7 +72,7 @@ export function useRecentContactTargets(
       256,
       500,
     );
-    current.current = { scope, queue };
+    current.current = { scope, queue, visibleIds: new Set() };
     return () => {
       stopped = true;
       queue.dispose();
@@ -80,17 +80,24 @@ export function useRecentContactTargets(
     };
   }, [uin, configId, scope, active, cache]);
   const refresh = useCallback(
-    (ids?: readonly string[], repeatInFlight = true) => {
+    (ids?: readonly string[]) => {
       if (current.current?.scope !== scope) return;
-      current.current.queue.request(
-        (ids ?? visible.current).map((uid) => ({ chatType: 0, uid })),
-        repeatInFlight,
-      );
+      current.current.queue.request((ids ?? visible.current).map((uid) => ({ chatType: 0, uid })));
     },
     [scope],
   );
   useEffect(() => {
-    if (active) refresh(visibleIds, false);
-  }, [active, visibleIds, refresh]);
+    const observer = current.current;
+    if (!active || observer?.scope !== scope) return;
+    const next = new Set(visibleIds);
+    const entered = [...next].filter((uid) => !observer.visibleIds.has(uid));
+    observer.visibleIds = next;
+    // 滚动只校准新进入视口的行；实时事件和重连仍主动校准受影响的行。
+    if (entered.length)
+      observer.queue.request(
+        entered.map((uid) => ({ chatType: 0, uid })),
+        false,
+      );
+  }, [active, visibleIds, scope, cache]);
   return refresh;
 }

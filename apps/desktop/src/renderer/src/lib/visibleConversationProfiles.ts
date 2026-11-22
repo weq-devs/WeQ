@@ -9,12 +9,15 @@ interface ProfileContact {
 }
 
 export function selectProfileContacts<T extends ProfileContact>(
-  rows: readonly T[],
-  visibleIds?: readonly string[],
-): readonly T[] {
-  if (!visibleIds) return rows;
-  const visible = new Set(visibleIds);
-  return rows.filter((row) => visible.has(row.targetUid));
+  rowsByUid: ReadonlyMap<string, T>,
+  visibleIds: readonly string[],
+): T[] {
+  const rows: T[] = [];
+  for (const id of new Set(visibleIds)) {
+    const row = rowsByUid.get(id);
+    if (row) rows.push(row);
+  }
+  return rows;
 }
 
 /** 对方身份和灰条涉及的用户一起批量补全；群名片始终按群隔离。 */

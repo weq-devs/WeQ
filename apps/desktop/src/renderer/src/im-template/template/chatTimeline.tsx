@@ -1,8 +1,20 @@
-import { useCallback, useLayoutEffect, useMemo, type ReactNode, type RefObject } from 'react';
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
 import { estimateTimelineRowHeight } from '../../lib/timelinePreload';
 import type { Message } from './types';
 import type { MessageGroupPosition } from './chatTimelineModel';
+
+export type TimelineVisibility = {
+  syncRows: () => void;
+  dispose: () => void;
+};
 
 export function ChatTimeline({
   messages,
@@ -22,7 +34,7 @@ export function ChatTimeline({
   contentRef: RefObject<HTMLDivElement | null>;
   scope: string;
   active: boolean;
-  observeMessageVisibility: () => (() => void) | undefined;
+  observeMessageVisibility: () => TimelineVisibility | undefined;
   children: (
     timeline: Pick<ReturnType<typeof useVirtualTimeline>, 'enabled' | 'items' | 'measure'>,
     captureContent: (element: HTMLDivElement | null) => void,
@@ -52,16 +64,24 @@ export function ChatTimeline({
     [contentRef, containerRef],
   );
   const renderedItems = timeline.enabled ? timeline.items : null;
+  const visibility = useRef<TimelineVisibility | undefined>(undefined);
+  useLayoutEffect(
+    () => () => {
+      visibility.current?.dispose();
+      visibility.current = undefined;
+    },
+    [observeMessageVisibility],
+  );
   useLayoutEffect(() => {
     // 父层布局 effect 可能会先定位到底部或恢复阅读位置，再据此报告可见消息。
     let cancelled = false;
-    let cleanup: (() => void) | undefined;
     queueMicrotask(() => {
-      if (!cancelled) cleanup = observeMessageVisibility();
+      if (cancelled) return;
+      if (!visibility.current) visibility.current = observeMessageVisibility();
+      visibility.current?.syncRows();
     });
     return () => {
       cancelled = true;
-      cleanup?.();
     };
   }, [observeMessageVisibility, renderedItems]);
   return children(timeline, captureContent, rowSpacing);

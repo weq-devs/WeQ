@@ -140,7 +140,10 @@ export function getActiveComposerMentionTrigger(
   editor: HTMLElement,
   savedRange: Range | null,
 ): ComposerMentionTrigger | null {
-  const before = composerTextBeforeCaret(editor, savedRange);
+  return composerMentionTrigger(composerTextBeforeCaret(editor, savedRange));
+}
+
+function composerMentionTrigger(before: string | null): ComposerMentionTrigger | null {
   if (before === null) return null;
   const match = /(^|[^A-Za-z0-9_.+\-@])@([^\s@\n]{0,40})$/u.exec(before);
   if (!match) {
@@ -158,6 +161,19 @@ export function getActiveComposerMentionTrigger(
 export function getActiveComposerSlashTrigger(editor: HTMLElement, savedRange: Range | null) {
   const before = composerTextBeforeCaret(editor, savedRange);
   return before === null ? null : slashEmojiTrigger(before);
+}
+
+/** 同一轮输入只序列化一次光标前的富文本，两种菜单沿用各自的匹配规则。 */
+export function getActiveComposerTriggers(
+  editor: HTMLElement | null,
+  savedRange: Range | null,
+  { mention, slash }: { mention: boolean; slash: boolean },
+) {
+  const before = editor && (mention || slash) ? composerTextBeforeCaret(editor, savedRange) : null;
+  return {
+    mention: mention ? composerMentionTrigger(before) : null,
+    slash: slash && before !== null ? slashEmojiTrigger(before) : null,
+  };
 }
 
 function composerTextBeforeCaret(editor: HTMLElement, savedRange: Range | null) {
