@@ -149,6 +149,16 @@
   margin: 0 0 4px;
   overflow-wrap: anywhere;
 }
+.weq-avatar-history-dates {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 16px;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
 html[data-theme='dark'] .weq-avatar-history-dialog {
   border-color: var(--weq-border-strong);
 }

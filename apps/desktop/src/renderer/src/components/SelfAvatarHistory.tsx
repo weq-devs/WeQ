@@ -204,21 +204,33 @@ export function AvatarHistoryDialog({
       {preview ? (
         <MediaPreview
           label="历史头像预览"
-          items={preview.items.map((item) => ({
-            key: item.id,
-            kind: 'image',
-            src: avatarFetchUrl(item.url),
-            title: `最早使用 ${avatarHistoryTime(item.firstUsedAt)}；最后使用 ${avatarHistoryTime(item.lastUsedAt)}`,
-          }))}
+          items={preview.items.map((item) => {
+            const src = avatarFetchUrl(item.url);
+            return {
+              key: item.id,
+              kind: 'image',
+              src,
+              title: '历史头像',
+              saveSource: {
+                kind: 'url',
+                url: src,
+                name: `最早使用 ${avatarHistoryTime(item.firstUsedAt)}；最后使用 ${avatarHistoryTime(item.lastUsedAt)}`,
+              },
+            };
+          })}
           initialIndex={preview.items.findIndex((item) => item.id === preview.id)}
           onClose={() => setPreview(null)}
           renderActions={(item) => {
             const avatar = preview.items.find((avatar) => avatar.id === item.key)!;
             return (
-              <span>
-                最早使用 <NumericText>{avatarHistoryTime(avatar.firstUsedAt)}</NumericText> ·
-                最后使用 <NumericText>{avatarHistoryTime(avatar.lastUsedAt)}</NumericText>
-              </span>
+              <div className="weq-avatar-history-dates">
+                <span>
+                  最早使用 <NumericText>{avatarHistoryTime(avatar.firstUsedAt)}</NumericText>
+                </span>
+                <span>
+                  最后使用 <NumericText>{avatarHistoryTime(avatar.lastUsedAt)}</NumericText>
+                </span>
+              </div>
             );
           }}
         />

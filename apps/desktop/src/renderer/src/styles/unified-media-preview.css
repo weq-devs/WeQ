@@ -1,6 +1,7 @@
 .weq-lightbox-layer.weq-unified-preview {
   --weq-lightbox-control-fg: var(--weq-fg-primary);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   padding: 0;
   background: var(--weq-bg-surface);
