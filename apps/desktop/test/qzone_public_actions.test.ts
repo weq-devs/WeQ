@@ -1,6 +1,9 @@
-import { act, createElement as h, type ContextType } from 'react';
+import { act, createElement as h, Fragment, type ContextType } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
+import { ToastHost } from '../src/renderer/src/components/Toast';
+import { bindAccountState } from '../src/renderer/src/lib/clientPreferences';
+import { onNotificationNavigation } from '../src/renderer/src/lib/notificationNavigation.shared';
 import { QzonePublicPane } from '../src/renderer/src/views/QzonePublicView';
 import {
   QzoneProfileContext,
@@ -117,8 +120,16 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+  const navigate = vi.fn();
+  const unsubscribe = onNotificationNavigation(navigate);
+  const focus = vi.spyOn(window, 'focus').mockImplementation(() => {});
+  bindAccountState(binding);
   close = () => {
+    unsubscribe();
+    focus.mockRestore();
     act(() => root.unmount());
+    bindAccountState(null);
     host.remove();
   };
   const profile = vi.fn();
@@ -144,13 +155,18 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
   await act(async () =>
     root.render(
       h(
-        QzoneProfileContext.Provider,
-        { value: profile },
+        Fragment,
+        null,
         h(
-          QzoneShareForwardContext.Provider,
-          { value: { targets: [friend, group], send } },
-          h(QzonePublicPane, { selfUin: '10001', onSpace: space }),
+          QzoneProfileContext.Provider,
+          { value: profile },
+          h(
+            QzoneShareForwardContext.Provider,
+            { value: { targets: [friend, group], send } },
+            h(QzonePublicPane, { selfUin: '10001', onSpace: space }),
+          ),
         ),
+        h(ToastHost),
       ),
     ),
   );
@@ -179,7 +195,6 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
   });
   expect(send).not.toHaveBeenCalled();
   await act(async () => button('转发到会话').click());
-  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
   expect(send.mock.calls).toEqual([
     [shareArk, friend, binding],
     [shareArk, group, binding],
@@ -188,6 +203,14 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
   await act(async () => button('转发到会话').click());
   expect(send.mock.calls.slice(2)).toEqual([[shareArk, group, binding]]);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+  const receipt = host
+    .querySelector<HTMLButtonElement>('[aria-label="选择转发会话"]')
+    ?.closest<HTMLElement>('[role="status"]');
+  expect(receipt).toBeTruthy();
+  await act(async () => receipt!.click());
+  expect(navigate.mock.calls).toEqual([
+    [{ kind: 'forwarded-conversations', targets: [friend, group], binding }],
+  ]);
   space.mockClear();
   act(() => host.querySelector<HTMLButtonElement>('.weq-qzn-person-info > button')!.click());
   expect(space).toHaveBeenCalledWith('10002', '原作者');

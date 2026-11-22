@@ -3,6 +3,7 @@ import { Forward, Loader2, Share2, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useModalBackground } from '../lib/modalBackground';
+import { notificationSource } from '../lib/notificationNavigation.shared';
 import { QzoneShareForwardContext } from '../lib/qzoneNavigation';
 import type { PublicJson } from '../lib/qzonePublic';
 import { Modal } from './Dialog';
@@ -11,6 +12,7 @@ import { useTabActive } from './RetainedTabs.shared';
 import { useToastApi } from './Toast.shared';
 import { QqArk } from './ark/QqArk';
 import { MergeForwardTargets } from './mergeForward/MergeForwardTargets';
+import type { MfTarget } from './mergeForward/model';
 import '../styles/qzone-actions.css';
 
 type ShareTarget = { hostUin: string; tid: string } | { feed: PublicJson };
@@ -44,9 +46,11 @@ function QzoneShareDialog({
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState(() => new Set<string>());
   const [outcomes, setOutcomes] = useState<
-    { id: string; name: string; status: 'sent' | 'unconfirmed' | 'failed'; error?: string }[]
+    { target: MfTarget; status: 'sent' | 'unconfirmed' | 'failed'; error?: string }[]
   >([]);
-  const settled = new Set(outcomes.filter(({ status }) => status !== 'failed').map(({ id }) => id));
+  const settled = new Set(
+    outcomes.filter(({ status }) => status !== 'failed').map(({ target }) => target.id),
+  );
   const targets = forward?.targets.filter(({ id }) => !settled.has(id)) ?? [];
   const picked = targets.filter(({ id }) => selected.has(id));
 
@@ -62,18 +66,16 @@ function QzoneShareDialog({
       return;
     sending.current = true;
     setBusy(true);
-    const next = outcomes.filter(({ id }) => !selected.has(id));
+    const next = outcomes.filter(({ target }) => !selected.has(target.id));
     const failed = new Set<string>();
     for (const target of picked) {
-      const { id, name } = target;
       try {
         const status = (await forward.send(current.result.ark, target, binding)) ?? 'sent';
-        next.push({ id, name, status });
+        next.push({ target, status });
       } catch (error) {
-        failed.add(id);
+        failed.add(target.id);
         next.push({
-          id,
-          name,
+          target,
           status: 'failed',
           error: error instanceof Error ? error.message : String(error),
         });
@@ -83,8 +85,17 @@ function QzoneShareDialog({
     setBusy(false);
     setSelected(failed);
     setOutcomes(next);
-    if (next.every(({ status }) => status === 'sent') && onClose())
-      toast.push({ tone: 'success', title: `已转发到 ${next.length} 个会话` });
+    if (next.every(({ status }) => status === 'sent') && onClose()) {
+      toast.push({
+        tone: 'success',
+        title: `已转发到 ${next.length} 个会话`,
+        source: notificationSource(
+          { kind: 'forwarded-conversations', targets: next.map(({ target }) => target), binding },
+          next.length === 1 ? '打开转发会话' : '选择转发会话',
+          binding,
+        ),
+      });
+    }
   }
 
   return (
@@ -138,9 +149,9 @@ function QzoneShareDialog({
               ) : null}
               {outcomes.length ? (
                 <ul className="weq-qzn-share-outcomes" aria-live="polite">
-                  {outcomes.map(({ id, name, status, error }) => (
-                    <li key={id}>
-                      {name}：
+                  {outcomes.map(({ target, status, error }) => (
+                    <li key={target.id}>
+                      {target.name}：
                       {status === 'sent'
                         ? '已转发'
                         : status === 'unconfirmed'
