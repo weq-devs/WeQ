@@ -271,11 +271,22 @@ async function mount(strict = false, pane = '说说') {
     },
   };
 }
-it('空间隐藏页不读取，恢复时只更新一轮说说，不重发点赞或评论', async () => {
+it('空间隐藏时不读取，短时返回保留说说，冷却到期只刷新一轮且不重发互动', async () => {
   const view = await mount();
+  const post = view.host.querySelector('[data-qzone-tid="post-a"]');
+  expect(post).not.toBeNull();
   expect(state.posts).toHaveBeenCalledTimes(1);
   expect(view.host.querySelector('[aria-label="刷新空间"]')).toBeNull();
+  vi.useFakeTimers({ toFake: ['Date'] });
   await view.setActive(false);
+  vi.setSystemTime(Date.now() + 5 * 60_000 - 1);
+  expect(state.posts).toHaveBeenCalledTimes(1);
+  await view.setActive(true);
+  expect(state.posts).toHaveBeenCalledTimes(1);
+  expect(view.host.querySelector('[data-qzone-tid="post-a"]')).toBe(post);
+
+  await view.setActive(false);
+  vi.setSystemTime(Date.now() + 5 * 60_000);
   expect(state.posts).toHaveBeenCalledTimes(1);
   await view.setActive(true);
   expect(state.posts).toHaveBeenCalledTimes(2);
