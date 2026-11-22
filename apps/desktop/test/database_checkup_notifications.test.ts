@@ -46,6 +46,7 @@ vi.mock('../src/main/context/app_context', () => ({
   }),
   getAppContext: () => ({}),
   closeSalvageConnections: vi.fn(),
+  clearVerifiedDbDamage: vi.fn(),
 }));
 vi.mock('../src/main/db_maintenance_worker_client', () => ({
   runDatabaseMaintenanceWorker: fixture.run,

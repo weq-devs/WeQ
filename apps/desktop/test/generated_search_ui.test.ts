@@ -205,7 +205,11 @@ describe('生成内容搜索定位', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });
-      expect(f.host.querySelector('[role="alert"]')?.textContent).toContain('记录加载失败');
+      expect(
+        [...f.host.querySelectorAll('.message-scroll [role="status"]')].some((status) =>
+          status.textContent?.includes('记录加载失败'),
+        ),
+      ).toBe(true);
       expect(f.host.textContent).not.toContain('该条记录已不在当前会话中');
       expect(fixture.mutate).not.toHaveBeenCalled();
     } finally {
