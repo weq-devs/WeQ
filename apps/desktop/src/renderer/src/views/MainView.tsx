@@ -5252,8 +5252,41 @@ function MainWorkspace(): ReactElement {
   const [missingJumpSeq, setMissingJumpSeq] = useState<string | null>(null);
   // 正在处理（或已处理完）的会话 id —— 同一个会话只引导一次（分页/刷新不再重复）。
   // 同时兼作「异步结果还是不是当前会话」的判据：await 回来时若已换会话就丢弃。
-  const unreadDockRequestRef = useRef<{ convId: string; deviceTail?: string } | null>(null);
+  const unreadDockRequestRef = useRef<{
+    scope: string;
+    convId: string;
+    chatType: UnreadTarget['chatType'];
+    deviceTail?: string;
+    autoRead?: { snapshot: UnreadRows[number]; revision: number };
+  } | null>(null);
   const unreadSnapshotPendingRef = useRef<{ convId: string } | null>(null);
+  const entryUnreadInfoRef = useRef<{
+    selection: NonNullable<typeof selectionRef.current>;
+    chatType: UnreadTarget['chatType'];
+    result: Promise<UnreadRows[number] | undefined>;
+  } | null>(null);
+  const readEntryUnreadInfo = useCallback(
+    async (chatType: UnreadTarget['chatType'], uid: string) => {
+      const binding = messageBindingRef.current;
+      const selection = selectionRef.current;
+      if (!binding || !selection || selection.id !== uid) return undefined;
+      const pending = entryUnreadInfoRef.current;
+      if (pending?.selection === selection && pending.chatType === chatType) return pending.result;
+      // 首条未读定位与分界线共用进入会话时的小表快照。
+      const result = readUnreadInfos({ ...binding, targets: [{ chatType, uid }] })
+        .then((rows) => rows.find((row) => row.chatType === chatType && row.uid === uid))
+        .catch((error) => {
+          console.error('[unread-dock] getUnreadInfo failed', error);
+          return undefined;
+        })
+        .finally(() => {
+          if (entryUnreadInfoRef.current?.result === result) entryUnreadInfoRef.current = null;
+        });
+      entryUnreadInfoRef.current = { selection, chatType, result };
+      return result;
+    },
+    [messageBindingRef, selectionRef],
+  );
   type AutoRead = {
     snapshot?: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number];
     visibleSeqs?: string[];
@@ -5580,6 +5613,10 @@ function MainWorkspace(): ReactElement {
     (selectedConversation.type === 'direct' || selectedConversation.type === 'group')
       ? selectedConversation.id
       : null;
+  const unreadSelectionChatType =
+    selectedConversation?.type === 'direct'
+      ? (unreadChatType(selectedConversation.chatType ?? 1) ?? 1)
+      : 2;
 
   // 换会话立刻收起上一个会话的跳转坞（首屏还没落地时不该继续挂着旧坞）。
   useEffect(() => {
@@ -5587,7 +5624,9 @@ function MainWorkspace(): ReactElement {
     unreadSnapshotPendingRef.current = null;
     setUnreadDock(undefined);
     setMissingJumpSeq(null);
-  }, [unreadSelectionId]);
+  }, [unreadSelectionId, unreadSelectionChatType]);
+
+  useMessageReadSelection(messageWindow, { selectedUid, isDirect, isGroup });
 
   useEffect(() => {
     const conv = selectedConversation;
@@ -5596,23 +5635,30 @@ function MainWorkspace(): ReactElement {
     if (!conv || (conv.type !== 'direct' && conv.type !== 'group')) {
       return undefined;
     }
-    // 等首批消息落地后记录未读快照；跳转目标是否可见由聊天视口判断。
-    if (messagesLoading || loaded.length === 0) return undefined;
-    const chatType =
-      conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1);
+    const chatType = unreadSelectionChatType;
     const device = chatType === 8 || chatType === 134;
-    if (device && (!anchoredToLatest || !readViewportActive)) return undefined;
+    // 设备会话必须用已交付的本地末条记录核对设备水位。
+    if (device && (messagesLoading || !loaded.length || !anchoredToLatest || !readViewportActive))
+      return undefined;
     const convId = conv.id;
     const deviceTail = device ? loaded.at(-1)?.msgId : undefined;
+    const source = messageScope;
     if (
       unreadDockRequestRef.current?.convId === convId &&
+      unreadDockRequestRef.current.scope === source &&
+      unreadDockRequestRef.current.chatType === chatType &&
       unreadDockRequestRef.current.deviceTail === deviceTail
     )
       return undefined;
-    const request = { convId, deviceTail };
-    unreadDockRequestRef.current = request;
-    const source = messageScopeRef.current;
     const binding = messageBindingRef.current;
+    if (!binding) return undefined;
+    const request: NonNullable<typeof unreadDockRequestRef.current> = {
+      scope: source,
+      convId,
+      chatType,
+      deviceTail,
+    };
+    unreadDockRequestRef.current = request;
     // 只在「还是同一个会话」时落地结果 —— 用 ref 而非 effect cleanup，
     // 因为 loaded / recentContactsData 的后续变化会重跑本 effect（此时早退），
     // 若用 cleanup 的 cancelled 会把刚拿到、还该用的结果一并丢掉。
@@ -5622,7 +5668,6 @@ function MainWorkspace(): ReactElement {
         return false;
       }
       return (
-        Boolean(binding) &&
         messageScopeRef.current === source &&
         selectedUidRef.current === convId &&
         unreadDockRequestRef.current === request
@@ -5635,19 +5680,14 @@ function MainWorkspace(): ReactElement {
       const guard = unreadUpdateGuardRef.current;
       const startedAt = guard.revision();
       try {
-        if (!openedUin) return;
-        if (device && binding) {
+        if (device) {
           info = await client.account.getDeviceReadSnapshot.query({
             ...binding,
             chatType,
             uid: convId,
           });
         } else {
-          [info] = await readUnreadInfos({
-            expectedAccountUin: openedUin,
-            expectedAccountConfigId: binding?.expectedAccountConfigId,
-            targets: [{ chatType, uid: convId }],
-          });
+          info = await readEntryUnreadInfo(chatType, convId);
         }
       } catch (err) {
         console.error('[unread-dock] getUnreadInfo failed', err);
@@ -5659,8 +5699,6 @@ function MainWorkspace(): ReactElement {
         setUnreadDock(null);
         return;
       }
-      if (guard.accepts(convId, startedAt)) applyActiveReadPosition([info]);
-
       if (device) {
         const position = info.deviceLatest;
         const [, time, id] = position?.split(':') ?? [];
@@ -5673,6 +5711,16 @@ function MainWorkspace(): ReactElement {
 
       const readSeq = info.readSeq ?? null;
       const unread = info.unreadCount ?? 0;
+      if (guard.accepts(convId, startedAt)) {
+        applyActiveReadPosition([info]);
+        if (readPolicy.current.readThroughViewport) {
+          // 目录批量读取可能还没返回，首屏用同一次小表结果更新已读水位和未读数。
+          const count = archivedUnreadRef.current.get(convId) ?? unread;
+          setUnreadByConv((current) =>
+            current[convId] === count ? current : { ...current, [convId]: count },
+          );
+        }
+      }
 
       const dock = buildUnreadDock({
         highlights: info?.highlights ?? null,
@@ -5681,8 +5729,7 @@ function MainWorkspace(): ReactElement {
       });
 
       if (!readPolicy.current.readThroughViewport)
-        await markVisibleConversationRead(conv, { snapshot: info });
-      if (!stillCurrent()) return;
+        request.autoRead = { snapshot: info, revision: startedAt };
       setUnreadDock(dock);
     })();
     return undefined;
@@ -5694,12 +5741,50 @@ function MainWorkspace(): ReactElement {
     anchoredToLatest,
     readViewportActive,
     loaded,
-    recentContactsData,
     markVisibleConversationRead,
-    openedUin,
+    messageScope,
     messageScopeRef,
     messageBindingRef,
     applyActiveReadPosition,
+    readEntryUnreadInfo,
+    unreadSelectionChatType,
+  ]);
+
+  useEffect(() => {
+    const request = unreadDockRequestRef.current;
+    if (
+      unreadDock === undefined ||
+      !messagesTabActive ||
+      !readSettingsReady ||
+      readThroughViewport ||
+      messagesLoading ||
+      !loaded.length ||
+      !selectedConversation ||
+      !request?.autoRead ||
+      request.scope !== messageScope ||
+      request.convId !== unreadSelectionId ||
+      request.chatType !== unreadSelectionChatType
+    )
+      return;
+    const { snapshot, revision } = request.autoRead;
+    request.autoRead = undefined;
+    void markVisibleConversationRead(selectedConversation, {
+      snapshot: unreadUpdateGuardRef.current.accepts(request.convId, revision)
+        ? snapshot
+        : undefined,
+    });
+  }, [
+    unreadDock,
+    messagesTabActive,
+    readSettingsReady,
+    readThroughViewport,
+    messagesLoading,
+    loaded.length,
+    selectedConversation,
+    messageScope,
+    unreadSelectionId,
+    unreadSelectionChatType,
+    markVisibleConversationRead,
   ]);
 
   useEffect(() => {
@@ -5752,7 +5837,6 @@ function MainWorkspace(): ReactElement {
     shell.setActiveConversationId,
   ]);
 
-  useMessageReadSelection(messageWindow, { selectedUid, isDirect, isGroup });
   useEffect(() => {
     setMemberSearchKeyword('');
   }, [selectedUid, isDirect, isGroup, messageScope]);
@@ -6762,6 +6846,7 @@ function MainWorkspace(): ReactElement {
     messagesTabActive,
     loadingInitialMessages,
     readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
+    readEntryUnreadInfo,
     centerWindowOnSeq,
   });
   // 目标已是选中的会话，但从联系人等页面返回时不会重新触发会话首屏读取。
@@ -10556,7 +10641,10 @@ function MainWorkspace(): ReactElement {
                             unreadDock={
                               unreadSelectionId === null
                                 ? null
-                                : unreadDockRequestRef.current?.convId === unreadSelectionId
+                                : unreadDockRequestRef.current?.convId === unreadSelectionId &&
+                                    unreadDockRequestRef.current.scope === messageScope &&
+                                    unreadDockRequestRef.current.chatType ===
+                                      unreadSelectionChatType
                                   ? unreadDock
                                   : undefined
                             }

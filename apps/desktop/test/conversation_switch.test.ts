@@ -116,6 +116,7 @@ const f = vi.hoisted(() => ({
     visibleSeqs?: string[];
   }>,
   readCurrent: undefined as (() => void) | undefined,
+  markReadReply: undefined as (() => Promise<void>) | undefined,
   dbChanged: undefined as (() => void) | undefined,
   notificationSubscriptions: { group: [], conversation: [] } as Record<
     'group' | 'conversation',
@@ -286,6 +287,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             }
             if (path.at(-1) === 'markConversationRead' || path.at(-1) === 'markViewportRead') {
               f.markedRead.push(input as unknown as (typeof f.markedRead)[number]);
+              if (f.markReadReply) await f.markReadReply();
               return { changed: true, report: { state: 'disabled' } };
             }
             if (path.at(-1) === 'memberDetails') return f.memberDetails;
@@ -588,6 +590,7 @@ afterEach(() => {
   f.messageCommits = [];
   f.markedRead = [];
   f.readCurrent = undefined;
+  f.markReadReply = undefined;
   f.atLatest = true;
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -1116,6 +1119,69 @@ it.each([
   },
 );
 
+it('首批消息已包含未读起点时立即显示分界线，自动已读仍等首屏读完', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.unreadMode = true;
+  f.unreadCounts = { '10001': 5 };
+  let finishRead: (() => void) | undefined;
+  f.markReadReply = () =>
+    new Promise((resolve) => {
+      finishRead = resolve;
+    });
+  const rows = [105, 104, 103, 102, 101, 100].map(
+    (seq): TestMessage => ({
+      msgId: String(seq),
+      msgSeq: String(seq),
+      sendTime: '1794200000',
+      senderUid: 'u_peer',
+      senderUin: '20001',
+      elements: [{ type: 'text', data: { textContent: `消息 ${seq}` } }],
+    }),
+  );
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const markedId = () =>
+    host
+      .querySelector('[aria-label="以下为未读消息"]')
+      ?.nextElementSibling?.getAttribute('data-message-id');
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    f.unreadReply = async () => [
+      { uid: '10001', chatType: 2, readSeq: '100', latestSeq: '105', unreadCount: 5 },
+    ];
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    const page = f.reads.at(-1)!;
+    await act(async () => page.show({ complete: false, rows }));
+    expect(markedId()).toBe('101');
+    expect(f.markedRead).toEqual([]);
+
+    await act(async () => page.show({ complete: true, rows }));
+    expect(f.markedRead).toEqual([expect.objectContaining({ uid: '10001', latestSeq: '105' })]);
+    expect(markedId()).toBe('101');
+  } finally {
+    await act(async () => {
+      root.unmount();
+      finishRead?.();
+    });
+    client.clear();
+    host.remove();
+  }
+});
+
 it('首条新消息模式在消息滑出上沿或触底时提交已读，并保留跳过的序号', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -1124,6 +1190,7 @@ it('首条新消息模式在消息滑出上沿或触底时提交已读，并保�
   useViewState.getState().setOpenedUin('90001');
   f.readFromFirstUnread = true;
   f.unreadMode = true;
+  f.unreadCounts = { '10001': 5 };
   f.unreadReply = async () => [
     { uid: '10001', chatType: 2, readSeq: '100', latestSeq: '105', unreadCount: 5 },
   ];
@@ -1171,6 +1238,12 @@ it('首条新消息模式在消息滑出上沿或触底时提交已读，并保�
     );
     await act(async () => vi.advanceTimersByTimeAsync(32));
     expect(f.markedRead).toEqual([]);
+    expect(
+      host
+        .querySelector('[aria-label="以下为未读消息"]')
+        ?.nextElementSibling?.getAttribute('data-message-id'),
+    ).toBe('101');
+    expect(f.unreadReads.filter(({ targets }) => targets.length === 1)).toHaveLength(1);
 
     const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
     await act(async () => {

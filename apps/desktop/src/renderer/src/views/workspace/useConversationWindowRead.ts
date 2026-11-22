@@ -46,6 +46,10 @@ type EntryInput = SelectionInput & {
   messagesTabActive: boolean;
   loadingInitialMessages: boolean;
   readFromFirstUnread: boolean;
+  readEntryUnreadInfo: (
+    chatType: UnreadRequest['targets'][number]['chatType'],
+    uid: string,
+  ) => Promise<Awaited<ReturnType<typeof readUnreadInfos>>[number] | undefined>;
   centerWindowOnSeq: (
     conv: string,
     kind: 'group' | 'c2c',
@@ -289,6 +293,7 @@ export function useConversationWindowEntry(
     messagesTabActive,
     loadingInitialMessages,
     readFromFirstUnread,
+    readEntryUnreadInfo,
     centerWindowOnSeq,
   }: EntryInput,
 ) {
@@ -439,16 +444,9 @@ export function useConversationWindowEntry(
           current: valid,
           active,
           resolveReadSeq: async () => {
-            try {
-              const [info] = await readUnreadInfos({
-                ...binding,
-                targets: [{ chatType: entryChatType, uid: conv }],
-              });
-              if (info && !info.readError && (info.unreadCount ?? 0) > 0)
-                readSeq = info.readSeq ?? undefined;
-            } catch (error) {
-              console.error('[msgs] entry unread snapshot failed', error);
-            }
+            const info = await readEntryUnreadInfo(entryChatType, conv);
+            if (info && !info.readError && (info.unreadCount ?? 0) > 0)
+              readSeq = info.readSeq ?? undefined;
             return readSeq;
           },
           settled: () => {
@@ -606,6 +604,7 @@ export function useConversationWindowEntry(
     centerWindowOnSeq,
     entryChatType,
     readFromFirstUnread,
+    readEntryUnreadInfo,
     messageScope,
     conversationWindows,
     refreshWindow,
