@@ -2831,16 +2831,14 @@ function Feeds({
   selfUin: string;
   onSpace: (uin: string, nickname?: string) => void;
 }) {
-  const [filter, setFilter] = useState('0');
-  const scope = filter === 'care' ? 7 : 0;
+  const [scope, setScope] = useState<0 | 7>(0);
   return (
     <FeedTimeline
       key={scope}
       selfUin={selfUin}
       onSpace={onSpace}
       scope={scope}
-      filter={filter}
-      onFilter={setFilter}
+      onScopeChange={setScope}
     />
   );
 }
@@ -2860,15 +2858,13 @@ function FeedTimeline({
   onSpace,
   scope = 0,
   kind = 'friends',
-  filter = '0',
-  onFilter,
+  onScopeChange,
 }: {
   selfUin: string;
   onSpace: (uin: string, nickname?: string) => void;
   scope?: 0 | 7;
   kind?: 'friends' | 'related';
-  filter?: string;
-  onFilter?: (filter: string) => void;
+  onScopeChange?: (scope: 0 | 7) => void;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
   const dataCache = usePageDataCache();
@@ -3248,16 +3244,8 @@ function FeedTimeline({
             projections.current.set(key, { html: feed.html, projector: currentProjector, body });
           return { feed, body };
         })
-        .filter(
-          ({ feed, body }) =>
-            !body.advertisement &&
-            (filter === '0' ||
-              filter === 'care' ||
-              (filter === '-1'
-                ? ![311, 2, 4].includes(feed.appid)
-                : feed.appid === Number(filter))),
-        ),
-    [kind, feeds, filter, currentProjector],
+        .filter(({ body }) => !body.advertisement),
+    [kind, feeds, currentProjector],
   );
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
   const feedReferences = useMemo(
@@ -3306,20 +3294,16 @@ function FeedTimeline({
         <h2>{title}</h2>
         {kind === 'friends' ? (
           <FormSelect
-            aria-label="动态类型"
-            value={filter}
+            aria-label="动态范围"
+            value={scope}
             onChange={(event) => {
-              onFilter?.(event.target.value);
+              onScopeChange?.(event.target.value === '7' ? 7 : 0);
               const scroll = event.currentTarget.closest('.weq-qzn-scroll');
               if (scroll) scroll.scrollTop = 0;
             }}
           >
             <option value={0}>全部动态</option>
-            <option value="care">特别关心</option>
-            <option value={311}>说说</option>
-            <option value={2}>日志</option>
-            <option value={4}>相册</option>
-            <option value={-1}>其他动态</option>
+            <option value={7}>特别关心</option>
           </FormSelect>
         ) : null}
       </div>
@@ -3492,7 +3476,7 @@ function FeedTimeline({
           ) : !incomplete && kind !== 'related' && !shown?.length ? (
             <EmptyState
               icon={<Images />}
-              title={filter !== '0' ? '暂无此类型动态' : '暂时没有可查看的动态'}
+              title={scope === 7 ? '暂无特别关心的动态' : '暂时没有可查看的动态'}
               body={pageCountLabel}
             />
           ) : (
@@ -3501,11 +3485,7 @@ function FeedTimeline({
                 ? '仍有未加载内容，接口未提供可用的续页位置'
                 : kind === 'related'
                   ? '已加载当前返回的互动'
-                  : shown?.length
-                    ? '已加载当前可查看的动态'
-                    : filter !== '0'
-                      ? '暂无此类型动态'
-                      : '暂时没有可查看的动态'}
+                  : '已加载当前可查看的动态'}
               <NumericText>{pageCountLabel}</NumericText>
             </p>
           )
