@@ -732,13 +732,10 @@ export function QzoneView({
             </button>
             <button
               type="button"
-              aria-current={tab === 'posts' ? 'page' : undefined}
-              onClick={() => {
-                setHostUin(selfUin);
-                setTab('posts');
-              }}
+              aria-current={tab === 'public' ? 'page' : undefined}
+              onClick={() => setTab('public')}
             >
-              {QZONE_SECTION_FEATURES.posts.label}
+              {QZONE_SECTION_FEATURES.public.label}
             </button>
             <button
               type="button"
@@ -749,10 +746,13 @@ export function QzoneView({
             </button>
             <button
               type="button"
-              aria-current={tab === 'public' ? 'page' : undefined}
-              onClick={() => setTab('public')}
+              aria-current={tab === 'posts' ? 'page' : undefined}
+              onClick={() => {
+                setHostUin(selfUin);
+                setTab('posts');
+              }}
             >
-              {QZONE_SECTION_FEATURES.public.label}
+              {QZONE_SECTION_FEATURES.posts.label}
             </button>
             {(['space', 'person-posts'] as const).flatMap((section) =>
               (section === 'space' ? spaces : postOwners).map((uin) => {
