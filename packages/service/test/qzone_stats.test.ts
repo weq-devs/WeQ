@@ -165,8 +165,6 @@ describe('Qzone space statistics', () => {
       }
       if (url.pathname.endsWith('/fcg_list_album_v3'))
         return new Response(stringify({ code: -10031 }));
-      if (url.pathname.endsWith('/get_abs'))
-        return new Response(stringify({ code: 0, data: { totalNum: 0, list: [] } }));
       if (url.pathname.endsWith('/get_msgb'))
         return new Response(
           stringify({
@@ -189,13 +187,15 @@ describe('Qzone space statistics', () => {
       postCount: 0,
       photoCount: 9,
       albumCount: null,
-      blogCount: 0,
       messageCount: 0,
       totalCount: 10,
       todayCount: 2,
       greeting: '欢迎',
     });
-    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch.mock.calls.some(([url]) => new URL(url).pathname.endsWith('/get_abs'))).toBe(
+      false,
+    );
   });
 });
 

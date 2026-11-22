@@ -510,6 +510,14 @@ export function projectQzoneHomeFeed(view: PublicFeedView) {
   return { type, title, detailId, href };
 }
 
+/** 日志 cell_id 对应日志列表的 blogId，动态时间和 union_id.feed_id 都不是日志编号。 */
+export function qzoneHomeBlogId(view: PublicFeedView): string | null {
+  const common = asObject(view.feed.cell_common);
+  if (asNumber(common?.app_id) !== 2 || !/^[1-9]\d{4,19}$/.test(view.author.uin)) return null;
+  const id = String(common?.cell_id ?? '');
+  return /^[1-9]\d{0,15}$/.test(id) ? id : null;
+}
+
 export function qzoneHomePostPreview(view: PublicFeedView, tid: string): QzoneEmotion {
   return {
     tid,

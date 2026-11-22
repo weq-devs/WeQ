@@ -31,6 +31,17 @@
   color: var(--weq-fg-secondary);
   font-size: 13px;
 }
+.weq-centered-panel[tabindex] > .weq-profile-loading {
+  display: grid;
+  place-items: center;
+  width: min(224px, calc(100vw - 24px));
+  min-height: 72px;
+  padding: 14px 22px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground);
+}
 
 @keyframes weq-loading-indicator-spin {
   to {

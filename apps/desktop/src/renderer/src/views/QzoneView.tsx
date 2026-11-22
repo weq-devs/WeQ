@@ -27,6 +27,7 @@ import {
   Loader2,
   Lock,
   MessageCircle,
+  Plus,
   RefreshCw,
   Repeat2,
   Send,
@@ -72,6 +73,7 @@ import {
   qzoneTextParts,
 } from '../lib/qzone';
 import { Modal } from '../components/Dialog';
+import { OverlayLayer } from '../components/OverlayLayer';
 import { QzoneSettingsSection } from '../components/settings/QzoneSettingsSection';
 import { useToast } from '../components/Toast.shared';
 import type {
@@ -100,7 +102,7 @@ import {
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { QzoneSpaceHome, type QzoneHomePostProps } from './QzoneSpaceHome';
-import { QzoneBlogs } from './QzoneBlogs';
+import { QzoneBlogs, useQzoneBlogIndex } from './QzoneBlogs';
 import { QzoneMore } from './QzoneMore';
 import { QzonePublicPane } from './QzonePublicView';
 import { QzonePostForwardDialog } from '../components/QzonePostForwardDialog';
@@ -496,6 +498,17 @@ export function QzoneView({
   }, []);
   const [inputUin, setInputUin] = usePageState('input', '', pageValue.string);
   const [targetError, setTargetError] = useState('');
+  const [visitOpen, setVisitOpen] = useState(false);
+  const visitTrigger = useRef<HTMLButtonElement>(null);
+  const visitId = useId();
+  const focusVisitInput = useCallback((element: HTMLInputElement | null) => {
+    element?.focus({ preventScroll: true });
+  }, []);
+  const closeVisit = () => {
+    setVisitOpen(false);
+    setTargetError('');
+    visitTrigger.current?.focus({ preventScroll: true });
+  };
   const requestExport = useRequestContentExport();
   const contentSelection = useCurrentContentSelection();
   const [refreshes, setRefreshes] = useState<Record<string, number>>({});
@@ -527,11 +540,11 @@ export function QzoneView({
     [active],
   );
   const openSpace = useCallback(
-    (uin: string, name?: string, section: OwnerTab = 'space'): void => {
+    (uin: string, name?: string, section: OwnerTab = 'space'): boolean => {
       const value = uin.trim();
       if (!/^[1-9]\d{4,19}$/.test(value)) {
         setTargetError('请输入有效的 QQ 号');
-        return;
+        return false;
       }
       setTargetError('');
       const nextTab = section === 'space' && value === selfUin ? 'posts' : section;
@@ -557,6 +570,7 @@ export function QzoneView({
         setOwners((current) => (current.includes(value) ? current : [...current, value]));
       }
       setTab(nextTab);
+      return true;
     },
     [
       selfUin,
@@ -780,27 +794,56 @@ export function QzoneView({
               }),
             )}
           </nav>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              openSpace(inputUin);
-            }}
+          <button
+            ref={visitTrigger}
+            className="weq-qzn-visit-trigger"
+            type="button"
+            aria-label="按 QQ 号访问空间"
+            title="按 QQ 号访问空间"
+            aria-haspopup="dialog"
+            aria-expanded={visitOpen}
+            aria-controls={visitOpen ? visitId : undefined}
+            onClick={() => (visitOpen ? closeVisit() : setVisitOpen(true))}
           >
-            <input
-              aria-label="好友 QQ 号"
-              placeholder="查看好友空间 · QQ 号"
-              value={inputUin}
-              onChange={(event) => setInputUin(event.target.value)}
-              inputMode="numeric"
-            />
-            <button type="submit">查看</button>
-          </form>
+            <Plus size={18} aria-hidden />
+          </button>
+          {visitOpen && active ? (
+            <OverlayLayer presentation="popover" anchor={visitTrigger.current} onClose={closeVisit}>
+              <form
+                id={visitId}
+                className="weq-qzn-visit-popover"
+                role="dialog"
+                aria-label="按 QQ 号访问空间"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (openSpace(inputUin)) closeVisit();
+                }}
+              >
+                <label htmlFor={`${visitId}-uin`}>QQ 号</label>
+                <div>
+                  <input
+                    id={`${visitId}-uin`}
+                    ref={focusVisitInput}
+                    value={inputUin}
+                    onChange={(event) => {
+                      setInputUin(event.target.value);
+                      setTargetError('');
+                    }}
+                    aria-invalid={Boolean(targetError)}
+                    aria-describedby={targetError ? `${visitId}-error` : undefined}
+                    inputMode="numeric"
+                  />
+                  <button type="submit">查看</button>
+                </div>
+                {targetError ? (
+                  <p id={`${visitId}-error`} role="alert">
+                    {targetError}
+                  </p>
+                ) : null}
+              </form>
+            </OverlayLayer>
+          ) : null}
         </div>
-        {targetError ? (
-          <p className="weq-qzn-status" role="alert">
-            {targetError}
-          </p>
-        ) : null}
         {loadingPreview ? (
           <div className="weq-mobile-qzone-skeleton" aria-hidden="true">
             {[0, 1, 2].map((row) => (
@@ -1014,6 +1057,16 @@ function SpaceContent({
     () => document.querySelector<HTMLElement>('.weq-qzn-owner-space:not([hidden])'),
   );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
+  const readsEnabled = useContext(QzoneReadsEnabled);
+  const blogActivity = useQQReadActivity(
+    active && readsEnabled && (pane === 'home' || pane === 'blogs'),
+  );
+  const blogIndex = useQzoneBlogIndex({
+    selfUin,
+    hostUin,
+    active: blogActivity.enabled,
+    refresh: refreshKey,
+  });
   const [removedTids, setRemovedTids] = usePageState(
     `deleted-posts:${selfUin}:${hostUin}`,
     [],
@@ -1118,6 +1171,8 @@ function SpaceContent({
           hostUin={hostUin}
           onSpace={onSpace}
           PostCard={HomePost}
+          blogIndex={blogIndex}
+          nickname={ownerNickname || nickname}
           deletedPosts={deletedPosts}
           onDeleted={onDeleted}
         />
@@ -1144,8 +1199,7 @@ function SpaceContent({
       <QzonePage active={active && pane === 'blogs'} refreshKey={refreshes.blogs ?? 0}>
         <QzoneBlogs
           key={hostUin}
-          selfUin={selfUin}
-          hostUin={hostUin}
+          index={blogIndex}
           nickname={ownerNickname || nickname}
           onSpace={onSpace}
         />

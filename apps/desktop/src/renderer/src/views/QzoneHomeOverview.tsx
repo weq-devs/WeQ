@@ -54,9 +54,11 @@ function OverviewError({ message, retry }: { message: string; retry: () => void 
 export function QzoneHomeOverview({
   binding,
   hostUin,
+  blogCount,
 }: {
   binding: QQWriteBinding;
   hostUin: string;
+  blogCount?: number;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
   const [dialog, setDialog] = useState<'personal' | 'edit' | null>(null);
@@ -91,7 +93,7 @@ export function QzoneHomeOverview({
     ['累计访问', data?.totalCount],
     ['今日访问', data?.todayCount],
     ['说说', data?.postCount],
-    ['日志', data?.blogCount],
+    ['日志', blogCount],
     ['相册', data?.albumCount],
     ['照片', data?.photoCount],
     ['留言', data?.messageCount],

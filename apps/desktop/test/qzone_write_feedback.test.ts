@@ -26,6 +26,9 @@ const state = vi.hoisted(() => ({
     mediaTypes: [],
   })),
   detail: vi.fn(),
+  blogs: vi.fn(),
+  blog: vi.fn(),
+  blogComments: vi.fn(),
   homePages: [] as { feeds: Record<string, unknown>[] }[],
   offscreenTid: '',
   archiveState: vi.fn(),
@@ -126,6 +129,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         interactions: { query: state.interactions },
         nativeDetail: { query: state.nativeDetail },
         detail: { query: state.detail },
+        blogs: { query: state.blogs },
+        blog: { query: state.blog },
+        blogComments: { query: state.blogComments },
         archiveState: { query: state.archiveState },
         cancel: { mutate: async () => {} },
       },
@@ -192,6 +198,12 @@ beforeEach(() => {
   state.removePost.mockReset().mockResolvedValue({ state: 'confirmed' });
   state.nativeDetail.mockClear();
   state.detail.mockReset();
+  state.blogs.mockReset().mockResolvedValue({ items: [], total: 0, nextOffset: null });
+  state.blog.mockReset().mockResolvedValue({ html: '<p>共享日志全文</p>' });
+  state.blogComments.mockReset().mockResolvedValue({
+    items: [{ id: '90', uin: '10002', nickname: '评论者', text: '共享日志评论', time: 1600000000 }],
+    nextOffset: null,
+  });
   state.homePages = [];
   state.offscreenTid = '';
   state.archiveState
@@ -236,12 +248,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-async function mount(strict = false, pane = '说说') {
+async function mount(strict = false, pane = '说说', { blogOnly = false } = {}) {
   let active = true;
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const queryClient = new QueryClient({ defaultOptions: { queries: { cacheTime: 0 } } });
+  const queryClient = new QueryClient(
+    blogOnly ? undefined : { defaultOptions: { queries: { cacheTime: 0 } } },
+  );
   const update = () => {
     const view = h(QzoneView, {
       selfUin: '10001',
@@ -271,9 +285,7 @@ async function mount(strict = false, pane = '说说') {
         .click();
     });
   if (pane !== '主页') await openPane(pane);
-  await act(async () => {
-    await vi.waitFor(() => expect(state.summary).toHaveBeenCalled());
-  });
+  if (!blogOnly) await act(async () => vi.waitFor(() => expect(state.summary).toHaveBeenCalled()));
   const button = (label: string) =>
     host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
   const count = () => host.querySelector('.weq-qzn-actions')!.textContent;
@@ -1189,6 +1201,82 @@ it('主页按可见性补全说说，保留原位互动，并与说说页共用�
   });
   expect(state.write).not.toHaveBeenCalled();
 });
+it('主页取日志并集，按编号合并而不按时间，切换栏目复用详情和评论', async () => {
+  const blogId = '1600000007';
+  const newId = '1600000097';
+  state.blogs.mockResolvedValue({
+    items: [
+      { id: newId, title: '仅列表日志', publishedAt: '', summary: '', images: [], commentCount: 0 },
+      {
+        id: blogId,
+        title: '共享日志',
+        publishedAt: '',
+        summary: '共享摘要',
+        images: [],
+        commentCount: 1,
+      },
+    ],
+    nextOffset: null,
+    total: 2,
+  });
+  state.homePages = [
+    {
+      feeds: [
+        {
+          cell_common: {
+            app_id: 2,
+            cell_id: blogId,
+            time: '1600000008',
+            union_id: { feed_id: 'opaque-a' },
+          },
+          cell_user_info: { user: { uin: '10001' } },
+        },
+        {
+          cell_common: {
+            app_id: 2,
+            cell_id: '1600000008',
+            time: '1600000008',
+            title: '仅主页日志',
+            union_id: { feed_id: 'opaque-b' },
+          },
+          cell_user_info: { user: { uin: '10001' } },
+        },
+      ],
+    },
+  ];
+  const view = await mount(false, '主页', { blogOnly: true });
+  const titles = () => [...view.host.querySelectorAll('article h3')].map((h) => h.textContent);
+  await act(async () =>
+    vi.waitFor(() => expect(titles()).toEqual(['仅列表日志', '共享日志', '仅主页日志'])),
+  );
+  const openBlog = async () => {
+    const card = [...view.host.querySelectorAll('article')].find(
+      (item) => item.querySelector('h3')?.textContent === '共享日志',
+    )!;
+    for (const label of ['查看全文', '评论']) {
+      await act(async () =>
+        [...card.querySelectorAll('button')]
+          .find((button) => button.textContent?.includes(label))!
+          .click(),
+      );
+    }
+    await act(async () =>
+      vi.waitFor(() => {
+        expect(card.textContent).toContain('共享日志全文');
+        expect(card.textContent).toContain('共享日志评论');
+      }),
+    );
+  };
+  await openBlog();
+  await view.openPane('日志');
+  expect(titles()).toEqual(['仅列表日志', '共享日志']);
+  await openBlog();
+  expect(state.blogs).toHaveBeenCalledTimes(1);
+  expect(state.blog).toHaveBeenCalledOnce();
+  expect(state.blog).toHaveBeenCalledWith(expect.objectContaining({ hostUin: '10001', blogId }));
+  expect(state.blogComments).toHaveBeenCalledOnce();
+});
+
 it.each([true, false])('删除仅在单条读回确认后从两个栏目移除，确认=%s', async (confirmed) => {
   const tid = '112700000100000001000000';
   const post = { tid, content: '待删说说', time: 1, images: [], videos: [], commentNum: 0 };

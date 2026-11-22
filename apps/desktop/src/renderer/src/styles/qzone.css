@@ -55,7 +55,6 @@
 .weq-qzn-tools,
 .weq-qzn-navigation,
 .weq-qzn-navigation nav,
-.weq-qzn-navigation form,
 .weq-qzn-target,
 .weq-qzn-section-title {
   display: flex;
@@ -76,8 +75,7 @@
 }
 .weq-qzn-navigation {
   padding: 0 26px 14px;
-  justify-content: space-between;
-  flex-wrap: wrap;
+  gap: 6px;
   border-bottom: 1px solid var(--weq-border-subtle);
 }
 .weq-qzn-navigation nav {
@@ -87,13 +85,48 @@
   color: var(--primary);
   background: var(--muted);
 }
-.weq-qzn-navigation input {
-  min-width: 150px;
-  width: 200px;
-  padding: 7px 9px;
-  background: var(--muted);
+.weq-qzn-navigation .weq-qzn-visit-trigger {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+.weq-overlay-layer[tabindex] > .weq-qzn-visit-popover {
+  display: grid;
+  gap: 8px;
+  width: min(292px, calc(100vw - 24px));
+  padding: 12px;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.weq-qzn-visit-popover > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.weq-qzn-visit-popover input,
+.weq-qzn-visit-popover button {
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 9px;
+  border: 1px solid var(--weq-border-subtle);
   border-radius: 6px;
-  font-size: 12px;
+  background: var(--muted);
+}
+.weq-qzn-visit-popover button {
+  cursor: pointer;
+  color: var(--primary);
+}
+.weq-qzn-visit-popover :focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.weq-qzn-visit-popover [role='alert'] {
+  margin: 0;
+  color: var(--destructive);
 }
 
 .weq-qzn-scroll {
@@ -584,12 +617,6 @@
   .weq-qzn-timeline {
     padding: 18px 16px;
   }
-  .weq-qzn-navigation form {
-    width: 100%;
-  }
-  .weq-qzn-navigation input {
-    flex: 1;
-  }
   .weq-qzn-pictures {
     gap: 4px;
   }
@@ -669,9 +696,6 @@
 }
 .weq-qzn-navigation nav > button,
 .weq-qzn-space-tab {
-  flex-shrink: 0;
-}
-.weq-qzn-navigation form {
   flex-shrink: 0;
 }
 .weq-qzn-space-title {

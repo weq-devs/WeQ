@@ -2,7 +2,8 @@ import { lazy, Suspense, useEffect, useState, type ComponentProps } from 'react'
 import { createPortal } from 'react-dom';
 import { lazyPanel } from '../lib/lazyPanel';
 import { Modal } from './Dialog';
-import { PanelLoading } from './LoadingIndicator';
+import { LoadingIndicator, PanelLoading } from './LoadingIndicator';
+import { OverlayLayer } from './OverlayLayer';
 import { ChatRecordsHeader } from './search/ChatRecordsHeader';
 
 const MailContent = lazy(() =>
@@ -63,25 +64,42 @@ export const GroupAlbumFeedDialog = lazyPanel<
 export const GroupFileDialog = lazyPanel<
   ComponentProps<typeof import('./GroupFileDialog').GroupFileDialog>
 >(() => import('./GroupFileDialog').then((m) => ({ default: m.GroupFileDialog })));
+function ProfileLoading({ onClose }: { onClose: () => void }) {
+  return (
+    <OverlayLayer presentation="panel" onClose={onClose}>
+      <div className="weq-profile-loading" role="status">
+        <LoadingIndicator>正在加载名片…</LoadingIndicator>
+      </div>
+    </OverlayLayer>
+  );
+}
 export const ContactProfileDialog = lazyPanel<
   ComponentProps<typeof import('../im-template/template/profilePanes').ContactProfileDialog>
->(() =>
-  import('../im-template/template/profilePanes').then((m) => ({
-    default: m.ContactProfileDialog,
-  })),
+>(
+  () =>
+    import('../im-template/template/profilePanes').then((m) => ({
+      default: m.ContactProfileDialog,
+    })),
+  ({ onClose }) => <ProfileLoading onClose={onClose} />,
 );
 export const GroupProfileDialog = lazyPanel<
   ComponentProps<typeof import('./groupProfile/GroupProfileSurface').GroupProfileSurface>
->(() =>
-  import('./groupProfile/GroupProfileSurface').then((m) => ({ default: m.GroupProfileSurface })),
+>(
+  () =>
+    import('./groupProfile/GroupProfileSurface').then((m) => ({ default: m.GroupProfileSurface })),
+  ({ onClose }) => <ProfileLoading onClose={onClose} />,
 );
 export const MemberProfileCard = lazyPanel<
   ComponentProps<typeof import('./MemberProfileCard').MemberProfileCard>
->(() => import('./MemberProfileCard').then((m) => ({ default: m.MemberProfileCard })));
+>(
+  () => import('./MemberProfileCard').then((m) => ({ default: m.MemberProfileCard })),
+  ({ onClose }) => <ProfileLoading onClose={onClose} />,
+);
 export const ConversationIdentityCard = lazyPanel<
   ComponentProps<typeof import('./ConversationIdentityCard').ConversationIdentityCard>
->(() =>
-  import('./ConversationIdentityCard').then((m) => ({ default: m.ConversationIdentityCard })),
+>(
+  () => import('./ConversationIdentityCard').then((m) => ({ default: m.ConversationIdentityCard })),
+  ({ onClose }) => <ProfileLoading onClose={onClose} />,
 );
 export const SpecialConversationPreview = lazyPanel<
   ComponentProps<typeof import('./SpecialConversationPreview').SpecialConversationPreview>

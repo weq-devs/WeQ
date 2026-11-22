@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode, act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import { QzoneBlogs } from '../src/renderer/src/views/QzoneBlogs';
+import { QzoneBlogs, qzoneBlogTime, useQzoneBlogIndex } from '../src/renderer/src/views/QzoneBlogs';
 import { QzonePageContext } from '../src/renderer/src/views/qzoneShared.shared';
 
 const rpc = vi.hoisted(() => ({
@@ -32,6 +32,16 @@ vi.mock('../src/renderer/src/components/QzoneProfileAvatar', async (importOrigin
   ...(await importOriginal<typeof import('../src/renderer/src/components/QzoneProfileAvatar')>()),
   QzonePersonHeader: ({ nickname }: { nickname: string }) => h('span', null, nickname),
 }));
+
+it('日志列表有独立的秒级时间，短编号不当作时间戳', () => {
+  expect(qzoneBlogTime({ id: '1600000007', publishedAt: '2020-09-13 20:27' })).toBe(1600000007);
+  expect(qzoneBlogTime({ id: '7', publishedAt: '2020-09-13 20:27' })).toBe('2020-09-13 20:27');
+});
+
+function BlogFixture({ active }: { active: boolean }) {
+  const index = useQzoneBlogIndex({ selfUin: '10001', hostUin: '10002', active, refresh: 0 });
+  return h(QzoneBlogs, { index, nickname: '空间主人', onSpace: () => {} });
+}
 
 it('日志在 StrictMode 和暂停后可读，摘要断行，正文和评论按需展开', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -124,12 +134,7 @@ it('日志在 StrictMode 和暂停后可读，摘要断行，正文和评论按�
             h(
               QzonePageContext.Provider,
               { value: { active, refresh: 0 } },
-              h(QzoneBlogs, {
-                selfUin: '10001',
-                hostUin: '10002',
-                nickname: '空间主人',
-                onSpace: () => {},
-              }),
+              h(BlogFixture, { active }),
             ),
           ),
         ),

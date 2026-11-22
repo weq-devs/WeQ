@@ -7,6 +7,7 @@ import {
   projectPublicFeed,
   projectQzoneHomeFeed,
   publicGridMedia,
+  qzoneHomeBlogId,
   type PublicCommentView,
   type PublicFeedView,
 } from '../lib/qzonePublic';
@@ -21,6 +22,12 @@ import { QzoneFeedShareMenu } from '../components/QzoneShareCard';
 import { useContentMultiSelect } from '../state/contentSelection.shared';
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { QzoneHomeOverview } from './QzoneHomeOverview';
+import {
+  QzoneBlogCard,
+  qzoneBlogSortTime,
+  type QzoneBlog,
+  type QzoneBlogIndex,
+} from './QzoneBlogs';
 import { QzoneAutoPage } from './QzonePagination';
 import { QzoneMediaGrid, State } from './qzoneShared';
 import { QzonePageContext } from './qzoneShared.shared';
@@ -82,7 +89,7 @@ function FeedComments({
         <div key={comment.id || index}>
           {[comment, ...comment.replies].map((row, replyIndex) => (
             <QzoneCommentRow
-              key={row.id ? `\${replyIndex === 0 ? 'comment' : 'reply'}:\${row.id}` : replyIndex}
+              key={row.id ? `${replyIndex === 0 ? 'comment' : 'reply'}:${row.id}` : replyIndex}
               uin={row.author.uin}
               nickname={row.author.nick}
               time={row.time}
@@ -100,6 +107,33 @@ function FeedComments({
         </div>
       ))}
     </section>
+  );
+}
+
+function FeedReadCounts({ feed }: { feed: PublicFeedView }) {
+  return (
+    <>
+      {feed.likeCount !== null ? (
+        <span title="赞">
+          <ThumbsUp size={16} aria-hidden />
+          <span className="weq-qzn-action-label">赞</span>{' '}
+          <span className="weq-number">{feed.likeCount}</span>
+        </span>
+      ) : null}
+      {feed.forwardCount !== null ? (
+        <span title="转发">
+          <Repeat2 size={16} aria-hidden />
+          <span className="weq-qzn-action-label">转发</span>{' '}
+          <span className="weq-number">{feed.forwardCount}</span>
+        </span>
+      ) : null}
+      {feed.viewCount !== null ? (
+        <span className="weq-qzn-views" title="浏览量（非去重访客数）">
+          <Eye size={16} aria-hidden />
+          <span className="weq-number">{feed.viewCount}</span>
+        </span>
+      ) : null}
+    </>
   );
 }
 
@@ -180,11 +214,67 @@ function HomeFeedCard({
   );
 }
 
+type HomeRow =
+  | { kind: 'feed'; time: number; feed: PublicFeedView; tid: string | null }
+  | { kind: 'blog'; time: number; blog: QzoneBlog; feed?: PublicFeedView };
+
+function homeRows(
+  pages: readonly { feeds: readonly unknown[] }[],
+  blogs: readonly QzoneBlog[],
+  hostUin: string,
+  deletedPosts: ReadonlySet<string>,
+) {
+  const rows = new Map<string, HomeRow>();
+  const byBlogId = new Map(blogs.map((blog) => [blog.id, blog]));
+  let feedFloor = Number.POSITIVE_INFINITY;
+  let blogFloor = Number.POSITIVE_INFINITY;
+  for (const [pageIndex, page] of pages.entries()) {
+    for (const [index, raw] of page.feeds.entries()) {
+      const feed = projectPublicFeed(raw, index);
+      if (!feed || feed.advertisement) continue;
+      if (feed.time > 0) feedFloor = Math.min(feedFloor, feed.time);
+      const { detailId: tid, title } = projectQzoneHomeFeed(feed);
+      if (tid && deletedPosts.has(tid)) continue;
+      const blogId = qzoneHomeBlogId(feed);
+      if (blogId) {
+        const key = `blog:${feed.author.uin}:${blogId}`;
+        if (rows.has(key)) continue;
+        const indexed = feed.author.uin === hostUin ? byBlogId.get(blogId) : undefined;
+        const blog = {
+          id: blogId,
+          title: indexed?.title || title,
+          summary: indexed?.summary ?? '',
+          images: indexed?.images.length ? indexed.images : publicGridMedia(feed.media).images,
+          publishedAt: indexed?.publishedAt ?? '',
+          commentCount: indexed?.commentCount ?? feed.commentCount,
+        };
+        rows.set(key, { kind: 'blog', blog, feed, time: feed.time || qzoneBlogSortTime(blog) });
+        continue;
+      }
+      const key = tid
+        ? `post:${tid}`
+        : feed.key.startsWith('#')
+          ? `${pageIndex}:${feed.key}`
+          : feed.key;
+      if (!rows.has(key)) rows.set(key, { kind: 'feed', feed, tid, time: feed.time });
+    }
+  }
+  for (const blog of blogs) {
+    const time = qzoneBlogSortTime(blog);
+    if (time > 0) blogFloor = Math.min(blogFloor, time);
+    const key = `blog:${hostUin}:${blog.id}`;
+    if (!rows.has(key)) rows.set(key, { kind: 'blog', blog, time });
+  }
+  return { rows: [...rows].sort((a, b) => b[1].time - a[1].time), feedFloor, blogFloor };
+}
+
 export function QzoneSpaceHome({
   selfUin,
   hostUin,
   onSpace,
   PostCard,
+  blogIndex,
+  nickname,
   deletedPosts,
   onDeleted,
 }: {
@@ -192,6 +282,8 @@ export function QzoneSpaceHome({
   hostUin: string;
   onSpace: OpenSpace;
   PostCard: ComponentType<QzoneHomePostProps>;
+  blogIndex: QzoneBlogIndex;
+  nickname: string;
   deletedPosts: ReadonlySet<string>;
   onDeleted: (tid: string) => void;
 }) {
@@ -213,28 +305,14 @@ export function QzoneSpaceHome({
       retry: false,
     },
   );
-  const rows = useMemo(() => {
-    const result = new Map<string, { feed: PublicFeedView; tid: string | null }>();
-    for (const [pageIndex, page] of (query.data?.pages ?? []).entries()) {
-      for (const [index, raw] of page.feeds.entries()) {
-        const feed = projectPublicFeed(raw, index);
-        if (!feed || feed.advertisement) continue;
-        const tid = projectQzoneHomeFeed(feed).detailId;
-        if (tid && deletedPosts.has(tid.toLowerCase())) continue;
-        const key = tid
-          ? `post:${tid.toLowerCase()}`
-          : feed.key.startsWith('#')
-            ? `${pageIndex}:${feed.key}`
-            : feed.key;
-        if (!result.has(key)) result.set(key, { feed, tid });
-      }
-    }
-    return result;
-  }, [query.data?.pages, deletedPosts]);
+  const { rows, feedFloor, blogFloor } = useMemo(
+    () => homeRows(query.data?.pages ?? [], blogIndex.items, hostUin, deletedPosts),
+    [query.data?.pages, blogIndex.items, hostUin, deletedPosts],
+  );
   const selectableIds = useMemo(
     () =>
-      [...rows.values()].flatMap(({ feed, tid }) =>
-        tid && feed.author.uin === hostUin ? [tid] : [],
+      rows.flatMap(([, row]) =>
+        row.kind === 'feed' && row.tid && row.feed.author.uin === hostUin ? [row.tid] : [],
       ),
     [hostUin, rows],
   );
@@ -255,6 +333,10 @@ export function QzoneSpaceHome({
   const error = query.error?.message ?? '';
   const next = () => void query.fetchNextPage({ cancelRefetch: false });
   const retry = () => (query.hasNextPage ? next() : void query.refetch());
+  const moreFeeds = available && query.hasNextPage && !error;
+  const moreBlogs = blogIndex.hasNextPage && !blogIndex.error;
+  // 哪个来源的已读范围更浅，就先续哪边；不为合并一次把两边的历史都扫完。
+  const nextBlogPage = moreBlogs && (!moreFeeds || blogFloor > feedFloor);
   return (
     <div className="weq-qzn-timeline weq-qzn-home">
       {binding ? (
@@ -262,21 +344,26 @@ export function QzoneSpaceHome({
           key={binding.expectedAccountConfigId}
           binding={binding}
           hostUin={hostUin}
+          blogCount={blogIndex.total}
         />
       ) : null}
-      {!rows.size ? (
+      {!rows.length ? (
         !available ? (
           <State
-            loading={false}
+            loading={blogIndex.loading}
             error=""
             empty="当前无法读取在线主页"
             progress="可查看「说说」或「相册」。"
           />
         ) : (
           <State
-            loading={query.isFetching}
+            loading={query.isFetching || blogIndex.loading}
             error={error}
-            empty={query.isSuccess && !query.hasNextPage ? '这个空间暂无可查看的动态。' : ''}
+            empty={
+              query.isSuccess && !moreFeeds && !blogIndex.loading
+                ? '这个空间暂无可查看的动态。'
+                : ''
+            }
             retry={retry}
           />
         )
@@ -284,8 +371,40 @@ export function QzoneSpaceHome({
         <State loading={false} error={error} empty="" retry={retry} />
       ) : null}
       <div {...multi.rootProps}>
-        {[...rows].map(([key, { feed, tid }]) =>
-          tid ? (
+        {rows.map(([key, row]) => {
+          if (row.kind === 'blog') {
+            const { blog, feed } = row;
+            if (feed && !blogIndex.configId)
+              return <HomeFeedCard key={key} selfUin={selfUin} feed={feed} onSpace={onSpace} />;
+            return (
+              <QzoneBlogCard
+                key={key}
+                blog={blog}
+                input={feed ? { ...blogIndex.input, hostUin: feed.author.uin } : blogIndex.input}
+                nickname={feed?.author.nick || nickname}
+                onSpace={onSpace}
+                timeline={{
+                  time: feed?.time ?? 0,
+                  portrait: feed?.author.portrait ?? '',
+                  preview:
+                    feed?.text && feed.text !== blog.title ? (
+                      <p className="weq-qzn-content" data-privacy-sensitive>
+                        <QzoneInlineText content={feed.text} />
+                      </p>
+                    ) : undefined,
+                  tools:
+                    feed && canShareQzoneFeed(feed.feed) ? (
+                      <div className="weq-qzn-post-tools">
+                        <QzoneFeedShareMenu selfUin={selfUin} feed={feed.feed} feedKey={feed.key} />
+                      </div>
+                    ) : undefined,
+                  counts: feed ? <FeedReadCounts feed={feed} /> : undefined,
+                }}
+              />
+            );
+          }
+          const { feed, tid } = row;
+          return tid ? (
             <PostCard
               key={key}
               selfUin={selfUin}
@@ -304,16 +423,23 @@ export function QzoneSpaceHome({
             />
           ) : (
             <HomeFeedCard key={key} selfUin={selfUin} feed={feed} onSpace={onSpace} />
-          ),
-        )}
+          );
+        })}
       </div>
+      {blogIndex.error ? (
+        <State loading={false} error={blogIndex.error} empty="" retry={blogIndex.retry} />
+      ) : null}
       {cursorStalled ? (
         <p role="alert" className="weq-qzn-status">
           主页分页未推进，请刷新核对。
         </p>
       ) : null}
-      {available && query.hasNextPage && !query.error ? (
-        <QzoneAutoPage key={pages.length} loading={query.isFetching} onNext={next} />
+      {moreFeeds || moreBlogs ? (
+        <QzoneAutoPage
+          key={`${pages.length}:${blogIndex.pages}`}
+          loading={query.isFetching || blogIndex.loading}
+          onNext={nextBlogPage ? blogIndex.next : next}
+        />
       ) : null}
     </div>
   );

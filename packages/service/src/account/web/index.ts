@@ -698,14 +698,11 @@ export class WebQueryService {
   }
 
   async qzoneHomeMetadata(selfUin: string, targetUin: string, signal?: AbortSignal) {
-    const [stats, visitors, albums, blogs, board] = await Promise.all([
+    const [stats, visitors, albums, board] = await Promise.all([
       this.getQzoneSpaceStats(targetUin, signal),
       selfUin === targetUin ? null : this.qzoneVisitors(targetUin, 1, signal).catch(() => null),
       withRetry(this.creds, QZONE_DOMAIN, (cred) =>
         getQzoneAlbumPage(cred, targetUin, 0, 1, signal),
-      ).catch(() => null),
-      withRetry(this.creds, QZONE_DOMAIN, (cred) =>
-        getQzoneBlogs(cred, targetUin, 0, 1, signal),
       ).catch(() => null),
       this.qzoneGuestbook(targetUin, 0, signal).catch(() => null),
     ]);
@@ -715,7 +712,6 @@ export class WebQueryService {
       totalCount: visitors?.totalCount ?? stats.totalCount,
       todayCount: visitors?.todayCount ?? stats.todayCount,
       albumCount: albums?.total ?? null,
-      blogCount: blogs?.total ?? null,
       messageCount: board?.total ?? null,
       greeting: board?.greeting || '',
     };

@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { timeDate } from '@weq/time';
 import { FileText, MessageCircle } from 'lucide-react';
 import {
   createElement,
@@ -27,8 +28,21 @@ type BlogInput = Omit<
   Parameters<typeof client.account.qzone.blog.query>[0],
   'requestId' | 'blogId'
 >;
-type Blog = Awaited<ReturnType<typeof client.account.qzone.blogs.query>>['items'][number];
+export type QzoneBlog = Awaited<
+  ReturnType<typeof client.account.qzone.blogs.query>
+>['items'][number];
 type Page<T> = { items: T[]; nextOffset: number | null };
+
+/** QQ 的十位日志编号编码了发表时间；其他编号仍用列表提供的时间。 */
+export function qzoneBlogTime(blog: Pick<QzoneBlog, 'id' | 'publishedAt'>): number | string {
+  const time = Number(blog.id);
+  return /^[1-9]\d{9}$/.test(blog.id) && time <= Date.now() / 1000 ? time : blog.publishedAt.trim();
+}
+
+export function qzoneBlogSortTime(blog: QzoneBlog): number {
+  const value = qzoneBlogTime(blog);
+  return typeof value === 'number' ? value : (timeDate(value)?.getTime() ?? 0) / 1000;
+}
 
 function repeatedPage<T extends { id: string }>(last: Page<T>, pages: Page<T>[]) {
   if (pages.length < 2 || !last.items.length) return false;
@@ -157,16 +171,24 @@ function BlogBody({ html }: { html: string }) {
   );
 }
 
-function BlogCard({
+export function QzoneBlogCard({
   blog,
   input,
   nickname,
   onSpace,
+  timeline,
 }: {
-  blog: Blog;
+  blog: QzoneBlog;
   input: BlogInput;
   nickname: string;
   onSpace: (uin: string, nickname?: string) => void;
+  timeline?: {
+    time: number;
+    portrait: string;
+    preview?: ReactNode;
+    tools?: ReactNode;
+    counts?: ReactNode;
+  };
 }) {
   const { active } = useContext(QzonePageContext);
   const { run } = useQzoneRequests();
@@ -210,11 +232,14 @@ function BlogCard({
       <header className="weq-qzn-post-head">
         <QzonePersonHeader
           size={36}
+          url={timeline?.portrait}
           uin={input.hostUin}
           nickname={nickname || input.hostUin}
           onSpace={onSpace}
-          time={<QzoneTime value={blog.publishedAt} />}
+          time={<QzoneTime value={timeline?.time || qzoneBlogTime(blog)} />}
         />
+        {timeline ? <span className="weq-qzn-feed-kind">日志</span> : null}
+        {timeline?.tools}
       </header>
       <h3 className="weq-qzn-blog-title" data-privacy-sensitive>
         {blog.title || '未命名日志'}
@@ -223,7 +248,7 @@ function BlogCard({
         <BlogBody html={detail.data.html} />
       ) : (
         <>
-          {blog.summary ? <BlogBody html={blog.summary} /> : null}
+          {blog.summary ? <BlogBody html={blog.summary} /> : timeline?.preview}
           <QzoneMediaGrid images={blog.images} videos={[]} />
         </>
       )}
@@ -255,6 +280,7 @@ function BlogCard({
             </>
           ) : null}
         </button>
+        {timeline?.counts}
       </QzoneActionsRow>
       {commentsOpen ? (
         <section className="weq-qzn-interaction" aria-label="日志评论">
@@ -297,18 +323,17 @@ function BlogCard({
   );
 }
 
-export function QzoneBlogs({
+export function useQzoneBlogIndex({
   selfUin,
   hostUin,
-  nickname,
-  onSpace,
+  active,
+  refresh,
 }: {
   selfUin: string;
   hostUin: string;
-  nickname: string;
-  onSpace: (uin: string, nickname?: string) => void;
+  active: boolean;
+  refresh: number;
 }) {
-  const { active, refresh } = useContext(QzonePageContext);
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: active });
   const configId = config.data?.uin === selfUin ? config.data.configId : undefined;
   const input = useMemo(
@@ -342,7 +367,7 @@ export function QzoneBlogs({
     void refetch();
   }, [active, configId, refresh, input, queryClient, refetch]);
   const pages = query.data?.pages ?? [];
-  const items = blogItems(pages);
+  const items = useMemo(() => blogItems(query.data?.pages ?? []), [query.data?.pages]);
   const last = pages.at(-1);
   const repeated = last && repeatedPage(last, pages);
   const error =
@@ -354,10 +379,42 @@ export function QzoneBlogs({
         ? '当前账号尚未就绪，请重新打开日志。'
         : '');
   const loading = config.isFetching || query.isFetching;
+  return {
+    input,
+    configId,
+    items,
+    total: pages[0]?.total,
+    pages: pages.length,
+    atEnd: last?.nextOffset === null,
+    error,
+    loading,
+    success: query.isSuccess,
+    hasNextPage: query.hasNextPage,
+    next: () => void fetchNextPage({ cancelRefetch: false }),
+    retry: () => {
+      if (!configId) void config.refetch();
+      else if (query.error && query.hasNextPage) void fetchNextPage();
+      else void refetch();
+    },
+  };
+}
+
+export type QzoneBlogIndex = ReturnType<typeof useQzoneBlogIndex>;
+
+export function QzoneBlogs({
+  index,
+  nickname,
+  onSpace,
+}: {
+  index: QzoneBlogIndex;
+  nickname: string;
+  onSpace: (uin: string, nickname?: string) => void;
+}) {
+  const { items, input, configId, error, loading } = index;
   return (
     <div className="weq-qzn-timeline">
       {items.map((item) => (
-        <BlogCard
+        <QzoneBlogCard
           key={`${configId}:${item.id}`}
           blog={item}
           input={input}
@@ -369,22 +426,14 @@ export function QzoneBlogs({
         <State
           loading={loading && !items.length}
           error={error}
-          empty={query.isSuccess ? '这个空间暂无可查看的日志' : ''}
-          retry={() => {
-            if (!configId) void config.refetch();
-            else if (query.error && query.hasNextPage) void fetchNextPage();
-            else void refetch();
-          }}
+          empty={index.success ? '这个空间暂无可查看的日志' : ''}
+          retry={index.retry}
         />
       ) : null}
-      {query.hasNextPage && !error ? (
-        <QzoneAutoPage
-          key={pages.length}
-          loading={query.isFetching}
-          onNext={() => void fetchNextPage({ cancelRefetch: false })}
-        />
+      {index.hasNextPage && !error ? (
+        <QzoneAutoPage key={index.pages} loading={loading} onNext={index.next} />
       ) : null}
-      {!error && last?.nextOffset === null && items.length ? (
+      {!error && index.atEnd && items.length ? (
         <p className="weq-qzn-status">已到列表末尾</p>
       ) : null}
     </div>
