@@ -16,6 +16,7 @@ export const OPEN_SETTINGS_COMMAND = 'weq:open-settings';
 export type SettingsSection =
   | 'callRecording'
   | 'longTermAuthorization'
+  | 'qqProxyConnection'
   | 'enhancementPacks'
   | 'weqAssistant'
   | 'dataSaver';
@@ -24,6 +25,7 @@ function isSettingsSection(section: unknown): section is SettingsSection {
   return (
     section === 'callRecording' ||
     section === 'longTermAuthorization' ||
+    section === 'qqProxyConnection' ||
     section === 'enhancementPacks' ||
     section === 'weqAssistant' ||
     section === 'dataSaver'

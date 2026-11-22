@@ -123,6 +123,8 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     autoAttachQq: () => b.setAutoAttachQq({ enabled: defaults.autoAttachQq }),
     restrictedModeIndicatorEnabled: () =>
       b.setRestrictedModeIndicatorEnabled({ enabled: defaults.restrictedModeIndicatorEnabled }),
+    qqProxyIndicatorEnabled: () =>
+      b.setQqProxyIndicatorEnabled({ enabled: defaults.qqProxyIndicatorEnabled }),
     preferCdn: () => b.setPreferCdn({ enabled: defaults.preferCdn }),
     logRetentionDays: () => b.setLogRetentionDays({ days: defaults.logRetentionDays }),
     databaseReadConcurrency: () =>

@@ -23,6 +23,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   startupPage: 'preference',
   reportReadEnabled: 'preference',
   qqClientSyncEnabled: 'connection',
+  qqProxyIndicatorEnabled: 'preference',
   manualReadReportEnabled: 'preference',
   autoLockMinutes: 'preference',
   appLock: 'preference',

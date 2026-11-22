@@ -1513,6 +1513,18 @@ function MainWorkspace(): ReactElement {
   useEffect(
     () =>
       onOpenSettingsRequest((section) => {
+        if (section === 'qqProxyConnection') {
+          settingsNavigation.navigate(() => {
+            setSettingsSection('account');
+            setSettingsSearchTarget({
+              section: 'account',
+              settingId: 'qq-proxy-connection',
+              revision: Date.now(),
+            });
+            setSettingsOpen(true);
+          });
+          return;
+        }
         if (section === 'weqAssistant') {
           setSettingsSearchTarget(null);
           setSettingsSection('weq-assistant');
@@ -1549,7 +1561,7 @@ function MainWorkspace(): ReactElement {
         setSettingsSection('call-recording');
         setSettingsOpen(true);
       }),
-    [setSettingsOpen],
+    [setSettingsOpen, settingsNavigation],
   );
   const [surfaceNavigation, setSurfaceNavigation] = useState(0);
   /** 打开设置时要先落到哪一屏（损坏弹窗 → 数据库宽容）。 */

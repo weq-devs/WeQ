@@ -993,9 +993,28 @@ export const bootstrapRouter = router({
 
   getQqClientSyncStatus: procedure.query(async () => {
     const ctx = getAppContext();
+    const accountUin = ctx.account ? String(ctx.account.context.uin) : null;
+    const liveAccount = accountUin !== null && !ctx.accountIsStatic;
+    const sync = ctx.services?.qqClientSync;
+    const protection = ctx.services?.antiRecall.protection();
+    const connectionExpected =
+      liveAccount &&
+      Boolean(sync) &&
+      (requireBootstrap().userConfig.getSettings().qqClientSyncEnabled ||
+        (protection?.enabled === true && protection.method === 'proxy'));
     const status = await qqSyncStatus(requirePlatform().appDataRoot());
-    return { ...status, tasks: ctx.services?.qqClientSync?.status() ?? null };
+    const connected =
+      status.running &&
+      (liveAccount ? status.accounts.includes(accountUin) : status.accounts.length > 0);
+    return { ...status, accountUin, connectionExpected, connected, tasks: sync?.status() ?? null };
   }),
+
+  setQqProxyIndicatorEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ qqProxyIndicatorEnabled: input.enabled });
+      return true;
+    }),
 
   setQqClientSyncPort: procedure
     .input(z.object({ port: z.number().int().min(1).max(65535) }).strict())

@@ -4,6 +4,7 @@ import { SelfProfileAvatar } from '../../components/SelfProfileAvatar';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { VipBadge } from '../../components/VipBadge';
 import { RestrictedModeIndicator } from '../../components/RestrictedMode';
+import { QqProxyIndicator } from '../../components/QqProxyConnection';
 import { DataSaverMenu } from '../../components/DataSaverMenu';
 import '../../styles/self-profile.css';
 import '../../styles/titlebar-search.css';
@@ -81,6 +82,7 @@ export function TitleBar({
       <div className="app-title-bar-drag" />
       {!windowOnly && search}
       {!windowOnly && <DataSaverMenu />}
+      <QqProxyIndicator />
       <div className="weq-titlebar-restriction">
         <div>
           <RestrictedModeIndicator persistent />

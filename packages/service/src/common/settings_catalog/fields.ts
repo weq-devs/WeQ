@@ -99,6 +99,12 @@ export const APP_SETTING_FIELDS = (
       'restricted-mode-indicator',
       '在线能力受限时在窗口右上角显示',
     ],
+    [
+      'qq-client-sync',
+      'qqProxyIndicatorEnabled',
+      'qq-proxy-indicator',
+      'QQ 代理未连接时在窗口右上角显示',
+    ],
     ['cdn', 'preferCdn', 'prefer-cdn', '优先 CDN'],
     ['logs', 'logRetentionDays', 'log-retention', '日志保留天数'],
     ['database-read', 'databaseReadConcurrency', 'database-read-concurrency', '数据库读取并发上限'],

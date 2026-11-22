@@ -87,6 +87,7 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
     <button
       type="button"
       className={`weq-restricted-indicator${entering ? ' is-entering' : ''}`}
+      data-restricted-mode-trigger
       title={title}
       aria-haspopup="dialog"
       aria-expanded={open}
@@ -549,7 +550,7 @@ export function RestrictedModeHost() {
         topSurface(document) === panel.current &&
         event.target instanceof Element &&
         !panel.current?.contains(event.target) &&
-        !event.target.closest('.weq-restricted-indicator, .weq-toast')
+        !event.target.closest('[data-restricted-mode-trigger], .weq-toast')
       )
         useRestrictedMode.getState().setOpen(false);
     };

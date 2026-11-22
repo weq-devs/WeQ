@@ -26,8 +26,8 @@ import {
   EyeOff,
   FolderOpen,
   KeyRound,
+  Network,
   Radio,
-  RefreshCcw,
   RefreshCw,
   Smartphone,
   Trash2,
@@ -43,6 +43,7 @@ import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { FullFunctionSetup } from './FullFunctionSetup';
 import { NotificationMethodSelect } from './NotificationMethodSelect';
 import { CopyButton } from '../CopyButton';
+import { QqProxyRecovery } from '../QqProxyConnection';
 import { formatExpiry } from './AccountBasicsSection.shared';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
@@ -161,15 +162,20 @@ export function AccountBasicsSection({
   const qqSyncStatus = trpc.bootstrap.getQqClientSyncStatus.useQuery(undefined, {
     enabled: active && page === 'account',
     staleTime: 0,
-    refetchInterval:
-      active && page === 'account' && settings.data?.qqClientSyncEnabled === true ? 3000 : false,
+    refetchInterval: active && page === 'account' ? 5000 : false,
+  });
+  const setQqProxyIndicator = trpc.bootstrap.setQqProxyIndicatorEnabled.useMutation({
+    onSuccess: async () => {
+      await settings.refetch();
+    },
+    onError: (error) => showError('保存失败', error.message),
   });
   const setQqClientSync = trpc.bootstrap.setQqClientSyncEnabled.useMutation({
     onSuccess: () => {
       void settings.refetch();
       void qqSyncStatus.refetch();
     },
-    onError: (error) => showError('QQ 同步启动失败', error.message),
+    onError: (error) => showError('更改 QQ 同步设置失败', error.message),
   });
   const setQqClientSyncPort = trpc.bootstrap.setQqClientSyncPort.useMutation({
     onSuccess: async ({ port }) => {
@@ -177,13 +183,33 @@ export function AccountBasicsSection({
       setQqSyncPortDraft(null);
       pushToast({
         tone: 'success',
-        title: 'QQ 同步代理端口已更新',
+        title: 'QQ 代理端口已更新',
         message: `请在 QQ 登录页填写端口 ${port}，然后重新连接。`,
       });
     },
-    onError: (error) => showError('更改 QQ 同步代理端口失败', error.message),
+    onError: (error) => showError('更改 QQ 代理端口失败', error.message),
   });
-  const qqSyncPort = qqSyncStatus.data?.port;
+  const proxy = qqSyncStatus.data;
+  const qqSyncPort = proxy?.port;
+  const proxyStatusText = qqSyncStatus.isError
+    ? '无法读取代理状态'
+    : !proxy
+      ? '正在检查代理'
+      : proxy.connected
+        ? 'QQ 已连接代理'
+        : proxy.running
+          ? 'QQ 代理未连接'
+          : proxy.error || '本机代理尚未启动';
+  const syncTasks = settings.data?.qqClientSyncEnabled ? proxy?.tasks : null;
+  const taskError = syncTasks?.error;
+  const proxyStatusDetails = [
+    proxyStatusText,
+    syncTasks?.pending ? `待同步 ${syncTasks.pending} 项` : '',
+    // 等待连接由当前代理状态表示。队列在重试前可能仍保留上一次等待的原因。
+    taskError !== '等待 QQ 通过代理连接' && taskError !== proxyStatusText ? taskError : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const newQqSyncPort = Number(qqSyncPortDraft);
   const canSaveQqSyncPort =
     qqSyncPort !== undefined &&
@@ -658,8 +684,9 @@ export function AccountBasicsSection({
             ) : null}
           </Card>
           <Card
-            title="本机 QQ 同步"
-            icon={<RefreshCcw size={15} strokeWidth={1.8} />}
+            settingId="qq-proxy-connection"
+            title="QQ 代理连接"
+            icon={<Network size={15} strokeWidth={1.8} />}
             resetId="qq-client-sync"
           >
             <Row
@@ -677,11 +704,24 @@ export function AccountBasicsSection({
               }
             />
             <Row
+              settingId="qq-proxy-indicator"
+              control={
+                <Toggle
+                  checked={settings.data?.qqProxyIndicatorEnabled ?? true}
+                  disabled={
+                    !settings.data || Boolean(settings.error) || setQqProxyIndicator.isLoading
+                  }
+                  onChange={(enabled) => setQqProxyIndicator.mutate({ enabled })}
+                  label="QQ 代理未连接时在窗口右上角显示"
+                />
+              }
+            />
+            <Row
               label="代理端口"
               desc={
                 qqSyncPort === undefined
                   ? '在 QQ 登录页使用 HTTP 代理，地址为 127.0.0.1。'
-                  : `在 QQ 登录页将 HTTP 代理设为 127.0.0.1:${qqSyncPort}。改端口后需在 QQ 中更新并重新连接。`
+                  : `在 QQ 登录页选择 HTTP 代理，地址填 127.0.0.1，端口填 ${qqSyncPort}，用户名和密码留空。改端口后需在 QQ 中更新并重新登录。`
               }
               control={
                 <form
@@ -693,7 +733,7 @@ export function AccountBasicsSection({
                 >
                   <input
                     className="weq-set-input weq-set-input-sm weq-number"
-                    aria-label="QQ 同步代理端口"
+                    aria-label="QQ 代理端口"
                     inputMode="numeric"
                     value={qqSyncPortDraft ?? qqSyncPort ?? ''}
                     disabled={qqSyncPort === undefined || setQqClientSyncPort.isPending}
@@ -712,18 +752,11 @@ export function AccountBasicsSection({
                 </form>
               }
             />
-            {settings.data?.qqClientSyncEnabled && (
-              <p className="weq-set-note">
-                {qqSyncStatus.data?.running
-                  ? qqSyncStatus.data.accounts.length > 0
-                    ? 'QQ 已连接同步代理'
-                    : '等待 QQ 通过代理连接'
-                  : qqSyncStatus.data?.error || '正在检查代理'}
-                {qqSyncStatus.data?.tasks?.pending
-                  ? ` · 待同步 ${qqSyncStatus.data.tasks.pending} 项`
-                  : ''}
-                {qqSyncStatus.data?.tasks?.error ? ` · ${qqSyncStatus.data.tasks.error}` : ''}
-              </p>
+            <p className="weq-set-note" role="status">
+              {proxyStatusDetails}
+            </p>
+            {proxy?.connectionExpected && !proxy.connected && !qqSyncStatus.isError && (
+              <QqProxyRecovery onLaunch={() => void qqSyncStatus.refetch()} />
             )}
             <p className="weq-set-note">
               代理独立保持运行，WeQ 重启后自动接续。关闭自动同步会保留转发；停用代理前请先恢复 QQ

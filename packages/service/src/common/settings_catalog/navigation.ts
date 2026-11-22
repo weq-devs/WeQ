@@ -679,10 +679,24 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account', 'chat-messages'],
   },
   {
+    id: 'qq-proxy-connection',
+    section: 'account',
+    label: 'QQ 代理连接',
+    aliases: ['本机 QQ 同步', 'QQ 同步代理', '代理端口', '设置代理'],
+    from: ['account'],
+  },
+  {
+    id: 'qq-proxy-indicator',
+    section: 'account',
+    label: 'QQ 代理未连接时在窗口右上角显示',
+    aliases: ['QQ 代理未连接', '标题栏 QQ 代理'],
+    from: ['account'],
+  },
+  {
     id: 'qq-client-sync',
     section: 'account',
     label: '自动同步本人消息与已读',
-    aliases: ['本机 QQ 同步', 'QQ 同步代理', '补投本人消息'],
+    aliases: ['补投本人消息'],
     from: ['account'],
   },
   {

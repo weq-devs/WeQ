@@ -64,7 +64,7 @@ export const SETTINGS_RESET_CARDS = [
   ['database-management', 'realtime', '监听与读取'],
   ['account', 'attach', 'QQ 在线能力'],
   ['account', 'read-sync', '已读同步'],
-  ['account', 'qq-client-sync', '本机 QQ 同步'],
+  ['account', 'qq-client-sync', 'QQ 代理连接'],
   ['accounts', 'auto-enter', '现有配置'],
   ['resource-loading', 'external-chatpic', '外部安卓图片缓存'],
   ['resource-loading', 'cdn', '加载来源'],

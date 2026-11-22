@@ -23,6 +23,7 @@ import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog.shared';
 import { useToast } from './Toast.shared';
 import { LoadingIndicator } from './LoadingIndicator';
+import { QqProxySettingsLink } from './QqProxyConnection';
 import { Card, Row, QueryError, SettingsScopeBadge } from './settings/controls';
 import { ConversationPicker } from '../views/export/ConversationPicker';
 import { convAvatarUrl, fmtCount, type PickItem } from '../views/export/types';
@@ -420,6 +421,13 @@ export function AntiRecallDialog({
           ))}
         </div>
       </div>
+      {(method === 'proxy' || method === 'weq') && (
+        <Row
+          label="连接本机 QQ"
+          desc="在 QQ 登录页配置代理后重新登录。"
+          control={<QqProxySettingsLink beforeNavigate={embedded ? undefined : onClose} />}
+        />
+      )}
       {method !== 'off' && (
         <Row
           label="保护范围"
