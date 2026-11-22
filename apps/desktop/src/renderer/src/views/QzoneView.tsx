@@ -73,7 +73,14 @@ import {
 } from '../lib/qzone';
 import { Modal } from '../components/Dialog';
 import { QzoneSettingsSection } from '../components/settings/QzoneSettingsSection';
-import type { QzoneEmotion, QzoneFeed, QzoneInteraction, QzoneLikesResult } from './qzone_types';
+import { useToast } from '../components/Toast.shared';
+import type {
+  QzoneEmotion,
+  QzoneFeed,
+  QzoneInteraction,
+  QzoneLikesResult,
+  QzonePublication,
+} from './qzone_types';
 import { QzoneAutoPage, QzonePageButton } from './QzonePagination';
 import { LoadingStatus, QzoneMediaGrid, State } from './qzoneShared';
 import {
@@ -158,12 +165,14 @@ const TIMELINE_REENTRY_REFRESH_MS = 5 * 60_000;
 function QzonePage({
   active,
   refreshKey,
+  resetScrollKey,
   pauseReadsDuringNavigation = true,
   retainTimeline = false,
   children,
 }: {
   active: boolean;
   refreshKey: number;
+  resetScrollKey?: string;
   pauseReadsDuringNavigation?: boolean;
   retainTimeline?: boolean;
   children: ReactElement;
@@ -173,6 +182,7 @@ function QzonePage({
   const activity = useQQReadActivity(active && (!pauseReadsDuringNavigation || readsEnabled));
   const position = useRef(0);
   const previousActive = useRef(false);
+  const previousScrollKey = useRef<string | undefined>(undefined);
   const leftAt = useRef<number | null>(null);
   const [entry, setEntry] = useState({ active, visited: active, refresh: 0 });
   let entryRefresh = entry.refresh;
@@ -187,12 +197,17 @@ function QzonePage({
     setEntry({ active, visited: entry.visited || active, refresh: entryRefresh });
   }
   useLayoutEffect(() => {
-    if (active && !previousActive.current) {
+    const reset = active && resetScrollKey !== previousScrollKey.current;
+    if (reset) {
+      position.current = 0;
+      previousScrollKey.current = resetScrollKey;
+    }
+    if (active && (reset || !previousActive.current)) {
       if (scroll.current) scroll.current.scrollTop = position.current;
     }
     if (!active && previousActive.current) leftAt.current = Date.now();
     previousActive.current = active;
-  }, [active]);
+  }, [active, resetScrollKey]);
   const refresh = refreshKey + entryRefresh + (retainTimeline ? 0 : activity.revision);
   const context = useMemo(
     () => ({ active: activity.enabled, refresh }),
@@ -501,6 +516,8 @@ export function QzoneView({
   const refreshPage = (key: string) =>
     setRefreshes((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
   const [compose, setCompose] = useState(false);
+  const [publication, setPublication] = useState<QzonePublication | null>(null);
+  const toast = useToast((state) => state.push);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const navigationBacks = useRef<Array<() => void>>([]);
   useEffect(
@@ -822,6 +839,7 @@ export function QzoneView({
             hostUin={selfUin}
             nickname={nickname}
             albumRequest={albumRequests[selfUin]}
+            publication={publication}
             onSpace={openSpace}
             onOwnerNickname={rememberOwnerName}
           />
@@ -888,11 +906,13 @@ export function QzoneView({
           <Composer
             selfUin={selfUin}
             onClose={() => setCompose(false)}
-            onPublished={() => {
+            onPublished={(result) => {
+              setPublication(result);
               setCompose(false);
               setHostUin(selfUin);
               setTab('posts');
-              refreshPage('posts');
+              if (!result.post)
+                toast({ title: '发表已提交，暂未读回这条说说，请稍后刷新核对', tone: 'warning' });
             }}
           />
         ) : null}
@@ -956,6 +976,7 @@ function SpaceContent({
   nickname,
   ownerNickname,
   albumRequest,
+  publication = null,
   onSpace,
   onOwnerNickname,
 }: {
@@ -966,6 +987,7 @@ function SpaceContent({
   nickname: string;
   ownerNickname?: string;
   albumRequest?: QzoneAlbumRequest;
+  publication?: QzonePublication | null;
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
@@ -973,7 +995,18 @@ function SpaceContent({
   const [ownerLabel] = useState(nickname || hostUin);
   const handledAlbum = useRef<string | null>(null);
   type Pane = 'home' | 'posts' | 'blogs' | 'albums' | QzoneMorePane;
-  const [pane, setPane] = useState<Pane>('home');
+  const [pane, setPane] = useState<Pane>(publication ? 'posts' : 'home');
+  const [shownPublication, setShownPublication] = useState(publication);
+  const [refreshes, setRefreshes] = useState<Partial<Record<Pane, number>>>(() =>
+    publication ? { posts: 1 } : {},
+  );
+  if (publication !== shownPublication) {
+    setShownPublication(publication);
+    if (publication) {
+      setPane('posts');
+      setRefreshes((current) => ({ ...current, posts: (current.posts ?? 0) + 1 }));
+    }
+  }
   useMobileBack(
     active && pane === 'albums',
     () => setPane('posts'),
@@ -981,11 +1014,26 @@ function SpaceContent({
     () => document.querySelector<HTMLElement>('.weq-qzn-owner-space:not([hidden])'),
   );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
-  const [refreshes, setRefreshes] = useState<Partial<Record<Pane, number>>>({});
-  const [deletedPosts, setDeletedPosts] = useState<ReadonlySet<string>>(() => new Set());
-  const onDeleted = useCallback((tid: string) => {
-    setDeletedPosts((previous) => new Set([...previous, tid.toLowerCase()]));
-  }, []);
+  const [removedTids, setRemovedTids] = usePageState(
+    `deleted-posts:${selfUin}:${hostUin}`,
+    [],
+    pageValue.strings,
+  );
+  const deletedPosts = useMemo(() => new Set(removedTids), [removedTids]);
+  const onDeleted = useCallback(
+    (tid: string) => {
+      const id = tid.toLowerCase();
+      setRemovedTids((previous) =>
+        previous.includes(id) ? previous : [...previous.slice(-255), id],
+      );
+      setRefreshes((current) => ({
+        ...current,
+        home: (current.home ?? 0) + 1,
+        posts: (current.posts ?? 0) + 1,
+      }));
+    },
+    [setRemovedTids],
+  );
   useEffect(() => {
     if (
       !albumRequest ||
@@ -1077,6 +1125,7 @@ function SpaceContent({
       <QzonePage
         active={active && pane === 'posts'}
         refreshKey={refreshes.posts ?? 0}
+        resetScrollKey={publication?.tid}
         retainTimeline
       >
         <div className="weq-qzn-timeline">
@@ -1086,6 +1135,7 @@ function SpaceContent({
             nickname={ownerNickname || nickname}
             onSpace={onSpace}
             onOwnerNickname={onOwnerNickname}
+            publishedPost={publication?.post}
             deletedPosts={deletedPosts}
             onDeleted={onDeleted}
           />
@@ -1247,6 +1297,7 @@ function Posts({
   nickname,
   onSpace,
   onOwnerNickname,
+  publishedPost,
   deletedPosts = noDeletedPosts,
   onDeleted,
 }: {
@@ -1255,6 +1306,7 @@ function Posts({
   nickname: string;
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
+  publishedPost?: QzoneEmotion | null;
   deletedPosts?: ReadonlySet<string>;
   onDeleted?: (tid: string) => void;
 }) {
@@ -1264,7 +1316,10 @@ function Posts({
   const [cached] = useState(() => dataCache.read<PostsSnapshot>(cacheKey));
   const lastRefresh = useRef(refresh);
   const [posts, setPosts] = useState<QzoneEmotion[]>(cached?.posts ?? []);
-  const visiblePosts = posts.filter((post) => !deletedPosts.has(post.tid.toLowerCase()));
+  const visiblePosts = useMemo(
+    () => posts.filter((post) => !deletedPosts.has(post.tid.toLowerCase())),
+    [posts, deletedPosts],
+  );
   const selection = useContentMultiSelect({ kind: 'qzone-posts', container: hostUin }, active);
   const multi = useMultiSelection({
     ids: visiblePosts.map((post) => post.tid),
@@ -1300,16 +1355,24 @@ function Posts({
   const settledRequest = useRef(cached && refresh === 0 ? '0:0:0' : null);
   const { run, cancel } = useQzoneRequests();
   useEffect(() => {
+    if (!publishedPost) return;
+    const updated = mergeQzonePosts(currentPosts.current, [publishedPost]).sort(
+      (a, b) => b.time - a.time,
+    );
+    currentPosts.current = updated;
+    setPosts(updated);
+  }, [publishedPost]);
+  useEffect(() => {
     if (!fetchedPages.current.size) return;
     const bridge = bridgeTail.current;
     dataCache.write(cacheKey, {
-      posts,
+      posts: visiblePosts,
       nextOffset: nextOffset.current,
       done,
       pages: [...fetchedPages.current],
       bridge: bridge ? { ...bridge, indices: [...bridge.indices] } : null,
     } satisfies PostsSnapshot);
-  }, [posts, done, cacheKey, dataCache]);
+  }, [visiblePosts, done, cacheKey, dataCache]);
   useEffect(() => {
     const request = `${refresh}:${pageRequest}:${retry}`;
     if (!active || settledRequest.current === request) {
@@ -3786,7 +3849,7 @@ function Composer({
 }: {
   selfUin: string;
   onClose: () => void;
-  onPublished: () => void;
+  onPublished: (publication: QzonePublication) => void;
 }) {
   const [content, setContent] = useState('');
   const [images, setImages] = useState<
@@ -3864,8 +3927,13 @@ function Composer({
       setUploadingImage(null);
       setStage('正在发表');
       submitted = true;
-      await client.account.qzone.publish.mutate({ selfUin, content, richvals, visibility });
-      if (active.current) onPublished();
+      const result = await client.account.qzone.publish.mutate({
+        selfUin,
+        content,
+        richvals,
+        visibility,
+      });
+      if (active.current) onPublished(result);
     } catch (error) {
       if (active.current) {
         setUncertain(submitted);

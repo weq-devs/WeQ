@@ -638,11 +638,23 @@ export const qzoneRouter = router({
       publishing.add(services);
       try {
         // One explicit user action, with the existing publisher's response validation.
-        return await services.webQuery.publishQzone(
+        const published = await services.webQuery.publishQzone(
           input.content,
           input.richvals,
           input.visibility,
         );
+        const current = () => {
+          if (getAppContext().services !== services)
+            throw new Error('账号已切换，请到原账号核对发表结果。');
+        };
+        const readback = await services.webQuery.readPublishedQzonePost(
+          input.selfUin,
+          published.tid,
+          current,
+        );
+        const post = readback ? { ...readback, time: readback.time || published.time } : null;
+        if (post) rememberQzonePosts(services.contentSearch, input.selfUin, [post], '', true);
+        return { ...published, post };
       } finally {
         publishing.delete(services);
       }

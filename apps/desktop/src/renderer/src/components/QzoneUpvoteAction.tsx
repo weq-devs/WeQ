@@ -339,10 +339,12 @@ export function QzonePostArchive({
             },
             undefined,
             '删除这条 QQ 空间说说？',
-            { danger: 'outline', requireReadback: true, readback: async () => confirmed },
+            { danger: 'outline', refreshCaches: false },
           )
           .then((done) => {
-            if (done) onDeleted();
+            if (!done) return;
+            if (confirmed) onDeleted();
+            else toast({ title: '删除已提交，暂未读回结果，请稍后刷新核对', tone: 'warning' });
           });
       },
     });

@@ -153,3 +153,59 @@ it('仅显式票据拒绝换票一次，每次发包前重新校验账号，限�
   await expect(service.forwardQzone('10004', 'post', '', current)).rejects.toThrow();
   expect(fetch).toHaveBeenCalledOnce();
 });
+
+const postTid = '112700000100000001000000';
+const existingPost = { code: 0, subcode: 0, tid: postTid, uin: cred.uin, content: '合成正文' };
+const missingPost = { code: -10029, subcode: -8, message: '该条内容已被删除' };
+
+function postService() {
+  const service = Object.create(WebQueryService.prototype) as WebQueryService;
+  Reflect.set(service, 'creds', { forDomain: async () => cred });
+  return service;
+}
+
+it('发表读回会等指定说说出现，使用服务端返回的正文', async () => {
+  const fetch = transport(existingPost);
+  fetch.mockResolvedValueOnce(new Response(JSON.stringify(missingPost)));
+  await expect(
+    postService().readPublishedQzonePost(cred.uin, postTid, () => {}),
+  ).resolves.toMatchObject({
+    tid: postTid,
+    content: existingPost.content,
+  });
+  expect(fetch.mock.calls.map(([url]) => new URL(url).searchParams.get('tid'))).toEqual([
+    postTid,
+    postTid,
+  ]);
+});
+
+it.each([
+  { removal: missingPost, confirmed: true, reads: 2 },
+  { removal: { ...missingPost, subcode: -1 }, confirmed: false, reads: 3 },
+])('删除只写一次，按单条明确结果确认：$confirmed', async ({ removal, confirmed, reads }) => {
+  const requests: string[] = [];
+  let detailReads = 0;
+  vi.stubGlobal('fetch', async (url: string) => {
+    const path = new URL(url).pathname;
+    const action = path.split('/').at(-1)!;
+    requests.push(action);
+    const data =
+      action === 'GetFeedDetail'
+        ? {
+            retcode: 0,
+            data: { feed: { feed: { cell_common: { union_id: { feed_id: postTid } } } } },
+          }
+        : action === 'emotion_cgi_delete_v6'
+          ? { code: 0 }
+          : ++detailReads === 1
+            ? existingPost
+            : removal;
+    return new Response(JSON.stringify(data));
+  });
+  await expect(postService().removeQzonePost(cred.uin, postTid, () => {})).resolves.toBe(confirmed);
+  expect(requests).toEqual([
+    'GetFeedDetail',
+    'emotion_cgi_delete_v6',
+    ...Array<string>(reads).fill('emotion_cgi_msgdetail_v6'),
+  ]);
+});

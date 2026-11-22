@@ -11,6 +11,7 @@
  * 群相册踩过这个坑(过期回的是 200 + code:-3000,被当成「这个群没有相册」)。
  * 新增的相册管理写入只尝试一次，认证拒绝也不自动换票重放。
  */
+import { setTimeout as wait } from 'node:timers/promises';
 import type { AccountSession } from '@weq/account';
 import { buildGiftMallBuyItemRequest } from '@weqbot/protocol';
 import { WebCredentialProvider, withRetry, type WebNative } from './credential';
@@ -129,6 +130,7 @@ import { fetchQzoneForwardPage, type QzoneForwardCursor } from './qzone_forwards
 import { fetchQzoneNicknames } from './qzone_people';
 import { fetchQzoneContentCounts, fetchQzoneVisitorStats } from './qzone_stats';
 import {
+  QzonePostNotFoundError,
   fetchQzonePostDetail,
   fetchQzonePostImages,
   supplementQzonePostDetail,
@@ -758,15 +760,41 @@ export class WebQueryService {
     await this.qzoneOrdinaryDetail(hostUin, tid);
     current();
     await deleteQzoneMsg(cred, hostUin, tid);
-    // 只有旧列表明确走到末页，才把「未见目标」解释为删除已确认。
-    for (let offset = 0; offset < 500; offset += 50) {
+    return (
+      (await this.confirmQzonePostWrite(hostUin, tid, 'missing', current))?.state === 'missing'
+    );
+  }
+
+  async readPublishedQzonePost(hostUin: string, tid: string, current: () => void) {
+    const result = await this.confirmQzonePostWrite(hostUin, tid, 'present', current);
+    return result?.state === 'present' ? result.post : null;
+  }
+
+  private async confirmQzonePostWrite(
+    hostUin: string,
+    tid: string,
+    expected: 'present' | 'missing',
+    current: () => void,
+  ) {
+    const signal = AbortSignal.timeout(6000);
+    for (const delay of [0, 350, 1000]) {
+      if (delay) await wait(delay, undefined, { signal }).catch(() => {});
       current();
-      const page = await this.getQzoneMsgList(hostUin, offset, 50).catch(() => null);
-      if (!page || page.list.some((entry) => entry.tid.toLowerCase() === tid.toLowerCase())) break;
-      if (page.totalKnown && offset + page.list.length >= page.total) return true;
-      if (!page.list.length) break;
+      if (signal.aborted) break;
+      const observed = await this.getQzonePostDetail(hostUin, tid, signal).then(
+        ({ post }) => ({ state: 'present' as const, post }),
+        (error: unknown) =>
+          error instanceof QzonePostNotFoundError ? { state: 'missing' as const } : null,
+      );
+      current();
+      if (signal.aborted) break;
+      if (
+        observed?.state === expected &&
+        (observed.state === 'missing' || observed.post.tid.toLowerCase() === tid.toLowerCase())
+      )
+        return observed;
     }
-    return false;
+    return null;
   }
 
   /** 某个空间的说说列表;`pos`+`num` 可稳定深翻历史。 */

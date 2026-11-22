@@ -3,11 +3,12 @@ import { act, createElement as h, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QzoneView } from '../src/renderer/src/views/QzoneView';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { useViewState } from '../src/renderer/src/state/view';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/useQQWriteSession';
-import type { QzoneInteraction } from '../src/renderer/src/views/qzone_types';
+import type { QzoneInteraction, QzonePublication } from '../src/renderer/src/views/qzone_types';
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -50,7 +51,8 @@ const state = vi.hoisted(() => ({
   settings: vi.fn(async () => ({ qzoneForwardQuotePrevious: true })),
   related: vi.fn(),
   uploadImage: vi.fn(async (_input: unknown) => ({ richval: 'synthetic-richval' })),
-  publish: vi.fn(async (_input: unknown) => {}),
+  publish: vi.fn<(input: unknown) => Promise<QzonePublication>>(),
+  removePost: vi.fn<(input: unknown) => Promise<QQWriteOutcome>>(),
 }));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({
   QqAvatar: ({ size }: { size: number }) =>
@@ -106,6 +108,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       qqActions: {
         qzone: { mutate: state.write },
         qzoneForward: { mutate: state.forward },
+        removeQzonePost: { mutate: state.removePost },
         qzoneOrdinaryShare: { mutate: state.share },
       },
       qzone: {
@@ -172,7 +175,21 @@ beforeEach(() => {
   });
   state.pickImage.mockClear();
   state.uploadImage.mockClear();
-  state.publish.mockClear();
+  const tid = '112700000200000001000000';
+  state.publish.mockReset().mockResolvedValue({
+    tid,
+    time: 2,
+    post: {
+      tid,
+      time: 2,
+      content: '服务端读回的新说说',
+      images: [],
+      videos: [],
+      isPrivate: false,
+      commentNum: 0,
+    },
+  });
+  state.removePost.mockReset().mockResolvedValue({ state: 'confirmed' });
   state.nativeDetail.mockClear();
   state.detail.mockReset();
   state.homePages = [];
@@ -212,6 +229,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  useDialog.getState().close();
   close?.();
   close = undefined;
   vi.restoreAllMocks();
@@ -314,8 +332,9 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
-async function openComposer(strict: boolean) {
+async function openComposer(strict: boolean, startFromHome = false) {
   const view = await mount(strict);
+  if (startFromHome) await view.openPane('主页');
   const compose = [...view.host.querySelectorAll<HTMLButtonElement>('button')].find(
     (button) => button.textContent === '写说说',
   )!;
@@ -323,7 +342,7 @@ async function openComposer(strict: boolean) {
   const dialog = document.querySelector<HTMLElement>('.weq-qzn-composer')!;
   const input = dialog.querySelector<HTMLInputElement>('input[type="file"]')!;
   const submit = dialog.querySelector<HTMLButtonElement>('.weq-qzn-primary')!;
-  return { dialog, input, submit };
+  return { dialog, input, submit, host: view.host };
 }
 function chooseImage(input: HTMLInputElement) {
   const base64 =
@@ -348,7 +367,7 @@ function trackImageRead() {
   return completed.promise;
 }
 it.each([false, true])('选图完成后恢复发表并可提交，严格模式=%s', async (strict) => {
-  const { dialog, input, submit } = await openComposer(strict);
+  const { dialog, input, submit, host } = await openComposer(strict, true);
   const content = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
@@ -382,6 +401,14 @@ it.each([false, true])('选图完成后恢复发表并可提交，严格模式=%
     visibility: 1,
   });
   expect(document.querySelector('.weq-qzn-composer')).toBeNull();
+  expect(host.querySelector('[aria-label="空间内容"] [aria-current="page"]')?.textContent).toBe(
+    '说说',
+  );
+  const visible = host.querySelector(
+    '.weq-qzn-owner-space:not([hidden]) .weq-qzn-scroll:not([hidden])',
+  );
+  expect(visible?.textContent).toContain('服务端读回的新说说');
+  expect(visible?.textContent).toContain('合成说说');
 });
 it('严格模式选图失败后显示错误并允许重新选图', async () => {
   const read = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementationOnce(function (
@@ -1159,6 +1186,32 @@ it('主页按可见性补全说说，保留原位互动，并与说说页共用�
     tid,
   });
   expect(state.write).not.toHaveBeenCalled();
+});
+it.each([true, false])('删除仅在单条读回确认后从两个栏目移除，确认=%s', async (confirmed) => {
+  const tid = '112700000100000001000000';
+  const post = { tid, content: '待删说说', time: 1, images: [], videos: [], commentNum: 0 };
+  const feeds = [
+    {
+      cell_common: { app_id: 311, time: 1, union_id: { feed_id: tid } },
+      cell_user_info: { user: { uin: '10001' } },
+      cell_summary: { summary: [{ type: 0, content: post.content }] },
+    },
+  ];
+  state.detail.mockResolvedValue({ post, contentHasMore: false });
+  state.posts.mockResolvedValue({ total: 1, list: [post] });
+  state.homePages = [{ feeds }];
+  state.removePost.mockResolvedValue({ state: confirmed ? 'confirmed' : 'unconfirmed' });
+  const view = await mount(false, '主页');
+  await act(async () => view.button('更多操作').click());
+  const remove = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] button')].find(
+    (item) => item.textContent === '删除说说',
+  )!;
+  await act(async () => remove.click());
+  await act(async () => useDialog.getState().current!.confirm!.resolve(true));
+  expect(state.removePost).toHaveBeenCalledOnce();
+  expect(view.host.textContent?.includes(post.content)).toBe(!confirmed);
+  await view.openPane('说说');
+  expect(view.host.textContent?.includes(post.content)).toBe(!confirmed);
 });
 it('截断正文在原帖内按需补充，并带准确时间定位且保留未知完整性提示', async () => {
   state.posts.mockResolvedValue({

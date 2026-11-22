@@ -76,6 +76,7 @@ beforeEach(() => {
         photoCount: null,
       })),
       publishQzone: vi.fn(async () => ({ tid: 'synthetic_new_tid', time: 1700000000 })),
+      readPublishedQzonePost: vi.fn(async () => null),
       uploadQzoneImage: vi.fn(async () => ({
         richval: ',synthetic',
         url: 'signed-source',
@@ -308,9 +309,20 @@ describe('native Qzone boundary', () => {
   });
   it('publishes only on explicit mutation and forwards visibility unchanged', async () => {
     expect(services.webQuery.publishQzone).not.toHaveBeenCalled();
-    await api.publish({ selfUin, content: 'fixture', richvals: [], visibility: 64 });
+    expect(
+      await api.publish({ selfUin, content: 'fixture', richvals: [], visibility: 64 }),
+    ).toEqual({
+      tid: 'synthetic_new_tid',
+      time: 1700000000,
+      post: null,
+    });
     expect(services.webQuery.publishQzone).toHaveBeenCalledTimes(1);
     expect(services.webQuery.publishQzone).toHaveBeenCalledWith('fixture', [], 64);
+    expect(services.webQuery.readPublishedQzonePost).toHaveBeenCalledWith(
+      selfUin,
+      'synthetic_new_tid',
+      expect.any(Function),
+    );
     expect(QZONE_VISIBILITY.find((value) => value.value === 64)?.label).toBe('仅自己可见');
     expect(QZONE_VISIBILITY.find((value) => value.value === 4)?.label).toBe('好友可见');
   });
@@ -320,6 +332,7 @@ describe('native Qzone boundary', () => {
       api.publish({ selfUin, content: 'fixture', richvals: [], visibility: 1 }),
     ).rejects.toThrow('timeout');
     expect(services.webQuery.publishQzone).toHaveBeenCalledTimes(1);
+    expect(services.webQuery.readPublishedQzonePost).not.toHaveBeenCalled();
   });
   it('rejects invalid decoded images and returns no upload URL or raw metadata', async () => {
     mocks.imageValid = false;
