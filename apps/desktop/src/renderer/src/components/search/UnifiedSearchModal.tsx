@@ -17,6 +17,7 @@ import { SearchListSkeleton } from './SearchSkeleton';
 import {
   CATEGORY_META,
   searchHitKey,
+  unavailableMessageSearchHint,
   type MoreSearchResult,
   type SearchCategory,
   type SearchHit,
@@ -271,6 +272,7 @@ export function SearchMoreResults({
     </div>
   );
 
+  const unavailableMessageSearch = unavailableMessageSearchHint(data?.unavailableMessageSources);
   return (
     <div
       className="weq-search-dropdown weq-search-more-results"
@@ -301,6 +303,11 @@ export function SearchMoreResults({
         aria-label={filters ? 'QQ 消息筛选结果' : `${heading}结果`}
         aria-busy={loading || loadingMore}
       >
+        {!loading && unavailableMessageSearch ? (
+          <div className="weq-search-failure" role="status">
+            <span>{unavailableMessageSearch}</span>
+          </div>
+        ) : null}
         {error === 'initial' ? (
           retry
         ) : loading ? (
@@ -308,9 +315,9 @@ export function SearchMoreResults({
         ) : data && data.items.length === 0 ? (
           <EmptyState
             icon={<SearchX />}
-            title="无结果"
+            title={unavailableMessageSearch ? '可用来源未找到结果' : '无结果'}
             body={
-              data.limited && isQQMessageSearch
+              data.limited && isQQMessageSearch && !unavailableMessageSearch
                 ? '本轮候选中没有匹配消息，可缩小时间范围再查。'
                 : undefined
             }
@@ -319,10 +326,10 @@ export function SearchMoreResults({
           <>
             <div className="weq-search-more-total">
               {data.changed ? (
-                <NumericText>{`已载入 ${data.items.length} 条 · 结果可能已更新${data.limited ? ' · 候选池有上限' : ''}`}</NumericText>
-              ) : data.limited && isQQMessageSearch ? (
+                <NumericText>{`已载入 ${data.items.length} 条 · 结果可能已更新${data.limited && !unavailableMessageSearch ? ' · 候选池有上限' : ''}`}</NumericText>
+              ) : data.limited && isQQMessageSearch && !unavailableMessageSearch ? (
                 <NumericText>{`本轮候选 · ${data.total} 个会话`}</NumericText>
-              ) : data.limited ? (
+              ) : data.limited && !unavailableMessageSearch ? (
                 <NumericText>{`当前候选 ${data.total} 条 · 超出本轮检索上限`}</NumericText>
               ) : (
                 <NumericText>{`共 ${data.total} 条结果`}</NumericText>
@@ -358,7 +365,7 @@ export function SearchMoreResults({
             {error === 'more' ? retry : null}
             {!data.hasMore && data.items.length > 0 ? (
               <div className="weq-search-more-end">
-                {data.limited ? '本轮候选已显示完' : '没有更多了'}
+                {data.limited && !unavailableMessageSearch ? '本轮候选已显示完' : '没有更多了'}
               </div>
             ) : null}
           </>

@@ -160,6 +160,7 @@ export function useGlobalSearch(
         if (category === 'chatRecord') {
           slow.messageHits = next.messageHits;
           slow.messageCoverage = next.messageCoverage;
+          slow.unavailableMessageSources = next.unavailableMessageSources;
         }
         if (category === 'chatRecord' || category === 'file') slow.indexStatus = next.indexStatus;
         slow.chatRecords.push(...next.chatRecords);

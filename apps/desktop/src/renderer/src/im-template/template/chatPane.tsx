@@ -333,7 +333,7 @@ import '../../styles/conversation-loading.css';
 import type { ConversationReadingPosition } from '../../lib/conversationReadingPosition';
 import { MessageTimeDivider } from './messageTime';
 import { shouldShowMessageTime } from './messageTime.shared';
-import { MessageGapDivider } from './messageGap';
+import { MessageGapDivider, MessageLoadFailure } from './messageGap';
 import { isSeqBetween, messageGapCount } from './messageGap.shared';
 import { defaultConversationPreference } from './preferences';
 import { Avatar, ChatMessagesSkeleton, EmptyState } from './primitives';
@@ -506,6 +506,7 @@ export type ChatPaneProps = {
   loadingOlder?: boolean;
   onOpenSourceProfile?: () => void;
   loadError?: string;
+  pagingLoadError?: 'older' | 'newer';
   /** 数据源适配扩展入口，不替换聊天页面、输入区或消息列表。 */
   headerActions?: React.ReactNode;
   peerTyping?: string;
@@ -831,6 +832,7 @@ function ChatPaneContent({
   sendBlockedReason,
   readOnly = false,
   loadError,
+  pagingLoadError,
   composerVisible = true,
   composerTools,
   composerParameters,
@@ -6349,7 +6351,10 @@ function ChatPaneContent({
               {timelineNotice}
               {loadingOlder ? <div role="status">加载更早消息…</div> : null}
               {jumpMissing && !loadError ? <div role="status">该条记录已不在当前会话中</div> : null}
-              {loadError ? <div role="alert">{loadError}</div> : null}
+              {loadError ? <MessageLoadFailure>{loadError}</MessageLoadFailure> : null}
+              {pagingLoadError === 'older' && !loadingOlder ? (
+                <MessageLoadFailure>更早的聊天记录暂时无法加载</MessageLoadFailure>
+              ) : null}
               {marquee.box ? (
                 <div className="weq-message-marquee" aria-hidden style={marquee.box} />
               ) : null}
@@ -6586,6 +6591,9 @@ function ChatPaneContent({
                 >
                   <Loader2 size={18} />
                 </div>
+              ) : null}
+              {pagingLoadError === 'newer' && !loadingNewer ? (
+                <MessageLoadFailure>后续聊天记录暂时无法加载</MessageLoadFailure>
               ) : null}
               {pendingActions['timeline:poke'] ? (
                 <div

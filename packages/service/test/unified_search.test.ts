@@ -44,6 +44,20 @@ function fixture() {
 }
 
 describe('全局搜索范围', () => {
+  it('私聊索引不可用时保留群消息预览和分页，并标出缺失来源', async () => {
+    const f = fixture();
+    f.buddyRecords.mockRejectedValue(new Error('database disk image is malformed'));
+    f.groupRecords.mockResolvedValue([{ partition: 7n, count: 2 }]);
+
+    const preview = await f.service.slowSearch('消息', 3, ['chatRecord'], 'real');
+    expect(preview.chatRecords).toMatchObject([{ source: 'group', partition: '7', count: 2 }]);
+    expect(preview.unavailableMessageSources).toEqual(['buddy']);
+    expect(preview.failedCategories).toEqual([]);
+    const more = await f.service.moreSearch('chatRecord', '消息', 0, 3, 'real');
+    expect(more.items).toEqual(preview.chatRecords);
+    expect(more.unavailableMessageSources).toEqual(['buddy']);
+  });
+
   it('频道联系人按频道节点独立保留，快速和更多采用相同筛选', async () => {
     const f = fixture();
     f.session.guildDirectNodes.listSessions = async () =>

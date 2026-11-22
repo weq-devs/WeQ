@@ -31,6 +31,7 @@ import {
   searchHitKey,
   searchHitNameRank,
   searchHitSource,
+  unavailableMessageSearchHint,
   isSlowSearchCategory,
   type SearchCategory,
   type SearchHit,
@@ -260,6 +261,7 @@ export function SearchDropdown({
     isSlowSearchCategory(category)
       ? (categoryStates?.[category]?.error ?? slowError) ||
         Boolean(slow?.failedCategories?.includes(category)) ||
+        (category === 'chatRecord' && Boolean(slow?.unavailableMessageSources?.length)) ||
         (category === 'chatRecord' &&
           Boolean(
             slow?.failedCategories?.some(
@@ -538,7 +540,11 @@ export function SearchDropdown({
                   </div>
                   {failed ? (
                     <div className="weq-search-failure" role="status">
-                      <span>搜索失败</span>
+                      <span>
+                        {(category === 'chatRecord' &&
+                          unavailableMessageSearchHint(slow?.unavailableMessageSources)) ||
+                          '搜索失败'}
+                      </span>
                       <button
                         type="button"
                         onClick={onRetry}

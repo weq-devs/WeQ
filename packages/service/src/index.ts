@@ -698,6 +698,7 @@ export type { AffectedObject, BadPageScanReport, ScanBadPagesInput } from './acc
 export {
   ACCOUNT_HEALTH_DATABASES,
   DB_HEALTH_REPORT_PREFIX,
+  checkAccountDatabaseFile,
   checkAccountDatabaseHealth,
   collectDbDamageFeedback,
   findLatestDbHealthReport,

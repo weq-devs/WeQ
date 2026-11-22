@@ -54,6 +54,10 @@ export function useMessageWindowState({
   const [initialReadingPosition, setInitialReadingPosition] =
     useState<ConversationReadingPosition>();
   const [loadingNewerMessages, setLoadingNewerMessages] = useState(false);
+  const [readFailure, setReadFailure] = useState<{
+    key: string;
+    stage: 'entry' | 'older' | 'newer';
+  } | null>(null);
   const entryLoadingRef = useRef(false);
   useEffect(() => {
     const binding = messageBindingRef.current;
@@ -278,6 +282,10 @@ export function useMessageWindowState({
             recordMessageCounter('windowDiscarded');
             return;
           }
+          const key = conversationWindowKey(scope, kind, conv);
+          setReadFailure((failure) =>
+            failure?.key === key && failure.stage === 'entry' ? null : failure,
+          );
           loadedRevisionRef.current = revision;
           windowVerifiedAtRef.current = Date.now();
           const rows = mergeRefreshedWindow(
@@ -348,6 +356,8 @@ export function useMessageWindowState({
     setInitialReadingPosition,
     loadingNewerMessages,
     setLoadingNewerMessages,
+    readFailure,
+    setReadFailure,
     entryLoadingRef,
     loadedWindow,
     setLoadedWindow,

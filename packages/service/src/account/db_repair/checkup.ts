@@ -23,6 +23,7 @@ export class DatabaseScanUnsupportedError extends Error {
 }
 export {
   databaseReadyForRepair,
+  verifiedDatabaseScans,
   databaseRepairSupportLabel,
   databaseMaintenanceKindLabel,
   databaseMaintenanceStatusLabel,

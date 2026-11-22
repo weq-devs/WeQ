@@ -119,6 +119,7 @@ export interface QuickSearchResult {
 
 export interface SlowSearchResult {
   messageCoverage?: ContentSearchCoverage;
+  unavailableMessageSources?: SearchFtsSource[];
   messageHits?: SearchHit[];
   contentHits?: ContentSearchHit[];
   contentCoverage?: Partial<Record<ContentSearchCategory, ContentSearchCoverage>>;
@@ -132,7 +133,20 @@ export interface SlowSearchResult {
   indexStatus: 'disabled' | 'building' | 'ready';
 }
 
+const messageSearchSourceLabels: Record<SearchFtsSource, string> = {
+  buddy: '私聊消息',
+  group: '群消息',
+};
+
+export function unavailableMessageSearchHint(
+  sources?: readonly SearchFtsSource[],
+): string | undefined {
+  if (!sources?.length) return;
+  return `${sources.map((source) => messageSearchSourceLabels[source]).join('、')}暂时无法搜索`;
+}
+
 export interface MoreSearchResult {
+  unavailableMessageSources?: SearchFtsSource[];
   coverage?: ContentSearchCoverage;
   category: SearchCategory;
   items: SearchHit[];

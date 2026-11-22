@@ -60,6 +60,20 @@ export interface DatabaseMaintenanceSnapshot extends DatabaseMaintenanceScope {
 export interface DatabaseMaintenanceReport extends DatabaseMaintenanceSnapshot {
   operation: DatabaseMaintenanceOperation;
 }
+export function verifiedDatabaseScans(snapshot: DatabaseMaintenanceSnapshot): BadPageScanReport[] {
+  if (!snapshot.configId || snapshot.operation?.kind !== 'checkup') return [];
+  return snapshot.databases.flatMap(({ deepStatus, integrity, scan }) =>
+    deepStatus === 'completed' &&
+    integrity?.ran &&
+    integrity.healthy &&
+    integrity.complete !== false &&
+    scan &&
+    scan.badPages.length === 0
+      ? [scan]
+      : [],
+  );
+}
+
 export function databaseReadyForRepair(row: DatabaseMaintenanceRow): boolean {
   return (
     row.scanStatus === 'completed' &&

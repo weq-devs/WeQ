@@ -43,6 +43,8 @@ export function ChatMainContent({
   toolRegistry,
   selectedToolId,
   loadingMessages,
+  loadError,
+  pagingLoadError,
   loadingNewer,
   initialReadingPosition,
   atLatest,
@@ -138,6 +140,8 @@ export function ChatMainContent({
   | 'messages'
   | 'composerActions'
   | 'messageRenderers'
+  | 'loadError'
+  | 'pagingLoadError'
   | 'loadingNewer'
   | 'initialReadingPosition'
   | 'atLatest'
@@ -338,6 +342,8 @@ export function ChatMainContent({
       composerActions={composerActions}
       messageRenderers={messageRenderers}
       loading={loadingMessages}
+      loadError={loadError}
+      pagingLoadError={pagingLoadError}
       loadingNewer={loadingNewer}
       initialReadingPosition={initialReadingPosition}
       atLatest={atLatest}

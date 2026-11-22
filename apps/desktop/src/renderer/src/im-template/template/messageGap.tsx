@@ -86,3 +86,11 @@ export function MessageGapDivider({
     </div>
   );
 }
+
+export function MessageLoadFailure({ children }: { children: string }) {
+  return (
+    <div className="weq-graytip-band weq-message-load-failure" role="status">
+      <span className="weq-graytip-band-hint">{children}</span>
+    </div>
+  );
+}

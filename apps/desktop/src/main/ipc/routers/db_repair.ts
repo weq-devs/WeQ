@@ -32,6 +32,7 @@ import {
 import { writeFileAtomic } from '@weq/service/atomic-write';
 import type { RecoverReport } from '@weq/native';
 import {
+  clearVerifiedDbDamage,
   closeSalvageConnections,
   getAppContext,
   requireBootstrap,
@@ -244,6 +245,7 @@ export const databaseMaintenance = new DatabaseMaintenance({
     ),
   reports,
   changed: (snapshot) => {
+    clearVerifiedDbDamage(snapshot);
     progressBus.emit('maintenance', snapshot);
   },
 });

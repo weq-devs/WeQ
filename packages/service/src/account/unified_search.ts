@@ -104,7 +104,8 @@ export const SEARCH_CATEGORIES = [
   ...CONTENT_SEARCH_CATEGORIES,
 ] as const;
 export type SearchCategory = (typeof SEARCH_CATEGORIES)[number];
-export type FtsSource = 'buddy' | 'group';
+const FTS_SOURCES = ['buddy', 'group'] as const;
+export type FtsSource = (typeof FTS_SOURCES)[number];
 export const SERVICE_SEARCH_CANDIDATE_LIMIT = 1000;
 const FILE_SEARCH_CANDIDATE_LIMIT = 100;
 
@@ -239,6 +240,7 @@ export interface SearchHistoryHit {
 
 export interface SlowSearchResult {
   messageCoverage?: ContentSearchCoverage;
+  unavailableMessageSources?: FtsSource[];
   messageHits?: Array<ChatRecordSearchHit | GeneratedSearchHit | ContentSearchHit>;
   contentHits?: ContentSearchHit[];
   contentCoverage?: Partial<Record<ContentSearchCategory, ContentSearchCoverage>>;
@@ -253,6 +255,7 @@ export interface SlowSearchResult {
 }
 
 export interface MoreSearchResult {
+  unavailableMessageSources?: FtsSource[];
   coverage?: ContentSearchCoverage;
   category: SearchCategory;
   items: Array<
@@ -278,6 +281,7 @@ type FilteredChatRecords = {
   ranked: ChatRecordSearchHit[];
   buckets: Map<string, FtsRecordCandidate[]>;
   coverage: ContentSearchCoverage;
+  unavailableMessageSources: FtsSource[];
 };
 const FILTERED_RECORD_LIMIT = 500;
 
@@ -291,7 +295,7 @@ export class UnifiedSearchService {
   >();
   private readonly chatRecordCache = new Map<
     string,
-    { at: number; value: ChatRecordSearchHit[]; limited: boolean }
+    { at: number; items: ChatRecordSearchHit[]; limited: boolean; unavailable: FtsSource[] }
   >();
   private readonly filteredRecordCache = new Map<
     string,
@@ -568,6 +572,7 @@ export class UnifiedSearchService {
       ),
     );
     let messageCoverage: ContentSearchCoverage | undefined;
+    let unavailableMessageSources: FtsSource[] | undefined;
     const [messageHits, files, collections, cloneMessages, assistantMessages] = await Promise.all([
       read('chatRecord', async () => {
         const page = await this.messageSearch(
@@ -583,6 +588,7 @@ export class UnifiedSearchService {
           },
         );
         messageCoverage = page.coverage;
+        unavailableMessageSources = page.unavailableMessageSources;
         return page.items;
       }),
       read('file', () => this.topFiles(needle, limit)),
@@ -599,6 +605,7 @@ export class UnifiedSearchService {
         : {}),
       messageHits,
       messageCoverage,
+      ...(unavailableMessageSources?.length ? { unavailableMessageSources } : {}),
       chatRecords: messageHits.filter(
         (hit): hit is ChatRecordSearchHit => hit.category === 'chatRecord',
       ),
@@ -1131,6 +1138,7 @@ export class UnifiedSearchService {
         hasMore: (snapshot?.ranked.length ?? 0) > offset + limit,
         limited: snapshot?.coverage.limited ?? false,
         coverage: snapshot?.coverage,
+        unavailableMessageSources: snapshot?.unavailableMessageSources,
       };
     }
     // 各来源采用相同的名称相关度顺序，取足够前缀后再合并分页。
@@ -1147,10 +1155,15 @@ export class UnifiedSearchService {
         return fallback;
       }
     };
+    const emptyRanking = {
+      items: [] as ChatRecordSearchHit[],
+      limited: false,
+      unavailable: [] as FtsSource[],
+    };
     const [real, service, guild, groupContent] = await Promise.all([
       sources.includes('qq') && (scope === 'all' || scope === 'real')
-        ? read('chatRecord', () => this.cachedChatRecordRanking(keyword), [])
-        : [],
+        ? read('chatRecord', () => this.cachedChatRecordRanking(keyword), emptyRanking)
+        : emptyRanking,
       sources.includes('qq') && (scope === 'all' || scope === 'real')
         ? read('chatRecord', () => this.serviceChatRecords(keyword), { items: [], limited: false })
         : { items: [], limited: false },
@@ -1192,7 +1205,7 @@ export class UnifiedSearchService {
           return generated ? searchGeneratedMessages(generated, 'assistantMessage', keyword) : [];
         }, [])
       : [];
-    const conversations = real.map((hit) => ({ ...hit }));
+    const conversations = real.items.map((hit) => ({ ...hit }));
     const groupConversations = new Map(
       conversations.filter((hit) => hit.source === 'group').map((hit) => [hit.targetUid, hit]),
     );
@@ -1273,10 +1286,8 @@ export class UnifiedSearchService {
       items,
       total,
       hasMore: offset + items.length < total,
-      limited:
-        service.limited ||
-        ((scope === 'all' || scope === 'real') &&
-          (this.chatRecordCache.get(keyword)?.limited ?? false)),
+      limited: service.limited || real.limited,
+      unavailableMessageSources: real.unavailable.length ? real.unavailable : undefined,
       coverage: contentSourcesCoverage(
         {
           guildMessage: guild?.coverage,
@@ -1369,7 +1380,7 @@ export class UnifiedSearchService {
         limited: candidates.length > FILTERED_RECORD_LIMIT,
       };
     };
-    const results = await Promise.allSettled([read('buddy'), read('group')]);
+    const results = await Promise.allSettled(FTS_SOURCES.map(read));
     const windows = results.flatMap((result) =>
       result.status === 'fulfilled' ? [result.value] : [],
     );
@@ -1380,6 +1391,7 @@ export class UnifiedSearchService {
       );
     return {
       ranked: await this.rankFtsRecords(keyword, top('buddy'), top('group')),
+      unavailableMessageSources: FTS_SOURCES.filter((_, i) => results[i]?.status === 'rejected'),
       buckets: new Map(
         windows.flatMap(({ source, buckets }) =>
           [...buckets].map(([partition, rows]) => [`${source}:${partition}`, rows]),
@@ -1388,17 +1400,17 @@ export class UnifiedSearchService {
       coverage: {
         scope: 'local-database',
         records: windows.reduce((sum, window) => sum + window.scanned, 0),
-        limited: windows.length !== 2 || windows.some((window) => window.limited),
+        limited: windows.length !== FTS_SOURCES.length || windows.some((window) => window.limited),
         updatedAt: Date.now(),
       },
     };
   }
 
-  private async cachedChatRecordRanking(keyword: string): Promise<ChatRecordSearchHit[]> {
+  private async cachedChatRecordRanking(keyword: string) {
     const hit = this.chatRecordCache.get(keyword);
-    if (hit && Date.now() - hit.at < 30_000) return hit.value;
+    if (hit && Date.now() - hit.at < 30_000) return hit;
     // Indexed path first (trigram FTS5, ms-level); LIKE GROUP BY as fallback.
-    const [buddyTop, groupTop] = await Promise.all([
+    const [buddy, group] = await Promise.allSettled([
       this.buddyIndex?.ready
         ? this.buddyIndex.topPartitions(keyword, 200)
         : this.session.buddyMsgFts.topConversationsByKeyword(keyword, 200),
@@ -1408,13 +1420,18 @@ export class UnifiedSearchService {
     ]);
     this.maybeRetire('buddy');
     this.maybeRetire('group');
-    const value = await this.rankFtsRecords(keyword, buddyTop, groupTop);
-    this.chatRecordCache.set(keyword, {
+    if (buddy.status === 'rejected' && group.status === 'rejected')
+      throw new AggregateError([buddy.reason, group.reason], 'QQ 聊天记录无法搜索');
+    const buddyTop = buddy.status === 'fulfilled' ? buddy.value : [];
+    const groupTop = group.status === 'fulfilled' ? group.value : [];
+    const result = {
       at: Date.now(),
-      value,
+      items: await this.rankFtsRecords(keyword, buddyTop, groupTop),
       limited: buddyTop.length >= 200 || groupTop.length >= 200,
-    });
-    return value;
+      unavailable: FTS_SOURCES.filter((_, i) => [buddy, group][i]?.status === 'rejected'),
+    };
+    this.chatRecordCache.set(keyword, result);
+    return result;
   }
 
   private async rankFtsRecords(
@@ -1427,6 +1444,7 @@ export class UnifiedSearchService {
       Promise.all(buddyTop.map((t) => this.buddyConvIdentity(t.partition))),
       (async () => {
         const codes = [...new Set(groupTop.map((t) => t.partition))];
+        if (!codes.length) return [];
         const details = await this.session.groupDetail.detailsByGroupCodes(codes);
         const map = new Map(details.map((d) => [d.groupCode.toString(), d.groupName || d.remark]));
         return groupTop.map((t) => map.get(t.partition.toString()) || t.partition.toString());

@@ -5,6 +5,7 @@ import { formatClock } from '@weq/time';
  * settings.db + key/algo config + report into a cache-dir folder).
  */
 
+import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { type AccountSession, algoFor } from '@weq/account';
@@ -41,7 +42,7 @@ export async function checkAccountDatabaseHealth(
   const dbDir = platform.ntDbDir(session.context.uin) ?? dirname(session.msgDbPath);
   const results = await Promise.all(
     ACCOUNT_HEALTH_DATABASES.map((dbName) =>
-      checkOneDatabase(session, platform, dbName, join(dbDir, dbName)),
+      checkAccountDatabaseFile(session, platform, join(dbDir, dbName)),
     ),
   );
   return results.filter((item): item is DbHealthFailure => item !== null);
@@ -51,7 +52,7 @@ export function formatDbHealthFailures(failures: DbHealthFailure[]): string[] {
   const details: string[] = [];
 
   for (const failure of failures) {
-    if (failure.error) {
+    if (failure.error !== undefined) {
       details.push(`${failure.dbName} 无法完成健康检查：${failure.error}`);
       continue;
     }
@@ -69,12 +70,12 @@ export function formatDbHealthFailures(failures: DbHealthFailure[]): string[] {
   return details;
 }
 
-async function checkOneDatabase(
+export async function checkAccountDatabaseFile(
   session: AccountSession,
   platform: Platform,
-  dbName: string,
   dbPath: string,
 ): Promise<DbHealthFailure | null> {
+  const dbName = basename(dbPath);
   if (!existsSync(dbPath)) {
     return {
       dbName,
@@ -149,7 +150,7 @@ function stampParts(d = new Date()): { date: string; time: string; ts: string } 
 
 export function renderDbHealthReportMarkdown(input: DbHealthReportInput): string {
   const { date, time } = stampParts();
-  const confirmedDamage = input.failures.some((failure) => !failure.error);
+  const confirmedDamage = input.failures.some((failure) => failure.error === undefined);
   const lines: string[] = [];
   lines.push('# WeQ 数据库健康检查报告');
   lines.push('');
@@ -176,7 +177,7 @@ export function renderDbHealthReportMarkdown(input: DbHealthReportInput): string
     lines.push('（无）');
   } else {
     for (const f of input.failures) {
-      if (f.error) {
+      if (f.error !== undefined) {
         lines.push(`- ${f.dbName}：无法完成健康检查（${f.error}）`);
       } else if (f.corruptedTables.length === 0) {
         lines.push(`- ${f.dbName}：数据库整体损坏，未定位到具体表`);
@@ -245,7 +246,9 @@ export function writeDbHealthReport(input: DbHealthReportInput, targetDir?: stri
   if (!dir) return null;
   try {
     mkdirSync(dir, { recursive: true });
-    const file = join(dir, `${DB_HEALTH_REPORT_PREFIX}${stampParts().ts}.md`);
+    const now = new Date();
+    const stamp = `${stampParts(now).ts}_${pad(now.getMilliseconds(), 3)}_${randomUUID()}`;
+    const file = join(dir, `${DB_HEALTH_REPORT_PREFIX}${stamp}.md`);
     writeFileSync(file, renderDbHealthReportMarkdown(input), 'utf8');
     return file;
   } catch (e) {

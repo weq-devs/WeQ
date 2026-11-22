@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { verifiedDatabaseScans } from '@weq/service/db-checkup';
 import { client } from '../trpc/client';
 import { useToast, useToastApi } from '../components/Toast.shared';
 import { notificationSource } from '../lib/notificationNavigation.shared';
@@ -10,6 +11,10 @@ const remember = (key: string) => {
   seen.add(key);
   if (seen.size > 1024) seen.delete(seen.values().next().value!);
 };
+function damageToastKey(uin: string, configId: string | undefined, dbPath: string): string {
+  return `database-damage:${JSON.stringify([uin, configId, dbPath])}`;
+}
+
 export function useDatabaseMaintenanceNotifications(popup: Window | null): void {
   const { push } = useToastApi(null);
   useEffect(() => {
@@ -23,6 +28,8 @@ export function useDatabaseMaintenanceNotifications(popup: Window | null): void 
     if (focused()) clear();
     const maintenance = client.dbRepair.onMaintenance.subscribe(undefined, {
       onData(snapshot) {
+        for (const scan of verifiedDatabaseScans(snapshot))
+          useToast.getState().resolve(damageToastKey(snapshot.uin, snapshot.configId, scan.dbPath));
         const notice = databaseMaintenanceNotification(snapshot);
         if (snapshot.operation?.kind === 'repair' && snapshot.operation.status !== 'running')
           useToast.getState().resolve(`database-maintenance-progress:${snapshot.id}`);
@@ -45,10 +52,12 @@ export function useDatabaseMaintenanceNotifications(popup: Window | null): void 
     });
     const health = client.bootstrap.onAccountForcedClosed.subscribe(undefined, {
       onData(event) {
-        if (event.reason !== 'database-damaged') return;
+        if (event.reason !== 'database-damaged' || event.kind !== 'confirmed') return;
+        const failure = event.failures[0];
+        if (!failure) return;
         const notice = {
           event: 'databaseDamage' as const,
-          key: `database-damage:${event.uin}:${event.configId ?? ''}`,
+          key: damageToastKey(event.uin, event.configId, failure.dbPath),
           tone: 'error' as const,
           title: event.title,
           summary: event.message,

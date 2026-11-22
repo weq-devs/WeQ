@@ -309,6 +309,8 @@ export function useConversationWindowEntry(
     cachedScrollRef,
     setInitialReadingPosition,
     setLoadingNewerMessages,
+    readFailure,
+    setReadFailure,
     entryLoadingRef,
     loaded,
     nativeMessageScrollRef,
@@ -334,6 +336,8 @@ export function useConversationWindowEntry(
   } = state;
   // 校准与历史页提交后，即使可见消息条数不变，也须重新检查滚动边缘。
   const [pagingCommit, commitPaging] = useReducer((revision: number) => revision + 1, 0);
+  const readKey = conversationWindowKey(messageScope, isGroup ? 'group' : 'c2c', selectedUid ?? '');
+
   // 命中缓存先恢复窗口，随后按水位增量读取；有变更或较久未校准时才重读已有范围。
   const entryChatType =
     selectedConversation?.type === 'direct'
@@ -350,6 +354,7 @@ export function useConversationWindowEntry(
   useEffect(() => {
     const binding = messageBindingRef.current,
       scope = messageScope;
+    setReadFailure(null);
     if (!selectedUid || !(isDirect || isGroup) || !scope || !binding) {
       setMessagesLoading(false);
       return undefined;
@@ -591,6 +596,7 @@ export function useConversationWindowEntry(
       } catch (err) {
         if (!valid()) return;
         console.error('[msgs] entry load failed', err);
+        setReadFailure({ key: readKey, stage: 'entry' });
         setMessagesLoading(false);
       }
     })();
@@ -601,6 +607,8 @@ export function useConversationWindowEntry(
     selectedUid,
     isDirect,
     isGroup,
+    readKey,
+    setReadFailure,
     centerWindowOnSeq,
     entryChatType,
     readFromFirstUnread,
@@ -680,6 +688,9 @@ export function useConversationWindowEntry(
             pendingScrollRestoreRef.current = null;
             return;
           }
+          setReadFailure((failure) =>
+            failure?.key === readKey && failure.stage === 'older' ? null : failure,
+          );
           const known = new Set(loaded.map(timelineRowKey));
           const fresh = older
             .map(toMessageWire)
@@ -708,10 +719,13 @@ export function useConversationWindowEntry(
           loadingOlderRef.current = false;
           pendingScrollRestoreRef.current = null;
           console.error('[msgs] listBefore failed', err);
+          if (windowRef.current.minSeq === minSeq) setReadFailure({ key: readKey, stage: 'older' });
         });
     },
     [
       selectedConversation,
+      readKey,
+      setReadFailure,
       hasOlder,
       loaded,
       messagesLoading,
@@ -773,6 +787,9 @@ export function useConversationWindowEntry(
           if (!isConversationPagingVisible(scroll)) return;
           if (loadedRef.current.at(-1)?.msgSeq !== maxSeq) return;
           if (selectionRef.current?.id !== conv) return;
+          setReadFailure((failure) =>
+            failure?.key === readKey && failure.stage === 'newer' ? null : failure,
+          );
           const known = new Set(loaded.map(timelineRowKey));
           const fresh = newer.map(toMessageWire).filter((m) => !known.has(timelineRowKey(m))); // ASC, newer
           if (fresh.length > 0) {
@@ -794,10 +811,14 @@ export function useConversationWindowEntry(
           loadingNewerRef.current = false;
           setLoadingNewerMessages(false);
           console.error('[msgs] listAfter failed', err);
+          if (loadedRef.current.at(-1)?.msgSeq === maxSeq)
+            setReadFailure({ key: readKey, stage: 'newer' });
         });
     },
     [
       selectedConversation,
+      readKey,
+      setReadFailure,
       hasNewer,
       loaded,
       setLoaded,
@@ -837,5 +858,6 @@ export function useConversationWindowEntry(
     nativeMessageScrollRef,
   ]);
 
-  return { requestOlderMessages, requestNewerMessages };
+  const failedStage = readFailure?.key === readKey ? readFailure.stage : undefined;
+  return { requestOlderMessages, requestNewerMessages, failedStage };
 }

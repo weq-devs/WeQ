@@ -19,6 +19,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 import { AccountQqSync } from '../qq_sync/account';
 import { ensureQqSyncProxy } from '../qq_sync/runtime';
 import { runResumableExport } from '../resumable_exports';
@@ -47,9 +48,11 @@ import {
   AnnualReportIndexDb,
   GroupNotifyStatus,
   MessageReadIndexDb,
+  databaseUnderMaintenance,
   withDatabasePriority,
   waitForDatabaseQuiet,
 } from '@weq/db';
+import { verifiedDatabaseScans } from '@weq/service/db-checkup';
 import { waitForCalendarWrites } from '@weq/service/conversation-calendar-store';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
@@ -198,7 +201,7 @@ import {
   LocationShareService,
   AccountWriteService,
   DbWatchService,
-  checkAccountDatabaseHealth,
+  checkAccountDatabaseFile,
   createNtMsgDbHook,
   waitForUnreadWrites,
   formatDbHealthFailures,
@@ -213,6 +216,7 @@ import {
   type NewMessages,
   type DbChange,
   type DbHealthFailure,
+  type DatabaseMaintenanceSnapshot,
   type McpServerConfig,
   type WeqAssistantConfig,
   type SsePushConfig,
@@ -542,10 +546,12 @@ function stopVipBadge(): void {
   vipBadge = null;
 }
 let dbHealthCheckSeq = 0;
-/** Guards against running more than one full health check at a time. */
-let dbHealthCheckRunning = false;
-/** 同一会话持续失败时限制扫描与弹窗频率，避免每个轮询查询都触发一次。 */
-const dbHealthFailureAt = new WeakMap<AccountSession, number>();
+const dbHealthChecks = new WeakMap<AccountSession, Map<string, { finishedAt?: number }>>();
+const reportedDbDamage = new Map<string, string>();
+
+function dbDamageKey(uin: string, configId: string | undefined, dbPath: string): string {
+  return JSON.stringify([uin, configId, resolve(dbPath)]);
+}
 /**
  * 年度报告索引的一次性预热句柄（每次开账号重置）。
  *
@@ -1036,111 +1042,109 @@ function startAccountOneBot(ctx: AppContext, session: AccountSession): void {
   });
 }
 
-function startDbHealthCheck(ctx: AppContext, session: AccountSession, platform: Platform): void {
-  const logger = getLogger().child({ scope: 'db-health', accountUin: session.context.uin });
-  if (dbHealthCheckRunning) return;
-  // Ignore late triggers from a session that has already been replaced/closed.
-  if (ctx.account !== session) return;
-  const lastFailure = dbHealthFailureAt.get(session);
-  if (lastFailure !== undefined && Date.now() - lastFailure < 60_000) return;
-  dbHealthCheckRunning = true;
-  const seq = ++dbHealthCheckSeq;
-  const dbDir = platform.ntDbDir(session.context.uin) ?? dirname(session.msgDbPath);
-  // 两个通知渠道都关闭时仍执行检查和生成报告。
-  const reminderSuppressed = (): boolean => {
-    const channels = ctx.bootstrap?.userConfig.getSettings().notificationEvents.databaseDamage;
-    return channels ? !channels.banner && !channels.system : false;
-  };
-  void (async (): Promise<void> => {
-    try {
-      logger.info('starting database health check', {
-        event: 'db-health-check-start',
-        msgDbPath: session.msgDbPath,
-      });
-      const failures = await checkAccountDatabaseHealth(session, platform);
-      // A newer check started or the account changed mid-check — drop the result.
-      if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
-      // 没检出损坏就不提醒（误报/瞬时错误），放行让后续可再触发。
-      if (failures.length === 0) {
-        logger.info('database health check passed', { event: 'db-health-check-clean' });
-        return;
-      }
+export function clearVerifiedDbDamage(snapshot: DatabaseMaintenanceSnapshot): void {
+  const account = cached?.account;
+  const active =
+    account?.context.uin === snapshot.uin &&
+    cached?.services?.accountConfig.getRecord()?.configId === snapshot.configId
+      ? account
+      : undefined;
+  for (const scan of verifiedDatabaseScans(snapshot)) {
+    reportedDbDamage.delete(dbDamageKey(snapshot.uin, snapshot.configId, scan.dbPath));
+    if (active) dbHealthChecks.get(active)?.delete(resolve(scan.dbPath));
+  }
+}
 
-      const details = formatDbHealthFailures(failures);
-      const confirmed = failures.some((failure) => !failure.error);
-      dbHealthFailureAt.set(session, Date.now());
-      const reportPath = writeDbHealthReport({ failures, uin: session.context.uin, dbDir });
-      logger.error(
-        confirmed ? 'database corruption confirmed' : 'database health check incomplete',
-        {
-          event: 'db-health-check-failed',
-          failureCount: failures.length,
-          details,
-          reportPath,
-        },
-      );
-      if (reminderSuppressed()) {
-        logger.info('database damage reminder suppressed', {
-          event: 'db-health-reminder-suppressed',
-          reportPath,
-        });
-        return;
-      }
-      accountEventBus.emit('forcedClosed', {
-        reason: 'database-damaged',
-        kind: confirmed ? 'confirmed' : 'check-error',
-        uin: session.context.uin,
-        configId: ctx.services?.accountConfig.getRecord()?.configId,
-        title: confirmed ? '数据库损坏' : '数据库无法读取',
-        message: confirmed
-          ? '数据库健康检查检出了损坏，已生成检查报告；请保留原件并核对原因后再决定是否修复。'
-          : '数据库健康检查未能完成，尚不能确认文件损坏。请先核对账号数据源、密钥和加密算法，不要直接替换或修复原库。',
-        details,
-        failures,
-        reportPath,
-      } satisfies AccountForcedClosedEvent);
-    } catch (e) {
-      if (seq !== dbHealthCheckSeq || ctx.account !== session) return;
-      dbHealthFailureAt.set(session, Date.now());
-      logger.error('database health check crashed', {
-        event: 'db-health-check-error',
-        ...logErrorContext(e),
-      });
-      const failure: DbHealthFailure = {
-        dbName: '数据库健康检查',
-        dbPath: session.msgDbPath,
-        corruptedTables: [],
-        error: e instanceof Error ? e.message : String(e),
-      };
-      const reportPath = writeDbHealthReport({
-        failures: [failure],
-        uin: session.context.uin,
-        dbDir,
-        checkError: e instanceof Error ? e.message : String(e),
-      });
-      if (reminderSuppressed()) {
-        logger.info('database damage reminder suppressed', {
-          event: 'db-health-reminder-suppressed',
-          reportPath,
-        });
-        return;
-      }
-      accountEventBus.emit('forcedClosed', {
-        reason: 'database-damaged',
-        kind: 'check-error',
-        uin: session.context.uin,
-        configId: ctx.services?.accountConfig.getRecord()?.configId,
-        title: '数据库无法读取',
-        message:
-          '数据库健康检查未能完成，尚不能确认文件损坏。请先核对数据源、密钥和加密算法，并保留原库。',
-        details: formatDbHealthFailures([failure]),
-        failures: [failure],
-        reportPath,
-      } satisfies AccountForcedClosedEvent);
-    } finally {
-      if (seq === dbHealthCheckSeq) dbHealthCheckRunning = false;
+function startDbHealthCheck(
+  ctx: AppContext,
+  session: AccountSession,
+  platform: Platform,
+  path: string,
+  configId: string,
+): void {
+  if (!path || ctx.account !== session) return;
+  const dbPath = resolve(path);
+  if (databaseUnderMaintenance(dbPath)) return;
+  let checks = dbHealthChecks.get(session);
+  if (!checks) {
+    checks = new Map();
+    dbHealthChecks.set(session, checks);
+  }
+  const last = checks.get(dbPath);
+  if (last && (last.finishedAt === undefined || Date.now() - last.finishedAt < 60_000)) return;
+  const check: { finishedAt?: number } = {};
+  checks.set(dbPath, check);
+  const pending = checks;
+  const seq = dbHealthCheckSeq;
+  const uin = session.context.uin;
+  const key = dbDamageKey(uin, configId, dbPath);
+  const logger = getLogger().child({ scope: 'db-health', accountUin: uin, dbPath });
+  const current = () =>
+    seq === dbHealthCheckSeq && ctx.account === session && pending.get(dbPath) === check;
+  void (async () => {
+    await delay(1_000);
+    if (!current() || databaseUnderMaintenance(dbPath)) return;
+    logger.info('starting database health check', { event: 'db-health-check-start' });
+    const failure = await checkAccountDatabaseFile(session, platform, dbPath);
+    if (!current() || databaseUnderMaintenance(dbPath)) return;
+    if (!failure) {
+      reportedDbDamage.delete(key);
+      logger.info('database health check passed', { event: 'db-health-check-clean' });
+      return;
     }
-  })();
+
+    const failures = [failure];
+    const details = formatDbHealthFailures(failures);
+    const reportPath = writeDbHealthReport({ failures, uin, dbDir: dirname(dbPath) });
+    if (failure.error !== undefined) {
+      logger.warn('database health check incomplete', {
+        event: 'db-health-check-incomplete',
+        details,
+        reportPath,
+      });
+      return;
+    }
+
+    logger.error('database corruption confirmed', {
+      event: 'db-health-check-failed',
+      details,
+      reportPath,
+    });
+    const channels = ctx.bootstrap?.userConfig.getSettings().notificationEvents.databaseDamage;
+    if (channels && !channels.banner && !channels.system) return;
+    const signature = JSON.stringify([...failure.corruptedTables].sort());
+    if (reportedDbDamage.get(key) === signature) return;
+    reportedDbDamage.set(key, signature);
+    accountEventBus.emit('forcedClosed', {
+      reason: 'database-damaged',
+      kind: 'confirmed',
+      uin,
+      configId,
+      title: '检测到数据库损坏',
+      message: `WeQ 在 ${failure.dbName} 中检出了结构异常。可查看检查详情。`,
+      details,
+      failures,
+      reportPath,
+    } satisfies AccountForcedClosedEvent);
+  })()
+    .catch((error: unknown) => {
+      if (!current()) return;
+      const message = error instanceof Error ? error.message : String(error);
+      const reportPath = writeDbHealthReport({
+        failures: [],
+        uin,
+        dbDir: dirname(dbPath),
+        checkError: message,
+      });
+      logger.warn('database health check failed to complete', {
+        event: 'db-health-check-error',
+        reportPath,
+        ...logErrorContext(error),
+      });
+    })
+    .finally(() => {
+      check.finishedAt = Date.now();
+    });
 }
 
 export interface BootstrapServices {
@@ -1788,7 +1792,6 @@ export function initAppContext(fileRoot?: string): AppContext {
         dataDir: metadata.dataDir ?? null,
       });
       dbHealthCheckSeq += 1;
-      dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();
@@ -1815,19 +1818,18 @@ export function initAppContext(fileRoot?: string): AppContext {
       ssePush = null;
       unmountGroupKeyword();
       unmountAntiRecallMonitor();
-      // A live query failing with a corruption-signature error is what triggers
-      // the (otherwise unrun) full health check — not account-open. `this.account`
-      // is only set after this resolves, so callbacks that fire mid-open (e.g.
-      // the uid-map load) are ignored until the session is the current one.
+      // 日常查询出现疑似损坏时才复查该库，忽略打开期间和已结束会话的回调。
       // 日常读取自动尝试无损访问路径；跳过区间与表只由导出任务按次询问。
       const dbTolerance = new DbToleranceService();
       this.dbTolerance = dbTolerance;
+      const exportConfigId = accountConfigId(accountCtx.uin, metadata.dataDir);
+      let openedSession: AccountSession | undefined;
       const session = await openAccount(
         platform,
         accountCtx,
         (info): void => {
-          const current = this.account;
-          if (!current) return;
+          const current = openedSession;
+          if (!current || this.account !== current) return;
           console.warn(
             '[account] suspected database corruption from query on',
             info.dbPath,
@@ -1839,7 +1841,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             dbPath: info.dbPath,
             error: info.error,
           });
-          startDbHealthCheck(this, current, platform);
+          startDbHealthCheck(this, current, platform, info.dbPath, exportConfigId);
         },
         {
           // 账号读取固定为无损级别 1；异常记入普通诊断日志。
@@ -1847,6 +1849,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           onEntry: (entry) => dbTolerance.recordLedgerEntry(entry),
         },
       );
+      openedSession = session;
       this.account = session;
       accountCacheRoots.set(this, userConfig.cacheBaseDir());
       // Online account: resources resolve against the local install as always.
@@ -1856,7 +1859,6 @@ export function initAppContext(fileRoot?: string): AppContext {
       const accountConfig = new AccountConfigService(session, platform.appDataRoot(), userConfig);
       // Per-account export cache: tasks + outputs must NOT leak across accounts.
       // Keyed by the same (uin, dataDir) id the account record uses.
-      const exportConfigId = accountConfigId(session.context.uin, metadata.dataDir);
       const resolveOnlinePid = (): number => {
         if (!fullModeAllowed(this, session)) throw new Error('本次运行尚未启用 QQ 在线能力。');
         const record = accountConfig.getRecord();
@@ -2875,7 +2877,6 @@ export function initAppContext(fileRoot?: string): AppContext {
         dirPath,
       });
       dbHealthCheckSeq += 1;
-      dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();
@@ -3749,7 +3750,6 @@ export function initAppContext(fileRoot?: string): AppContext {
         accountUin: this.account?.context.uin ?? null,
       });
       dbHealthCheckSeq += 1;
-      dbHealthCheckRunning = false;
       accountMonitor?.stop();
       accountMonitor = null;
       stopVipBadge();

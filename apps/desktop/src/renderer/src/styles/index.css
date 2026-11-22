@@ -19283,48 +19283,56 @@ html[data-theme='dark'] .message-line.is-deleted .message-bubble {
    loose centered lines. When the run contains a placeholder recall (message not
    in the local DB), a quiet hint says QQ will backfill it on view. */
 .weq-graytip-band {
+  --weq-graytip-band-color: var(--weq-accent-effective);
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin: 2px 6px;
   padding: 8px 14px;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--weq-graytip-band-color) 14%, transparent);
   background:
     radial-gradient(
       120% 80% at 15% 0%,
-      color-mix(in srgb, var(--weq-accent-effective) 12%, transparent) 0%,
+      color-mix(in srgb, var(--weq-graytip-band-color) 12%, transparent) 0%,
       transparent 60%
     ),
     radial-gradient(
       120% 90% at 85% 100%,
-      color-mix(in srgb, var(--weq-accent-effective) 9%, transparent) 0%,
+      color-mix(in srgb, var(--weq-graytip-band-color) 9%, transparent) 0%,
       transparent 62%
     ),
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--weq-accent-effective) 8%, transparent),
-      color-mix(in srgb, var(--weq-accent-effective) 5%, transparent)
+      color-mix(in srgb, var(--weq-graytip-band-color) 8%, transparent),
+      color-mix(in srgb, var(--weq-graytip-band-color) 5%, transparent)
     );
 }
 html[data-theme='dark'] .weq-graytip-band {
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+  border-color: color-mix(in srgb, var(--weq-graytip-band-color) 18%, transparent);
   background:
     radial-gradient(
       120% 80% at 15% 0%,
-      color-mix(in srgb, var(--weq-accent-effective) 15%, transparent) 0%,
+      color-mix(in srgb, var(--weq-graytip-band-color) 15%, transparent) 0%,
       transparent 60%
     ),
     radial-gradient(
       120% 90% at 85% 100%,
-      color-mix(in srgb, var(--weq-accent-effective) 11%, transparent) 0%,
+      color-mix(in srgb, var(--weq-graytip-band-color) 11%, transparent) 0%,
       transparent 62%
     ),
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent),
-      color-mix(in srgb, var(--weq-accent-effective) 6%, transparent)
+      color-mix(in srgb, var(--weq-graytip-band-color) 10%, transparent),
+      color-mix(in srgb, var(--weq-graytip-band-color) 6%, transparent)
     );
+}
+
+.weq-graytip-band.weq-message-load-failure {
+  --weq-graytip-band-color: var(--weq-danger, #e5484d);
+}
+.weq-message-load-failure > .weq-graytip-band-hint {
+  color: color-mix(in srgb, var(--weq-graytip-band-color) 62%, var(--weq-fg-primary));
 }
 
 /* Base gray-tip line inside the band: centered, quiet, secondary-fg. (No base

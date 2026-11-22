@@ -6751,17 +6751,20 @@ function MainWorkspace(): ReactElement {
     };
   }, [jumpToConvSeq]);
 
-  const { requestOlderMessages, requestNewerMessages } = useConversationWindowEntry(messageWindow, {
-    selectedConversation,
-    selectedUid,
-    isDirect,
-    isGroup,
-    messagesTabActive,
-    loadingInitialMessages,
-    readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
-    readEntryUnreadInfo,
-    centerWindowOnSeq,
-  });
+  const { requestOlderMessages, requestNewerMessages, failedStage } = useConversationWindowEntry(
+    messageWindow,
+    {
+      selectedConversation,
+      selectedUid,
+      isDirect,
+      isGroup,
+      messagesTabActive,
+      loadingInitialMessages,
+      readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
+      readEntryUnreadInfo,
+      centerWindowOnSeq,
+    },
+  );
   // 目标已是选中的会话，但从联系人等页面返回时不会重新触发会话首屏读取。
   useEffect(() => {
     const jump = pendingSearchJumpRef.current;
@@ -10362,6 +10365,14 @@ function MainWorkspace(): ReactElement {
                             messages={templateMessages}
                             messageRenderers={messageRenderers}
                             loadingMessages={loadingInitialMessages}
+                            loadError={
+                              failedStage === 'entry'
+                                ? loaded.length
+                                  ? '部分聊天记录暂时无法加载'
+                                  : '这段聊天记录暂时无法加载'
+                                : undefined
+                            }
+                            pagingLoadError={failedStage === 'entry' ? undefined : failedStage}
                             loadingNewer={loadingNewerMessages}
                             initialReadingPosition={initialReadingPosition}
                             atLatest={anchoredToLatest}
