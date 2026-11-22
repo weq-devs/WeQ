@@ -543,6 +543,7 @@ import type { RedPacketDraft } from '../im-template/template/redPacketPanel';
 import { useChatShellController } from '../im-template/template/shellController';
 import { toIpcElements } from '../im-template/template/draftElements';
 import { buildUnreadDock } from '../im-template/template/unreadDock';
+import { unreadTimelineStart } from '../im-template/template/chatTimelineModel';
 import {
   buildComposerSendPlan,
   composerNeedsStickerCatalog,
@@ -3648,35 +3649,29 @@ function MainWorkspace(): ReactElement {
   type UnreadTarget = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
   type UnreadRows = Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>;
   type UnreadBinding = NonNullable<typeof messageBindingRef.current>;
-  const [activeReadPosition, setActiveReadPosition] = useState<{
+  type UnreadReadPosition = Pick<UnreadRows[number], 'readSeq' | 'unreadCount'>;
+  const [unreadReadPositions, setUnreadReadPositions] = useState<{
     scope: string;
-    uid: string;
-    chatType: number;
-    readSeq: string;
+    positions: ReadonlyMap<string, UnreadReadPosition>;
   }>();
-  const applyActiveReadPosition = useCallback(
+  const applyUnreadReadPositions = useCallback(
     (rows: UnreadRows) => {
-      const selection = selectionRef.current;
-      if (!selection) return;
       const scope = messageScopeRef.current;
-      const row = rows.find(
-        (row) =>
-          row.uid === selection.id &&
-          row.chatType === (selection.kind === 'group' ? 2 : 1) &&
-          !row.readError,
-      );
-      if (!row?.readSeq) return;
-      const { uid, chatType, readSeq } = row;
-      setActiveReadPosition((current) =>
-        current?.scope === scope &&
-        current.uid === uid &&
-        current.chatType === chatType &&
-        current.readSeq === readSeq
-          ? current
-          : { scope, uid, chatType, readSeq },
-      );
+      setUnreadReadPositions((current) => {
+        const previous = current?.scope === scope ? current.positions : undefined;
+        let positions: Map<string, UnreadReadPosition> | undefined;
+        for (const { uid, chatType, readError, readSeq, unreadCount } of rows) {
+          if (readError || (chatType !== 1 && chatType !== 2)) continue;
+          const key = `${chatType}:${uid}`;
+          const before = previous?.get(key);
+          if (before?.readSeq === readSeq && before?.unreadCount === unreadCount) continue;
+          positions ??= new Map(previous);
+          positions.set(key, { readSeq, unreadCount });
+        }
+        return positions ? { scope, positions } : current;
+      });
     },
-    [messageScopeRef, selectionRef],
+    [messageScopeRef],
   );
   const unreadDirectoryTargets = useMemo(() => {
     const targets = new Map<string, UnreadTarget>();
@@ -3723,6 +3718,7 @@ function MainWorkspace(): ReactElement {
       setReadUndo(null);
       setUnreadByConv({});
       setHighlightsByConv({});
+      setUnreadReadPositions(undefined);
     }
 
     const targetKey = ({ chatType, uid }: UnreadTarget) => `${chatType}:${uid}`;
@@ -3747,7 +3743,7 @@ function MainWorkspace(): ReactElement {
       const finish = guard.begin(accepted.map((row) => row.uid));
       finish();
       if (binding) useToast.getState().dismissReadMessages(binding, accepted);
-      applyActiveReadPosition(accepted);
+      applyUnreadReadPositions(accepted);
       setUnreadByConv((current) => {
         const next = { ...current };
         let changed = false;
@@ -3885,7 +3881,7 @@ function MainWorkspace(): ReactElement {
     messageScopeRef,
     selectionRef,
     refreshArchivedUnread,
-    applyActiveReadPosition,
+    applyUnreadReadPositions,
   ]);
   useEffect(() => {
     if (!IS_WEB) return;
@@ -5219,7 +5215,7 @@ function MainWorkspace(): ReactElement {
   const applyUnreadRows = useCallback(
     (rows: UnreadRows, binding: UnreadBinding) => {
       useToast.getState().dismissReadMessages(binding, rows);
-      applyActiveReadPosition(rows);
+      applyUnreadReadPositions(rows);
       setUnreadByConv((current) => {
         const next = { ...current };
         for (const row of rows) if (!row.readError) next[row.uid] = row.unreadCount ?? 0;
@@ -5235,7 +5231,7 @@ function MainWorkspace(): ReactElement {
         return next;
       });
     },
-    [applyActiveReadPosition],
+    [applyUnreadReadPositions],
   );
   const markVisibleConversationRead = useCallback(
     async (conv: Conversation, read: AutoRead = {}) => {
@@ -5519,6 +5515,15 @@ function MainWorkspace(): ReactElement {
     selectedConversation?.type === 'direct'
       ? (unreadChatType(selectedConversation.chatType ?? 1) ?? 1)
       : 2;
+  const cachedReadPosition =
+    unreadSelectionId !== null && unreadReadPositions?.scope === messageScope
+      ? unreadReadPositions.positions.get(`${unreadSelectionChatType}:${unreadSelectionId}`)
+      : undefined;
+  const cachedUnreadStartSeq = unreadTimelineStart(
+    undefined,
+    cachedReadPosition?.unreadCount,
+    cachedReadPosition?.readSeq ?? undefined,
+  );
 
   // 换会话立刻收起上一个会话的跳转坞（首屏还没落地时不该继续挂着旧坞）。
   useEffect(() => {
@@ -5614,7 +5619,7 @@ function MainWorkspace(): ReactElement {
       const readSeq = info.readSeq ?? null;
       const unread = info.unreadCount ?? 0;
       if (guard.accepts(convId, startedAt)) {
-        applyActiveReadPosition([info]);
+        applyUnreadReadPositions([info]);
         if (readPolicy.current.readThroughViewport) {
           // 目录批量读取可能还没返回，首屏用同一次小表结果更新已读水位和未读数。
           const count = archivedUnreadRef.current.get(convId) ?? unread;
@@ -5647,7 +5652,7 @@ function MainWorkspace(): ReactElement {
     messageScope,
     messageScopeRef,
     messageBindingRef,
-    applyActiveReadPosition,
+    applyUnreadReadPositions,
     readEntryUnreadInfo,
     unreadSelectionChatType,
   ]);
@@ -10400,14 +10405,11 @@ function MainWorkspace(): ReactElement {
                             }}
                             readThroughViewport={readThroughViewport}
                             confirmedReadSeq={
-                              readThroughViewport &&
-                              activeReadPosition?.scope === messageScope &&
-                              activeReadPosition.uid === unreadSelectionId &&
-                              activeReadPosition.chatType ===
-                                (selectedConversation?.type === 'group' ? 2 : 1)
-                                ? activeReadPosition.readSeq
+                              readThroughViewport
+                                ? (cachedReadPosition?.readSeq ?? undefined)
                                 : undefined
                             }
+                            cachedUnreadStartSeq={cachedUnreadStartSeq}
                             onReadCurrentConversation={
                               readThroughViewport && !readViewportActive
                                 ? undefined

@@ -707,6 +707,8 @@ export type ChatPaneProps = {
    * 未读 → 标记已读」之后交下来，本组件据此在右上角逐个引导跳转。
    */
   unreadDock?: UnreadDock | null;
+  /** 会话列表已经读取的小表未读起点，用于进会话后查询尚未返回的首屏。 */
+  cachedUnreadStartSeq?: string;
   seenUnreadHighlights?: Set<string>;
   /**
    * 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时，若它恰好
@@ -818,6 +820,7 @@ function ChatPaneContent({
   onAddToComposition,
   onForwardMessages,
   unreadDock,
+  cachedUnreadStartSeq,
   seenUnreadHighlights,
   missingJumpSeq,
   resolvedGapIds,
@@ -1497,11 +1500,9 @@ function ChatPaneContent({
     resolvedGapIds,
   ]);
   const unreadCount = conversation?.unreadCount;
-  const unreadStartSeq = unreadTimelineStart(
-    unreadDock,
-    readThroughViewport ? unreadCount : undefined,
-    confirmedReadSeq,
-  );
+  const unreadStartSeq = readThroughViewport
+    ? unreadTimelineStart(unreadDock, unreadCount, confirmedReadSeq)
+    : (unreadTimelineStart(unreadDock) ?? cachedUnreadStartSeq);
   const unreadBoundaryId = useMemo(
     () => (unreadStartSeq ? unreadTimelineBoundary(visibleMessages, unreadStartSeq) : undefined),
     [visibleMessages, unreadStartSeq],

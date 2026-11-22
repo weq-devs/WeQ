@@ -1143,7 +1143,7 @@ it.each([
   },
 );
 
-it('首批消息已包含未读起点时立即显示分界线，自动已读仍等首屏读完', async () => {
+it.each([false, true])('首批消息立即显示未读分界线，进入会话后的快照延迟=%s', async (delayed) => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -1180,9 +1180,23 @@ it('首批消息已包含未读起点时立即显示分界线，自动已读仍�
       ),
     );
     await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
-    f.unreadReply = async () => [
-      { uid: '10001', chatType: 2, readSeq: '100', latestSeq: '105', unreadCount: 5 },
-    ];
+    const snapshot = {
+      uid: '10001',
+      chatType: 2,
+      readSeq: '100',
+      latestSeq: '105',
+      unreadCount: 5,
+    };
+    if (delayed) {
+      f.unreadReply = async () => [snapshot];
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      f.unreadReply = () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve([{ ...snapshot, readSeq: '101', unreadCount: 4 }]), 500);
+        });
+    } else {
+      f.unreadReply = async () => [snapshot];
+    }
     await act(async () =>
       [...host.querySelectorAll<HTMLButtonElement>('nav button')]
         .find((button) => button.textContent === '10001')!
@@ -1194,8 +1208,14 @@ it('首批消息已包含未读起点时立即显示分界线，自动已读仍�
     expect(f.markedRead).toEqual([]);
 
     await act(async () => page.show({ complete: true, rows }));
+    if (delayed) {
+      await act(async () => vi.advanceTimersByTimeAsync(499));
+      expect(markedId()).toBe('101');
+      expect(f.markedRead).toEqual([]);
+      await act(async () => vi.advanceTimersByTimeAsync(1));
+    }
     expect(f.markedRead).toEqual([expect.objectContaining({ uid: '10001', latestSeq: '105' })]);
-    expect(markedId()).toBe('101');
+    expect(markedId()).toBe(delayed ? '102' : '101');
   } finally {
     await act(async () => {
       root.unmount();
