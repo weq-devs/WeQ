@@ -6,6 +6,7 @@ import {
 } from '../account/search_policy';
 import { isDirectoryPreference } from './contact_directory_preferences';
 import { dataSaverBehaviorDefaults } from './data_saver';
+import type { SettingsChange } from './settings_changes';
 export {
   accountOrderDefaults,
   FRIEND_SORTS,
@@ -267,4 +268,5 @@ export interface ClientStateChange {
   revision: number;
   section: 'preferences' | StateNamespace | 'drafts' | 'assistantSessions';
   draftKey?: string;
+  settings?: SettingsChange;
 }

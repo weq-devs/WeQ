@@ -66,7 +66,7 @@ import {
 } from '../common/chat_image_cache';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { writeFileAtomicSync } from '../common/atomic_write';
-import { emitSettingsChanged } from '../common/settings_changes';
+import { diffSettings, emitSettingsChanged, type SettingsChange } from '../common/settings_changes';
 import {
   configureDatabaseReadConcurrency,
   normalizeDatabaseReadConcurrency,
@@ -1980,7 +1980,7 @@ export class UserConfigService {
     emitSettingsChanged();
   }
 
-  write(patch: Partial<UserConfig>): UserConfig {
+  write(patch: Partial<UserConfig>, settingsChange?: SettingsChange): UserConfig {
     const current = this.read();
     if (this.readFailure)
       throw new Error('配置文件读取失败，已保留原件并阻止覆盖；请修复文件后重新加载。', {
@@ -2002,7 +2002,8 @@ export class UserConfigService {
       throw error;
     }
     this.cached = next;
-    if (patch.settings) emitSettingsChanged();
+    if (patch.settings)
+      emitSettingsChanged(settingsChange ?? diffSettings(current.settings, patch.settings));
     this.logger.info('wrote user config', {
       event: 'config-write',
       configPath: this.configPath,
@@ -2458,7 +2459,8 @@ export class UserConfigService {
         this.read().settings?.notificationEvents,
         patch.notificationEvents,
       );
-    this.write({ settings: stored });
+    // 比较生效值，首次保存补齐的默认字段不算实际变化。
+    this.write({ settings: stored }, diffSettings(current, next));
     applyQzonePagination(next.qzonePagination);
     configureDatabaseReadConcurrency(next.databaseReadConcurrency);
     this.logger.info('updated app settings', {

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { UserConfigService } from '../src/bootstrap/user_config';
-import { onSettingsChanged } from '../src/common/settings_changes';
+import { onSettingsChanged, type SettingsChange } from '../src/common/settings_changes';
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -42,6 +42,26 @@ it('真实配置落盘失败时不发布设置已变更通知', () => {
   try {
     expect(() => config.setSettings({ renderTextMarkdown: false })).toThrow();
     expect(notifications).toBe(0);
+  } finally {
+    stop();
+  }
+});
+
+it('设置事件只给出生效的字段和共享分组，重读时可进行完整校准', () => {
+  const { config } = fixture();
+  const changes: (SettingsChange | undefined)[] = [];
+  const stop = onSettingsChanged((change) => changes.push(change));
+  try {
+    config.setSettings({ qzoneNamePriority: 'nickname' });
+    config.patchSharedPreference('client', { background: 'grid', dataSaverMode: 'always' });
+    config.patchSharedPreference('order', { friendsSort: 'name' });
+    config.reload();
+    expect(changes).toEqual([
+      { fields: ['qzoneNamePriority'], groups: [], clientFields: [] },
+      { fields: [], groups: ['client'], clientFields: ['background', 'dataSaverMode'] },
+      { fields: [], groups: ['order'], clientFields: [] },
+      undefined,
+    ]);
   } finally {
     stop();
   }

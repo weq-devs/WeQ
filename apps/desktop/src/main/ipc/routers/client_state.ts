@@ -258,9 +258,10 @@ export const clientStateRouter = router({
   }),
   changed: procedure.subscription(() =>
     observable<ClientStateChange>((emit) => {
-      const stopSettings = onSettingsChanged(() =>
-        emit.next({ revision: Date.now(), section: 'preferences' }),
-      );
+      const stopSettings = onSettingsChanged((settings) => {
+        if (settings && !settings.fields.length && !settings.groups.length) return;
+        emit.next({ revision: Date.now(), section: 'preferences', settings });
+      });
       return () => {
         stopSettings();
       };
@@ -311,9 +312,10 @@ export const clientStateRouter = router({
         }
       };
       const stop = state.subscribe(publish);
-      const stopSettings = onSettingsChanged(() =>
-        publish({ revision: Date.now(), section: 'order' }),
-      );
+      const stopSettings = onSettingsChanged((settings) => {
+        if (!settings || settings.groups.includes('order'))
+          publish({ revision: Date.now(), section: 'order' });
+      });
       const onAssistantStep = ({ accountConfigId, step }: AssistantStreamEvent) => {
         if (
           accountConfigId === input.expectedAccountConfigId &&
