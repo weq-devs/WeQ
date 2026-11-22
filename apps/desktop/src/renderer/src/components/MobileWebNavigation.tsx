@@ -121,13 +121,7 @@ export function MobileWebNavigation({
       onOpenNotice: () => {},
     });
   const badgeFor = (id: string) =>
-    id === 'messages'
-      ? messageBadgeCount
-      : id === 'contacts'
-        ? contactBadgeCount
-        : id === 'mail' || id === 'more'
-          ? mailBadgeCount
-          : 0;
+    id === 'messages' ? messageBadgeCount : id === 'mail' || id === 'more' ? mailBadgeCount : 0;
   const moreContent = (
     <section className="weq-mobile-more" aria-label="更多功能">
       <div className="weq-mobile-more-account">
@@ -206,7 +200,12 @@ export function MobileWebNavigation({
       <nav className="weq-mobile-tabs" aria-label="主导航">
         {tabs.map(({ id, label, icon: Icon, target }) => {
           const badge = badgeFor(id);
-          const announcementDot = id === 'more' && announcementUnread > 0;
+          const dotLabel =
+            id === 'contacts' && contactBadgeCount > 0
+              ? '有新的好友或群通知'
+              : id === 'more' && announcementUnread > 0
+                ? '有未读官方公告'
+                : '';
           return (
             <button
               key={id}
@@ -214,7 +213,7 @@ export function MobileWebNavigation({
               aria-current={active === id ? 'page' : undefined}
               data-mobile-tab={id}
               aria-expanded={id === 'more' ? moreOpen : undefined}
-              aria-label={`${label}${badge > 0 ? `，${badge} 条未读` : ''}${announcementDot ? '，有未读官方公告' : ''}`}
+              aria-label={`${label}${badge > 0 ? `，${badge} 条未读` : ''}${dotLabel ? `，${dotLabel}` : ''}`}
               onClick={() => {
                 if (id === 'messages' && locateUnread) locateUnread();
                 else activate(target);
@@ -224,7 +223,7 @@ export function MobileWebNavigation({
                 <Icon size={24} aria-hidden />
                 {badge > 0 ? (
                   <ReminderCount count={badge} overlay className="weq-mobile-badge" />
-                ) : announcementDot ? (
+                ) : dotLabel ? (
                   <ReminderDot overlay className="weq-mobile-badge" aria-hidden />
                 ) : null}
               </span>
