@@ -33,7 +33,7 @@ export const SETTINGS_RESET_CARDS = [
   ['call-recording', 'call-directory', '保存位置'],
   ['call-recording', 'call-trace', '抓包与排障'],
   ['call-recording', 'call-connection', '连接方式'],
-  ['qzone', 'qzone-person', '人物入口'],
+  ['qzone', 'qzone-person', '人物'],
   ['qzone', 'qzone-forward', '转发'],
   ['qzone', 'qzone-pagination', '在线翻页限速'],
   ['qzone', 'qzone-public-refresh', '空友爱看'],

@@ -121,7 +121,13 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
 import { mergeQzoneHomePost, qzoneHomePostPreview } from '../lib/qzonePublic';
 import { qzoneReplyPresentation } from '../lib/qzoneReplyPresentation';
-import { QzonePeopleContext, qzoneNickname, type QzoneLocalProfile } from '../lib/qzonePeople';
+import {
+  QzonePeopleContext,
+  qzoneDisplayName,
+  qzoneNickname,
+  type QzoneLocalProfile,
+  type QzoneNamePriority,
+} from '../lib/qzonePeople';
 import {
   projectQzoneRelated,
   qzoneRelatedKey,
@@ -280,6 +286,7 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
             spaceRequest={spaceRequest}
             onSpaceChange={onSpaceChange}
             personClickAction={settings.data?.qzonePersonClickAction ?? 'space'}
+            namePriority={settings.data?.qzoneNamePriority}
           />
         </PageScrollSnapshot>
       </PageSnapshotScope>
@@ -390,6 +397,7 @@ export function QzoneView({
   spaceRequest,
   onSpaceChange,
   personClickAction = 'space',
+  namePriority = 'remark',
 }: {
   selfUin: string;
   nickname: string;
@@ -400,6 +408,7 @@ export function QzoneView({
   /** 当前正在看谁的空间（自己或好友的 QQ 号），供浮动工具按当前位置导出。 */
   onSpaceChange?: (uin: string) => void;
   personClickAction?: 'profile' | 'space';
+  namePriority?: QzoneNamePriority;
 }): ReactElement {
   const readsEnabled = useContext(QzoneReadsEnabled);
   const activity = useQQReadActivity(active && readsEnabled);
@@ -459,6 +468,7 @@ export function QzoneView({
   }, [localProfiles]);
   const people = useMemo(
     () => ({
+      namePriority,
       nickname: (uin: string, fallback?: string) =>
         (uin === selfUin ? qzoneNickname(uin, nickname) : '') ||
         qzoneNickname(uin, profilesByUin.get(uin)?.nick) ||
@@ -471,7 +481,7 @@ export function QzoneView({
       },
       request,
     }),
-    [selfUin, nickname, profilesByUin, ownerNames, names, request],
+    [selfUin, nickname, profilesByUin, ownerNames, names, namePriority, request],
   );
   const [albumRequests, setAlbumRequests] = useState<Record<string, QzoneAlbumRequest>>({});
   const [postRequests, setPostRequests] = usePageState(
@@ -510,7 +520,7 @@ export function QzoneView({
     people.nickname(uin, spaceNames[uin] || postRequests[uin]?.nickname) || uin;
   const activeTabName =
     tab === 'space' || tab === 'person-posts'
-      ? people.remark(hostUin) || spaceNickname(hostUin)
+      ? qzoneDisplayName(hostUin, spaceNickname(hostUin), people.remark(hostUin), namePriority)
       : '';
   useLayoutEffect(() => {
     const bar = tabBar.current;
@@ -740,7 +750,7 @@ export function QzoneView({
               (section === 'space' ? spaces : postOwners).map((uin) => {
                 const postsOnly = section === 'person-posts';
                 const name = spaceNickname(uin);
-                const label = people.remark(uin) || name;
+                const label = qzoneDisplayName(uin, name, people.remark(uin), namePriority);
                 const ownPosts = postsOnly && uin === selfUin;
                 const suffix = postsOnly ? '的说说' : '的空间';
                 return (

@@ -101,6 +101,10 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
             if (name === state.fail) throw new Error('合成写入失败');
             if (name === 'setQzonePagination')
               state.settings.qzonePagination = input as AppSettings['qzonePagination'];
+            if (name === 'setQzoneNamePriority')
+              state.settings.qzoneNamePriority = (
+                input as { priority: AppSettings['qzoneNamePriority'] }
+              ).priority;
             if (name === 'setCallRecording') Object.assign(state.settings.callRecording, input);
             if (name === 'setSsePushTuning') Object.assign(state.settings.ssePush, input);
             if (name === 'setAiImagePreference') {
@@ -438,6 +442,18 @@ describe('分级恢复默认', () => {
     expect(state.settings.qzonePagination).toEqual(DEFAULT_APP_SETTINGS.qzonePagination);
     expect(state.settings.qzonePersonClickAction).toBe('profile');
     expect(state.settings.mcp.token).toBe('synthetic-token');
+  });
+  it('空间人物设置可恢复备注优先，不修改翻页设置', async () => {
+    state.settings.qzoneNamePriority = 'nickname';
+    state.settings.qzonePagination = { windowSeconds: 30, maxPages: 12 };
+    const target = { page: 'qzone', card: 'qzone-person' } as const;
+    const preview = await caller().preview(target);
+    expect(preview.items).toContainEqual(
+      expect.objectContaining({ id: 'qzone-person:qzoneNamePriority', defaultValue: 'remark' }),
+    );
+    await caller().restore({ ...target, source: null });
+    expect(state.settings.qzoneNamePriority).toBe('remark');
+    expect(state.settings.qzonePagination).toEqual({ windowSeconds: 30, maxPages: 12 });
   });
   it('聊天图片预览和省流量模式各自恢复默认', async () => {
     state.settings.sharedPreferences.client = {

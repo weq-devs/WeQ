@@ -113,6 +113,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     callDisableP2P: () => b.setCallDisableP2P({ disabled: defaults.callDisableP2P }),
     qzonePersonClickAction: () =>
       b.setQzonePersonClickAction({ action: defaults.qzonePersonClickAction }),
+    qzoneNamePriority: () => b.setQzoneNamePriority({ priority: defaults.qzoneNamePriority }),
     qzoneForwardQuotePrevious: () =>
       b.setQzoneForwardQuotePrevious({ enabled: defaults.qzoneForwardQuotePrevious }),
     qzonePagination: () => b.setQzonePagination(defaults.qzonePagination),

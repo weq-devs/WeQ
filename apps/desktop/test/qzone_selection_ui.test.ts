@@ -323,9 +323,9 @@ it('侧滑用的空间预览已有真实栏目和骨架，但不读取动态或�
     f.close();
   }
 });
-it('空间标签、主人和作者随名称补全更新，说说仍用昵称打开名片', async () => {
+it('空间标签、主人和作者随名称偏好与补全更新，说说仍用昵称打开名片', async () => {
   const profile = vi.fn();
-  const view = (remark: string) =>
+  const view = (remark: string, namePriority?: 'remark' | 'nickname') =>
     createElement(
       QzoneProfileContext.Provider,
       { value: profile },
@@ -333,6 +333,7 @@ it('空间标签、主人和作者随名称补全更新，说说仍用昵称打�
         selfUin: '10001',
         nickname: '合成自己',
         active: true,
+        namePriority,
         localProfiles: new Map([['fixture-friend', { uin: '10002', isFriend: true, remark }]]),
         spaceRequest: { accountUin: '10001', uin: '10002', revision: 'profile-entry' },
       }),
@@ -346,6 +347,9 @@ it('空间标签、主人和作者随名称补全更新，说说仍用昵称打�
     await act(async () => {});
     expect(tab()).toBe('10002 的空间');
     expect(owner()).toBe('10002');
+    f.render(view('好友备注', 'nickname'));
+    expect(tab()).toBe('好友备注 的空间');
+    expect(owner()).toBe('好友备注');
     await openPosts(f.host);
     expect(tab()).toBe('合成空间 的空间');
     expect(owner()).toBe('合成空间');
@@ -362,6 +366,10 @@ it('空间标签、主人和作者随名称补全更新，说说仍用昵称打�
     profile.mockClear();
     act(() => buttons[1]!.click());
     expect(profile).toHaveBeenCalledWith('10002', '合成空间', { x: 0, y: 0 });
+    f.render(view('好友备注', 'nickname'));
+    expect(tab()).toBe('合成空间 的空间');
+    expect(owner()).toBe('合成空间');
+    expect(author()).toBe('合成空间');
   } finally {
     f.close();
   }

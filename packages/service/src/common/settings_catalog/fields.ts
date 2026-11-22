@@ -82,6 +82,7 @@ export const APP_SETTING_FIELDS = (
     ['sending', 'sendWithDressFont', 'send-with-dress-font', '装扮字体发送'],
     ['call-connection', 'callDisableP2P', 'call-p2p', '禁用 P2P'],
     ['qzone-person', 'qzonePersonClickAction', 'qzone-person-click', '人物入口'],
+    ['qzone-person', 'qzoneNamePriority', 'qzone-name-priority', '人物名称显示'],
     ['qzone-forward', 'qzoneForwardQuotePrevious', 'qzone-forward', '引用上一人文案'],
     ['qzone-pagination', 'qzonePagination', 'qzone-pagination', '在线翻页限速'],
     [

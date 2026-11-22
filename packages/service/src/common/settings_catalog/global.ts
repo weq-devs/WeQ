@@ -73,6 +73,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   qzonePublicRefreshCooldownMinutes: 'preference',
   qzoneForwardQuotePrevious: 'preference',
   qzonePersonClickAction: 'preference',
+  qzoneNamePriority: 'preference',
   callRecording: 'preference',
   callDisableP2P: 'preference',
 } as const satisfies Record<

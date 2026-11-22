@@ -1339,6 +1339,13 @@ export const bootstrapRouter = router({
       }).qzonePersonClickAction;
     }),
 
+  setQzoneNamePriority: procedure
+    .input(z.object({ priority: z.enum(['remark', 'nickname']) }))
+    .mutation(({ input }) => {
+      return requireBootstrap().userConfig.setSettings({ qzoneNamePriority: input.priority })
+        .qzoneNamePriority;
+    }),
+
   setQzonePagination: procedure
     .input(
       z.object({

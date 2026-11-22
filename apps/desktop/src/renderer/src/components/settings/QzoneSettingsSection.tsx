@@ -14,18 +14,41 @@ export function QzoneSettingsSection() {
   const savePersonAction = trpc.bootstrap.setQzonePersonClickAction.useMutation({
     onSuccess: () => void settings.refetch(),
   });
+  const saveNamePriority = trpc.bootstrap.setQzoneNamePriority.useMutation({
+    onSuccess: async () => {
+      await settings.refetch();
+    },
+  });
   return (
     <div className="weq-set">
       <SectionHeader page="qzone" title="QQ 空间" />
       <QzonePaginationSettings />
       <QzonePublicRefreshSettings />
-      <Card
-        title="人物入口"
-        icon={<UserRound size={15} strokeWidth={1.8} />}
-        settingId="qzone-person-click"
-      >
+      <Card resetId="qzone-person" icon={<UserRound size={15} strokeWidth={1.8} />}>
         <Row
-          label="点击他人昵称或头像时"
+          settingId="qzone-name-priority"
+          control={
+            <SegmentedControl
+              label="人物名称显示"
+              value={settings.data?.qzoneNamePriority ?? null}
+              options={
+                [
+                  { value: 'remark', label: '备注优先' },
+                  { value: 'nickname', label: '昵称优先' },
+                ] as const
+              }
+              disabled={!settings.data || saveNamePriority.isLoading}
+              onChange={(priority) => saveNamePriority.mutate({ priority })}
+            />
+          }
+        />
+        {saveNamePriority.error ? (
+          <p className="weq-qzn-error" role="alert">
+            {saveNamePriority.error.message}
+          </p>
+        ) : null}
+        <Row
+          settingId="qzone-person-click"
           control={
             <SegmentedControl
               label="点击他人昵称或头像时"

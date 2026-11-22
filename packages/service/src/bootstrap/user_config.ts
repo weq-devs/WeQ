@@ -993,6 +993,8 @@ export interface AppSettings {
   qzoneForwardQuotePrevious: boolean;
   /** 点击空间中的他人昵称或头像时的默认操作；当前空间主人始终显示名片。 */
   qzonePersonClickAction: 'profile' | 'space';
+  /** QQ 空间人物名称在备注和昵称之间的显示优先级。 */
+  qzoneNamePriority: 'remark' | 'nickname';
   /** 通话录音（设置 → 通话与录音，通话窗口的录音抽屉共用同一份）。 */
   callRecording: CallRecordingConfig;
   /**
@@ -1311,6 +1313,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   qzonePublicRefreshCooldownMinutes: DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
   qzoneForwardQuotePrevious: false,
   qzonePersonClickAction: 'space',
+  qzoneNamePriority: 'remark',
   // 默认双方混音；电脑声音默认不录（Linux / Windows 都要多占一路采集）。
   callRecording: { mode: 'mixed', systemAudio: false, dir: null, udpTrace: false },
   // 默认允许 P2P 直连；禁用是排障开关，见 AppSettings.callDisableP2P。
@@ -2139,6 +2142,7 @@ export class UserConfigService {
       ),
       qzoneForwardQuotePrevious: s?.qzoneForwardQuotePrevious === true,
       qzonePersonClickAction: s?.qzonePersonClickAction === 'profile' ? 'profile' : 'space',
+      qzoneNamePriority: s?.qzoneNamePriority === 'nickname' ? 'nickname' : d.qzoneNamePriority,
       callRecording: normalizeCallRecording(s?.callRecording, d.callRecording),
       callDisableP2P: typeof s?.callDisableP2P === 'boolean' ? s.callDisableP2P : d.callDisableP2P,
       linkPreview: {
@@ -2359,6 +2363,10 @@ export class UserConfigService {
         patch.qzonePersonClickAction === 'profile' || patch.qzonePersonClickAction === 'space'
           ? patch.qzonePersonClickAction
           : current.qzonePersonClickAction,
+      qzoneNamePriority:
+        patch.qzoneNamePriority === 'remark' || patch.qzoneNamePriority === 'nickname'
+          ? patch.qzoneNamePriority
+          : current.qzoneNamePriority,
       callRecording: normalizeCallRecording(
         { ...current.callRecording, ...patch.callRecording },
         current.callRecording,

@@ -546,6 +546,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['qzone'],
   },
   {
+    id: 'qzone-name-priority',
+    section: 'qzone',
+    label: '人物名称显示',
+    aliases: ['备注优先', '昵称优先'],
+    from: ['qzone'],
+  },
+  {
     id: 'qzone-person-click',
     section: 'qzone',
     label: '点击他人昵称或头像时',

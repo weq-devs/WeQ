@@ -64,6 +64,10 @@ export function formatResetValue(value: unknown, id = ''): string {
     if (value === 'light') return '轻量记录';
     if (value === 'full') return '完整记录';
   }
+  if (id === 'qzone-person:qzoneNamePriority') {
+    if (value === 'remark') return '备注优先';
+    if (value === 'nickname') return '昵称优先';
+  }
   if (selections.has(id) && Array.isArray(value))
     return value.length ? `已选择 ${value.length} 个会话` : '未选择会话';
   if (value === undefined) return '当前状态未知';

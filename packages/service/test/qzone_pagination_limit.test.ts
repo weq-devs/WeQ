@@ -214,6 +214,8 @@ describe('Qzone quota transport and persistence', () => {
       expect(config.getSettings().qzonePersonClickAction).toBe(
         DEFAULT_APP_SETTINGS.qzonePersonClickAction,
       );
+      expect(config.getSettings().qzoneNamePriority).toBe('remark');
+      config.setSettings({ qzoneNamePriority: 'nickname' });
       config.setSettings({ qzonePersonClickAction: 'profile' });
       config.setSettings({ qzoneForwardQuotePrevious: true });
       config.setSettings({ qzonePagination: { windowSeconds: 25, maxPages: 3 } });
@@ -224,6 +226,7 @@ describe('Qzone quota transport and persistence', () => {
       });
       expect(new UserConfigService(platform).getSettings().qzoneForwardQuotePrevious).toBe(true);
       expect(new UserConfigService(platform).getSettings().qzonePersonClickAction).toBe('profile');
+      expect(new UserConfigService(platform).getSettings().qzoneNamePriority).toBe('nickname');
       config.setSettings({ qzonePersonClickAction: 'space' });
       expect(new UserConfigService(platform).getSettings().qzonePersonClickAction).toBe('space');
       expect(config.setSettings({ qzonePagination: { maxPages: 0 } }).qzonePagination).toEqual({

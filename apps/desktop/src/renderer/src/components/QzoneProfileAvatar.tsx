@@ -4,18 +4,18 @@ import { useContext, useEffect, type ReactNode, type CSSProperties } from 'react
 import { QzoneProfileContext, QzonePersonContext } from '../lib/qzoneNavigation';
 import { profileTargetUser } from '../lib/profileNavigation';
 import { qzonePlainText } from '../lib/qzone';
-import { QzonePeopleContext } from '../lib/qzonePeople';
+import { QzonePeopleContext, qzoneDisplayName } from '../lib/qzonePeople';
 import { QqAvatar } from './QqAvatar';
 import { QzoneInlineText } from './QzoneEmoji';
 import '../styles/identity-links.css';
 
 export function QzoneName({ content, uin }: { content: string; uin?: string | null }) {
-  const { nickname, remark, request } = useContext(QzonePeopleContext);
+  const { namePriority, nickname, remark, request } = useContext(QzonePeopleContext);
   const nick = uin ? nickname(uin, content) : '';
   const alias = uin ? remark(uin) : '';
   useEffect(() => {
-    if (uin && !nick && !alias) request(uin);
-  }, [uin, nick, alias, request]);
+    if (uin && !nick && (!alias || namePriority === 'nickname')) request(uin);
+  }, [uin, nick, alias, namePriority, request]);
   const title = qzonePlainText(nick);
   return (
     <span
@@ -25,7 +25,7 @@ export function QzoneName({ content, uin }: { content: string; uin?: string | nu
         if (uin && !nick) request(uin);
       }}
     >
-      <QzoneInlineText content={alias || nick || uin || content} />
+      <QzoneInlineText content={uin ? qzoneDisplayName(uin, nick, alias, namePriority) : content} />
     </span>
   );
 }
@@ -53,7 +53,9 @@ export function QzonePersonButton({
   const showProfile = context.spaceUin === uin || context.action === 'profile';
   const openSpace = onSpace ?? context.onSpace;
   const nick = people.nickname(uin, nickname);
-  const label = qzonePlainText(people.remark(uin) || nick || uin);
+  const label = qzonePlainText(
+    qzoneDisplayName(uin, nick, people.remark(uin), people.namePriority),
+  );
   return (
     <button
       type="button"
