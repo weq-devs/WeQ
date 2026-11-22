@@ -1007,15 +1007,10 @@ function ChatPaneContent({
   const [dropActive, setDropActive] = useState(false);
   const emojiUtils = trpc.useUtils();
   const recordRecentEmoji = trpc.account.emojiPanel.recordRecent.useMutation({
-    // 写入成功后刷新整份 overview 缓存。这里必须带 `refetchType: 'all'`：选完表情
-    // 面板会立刻关闭，`EmojiPanel` 卸载后 overview 的 observer 退订、query 变成
-    // inactive，而 invalidate 默认只重取 active 的 query —— inactive 的只会被标记成
-    // stale 却不真正重取；又因为全局 `refetchOnMount: false`，下次打开面板也不会补
-    // 一次，于是「最近使用」还是旧顺序（刚点的表情排不到第一）。带 all 就在写入后
-    // 直接把缓存刷成新数据，下一次打开读到的就是对的。
+    // 选完面板即关闭，仍刷新目录的「最近使用」，供下次打开使用。
     onSuccess: () =>
       Promise.all([
-        emojiUtils.account.emojiPanel.overview.invalidate(undefined, { refetchType: 'all' }),
+        emojiUtils.account.emojiPanel.catalog.invalidate(undefined, { refetchType: 'all' }),
         emojiUtils.account.emojiPanel.shortcuts.invalidate(),
       ]),
   });
@@ -1235,7 +1230,7 @@ function ChatPaneContent({
       staleTime: 0,
     },
   );
-  const reactionOverview = trpc.account.emojiPanel.overview.useQuery(undefined, {
+  const reactionCatalog = trpc.account.emojiPanel.catalog.useQuery(undefined, {
     enabled: Boolean(contextMenu) && conversation?.type === 'group',
     staleTime: 30_000,
   });
@@ -7820,7 +7815,7 @@ function ChatPaneContent({
           }
           reactions={quickReactions(
             recentReactions.data ?? [],
-            reactionItems(reactionOverview.data?.faces ?? []),
+            reactionItems(reactionCatalog.data?.faces ?? []),
           )}
           onSetReaction={(message, code, isSet) => {
             setContextMenu(null);

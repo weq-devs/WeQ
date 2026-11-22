@@ -34,6 +34,8 @@ const additionalProcedures = [
   'specialCare',
   'contactMetrics.snapshot',
   'emojiPanel.overview',
+  'emojiPanel.catalog',
+  'emojiPanel.favorites',
   'emojiPanel.marketPackages',
   'emojiPanel.marketPackDetail',
   'emojiPanel.relatedGifs',

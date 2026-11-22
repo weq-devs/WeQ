@@ -39,8 +39,7 @@ const data = (path: string): unknown => {
     };
   if (path === 'account.qqActions.favorites') return rows;
   if (path === 'account.qqActions.favoriteImportState') return null;
-  if (path === 'account.emojiPanel.overview')
-    return { favorites: rows.map((row) => row.local), faces: [], recent: [], tags: [] };
+  if (path === 'account.emojiPanel.favorites') return rows.map((row) => row.local);
   if (path === 'bootstrap.getSettings')
     return { exportSaveMode: 'preset', defaultExportDir: '/synthetic' };
   return undefined;

@@ -38,6 +38,7 @@ export function MessageFavoriteEmojiAction({
         await Promise.all([
           utils.account.qqActions.favorites.invalidate(),
           utils.account.emojiPanel.overview.invalidate(),
+          utils.account.emojiPanel.favorites.invalidate(),
         ]);
       },
       undefined,

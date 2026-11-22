@@ -26,6 +26,7 @@ import {
   ImagePlus,
   MessageSquareQuote,
   Plus,
+  RefreshCw,
   Search,
   Smile,
   Store,
@@ -140,14 +141,23 @@ export function EmojiPanel({
     setBounceFace(null);
   }
 
-  const overview = trpc.account.emojiPanel.overview.useQuery(undefined, {
+  const usesCatalog = tab === 'face' || tab === 'super' || tab === 'unicode';
+  const catalog = trpc.account.emojiPanel.catalog.useQuery(undefined, {
+    enabled: usesCatalog,
     staleTime: 30_000,
+    retry: false,
   });
-  const faces = overview.data?.faces ?? [];
+  const favoriteQuery = trpc.account.emojiPanel.favorites.useQuery(undefined, {
+    enabled: tab === 'fav',
+    staleTime: 30_000,
+    retry: false,
+  });
+  const faces = catalog.data?.faces ?? [];
   const systemGroups = faces.filter((g) => !g.unicode);
   const unicodeGroups = faces.filter((g) => g.unicode);
-  const recent = overview.data?.recent ?? [];
-  const favorites = overview.data?.favorites ?? [];
+  const recent = catalog.data?.recent ?? [];
+  const favorites = favoriteQuery.data ?? [];
+  const catalogUnavailable = !catalog.data && (catalog.isError || catalog.isPaused);
   const large = tab === 'super';
   const canBounce = onSendBounce && !textOnly;
   const displayGroups = large
@@ -191,7 +201,7 @@ export function EmojiPanel({
         {tab === 'fav' ? (
           <FavoriteBundleControls
             onChanged={async () => {
-              await overview.refetch();
+              await favoriteQuery.refetch();
             }}
           />
         ) : tab === 'market' && !marketPackId ? (
@@ -227,11 +237,18 @@ export function EmojiPanel({
             randomFaces={randomFaces}
             onSendRandom={onSendRandom}
           />
+        ) : usesCatalog && catalogUnavailable && !catalog.isFetching ? (
+          <div className="emoji-state" role="status">
+            <span>{catalog.isPaused ? '等待连接电脑' : '表情加载失败'}</span>
+            <ActionIcon label="重试加载表情" onClick={() => void catalog.refetch()}>
+              <RefreshCw size={15} aria-hidden />
+            </ActionIcon>
+          </div>
         ) : tab === 'face' || tab === 'super' ? (
           <div className={cn('emoji-section')}>
             {displayGroups.length === 0 ? (
               <div className="emoji-state">
-                {overview.isLoading ? '加载中…' : large ? '没有超级表情' : '没有系统表情'}
+                {catalog.isFetching ? '加载中…' : large ? '没有超级表情' : '没有系统表情'}
               </div>
             ) : null}
             {displayRecent.length > 0 ? (
@@ -260,7 +277,7 @@ export function EmojiPanel({
           </div>
         ) : tab === 'unicode' ? (
           <CharacterGrid
-            loading={overview.isLoading}
+            loading={catalog.isFetching}
             items={unicodeGroups.flatMap((g) => g.items)}
             onSelect={onSelect}
           />
@@ -268,11 +285,14 @@ export function EmojiPanel({
           <MarketTab packId={marketPackId} onOpenPack={setMarketPackId} onSelect={onSelect} />
         ) : tab === 'fav' ? (
           <FavoritePickerTab
-            loading={overview.isLoading}
+            loading={favoriteQuery.isFetching}
+            localReadStatus={
+              favoriteQuery.isPaused ? 'waiting' : favoriteQuery.isError ? 'failed' : undefined
+            }
             favorites={favorites}
             onSelect={onSelect}
             onChanged={async () => {
-              await overview.refetch();
+              await favoriteQuery.refetch();
             }}
           />
         ) : tab === 'custom' ? (

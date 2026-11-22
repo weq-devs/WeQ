@@ -35,11 +35,13 @@ export interface PickerFavorite {
 function FavoritePickerTabBody({
   favorites,
   loading,
+  localReadStatus,
   onSelect,
   onChanged,
 }: {
   favorites: PickerFavorite[];
   loading: boolean;
+  localReadStatus?: 'waiting' | 'failed';
   onSelect: (item: EmojiItem) => void;
   onChanged: () => Promise<void>;
 }) {
@@ -91,6 +93,13 @@ function FavoritePickerTabBody({
       )}
       {loading && !rows.length ? (
         <div className={cn('emoji-state')}>加载中…</div>
+      ) : localReadStatus && !rows.length && !(online.isSuccess && action.available) ? (
+        <div className="weq-favorite-picker-status" role="status">
+          <span>{localReadStatus === 'waiting' ? '等待连接电脑' : '收藏表情加载失败'}</span>
+          <ActionIcon label="重试加载收藏表情" onClick={() => void onChanged()}>
+            <RefreshCw size={15} aria-hidden />
+          </ActionIcon>
+        </div>
       ) : !rows.length ? (
         <EmptyState compact icon={<Heart />} title="还没有可用的收藏表情" />
       ) : null}

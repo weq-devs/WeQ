@@ -4,7 +4,7 @@
  *
  * 只列 QQ 系统小黄脸 + 字符表情 —— 这两类才能作为 OIDB 0x9082 的 `code`
  * （1–3 位 = 小黄脸 id，更长 = Unicode 码点）。商城 / 收藏 / GIF 表情不支持回应，
- * 不进这个面板。数据复用输入框表情面板的同一份 `emojiPanel.overview` 查询。
+ * 不进这个面板。数据复用输入框表情面板的系统目录。
  */
 import { Smile } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
@@ -35,8 +35,8 @@ export function ReactionPicker({
   originElement?: HTMLElement | null;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const overview = trpc.account.emojiPanel.overview.useQuery(undefined, { staleTime: 30_000 });
-  const faces = overview.data?.faces ?? [];
+  const catalog = trpc.account.emojiPanel.catalog.useQuery(undefined, { staleTime: 30_000 });
+  const faces = catalog.data?.faces ?? [];
 
   const cells = useMemo<ReactionCell[]>(() => {
     const out: ReactionCell[] = [];
@@ -127,7 +127,7 @@ export function ReactionPicker({
     >
       <div className={cn('reaction-picker-head')}>贴表情</div>
       <div className={cn('reaction-picker-body')}>
-        {overview.isLoading && cells.length === 0 ? (
+        {catalog.isLoading && cells.length === 0 ? (
           <div className={cn('emoji-state')}>加载中…</div>
         ) : cells.length === 0 ? (
           <div className={cn('emoji-state')}>没有可用的表情</div>

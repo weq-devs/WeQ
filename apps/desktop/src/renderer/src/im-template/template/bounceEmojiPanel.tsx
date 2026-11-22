@@ -70,7 +70,7 @@ export function BounceEmojiPanel({
   disabledHint: string;
   onSend: (draft: BounceEmojiDraft) => void;
 }) {
-  const overview = trpc.account.emojiPanel.overview.useQuery(undefined, { staleTime: 30_000 });
+  const catalog = trpc.account.emojiPanel.catalog.useQuery(undefined, { staleTime: 30_000 });
   const [pick, setPick] = useState<{ id: string; desc: string } | null>(
     initialFace ? { id: initialFace.id, desc: initialFace.name } : null,
   );
@@ -80,14 +80,14 @@ export function BounceEmojiPanel({
   /** 弹射只对系统表情有意义（字符表情没有图可弹），unicode 那些组整组排除。 */
   const groups = useMemo(
     () =>
-      (overview.data?.faces ?? [])
+      (catalog.data?.faces ?? [])
         .map((group) => ({
           key: group.key,
           label: group.label,
           items: group.items.filter((item) => !item.unicode),
         }))
         .filter((group) => group.items.length > 0),
-    [overview.data],
+    [catalog.data],
   );
 
   const firstItem = groups[0]?.items[0];
@@ -242,7 +242,7 @@ export function BounceEmojiPanel({
       </div>
 
       <div className={cn('bounce-picker')}>
-        {overview.isLoading && groups.length === 0 ? (
+        {catalog.isLoading && groups.length === 0 ? (
           <div className={cn('bounce-state')}>加载中…</div>
         ) : groups.length === 0 ? (
           <EmptyState compact icon={<Smile />} title="这个账号还没有可用的系统表情" />

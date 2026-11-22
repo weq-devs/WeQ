@@ -61,6 +61,9 @@ const independentReads = new Set([
   'account.promoteMessageRead',
   // 本地气泡查询不能被同批次中的字体/挂件下载拖住。
   'account.dressup.resolveMsgDecoration',
+  // 表情面板不能等待同批的其他查询，系统目录也不和收藏合批。
+  'account.emojiPanel.catalog',
+  'account.emojiPanel.favorites',
 ]);
 
 // 首屏的摘要、未读和设置共用一批，并保留大输入的 URL 长度限制。

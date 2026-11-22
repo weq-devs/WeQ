@@ -27,7 +27,8 @@ it('真实 HTTP link 在慢目录未结束时仍返回任务和常规会话列�
       const url = new URL(String(input), location.origin);
       requests.push(url.pathname);
       const batched = url.searchParams.has('batch');
-      if (/account\.list(Buddies|AllGroups)/.test(url.pathname)) await blocked;
+      if (/account\.(list(Buddies|AllGroups)|emojiPanel\.favorites)/.test(url.pathname))
+        await blocked;
       const results = url.pathname
         .slice('/trpc/'.length)
         .split(',')
@@ -43,13 +44,18 @@ it('真实 HTTP link 在慢目录未结束时仍返回任务和常规会话列�
     slowFinished = true;
   });
   const slowGroups = client.query('account.listAllGroups');
+  const slowFavorites = client.query('account.emojiPanel.favorites');
+  const emojiCatalog = client.query('account.emojiPanel.catalog');
   const config = client.query('account.getAccountConfig');
   try {
     await vi.waitFor(() => {
       expect(requests.find((path) => path.includes('account.getAccountConfig'))).toBeDefined();
+      expect(requests).toContain('/trpc/account.emojiPanel.catalog');
+      expect(requests).toContain('/trpc/account.emojiPanel.favorites');
     });
     expect(requests).toContain('/trpc/account.getAccountConfig');
     expect(await config).toBe('/trpc/account.getAccountConfig');
+    expect(await emojiCatalog).toBe('/trpc/account.emojiPanel.catalog');
     const values = await Promise.all([
       client.query('backgroundTasks.list'),
       client.query('backgroundTasks.logs'),
@@ -96,6 +102,6 @@ it('真实 HTTP link 在慢目录未结束时仍返回任务和常规会话列�
     expect(slowFinished).toBe(false);
   } finally {
     release();
-    await Promise.all([slow, slowGroups, config]);
+    await Promise.all([slow, slowGroups, slowFavorites, emojiCatalog, config]);
   }
 });

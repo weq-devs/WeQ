@@ -81,7 +81,15 @@ export const emojiPanelRouter = router({
   recentReactions: procedure.input(resourceSourceInput).query(({ input }) => {
     return recentReactions(requireResourceSource(input)).list();
   }),
-  /** 面板首屏：系统表情分类、最近使用和收藏。 */
+  /** 系统表情和最近使用不等待收藏所在的文件目录和数据库表。 */
+  catalog: procedure.query(async () => {
+    const emoji = requireServices().emoji;
+    const [faces, recent] = await Promise.all([emoji.listPanelFaces(), emoji.listRecentEmojis()]);
+    return { faces, recent };
+  }),
+  favorites: procedure.query(() => requireServices().emoji.listFavoriteEmojis()),
+
+  /** 保留原聚合读取供已有调用方使用；聊天面板分别读取。 */
   overview: procedure.query(async () => {
     const emoji = requireServices().emoji;
     const [faces, recent, favorites] = await Promise.all([

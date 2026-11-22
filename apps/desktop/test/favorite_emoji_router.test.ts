@@ -12,6 +12,9 @@ const f = vi.hoisted(() => ({
   path: '',
   switched: false,
   listRows: vi.fn(),
+  listPanelFaces: vi.fn(),
+  listRecentEmojis: vi.fn(),
+  listFavoriteEmojis: vi.fn(),
   resolveFile: vi.fn(),
   sendElements: vi.fn(),
 }));
@@ -22,7 +25,12 @@ vi.mock('../src/main/ocr/local', () => ({
 vi.mock('../src/main/context/app_context', () => {
   const services = {
     accountConfig: { getRecord: () => ({ configId: f.configId, qqOnline: f.online, qqPid: 1 }) },
-    emoji: { listFavEmojiRows: f.listRows },
+    emoji: {
+      listFavEmojiRows: f.listRows,
+      listPanelFaces: f.listPanelFaces,
+      listRecentEmojis: f.listRecentEmojis,
+      listFavoriteEmojis: f.listFavoriteEmojis,
+    },
     customEmoji: { resolveFile: f.resolveFile },
     messageSend: { sendElements: f.sendElements },
   };
@@ -82,6 +90,29 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
+
+it('收藏查询未完成时，系统目录和最近使用仍能返回', async () => {
+  const faces = [{ key: 'faces', items: [{ id: '14' }] }];
+  const recent = [{ id: '14' }];
+  const favorites = [{ id: 'favorite-a' }];
+  f.listPanelFaces.mockResolvedValue(faces);
+  f.listRecentEmojis.mockResolvedValue(recent);
+  let release!: () => void;
+  f.listFavoriteEmojis.mockImplementation(
+    () => new Promise((resolve) => (release = () => resolve(favorites))),
+  );
+  const panel = accountRouter.createCaller({}).emojiPanel;
+  const loadingFavorites = panel.favorites();
+  try {
+    await vi.waitFor(() => expect(f.listFavoriteEmojis).toHaveBeenCalledTimes(1));
+    await expect(panel.catalog()).resolves.toEqual({ faces, recent });
+    expect(f.listFavoriteEmojis).toHaveBeenCalledTimes(1);
+  } finally {
+    release();
+    await expect(loadingFavorites).resolves.toEqual(favorites);
+  }
+});
+
 describe('收藏表情发送 IPC', () => {
   it('原图进入既有发送链路，目标及回执原样保留', async () => {
     const result = await accountRouter.createCaller({}).sendElements(input);
