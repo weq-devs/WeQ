@@ -17,6 +17,8 @@ import { MediaLoadingRing, MediaTransferBadge } from '../components/TransferRing
 import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import { mediaTransferTarget } from '../../../shared/transfer_progress';
 import { qzoneMediaSource, qzonePictureKey } from '../lib/qzone';
+import { QzoneMediaNavigationContext } from '../lib/qzoneNavigation';
+import type { QzoneHomeAlbumMedia } from '../lib/qzonePublic';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { client } from '../trpc/client';
 import { applyQzoneVideoTypes, type QzoneVideoType } from '../lib/qzoneMediaTypes';
@@ -237,10 +239,12 @@ export function QzoneMediaGrid({
   images,
   videos = [],
   target,
+  album,
 }: {
   images: string[];
   videos?: QzoneMediaVideo[];
   target?: { selfUin: string; hostUin: string; tid: string; time: number };
+  album?: QzoneHomeAlbumMedia;
 }): ReactElement | null {
   const grid = useRef<HTMLDivElement>(null);
   const near = useNearViewport(
@@ -250,6 +254,7 @@ export function QzoneMediaGrid({
   );
   const [preview, setPreview] = useState<number | null>(null);
   const { active, refresh } = useContext(QzonePageContext);
+  const navigation = useContext(QzoneMediaNavigationContext);
   const paused = useContext(QzoneReadPauseContext);
   const { run, cancel } = useQzoneRequests();
   const [types, setTypes] = useState<{ key: string; values: QzoneVideoType[] } | null>(null);
@@ -386,8 +391,44 @@ export function QzoneMediaGrid({
         <MediaPreview
           items={items}
           initialIndex={preview}
+          active={navigation?.previewVisible ?? true}
           onClose={() => {
             setPreview(null);
+          }}
+          renderActions={(item) => {
+            if (!album || !navigation) return null;
+            const entry = media[items.findIndex(({ key }) => key === item.key)];
+            if (!entry) return null;
+            const picKey =
+              entry.kind === 'image'
+                ? album.photos.get(qzonePictureKey(entry.url))
+                : album.videos.get(entry.video.videoId);
+            if (picKey === undefined) return null;
+            return (
+              <button
+                type="button"
+                className="weq-lightbox-action"
+                onClick={() =>
+                  navigation.open({
+                    kind: 'album',
+                    hostUin: album.hostUin,
+                    topicId: album.topicId,
+                    media: picKey
+                      ? {
+                          picKey,
+                          kind: entry.kind,
+                          src: entry.kind === 'video' && item.kind !== 'video' ? '' : item.src,
+                          poster: item.poster,
+                          isLivePhoto: item.isLivePhoto,
+                        }
+                      : undefined,
+                  })
+                }
+              >
+                <Images size={16} aria-hidden />
+                {picKey ? '在相册中查看' : '打开相册'}
+              </button>
+            );
           }}
         />
       ) : null}

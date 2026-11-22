@@ -33,7 +33,7 @@ import { qzoneAlbumMediaKey } from '../../../shared/album_media_identity';
 import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { ArrowLeft, Check, Images, Inbox, Loader2, Play, X, RefreshCw } from 'lucide-react';
 import { Modal } from './Dialog';
-import type { QzoneAlbumRequest } from '../lib/qzoneNavigation';
+import type { QzoneAlbumRequest, QzoneMediaDestination } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';
@@ -131,6 +131,77 @@ function MediaGridSkeleton({ cells = 12 }: { cells?: number }): ReactElement {
   );
 }
 
+/** Open the confirmed item directly; the full album is still available on request. */
+export function QzoneAlbumDestination({
+  selfUin,
+  target,
+  onClose,
+}: {
+  selfUin: string;
+  target: Extract<QzoneMediaDestination, { kind: 'album' }>;
+  onClose: () => void;
+}) {
+  const { hostUin, topicId, media } = target;
+  const { run, cancel } = useQzoneRequests();
+  const [browse, setBrowse] = useState(!media);
+  const items = useMemo<PreviewMedia[]>(() => {
+    if (!media) return [];
+    return [
+      {
+        key: media.picKey,
+        kind: media.kind,
+        src: media.src,
+        poster: media.poster,
+        isLivePhoto: media.isLivePhoto,
+        load: async () => {
+          const detail = await run((requestId) =>
+            client.account.qzone.albumDetail.query({
+              selfUin,
+              hostUin,
+              topicId,
+              picKey: media.picKey,
+              requestId,
+            }),
+          );
+          if (detail.picKey !== media.picKey) throw new Error('相册详情与当前媒体不匹配。');
+          const src = media.kind === 'video' ? detail.videoUrl : detail.imageUrl;
+          if (!src && !media.src) throw new Error('相册未返回媒体地址。');
+          return { kind: media.kind, src: src ? albumMediaUrl(src) : media.src };
+        },
+      },
+    ];
+  }, [media, selfUin, hostUin, topicId, run]);
+  return browse ? (
+    <QzoneAlbumDialog
+      open
+      onClose={onClose}
+      selfUin={selfUin}
+      hostUin={hostUin}
+      presentation="panel"
+      albumTarget={{ hostUin, topicId, name: '', revision: topicId }}
+    />
+  ) : (
+    <MediaPreview
+      items={items}
+      label={media?.kind === 'video' ? '相册视频' : '相册照片'}
+      onClose={onClose}
+      renderActions={() => (
+        <button
+          type="button"
+          className="weq-lightbox-action"
+          onClick={() => {
+            cancel();
+            setBrowse(true);
+          }}
+        >
+          <Images size={16} aria-hidden />
+          打开相册
+        </button>
+      )}
+    />
+  );
+}
+
 export function QzoneAlbumDialog({
   open,
   onClose,
@@ -140,6 +211,7 @@ export function QzoneAlbumDialog({
   active: requestedActive = true,
   refreshKey: requestedRefreshKey = 0,
   albumTarget,
+  presentation = 'page',
 }: {
   open: boolean;
   onClose: () => void;
@@ -150,6 +222,7 @@ export function QzoneAlbumDialog({
   active?: boolean;
   refreshKey?: number;
   albumTarget?: QzoneAlbumRequest;
+  presentation?: 'page' | 'panel';
 }): ReactElement | null {
   const activity = useQQReadActivity(open && requestedActive);
   const active = activity.enabled;
@@ -678,7 +751,7 @@ export function QzoneAlbumDialog({
     body
   ) : (
     <Modal
-      presentation="page"
+      presentation={presentation}
       title="空间相册"
       onClose={onClose}
       width={1080}

@@ -8,6 +8,7 @@ import {
   projectPublicFeed,
   projectQzoneHomeFeed,
   publicGridMedia,
+  qzoneHomeAlbumMedia,
   qzoneHomeBlogId,
   qzoneHomeShareId,
   type PublicCommentView,
@@ -63,7 +64,11 @@ function FeedContent({ feed, share }: { feed: PublicFeedView; share?: QzoneShare
       ) : !title && !href && !images.length && !videos.length ? (
         <p className="weq-qzn-content weq-qzn-status">动态内容暂不可预览</p>
       ) : null}
-      <QzoneMediaGrid images={cover ? images.slice(1) : images} videos={videos} />
+      <QzoneMediaGrid
+        images={cover ? images.slice(1) : images}
+        videos={videos}
+        album={qzoneHomeAlbumMedia(feed)}
+      />
       {href ? (
         <QzoneFeedLinks
           links={[

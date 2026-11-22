@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Play, VideoOff } from 'lucide-react';
+import { FileText, Play, VideoOff } from 'lucide-react';
 import { transferTarget } from '../../../shared/transfer_progress';
 import { ContentSelectionToolbar } from '../components/ContentReferenceToolbar';
 import { MediaPreview, type PreviewMedia } from '../components/MediaPreview';
@@ -12,6 +12,8 @@ import { useToast } from '../components/Toast.shared';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { qzoneMediaSource } from '../lib/qzone';
+import { QzoneMediaNavigationContext } from '../lib/qzoneNavigation';
+import { isOrdinaryQzonePost } from '../lib/qzonePublic';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { IS_WEB } from '../lib/target.shared';
 import { notifyTaskCreated } from '../lib/taskNotifications';
@@ -26,6 +28,7 @@ type Video = {
   uploadedAt: number | null;
   videoUrl: string;
   coverUrl: string;
+  sourcePostId?: string | null;
 };
 
 export function QzoneVideoGrid({
@@ -42,6 +45,7 @@ export function QzoneVideoGrid({
   pageCount: number;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
+  const navigation = useContext(QzoneMediaNavigationContext);
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [selectionMode, setMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
@@ -198,7 +202,26 @@ export function QzoneVideoGrid({
         })}
       </div>
       {previewKey && active ? (
-        <MediaPreview items={items} initialKey={previewKey} onClose={() => setPreviewKey(null)} />
+        <MediaPreview
+          items={items}
+          initialKey={previewKey}
+          active={navigation?.previewVisible ?? true}
+          onClose={() => setPreviewKey(null)}
+          renderActions={(item) => {
+            const tid = tiles.find((tile) => tile.id === item.key)?.sourcePostId;
+            if (!navigation || !tid || !isOrdinaryQzonePost(hostUin, tid)) return null;
+            return (
+              <button
+                type="button"
+                className="weq-lightbox-action"
+                onClick={() => navigation.open({ kind: 'post', hostUin, tid })}
+              >
+                <FileText size={16} aria-hidden />
+                查看原说说
+              </button>
+            );
+          }}
+        />
       ) : null}
       {save.serverLocation ? (
         <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />

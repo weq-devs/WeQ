@@ -131,3 +131,23 @@ export interface QzoneAlbumRequest {
 export const QzoneAlbumNavigationContext = createContext<
   ((hostUin: string, topicId: string, name: string, ownerNickname?: string) => void) | null
 >(null);
+
+export type QzoneMediaDestination =
+  | {
+      kind: 'album';
+      hostUin: string;
+      topicId: string;
+      media?: {
+        picKey: string;
+        kind: 'image' | 'video';
+        src: string;
+        poster?: string;
+        isLivePhoto?: boolean;
+      };
+    }
+  | { kind: 'post'; hostUin: string; tid: string };
+
+export const QzoneMediaNavigationContext = createContext<{
+  previewVisible: boolean;
+  open: (target: QzoneMediaDestination) => void;
+} | null>(null);

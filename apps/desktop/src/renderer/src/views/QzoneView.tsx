@@ -20,6 +20,7 @@ import {
 } from 'react';
 import {
   AtSign,
+  ArrowLeft,
   Download,
   ChevronDown,
   Eye,
@@ -57,7 +58,7 @@ import {
   useRequestContentExport,
 } from '../state/contentSelection.shared';
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
-import { QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
+import { QzoneAlbumDestination, QzoneAlbumDialog } from '../components/QzoneAlbumDialog';
 import { TransferRing } from '../components/TransferRing';
 import { QzoneFeedLinks } from '../components/QzoneFeedLinks';
 import { QzoneTime } from '../components/QzoneTime';
@@ -98,7 +99,9 @@ import {
   QzoneProfileContext,
   QzonePersonContext,
   QzoneAlbumNavigationContext,
+  QzoneMediaNavigationContext,
   type QzoneAlbumRequest,
+  type QzoneMediaDestination,
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
 import { QZONE_VISIBILITY } from '../../../shared/qzone';
@@ -119,7 +122,12 @@ import { QzoneRelatedRound, qzoneSelfLiked, type QzoneReplyTarget } from '../lib
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
-import { mergeQzoneHomePost, qzoneHomePostPreview } from '../lib/qzonePublic';
+import {
+  mergeQzoneHomePost,
+  qzoneHomeAlbumMedia,
+  qzoneHomePostPreview,
+  type QzoneHomeAlbumMedia,
+} from '../lib/qzonePublic';
 import { qzoneReplyPresentation } from '../lib/qzoneReplyPresentation';
 import {
   QzonePeopleContext,
@@ -1061,6 +1069,28 @@ function SpaceContent({
     active: indexActivity.enabled && (pane === 'home' || pane === 'shares'),
     refresh: refreshKey + indexActivity.revision,
   });
+  const [mediaLink, setMediaLink] = useState<{
+    target: QzoneMediaDestination;
+    source: Pane;
+    configId: string;
+  } | null>(null);
+  const destination =
+    active && mediaLink?.source === pane && mediaLink.configId === shareIndex.configId
+      ? mediaLink.target
+      : null;
+  useEffect(() => {
+    if (mediaLink && !destination) setMediaLink(null);
+  }, [mediaLink, destination]);
+  const mediaNavigation = useMemo(
+    () => ({
+      previewVisible: active && !destination,
+      open: (target: QzoneMediaDestination) =>
+        setMediaLink({ target, source: pane, configId: shareIndex.configId }),
+    }),
+    [active, destination, pane, shareIndex.configId],
+  );
+  const closeMediaLink = useCallback(() => setMediaLink(null), []);
+  const mediaPostTitle = useId();
   const [removedTids, setRemovedTids] = usePageState(
     `deleted-posts:${selfUin}:${hostUin}`,
     [],
@@ -1102,7 +1132,7 @@ function SpaceContent({
       ...(pane !== 'posts' ? { posts: (current.posts ?? 0) + 1 } : {}),
     }));
   }, [refreshKey, pane]);
-  return (
+  const content = (
     <div className="weq-qzn-owner-space" hidden={!active}>
       <nav className="weq-qzn-owner-navigation" aria-label="空间内容">
         <button
@@ -1219,7 +1249,55 @@ function SpaceContent({
           />
         </QzonePage>
       ) : null}
+      {destination ? (
+        <QzoneMediaNavigationContext.Provider value={null}>
+          {destination.kind === 'album' ? (
+            <QzoneAlbumDestination
+              selfUin={selfUin}
+              target={destination}
+              onClose={closeMediaLink}
+            />
+          ) : (
+            <Modal
+              presentation="panel"
+              width={640}
+              onClose={closeMediaLink}
+              labelledBy={mediaPostTitle}
+              focusContainerOnOpen
+            >
+              <header className="weq-tools-header">
+                <h2 id={mediaPostTitle}>原说说</h2>
+                <button
+                  type="button"
+                  className="weq-compose-x"
+                  onClick={closeMediaLink}
+                  aria-label="返回视频"
+                  title="返回视频"
+                >
+                  <ArrowLeft size={17} aria-hidden />
+                </button>
+              </header>
+              <QzonePage active={active} refreshKey={0}>
+                <div className="weq-qzn-timeline">
+                  <LinkedPost
+                    selfUin={selfUin}
+                    hostUin={destination.hostUin}
+                    tid={destination.tid}
+                    nickname={nickname}
+                    onSpace={onSpace}
+                  />
+                </div>
+              </QzonePage>
+            </Modal>
+          )}
+        </QzoneMediaNavigationContext.Provider>
+      ) : null}
     </div>
+  );
+  return (
+    <QzoneMediaNavigationContext.Provider value={mediaNavigation}>
+      {content}
+    </QzoneMediaNavigationContext.Provider>
   );
 }
 
@@ -1604,6 +1682,7 @@ function HomePost({
   const [detail, setDetail] = useState<QzoneEmotion | null>(null);
   const [status, setStatus] = useState({ loading: false, error: '' });
   const preview = useMemo(() => qzoneHomePostPreview(feed, tid), [feed, tid]);
+  const album = useMemo(() => qzoneHomeAlbumMedia(feed), [feed]);
   const post = useMemo(
     () => (detail ? mergeQzoneHomePost(preview, detail) : preview),
     [preview, detail],
@@ -1642,6 +1721,7 @@ function HomePost({
       nickname={feed.author.nick || hostUin}
       portrait={feed.author.portrait}
       post={post}
+      album={album}
       onSpace={onSpace}
       onDeleted={() => onDeleted(tid)}
       articleRef={ref}
@@ -1657,6 +1737,17 @@ function HomePost({
         />
       }
     />
+  );
+}
+
+const idlePostCompletion = { post: false, repost: false };
+const emptyPostCompletionError = { post: '', repost: '' };
+
+function missingPostImages(source: QzoneEmotion, current: QzoneEmotion, scope: 'post' | 'repost') {
+  const images = scope === 'repost' ? current.repost?.images : current.images;
+  return (
+    source.imageTotal != null &&
+    source.imageTotal > Math.max(source.imageReturned ?? 0, images?.length ?? 0)
   );
 }
 
@@ -1676,6 +1767,7 @@ function Post({
   initialLikeCount,
   initialViewCount,
   previewStatus,
+  album,
   selectionProps,
   selected = false,
 }: {
@@ -1694,29 +1786,36 @@ function Post({
   initialLikeCount?: number | null;
   initialViewCount?: number | null;
   previewStatus?: ReactNode;
+  album?: QzoneHomeAlbumMedia;
   selectionProps?: MultiSelectionItemProps;
   selected?: boolean;
 }) {
   const localRef = useRef<HTMLElement>(null);
   const ref = articleRef ?? localRef;
-  const visible = useNearViewport(ref);
+  const imageScope = qzoneImageCompletionScope(sourcePost);
+  const needsCompletion = Boolean(
+    sourcePost.contentTruncated ||
+      sourcePost.repost?.contentTruncated ||
+      missingPostImages(sourcePost, sourcePost, imageScope),
+  );
+  const visible = useNearViewport(ref, false, needsCompletion);
   const { refresh } = useContext(QzonePageContext);
   const readsPaused = useContext(QzoneReadPauseContext);
   const { run, cancel } = useQzoneRequests();
-  const sourceSignature = JSON.stringify(sourcePost);
+  const sourceSignature = useMemo(() => JSON.stringify(sourcePost), [sourcePost]);
   const [completed, setCompleted] = useState<{ signature: string; post: QzoneEmotion } | null>(
     null,
   );
   const completedRef = useRef(completed);
   completedRef.current = completed;
   const post = completed?.signature === sourceSignature ? completed.post : sourcePost;
-  const [completing, setCompleting] = useState({ post: false, repost: false });
-  const [completionError, setCompletionError] = useState({ post: '', repost: '' });
+  const [completing, setCompleting] = useState(idlePostCompletion);
+  const [completionError, setCompletionError] = useState(emptyPostCompletionError);
   const [retry, setRetry] = useState(0);
   const attempted = useRef('');
   useEffect(() => {
     if (readsPaused) {
-      setCompleting({ post: false, repost: false });
+      setCompleting(idlePostCompletion);
       return undefined;
     }
     const attempt = `${sourceSignature}:${refresh}:${retry}`;
@@ -1725,14 +1824,10 @@ function Post({
     const ownTextNeeded = observed.contentTruncated === true;
     const originalTextNeeded = observed.repost?.contentTruncated === true;
     const textNeeded = ownTextNeeded || originalTextNeeded;
-    const imageScope = qzoneImageCompletionScope(sourcePost);
-    const observedImages = imageScope === 'repost' ? observed.repost?.images : observed.images;
-    const imagesNeeded =
-      sourcePost.imageTotal != null &&
-      sourcePost.imageTotal > Math.max(sourcePost.imageReturned ?? 0, observedImages?.length ?? 0);
+    const imagesNeeded = missingPostImages(sourcePost, observed, imageScope);
     if (!textNeeded && !imagesNeeded) {
-      setCompleting({ post: false, repost: false });
-      setCompletionError({ post: '', repost: '' });
+      setCompleting(idlePostCompletion);
+      setCompletionError(emptyPostCompletionError);
     }
     if (!visible || (!textNeeded && !imagesNeeded) || attempted.current === attempt)
       return undefined;
@@ -1743,7 +1838,7 @@ function Post({
       post: ownTextNeeded || (imagesNeeded && imageScope === 'post'),
       repost: originalTextNeeded || (imagesNeeded && imageScope === 'repost'),
     });
-    setCompletionError({ post: '', repost: '' });
+    setCompletionError(emptyPostCompletionError);
     const input = { selfUin, hostUin, tid: sourcePost.tid };
     void (async () => {
       let next = {
@@ -1818,7 +1913,7 @@ function Post({
       completedRef.current = { signature: sourceSignature, post: next };
       setCompleted(completedRef.current);
       setCompletionError({ post: issues.post.join(' · '), repost: issues.repost.join(' · ') });
-      setCompleting({ post: false, repost: false });
+      setCompleting(idlePostCompletion);
     })();
     return () => {
       live = false;
@@ -1828,6 +1923,7 @@ function Post({
   }, [
     readsPaused,
     visible,
+    imageScope,
     sourceSignature,
     sourcePost,
     selfUin,
@@ -1889,6 +1985,7 @@ function Post({
         images={images.filter((url) => !links.some((link) => link.cover === url))}
         videos={videos}
         target={{ selfUin, hostUin, tid: post.tid, time: post.time }}
+        album={post.repost ? undefined : album}
       />
       <QzoneFeedLinks links={links} ownerUin={hostUin} ownerNickname={nickname} />
       {post.repost ? (
@@ -3684,7 +3781,7 @@ function RelatedCard({
   );
 }
 
-function FeedCard({
+const FeedCard = memo(function FeedCard({
   feed,
   body,
   selfUin,
@@ -3717,7 +3814,6 @@ function FeedCard({
     [tid, body, feed.time],
   );
   const ref = useRef<HTMLElement>(null);
-  const visible = useNearViewport(ref, true);
   const [post, setPost] = useState<QzoneEmotion | null>(null);
   const { refresh } = useContext(QzonePageContext);
   const [loading, setLoading] = useState(false);
@@ -3725,6 +3821,7 @@ function FeedCard({
     feed.appid === 311 &&
     (body.unsupported ||
       !(body.text.trim() || body.repost || body.images.length || body.videos.length));
+  const visible = useNearViewport(ref, true, needsLookup);
   const settledLookup = useRef<{ feed: QzoneFeed; refresh: number } | null>(null);
   useEffect(() => {
     if (
@@ -3843,7 +3940,7 @@ function FeedCard({
       )}
     </article>
   );
-}
+});
 
 function Composer({
   selfUin,

@@ -31,6 +31,8 @@ const state = vi.hoisted(() => ({
   blogComments: vi.fn(),
   shares: vi.fn(),
   shareComments: vi.fn(),
+  albumDetail: vi.fn(),
+  videos: vi.fn(),
   homePages: [] as { feeds: Record<string, unknown>[] }[],
   offscreenTid: '',
   archiveState: vi.fn(),
@@ -99,6 +101,8 @@ vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } },
+    useUtils: () => ({}),
     account: {
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
       qqActions: {
@@ -136,6 +140,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         blogComments: { query: state.blogComments },
         shares: { query: state.shares },
         shareComments: { query: state.shareComments },
+        albumDetail: { query: state.albumDetail },
+        videos: { query: state.videos },
         archiveState: { query: state.archiveState },
         cancel: { mutate: async () => {} },
       },
@@ -149,16 +155,20 @@ beforeEach(() => {
   vi.stubGlobal(
     'IntersectionObserver',
     class {
-      constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
+      constructor(
+        private callback: (entries: { target: Element; isIntersecting: boolean }[]) => void,
+      ) {}
       observe(element: Element) {
         this.callback([
           {
+            target: element,
             isIntersecting:
               element.closest('[data-qzone-tid]')?.getAttribute('data-qzone-tid') !==
               state.offscreenTid,
           },
         ]);
       }
+      unobserve() {}
       disconnect() {}
     },
   );
@@ -210,6 +220,8 @@ beforeEach(() => {
   });
   state.shares.mockReset().mockResolvedValue({ items: [], next: null });
   state.shareComments.mockReset();
+  state.albumDetail.mockReset();
+  state.videos.mockReset().mockResolvedValue({ items: [], next: null });
   state.homePages = [];
   state.offscreenTid = '';
   state.archiveState
@@ -1363,6 +1375,129 @@ it('主页补全历史分享，保留不同发布，并与分享页共用评论�
   expect(target().textContent).toContain('第二页评论');
   expect(state.shares).toHaveBeenCalledOnce();
   expect(state.shareComments).toHaveBeenCalledTimes(2);
+});
+
+const activeMediaPreview = () =>
+  document.querySelector<HTMLElement>('.weq-unified-preview:not([hidden])')!;
+
+it('主页按当前照片的精确键打开相册预览，关闭返回同一张', async () => {
+  const tid = '112700000100000001000000';
+  const photos = ['https://a.qpic.cn/first.jpg', 'https://a.qpic.cn/second.jpg'];
+  state.homePages = [
+    {
+      feeds: [
+        {
+          cell_common: { app_id: 311, time: 1600000000, union_id: { feed_id: tid } },
+          cell_user_info: { user: { uin: '10001' } },
+          cell_media: {
+            album_id: 'photo-album',
+            media_items: photos.map((url, index) => ({
+              image: { default_url: { url }, lloc: `photo-key-${index}` },
+            })),
+          },
+        },
+      ],
+    },
+  ];
+  state.detail.mockResolvedValue({
+    post: {
+      tid,
+      content: '有相册定位的说说',
+      time: 1600000000,
+      images: photos,
+      videos: [],
+      commentNum: 0,
+    },
+  });
+  state.albumDetail.mockResolvedValue({
+    picKey: 'photo-key-1',
+    imageUrl: 'https://a.qpic.cn/exact.jpg',
+  });
+  const view = await mount(false, '主页', { timelineOnly: true });
+  const first = view.host.querySelector<HTMLButtonElement>('.weq-qzn-pictures button')!;
+  await act(async () => first.click());
+  await act(async () =>
+    activeMediaPreview().querySelector<HTMLButtonElement>('[aria-label="下一项媒体"]')!.click(),
+  );
+  const source = activeMediaPreview();
+  expect(source.querySelector('.weq-preview-count')?.textContent).toContain('2 / 2');
+  expect(state.albumDetail).not.toHaveBeenCalled();
+  await act(async () =>
+    [...source.querySelectorAll('button')]
+      .find((item) => item.textContent?.includes('在相册中查看'))!
+      .click(),
+  );
+  await act(async () =>
+    vi.waitFor(() =>
+      expect(state.albumDetail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hostUin: '10001',
+          topicId: 'photo-album',
+          picKey: 'photo-key-1',
+        }),
+      ),
+    ),
+  );
+  expect(activeMediaPreview().getAttribute('aria-label')).toBe('相册照片');
+  await act(async () =>
+    activeMediaPreview().querySelector<HTMLButtonElement>('[aria-label="关闭预览"]')!.click(),
+  );
+  expect(activeMediaPreview()).toBe(source);
+  expect(source.querySelector('.weq-preview-count')?.textContent).toContain('2 / 2');
+  expect(
+    view.host.querySelector('[aria-label="空间内容"] [aria-current="page"]')?.textContent,
+  ).toBe('主页');
+});
+
+it('视频预览只链接同一作者的说说，关闭原文后返回正在浏览的视频', async () => {
+  const tid = '112700000100000001000000';
+  const video = {
+    description: '',
+    uploadedAt: null,
+    videoUrl: '',
+    coverUrl: 'https://a.qpic.cn/video.jpg',
+  };
+  state.videos.mockResolvedValue({
+    items: [
+      { ...video, id: 'foreign', title: '不相关视频', sourcePostId: '122700000100000001000000' },
+      { ...video, id: 'matched', title: '有关联的视频', sourcePostId: tid },
+    ],
+    next: null,
+  });
+  state.detail.mockResolvedValue({
+    post: {
+      tid,
+      content: '视频对应的原说说',
+      time: 1600000000,
+      images: [],
+      videos: [],
+      commentNum: 0,
+    },
+  });
+  const view = await mount(false, '视频', { timelineOnly: true });
+  const first = () => view.host.querySelector<HTMLButtonElement>('.weq-qzal-album-open')!;
+  await act(async () => vi.waitFor(() => expect(first()).not.toBeNull()));
+  await act(async () => first().click());
+  const source = activeMediaPreview();
+  const sourceAction = () =>
+    [...source.querySelectorAll('button')].find((item) => item.textContent?.includes('查看原说说'));
+  expect(sourceAction()).toBeUndefined();
+  await act(async () =>
+    source.querySelector<HTMLButtonElement>('[aria-label="下一项媒体"]')!.click(),
+  );
+  expect(state.detail).not.toHaveBeenCalled();
+  await act(async () => sourceAction()!.click());
+  const originalPost = () => document.querySelector<HTMLElement>('.weq-qzn-linked-post')!;
+  await act(async () =>
+    vi.waitFor(() => expect(originalPost()?.textContent).toContain('视频对应的原说说')),
+  );
+  expect(state.detail).toHaveBeenCalledWith(expect.objectContaining({ hostUin: '10001', tid }));
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="返回视频"]')!.click(),
+  );
+  expect(activeMediaPreview()).toBe(source);
+  expect(source.getAttribute('aria-label')).toBe('有关联的视频');
+  expect(state.videos).toHaveBeenCalledOnce();
 });
 
 it.each([true, false])('删除仅在单条读回确认后从两个栏目移除，确认=%s', async (confirmed) => {

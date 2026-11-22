@@ -23,7 +23,7 @@
  */
 
 import type { QzoneUpvotePreview } from '@weqbot/protocol';
-import { qzoneLinkTarget } from './qzone';
+import { qzoneLinkTarget, qzonePictureKey } from './qzone';
 import type { QzoneEmotion } from '../views/qzone_types';
 
 export type PublicJson = Record<string, unknown>;
@@ -525,6 +525,48 @@ export function qzoneHomeShareId(view: PublicFeedView): string | null {
   const id = common?.cell_id;
   if (typeof id === 'number' && Number.isSafeInteger(id) && id > 0) return String(id);
   return typeof id === 'string' && /^[1-9]\d{0,31}$/.test(id) ? id : null;
+}
+
+export type QzoneHomeAlbumMedia = {
+  hostUin: string;
+  topicId: string;
+  photos: ReadonlyMap<string, string | null>;
+  videos: ReadonlyMap<string, string | null>;
+};
+
+/** Use only the outer media cell; comments, inline content and quoted posts can have other albums. */
+export function qzoneHomeAlbumMedia(view: PublicFeedView): QzoneHomeAlbumMedia | undefined {
+  const appId = asNumber(asObject(view.feed.cell_common)?.app_id);
+  if (
+    view.advertisement ||
+    (appId !== 311 && appId !== 4) ||
+    !/^[1-9]\d{4,19}$/.test(view.author.uin) ||
+    asObject(view.feed.cell_origin)?.cell_common
+  )
+    return undefined;
+  const cell = asObject(view.feed.cell_media);
+  const topicId = asString(cell?.album_id);
+  if (!/^[\w-]{1,256}$/.test(topicId)) return undefined;
+  const photos = new Map<string, string | null>();
+  const videos = new Map<string, string | null>();
+  for (const raw of asArray(cell?.media_items)) {
+    const item = asObject(raw);
+    const video = asObject(item?.video);
+    const image = video ? asObject(video.cover) : asObject(item?.image);
+    const src = image ? pickImageUrl(image) : '';
+    const identity = video ? asString(video.id) : src ? qzonePictureKey(src) : '';
+    if (!identity) continue;
+    const key =
+      [image?.lloc, image?.sloc].find(
+        (value): value is string => typeof value === 'string' && /^[\w.*+/=-]{1,4096}$/.test(value),
+      ) ?? null;
+    const entries = video ? videos : photos;
+    // Conflicting precise keys may still open the album, but never select either photo.
+    entries.set(identity, entries.has(identity) && entries.get(identity) !== key ? null : key);
+  }
+  return photos.size || videos.size
+    ? { hostUin: view.author.uin, topicId, photos, videos }
+    : undefined;
 }
 
 export function qzoneHomePostPreview(view: PublicFeedView, tid: string): QzoneEmotion {
