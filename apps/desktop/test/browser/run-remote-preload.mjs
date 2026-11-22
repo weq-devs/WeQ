@@ -41,6 +41,12 @@ try {
   await page.route('**/*', (route) =>
     new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
   );
+  await page.route('**/_media/album?**', (route) =>
+    route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="blue"/></svg>',
+    }),
+  );
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/remote-preload.html`,
   );
@@ -115,6 +121,16 @@ try {
   const qzone = await page
     .locator('.app-shell .weq-qzn:not([data-qzone-loading-preview])')
     .elementHandle();
+  await page.getByRole('button', { name: '查看空间图片 1' }).tap();
+  const picturePreview = page.getByRole('dialog', { name: '图片预览' });
+  await picturePreview.waitFor({ timeout: 5000 });
+  await page.waitForFunction(
+    () => document.querySelector('.weq-lightbox-image')?.naturalWidth > 0,
+    undefined,
+    { timeout: 5000 },
+  );
+  await picturePreview.getByRole('button', { name: '关闭预览' }).tap();
+  await picturePreview.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: '我的空间', exact: true }).click();
   await page.getByRole('button', { name: '相册', exact: true }).click();
   const album = page.getByRole('button', { name: /^合成相册/ });
@@ -123,7 +139,7 @@ try {
   await page.getByText('合成照片', { exact: true }).waitFor({ timeout: 5000 });
   await page.getByRole('button', { name: '返回相册列表' }).click();
   await album.waitFor({ timeout: 5000 });
-  await page.getByRole('button', { name: '动态', exact: true }).click();
+  await page.getByRole('button', { name: '好友动态', exact: true }).click();
   await page
     .locator('.app-shell > .chat-main')
     .dispatchEvent('touchstart', { touches: [{ clientX: 180, clientY: 400 }] });
@@ -248,6 +264,7 @@ try {
       cases,
       retainedLists: true,
       qzoneSettling: true,
+      qzoneFeedPictureTap: true,
       qzoneAlbums: true,
       gestureCases,
       halfwayPages: half.map((p) => ({ page: p.page, left: p.left, right: p.right })),

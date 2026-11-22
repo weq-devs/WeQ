@@ -96,8 +96,22 @@ const data: Record<string, unknown> = {
     ],
     hasMore: false,
   },
-  'account.qzone.feeds': { feeds: [], hasMore: false },
+  'account.qzone.feeds': {
+    feeds: [
+      {
+        uin: 10002,
+        nickname: '合成好友',
+        appid: 311,
+        key: 'abcdef123456',
+        time: 1700000000,
+        html: '<div class="f-info">合成动态</div><img src="https://a.qpic.cn/fixture-feed.png">',
+      },
+    ],
+    hasMore: false,
+  },
   'account.qzone.posts': { list: [], total: 0 },
+  'account.qzone.blogs': { items: [], total: 0, nextOffset: null },
+  'account.qzone.forwards': { forwards: [], reportedTotal: 0 },
   'account.qzone.albumPage': {
     albums: [{ id: 'fixture-album', name: '合成相册', mediaCount: 1, coverUrl: '', desc: '' }],
     nextOffset: null,

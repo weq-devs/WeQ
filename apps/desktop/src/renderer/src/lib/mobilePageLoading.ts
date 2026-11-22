@@ -9,6 +9,7 @@ export function isMobileNavigationBusy() {
 }
 
 export function setMobileNavigationBusy(busy: boolean) {
+  if (navigationBusy === busy) return;
   navigationBusy = busy;
   setBackgroundNavigationBusy(busy);
   window.dispatchEvent(new Event(MOBILE_NAVIGATION_BUSY_EVENT));

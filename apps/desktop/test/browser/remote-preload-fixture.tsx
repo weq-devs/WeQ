@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatShell } from '../../src/renderer/src/im-template/template/chatShell';
 import { ChatSidebarContent } from '../../src/renderer/src/im-template/template/chatSidebarContent';
 import type { MainView } from '../../src/renderer/src/im-template/template/types';
@@ -94,4 +95,9 @@ function Fixture() {
     />
   );
 }
-createRoot(document.getElementById('root')!).render(<Fixture />);
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+createRoot(document.getElementById('root')!).render(
+  <QueryClientProvider client={queryClient}>
+    <Fixture />
+  </QueryClientProvider>,
+);
