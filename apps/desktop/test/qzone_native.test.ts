@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { databaseRequestSignal } from '@weq/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   ctx: {} as { services?: unknown; account?: unknown },
@@ -24,6 +25,7 @@ const query = { selfUin, hostUin, requestId: '11111111-1111-4111-8111-1111111111
 let services: {
   accountConfig: { getRecord: ReturnType<typeof vi.fn> };
   webQuery: Record<string, ReturnType<typeof vi.fn>>;
+  profile?: { nicksByUins: ReturnType<typeof vi.fn> };
 };
 const api = qzoneRouter.createCaller({});
 beforeEach(() => {
@@ -92,6 +94,24 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('native Qzone boundary', () => {
+  it('空间昵称优先保留在线结果，只批量补齐缺项并绑定数据库取消信号', async () => {
+    let remoteSignal: AbortSignal | undefined;
+    services.webQuery.getQzoneNicknames = vi.fn(async (_uins: string[], signal: AbortSignal) => {
+      remoteSignal = signal;
+      return { '10002': '在线昵称' };
+    });
+    const nicksByUins = vi.fn(async () => {
+      expect(databaseRequestSignal()).toBe(remoteSignal);
+      return { '10003': '本地昵称' };
+    });
+    services.profile = { nicksByUins };
+    await expect(
+      api.people({ selfUin, requestId: query.requestId, uins: ['10002', '10003', '10004'] }),
+    ).resolves.toEqual({ '10002': '在线昵称', '10003': '本地昵称' });
+    expect(nicksByUins).toHaveBeenCalledOnce();
+    expect(nicksByUins).toHaveBeenCalledWith([10003n, 10004n]);
+  });
+
   it('按所选分类导出全部分享并去重，遇到重复页不覆盖已保存文件', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'weq-shares-test-'));
     try {

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { fixtureDb, createSqliteStub, closeAllFixtureDbs } from '@weq/testkit';
 import { ProfileInfoDb } from '../src/profile/profile_info';
 import { resolveProfileTableSchema } from '../src/profile/profile_table';
@@ -48,6 +48,21 @@ it('旧表和缺失列按真实 schema 读取，不把列号误当成字段值',
   });
   expect((await db.listFriendsByIntimacy())[0]).toMatchObject({ uid: 'u_owner', intimacy: 0 });
   expect(await db.botUids()).toEqual(new Set());
+});
+
+it('一次补齐整批空间昵称，跳过无资料、空昵称和超出 SQLite 范围的号码', async () => {
+  const { db, sql, nt } = await fixture();
+  const insert = sql.prepare('INSERT INTO profile_info_v2 VALUES (?, ?, ?)');
+  insert.run('u_local', 12346, '  合成昵称  ');
+  insert.run('u_blank', 12347, '  ');
+  const query = vi.spyOn(nt, 'executeSql');
+  const input = [
+    ...Array.from({ length: 198 }, (_, index) => BigInt(12345 + index)),
+    12345n,
+    9223372036854775808n,
+  ];
+  expect(await db.nicksByUins(input)).toEqual({ 12345: '合成旧用户', 12346: '合成昵称' });
+  expect(query).toHaveBeenCalledOnce();
 });
 it('优先合法的新版本，不能让同名 FTS 或不完整表抢占资料来源', async () => {
   const { sql, nt, path } = await fixture();

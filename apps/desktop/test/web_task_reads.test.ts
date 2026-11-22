@@ -14,6 +14,49 @@ vi.mock('@trpc/client', async (importOriginal) => {
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('慢空间读取不阻塞同刻发出的空间详情、普通设置读取和业务写入', async () => {
+  const slowPath = 'account.qzone.people';
+  const requests: string[][] = [];
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), location.origin);
+    const paths = url.pathname.slice('/trpc/'.length).split(',');
+    requests.push(paths);
+    if (paths.includes(slowPath)) await held;
+    const results = paths.map((path) => ({ result: { data: path } }));
+    return new Response(JSON.stringify(url.searchParams.has('batch') ? results : results[0]));
+  });
+  const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const client = createTRPCUntypedClient({ links: createLinks() });
+  const slow = client.query(slowPath);
+  const fast = [
+    client.query('account.qzone.detail'),
+    client.query('account.qzonePublic.feeds'),
+    client.query('bootstrap.getSettings'),
+    client.mutation('account.qzone.cancel'),
+  ];
+  try {
+    await vi.waitFor(() =>
+      expect(requests.flat()).toEqual(
+        expect.arrayContaining([slowPath, 'account.qzone.detail', 'bootstrap.getSettings']),
+      ),
+    );
+    expect(requests).toContainEqual([slowPath]);
+    await expect(Promise.all(fast)).resolves.toEqual([
+      'account.qzone.detail',
+      'account.qzonePublic.feeds',
+      'bootstrap.getSettings',
+      'account.qzone.cancel',
+    ]);
+  } finally {
+    release();
+    await Promise.allSettled([slow, ...fast]);
+  }
+});
+
 it('真实 HTTP link 在慢目录未结束时仍返回任务和常规会话列表所需的读取', async () => {
   const requests: string[] = [];
   let release!: () => void;

@@ -152,6 +152,10 @@ export class ProfileService {
     return this.session.profileInfo.nicksByUids(uids);
   }
 
+  async nicksByUins(uins: readonly bigint[]): Promise<Record<string, string>> {
+    return this.session.profileInfo.nicksByUins(uins);
+  }
+
   /**
    * Batch-resolve full profiles by uid (cached profiles only).
    */

@@ -10,6 +10,7 @@ import { QZONE_SHARE_CATEGORIES, type QzoneShareCategory } from '@weqbot/protoco
 import { z } from 'zod';
 import { rememberQzoneAlbums, rememberQzonePosts } from '../../search_content';
 import { withQzonePaginationTimeout } from '@weq/service/qzone-pagination';
+import { withDatabasePriority } from '@weq/db';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { uniqueFilename } from '../../account_resource_exports';
@@ -585,16 +586,19 @@ export const qzoneRouter = router({
       } catch {
         signal.throwIfAborted();
       }
-      for (const id of new Set(input.uins)) {
-        if (names[id]) continue;
-        try {
-          const profile = await services.profile.getProfileByUin(BigInt(id));
-          if (profile?.nick?.trim()) names[id] = profile.nick.trim();
-        } catch {
-          /* Unknown profile stays unknown; never use a remark as the nickname. */
-        }
+      const missing = input.uins.filter((id) => !names[id]).map((id) => BigInt(id));
+      if (!missing.length) return names;
+      try {
+        const cached = await withDatabasePriority(
+          'background',
+          () => services.profile.nicksByUins(missing),
+          signal,
+        );
+        return { ...names, ...cached };
+      } catch {
+        signal.throwIfAborted();
+        return names;
       }
-      return names;
     }),
   ),
   cancel: procedure.input(z.object({ requestId: z.string().uuid() })).mutation(({ input }) => {

@@ -299,6 +299,23 @@ export class ProfileInfoDb {
     return out;
   }
 
+  /** 只读取空间缺少的昵称列，并把所有号码交给同一次资料库读取。 */
+  async nicksByUins(uins: readonly bigint[]): Promise<Record<string, string>> {
+    const unique = [...new Set(uins.filter((uin) => uin > 0n && BigInt.asIntN(64, uin) === uin))];
+    if (!unique.length) return {};
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT "1002","20002" FROM ${this.table} WHERE "1002" IN (${placeholders})`,
+      unique,
+    );
+    const out: Record<string, string> = {};
+    for (const [uin, value] of rows) {
+      const nick = String(value ?? '').trim();
+      if (nick && uin != null) out[String(uin)] ??= nick;
+    }
+    return out;
+  }
+
   /**
    * Batch-resolve full profiles by uid in one query. Returns the profiles for
    * the uids that have a cached row (missing ones are simply absent — no null

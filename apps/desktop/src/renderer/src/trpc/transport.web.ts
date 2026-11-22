@@ -64,6 +64,7 @@ const independentReads = new Set([
   // 表情面板不能等待同批的其他查询，系统目录也不和收藏合批。
   'account.emojiPanel.catalog',
   'account.emojiPanel.favorites',
+  'account.qqActions.qzoneSpaceProfile',
 ]);
 
 // 首屏的摘要、未读和设置共用一批，并保留大输入的 URL 长度限制。
@@ -99,7 +100,11 @@ export function createLinks(): TRPCLink<AppRouter>[] {
   };
   const batchOptions = { ...httpOptions, maxURLLength: HTTP_BATCH_MAX_URL_LENGTH };
   const reads = splitLink<AppRouter>({
-    condition: (op) => independentReads.has(op.path),
+    condition: (op) =>
+      independentReads.has(op.path) ||
+      // 空间读取有独立的请求与取消生命周期，单个外部接口挂起时让其他页面和本地读取先返回。
+      op.path.startsWith('account.qzone.') ||
+      op.path.startsWith('account.qzonePublic.'),
     true: httpLink(httpOptions),
     false: splitLink({
       condition: (op) => conversationBatchedReads.has(op.path),

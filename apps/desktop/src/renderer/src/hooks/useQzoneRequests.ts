@@ -2,22 +2,56 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { client } from '../trpc/client';
 
 let activeReads = 0;
-const readQueue: (() => void)[] = [];
-function queueRead<T>(work: () => Promise<T>, background: boolean): Promise<T> {
+let activeBackgroundReads = 0;
+const foregroundReads = new Set<() => void>();
+const backgroundReads = new Set<() => void>();
+
+function pumpReads() {
+  while (activeReads < 2) {
+    // 两个后台读取不能同时占用空间的两个名额。
+    const queue = foregroundReads.size
+      ? foregroundReads
+      : activeBackgroundReads === 0
+        ? backgroundReads
+        : undefined;
+    const start = queue?.values().next().value;
+    if (!start) return;
+    queue?.delete(start);
+    start();
+  }
+}
+
+function queueRead<T>(
+  work: () => Promise<T>,
+  background: boolean,
+  signal: AbortSignal,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    signal.throwIfAborted();
+    const queue = background ? backgroundReads : foregroundReads;
+    const cancel = () => {
+      queue.delete(start);
+      reject(signal.reason);
+    };
     const start = (): void => {
       activeReads++;
+      if (background) activeBackgroundReads++;
       void Promise.resolve()
-        .then(work)
+        .then(() => {
+          signal.throwIfAborted();
+          return work();
+        })
         .then(resolve, reject)
         .finally(() => {
+          signal.removeEventListener('abort', cancel);
           activeReads--;
-          readQueue.shift()?.();
+          if (background) activeBackgroundReads--;
+          pumpReads();
         });
     };
-    if (activeReads < 2) start();
-    else if (background) readQueue.push(start);
-    else readQueue.unshift(start);
+    signal.addEventListener('abort', cancel, { once: true });
+    queue.add(start);
+    pumpReads();
   });
 }
 
@@ -28,10 +62,14 @@ function queueRead<T>(work: () => Promise<T>, background: boolean): Promise<T> {
  * 空友爱看（h5 gotrpc）在 `qzonePublic`，两边各有一张 pending 表，不能混着取消。
  */
 export function useQzoneRequests(scope: 'qzone' | 'qzonePublic' = 'qzone') {
-  const ids = useRef(new Set<string>());
+  const requests = useRef(new Map<string, { controller: AbortController; sent: boolean }>());
   const cancelRequest = useCallback(
-    (requestId: string) => {
-      if (!ids.current.delete(requestId)) return;
+    (requestId: string, reason = new DOMException('空间加载已取消。', 'AbortError')) => {
+      const request = requests.current.get(requestId);
+      if (!request) return;
+      requests.current.delete(requestId);
+      request.controller.abort(reason);
+      if (!request.sent) return;
       const cancelRoute =
         scope === 'qzonePublic' ? client.account.qzonePublic.cancel : client.account.qzone.cancel;
       void cancelRoute.mutate({ requestId }).catch(() => {});
@@ -39,7 +77,7 @@ export function useQzoneRequests(scope: 'qzone' | 'qzonePublic' = 'qzone') {
     [scope],
   );
   const cancel = useCallback(() => {
-    for (const requestId of ids.current) cancelRequest(requestId);
+    for (const requestId of requests.current.keys()) cancelRequest(requestId);
   }, [cancelRequest]);
   useEffect(() => cancel, [cancel]);
   const run = useCallback(
@@ -50,17 +88,22 @@ export function useQzoneRequests(scope: 'qzone' | 'qzonePublic' = 'qzone') {
     ): Promise<T> => {
       signal?.throwIfAborted();
       const requestId = crypto.randomUUID();
-      ids.current.add(requestId);
-      const abort = () => cancelRequest(requestId);
+      const request = { controller: new AbortController(), sent: false };
+      requests.current.set(requestId, request);
+      const abort = () => cancelRequest(requestId, signal?.reason);
       signal?.addEventListener('abort', abort, { once: true });
       try {
-        return await queueRead(() => {
-          if (!ids.current.has(requestId)) throw new Error('空间加载已取消。');
-          return work(requestId);
-        }, background);
+        return await queueRead(
+          () => {
+            request.sent = true;
+            return work(requestId);
+          },
+          background,
+          request.controller.signal,
+        );
       } finally {
         signal?.removeEventListener('abort', abort);
-        ids.current.delete(requestId);
+        requests.current.delete(requestId);
       }
     },
     [cancelRequest],
