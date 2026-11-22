@@ -443,7 +443,11 @@ function MediaPreviewItemBody({
     ? `（${originalMiB < 0.01 ? '<0.01' : originalMiB.toFixed(2)} MiB）`
     : '';
   async function copy() {
-    const result = await exportMedia({ url: src, name: item.title }, 'clipboard', ownerDocument);
+    const result = await exportMedia(
+      { url: src, name: item.title, previewImage: image.current },
+      'clipboard',
+      ownerDocument,
+    );
     notificationToast.push(
       result.ok
         ? { tone: 'success', title: '已复制到剪贴板' }

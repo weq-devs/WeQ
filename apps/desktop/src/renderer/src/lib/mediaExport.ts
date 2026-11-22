@@ -3,8 +3,8 @@
  * 旧 save 调用同样只返回任务受理，不把排队冒称已经落盘。
  *
  * 为什么不让渲染层自己取字节：灯箱的 `src` 可能是 `weq-media://` 代理地址，主进程用
- * `net.fetch` 走注册过的自定义 scheme 最稳；CDN 直链也一并能取。`blob:`（乐观渲染的
- * 本机预览）只活在渲染层，主进程会如实拒掉，这里把它的提示原样透出去。
+ * `net.fetch` 走注册过的自定义 scheme 最稳；CDN 直链也一并能取。`blob:` 只活在
+ * 渲染层，灯箱用已解码的图像生成 PNG。
  */
 
 export type MediaExportMode = 'save' | 'clipboard';
@@ -19,14 +19,35 @@ export interface MediaExportResult {
   error?: string;
 }
 
+async function imageToPng(
+  image: CanvasImageSource,
+  width: number,
+  height: number,
+  ownerDocument: Document,
+): Promise<Blob> {
+  const canvas = ownerDocument.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('图片转换失败');
+  context.drawImage(image, 0, 0);
+  return new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(
+      (result) => (result ? resolve(result) : reject(new Error('图片转换失败'))),
+      'image/png',
+    ),
+  );
+}
+
 export async function exportMedia(
-  source: { url: string; name?: string },
+  source: { url: string; name?: string; previewImage?: HTMLImageElement | null },
   mode: MediaExportMode,
   ownerDocument: Document = document,
   richClipboard?: { text: string; html: string },
 ): Promise<MediaExportResult> {
   const invoke = window.electron?.ipcRenderer?.invoke;
-  if (!invoke || source.url.startsWith('blob:') || (mode === 'clipboard' && richClipboard)) {
+  const blobUrl = source.url.startsWith('blob:');
+  if (!invoke || blobUrl || (mode === 'clipboard' && richClipboard)) {
     if (mode !== 'clipboard') return { ok: false, error: '当前环境不支持另存为' };
     try {
       const clipboard =
@@ -43,24 +64,17 @@ export async function exportMedia(
         throw new Error('当前浏览器不支持图片剪贴板，请使用 HTTPS 或桌面端');
       // 把异步取图交给 ClipboardItem，保留点击时的用户激活。
       const png = (async () => {
+        const preview = source.previewImage;
+        // 页面允许 <img> 显示本地 Blob，复制时复用已解码的图像。
+        if (blobUrl && preview?.complete && preview.naturalWidth && preview.naturalHeight)
+          return imageToPng(preview, preview.naturalWidth, preview.naturalHeight, ownerDocument);
         const response = await fetch(source.url);
         if (!response.ok) throw new Error('图片读取失败');
         const blob = await response.blob();
         if (blob.type === 'image/png') return blob;
         const image = await createImageBitmap(blob);
         try {
-          const canvas = ownerDocument.createElement('canvas');
-          canvas.width = image.width;
-          canvas.height = image.height;
-          const context = canvas.getContext('2d');
-          if (!context) throw new Error('图片转换失败');
-          context.drawImage(image, 0, 0);
-          return await new Promise<Blob>((resolve, reject) =>
-            canvas.toBlob(
-              (result) => (result ? resolve(result) : reject(new Error('图片转换失败'))),
-              'image/png',
-            ),
-          );
+          return await imageToPng(image, image.width, image.height, ownerDocument);
         } finally {
           image.close();
         }
