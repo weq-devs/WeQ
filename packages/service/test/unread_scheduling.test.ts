@@ -386,6 +386,57 @@ it('密集文件通知只合并小表读取，未变会话不发布，变化会�
   expect(changed).toHaveBeenCalledOnce();
   expect((await f.query())[0]?.unreadCount).toBe(9);
 });
+it('文件监听接管快捷刷新，定时任务低频对账，解除监听后恢复原周期', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  await f.query();
+  const detach = f.service.attachMessageFileWatch();
+  const changed = vi.fn();
+  f.service.onCountsChanged(changed);
+  await vi.advanceTimersByTimeAsync(50);
+  f.all.mockClear();
+  await vi.advanceTimersByTimeAsync(5950);
+  expect(f.all).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(f.all).toHaveBeenCalledOnce();
+  f.all.mockClear();
+  f.update([row({ msgSeq: 95 })]);
+  await vi.advanceTimersByTimeAsync(50);
+  expect(f.all).toHaveBeenCalledOnce();
+  expect(changed).toHaveBeenCalledWith([expect.objectContaining(target)]);
+  expect((await f.query())[0]?.unreadCount).toBe(5);
+  detach();
+  await vi.advanceTimersByTimeAsync(50);
+  f.all.mockClear();
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(f.all).toHaveBeenCalledOnce();
+});
+it('读取期间到达的文件变动在完成后补一次，不等定时对账', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  await f.query();
+  f.service.attachMessageFileWatch();
+  f.service.onCountsChanged(() => {});
+  await vi.advanceTimersByTimeAsync(50);
+  let release: ((rows: UnreadInfoSnapshot[]) => void) | undefined;
+  f.all.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  f.all.mockClear();
+  f.service.invalidate();
+  await vi.advanceTimersByTimeAsync(50);
+  expect(f.all).toHaveBeenCalledOnce();
+  f.update([row({ msgSeq: 95 })]);
+  await vi.advanceTimersByTimeAsync(100);
+  expect(f.all).toHaveBeenCalledOnce();
+  release?.([row()]);
+  await vi.advanceTimersByTimeAsync(50);
+  expect(f.all).toHaveBeenCalledTimes(2);
+  expect((await f.query())[0]?.unreadCount).toBe(5);
+});
 it('只读账号阅读和撤销不写 QQ，后来的新消息仍显示', async () => {
   const f = fixture(true);
   await f.query();

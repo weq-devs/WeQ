@@ -364,6 +364,7 @@ export function rememberAccountUid(uin: string, uid: string): void {
 const dbWatch = new DbWatchService();
 /** Handle for the currently-watched account db, if any. */
 let dbWatchHandle: DbWatchHandle | null = null;
+let releaseUnreadWatch: (() => void) | undefined;
 let groupInfoWatchHandle: DbWatchHandle | null = null;
 let contactNoticeWatchHandles: DbWatchHandle[] = [];
 let dbChangeNotification: ReturnType<typeof createDbChangeNotification<DbChange>> | null = null;
@@ -672,6 +673,7 @@ function mountDbWatch(session: AccountSession): void {
       },
     }),
   );
+  releaseUnreadWatch = getAppContext().services?.unreadInfo.attachMessageFileWatch();
 }
 
 /** Stop watching the current account db, if any. */
@@ -684,6 +686,8 @@ function unmountDbWatch(): void {
   dbChangeNotification = null;
   dbWatchHandle?.unmount();
   dbWatchHandle = null;
+  releaseUnreadWatch?.();
+  releaseUnreadWatch = undefined;
 }
 
 /**

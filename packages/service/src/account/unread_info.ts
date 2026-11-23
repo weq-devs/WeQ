@@ -78,6 +78,9 @@ interface ManualReadEntry extends UnreadInfoTarget {
   version: number;
 }
 
+const UNREAD_POLL_MS = 1500;
+const WATCHED_UNREAD_RECONCILE_MS = 6000;
+
 export class UnreadInfoService {
   private readonly local: LocalUnreadStore;
   private readonly important: ImportantMessageStore;
@@ -92,6 +95,7 @@ export class UnreadInfoService {
   private loading?: Promise<void>;
   private updatedAt = 0;
   private dirty = true;
+  private messageFileWatch?: symbol;
   private refreshTimer?: ReturnType<typeof setInterval>;
   private changeTimer?: ReturnType<typeof setTimeout>;
   private retryTimer?: ReturnType<typeof setTimeout>;
@@ -140,8 +144,14 @@ export class UnreadInfoService {
     this.countListeners.add(listener);
     if (!this.refreshTimer && !this.disposed) {
       this.refreshTimer = setInterval(() => {
-        void this.refreshSnapshots().catch(() => {});
-      }, 1500);
+        if (
+          this.messageFileWatch &&
+          !this.dirty &&
+          Date.now() - this.updatedAt < WATCHED_UNREAD_RECONCILE_MS
+        )
+          return;
+        void this.refreshSnapshots('background').catch(() => {});
+      }, UNREAD_POLL_MS);
       this.refreshTimer.unref?.();
       this.invalidate();
     }
@@ -156,11 +166,22 @@ export class UnreadInfoService {
     };
   }
 
+  /** 同一文件已有独立事件与轮询时，未读订阅只保留低频全量对账。 */
+  attachMessageFileWatch(): () => void {
+    const watch = Symbol();
+    this.messageFileWatch = watch;
+    return () => {
+      if (this.messageFileWatch !== watch) return;
+      this.messageFileWatch = undefined;
+      this.invalidate();
+    };
+  }
+
   /** 文件通知仅请求小表快照，不累加消息、不使历史区间失效。 */
   invalidate(): void {
     if (this.disposed) return;
     this.dirty = true;
-    if (!this.countListeners.size || this.changeTimer) return;
+    if (!this.countListeners.size || this.changeTimer || this.loading) return;
     this.changeTimer = setTimeout(() => {
       this.changeTimer = undefined;
       void this.refreshSnapshots().catch(() => {});
@@ -354,7 +375,7 @@ export class UnreadInfoService {
     const missing = targets.some((target) => !this.snapshots.has(this.key(target)));
     if (
       missing ||
-      (!this.countListeners.size && (this.dirty || Date.now() - this.updatedAt >= 1500))
+      (!this.countListeners.size && (this.dirty || Date.now() - this.updatedAt >= UNREAD_POLL_MS))
     ) {
       try {
         await this.refreshSnapshots();
@@ -503,14 +524,16 @@ export class UnreadInfoService {
     this.publish(changed);
   }
 
-  private async refreshSnapshots(): Promise<void> {
+  private async refreshSnapshots(
+    priority: 'interactive' | 'background' = 'interactive',
+  ): Promise<void> {
     if (this.disposed) return;
     if (this.loading) return this.loading;
     const revision = this.manualRevision;
     const began = performance.now();
     this.dirty = false;
     const reading = withDatabasePriority(
-      'interactive',
+      priority,
       () => {
         this.reads.signal.throwIfAborted();
         return typeof this.session.unreadInfo.getAllUnreadInfos === 'function'
@@ -520,6 +543,7 @@ export class UnreadInfoService {
       this.reads.signal,
     );
     this.loading = (async () => {
+      let failed = false;
       try {
         const rows = await reading;
         if (this.disposed) return;
@@ -551,11 +575,13 @@ export class UnreadInfoService {
           .flush()
           .catch((error) => console.error('[unread] 重要消息保存失败', error));
       } catch (error) {
+        failed = true;
         this.dirty = true;
         throw error;
       } finally {
         recordMessageWork(this.session.msgDbPath, 'watermarks', performance.now() - began);
         this.loading = undefined;
+        if (!failed && this.dirty) this.invalidate();
       }
     })();
     return this.loading;
