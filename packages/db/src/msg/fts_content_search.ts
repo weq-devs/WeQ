@@ -42,7 +42,8 @@ async function search(
   const needle = '(SELECT pattern FROM needle)';
   const file = `"41702" LIKE ${needle} ESCAPE '\\'`;
   const like = filenameOnly ? file : `("41701" LIKE ${needle} ESCAPE '\\' OR ${file})`;
-  const match = partition ? `${like} AND "${partition.column}"=?` : like;
+  const partitionMatch = partition ? `"${partition.column}"=?` : undefined;
+  const match = partitionMatch ? `${like} AND ${partitionMatch}` : like;
   const prefix = 'WITH needle(pattern) AS (VALUES(?))';
   if (qq.supportsReadBudget) {
     try {
@@ -64,26 +65,46 @@ async function search(
   let candidates: Candidate[] = [];
   let cursor: SqlValue | undefined;
   let pageSize = SCAN_ROWS;
-  const scope = partition ? ', scope(value) AS (VALUES(?))' : '';
-  const scopedMatch = partition
-    ? `${like} AND "${partition.column}"=(SELECT value FROM scope)`
-    : like;
-  const projection = ['rowid AS scan_key', '"40050"', '"41701"', '"41702"'];
-  if (partition) projection.push(`"${partition.column}"`);
+  // 有索引就按会话翻页；旧库或 UID 兜底没索引时，按全表 rowid 划定每批读取上限。
+  let indexed = Boolean(partition && (await qq.hasLeadingIndex(table, partition.column)));
   for (;;) {
     signal?.throwIfAborted();
     const args: SqlValue[] = partition ? [pattern, partition.value] : [pattern];
+    const scope = partition && !indexed ? ', scope(value) AS (VALUES(?))' : '';
+    const scopedMatch =
+      partition && !indexed ? `${like} AND "${partition.column}"=(SELECT value FROM scope)` : like;
+    const projection = ['rowid AS scan_key', '"40050"', '"41701"', '"41702"'];
+    if (partition && !indexed) projection.push(`"${partition.column}"`);
+    const bounds = [
+      indexed ? partitionMatch : undefined,
+      cursor === undefined ? undefined : 'rowid < ?',
+    ]
+      .filter(Boolean)
+      .join(' AND ');
     if (cursor !== undefined) args.push(cursor);
-    const page = await qq.queryPage(
-      `${prefix}${scope}, page AS MATERIALIZED (
-         SELECT ${projection.join(',')} FROM ${table}
-         ${cursor === undefined ? '' : 'WHERE rowid < ?'} ORDER BY rowid DESC LIMIT ?
-       )
-       SELECT scan_key, "40050" FROM page WHERE ${scopedMatch}
-       UNION ALL SELECT MIN(scan_key), COUNT(*) FROM page`,
-      args,
-      pageSize,
-    );
+    let page: Awaited<ReturnType<QqDb['queryPage']>>;
+    try {
+      page = await qq.queryPage(
+        `${prefix}${scope}, page AS MATERIALIZED (
+           SELECT ${projection.join(',')} FROM ${table}
+           ${bounds ? `WHERE ${bounds}` : ''} ORDER BY rowid DESC LIMIT ?
+         )
+         SELECT scan_key, "40050" FROM page WHERE ${scopedMatch}
+         UNION ALL SELECT MIN(scan_key), COUNT(*) FROM page`,
+        args,
+        pageSize,
+      );
+    } catch (error) {
+      // 某些库的索引不能按 rowid 直接取页，超预算后从同一游标改走有界扫描。
+      if (
+        !indexed ||
+        !(error instanceof Error) ||
+        !error.message.includes('database_query_execution_timeout')
+      )
+        throw error;
+      indexed = false;
+      continue;
+    }
     signal?.throwIfAborted();
     pageSize = page.limit;
     const end = page.rows.pop();

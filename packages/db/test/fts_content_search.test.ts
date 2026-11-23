@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
+import type { SqlRow } from '@weq/native';
 import { BuddyMsgFtsDb } from '../src/msg/buddy_msg_fts';
 import { GroupMsgFtsDb } from '../src/msg/group_msg_fts';
 import { QqDb } from '../src/qq_db';
@@ -55,12 +56,23 @@ it('无预算接口也使用有界分页，旧 rowid 上的新消息不会被漏
 
 it('长查询到预算后继续逐页读取，保留群分区和命中排序', async () => {
   const { dbPath, nt } = fixture('group_msg_fts');
+  const sql = fixtureDb(dbPath);
+  sql.exec('CREATE INDEX group_partition ON group_msg_fts("40027")');
+  const scans: SqlRow[][] = [];
   const queries = vi.fn<NonNullable<typeof nt.executeSqlBudgeted>>(
     async (path, statement, params) => {
       if (statement.includes('ORDER BY "40050" DESC')) {
         throw new Error('database_query_execution_timeout');
       }
-      return nt.executeSql(path, statement, params);
+      const rows = await nt.executeSql(path, statement, params);
+      if (statement.includes('page AS MATERIALIZED')) {
+        const plan = sql.prepare(`EXPLAIN QUERY PLAN ${statement}`).all(...params);
+        expect(
+          plan.some(({ detail }) => String(detail).includes('USING INDEX group_partition')),
+        ).toBe(true);
+        scans.push(rows.slice());
+      }
+      return rows;
     },
   );
   nt.executeSqlBudgeted = queries;
@@ -69,9 +81,8 @@ it('长查询到预算后继续逐页读取，保留群分区和命中排序', a
     2001n,
     2000n,
   ]);
-  expect(
-    queries.mock.calls.some(([, statement]) => statement.includes('page AS MATERIALIZED')),
-  ).toBe(true);
+  expect(scans).toHaveLength(1);
+  expect(scans[0]?.at(-1)?.[1]).toBe(2n);
 });
 
 it('无命中也能在两个扫描批次之间取消，停止后续读库', async () => {
