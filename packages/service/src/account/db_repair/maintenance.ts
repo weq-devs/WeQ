@@ -3,14 +3,20 @@ import type { BadPageScanReport } from '../bad_pages';
 import { DatabaseScanUnsupportedError, type DbRepairCheckupIntegrity } from './checkup';
 import { DatabaseProgressTracker, type DatabaseWorkProgress } from './progress';
 import type { DbRepairProgress, DbRepairRecord, DbRepairTarget } from './types';
-import type { DatabaseMaintenanceReports } from './maintenance_reports';
+import type {
+  DatabaseMaintenanceReportHeader,
+  DatabaseMaintenanceReports,
+} from './maintenance_reports';
 import { DbRepairError } from './service';
 import {
   databaseReadyForRepair,
+  summarizeDatabaseMaintenance,
   type DatabaseMaintenanceRow,
   type DatabaseMaintenanceScope,
   type DatabaseMaintenanceSnapshot,
+  type DatabaseMaintenanceStatus,
   type DatabaseMaintenanceReport,
+  type DatabaseMaintenanceOperation,
 } from './maintenance_types';
 
 export interface DatabaseMaintenanceLease {
@@ -45,7 +51,7 @@ export interface DatabaseMaintenanceDeps {
     },
   ): Promise<DbRepairRecord>;
   reports(scope: DatabaseMaintenanceScope): DatabaseMaintenanceReports;
-  changed?(snapshot: DatabaseMaintenanceSnapshot): void;
+  changed?(snapshot: DatabaseMaintenanceStatus): void;
 }
 interface Session {
   snapshot: DatabaseMaintenanceSnapshot;
@@ -69,6 +75,7 @@ const progressPublishIntervalMs = 1000;
 /** 维护的生命周期属于宿主，不属于窗口；每次执行各自留一份不可覆盖的历史结果。 */
 export class DatabaseMaintenance {
   private readonly sessions = new Map<string, Session>();
+  private readonly reportWrites = new WeakMap<Session['unsavedReports'], Promise<void>>();
   constructor(private readonly deps: DatabaseMaintenanceDeps) {}
 
   leaseId(scope: DatabaseMaintenanceScope): string | undefined {
@@ -80,55 +87,72 @@ export class DatabaseMaintenance {
 
   current(scope: DatabaseMaintenanceScope): DatabaseMaintenanceSnapshot | null {
     const session = this.sessions.get(keyFor(scope));
-    if (session?.unsavedReports.size) this.flushReports(session);
     const snapshot = session?.snapshot;
     return snapshot ? structuredClone(snapshot) : null;
   }
-  active(): DatabaseMaintenanceSnapshot[] {
+  status(scope: DatabaseMaintenanceScope): DatabaseMaintenanceStatus | null {
+    const snapshot = this.sessions.get(keyFor(scope))?.snapshot;
+    return snapshot ? structuredClone(summarizeDatabaseMaintenance(snapshot)) : null;
+  }
+  active(): DatabaseMaintenanceStatus[] {
     return [...this.sessions.values()]
       .filter((session) => session.snapshot.state !== 'ended')
-      .map((session) => structuredClone(session.snapshot));
+      .map((session) => structuredClone(summarizeDatabaseMaintenance(session.snapshot)));
   }
-  reports(scope: DatabaseMaintenanceScope): DatabaseMaintenanceReport[] {
+  async reports(scope: DatabaseMaintenanceScope): Promise<DatabaseMaintenanceReportHeader[]> {
     const session = this.sessions.get(keyFor(scope));
-    if (session) this.flushReports(session);
+    if (session) void this.flushReports(session);
     const saved = new Map(
-      this.deps
-        .reports(scope)
-        .list()
-        .map((report) => [report.operation.id, report]),
+      (await this.deps.reports(scope).list()).map((report) => [report.operation.id, report]),
     );
-    for (const [id, report] of session?.unsavedReports ?? []) saved.set(id, report);
+    for (const [id, { uin, configId, operation }] of this.sessions.get(keyFor(scope))
+      ?.unsavedReports ?? [])
+      saved.set(id, { uin, configId, operation });
     return [...saved.values()]
       .sort((a, b) => b.operation.startedAt - a.operation.startedAt)
-      .map((report) => {
-        const active = this.sessions.get(keyFor(scope));
-        if (
-          report.operation.status === 'running' &&
-          (active?.snapshot.operation?.id !== report.operation.id ||
-            active?.snapshot.operation?.status !== 'running')
-        ) {
-          return {
-            ...report,
-            locked: false,
-            state: 'ended',
-            operation: {
-              ...report.operation,
-              status: 'interrupted',
-              finishedAt: report.operation.startedAt + report.operation.elapsedMs,
-            },
-          };
-        }
-        return report;
-      });
+      .map((report) => ({ ...report, operation: this.reportOperation(scope, report.operation) }));
   }
 
-  deleteReport(scope: DatabaseMaintenanceScope, id: string): boolean {
-    const operation = this.sessions.get(keyFor(scope))?.snapshot.operation;
+  async report(
+    scope: DatabaseMaintenanceScope,
+    id: string,
+  ): Promise<DatabaseMaintenanceReport | null> {
+    const session = this.sessions.get(keyFor(scope));
+    const current = session?.snapshot;
+    if (current?.operation?.id === id && current.operation.status === 'running')
+      return structuredClone({ ...current, operation: current.operation });
+    const pending = session?.unsavedReports.get(id);
+    if (pending && session) void this.flushReports(session);
+    const report = pending ? structuredClone(pending) : await this.deps.reports(scope).get(id);
+    if (!report) return null;
+    const operation = this.reportOperation(scope, report.operation);
+    return operation.status === 'interrupted'
+      ? { ...report, operation, state: 'ended', locked: false }
+      : { ...report, operation };
+  }
+
+  private reportOperation(scope: DatabaseMaintenanceScope, saved: DatabaseMaintenanceOperation) {
+    if (saved.status !== 'running') return saved;
+    const active = this.sessions.get(keyFor(scope))?.snapshot.operation;
+    return active?.id === saved.id
+      ? { ...active }
+      : {
+          ...saved,
+          status: 'interrupted' as const,
+          finishedAt: saved.startedAt + saved.elapsedMs,
+        };
+  }
+
+  async deleteReport(scope: DatabaseMaintenanceScope, id: string): Promise<boolean> {
+    const session = this.sessions.get(keyFor(scope));
+    const operation = session?.snapshot.operation;
     if (operation?.id === id && operation.status === 'running')
       throw new Error('这份报告仍在更新，请暂停扫描或等待执行结束后再删除。');
-    const pending = this.sessions.get(keyFor(scope))?.unsavedReports.delete(id) ?? false;
-    return this.deps.reports(scope).remove(id) || pending;
+    const queue = session?.unsavedReports;
+    const pending = queue?.delete(id) ?? false;
+    // 正在写的同一份报告先原子落盘，再删除，避免迟到的 rename 恢复已删除的报告。
+    if (queue) await this.reportWrites.get(queue);
+    return (await this.deps.reports(scope).remove(id)) || pending;
   }
 
   scan(
@@ -200,7 +224,7 @@ export class DatabaseMaintenance {
             if (!session.pending && !session.ending)
               void this.expireLease(session).catch((error: unknown) => {
                 session.snapshot.maintenanceError = errorText(error);
-                this.deps.changed?.(structuredClone(session.snapshot));
+                this.publishStatus(session);
               });
           },
           { once: true },
@@ -372,6 +396,7 @@ export class DatabaseMaintenance {
     );
     snapshot.state = session.lease ? 'waiting' : 'ended';
     this.publish(session, true);
+    await this.flushReports(session);
     return structuredClone(snapshot);
   }
 
@@ -500,6 +525,7 @@ export class DatabaseMaintenance {
       }
       snapshot.state = session.lease ? 'waiting' : 'ended';
       this.publish(session, true);
+      await this.flushReports(session);
     }
     return structuredClone(snapshot);
   }
@@ -551,6 +577,7 @@ export class DatabaseMaintenance {
       await this.stop(snapshot);
       await this.end(snapshot);
     }
+    await Promise.all([...this.sessions.values()].map((session) => this.flushReports(session)));
   }
   private async expireLease(session: Session): Promise<void> {
     await session.lease?.release();
@@ -607,7 +634,7 @@ export class DatabaseMaintenance {
   ) {
     row.progress = tracker.update(phase, tick);
     session.snapshot.progress = row.progress;
-    // 进度管道只更新内存；完整扫描明细的复制、保存与广播留到有界回调中。
+    // 进度管道只更新内存；广播限频并只发送摘要。
     if (session.publishTimer !== undefined) return;
     session.publishTimer = setTimeout(
       () => {
@@ -682,25 +709,53 @@ export class DatabaseMaintenance {
       session.finalizedReportId !== op.id &&
       (force || Date.now() - session.lastSaved >= 2000)
     ) {
-      session.unsavedReports.set(
-        op.id,
-        structuredClone(session.snapshot) as DatabaseMaintenanceReport,
-      );
-      this.flushReports(session);
+      const { operation: _operation, databases, ...state } = session.snapshot;
+      session.unsavedReports.set(op.id, {
+        ...structuredClone(state),
+        operation: structuredClone(op),
+        databases: databases.map(({ scan, integrity, repair, ...row }) => ({
+          ...structuredClone(row),
+          // 扫描与校验结果完成后整项赋值，保留其引用，避免发布时复制页号。
+          scan,
+          integrity,
+          repair: repair && { ...repair },
+        })),
+      });
+      void this.flushReports(session);
       session.lastSaved = Date.now();
       if (op.status !== 'running') session.finalizedReportId = op.id;
     }
-    this.deps.changed?.(structuredClone(session.snapshot));
+    this.publishStatus(session);
   }
-  private flushReports(session: Session) {
+  private publishStatus(session: Session) {
+    this.deps.changed?.(structuredClone(summarizeDatabaseMaintenance(session.snapshot)));
+  }
+  private flushReports(session: Session): Promise<void> {
+    const queue = session.unsavedReports;
+    const writing = this.reportWrites.get(queue);
+    if (writing) return writing;
+    if (!queue.size) return Promise.resolve();
+    const pending = this.writeReports(session).finally(() => this.reportWrites.delete(queue));
+    this.reportWrites.set(queue, pending);
+    return pending;
+  }
+  private async writeReports(session: Session) {
+    const queue = session.unsavedReports;
+    let warning: string | undefined;
     try {
-      for (const [id, report] of session.unsavedReports) {
-        this.deps.reports(session.snapshot).save(report);
-        session.unsavedReports.delete(id);
+      const reports = this.deps.reports(session.snapshot);
+      while (queue.size) {
+        const [id, report] = queue.entries().next().value!;
+        await reports.save(report);
+        if (queue.get(id) === report) queue.delete(id);
       }
-      session.snapshot.reportError = undefined;
     } catch (error) {
-      session.snapshot.reportError = `历史报告尚未写入磁盘，当前结果仍保留在本次维护中：${errorText(error)}`;
+      warning = `历史报告尚未写入磁盘，当前结果仍保留在本次维护中：${errorText(error)}`;
+    }
+    const current = this.sessions.get(keyFor(session.snapshot)) ?? session;
+    if (current.snapshot.reportError !== warning) {
+      current.snapshot.reportError = warning;
+      this.publishStatus(current);
     }
   }
 }

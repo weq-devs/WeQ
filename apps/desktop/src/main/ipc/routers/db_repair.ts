@@ -23,12 +23,15 @@ import {
   resolveAccountDbDir,
   type BadPageScanReport,
   type DatabaseMaintenanceScope,
-  type DatabaseMaintenanceSnapshot,
   type DbRepairAccountInfo,
   type DbRepairCheckupIntegrity,
   type DbRepairDeps,
   type DbRepairRecord,
 } from '@weq/service';
+import {
+  summarizeDatabaseMaintenance,
+  type DatabaseMaintenanceStatus,
+} from '@weq/service/db-checkup';
 import { writeFileAtomic } from '@weq/service/atomic-write';
 import type { RecoverReport } from '@weq/native';
 import {
@@ -323,23 +326,9 @@ function assertCacheIdle() {
   )
     throw new Error('备份与修复工作区正在使用中，暂不能更改位置。');
 }
-function savedReport(scope: DatabaseMaintenanceScope, id: string) {
-  const current = databaseMaintenance.current(scope);
-  if (current?.operation?.id === id && current.operation.status === 'running')
-    return { ...current, operation: current.operation };
-  const report = databaseMaintenance.reports(scope).find((item) => item.operation.id === id);
+async function savedReport(scope: DatabaseMaintenanceScope, id: string) {
+  const report = await databaseMaintenance.report(scope, id);
   if (!report) throw new Error('找不到这份数据库维护报告。');
-  if (report.operation.status === 'running')
-    return {
-      ...report,
-      state: 'ended' as const,
-      locked: false,
-      operation: {
-        ...report.operation,
-        status: 'interrupted' as const,
-        finishedAt: report.operation.startedAt + report.operation.elapsedMs,
-      },
-    };
   return report;
 }
 
@@ -363,15 +352,17 @@ export const dbRepairRouter = router({
       error,
     };
   }),
-  maintenance: procedure.input(accountRef).query(({ input }) => databaseMaintenance.current(input)),
+  maintenance: procedure.input(accountRef).query(({ input }) => databaseMaintenance.status(input)),
   scanAccount: procedure
     .input(accountRef.extend({ kind: z.enum(['scan', 'checkup']) }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const info = service.accountInfo(input.uin);
       const targets = rowsFor(input.uin, info.dbDir)
         .filter((row) => row.exists)
         .map((row) => service.resolveTarget(input.uin, row.dbName));
-      return databaseMaintenance.scan(input, targets, input.kind);
+      return summarizeDatabaseMaintenance(
+        await databaseMaintenance.scan(input, targets, input.kind),
+      );
     }),
   repairSelected: procedure
     .input(
@@ -386,35 +377,43 @@ export const dbRepairRouter = router({
       closedAccountDuringRun = false;
       try {
         return {
-          snapshot: await databaseMaintenance.repair(input, input.dbNames, input),
+          snapshot: summarizeDatabaseMaintenance(
+            await databaseMaintenance.repair(input, input.dbNames, input),
+          ),
           closedAccount: closedAccountDuringRun,
         };
       } finally {
         closedAccountDuringRun = false;
       }
     }),
-  stopMaintenance: procedure
-    .input(accountRef)
-    .mutation(({ input }) => databaseMaintenance.stop(input)),
+  stopMaintenance: procedure.input(accountRef).mutation(async ({ input }) => {
+    const snapshot = await databaseMaintenance.stop(input);
+    return snapshot ? summarizeDatabaseMaintenance(snapshot) : null;
+  }),
   endMaintenance: procedure.input(accountRef).mutation(async ({ input }) => {
     await databaseMaintenance.end(input);
     return true;
   }),
-  reports: procedure.input(accountRef).query(({ input }) =>
-    databaseMaintenance.reports(input).map((report) => ({
+  reports: procedure.input(accountRef).query(async ({ input }) =>
+    (await databaseMaintenance.reports(input)).map((report) => ({
       id: report.operation.id,
       operation: report.operation,
       uin: report.uin,
     })),
   ),
   report: procedure.input(reportRef).query(({ input }) => savedReport(input, input.reportId)),
-  deleteReport: procedure.input(reportRef).mutation(({ input }) => ({
-    removed: databaseMaintenance.deleteReport(input, input.reportId),
+  reportStatus: procedure.input(reportRef).query(async ({ input }) => {
+    const current = databaseMaintenance.status(input);
+    if (current?.operation?.id === input.reportId) return current;
+    return summarizeDatabaseMaintenance(await savedReport(input, input.reportId));
+  }),
+  deleteReport: procedure.input(reportRef).mutation(async ({ input }) => ({
+    removed: await databaseMaintenance.deleteReport(input, input.reportId),
   })),
   exportMaintenanceReport: procedure
     .input(reportRef.extend({ format: z.enum(['html', 'md', 'json']) }))
     .mutation(async ({ input }) => {
-      const report = savedReport(input, input.reportId);
+      const report = await savedReport(input, input.reportId);
       const target = await getHost().pickSaveTarget({
         defaultName: `database-${report.operation.kind}-${report.operation.id}.${input.format}`,
         extension: input.format,
@@ -425,8 +424,8 @@ export const dbRepairRouter = router({
       return target;
     }),
   onMaintenance: procedure.subscription(() =>
-    observable<DatabaseMaintenanceSnapshot>((emit) => {
-      const listener = (snapshot: DatabaseMaintenanceSnapshot) => emit.next(snapshot);
+    observable<DatabaseMaintenanceStatus>((emit) => {
+      const listener = (snapshot: DatabaseMaintenanceStatus) => emit.next(snapshot);
       progressBus.on('maintenance', listener);
       return () => {
         progressBus.off('maintenance', listener);

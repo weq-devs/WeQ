@@ -33,8 +33,8 @@ import {
   databaseMaintenanceKindLabel as operationLabels,
   databaseMaintenanceStatusLabel as operationStates,
   databaseRepairStatusLabel as repairStates,
-  type DatabaseMaintenanceSnapshot,
-  type DatabaseMaintenanceRow,
+  type DatabaseMaintenanceStatus,
+  type DatabaseMaintenanceStatusRow,
 } from '@weq/service/db-checkup';
 import type { DatabaseTaskProgress } from '@weq/service/db-progress';
 import { NumericText } from './NumericText';
@@ -67,7 +67,7 @@ const recordStates = {
 };
 type Tone = 'ok' | 'warn' | 'run' | 'muted';
 
-function rowLabel(row: DatabaseMaintenanceRow) {
+function rowLabel(row: DatabaseMaintenanceStatusRow) {
   if (row.repair) return repairStates[row.repair.status];
   if (row.deepStatus === 'running') return '深度检查中';
   if (row.deepStatus === 'partial') return '深度体检部分完成';
@@ -78,7 +78,7 @@ function rowLabel(row: DatabaseMaintenanceRow) {
     row.scanStatus
   ];
 }
-function rowTone(row: DatabaseMaintenanceRow): Tone {
+function rowTone(row: DatabaseMaintenanceStatusRow): Tone {
   if (row.repair) {
     if (row.repair.status === 'running') return 'run';
     if (row.repair.status === 'completed') return 'ok';
@@ -94,13 +94,13 @@ function rowTone(row: DatabaseMaintenanceRow): Tone {
   if (row.deepStatus === 'completed' || row.deepStatus === 'partial') return 'ok';
   return row.scanStatus === 'completed' ? 'ok' : 'muted';
 }
-function rowSummary(row: DatabaseMaintenanceRow): string {
+function rowSummary(row: DatabaseMaintenanceStatusRow): string {
   if (row.repair?.status === 'running') return '正在重建这个数据库，期间不要打开这个账号的 QQ。';
   if (row.repair?.status === 'failed') return '修复没有完成，原因见问题明细。';
   if (row.repair?.status === 'waiting') return '已保留扫描结果，处理问题后可重试。';
   if (row.repair?.status === 'cancelled') return '本轮修复已停止，这个库没有提交替换。';
   if (row.repair?.status === 'completed')
-    return row.repair.record?.verification?.healthy === false
+    return row.repair.verification?.healthy === false
       ? '重建产物已替换，但复核发现结构异常；请查看下方的复核结果。'
       : '重建产物已替换，并完成了结构复核。';
   if (row.scanStatus === 'pending') return '还没扫描这个数据库。';
@@ -121,8 +121,8 @@ function rowSummary(row: DatabaseMaintenanceRow): string {
   const diagnostic = row.issues.filter((issue) => issue.diagnostic !== false);
   if (diagnostic.length) return `发现 ${diagnostic.length} 项需要查看的问题。`;
   if (row.scan) {
-    if (row.scan.badPages.length)
-      return `扫出 ${row.scan.badPages.length.toLocaleString('zh-CN')} 个坏页，重建会把它们排除在外。`;
+    if (row.scan.badPageCount)
+      return `扫出 ${row.scan.badPageCount.toLocaleString('zh-CN')} 个坏页，重建会把它们排除在外。`;
     if (row.scan.plaintext) return '明文数据库，没有可校验的加密页签名。';
     return '页签名检查没有发现坏页。';
   }
@@ -234,7 +234,7 @@ export function DbRepairPanel({
     () => ({ uin: account?.uin ?? '', configId: account?.configId }),
     [account?.uin, account?.configId],
   );
-  const [live, setLive] = useState<DatabaseMaintenanceSnapshot | null>(null);
+  const [live, setLive] = useState<DatabaseMaintenanceStatus | null>(null);
   const [reportId, setReportId] = useState(requestedReportId ?? account?.reportId);
   const [reportScope, setReportScope] = useState(scope);
   const sameReportScope = reportScope.uin === scope.uin && reportScope.configId === scope.configId;
@@ -265,14 +265,14 @@ export function DbRepairPanel({
   });
   const reports = trpc.dbRepair.reports.useQuery(scope, { enabled: !!scope.uin, retry: false });
   const history = trpc.dbRepair.history.useQuery(scope, { enabled: !!scope.uin, retry: false });
-  const report = trpc.dbRepair.report.useQuery(
+  const report = trpc.dbRepair.reportStatus.useQuery(
     { ...reportScope, reportId: reportId ?? '' },
     {
       enabled: !!reportId,
       retry: false,
       cacheTime: 0,
       refetchInterval: (value) =>
-        !sameReportScope && value?.operation.status === 'running' ? 1000 : false,
+        !sameReportScope && value?.operation?.status === 'running' ? 1000 : false,
     },
   );
   const legacy = trpc.dbRepair.legacyReport.useQuery(
@@ -525,7 +525,7 @@ export function DbRepairPanel({
     status.data?.databases
       .filter((row) => row.exists)
       .map(
-        (row): DatabaseMaintenanceRow => ({
+        (row): DatabaseMaintenanceStatusRow => ({
           dbName: row.dbName,
           scanStatus: 'pending',
           support: 'possible',
@@ -1426,7 +1426,7 @@ function DatabaseCard({
   onFocus,
   onSelect,
 }: {
-  row: DatabaseMaintenanceRow;
+  row: DatabaseMaintenanceStatusRow;
   bytes: number | null | undefined;
   selected: boolean;
   current: boolean;
@@ -1465,9 +1465,9 @@ function DatabaseCard({
             <NumericText>{`${row.scan.pageCount.toLocaleString('zh-CN')} 页`}</NumericText>
           </span>
         ) : null}
-        {row.scan?.badPages.length ? (
+        {row.scan?.badPageCount ? (
           <span className="is-warn">
-            <NumericText>{`${row.scan.badPages.length.toLocaleString('zh-CN')} 坏页`}</NumericText>
+            <NumericText>{`${row.scan.badPageCount.toLocaleString('zh-CN')} 坏页`}</NumericText>
           </span>
         ) : null}
         {row.deepStatus === 'partial' ||
@@ -1508,7 +1508,7 @@ function DatabaseDetail({
   row,
   bytes,
 }: {
-  row: DatabaseMaintenanceRow;
+  row: DatabaseMaintenanceStatusRow;
   bytes: number | null | undefined;
 }) {
   const tone = rowTone(row);
@@ -1572,9 +1572,9 @@ function DatabaseDetail({
         </div>
         <div>
           <dt>坏页</dt>
-          <dd className={row.scan?.badPages.length ? 'is-warn' : undefined}>
+          <dd className={row.scan?.badPageCount ? 'is-warn' : undefined}>
             <NumericText>
-              {row.scan ? row.scan.badPages.length.toLocaleString('zh-CN') : '—'}
+              {row.scan ? row.scan.badPageCount.toLocaleString('zh-CN') : '—'}
             </NumericText>
           </dd>
         </div>
@@ -1582,7 +1582,7 @@ function DatabaseDetail({
           <dt>全零页</dt>
           <dd>
             <NumericText>
-              {row.scan ? row.scan.zeroPages.length.toLocaleString('zh-CN') : '—'}
+              {row.scan ? row.scan.zeroPageCount.toLocaleString('zh-CN') : '—'}
             </NumericText>
           </dd>
         </div>
@@ -1622,17 +1622,17 @@ function DatabaseDetail({
           ))}
         </ul>
       ) : null}
-      {row.repair?.record?.verification ? (
+      {row.repair?.verification ? (
         <div className="weq-dbm-verify">
           <CheckCircle2 size={15} aria-hidden />
           <span>
             修复产物复核：
-            {row.repair.record.verification.healthy
-              ? row.repair.record.verification.complete === false
+            {row.repair.verification.healthy
+              ? row.repair.verification.complete === false
                 ? '已检查部分正常，仍有未核验项'
                 : '结构正常'
               : '结构异常'}{' '}
-            · 坏页 <NumericText>{row.repair.record.verification.badPages.length}</NumericText>
+            · 坏页 <NumericText>{row.repair.verification.badPageCount}</NumericText>
           </span>
         </div>
       ) : null}
@@ -1691,7 +1691,7 @@ function RepairStorageWarning({
   names: string[];
   backup: boolean;
   enabled: boolean;
-  storage?: DatabaseMaintenanceSnapshot['storage'];
+  storage?: DatabaseMaintenanceStatus['storage'];
   onChangeCache: () => void;
   cacheDisabled: boolean;
 }) {
@@ -1808,11 +1808,11 @@ function ReportView({
   onBack,
   onExport,
 }: {
-  view: DatabaseMaintenanceSnapshot;
-  operation: NonNullable<DatabaseMaintenanceSnapshot['operation']>;
+  view: DatabaseMaintenanceStatus;
+  operation: NonNullable<DatabaseMaintenanceStatus['operation']>;
   bytesByName: Map<string, number | null>;
   progress?: DatabaseTaskProgress;
-  activeRow?: DatabaseMaintenanceRow;
+  activeRow?: DatabaseMaintenanceStatusRow;
   onFocus: (name: string) => void;
   onBack: () => void;
   onExport: (format: 'html' | 'md' | 'json') => void;

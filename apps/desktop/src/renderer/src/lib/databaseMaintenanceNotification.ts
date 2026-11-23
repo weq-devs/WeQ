@@ -1,11 +1,11 @@
 import {
   databaseMaintenanceKindLabel,
   databaseMaintenanceRowAbnormal,
-  type DatabaseMaintenanceSnapshot,
+  type DatabaseMaintenanceStatus,
 } from '@weq/service/db-checkup';
 
 /** 执行结果与诊断分别表达，查看目标始终绑定原报告，不携带重新检查动作。 */
-export function databaseMaintenanceNotification(snapshot: DatabaseMaintenanceSnapshot) {
+export function databaseMaintenanceNotification(snapshot: DatabaseMaintenanceStatus) {
   const op = snapshot.operation;
   if (!op) return null;
   const account = {

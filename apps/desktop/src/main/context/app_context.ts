@@ -52,7 +52,7 @@ import {
   withDatabasePriority,
   waitForDatabaseQuiet,
 } from '@weq/db';
-import { verifiedDatabaseScans } from '@weq/service/db-checkup';
+import { verifiedDatabaseScans, type DatabaseMaintenanceStatus } from '@weq/service/db-checkup';
 import { waitForCalendarWrites } from '@weq/service/conversation-calendar-store';
 import { QQMailService, type MailNotice } from '@weq/service/mail';
 import {
@@ -216,7 +216,6 @@ import {
   type NewMessages,
   type DbChange,
   type DbHealthFailure,
-  type DatabaseMaintenanceSnapshot,
   type McpServerConfig,
   type WeqAssistantConfig,
   type SsePushConfig,
@@ -1051,7 +1050,7 @@ function startAccountOneBot(ctx: AppContext, session: AccountSession): void {
   });
 }
 
-export function clearVerifiedDbDamage(snapshot: DatabaseMaintenanceSnapshot): void {
+export function clearVerifiedDbDamage(snapshot: DatabaseMaintenanceStatus): void {
   const account = cached?.account;
   const active =
     account?.context.uin === snapshot.uin &&

@@ -60,7 +60,58 @@ export interface DatabaseMaintenanceSnapshot extends DatabaseMaintenanceScope {
 export interface DatabaseMaintenanceReport extends DatabaseMaintenanceSnapshot {
   operation: DatabaseMaintenanceOperation;
 }
-export function verifiedDatabaseScans(snapshot: DatabaseMaintenanceSnapshot): BadPageScanReport[] {
+
+/** 状态和进度只携带界面使用的页数；页号及重建明细留在完整报告中。 */
+export interface DatabaseMaintenanceStatusRow
+  extends Omit<DatabaseMaintenanceRow, 'scan' | 'repair'> {
+  scan?: Pick<BadPageScanReport, 'dbPath' | 'pageCount' | 'plaintext' | 'usedHmac'> & {
+    badPageCount: number;
+    zeroPageCount: number;
+  };
+  repair?: Omit<NonNullable<DatabaseMaintenanceRow['repair']>, 'record'> & {
+    verification?: {
+      healthy: boolean;
+      complete?: boolean;
+      badPageCount: number;
+    };
+  };
+}
+export interface DatabaseMaintenanceStatus extends Omit<DatabaseMaintenanceSnapshot, 'databases'> {
+  databases: DatabaseMaintenanceStatusRow[];
+}
+export function summarizeDatabaseMaintenance(
+  snapshot: DatabaseMaintenanceSnapshot,
+): DatabaseMaintenanceStatus {
+  return {
+    ...snapshot,
+    databases: snapshot.databases.map(({ scan, repair, ...row }) => {
+      const { record, ...repairStatus } = repair ?? {};
+      const verification = record?.verification;
+      return {
+        ...row,
+        scan: scan && {
+          dbPath: scan.dbPath,
+          pageCount: scan.pageCount,
+          plaintext: scan.plaintext,
+          usedHmac: scan.usedHmac,
+          badPageCount: scan.badPages.length,
+          zeroPageCount: scan.zeroPages.length,
+        },
+        repair: repair && {
+          ...repairStatus,
+          status: repair.status,
+          verification: verification && {
+            healthy: verification.healthy,
+            complete: verification.complete,
+            badPageCount: verification.badPages.length,
+          },
+        },
+      };
+    }),
+  };
+}
+
+export function verifiedDatabaseScans(snapshot: DatabaseMaintenanceStatus) {
   if (!snapshot.configId || snapshot.operation?.kind !== 'checkup') return [];
   return snapshot.databases.flatMap(({ deepStatus, integrity, scan }) =>
     deepStatus === 'completed' &&
@@ -68,13 +119,18 @@ export function verifiedDatabaseScans(snapshot: DatabaseMaintenanceSnapshot): Ba
     integrity.healthy &&
     integrity.complete !== false &&
     scan &&
-    scan.badPages.length === 0
+    scan.badPageCount === 0
       ? [scan]
       : [],
   );
 }
 
-export function databaseReadyForRepair(row: DatabaseMaintenanceRow): boolean {
+export function databaseReadyForRepair(
+  row: Pick<
+    DatabaseMaintenanceRow | DatabaseMaintenanceStatusRow,
+    'scanStatus' | 'scan' | 'support' | 'repair'
+  >,
+): boolean {
   return (
     row.scanStatus === 'completed' &&
     !!row.scan &&
@@ -112,7 +168,9 @@ export const databaseRepairStatusLabel = {
   cancelled: '已停止',
   waiting: '等待重试',
 };
-export function databaseMaintenanceRowAbnormal(row: DatabaseMaintenanceRow): boolean {
+export function databaseMaintenanceRowAbnormal(
+  row: Pick<DatabaseMaintenanceRow, 'issues' | 'progress'>,
+): boolean {
   return (
     row.issues.some((issue) => issue.diagnostic !== false) ||
     !!row.progress?.steps.some((step) => (step.badPages ?? 0) > 0 || step.outcome === 'abnormal')

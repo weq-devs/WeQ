@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from 'react';
 import { DatabaseProgressTracker } from '@weq/service/db-progress';
-import type {
-  DatabaseMaintenanceSnapshot,
-  DatabaseMaintenanceReport,
-  DatabaseMaintenanceRow,
+import {
+  summarizeDatabaseMaintenance,
+  type DatabaseMaintenanceStatus,
+  type DatabaseMaintenanceSnapshot,
+  type DatabaseMaintenanceReport,
+  type DatabaseMaintenanceRow,
 } from '@weq/service/db-checkup';
 
 type Input = {
@@ -18,11 +20,12 @@ type Input = {
   backup?: boolean;
   strictPages?: boolean;
 };
-type Listener = { onData(value: DatabaseMaintenanceSnapshot): void; onError?(error: Error): void };
+type Listener = { onData(value: DatabaseMaintenanceStatus): void; onError?(error: Error): void };
 const listeners = new Set<Listener>();
 const stores = new Set<() => void>();
 const saved = new Map<string, DatabaseMaintenanceReport>();
 let live: DatabaseMaintenanceSnapshot | null = null;
+let liveStatus: DatabaseMaintenanceStatus | null = null;
 let tracker: DatabaseProgressTracker;
 let sequence = 0;
 let version = 0;
@@ -45,8 +48,9 @@ const notify = () => {
   for (const listener of stores) listener();
 };
 const publish = () => {
+  liveStatus = live && structuredClone(summarizeDatabaseMaintenance(live));
   notify();
-  if (live) for (const listener of listeners) listener.onData(structuredClone(live));
+  if (liveStatus) for (const listener of listeners) listener.onData(liveStatus);
 };
 function regularRow(dbName: string, index: number): DatabaseMaintenanceRow {
   const progress = new DatabaseProgressTracker('scan', dbName);
@@ -188,16 +192,18 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
   )
     retain();
   publish();
-  resolveRun?.(repair ? { snapshot: live, closedAccount: false } : live);
+  const snapshot = summarizeDatabaseMaintenance(live);
+  resolveRun?.(repair ? { snapshot, closedAccount: false } : snapshot);
   resolveRun = undefined;
 }
 
 export const maintenanceQa = {
   calls,
   reset() {
-    resolveRun?.(live);
+    resolveRun?.(live && summarizeDatabaseMaintenance(live));
     resolveRun = undefined;
     live = null;
+    liveStatus = null;
     saved.clear();
     sequence = 0;
     cache = '/synthetic/cache';
@@ -401,11 +407,14 @@ export const trpc = {
   useUtils: () => utils,
   dbRepair: {
     status: query(() => status),
-    maintenance: query(() => live),
+    maintenance: query(() => liveStatus),
     reports: query(() =>
       [...saved.values()].map((item) => ({ id: item.operation.id, operation: item.operation })),
     ),
-    report: query((input) => saved.get(input.reportId ?? '')),
+    reportStatus: query((input) => {
+      const report = saved.get(input.reportId ?? '');
+      return report && summarizeDatabaseMaintenance(report);
+    }),
     history: query(() => []),
     legacyReport: query(() => null),
     cacheLocation: query(() => ({ override: cache })),
@@ -475,7 +484,7 @@ export const trpc = {
     stopMaintenance: mutation(async () => {
       calls.stop++;
       finish('cancelled');
-      return live;
+      return live && summarizeDatabaseMaintenance(live);
     }),
     endMaintenance: mutation(async () => {
       calls.end++;

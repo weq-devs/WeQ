@@ -107,7 +107,8 @@ it('高频进度每秒只复制和推送最新完整快照，每两秒保存报�
   const run = h.maintenance.scan(scope, h.targets, 'scan');
   await started;
   const id = h.maintenance.current(scope)!.operation!.id;
-  expect(h.reports.get(id)?.databases[0]?.scanStatus).toBe('completed');
+  await save.mock.results.at(-1)?.value;
+  expect((await h.reports.get(id))?.databases[0]?.scanStatus).toBe('completed');
   save.mockClear();
   h.changed.mockClear();
   const clone = vi.spyOn(globalThis, 'structuredClone');
@@ -125,12 +126,19 @@ it('高频进度每秒只复制和推送最新完整快照，每两秒保存报�
   expect(h.changed).toHaveBeenCalledOnce();
   const published = h.changed.mock.calls[0]![0];
   expect(published.progress.current.completed).toBe(999);
-  expect(published.databases[0].scan.zeroPages).toEqual(zeroPages);
+  expect(published.databases[0].scan.zeroPageCount).toBe(zeroPages.length);
+  expect(published.databases[0].scan).not.toHaveProperty('zeroPages');
+  expect(JSON.stringify(published).length).toBeLessThan(16_384);
+  expect(h.maintenance.status(scope)?.databases[0]).toMatchObject({
+    scan: { zeroPageCount: zeroPages.length },
+  });
+  expect(h.maintenance.current(scope)?.databases[0]?.scan?.zeroPages).toEqual(zeroPages);
   expect(save).not.toHaveBeenCalled();
   tick(3);
   await vi.advanceTimersByTimeAsync(1000);
   expect(save).toHaveBeenCalledOnce();
-  expect(h.reports.get(id)?.databases[1]?.progress?.current.completed).toBe(3);
+  await save.mock.results[0]?.value;
+  expect((await h.reports.get(id))?.databases[1]?.progress?.current.completed).toBe(3);
   expect(published.progress.current.completed).toBe(999);
   tick(4);
   expect(save).toHaveBeenCalledOnce();
@@ -139,7 +147,7 @@ it('高频进度每秒只复制和推送最新完整快照，每两秒保存报�
   expect(save).toHaveBeenCalledWith(
     expect.objectContaining({ operation: expect.objectContaining({ stopping: true }) }),
   );
-  expect(h.reports.get(id)?.operation.status).toBe('cancelled');
+  expect((await h.reports.get(id))?.operation.status).toBe('cancelled');
   await h.maintenance.end(scope);
   expect(h.changed.mock.lastCall![0]).toMatchObject({ state: 'ended', locked: false });
   const publishedCount = h.changed.mock.calls.length;
@@ -198,13 +206,47 @@ it('报告写满磁盘不打断维护，空间恢复后补存原报告', async (
     operation: { status: 'completed' },
     reportError: expect.stringContaining('ENOSPC'),
   });
-  expect(h.maintenance.reports(scope)[0]?.operation.id).toBe(result.operation!.id);
+  expect((await h.maintenance.reports(scope))[0]?.operation.id).toBe(result.operation!.id);
   expect(h.release).not.toHaveBeenCalled();
   save.mockRestore();
-  h.maintenance.reports(scope);
-  expect(h.reports.get(result.operation!.id)?.operation.status).toBe('completed');
+  await h.maintenance.reports(scope);
+  await vi.waitFor(async () =>
+    expect((await h.reports.get(result.operation!.id))?.operation.status).toBe('completed'),
+  );
   expect(h.maintenance.current(scope)?.reportError).toBeUndefined();
   await h.maintenance.end(scope);
+});
+
+it('报告写入挂起时仍广播进度，完成后磁盘保留最终报告', async () => {
+  const h = fixture();
+  const persist = h.reports.save.bind(h.reports);
+  let release!: () => void;
+  const writing = new Promise<void>((done) => {
+    release = done;
+  });
+  const save = vi.spyOn(h.reports, 'save').mockImplementationOnce(async (report) => {
+    await writing;
+    await persist(report);
+  });
+  const run = h.maintenance.scan(scope, h.targets, 'scan');
+  try {
+    await vi.waitFor(() =>
+      expect(h.maintenance.status(scope)?.operation?.status).toBe('completed'),
+    );
+    expect(h.changed.mock.lastCall?.[0].operation.status).toBe('completed');
+    expect(save).toHaveBeenCalledOnce();
+    const id = h.maintenance.status(scope)!.operation!.id;
+    expect(await h.reports.get(id)).toBeNull();
+    expect((await h.maintenance.report(scope, id))?.operation.status).toBe('completed');
+    release();
+    await run;
+    expect(save).toHaveBeenCalledTimes(2);
+    expect((await h.reports.get(id))?.operation.status).toBe('completed');
+  } finally {
+    release();
+    await run;
+    await h.maintenance.end(scope);
+  }
 });
 
 it('结束维护和启动修复不能交错，重复结束等待同一次统一解锁', async () => {
@@ -264,21 +306,21 @@ it('持锁进程意外退出会结束维护，旧报告保留，旧结果不能�
   expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('扫描');
   expect(h.scan).toHaveBeenCalledTimes(3);
   expect(h.deep).not.toHaveBeenCalled();
-  expect(h.reports.list()).toHaveLength(1);
+  expect(await h.reports.list()).toHaveLength(1);
 });
 
 it('历史报告三种格式使用同一份完整结果，HTML 转义来源文本', async () => {
   const h = fixture();
   h.targets[0]!.dbName = '<script>.db';
   const result = await h.maintenance.scan(scope, h.targets, 'scan');
-  const report = h.reports.get(result.operation!.id)!;
+  const report = (await h.reports.get(result.operation!.id))!;
   expect(JSON.parse(renderDatabaseMaintenanceReport(report, 'json'))).toEqual(report);
   expect(renderDatabaseMaintenanceReport(report, 'md')).toContain('WeQ 不支持修复');
   const html = renderDatabaseMaintenanceReport(report, 'html');
   expect(html).toContain('&lt;script&gt;.db');
   expect(html).not.toContain('<script>');
   await h.maintenance.end(scope);
-  expect(h.reports.get(result.operation!.id)).toEqual(report);
+  expect(await h.reports.get(result.operation!.id)).toEqual(report);
 });
 
 it('HTML／Markdown 直接导出已有修复指标、耗时和自检结果，不额外读取数据库', async () => {
@@ -327,7 +369,7 @@ it('HTML／Markdown 直接导出已有修复指标、耗时和自检结果，不
   h.repair.mockResolvedValueOnce(record);
   await h.maintenance.scan(scope, h.targets, 'scan');
   const result = await h.maintenance.repair(scope, ['msg.db']);
-  const report = h.reports.get(result.operation!.id)!;
+  const report = (await h.reports.get(result.operation!.id))!;
   expect(JSON.parse(renderDatabaseMaintenanceReport(report, 'json'))).toEqual(report);
   for (const format of ['md', 'html'] as const) {
     const output = renderDatabaseMaintenanceReport(report, format);
@@ -369,13 +411,11 @@ it('打开状态不扫描；全账号先锁定，扫描结果在等待和继续�
   expect(h.scan).toHaveBeenCalledTimes(3);
   expect(h.deep).toHaveBeenCalledTimes(3);
   expect(h.release).not.toHaveBeenCalled();
-  expect(h.reports.list()).toHaveLength(2);
-  expect(
-    h.reports.list().find((report) => report.operation.kind === 'scan')?.databases[0]?.integrity,
-  ).toBeUndefined();
+  expect(await h.reports.list()).toHaveLength(2);
+  expect((await h.reports.get(quick.operation!.id))?.databases[0]?.integrity).toBeUndefined();
   await h.maintenance.end(scope);
   expect(h.release).toHaveBeenCalledOnce();
-  expect(h.reports.list()).toHaveLength(2);
+  expect(await h.reports.list()).toHaveLength(2);
 });
 
 it('不能独立修复或选中未完整扫描及不支持的库；单库失败不中断批次，结束后统一解锁', async () => {
@@ -458,7 +498,7 @@ it('停止修复中断临时重建、不启动后续库，保留已经成功的�
   });
   expect(result.databases[2]?.repair?.status).toBe('cancelled');
   expect(h.release).toHaveBeenCalledOnce();
-  expect(h.reports.get(result.operation!.id)?.operation.status).toBe('cancelled');
+  expect((await h.reports.get(result.operation!.id))?.operation.status).toBe('cancelled');
 });
 
 it('停止额外的深度体检不撤销已完成的常规扫描，可直接修复就绪库', async () => {
@@ -538,17 +578,17 @@ it('删除报告拒绝执行中的报告，结束后只删指定报告且不会�
   const run = h.maintenance.scan(scope, h.targets, 'scan');
   await started;
   const id = h.maintenance.current(scope)!.operation!.id;
-  expect(() => h.maintenance.deleteReport(scope, id)).toThrow('仍在更新');
+  await expect(h.maintenance.deleteReport(scope, id)).rejects.toThrow('仍在更新');
   await h.maintenance.stop(scope);
   await run;
-  expect(h.maintenance.deleteReport(scope, id)).toBe(true);
+  expect(await h.maintenance.deleteReport(scope, id)).toBe(true);
   expect(h.maintenance.current(scope)?.locked).toBe(true);
-  expect(h.reports.get(id)).toBeNull();
-  expect(() => h.reports.remove('../outside')).toThrow('标识无效');
+  expect(await h.reports.get(id)).toBeNull();
+  await expect(h.reports.remove('../outside')).rejects.toThrow('标识无效');
   await h.maintenance.scan(scope, h.targets, 'scan');
   await h.maintenance.end(scope);
-  expect(h.reports.get(id)).toBeNull();
-  expect(h.reports.list()).toHaveLength(1);
+  expect(await h.reports.get(id)).toBeNull();
+  expect(await h.reports.list()).toHaveLength(1);
 });
 
 it.each([false, true])(
@@ -572,7 +612,7 @@ it.each([false, true])(
     );
     const run = h.maintenance.scan(scope, h.targets, 'scan');
     await started;
-    expect(h.reports.list()).toEqual([]);
+    expect(await h.reports.list()).toEqual([]);
     const result = await h.maintenance.stop(scope);
     await run;
     expect(result).toMatchObject({
@@ -581,12 +621,12 @@ it.each([false, true])(
       operation: { status: 'cancelled' },
     });
     expect(h.release).toHaveBeenCalledOnce();
-    expect(h.maintenance.reports(scope)).toEqual([]);
+    expect(await h.maintenance.reports(scope)).toEqual([]);
     if (failRelease) {
       expect(result?.maintenanceError).toContain('释放维护锁失败');
       await h.maintenance.end(scope);
       expect(h.maintenance.current(scope)).toMatchObject({ state: 'ended', locked: false });
-      expect(h.maintenance.reports(scope)).toEqual([]);
+      expect(await h.maintenance.reports(scope)).toEqual([]);
     }
     expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('扫描');
   },

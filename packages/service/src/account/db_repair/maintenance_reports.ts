@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { formatDateTime } from '@weq/time';
-import { writeFileAtomicSync } from '../../common/atomic_write';
+import { writeFileAtomic } from '../../common/atomic_write';
 import type { DatabaseMaintenanceReport } from './maintenance_types';
 import type { DbRepairRecord } from './types';
 import {
@@ -11,43 +12,133 @@ import {
   databaseRepairStatusLabel,
 } from './maintenance_types';
 
+export type DatabaseMaintenanceReportHeader = Pick<
+  DatabaseMaintenanceReport,
+  'uin' | 'configId' | 'operation'
+>;
+
+const reportWorkerSource = `
+const { parentPort } = require('node:worker_threads');
+const { readFile, readdir } = require('node:fs/promises');
+const { join } = require('node:path');
+async function report(path, id) {
+  const raw = await readFile(path, 'utf8').catch((error) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (raw === null) return null;
+  const value = JSON.parse(raw);
+  if (value.operation?.id !== id || !Array.isArray(value.databases))
+    throw new Error('数据库维护报告内容无效。');
+  return value;
+}
+parentPort.on('message', async ({ requestId, command }) => {
+  try {
+    if (command.kind === 'serialize') {
+      const bytes = new TextEncoder().encode(JSON.stringify(command.report));
+      parentPort.postMessage({ requestId, value: bytes }, [bytes.buffer]);
+      return;
+    }
+    if (command.kind === 'read') {
+      parentPort.postMessage({ requestId, value: await report(command.path, command.id) });
+      return;
+    }
+    const names = await readdir(command.directory).catch((error) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    });
+    const headers = [];
+    for (const name of names) {
+      if (!/^[\\w-]+\\.json$/.test(name)) continue;
+      try {
+        const value = await report(join(command.directory, name), name.slice(0, -5));
+        if (value) headers.push({
+          uin: value.uin, configId: value.configId, operation: value.operation,
+        });
+      } catch {
+        // 单份损坏报告不影响其余历史。
+      }
+    }
+    parentPort.postMessage({ requestId, value: headers });
+  } catch (error) {
+    parentPort.postMessage({ requestId, error: error.message });
+  }
+});
+`;
+
+type ReportCommand =
+  | { kind: 'serialize'; report: DatabaseMaintenanceReport }
+  | { kind: 'read'; path: string; id: string }
+  | { kind: 'headers'; directory: string };
+let reportWorker: Worker | undefined;
+let nextRequest = 0;
+const requests = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
+
+function runReportCommand<T>(command: ReportCommand): Promise<T> {
+  if (requests.size >= 32) return Promise.reject(new Error('维护报告读取队列繁忙，请稍后重试。'));
+  if (!reportWorker) {
+    const created = new Worker(reportWorkerSource, { eval: true });
+    const failed = (error: Error) => {
+      if (reportWorker !== created) return;
+      reportWorker = undefined;
+      for (const request of requests.values()) request.reject(error);
+      requests.clear();
+    };
+    created.on('error', failed);
+    created.on('exit', () => failed(new Error('维护报告进程已退出。')));
+    created.on('message', ({ requestId, value, error }) => {
+      const request = requests.get(requestId);
+      if (!request) return;
+      requests.delete(requestId);
+      if (!requests.size) created.unref();
+      if (error) request.reject(new Error(error));
+      else request.resolve(value);
+    });
+    reportWorker = created;
+  }
+  const worker = reportWorker;
+  const requestId = ++nextRequest;
+  return new Promise<T>((resolve, reject) => {
+    requests.set(requestId, { resolve: (value) => resolve(value as T), reject });
+    worker.ref();
+    try {
+      worker.postMessage({ requestId, command });
+    } catch (error) {
+      requests.delete(requestId);
+      if (!requests.size) worker.unref();
+      reject(error);
+    }
+  });
+}
+
 export class DatabaseMaintenanceReports {
   constructor(private readonly directory: string) {}
 
-  save(report: DatabaseMaintenanceReport): void {
-    mkdirSync(this.directory, { recursive: true });
-    writeFileAtomicSync(this.path(report.operation.id), JSON.stringify(report));
+  async save(report: DatabaseMaintenanceReport): Promise<void> {
+    const bytes = await runReportCommand<Uint8Array>({ kind: 'serialize', report });
+    await writeFileAtomic(this.path(report.operation.id), bytes);
   }
 
-  get(id: string): DatabaseMaintenanceReport | null {
-    const path = this.path(id);
-    if (!existsSync(path)) return null;
-    const value = JSON.parse(readFileSync(path, 'utf8')) as DatabaseMaintenanceReport;
-    if (value.operation?.id !== id || !Array.isArray(value.databases))
-      throw new Error('数据库维护报告内容无效。');
-    return value;
+  get(id: string): Promise<DatabaseMaintenanceReport | null> {
+    return runReportCommand({ kind: 'read', path: this.path(id), id });
   }
 
-  list(): DatabaseMaintenanceReport[] {
-    if (!existsSync(this.directory)) return [];
-    return readdirSync(this.directory)
-      .filter((name) => /^[\w-]+\.json$/.test(name))
-      .flatMap((name) => {
-        try {
-          const report = this.get(name.slice(0, -5));
-          return report ? [report] : [];
-        } catch {
-          return [];
-        }
-      })
-      .sort((a, b) => b.operation.startedAt - a.operation.startedAt);
+  async list(): Promise<DatabaseMaintenanceReportHeader[]> {
+    const headers = await runReportCommand<DatabaseMaintenanceReportHeader[]>({
+      kind: 'headers',
+      directory: this.directory,
+    });
+    return headers.sort((a, b) => b.operation.startedAt - a.operation.startedAt);
   }
 
-  remove(id: string): boolean {
-    const path = this.path(id);
-    if (!existsSync(path)) return false;
-    rmSync(path);
-    return true;
+  async remove(id: string): Promise<boolean> {
+    try {
+      await unlink(this.path(id));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
   }
 
   private path(id: string): string {

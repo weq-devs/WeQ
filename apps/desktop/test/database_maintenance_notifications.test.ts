@@ -1,18 +1,24 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { DatabaseMaintenanceSnapshot } from '@weq/service/db-checkup';
+import {
+  summarizeDatabaseMaintenance,
+  type DatabaseMaintenanceSnapshot,
+  type DatabaseMaintenanceStatus,
+} from '@weq/service/db-checkup';
 import type { AccountForcedClosedEvent } from '../src/main/context/app_context';
 import { useDatabaseMaintenanceNotifications } from '../src/renderer/src/hooks/useDatabaseMaintenanceNotifications';
 
 const fixture = vi.hoisted(() => ({
-  receive: undefined as ((snapshot: DatabaseMaintenanceSnapshot) => void) | undefined,
+  receive: undefined as ((snapshot: DatabaseMaintenanceStatus) => void) | undefined,
   health: undefined as ((event: AccountForcedClosedEvent) => void) | undefined,
   toasts: [] as { id: number; key: string }[],
   focused: false,
   push: vi.fn(),
   unsubscribe: vi.fn(),
 }));
+const receive = (snapshot: DatabaseMaintenanceSnapshot) =>
+  fixture.receive!(summarizeDatabaseMaintenance(snapshot));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     dbRepair: {
@@ -88,7 +94,7 @@ it('修复窗口失焦才推送进度，聚焦立即移除，聚焦时完成不�
   };
   try {
     act(() => root.render(createElement(Observer)));
-    fixture.receive!(snapshot);
+    receive(snapshot);
     expect(fixture.push).toHaveBeenLastCalledWith(
       expect.objectContaining({ event: 'progress', loading: true }),
     );
@@ -100,18 +106,18 @@ it('修复窗口失焦才推送进度，聚焦立即移除，聚焦时完成不�
     popup.dispatchEvent(new Event('focus'));
     expect(fixture.toasts).toEqual([{ id: 2, key: 'other-operation' }]);
     const calls = fixture.push.mock.calls.length;
-    fixture.receive!(snapshot);
+    receive(snapshot);
     const completed = {
       ...snapshot,
       state: 'ended' as const,
       operation: { ...snapshot.operation!, status: 'completed' as const },
     };
-    fixture.receive!(completed);
+    receive(completed);
     expect(fixture.push).toHaveBeenCalledTimes(calls);
     fixture.focused = false;
-    fixture.receive!(completed);
+    receive(completed);
     expect(fixture.push).toHaveBeenCalledTimes(calls);
-    fixture.receive!({ ...snapshot, operation: { ...snapshot.operation!, id: 'next-operation' } });
+    receive({ ...snapshot, operation: { ...snapshot.operation!, id: 'next-operation' } });
     expect(fixture.push).toHaveBeenCalledTimes(calls + 1);
   } finally {
     act(() => root.unmount());
@@ -190,9 +196,9 @@ it('后台仅提醒已确认的损坏，深度体检只收起同源同库的横�
       { id: 1, key: notice.key },
       { id: 2, key: 'other-database' },
     ];
-    fixture.receive!({ ...snapshot, configId: 'backup' });
+    receive({ ...snapshot, configId: 'backup' });
     expect(fixture.toasts.map(({ id }) => id)).toEqual([1, 2]);
-    fixture.receive!(snapshot);
+    receive(snapshot);
     expect(fixture.toasts.map(({ id }) => id)).toEqual([2]);
   } finally {
     act(() => root.unmount());
