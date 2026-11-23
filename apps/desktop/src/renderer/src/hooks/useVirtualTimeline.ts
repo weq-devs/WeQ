@@ -60,12 +60,15 @@ export function useVirtualTimeline({
   activeRef.current = active;
   const deliveringOffset = useRef(false);
   const committingScroll = useRef(false);
+  const touching = useRef(false);
+  const touchMomentum = useRef(false);
   const mountedIndexes = useRef<ReadonlySet<number>>(new Set());
   const [, commitScrollRange] = useReducer((version: number) => version + 1, 0);
   const observeTimelineOffset: typeof observeElementOffset = useCallback(
     (instance, callback) =>
       observeElementOffset(instance, (offset, scrolling) => {
         if (!activeRef.current) return;
+        if (!scrolling && !touching.current) touchMomentum.current = false;
         deliveringOffset.current = true;
         try {
           callback(offset, scrolling);
@@ -187,7 +190,8 @@ export function useVirtualTimeline({
     scrollMargin: margin,
     anchorTo: enabled ? 'end' : 'start',
     followOnAppend: false,
-    scrollEndThreshold: 48,
+    // 贴底由聊天导航按真实滚动容器判断；虚拟高度不包含外部留白和页脚。
+    scrollEndThreshold: -1,
     rangeExtractor,
   });
   instanceRef.current = virtualizer;
@@ -195,8 +199,11 @@ export function useVirtualTimeline({
   useLayoutEffect(() => {
     mountedIndexes.current = new Set(virtualItems?.map(({ index }) => index));
   }, [virtualItems]);
+  const resizedAnchorIndex = useRef(-1);
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
     if (!enabled) return false;
+    // 缺口条在锚点正文之前，即使两者位于同一虚拟行也需要补偿。
+    if (item.index === resizedAnchorIndex.current) return true;
     const offset = instance.scrollOffset ?? 0;
     // 已经完全滚过的行增高时，连同位置一起补偿，向上滚动时也保住正在读的消息。
     return instance.itemSizeCache.has(item.key) ? item.end <= offset : item.start < offset;
@@ -231,8 +238,22 @@ export function useVirtualTimeline({
       if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key))
         interrupt();
     };
+    const touchStart = () => {
+      touching.current = true;
+    };
+    const touchMove = () => {
+      touchMomentum.current = true;
+      interrupt();
+    };
+    const touchEnd = (event: TouchEvent) => {
+      if (!event.touches.length) touching.current = false;
+    };
+    const touchOptions = { capture: true, passive: true };
     scroll.addEventListener('wheel', interrupt, { passive: true });
-    scroll.addEventListener('touchmove', interrupt, { passive: true });
+    scroll.addEventListener('touchstart', touchStart, touchOptions);
+    scroll.addEventListener('touchmove', touchMove, touchOptions);
+    scroll.addEventListener('touchend', touchEnd, touchOptions);
+    scroll.addEventListener('touchcancel', touchEnd, touchOptions);
     scroll.addEventListener('pointerdown', interrupt, { passive: true });
     scroll.addEventListener('keydown', keys);
     const position = (
@@ -346,6 +367,25 @@ export function useVirtualTimeline({
     };
     const release = registerTimelineViewport(scroll, {
       scrollRevision: () => scrollRevision.current,
+      isUserScrolling: () =>
+        touching.current ||
+        (context.current.virtualizer.isScrolling &&
+          (touchMomentum.current || performance.now() - lastInputAt < 180)),
+      measureRows: (rows, anchor) => {
+        const { virtualizer } = context.current;
+        const sizes: [number, number][] = [];
+        for (const row of rows) {
+          const index = virtualizer.indexFromElement(row);
+          sizes.push([index, row.getBoundingClientRect().height]);
+        }
+        resizedAnchorIndex.current = anchor ? virtualizer.indexFromElement(anchor) : -1;
+        try {
+          for (const [index, height] of sizes)
+            if (height > 0) virtualizer.resizeItem(index, height);
+        } finally {
+          resizedAnchorIndex.current = -1;
+        }
+      },
       cancelScroll: interrupt,
       capture: () => (context.current.active ? undefined : suspendedAnchor.current),
       scrollTo: (id, options) => {
@@ -408,8 +448,13 @@ export function useVirtualTimeline({
       cancel();
       release();
       resize.disconnect();
+      touching.current = false;
+      touchMomentum.current = false;
       scroll.removeEventListener('wheel', interrupt);
-      scroll.removeEventListener('touchmove', interrupt);
+      scroll.removeEventListener('touchstart', touchStart, touchOptions);
+      scroll.removeEventListener('touchmove', touchMove, touchOptions);
+      scroll.removeEventListener('touchend', touchEnd, touchOptions);
+      scroll.removeEventListener('touchcancel', touchEnd, touchOptions);
       scroll.removeEventListener('pointerdown', interrupt);
       scroll.removeEventListener('keydown', keys);
     };
@@ -417,6 +462,8 @@ export function useVirtualTimeline({
 
   useLayoutEffect(() => {
     if (!active) {
+      touching.current = false;
+      touchMomentum.current = false;
       scrollRevision.current++;
       command.current++;
       virtualizer.cancelScroll();

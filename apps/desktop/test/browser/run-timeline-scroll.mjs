@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
-const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const { chromium, webkit } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 await mkdir(resolve(root, 'node_modules/.cache'), { recursive: true });
 const cacheDir = await mkdtemp(resolve(root, 'node_modules/.cache/timeline-scroll-'));
 const baseline = process.env.WEQ_TIMELINE_BASELINE_REF;
@@ -18,6 +18,7 @@ const cachedBubbles = process.env.WEQ_SCROLL_CACHED_BUBBLES === '1';
 const grouped = process.env.WEQ_SCROLL_GROUPED === '1';
 const imageGrid = process.env.WEQ_SCROLL_IMAGE_GRID === '1';
 const touchReply = process.env.WEQ_SCROLL_TOUCH_REPLY === '1';
+const gapRecovery = process.env.WEQ_SCROLL_GAP_RECOVERY === '1';
 const fixtureFlags = [
   cachedBubbles && '&cached-bubbles=1',
   (grouped || touchReply) && '&grouped=1',
@@ -29,7 +30,10 @@ const fixtureFlags = [
 const server = await createServer({
   configFile: false,
   root,
-  define: touchReply ? { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') } : undefined,
+  define:
+    touchReply || gapRecovery
+      ? { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') }
+      : undefined,
   cacheDir,
   optimizeDeps: { entries: ['test/browser/timeline.html'] },
   plugins: [
@@ -69,16 +73,21 @@ const server = await createServer({
 let browser;
 try {
   await server.listen();
-  browser = await chromium.launch({
+  browser = await (gapRecovery ? webkit : chromium).launch({
     headless: true,
     ...(process.env.WEQ_BROWSER_EXECUTABLE
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
   });
   const page = await browser.newPage({
-    viewport: { width, height: 900 },
-    isMobile: touchReply,
-    hasTouch: touchReply,
+    viewport: { width, height: gapRecovery ? 620 : 900 },
+    isMobile: touchReply || gapRecovery,
+    hasTouch: touchReply || gapRecovery,
+    ...(gapRecovery
+      ? {
+          userAgent: 'Mozilla/5.0 (iPad; CPU OS 26_0 like Mac OS X) AppleWebKit/605.1.15 WeQRemote',
+        }
+      : {}),
   });
   await page.route('**/*', (route) =>
     new URL(route.request().url()).hostname === '127.0.0.1' ||
@@ -86,6 +95,149 @@ try {
       ? route.continue()
       : route.abort(),
   );
+  if (gapRecovery) await checkGapRecovery(page);
+  else await checkScroll(page);
+} finally {
+  await browser?.close();
+  await server.close();
+  await rm(cacheDir, { recursive: true, force: true });
+}
+
+async function checkGapRecovery(page) {
+  page.setDefaultTimeout(10_000);
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=180&mobile-input&gap-recovery`,
+  );
+  await page.waitForFunction(() => window.timelineTest?.capture);
+  const scroll = page.locator('.message-scroll');
+  const row = (seq) => page.locator(`[data-message-id="row-${seq}"]`);
+  const tail = row(1180);
+  const settle = () =>
+    scroll.evaluate(
+      (element) =>
+        new Promise((resolve) => {
+          let previous = '';
+          let steady = 0;
+          const sample = () => {
+            const geometry = `${element.scrollTop}:${element.scrollHeight}:${element.clientHeight}`;
+            steady = geometry === previous ? steady + 1 : 0;
+            previous = geometry;
+            if (steady >= 4) resolve();
+            else requestAnimationFrame(sample);
+          };
+          requestAnimationFrame(sample);
+        }),
+    );
+  await scroll.evaluate((element) => {
+    element.scrollTop = element.scrollHeight - element.clientHeight - 76;
+  });
+  await tail.waitFor();
+  await settle();
+  const beforeTail = await tail.boundingBox();
+  await page.evaluate(() => window.timelineTest.growTail());
+  await page.waitForFunction(() => {
+    const last = document.querySelector('[data-message-id="row-1180"]').parentElement;
+    return (
+      Number.parseFloat(last.parentElement.style.height) >= last.offsetTop + last.offsetHeight - 1
+    );
+  });
+  const afterTail = await tail.boundingBox();
+  const near = (a, b, label) => assert.ok(Math.abs(a - b) <= 1, `${label}: ${a} -> ${b}`);
+  near(beforeTail.y, afterTail.y, '尚未滚到底时，末行增高拉动了视口');
+  await scroll.press('End');
+  await page.waitForFunction(() => {
+    const viewport = document.querySelector('.message-scroll').getBoundingClientRect();
+    return (
+      document.querySelector('[data-message-id="row-1180"]').getBoundingClientRect().bottom <=
+      viewport.bottom
+    );
+  });
+
+  const gap = page.locator('[data-message-id="gap:1080:1084"]');
+  const positionRow = async (seq) => {
+    await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
+    await page.waitForFunction((id) => {
+      const viewport = document.querySelector('.message-scroll');
+      const rect = viewport.querySelector(`[data-message-id="${id}"]`)?.getBoundingClientRect();
+      return (
+        rect &&
+        Math.abs(
+          (rect.top + rect.bottom) / 2 -
+            viewport.getBoundingClientRect().top -
+            viewport.clientHeight / 2,
+        ) <= 1
+      );
+    }, `row-${seq}`);
+    await row(seq).evaluate((element) => {
+      const viewport = element.closest('.message-scroll');
+      viewport.scrollTop +=
+        element.getBoundingClientRect().top - viewport.getBoundingClientRect().top + 6;
+    });
+    await page.waitForFunction((id) => window.timelineTest.capture().anchorId === id, `row-${seq}`);
+    await settle();
+  };
+  await page.evaluate(() => window.timelineTest.makeGap());
+  await positionRow(1084);
+  const beforeGap = await row(1084).boundingBox();
+  await page.evaluate(() => window.timelineTest.closeGap());
+  await gap.waitFor({ state: 'detached' });
+  const afterGap = await row(1084).boundingBox();
+  near(beforeGap.y, afterGap.y, '缺口收起改变了阅读位置');
+  for (const reducedMotion of ['no-preference', 'reduce']) {
+    await page.emulateMedia({ reducedMotion });
+    await page.evaluate(() => window.timelineTest.makeGap());
+    await positionRow(1080);
+    await gap.waitFor();
+    const before = await row(1080).boundingBox();
+    const frames = await page.evaluate(() => {
+      const gap = document.querySelector('[data-message-id="gap:1080:1084"] button');
+      const visible = ['row-1081', 'row-1082', 'row-1083'];
+      return new Promise((resolve, reject) => {
+        const frames = [];
+        const deadline = performance.now() + 2000;
+        const sample = () => {
+          if (performance.now() > deadline) {
+            reject(new Error('缺口补回未完成'));
+            return;
+          }
+          const rows = visible.map((id) => document.querySelector(`[data-message-id="${id}"]`));
+          if (rows.every(Boolean)) {
+            frames.push(rows.map((element) => Number(getComputedStyle(element).opacity)));
+            if (frames.length > 1 && frames.at(-1).every((opacity) => opacity === 1)) {
+              resolve(frames);
+              return;
+            }
+          }
+          requestAnimationFrame(sample);
+        };
+        gap.click();
+        requestAnimationFrame(sample);
+      });
+    });
+    near(before.y, (await row(1080).boundingBox()).y, '补回缺口移动了在读消息');
+    if (reducedMotion === 'reduce')
+      assert.ok(frames.every((frame) => frame.every((opacity) => opacity === 1)));
+    else {
+      assert.ok(
+        frames[0].every((opacity) => opacity >= 0.75 && opacity < 1),
+        JSON.stringify(frames),
+      );
+      assert.ok(
+        frames
+          .slice(1, -1)
+          .some((frame) => frame.every((opacity, i) => opacity > frames[0][i] && opacity < 1)),
+        JSON.stringify(frames),
+      );
+    }
+    await row(1082).locator('button.qq-media-wrap').waitFor();
+    assert.match(await row(1083).textContent(), /合成系统消息/);
+  }
+  console.log(
+    JSON.stringify({ tailDrift: afterTail.y - beforeTail.y, gapDrift: afterGap.y - beforeGap.y }),
+  );
+}
+
+async function checkScroll(page) {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?count=25${fixtureFlags}`,
   );
@@ -536,8 +688,4 @@ try {
       JSON.stringify({ delayedImageHeight: after.image.height, backwardAnchorDrift: drift }),
     );
   }
-} finally {
-  await browser?.close();
-  await server.close();
-  await rm(cacheDir, { recursive: true, force: true });
 }

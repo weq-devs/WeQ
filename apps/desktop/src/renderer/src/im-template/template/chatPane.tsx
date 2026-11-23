@@ -6326,6 +6326,7 @@ function ChatPaneContent({
       >
         <ChatTimeline
           messages={visibleMessages}
+          gaps={timelineGaps}
           groupPositions={groupPositions}
           orderedIds={selectionOrder}
           scrollRef={messageScrollRef}

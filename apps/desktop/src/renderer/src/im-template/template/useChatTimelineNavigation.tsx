@@ -574,7 +574,11 @@ export function useChatTimelineNavigation({
     if (!readContextRef.current.tabActive || document.visibilityState === 'hidden') return;
     const scroll = messageScrollRef.current;
     if (!scroll) return;
-    const bottom = isScrolledToBottom();
+    const height = scroll.scrollHeight;
+    const viewportHeight = scroll.clientHeight;
+    const top = scroll.scrollTop;
+    const distanceFromBottom = height - viewportHeight - top;
+    const bottom = distanceFromBottom <= 2;
     const layout = bottomLayoutRef.current;
     const revision = timelineViewport(scroll)?.scrollRevision?.();
     // 原生布局锚定也会派发 scroll；高度已变且没有新手势时，不当作用户离开底部。
@@ -584,10 +588,10 @@ export function useChatTimelineNavigation({
       layout.height > 0 &&
       layout.viewportHeight > 0 &&
       layout.revision === revision &&
-      (layout.height !== scroll.scrollHeight || layout.viewportHeight !== scroll.clientHeight);
-    const delta = scroll.scrollTop - lastScrollTopRef.current;
-    lastScrollTopRef.current = scroll.scrollTop;
-    if (bottom && atLatest) setShowBottomJump(false);
+      (layout.height !== height || layout.viewportHeight !== viewportHeight);
+    const delta = top - lastScrollTopRef.current;
+    lastScrollTopRef.current = top;
+    if (distanceFromBottom <= 48 && atLatest) setShowBottomJump(false);
     else if (Math.abs(delta) > 1) setShowBottomJump(delta > 0);
     if (
       !bottomResized &&
@@ -597,8 +601,8 @@ export function useChatTimelineNavigation({
     }
     if (bottom && atLatest)
       bottomLayoutRef.current = {
-        height: scroll.scrollHeight,
-        viewportHeight: scroll.clientHeight,
+        height,
+        viewportHeight,
         revision,
       };
     if (bottom && readGestureUntil.current > performance.now()) requestReadAtBottom();

@@ -1,5 +1,6 @@
 import {
   timelineViewport,
+  TIMELINE_MESSAGE_SELECTOR,
   type ReadingRestoreOptions,
   type TimelineViewport,
 } from './timelineViewport';
@@ -33,9 +34,7 @@ export function captureReadingPosition(
 
 function captureMountedReadingPosition(scroll: HTMLElement): ConversationReadingPosition {
   const top = scroll.getBoundingClientRect().top;
-  const rows = scroll.querySelectorAll<HTMLElement>(
-    '.message-line[data-message-id], .weq-system-message-row[data-message-id]',
-  );
+  const rows = scroll.querySelectorAll<HTMLElement>(TIMELINE_MESSAGE_SELECTOR);
   let low = 0;
   let high = rows.length;
   while (low < high) {
@@ -64,11 +63,9 @@ export function restoreReadingPosition(
   )
     return;
   if (timelineViewport(scroll)?.restore(position, options)) return;
-  const anchor = Array.from(
-    scroll.querySelectorAll<HTMLElement>(
-      '.message-line[data-message-id], .weq-system-message-row[data-message-id]',
-    ),
-  ).find((row) => row.dataset.messageId === position.anchorId);
+  const anchor = Array.from(scroll.querySelectorAll<HTMLElement>(TIMELINE_MESSAGE_SELECTOR)).find(
+    (row) => row.dataset.messageId === position.anchorId,
+  );
   scroll.scrollTop = anchor
     ? scroll.scrollTop +
       (position.alignToEnd

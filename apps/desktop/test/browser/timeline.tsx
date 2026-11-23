@@ -33,6 +33,7 @@ const params = new URLSearchParams(location.search);
 const entryCount = Number(params.get('count') ?? 3000);
 const delayedEntry = params.has('delayed');
 const delayMedia = params.has('delay-media');
+const gapRecovery = params.has('gap-recovery');
 const unreadFrom = Number(params.get('unread-from'));
 const unreadDock =
   unreadFrom > 1000
@@ -142,6 +143,24 @@ const message = (seq: number): Message => ({
           ? touchReplyElements
           : undefined,
 });
+const gapMessages = () => [
+  message(1081),
+  {
+    ...message(1082),
+    qqElements: [
+      {
+        type: 'pic',
+        data: { fileName: 'gap.png', localPreviewUrl: avatar, imgWidth: 84, imgHeight: 84 },
+      },
+    ],
+  },
+  {
+    ...message(1083),
+    qqElements: [
+      { type: 'grayTipXml', data: { grayTipXmlContent: '<gtip><nor txt="合成系统消息"/></gtip>' } },
+    ],
+  },
+];
 const scroll = () => document.querySelector<HTMLElement>('.message-scroll')!;
 const bridge: Record<string, unknown> = {};
 let pendingRestore: ReturnType<typeof captureReadingPosition> | undefined;
@@ -168,6 +187,7 @@ function Fixture() {
   const [messages, setMessages] = useState(() =>
     Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) => message(i + 1001)),
   );
+  const [resolvedGapIds, setResolvedGapIds] = useState<Set<string>>();
   const pendingPrepend = useRef<ReturnType<typeof captureReadingPosition>>(undefined);
   useLayoutEffect(() => {
     const pending = pendingPrepend.current;
@@ -228,6 +248,13 @@ function Fixture() {
       setMessages((rows) => [...Array.from({ length: 50 }, (_, i) => message(951 + i)), ...rows]);
     },
     append: () => setMessages((rows) => [...rows, message(Number(rows.at(-1)!.msgSeq) + 1)]),
+    makeGap: () => {
+      setResolvedGapIds(undefined);
+      setMessages((rows) =>
+        rows.filter(({ msgSeq }) => !['1081', '1082', '1083'].includes(msgSeq!)),
+      );
+    },
+    closeGap: () => setResolvedGapIds(new Set(['gap:1080:1084'])),
     selectAll: () => {
       selection.setSelectionMode(true);
       selection.setSelectedIds(new Set(messages.map((row) => row.id)));
@@ -315,6 +342,14 @@ function Fixture() {
       user,
       conversation: { ...conversation, id: conversationId },
       messages,
+      resolvedGapIds,
+      onOpenGapMessages: gapRecovery
+        ? () =>
+            setMessages((rows) => {
+              const next = rows.findIndex(({ msgSeq }) => msgSeq === '1084');
+              return [...rows.slice(0, next), ...gapMessages(), ...rows.slice(next)];
+            })
+        : undefined,
       groupConsecutiveMessages: params.has('grouped'),
       unreadDock: unreadReady ? (unreadDock ?? null) : undefined,
       readThroughViewport: readProgress,

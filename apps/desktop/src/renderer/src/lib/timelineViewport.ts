@@ -1,5 +1,8 @@
 import type { ConversationReadingPosition } from './conversationReadingPosition';
 
+export const TIMELINE_MESSAGE_SELECTOR =
+  '.message-line[data-message-id], .weq-system-message-row[data-message-id]';
+
 export interface TimelineGeometry {
   id: string;
   top: number;
@@ -11,6 +14,8 @@ export interface ReadingRestoreOptions {
 
 export interface TimelineViewport {
   scrollRevision?(): number;
+  isUserScrolling?(): boolean;
+  measureRows?(rows: Iterable<HTMLDivElement>, anchor?: HTMLDivElement | null): void;
   cancelScroll?(): void;
   capture?(): ConversationReadingPosition | undefined;
   scrollTo(
