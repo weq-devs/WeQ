@@ -5,15 +5,28 @@ import {
   type QueryClient,
   type QueryKey,
 } from '@tanstack/react-query';
-import { recentMessageCacheTag } from './recentMessageCache';
+import {
+  legacyRecentMessageState,
+  recentMessageCacheTag,
+  recentMessageIndexTag,
+  recentMessageWindowTag,
+} from './recentMessageCache';
 import superjson from 'superjson';
 import { boundedBridgeRead, remoteCacheBridge, sharedAccountScope } from './remoteCacheBridge';
+import {
+  MESSAGE_SCOPE_PREFIX,
+  isMessageScope,
+  localBusinessCache,
+  type BusinessCacheStore,
+  type BusinessSnapshot,
+} from './webBusinessCacheStore';
 
-const MAX_PARTITIONS = 4;
+export type { BusinessCacheStore, BusinessSnapshot } from './webBusinessCacheStore';
+
 const MAX_ROWS = 10_000;
 const MAX_QUERIES = 160;
-const MESSAGE_SCOPE_PREFIX = 'messages:';
-const isMessageScope = (scope: string) => scope.startsWith(MESSAGE_SCOPE_PREFIX);
+const writerId = Math.random().toString(36).slice(2);
+let commitSequence = 0;
 function nativeScope(scope: string) {
   return isMessageScope(scope)
     ? {
@@ -75,79 +88,6 @@ export function configureBusinessCache(client: QueryClient): void {
 }
 
 export const resolvedProfilesKey = ['weq-business-resolved-profiles'] as const;
-export interface BusinessSnapshot {
-  scope: string;
-  savedAt: number;
-  state: DehydratedState;
-}
-export interface BusinessCacheStore {
-  get(scope: string): Promise<BusinessSnapshot | undefined>;
-  put(snapshot: BusinessSnapshot): Promise<void>;
-}
-
-let database: Promise<IDBDatabase> | undefined;
-function openDatabase(): Promise<IDBDatabase> {
-  if (!database) {
-    database = new Promise<IDBDatabase>((resolve, reject) => {
-      let failed = false;
-      const request = window.indexedDB.open('weq-business-cache', 1);
-      request.onupgradeneeded = () => {
-        request.result
-          .createObjectStore('snapshots', { keyPath: 'scope' })
-          .createIndex('savedAt', 'savedAt');
-      };
-      request.onsuccess = () => {
-        const db = request.result;
-        if (failed) {
-          db.close();
-          return;
-        }
-        db.onversionchange = () => {
-          db.close();
-          database = undefined;
-        };
-        resolve(db);
-      };
-      request.onerror = request.onblocked = () => {
-        failed = true;
-        reject(new Error('业务缓存不可用'));
-      };
-    }).catch((error) => {
-      database = undefined;
-      throw error;
-    });
-  }
-  return database;
-}
-
-const localBusinessCache: BusinessCacheStore = {
-  async get(scope) {
-    const db = await openDatabase();
-    return new Promise((resolve, reject) => {
-      const request = db.transaction('snapshots').objectStore('snapshots').get(scope);
-      request.onsuccess = () => resolve(request.result as BusinessSnapshot | undefined);
-      request.onerror = () => reject(new Error('业务缓存读取失败'));
-    });
-  },
-  async put(snapshot) {
-    const db = await openDatabase();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('snapshots', 'readwrite');
-      const store = tx.objectStore('snapshots');
-      store.put(snapshot);
-      const retained = { messages: 0, directory: 0 };
-      const cursor = store.index('savedAt').openCursor(null, 'prev');
-      cursor.onsuccess = () => {
-        if (!cursor.result) return;
-        const bucket = isMessageScope(String(cursor.result.primaryKey)) ? 'messages' : 'directory';
-        if (++retained[bucket] > MAX_PARTITIONS) cursor.result.delete();
-        cursor.result.continue();
-      };
-      tx.oncomplete = () => resolve();
-      tx.onabort = tx.onerror = () => reject(new Error('业务缓存保存失败'));
-    });
-  },
-};
 
 export const businessCacheStore: BusinessCacheStore = {
   async get(scope) {
@@ -176,11 +116,11 @@ export const businessCacheStore: BusinessCacheStore = {
     }
     return current;
   },
-  async put(snapshot) {
+  async put(snapshot, delta) {
     const bridge = remoteCacheBridge();
     const { account, kind } = nativeScope(snapshot.scope);
     await Promise.all([
-      localBusinessCache.put(snapshot),
+      localBusinessCache.put(snapshot, delta),
       bridge &&
         account &&
         Promise.resolve()
@@ -190,7 +130,12 @@ export const businessCacheStore: BusinessCacheStore = {
               kind,
               scope: account,
               savedAt: snapshot.savedAt,
-              payload: superjson.stringify({ ...snapshot, scope: account }),
+              payload: superjson.stringify({
+                ...snapshot,
+                scope: account,
+                state:
+                  kind === 'messages' ? legacyRecentMessageState(snapshot.state) : snapshot.state,
+              }),
             }),
           )
           .catch(() => undefined),
@@ -239,7 +184,7 @@ export async function restoreBusinessCache(
 }
 
 function boundedData(data: unknown): unknown {
-  if (Array.isArray(data)) return data.slice(0, MAX_ROWS);
+  if (Array.isArray(data)) return data.length > MAX_ROWS ? data.slice(0, MAX_ROWS) : data;
   if (data && typeof data === 'object' && 'pages' in data && Array.isArray(data.pages)) {
     let rows = 0;
     const pages = data.pages.filter((page: { items?: unknown[] }) => {
@@ -258,6 +203,22 @@ function boundedData(data: unknown): unknown {
   return data;
 }
 
+type SavedQuery = DehydratedState['queries'][number];
+function normalizedQuery(query: SavedQuery): SavedQuery {
+  return {
+    ...query,
+    state: {
+      ...query.state,
+      data: boundedData(query.state.data),
+      status: 'success',
+      fetchStatus: 'idle',
+      error: null,
+      fetchFailureCount: 0,
+      fetchFailureReason: null,
+    },
+  };
+}
+
 export function watchBusinessCache(
   client: QueryClient,
   scope: string,
@@ -272,20 +233,20 @@ export function watchBusinessCache(
 
 /** 正文和目录分开写盘，聊天更新不会重复拷贝整份联系人目录。 */
 function watchSnapshot(client: QueryClient, scope: string, store: BusinessCacheStore) {
-  const retained = new Map(
+  const retained = new Map<string, { source: SavedQuery; saved?: SavedQuery }>(
     dehydrate(client, {
       shouldDehydrateQuery: (query) =>
         persisted(query.queryKey, scope) && query.state.data !== undefined,
-    }).queries.map((query) => [query.queryHash, query]),
+    }).queries.map((query) => [query.queryHash, { source: query }]),
   );
   const trim = () => {
     while (retained.size > MAX_QUERIES) {
       // 先淘汰浏览记录，不让大量包详情或搜索挤掉联系人及表情主目录。
-      const victim = [...retained.values()].find((query) => {
+      const victim = [...retained.values()].find(({ source: query }) => {
         const path = query.queryKey[0];
         return Array.isArray(path) && browsedPaths.has(path.slice(1).join('.'));
       });
-      retained.delete(victim?.queryHash ?? retained.keys().next().value!);
+      retained.delete(victim?.source.queryHash ?? retained.keys().next().value!);
     }
   };
   trim();
@@ -293,28 +254,45 @@ function watchSnapshot(client: QueryClient, scope: string, store: BusinessCacheS
   let timer: ReturnType<typeof setTimeout> | undefined;
   let idle: number | undefined;
   let writing = Promise.resolve();
+  let base: string | undefined;
+  let savedAt = 0;
   const flush = () => {
     if (timer !== undefined) clearTimeout(timer);
     if (idle !== undefined) window.cancelIdleCallback(idle);
     timer = undefined;
     idle = undefined;
     if (dirty) {
-      const queries = [...retained.values()].slice(-MAX_QUERIES).map((query) => ({
-        ...query,
-        state: {
-          ...query.state,
-          data: boundedData(query.state.data),
-          status: 'success' as const,
-          fetchStatus: 'idle' as const,
-          error: null,
-          fetchFailureCount: 0,
-          fetchFailureReason: null,
-        },
-      }));
-      const snapshot = { scope, savedAt: Date.now(), state: { mutations: [], queries } };
+      if (isMessageScope(scope)) {
+        const index = [...retained.values()].find(
+          ({ source: query }) => query.queryKey[2] === recentMessageIndexTag,
+        );
+        if (Array.isArray(index?.source.state.data)) {
+          const windows = new Set(index.source.state.data);
+          for (const [hash, { source: query }] of retained) {
+            if (
+              query.queryKey.length === 2 ||
+              (query.queryKey[2] === recentMessageWindowTag && !windows.has(query.queryKey[3]))
+            )
+              retained.delete(hash);
+          }
+        }
+      }
+      const changed = new Set<string>();
+      const queries = [...retained.values()].map((item) => {
+        if (!item.saved) {
+          item.saved = normalizedQuery(item.source);
+          changed.add(item.source.queryHash);
+        }
+        return item.saved;
+      });
+      const revision = `${writerId}:${++commitSequence}`;
+      const delta = { base, revision, changed };
+      base = revision;
+      savedAt = Math.max(Date.now(), savedAt + 1);
+      const snapshot = { scope, savedAt, state: { mutations: [], queries } };
       dirty = false;
-      // 串行提交，避免慢事务覆盖更新的快照；失败不删除已有缓存。
-      writing = writing.then(() => store.put(snapshot)).catch(() => {});
+      // 只有上一版本已提交才可增量写入；事务失败或其他页面抢先写入时重建索引。
+      writing = writing.then(() => store.put(snapshot, delta)).catch(() => {});
     }
     return writing;
   };
@@ -326,13 +304,11 @@ function watchSnapshot(client: QueryClient, scope: string, store: BusinessCacheS
     )
       return;
     const { queryHash, queryKey, state } = event.query;
-    if (retained.get(queryHash)?.state.data === state.data) return;
-    // 成功事件只保存该查询的不可变状态；全量快照留到空闲写入，不随每次更新扫描。
+    if (retained.get(queryHash)?.source.state.data === state.data) return;
+    // 成功事件只保存该查询的状态，空闲时才裁剪、复制实际变动的查询。
     retained.delete(queryHash);
     retained.set(queryHash, {
-      queryHash,
-      queryKey,
-      state,
+      source: { queryHash, queryKey, state },
     });
     trim();
     dirty = true;

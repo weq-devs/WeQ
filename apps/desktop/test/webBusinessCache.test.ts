@@ -10,6 +10,7 @@ import {
   type BusinessSnapshot,
 } from '../src/renderer/src/lib/webBusinessCache';
 import {
+  legacyRecentMessageState,
   rememberRecentMessageCache,
   readRecentMessageCache,
 } from '../src/renderer/src/lib/recentMessageCache';
@@ -115,6 +116,54 @@ describe('Web 业务持久缓存', () => {
     ).toBeUndefined();
     first.clear();
     next.clear();
+  });
+  it('更新已打开的同一消息窗口只修改该记录，原生镜像仍能恢复旧格式', async () => {
+    const storage = memoryStore();
+    const writes = vi.spyOn(storage, 'put');
+    const client = new QueryClient();
+    const stop = watchBusinessCache(client, 'scope', storage);
+    const message = {
+      msgId: 'original',
+      msgSeq: '1',
+      senderUid: 'friend',
+      senderUin: '123',
+      sendTime: '1',
+      elements: [],
+    };
+    rememberRecentMessageCache(client, 'scope', 'group', '1', [message], false);
+    rememberRecentMessageCache(client, 'scope', 'group', '2', [message], false);
+    window.dispatchEvent(new Event('pagehide'));
+    await vi.waitFor(() => expect(writes).toHaveBeenCalledOnce());
+    rememberRecentMessageCache(
+      client,
+      'scope',
+      'group',
+      '2',
+      [{ ...message, msgId: 'updated' }],
+      false,
+    );
+    await stop();
+    const [snapshot, delta] = writes.mock.calls.at(-1)!;
+    expect(delta?.base).toBe(writes.mock.calls[0]?.[1]?.revision);
+    expect(delta?.changed.size).toBe(1);
+    expect(snapshot.state.queries).toHaveLength(3);
+
+    const legacy = legacyRecentMessageState(snapshot.state);
+    expect(legacy.queries).toHaveLength(1);
+    expect(legacy.queries[0]?.queryKey).toHaveLength(2);
+    await storage.put({ ...snapshot, state: legacy });
+    const restored = new QueryClient();
+    await restoreBusinessCache(restored, 'scope', storage);
+    expect(
+      readRecentMessageCache(restored, 'scope', conversationWindowKey('scope', 'group', '1'))
+        ?.rows[0]?.msgId,
+    ).toBe('original');
+    expect(
+      readRecentMessageCache(restored, 'scope', conversationWindowKey('scope', 'group', '2'))
+        ?.rows[0]?.msgId,
+    ).toBe('updated');
+    client.clear();
+    restored.clear();
   });
   it('重进恢复各来源表情、已浏览表情包及通知目录，不保存发送操作或实时权限', async () => {
     const storage = memoryStore();

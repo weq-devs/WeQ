@@ -15,9 +15,10 @@ const bundle = await build({
     contents: `
     import React from 'react';
     import { createRoot } from 'react-dom/client';
-    import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+    import { QueryClient, QueryClientProvider, useQuery, dehydrate } from '@tanstack/react-query';
     import { WebBusinessCache } from './src/renderer/src/components/WebBusinessCache';
-    import { configureBusinessCache, restoreBusinessCache, watchBusinessCache } from './src/renderer/src/lib/webBusinessCache';
+    import { configureBusinessCache, restoreBusinessCache } from './src/renderer/src/lib/webBusinessCache';
+    import { localBusinessCache } from './src/renderer/src/lib/webBusinessCacheStore';
     const key = name => [['account', name], {type:'query'}];
     const emojiKey = [['account','emojiPanel','overview'],{type:'query'}];
     let active;
@@ -31,11 +32,23 @@ const bundle = await build({
     window.fixture = {
       async seed(scope) {
         const client = new QueryClient();
-        const stop = watchBusinessCache(client, scope);
         client.setQueryData(key('listProfiles'), Array.from({length:8000},(_,i)=>({uid:'synthetic-'+i,remark:i?'name-'+i:'缓存备注'})), {updatedAt:1});
         client.setQueryData(key('listRecentContacts'), {items:[{preview:'缓存会话摘要'}]}, {updatedAt:1});
         client.setQueryData(emojiKey, {faces:[{label:'缓存系统表情',items:[{id:'synthetic-face'}]}],recent:[],favorites:[],tags:[]}, {updatedAt:1});
-        await stop(); client.clear();
+        // 写入版本 1 的真实对象库，重启后走正式升级路径。
+        await new Promise((resolve,reject) => {
+          const request = indexedDB.open('weq-business-cache', 1);
+          request.onupgradeneeded = () => request.result.createObjectStore('snapshots',{keyPath:'scope'}).createIndex('savedAt','savedAt');
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            const db = request.result;
+            const tx = db.transaction('snapshots','readwrite');
+            tx.objectStore('snapshots').put({scope,savedAt:1,state:dehydrate(client)});
+            tx.onabort = () => reject(tx.error);
+            tx.oncomplete = () => { db.close(); resolve(); };
+          };
+        });
+        client.clear();
       },
       mount(scope) {
         active = new QueryClient({defaultOptions:{queries:{refetchOnMount:false}}});
@@ -45,6 +58,46 @@ const bundle = await build({
       failRefresh() { for (const item of refresh.splice(0)) item.reject(new Error('synthetic offline')); },
       refreshCount() {return refresh.length},
       update() { active.removeQueries({queryKey:emojiKey}); active.setQueryData(key('listProfiles'), [{uid:'synthetic-0',remark:'订阅更新后的备注'}]); window.dispatchEvent(new Event('pagehide')); },
+      delta() {
+        const put = IDBObjectStore.prototype.put;
+        window.writtenQueries = [];
+        IDBObjectStore.prototype.put = function (value, ...args) {
+          if (this.name==='queries') window.writtenQueries.push(value.query.queryKey[0][1]);
+          return put.call(this,value,...args);
+        };
+        active.setQueryData(key('listRecentContacts'), {items:[{preview:'仅更新本查询'}]});
+        window.dispatchEvent(new Event('pagehide'));
+      },
+      async readContacts(scope) {
+        const snap = await localBusinessCache.get(scope);
+        return snap?.state.queries.find(({queryKey})=>queryKey[0][1]==='listRecentContacts')?.state.data;
+      },
+      async atomicWrites() {
+        const state = new QueryClient();
+        const scope = 'atomic';
+        state.setQueryData(key('listProfiles'), ['older']);
+        state.setQueryData(key('listRecentContacts'), ['stable']);
+        await localBusinessCache.put({scope,savedAt:1,state:dehydrate(state)}, {revision:'one',changed:new Set()});
+        state.setQueryData(key('listProfiles'), [() => null]);
+        let failed = false;
+        try {
+          const snapshot = dehydrate(state);
+          await localBusinessCache.put({scope,savedAt:2,state:snapshot}, {base:'one',revision:'two',changed:new Set(snapshot.queries.map(q=>q.queryHash))});
+        } catch { failed = true; }
+        const previous = await localBusinessCache.get(scope);
+        state.setQueryData(key('listProfiles'), ['newer']);
+        const snapshot = dehydrate(state);
+        // 上一事务未提交，增量版本失配时完整恢复。
+        await localBusinessCache.put({scope,savedAt:3,state:snapshot}, {base:'two',revision:'three',changed:new Set()});
+        const next = await localBusinessCache.get(scope);
+        await localBusinessCache.put({scope,savedAt:2,state:previous.state});
+        const late = await localBusinessCache.get(scope);
+        for (let i=0;i<4;i++)
+          await localBusinessCache.put({scope:scope+'-'+i,savedAt:4+i,state:snapshot});
+        const evicted = await localBusinessCache.get(scope);
+        state.clear();
+        return {failed, previous:previous?.state.queries[0].state.data, next:next?.state.queries.map(q=>q.state.data), late:late?.savedAt, evicted:!evicted};
+      },
       async read(scope) {const c=new QueryClient(); await restoreBusinessCache(c,scope); const result=c.getQueryData(key('listProfiles')); c.clear(); return result},
     };
   `,
@@ -52,8 +105,11 @@ const bundle = await build({
   bundle: true,
   write: false,
   format: 'iife',
+  jsx: 'automatic',
   platform: 'browser',
-  define: { 'process.env.NODE_ENV': '"production"' },
+  alias: { '@transport': resolve(root, 'test/support/transport.stub.ts') },
+  loader: { '.css': 'empty' },
+  define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env.VITE_WEQ_TARGET': '"web"' },
 });
 const script = bundle.outputFiles[0].text;
 const server = createServer((request, response) => {
@@ -116,6 +172,20 @@ try {
           (await window.fixture.read('computer-a/account-a/config-a'))?.[0]?.remark ===
           '订阅更新后的备注',
       );
+      await page.evaluate(() => window.fixture.delta());
+      await page.waitForFunction(
+        async () =>
+          (await window.fixture.readContacts('computer-a/account-a/config-a'))?.items?.[0]
+            ?.preview === '仅更新本查询',
+      );
+      assert.deepEqual(await page.evaluate(() => window.writtenQueries), ['listRecentContacts']);
+      assert.deepEqual(await page.evaluate(() => window.fixture.atomicWrites()), {
+        failed: true,
+        previous: ['older'],
+        next: [['newer'], ['stable']],
+        late: 3,
+        evicted: true,
+      });
       await page.reload();
       await page.evaluate(() => window.fixture.mount('computer-a/account-a/config-a'));
       await page.getByRole('heading', { name: '订阅更新后的备注', exact: true }).waitFor();
@@ -129,6 +199,9 @@ try {
           refreshFailureRetained: true,
           accountIsolation: true,
           subscriptionPersisted: true,
+          migratedVersionOne: true,
+          onlyChangedQueryWritten: true,
+          transactionLossRecovered: true,
           emojiRestartCache: true,
           emojiRetainedAfterMemoryRemoval: true,
         }),
