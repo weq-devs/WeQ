@@ -23,8 +23,32 @@
   justify-content: center;
   border-radius: 6px;
 }
+.selection-action[aria-busy='true']:has(> .weq-message-image-progress) {
+  opacity: 1;
+  cursor: progress;
+}
+:is(.chat-pane, .weq-forward-window) .selection-action > .weq-message-image-progress {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  position: relative;
+  color: var(--weq-fg-primary);
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.weq-message-image-progress::before {
+  position: absolute;
+  inset: 0;
+  border: 1px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 50%;
+  content: '';
+}
 @media (prefers-reduced-motion: no-preference) {
-  :is(.chat-pane, .weq-forward-window) .selection-action > .spin {
+  .weq-message-image-progress::before {
     animation: weq-spin 900ms linear infinite;
   }
 }

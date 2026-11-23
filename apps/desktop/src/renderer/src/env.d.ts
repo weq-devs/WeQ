@@ -58,7 +58,9 @@ interface Window {
     };
     capture: {
       window(): Promise<{ ok: boolean; error?: string }>;
-      messageImage(): Promise<import('../../shared/message_image').MessageImageResult>;
+      messageImage(
+        action: import('../../shared/message_image').MessageImageAction,
+      ): Promise<import('../../shared/message_image').MessageImageResult>;
     };
     /**
      * 通话视频上行（二进制 IPC）。

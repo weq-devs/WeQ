@@ -1,4 +1,4 @@
 import { createContext } from 'react';
 
-/** 长图单独挂载完整选区，任何一行都应该按可见状态准备静态素材。 */
+/** 长图批次内的消息都按可见状态准备静态素材。 */
 export const MessageImageContext = createContext(false);

@@ -1,6 +1,14 @@
 import type { ReactNode } from 'react';
 import '../styles/message-selection-toolbar.css';
 
+export function MessageImageProgress({ percent }: { percent: number }) {
+  return (
+    <span className="weq-message-image-progress" aria-hidden="true">
+      {percent}%
+    </span>
+  );
+}
+
 /** 会话、消息与资源共用多选计数和操作栏外壳，具体动作由宿主提供。 */
 export function MessageSelectionBar({
   count,

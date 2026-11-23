@@ -43,7 +43,7 @@ import { OverlayScrollbar } from '../../components/OverlayScrollbar';
 import { WindowedList } from '../../components/WindowedList';
 import { observeConversationPaging } from '../../lib/conversationPaging';
 import { isDataline } from '../../lib/deviceAvatar';
-import { MessageSelectionBar } from '../../components/MessageSelectionBar';
+import { MessageImageProgress, MessageSelectionBar } from '../../components/MessageSelectionBar';
 import { MessageHistoryClosingContext } from '../../components/MessageHistorySurface';
 import { useMediaSave } from '../../components/MediaSaveControls.shared';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
@@ -6220,10 +6220,10 @@ function ChatPaneContent({
         })
       : undefined;
     try {
-      await messageImage.copy(
-        source,
+      const incomplete = await messageImage.copy(source, picked.length, (start, end) => (
         <div className="weq-virtual-timeline">
-          {picked.map((message, index) => {
+          {picked.slice(start, end).map((message, batchIndex) => {
+            const index = start + batchIndex;
             const position = positions.get(message.id);
             const groupPosition =
               position === undefined ? fallbackGroups?.[index] : groupPositions?.[position];
@@ -6257,10 +6257,13 @@ function ChatPaneContent({
               </div>
             );
           })}
-        </div>,
-        picked.length,
-      );
-      pushToast({ tone: 'success', title: '已复制聊天长图' });
+        </div>
+      ));
+      pushToast({
+        tone: incomplete ? 'warning' : 'success',
+        title: '已复制聊天长图',
+        detail: incomplete ? '部分图片或装扮加载超时，使用了占位或默认样式。' : undefined,
+      });
     } catch (error) {
       pushToast({
         tone: 'error',
@@ -7227,15 +7230,27 @@ function ChatPaneContent({
               <button
                 type="button"
                 className="selection-action"
-                aria-label="复制"
-                title={messageImage.busy ? '正在生成聊天长图' : selectionBlockedReason || '复制'}
+                aria-label={
+                  messageImage.progress === null
+                    ? '复制'
+                    : `正在生成聊天长图 ${messageImage.progress}%`
+                }
+                title={
+                  messageImage.progress === null
+                    ? selectionBlockedReason || '复制'
+                    : `正在生成聊天长图 ${messageImage.progress}%`
+                }
                 aria-busy={messageImage.busy || undefined}
                 aria-haspopup="menu"
                 aria-expanded={selectionMenu?.kind === 'copy'}
                 disabled={messageImage.busy || Boolean(selectionBlockedReason) || !selectedIds.size}
                 onClick={(event) => openSelectionMenu('copy', event.currentTarget)}
               >
-                {messageImage.busy ? <Loader2 className="spin" size={17} /> : <Copy size={17} />}
+                {messageImage.progress === null ? (
+                  <Copy size={17} />
+                ) : (
+                  <MessageImageProgress percent={messageImage.progress} />
+                )}
               </button>
               {!restrictedSource ? (
                 <button

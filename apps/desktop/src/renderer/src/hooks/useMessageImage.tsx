@@ -5,6 +5,9 @@ import { MessageImageContext } from '../lib/messageImageContext';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { IS_ELECTRON } from '../lib/target.shared';
 
+const BATCH_SIZE = 24;
+const ROW_SELECTOR = '[data-weq-message-image-row]';
+
 export function messageImageAvailable() {
   return IS_ELECTRON && Boolean(window.weq?.capture?.messageImage);
 }
@@ -112,7 +115,7 @@ function keepBackdropScale(media: HTMLElement, pane: DOMRect, width: number, hei
   const scale = Math.max(pane.width / width, pane.height / height);
   Object.assign(media.style, {
     backgroundSize: `${width * scale}px ${height * scale}px`,
-    backgroundPosition: `center ${(pane.height - height * scale) / 2}px`,
+    backgroundPosition: `center calc(${(pane.height - height * scale) / 2}px - var(--weq-message-image-offset, 0px))`,
     backgroundRepeat: 'repeat-y',
   });
 }
@@ -148,9 +151,10 @@ function buildMessageSurface(source: HTMLElement, target: Document) {
     background: getComputedStyle(backgroundSource).background,
   });
   const backdrop = copyBackdrop(host, target, bounds, host.getBoundingClientRect());
+  const top = Math.max(0, Math.round(bounds.top));
   Object.assign(pane.style, {
     position: 'absolute',
-    top: `${Math.max(0, Math.round(bounds.top))}px`,
+    top: `${top}px`,
     left: `${Math.max(0, Math.round(bounds.left))}px`,
     width: `${bounds.width}px`,
     isolation: 'isolate',
@@ -184,9 +188,30 @@ function buildMessageSurface(source: HTMLElement, target: Document) {
   });
   pane.append(background);
   if (backdrop) pane.append(backdrop);
-  pane.append(rows);
+  const region = target.createElement('div');
+  Object.assign(region.style, {
+    position: 'absolute',
+    insetInline: '0',
+    pointerEvents: 'none',
+  });
+  pane.append(rows, region);
   parent.append(pane);
-  return { pane, rows };
+  return { pane, rows, region, top };
+}
+
+function messageSurfaceStatus(pane: HTMLElement) {
+  const target = pane.ownerDocument;
+  const images = Array.from(pane.querySelectorAll('img'));
+  for (const image of images) if (image.loading === 'lazy') image.loading = 'eager';
+  return {
+    rows: pane.querySelectorAll(ROW_SELECTOR).length,
+    pending: pane.querySelectorAll('[data-weq-message-image-pending]').length,
+    images: images.filter((image) => !image.complete).length,
+    styles: Array.from(target.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')).filter(
+      (link) => !link.disabled && !link.sheet,
+    ).length,
+    fonts: target.fonts.status !== 'loaded',
+  };
 }
 
 async function waitForMessageSurface(
@@ -215,36 +240,74 @@ async function waitForMessageSurface(
           // 由 CSS 声明的字体用镜像样式表在目标文档自行加载。
         }
       });
-      const images = Array.from(pane.querySelectorAll('img'));
-      for (const image of images) if (image.loading === 'lazy') image.loading = 'eager';
-      const count = pane.querySelectorAll('[data-weq-message-image-row]').length;
+      const { rows, pending, images, styles, fonts } = messageSurfaceStatus(pane);
       if (
-        count === expectedRows &&
-        !pane.querySelector('[data-weq-message-image-pending]') &&
-        images.every((image) => image.complete) &&
-        Array.from(target.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')).every(
-          (link) => link.sheet,
-        ) &&
-        target.fonts.status === 'loaded' &&
+        rows === expectedRows &&
+        !pending &&
+        !images &&
+        !styles &&
+        !fonts &&
         performance.now() - changed >= 280
       ) {
-        pane.setAttribute('data-weq-message-image-ready', '');
-        return;
+        return false;
       }
       await new Promise<void>((resolve) => setTimeout(resolve, 70));
     }
-    throw new Error('聊天画面未能完整加载，请稍后重试');
+    if (popup.closed) throw new Error('聊天长图窗口已关闭');
+    const status = messageSurfaceStatus(pane);
+    window.weq?.debugLog?.('warn', '聊天长图批次加载超时', {
+      scope: 'message-image',
+      event: 'batch-load-timeout',
+      expectedRows,
+      ...status,
+    });
+    if (status.rows !== expectedRows || status.styles)
+      throw new Error('聊天长图的消息或样式加载超时，请重试');
+    // 消息行已齐全时，保留图片占位和默认装扮，避免个别慢资源拦住整张图。
+    return Boolean(status.pending || status.images || status.fonts);
   } finally {
     observer.disconnect();
   }
 }
 
+function rowTop(row: Element) {
+  // 合并转发的时间分隔符直属列表，批次边界应落在它前面。
+  const previous = row.previousElementSibling;
+  const start = previous?.matches('.message-time-divider') ? previous : row;
+  return start.getBoundingClientRect().top;
+}
+
+function positionBatch(
+  surface: ReturnType<typeof buildMessageSurface>,
+  start: number,
+  end: number,
+  offset: number,
+) {
+  const { pane, rows, region, top } = surface;
+  const rendered = rows.querySelectorAll(ROW_SELECTOR);
+  const bounds = pane.getBoundingClientRect();
+  const from = start ? rowTop(rendered[start]!) - bounds.top : 0;
+  const to = end < rendered.length ? rowTop(rendered[end]!) - bounds.top : bounds.height;
+  const height = to - from;
+  // 前后各保留一条相邻消息，使用正常排版的间距和时间分隔；截图只取本批像素。
+  pane.style.top = `${top + offset - from}px`;
+  pane.style.setProperty('--weq-message-image-offset', `${offset - from}px`);
+  Object.assign(region.style, { top: `${from}px`, height: `${height}px` });
+  region.setAttribute('data-weq-message-image-ready', '');
+  return height;
+}
+
 export function useMessageImage() {
   const [capture, setCapture] = useState<{ target: HTMLElement; content: ReactNode } | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
   const popupRef = useRef<Window | null>(null);
   useEffect(() => () => popupRef.current?.close(), []);
 
-  async function copy(source: HTMLElement, content: ReactNode, count: number) {
+  async function copy(
+    source: HTMLElement,
+    count: number,
+    render: (start: number, end: number) => ReactNode,
+  ) {
     const bridge = window.weq?.capture;
     if (!bridge?.messageImage) throw new Error('当前窗口不支持复制聊天长图');
     if (popupRef.current) throw new Error('正在生成聊天长图');
@@ -254,6 +317,7 @@ export function useMessageImage() {
     const popup = sourceDocument.defaultView?.open('about:blank', name);
     if (!popup) throw new Error('无法打开聊天长图窗口');
     popupRef.current = popup;
+    setProgress(0);
     let stopStyles: (() => void) | undefined;
     try {
       const target = popup.document;
@@ -261,14 +325,40 @@ export function useMessageImage() {
       target.open();
       target.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
       target.close();
+      const prepared = await bridge.messageImage('prepare');
+      if (!prepared.ok) throw new Error(prepared.error);
       stopStyles = copyStyles(sourceDocument, target);
-      const { pane, rows } = buildMessageSurface(source, target);
-      flushSync(() => setCapture({ target: rows, content }));
-      await waitForMessageSurface(popup, sourceDocument, pane, count);
-      const result = await bridge.messageImage();
-      if (!result.ok) throw new Error(result.error);
-    } finally {
+      const surface = buildMessageSurface(source, target);
+      let offset = 0;
+      let incomplete = false;
+      for (let start = 0; start < count; start += BATCH_SIZE) {
+        const end = Math.min(start + BATCH_SIZE, count);
+        const renderStart = Math.max(0, start - 1);
+        const renderEnd = Math.min(end + 1, count);
+        const content = render(renderStart, renderEnd);
+        flushSync(() => setCapture({ target: surface.rows, content }));
+        const timedOut = await waitForMessageSurface(
+          popup,
+          sourceDocument,
+          surface.pane,
+          renderEnd - renderStart,
+        );
+        incomplete ||= timedOut;
+        offset += positionBatch(surface, start - renderStart, end - renderStart, offset);
+        const result = await bridge.messageImage('append');
+        if (!result.ok) throw new Error(result.error);
+        surface.region.removeAttribute('data-weq-message-image-ready');
+        setProgress(Math.min(99, Math.floor((100 * end) / count)));
+      }
       flushSync(() => setCapture(null));
+      const result = await bridge.messageImage('finish');
+      if (!result.ok) throw new Error(result.error);
+      return incomplete;
+    } finally {
+      flushSync(() => {
+        setCapture(null);
+        setProgress(null);
+      });
       stopStyles?.();
       popup.close();
       popupRef.current = null;
@@ -283,5 +373,5 @@ export function useMessageImage() {
         capture.target,
       )
     : null;
-  return { copy, portal, busy: Boolean(capture) };
+  return { copy, portal, progress, busy: progress !== null };
 }

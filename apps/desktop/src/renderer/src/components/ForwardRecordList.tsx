@@ -19,7 +19,6 @@ import {
   Forward,
   Image as ImageIcon,
   ListPlus,
-  Loader2,
   Share2,
   X,
 } from 'lucide-react';
@@ -62,7 +61,7 @@ import {
 } from '../lib/forwardRecordActions';
 import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
-import { MessageSelectionBar } from './MessageSelectionBar';
+import { MessageImageProgress, MessageSelectionBar } from './MessageSelectionBar';
 import { MessageSelectionMark } from './MessageSelectionMark';
 import { MessageMediaRevealAction } from './MessageMediaRevealAction';
 import { useMediaSave } from './MediaSaveControls.shared';
@@ -385,9 +384,8 @@ export function ForwardRecordList({
     const selection = picked();
     if (!source || !selection.length || messageImage.busy) return;
     try {
-      await messageImage.copy(
-        source,
-        selection.map((entry) => (
+      const incomplete = await messageImage.copy(source, selection.length, (start, end) =>
+        selection.slice(start, end).map((entry) => (
           <Fragment key={entry.id}>
             {entry.showTime ? <MessageTimeDivider value={entry.sendTimeMs} /> : null}
             <div
@@ -399,9 +397,12 @@ export function ForwardRecordList({
             </div>
           </Fragment>
         )),
-        selection.length,
       );
-      pushToast({ tone: 'success', title: '已复制聊天长图' });
+      pushToast({
+        tone: incomplete ? 'warning' : 'success',
+        title: '已复制聊天长图',
+        detail: incomplete ? '部分图片或装扮加载超时，使用了占位或默认样式。' : undefined,
+      });
     } catch (cause) {
       error('复制为图片失败', cause);
     }
@@ -643,14 +644,19 @@ export function ForwardRecordList({
             <Share2 size={17} />
           </SelectionAction>
           <SelectionAction
-            label="复制"
+            label={
+              messageImage.progress === null ? '复制' : `正在生成聊天长图 ${messageImage.progress}%`
+            }
             menu
             busy={messageImage.busy}
-            reason={messageImage.busy ? '正在生成聊天长图' : undefined}
             disabled={!ids.size || messageImage.busy}
             run={(button) => openTools('copy', button)}
           >
-            {messageImage.busy ? <Loader2 className="spin" size={17} /> : <Copy size={17} />}
+            {messageImage.progress === null ? (
+              <Copy size={17} />
+            ) : (
+              <MessageImageProgress percent={messageImage.progress} />
+            )}
           </SelectionAction>
           <SelectionAction label="退出多选" run={exit}>
             <X size={17} />
