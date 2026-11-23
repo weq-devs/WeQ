@@ -23,6 +23,11 @@
   justify-content: center;
   border-radius: 6px;
 }
+@media (prefers-reduced-motion: no-preference) {
+  :is(.chat-pane, .weq-forward-window) .selection-action > .spin {
+    animation: weq-spin 900ms linear infinite;
+  }
+}
 @media (max-width: 480px) {
   :is(.chat-pane, .weq-forward-window) .selection-bar-label {
     display: none;
