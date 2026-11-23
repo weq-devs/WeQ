@@ -180,31 +180,35 @@ export function useQQWriteSession(scope: string, passive = false) {
               binding,
               target: { kind: 'profile', uid: options.profileUid },
             });
-          if (options?.groupCode && options.memberUid)
+          const groupCode = options?.groupCode;
+          const memberUid = options?.memberUid;
+          if (groupCode && memberUid)
             await publishQQPeerUpdate({
               binding,
-              target: { kind: 'member', groupCode: options.groupCode, uid: options.memberUid },
+              target: { kind: 'member', groupCode, uid: memberUid },
             });
           await Promise.all([
             options?.readback ? refresh?.() : undefined,
-            utils.account.listRecentContacts.invalidate(),
-            utils.account.listTopContacts.invalidate(),
-            utils.account.listBuddies.invalidate(),
-            utils.account.getSelfProfile.invalidate(),
-            utils.account.getOnlineStatus.invalidate(),
-            utils.account.getProfile.invalidate(),
-            utils.account.getProfilesByUids.invalidate(),
-            utils.account.listAllGroups.invalidate(),
-            utils.account.getGroupDetail.invalidate(),
-            ...(options?.groupCode
+            ...(groupCode && memberUid
+              ? []
+              : [
+                  utils.account.listRecentContacts.invalidate(),
+                  utils.account.listTopContacts.invalidate(),
+                  utils.account.listBuddies.invalidate(),
+                  utils.account.getSelfProfile.invalidate(),
+                  utils.account.getOnlineStatus.invalidate(),
+                  utils.account.getProfile.invalidate(),
+                  utils.account.getProfilesByUids.invalidate(),
+                  utils.account.listAllGroups.invalidate(),
+                ]),
+            utils.account.getGroupDetail.invalidate(groupCode ? { groupCode } : undefined),
+            ...(groupCode
               ? [
-                  utils.account.listGroupMembers.invalidate({ groupCode: options.groupCode }),
-                  utils.account.listGroupMembersByLevel.invalidate({
-                    groupCode: options.groupCode,
-                  }),
-                  utils.account.getGroupMembersByUids.invalidate({ groupCode: options.groupCode }),
-                  utils.account.getGroupMembersByUins.invalidate({ groupCode: options.groupCode }),
-                  utils.account.searchGroupMembers.invalidate({ groupCode: options.groupCode }),
+                  utils.account.listGroupMembers.invalidate({ groupCode }),
+                  utils.account.listGroupMembersByLevel.invalidate({ groupCode }),
+                  utils.account.getGroupMembersByUids.invalidate({ groupCode }),
+                  utils.account.getGroupMembersByUins.invalidate({ groupCode }),
+                  utils.account.searchGroupMembers.invalidate({ groupCode }),
                 ]
               : []),
           ]);

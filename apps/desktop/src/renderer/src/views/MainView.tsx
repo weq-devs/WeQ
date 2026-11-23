@@ -294,7 +294,7 @@ import {
   createGroupMemberLookup,
   groupMemberPagesKey,
   groupMemberPagesOptions,
-  refreshGroupMemberPages,
+  groupInfoQueries,
 } from '../lib/groupMemberRefresh';
 import { GrayTipNamesContext } from '../lib/grayTipProfile';
 import { useDressSkin } from '../hooks/useDressSkin';
@@ -956,11 +956,8 @@ function MainWorkspace(): ReactElement {
     [recentContactsData],
   );
   const profileContactRows = useMemo(
-    () =>
-      IS_WEB
-        ? selectProfileContacts(recentContactsByUid, visibleConversationIds)
-        : recentContactsData,
-    [recentContactsByUid, recentContactsData, visibleConversationIds],
+    () => selectProfileContacts(recentContactsByUid, visibleConversationIds),
+    [recentContactsByUid, visibleConversationIds],
   );
   const directoryPage = { limit: 2000 };
   const allGroups = useConditionalDirectory(
@@ -2616,7 +2613,11 @@ function MainWorkspace(): ReactElement {
   );
   // 分页更新时为历史发言人保留名片快照，不将已退群成员重新加入当前名单。
   const [senderMemberPages, setSenderMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
-  const [groupInfoRevision, setGroupInfoRevision] = useState(0);
+  const [groupInfoRevisions, setGroupInfoRevisions] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
+  const [groupFileRevision, setGroupFileRevision] = useState(0);
+  const [groupPreviewRevision, setGroupPreviewRevision] = useState(0);
   // Off-page message senders resolved on demand (groupCode → uid → member),
   // batched + deduped by useGroupMemberResolver. Kept separate from the global
   // profile cache because a group card is a (group × uid) thing, not a profile.
@@ -4190,39 +4191,83 @@ function MainWorkspace(): ReactElement {
     }));
   }, [isGroup, selectedUid, selectedGroupMemberWires]);
 
+  const groupInfoRevision = groupFileRevision + (groupInfoRevisions.get(selectedUid) ?? 0);
+  const deletedGroup =
+    deletedConv?.type === 'group' ? deletedConv.group.identityValue || deletedConv.id : '';
+  const recalledGroup =
+    recalledConv?.type === 'group' ? recalledConv.group.identityValue || recalledConv.id : '';
+  const deletedGroupRevision = groupFileRevision + (groupInfoRevisions.get(deletedGroup) ?? 0);
+  const recalledGroupRevision = groupFileRevision + (groupInfoRevisions.get(recalledGroup) ?? 0);
+  const groupRefreshTargets = useStableCallback(() => ({
+    chatGroups: [messagesTabActive && isGroup ? selectedUid : '', deletedGroup, recalledGroup],
+    visibleConversationIds,
+  }));
   useEffect(() => {
     const binding = messageBindingRef.current;
     if (!messageScope || !binding) return;
+    const queries = groupInfoQueries(queryClient, messageScope, binding);
+    const changedGroups = new Set<string>();
+    let fileChanged = false;
+    let directoryChanged = false;
+    const reconcile = createUnreadRefresh(async () => {
+      if (messageScopeRef.current !== messageScope) return true;
+      if (directoryChanged) {
+        directoryChanged = false;
+        groupMemberLookup.invalidate();
+        invalidateCachedMembers();
+        invalidatePreviewMembers();
+        setGroupFileRevision((revision) => revision + 1);
+        setGroupPreviewRevision((revision) => revision + 1);
+        await queries.staleInactive();
+      }
+      await utils.account.listAllGroups.invalidate();
+      return true;
+    }, GROUP_MEMBER_PREVIEW_REFRESH_MS);
     const refresh = createUnreadRefresh(async () => {
       if (messageScopeRef.current !== messageScope) return true;
-      groupMemberLookup.invalidate();
-      invalidateCachedMembers();
-      invalidatePreviewMembers();
-      setGroupInfoRevision((revision) => revision + 1);
-      await Promise.all([
-        refreshGroupMemberPages(queryClient, messageScope),
-        queryClient.invalidateQueries({
-          queryKey: [
-            'group-card-member-list',
-            `${binding.expectedAccountUin}:${binding.expectedAccountConfigId}`,
-          ],
-        }),
-        utils.account.getGroupDetail.invalidate(),
-        utils.account.getGroupExt.invalidate(),
-        utils.account.getGroupMemberLevelInfo.invalidate(),
-        utils.account.listGroupLeftMembers.invalidate(),
-        utils.account.listGroupMembersByLevel.invalidate(),
-        utils.account.groupMemberPreview.invalidate(),
-        utils.account.qqWrite.memberDetails.invalidate(),
-        utils.account.qqWrite.memberState.invalidate(),
-        utils.account.qqActions.groupPermissions.invalidate(),
-        utils.account.listAllGroups.invalidate(),
-      ]);
+      const { chatGroups, visibleConversationIds } = groupRefreshTargets();
+      const groups = new Set(changedGroups);
+      changedGroups.clear();
+      if (fileChanged) {
+        for (const group of queries.activeGroups()) groups.add(group);
+        for (const group of chatGroups) if (group) groups.add(group);
+        fileChanged = false;
+      }
+      if (!groups.size) return true;
+      for (const group of groups) {
+        groupMemberLookup.invalidate(group);
+        invalidateCachedMembers(group);
+        invalidatePreviewMembers(group);
+      }
+      const changedChats = chatGroups.filter((group) => groups.has(group));
+      if (changedChats.length) {
+        setGroupInfoRevisions((current) => {
+          const next = new Map(current);
+          for (const group of new Set(changedChats)) {
+            next.delete(group);
+            next.set(group, (current.get(group) ?? 0) + 1);
+          }
+          while (next.size > 256) next.delete(next.keys().next().value!);
+          return next;
+        });
+      }
+      if (visibleConversationIds.some((group) => groups.has(group)))
+        setGroupPreviewRevision((revision) => revision + 1);
+      await queries.refresh(groups);
       return true;
     }, 1000);
     const sub = client.account.onGroupInfoChanged.subscribe(binding, {
-      onData() {
-        if (messageScopeRef.current === messageScope) refresh.request();
+      onData(change) {
+        if (messageScopeRef.current !== messageScope) return;
+        if (change.groupCode) {
+          changedGroups.add(change.groupCode);
+        } else {
+          // QQ 文件事件缺少群号，优先校准打开的群，目录与未打开群留到低频对账。
+          fileChanged = true;
+          directoryChanged = true;
+        }
+        refresh.request();
+        reconcile.request();
       },
       onError(error) {
         console.error('[group-members] 群资料变更订阅失败', error);
@@ -4230,6 +4275,7 @@ function MainWorkspace(): ReactElement {
     });
     return () => {
       refresh.dispose();
+      reconcile.dispose();
       sub.unsubscribe();
     };
   }, [
@@ -4239,6 +4285,7 @@ function MainWorkspace(): ReactElement {
     invalidateCachedMembers,
     invalidatePreviewMembers,
     groupMemberLookup,
+    groupRefreshTargets,
     messageBindingRef,
     messageScopeRef,
   ]);
@@ -4510,12 +4557,13 @@ function MainWorkspace(): ReactElement {
     recalledWires,
     selectedUid,
     selectedGroupMemberWires,
-    groupInfoRevision,
+    deletedGroupRevision,
+    recalledGroupRevision,
     resolveMembers,
     resolveProfiles,
   ]);
 
-  // Web 只补当前可见行；完整资料目录另行分批读取，不扫描所有会话的预览发送者。
+  // 桌面与 Web 都只补可见行；完整资料目录另行分批读取。
   useEffect(() => {
     let disposed = false;
     let cancel: (() => void) | undefined;
@@ -4540,7 +4588,7 @@ function MainWorkspace(): ReactElement {
       disposed = true;
       cancel?.();
     };
-  }, [profileContactRows, groupInfoRevision, resolvePreviewMembers, resolveProfiles]);
+  }, [profileContactRows, groupPreviewRevision, resolvePreviewMembers, resolveProfiles]);
 
   useEffect(() => {
     const binding = messageBindingRef.current;

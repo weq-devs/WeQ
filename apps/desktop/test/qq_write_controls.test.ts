@@ -737,6 +737,8 @@ describe('QQ 写操作账号与生命周期', () => {
         profileUid: 'u_peer',
         readback: async () => true,
       });
+      mocked.invalidate.mockClear();
+      mocked.invalidateStatus.mockClear();
       await f.session().run(async () => ({ state: 'accepted' }), undefined, {
         groupCode: '123',
         memberUid: 'u_peer',
@@ -752,6 +754,8 @@ describe('QQ 写操作账号与生命周期', () => {
       binding,
       target: { kind: 'member', groupCode: '123', uid: 'u_peer' },
     });
+    expect(mocked.invalidate.mock.calls).toEqual([[{ groupCode: '123' }]]);
+    expect(mocked.invalidateStatus).not.toHaveBeenCalled();
   });
   it.each([true, false])('延后读回有上限，不重复写入；最终同步：%s', async (synced) => {
     vi.useFakeTimers();

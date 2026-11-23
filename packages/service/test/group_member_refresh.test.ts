@@ -170,7 +170,7 @@ it('管理员变更后用新名单同步列表、搜索和名片，保留本地�
   page.mockResolvedValue({ members: [member], token: '' });
   await service.syncMemberRoles(1, true);
   expect((await service.getMemberInfo(1n, member.uid))?.adminFlag).toBe(0);
-  expect(changed).toHaveBeenCalledTimes(3);
+  expect(changed.mock.calls).toEqual([[1], [1], [1]]);
 });
 
 it('设撤管理员后的回读不复用操作前在途的名单', async () => {

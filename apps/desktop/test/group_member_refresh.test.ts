@@ -3,9 +3,11 @@ import { expect, it, vi } from 'vitest';
 import {
   activeGroupMembers,
   createGroupMemberLookup,
+  groupInfoQueries,
   groupMemberPagesOptions,
-  refreshGroupMemberPages,
 } from '../src/renderer/src/lib/groupMemberRefresh';
+
+const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'live' };
 
 it('群资料变化时保留已显示的所有页，后台校准完成后一次更新', async () => {
   const client = new QueryClient();
@@ -16,6 +18,8 @@ it('群资料变化时保留已显示的所有页，后台校准完成后一次�
   let latestFirst = first;
   const load = vi.fn(async (offset: number) => (offset === 0 ? latestFirst : ['u_last']));
   const observer = new InfiniteQueryObserver(client, groupMemberPagesOptions('a', '123', load));
+  const refreshQueries = groupInfoQueries(client, 'a', binding);
+  const targets = new Set(['123']);
   const stop = observer.subscribe(() => {});
   try {
     await observer.refetch();
@@ -28,7 +32,7 @@ it('群资料变化时保留已显示的所有页，后台校准完成后一次�
           markStarted();
         }),
     );
-    const refresh = refreshGroupMemberPages(client, 'a');
+    const refresh = refreshQueries.refresh(targets);
     await started;
     expect(observer.getCurrentResult()).toMatchObject({
       isFetching: true,
@@ -50,12 +54,12 @@ it('群资料变化时保留已显示的所有页，后台校准完成后一次�
       [120, 120],
     ]);
     const updated = observer.getCurrentResult().data;
-    await refreshGroupMemberPages(client, 'a');
+    await refreshQueries.refresh(targets);
     expect(observer.getCurrentResult().data).toBe(updated);
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     load.mockRejectedValueOnce(new Error('群资料暂不可读'));
     try {
-      await refreshGroupMemberPages(client, 'a');
+      await refreshQueries.refresh(targets);
     } finally {
       error.mockRestore();
     }
@@ -87,6 +91,7 @@ it('变更时作废在途旧分页，不刷新其他账号或未打开的群', a
   );
   const stop = observer.subscribe(() => {});
   const stopOther = otherObserver.subscribe(() => {});
+  const refreshQueries = groupInfoQueries(client, 'a', binding);
   try {
     await Promise.all([
       observer.refetch(),
@@ -96,7 +101,8 @@ it('变更时作废在途旧分页，不刷新其他账号或未打开的群', a
     inactive.mockImplementationOnce(() => new Promise((resolve) => (releaseInactive = resolve)));
     const inactiveFlight = client.prefetchInfiniteQuery({ ...inactiveOptions, staleTime: 0 });
     const next = observer.fetchNextPage();
-    await refreshGroupMemberPages(client, 'a');
+    await refreshQueries.refresh(new Set(['123']));
+    await refreshQueries.staleInactive();
     release(['u_old']);
     releaseInactive(['u_late']);
     await Promise.all([next, inactiveFlight]);
@@ -115,6 +121,49 @@ it('变更时作废在途旧分页，不刷新其他账号或未打开的群', a
   } finally {
     stop();
     stopOther();
+    client.clear();
+  }
+});
+
+it('定向通知只刷新同数据源且群号一致的活动查询，未知事件才读取已打开群', async () => {
+  const client = new QueryClient();
+  const refreshQueries = groupInfoQueries(client, 'a', binding);
+  const options = [
+    { queryKey: ['chat-group-members', 'a', '123'], queryFn: vi.fn(async () => ['chat']) },
+    {
+      queryKey: ['group-card-member-list', '10001:live', '456', ''],
+      queryFn: vi.fn(async () => ['card']),
+    },
+    {
+      queryKey: [['account', 'qqWrite', 'memberState'], { input: { ...binding, groupId: 456 } }],
+      queryFn: vi.fn(async () => ['member']),
+    },
+    {
+      queryKey: [
+        ['account', 'getGroupDetail'],
+        { input: { ...binding, expectedAccountConfigId: 'backup', groupCode: '456' } },
+      ],
+      queryFn: vi.fn(async () => ['backup']),
+    },
+    {
+      queryKey: [['account', 'listAllGroups'], { input: {} }],
+      queryFn: vi.fn(async () => ['directory']),
+    },
+  ];
+  const observers = options.map((entry) => new InfiniteQueryObserver(client, entry));
+  const readCounts = () => options.map(({ queryFn }) => queryFn.mock.calls.length);
+  const subscriptions = observers.map((observer) => observer.subscribe(() => {}));
+  try {
+    await Promise.all(observers.map((observer) => observer.refetch()));
+    const before = observers.map((observer) => observer.getCurrentResult().data);
+    expect(refreshQueries.activeGroups()).toEqual(new Set(['123', '456']));
+    await refreshQueries.refresh(new Set(['456']));
+    expect(readCounts()).toEqual([1, 2, 2, 1, 1]);
+    expect(observers[0]!.getCurrentResult().data).toBe(before[0]);
+    await refreshQueries.refresh(refreshQueries.activeGroups());
+    expect(readCounts()).toEqual([2, 3, 3, 1, 1]);
+  } finally {
+    for (const unsubscribe of subscriptions) unsubscribe();
     client.clear();
   }
 });

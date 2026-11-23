@@ -24,7 +24,6 @@ interface MemberJob {
   groupCode: string;
   uids: string[];
   captured: Map<string, number>;
-  generation: number;
   isCurrent: () => boolean;
   attempted: Set<string>;
   dueAt?: number;
@@ -47,7 +46,7 @@ export interface GroupMemberResolver<T> {
   ) => void;
   updateMembers: (groupCode: string, members: readonly T[]) => void;
   /** 合并旧排队任务并使查询记录失效；保留展示资料及预览刷新间隔。 */
-  invalidate: () => void;
+  invalidate: (groupCode?: string) => void;
 }
 
 export function useGroupMemberResolver<T extends { uid: string }>(
@@ -59,7 +58,6 @@ export function useGroupMemberResolver<T extends { uid: string }>(
   // / 禁言对象），避免每次渲染重复请求。用 ref 以便在同一轮内即时去重。
   const attemptedRef = useRef<Record<string, Set<string>>>({});
   const versions = useRef(new Map<string, number>());
-  const generation = useRef(0);
   const jobs = useRef<MemberJob[]>([]);
   const running = useRef(false);
   const mounted = useRef(true);
@@ -70,13 +68,20 @@ export function useGroupMemberResolver<T extends { uid: string }>(
     if (timer.current !== undefined) clearTimeout(timer.current);
     timer.current = undefined;
   }, []);
-  const invalidate = useCallback(() => {
-    generation.current++;
-    attemptedRef.current = {};
-    versions.current.clear();
-    jobs.current = [];
-    cancelTimer();
-  }, [cancelTimer]);
+  const invalidate = useCallback(
+    (groupCode?: string) => {
+      if (groupCode !== undefined) {
+        delete attemptedRef.current[groupCode];
+        jobs.current = jobs.current.filter((job) => job.groupCode !== groupCode);
+        return;
+      }
+      attemptedRef.current = {};
+      versions.current.clear();
+      jobs.current = [];
+      cancelTimer();
+    },
+    [cancelTimer],
+  );
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -145,7 +150,7 @@ export function useGroupMemberResolver<T extends { uid: string }>(
         const members = await (lookup
           ? lookup(input)
           : client.account.getGroupMembersByUids.query(input));
-        if (!mounted.current || job.generation !== generation.current) return;
+        if (!mounted.current || attemptedRef.current[job.groupCode] !== job.attempted) return;
         if (!job.isCurrent()) {
           for (const uid of job.uids) job.attempted.delete(uid);
           return;
@@ -154,7 +159,7 @@ export function useGroupMemberResolver<T extends { uid: string }>(
         for (const uid of job.uids) lastRead.current.set(`${job.groupCode}:${uid}`, Date.now());
         if (members.length > 0) {
           setMissingMembers((prev) => {
-            if (job.generation !== generation.current) return prev;
+            if (attemptedRef.current[job.groupCode] !== job.attempted) return prev;
             const current = prev[job.groupCode] ?? {};
             const groupCache = reconcileResolvedRows(
               current,
@@ -167,7 +172,7 @@ export function useGroupMemberResolver<T extends { uid: string }>(
           });
         }
       } catch (err) {
-        if (!mounted.current || job.generation !== generation.current) return;
+        if (!mounted.current || attemptedRef.current[job.groupCode] !== job.attempted) return;
         console.error('[group-members] getGroupMembersByUids failed', err);
         for (const uid of job.uids) job.attempted.delete(uid);
       } finally {
@@ -205,7 +210,6 @@ export function useGroupMemberResolver<T extends { uid: string }>(
           groupCode,
           uids: missing.slice(i, i + CHUNK),
           captured,
-          generation: generation.current,
           isCurrent,
           attempted,
         });

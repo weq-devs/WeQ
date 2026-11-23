@@ -230,6 +230,35 @@ it('切走时丢弃的查询允许切回后重试', async () => {
   expect(resolver.missingMembers['123'].u_peer.card).toBe('群名片');
 });
 
+it('定向失效只重读目标群，已排队的其他群按原顺序回填', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const finishes: Array<(members: Member[]) => void> = [];
+  mock.query.mockReset().mockImplementation(() => new Promise((resolve) => finishes.push(resolve)));
+  let resolver!: GroupMemberResolver<Member>;
+  const root = createRoot(document.createElement('div'));
+  function Probe() {
+    resolver = useGroupMemberResolver<Member>();
+    return null;
+  }
+  act(() => root.render(h(Probe)));
+  cleanups.push(() => act(() => root.unmount()));
+  const load = (group: string) => resolver.resolveMembers(group, ['u_peer'], new Set(), () => true);
+  act(() => {
+    load('123');
+    load('456');
+    resolver.invalidate('123');
+    load('123');
+  });
+  await act(async () => finishes[0]([{ uid: 'u_peer', card: '旧资料' }]));
+  expect(resolver.missingMembers['123']).toBeUndefined();
+  await act(async () => finishes[1]([{ uid: 'u_peer', card: '乙群' }]));
+  await act(async () => finishes[2]([{ uid: 'u_peer', card: '新资料' }]));
+  act(() => load('456'));
+  expect(mock.query.mock.calls.map(([input]) => input.groupCode)).toEqual(['123', '456', '123']);
+  expect(resolver.missingMembers['456'].u_peer.card).toBe('乙群');
+  expect(resolver.missingMembers['123'].u_peer.card).toBe('新资料');
+});
+
 it('预览缓存失效合并到刷新间隔，新发言人不等旧缓存冷却，末次通知不会丢失', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.useFakeTimers();

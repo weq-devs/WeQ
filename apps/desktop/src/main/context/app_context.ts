@@ -1911,8 +1911,9 @@ export function initAppContext(fileRoot?: string): AppContext {
       groupInfo.setOperationGuard(() => {
         if (this.account !== session) throw new Error('账号或数据源已切换，请重新操作');
       });
-      groupInfo.onMemberRolesChanged = () => {
-        if (this.account === session) dbEventBus.emit('group-info-changed', { at: Date.now() });
+      groupInfo.onMemberRolesChanged = (groupId) => {
+        if (this.account === session)
+          dbEventBus.emit('group-info-changed', { at: Date.now(), groupCode: String(groupId) });
       };
       const profile = new ProfileService(session, {
         nt: platform.native.ntHelper,

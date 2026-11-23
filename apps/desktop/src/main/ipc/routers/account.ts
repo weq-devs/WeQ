@@ -237,6 +237,7 @@ import {
   type RenderGroupMsg,
   type MessagePageOptions,
 } from '@weq/service';
+import type { GroupInfoChange } from '../../group_info_watch';
 import {
   buddyRequestToWire,
   botProfileToWire,
@@ -6275,9 +6276,9 @@ export const accountRouter = router({
       input.expectedAccountUin,
       input.expectedAccountConfigId,
     );
-    return observable<{ at: number }>((emit) => {
-      const handler = (change: Pick<DbChange, 'at'>): void => {
-        if (getAppContext().services === services) emit.next({ at: change.at });
+    return observable<GroupInfoChange>((emit) => {
+      const handler = ({ at, groupCode }: GroupInfoChange): void => {
+        if (getAppContext().services === services) emit.next({ at, groupCode });
       };
       dbEventBus.on('group-info-changed', handler);
       return () => dbEventBus.off('group-info-changed', handler);

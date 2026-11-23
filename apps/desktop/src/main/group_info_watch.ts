@@ -1,5 +1,10 @@
 import type { DbWatchService, DbChange } from '@weq/service';
 
+export interface GroupInfoChange {
+  at: number;
+  groupCode?: string;
+}
+
 /** 群资料变化独立通知，不触发消息窗口重读或新消息提示。 */
 export function mountGroupInfoWatch(
   watcher: Pick<DbWatchService, 'mount'>,

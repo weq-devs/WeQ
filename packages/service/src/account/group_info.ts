@@ -366,7 +366,7 @@ export class GroupInfoService {
   private readonly groupProfiles: GroupProfileReader;
   contactMetrics?: ContactMetricsService;
   contactMembersObserved?: (groupId: number, members: GroupMemberListItem[]) => Promise<void>;
-  onMemberRolesChanged?: () => void;
+  onMemberRolesChanged?: (groupId: number) => void;
 
   contactMembershipSnapshot(friendUids: string[]) {
     return this.session.groupMembers.contactMembershipSnapshot(friendUids);
@@ -650,7 +650,7 @@ export class GroupInfoService {
         return old?.uin !== member.uin || old.permission !== member.permission;
       })
     )
-      this.onMemberRolesChanged?.();
+      this.onMemberRolesChanged?.(groupId);
     return result.members;
   }
 
