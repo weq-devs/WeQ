@@ -66,6 +66,7 @@ export function installDevelopmentReloadNotice(
     else if (state.toastId !== undefined) toast.update(state.toastId, input);
   };
   channel.on(DEVELOPMENT_RELOAD_STATUS, receive);
-  channel.send(DEVELOPMENT_RELOAD_QUERY);
+  // Remote 重载只更换当前文档，不会清除 Vite 上一批状态；缓存版本另由本机网关核对。
+  if (!remoteNotice) channel.send(DEVELOPMENT_RELOAD_QUERY);
   return () => channel.off(DEVELOPMENT_RELOAD_STATUS, receive);
 }

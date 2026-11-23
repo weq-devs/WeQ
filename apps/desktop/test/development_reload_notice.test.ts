@@ -13,7 +13,7 @@ import {
 
 beforeEach(() => useToast.setState({ toasts: [], leaving: [], seq: 0 }));
 
-function fixture(state: DevelopmentReloadNoticeState = {}) {
+function fixture(state: DevelopmentReloadNoticeState = {}, remoteNotice?: (id: string) => void) {
   let receive: (status: DevelopmentReloadStatus | null) => void = () => {};
   const channel = {
     on: vi.fn((_event, listener) => {
@@ -22,9 +22,25 @@ function fixture(state: DevelopmentReloadNoticeState = {}) {
     off: vi.fn(),
     send: vi.fn(),
   };
-  const dispose = installDevelopmentReloadNotice(channel, state);
+  const dispose = installDevelopmentReloadNotice(channel, state, remoteNotice);
   return { channel, dispose, receive: (status: DevelopmentReloadStatus | null) => receive(status) };
 }
+
+it('Remote 重载后不查询上一批 HMR 状态，仍接收新到的更新', () => {
+  const notify = vi.fn();
+  const first = fixture({}, notify);
+  const previous = { id: 'one', ready: true, restart: false };
+  first.receive(previous);
+  expect(notify.mock.calls).toEqual([['one']]);
+  first.dispose();
+
+  const reloaded = fixture({}, notify);
+  expect(reloaded.channel.send).not.toHaveBeenCalled();
+  expect(notify.mock.calls).toEqual([['one']]);
+  reloaded.receive({ ...previous, id: 'two' });
+  expect(notify.mock.calls).toEqual([['one'], ['two']]);
+  reloaded.dispose();
+});
 
 it('相同批次原位合并，重启优先，重复点击只发送一次', () => {
   const { channel, receive } = fixture();
