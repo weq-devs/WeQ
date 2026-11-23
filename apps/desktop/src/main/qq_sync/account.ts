@@ -71,6 +71,16 @@ export class AccountQqSync {
   private flight?: Promise<void>;
   private recallActive = false;
   readonly liveMessages = new LiveMessages();
+  private readonly liveStats = {
+    receivedFrames: 0,
+    acceptedMessages: 0,
+    readTargets: 0,
+    groupTargets: 0,
+    reactionTargets: 0,
+    interactionTargets: 0,
+    recallFrames: 0,
+    lastReceivedAt: 0,
+  };
   private liveSubscription?: { generation: string; abort: AbortController };
   private liveReceivedAt = 0;
   private liveGroupChangedAt = 0;
@@ -129,10 +139,18 @@ export class AccountQqSync {
       if (!valid() || !this.options.liveEnabled?.() || this.liveSubscription !== subscription)
         return;
       const now = Date.now();
+      this.liveStats.receivedFrames++;
+      this.liveStats.lastReceivedAt = now;
       if (this.recallActive) this.liveRecallRevision++;
       const { rows: messages, updates } = decodeLivePush(body, selfUid, uin, now);
       const decoded = messages.filter((row) => this.options.allowLiveMessage?.(row) !== false);
       const rows = this.liveMessages.accept(decoded, now);
+      this.liveStats.acceptedMessages += rows.length;
+      this.liveStats.readTargets += updates.reads.length;
+      this.liveStats.groupTargets += updates.groups.length;
+      this.liveStats.reactionTargets += updates.reactions.length;
+      this.liveStats.interactionTargets += updates.interactions.length;
+      if (updates.recalled) this.liveStats.recallFrames++;
       if (
         rows.length ||
         updates.reads.length ||
@@ -192,7 +210,12 @@ export class AccountQqSync {
     void this.run();
   }
   status() {
-    return { pending: this.tasks.size, completed: this.completed, error: this.lastError };
+    return {
+      pending: this.tasks.size,
+      completed: this.completed,
+      error: this.lastError,
+      live: { enabled: this.isLiveEnabled(), ...this.liveStats },
+    };
   }
   sent(message: GapFetchedMessage) {
     if (

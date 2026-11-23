@@ -107,6 +107,7 @@ export class QqSyncProxy {
   >();
   private lastRecallError = '';
   private filteredRecalls = 0;
+  private queuedLiveFrames = 0;
   constructor(private readonly journal?: RecallJournal) {}
 
   setRecallPolicy(uin: string, generation: string, value: RecallPolicy) {
@@ -178,6 +179,7 @@ export class QqSyncProxy {
       delivered: this.deliveredCount,
       recallError: this.lastRecallError,
       filteredRecalls: this.filteredRecalls,
+      queuedLiveFrames: this.queuedLiveFrames,
     };
   }
   async start(port: number, persist?: () => Promise<void>) {
@@ -384,8 +386,10 @@ export class QqSyncProxy {
       if (live?.generation === credential.generation && body.byteLength <= 256 * 1024) {
         // WeQ 消费落后时退出订阅，由宿主重新连接并通过数据库补齐。
         if (live.socket.writableLength > 512 * 1024) live.socket.destroy();
-        else
+        else {
           live.socket.write(`${JSON.stringify({ body: Buffer.from(body).toString('base64') })}\n`);
+          this.queuedLiveFrames++;
+        }
       }
       if (!policy || !credential.selfUid || !this.journal) return frame;
       const protects = (target: { kind: 'c2c' | 'group'; conv: string }) =>

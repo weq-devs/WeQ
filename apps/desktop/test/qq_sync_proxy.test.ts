@@ -194,6 +194,7 @@ it('补投等待完整帧，按业务身份去重，并拒绝旧会话', async (
   upstream!.write(original);
   expect(await take(original.length)).toEqual(original);
   expect(write).toHaveBeenCalledWith(JSON.stringify({ body: 'CAE=' }) + '\n');
+  expect(proxy.status().queuedLiveFrames).toBe(1);
   upstream!.write(original.subarray(0, 17));
   await take(17);
   const body = Buffer.from([8, 2]);

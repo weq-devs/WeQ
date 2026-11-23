@@ -296,11 +296,19 @@ it('实时撤回唤醒持久队列，空闲时保留低频校准', async () => {
     await vi.advanceTimersByTimeAsync(120);
     expect(polls()).toHaveLength(2);
     expect(observePush).toHaveBeenCalledWith(entry.events, 'u_self', entry.at);
+    expect(service.status().live).toMatchObject({
+      enabled: true,
+      receivedFrames: 1,
+      acceptedMessages: 0,
+      recallFrames: 1,
+      interactionTargets: 1,
+    });
     pending = false;
     enabled = false;
     service.refreshLive();
     await vi.advanceTimersByTimeAsync(0);
     expect(polls().at(-1)?.[1].ack).toEqual(['notice']);
+    expect(service.status().live.enabled).toBe(false);
   } finally {
     vi.useRealTimers();
   }

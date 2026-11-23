@@ -21,6 +21,7 @@ export interface SyncProxyStatus {
   protocolVersion?: number;
   recallError?: string;
   filteredRecalls?: number;
+  queuedLiveFrames?: number;
 }
 export type SyncProxyRequest =
   | { op: 'status' }
