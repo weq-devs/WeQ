@@ -44,13 +44,14 @@ export function estimateTimelineRowHeight(message: Message | undefined): number 
   return Math.min(800, 28 + Math.max(textHeight, elementsHeight));
 }
 
-/** 至少保留原预挂载行数，按已测像素预留一屏，滚动方向提前两屏。 */
+/** 至少保留原预挂载行数，按已测像素预留一屏，并沿滚动方向扩大缓冲。 */
 export function timelineViewportRange(
   range: Range,
   viewportHeight: number,
   sizeAt: (index: number) => number | undefined,
   direction: 'forward' | 'backward' | null,
   estimateAt?: (index: number) => number,
+  aheadViewports = 2,
 ): number[] {
   if (!(viewportHeight > 0)) return defaultRangeExtractor(range);
   let start = range.startIndex,
@@ -74,7 +75,7 @@ export function timelineViewportRange(
       else end = index;
     }
   };
-  extend(-1, viewportHeight * (direction === 'backward' ? 2 : 1));
-  extend(1, viewportHeight * (direction === 'forward' ? 2 : 1));
+  extend(-1, viewportHeight * (direction === 'backward' ? aheadViewports : 1));
+  extend(1, viewportHeight * (direction === 'forward' ? aheadViewports : 1));
   return defaultRangeExtractor({ ...range, startIndex: start, endIndex: end, overscan: 0 });
 }

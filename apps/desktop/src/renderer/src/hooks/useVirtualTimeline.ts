@@ -19,6 +19,7 @@ import {
 import {
   messageElement,
   registerTimelineViewport,
+  timelineViewport,
   type TimelineGeometry,
 } from '../lib/timelineViewport';
 import {
@@ -29,7 +30,7 @@ import {
 import { IS_ELECTRON } from '../lib/target.shared';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import { timelineViewportRange } from '../lib/timelinePreload';
-import { advanceTimelinePrewarm } from '../lib/timelinePrewarm';
+import { advanceTimelinePrewarm, TIMELINE_PREWARM_BUDGET } from '../lib/timelinePrewarm';
 import '../styles/virtual-timeline.css';
 import { useMobileWebLayout } from './useMobileWebViewport';
 
@@ -69,6 +70,7 @@ export function useVirtualTimeline({
   orderedIds,
   estimateSize,
   warmBytesAt,
+  warmBudgetBytes = TIMELINE_PREWARM_BUDGET,
 }: {
   ids: string[];
   keys?: string[];
@@ -78,6 +80,7 @@ export function useVirtualTimeline({
   orderedIds: readonly string[];
   estimateSize: (index: number) => number;
   warmBytesAt?: (index: number) => number;
+  warmBudgetBytes?: number;
 }) {
   const mobileWeb = useMobileWebLayout();
   const enabled = ids.length > TIMELINE_VIRTUAL_THRESHOLD;
@@ -105,7 +108,7 @@ export function useVirtualTimeline({
           const now = performance.now();
           motion.current.direction = offset < previous ? -1 : 1;
           motion.current.velocity =
-            Math.abs(offset - previous) / Math.max(8, now - motion.current.at);
+            Math.abs(offset - previous) / Math.max(8, Math.min(64, now - motion.current.at));
           motion.current.at = now;
         }
         if (!scrolling && !touching.current) touchMomentum.current = false;
@@ -145,7 +148,7 @@ export function useVirtualTimeline({
   }, [ids, orderedIds]);
   const key = useCallback((position: number) => keys[position]!, [keys]);
   const instanceRef = useRef<Virtualizer<HTMLDivElement, HTMLDivElement> | null>(null);
-  const canPrewarm = IS_ELECTRON && enabled && active && !!warmBytesAt;
+  const canPrewarm = IS_ELECTRON && enabled && active && !!warmBytesAt && warmBudgetBytes > 0;
   const [warm, setWarm] = useState<{ scope: string; rows: readonly string[] }>({
     scope,
     rows: EMPTY_WARM_ROWS,
@@ -161,15 +164,23 @@ export function useVirtualTimeline({
     return positions;
   }, [warmIndex, warmRows]);
   const nearRows = useCallback(
-    (range: Range, instance: Virtualizer<HTMLDivElement, HTMLDivElement> | null) =>
-      timelineViewportRange(
+    (range: Range, instance: Virtualizer<HTMLDivElement, HTMLDivElement> | null) => {
+      const height = instance?.scrollRect?.height ?? 0;
+      // 快滚时把方向上的完整消息提前覆盖，额外最多两屏，仍受预挂载行数限制。
+      const ahead =
+        canPrewarm && instance?.isScrolling && height > 0
+          ? 2 + Math.min(2, Math.floor((motion.current.velocity * 80) / height))
+          : 2;
+      return timelineViewportRange(
         range,
-        instance?.scrollRect?.height ?? 0,
+        height,
         (position) => instance?.itemSizeCache.get(key(position)),
         instance?.scrollDirection ?? null,
         (position) => instance?.measurementsCache[position]?.size ?? estimateSize(position),
-      ),
-    [estimateSize, key],
+        ahead,
+      );
+    },
+    [canPrewarm, estimateSize, key],
   );
   const rangeExtractor = useCallback(
     (range: Range) => {
@@ -299,11 +310,15 @@ export function useVirtualTimeline({
         direction,
         velocity,
         current: warmRows,
+        budget: warmBudgetBytes,
       });
       if (rows)
         startTransition(() => {
           setWarm((previous) =>
-            activeRef.current && motion.current.scope === scope && motion.current.at === at
+            !disposed &&
+            activeRef.current &&
+            motion.current.scope === scope &&
+            motion.current.at === at
               ? { scope, rows }
               : previous,
           );
@@ -323,6 +338,7 @@ export function useVirtualTimeline({
     visibleEnd,
     visibleStart,
     warm,
+    warmBudgetBytes,
     warmBytesAt,
     warmIndex,
     warmRows,
@@ -448,7 +464,6 @@ export function useVirtualTimeline({
           frame.current = requestAnimationFrame(step);
         } else if (current.windowed) {
           current.virtualizer.scrollToOffset(destination, { behavior: 'auto' });
-          current.virtualizer.cancelScroll();
         } else {
           scroll.scrollTop = destination;
         }
@@ -614,9 +629,12 @@ export function useVirtualTimeline({
   useLayoutEffect(() => {
     const saved = thresholdAnchor.current;
     thresholdAnchor.current = undefined;
-    if (enabled && active && saved?.anchorId && scrollRef.current)
-      restoreReadingPosition(scrollRef.current, saved);
-  }, [enabled, active, scrollRef]);
+    const scroll = scrollRef.current;
+    if (!enabled || !active || !saved?.anchorId || !scroll) return;
+    // 切换到绝对定位后的实际行高先落地，再按正文坐标恢复。
+    timelineViewport(scroll)?.measureRows?.(virtualizer.elementsCache.values());
+    restoreReadingPosition(scroll, saved);
+  }, [enabled, active, scrollRef, virtualizer]);
 
   const containerRef = useCallback(
     (node: HTMLDivElement | null) => {

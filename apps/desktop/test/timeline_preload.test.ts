@@ -32,3 +32,13 @@ it('超高消息保留最少预挂载行，极短行与边界范围不会无界�
     timelineViewportRange({ ...range, startIndex: 0, endIndex: 3, count: 4 }, 900, () => 30, null),
   ).toEqual([0, 1, 2, 3]);
 });
+
+it('快滚扩大前进侧的完整行覆盖，反向侧仍保留一屏', () => {
+  const range = { startIndex: 100, endIndex: 105, count: 300, overscan: 6 };
+  const forward = timelineViewportRange(range, 600, () => 60, 'forward', undefined, 4);
+  expect(forward[0]).toBe(90);
+  expect(forward.at(-1)).toBe(145);
+  const backward = timelineViewportRange(range, 600, () => 60, 'backward', undefined, 4);
+  expect(backward[0]).toBe(60);
+  expect(backward.at(-1)).toBe(115);
+});

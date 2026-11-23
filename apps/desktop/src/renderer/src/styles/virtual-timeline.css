@@ -30,8 +30,16 @@
 }
 
 .weq-virtual-timeline.is-windowed[data-prewarm-enabled] {
-  /* 与远端正文层相同，让 Chromium 记录已预挂载完整行的画面。 */
+  /* 让 Chromium 提前记录已预挂载完整行的画面。 */
   filter: blur(0.01px);
+}
+
+.weq-timeline-scroll-preview-clip {
+  position: absolute;
+  /* 正式行高可先于 React 预览更新。预览始终裁在当前列表范围内。 */
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
 }
 
 .weq-timeline-scroll-preview {

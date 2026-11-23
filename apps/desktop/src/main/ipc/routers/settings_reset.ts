@@ -108,6 +108,8 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     renderTextMarkdown: () => b.setRenderTextMarkdown({ enabled: defaults.renderTextMarkdown }),
     linkPreview: () => b.setLinkPreview(defaults.linkPreview),
     chatImageCacheMiB: () => b.setChatImageCacheMiB({ miB: defaults.chatImageCacheMiB }),
+    chatMessagePrewarmMiB: () =>
+      b.setChatMessagePrewarmMiB({ miB: defaults.chatMessagePrewarmMiB }),
     sendWithQqFont: () => b.setSendWithQqFont({ enabled: defaults.sendWithQqFont }),
     sendWithDressFont: () => b.setSendWithDressFont({ enabled: defaults.sendWithDressFont }),
     callDisableP2P: () => b.setCallDisableP2P({ disabled: defaults.callDisableP2P }),

@@ -60,6 +60,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   autoFollowLatestMessages: 'preference',
   showScrollToBottomButton: 'preference',
   chatImageCacheMiB: 'preference',
+  chatMessagePrewarmMiB: 'preference',
   sendWithQqFont: 'preference',
   sendWithDressFont: 'preference',
   showGroupAssistantMessageCount: 'preference',

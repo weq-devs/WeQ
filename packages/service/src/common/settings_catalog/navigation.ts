@@ -184,6 +184,7 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
       'link-screenshot',
       'auto-transcribe-voice',
       'chat-image-cache',
+      'chat-message-prewarm',
       'read-first-unread',
       'show-reading-position-button',
       'preserve-unread-until-read',
@@ -579,6 +580,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['assistant-resource', 'assistant', '资源服务', '公众号资源地址'],
       ['assistant-port', 'assistant', 'QQ 公众号推送端口', '公众号端口'],
       ['chat-image-cache', 'message-display', '图片预览内存预算', '图片与表情', '内存缓存'],
+      ['chat-message-prewarm', 'message-display', '完整消息预热内存预算', '聊天快滚', '消息预热'],
     ] as const
   ).map(
     ([id, section, label, ...aliases]): ItemRedirect => ({
@@ -586,7 +588,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       section,
       label,
       aliases,
-      from: id === 'chat-image-cache' ? ['chat-messages', section] : [section],
+      from:
+        id === 'chat-image-cache' || id === 'chat-message-prewarm'
+          ? ['chat-messages', section]
+          : [section],
     }),
   ),
   ...(

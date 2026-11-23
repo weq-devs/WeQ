@@ -64,6 +64,10 @@ import {
   DEFAULT_CHAT_IMAGE_CACHE_MIB,
   normalizeChatImageCacheMiB,
 } from '../common/chat_image_cache';
+import {
+  DEFAULT_CHAT_MESSAGE_PREWARM_MIB,
+  normalizeChatMessagePrewarmMiB,
+} from '../common/chat_message_prewarm';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { diffSettings, emitSettingsChanged, type SettingsChange } from '../common/settings_changes';
@@ -937,6 +941,7 @@ export interface AppSettings {
   showScrollToBottomButton: boolean;
   /** 每个渲染窗口的聊天图片与表情预览保留预算（MiB，按解码像素估算）。 */
   chatImageCacheMiB: number;
+  chatMessagePrewarmMiB: number;
   /** 发送文本时显式携带 QQ 账号当前的个性字体。 */
   sendWithQqFont: boolean;
   /**
@@ -1303,6 +1308,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoFollowLatestMessages: true,
   showScrollToBottomButton: true,
   chatImageCacheMiB: DEFAULT_CHAT_IMAGE_CACHE_MIB,
+  chatMessagePrewarmMiB: DEFAULT_CHAT_MESSAGE_PREWARM_MIB,
   sendWithQqFont: true,
   sendWithDressFont: false,
   showGroupAssistantMessageCount: false,
@@ -2115,6 +2121,7 @@ export class UserConfigService {
       autoFollowLatestMessages: s?.autoFollowLatestMessages ?? d.autoFollowLatestMessages,
       showScrollToBottomButton: s?.showScrollToBottomButton ?? d.showScrollToBottomButton,
       chatImageCacheMiB: normalizeChatImageCacheMiB(s?.chatImageCacheMiB),
+      chatMessagePrewarmMiB: normalizeChatMessagePrewarmMiB(s?.chatMessagePrewarmMiB),
       sendWithQqFont: s?.sendWithQqFont ?? d.sendWithQqFont,
       sendWithDressFont: s?.sendWithDressFont ?? d.sendWithDressFont,
       showGroupAssistantMessageCount:
@@ -2315,6 +2322,9 @@ export class UserConfigService {
       showScrollToBottomButton: patch.showScrollToBottomButton ?? current.showScrollToBottomButton,
       chatImageCacheMiB: normalizeChatImageCacheMiB(
         patch.chatImageCacheMiB ?? current.chatImageCacheMiB,
+      ),
+      chatMessagePrewarmMiB: normalizeChatMessagePrewarmMiB(
+        patch.chatMessagePrewarmMiB ?? current.chatMessagePrewarmMiB,
       ),
       sendWithQqFont: patch.sendWithQqFont ?? current.sendWithQqFont,
       sendWithDressFont: patch.sendWithDressFont ?? current.sendWithDressFont,

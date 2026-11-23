@@ -1703,6 +1703,7 @@ function ChatPaneContent({
 
   const {
     leaveBottom,
+    keepLatestInView,
     dockImportantRemaining,
     locatedSeq,
     dockStop,
@@ -6408,11 +6409,13 @@ function ChatPaneContent({
           live={atLatest}
           followLive={mediaSettings.data?.autoFollowLatestMessages !== false}
           pinnedToLatest={pinnedToLatest}
+          keepLatestInView={keepLatestInView}
           loading={Boolean(loading || loadingOlder || loadingNewer)}
           jumpRevision={jumpRequest?.revision}
           deleted={deletedKeys}
           isHidden={isTimelineMessageHidden}
           unreadBoundary={showUnreadDivider ? unreadBoundaryId : undefined}
+          prewarmBudgetMiB={mediaSettings.data?.chatMessagePrewarmMiB}
           ownSenderId={user.id}
           observeMessageVisibility={observeMessageVisibility}
         >

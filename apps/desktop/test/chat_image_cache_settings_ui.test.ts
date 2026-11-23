@@ -5,13 +5,18 @@ import {
   DEFAULT_CHAT_IMAGE_CACHE_MIB,
   MAX_CHAT_IMAGE_CACHE_MIB,
 } from '@weq/service/chat-image-cache';
-import { ChatImageCacheSettings } from '../src/renderer/src/components/settings/ChatImageCacheSettings';
+import {
+  ChatImageCacheSettings,
+  ChatMessagePrewarmSettings,
+} from '../src/renderer/src/components/settings/ChatImageCacheSettings';
 
 const fixture = vi.hoisted(() => ({
   value: 128,
+  prewarm: 128,
   pending: false,
   missing: false,
   save: vi.fn(),
+  savePrewarm: vi.fn(),
   setData: vi.fn(),
   invalidate: vi.fn(),
 }));
@@ -20,12 +25,17 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     bootstrap: {
       getSettings: {
         useQuery: () => ({
-          data: fixture.missing ? undefined : { chatImageCacheMiB: fixture.value },
+          data: fixture.missing
+            ? undefined
+            : { chatImageCacheMiB: fixture.value, chatMessagePrewarmMiB: fixture.prewarm },
           isError: false,
         }),
       },
       setChatImageCacheMiB: {
         useMutation: () => ({ mutateAsync: fixture.save, isLoading: fixture.pending }),
+      },
+      setChatMessagePrewarmMiB: {
+        useMutation: () => ({ mutateAsync: fixture.savePrewarm }),
       },
     },
     useUtils: () => ({
@@ -37,16 +47,52 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.clearAllMocks();
   fixture.value = DEFAULT_CHAT_IMAGE_CACHE_MIB;
+  fixture.prewarm = 128;
   fixture.pending = false;
   fixture.missing = false;
   fixture.save.mockImplementation(async ({ miB }: { miB: number }) => miB);
+  fixture.savePrewarm.mockImplementation(async ({ miB }: { miB: number }) => miB);
   fixture.setData.mockImplementation(
-    (_input, updater: (data: { chatImageCacheMiB: number }) => { chatImageCacheMiB: number }) => {
-      fixture.value = updater({ chatImageCacheMiB: fixture.value }).chatImageCacheMiB;
+    (
+      _input,
+      updater: (data: { chatImageCacheMiB: number; chatMessagePrewarmMiB: number }) => {
+        chatImageCacheMiB: number;
+        chatMessagePrewarmMiB: number;
+      },
+    ) => {
+      const updates = updater({
+        chatImageCacheMiB: fixture.value,
+        chatMessagePrewarmMiB: fixture.prewarm,
+      });
+      fixture.value = updates.chatImageCacheMiB;
+      fixture.prewarm = updates.chatMessagePrewarmMiB;
     },
   );
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it('完整消息预算可以关闭额外预热，并只更新自己的偏好', async () => {
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    act(() => root.render(h(ChatMessagePrewarmSettings)));
+    const input = host.querySelector('input')!;
+    expect(input.value).toBe('128');
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '0');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(fixture.savePrewarm).toHaveBeenCalledWith({ miB: 0 });
+    expect(fixture.prewarm).toBe(0);
+    expect(fixture.value).toBe(DEFAULT_CHAT_IMAGE_CACHE_MIB);
+    expect(fixture.save).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+  }
+});
 
 it('预算自动保存零值、共享设置立即更新，失败可重试，保存期间仍可编辑', async () => {
   const host = document.createElement('div');

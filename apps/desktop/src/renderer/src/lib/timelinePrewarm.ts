@@ -1,7 +1,8 @@
+import { DEFAULT_CHAT_MESSAGE_PREWARM_MIB } from '@weq/service/chat-message-prewarm';
 import type { Message } from '../im-template/template/types';
 import { messageMediaSize } from './chatMediaSize';
 
-export const TIMELINE_PREWARM_BUDGET = 128 * 1024 * 1024;
+export const TIMELINE_PREWARM_BUDGET = DEFAULT_CHAT_MESSAGE_PREWARM_MIB * 1024 * 1024;
 const ROW_BYTES = 512 * 1024;
 const ROWS_PER_BATCH = 4;
 const BYTES_PER_BATCH = 2 * 1024 * 1024;

@@ -32,6 +32,7 @@ import { z } from 'zod';
 import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
 import { normalizeContactCard } from '@weq/service/contact-card';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
+import { MAX_CHAT_MESSAGE_PREWARM_MIB } from '@weq/service/chat-message-prewarm';
 import { MAX_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES } from '@weq/service/qzone-public-settings';
 import { isToastDuration, TOAST_TIMED_KINDS } from '@weq/service/toast-settings';
 import {
@@ -1521,6 +1522,14 @@ export const bootstrapRouter = router({
       return requireBootstrap().userConfig.setSettings({ chatImageCacheMiB: input.miB })
         .chatImageCacheMiB;
     }),
+
+  setChatMessagePrewarmMiB: procedure
+    .input(z.object({ miB: z.number().int().min(0).max(MAX_CHAT_MESSAGE_PREWARM_MIB) }))
+    .mutation(
+      ({ input }) =>
+        requireBootstrap().userConfig.setSettings({ chatMessagePrewarmMiB: input.miB })
+          .chatMessagePrewarmMiB,
+    ),
 
   setSendWithQqFont: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     requireBootstrap().userConfig.setSettings({ sendWithQqFont: input.enabled });

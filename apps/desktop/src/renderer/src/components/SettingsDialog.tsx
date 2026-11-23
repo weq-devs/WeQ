@@ -68,7 +68,10 @@ import { StartupSection } from './settings/StartupSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
-import { ChatImageCacheSettings } from './settings/ChatImageCacheSettings';
+import {
+  ChatImageCacheSettings,
+  ChatMessagePrewarmSettings,
+} from './settings/ChatImageCacheSettings';
 import { MissingMessageSettings } from './settings/MissingMessageSettings';
 import { SlashEmojiSettings } from './settings/SlashEmojiSettings';
 import { QqShowSettings } from './settings/QqShowSettings';
@@ -1311,6 +1314,7 @@ function AppearanceSection({
                 />
               ) : null}
               <ChatImageCacheSettings embedded />
+              <ChatMessagePrewarmSettings />
             </Card>
           )}
         </>
