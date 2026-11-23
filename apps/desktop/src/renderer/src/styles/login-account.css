@@ -26,6 +26,9 @@
   align-items: center;
   gap: 10px;
 }
+.weq-login-acc .weq-login-acc-identity-main > .weq-set-btn {
+  align-self: center;
+}
 .weq-login-acc-identity-icon {
   display: grid;
   place-items: center;

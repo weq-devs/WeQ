@@ -36,7 +36,7 @@
 .weq-qq-debug-checks li {
   display: grid;
   grid-template-columns: 15px minmax(72px, auto) minmax(0, 1fr);
-  align-items: start;
+  align-items: center;
   gap: 8px;
   padding: 8px 0;
   border-bottom: 1px solid var(--weq-border-subtle);
@@ -46,13 +46,15 @@
   font-weight: 500;
   overflow-wrap: anywhere;
 }
+.weq-qq-debug-checks li > :is(svg, .weq-qq-debug-marker) {
+  justify-self: center;
+}
 .weq-qq-debug-checks li[data-ready='true'] > svg {
   color: var(--weq-accent-effective);
 }
 .weq-qq-debug-marker {
   width: 10px;
   height: 10px;
-  margin: 3px 0;
   border: 1px solid var(--weq-fg-muted);
   border-radius: 50%;
 }

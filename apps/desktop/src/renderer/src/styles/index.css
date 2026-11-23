@@ -5420,6 +5420,12 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   flex: none;
 }
 
+/* 单独的行内开关脱离文字基线，按整个设置行居中。 */
+.weq-set-row-ctrl:has(> .weq-set-toggle:only-child) {
+  display: flex;
+  align-items: center;
+}
+
 /* Segmented single-select (e.g. 空闲自动锁定时长). */
 .weq-set-seg {
   display: inline-flex;

@@ -177,7 +177,7 @@ html[data-theme='dark'] .weq-mail-workspace {
 .weq-mail-folders button.is-selected > svg {
   color: var(--mail-accent-ink);
 }
-.weq-mail-sync-state {
+.weq-mail-folders > .weq-mail-sync-state {
   margin-top: auto;
   padding: 20px 10px 0;
   color: var(--weq-fg-muted);
@@ -877,7 +877,7 @@ html[data-privacy] .weq-mail-text-editor {
   .weq-mail-folders button > small {
     margin-left: 4px;
   }
-  .weq-mail-sync-state {
+  .weq-mail-folders > .weq-mail-sync-state {
     display: none;
   }
   .weq-mail-sync-state-compact {

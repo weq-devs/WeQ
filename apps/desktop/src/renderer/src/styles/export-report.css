@@ -175,9 +175,6 @@
   .weq-export-report-dialog {
     padding: 15px;
   }
-  .weq-export-report-option {
-    align-items: flex-start;
-  }
   .weq-export-report-actions > button {
     flex: 1;
   }

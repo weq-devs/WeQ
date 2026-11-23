@@ -7,7 +7,7 @@
 
 .weq-birth-details > summary {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: flex-start;
   gap: var(--weq-profile-inline-gap);
   cursor: pointer;
@@ -29,6 +29,8 @@
 
 .weq-birth-details > summary svg {
   flex-shrink: 0;
+  /* SVG 图形在首行高度内居中，文案换行时箭头留在首行。 */
+  height: 1lh;
 }
 
 .weq-birth-details[open] > summary svg {

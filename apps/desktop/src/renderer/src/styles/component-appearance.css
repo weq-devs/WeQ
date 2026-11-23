@@ -608,7 +608,7 @@ html:where([data-weq-layout='single'])[data-density='compact']
 .weq-style-option-label {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 14px;
-  align-items: start;
+  align-items: center;
   gap: 3px;
   min-width: 0;
   min-height: 20px;
