@@ -44,7 +44,7 @@ import {
   assertResourceSource,
 } from './resource_source';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
-import { withDatabaseRequest, assertDatabaseWritable } from '@weq/db';
+import { withDatabaseRequest, assertDatabaseWritable, measureDatabaseStartup } from '@weq/db';
 import { clearFinishedTasks } from './clear_finished_tasks';
 import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
@@ -3032,13 +3032,13 @@ export const accountRouter = router({
       const svc = services.recentContacts;
       // 103 = 公众号, 118 = 服务号 (see @weq/codec chat_kind).
       const excludeChatTypes = [103, 118];
-      const [items, total] = await withDatabasePriority(
-        input.cursor > 0 ? 'background' : 'interactive',
-        () =>
+      const [items, total] = await measureDatabaseStartup('recentContacts', () =>
+        withDatabasePriority(input.cursor > 0 ? 'background' : 'interactive', () =>
           Promise.all([
             svc.getRecentContact(input.limit, input.cursor, { excludeChatTypes }),
             svc.countRecentContact({ excludeChatTypes }),
           ]),
+        ),
       );
       const next = input.cursor + items.length < total ? input.cursor + items.length : undefined;
       if (

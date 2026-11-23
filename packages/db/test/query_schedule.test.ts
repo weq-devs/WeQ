@@ -13,8 +13,39 @@ import {
   measureMessageWork,
   observeSlowDatabaseOperations,
 } from '../src/query_schedule';
+import { databaseStartupSnapshot, observeDatabaseStartup } from '../src/startup_diagnostics';
 
 afterEach(() => vi.useRealTimers());
+
+it('启动观察按阶段收集直接读取的行，只对有限结果值估算大小并在启动窗口后停止', async () => {
+  let time = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => time);
+  const path = '/synthetic/startup-diagnostics.db';
+  const rows = Array.from({ length: 200 }, () => ['测试', Buffer.alloc(3), 9n]);
+  const read = () => scheduleDatabase(path, async () => rows);
+  try {
+    observeDatabaseStartup(true);
+    await measureMessageWork(path, 'watermarks', async () => {
+      await Promise.all([read(), measureMessageWork(path, 'unreadSmallTables', read)]);
+    });
+    const snapshot = databaseStartupSnapshot();
+    expect(snapshot?.watermarks).toMatchObject({
+      calls: 1,
+      returnedRows: 200,
+      sampledRows: 128,
+      sampledValueBytes: 128 * (6 + 3 + 8),
+    });
+    expect(snapshot?.unreadSmallTables).toMatchObject({ calls: 1, returnedRows: 200 });
+    expect(snapshot?.watermarks?.peakObservedHeapUsedBytes).toBeGreaterThan(0);
+    expect(databaseStartupSnapshot()).toBeUndefined();
+    time = 90_001;
+    await expect(measureMessageWork(path, 'watermarks', read)).resolves.toBe(rows);
+    expect(databaseStartupSnapshot()).toBeUndefined();
+  } finally {
+    observeDatabaseStartup(false);
+    clock.mockRestore();
+  }
+});
 it('维护中前台写入立即拒绝，后台写入在队列外暂停，读取仍可完成且暂停可取消', async () => {
   const path = '/synthetic/maintenance-write.db';
   const write = vi.fn(async () => 1);

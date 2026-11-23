@@ -9,6 +9,7 @@ import {
   type QuerySource,
   type QueryTrace,
 } from './query_diagnostics';
+import { measureDatabaseStartup, recordDatabaseStartupRows } from './startup_diagnostics';
 
 export type DatabasePriority = 'interactive' | 'background';
 export type DatabaseWorkload = 'latency' | 'bulk';
@@ -320,7 +321,7 @@ export async function measureMessageWork<T>(
 ): Promise<T> {
   const began = performance.now();
   try {
-    return await withDatabaseWorkPhase(phase, run);
+    return await measureDatabaseStartup(phase, () => withDatabaseWorkPhase(phase, run));
   } finally {
     recordMessageWork(dbPath, phase, performance.now() - began);
   }
@@ -428,7 +429,10 @@ export function scheduleDatabase<T>(
             job.trace.outcome = 'ok';
             if (Array.isArray(result)) job.trace.rows = result.length;
           }
-          if (Array.isArray(result)) data.rows += result.length;
+          if (Array.isArray(result)) {
+            data.rows += result.length;
+            recordDatabaseStartupRows(result);
+          }
           resolve(result);
         } catch (error) {
           outcome = error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'failed';

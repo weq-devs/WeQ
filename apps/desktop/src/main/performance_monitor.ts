@@ -1,5 +1,6 @@
 import { app, ipcMain, webContents } from 'electron';
 import { cpus } from 'node:os';
+import { databaseStartupSnapshot, observeDatabaseStartup } from '@weq/db';
 import { createNodeCollector } from '@weq/service/performance-node';
 import type { MonitorCollector, MonitorProcess } from '@weq/service/performance';
 import { MONITOR_REQUEST, MONITOR_RESPONSE } from '../shared/performance_monitor';
@@ -67,6 +68,7 @@ export function createDesktopCollector(
     ],
     activate(value) {
       mode = value;
+      observeDatabaseStartup(value !== 'off');
       previous.clear();
       node.activate(value);
       if (value === 'off') {
@@ -77,6 +79,7 @@ export function createDesktopCollector(
     async collect(detailed) {
       const start = performance.now();
       const local = await node.collect(detailed);
+      const startupWork = databaseStartupSnapshot();
       const contents = webContents.getAllWebContents();
       const mainContentsId = mainId();
       const main = contents.find((content) => content.id === mainContentsId);
@@ -118,15 +121,21 @@ export function createDesktopCollector(
             externalBytes: own?.metrics.externalBytes ?? null,
             eventLoopP95Ms: own?.metrics.eventLoopP95Ms ?? null,
           },
-          details: detailed
-            ? {
-                ...own?.details,
-                privateBytes:
-                  metric.memory.privateBytes === undefined
-                    ? null
-                    : metric.memory.privateBytes * 1024,
-              }
-            : undefined,
+          details:
+            detailed || (own && startupWork)
+              ? {
+                  ...own?.details,
+                  ...(own && startupWork ? { startupWork } : {}),
+                  ...(detailed
+                    ? {
+                        privateBytes:
+                          metric.memory.privateBytes === undefined
+                            ? null
+                            : metric.memory.privateBytes * 1024,
+                      }
+                    : {}),
+                }
+              : undefined,
         });
       }
       for (const key of previous.keys()) if (!seen.has(key)) previous.delete(key);
@@ -173,6 +182,7 @@ export function createDesktopCollector(
     },
     dispose() {
       mode = 'off';
+      observeDatabaseStartup(false);
       pending?.resolve(null);
       pending = undefined;
       node.dispose();

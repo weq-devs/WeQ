@@ -13,6 +13,7 @@
  * superjson moves `bigint`s through unscathed.
  */
 import { OperationError, developmentDressToolsEnabled } from '@weq/service';
+import { measureDatabaseStartup } from '@weq/db';
 
 import { observable } from '@trpc/server/observable';
 import type { TranscribeResult } from '../../transcribe/engine';
@@ -3212,14 +3213,16 @@ export const bootstrapRouter = router({
       const dataDir =
         input.dataDir ?? requireBootstrap().globalConfig.accountDataDir(input.uin) ?? undefined;
 
-      await ctx.setAccount(
-        { uin: input.uin, dbKey: input.dbKey, algos },
-        {
-          ...(uid ? { uid } : {}),
-          ...(input.displayName ? { displayName: input.displayName } : {}),
-          ...(input.avatarUrl ? { avatarUrl: input.avatarUrl } : {}),
-          ...(dataDir ? { dataDir } : {}),
-        },
+      await measureDatabaseStartup('openAccount', () =>
+        ctx.setAccount(
+          { uin: input.uin, dbKey: input.dbKey, algos },
+          {
+            ...(uid ? { uid } : {}),
+            ...(input.displayName ? { displayName: input.displayName } : {}),
+            ...(input.avatarUrl ? { avatarUrl: input.avatarUrl } : {}),
+            ...(dataDir ? { dataDir } : {}),
+          },
+        ),
       );
       // 顺带把该账号在 login.db 里的 A1 payload（native 已用设备 guid 解出）记进
       // 账号配置。`setAccount` 已经 seed 好记录，这里再 patch。整段 best-effort：
@@ -3368,11 +3371,13 @@ export const bootstrapRouter = router({
         ? { 'nt_msg.db': input.algo }
         : undefined;
 
-      await ctx.setStaticAccount(dirPath, checked.preview, {
-        ...(dbKey ? { dbKey } : {}),
-        ...(algos ? { algos } : {}),
-        ...(input.mobile || checked.mobile ? { mobile: true } : {}),
-      });
+      await measureDatabaseStartup('openAccount', () =>
+        ctx.setStaticAccount(dirPath, checked.preview, {
+          ...(dbKey ? { dbKey } : {}),
+          ...(algos ? { algos } : {}),
+          ...(input.mobile || checked.mobile ? { mobile: true } : {}),
+        }),
+      );
       return ctx.account!.context;
     }),
 
