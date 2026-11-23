@@ -110,8 +110,6 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     chatImageCacheMiB: () => b.setChatImageCacheMiB({ miB: defaults.chatImageCacheMiB }),
     chatMessagePrewarmMiB: () =>
       b.setChatMessagePrewarmMiB({ miB: defaults.chatMessagePrewarmMiB }),
-    sendWithQqFont: () => b.setSendWithQqFont({ enabled: defaults.sendWithQqFont }),
-    sendWithDressFont: () => b.setSendWithDressFont({ enabled: defaults.sendWithDressFont }),
     callDisableP2P: () => b.setCallDisableP2P({ disabled: defaults.callDisableP2P }),
     qzonePersonClickAction: () =>
       b.setQzonePersonClickAction({ action: defaults.qzonePersonClickAction }),

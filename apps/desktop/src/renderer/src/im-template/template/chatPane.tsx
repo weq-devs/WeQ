@@ -122,6 +122,7 @@ import {
   Copy,
   Loader2,
   Smile,
+  Type,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -303,6 +304,7 @@ import {
 } from './composerActions';
 import { GroupInfoPanel, type GroupInfoDetail, type GroupSidebarFeature } from './groupInfoPanel';
 import { EmojiPanel } from './emojiPanel';
+import { ComposerFontPanel, useComposerFont } from './composerFontPanel';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
 import { MessageRow } from './messageRow';
@@ -1011,6 +1013,14 @@ function ChatPaneContent({
   // 桌面沿用收纳偏好；手机输入区常驻，但进入会话不自动聚焦。
   const [composerCollapsed, setComposerCollapsed] = useState(loadComposerCollapsed);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [fontOpen, setFontOpen] = useState(false);
+  const composerFontAvailable = Boolean(
+    conversation && composerVisible && !restrictedSource && !dataLine,
+  );
+  const composerFont = useComposerFont(composerFontAvailable && tabActive, fontOpen);
+  const composerFontStyle = composerFont.family
+    ? { fontFamily: `"${composerFont.family}", var(--im-font-body, system-ui, sans-serif)` }
+    : undefined;
   const canInsertCustomEmoji = conversation?.type === 'group' || conversation?.type === 'direct';
   const [composerMenu, setComposerMenu] = useState<{
     kind: 'file';
@@ -1044,10 +1054,10 @@ function ChatPaneContent({
 
   // 闪传文件框占着输入框正文那一行：别的面板一打开就把它收起来，避免两套东西打架。
   useEffect(() => {
-    if (emojiOpen || toolsOpen || arkOpen || redPacketOpen) {
+    if (emojiOpen || fontOpen || toolsOpen || arkOpen || redPacketOpen) {
       setFlashOpen(false);
     }
-  }, [emojiOpen, toolsOpen, arkOpen, redPacketOpen]);
+  }, [emojiOpen, fontOpen, toolsOpen, arkOpen, redPacketOpen]);
   // 图片内联进正文；文件和视频在托盘中排队，提交时各自交给现有发送队列。
   const [mediaAttachments, setMediaAttachments] = useState<ComposerAttachment[]>([]);
   const [preparingMedia, setPreparingMedia] = useState(false);
@@ -1466,10 +1476,14 @@ function ChatPaneContent({
   );
   useEffect(() => {
     setComposerMenu(null);
-  }, [tabActive, mobileComposerExpanded, composerCollapsed]);
+    setFontOpen(false);
+  }, [tabActive, mobileComposerExpanded, composerCollapsed, conversation?.id]);
   const emojiPanelRef = useRef<HTMLDivElement | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const expandedEmojiButtonRef = useRef<HTMLButtonElement | null>(null);
+  const fontPanelRef = useRef<HTMLDivElement | null>(null);
+  const fontButtonRef = useRef<HTMLButtonElement | null>(null);
+  const expandedFontButtonRef = useRef<HTMLButtonElement | null>(null);
 
   function handleOpenGroupInfoDetail(detail: GroupInfoDetail) {
     if (conversation?.type === 'group') {
@@ -2428,11 +2442,11 @@ function ChatPaneContent({
   }, [tabActive, contextMenuMessageId, contextMenuVariant, messageScrollRef]);
 
   useLayoutEffect(() => {
-    if (!tabActive || !emojiOpen) {
+    if (!tabActive || (!emojiOpen && !fontOpen)) {
       return;
     }
 
-    function closeEmojiFromOutside(event: globalThis.PointerEvent) {
+    function closeComposerPickerFromOutside(event: globalThis.PointerEvent) {
       if (hasActiveModal() || topSurface(document)?.matches('.weq-conversation-actions-layer'))
         return;
       const target = event.target;
@@ -2440,17 +2454,23 @@ function ChatPaneContent({
         return;
       }
       if (
-        emojiPanelRef.current?.contains(target) ||
-        emojiButtonRef.current?.contains(target) ||
-        expandedEmojiButtonRef.current?.contains(target) ||
-        toolsButtonRef.current?.contains(target)
-      ) {
-        return;
-      }
-      setEmojiOpen(false);
+        emojiOpen &&
+        !emojiPanelRef.current?.contains(target) &&
+        !emojiButtonRef.current?.contains(target) &&
+        !expandedEmojiButtonRef.current?.contains(target) &&
+        !toolsButtonRef.current?.contains(target)
+      )
+        setEmojiOpen(false);
+      if (
+        fontOpen &&
+        !fontPanelRef.current?.contains(target) &&
+        !fontButtonRef.current?.contains(target) &&
+        !expandedFontButtonRef.current?.contains(target)
+      )
+        setFontOpen(false);
     }
 
-    function closeEmojiOnEscape(event: globalThis.KeyboardEvent) {
+    function closeComposerPickerOnEscape(event: globalThis.KeyboardEvent) {
       if (
         event.defaultPrevented ||
         hasActiveModal() ||
@@ -2458,17 +2478,20 @@ function ChatPaneContent({
       )
         return;
       if (event.key === 'Escape') {
+        if (fontOpen && fontPanelRef.current?.contains(document.activeElement))
+          (mobileComposerExpanded ? expandedFontButtonRef : fontButtonRef).current?.focus();
         setEmojiOpen(false);
+        setFontOpen(false);
       }
     }
 
-    document.addEventListener('pointerdown', closeEmojiFromOutside, true);
-    document.addEventListener('keydown', closeEmojiOnEscape);
+    document.addEventListener('pointerdown', closeComposerPickerFromOutside, true);
+    document.addEventListener('keydown', closeComposerPickerOnEscape);
     return () => {
-      document.removeEventListener('pointerdown', closeEmojiFromOutside, true);
-      document.removeEventListener('keydown', closeEmojiOnEscape);
+      document.removeEventListener('pointerdown', closeComposerPickerFromOutside, true);
+      document.removeEventListener('keydown', closeComposerPickerOnEscape);
     };
-  }, [tabActive, emojiOpen]);
+  }, [tabActive, emojiOpen, fontOpen, mobileComposerExpanded]);
 
   useLayoutEffect(() => {
     if (!tabActive || !toolsOpen) {
@@ -2507,7 +2530,7 @@ function ChatPaneContent({
 
   useLayoutEffect(() => {
     if (tabActive && compactHeader && !voiceOpen) scheduleMobileComposerMeasureRef.current();
-  }, [tabActive, compactHeader, voiceOpen]);
+  }, [composerFont.family, tabActive, compactHeader, voiceOpen]);
 
   useLayoutEffect(() => {
     setVoiceConversationId((current) => (current === conversationId ? current : null));
@@ -5607,7 +5630,22 @@ function ChatPaneContent({
     setMobileComposerExpanded(true);
   }
 
+  function toggleFontPanel() {
+    if (isMobileWebComposer() && !fontOpen) currentComposerEditor()?.blur();
+    setComposerMenu(null);
+    setContextMenu(null);
+    setLocationMenu(null);
+    setLocationCardOpen(false);
+    setLocationShareOpen(false);
+    setToolsOpen(false);
+    setArkOpen(false);
+    setRedPacketOpen(false);
+    setEmojiOpen(false);
+    setFontOpen((open) => !open);
+  }
+
   function toggleEmojiPanel() {
+    setFontOpen(false);
     if (isMobileWebComposer() && (!emojiOpen || toolsOpen)) currentComposerEditor()?.blur();
     setComposerMenu(null);
     setContextMenu(null);
@@ -5620,6 +5658,7 @@ function ChatPaneContent({
   }
 
   function toggleToolsPanel() {
+    setFontOpen(false);
     if (isMobileWebComposer() && (!toolsOpen || emojiOpen)) currentComposerEditor()?.blur();
     setContextMenu(null);
     setLocationMenu(null);
@@ -5632,6 +5671,7 @@ function ChatPaneContent({
 
   function prepareMobileComposerKeyboard() {
     if (!isMobileWebComposer()) return;
+    setFontOpen(false);
     setEmojiOpen(false);
     setToolsOpen(false);
   }
@@ -7074,7 +7114,7 @@ function ChatPaneContent({
       {/* 收纳输入区的把手 —— 与群资料栏同一个交互：贴在两个区域的交界线上，
           平时隐形，压上去（或键盘聚焦）才浮出来；收起来以后整条输入区从布局里
           消失，只剩它在底边，负责把输入框再请回来。 */}
-      {composerVisible && !compactHeader && !emojiOpen ? (
+      {composerVisible && !compactHeader && !emojiOpen && !fontOpen ? (
         <button
           className={cn('composer-toggle')}
           type="button"
@@ -7396,6 +7436,20 @@ function ChatPaneContent({
             >
               <Smile size={21} strokeWidth={1.5} />
             </button>
+            {composerFontAvailable ? (
+              <button
+                ref={fontButtonRef}
+                type="button"
+                className={cn('composer-tool', fontOpen && 'active')}
+                title="个性字体"
+                aria-label="个性字体"
+                aria-expanded={fontOpen}
+                disabled={readOnly || currentPreference.blocked || voicePanelActive}
+                onClick={toggleFontPanel}
+              >
+                <Type size={21} strokeWidth={1.5} />
+              </button>
+            ) : null}
             {composerToolbar}
             {/* 红包 / 礼物：点一下先出两项菜单（与通话按钮同款）。红包群聊三档 / 私聊两档，
               下单后弹二维码灯箱；礼物私聊打开商城，群聊打开只读的群礼物面板。 */}
@@ -7598,6 +7652,9 @@ function ChatPaneContent({
               <ComposerQuoteBar quote={displayedQuote} onRemove={removeQuote} />
             </div>
           ) : null}
+          {fontOpen && !mobileComposerExpanded ? (
+            <ComposerFontPanel panelRef={fontPanelRef} font={composerFont} />
+          ) : null}
           {emojiOpen && !mobileComposerExpanded ? (
             <EmojiPanel
               panelRef={emojiPanelRef}
@@ -7782,6 +7839,7 @@ function ChatPaneContent({
               'composer-editor',
               (pendingSuperEmoji || voicePanelActive || flashPanelInline) && 'composer-row-hidden',
             )}
+            style={composerFontStyle}
             role="textbox"
             aria-multiline="true"
             aria-label="消息"
@@ -7870,6 +7928,7 @@ function ChatPaneContent({
             <div
               ref={expandedComposerEditorRef}
               className={cn('composer-editor mobile-composer-expanded-editor')}
+              style={composerFontStyle}
               role="textbox"
               aria-multiline="true"
               aria-label="消息"
@@ -7968,6 +8027,20 @@ function ChatPaneContent({
               >
                 <Smile size={22} strokeWidth={1.5} />
               </button>
+              {composerFontAvailable ? (
+                <button
+                  ref={expandedFontButtonRef}
+                  type="button"
+                  title="个性字体"
+                  aria-label="个性字体"
+                  aria-expanded={fontOpen}
+                  className={cn(fontOpen && 'active')}
+                  disabled={readOnly || currentPreference.blocked}
+                  onClick={toggleFontPanel}
+                >
+                  <Type size={22} strokeWidth={1.5} />
+                </button>
+              ) : null}
               {!restrictedSource ? (
                 <button
                   type="button"
@@ -7989,6 +8062,7 @@ function ChatPaneContent({
                 onSend={() => void submitMessage()}
               />
             </div>
+            {fontOpen ? <ComposerFontPanel panelRef={fontPanelRef} font={composerFont} /> : null}
             {emojiOpen ? (
               <EmojiPanel
                 panelRef={emojiPanelRef}

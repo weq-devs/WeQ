@@ -225,7 +225,6 @@ html[data-component-style='retro'][data-theme] body
 /* 独立聊天工具浮层不会经过通用浮窗组件。贴边展开的编辑器和媒体灯箱保持原布局。 */
 html[data-component-style='retro'][data-theme] body
   :is(
-    .emoji-lb,
     .reaction-likers,
     .flash-composer:not(:where(html:not([data-weq-layout='single']) .composer.flash-open > *))
   ) {

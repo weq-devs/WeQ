@@ -24,7 +24,6 @@ export const SETTINGS_RESET_CARDS = [
   ['message-display', 'reading', '阅读与定位'],
   ['message-display', 'message-content', '内容显示'],
   ['contact-card', 'contact-card', '联系人名片'],
-  ['chat-interaction', 'sending', '发送消息'],
   ['chat-interaction', 'quote-replies', '引用回复'],
   ['chat-interaction', 'emoji-shortcuts', '表情输入'],
   ['chat-interaction', 'typing', '隐藏正在输入状态'],

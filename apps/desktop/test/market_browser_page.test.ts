@@ -51,6 +51,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         ),
       },
       marketEmoji: {
+        getPackKey: { useQuery: () => ({ data: undefined }) },
         getPackDetail: {
           useQuery: vi.fn(() => ({
             isLoading: false,
@@ -405,5 +406,50 @@ it('商城表情使用无标签整页和整页标题栏，关闭后恢复原内�
     act(() => root.unmount());
     host.remove();
     vi.unstubAllGlobals();
+  }
+});
+
+it('商城表情的添加保存整包，单张插入只选择当前表情', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  vi.mocked(client.account.marketEmoji.searchCatalog.query).mockResolvedValueOnce({
+    entries: [{ id: '123', name: '合成表情包', mark: '', feeType: 'free' }],
+    total: 1,
+    nextCursor: null,
+    catalogVersion: 'catalog-fixture',
+  });
+  const add = vi.fn(async () => {});
+  const insert = vi.fn();
+  const downloadCalls = saveState.download.mock.calls.length;
+  try {
+    await act(async () =>
+      root.render(
+        h(MarketEmojiBrowserLightbox, {
+          embedded: true,
+          composerAdd: { add, insert, addedIds: new Set<string>() },
+        }),
+      ),
+    );
+    const card = host.querySelector<HTMLButtonElement>('.weq-market-pack-card')!;
+    expect(card.getAttribute('aria-disabled')).not.toBe('true');
+    act(() => card.click());
+    const action = host.querySelector<HTMLButtonElement>('.weq-emb-detail-head button')!;
+    await act(async () => action.click());
+    expect(add).toHaveBeenCalledWith('123');
+    expect(insert).not.toHaveBeenCalled();
+    act(() => host.querySelector<HTMLButtonElement>('.weq-mface-lb-cell')!.click());
+    const insertButton = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '插入',
+    )!;
+    expect(insertButton).toBeDefined();
+    act(() => insertButton.click());
+    expect(insert).toHaveBeenCalledWith('123', expect.objectContaining({ name: '开心' }));
+    expect(add).toHaveBeenCalledOnce();
+    expect(saveState.download).toHaveBeenCalledTimes(downloadCalls);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
   }
 });

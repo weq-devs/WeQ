@@ -807,6 +807,25 @@ export interface LinkPreviewConfig {
   screenshot: boolean;
 }
 
+export type ComposerFontChoice = 'plain' | 'qq' | 'legacy-dress' | number;
+
+export interface ComposerFontSettings {
+  choice: ComposerFontChoice;
+  send: boolean;
+  preview: boolean;
+}
+
+type LegacyComposerFontSettings = { sendWithQqFont?: boolean; sendWithDressFont?: boolean };
+
+function legacyComposerFont(
+  settings: LegacyComposerFontSettings | undefined,
+): Partial<ComposerFontSettings> {
+  if (settings?.sendWithDressFont === true) return { choice: 'legacy-dress', send: true };
+  if (settings?.sendWithDressFont === false || typeof settings?.sendWithQqFont === 'boolean')
+    return { choice: 'qq', send: settings.sendWithQqFont ?? true };
+  return {};
+}
+
 export interface AppSettings {
   sharedPreferences: SharedPreferences;
   contactCard: import('../common/contact_card').ContactCardSettings;
@@ -943,15 +962,8 @@ export interface AppSettings {
   /** 每个渲染窗口的聊天图片与表情预览保留预算（MiB，按解码像素估算）。 */
   chatImageCacheMiB: number;
   chatMessagePrewarmMiB: number;
-  /** 发送文本时显式携带 QQ 账号当前的个性字体。 */
-  sendWithQqFont: boolean;
-  /**
-   * 发送文本时改用「个性装扮」里选用的聊天字体。
-   *
-   * 开启后接管字体槽位：有选中款就发它，没选就不带字体，不再回落到 QQ 账号字体。
-   * 默认关闭，避免沿用本地预览选择改变对方看到的字形。
-   */
-  sendWithDressFont: boolean;
+  /** 输入框发送与预览共用的全局字体选择。 */
+  composerFont: ComposerFontSettings;
   /** 群助手入口显示汇总未读消息数，而不是仅显示圆点。 */
   showGroupAssistantMessageCount: boolean;
   /**
@@ -1311,8 +1323,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showScrollToBottomButton: true,
   chatImageCacheMiB: DEFAULT_CHAT_IMAGE_CACHE_MIB,
   chatMessagePrewarmMiB: DEFAULT_CHAT_MESSAGE_PREWARM_MIB,
-  sendWithQqFont: true,
-  sendWithDressFont: false,
+  composerFont: { choice: 'qq', send: true, preview: false },
   showGroupAssistantMessageCount: false,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
@@ -1345,7 +1356,8 @@ export interface UserConfig {
   /** 登录页退出后仅跳过下一次启动，不改变自动进入偏好。 */
   skipAutoEnterOnce?: boolean;
   tencentFilesRootOverride?: string | null;
-  settings?: DeepPartial<AppSettings>;
+  settings?: DeepPartial<AppSettings> & LegacyComposerFontSettings;
+  composerMarketPacks?: import('../account/emoji').MarketPackDetail[];
   cacheDirOverride?: string | null;
   dbRepairCacheDir?: string | null;
   welcomeAcknowledged?: boolean;
@@ -2141,8 +2153,7 @@ export class UserConfigService {
       showScrollToBottomButton: s?.showScrollToBottomButton ?? d.showScrollToBottomButton,
       chatImageCacheMiB: normalizeChatImageCacheMiB(s?.chatImageCacheMiB),
       chatMessagePrewarmMiB: normalizeChatMessagePrewarmMiB(s?.chatMessagePrewarmMiB),
-      sendWithQqFont: s?.sendWithQqFont ?? d.sendWithQqFont,
-      sendWithDressFont: s?.sendWithDressFont ?? d.sendWithDressFont,
+      composerFont: { ...d.composerFont, ...legacyComposerFont(s), ...s?.composerFont },
       showGroupAssistantMessageCount:
         s?.showGroupAssistantMessageCount ?? d.showGroupAssistantMessageCount,
       externalChatpic: {
@@ -2254,7 +2265,7 @@ export class UserConfigService {
     this.write({ totpSecret: secret ?? undefined });
   }
 
-  setSettings(patch: DeepPartial<AppSettings>): AppSettings {
+  setSettings(patch: DeepPartial<AppSettings> & LegacyComposerFontSettings): AppSettings {
     const current = this.getSettings();
     const resources: LocalModelResources = {
       voice:
@@ -2348,8 +2359,11 @@ export class UserConfigService {
       chatMessagePrewarmMiB: normalizeChatMessagePrewarmMiB(
         patch.chatMessagePrewarmMiB ?? current.chatMessagePrewarmMiB,
       ),
-      sendWithQqFont: patch.sendWithQqFont ?? current.sendWithQqFont,
-      sendWithDressFont: patch.sendWithDressFont ?? current.sendWithDressFont,
+      composerFont: {
+        ...current.composerFont,
+        ...legacyComposerFont(patch),
+        ...patch.composerFont,
+      },
       showGroupAssistantMessageCount:
         patch.showGroupAssistantMessageCount ?? current.showGroupAssistantMessageCount,
       externalChatpic: {

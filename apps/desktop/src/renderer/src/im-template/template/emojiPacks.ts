@@ -100,13 +100,18 @@ export function unicodeFaceItem(glyph: string, desc: string): EmojiItem {
 }
 
 /** 商城表情。 */
-export function marketFaceItem(packId: string, hash: string, name: string): EmojiItem {
+export function marketFaceItem(
+  packId: string,
+  hash: string,
+  name: string,
+  preferPackImage = false,
+): EmojiItem {
   return {
     kind: 'market',
     id: `${packId}:${hash}`,
     name: name || hash,
     token: `[[chat:mface:${packId}:${hash}]]`,
-    src: mediaUrl('mface', { pack: packId, hash, enc: 'tea' }),
+    src: mediaUrl('mface', { pack: packId, hash, ...(preferPackImage ? { enc: 'tea' } : {}) }),
     glyph: '',
     large: true,
   };

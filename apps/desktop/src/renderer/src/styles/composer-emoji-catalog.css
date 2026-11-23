@@ -1,0 +1,6 @@
+.composer-emoji-catalog {
+  display: flex;
+  flex-direction: column;
+  height: min(580px, calc(100dvh - 130px));
+  min-height: 0;
+}

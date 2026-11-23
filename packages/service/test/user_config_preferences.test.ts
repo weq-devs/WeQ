@@ -204,7 +204,6 @@ describe('阅读与群助手', () => {
       autoFollowLatestMessages: true,
       jumpToLatestAfterSend: true,
       showScrollToBottomButton: true,
-      sendWithQqFont: true,
       showGroupAssistantMessageCount: false,
     };
     expect(DEFAULT_APP_SETTINGS).toMatchObject(defaults);
@@ -213,7 +212,6 @@ describe('阅读与群助手', () => {
     config.setSettings({ autoFollowLatestMessages: false });
     config.setSettings({ jumpToLatestAfterSend: false });
     config.setSettings({ showScrollToBottomButton: false });
-    config.setSettings({ sendWithQqFont: false });
     config.setSettings({ showGroupAssistantMessageCount: true });
     config.setSettings({ showMessageTime: false });
     expect(new UserConfigService(platform).getSettings()).toMatchObject({
@@ -221,12 +219,36 @@ describe('阅读与群助手', () => {
       autoFollowLatestMessages: false,
       jumpToLatestAfterSend: false,
       showScrollToBottomButton: false,
-      sendWithQqFont: false,
       showGroupAssistantMessageCount: true,
       showMessageTime: false,
     });
     config.setSettings(defaults);
     expect(new UserConfigService(platform).getSettings()).toMatchObject(defaults);
+  });
+});
+
+describe('输入框个性字体', () => {
+  it('迁移旧开关，修改预览时保留发送选择，重开与还原备份后仍生效', () => {
+    const f = fixture({ settings: { sendWithQqFont: false, sendWithDressFont: true } });
+    expect(f.open().getSetting('composerFont')).toEqual({
+      choice: 'legacy-dress',
+      send: true,
+      preview: false,
+    });
+    const old = { sendWithQqFont: false };
+    expect(() => validateWeqAppSettings(old)).not.toThrow();
+    expect(f.service.setSettings(old).composerFont).toEqual({
+      choice: 'qq',
+      send: false,
+      preview: false,
+    });
+    f.service.setSettings({ composerFont: { choice: 8915, preview: true } });
+    const settings = f.open().getSettings();
+    expect(settings.composerFont).toEqual({ choice: 8915, send: false, preview: true });
+    const backup = snapshotWeqSettings(settings);
+    expect(() => validateWeqAppSettings(backup)).not.toThrow();
+    expect(() => validateWeqAppSettings({ composerFont: { choice: 65536 } })).toThrow();
+    expect(fixture().service.setSettings(backup).composerFont).toEqual(settings.composerFont);
   });
 });
 

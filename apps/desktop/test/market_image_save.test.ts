@@ -3,17 +3,22 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { ExportTaskManager, type MsgService } from '@weq/service';
+import { ExportTaskManager, UserConfigService, type MsgService } from '@weq/service';
 import { marketEmojiRouter } from '../src/main/ipc/routers/market_emoji';
 
 const state = vi.hoisted(() => ({
   configId: 'source-a',
   services: {} as object,
+  userConfig: null as UserConfigService | null,
   image: vi.fn(async (_pack: string, _hash: string): Promise<string | null> => null),
   register: vi.fn((_path: string, _name: string, _kind: string) => ({ url: '/download/fixture' })),
 }));
 vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({ account: { context: { uin: '10001' } }, services: state.services }),
+  getAppContext: () => ({
+    account: { context: { uin: '10001' } },
+    services: state.services,
+    bootstrap: { userConfig: state.userConfig },
+  }),
 }));
 vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
@@ -97,4 +102,38 @@ it('取图期间切换来源不发布迟到结果，旧来源也不能创建任�
       .startImageSave({ ...input, savePolicy: { mode: 'before', directory: root } }),
   ).rejects.toThrow('数据源已切换');
   expect(manager.listTasks()).toEqual([]);
+});
+
+it('整套添加只保存缓存成功的表情，失败可重试且重复添加不会增行', async () => {
+  const platform = { appDataRoot: () => root };
+  state.userConfig = new UserConfigService(platform);
+  const items = ['aaaaaa', 'bbbbbb'].map((hash) => ({ hash, name: hash, keywords: [] }));
+  const detail = {
+    packId: '123',
+    name: '合成表情包',
+    summary: '',
+    items,
+    count: items.length,
+    feeType: 'free',
+    feeTypeRaw: 1,
+    updateTime: 0,
+  };
+  const emoji = {
+    getMarketPackItems: vi.fn(async () => detail),
+    getMarketFace: vi.fn(async () => null),
+    getMarketPackImage: state.image,
+  };
+  state.services = { ...state.services, emoji };
+  const api = marketEmojiRouter.createCaller({});
+  state.image.mockResolvedValue(null);
+  await expect(api.addComposerPack({ packId: '123' })).rejects.toThrow('无法缓存');
+  expect(new UserConfigService(platform).read().composerMarketPacks).toBeUndefined();
+
+  state.image.mockImplementation(async (_pack, hash) => (hash === 'aaaaaa' ? source : null));
+  const result = await api.addComposerPack({ packId: '123' });
+  expect(result).toEqual({ cached: 1, total: 2 });
+  expect(await api.addComposerPack({ packId: '123' })).toEqual(result);
+  expect(new UserConfigService(platform).read().composerMarketPacks).toEqual([
+    { ...detail, items: [items[0]] },
+  ]);
 });

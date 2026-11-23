@@ -1549,16 +1549,18 @@ export const bootstrapRouter = router({
           .chatMessagePrewarmMiB,
     ),
 
-  setSendWithQqFont: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
-    requireBootstrap().userConfig.setSettings({ sendWithQqFont: input.enabled });
-    return true;
-  }),
-
-  setSendWithDressFont: procedure
-    .input(z.object({ enabled: z.boolean() }))
+  setComposerFont: procedure
+    .input(
+      z.object({
+        choice: z.union([z.enum(['plain', 'qq']), z.number().int().min(1).max(0xffff)]).optional(),
+        send: z.boolean().optional(),
+        preview: z.boolean().optional(),
+      }),
+    )
     .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ sendWithDressFont: input.enabled });
-      return true;
+      if (typeof input.choice === 'number' && !developmentDressToolsEnabled())
+        throw new Error('当前未开启个性装扮功能');
+      return requireBootstrap().userConfig.setSettings({ composerFont: input }).composerFont;
     }),
 
   setShowGroupAssistantMessageCount: procedure

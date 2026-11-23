@@ -3,7 +3,7 @@
  * sticker) cache (`nt_data/Emoji/marketface/*`). Thin tRPC skin over
  * `MarketEmojiResourceService` (see `@weq/service`). The image bytes are NOT
  * returned here — the renderer streams each file via the existing
- * `weq-media://mface?pack=<itemId>&hash=<hash>` protocol. Read-only.
+ * `weq-media://mface?pack=<itemId>&hash=<hash>` protocol.
  */
 import { OperationError, requireDevelopmentDressTools } from '@weq/service';
 
@@ -133,6 +133,49 @@ export const marketEmojiRouter = router({
   listPackages: procedure.query(() => {
     return requireServices().emoji.listMarketPackages();
   }),
+
+  /** 添加到 WeQ 输入框的商城表情列表。 */
+  addComposerPack: procedure
+    .input(z.object({ packId: z.string().regex(/^\d{1,15}$/) }))
+    .mutation(async ({ input }) => {
+      requireDevelopmentDressTools();
+      const services = requireServices();
+      const config = getAppContext().bootstrap?.userConfig;
+      if (!config) throw new Error('配置尚未就绪');
+      const accountConfigId = services.accountConfig.getRecord()?.configId;
+      const assertCurrent = () => {
+        if (requireServices(undefined, accountConfigId) !== services)
+          throw new Error('账号已切换，请重新添加表情包');
+      };
+      const previous = config
+        .read()
+        .composerMarketPacks?.find((pack) => pack.packId === input.packId);
+      if (previous) return { cached: previous.items.length, total: previous.count };
+      const detail = await services.emoji.getMarketPackItems(input.packId);
+      if (!detail?.items.length) throw new Error('无法获取这个表情包，请稍后重试');
+      const items: typeof detail.items = [];
+      const batchSize = 6;
+      for (let offset = 0; offset < detail.items.length; offset += batchSize) {
+        assertCurrent();
+        const batch = detail.items.slice(offset, offset + batchSize);
+        const paths = await Promise.all(
+          batch.map(async ({ hash }) => {
+            return (
+              (await services.emoji.getMarketFace(input.packId, hash, true)) ??
+              (await services.emoji.getMarketPackImage(input.packId, hash)) ??
+              (await services.emoji.getMarketFace(input.packId, hash))
+            );
+          }),
+        );
+        items.push(...batch.filter((_, index) => paths[index]));
+      }
+      assertCurrent();
+      if (!items.length) throw new Error('这套表情暂时无法缓存，请稍后重试');
+      const saved = config.read().composerMarketPacks ?? [];
+      if (!saved.some((pack) => pack.packId === input.packId))
+        config.write({ composerMarketPacks: [{ ...detail, items }, ...saved] });
+      return { cached: items.length, total: detail.count };
+    }),
 
   /**
    * 一个表情包的在线详情：拉 android.json 解析出来源(feetype) / 介绍 / 上架时间

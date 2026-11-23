@@ -33,7 +33,10 @@ export type WeqAppBackupSettings = Omit<
   >;
 };
 type PartialSettings<T> = T extends object ? { [K in keyof T]?: PartialSettings<T[K]> } : T;
-export type WeqAppBackupPatch = PartialSettings<WeqAppBackupSettings>;
+export type WeqAppBackupPatch = PartialSettings<WeqAppBackupSettings> & {
+  sendWithQqFont?: boolean;
+  sendWithDressFont?: boolean;
+};
 export interface WeqApiBackupSettings {
   agentLab: AppSettings['agentLab'];
   ttsProviders: AppSettings['voiceTranscribe']['ttsProviders'];
@@ -302,6 +305,9 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     updateCheckIntervalMinutes,
     quitConfirmSuppressed,
     sharedPreferences,
+    composerFont,
+    sendWithQqFont,
+    sendWithDressFont,
     ...scalarSettings
   } = input;
   // 旧备份允许携带已退役字段，但不再将它写回正式设置。
@@ -313,6 +319,15 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
   )
     fail('settings.updateCheckIntervalMinutes');
   if (qqShowCacheDays !== undefined) number(qqShowCacheDays, 'settings.qqShowCacheDays', 1, 365);
+  if (sendWithQqFont !== undefined) shape(sendWithQqFont, true, 'settings.sendWithQqFont');
+  if (sendWithDressFont !== undefined) shape(sendWithDressFont, true, 'settings.sendWithDressFont');
+  if (composerFont !== undefined) {
+    const path = 'settings.composerFont';
+    const { choice, ...switches } = fields(composerFont, path, [], ['choice', 'send', 'preview']);
+    shape(switches, { send: true, preview: false }, path);
+    if (choice !== undefined && choice !== 'plain' && choice !== 'qq' && choice !== 'legacy-dress')
+      number(choice, `${path}.choice`, 1, 0xffff);
+  }
   shape(scalarSettings, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
   if (input.aiImages !== undefined) {
     for (const [feature, mode] of Object.entries(record(input.aiImages, 'settings.aiImages'))) {

@@ -1,0 +1,139 @@
+.composer-font-panel.emoji-panel {
+  grid-template-rows: auto minmax(0, 1fr) repeat(2, auto);
+}
+
+.composer-font-list {
+  display: grid;
+  gap: 8px;
+}
+
+.composer-font-list[data-expanded='false'] {
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.composer-font-list[data-expanded='true'] {
+  grid-auto-rows: 64px;
+  align-content: start;
+}
+
+.composer-font-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(78px, auto) 16px;
+  align-items: center;
+  gap: 10px;
+  min-height: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  cursor: pointer;
+}
+
+.composer-font-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.composer-font-option:has(input:checked) {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
+}
+
+.composer-font-option:has(input:focus-visible) {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
+}
+
+.composer-font-option[data-unavailable='true'] {
+  color: var(--weq-fg-muted);
+  opacity: 0.62;
+  cursor: default;
+}
+
+.composer-font-option > svg {
+  visibility: hidden;
+  color: var(--weq-accent-effective);
+}
+
+.composer-font-option:has(input:checked) > svg {
+  visibility: visible;
+}
+
+.composer-font-sample {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--weq-bg-elevated);
+  font-size: 15px;
+}
+
+.composer-font-sample img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.composer-font-option-label {
+  display: grid;
+  gap: 3px;
+  max-width: 100px;
+}
+
+.composer-font-option-label small,
+.composer-font-option-label strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-font-option-label strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.composer-font-option-label small {
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+}
+
+.composer-font-controls {
+  display: grid;
+  min-height: 46px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+  font-size: 12px;
+}
+
+.composer-font-controls > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.composer-font-controls .weq-set-toggle {
+  flex: none;
+}
+
+.composer-font-error {
+  padding: 4px 12px;
+  color: var(--weq-fg-danger);
+  font-size: 12px;
+}
+
+.composer-font-catalog {
+  max-height: min(460px, calc(100dvh - 230px));
+  overflow: auto;
+}

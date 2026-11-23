@@ -818,7 +818,12 @@ export class EmojiService {
     if (!/^\d+$/.test(id)) return null;
     const cached = this.packDetailCache.get(id);
     if (cached) return cached;
-    const p = this.fetchMarketPackDetail(id).catch(() => null);
+    const p = this.fetchMarketPackDetail(id)
+      .catch(() => null)
+      .then((detail) => {
+        if (!detail?.items.length) this.packDetailCache.delete(id);
+        return detail;
+      });
     this.packDetailCache.set(id, p);
     return p;
   }
@@ -966,6 +971,14 @@ export class EmojiService {
 
     // 1. Hit weq's own cache first (animated GIF preferred, then static PNG).
     if (existsSync(gifCachePath)) return gifCachePath;
+    const packCachePath = join(
+      this.platform.appDataRoot(),
+      'cache',
+      'marketpack',
+      itemId,
+      `${emojiHash}.gif`,
+    );
+    if (existsSync(packCachePath)) return packCachePath;
     if (existsSync(pngCachePath)) return pngCachePath;
 
     // 2. Check QQ's local cache. A sticker is stored as the raw encrypted GIF

@@ -565,7 +565,6 @@ describe('设置归位后的实际页面', () => {
         ),
       ).toEqual(['消息序号（seq）', '日期', '时间']);
       act(() => tabs.find((tab) => tab.textContent === '互动与防撤回')!.click());
-      expect(f.body().querySelector('[data-setting-id="send-with-qq-font"]')).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="typing-status"]')).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="read-sync"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="anti-recall"]')).not.toBeNull();
@@ -667,7 +666,6 @@ describe('设置归位后的实际页面', () => {
     ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息阅读'],
     ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息阅读'],
     ['chat-messages', '图片预览内存预算', 'chat-image-cache', '消息阅读'],
-    ['chat-messages', '使用 QQ 账号设置的个性字体发送消息', 'send-with-qq-font', '互动与防撤回'],
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
     ['intent-models', '意图模型资源', 'intent-engine', '意图感知'],

@@ -107,6 +107,7 @@ it('输入框工具栏共用桌面端按钮列表，位置只保留一个入口�
   const toolbar = host.querySelector('.composer-tools')!;
   expect([...toolbar.querySelectorAll('button')].map((button) => button.title)).toEqual([
     '表情',
+    '个性字体',
     '红包 / 礼物',
     '通话',
     '语音',
@@ -115,6 +116,8 @@ it('输入框工具栏共用桌面端按钮列表，位置只保留一个入口�
     '位置',
   ]);
   expect(toolbar.querySelector('.composer-mobile-tool')).toBeNull();
+  clickTitle(toolbar, '个性字体');
+  expect(host.querySelector('[role="group"][aria-label="个性字体"]')).not.toBeNull();
   clickTitle(toolbar, '位置');
   expect(document.querySelector('[role="menu"][aria-label="位置"]')).not.toBeNull();
   clickTitle(toolbar, '位置');
@@ -163,6 +166,13 @@ it('表情选择器上方的右键菜单点击及 Escape 不会穿透关闭选�
 });
 
 it.each([false, true])('私聊互动表情保留发送，不再提供窗口抖动；展开=%s', async (expanded) => {
+  if (expanded) {
+    vi.stubGlobal('innerWidth', 390);
+    vi.stubGlobal('innerHeight', 844);
+    vi.stubGlobal('matchMedia', (query: string) =>
+      Object.assign(new EventTarget(), { matches: query === '(max-width: 760px)' }),
+    );
+  }
   const { host, send } = await mount(false, '未发送的文字');
   if (expanded)
     act(() => host.querySelector<HTMLButtonElement>('.mobile-composer-expand-button')!.click());

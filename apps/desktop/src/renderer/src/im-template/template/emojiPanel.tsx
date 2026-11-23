@@ -13,9 +13,8 @@
  */
 
 import { EmptyState } from '../../components/EmptyState';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { useTabActive } from '../../components/RetainedTabs.shared';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
 import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { FavoritePickerTab } from '../../components/qq-actions/FavoritePickerTab';
@@ -28,22 +27,29 @@ import {
   MessageSquareQuote,
   Plus,
   RefreshCw,
-  Search,
   Smile,
   Store,
   Type,
   X,
-  SearchX,
   Sticker,
 } from 'lucide-react';
 import type { RefObject } from 'react';
 import { trpc } from '../../trpc/client';
-import { useOverlayLayer } from '../../lib/overlayStack';
+import { EditorDialog } from '../../components/EditorDialog';
+import { DressSearchForm } from '../../components/DressSearchForm';
+import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
+import '../../styles/composer-emoji-catalog.css';
 import { cn } from './classNames';
 import { BounceEmojiPanel, type BounceEmojiDraft } from './bounceEmojiPanel';
 import { PokeEmojiPanel, type PokeEmojiDraft, type RandomFaceDraft } from './pokeEmojiPanel';
 import { CustomEmojiTab } from './customEmojiTab';
 import { marketFaceItem, systemFaceItem, unicodeFaceItem, type EmojiItem } from './emojiPacks';
+
+const MarketEmojiBrowserLightbox = lazy(() =>
+  import('../../views/export/MarketEmojiBrowserLightbox').then((module) => ({
+    default: module.MarketEmojiBrowserLightbox,
+  })),
+);
 
 type TabId = 'face' | 'super' | 'unicode' | 'market' | 'fav' | 'kaomoji' | 'poke' | 'custom';
 
@@ -206,11 +212,7 @@ export function EmojiPanel({
             }}
           />
         ) : tab === 'market' && !marketPackId ? (
-          <div className="emoji-header-actions">
-            <ActionIcon label="搜索更多表情" text="添加" onClick={() => setSearchOpen(true)}>
-              <Plus size={16} />
-            </ActionIcon>
-          </div>
+          <MarketAddButton onClick={() => setSearchOpen(true)} />
         ) : bouncing || tab === 'poke' ? (
           <div className="emoji-header-actions">
             <ActionIcon
@@ -529,6 +531,17 @@ function KaomojiGrid({ onSelect }: { onSelect: (item: EmojiItem) => void }) {
 
 // ── 商城表情 ──────────────────────────────────────────────────────────────────
 
+function MarketAddButton({ onClick }: { onClick: () => void }) {
+  const enabled = useDevelopmentDressTools();
+  return enabled ? (
+    <div className="emoji-header-actions">
+      <ActionIcon label="搜索更多表情" text="添加" onClick={onClick}>
+        <Plus size={16} />
+      </ActionIcon>
+    </div>
+  ) : null;
+}
+
 function MarketTab({
   packId,
   onOpenPack,
@@ -539,6 +552,7 @@ function MarketTab({
   onSelect: (item: EmojiItem) => void;
 }) {
   const packages = trpc.account.emojiPanel.marketPackages.useQuery();
+  const developmentDressTools = useDevelopmentDressTools();
 
   if (packId) {
     return <MarketPackDetail packId={packId} onBack={() => onOpenPack(null)} onSelect={onSelect} />;
@@ -554,7 +568,7 @@ function MarketTab({
           compact
           icon={<Sticker />}
           title="还没有添加商城表情包"
-          body="点右上「添加」去搜索"
+          body={developmentDressTools ? '点右上「添加」去搜索' : undefined}
         />
       ) : (
         <div className={cn('emoji-pack-list')}>
@@ -587,6 +601,7 @@ function MarketPackDetail({
   onSelect: (item: EmojiItem) => void;
 }) {
   const detail = trpc.account.emojiPanel.marketPackDetail.useQuery({ packId });
+  const development = useDevelopmentDressTools();
   const items = detail.data?.items ?? [];
   return (
     <div className={cn('emoji-section')}>
@@ -617,7 +632,12 @@ function MarketPackDetail({
           items={items.map((it) => ({
             key: it.hash,
             title: it.name || it.hash,
-            item: marketFaceItem(packId, it.hash, it.name),
+            item: marketFaceItem(
+              packId,
+              it.hash,
+              it.name,
+              development && detail.data?.source === 'online',
+            ),
           }))}
           onSelect={onSelect}
         />
@@ -637,130 +657,59 @@ function EmojiCatalogLightbox({
   onClose: () => void;
   onSelect: (item: EmojiItem) => void;
 }) {
-  const tabActive = useTabActive();
-  const layer = useOverlayLayer(tabActive);
+  const [draft, setDraft] = useState('');
   const [keyword, setKeyword] = useState('');
-  const [debounced, setDebounced] = useState('');
-  const [openPackId, setOpenPackId] = useState<string | null>(null);
+  const [partial, setPartial] = useState('');
+  const packages = trpc.account.emojiPanel.marketPackages.useQuery();
+  const addPack = trpc.account.marketEmoji.addComposerPack.useMutation();
+  const utils = trpc.useUtils();
 
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebounced(keyword.trim()), 260);
-    return () => window.clearTimeout(t);
-  }, [keyword]);
-
-  useLayoutEffect(() => {
-    if (!tabActive) return undefined;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [tabActive, onClose]);
-
-  const catalog = trpc.account.marketEmoji.searchCatalog.useQuery(
-    { keyword: debounced || undefined, limit: 40 },
-    { enabled: !openPackId },
-  );
-  const detail = trpc.account.emojiPanel.marketPackDetail.useQuery(
-    { packId: openPackId ?? '' },
-    { enabled: !!openPackId },
-  );
-
-  return createPortal(
-    <div
-      className={cn('emoji-lb-layer')}
-      hidden={!tabActive}
-      style={{ zIndex: layer, display: tabActive ? undefined : 'none' }}
-      onMouseDown={onClose}
-    >
-      <div className={cn('emoji-lb')} onMouseDown={(e) => e.stopPropagation()}>
-        <div className={cn('emoji-lb-head')}>
-          {openPackId ? (
-            <button
-              type="button"
-              className={cn('emoji-back-btn')}
-              onClick={() => setOpenPackId(null)}
-            >
-              <ArrowLeft size={14} /> 返回
-            </button>
-          ) : (
-            <span className={cn('emoji-lb-title')}>
-              <Store size={15} /> 表情搜索
-            </span>
-          )}
-          {!openPackId ? (
-            <label className={cn('emoji-lb-search')}>
-              <Search size={14} />
-              <input
-                value={keyword}
-                autoFocus
-                placeholder="搜索表情包名称 / 介绍"
-                onChange={(e) => setKeyword(e.target.value)}
-              />
-            </label>
-          ) : (
-            <span className={cn('emoji-lb-title')}>{detail.data?.name ?? openPackId}</span>
-          )}
-          <button
-            type="button"
-            className={cn('emoji-lb-close')}
-            onClick={onClose}
-            aria-label="关闭"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className={cn('emoji-lb-body')}>
-          {openPackId ? (
-            detail.isLoading ? (
-              <div className={cn('emoji-state')}>获取这组表情中…</div>
-            ) : (detail.data?.items ?? []).length === 0 ? (
-              <div className={cn('emoji-state')}>这个表情包暂时没有可显示的表情</div>
-            ) : (
-              <FaceGrid
-                layout="big"
-                items={(detail.data?.items ?? []).map((it) => ({
-                  key: it.hash,
-                  title: it.name || it.hash,
-                  item: marketFaceItem(openPackId, it.hash, it.name),
-                }))}
-                onSelect={onSelect}
-              />
-            )
-          ) : catalog.isLoading ? (
-            <div className={cn('emoji-state')}>搜索中…</div>
-          ) : catalog.error ? (
-            <EmptyState compact icon={<SearchX />} title={catalog.error.message} />
-          ) : catalog.data?.catalogVersion === null ? (
-            <EmptyState
-              compact
-              icon={<Store />}
-              title="请先下载商城表情目录"
-              body="在「设置 → 增强功能 → 增强包」安装后即可搜索。"
-            />
-          ) : (catalog.data?.entries ?? []).length === 0 ? (
-            <EmptyState compact icon={<SearchX />} title="没有找到匹配的表情包" />
-          ) : (
-            <div className={cn('emoji-pack-list')}>
-              {(catalog.data?.entries ?? []).map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  className={cn('emoji-pack-card')}
-                  title={entry.name}
-                  onClick={() => setOpenPackId(entry.id)}
-                >
-                  <span className={cn('emoji-pack-name')}>{entry.name}</span>
-                  <span className={cn('emoji-pack-summary')}>{entry.mark || '查看全部表情'}</span>
-                </button>
-              ))}
+  return (
+    <EditorDialog title="添加商城表情" width={960} onClose={onClose}>
+      <div className="composer-emoji-catalog">
+        {partial ? (
+          <div className="weq-market-job-status" role="status">
+            {partial}
+          </div>
+        ) : null}
+        <Suspense
+          fallback={
+            <div className="emoji-state" role="status">
+              加载中…
             </div>
-          )}
-        </div>
+          }
+        >
+          <MarketEmojiBrowserLightbox
+            embedded
+            embeddedSearch={{
+              keyword,
+              form: (
+                <DressSearchForm
+                  label="搜索表情包"
+                  value={draft}
+                  onChange={setDraft}
+                  onSearch={setKeyword}
+                />
+              ),
+            }}
+            composerAdd={{
+              addedIds: new Set(packages.data?.map((pack) => pack.packId)),
+              add: async (packId) => {
+                setPartial('');
+                const result = await addPack.mutateAsync({ packId });
+                if (result.cached < result.total)
+                  setPartial(`已添加 ${result.cached} 张可用表情，共 ${result.total} 张`);
+                await utils.account.emojiPanel.marketPackages.invalidate();
+              },
+              insert: (packId, item) => {
+                flushSync(onClose);
+                onSelect(marketFaceItem(packId, item.hash, item.name, true));
+              },
+            }}
+          />
+        </Suspense>
       </div>
-    </div>,
-    document.body,
+    </EditorDialog>
   );
 }
 

@@ -32,7 +32,6 @@ import {
   Palette,
   Radio,
   Smile,
-  Send,
   Sun,
   X,
 } from 'lucide-react';
@@ -867,8 +866,6 @@ function AppearanceSection({
   const setAutoFollowLatestMessages = trpc.bootstrap.setAutoFollowLatestMessages.useMutation();
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
   const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
-  const setSendWithQqFont = trpc.bootstrap.setSendWithQqFont.useMutation();
-  const setSendWithDressFont = trpc.bootstrap.setSendWithDressFont.useMutation();
   const utils = trpc.useUtils();
   const [readingError, setReadingError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(false);
@@ -1053,17 +1050,11 @@ function AppearanceSection({
               />
             </Card>
           )}
-          {(category === 'display' || category === 'sending') && (
+          {category === 'display' && (
             <Card
-              title={category === 'display' ? '阅读与定位' : '发送消息'}
-              resetId={category === 'display' ? 'reading' : 'sending'}
-              icon={
-                category === 'display' ? (
-                  <BookOpen size={15} strokeWidth={1.8} />
-                ) : (
-                  <Send size={15} strokeWidth={1.8} />
-                )
-              }
+              title="阅读与定位"
+              resetId="reading"
+              icon={<BookOpen size={15} strokeWidth={1.8} />}
             >
               {[
                 {
@@ -1102,37 +1093,16 @@ function AppearanceSection({
                   fallback: true,
                   mutation: setShowScrollToBottomButton,
                 },
-                {
-                  key: 'sendWithQqFont' as const,
-                  settingId: 'send-with-qq-font',
-                  label: '使用 QQ 账号设置的个性字体发送消息',
-                  fallback: true,
-                  mutation: setSendWithQqFont,
-                },
-                {
-                  key: 'sendWithDressFont' as const,
-                  settingId: 'send-with-dress-font',
-                  label: '发送时使用个性装扮中选用的聊天字体',
-                  desc: '开启后以「个性装扮」里选用的字体发送；没有选用时不带字体，也不再回落到 QQ 账号字体。',
-                  fallback: false,
-                  mutation: setSendWithDressFont,
-                },
               ]
-                .filter(
-                  ({ key }) =>
-                    (key === 'sendWithQqFont' || key === 'sendWithDressFont') ===
-                    (category === 'sending'),
-                )
                 .filter(
                   ({ key }) =>
                     key !== 'preserveUnreadUntilRead' || settings.data?.readFromFirstUnread,
                 )
-                .flatMap(({ key, settingId, label, desc, fallback, mutation }) => [
+                .flatMap(({ key, settingId, label, fallback, mutation }) => [
                   <Row
                     key={key}
                     settingId={settingId}
                     label={label}
-                    desc={desc}
                     indent={key === 'preserveUnreadUntilRead'}
                     control={
                       <span

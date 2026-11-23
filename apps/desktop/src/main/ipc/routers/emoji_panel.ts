@@ -100,14 +100,30 @@ export const emojiPanelRouter = router({
     return { faces, recent, favorites };
   }),
 
-  /** 我添加的商城表情包清单（本地表）。 */
-  marketPackages: procedure.query(() => {
-    return requireServices().emoji.listMarketPackages();
+  /** 合并 WeQ 添加的整包与 QQ 已添加的整包。 */
+  marketPackages: procedure.query(async () => {
+    const services = requireServices();
+    const local = await services.emoji.listMarketPackages();
+    if (requireServices() !== services) throw new Error('账号已切换，请重新读取表情包');
+    const added = getAppContext().bootstrap?.userConfig.read().composerMarketPacks ?? [];
+    const packs = new Map(
+      added.map(({ packId, name, summary }) => [packId, { packId, name, summary }]),
+    );
+    for (const { packId, name, summary } of local) {
+      if (!packs.has(packId)) packs.set(packId, { packId, name, summary });
+    }
+    return [...packs.values()];
   }),
 
-  /** 单个商城表情包明细（在线优先，离线回退本地表）。 */
+  /** WeQ 添加时保存目录快照，重开后可直接查看；QQ 已添加的包沿用原有链路。 */
   marketPackDetail: procedure.input(z.object({ packId: z.string().min(1) })).query(({ input }) => {
-    return requireServices().emoji.getMarketPackItems(input.packId);
+    const services = requireServices();
+    const saved = getAppContext()
+      .bootstrap?.userConfig.read()
+      .composerMarketPacks?.find((pack) => pack.packId === input.packId);
+    return saved
+      ? { ...saved, count: saved.items.length, source: 'local' as const }
+      : services.emoji.getMarketPackItems(input.packId);
   }),
 
   /** 某个 GIF 关键词标签下的全部 gif。 */

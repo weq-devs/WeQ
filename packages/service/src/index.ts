@@ -66,6 +66,8 @@ export type {
   UserConfig,
   AutoEnterTarget,
   AppSettings,
+  ComposerFontChoice,
+  ComposerFontSettings,
   TypingStatusSettings,
   TypingStatusMode,
   TypingStatusConversation,
