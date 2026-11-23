@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./startup-diagnostics": "./src/startup_diagnostics.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

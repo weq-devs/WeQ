@@ -1,6 +1,6 @@
 import { app, ipcMain, webContents } from 'electron';
 import { cpus } from 'node:os';
-import { databaseStartupSnapshot, observeDatabaseStartup } from '@weq/db';
+import { databaseStartupSnapshot, observeDatabaseStartup } from '@weq/db/startup-diagnostics';
 import { createNodeCollector } from '@weq/service/performance-node';
 import type { MonitorCollector, MonitorProcess } from '@weq/service/performance';
 import { MONITOR_REQUEST, MONITOR_RESPONSE } from '../shared/performance_monitor';
