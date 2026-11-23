@@ -11,7 +11,11 @@ import type { QQWriteBinding, QQWriteOutcome } from '../src/renderer/src/hooks/u
 import type { QzoneInteraction, QzonePublication } from '../src/renderer/src/views/qzone_types';
 
 const state = vi.hoisted(() => ({
+  web: false,
   configId: 'source-a',
+  getConfig: vi.fn(),
+  stageImage: vi.fn(),
+  discardImage: vi.fn(),
   refreshWait: null as Promise<void> | null,
   readback: undefined as (() => Promise<boolean>) | undefined,
   autoReadback: false,
@@ -72,7 +76,16 @@ vi.mock('../src/renderer/src/components/QqAvatar', () => ({
       style: { width: size, height: size },
     }),
 }));
-vi.mock('../src/renderer/src/lib/accountFilePicker', () => ({ pickAccountFile: state.pickImage }));
+vi.mock('../src/renderer/src/lib/target.shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/lib/target.shared')>()),
+  get IS_WEB() {
+    return state.web;
+  },
+}));
+vi.mock('../src/renderer/src/lib/accountFilePicker', () => ({
+  pickAccountFile: state.pickImage,
+  stageAccountFile: state.stageImage,
+}));
 vi.mock('../src/renderer/src/hooks/useQQWriteSession', () => ({
   useQQWriteSession: () => ({
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: state.configId },
@@ -115,6 +128,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: { getSettings: { query: state.settings } },
     account: {
+      getAccountConfig: { query: state.getConfig },
+      pickedFileDiscard: { mutate: state.discardImage },
       qqActions: {
         qzone: { mutate: state.write },
         qzoneForward: { mutate: state.forward },
@@ -174,6 +189,10 @@ beforeEach(() => {
     },
   );
   state.configId = 'source-a';
+  state.web = false;
+  state.getConfig.mockReset().mockResolvedValue({ uin: '10001', configId: state.configId });
+  state.stageImage.mockReset().mockResolvedValue({ uploadId: 'staged-image' });
+  state.discardImage.mockReset().mockResolvedValue(undefined);
   state.refreshWait = null;
   state.readback = undefined;
   state.autoReadback = false;
@@ -447,6 +466,46 @@ it.each([false, true])('选图完成后恢复发表并可提交，严格模式=%
   );
   expect(visible?.textContent).toContain('服务端读回的新说说');
   expect(visible?.textContent).toContain('合成说说');
+});
+
+it.each([false, true])('Web 发图按电脑能力选择上传格式，支持暂存=%s', async (staged) => {
+  state.web = true;
+  if (staged) {
+    state.getConfig.mockResolvedValue({
+      uin: '10001',
+      configId: 'source-a',
+      qzoneStagedImageUpload: true,
+    });
+  }
+  const { dialog, input, submit } = await openComposer(false);
+  const content = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
+  let base64 = '';
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+      content,
+      '合成图文说说',
+    );
+    content.dispatchEvent(new Event('input', { bubbles: true }));
+    base64 = chooseImage(input);
+  });
+  const completed = staged ? Promise.resolve() : trackImageRead();
+  await act(async () => {
+    submit.click();
+    await completed;
+  });
+  if (staged) {
+    expect(state.stageImage).toHaveBeenCalledOnce();
+    expect(state.uploadImage).toHaveBeenCalledWith({
+      selfUin: '10001',
+      uploadId: 'staged-image',
+      expectedAccountConfigId: 'source-a',
+    });
+  } else {
+    expect(state.stageImage).not.toHaveBeenCalled();
+    expect(state.uploadImage).toHaveBeenCalledWith({ selfUin: '10001', base64 });
+  }
+  expect(state.uploadImage).toHaveBeenCalledOnce();
+  expect(state.publish).toHaveBeenCalledOnce();
 });
 it('发表时读取图片失败保留预览并允许重试', async () => {
   const read = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementationOnce(function (

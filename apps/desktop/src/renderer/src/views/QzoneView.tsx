@@ -4337,7 +4337,7 @@ function Composer({
         signal.throwIfAborted();
         setUploadingImage(index);
         setStage(`已上传 ${index}/${images.length} 张`);
-        if (binding) {
+        if (binding && config?.qzoneStagedImageUpload === true) {
           const { uploadId } = await stageAccountFile(image.file, binding, signal);
           try {
             signal.throwIfAborted();
