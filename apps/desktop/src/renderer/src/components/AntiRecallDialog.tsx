@@ -79,13 +79,13 @@ const METHODS: {
   {
     value: 'proxy',
     icon: Network,
-    title: '在 WeQ 和本机 QQ 中保留（使用代理）',
+    title: '在 WeQ 和本机 QQ 中保留（代理拦截）',
     description: 'WeQ 运行且 QQ 连接代理时生效。',
   },
   {
     value: 'database',
     icon: Database,
-    title: '在 WeQ 和本机 QQ 中保留（使用数据库触发器）',
+    title: '在 WeQ 和本机 QQ 中保留（数据库触发器拦截）',
     description: '无需代理。触发器生效后，关闭 WeQ 也会继续保护。',
   },
 ];
