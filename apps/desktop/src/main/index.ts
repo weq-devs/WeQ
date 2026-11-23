@@ -1025,7 +1025,7 @@ void app.whenReady().then(async () => {
       });
     });
   if (isQuitting) return;
-  initAppContext(accountDirectories?.data);
+  initAppContext(accountDirectories?.data, defaultDataRoot);
   void import('./data_saver')
     .then(async ({ refreshTransferPolicy }) => {
       await refreshTransferPolicy();

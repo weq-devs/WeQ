@@ -198,7 +198,7 @@ export function AccountBasicsSection({
       pushToast({
         tone: 'success',
         title: 'QQ 代理端口已更新',
-        message: `请到 QQ 登录窗口的「网络设置」更新端口为 ${port}，再登录。`,
+        message: `请在使用本机代理的 QQ 登录窗口中，将「网络设置」的端口更新为 ${port}。`,
       });
     },
     onError: (error) => showError('更改 QQ 代理端口失败', error.message),
@@ -726,7 +726,7 @@ export function AccountBasicsSection({
           >
             <Row
               label="启用 QQ 代理"
-              desc="关闭会停止本机转发。停用前请先在 QQ 的「网络设置」中恢复直连。"
+              desc="本机各账号窗口共用代理开关和端口。停用前请先在 QQ 的「网络设置」中恢复直连。"
               control={
                 <Toggle
                   checked={proxyEnabled}

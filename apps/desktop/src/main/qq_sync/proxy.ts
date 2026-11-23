@@ -35,6 +35,7 @@ interface Tunnel {
   connectRequestedAt?: number;
   framer: FrameBuffer;
   template?: Template;
+  pendingAccount?: { uin: string; generation: string; at: number };
   waiting: Set<() => void>;
   filtering?: boolean;
   fragmentTimer?: ReturnType<typeof setTimeout>;
@@ -150,12 +151,27 @@ export class QqSyncProxy {
     this.live.get(uin)?.socket.destroy();
     this.credentials.delete(uin);
     this.policies.delete(uin);
-    for (const tunnel of this.tunnels.values())
+    for (const tunnel of this.tunnels.values()) {
       if (tunnel.template?.outer.uin === uin) tunnel.template = undefined;
+      if (tunnel.pendingAccount?.uin === uin) tunnel.pendingAccount = undefined;
+    }
   }
   status() {
     const tunnels = [...this.tunnels.values()];
     const recent = Date.now() - CONNECT_TIMEOUT_MS;
+    const accounts = new Set<string>();
+    const connectingAccounts = new Set<string>();
+    for (const { template, pendingAccount } of tunnels) {
+      if (template && template.generation === this.credentials.get(template.outer.uin)?.generation)
+        accounts.add(template.outer.uin);
+      if (
+        pendingAccount &&
+        pendingAccount.at > recent &&
+        pendingAccount.generation === this.credentials.get(pendingAccount.uin)?.generation
+      )
+        connectingAccounts.add(pendingAccount.uin);
+    }
+    for (const uin of accounts) connectingAccounts.delete(uin);
     return {
       running: Boolean(this.server?.listening),
       tunnels: tunnels.length,
@@ -163,19 +179,8 @@ export class QqSyncProxy {
         ({ connectRequestedAt, template }) =>
           !template && connectRequestedAt !== undefined && connectRequestedAt > recent,
       ),
-      accounts: [
-        ...new Set(
-          tunnels
-            .filter((tunnel) => {
-              const template = tunnel.template;
-              return (
-                template &&
-                template.generation === this.credentials.get(template.outer.uin)?.generation
-              );
-            })
-            .map((tunnel) => tunnel.template!.outer.uin),
-        ),
-      ],
+      accounts: [...accounts],
+      connectingAccounts: [...connectingAccounts],
       delivered: this.deliveredCount,
       recallError: this.lastRecallError,
       filteredRecalls: this.filteredRecalls,
@@ -379,8 +384,19 @@ export class QqSyncProxy {
       const key = Buffer.from(credential.key, 'hex');
       const outer = parseServerFrame(frame, key);
       const inner = parseServerPlain(outer.plain);
-      if (inner.command !== 'trpc.msg.olpush.OlPushService.MsgPush') return frame;
+      if (inner.command !== 'trpc.msg.olpush.OlPushService.MsgPush') {
+        if (
+          outer.encryption === 1 &&
+          (tunnel.template?.outer.uin !== uin ||
+            tunnel.template.generation !== credential.generation)
+        ) {
+          tunnel.template = undefined;
+          tunnel.pendingAccount = { uin, generation: credential.generation, at: Date.now() };
+        }
+        return frame;
+      }
       tunnel.template = { outer, inner, generation: credential.generation };
+      tunnel.pendingAccount = undefined;
       const policy = this.recallPolicy(uin);
       const live = this.live.get(uin);
       if (!live && (!policy || !credential.selfUid || !this.journal)) return frame;
@@ -441,6 +457,7 @@ export class QqSyncProxy {
       !credential ||
       credential.generation !== generation ||
       !template ||
+      template.outer.uin !== uin ||
       template.generation !== generation ||
       !tunnel.framer.atBoundary ||
       tunnel.client.destroyed

@@ -1043,12 +1043,12 @@ export const bootstrapRouter = router({
 
   getQqClientSyncStatus: procedure.query(async () => {
     const ctx = getAppContext();
-    const { userConfig } = requireBootstrap();
+    const { qqSyncRoot, userConfig } = requireBootstrap();
     const accountUin = ctx.account ? String(ctx.account.context.uin) : null;
     const liveAccount = accountUin !== null && !ctx.accountIsStatic;
     const sync = ctx.services?.qqClientSync;
     const protection = ctx.services?.antiRecall.protection();
-    const status = await qqSyncStatus(requirePlatform().appDataRoot());
+    const status = await qqSyncStatus(qqSyncRoot);
     const connectionExpected =
       status.enabled &&
       liveAccount &&
@@ -1057,10 +1057,13 @@ export const bootstrapRouter = router({
         (userConfig.getSetting('qqLiveMessagesEnabled') &&
           userConfig.getSetting('realtimeEnabled')) ||
         (protection?.enabled === true && protection.method !== 'database'));
-    const connected =
+    const connected = status.running && liveAccount && status.accounts.includes(accountUin);
+    const connecting =
       status.running &&
-      (liveAccount ? status.accounts.includes(accountUin) : status.accounts.length > 0);
-    const connecting = status.running && status.connecting === true && status.accounts.length === 0;
+      liveAccount &&
+      !connected &&
+      (status.connectingAccounts?.includes(accountUin) ??
+        (status.connecting === true && status.accounts.length === 0));
     return {
       ...status,
       accountUin,
@@ -1074,7 +1077,7 @@ export const bootstrapRouter = router({
   setQqProxyEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(async ({ input }) => {
-      await setQqSyncProxyEnabled(requirePlatform().appDataRoot(), input.enabled);
+      await setQqSyncProxyEnabled(requireBootstrap().qqSyncRoot, input.enabled);
       getAppContext().services?.qqClientSync?.refreshLive();
       return true;
     }),
@@ -1082,8 +1085,7 @@ export const bootstrapRouter = router({
   setQqLiveMessagesEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(async ({ input }) => {
-      const { userConfig } = requireBootstrap();
-      const root = requirePlatform().appDataRoot();
+      const { qqSyncRoot: root, userConfig } = requireBootstrap();
       if (input.enabled && isQqSyncProxyEnabled(root)) await ensureQqSyncProxy(root);
       userConfig.setSettings({ qqLiveMessagesEnabled: input.enabled });
       getAppContext().services?.qqClientSync?.refreshLive();
@@ -1099,20 +1101,20 @@ export const bootstrapRouter = router({
 
   setQqClientSyncPort: procedure
     .input(z.object({ port: z.number().int().min(1).max(65535) }).strict())
-    .mutation(({ input }) => setQqSyncPort(requirePlatform().appDataRoot(), input.port)),
+    .mutation(({ input }) => setQqSyncPort(requireBootstrap().qqSyncRoot, input.port)),
 
   setQqClientSyncEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(async ({ input }) => {
       const ctx = getAppContext();
-      const { userConfig } = requireBootstrap();
-      const root = requirePlatform().appDataRoot();
+      const { qqSyncRoot: root, userConfig } = requireBootstrap();
       if (input.enabled && isQqSyncProxyEnabled(root)) await ensureQqSyncProxy(root);
       userConfig.setSettings({ qqClientSyncEnabled: input.enabled });
       if (
         !input.enabled &&
         isQqSyncProxyEnabled(root) &&
         ctx.account &&
+        !ctx.accountIsStatic &&
         !userConfig.getSetting('qqLiveMessagesEnabled') &&
         !ctx.services?.antiRecall.protection().enabled
       )

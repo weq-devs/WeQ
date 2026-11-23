@@ -2,7 +2,7 @@ import { connect } from 'node:net';
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -66,12 +66,17 @@ async function ensureConfig(root: string): Promise<SyncProxyConfig> {
         ? `\\\\.\\pipe\\weq-qq-sync-${suffix}`
         : join(tmpdir(), `weq-qq-sync-${suffix}.sock`),
   };
+  const tmp = `${path}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
   try {
-    await writeFile(path, JSON.stringify(config), { flag: 'wx', mode: 0o600 });
+    await writeFile(tmp, JSON.stringify(config), { flag: 'wx', mode: 0o600 });
+    // 并发首次启动时仅发布一份完整配置，所有窗口复用同一个控制令牌。
+    await link(tmp, path);
     return config;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     return JSON.parse(await readFile(path, 'utf8'));
+  } finally {
+    await unlink(tmp).catch(() => undefined);
   }
 }
 

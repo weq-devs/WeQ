@@ -4,7 +4,7 @@ import { createServer, connect, type Socket, type Server } from 'node:net';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,7 @@ import {
 import { RecallJournal } from '../src/main/qq_sync/recall_journal';
 import { FrameBuffer, QqSyncProxy } from '../src/main/qq_sync/proxy';
 import { requestProxy, type SyncProxyConfig, type SyncProxyStatus } from '../src/main/qq_sync/ipc';
+import { isQqSyncProxyEnabled } from '../src/main/qq_sync/runtime';
 import {
   buildServerFrame,
   buildServerPlain,
@@ -44,13 +45,16 @@ afterEach(async () => {
   );
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function frame(body = Buffer.from([8, 1])) {
+function frame(
+  body = Buffer.from([8, 1]),
+  { uin = '10001', key = 7, command = 'trpc.msg.olpush.OlPushService.MsgPush' } = {},
+) {
   return buildServerFrame({
-    uin: '10001',
-    key: Buffer.alloc(16, 7),
+    uin,
+    key: Buffer.alloc(16, key),
     plain: buildServerPlain({
       sequence: 0x90000001,
-      command: 'trpc.msg.olpush.OlPushService.MsgPush',
+      command,
       body,
     }),
   });
@@ -197,6 +201,79 @@ it('代理关闭后断开连接并释放端口，保存新端口后重启也保�
     await stopWorker();
   }
 }, 15000);
+
+it('账号窗口会重新读取其他窗口修改的宿主代理开关', () => {
+  const root = mkdtempSync(join(tmpdir(), 'shared-qq-proxy-'));
+  roots.push(root);
+  const directory = join(root, 'qq-client-sync');
+  mkdirSync(directory);
+  const now = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+  const config = join(directory, 'config.json');
+  writeFileSync(config, JSON.stringify({ enabled: false }));
+  expect(isQqSyncProxyEnabled(root)).toBe(false);
+  writeFileSync(config, JSON.stringify({ enabled: true }));
+  clock.mockReturnValue(now + 2000);
+  expect(isQqSyncProxyEnabled(root)).toBe(true);
+  writeFileSync(config, JSON.stringify({ enabled: false }));
+  clock.mockReturnValue(now + 4000);
+  expect(isQqSyncProxyEnabled(root)).toBe(false);
+});
+
+it('同一端口分别确认两个账号，并将推送发给各自的订阅', async () => {
+  const upstreams: Socket[] = [];
+  const remote = createServer((socket) => {
+    sockets.push(socket);
+    upstreams.push(socket);
+  });
+  servers.push(remote);
+  remote.listen(0, '127.0.0.1');
+  await once(remote, 'listening');
+  const { port: remotePort } = remote.address() as { port: number };
+  const proxy = new QqSyncProxy();
+  proxies.push(proxy);
+  const port = await proxy.start(0);
+
+  async function openAccount(uin: string, key: number) {
+    proxy.setCredential({ uin, key: Buffer.alloc(16, key).toString('hex'), generation: uin });
+    const write = vi.fn();
+    proxy.subscribeLive(uin, uin, {
+      write,
+      destroy: vi.fn(),
+      once: vi.fn(),
+      writableLength: 0,
+    } as unknown as Socket);
+    const client = connect(port, '127.0.0.1');
+    sockets.push(client);
+    const take = reader(client);
+    await once(client, 'connect');
+    client.write(`CONNECT 127.0.0.1:${remotePort} HTTP/1.1\r\n\r\n`);
+    await take(Buffer.byteLength('HTTP/1.1 200 Connection Established\r\n\r\n'));
+    const upstream = upstreams.at(-1)!;
+    return {
+      write,
+      async receive(body: Buffer, command?: string) {
+        const packet = frame(body, { uin, key, command });
+        upstream.write(packet);
+        expect(await take(packet.length)).toEqual(packet);
+      },
+    };
+  }
+
+  const first = await openAccount('10001', 7);
+  await first.receive(Buffer.from([8, 1]));
+  const second = await openAccount('10002', 8);
+  expect(proxy.status()).toMatchObject({ accounts: ['10001'], connectingAccounts: [] });
+  await second.receive(Buffer.from([8, 2]), 'Heartbeat.Alive');
+  expect(proxy.status()).toMatchObject({ accounts: ['10001'], connectingAccounts: ['10002'] });
+  expect(second.write).not.toHaveBeenCalled();
+  await second.receive(Buffer.from([8, 2]));
+  expect(proxy.status()).toMatchObject({ accounts: ['10001', '10002'], connectingAccounts: [] });
+  expect(first.write.mock.calls).toEqual([[`${JSON.stringify({ body: 'CAE=' })}\n`]]);
+  expect(second.write.mock.calls).toEqual([[`${JSON.stringify({ body: 'CAI=' })}\n`]]);
+  proxy.forget('10001');
+  expect(proxy.status()).toMatchObject({ accounts: ['10002'], connectingAccounts: [] });
+});
 
 it('分片、连续帧与前导登录数据保持完整边界', () => {
   const f = frame();

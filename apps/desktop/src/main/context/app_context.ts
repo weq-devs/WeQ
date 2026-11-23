@@ -1252,6 +1252,7 @@ export interface BootstrapServices {
   detect: Win32DetectService;
   keys: KeyService;
   userConfig: UserConfigService;
+  qqSyncRoot: string;
   globalConfig: GlobalConfigService;
   avatarCache: MediaCacheService;
   /** 聊天里裸链接 → og 卡片（抓取带 SSRF 闸门，见 service 侧）。Account-independent。 */
@@ -1611,7 +1612,7 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
   };
 }
 
-export function initAppContext(fileRoot?: string): AppContext {
+export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext {
   if (cached) return cached;
   const files = initBackupContext(fileRoot);
   if (!files.ok) {
@@ -1677,6 +1678,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ? createDarwinPlatform(bundle, () => readDataRootOverride(), resolveUid)
         : createWin32Platform(bundle, () => readDataRootOverride(), getQqProtocolExe);
   const platform: Platform = { ...nativePlatform, appDataRoot: () => files.root };
+  const qqSyncRoot = hostRoot ?? files.root;
   initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
@@ -1685,8 +1687,8 @@ export function initAppContext(fileRoot?: string): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = files.config;
-  if (isQqSyncProxyEnabled(platform.appDataRoot()))
-    void ensureQqSyncProxy(platform.appDataRoot()).catch((error) =>
+  if (isQqSyncProxyEnabled(qqSyncRoot))
+    void ensureQqSyncProxy(qqSyncRoot).catch((error) =>
       getLogger().warn('QQ 同步代理启动失败', { error: String(error) }),
     );
   // 词云 / 常用语的分词优先用 QQ 自带结巴词典，读不到时用随包的
@@ -1765,6 +1767,7 @@ export function initAppContext(fileRoot?: string): AppContext {
     detect: new Win32DetectService(platform),
     keys: new KeyService(platform),
     userConfig,
+    qqSyncRoot,
     globalConfig: new GlobalConfigService(platform, userConfig),
     avatarCache: new MediaCacheService(userConfig),
     linkPreview,
@@ -2185,7 +2188,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       );
       const qqClientSync = new AccountQqSync({
         antiRecall,
-        root: platform.appDataRoot(),
+        root: qqSyncRoot,
         path: join(
           platform.appDataRoot(),
           'config',
@@ -2195,7 +2198,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         session,
         nt: platform.native.ntHelper,
-        proxyEnabled: () => isQqSyncProxyEnabled(platform.appDataRoot()),
+        proxyEnabled: () => isQqSyncProxyEnabled(qqSyncRoot),
         enabled: () => this.account === session && userConfig.getSetting('qqClientSyncEnabled'),
         liveEnabled: () =>
           this.account === session &&
