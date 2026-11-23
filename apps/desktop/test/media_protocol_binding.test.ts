@@ -100,7 +100,10 @@ it('添加表情的原图请求不上传普通缩略图，但保留接收表情�
   };
   const url = 'weq-media://pic?t=1&name=received.gif&token=token&v=original';
   expect((await handleMediaRequest(new Request(url))).status).toBe(404);
-  expect(download).toHaveBeenCalledWith('token', { originalUrl: '' });
+  expect(download).toHaveBeenCalledWith('token', {
+    originalUrl: '',
+    signal: expect.any(AbortSignal),
+  });
   const response = await handleMediaRequest(new Request(`${url}&recv=1`));
   expect(Buffer.from(await response.arrayBuffer())).toEqual(gif);
   expect(download).toHaveBeenCalledOnce();
@@ -156,7 +159,7 @@ it('灯箱先查已下载原图，只有缩略图时等到明确请求再下载�
   expect(thumbnail).not.toHaveBeenCalled();
   const small = '/download?spec=198';
   expect((await request(`v=thumb&preview=1&small=${encodeURIComponent(small)}`)).ok).toBe(true);
-  expect(thumbnail).toHaveBeenCalledWith(small);
+  expect(thumbnail).toHaveBeenCalledWith(small, false, expect.any(AbortSignal));
   expect(download).not.toHaveBeenCalled();
   expect(await (await request('v=original')).text()).toBe('synthetic original');
   expect(download).toHaveBeenCalledOnce();

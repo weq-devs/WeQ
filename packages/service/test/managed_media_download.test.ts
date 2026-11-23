@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { managedMediaDownload } from '../src/account/managed_media_download';
 import { LARGE_TRANSFER_BYTES } from '../src/common/data_saver';
-import { transferActivity } from '../src/common/managed_download';
+import { transferActivity, type TransferActivity } from '../src/common/managed_download';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -38,3 +38,30 @@ it.each([true, false])(
     }
   },
 );
+
+it('中止已经登记的传输时发送取消状态，不报告下载失败', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-managed-media-cancel-'));
+  roots.push(root);
+  const controller = new AbortController();
+  const started = Promise.withResolvers<void>();
+  const activity = vi.fn((state: TransferActivity) => {
+    if (state.total) started.resolve();
+  });
+  transferActivity.on('state', activity);
+  try {
+    const work = managedMediaDownload('https://fixture.invalid/image', join(root, 'image.png'), {
+      signal: controller.signal,
+      fetcher: async () =>
+        new Response(new ReadableStream({}), {
+          headers: { 'Content-Type': 'image/png', 'Content-Length': String(LARGE_TRANSFER_BYTES) },
+        }),
+    });
+    await started.promise;
+    controller.abort();
+    expect(await work).toMatchObject({ ok: false });
+    expect(activity).toHaveBeenLastCalledWith(expect.objectContaining({ cancelled: true }));
+    expect(activity.mock.calls.at(-1)?.[0].error).toBeUndefined();
+  } finally {
+    transferActivity.off('state', activity);
+  }
+});

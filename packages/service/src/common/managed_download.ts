@@ -53,6 +53,7 @@ export interface TransferActivity extends DownloadState {
   name: string;
   transfer: ManagedDownload;
   done?: boolean;
+  cancelled?: boolean;
   error?: string;
 }
 
@@ -308,6 +309,7 @@ export class ManagedDownload {
                 new Response(null, { headers: { 'Content-Type': 'application/octet-stream' } }),
                 this.received,
               );
+              signal.throwIfAborted();
               await (this.options.publish ?? rename)(part, target);
               await rm(meta, { force: true });
               progress?.(this.received, identity.size, 0);
@@ -481,6 +483,7 @@ export class ManagedDownload {
             }
           }
           await this.options.validate?.(part, response, this.received);
+          signal.throwIfAborted();
           await (this.options.publish ?? rename)(part, target);
           const { unlink } = await import('node:fs/promises');
           await unlink(meta).catch(() => undefined);
@@ -569,7 +572,7 @@ export class ManagedDownload {
           reasons: [],
           received: this.received,
           total: this.total,
-          error: String(error),
+          ...(this.options.signal?.aborted ? { cancelled: true } : { error: String(error) }),
         } satisfies TransferActivity);
       throw error;
     } finally {

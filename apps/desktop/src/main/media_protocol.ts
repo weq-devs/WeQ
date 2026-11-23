@@ -598,6 +598,7 @@ async function giftRemoteResponse(src: string): Promise<Response> {
 export async function resolveChatImageFile(
   q: URLSearchParams,
   check = () => mediaBinding.getStore()?.(),
+  signal?: AbortSignal,
 ) {
   check();
   const services = getAppContext().services;
@@ -625,7 +626,9 @@ export async function resolveChatImageFile(
   if (previewOnly) {
     const small = q.get('small');
     const thumbnail =
-      small && small !== q.get('orig') ? await services.mediaDownload.thumbnail?.(small) : null;
+      small && small !== q.get('orig')
+        ? await services.mediaDownload.thumbnail?.(small, false, signal)
+        : null;
     check();
     return { path: thumbnail ?? null, variant: 'thumb' as const };
   }
@@ -645,7 +648,7 @@ export async function resolveChatImageFile(
       (picType === 'emoji' ? !behavior.dataSaverEmoji : behavior.dataSaverImageLoading === 'none'))
   ) {
     const localThumb = q.get('small')
-      ? await services.mediaDownload.thumbnail?.(q.get('small')!, true)
+      ? await services.mediaDownload.thumbnail?.(q.get('small')!, true, signal)
       : null;
     return localThumb
       ? { path: localThumb, variant: 'thumb' as const }
@@ -659,13 +662,15 @@ export async function resolveChatImageFile(
   ) {
     const small = q.get('small');
     const thumbnail =
-      small && small !== q.get('orig') ? await services.mediaDownload.thumbnail?.(small) : null;
+      small && small !== q.get('orig')
+        ? await services.mediaDownload.thumbnail?.(small, false, signal)
+        : null;
     return thumbnail
       ? { path: thumbnail, variant: 'thumb' as const }
       : { path: null, variant: 'unknown' as const, deferred: true };
   }
   const token = q.get('token') ?? '';
-  const opts = { originalUrl: q.get('orig') ?? '' };
+  const opts = { originalUrl: q.get('orig') ?? '', signal };
   const transfer = originalOnly
     ? transferIdInput.safeParse(q.get('transferId') ?? undefined)
     : null;
@@ -986,7 +991,10 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
             )
               throw new Error('账号数据源已切换');
           };
-          const { path, deferred } = await bounded(resolveChatImageFile(q, check), request.signal);
+          const { path, deferred } = await bounded(
+            resolveChatImageFile(q, check, request.signal),
+            request.signal,
+          );
           check();
           const respond = (path: string) =>
             wantThumb && picType !== 'emoji'

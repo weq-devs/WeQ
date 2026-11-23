@@ -1,4 +1,4 @@
-import { networkFetch } from '@weq/network';
+import { bounded, networkFetch } from '@weq/network';
 /**
  * MediaDownloadService — CDN fallback for chat media that isn't on disk.
  *
@@ -19,10 +19,9 @@ import { networkFetch } from '@weq/network';
  */
 
 import { createHash } from 'node:crypto';
-import { readFile, mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdir, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs } from './user_config';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -61,6 +60,8 @@ export interface DownloadOptions {
    * (no rkey) and prefer it over the rkey attempts.
    */
   originalUrl?: string;
+  /** 取消这个调用方，最后一个调用方离开时才停止共享下载。 */
+  signal?: AbortSignal;
 }
 
 /**
@@ -69,11 +70,60 @@ export interface DownloadOptions {
  */
 export interface ExternalRkeySource {
   /** 解析外部服务器当前可用的 rkey（已过滤 allowedTypes、未过期）。 */
-  resolveRkeys(allowedTypes: number[]): Promise<DownloadRkey[]>;
+  resolveRkeys(allowedTypes: number[], signal?: AbortSignal): Promise<DownloadRkey[]>;
 }
 
 const mediaSummary = new Map<string, { count: number; failed: number; durationMs: number }>();
 type MediaProgress = (received: number, total: number) => void;
+type Consumer = { progress?: MediaProgress };
+type Transfer = {
+  controller: AbortController;
+  consumers: Set<Consumer>;
+  progress: [number, number];
+  work: Promise<string | null>;
+};
+
+/** 来源切换时两个账号实例可能指向同一缓存目录。每个实际目标只允许一个分段写入器。 */
+const writers = new Map<string, Promise<unknown>>();
+async function writeMedia(
+  path: string,
+  signal: AbortSignal,
+  write: () => Promise<string | null>,
+): Promise<string | null> {
+  const key = resolve(path);
+  for (;;) {
+    signal.throwIfAborted();
+    const previous = writers.get(key);
+    if (!previous) break;
+    await bounded(
+      previous.catch(() => undefined),
+      signal,
+    );
+  }
+  const work = Promise.resolve().then(async () => {
+    signal.throwIfAborted();
+    const hadPartial = existsSync(`${path}.part`) || existsSync(`${path}.resume.json`);
+    try {
+      return await write();
+    } finally {
+      if (signal.aborted && !hadPartial) await removeCancelledDownload(path);
+    }
+  });
+  writers.set(key, work);
+  try {
+    return await work;
+  } finally {
+    writers.delete(key);
+  }
+}
+
+async function removeCancelledDownload(path: string): Promise<void> {
+  await Promise.all([
+    rm(`${path}.part`, { force: true }).catch(() => undefined),
+    rm(`${path}.resume.json`, { force: true }).catch(() => undefined),
+  ]);
+}
+
 let summaryTimer: ReturnType<typeof setTimeout> | undefined;
 function summarizeMedia(source: string, durationMs: number, failed = false): void {
   const entry = mediaSummary.get(source) ?? { count: 0, failed: 0, durationMs: 0 };
@@ -99,11 +149,8 @@ export function flushMediaDownloadLogs(): void {
 process.once('exit', flushMediaDownloadLogs);
 
 export class MediaDownloadService {
-  private readonly downloadingThumbnails = new Map<string, Promise<string | null>>();
-  private readonly downloading = new Map<
-    string,
-    { promise: Promise<string | null>; listeners: Set<MediaProgress>; progress: [number, number] }
-  >();
+  private readonly downloadingThumbnails = new Map<string, Transfer>();
+  private readonly downloading = new Map<string, Transfer>();
   private readonly logger = getLogger().child({ scope: 'media-download' });
 
   constructor(
@@ -120,15 +167,8 @@ export class MediaDownloadService {
   }
 
   /** 仅使用消息真实携带的小图地址，不将 spec=0 原图地址变造为缩图。 */
-  async thumbnail(raw: string, localOnly = false): Promise<string | null> {
-    if (localOnly) return this.fetchThumbnail(raw, true);
-    const pending = this.downloadingThumbnails.get(raw);
-    if (pending) return pending;
-    const work = this.fetchThumbnail(raw).finally(() => this.downloadingThumbnails.delete(raw));
-    this.downloadingThumbnails.set(raw, work);
-    return work;
-  }
-  private async fetchThumbnail(raw: string, localOnly = false): Promise<string | null> {
+  async thumbnail(raw: string, localOnly = false, signal?: AbortSignal): Promise<string | null> {
+    signal?.throwIfAborted();
     let url: URL;
     try {
       url = new URL(raw, MEDIA_HOST);
@@ -148,19 +188,32 @@ export class MediaDownloadService {
     const path = join(this.cacheDir, `${hashToken(`thumbnail:${url.href}`)}.thumb`);
     if (existsSync(path)) return path;
     if (localOnly || !this.allowOnline()) return null;
-    mkdirSync(this.cacheDir, { recursive: true });
-    try {
-      await new ManagedDownload({
-        maxBytes: 512 * 1024,
-        validate: async (_path, response) => {
-          if (!(response.headers.get('content-type') ?? '').startsWith('image/'))
-            throw new Error('不是缩略图');
-        },
-      }).file(url.href, path);
-      return this.allowOnline() ? path : null;
-    } catch {
-      return null;
-    }
+    return this.consume(this.downloadingThumbnails, path, signal, (transferSignal) =>
+      writeMedia(path, transferSignal, async () => {
+        transferSignal.throwIfAborted();
+        if (existsSync(path)) return path;
+        if (!this.allowOnline()) return null;
+        try {
+          await mkdir(this.cacheDir, { recursive: true });
+          await new ManagedDownload({
+            signal: transferSignal,
+            maxBytes: 512 * 1024,
+            validate: async (_path, response, size) => {
+              transferSignal.throwIfAborted();
+              if (
+                !this.allowOnline() ||
+                !size ||
+                !(response.headers.get('content-type') ?? '').startsWith('image/')
+              )
+                throw new Error('缩略图不可用');
+            },
+          }).file(url.href, path);
+          return this.allowOnline() ? path : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
   }
 
   /**
@@ -172,35 +225,92 @@ export class MediaDownloadService {
     opts: DownloadOptions = {},
     onProgress?: MediaProgress,
   ): Promise<string | null> {
-    const key = `${fileToken}:${opts.ext ?? ''}`;
-    let task = this.downloading.get(key);
+    opts.signal?.throwIfAborted();
+    if (!fileToken) return null;
+    const path = join(this.cacheDir, `${hashToken(fileToken)}${opts.ext ?? ''}`);
+    if (existsSync(path)) {
+      this.logger.debug('media cache hit', {
+        event: 'media-cache-hit',
+        mediaId: hashToken(fileToken).slice(0, 16),
+      });
+      return path;
+    }
+    if (!this.allowOnline() || !scopedNetworkAllowed()) return null;
+    return this.consume(
+      this.downloading,
+      path,
+      opts.signal,
+      (signal, progress) =>
+        writeMedia(path, signal, () => this.runDownload(fileToken, path, opts, progress, signal)),
+      onProgress,
+    );
+  }
+
+  private async consume(
+    tasks: Map<string, Transfer>,
+    key: string,
+    signal: AbortSignal | undefined,
+    load: (signal: AbortSignal, progress: MediaProgress) => Promise<string | null>,
+    onProgress?: MediaProgress,
+  ): Promise<string | null> {
+    let task: Transfer | undefined;
+    for (;;) {
+      signal?.throwIfAborted();
+      task = tasks.get(key);
+      if (!task?.controller.signal.aborted) break;
+      const closing = task.work.catch(() => undefined);
+      await (signal ? bounded(closing, signal) : closing);
+    }
     if (!task) {
-      const listeners = new Set<MediaProgress>();
+      const controller = new AbortController();
+      const consumers = new Set<Consumer>();
       const progress: [number, number] = [0, 0];
-      const promise = this.runDownload(fileToken, opts, (received, total) => {
+      const report = (received: number, total: number) => {
         progress[0] = received;
         progress[1] = total;
-        for (const listener of listeners) listener(received, total);
-      }).finally(() => this.downloading.delete(key));
-      task = { promise, listeners, progress };
-      this.downloading.set(key, task);
+        for (const consumer of consumers) {
+          try {
+            consumer.progress?.(received, total);
+          } catch {
+            /* 单个监听者不影响其他调用。 */
+          }
+        }
+      };
+      const work = Promise.resolve()
+        .then(() => load(controller.signal, report))
+        .finally(() => tasks.delete(key));
+      void work.catch(() => undefined);
+      task = { controller, consumers, progress, work };
+      tasks.set(key, task);
     }
-    if (onProgress) {
-      task.listeners.add(onProgress);
-      onProgress(...task.progress);
+    const active = task;
+    const consumer: Consumer = { progress: onProgress };
+    active.consumers.add(consumer);
+    const release = () => {
+      active.consumers.delete(consumer);
+      if (!active.consumers.size && tasks.get(key) === active)
+        active.controller.abort(signal?.reason);
+    };
+    signal?.addEventListener('abort', release, { once: true });
+    try {
+      onProgress?.(...task.progress);
+      return await (signal ? bounded(active.work, signal) : active.work);
+    } finally {
+      signal?.removeEventListener('abort', release);
+      release();
     }
-    return task.promise;
   }
 
   private async runDownload(
     fileToken: string,
+    cachePath: string,
     opts: DownloadOptions,
     onProgress: MediaProgress,
+    signal: AbortSignal,
   ): Promise<string | null> {
-    if (!fileToken) return null;
+    signal.throwIfAborted();
     const began = performance.now();
     const mediaId = hashToken(fileToken).slice(0, 16);
-    const cachePath = join(this.cacheDir, `${hashToken(fileToken)}${opts.ext ?? ''}`);
     if (existsSync(cachePath)) {
       this.logger.debug('media cache hit', { event: 'media-cache-hit', mediaId });
       return cachePath;
@@ -238,15 +348,17 @@ export class MediaDownloadService {
     };
     let source = 'unavailable';
     let externalCandidateCount = 0;
-    const local = await tryEach(urls, this.allowOnline, note, cachePath, onProgress);
+    const local = await tryEach(urls, this.allowOnline, note, cachePath, onProgress, signal);
+    signal.throwIfAborted();
     if (!urls.length) note('local-rkey')('no-candidates');
     let bytes = local?.bytes ?? null;
     if (local) source = local.source;
     if (!bytes && this.externalRkey && this.allowOnline()) {
       let externalRkeys: DownloadRkey[] = [];
       try {
-        externalRkeys = await this.externalRkey.resolveRkeys(allowed);
+        externalRkeys = await bounded(this.externalRkey.resolveRkeys(allowed, signal), signal);
       } catch (error) {
+        signal.throwIfAborted();
         failures['external:resolve'] = 1;
         this.logger.debug('external rkey resolve failed', {
           event: 'media-download-external-resolve-failed',
@@ -265,31 +377,20 @@ export class MediaDownloadService {
           note('external'),
           cachePath,
           onProgress,
+          signal,
         );
         if (bytes) break;
       }
     }
+    signal.throwIfAborted();
     if (bytes) {
       if (!this.allowOnline()) return null;
-      mkdirSync(this.cacheDir, { recursive: true });
-      try {
-        writeFileSync(cachePath, bytes);
-      } catch (error) {
-        summarizeMedia(source, Math.round(performance.now() - began), true);
-        this.logger.error('failed to persist downloaded media', {
-          event: 'media-download-write-failed',
-          mediaId,
-          cachePath,
-          ...logErrorContext(error),
-        });
-        throw error;
-      }
       summarizeMedia(source, Math.round(performance.now() - began));
       this.logger.debug('downloaded media into cache', {
         event: 'media-download-success',
         mediaId,
         source,
-        size: bytes.length,
+        size: bytes,
       });
       return cachePath;
     }
@@ -334,108 +435,79 @@ export function composeMediaDownloadUrl(fileToken: string, rkey: DownloadRkey): 
   return `${DOWNLOAD_BASE}?appid=${appid}&fileid=${encodeURIComponent(fileToken)}&spec=0${rkey.rkey}`;
 }
 
-/** Retries for transient download failures (network / 5xx / 429). */
-const MAX_RETRIES = 3;
-/** Base backoff; grows 300ms → 600ms → 1200ms, plus jitter. */
-const BACKOFF_BASE_MS = 300;
-
-/** Try a list of URLs in order; first non-empty bytes wins. */
+/** 按原来的来源优先级尝试，下载器负责重试、写盘和原子发布。 */
 async function tryEach(
   urls: Array<{ url: string; source: string }>,
   allowed: () => boolean,
   note: (stage: string) => (reason: string) => void,
   cachePath: string,
   onProgress: MediaProgress,
-): Promise<{ bytes: Buffer; source: string } | null> {
+  signal: AbortSignal,
+): Promise<{ bytes: number; source: string } | null> {
   for (const { url, source } of urls) {
+    signal.throwIfAborted();
     if (!allowed()) return null;
-    const bytes = await tryFetch(url, allowed, note(source), cachePath, onProgress);
+    const bytes = await tryFetch(url, allowed, note(source), cachePath, onProgress, signal);
     if (bytes) return { bytes, source };
   }
   return null;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Exponential backoff with ±40% jitter for retry attempt `n` (0-based). */
-function backoffMs(n: number): number {
-  const base = BACKOFF_BASE_MS * 2 ** n;
-  return base + Math.floor(Math.random() * base * 0.4);
-}
-
-/**
- * Fetch one URL to bytes, with exponential-backoff retry on *transient* errors
- * only: a thrown fetch (network), a 5xx, or a 429 (rate limit). Permanent
- * outcomes — 4xx, or a text/* error page (wrong/expired rkey) — return null
- * immediately so the caller moves on to the next candidate URL.
- */
 async function tryFetch(
   url: string,
   allowed: () => boolean,
   note: (reason: string) => void,
-  cachePath?: string,
-  onProgress?: MediaProgress,
-): Promise<Buffer | null> {
-  for (let attempt = 0; ; attempt += 1) {
-    if (!allowed()) return null;
-    try {
-      onProgress?.(0, 0);
-      const res = await networkFetch(url);
-      if (!res.ok) note(`http-${res.status}`);
-      if (res.status === 429 || res.status >= 500) {
-        if (attempt < MAX_RETRIES) {
-          await sleep(backoffMs(attempt));
-          continue;
-        }
-        return null;
-      }
-      if (!res.ok) return null; // permanent (404 etc.)
-      // A wrong-scene / expired rkey tends to come back as an HTML/text error
-      // page with a 200 — reject anything that isn't binary media (no retry).
-      const contentType = res.headers.get('content-type') ?? '';
-      if (contentType.startsWith('text/')) {
-        note('text-response');
-        return null;
-      }
-      let buf: Buffer;
-      if (cachePath) {
-        if (!allowed()) {
-          await res.body?.cancel();
-          return null;
-        }
-        let first: Response | undefined = res;
-        await mkdir(dirname(cachePath), { recursive: true });
-        await new ManagedDownload({
-          name: '下载聊天媒体',
-          fetcher: async (input, init) => {
-            if (first) {
-              const response = first;
-              first = undefined;
-              return response;
-            }
-            return networkFetch(input, init);
-          },
-          validate: async () => {
-            if (!allowed()) throw new Error('账号来源已失活');
-          },
-        }).file(url, cachePath, {}, (received, total) => {
-          if (!allowed()) throw new Error('账号来源已失活');
-          onProgress?.(received, total);
+  cachePath: string,
+  onProgress: MediaProgress,
+  signal: AbortSignal,
+): Promise<number | null> {
+  const check = () => {
+    signal.throwIfAborted();
+    if (!allowed()) throw new Error('账号来源已失活');
+  };
+  let bytes = 0;
+  try {
+    check();
+    await mkdir(dirname(cachePath), { recursive: true });
+    await new ManagedDownload({
+      name: '下载聊天媒体',
+      signal,
+      maxAttempts: 4,
+      retryBaseMs: 300,
+      fetcher: async (input, init) => {
+        check();
+        const response = await networkFetch(input, init).catch((error) => {
+          if (!signal.aborted && allowed()) note('network');
+          throw error;
         });
-        buf = await readFile(cachePath);
-      } else buf = Buffer.from(await res.arrayBuffer());
-      if (!buf.length) note('empty-response');
-      return buf.length > 0 ? buf : null;
-    } catch {
-      note('network');
-      if (attempt < MAX_RETRIES) {
-        await sleep(backoffMs(attempt));
-        continue;
-      }
-      return null;
-    }
+        if (!allowed() || signal.aborted) {
+          await response.body?.cancel().catch(() => undefined);
+          check();
+        }
+        if (!response.ok) note(`http-${response.status}`);
+        else if ((response.headers.get('content-type') ?? '').startsWith('text/')) {
+          note('text-response');
+          await response.body?.cancel();
+          throw new Error('媒体地址返回了文本');
+        }
+        return response;
+      },
+      validate: async (_path, _response, size) => {
+        check();
+        if (!size) {
+          note('empty-response');
+          throw new Error('媒体为空');
+        }
+        bytes = size;
+      },
+    }).file(url, cachePath, {}, (received, total) => {
+      check();
+      onProgress(received, total);
+    });
+    return bytes;
+  } catch {
+    signal.throwIfAborted();
+    return null;
   }
 }
 

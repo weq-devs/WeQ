@@ -56,15 +56,21 @@ export function normalizeNapcatBaseUrl(input: string): string {
 export async function fetchNapcatRkeys(
   baseUrl: string,
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<NapcatRkeyServerResult> {
+  signal?.throwIfAborted();
   const normalized = normalizeNapcatBaseUrl(baseUrl);
   if (!normalized) throw new Error('服务器地址为空');
   if (!accessToken.trim()) throw new Error('access_token 为空');
   const url = `${normalized}/${ENDPOINT}?access_token=${encodeURIComponent(accessToken.trim())}`;
   let res: Response;
   try {
-    res = await networkFetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    const deadline = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    res = await networkFetch(url, {
+      signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+    });
   } catch (e) {
+    signal?.throwIfAborted();
     logger.warn('external rkey server unreachable', {
       event: 'rkey-server-unreachable',
       url: normalized,
@@ -73,6 +79,8 @@ export async function fetchNapcatRkeys(
     throw new Error('无法连接服务器，请检查地址与网络');
   }
   if (!res.ok) {
+    await res.body?.cancel().catch(() => undefined);
+    signal?.throwIfAborted();
     const detail = res.status === 403 ? '（token 校验失败）' : '';
     throw new Error(`服务器返回 HTTP ${res.status} ${detail}`);
   }
@@ -80,8 +88,10 @@ export async function fetchNapcatRkeys(
   try {
     json = await res.json();
   } catch {
+    signal?.throwIfAborted();
     throw new Error('服务器返回了无法解析的响应');
   }
+  signal?.throwIfAborted();
   return parseNapcatPayload(json);
 }
 

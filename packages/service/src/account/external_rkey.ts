@@ -39,7 +39,8 @@ export class ExternalRkeyService {
    * 未过期直接返回；缓存缺失/过期则拉取一次并缓存。拉取失败返回空数组，
    * 由调用方继续走其它兜底，不会抛错打断下载。
    */
-  async resolveRkeys(allowedTypes: number[]): Promise<DownloadRkey[]> {
+  async resolveRkeys(allowedTypes: number[], signal?: AbortSignal): Promise<DownloadRkey[]> {
+    signal?.throwIfAborted();
     const server = this.enabledServer();
     if (!server) return [];
     const allow = new Set(allowedTypes);
@@ -50,10 +51,12 @@ export class ExternalRkeyService {
     if (cached.length > 0) return cached;
 
     try {
-      const result = await fetchNapcatRkeys(server.baseUrl, server.accessToken);
+      const result = await fetchNapcatRkeys(server.baseUrl, server.accessToken, signal);
+      signal?.throwIfAborted();
       this.persistCache(server.id, result);
       return toRkeys(result, wanted);
     } catch (e) {
+      signal?.throwIfAborted();
       this.logger.warn('external rkey fetch failed', {
         event: 'external-rkey-fetch-failed',
         serverId: server.id,

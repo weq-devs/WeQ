@@ -183,7 +183,7 @@ function processor(): AiImageProcessor {
       orig: String(d.originalUrl ?? ''),
       recv: Number(d.subType) === 1 ? '1' : '0',
     });
-    const resolved = await resolveChatImageFile(query, () => check(signal));
+    const resolved = await resolveChatImageFile(query, () => check(signal), signal);
     if (!resolved.path) throw new Error('现有取图链路未能取回图片');
     check(signal);
     return {

@@ -120,9 +120,13 @@ export function startTransferPolicy() {
         });
         ids.set(state.id, id);
       }
-      if (state.done || state.error) {
+      if (state.done || state.error || state.cancelled) {
         backgroundTasks.resume(id);
-        backgroundTasks.finish(id, state.error ? 'failed' : 'completed', { note: state.error });
+        backgroundTasks.finish(
+          id,
+          state.cancelled ? 'cancelled' : state.error ? 'failed' : 'completed',
+          { note: state.error },
+        );
         backgroundTasks.setActions(id, []);
         ids.delete(state.id);
       } else if (state.paused) {
