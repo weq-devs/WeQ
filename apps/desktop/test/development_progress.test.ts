@@ -121,8 +121,7 @@ it('缓存不重复计为下载，失败响应不计完成，未知来源不拿�
   f.flush();
   expect(f.window.weqRemoteStartup?.message).toContain('完成 2 项');
   expect(f.window.weqRemoteStartup?.message).toContain('缓存 1 项');
-  expect(f.window.weqRemoteStartup?.message).toContain('1 项下载量待确认');
-  expect(f.window.weqRemoteStartup?.message).not.toMatch(/[34]\.0 MB/);
+  expect(f.window.weqRemoteStartup?.message).not.toMatch(/待确认|[34]\.0 MB/);
 });
 
 it('零尺寸的明确缓存回执仍计完成，缺少网络证据的零状态不猜成缓存或下载', () => {
@@ -135,8 +134,7 @@ it('零尺寸的明确缓存回执仍计完成，缺少网络证据的零状态�
   f.flush();
   expect(f.window.weqRemoteStartup?.message).toContain('完成 3 项');
   expect(f.window.weqRemoteStartup?.message).toContain('缓存 2 项');
-  expect(f.window.weqRemoteStartup?.message).toContain('1 项下载量待确认');
-  expect(f.window.weqRemoteStartup?.message).not.toContain('MB');
+  expect(f.window.weqRemoteStartup?.message).not.toMatch(/待确认|MB/);
 });
 
 it('旧壳仅需原有字符串阶段协议：补读早到资源，去重并排除 API、外站和失败响应', () => {
@@ -144,7 +142,7 @@ it('旧壳仅需原有字符串阶段协议：补读早到资源，去重并排�
   const f = fixture([first]);
   expect(f.reports.at(-1)).toEqual({
     state: 'loading',
-    message: '正在加载网页资源（完成 1 项，1 项下载量待确认）',
+    message: '正在加载网页资源（完成 1 项）',
   });
   f.notify(
     first,
@@ -159,7 +157,7 @@ it('旧壳仅需原有字符串阶段协议：补读早到资源，去重并排�
   f.flush();
   expect(f.window.weqRemoteStartup).toEqual({
     state: 'loading',
-    message: '正在加载网页资源（完成 3 项，3 项下载量待确认）',
+    message: '正在加载网页资源（完成 3 项）',
   });
   expect(Object.keys(f.window.weqRemoteStartup!)).toEqual(['state', 'message']);
   runInNewContext(developmentStartupProgress, f.context);
@@ -173,9 +171,7 @@ it('没有大小时不编造百分比，恢复检查期间仍显示资源回执�
   f.stage({ state: 'loading', message: '正在检查恢复状态' });
   f.notify(entry('/src/dependency.ts', 5000));
   f.flush();
-  expect(f.window.weqRemoteStartup?.message).toBe(
-    '正在检查恢复状态（完成 1 项，1 项下载量待确认）',
-  );
+  expect(f.window.weqRemoteStartup?.message).toBe('正在检查恢复状态（完成 1 项）');
   f.stage({ state: 'loading', message: '正在加载界面模块' });
   f.flush();
   expect(f.window.weqRemoteStartup?.message).toContain('正在加载界面模块（完成 1 项');

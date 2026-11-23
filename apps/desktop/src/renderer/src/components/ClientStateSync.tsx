@@ -1,11 +1,15 @@
-import { useEffect } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { RefreshCw, X } from 'lucide-react';
 import { displayPreferenceKeys } from '@weq/service/client-preferences';
 import type { SettingsChange } from '@weq/service/settings-changes';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useNotificationPolicy } from '../lib/notificationPolicy';
+import {
+  remoteWorkspaceCheckPending,
+  subscribeRemoteWorkspaceCheck,
+} from '../lib/remoteWorkspaceCheck';
 import {
   acceptAccountState,
   acceptPreferences,
@@ -110,7 +114,12 @@ function invalidateSettingsChange(utils: SettingsUtils, change?: SettingsChange)
 
 /** 应用只保留一份订阅；消息与首屏无需等待同步服务。 */
 export function ClientStateSync() {
+  const checkingWorkspace = useSyncExternalStore(
+    subscribeRemoteWorkspaceCheck,
+    remoteWorkspaceCheckPending,
+  );
   const notificationSettings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: !checkingWorkspace,
     refetchOnWindowFocus: false,
   });
   useEffect(() => {
@@ -120,33 +129,42 @@ export function ClientStateSync() {
   const utils = trpc.useUtils();
   const uin = useViewState((state) => state.openedUin);
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: Boolean(uin) });
-  const error = useClientPreferences((state) => state.error);
+  const saveError = useClientPreferences((state) => state.error);
+  const [readFailed, setReadFailed] = useState(false);
+  const refreshPreferences = useRef<(() => void) | null>(null);
   const configId = config.data?.uin === uin ? config.data.configId : undefined;
   useEffect(() => {
+    // 离线工作区先可见，此时传输层尚不允许读取共享设置。
+    if (checkingWorkspace) return;
     let active = true;
     let initialize = false;
     const snapshots = coalesceSnapshotReads(async () => {
       if (initialize) {
         initialize = false;
-        await initializePreferences().catch((error) => {
-          if (active)
-            useClientPreferences.setState({ error: `共享设置读取失败：${String(error)}` });
-        });
+        await initializePreferences().then(
+          () => active && setReadFailed(false),
+          () => active && !remoteWorkspaceCheckPending() && setReadFailed(true),
+        );
       } else {
         await client.clientState.snapshot
           .query()
           .then((snapshot) => {
-            if (active) acceptPreferences(snapshot);
+            if (active) {
+              acceptPreferences(snapshot);
+              setReadFailed(false);
+            }
           })
           .catch(() => {});
       }
     });
     const refresh = () => {
+      if (!active || remoteWorkspaceCheckPending()) return;
       initialize = true;
       snapshots.request();
       void utils.bootstrap.getSettings.invalidate();
       invalidateModelSettings(utils);
     };
+    refreshPreferences.current = refresh;
     refresh();
     const sub = client.clientState.changed.subscribe(undefined, {
       onStarted: refresh,
@@ -156,10 +174,11 @@ export function ClientStateSync() {
     });
     return () => {
       active = false;
+      refreshPreferences.current = null;
       snapshots.dispose();
       sub.unsubscribe();
     };
-  }, [utils]);
+  }, [checkingWorkspace, utils]);
   useEffect(() => {
     const refresh = () => {
       const state = useWorkspaceMenu.getState();
@@ -223,20 +242,32 @@ export function ClientStateSync() {
       bindAccountState(null);
     };
   }, [uin, configId, utils]);
+  const error = saveError || (!checkingWorkspace && readFailed ? '共享设置读取失败' : '');
   if (!error) return null;
   return (
     <div role="status" className="weq-sync-status">
       <span>{error}</span>
       <button
         type="button"
-        title="重试保存与读取"
         onClick={() => {
-          retryPreferences();
-          void initializePreferences().catch(() => {});
+          if (saveError) retryPreferences();
+          refreshPreferences.current?.();
         }}
       >
         <RefreshCw size={14} />
         重试
+      </button>
+      <button
+        type="button"
+        className="weq-sync-status-close"
+        aria-label="关闭提示"
+        title="关闭提示"
+        onClick={() => {
+          setReadFailed(false);
+          if (saveError) useClientPreferences.setState({ error: '' });
+        }}
+      >
+        <X size={16} aria-hidden="true" />
       </button>
     </div>
   );

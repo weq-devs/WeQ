@@ -2,6 +2,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ClientStateSync } from '../src/renderer/src/components/ClientStateSync';
+import { setRemoteWorkspaceCheckPending } from '../src/renderer/src/lib/remoteWorkspaceCheck';
 
 type SettingsListener = (event: {
   revision: number;
@@ -14,9 +15,11 @@ const mocks = vi.hoisted(() => ({
   snapshot: vi.fn(),
   accountSnapshot: vi.fn(),
   invalidations: [] as string[],
-  subscribe: vi.fn((_input: undefined, _options: { onData: SettingsListener }) => ({
-    unsubscribe() {},
-  })),
+  subscribe: vi.fn(
+    (_input: undefined, _options: { onStarted: () => void; onData: SettingsListener }) => ({
+      unsubscribe() {},
+    }),
+  ),
 }));
 
 vi.mock('../src/renderer/src/trpc/client', () => {
@@ -66,29 +69,31 @@ vi.mock('../src/renderer/src/state/view', () => ({
 const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
+  setRemoteWorkspaceCheckPending(false);
   vi.resetAllMocks();
   vi.unstubAllGlobals();
 });
 
-async function fixture() {
+async function fixture(initialize = async () => {}) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   mocks.subscribe.mockReturnValue({ unsubscribe() {} });
-  mocks.initialize.mockResolvedValue(undefined);
+  mocks.initialize.mockImplementation(initialize);
   mocks.snapshot.mockResolvedValue({});
   mocks.accountSnapshot.mockResolvedValue({});
-  const root = createRoot(document.createElement('div'));
+  const container = document.createElement('div');
+  const root = createRoot(container);
   cleanups.push(() => act(() => root.unmount()));
   await act(async () => root.render(createElement(ClientStateSync)));
   mocks.invalidations.length = 0;
   mocks.snapshot.mockClear();
   mocks.accountSnapshot.mockClear();
-  return mocks.subscribe.mock.calls[0]![1].onData;
+  return { event: mocks.subscribe.mock.calls[0]?.[1].onData, container };
 }
 
 it('单个普通页面设置变更只刷新全局设置，不访问其他业务或账号快照', async () => {
-  const event = await fixture();
+  const { event } = await fixture();
   await act(async () =>
-    event({
+    event!({
       revision: 1,
       section: 'preferences',
       settings: { fields: ['qzoneNamePriority'], groups: [], clientFields: [] },
@@ -100,9 +105,9 @@ it('单个普通页面设置变更只刷新全局设置，不访问其他业务�
 });
 
 it('装扮和省流量只刷新关联服务，旧事件仍触发完整校准', async () => {
-  const event = await fixture();
+  const { event } = await fixture();
   await act(async () =>
-    event({
+    event!({
       revision: 1,
       section: 'preferences',
       settings: { fields: [], groups: ['dress', 'client'], clientFields: ['dataSaverMode'] },
@@ -117,13 +122,13 @@ it('装扮和省流量只刷新关联服务，旧事件仍触发完整校准', a
   ]);
   expect(mocks.snapshot).toHaveBeenCalledOnce();
   mocks.invalidations.length = 0;
-  await act(async () => event({ revision: 2, section: 'preferences' }));
+  await act(async () => event!({ revision: 2, section: 'preferences' }));
   expect(mocks.invalidations).toHaveLength(12);
   expect(mocks.snapshot).toHaveBeenCalledTimes(2);
 });
 
 it('共享快照在途时合并后续通知，仍补读最后一次变化', async () => {
-  const event = await fixture();
+  const { event } = await fixture();
   let release!: () => void;
   mocks.snapshot.mockImplementationOnce(
     () =>
@@ -132,7 +137,7 @@ it('共享快照在途时合并后续通知，仍补读最后一次变化', asyn
       }),
   );
   const changedBackground = (revision: number) =>
-    event({
+    event!({
       revision,
       section: 'preferences',
       settings: { fields: [], groups: ['client'], clientFields: ['background'] },
@@ -145,4 +150,35 @@ it('共享快照在途时合并后续通知，仍补读最后一次变化', asyn
   expect(mocks.snapshot).toHaveBeenCalledOnce();
   await act(async () => release());
   expect(mocks.snapshot).toHaveBeenCalledTimes(2);
+});
+
+it('Remote 从缓存启动时等电脑验证完成再读取共享设置', async () => {
+  setRemoteWorkspaceCheckPending(true);
+  const { container } = await fixture();
+  expect(mocks.initialize).not.toHaveBeenCalled();
+  expect(mocks.subscribe).not.toHaveBeenCalled();
+  expect(container.querySelector('[role="status"]')).toBeNull();
+  await act(async () => setRemoteWorkspaceCheckPending(false));
+  expect(mocks.initialize).toHaveBeenCalledOnce();
+  expect(mocks.subscribe).toHaveBeenCalledOnce();
+  expect(container.querySelector('[role="status"]')).toBeNull();
+});
+
+it('真正的读取失败可以关闭，重试成功也会收起提示', async () => {
+  const fail = async () => {
+    throw new Error('test failure');
+  };
+  const { container } = await fixture(fail);
+  const status = () => container.querySelector('[role="status"]');
+  expect(status()?.textContent).not.toContain('test failure');
+  const [retry, dismiss] = status()!.querySelectorAll('button');
+  await act(async () => retry!.click());
+  expect(mocks.initialize).toHaveBeenCalledTimes(2);
+  await act(async () => dismiss!.click());
+  expect(status()).toBeNull();
+  const refresh = mocks.subscribe.mock.calls[0]![1].onStarted;
+  await act(async () => refresh());
+  mocks.initialize.mockResolvedValue(undefined);
+  await act(async () => status()!.querySelector('button')!.click());
+  expect(status()).toBeNull();
 });

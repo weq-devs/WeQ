@@ -71,7 +71,6 @@ export const developmentStartupProgress = String.raw`
     var details = ['完成 ' + count + ' 项'];
     if (bytes > 0) details.push('已下载 ' + amount);
     if (cached) details.push('缓存 ' + cached + ' 项');
-    if (unknown) details.push(unknown + ' 项下载量待确认');
     var message = count ? phase + '（' + details.join('，') + '）' : phase;
     if (state && state.message === message) return;
     last = message;

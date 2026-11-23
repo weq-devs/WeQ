@@ -18,6 +18,7 @@
   font-size: 13px;
 }
 .weq-sync-status span {
+  flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -26,4 +27,9 @@
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+.weq-sync-status .weq-sync-status-close {
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
 }
