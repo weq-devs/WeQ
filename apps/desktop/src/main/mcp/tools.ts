@@ -23,6 +23,7 @@ import { getAppContext, type AccountServices } from '../context/app_context';
 import { fullModeAllowed } from '../context/full_mode';
 import { assertAccountToolScope, toolExecutionOptions } from './account_scope';
 import { mailAttachmentForTool, mailDetailForTool, mailSummaryForTool } from './mail_tools';
+import { chatVideoForTool } from './chat_video_download';
 import {
   listFeaturesInput,
   getFeatureInput,
@@ -2876,6 +2877,25 @@ export const AI_TOOLS: AiTool[] = [
       }
       return out;
     },
+  }),
+
+  tool({
+    name: 'download_chat_video',
+    structuredResult: true,
+    description:
+      '获取任意私聊或群聊视频原片的短时下载路径。msgId 来自 get_messages 的 includeIds 输出。' +
+      '用同一 MCP 服务地址和 Bearer 令牌发起 GET；最大 64 MiB，本地缺片时走 WeQ 在线播放链路。' +
+      '只返回下载信息，不发送消息、不返回视频封面或上游地址。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']).describe('私聊或群聊'),
+      conv: z.string().min(1).max(128).describe('私聊对方 uid 或群号'),
+      msgId: z
+        .string()
+        .regex(/^[1-9]\d{0,19}$/)
+        .describe('视频所在消息的数字 msgId'),
+      videoIndex: z.number().int().min(0).default(0).describe('消息内的视频序号，从 0 开始'),
+    }),
+    run: async (target) => chatVideoForTool(services(), target),
   }),
 
   tool({

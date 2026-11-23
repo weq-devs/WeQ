@@ -27,6 +27,7 @@ import { isReadOnlyTool } from './tool_permissions';
 import { withToolExecutionOptions } from './account_scope';
 import { MCP_MAIL_ATTACHMENT_ROUTE } from './mail_tools';
 import { handleMcpMailDownload } from './mail_download';
+import { handleMcpChatVideoDownload, MCP_CHAT_VIDEO_ROUTE } from './chat_video_download';
 import { runtimeMaintenance } from '../runtime_maintenance';
 
 const logger = getLogger().child({ scope: 'mcp-server' });
@@ -120,6 +121,19 @@ async function handleRequest(
     } catch {
       if (!res.headersSent && !res.destroyed) {
         res.writeHead(503, { 'Cache-Control': 'no-store' }).end('邮箱附件暂不可用。');
+      }
+    }
+    return;
+  }
+  if (req.url?.startsWith(MCP_CHAT_VIDEO_ROUTE)) {
+    try {
+      await runtimeMaintenance.operation(
+        () => handleMcpChatVideoDownload(req, res),
+        'MCP 聊天视频',
+      );
+    } catch {
+      if (!res.headersSent && !res.destroyed) {
+        res.writeHead(503, { 'Cache-Control': 'no-store' }).end('聊天视频暂不可用。');
       }
     }
     return;
