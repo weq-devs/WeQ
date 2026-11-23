@@ -247,7 +247,7 @@ export function messageReadCursor(position: string) {
 export type StateNamespace =
   | 'pins'
   | 'tasks'
-  | 'assistant'
+  | 'assistant' // 兼容旧客户端及已有快照中的菜单助手已读记录。
   | 'todos'
   | 'order'
   | 'notifications'

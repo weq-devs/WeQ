@@ -99,7 +99,6 @@ it.each([
   ['components/settings/ClearReadRecordsSetting.tsx', '清除 WeQ 已读记录', 'outline'],
   ['components/settings/BackupSection.tsx', '恢复全局默认设置', 'solid'],
   ['views/mail/MailPage.tsx', '删除当前邮件', 'outline'],
-  ['views/agentlab/AssistantMenuWorkspace.tsx', '删除会话', 'outline'],
   ['views/agentlab/PersonaSettingsModal.tsx', '删除克隆体', 'solid'],
   ['views/agentlab/GroupChatPanel.tsx', '删除整个群聊', 'solid'],
   ['views/analysis/AnalysisReportsTool.tsx', '删除报告', 'outline'],

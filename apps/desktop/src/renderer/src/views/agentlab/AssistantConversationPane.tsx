@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { TabActivity } from '../../components/RetainedTabs';
-import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
-import { useWorkspaceMenu } from '../../state/workspaceMenu';
-import type { AssistantActivity } from '../../lib/workspaceIndicators';
-import { readWorkspaceResults, rememberWorkspaceResults } from '../../lib/workspaceReadState';
 import {
   isAssistantSessionDeleted,
   markAssistantSessionDeleted,
-  rememberAssistantSession,
 } from '../../lib/assistantWorkspace';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { AssistantPanel } from './AssistantPanel';
@@ -19,8 +14,7 @@ const NO_DELETED_SESSIONS: readonly string[] = [];
 interface PanelState {
   key: number;
   sessionId: string | null;
-  activity: AssistantActivity;
-  result?: string;
+  running: boolean;
   searchTarget?: GeneratedSearchHit;
 }
 
@@ -43,7 +37,7 @@ function ConversationPanel({
   accountScope,
   title,
   models,
-  onActivity,
+  onRunningChange,
   onCreated,
   onNewSession,
   onBackToDirectory,
@@ -53,14 +47,14 @@ function ConversationPanel({
   accountScope: string;
   title: string;
   models: FlatModels['chat'];
-  onActivity: (key: number, activity: AssistantActivity, result?: string) => void;
+  onRunningChange: (key: number, running: boolean) => void;
   onCreated: (key: number, id: string) => void;
   onNewSession: () => void;
   onBackToDirectory?: () => void;
 }) {
-  const activity = useCallback(
-    (next: AssistantActivity, result?: string) => onActivity(panel.key, next, result),
-    [panel.key, onActivity],
+  const runningChange = useCallback(
+    (running: boolean) => onRunningChange(panel.key, running),
+    [panel.key, onRunningChange],
   );
   const created = useCallback((id: string) => onCreated(panel.key, id), [panel.key, onCreated]);
   return (
@@ -72,7 +66,7 @@ function ConversationPanel({
         draftAccount={accountScope}
         workspaceTitle={title}
         headless={!active}
-        onActivityChange={activity}
+        onRunningChange={runningChange}
         onSessionCreated={created}
         onBack={onNewSession}
         onBackToDirectory={onBackToDirectory}
@@ -109,7 +103,7 @@ function AssistantConversationWorkspace({
   const [panels, setPanels] = useState<PanelState[]>(() =>
     requestedDeleted
       ? []
-      : [{ key: 0, sessionId, activity: 'idle', searchTarget: searchTarget ?? undefined }],
+      : [{ key: 0, sessionId, running: false, searchTarget: searchTarget ?? undefined }],
   );
   const [selectedKey, setSelectedKey] = useState(0);
   const latest = useRef({ panels, selectedKey, onSessionCreated });
@@ -122,7 +116,6 @@ function AssistantConversationWorkspace({
     });
   }, [deletedSessionIds, accountScope, sessionDeleted]);
   const previousRequest = useRef({ sessionId, searchTarget, requestKey });
-  const { enabled: visible } = useQQReadActivity(active, { onlineOnly: false });
   const sessions = trpc.account.listAssistantSessions.useQuery(undefined, {
     enabled: active,
     staleTime: 0,
@@ -175,27 +168,25 @@ function AssistantConversationWorkspace({
     const key = existing?.key ?? ++sequence.current;
     setSelectedKey(key);
     setPanels((current) => {
-      const retained = current.filter((panel) => panel.key === key || panel.activity === 'running');
+      const retained = current.filter((panel) => panel.key === key || panel.running);
       return existing
         ? retained.map((panel) =>
             panel.key === key ? { ...panel, searchTarget: searchTarget ?? undefined } : panel,
           )
         : [
             ...retained,
-            { key, sessionId, activity: 'idle', searchTarget: searchTarget ?? undefined },
+            { key, sessionId, running: false, searchTarget: searchTarget ?? undefined },
           ];
     });
-    rememberAssistantSession(accountScope, sessionId);
-  }, [accountScope, sessionId, searchTarget, requestKey, requestedDeleted]);
+  }, [sessionId, searchTarget, requestKey, requestedDeleted]);
 
-  const setAssistant = useWorkspaceMenu((state) => state.setAssistant);
-  const onActivity = useCallback((key: number, activity: AssistantActivity, result?: string) => {
+  const onRunningChange = useCallback((key: number, running: boolean) => {
     setPanels((current) => {
       const panel = current.find((item) => item.key === key);
-      if (!panel || (panel.activity === activity && panel.result === result)) return current;
+      if (!panel || panel.running === running) return current;
       return current
-        .map((item) => (item.key === key ? { ...item, activity, result } : item))
-        .filter((item) => item.key === latest.current.selectedKey || item.activity === 'running');
+        .map((item) => (item.key === key ? { ...item, running } : item))
+        .filter((item) => item.key === latest.current.selectedKey || item.running);
     });
   }, []);
   const onCreated = useCallback(
@@ -209,7 +200,6 @@ function AssistantConversationWorkspace({
         current.map((panel) => (panel.key === key ? { ...panel, sessionId: id } : panel)),
       );
       if (latest.current.selectedKey !== key) return;
-      rememberAssistantSession(accountScope, id);
       latest.current.onSessionCreated?.(id);
     },
     [accountScope],
@@ -219,31 +209,6 @@ function AssistantConversationWorkspace({
     () => panels.filter((panel) => !sessionDeleted(panel.sessionId)),
     [panels, sessionDeleted],
   );
-  const selected = livePanels.find((panel) => panel.key === selectedKey);
-  useEffect(() => {
-    const results = readWorkspaceResults(accountScope, 'assistant');
-    if (selected?.sessionId && selected.activity === 'running' && results[selected.sessionId]) {
-      delete results[selected.sessionId];
-      rememberWorkspaceResults(accountScope, 'assistant', results);
-    }
-    if (visible && selected?.sessionId && selected.result) {
-      results[selected.sessionId] = selected.result;
-      rememberWorkspaceResults(accountScope, 'assistant', results);
-    }
-    const running = livePanels.some((panel) => panel.activity === 'running');
-    const unread = livePanels.some(
-      (panel) =>
-        panel.activity === 'finished' &&
-        (!visible || panel.key !== selectedKey) &&
-        (!panel.sessionId || !panel.result || results[panel.sessionId] !== panel.result),
-    );
-    setAssistant(
-      running ? 'running' : unread ? 'finished' : (selected?.activity ?? 'idle'),
-      unread,
-    );
-  }, [accountScope, livePanels, selected, selectedKey, visible, setAssistant]);
-  useEffect(() => () => setAssistant('idle'), [setAssistant]);
-
   return (
     <section className="weq-assistant-main-conversation" aria-label="WeQ 助手会话" hidden={!active}>
       {requestedDeleted ? (
@@ -262,7 +227,7 @@ function AssistantConversationWorkspace({
             '新建 WeQ 助手会话'
           }
           models={models}
-          onActivity={onActivity}
+          onRunningChange={onRunningChange}
           onCreated={onCreated}
           onNewSession={newSession}
           onBackToDirectory={onBackToDirectory}

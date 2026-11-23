@@ -25,29 +25,8 @@ export function markAssistantSessionDeleted(account: string, sessionId: string):
   try {
     window.localStorage.removeItem(key(account, `draft:${sessionId}`));
     window.localStorage.removeItem(`weq.sync.draft-base:${account}:assistant:${sessionId}`);
-    if (window.localStorage.getItem(key(account, 'selected')) === sessionId)
-      window.localStorage.removeItem(key(account, 'selected'));
   } catch {
     /* 删除标记仍在内存中生效，不依赖浏览器缓存可写。 */
-  }
-}
-
-export function readAssistantSession(account: string): string | null {
-  try {
-    const sessionId = window.localStorage.getItem(key(account, 'selected')) || null;
-    return isAssistantSessionDeleted(account, sessionId) ? null : sessionId;
-  } catch {
-    return null;
-  }
-}
-
-export function rememberAssistantSession(account: string, sessionId: string | null): void {
-  if (isAssistantSessionDeleted(account, sessionId)) return;
-  try {
-    if (sessionId) window.localStorage.setItem(key(account, 'selected'), sessionId);
-    else window.localStorage.removeItem(key(account, 'selected'));
-  } catch {
-    /* 存储不可用时仍可在当前窗口使用。 */
   }
 }
 

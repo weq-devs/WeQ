@@ -106,21 +106,13 @@
 }
 
 .weq-workspace-menu-body,
-.weq-menu-assistant,
-.weq-assistant-workspace,
-.weq-assistant-conversation,
 .weq-task-workspace {
   display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-
-.weq-workspace-menu-body,
-.weq-assistant-conversation,
-.weq-task-workspace {
-  flex-direction: column;
 }
 
 .weq-workspace-menu [data-retained-panel] {
@@ -301,8 +293,7 @@
   cursor: pointer;
 }
 
-.weq-schedule-select.is-selected,
-.weq-assistant-session-row [aria-current] {
+.weq-schedule-select.is-selected {
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
 
@@ -357,81 +348,6 @@
   align-self: flex-start;
 }
 
-.weq-assistant-sessions {
-  width: 240px;
-  flex: none;
-  padding: 10px;
-  overflow-y: auto;
-  border-right: 1px solid var(--weq-border-subtle);
-}
-
-.weq-assistant-sessions[hidden],
-.weq-menu-assistant[hidden] {
-  display: none;
-}
-
-.weq-assistant-session-row {
-  display: flex;
-  margin-top: 6px;
-}
-
-.weq-assistant-session-row button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  min-height: 40px;
-  padding: 8px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--weq-fg-primary);
-  cursor: pointer;
-}
-
-.weq-assistant-session-row button:first-child {
-  flex: 1;
-  text-align: left;
-}
-
-.weq-assistant-session-row button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.weq-assistant-session-row svg {
-  flex: none;
-}
-
-.weq-assistant-conversation .weq-agentlab-chat {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-}
-
-.weq-assistant-conversation .weq-agentlab-head {
-  min-height: 44px;
-  padding: 6px 12px;
-}
-
-.weq-assistant-conversation .weq-agentlab-head-left {
-  flex: 1;
-  min-width: 0;
-}
-
-.weq-assistant-conversation .weq-agentlab-head-left > strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-}
-
-.weq-assistant-conversation .weq-agentlab-head-actions {
-  flex: none;
-}
-
 .weq-workspace-empty {
   display: flex;
   align-items: center;
@@ -466,17 +382,6 @@ html[data-theme='dark'] .weq-workspace-controls .weq-rail-account-avatar {
   .weq-schedule-workspace .weq-exp-sched-list {
     max-height: 210px;
     overflow-y: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--weq-border-subtle);
-  }
-
-  .weq-assistant-workspace:not(.is-compact) {
-    flex-direction: column;
-  }
-
-  .weq-assistant-sessions {
-    width: auto;
-    max-height: 130px;
     border-right: 0;
     border-bottom: 1px solid var(--weq-border-subtle);
   }

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { AssistantActivity, WorkspaceTaskIndicator } from '../lib/workspaceIndicators';
-import { readWorkspaceResults, rememberWorkspaceResults } from '../lib/workspaceReadState';
+import type { WorkspaceTaskIndicator } from '../lib/workspaceIndicators';
+import { readTaskResults, rememberTaskResults } from '../lib/workspaceReadState';
 import type { NavigationTool } from '../lib/appNavigation';
 
 export const TASK_READ_LIMIT = 4096;
@@ -13,10 +13,8 @@ function retainTaskResults(results: Record<string, string>) {
 interface WorkspaceMenuState {
   anchor: HTMLElement | null;
   running: number;
-  failed: number;
+  unreadFailed: number;
   finished: number;
-  assistant: AssistantActivity;
-  assistantUnread: boolean;
   taskOpenRequest: number;
   taskFocusId: string | null;
   taskPanelScope: string | null;
@@ -31,8 +29,7 @@ interface WorkspaceMenuState {
   readTaskResultsByScope: Record<string, Record<string, string>>;
   toggle: (anchor: HTMLElement) => void;
   close: () => void;
-  setTasks: (running: number, failed: number, finished?: number) => void;
-  setAssistant: (activity: AssistantActivity, unread?: boolean) => void;
+  resetTaskBadges: () => void;
   syncTasks: (scope: string, items: WorkspaceTaskIndicator[]) => void;
   readTasks: () => void;
 }
@@ -40,10 +37,8 @@ interface WorkspaceMenuState {
 export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
   anchor: null,
   running: 0,
-  failed: 0,
+  unreadFailed: 0,
   finished: 0,
-  assistant: 'idle',
-  assistantUnread: false,
   taskOpenRequest: 0,
   taskFocusId: null,
   taskPanelScope: null,
@@ -61,9 +56,7 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
   readTaskResultsByScope: {},
   toggle: (anchor) => set((state) => ({ anchor: state.anchor ? null : anchor })),
   close: () => set({ anchor: null }),
-  setTasks: (running, failed, finished = failed) => set({ running, failed, finished }),
-  setAssistant: (assistant, unread = assistant === 'finished') =>
-    set({ assistant, assistantUnread: unread }),
+  resetTaskBadges: () => set({ running: 0, unreadFailed: 0, finished: 0 }),
   syncTasks: (taskScope, taskItems) =>
     set((state) => {
       const previousIds = new Set(state.taskItems.map((item) => item.id));
@@ -71,13 +64,13 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
       const previousRead = {
         ...(state.readTaskResultsByScope[taskScope] ?? {}),
         ...(state.taskScope === taskScope ? state.readTaskResults : {}),
-        ...readWorkspaceResults(taskScope, 'tasks'),
+        ...readTaskResults(taskScope),
       };
       for (const item of taskItems) {
         if (item.activity !== 'finished' || previousRead[item.id] !== item.result)
           delete previousRead[item.id];
       }
-      const readTaskResults = retainTaskResults(previousRead);
+      const readResults = retainTaskResults(previousRead);
       // 首次读取、账号切换及已读历史回填不展开列表，后台步骤也不抢占界面。
       const hasNewTask =
         state.taskScope === taskScope &&
@@ -85,42 +78,44 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
           (item) =>
             item.autoOpenTaskList !== false &&
             !previousIds.has(item.id) &&
-            !(item.activity === 'finished' && readTaskResults[item.id] === item.result),
+            !(item.activity === 'finished' && readResults[item.id] === item.result),
         );
-      rememberWorkspaceResults(taskScope, 'tasks', readTaskResults);
+      const unreadResults = taskItems.filter(
+        (item) =>
+          item.activity === 'finished' &&
+          item.showResultBadge !== false &&
+          readResults[item.id] !== item.result,
+      );
+      rememberTaskResults(taskScope, readResults);
       return {
         taskScope,
         taskItems,
         taskOpenRequest: state.taskOpenRequest + Number(hasNewTask),
-        readTaskResults,
-        readTaskResultsByScope: { ...state.readTaskResultsByScope, [taskScope]: readTaskResults },
+        readTaskResults: readResults,
+        readTaskResultsByScope: { ...state.readTaskResultsByScope, [taskScope]: readResults },
         running: taskItems.filter((item) => item.activity === 'running').length,
-        failed: taskItems.filter((item) => item.failed && item.showResultBadge !== false).length,
-        finished: taskItems.filter(
-          (item) =>
-            item.activity === 'finished' &&
-            item.showResultBadge !== false &&
-            readTaskResults[item.id] !== item.result,
-        ).length,
+        unreadFailed: unreadResults.filter((item) => item.failed).length,
+        finished: unreadResults.length,
       };
     }),
   readTasks: () =>
     set((state) => {
       const results = {
         ...state.readTaskResults,
-        ...(state.taskScope ? readWorkspaceResults(state.taskScope, 'tasks') : {}),
+        ...(state.taskScope ? readTaskResults(state.taskScope) : {}),
       };
       for (const item of state.taskItems) {
         delete results[item.id];
         if (item.activity === 'finished') results[item.id] = item.result;
       }
-      const readTaskResults = retainTaskResults(results);
-      if (state.taskScope) rememberWorkspaceResults(state.taskScope, 'tasks', readTaskResults);
+      const readResults = retainTaskResults(results);
+      if (state.taskScope) rememberTaskResults(state.taskScope, readResults);
       return {
         finished: 0,
-        readTaskResults,
+        unreadFailed: 0,
+        readTaskResults: readResults,
         readTaskResultsByScope: state.taskScope
-          ? { ...state.readTaskResultsByScope, [state.taskScope]: readTaskResults }
+          ? { ...state.readTaskResultsByScope, [state.taskScope]: readResults }
           : state.readTaskResultsByScope,
       };
     }),

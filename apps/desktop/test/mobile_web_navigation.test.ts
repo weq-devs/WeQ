@@ -6,6 +6,9 @@ import { MobileWebNavigation as Navigation } from '../src/renderer/src/component
 import { OnlineStatus } from '../src/renderer/src/components/OnlineStatus';
 import { ChatHeader } from '../src/renderer/src/components/ChatHeader';
 import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigation';
+import { AnnouncementUnread } from '../src/renderer/src/lib/announcementPresentation';
+import { useUpdateStore } from '../src/renderer/src/state/update';
+import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 const { onlineStatusQuery } = vi.hoisted(() => ({ onlineStatusQuery: vi.fn() }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
@@ -107,6 +110,40 @@ it('更多保留其余次级入口，选中后关闭列表并调用原有操作'
   await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
   await click('设置');
   expect(props.onOpenSettings).toHaveBeenCalledOnce();
+});
+
+it('更多中的任务与设置分别标记，底栏仍优先显示邮箱未读数', async () => {
+  try {
+    await act(async () => {
+      useWorkspaceMenu.setState({ running: 2, finished: 1, unreadFailed: 1 });
+      useUpdateStore.setState({ packsAvailable: true });
+      root.render(
+        createElement(
+          AnnouncementUnread.Provider,
+          { value: 1 },
+          createElement(MobileWebNavigation, { ...props, view: 'more' }),
+        ),
+      );
+    });
+    const more = host.querySelector('[aria-label="更多功能"]')!;
+    const task = more.querySelector('[aria-label^="任务，"]')!;
+    const settings = more.querySelector('[aria-label^="设置，"]')!;
+    const moreTab = host.querySelector('[data-mobile-tab="more"]')!;
+    expect(task.querySelector('[data-tone="running"]')?.textContent).toBe('2');
+    expect(settings.querySelector('.weq-reminder-dot')).not.toBeNull();
+    expect(more.querySelector('[aria-label^="官方公告"] .weq-reminder-dot')).not.toBeNull();
+    expect(moreTab.querySelector('.weq-reminder-count')?.textContent).toBe('3');
+    await act(async () => useWorkspaceMenu.setState({ running: 0 }));
+    expect(task.querySelector('.weq-reminder-dot')).not.toBeNull();
+    await act(async () => useWorkspaceMenu.getState().readTasks());
+    expect(task.querySelector('.weq-reminder-dot')).toBeNull();
+    expect(settings.querySelector('.weq-reminder-dot')).not.toBeNull();
+  } finally {
+    await act(async () => {
+      useWorkspaceMenu.getState().resetTaskBadges();
+      useUpdateStore.setState({ packsAvailable: false });
+    });
+  }
 });
 
 it('搜索在手机标题中可展开，聊天详情隐藏整套主导航', async () => {

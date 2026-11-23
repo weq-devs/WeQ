@@ -92,7 +92,7 @@ export function WorkspaceTools({
   const [open, setOpen] = useState(false);
   const anchor = useWorkspaceMenu((state) => state.anchor);
   const closeMenu = useWorkspaceMenu((state) => state.close);
-  const setTaskSummary = useWorkspaceMenu((state) => state.setTasks);
+  const resetTaskBadges = useWorkspaceMenu((state) => state.resetTaskBadges);
   const syncTasks = useWorkspaceMenu((state) => state.syncTasks);
   const [expanded, setExpanded] = useState(false);
   const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
@@ -256,9 +256,9 @@ export function WorkspaceTools({
   useEffect(
     () => () => {
       closeMenu();
-      setTaskSummary(0, 0);
+      resetTaskBadges();
     },
-    [closeMenu, setTaskSummary],
+    [closeMenu, resetTaskBadges],
   );
   const closeWorkspace = () => {
     closeMenu();

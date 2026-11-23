@@ -107,9 +107,6 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return { trpc: proxy(), client: proxy() };
 });
-vi.mock('../src/renderer/src/views/agentlab/AssistantMenuWorkspace', () => ({
-  AssistantMenuWorkspace: () => createElement('div', null, '合成助手夹具'),
-}));
 vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
   RoamingBackfillPanel: ({
     targetMode,

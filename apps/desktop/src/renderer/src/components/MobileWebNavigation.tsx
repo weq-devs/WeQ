@@ -3,7 +3,10 @@ import { ChevronRight } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
 import { AnnouncementEntry } from './AnnouncementCenter';
 import { ReminderCount, ReminderDot } from './ReminderBadge';
+import { WorkspaceStatusDot } from './WorkspaceStatusDot';
 import { useAnnouncementPresentation } from '../lib/announcementPresentation';
+import { useEnhancementUpdateBadge } from '../lib/unreadMarkers';
+import { useWorkspaceTaskBadges } from '../hooks/useWorkspaceTaskBadges';
 import { SelfProfileAvatar } from './SelfProfileAvatar';
 import type { ProfileGroup } from '../lib/profileNavigation';
 import type { MainView, User } from '../im-template/template/types';
@@ -70,6 +73,8 @@ export function MobileWebNavigation({
 }) {
   const mobilePage = useWorkspaceMobilePage();
   const { unread: announcementUnread } = useAnnouncementPresentation();
+  const taskBadges = useWorkspaceTaskBadges();
+  const packUpdate = useEnhancementUpdateBadge();
   const mobile = useMobileWebLayout();
   const developmentDressTools = useDevelopmentDressTools();
   const dataSaver = useDataSaver((state) => state.enabled);
@@ -139,6 +144,13 @@ export function MobileWebNavigation({
             <button
               key={id}
               type="button"
+              aria-label={
+                id === 'tasks' && taskBadges.label
+                  ? `${label}${taskBadges.label}`
+                  : id === 'settings' && packUpdate
+                    ? `${label}，有增强包更新`
+                    : undefined
+              }
               onClick={() => activate(target)}
               onPointerEnter={() => {
                 if (workspace) preloadWorkspace(workspace);
@@ -154,6 +166,14 @@ export function MobileWebNavigation({
               <span>{label}</span>
               {badgeFor(id) > 0 ? (
                 <ReminderCount count={badgeFor(id)} className="weq-mobile-badge" />
+              ) : id === 'tasks' ? (
+                <WorkspaceStatusDot
+                  running={taskBadges.running}
+                  finished={taskBadges.finished}
+                  overlay={false}
+                />
+              ) : id === 'settings' && packUpdate ? (
+                <ReminderDot aria-hidden />
               ) : null}
               <ChevronRight size={18} aria-hidden />
             </button>

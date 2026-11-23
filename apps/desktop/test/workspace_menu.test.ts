@@ -1,4 +1,4 @@
-import { act, createElement as h, useEffect, useState, type ReactNode } from 'react';
+import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -14,7 +14,6 @@ import { useUpdateStore } from '../src/renderer/src/state/update';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const fixture = vi.hoisted(() => ({
-  mounts: 0,
   clones: [],
   exports: [] as { id: string; status: 'running' | 'completed' | 'failed' }[],
 }));
@@ -92,34 +91,17 @@ vi.mock('../src/renderer/src/components/RoamingBackfillPanel', () => ({
   RoamingBackfillPanel: ({ onSubmitted }: { onSubmitted?: () => void }) =>
     h('button', { onClick: onSubmitted }, '合成漫游提交成功'),
 }));
-vi.mock('../src/renderer/src/views/agentlab/AssistantMenuWorkspace', () => ({
-  AssistantMenuWorkspace: () => {
-    const [text, setText] = useState('');
-    useEffect(() => {
-      fixture.mounts++;
-    }, []);
-    return h('input', {
-      'aria-label': '合成助手草稿',
-      value: text,
-      onChange: (event) => setText(event.currentTarget.value),
-    });
-  },
-}));
-
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
-  fixture.mounts = 0;
   fixture.exports = [];
   useWorkspaceMenu.setState({
     anchor: null,
     running: 0,
-    failed: 0,
+    unreadFailed: 0,
     finished: 0,
-    assistant: 'idle',
-    assistantUnread: false,
     taskScope: null,
     taskPanelScope: null,
     taskItems: [],
@@ -285,7 +267,7 @@ describe('统一竖向工作菜单', () => {
       act(() => root.unmount());
     }
   });
-  it('菜单汇总蓝红点，助手状态并入汇总，版本更新不串到菜单头操作', () => {
+  it('菜单优先显示进行中数量，查看结果后只保留增强包红点', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
@@ -305,7 +287,6 @@ describe('统一竖向工作菜单', () => {
         ),
       );
     const trigger = () => host.querySelector<HTMLButtonElement>('.weq-workspace-menu-trigger')!;
-    // 菜单头部仅保留关闭；助手侧状态已并入菜单按钮的汇总标记。
     const head = () => document.querySelector('.weq-workspace-menu-head-actions');
     try {
       render();
@@ -314,9 +295,7 @@ describe('统一竖向工作菜单', () => {
       expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
       expect(trigger().querySelector('.weq-reminder-count')).toBeNull();
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
-      act(() => useWorkspaceMenu.getState().setAssistant('running'));
-      expect(trigger().querySelector('.is-running')).toBeNull();
-      act(() => useWorkspaceMenu.getState().setTasks(1, 0, 0));
+      act(() => useWorkspaceMenu.setState({ running: 1 }));
       expect(trigger().querySelector('.is-running')).not.toBeNull();
       expect(trigger().querySelector('.is-running')?.textContent).toBe('1');
       expect(head()?.querySelector('.is-running') ?? null).toBeNull();
@@ -331,19 +310,20 @@ describe('统一竖向工作菜单', () => {
           `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${styles}</style><style>body{margin:20px;font-family:system-ui;background:var(--background);color:var(--foreground)}*,*::before,*::after{box-sizing:border-box}.weq-workspace-menu{width:320px}</style><body>${host.innerHTML}${document.querySelector('.weq-workspace-menu')!.outerHTML}</body></html>`,
         );
       }
-      act(() => useWorkspaceMenu.getState().setAssistant('finished'));
-      act(() => useWorkspaceMenu.getState().setTasks(0, 0, 1));
-      expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
-      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       fixture.exports = [
         { id: 'a', status: 'running' },
         { id: 'b', status: 'completed' },
         { id: 'c', status: 'failed' },
       ];
       render();
-      expect(useWorkspaceMenu.getState()).toMatchObject({ running: 1, finished: 2, failed: 1 });
+      expect(useWorkspaceMenu.getState()).toMatchObject({
+        running: 1,
+        finished: 2,
+        unreadFailed: 1,
+      });
       expect(trigger().querySelector('.is-running')).not.toBeNull();
       expect(trigger().querySelector('.is-running')?.textContent).toBe('1');
+      expect(trigger().title).toContain('1 项任务失败');
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
       fixture.exports = [
         { id: 'a', status: 'completed' },
@@ -355,8 +335,11 @@ describe('统一竖向工作菜单', () => {
       expect(trigger().querySelector('.weq-reminder-count')).toBeNull();
       act(() => useWorkspaceMenu.getState().readTasks());
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
+      expect(trigger().title).not.toContain('任务失败');
       expect(trigger().getAttribute('aria-label')).toContain('有增强包更新');
       expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
+      render();
+      expect(trigger().title).not.toContain('任务失败');
       fixture.exports = [];
       render();
       expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
@@ -436,7 +419,7 @@ describe('统一竖向工作菜单', () => {
     try {
       act(() => {
         useUpdateStore.setState({ packsAvailable: true });
-        useWorkspaceMenu.setState({ running: 2, failed: 1 });
+        useWorkspaceMenu.setState({ running: 2, finished: 1, unreadFailed: 1 });
         root.render(
           h('div', null, h(WorkspaceMenuButton), h(WorkspaceSettingsButton, { onClick: vi.fn() })),
         );
@@ -449,7 +432,7 @@ describe('统一竖向工作菜单', () => {
       expect(trigger.getAttribute('aria-label')).toContain('1 项任务失败');
       act(() => trigger.click());
       expect(useUpdateStore.getState().packsAvailable).toBe(true);
-      expect(useWorkspaceMenu.getState().failed).toBe(1);
+      expect(useWorkspaceMenu.getState().unreadFailed).toBe(1);
     } finally {
       act(() => root.unmount());
     }

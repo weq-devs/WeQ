@@ -7,9 +7,7 @@ import {
   isAssistantSessionDeleted,
   markAssistantSessionDeleted,
   readAssistantDraft,
-  readAssistantSession,
   rememberAssistantDraft,
-  rememberAssistantSession,
 } from '../src/renderer/src/lib/assistantWorkspace';
 
 const fixture = vi.hoisted(() => ({
@@ -91,13 +89,31 @@ afterEach(() => {
 });
 
 describe('助手永久删除的本地输入收尾', () => {
+  it('输入草稿按账号和会话隔离，空稿移除存储，存储不可用不打断操作', () => {
+    const account = scope();
+    rememberAssistantDraft(account, null, '新草稿');
+    rememberAssistantDraft(account, 'kept', '历史会话草稿');
+    expect(readAssistantDraft('different-account', null)).toBe('');
+    expect(readAssistantDraft(account, null)).toBe('新草稿');
+    expect(readAssistantDraft(account, 'kept')).toBe('历史会话草稿');
+    rememberAssistantDraft(account, null, '');
+    expect(readAssistantDraft(account, null)).toBe('');
+    for (const method of ['getItem', 'setItem', 'removeItem'] as const) {
+      vi.spyOn(window.localStorage, method).mockImplementation(() => {
+        throw new Error('存储不可用');
+      });
+    }
+    expect(() => rememberAssistantDraft(account, null, '草稿')).not.toThrow();
+    expect(() => rememberAssistantDraft(account, null, '')).not.toThrow();
+    expect(readAssistantDraft(account, null)).toBe('');
+  });
+
   it('精确清除所删会话的草稿、base及重试，不碰同账号其他会话或其他账号', () => {
     const account = scope();
     const other = 'different-account';
     rememberAssistantDraft(account, 'selected', '将被删除');
     rememberAssistantDraft(account, 'kept', '保留');
     rememberAssistantDraft(other, 'selected', '其他账号原稿');
-    rememberAssistantSession(account, 'selected');
     localStorage.setItem(`weq.sync.draft-base:${account}:assistant:selected`, 'selected-base');
     localStorage.setItem(`weq.sync.draft-base:${account}:assistant:kept`, 'kept-base');
     const deletedRetry = `assistant:${account}:assistant:selected`;
@@ -106,7 +122,6 @@ describe('助手永久删除的本地输入收尾', () => {
     fixture.retries.set(otherRetry, vi.fn());
     markAssistantSessionDeleted(account, 'selected');
     expect(readAssistantDraft(account, 'selected')).toBe('');
-    expect(readAssistantSession(account)).toBeNull();
     expect(localStorage.getItem(`weq.sync.draft-base:${account}:assistant:selected`)).toBeNull();
     expect(localStorage.getItem(`weq.sync.draft-base:${account}:assistant:kept`)).toBe('kept-base');
     expect(readAssistantDraft(account, 'kept')).toBe('保留');
@@ -114,9 +129,7 @@ describe('助手永久删除的本地输入收尾', () => {
     expect(fixture.retries.has(deletedRetry)).toBe(false);
     expect(fixture.retries.has(otherRetry)).toBe(true);
     rememberAssistantDraft(account, 'selected', '迟到输入');
-    rememberAssistantSession(account, 'selected');
     expect(readAssistantDraft(account, 'selected')).toBe('');
-    expect(readAssistantSession(account)).toBeNull();
   });
 
   it('删除后卸载不会flush旧输入，也不产生新的重试或错误', async () => {

@@ -96,10 +96,6 @@ vi.mock('../src/renderer/src/components/lazyWorkspaces.shared', () => ({
   }) =>
     h('div', { 'data-roaming-mode': targetMode, 'data-roaming-targets': initialTargets.length }),
 }));
-vi.mock('../src/renderer/src/views/agentlab/AssistantMenuWorkspace', () => ({
-  AssistantMenuWorkspace: () => null,
-}));
-
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());

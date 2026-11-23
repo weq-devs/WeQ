@@ -3,8 +3,6 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantConversationPane } from '../src/renderer/src/views/agentlab/AssistantConversationPane';
-import type { AssistantActivity } from '../src/renderer/src/lib/workspaceIndicators';
-import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import {
   isAssistantSessionDeleted,
   markAssistantSessionDeleted,
@@ -21,7 +19,7 @@ const fixture = vi.hoisted(() => ({
   callbacks: new Map<
     string,
     {
-      activity: (next: AssistantActivity, result?: string) => void;
+      running: (running: boolean) => void;
       created: (id: string) => void;
     }
   >(),
@@ -48,14 +46,14 @@ vi.mock('../src/renderer/src/views/agentlab/AssistantPanel', () => ({
     headless,
     workspaceTitle,
     onSessionCreated,
-    onActivityChange,
+    onRunningChange,
     draftAccount,
   }: {
     sessionId: string | null;
     headless: boolean;
     workspaceTitle: string;
     onSessionCreated: (id: string) => void;
-    onActivityChange: (activity: AssistantActivity, result?: string) => void;
+    onRunningChange: (running: boolean) => void;
     draftAccount?: string;
   }) => {
     const id = sessionId ?? 'draft';
@@ -70,7 +68,7 @@ vi.mock('../src/renderer/src/views/agentlab/AssistantPanel', () => ({
         );
       };
     }, [mountedId, draftAccount]);
-    fixture.callbacks.set(id, { activity: onActivityChange, created: onSessionCreated });
+    fixture.callbacks.set(id, { running: onRunningChange, created: onSessionCreated });
     return headless ? null : h('div', { 'data-session-id': id }, workspaceTitle);
   },
 }));
@@ -86,7 +84,6 @@ beforeEach(() => {
     { id: 'second', title: '第二段独立对话' },
   ];
   fixture.callbacks.clear();
-  useWorkspaceMenu.getState().setAssistant('idle');
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -101,19 +98,18 @@ describe('主聊天区域助手', () => {
     try {
       render('first');
       expect(host.textContent).toBe('第一段独立对话');
-      act(() => fixture.callbacks.get('first')!.activity('running'));
+      act(() => fixture.callbacks.get('first')!.running(true));
       render('second');
       expect(host.querySelector('[data-session-id="first"]')).toBeNull();
       expect(host.querySelector('[data-session-id="second"]')).not.toBeNull();
       expect(fixture.unmounts.get('first')).toBeUndefined();
-      expect(useWorkspaceMenu.getState().assistant).toBe('running');
       render('second', false);
       expect(host.querySelector('[data-session-id]')).toBeNull();
       expect(fixture.unmounts.get('second')).toBeUndefined();
       render('first');
       expect(fixture.mounts.get('first')).toBe(1);
       render('second');
-      act(() => fixture.callbacks.get('first')!.activity('finished', 'first-result'));
+      act(() => fixture.callbacks.get('first')!.running(false));
       expect(fixture.unmounts.get('first')).toBe(1);
       expect(host.querySelector('[data-session-id="second"]')).not.toBeNull();
     } finally {
@@ -145,7 +141,7 @@ describe('主聊天区域助手', () => {
       expect(fixture.unmounts.get('draft')).toBeUndefined();
       render(null);
       const callback = fixture.callbacks.get('draft')!;
-      act(() => callback.activity('running'));
+      act(() => callback.running(true));
       render('second');
       created.mockClear();
       act(() => callback.created('background-created'));
@@ -165,7 +161,7 @@ describe('主聊天区域助手', () => {
           h(AssistantConversationPane, { accountScope: 'account-a', sessionId: 'first' }),
         ),
       );
-      act(() => fixture.callbacks.get('first')!.activity('running'));
+      act(() => fixture.callbacks.get('first')!.running(true));
       act(() =>
         root.render(
           h(AssistantConversationPane, { accountScope: 'account-b', sessionId: 'second' }),
@@ -174,7 +170,6 @@ describe('主聊天区域助手', () => {
       expect(fixture.unmounts.get('first')).toBe(1);
       expect(host.querySelector('[data-session-id="first"]')).toBeNull();
       expect(host.querySelector('[data-session-id="second"]')).not.toBeNull();
-      expect(useWorkspaceMenu.getState().assistant).toBe('idle');
     } finally {
       act(() => root.unmount());
     }
@@ -213,15 +208,14 @@ describe('主聊天区域助手', () => {
       );
     try {
       render('first');
-      act(() => fixture.callbacks.get('first')!.activity('running'));
+      act(() => fixture.callbacks.get('first')!.running(true));
       const stale = fixture.callbacks.get('first')!;
       render('second');
-      act(() => fixture.callbacks.get('second')!.activity('running'));
+      act(() => fixture.callbacks.get('second')!.running(true));
       render('second', deleted);
       expect(fixture.unmounts.get('first')).toBe(1);
       expect(fixture.deletedAtUnmount.get('first')).toBe(true);
       expect(fixture.unmounts.get('second')).toBeUndefined();
-      expect(useWorkspaceMenu.getState().assistant).toBe('running');
       render('first', deleted);
       expect(host.textContent).toContain('已永久删除');
       expect(host.querySelector('[data-session-id]')).toBeNull();

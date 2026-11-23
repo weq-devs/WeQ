@@ -64,9 +64,7 @@ it('菜单汇总任务和增强包更新；关闭角标不清空对应状态', (
   useWorkspaceMenu.setState({
     running: 0,
     finished: 2,
-    failed: 1,
-    assistant: 'finished',
-    assistantUnread: true,
+    unreadFailed: 1,
   });
   useUpdateStore.setState({ packsAvailable: true });
   const host = mount(h(WorkspaceMenuButton));
@@ -87,7 +85,7 @@ it('菜单汇总任务和增强包更新；关闭角标不清空对应状态', (
   );
   expect(host.querySelector('.weq-workspace-dot')).toBeNull();
   expect(useWorkspaceMenu.getState().finished).toBe(2);
-  expect(useWorkspaceMenu.getState().assistantUnread).toBe(true);
+  expect(useWorkspaceMenu.getState().unreadFailed).toBe(1);
   expect(useUpdateStore.getState().packsAvailable).toBe(true);
   act(() => useWorkspaceMenu.setState({ running: 1 }));
   expect(host.querySelector('.weq-reminder-count')).toBeNull();

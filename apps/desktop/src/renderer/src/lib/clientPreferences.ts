@@ -414,7 +414,6 @@ export async function migrateAccountState(expected: Binding) {
   const patches: Partial<Record<StateNamespace, Record<string, unknown>>> = {
     pins: {},
     tasks: read(`weq:workspace-read:v1:${encodeURIComponent(scope)}:tasks`, {}),
-    assistant: read(`weq:workspace-read:v1:${encodeURIComponent(scope)}:assistant`, {}),
     order: {},
     todos: {},
   };

@@ -23,8 +23,6 @@ import { cloneChatUser, cloneChatConversation, cloneChatInput } from './cloneCha
 import { useSharedAssistantDraft } from '../../hooks/useSharedAssistantDraft';
 import { useDirectoryReadPosition } from '../../hooks/useDirectoryReadPosition';
 import { readAssistantDraft, rememberAssistantDraft } from '../../lib/assistantWorkspace';
-import { assistantResultVersion } from '../../lib/workspaceReadState';
-import type { AssistantActivity } from '../../lib/workspaceIndicators';
 import type { GeneratedSearchHit } from '../../components/search/types';
 import { ChatRecordsModal } from '../../components/search/ChatRecordsModal';
 import { AiImageComposer } from '../../components/AiImageComposer';
@@ -98,7 +96,7 @@ export function AssistantPanel({
   onSessionCreated,
   draftAccount,
   workspaceTitle,
-  onActivityChange,
+  onRunningChange,
   headless = false,
 }: {
   sessionId: string | null;
@@ -107,10 +105,9 @@ export function AssistantPanel({
   onBack: () => void;
   onBackToDirectory?: () => void;
   onSessionCreated: (id: string) => void;
-  compact?: boolean;
   draftAccount?: string;
   workspaceTitle?: string;
-  onActivityChange?: (activity: AssistantActivity, result?: string) => void;
+  onRunningChange?: (running: boolean) => void;
   headless?: boolean;
 }) {
   const utils = trpc.useUtils();
@@ -229,15 +226,9 @@ export function AssistantPanel({
     if (searchTarget) setJump({ messageId: searchTarget.messageId, revision: Date.now() });
   }, [searchTarget]);
   const running = Boolean(queue.data?.running || turns.some((turn) => turn.running));
-  const activity: AssistantActivity = running
-    ? 'running'
-    : error || turns.some((turn) => turn.role === 'assistant')
-      ? 'finished'
-      : 'idle';
-  const version = activity === 'finished' ? assistantResultVersion(turns) : undefined;
   useEffect(() => {
-    onActivityChange?.(activity, version);
-  }, [activity, version, onActivityChange]);
+    onRunningChange?.(running);
+  }, [running, onRunningChange]);
   useEffect(() => {
     if (!running && !sending) {
       setStopping(false);

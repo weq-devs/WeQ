@@ -6,10 +6,9 @@ import { exportTaskResult } from '../../../shared/export_task_result';
 import { isRoamingJobComplete } from '../../../shared/roaming_task_status';
 import { roamingTaskDisplay, taskNoticeTitle } from '@weq/service/task-display';
 
-export type AssistantActivity = 'idle' | 'running' | 'finished';
 export interface WorkspaceTaskIndicator {
   id: string;
-  activity: AssistantActivity;
+  activity: 'idle' | 'running' | 'finished';
   result: string;
   failed: boolean;
   partial?: boolean;
