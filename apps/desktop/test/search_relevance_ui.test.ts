@@ -8,18 +8,21 @@ import type { FileSearchHit } from '../src/renderer/src/components/search/types'
 
 vi.mock('../src/renderer/src/components/search/appSearchCatalog', async (original) => ({
   ...(await original<typeof import('../src/renderer/src/components/search/appSearchCatalog')>()),
-  searchAppEntries: (keyword: string) =>
+  rankAppEntries: (keyword: string) =>
     keyword === '报告'
-      ? [
-          {
-            id: 'synthetic',
-            title: '报告',
-            keywords: [],
-            path: '',
-            target: { kind: 'view', view: 'messages' },
-          },
-        ]
-      : [],
+      ? {
+          bestRank: 4,
+          entries: [
+            {
+              id: 'synthetic',
+              title: '报告',
+              keywords: [],
+              path: '',
+              target: { kind: 'view', view: 'messages' },
+            },
+          ],
+        }
+      : { bestRank: 0, entries: [] },
 }));
 beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
 afterEach(() => vi.unstubAllGlobals());

@@ -4,6 +4,7 @@
  * @ 选择：输入 @ 弹出成员浮层，选中插入 @名字；发送时按文本里出现的 @名字 推出 mentions。
  */
 import { EmptyState } from '../../components/EmptyState';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Trash2, Users, UserMinus, UserPlus, Settings2, UsersRound } from 'lucide-react';
 import { ChatPane } from '../../im-template/template/chatPane';
@@ -331,16 +332,19 @@ export function GroupChatPanel({
   ]);
   const memberSearch = useMemo(() => {
     const keyword = memberSearchKeyword.trim().toLocaleLowerCase();
-    const matches = chatConversation.members.filter((member) =>
-      [
-        member.displayName,
-        member.username,
-        member.nick,
-        member.card,
-        member.remark,
-        member.uin,
-        member.identityValue,
-      ].some((value) => value?.toLocaleLowerCase().includes(keyword)),
+    const pinyin = createPinyinMatcher(keyword);
+    const matches = chatConversation.members.filter(
+      (member) =>
+        [
+          member.displayName,
+          member.username,
+          member.nick,
+          member.card,
+          member.remark,
+          member.uin,
+          member.identityValue,
+        ].some((value) => value?.toLocaleLowerCase().includes(keyword)) ||
+        pinyin?.test(member.card, member.nick, member.displayName) === true,
     );
     return {
       keyword: memberSearchKeyword,

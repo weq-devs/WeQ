@@ -484,6 +484,7 @@ import {
   type CalendarTaskOpening,
 } from '../lib/calendarNavigation';
 import { conversationListSearchText } from '../lib/conversationListSearchText';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { calendarCloneRevision, calendarAssistantRevision } from '../lib/calendarSourceRevision';
 import { QzoneCardNavigationContext, QzoneShareForwardContext } from '../lib/qzoneNavigation';
 import { MailCardNavigationContext, type MailOpenTarget } from '../lib/mailNavigation';
@@ -3436,7 +3437,7 @@ function MainWorkspace(): ReactElement {
           segs = renderElementsToSegs(renderElements);
         }
         if (segs.length === 0) continue;
-        const node = createNode(senderInfo, segs, Math.floor(sendTimeMs / 1000));
+        const node = createNode(senderInfo, segs, Math.floor(sendTimeMs / 1000), message);
         const decoration = (message as { decoration?: MfNode['decoration'] }).decoration;
         if (decoration) node.decoration = decoration;
         if (msgId && !message.forwardSnapshot) node.sourceMsgId = msgId;
@@ -3602,7 +3603,7 @@ function MainWorkspace(): ReactElement {
       );
       const problem = validateDraft(draft);
       if (problem) throw new Error(problem);
-      const nodes = draftToSendNodes(draft);
+      const nodes = draftToSendNodes(draft, target.kind);
       const peerType = target.kind === 'group' ? 'group' : 'c2c';
       const title = draft.title || draftTitle(draft.nodes);
       const preview = draftCardPreview(draft);
@@ -11367,6 +11368,8 @@ function MainWorkspace(): ReactElement {
   );
   const previousDirectoryIds = useRef<string[]>([]);
   const contactDirectoryIds = useMemo(() => {
+    const needle = contactDirectoryQuery.trim().toLocaleLowerCase();
+    const pinyin = createPinyinMatcher(needle);
     const ids =
       shell.contactTab === 'friends'
         ? [
@@ -11376,20 +11379,25 @@ function MainWorkspace(): ReactElement {
           ]
             .filter(
               (contact) =>
-                !contactDirectoryQuery ||
+                !needle ||
                 `${displayUserName(contact)} ${'nick' in contact ? (contact.nick ?? '') : ''} ${contact.identityValue}`
                   .toLocaleLowerCase()
-                  .includes(contactDirectoryQuery.trim().toLocaleLowerCase()),
+                  .includes(needle) ||
+                pinyin?.test(
+                  displayUserName(contact),
+                  'nick' in contact && typeof contact.nick === 'string' ? contact.nick : undefined,
+                ) === true,
             )
             .map((contact) => contact.id)
         : contactDirectoryConversations
             .filter(
               (conversation) =>
                 conversation.type === 'group' &&
-                (!contactDirectoryQuery ||
+                (!needle ||
                   `${conversation.group.name} ${conversation.group.remark ?? ''} ${conversation.id}`
                     .toLocaleLowerCase()
-                    .includes(contactDirectoryQuery.trim().toLocaleLowerCase())),
+                    .includes(needle) ||
+                  pinyin?.test(conversation.group.remark, conversation.group.name) === true),
             )
             .map((conversation) => conversation.id);
     const previous = previousDirectoryIds.current;

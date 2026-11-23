@@ -1,5 +1,6 @@
 import type { AccountSession } from '@weq/account';
 import { classifyChatType, toChatTypeNumber, ChatType } from '@weq/codec';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { searchNameRank } from './search_policy';
 
 export type SearchConversationView = 'regular' | 'hidden' | 'deleted' | 'groupAssistant';
@@ -19,6 +20,7 @@ export interface ContactSearchHit {
   chatType?: number;
   conversationView?: SearchConversationView;
   aliases: string[];
+  matchRank?: number;
   groups: Array<{ groupCode: string; groupName: string; display: string }>;
 }
 
@@ -32,6 +34,24 @@ export interface GroupSearchHit {
   hasConversation: boolean;
   conversationView?: SearchConversationView;
   aliases: string[];
+  matchRank?: number;
+}
+
+function directoryMatcher(keyword: string) {
+  const pinyin = createPinyinMatcher(keyword);
+  const literal = keyword.trim().toLowerCase();
+  return {
+    pinyin,
+    matchesCandidate: (...fields: string[]) =>
+      !pinyin ||
+      fields.some((field) => field.toLowerCase().includes(literal)) ||
+      pinyin.test(...fields),
+    rank: (identity: string[], names: string[], preferredName?: string) =>
+      searchNameRank(keyword, ...identity, ...names) ||
+      (preferredName === undefined
+        ? 0
+        : (pinyin?.rankWithPreferredName(preferredName, ...names) ?? 0)),
+  };
 }
 
 function validUin(value: string): string {
@@ -99,9 +119,12 @@ export async function searchContacts(
   session: AccountSession,
   keyword: string,
 ): Promise<ContactSearchHit[]> {
+  const query = directoryMatcher(keyword);
   const [cached, conversations, members, deleted, buddies, hidden, services] = await Promise.all([
-    session.profileInfo.searchContacts(keyword),
-    session.recentContacts.searchIdentities(keyword),
+    query.pinyin
+      ? session.profileInfo.searchContacts(keyword, true)
+      : session.profileInfo.searchContacts(keyword),
+    session.recentContacts.searchIdentities(keyword, query.pinyin ? 'contact' : undefined),
     session.groupMembers.searchMembers(keyword, -1, 0, {
       includeHistorical: true,
       includeCards: true,
@@ -113,7 +136,11 @@ export async function searchContacts(
   ]);
   const isContactConversation = (chatType: number) =>
     ['direct', 'dataline', 'official', 'service'].includes(classifyChatType(chatType) ?? '');
-  const direct = conversations.filter((row) => isContactConversation(row.chatType));
+  const direct = conversations.filter(
+    (row) =>
+      isContactConversation(row.chatType) &&
+      query.matchesCandidate(row.targetUid, row.targetUin, row.name, row.remark, row.groupNick),
+  );
   const historical = deleted.filter(
     (row) => isContactConversation(row.chatType) || row.chatType === 10,
   );
@@ -166,7 +193,7 @@ export async function searchContacts(
     group?: ContactSearchHit['groups'][number];
   };
   const candidates: Candidate[] = [
-    ...cached,
+    ...cached.filter((row) => query.matchesCandidate(row.uid, row.uin, row.nick, row.remark)),
     ...direct.map((row) => ({
       uid: row.targetUid,
       uin: row.targetUin,
@@ -285,29 +312,40 @@ export async function searchContacts(
     if (view) hit.conversationView = view;
   }
   return [...merged.values()]
-    .filter((hit) => searchNameRank(keyword, hit.uid, hit.uin, ...hit.aliases) > 0)
+    .map((hit) => ({
+      hit,
+      rank: query.rank(
+        [hit.uid, hit.uin],
+        hit.aliases,
+        hit.isFriend || currentIds.has(hit.uid) ? hit.remark || hit.nick : undefined,
+      ),
+    }))
+    .filter(({ rank }) => rank > 0)
     .sort(
       (a, b) =>
-        searchNameRank(keyword, b.uid, b.uin, ...b.aliases) -
-          searchNameRank(keyword, a.uid, a.uin, ...a.aliases) ||
-        a.uid.localeCompare(b.uid) ||
-        a.uin.localeCompare(b.uin),
-    );
+        b.rank - a.rank || a.hit.uid.localeCompare(b.hit.uid) || a.hit.uin.localeCompare(b.hit.uin),
+    )
+    .map(({ hit, rank }) => (query.pinyin ? { ...hit, matchRank: rank } : hit));
 }
 
 export async function searchGroups(
   session: AccountSession,
   keyword: string,
 ): Promise<GroupSearchHit[]> {
+  const query = directoryMatcher(keyword);
   const [cached, conversations, deleted, directory, hidden] = await Promise.all([
-    session.groupDetail.searchIdentities(keyword),
-    session.recentContacts.searchIdentities(keyword),
+    query.pinyin
+      ? session.groupDetail.searchIdentities(keyword, true)
+      : session.groupDetail.searchIdentities(keyword),
+    session.recentContacts.searchIdentities(keyword, query.pinyin ? 'group' : undefined),
     session.deletedSessions.listDeletedSessions(),
     session.groupDetail.listDirectory(),
     session.hiddenSessions?.listHiddenSessions() ?? [],
   ]);
   const groupConversations = conversations.filter(
-    (row) => classifyChatType(row.chatType) === 'group',
+    (row) =>
+      classifyChatType(row.chatType) === 'group' &&
+      query.matchesCandidate(row.targetUid, row.name, row.remark, row.groupNick),
   );
   const historical = [
     ...deleted.filter((row) => classifyChatType(row.chatType) === 'group'),
@@ -329,7 +367,9 @@ export async function searchGroups(
   const detailByCode = new Map(details.map((row) => [row.groupCode.toString(), row]));
   const current = new Set(directory.map((row) => row.groupCode));
   const candidates = [
-    ...cached.map((row) => ({ ...row, hasConversation: false })),
+    ...cached
+      .filter((row) => query.matchesCandidate(row.groupCode, row.name, row.remark))
+      .map((row) => ({ ...row, hasConversation: false })),
     ...groupConversations.map((row) => ({
       groupCode: row.targetUid,
       name: row.name,
@@ -388,11 +428,15 @@ export async function searchGroups(
     if (view) hit.conversationView = view;
   }
   return [...merged.values()]
-    .filter((hit) => searchNameRank(keyword, hit.groupCode, ...hit.aliases) > 0)
-    .sort(
-      (a, b) =>
-        searchNameRank(keyword, b.groupCode, ...b.aliases) -
-          searchNameRank(keyword, a.groupCode, ...a.aliases) ||
-        a.groupCode.localeCompare(b.groupCode),
-    );
+    .map((hit) => ({
+      hit,
+      rank: query.rank(
+        [hit.groupCode],
+        hit.aliases,
+        hit.inDirectory || currentIds.has(hit.groupCode) ? hit.remark || hit.name : undefined,
+      ),
+    }))
+    .filter(({ rank }) => rank > 0)
+    .sort((a, b) => b.rank - a.rank || a.hit.groupCode.localeCompare(b.hit.groupCode))
+    .map(({ hit, rank }) => (query.pinyin ? { ...hit, matchRank: rank } : hit));
 }

@@ -10,6 +10,7 @@ import {
   type MsgDecoration,
   type SetEmojiItem,
 } from '@weq/codec';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { algoFor, type AccountSession } from '@weq/account';
 import {
   SourceMsgSearchDb,
@@ -1045,6 +1046,7 @@ export class UnifiedSearchService {
     scope: ConversationScope,
     sources: readonly SearchSource[],
   ): Promise<Array<ContactSearchHit | GroupSearchHit>> {
+    const pinyin = createPinyinMatcher(keyword);
     const hits: Array<ContactSearchHit | GroupSearchHit> =
       sources.includes('qq') && (scope === 'all' || scope === 'real')
         ? await (category === 'contact'
@@ -1055,7 +1057,8 @@ export class UnifiedSearchService {
       const lab = this.options.generatedSources?.()?.agentLab;
       if (lab) {
         for (const row of category === 'contact' ? lab.listPersonas() : lab.listGroups()) {
-          if (!searchNameRank(keyword, row.name, row.id)) continue;
+          const rank = searchNameRank(keyword, row.name, row.id) || pinyin?.rank(row.name) || 0;
+          if (!rank) continue;
           hits.push(
             category === 'contact'
               ? {
@@ -1070,6 +1073,7 @@ export class UnifiedSearchService {
                   hasConversation: true,
                   temporary: false,
                   aliases: [row.name, row.id],
+                  ...(pinyin ? { matchRank: rank } : {}),
                   groups: [],
                 }
               : {
@@ -1081,6 +1085,7 @@ export class UnifiedSearchService {
                   inDirectory: false,
                   hasConversation: true,
                   aliases: [row.name, row.id],
+                  ...(pinyin ? { matchRank: rank } : {}),
                 },
           );
         }
@@ -1093,7 +1098,9 @@ export class UnifiedSearchService {
     ) {
       const rows = await new GuildDirectService(this.session).listSessions();
       for (const row of rows) {
-        if (!searchNameRank(keyword, row.peerNick, row.peerTinyId)) continue;
+        const rank =
+          searchNameRank(keyword, row.peerNick, row.peerTinyId) || pinyin?.rank(row.peerNick) || 0;
+        if (!rank) continue;
         hits.push({
           category,
           target: { kind: 'guild', nodeId: row.nodeId },
@@ -1106,15 +1113,20 @@ export class UnifiedSearchService {
           hasConversation: true,
           temporary: false,
           aliases: [row.peerNick, row.peerTinyId],
+          ...(pinyin ? { matchRank: rank } : {}),
           groups: [],
         });
       }
     }
     const rank = (hit: ContactSearchHit | GroupSearchHit) =>
-      hit.category === 'contact'
+      hit.matchRank ??
+      (hit.category === 'contact'
         ? searchNameRank(keyword, hit.uid, hit.uin, ...hit.aliases)
-        : searchNameRank(keyword, hit.groupCode, ...hit.aliases);
-    return hits.sort((a, b) => rank(b) - rank(a));
+        : searchNameRank(keyword, hit.groupCode, ...hit.aliases));
+    return hits
+      .map((hit) => ({ hit, rank: rank(hit) }))
+      .sort((a, b) => b.rank - a.rank)
+      .map(({ hit }) => hit);
   }
 
   private async messageSearch(

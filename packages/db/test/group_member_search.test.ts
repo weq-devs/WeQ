@@ -91,6 +91,19 @@ function fixtureWithOtherGroup(): void {
 }
 
 describe('GroupMemberDb.searchMembersInGroup (offline fixture)', () => {
+  it('拼音按原文、常用读法、多音字其他读法分页，只查当前群的在群成员', async () => {
+    createFixture([
+      ['u_alt', 10001, '厦门大学', '别名'],
+      ['u_regular', 10002, '', '四门大学'],
+      ['u_literal', 10003, '', 'smdx'],
+      ['u_left', 10004, '厦门大学', '', true],
+    ]);
+    expect(await searchUids('smdx', 2)).toEqual({ uids: ['u_literal', 'u_regular'], total: 3 });
+    expect(await searchUids('smdx', 2, 2)).toEqual({ uids: ['u_alt'], total: 3 });
+    expect(await searchUids('xia men')).toEqual({ uids: ['u_alt'], total: 1 });
+    expect(await searchUids('xmdx', 30, 0, OTHER_GROUP)).toEqual({ uids: [], total: 0 });
+  });
+
   it('matches group card, and stays scoped to one group', async () => {
     fixtureWithOtherGroup();
 

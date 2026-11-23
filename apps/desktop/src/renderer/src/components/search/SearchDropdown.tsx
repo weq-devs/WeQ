@@ -19,7 +19,7 @@ import {
   type SearchSource,
 } from '@weq/service/search-policy';
 import { AppSearchResults } from './AppSearchResults';
-import { appSearchEntryRank, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
+import { rankAppEntries, type AppSearchEntry } from './appSearchCatalog';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { restoreSearchPosition } from './searchPosition.shared';
 import type { SearchPosition } from './searchPosition';
@@ -142,8 +142,8 @@ export function SearchDropdown({
     initialPosition?.appResultsExpanded ? keyword : null,
   );
   const appResultsExpanded = expandedAppKeyword === keyword;
-  const appEntries = useMemo(
-    () => (appEnabled ? searchAppEntries(keyword, developmentDressTools) : []),
+  const { entries: appEntries, bestRank: appRank } = useMemo(
+    () => rankAppEntries(appEnabled ? keyword : '', developmentDressTools),
     [keyword, appEnabled, developmentDressTools],
   );
   const rememberPosition = (focusKey: string) =>
@@ -289,7 +289,7 @@ export function SearchDropdown({
   const orderedCategories = useMemo(() => {
     const bestRank = (category: SearchCategory | 'app') =>
       category === 'app'
-        ? Math.max(0, ...appEntries.map((entry) => appSearchEntryRank(keyword, entry)))
+        ? appRank
         : Math.max(
             0,
             ...(sections.get(category)?.hits ?? []).map((hit) => searchHitNameRank(hit, keyword)),
@@ -312,7 +312,7 @@ export function SearchDropdown({
           Number(b.hasResults) - Number(a.hasResults) || b.rank - a.rank || a.index - b.index,
       )
       .map((item) => item.category);
-  }, [appSectionEnabled, appEntries, sections, categories, keyword, visibleCategories]);
+  }, [appSectionEnabled, appEntries, appRank, sections, categories, keyword, visibleCategories]);
 
   return (
     <div className="weq-search-dropdown" ref={attachRoot}>

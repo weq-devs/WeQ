@@ -1,4 +1,5 @@
 import { searchNameRank, type ConversationScope } from '@weq/service/search-policy';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import type { MainView } from '../../im-template/template/types';
 import type { ExportMode } from '../../views/export/types';
 import type { DressKind } from '../DressUpDialog';
@@ -78,7 +79,7 @@ function settingEntry(
     id,
     title: label,
     path: path.join(' / '),
-    keywords: 'settingId' in definition ? [...aliases, label] : aliases,
+    keywords: aliases,
     target: { kind: 'setting', ...target },
   };
 }
@@ -180,16 +181,11 @@ const appSearchEntries: readonly AppSearchEntry[] = [
   );
 });
 
-export function appSearchEntryRank(keyword: string, entry: AppSearchEntry): number {
-  return (
-    searchNameRank(keyword, entry.title, ...entry.keywords) || searchNameRank(keyword, entry.path)
-  );
-}
-
-export function searchAppEntries(keyword: string, developmentDressTools = false): AppSearchEntry[] {
+export function rankAppEntries(keyword: string, developmentDressTools = false) {
   const query = keyword.trim();
-  if (!query) return [];
-  return appSearchEntries
+  if (!query) return { entries: [], bestRank: 0 };
+  const pinyin = createPinyinMatcher(query);
+  const ranked = appSearchEntries
     .filter((entry) => entry.target.kind !== 'dressup' || developmentDressTools)
     .filter((entry) => {
       if (!isRemoteClient() || entry.target.kind !== 'setting') return true;
@@ -198,11 +194,19 @@ export function searchAppEntries(keyword: string, developmentDressTools = false)
     .map((entry, index) => ({
       entry,
       index,
-      rank: appSearchEntryRank(query, entry),
+      rank:
+        searchNameRank(query, entry.title, ...entry.keywords) ||
+        searchNameRank(query, entry.path) ||
+        pinyin?.rank(entry.title) ||
+        (pinyin ? pinyin.rank(...entry.keywords) * 0.5 : 0),
     }))
     .filter(({ rank }) => rank > 0)
-    .sort((a, b) => b.rank - a.rank || a.index - b.index)
-    .map(({ entry }) => entry);
+    .sort((a, b) => b.rank - a.rank || a.index - b.index);
+  return { entries: ranked.map(({ entry }) => entry), bestRank: ranked[0]?.rank ?? 0 };
+}
+
+export function searchAppEntries(keyword: string, developmentDressTools = false): AppSearchEntry[] {
+  return rankAppEntries(keyword, developmentDressTools).entries;
 }
 
 export function findLinkedAppEntry(featureId: string): AppSearchEntry | undefined {

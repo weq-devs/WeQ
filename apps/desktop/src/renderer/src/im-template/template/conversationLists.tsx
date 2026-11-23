@@ -79,7 +79,8 @@ import { useContactDirectoryOrder, useFrozenDirectory } from '../../hooks/useCon
 import { ContactDirectoryOrder } from '../../components/ContactDirectoryOrder';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useContactOnlineStatuses } from '../../hooks/useContactOnlineStatuses';
-import { conversationListSearchText } from '../../lib/conversationListSearchText';
+import { createConversationListMatcher } from '../../lib/conversationListSearchText';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { formatConversationTime } from '../../lib/conversationTime';
 import { useConversationClickTarget } from '../../hooks/useConversationClickTarget';
 import { useConversationHoverOrder } from '../../hooks/useConversationHoverOrder';
@@ -386,11 +387,8 @@ export function ConversationList({
     else if (removed.length) removeSelectedIds(removed);
   }, [generatedRows, loading, selectedIds, removeSelectedIds, setSelectionMode]);
   const sorted = useMemo(() => {
-    const needle = keyword.trim().toLocaleLowerCase();
     const rows = directory?.rows ?? conversations;
-    const visible = rows.filter(
-      (row) => !needle || conversationListSearchText(row).includes(needle),
-    );
+    const visible = keyword.trim() ? rows.filter(createConversationListMatcher(keyword)) : rows;
     const ordered = sortConversationRows(visible, preferences);
     return { rows: ordered, ids: ordered.map((row) => row.id) };
   }, [conversations, preferences, directory?.rows, keyword]);
@@ -1356,19 +1354,19 @@ export function GroupList({
   const [membership, setMembership] = useState<'all' | 'member' | 'nonmember'>('all');
   const hasFilter = membership !== 'all';
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
-  const searchable = useMemo(
-    () =>
-      conversations.filter(
-        (item): item is Extract<Conversation, { type: 'group' }> =>
-          item.type === 'group' &&
-          (membership === 'all' || groupRelationship(item.group, relationships) === membership) &&
-          (!needle ||
-            `${conversationTitle(item)} ${conversationSeed(item)} ${item.group.name}`
-              .toLocaleLowerCase()
-              .includes(needle)),
-      ),
-    [conversations, membership, needle, relationships],
-  );
+  const searchable = useMemo(() => {
+    const pinyin = createPinyinMatcher(needle);
+    return conversations.filter(
+      (item): item is Extract<Conversation, { type: 'group' }> =>
+        item.type === 'group' &&
+        (membership === 'all' || groupRelationship(item.group, relationships) === membership) &&
+        (!needle ||
+          `${conversationTitle(item)} ${conversationSeed(item)} ${item.group.name}`
+            .toLocaleLowerCase()
+            .includes(needle) ||
+          pinyin?.test(item.group.remark, item.group.name) === true),
+    );
+  }, [conversations, membership, needle, relationships]);
   const groupSelection = useContentMultiSelect({ kind: 'contacts', container: 'groups' });
   const menuGroup =
     !groupSelection.selectionMode &&
@@ -2146,6 +2144,7 @@ const ContactListContent = memo(function ContactListContent({
     timeSeeds,
   );
   const needle = directory?.query.trim().toLocaleLowerCase() ?? '';
+  const pinyin = useMemo(() => createPinyinMatcher(needle), [needle]);
   const matchesSearchAndRelationship = useCallback(
     (contact: Contact) =>
       (relationshipFilter === 'all' ||
@@ -2155,8 +2154,9 @@ const ContactListContent = memo(function ContactListContent({
       (!needle ||
         `${displayUserName(contact)} ${contact.nick ?? ''} ${contact.identityValue} ${occupationText(contact.extInfo?.occupation) ?? ''}`
           .toLocaleLowerCase()
-          .includes(needle)),
-    [needle, relationshipFilter, relationships],
+          .includes(needle) ||
+        pinyin?.test(contact.remark, contact.nick, displayUserName(contact)) === true),
+    [needle, pinyin, relationshipFilter, relationships],
   );
   // 同一联系人可出现在多个分组。按 UID 去重，避免分组和在线状态回填触发重复读取。
   const presenceTargetKey = useMemo(

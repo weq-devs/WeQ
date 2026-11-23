@@ -247,9 +247,15 @@ export function searchHitSource(hit: SearchHit): SearchSource {
 export function searchHitNameRank(hit: SearchHit, keyword: string): number {
   switch (hit.category) {
     case 'contact':
-      return searchNameRank(keyword, hit.nick, hit.remark, hit.uid, hit.uin, ...hit.aliases);
+      return (
+        hit.matchRank ??
+        searchNameRank(keyword, hit.nick, hit.remark, hit.uid, hit.uin, ...hit.aliases)
+      );
     case 'group':
-      return searchNameRank(keyword, hit.name, hit.remark, hit.groupCode, ...hit.aliases);
+      return (
+        hit.matchRank ??
+        searchNameRank(keyword, hit.name, hit.remark, hit.groupCode, ...hit.aliases)
+      );
     case 'conversation':
     case 'chatRecord':
       return searchNameRank(keyword, hit.name);

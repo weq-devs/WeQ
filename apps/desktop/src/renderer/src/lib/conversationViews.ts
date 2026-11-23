@@ -3,7 +3,7 @@ import type {
   ConversationPreferences,
   MergedKind,
 } from '../im-template/template/types';
-import { conversationListSearchText } from './conversationListSearchText';
+import { createConversationListMatcher } from './conversationListSearchText';
 import { conversationRoamingTarget } from './conversationActions';
 import { displayGroupName, displayUserName } from '../im-template/template/user';
 import { defaultConversationPreference } from '../im-template/template/preferences';
@@ -167,11 +167,11 @@ export function conversationViewRows(
         ]
       : directory[view];
   const excluded = view === 'all' ? excludedAllConversationIds(directory, options) : null;
-  const needle = query.trim().toLocaleLowerCase();
+  const matches = query.trim() ? createConversationListMatcher(query) : undefined;
   const unique = new Map<string, Conversation>();
   for (const row of rows) {
     if (excluded?.has(row.id)) continue;
-    if (needle && !conversationListSearchText(row).includes(needle)) continue;
+    if (matches && !matches(row)) continue;
     unique.set(row.id, row);
   }
   return [...unique.values()];

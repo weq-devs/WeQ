@@ -18,6 +18,7 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { QqDb } from '../qq_db';
 import { measureMessageWork } from '../query_schedule';
 
@@ -394,9 +395,7 @@ export class GroupMemberDb {
    * The chat page used to search only the member pages it had already paged in,
    * so a member sitting on page 5 was unfindable until every earlier page had
    * been fetched (and the empty container meant no scroll to trigger more). This
-   * runs the LIKE match server-side scoped by 60001, so one query sees the whole
-   * group; LIMIT/OFFSET pages the matches for the panel's infinite scroll. The
-   * ORDER BY is total (card → nick → uid) so pages never overlap or skip rows.
+   * searches server-side scoped by 60001, so pagination sees the whole group.
    *
    * Active members only (64016 = 0 / null), same rule as
    * {@link listMembersInGroup}.
@@ -410,8 +409,44 @@ export class GroupMemberDb {
     const needle = keyword.trim();
     if (!needle) return { items: [], total: 0 };
     const like = `%${escapeLike(needle)}%`;
+    const active = `"60001" = ? AND ("64016" = 0 OR "64016" IS NULL)`;
+    const order = `"64003" ASC, "20002" ASC, "1000" ASC`;
+    const pinyin = createPinyinMatcher(needle);
+    if (pinyin) {
+      // 只读取检索字段，匹配并分页后再读取完整成员资料。
+      const candidates = await this.qq.query(
+        `SELECT rowid, "64003", "20002",
+          CASE WHEN "64003" = ? COLLATE NOCASE OR "20002" = ? COLLATE NOCASE THEN 4
+            WHEN "64003" LIKE ? ESCAPE '\\' OR "20002" LIKE ? ESCAPE '\\' THEN 3
+            ELSE 0 END
+          FROM group_member3 WHERE ${active} ORDER BY ${order}, rowid`,
+        [needle, needle, like, like, groupCode],
+      );
+      const ranked = candidates.flatMap(([rowid, card, nick, literal]) => {
+        const rank =
+          Number(literal) ||
+          pinyin.rankWithPreferredName(String(card || nick || ''), String(nick ?? ''));
+        return rank ? [{ rowid, rank }] : [];
+      });
+      ranked.sort((a, b) => b.rank - a.rank);
+      const page = ranked.slice(offset, offset + limit).map(({ rowid }) => rowid!);
+      if (!page.length) return { items: [], total: ranked.length };
+      const rows = await this.qq.query(
+        `SELECT rowid, ${await this.selectColumns()} FROM group_member3
+          WHERE ${active} AND rowid IN (${page.map(() => '?').join(',')})`,
+        [groupCode, ...page],
+      );
+      const byId = new Map(rows.map(([rowid, ...fields]) => [rowid, rowToMember(fields)]));
+      return {
+        items: page.flatMap((id) => {
+          const item = byId.get(id);
+          return item ? [item] : [];
+        }),
+        total: ranked.length,
+      };
+    }
     const where =
-      `"60001" = ? AND ("64016" = 0 OR "64016" IS NULL)` +
+      active +
       ` AND (CAST("1002" AS TEXT) LIKE ? ESCAPE '\\' OR "20002" LIKE ? ESCAPE '\\'` +
       ` OR "64003" LIKE ? ESCAPE '\\')`;
     const [countRows, rows] = await Promise.all([
@@ -424,7 +459,7 @@ export class GroupMemberDb {
       this.qq.query(
         `SELECT ${await this.selectColumns()} FROM group_member3
          WHERE ${where}
-         ORDER BY "64003" ASC, "20002" ASC, "1000" ASC
+         ORDER BY ${order}
          LIMIT ? OFFSET ?`,
         [groupCode, like, like, like, BigInt(limit), BigInt(offset)],
       ),

@@ -391,7 +391,10 @@ export class ProfileInfoDb {
   }
 
   /** 搜索通讯录与全部本地资料缓存；缓存存在不证明仍是好友或曾经是好友。 */
-  async searchContacts(keyword: string): Promise<CachedContactSearchHit[]> {
+  async searchContacts(
+    keyword: string,
+    includePinyinCandidates = false,
+  ): Promise<CachedContactSearchHit[]> {
     const needle = keyword.trim();
     if (!needle) return [];
     const like = `%${escapeLike(needle)}%`;
@@ -407,6 +410,7 @@ export class ProfileInfoDb {
       ) SELECT uid, uin, nick, remark, avatar, friend FROM people
       WHERE uid LIKE ? ESCAPE '\\' OR CAST(uin AS TEXT) LIKE ? ESCAPE '\\'
         OR nick LIKE ? ESCAPE '\\' OR remark LIKE ? ESCAPE '\\'
+        ${includePinyinCandidates ? "OR (friend AND (nick <> '' OR remark <> ''))" : ''}
       ORDER BY uid, uin`,
       [like, like, like, like],
     );

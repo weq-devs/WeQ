@@ -9,6 +9,7 @@
     "./dictionary": "./src/dictionary/index.ts",
     "./element": "./src/element/index.ts",
     "./domain": "./src/domain/index.ts",
+    "./pinyin-search": "./src/pinyin_search.ts",
     "./proto/*": "./src/proto/*.ts"
   },
   "scripts": {
@@ -18,6 +19,7 @@
   },
   "dependencies": {
     "@protobuf-ts/runtime": "^2.11.1",
+    "pinyin-pro": "3.26.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

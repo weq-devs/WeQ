@@ -210,6 +210,8 @@ describe('会话视图的平铺集合', () => {
     expect(conversationViewRows(directory, 'groupAssistant', options, '分类内测试群')).toEqual([
       group,
     ]);
+    expect(conversationViewRows(directory, 'regular', options, 'flncsq')).toEqual([]);
+    expect(conversationViewRows(directory, 'groupAssistant', options, 'flncsq')).toEqual([group]);
     expect(
       conversationViewRows(directory, 'regular', options).some((row) => row.id === clone.id),
     ).toBe(false);

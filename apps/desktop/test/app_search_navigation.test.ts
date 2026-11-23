@@ -85,6 +85,20 @@ function navigationContext() {
 }
 
 describe('功能搜索实际导航', () => {
+  it('全拼和首字母命中功能与具体设置，命中仍指向现有导航目标', () => {
+    for (const keyword of ['hhrl', 'hui hua ri li']) {
+      expect(searchAppEntries(keyword)).toContainEqual(
+        expect.objectContaining({ title: '会话日历', target: { kind: 'conversation-calendar' } }),
+      );
+    }
+    expect(searchAppEntries('xgbq')).toContainEqual(
+      expect.objectContaining({
+        title: '斜杠表情快捷输入',
+        target: expect.objectContaining({ kind: 'setting' }),
+      }),
+    );
+  });
+
   it.each([
     ['当前任务', 'tasks'],
     ['定时任务', 'schedules'],

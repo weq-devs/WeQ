@@ -5,8 +5,7 @@
  * 把前面 4 页全拉下来才可能被搜到；而且过滤后列表短于容器，没有滚动条，连
  * 「滚动到底加载更多」都触发不了，看起来就是「搜索根本不会加载更多」。
  *
- * 现在匹配交给 `group_member3` 上的 LIKE（见 GroupMemberDb.searchMembersInGroup），
- * 一次查询就能看到全群，分页只用来续拉**匹配结果**。关键字按 `DEBOUNCE_MS` 防抖，
+ * 服务端按群查名称、QQ 号和拼音，分页只用来续拉**匹配结果**。关键字按 `DEBOUNCE_MS` 防抖，
  * 旧请求用 run 序号作废（与 UnifiedSearchModal 同一套路）。缓存活在 MainView
  * 生命周期内，切号随重挂清空。
  */

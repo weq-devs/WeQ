@@ -146,7 +146,10 @@ export class GroupDetailDb {
   }
 
   /** 通讯录与历史群资料取并集；不从缓存缺席推断退群、解散或删除。 */
-  async searchIdentities(keyword: string): Promise<GroupIdentity[]> {
+  async searchIdentities(
+    keyword: string,
+    includePinyinCandidates = false,
+  ): Promise<GroupIdentity[]> {
     const needle = keyword.trim();
     if (!needle) return [];
     const like = `%${needle.replace(/[\\%_]/g, (part) => `\\${part}`)}%`;
@@ -160,7 +163,9 @@ export class GroupDetailDb {
         WHERE NOT EXISTS (SELECT 1 FROM group_detail_info_ver1 d WHERE d."60001" = g."60001")
       ) SELECT code, name, remark, current FROM groups
       WHERE CAST(code AS TEXT) LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\'
-        OR remark LIKE ? ESCAPE '\\' ORDER BY code`,
+        OR remark LIKE ? ESCAPE '\\'
+        ${includePinyinCandidates ? "OR (current AND (name <> '' OR remark <> ''))" : ''}
+        ORDER BY code`,
       [like, like, like],
     );
     return rows.map((row) => ({

@@ -351,15 +351,23 @@ export class RecentContactDb {
   }
 
   /** 对象搜索只读身份与别名，不解码消息预览，也不在合并去重前截断。 */
-  async searchIdentities(keyword: string): Promise<ConversationIdentity[]> {
+  async searchIdentities(
+    keyword: string,
+    pinyinScope?: 'contact' | 'group',
+  ): Promise<ConversationIdentity[]> {
     const needle = keyword.trim();
     if (!needle) return [];
     const like = `%${needle.replace(/[\\%_]/g, (part) => `\\${part}`)}%`;
+    const pinyinCandidates = pinyinScope
+      ? `OR ("40010" ${pinyinScope === 'group' ? '=' : '!='} ${ChatType.KCHATTYPEGROUP}
+          AND ("40094" <> '' OR "41135" <> '' OR "41148" <> ''))`
+      : '';
     const rows = await this.qq.query(
       `SELECT "40021","40030","40010","40094","41135","41148"
        FROM recent_contact_v3_table WHERE "40021" LIKE ? ESCAPE '\\'
          OR CAST("40030" AS TEXT) LIKE ? ESCAPE '\\' OR "40094" LIKE ? ESCAPE '\\'
          OR "41135" LIKE ? ESCAPE '\\' OR "41148" LIKE ? ESCAPE '\\'
+       ${pinyinCandidates}
        ORDER BY "40050" DESC, "40021", "40010"`,
       [like, like, like, like, like],
     );

@@ -90,3 +90,27 @@ it('新联系人来源可包含历史成员与群名片，旧群友接口仍只�
     ).items,
   ).toMatchObject([{ uid: 'u_left', card: '独有名片' }]);
 });
+
+it('拼音只扩大当前好友、群和指定类别的最近会话候选，仍保留历史资料的原文命中', async () => {
+  const f = fixture();
+  f.sql.exec(`INSERT INTO buddy_list VALUES ('u_friend',10001);
+    INSERT INTO profile_info_v6 VALUES ('u_friend',10001,'厦门','',NULL),
+      ('u_history',10002,'厦门大学','xmdx',NULL),('u_other',10003,'厦门市','',NULL);
+    INSERT INTO group_list VALUES (20001);
+    INSERT INTO group_detail_info_ver1 VALUES (20001,'厦门',''),(20002,'厦门大学',''),(20003,'xmdx','');
+    INSERT INTO recent_contact_v3_table VALUES ('u_direct',10001,1,'厦门','','',1),
+      ('20001',0,2,'厦门','','',2),('u_empty',10003,1,'','','',3);`);
+  expect((await f.profiles.searchContacts('xmdx', true)).map(({ uid }) => uid)).toEqual([
+    'u_friend',
+    'u_history',
+  ]);
+  expect((await f.groups.searchIdentities('xmdx', true)).map(({ groupCode }) => groupCode)).toEqual(
+    ['20001', '20003'],
+  );
+  expect(
+    (await f.recent.searchIdentities('xmdx', 'contact')).map(({ targetUid }) => targetUid),
+  ).toEqual(['u_direct']);
+  expect(
+    (await f.recent.searchIdentities('xmdx', 'group')).map(({ targetUid }) => targetUid),
+  ).toEqual(['20001']);
+});
