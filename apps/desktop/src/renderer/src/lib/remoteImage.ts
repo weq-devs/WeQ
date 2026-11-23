@@ -1,11 +1,22 @@
 type ImageReply = { type: string; base64: string };
 type ImageWindow = Window & {
-  weqRemoteLinks?: { loadQqImage?: (id: string, url: string) => void };
+  weqRemoteLinks?: {
+    loadQqImage?: (id: string, url: string) => void;
+    supportsDressImages?: () => boolean;
+  };
+  weqRemoteDressImages?: boolean;
   webkit?: { messageHandlers?: { weqQqImage?: { postMessage(url: string): Promise<unknown> } } };
 };
 
 const MAX_BYTES = 2 * 1024 * 1024;
-const TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif']);
+const TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/apng',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+]);
 let preferRemote = false;
 
 export function setPreferRemoteImage(enabled: boolean) {
@@ -15,6 +26,45 @@ export function setPreferRemoteImage(enabled: boolean) {
 export function remoteImageAvailable() {
   const shell = typeof window === 'undefined' ? undefined : (window as ImageWindow);
   return Boolean(shell?.weqRemoteLinks?.loadQqImage || shell?.webkit?.messageHandlers?.weqQqImage);
+}
+
+export function remoteDressImageAvailable() {
+  const shell = typeof window === 'undefined' ? undefined : (window as ImageWindow);
+  return Boolean(
+    remoteImageAvailable() &&
+      (shell?.weqRemoteDressImages === true || shell?.weqRemoteLinks?.supportsDressImages),
+  );
+}
+
+/** 只接电脑给出的名片和挂件成品图；默认广告与未知部件仍走原路径。 */
+export function publicDressImage(proxy: URL): string | null {
+  if (proxy.pathname !== '/_media/dress') return null;
+  const src = proxy.searchParams.get('src');
+  if (!src) return null;
+  try {
+    const url = new URL(src);
+    const match =
+      /^\/(?:card|faceAddon)\/item\/([0-9a-fA-F]{1,32})\/[a-zA-Z0-9_-]+\.(?:png|apng|jpe?g|gif|webp)$/.exec(
+        url.pathname,
+      );
+    return url.origin === 'https://tianquan.gtimg.cn' &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      match &&
+      /[1-9a-fA-F]/.test(match[1]!)
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function remoteDressImageSource(source: string): string | null {
+  if (!remoteDressImageAvailable() || !source.startsWith('/_media/dress?')) return null;
+  const proxy = new URL(source, 'https://weq.invalid');
+  return proxy.searchParams.get('_weq_dress_direct') === '1' ? publicDressImage(proxy) : null;
 }
 
 export function remoteAvatarSource(source: string): string | null {

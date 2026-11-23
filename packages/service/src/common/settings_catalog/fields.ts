@@ -106,7 +106,7 @@ export const APP_SETTING_FIELDS = (
       'QQ 代理未连接时在窗口右上角显示',
     ],
     ['cdn', 'preferCdn', 'prefer-cdn', '优先 CDN'],
-    ['cdn', 'preferRemoteCdn', 'prefer-remote-cdn', 'Remote 缺图时优先直取'],
+    ['cdn', 'preferRemoteCdn', 'prefer-remote-cdn', 'Remote 缺少资源时优先直取'],
     ['logs', 'logRetentionDays', 'log-retention', '日志保留天数'],
     ['database-read', 'databaseReadConcurrency', 'database-read-concurrency', '数据库读取并发上限'],
     ['web', 'webServiceAutoStart', 'web-autostart', 'Web 服务自动启动'],

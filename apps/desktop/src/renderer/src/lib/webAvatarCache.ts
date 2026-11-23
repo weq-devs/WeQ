@@ -1,4 +1,9 @@
-import { remoteAvatarSource, requestRemoteImage } from './remoteImage';
+import {
+  publicDressImage,
+  remoteAvatarSource,
+  remoteDressImageSource,
+  requestRemoteImage,
+} from './remoteImage';
 import { boundedBridgeRead, remoteCacheBridge, sharedAccountScope } from './remoteCacheBridge';
 
 export interface StoredAvatar {
@@ -92,7 +97,9 @@ function bridgeAvatarKey(key: string): string | undefined {
   try {
     const [scope, path] = JSON.parse(key);
     const account = typeof scope === 'string' ? sharedAccountScope(scope) : undefined;
-    return account && typeof path === 'string' ? JSON.stringify([account, path]) : undefined;
+    return account && typeof path === 'string' && !path.startsWith('/_media/dress?')
+      ? JSON.stringify([account, path])
+      : undefined;
   } catch {
     return undefined;
   }
@@ -174,6 +181,8 @@ export const avatarStore: AvatarStore = {
 export function webAvatarKey(scope: string, source: string): string | null {
   if (!source.startsWith('/')) return null;
   const url = new URL(source, 'https://weq.invalid');
+  const dress = url.searchParams.has('_weq_dress_direct') && publicDressImage(url);
+  if (dress) return JSON.stringify([scope, `/_media/dress?${new URLSearchParams({ src: dress })}`]);
   if (!['/_media/avatar', '/_avatar/fetch'].includes(url.pathname)) return null;
   for (const key of ['cid', '_weq_avatar_refresh', '_weq_avatar_remote'])
     url.searchParams.delete(key);
@@ -435,12 +444,15 @@ export function createWebAvatarCache({
           if (!current()) return;
           if (!force && entry?.value && now() - entry.value.updatedAt < WEB_AVATAR_LIMITS.freshMs)
             return;
-          const direct = remoteAvatarSource(source);
+          const directSource = source.startsWith('/_media/dress?')
+            ? remoteDressImageSource
+            : remoteAvatarSource;
+          const direct = directSource(source);
           if (direct) {
             try {
               const reply = await requestRemoteImage(direct, controller.signal);
               if (!current()) return;
-              if (reply && remoteAvatarSource(source)) {
+              if (reply && directSource(source)) {
                 const bytes = Uint8Array.from(atob(reply.base64), (value) => value.charCodeAt(0));
                 const blob = new Blob([bytes], { type: reply.type });
                 if (blob.size > 0 && blob.size <= WEB_AVATAR_LIMITS.maxBlobBytes) {

@@ -14,6 +14,7 @@ import { useAvatarUrl } from '../hooks/useAvatarUrl';
 import { useAvatarImage } from '../hooks/useAvatarImage';
 import { useTabActive } from './RetainedTabs.shared';
 import { boundTagPosition } from './dressPieces.shared';
+import { DressImage } from './DressImage';
 
 // 挂件是直接拼 CDN 地址、不做探测的,常年会有下架/过期 404。加载失败就把 <img> 藏起来,
 // 别让浏览器画裂图占位 —— 头像本体照常显示,只是没有这个装饰角标。
@@ -100,7 +101,7 @@ export function AvatarOrb({
         </span>
       )}
       {widgetUrl && (
-        <img
+        <DressImage
           className="weq-orb-widget"
           src={widgetUrl}
           alt=""
@@ -313,11 +314,13 @@ export function TagRing({
  */
 export function CardBackdrop({ imageUrl, videoUrl }: { imageUrl: string; videoUrl: string }) {
   const [videoFailed, setVideoFailed] = useState(false);
-  const [imageFailed, setImageFailed] = useState(false);
+  const [failedImageUrl, setFailedImageUrl] = useState<string>();
+  const [loadedImageUrl, setLoadedImageUrl] = useState<string>();
+  const failImage = () => setFailedImageUrl(imageUrl);
 
   const useVideo = Boolean(videoUrl) && !videoFailed;
   // 图/视频都取不到时整块不渲染：否则会留下破图占位和一层压暗，把首页变成灰底。
-  if (!useVideo && (!imageUrl || imageFailed)) return null;
+  if (!useVideo && (!imageUrl || failedImageUrl === imageUrl)) return null;
 
   return (
     <div className="weq-chathome-backdrop" aria-hidden>
@@ -332,16 +335,18 @@ export function CardBackdrop({ imageUrl, videoUrl }: { imageUrl: string; videoUr
           onError={() => setVideoFailed(true)}
         />
       ) : (
-        <img
+        <DressImage
           className="weq-chathome-backdrop-media"
           src={imageUrl}
           alt=""
           draggable={false}
-          onError={() => setImageFailed(true)}
+          onLoad={() => setLoadedImageUrl(imageUrl)}
+          onError={failImage}
+          onUnavailable={failImage}
         />
       )}
       {/* 压暗一层，保证文字在任何名片上都读得清 */}
-      <div className="weq-chathome-backdrop-scrim" />
+      {(useVideo || loadedImageUrl === imageUrl) && <div className="weq-chathome-backdrop-scrim" />}
     </div>
   );
 }

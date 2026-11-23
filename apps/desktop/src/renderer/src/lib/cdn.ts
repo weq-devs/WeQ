@@ -39,6 +39,7 @@ export interface CdnState {
   enabled: boolean;
   rkeys: CdnRkey[];
   remote?: boolean;
+  remoteDress?: boolean;
 }
 
 const OFF: CdnState = { enabled: false, rkeys: [] };

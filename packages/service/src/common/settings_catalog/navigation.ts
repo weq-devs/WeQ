@@ -871,8 +871,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'prefer-remote-cdn',
     section: 'resource-loading',
-    label: 'Remote 缺图时优先直取',
-    aliases: ['手机直接加载图片', '手机 CDN'],
+    label: 'Remote 缺少资源时优先直取',
+    aliases: ['Remote 缺图时优先直取', '手机直接加载图片', '手机 CDN'],
     from: ['remote', 'resource-loading'],
   },
   {

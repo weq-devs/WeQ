@@ -530,14 +530,14 @@ export function GlobalSettingsSection({
           />
           <Row
             settingId="prefer-remote-cdn"
-            label="Remote 缺图时优先直取"
-            desc="手机没有缓存时，优先从 QQ 加载头像和聊天缩略图，失败再由电脑加载。省流量模式下不直取，需要新版 Remote。"
+            label="Remote 缺少资源时优先直取"
+            desc="手机没有缓存时，优先从 QQ 加载头像、聊天缩略图和支持的个性装扮，失败再由电脑加载。需要新版 Remote。"
             control={
               <Toggle
                 checked={settings.data?.preferRemoteCdn ?? false}
                 disabled={settings.isLoading || setPreferCdnMut.isLoading}
                 onChange={(next) => void onSetPreferCdn(next, true)}
-                label="Remote 缺图时优先直取"
+                label="Remote 缺少资源时优先直取"
               />
             }
           />

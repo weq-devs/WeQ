@@ -58,7 +58,11 @@ import {
 import { SelfBubbleContext, SelfPendantContext } from './hooks/useSelfPendant';
 import { ActiveWidgetProvider } from './hooks/useActiveWidget';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
-import { remoteImageAvailable, setPreferRemoteImage } from './lib/remoteImage';
+import {
+  remoteDressImageAvailable,
+  remoteImageAvailable,
+  setPreferRemoteImage,
+} from './lib/remoteImage';
 import { useRemoteClient } from './lib/remoteClient';
 import { useDataSaver } from './lib/dataSaver';
 import { ChatQqShowEnabledContext, resetChatQqShowCache } from './lib/chatQqShow';
@@ -200,6 +204,8 @@ function CdnProvider({
   const desktopCdn = !remote && Boolean(settings.data?.preferCdn);
   const remoteCdn =
     remote && !limited && Boolean(settings.data?.preferRemoteCdn) && remoteImageAvailable();
+  const remoteDress =
+    remote && Boolean(settings.data?.preferRemoteCdn) && remoteDressImageAvailable();
   // 同步镜像（而不是放 effect）：子树在本次 render 里就会读它，effect 要等提交后才跑，
   // 那一帧的头像会先按旧值拼一遍 URL。赋值幂等，StrictMode 重复渲染也无副作用。
   setPreferCdnFlag(desktopCdn);
@@ -221,9 +227,10 @@ function CdnProvider({
     () => ({
       enabled: remoteCdn || desktopCdn,
       remote,
+      remoteDress,
       rkeys: remote ? (imageRkeys.data ?? []) : (config.data?.rkeys ?? []),
     }),
-    [remoteCdn, desktopCdn, remote, imageRkeys.data, config.data?.rkeys],
+    [remoteCdn, desktopCdn, remote, remoteDress, imageRkeys.data, config.data?.rkeys],
   );
   return <CdnContext.Provider value={state}>{children}</CdnContext.Provider>;
 }

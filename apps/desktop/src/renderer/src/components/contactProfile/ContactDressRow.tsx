@@ -4,7 +4,7 @@ import { dressUrl } from '../../lib/resourceUrl';
 import { ContactRow } from './ContactRow';
 import { openMediaPreview } from '../mediaPreviewStore.shared';
 import { Film } from 'lucide-react';
-import { ShimmerImage } from '../ShimmerImage';
+import { DressImage } from '../DressImage';
 
 /** 仅展示真实装扮素材，不再把头像或 QQ 秀重复嵌入装扮预览。 */
 export function ContactDressRow({ person }: { person: ProfilePerson }) {
@@ -34,7 +34,7 @@ export function ContactDressRow({ person }: { person: ProfilePerson }) {
               })
             }
           >
-            <ShimmerImage src={dressUrl(item.url)} alt={item.label} loading="lazy" />
+            <DressImage placeholder src={dressUrl(item.url)} alt={item.label} loading="lazy" />
           </button>
         ))}
         {video ? (

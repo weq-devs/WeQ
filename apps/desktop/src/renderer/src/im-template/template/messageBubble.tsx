@@ -29,6 +29,7 @@ import {
 import { Avatar } from './primitives';
 import { ChatQqShowEnabledContext, useChatQqShow } from '../../lib/chatQqShow';
 import { qqShowUrl } from '../../lib/resourceUrl';
+import { DressImage } from '../../components/DressImage';
 import type { Conversation, GroupMember, Message, MessageAction, User } from './types';
 import { cn } from './classNames';
 import { SetEmojiReactions, type ReactionInteraction } from '../../components/SetEmojiReactions';
@@ -121,7 +122,7 @@ function PendantOverlay({
       {widget?.animated ? (
         <span className={cn('weq-avatar-pendant-img')} aria-hidden />
       ) : staticUrl ? (
-        <img
+        <DressImage
           className={cn('weq-avatar-pendant-img')}
           src={staticUrl}
           alt=""

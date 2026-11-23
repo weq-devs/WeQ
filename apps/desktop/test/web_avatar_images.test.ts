@@ -6,7 +6,7 @@ import {
   WEB_AVATAR_LIMITS,
   type StoredAvatar,
 } from '../src/renderer/src/lib/webAvatarCache';
-import { setPreferRemoteImage } from '../src/renderer/src/lib/remoteImage';
+import { remoteDressImageSource, setPreferRemoteImage } from '../src/renderer/src/lib/remoteImage';
 
 const source = '/_media/avatar?scope=user&uin=10001&v=small&cid=client';
 const key = webAvatarKey('account-a', source)!;
@@ -93,6 +93,48 @@ it('Remote 头像先查持久缓存，未命中才直取，解码失败回退电
   expect(postMessage).toHaveBeenCalledWith(direct);
   expect(miss.fetchImage).toHaveBeenCalledTimes(1);
   expect(miss.cache.peek(proxyKey)?.src).toBe('blob:new');
+});
+
+it('Remote 装扮复用已缓存成品，只在新版手机和策略允许时发起直取', async () => {
+  const postMessage = vi.fn().mockResolvedValue({ type: 'image/apng', base64: 'Zml4dHVyZQ==' });
+  const shell = Object.assign(new EventTarget(), {
+    weqRemoteDressImages: false,
+    webkit: { messageHandlers: { weqQqImage: { postMessage } } },
+  });
+  vi.stubGlobal('window', shell);
+  const host = 'https://tianquan.gtimg.cn';
+  const proxy = (path: string) => `/_media/dress?src=${encodeURIComponent(host + path)}&theme=dark`;
+  const card = `${proxy('/card/item/123/new1.jpg')}&_weq_dress_direct=1`;
+  const smallData = card.replace('_direct=1', '_direct=0') + '&ds=1';
+  expect(remoteDressImageSource(card)).toBeNull();
+  shell.weqRemoteDressImages = true;
+  expect(remoteDressImageSource(card)).toBe(`${host}/card/item/123/new1.jpg`);
+  expect(remoteDressImageSource(smallData)).toBeNull();
+  expect(
+    remoteDressImageSource(`${proxy('/card/item/0/new1.png')}&_weq_dress_direct=1`),
+  ).toBeNull();
+
+  const cardKey = webAvatarKey('account-a', card)!;
+  expect(webAvatarKey('account-a', smallData)).toBe(cardKey);
+  const f = fixture({ key: cardKey, blob: blob('old'), etag: null, updatedAt: 200 });
+  await f.cache.load(cardKey, smallData);
+  await f.cache.load(cardKey, card);
+  expect(f.cache.peek(cardKey)?.src).toBe('blob:old');
+  expect(postMessage).not.toHaveBeenCalled();
+  expect(f.fetchImage).not.toHaveBeenCalled();
+
+  const cold = fixture();
+  await cold.cache.load(cardKey, card);
+  expect(cold.cache.peek(cardKey)?.src).toBe('blob:fixture');
+  expect(cold.fetchImage).not.toHaveBeenCalled();
+
+  const widget = `${proxy('/faceAddon/item/456/newPreview2.png')}&_weq_dress_direct=1`;
+  const widgetKey = webAvatarKey('account-a', widget)!;
+  postMessage.mockRejectedValueOnce(new Error('CDN unavailable'));
+  await cold.cache.load(widgetKey, widget);
+  expect(postMessage).toHaveBeenLastCalledWith(`${host}/faceAddon/item/456/newPreview2.png`);
+  expect(cold.fetchImage).toHaveBeenCalledOnce();
+  expect(cold.cache.peek(widgetKey)?.src).toBe('blob:new');
 });
 
 it('缩略图失败时显示已加载的原图，缩略图恢复后仍优先使用缩略图', async () => {
