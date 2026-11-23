@@ -15,7 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { RefreshCw } from 'lucide-react';
+import { ChevronRight, RefreshCw } from 'lucide-react';
 import '../../styles/settings-query.css';
 import '../../styles/settings-controls.css';
 import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
@@ -209,6 +209,35 @@ export function Card({
         </SaveStatusSlotContext.Provider>
       </section>
     </SettingsResetCardContext.Provider>
+  );
+}
+
+export function SettingsStatusBadge({
+  label,
+  tone = 'neutral',
+  details,
+}: {
+  label: string;
+  tone?: 'neutral' | 'ready' | 'warning';
+  details?: { label: string; open: boolean; onClick: () => void };
+}) {
+  return details ? (
+    <button
+      type="button"
+      className="weq-set-status-badge"
+      data-tone={tone}
+      aria-label={details.label}
+      aria-haspopup="dialog"
+      aria-expanded={details.open}
+      onClick={details.onClick}
+    >
+      {label}
+      <ChevronRight size={12} aria-hidden />
+    </button>
+  ) : (
+    <span className="weq-set-status-badge" data-tone={tone} role="status">
+      {label}
+    </span>
   );
 }
 

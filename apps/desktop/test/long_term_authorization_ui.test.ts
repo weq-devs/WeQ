@@ -72,7 +72,7 @@ describe('长期授权设置', () => {
       window.dispatchEvent(new Event('focus'));
     });
     expect(bridge.status).toHaveBeenCalledTimes(2);
-    expect(view.host.querySelector('[role="status"]')?.textContent).toBe('已连接');
+    expect(view.host.querySelector('[role="status"]')?.textContent).toBe('已授权');
     expect(bridge.install).not.toHaveBeenCalled();
     expect(bridge.remove).not.toHaveBeenCalled();
   });
@@ -80,12 +80,13 @@ describe('长期授权设置', () => {
     bridge.status.mockRejectedValueOnce(new Error('fixture unavailable'));
     const view = await mount();
     expect(view.host.querySelector('[role="alert"]')?.textContent).toContain('fixture unavailable');
+    expect(view.host.querySelector('[role="status"]')?.textContent).toBe('状态待确认');
     await act(async () => view.button('重新检查').click());
     expect(bridge.status).toHaveBeenCalledTimes(2);
     expect(view.host.querySelector('[role="alert"]')).toBeNull();
     expect(view.button('重新检查')).toBeUndefined();
   });
-  it('系统与页面确认成功后才启用，不因点击按钮提前报已连接', async () => {
+  it('系统与页面确认成功后才显示已授权', async () => {
     const view = await mount();
     let finish: (result: LongTermAuthorizationStatus) => void = () => {};
     bridge.install.mockReturnValue(
@@ -95,11 +96,10 @@ describe('长期授权设置', () => {
     );
     await act(async () => view.button('启用长期授权').click());
     expect(confirm).toHaveBeenCalledOnce();
-    expect(view.host.querySelector('[role="status"]')?.textContent).not.toBe('已连接');
+    expect(view.host.querySelector('[role="status"]')?.textContent).toBe('未授权');
     expect(view.button('正在授权…').disabled).toBe(true);
     await act(async () => finish(state('needs-repair')));
-    expect(view.host.textContent).toContain('需要修复');
-    expect(view.host.querySelector('[role="status"]')?.textContent).not.toBe('已连接');
+    expect(view.host.querySelector('[role="status"]')?.textContent).toBe('需要修复');
   });
   it('取消确认不安装；系统拒绝保留错误和重试入口', async () => {
     const view = await mount();
@@ -119,9 +119,9 @@ describe('长期授权设置', () => {
     expect(view.button('修复授权')).toBeDefined();
     bridge.remove.mockRejectedValueOnce(new Error('fixture remove denied'));
     await act(async () => view.button('撤销授权').click());
-    expect(view.host.textContent).toContain('已连接');
+    expect(view.host.querySelector('[role="status"]')?.textContent).toBe('已授权');
     await act(async () => view.button('撤销授权').click());
-    expect(view.host.textContent).toContain('未启用');
+    expect(view.host.querySelector('[role="status"]')?.textContent).toBe('未授权');
   });
   it('缺组件或无 systemd 时不提供假启用', async () => {
     bridge.status.mockResolvedValue(state('unavailable'));

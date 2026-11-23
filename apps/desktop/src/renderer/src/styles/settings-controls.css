@@ -9,6 +9,52 @@ html[data-theme]
   grid-template-columns: minmax(0, 1fr);
 }
 
+.weq-set-card-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-set-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 24px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--weq-border-strong);
+  border-radius: 4px;
+  color: var(--weq-fg-secondary);
+  background: var(--weq-bg-surface);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.weq-set-status-badge[data-tone='ready'] {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+  border-color: currentColor;
+}
+
+.weq-set-status-badge[data-tone='warning'] {
+  color: var(--weq-warn-fg);
+  border-color: var(--weq-warn-border);
+}
+
+button.weq-set-status-badge {
+  cursor: pointer;
+}
+
+button.weq-set-status-badge:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 6%, var(--weq-bg-surface));
+}
+
+button.weq-set-status-badge:focus-visible {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 3px;
+}
+
 .weq-settings-dialog :where(.weq-set-card) > .weq-set-row:has(> .weq-set-row-ctrl) {
   min-height: 36px;
   padding-block: 2px;

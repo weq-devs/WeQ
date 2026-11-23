@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { normalizeNotificationEvents } from '@weq/service/notification-settings';
 import { trpc as baseTrpc, client as baseClient } from './qq-debug-copy.stub';
 
 const params = new URLSearchParams(location.search);
@@ -6,14 +7,20 @@ const listeners = new Set<() => void>();
 let settings = {
   realtimeEnabled: true,
   autoAttachQq: true,
-  restrictedModeBannerEnabled: true,
   restrictedModeIndicatorEnabled: true,
   databaseReadConcurrency: 4,
+  notificationEvents: normalizeNotificationEvents(undefined),
 };
 export const saves: string[] = [];
 const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {
   get(target, key) {
     if (key === 'getWelcomeAcknowledged') return { useQuery: () => ({ data: false }) };
+    if (key === 'getQqClientSyncStatus')
+      return {
+        useQuery: () => ({
+          data: { enabled: true, connected: true, running: true, port: 19081 },
+        }),
+      };
     if (key === 'systemInfo')
       return { useQuery: () => ({ data: { platformKind: params.get('platform') ?? 'darwin' } }) };
     if (key === 'sipEnabled')
@@ -37,22 +44,15 @@ const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {
           refetch: async () => ({ data: settings }),
         }),
       };
-    if (
-      key === 'setAutoAttachQq' ||
-      key === 'setRestrictedModeBannerEnabled' ||
-      key === 'setRestrictedModeIndicatorEnabled'
-    )
+    if (key === 'setAutoAttachQq' || key === 'setRestrictedModeIndicatorEnabled')
       return {
         useMutation: () => ({
           mutateAsync: async ({ enabled }: { enabled: boolean }) => {
             saves.push(String(key));
             settings = {
               ...settings,
-              [key === 'setAutoAttachQq'
-                ? 'autoAttachQq'
-                : key === 'setRestrictedModeIndicatorEnabled'
-                  ? 'restrictedModeIndicatorEnabled'
-                  : 'restrictedModeBannerEnabled']: enabled,
+              [key === 'setAutoAttachQq' ? 'autoAttachQq' : 'restrictedModeIndicatorEnabled']:
+                enabled,
             };
             for (const listener of listeners) listener();
           },

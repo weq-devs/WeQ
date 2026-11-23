@@ -160,7 +160,7 @@ function mount(showProxyIndicator = false) {
   return {
     host,
     render,
-    badge: () => host.querySelector<HTMLButtonElement>('.weq-full-function-status')!,
+    badge: () => host.querySelector<HTMLButtonElement>('button[aria-label^="QQ 在线能力："]')!,
   };
 }
 it('代理断开提示使用当前账号，指向代理卡片，关闭提示后仍可查看等待任务', async () => {
@@ -171,7 +171,9 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   const indicator = () =>
     f.host.querySelector<HTMLButtonElement>('button[aria-label="QQ 代理未连接"]');
   const card = f.host.querySelector<HTMLElement>('[data-setting-id="qq-proxy-connection"]')!;
-  expect(card.querySelector('[role="status"]')?.textContent).toBe('QQ 代理未连接 · 待同步 7 项');
+  const status = () => card.querySelector('.weq-set-card-head [role="status"]')?.textContent;
+  expect(status()).toBe('等待 QQ 连接');
+  expect(card.textContent).toContain('待同步 7 项');
   act(() => indicator()?.click());
   const panel = document.querySelector<HTMLElement>('.weq-restricted-panel')!;
   mock.proxyStatus = { ...waitingProxy(), connecting: true };
@@ -181,9 +183,8 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   );
   expect(progress?.getAttribute('aria-busy')).toBe('true');
   expect(panel.querySelector('h2')?.textContent).toBe('正在确认 QQ 代理连接');
-  expect(card.querySelector('[role="status"]')?.textContent).toBe(
-    '正在确认 QQ 代理连接 · 待同步 7 项',
-  );
+  expect(status()).toBe('正在确认连接');
+  expect(card.textContent).toContain('待同步 7 项');
   mock.proxyStatus = waitingProxy();
   f.render();
   const action = (surface: HTMLElement, label: string) =>
@@ -216,14 +217,15 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
     unsubscribe();
   }
 
-  for (const status of [
+  for (const proxy of [
     { ...waitingProxy(), accountUin: 'other' },
     { ...waitingProxy(), connected: true },
     { ...waitingProxy(), connectionExpected: false },
   ]) {
-    mock.proxyStatus = status;
+    mock.proxyStatus = proxy;
     f.render();
     expect(indicator()).toBeNull();
+    if (proxy.connected) expect(status()).toBe('已连接');
   }
   mock.proxyStatus = waitingProxy();
   f.render();
@@ -234,7 +236,8 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   f.render();
   expect(mock.saveProxyIndicator).toHaveBeenCalledWith({ enabled: false });
   expect(indicator()).toBeNull();
-  expect(card.querySelector('[role="status"]')?.textContent).toBe('QQ 代理未连接 · 待同步 7 项');
+  expect(status()).toBe('等待 QQ 连接');
+  expect(card.textContent).toContain('待同步 7 项');
   expect(mock.settings.restrictedModeIndicatorEnabled).toBe(true);
   expect(mock.settings.qqClientSyncEnabled).toBe(true);
 
@@ -247,22 +250,23 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   f.render();
   expect(mock.saveProxyEnabled).toHaveBeenCalledWith({ enabled: false });
   expect(master.getAttribute('aria-checked')).toBe('false');
-  expect(card.querySelector('[role="status"]')?.textContent).toBe('QQ 代理已关闭 · 待同步 7 项');
+  expect(status()).toBe('已关闭');
+  expect(card.textContent).toContain('待同步 7 项');
   expect(indicator()).toBeNull();
   expect(mock.settings.qqClientSyncEnabled).toBe(true);
 });
 it.each([
-  [ready, false, '已启用'],
-  [{ ...ready, attachEnabled: false }, false, '未启用'],
-  [{ ...ready, qqOnline: false }, false, '未启用'],
-  [{ ...ready, hasD2Key: false }, false, '未启用'],
-  [{ ...ready, hasUid: false }, false, '未启用'],
-  [{ ...ready, ssoReady: false }, false, '未启用'],
-  [undefined, false, '检测中'],
+  [ready, false, '已就绪'],
+  [{ ...ready, attachEnabled: false }, false, '已关闭'],
+  [{ ...ready, qqOnline: false }, false, '在线能力受限'],
+  [{ ...ready, hasD2Key: false }, false, '在线能力受限'],
+  [{ ...ready, hasUid: false }, false, '在线能力受限'],
+  [{ ...ready, ssoReady: false }, false, '在线能力受限'],
+  [undefined, false, '检查中'],
   [
     { ...ready, source: { expectedAccountUin: '20002', expectedAccountConfigId: 'old' } },
     false,
-    '检测中',
+    '检查中',
   ],
   [ready, true, '状态待确认'],
 ] as const)('标题标签依据真实能力而非自动启用偏好：%j / %s', (access, failed, label) => {
@@ -283,21 +287,21 @@ it('等待授权与启用中优先显示，标签始终可以打开统一状态�
       .getState()
       .request({ kind: 'password', token: 1, title: '授权', message: '' }),
   );
-  expect(f.badge().textContent).toBe('待提权');
+  expect(f.badge().textContent).toBe('等待授权');
   act(() => f.badge().click());
   expect(useRestrictedMode.getState().open).toBe(true);
 });
-it('未打开账号不显示已启用，也不发起账号能力查询', () => {
+it('未打开账号时显示原因，也不发起账号能力查询', () => {
   useViewState.setState({ openedUin: null });
   const f = mount();
-  expect(f.badge().textContent).toBe('未启用');
+  expect(f.badge().textContent).toBe('未打开账号');
   expect(mock.queryOptions).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
 });
 it('右上角标记开关位于通知之前，默认开启，保存失败还原且不修改自动策略', async () => {
   const f = mount();
   const toggle = () =>
     f.host.querySelector<HTMLButtonElement>(
-      '[role="switch"][aria-label="在线能力受限时在窗口右上角显示"]',
+      '[role="switch"][aria-label="在线能力受限时显示窗口提示"]',
     )!;
   expect(toggle().getAttribute('aria-checked')).toBe('true');
   const row = toggle().closest('.weq-set-row')!;

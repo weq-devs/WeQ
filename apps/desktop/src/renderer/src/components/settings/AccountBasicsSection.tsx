@@ -36,14 +36,14 @@ import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
-import { Card, Row, SectionHeader, Toggle } from './controls';
+import { Card, Row, SectionHeader, SettingsStatusBadge, Toggle } from './controls';
 import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { FullFunctionSetup } from './FullFunctionSetup';
 import { NotificationMethodSelect } from './NotificationMethodSelect';
 import { CopyButton } from '../CopyButton';
 import { QqProxyRecovery } from '../QqProxyConnection';
-import { QQ_PROXY_CONNECTING, qqProxySetupGuide } from '../QqProxyConnection.shared';
+import { qqProxySetupGuide } from '../QqProxyConnection.shared';
 import { formatExpiry } from './AccountBasicsSection.shared';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
@@ -218,25 +218,29 @@ export function AccountBasicsSection({
     setQqProxyEnabled.mutate({ enabled });
   };
   const proxyStatusText = qqSyncStatus.isError
-    ? '无法读取代理状态'
+    ? '状态待确认'
     : !proxy
-      ? '正在检查代理'
+      ? '检查中'
       : !proxyEnabled
-        ? 'QQ 代理已关闭'
+        ? '已关闭'
         : proxy.connected
-          ? 'QQ 已连接代理'
+          ? '已连接'
           : proxy.connecting
-            ? QQ_PROXY_CONNECTING
+            ? '正在确认连接'
             : proxy.running
-              ? 'QQ 代理未连接'
-              : proxy.error || '本机代理尚未启动';
+              ? '等待 QQ 连接'
+              : '代理未运行';
+  const proxyStatusError = qqSyncStatus.isError
+    ? '无法读取代理状态。'
+    : proxyEnabled && proxy && !proxy.running
+      ? proxy.error || '本机代理尚未启动。'
+      : '';
   const syncTasks = settings.data?.qqClientSyncEnabled ? proxy?.tasks : null;
   const taskError = syncTasks?.error;
   const proxyStatusDetails = [
-    proxyStatusText,
     syncTasks?.pending ? `待同步 ${syncTasks.pending} 项` : '',
     // 等待连接由当前代理状态表示。队列在重试前可能仍保留上一次等待的原因。
-    proxyEnabled && taskError !== '等待 QQ 通过代理连接' && taskError !== proxyStatusText
+    proxyEnabled && taskError !== '等待 QQ 通过代理连接' && taskError !== proxyStatusError
       ? taskError
       : '',
   ]
@@ -600,28 +604,30 @@ export function AccountBasicsSection({
       )}
       {page === 'account' && (
         <>
-          <FullFunctionSetup isMac={isMac}>
-            <Row
-              settingId="auto-full-mode"
-              label="启用 QQ 在线能力"
-              desc="开启后，WeQ 会从已登录的 QQ 获取会话凭据。关闭后立即停用 QQ 在线能力，仍可浏览和导出本地聊天记录。"
-              control={
-                <Toggle
-                  checked={autoAttach}
-                  disabled={settingsLoading || setAutoAttachQq.isLoading}
-                  onChange={(v) =>
-                    void persist(
-                      () => setAutoAttach(v),
-                      () => setAutoAttachQq.mutateAsync({ enabled: v }),
-                    )
-                  }
-                  label="启用 QQ 在线能力"
-                />
-              }
-            />
+          <FullFunctionSetup
+            isMac={isMac}
+            enableSetting={
+              <Row
+                settingId="auto-full-mode"
+                desc="开启后，WeQ 会从已登录的 QQ 获取会话凭据。在线能力就绪时，WeQ 自动向 QQ 服务器上报已读位置。"
+                control={
+                  <Toggle
+                    checked={autoAttach}
+                    disabled={settingsLoading || setAutoAttachQq.isLoading}
+                    onChange={(v) =>
+                      void persist(
+                        () => setAutoAttach(v),
+                        () => setAutoAttachQq.mutateAsync({ enabled: v }),
+                      )
+                    }
+                    label="启用 QQ 在线能力"
+                  />
+                }
+              />
+            }
+          >
             <Row
               settingId="restricted-mode-indicator"
-              label="在线能力受限时在窗口右上角显示"
               control={
                 <Toggle
                   checked={restrictedIndicator}
@@ -629,7 +635,7 @@ export function AccountBasicsSection({
                     settingsLoading || !settings.data || Boolean(settings.error) || savingIndicator
                   }
                   onChange={(value) => void toggleRestrictedIndicator(value)}
-                  label="在线能力受限时在窗口右上角显示"
+                  label="在线能力受限时显示窗口提示"
                 />
               }
             />
@@ -642,6 +648,13 @@ export function AccountBasicsSection({
           <Card
             settingId="qq-proxy-connection"
             title="QQ 代理连接"
+            titleBadge={
+              <SettingsStatusBadge
+                label={proxyStatusText}
+                tone={proxyStatusError ? 'warning' : proxy?.connected ? 'ready' : 'neutral'}
+              />
+            }
+            desc="连接本机 QQ，以便同步本人消息和已读，也可用来加速实时更新。"
             icon={<Network size={15} strokeWidth={1.8} />}
             resetId="qq-client-sync"
           >
@@ -659,58 +672,6 @@ export function AccountBasicsSection({
                   }
                   onChange={(enabled) => void toggleQqProxy(enabled)}
                   label="启用 QQ 代理"
-                />
-              }
-            />
-            <Row
-              settingId="qq-client-sync"
-              desc="QQ 通过本机代理连接后，同步本人消息与已成功上报的已读位置。"
-              control={
-                <Toggle
-                  checked={settings.data?.qqClientSyncEnabled ?? false}
-                  disabled={
-                    !proxyEnabled ||
-                    setQqProxyEnabled.isPending ||
-                    settingsLoading ||
-                    setQqClientSync.isPending ||
-                    setQqClientSyncPort.isPending
-                  }
-                  onChange={(enabled) => setQqClientSync.mutate({ enabled })}
-                  label="自动同步本人消息与已读"
-                />
-              }
-            />
-            <Row
-              settingId="qq-live-messages"
-              desc="利用 QQ 推送减少消息、未读、互动和群资料的重复读库与刷新，可能显著提升性能。代理断开后由数据库监听接手。"
-              control={
-                <Toggle
-                  checked={settings.data?.qqLiveMessagesEnabled ?? false}
-                  disabled={
-                    !proxyEnabled ||
-                    setQqProxyEnabled.isPending ||
-                    settingsLoading ||
-                    setQqLiveMessages.isPending
-                  }
-                  onChange={(enabled) => setQqLiveMessages.mutate({ enabled })}
-                  label="通过 QQ 代理加速实时更新"
-                />
-              }
-            />
-            <Row
-              settingId="qq-proxy-indicator"
-              control={
-                <Toggle
-                  checked={settings.data?.qqProxyIndicatorEnabled ?? true}
-                  disabled={
-                    !proxyEnabled ||
-                    setQqProxyEnabled.isPending ||
-                    !settings.data ||
-                    Boolean(settings.error) ||
-                    setQqProxyIndicator.isLoading
-                  }
-                  onChange={(enabled) => setQqProxyIndicator.mutate({ enabled })}
-                  label="QQ 代理未连接时在窗口右上角显示"
                 />
               }
             />
@@ -750,15 +711,74 @@ export function AccountBasicsSection({
                 </form>
               }
             />
-            <p className="weq-set-note" role="status">
-              {proxyStatusDetails}
-            </p>
+            {proxyStatusError && (
+              <p className="weq-set-note weq-set-note-warn" role="alert">
+                {proxyStatusError}
+              </p>
+            )}
             {proxyEnabled &&
               proxy?.connectionExpected &&
               !proxy.connected &&
               !qqSyncStatus.isError && (
                 <QqProxyRecovery onLaunch={() => void qqSyncStatus.refetch()} />
               )}
+            <Row
+              settingId="qq-client-sync"
+              desc="把 WeQ 发送的本人消息和已向 QQ 服务器成功上报的已读位置，同步回本机 QQ。"
+              control={
+                <Toggle
+                  checked={settings.data?.qqClientSyncEnabled ?? false}
+                  disabled={
+                    !proxyEnabled ||
+                    setQqProxyEnabled.isPending ||
+                    settingsLoading ||
+                    setQqClientSync.isPending ||
+                    setQqClientSyncPort.isPending
+                  }
+                  onChange={(enabled) => setQqClientSync.mutate({ enabled })}
+                  label="自动同步本人消息与已读"
+                />
+              }
+            />
+            {proxyStatusDetails && (
+              <p className="weq-set-note" role="status">
+                {proxyStatusDetails}
+              </p>
+            )}
+            <Row
+              settingId="qq-live-messages"
+              desc="利用 QQ 推送减少消息、未读、互动和群资料的重复读库与刷新，可能显著提升性能。代理断开后由数据库监听接手。"
+              control={
+                <Toggle
+                  checked={settings.data?.qqLiveMessagesEnabled ?? false}
+                  disabled={
+                    !proxyEnabled ||
+                    setQqProxyEnabled.isPending ||
+                    settingsLoading ||
+                    setQqLiveMessages.isPending
+                  }
+                  onChange={(enabled) => setQqLiveMessages.mutate({ enabled })}
+                  label="通过 QQ 代理加速实时更新"
+                />
+              }
+            />
+            <Row
+              settingId="qq-proxy-indicator"
+              control={
+                <Toggle
+                  checked={settings.data?.qqProxyIndicatorEnabled ?? true}
+                  disabled={
+                    !proxyEnabled ||
+                    setQqProxyEnabled.isPending ||
+                    !settings.data ||
+                    Boolean(settings.error) ||
+                    setQqProxyIndicator.isLoading
+                  }
+                  onChange={(enabled) => setQqProxyIndicator.mutate({ enabled })}
+                  label="QQ 代理未连接时显示窗口提示"
+                />
+              }
+            />
           </Card>
           <LongTermAuthorizationSection />
         </>

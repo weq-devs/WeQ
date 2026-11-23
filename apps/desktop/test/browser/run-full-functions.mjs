@@ -94,14 +94,16 @@ try {
   await auto.click();
   assert.equal(await auto.getAttribute('aria-checked'), 'false');
   const indicator = page.getByRole('switch', {
-    name: '在线能力受限时在窗口右上角显示',
+    name: '在线能力受限时显示窗口提示',
     exact: true,
   });
   assert.equal(await indicator.getAttribute('aria-checked'), 'true');
   await indicator.click();
   assert.equal(await indicator.getAttribute('aria-checked'), 'false');
   await page.getByText('在线能力受限时通知', { exact: true }).waitFor();
-  const status = page.locator('.weq-full-function-status');
+  const status = page.locator('[data-setting-id="full-features"]').getByRole('button', {
+    name: /QQ 在线能力：.*，查看详情/,
+  });
   await page.evaluate(() =>
     window.fullFunctionsQa.setOnlineFixture({
       qqOnline: true,
@@ -114,26 +116,27 @@ try {
       ssoReady: true,
     }),
   );
-  await page.getByRole('button', { name: 'QQ 在线能力：已启用，查看详情', exact: true }).waitFor();
-  assert.equal(await status.getAttribute('data-enabled'), 'true');
+  await page.getByRole('button', { name: 'QQ 在线能力：已就绪，查看详情', exact: true }).waitFor();
   await page.evaluate(() => window.fullFunctionsQa.setOnlineFixture({ hasUid: false }));
-  await page.getByRole('button', { name: 'QQ 在线能力：未启用，查看详情', exact: true }).waitFor();
+  await page
+    .getByRole('button', { name: 'QQ 在线能力：在线能力受限，查看详情', exact: true })
+    .waitFor();
   await status.click();
   assert.equal(await page.evaluate(() => window.fullFunctionsQa.restricted.getState().open), true);
-  const banner = page.getByRole('switch', { name: '在线能力受限时通知', exact: true });
-  const inlineReminder = (await banner.count()) > 0;
-  if (inlineReminder) {
-    await banner.click();
-    assert.equal(await banner.getAttribute('aria-checked'), 'false');
-  } else {
-    await page.getByRole('button', { name: '在线能力受限提醒设置', exact: true }).waitFor();
-  }
-  assert.deepEqual(
-    await page.evaluate(() => window.fullFunctionsQa.saves),
-    inlineReminder
-      ? ['setAutoAttachQq', 'setRestrictedModeIndicatorEnabled', 'setRestrictedModeBannerEnabled']
-      : ['setAutoAttachQq', 'setRestrictedModeIndicatorEnabled'],
-  );
+  await page.getByRole('combobox', { name: '功能受限或运行异常通知方式' }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.fullFunctionsQa.saves), [
+    'setAutoAttachQq',
+    'setRestrictedModeIndicatorEnabled',
+  ]);
+  for (const [id, label] of [
+    ['qq-proxy-connection', '已连接'],
+    ['long-term-authorization', '已授权'],
+  ])
+    await page
+      .locator(`[data-setting-id="${id}"]`)
+      .getByRole('status')
+      .getByText(label, { exact: true })
+      .waitFor();
   for (const style of ['classic', 'retro', 'qqnt']) {
     await page.evaluate(
       (style) => window.fullFunctionsQa.theme.getState().setComponentStyle(style),
@@ -154,9 +157,10 @@ try {
           width: node.getBoundingClientRect().width,
         };
       };
-      return ['long-term-authorization', 'full-features'].map(readStyle);
+      return ['long-term-authorization', 'full-features', 'qq-proxy-connection'].map(readStyle);
     });
     assert.deepEqual(groups[1], groups[0], `${style}: QQ 在线能力分组与设置基线不一致`);
+    assert.deepEqual(groups[2], groups[0], `${style}: QQ 代理连接分组与设置基线不一致`);
   }
   for (const id of ['full-feature-routes', 'auto-full-mode', 'restricted-mode-indicator'])
     assert.equal(

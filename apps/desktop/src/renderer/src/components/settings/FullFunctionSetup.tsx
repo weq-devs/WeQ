@@ -4,7 +4,7 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { IS_WEB } from '../../lib/target.shared';
 import { QqDebugCopyDialog } from '../QqDebugCopyDialog';
-import { Card } from './controls';
+import { Card, SettingsStatusBadge } from './controls';
 import { useViewState } from '../../state/view';
 import { useRestrictedMode } from '../../state/restrictedMode';
 import { restrictionReasons } from '../../lib/restrictedMode';
@@ -33,43 +33,50 @@ function OnlineCapabilityStatus() {
   );
   const currentAccess =
     access.data?.source && access.data.source.expectedAccountUin !== uin ? undefined : access.data;
-  const enabled = Boolean(
-    uin &&
-      currentAccess &&
-      !access.isError &&
-      !restrictionReasons({ access: currentAccess }).length,
-  );
   const label = requests
-    ? '待提权'
+    ? '等待授权'
     : entering && !authorizationIssue
       ? '正在启用'
       : !uin
-        ? '未启用'
+        ? '未打开账号'
         : access.isError
           ? '状态待确认'
           : !currentAccess
-            ? '检测中'
-            : enabled
-              ? '已启用'
-              : '未启用';
+            ? '检查中'
+            : !currentAccess.attachEnabled
+              ? '已关闭'
+              : restrictionReasons({ access: currentAccess }).length
+                ? '在线能力受限'
+                : '已就绪';
+  const tone =
+    label === '已就绪'
+      ? 'ready'
+      : label === '在线能力受限' || label === '等待授权' || label === '状态待确认'
+        ? 'warning'
+        : 'neutral';
   return (
-    <button
-      type="button"
-      className="weq-full-function-status"
-      data-enabled={enabled && !requests && !entering}
-      title="查看 QQ 在线能力状态"
-      aria-label={`QQ 在线能力：${label}，查看详情`}
-      aria-haspopup="dialog"
-      aria-expanded={open}
-      onClick={() => useRestrictedMode.getState().setOpen(!open)}
-    >
-      {label}
-    </button>
+    <SettingsStatusBadge
+      label={label}
+      tone={tone}
+      details={{
+        label: `QQ 在线能力：${label}，查看详情`,
+        open,
+        onClick: () => useRestrictedMode.getState().setOpen(!open),
+      }}
+    />
   );
 }
 
 /** 集中展示真实能力状态与读取路线，不用自动策略冒充账号就绪状态。 */
-export function FullFunctionSetup({ isMac, children }: { isMac: boolean; children?: ReactNode }) {
+export function FullFunctionSetup({
+  isMac,
+  enableSetting,
+  children,
+}: {
+  isMac: boolean;
+  enableSetting: ReactNode;
+  children: ReactNode;
+}) {
   const [debugOpen, setDebugOpen] = useState(false);
   const autoRefresh = useQQAutoRefresh(isMac);
   const sip = trpc.bootstrap.sipEnabled.useQuery(undefined, autoRefresh);
@@ -86,10 +93,11 @@ export function FullFunctionSetup({ isMac, children }: { isMac: boolean; childre
         title="QQ 在线能力"
         titleBadge={<OnlineCapabilityStatus />}
         icon={<Zap size={15} strokeWidth={1.8} />}
-        desc="在本地记录查看与导出的基础上，启用当前账号的 QQ 在线能力。"
+        desc="使用当前 QQ 会话发送消息、拉取漫游和查看在线内容。"
         settingId="full-features"
         resetId="attach"
       >
+        {enableSetting}
         <details className="weq-set-details weq-full-function-comparison-details">
           <summary>
             <ChevronDown size={13} aria-hidden />
@@ -100,7 +108,7 @@ export function FullFunctionSetup({ isMac, children }: { isMac: boolean; childre
               <tr>
                 <th scope="col">功能</th>
                 <th scope="col">在线能力受限</th>
-                <th scope="col">在线能力已启用</th>
+                <th scope="col">在线能力已就绪</th>
               </tr>
             </thead>
             <tbody>
@@ -120,7 +128,7 @@ export function FullFunctionSetup({ isMac, children }: { isMac: boolean; childre
             </span>
           </p>
         </details>
-        {children ? <div className="weq-full-function-preferences">{children}</div> : null}
+        <div className="weq-full-function-preferences">{children}</div>
         <section className="weq-full-function-section" data-setting-id="full-feature-routes">
           <h4 className="weq-full-function-section-title">
             <GitBranch size={15} strokeWidth={1.8} aria-hidden />
@@ -210,9 +218,6 @@ export function FullFunctionSetup({ isMac, children }: { isMac: boolean; childre
               读取会话凭据；需要管理员权限时会提示授权，也可使用下方的长期授权助手。
             </p>
           )}
-          <p className="weq-set-note">
-            QQ 在线能力需要开启下方开关，并等待当前账号的 QQ 会话凭据就绪。
-          </p>
         </section>
       </Card>
       {debugOpen && <QqDebugCopyDialog onClose={() => setDebugOpen(false)} />}

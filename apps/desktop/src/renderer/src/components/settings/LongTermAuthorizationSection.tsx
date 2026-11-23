@@ -3,14 +3,14 @@ import { AlertTriangle, RefreshCw, ShieldCheck, Trash2, Wrench } from 'lucide-re
 import type { LongTermAuthorizationStatus } from '../../../../shared/long_term_authorization';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
-import { Card, Row } from './controls';
+import { Card, SettingsStatusBadge } from './controls';
 import { authorizationFailure, type AuthorizationFailure } from '../../lib/authorizationError';
 import { IS_WEB } from '../../lib/target.shared';
 
 const STATE_LABELS = {
   unavailable: '当前环境不可用',
-  'not-installed': '未启用',
-  ready: '已连接',
+  'not-installed': '未授权',
+  ready: '已授权',
   'needs-repair': '需要修复',
 } as const;
 
@@ -94,36 +94,43 @@ export function LongTermAuthorizationSection() {
     error?.operation === 'status' ||
     error?.needsUserAction ||
     error?.retryStatus;
+  const checkFailed = error?.operation === 'status';
+  const label = checkFailed
+    ? '状态待确认'
+    : status
+      ? STATE_LABELS[status.state]
+      : bridge
+        ? '检查中'
+        : '不可用';
+  const tone =
+    checkFailed || status?.state === 'needs-repair'
+      ? 'warning'
+      : status?.state === 'ready'
+        ? 'ready'
+        : 'neutral';
+  const guidance = IS_WEB
+    ? '请在运行 QQ 的电脑上打开 WeQ 桌面端管理长期授权。'
+    : !bridge
+      ? '当前桌面端未提供权限助手管理功能。'
+      : status?.state !== 'ready' || development
+        ? status?.message
+        : undefined;
   return (
     <Card
       title={development ? '长期授权（开发）' : '长期授权'}
-      desc="读取路线之外的共用授权工具，用于 QQ 内存读取与网卡抓包，减少重复授权。助手已连接不代表当前账号的 QQ 在线能力已就绪。"
+      titleBadge={<SettingsStatusBadge label={label} tone={tone} />}
+      desc="减少当前系统用户读取 QQ 内存和网卡抓包时的重复管理员授权。"
       icon={<ShieldCheck size={15} strokeWidth={1.8} />}
       settingId="long-term-authorization"
     >
-      <Row
-        label="本机权限助手"
-        desc={
-          IS_WEB
-            ? '请在运行 QQ 的电脑上打开 WeQ 桌面端管理长期授权。'
-            : !bridge
-              ? '当前宿主未提供权限助手管理接口。'
-              : (status?.message ?? '正在检查本机权限助手…')
-        }
-        control={
-          <span role="status" className="text-sm text-muted-foreground">
-            {status ? STATE_LABELS[status.state] : bridge ? '检查中' : '不可用'}
-          </span>
-        }
-      />
-      {status?.reason === 'interface-changed' && !error && (
+      {status?.reason === 'interface-changed' && !checkFailed ? (
         <p className="weq-set-note weq-set-note-multiline weq-set-note-warn" role="alert">
           <AlertTriangle size={12} strokeWidth={1.9} aria-hidden />
-          <span>
-            权限助手的接口已经变化，旧授权不会继续生效。请点「修复授权」重新启用，否则依赖长期授权的功能会提示需要授权。
-          </span>
+          <span>权限助手的接口已更新。请点击「修复授权」重新启用。</span>
         </p>
-      )}
+      ) : guidance && !checkFailed ? (
+        <p className="weq-set-note">{guidance}</p>
+      ) : null}
       {error && (
         <p
           className={`weq-set-note weq-set-note-multiline${
@@ -139,7 +146,7 @@ export function LongTermAuthorizationSection() {
         <div className="weq-set-btn-group">
           <button
             type="button"
-            className="weq-set-btn weq-set-btn-primary"
+            className={`weq-set-btn${status?.state === 'ready' ? '' : ' weq-set-btn-primary'}`}
             disabled={Boolean(pending) || !canManage}
             onClick={() => void run('install')}
           >
@@ -168,7 +175,8 @@ export function LongTermAuthorizationSection() {
           {(status?.state === 'ready' || status?.state === 'needs-repair') && (
             <button
               type="button"
-              className="weq-set-btn weq-set-btn-soft weq-set-btn-del"
+              className="weq-set-btn"
+              data-danger="outline"
               disabled={Boolean(pending)}
               onClick={() => void run('remove')}
             >

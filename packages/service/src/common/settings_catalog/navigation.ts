@@ -671,8 +671,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'restricted-mode-indicator',
     section: 'account',
-    label: '在线能力受限时在窗口右上角显示',
-    aliases: ['在线能力受限标记', '标题栏在线能力受限', '受限状态显示'],
+    label: '在线能力受限时显示窗口提示',
+    aliases: [
+      '在线能力受限标记',
+      '标题栏在线能力受限',
+      '受限状态显示',
+      '在线能力受限时在窗口右上角显示',
+    ],
     from: ['account'],
   },
   {
@@ -692,8 +697,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'qq-proxy-indicator',
     section: 'account',
-    label: 'QQ 代理未连接时在窗口右上角显示',
-    aliases: ['QQ 代理未连接', '标题栏 QQ 代理'],
+    label: 'QQ 代理未连接时显示窗口提示',
+    aliases: ['QQ 代理未连接', '标题栏 QQ 代理', 'QQ 代理未连接时在窗口右上角显示'],
     from: ['account'],
   },
   {
