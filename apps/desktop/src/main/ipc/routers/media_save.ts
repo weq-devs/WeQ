@@ -518,10 +518,10 @@ export const mediaSaveRouter = router({
     const host = getHost();
     if (selected.browserOutput && !host.registerDownload)
       throw new Error('当前环境不支持浏览器下载');
-    let policy: Awaited<ReturnType<typeof prepareExportDestination>> | undefined;
+    let policy: NonNullable<Awaited<ReturnType<typeof prepareExportDestination>>> | undefined;
     if (!selected.browserOutput) {
       const settings = context.bootstrap?.userConfig.getSettings();
-      policy = await prepareExportDestination(
+      const destination = await prepareExportDestination(
         selected.savePolicy ?? { mode: settings?.exportSaveMode ?? 'before' },
         settings?.defaultExportDir,
         host,
@@ -529,7 +529,8 @@ export const mediaSaveRouter = router({
         check,
         `media:${selected.source.kind}:${output.extension}`,
       );
-      if (!policy) return null;
+      if (!destination) return null;
+      policy = destination;
     }
     const fileName = exportOutputFileName(output);
     const source = selected.source;
