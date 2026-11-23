@@ -355,9 +355,64 @@ try {
       Math.abs(afterLateRestore.offset - afterWheel.offset) < 3,
     'Late layout compensation overrode wheel scrolling',
   );
-  await page.evaluate(() => window.timelineTest.detachedWindow());
+  await page.evaluate(() => {
+    window.timelineTest.detachedWindow();
+    window.timelineTest.jump('row-1001');
+  });
+  await page.waitForFunction(() => {
+    const scroll = document.querySelector('.message-scroll');
+    const rect = scroll.querySelector('[data-message-id="row-1001"]')?.getBoundingClientRect();
+    const bounds = scroll.getBoundingClientRect();
+    return rect && rect.top < bounds.bottom && rect.bottom > bounds.top;
+  });
   await page.locator('.composer-editor[contenteditable="true"]').first().fill('离线历史窗口发送');
+  const paintSamples = await page.evaluateHandle(() => {
+    const scroll = document.querySelector('.message-scroll');
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;visibility:hidden;width:1px;height:1px';
+    const frames = [];
+    const observer = new ResizeObserver(() => {
+      if (scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop >= 3) return;
+      const bounds = scroll.getBoundingClientRect();
+      // rAF 中的贴底可能先于原生 scroll 回调。检查当帧实际挂载的历史正文。
+      frames.push(
+        [...scroll.querySelectorAll('.message-line[data-message-id]')].filter((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.bottom > bounds.top && rect.top < bounds.bottom;
+        }).length > 1,
+      );
+    });
+    const done = new Promise((resolve) => {
+      document.addEventListener(
+        'click',
+        () => {
+          document.body.append(probe);
+          observer.observe(probe);
+          let frame = 0;
+          const sample = () => {
+            if (frame++ < 15) {
+              probe.style.width = `${frame}px`;
+              requestAnimationFrame(sample);
+            } else {
+              observer.disconnect();
+              probe.remove();
+              resolve(frames);
+            }
+          };
+          requestAnimationFrame(sample);
+        },
+        { capture: true, once: true },
+      );
+    });
+    return { done };
+  });
   await page.getByRole('button', { name: '发送', exact: true }).first().click();
+  const latestFrames = await paintSamples.evaluate(({ done }) => done);
+  await paintSamples.dispose();
+  assert(
+    latestFrames.length > 0 && latestFrames.every(Boolean),
+    `Detached send showed an empty latest viewport: ${JSON.stringify(latestFrames)}`,
+  );
   await page
     .waitForFunction(() => {
       const scroll = document.querySelector('.message-scroll');

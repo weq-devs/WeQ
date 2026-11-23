@@ -87,6 +87,7 @@ export function useVirtualTimeline({
   const activeRef = useRef(active);
   activeRef.current = active;
   const deliveringOffset = useRef(false);
+  const reportTimelineOffset = useRef<((offset: number, scrolling: boolean) => void) | null>(null);
   const touching = useRef(false);
   const touchMomentum = useRef(false);
   const mountedIndexes = useRef<ReadonlySet<number>>(new Set());
@@ -99,28 +100,32 @@ export function useVirtualTimeline({
   if (motion.current.scope !== scope) motion.current = { scope, direction: 0, velocity: 0, at: 0 };
   const [scrollRange] = useState(createScrollRangeStore);
   useSyncExternalStore(scrollRange.subscribe, scrollRange.getSnapshot);
-  const observeTimelineOffset: typeof observeElementOffset = useCallback(
-    (instance, callback) =>
-      observeElementOffset(instance, (offset, scrolling) => {
-        if (!activeRef.current) return;
-        const previous = instance.scrollOffset;
-        if (scrolling && previous !== null && offset !== previous) {
-          const now = performance.now();
-          motion.current.direction = offset < previous ? -1 : 1;
-          motion.current.velocity =
-            Math.abs(offset - previous) / Math.max(8, Math.min(64, now - motion.current.at));
-          motion.current.at = now;
-        }
-        if (!scrolling && !touching.current) touchMomentum.current = false;
-        deliveringOffset.current = true;
-        try {
-          callback(offset, scrolling);
-        } finally {
-          deliveringOffset.current = false;
-        }
-      }),
-    [],
-  );
+  const observeTimelineOffset: typeof observeElementOffset = useCallback((instance, callback) => {
+    const report = (offset: number, scrolling: boolean) => {
+      if (!activeRef.current) return;
+      const previous = instance.scrollOffset;
+      if (scrolling && previous !== null && offset !== previous) {
+        const now = performance.now();
+        motion.current.direction = offset < previous ? -1 : 1;
+        motion.current.velocity =
+          Math.abs(offset - previous) / Math.max(8, Math.min(64, now - motion.current.at));
+        motion.current.at = now;
+      }
+      if (!scrolling && !touching.current) touchMomentum.current = false;
+      deliveringOffset.current = true;
+      try {
+        callback(offset, scrolling);
+      } finally {
+        deliveringOffset.current = false;
+      }
+    };
+    reportTimelineOffset.current = report;
+    const release = observeElementOffset(instance, report);
+    return () => {
+      reportTimelineOffset.current = null;
+      release?.();
+    };
+  }, []);
   const previousMode = useRef({ scope, active, windowed: enabled });
   const suspendedAnchor = useRef<ConversationReadingPosition | undefined>(undefined);
   const thresholdAnchor = useRef<ConversationReadingPosition | undefined>(undefined);
@@ -576,8 +581,13 @@ export function useVirtualTimeline({
         if (!context.current.active) return;
         scrollRevision.current++;
         cancel();
-        if (context.current.windowed) context.current.virtualizer.scrollToEnd({ behavior: 'auto' });
-        else scroll.scrollTop = scroll.scrollHeight;
+        if (context.current.windowed) {
+          const previousOffset = scroll.scrollTop;
+          context.current.virtualizer.scrollToEnd({ behavior: 'auto' });
+          const offset = scroll.scrollTop;
+          // 贴底可能发生在 rAF 或提交阶段，原生 scroll 回调要到下一帧才会补齐新视口。
+          if (offset !== previousOffset) reportTimelineOffset.current?.(offset, true);
+        } else scroll.scrollTop = scroll.scrollHeight;
       },
       geometry: () => {
         if (!context.current.windowed) return [];
