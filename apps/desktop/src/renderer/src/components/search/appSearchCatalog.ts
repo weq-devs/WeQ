@@ -51,7 +51,7 @@ export type AppSearchTarget =
   | { kind: 'task-tab'; tab: TaskPanelTab }
   | { kind: 'tool'; tool: SearchableTool; exportMode?: ExportMode }
   | { kind: 'setting'; section: SectionId; item?: string; settingId?: string }
-  | { kind: 'composition' }
+  | { kind: 'composition'; tab?: 'material' }
   | { kind: 'announcements' }
   | { kind: 'dressup'; dressKind?: DressKind }
   | { kind: 'self-profile'; tab?: ContactWorkspaceTab }

@@ -95,6 +95,7 @@ export function CompositionWorkspace(props: Parameters<typeof CompositionWorkspa
 function CompositionWorkspaceBody({
   popup,
   fallback,
+  materialTabRequest = 0,
   onClose,
   onPopOut,
   self,
@@ -108,6 +109,7 @@ function CompositionWorkspaceBody({
 }: {
   popup: Window | null;
   fallback: boolean;
+  materialTabRequest?: number;
   onClose: () => void;
   onPopOut: () => void;
   self: MfPerson;
@@ -152,7 +154,11 @@ function CompositionWorkspaceBody({
       setBinding({ expectedAccountUin: self.uin, expectedAccountConfigId: config.data.configId });
   }, [visible, binding, config.data, config.isFetching, self.uin]);
   const bound = binding ?? { expectedAccountUin: self.uin, expectedAccountConfigId: '' };
-  const [kind, setKind] = useState<ArchiveKind>('history');
+  const [tab, setTab] = useState<{ kind: ArchiveKind; request: number }>({
+    kind: 'history',
+    request: 0,
+  });
+  const kind = tab.request === materialTabRequest ? tab.kind : 'material';
   const entries = trpc.mergeForward.archiveList.useQuery(
     { ...bound, kind },
     { enabled: visible && Boolean(binding), refetchOnWindowFocus: false },
@@ -599,7 +605,7 @@ function CompositionWorkspaceBody({
                     type="button"
                     role="tab"
                     aria-selected={kind === value}
-                    onClick={() => setKind(value)}
+                    onClick={() => setTab({ kind: value, request: materialTabRequest })}
                   >
                     {value === 'material' ? '素材库' : '合成记录'}
                   </CompositionButton>

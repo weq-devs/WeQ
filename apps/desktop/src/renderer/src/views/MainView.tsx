@@ -1935,6 +1935,7 @@ function MainWorkspace(): ReactElement {
   const [forwardedConversations, setForwardedConversations] =
     useState<ForwardedConversations | null>(null);
   const compositionWindow = useCompositionWindow();
+  const [materialTabRequest, setMaterialTabRequest] = useState(0);
   const { open: openGroupResourceWindow, windows: groupResourceWindows } = useGroupResourceWindows({
     ownerKey: messageScope,
   });
@@ -3464,9 +3465,12 @@ function MainWorkspace(): ReactElement {
         if (messageScopeRef.current !== scope) return;
         if (draft.nodes.length !== messages.length)
           throw new Error('部分消息无法导入，原选择已保留');
-        await client.mergeForward.archiveAppend.mutate({
+        const binding = {
           expectedAccountUin: user.identityValue,
           expectedAccountConfigId: config.configId,
+        };
+        await client.mergeForward.archiveAppend.mutate({
+          ...binding,
           kind: 'material',
           draft,
         });
@@ -3474,6 +3478,11 @@ function MainWorkspace(): ReactElement {
         pushToast({
           tone: 'success',
           title: '已添加到素材库',
+          source: notificationSource(
+            { kind: 'app', target: { kind: 'composition', tab: 'material' } },
+            '打开素材库',
+            binding,
+          ),
           detail: `${draft.nodes.length} 条消息`,
         });
       })().catch((error) => {
@@ -9632,8 +9641,10 @@ function MainWorkspace(): ReactElement {
       setMemberCard(null);
       setPrivatePreview(null);
       shell.openContactDetails({ ...user, createdAt: '' }, target.tab);
-    } else if (target.kind === 'composition') compositionWindow.open();
-    else if (target.kind === 'announcements') openAnnouncements();
+    } else if (target.kind === 'composition') {
+      if (target.tab === 'material') setMaterialTabRequest((current) => current + 1);
+      compositionWindow.open();
+    } else if (target.kind === 'announcements') openAnnouncements();
     else if (target.kind === 'dressup') {
       setDressUpTarget(target.dressKind ? { kind: target.dressKind, revision: Date.now() } : null);
       setDressUpOpen(true);
@@ -11214,6 +11225,7 @@ function MainWorkspace(): ReactElement {
           <CompositionWorkspace
             popup={compositionWindow.popup}
             fallback={compositionWindow.fallback}
+            materialTabRequest={materialTabRequest}
             onPopOut={compositionWindow.open}
             self={mergeForwardSelf}
             targets={mergeForwardTargets}
