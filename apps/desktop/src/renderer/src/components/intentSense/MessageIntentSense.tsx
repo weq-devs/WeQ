@@ -442,6 +442,7 @@ export function MessageIntentSense({
   const layout = (
     <MessageLayoutChange
       anchor={bubbleRef}
+      animateLayout={manualPending}
       details={[
         [
           '.weq-intent-chips',

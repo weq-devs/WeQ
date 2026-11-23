@@ -474,6 +474,7 @@ export function useConversationWindowEntry(
     void (async () => {
       try {
         const readSeq = resumable?.anchorSeq;
+        const restoreAnchor = Boolean(resumable?.anchorId && resumable.offset !== undefined);
         let pendingReadingPosition: ConversationReadingPosition | undefined;
         let localShown = false;
         const entryStarted = performance.now();
@@ -482,6 +483,7 @@ export function useConversationWindowEntry(
           cached,
           dirty: dirty || Boolean(verifyUnknown),
           readSeq,
+          restoreAnchor,
           readFromFirstUnread: Boolean(resumable),
           limit,
           current: valid,
@@ -516,7 +518,7 @@ export function useConversationWindowEntry(
             ).map(toMessageWire),
           after: async (afterSeq, size) => {
             // 最新页校准与本地／漫游合并不是向下分页；只有实际读后续页才转圈。
-            if (valid()) setLoadingNewerMessages(true);
+            if (valid() && (cached || !restoreAnchor)) setLoadingNewerMessages(true);
             return (
               await client.account.listAfter.query({
                 ...binding,
@@ -592,6 +594,9 @@ export function useConversationWindowEntry(
           },
           show: (next, first, complete = true) => {
             if (!valid()) return;
+            const page = mergeRoamingTimeline(kind, next.rows, []);
+            const rows =
+              complete && localShown ? mergeRefreshedWindow(loadedRef.current, page, limit) : page;
             if (!complete && !localShown)
               entryScrollIntentRef.current = { selection, revision: null };
             if (!firstRows && next.rows.length) {
@@ -599,10 +604,12 @@ export function useConversationWindowEntry(
               firstRows = true;
             }
             if (first && readSeq && resumable) {
+              const sequence = BigInt(readSeq);
               const anchor =
-                next.rows.find((row) => timelineRowKey(row) === resumable.anchorId) ??
-                next.rows.findLast((row) => row.msgSeq === readSeq) ??
-                next.rows.at(-1);
+                rows.find((row) => timelineRowKey(row) === resumable.anchorId) ??
+                rows.findLast((row) => row.msgSeq === readSeq) ??
+                rows.findLast((row) => /^\d+$/.test(row.msgSeq) && BigInt(row.msgSeq) < sequence) ??
+                rows[0];
               if (anchor) {
                 pendingReadingPosition = { ...resumable, anchorId: timelineRowKey(anchor) };
                 entryScrollIntentRef.current = { selection, revision: null };
@@ -616,24 +623,28 @@ export function useConversationWindowEntry(
                 intent.revision !== null &&
                 intent.revision !==
                   (scroll ? timelineViewport(scroll)?.scrollRevision?.() : undefined);
-              if (pendingReadingPosition && !interacted) {
+              if (
+                pendingReadingPosition &&
+                !interacted &&
+                rows.some((row) => timelineRowKey(row) === pendingReadingPosition?.anchorId)
+              ) {
                 // 首批只含锚点之前的消息，补齐后续页后才能准确恢复屏幕偏移。
                 cachedScrollRef.current = { id: conv, position: pendingReadingPosition };
               } else if (
                 scroll &&
-                (!localShown ||
-                  interacted ||
-                  resumable ||
+                (resumable ||
+                  !expectedWindow.anchored ||
                   !next.anchored ||
-                  scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 48)
+                  !atConversationBottom(scroll, true))
               ) {
-                const position = captureReadingPosition(scroll, { transient: true });
+                const remaining = new Set(rows.map(timelineRowKey));
+                const position = captureReadingPosition(scroll, {
+                  transient: true,
+                  acceptAnchor: (id) => remaining.has(id),
+                });
                 if (position.anchorId) cachedScrollRef.current = { id: conv, position };
               }
             }
-            const page = mergeRoamingTimeline(kind, next.rows, []);
-            const rows =
-              complete && localShown ? mergeRefreshedWindow(loadedRef.current, page, limit) : page;
             if (complete && next.anchored && next !== cached)
               rememberRecentMessageCache(queryCache, scope, kind, conv, rows, next.hasOlder);
             if (!complete) localShown = true;

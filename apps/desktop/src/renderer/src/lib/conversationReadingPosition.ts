@@ -27,17 +27,21 @@ const transientPositions = new WeakMap<
 
 export function captureReadingPosition(
   scroll: HTMLElement,
-  options?: { transient?: boolean },
+  options?: { transient?: boolean; acceptAnchor?: (id: string) => boolean },
 ): ConversationReadingPosition {
   const viewport = timelineViewport(scroll);
-  const position = viewport?.capture?.() ?? captureMountedReadingPosition(scroll);
+  const position =
+    viewport?.capture?.() ?? captureMountedReadingPosition(scroll, options?.acceptAnchor);
   if (!options?.transient) return position;
   const pending = { ...position };
   transientPositions.set(pending, { viewport, revision: viewport?.scrollRevision?.() });
   return pending;
 }
 
-function captureMountedReadingPosition(scroll: HTMLElement): ConversationReadingPosition {
+function captureMountedReadingPosition(
+  scroll: HTMLElement,
+  acceptAnchor?: (id: string) => boolean,
+): ConversationReadingPosition {
   const { top, bottom } = scroll.getBoundingClientRect();
   const scrollTop = scroll.scrollTop;
   const rows = scroll.querySelectorAll<HTMLElement>(TIMELINE_MESSAGE_SELECTOR);
@@ -49,11 +53,15 @@ function captureMountedReadingPosition(scroll: HTMLElement): ConversationReading
     else high = mid;
   }
   // 快滚后 DOM 可能仍是上一个范围。只用与当前视口相交的正文做锚点。
-  const anchor = rows[low];
-  if (!anchor) return { scrollTop };
-  const rect = anchor.getBoundingClientRect();
-  if (rect.height <= 0 || rect.top >= bottom) return { scrollTop };
-  return { scrollTop, anchorId: anchor.dataset.messageId, offset: rect.top - top };
+  for (let index = low; index < rows.length; index++) {
+    const anchor = rows[index]!;
+    const rect = anchor.getBoundingClientRect();
+    if (rect.top >= bottom) break;
+    const anchorId = anchor.dataset.messageId;
+    if (rect.height > 0 && anchorId && (!acceptAnchor || acceptAnchor(anchorId)))
+      return { scrollTop, anchorId, offset: rect.top - top };
+  }
+  return { scrollTop };
 }
 
 export function restoreReadingPosition(

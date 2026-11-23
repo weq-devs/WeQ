@@ -930,6 +930,13 @@ async function checkScroll(page) {
     return position;
   });
   await frames(8);
+  if (!baseline) {
+    await page.evaluate(() => {
+      window.scrollProbe.phase = 'trim-cross-threshold';
+      window.timelineTest.setCount(25);
+    });
+    await frames(4);
+  }
   await page.evaluate(() => {
     window.scrollProbe.active = false;
     window.scrollProbe.anchorId = null;
@@ -955,7 +962,7 @@ async function checkScroll(page) {
   });
   if (!baseline) {
     for (const { phase, anchorTop } of samples) {
-      if (phase !== 'prepend-cross-threshold') continue;
+      if (phase !== 'prepend-cross-threshold' && phase !== 'trim-cross-threshold') continue;
       assert.ok(
         anchorTop !== null && Math.abs(anchorTop - beforePrepend.offset) <= 2,
         `跨虚拟化阈值翻页后阅读位置变化 ${JSON.stringify({ anchorTop, beforePrepend })}`,

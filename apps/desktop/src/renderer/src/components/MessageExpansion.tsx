@@ -13,6 +13,7 @@ import '../styles/message-expansion.css';
 type Props = {
   anchor: RefObject<HTMLElement | null>;
   details: ReadonlyArray<readonly [selector: string, ...values: unknown[]]>;
+  animateLayout?: boolean;
 };
 
 /** 子组件自己的状态（例如语音转写）也需要在 DOM 提交前交给聊天时间线。 */
@@ -28,7 +29,7 @@ export class MessageLayoutChange extends Component<Props> {
           detail.some((value, part) => !Object.is(value, previous.details[index]?.[part])),
         )
         .map(([selector]) => selector);
-      if (changed.length) this.context(anchor, changed);
+      if (changed.length) this.context(anchor, changed, this.props.animateLayout !== false);
     }
     return null;
   }

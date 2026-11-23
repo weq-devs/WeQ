@@ -6434,7 +6434,6 @@ function ChatPaneContent({
               {...marquee.handlers}
             >
               {timelineNotice}
-              {loadingOlder ? <div role="status">加载更早消息…</div> : null}
               {jumpMissing && !loadError ? <div role="status">该条记录已不在当前会话中</div> : null}
               {loadError ? <MessageLoadFailure>{loadError}</MessageLoadFailure> : null}
               {pagingLoadError === 'older' && !loadingOlder ? (
@@ -6694,15 +6693,6 @@ function ChatPaneContent({
                   );
                 })()
               )}
-              {loadingNewer ? (
-                <div
-                  className="weq-conversation-loading"
-                  role="status"
-                  aria-label="正在加载后续消息"
-                >
-                  <Loader2 size={18} />
-                </div>
-              ) : null}
               {pagingLoadError === 'newer' && !loadingNewer ? (
                 <MessageLoadFailure>后续聊天记录暂时无法加载</MessageLoadFailure>
               ) : null}
@@ -6722,6 +6712,16 @@ function ChatPaneContent({
           )}
         </ChatTimeline>
       </IntentSenseProvider>
+      {loadingOlder ? (
+        <div className="weq-conversation-loading is-older" role="status">
+          加载更早消息…
+        </div>
+      ) : null}
+      {loadingNewer ? (
+        <div className="weq-conversation-loading" role="status" aria-label="正在加载后续消息">
+          <Loader2 size={18} />
+        </div>
+      ) : null}
       <OverlayScrollbar
         scrollRef={messageScrollRef}
         className="weq-message-scrollbar"

@@ -80,6 +80,7 @@ import React, {
   useState,
   type ReactElement,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { z } from 'zod';
 import { OverlayScrollbar } from '../components/OverlayScrollbar';
 import { trpc } from '../trpc/client';
@@ -6173,16 +6174,17 @@ function MainWorkspace(): ReactElement {
           // must not see the stale (anchored, old-minSeq) descriptor and replace our
           // freshly-jumped window via refreshWindow's listFrom.
           windowRef.current = { minSeq: merged[0]?.msgSeq ?? null, anchored: atLatest };
-          setLoaded(merged);
           verifiedWindowRowsRef.current = merged;
           loadedRevisionRef.current = revision;
           windowVerifiedAtRef.current = Date.now();
-          setMessagesLoading(false);
-          setHasOlder(before.length >= PAGE_SIZE);
-          setHasNewer(!atLatest);
-          // If the centre sits near the tail, re-anchor so live messages flow in;
-          // otherwise stay detached so refreshWindow won't drag us to the latest.
-          setAnchoredToLatest(atLatest);
+          // 目标和这次提交的窗口同帧交付，避免先绘制在旧的滚动坐标上。
+          flushSync(() => {
+            setLoaded(merged);
+            setMessagesLoading(false);
+            setHasOlder(before.length >= PAGE_SIZE);
+            setHasNewer(!atLatest);
+            setAnchoredToLatest(atLatest);
+          });
           // Exact row present → flash it. Otherwise fall back to the nearest real
           // message: the clickable gap divider sits right beside it.
           const anchor = target ?? nearestBySeq(merged, targetSeq);
@@ -6196,7 +6198,6 @@ function MainWorkspace(): ReactElement {
             });
           }
           if (anchor) {
-            await new Promise<void>((resolve) => window.setTimeout(resolve, 160));
             if (!current()) return false;
             const scroll = nativeMessageScrollRef.current;
             if (readingPosition && scroll) {

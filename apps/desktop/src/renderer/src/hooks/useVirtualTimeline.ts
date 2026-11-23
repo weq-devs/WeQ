@@ -124,14 +124,19 @@ export function useVirtualTimeline({
   const previousMode = useRef({ scope, active, windowed: enabled });
   const suspendedAnchor = useRef<ConversationReadingPosition | undefined>(undefined);
   const thresholdAnchor = useRef<ConversationReadingPosition | undefined>(undefined);
-  // 页面隐藏或从文档流切入虚拟布局前，采集真实可见行的位置。
+  // 页面隐藏或切换普通／虚拟布局前，采集真实可见行的位置。
   if (previousMode.current.scope !== scope) {
     suspendedAnchor.current = undefined;
     thresholdAnchor.current = undefined;
   } else if (previousMode.current.active && scrollRef.current) {
     if (!active) suspendedAnchor.current = captureReadingPosition(scrollRef.current);
-    else if (!previousMode.current.windowed && enabled)
-      thresholdAnchor.current = captureReadingPosition(scrollRef.current, { transient: true });
+    else if (previousMode.current.windowed !== enabled) {
+      const remaining = new Set(ids);
+      thresholdAnchor.current = captureReadingPosition(scrollRef.current, {
+        transient: true,
+        acceptAnchor: (id) => remaining.has(id),
+      });
+    }
   }
   previousMode.current = { scope, active, windowed: enabled };
   const [margin, setMargin] = useState(26);
@@ -630,11 +635,15 @@ export function useVirtualTimeline({
     const saved = thresholdAnchor.current;
     thresholdAnchor.current = undefined;
     const scroll = scrollRef.current;
-    if (!enabled || !active || !saved?.anchorId || !scroll) return;
-    // 切换到绝对定位后的实际行高先落地，再按正文坐标恢复。
-    timelineViewport(scroll)?.measureRows?.(virtualizer.elementsCache.values());
-    restoreReadingPosition(scroll, saved);
-  }, [enabled, active, scrollRef, virtualizer]);
+    if (!active || !saved?.anchorId || !scroll) return;
+    // 等本次布局的同步提交落地，仍在第一次绘制前按实际正文坐标恢复。
+    queueMicrotask(() => {
+      if (scrollRef.current !== scroll || context.current.scope !== scope || !activeRef.current)
+        return;
+      if (enabled) timelineViewport(scroll)?.measureRows?.(virtualizer.elementsCache.values());
+      restoreReadingPosition(scroll, saved);
+    });
+  }, [enabled, active, scope, scrollRef, virtualizer]);
 
   const containerRef = useCallback(
     (node: HTMLDivElement | null) => {

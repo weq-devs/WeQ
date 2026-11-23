@@ -327,9 +327,13 @@ export function useMessageWindowState({
           scroll &&
           scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 48
         ) {
+          const remaining = new Set(rows.map(timelineRowKey));
           cachedScrollRef.current = {
             id: conv,
-            position: captureReadingPosition(scroll, { transient: true }),
+            position: captureReadingPosition(scroll, {
+              transient: true,
+              acceptAnchor: (id) => remaining.has(id),
+            }),
           };
         }
         verifiedWindowRowsRef.current = rows;

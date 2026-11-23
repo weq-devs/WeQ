@@ -1,9 +1,19 @@
 .weq-conversation-loading {
+  position: absolute;
+  grid-area: 2 / 1;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 2;
+  pointer-events: none;
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 40px;
   color: var(--weq-fg-muted);
+}
+
+.weq-conversation-loading.is-older {
+  inset-block: 0 auto;
 }
 
 .weq-conversation-loading svg {

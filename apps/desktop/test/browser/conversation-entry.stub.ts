@@ -45,7 +45,7 @@ const proxy = (path: string[] = []): unknown =>
       if (key === 'useUtils') return () => utils;
       const name = path.at(-1);
       if (key === 'useQuery') {
-        if (name === 'getStatus') return useStatus;
+        if (name === 'getStatus' && !params.has('no-intent')) return useStatus;
         return () => ({ data: name === 'getSettings' ? settings : undefined, isLoading: false });
       }
       if (key === 'useMutation')

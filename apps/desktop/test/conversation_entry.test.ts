@@ -156,6 +156,39 @@ describe('会话分阶段打开', () => {
     expect(f.latest).not.toHaveBeenCalled();
   });
 
+  it('恢复保存锚点时同时读取上下文，首批交付就有锚点下方的空间', async () => {
+    const f = fixture();
+    const following = Promise.withResolvers<Row[]>();
+    f.after.mockReturnValue(following.promise);
+    const task = loadConversationEntry({ ...f, readSeq: '10', restoreAnchor: true });
+
+    expect(f.before).toHaveBeenCalledWith('11', f.limit);
+    expect(f.after).toHaveBeenCalledWith('10', f.limit);
+    await Promise.resolve();
+    expect(f.show).not.toHaveBeenCalled();
+
+    following.resolve([row('11')]);
+    await task;
+    expect(f.show.mock.calls).toEqual([
+      [
+        { rows: [row('9'), row('10'), row('11')], anchored: true, hasOlder: true, hasNewer: false },
+        true,
+      ],
+    ]);
+  });
+
+  it('恢复保存锚点的后续页失败时仍交付前一页，保留重试', async () => {
+    const f = fixture();
+    const error = new Error('synthetic failure');
+    f.after.mockRejectedValue(error);
+    await expect(loadConversationEntry({ ...f, readSeq: '10', restoreAnchor: true })).rejects.toBe(
+      error,
+    );
+    expect(f.show.mock.calls).toEqual([
+      [{ rows: [row('9'), row('10')], anchored: false, hasOlder: true, hasNewer: true }, true],
+    ]);
+  });
+
   it('没有阅读记录时只读最新单页', async () => {
     const f = fixture();
     await loadConversationEntry(f);

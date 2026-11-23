@@ -5,11 +5,11 @@ export interface EntryWindow<T> {
   hasNewer: boolean;
 }
 
-/** 先交付阅读位置之前的上下文，再读取其后的单页；两阶段之间不等待尾页。 */
 export async function loadConversationEntry<T extends { msgSeq: string }>({
   cached,
   dirty,
   readSeq,
+  restoreAnchor = false,
   readFromFirstUnread = false,
   limit,
   before,
@@ -27,6 +27,7 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
   cached?: EntryWindow<T>;
   dirty: boolean;
   readSeq?: string;
+  restoreAnchor?: boolean;
   readFromFirstUnread?: boolean;
   limit: number;
   before: (seq: string, limit: number) => Promise<T[]>;
@@ -86,7 +87,16 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
     let window = cached;
     if (!window) {
       if (readSeq && /^\d+$/.test(readSeq)) {
-        const rows = await before(String(BigInt(readSeq) + 1n), limit);
+        const earlier = before(String(BigInt(readSeq) + 1n), limit);
+        // 真正的保存锚点需要下方空间，先交付其上一页会把第一次定位夹到页尾。
+        const following =
+          restoreAnchor && readSeq !== '0'
+            ? after(readSeq, limit).then(
+                (rows) => ({ rows }),
+                (error: unknown) => ({ error }),
+              )
+            : undefined;
+        const rows = await earlier;
         if (!current()) return;
         window = {
           rows: rows.reverse(),
@@ -94,6 +104,16 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
           hasOlder: rows.length >= limit,
           hasNewer: true,
         };
+        if (following) {
+          const result = await following;
+          if (!current()) return;
+          if ('error' in result) {
+            show(window, true);
+            throw result.error;
+          }
+          show(appendFollowing(window, result.rows, limit), true);
+          return;
+        }
         show(window, true);
       } else {
         await readLatest();
@@ -117,16 +137,17 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
     if (!tail || !/^\d+$/.test(tail)) return;
     const rows = await after(tail, limit);
     if (!current()) return;
-    show(
-      {
-        ...window,
-        rows: [...window.rows, ...rows],
-        anchored: rows.length < limit,
-        hasNewer: rows.length >= limit,
-      },
-      false,
-    );
+    show(appendFollowing(window, rows, limit), false);
   } finally {
     if (active()) settled?.();
   }
+}
+
+function appendFollowing<T>(window: EntryWindow<T>, rows: T[], limit: number): EntryWindow<T> {
+  return {
+    ...window,
+    rows: [...window.rows, ...rows],
+    anchored: rows.length < limit,
+    hasNewer: rows.length >= limit,
+  };
 }

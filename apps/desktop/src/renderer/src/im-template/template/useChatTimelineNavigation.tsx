@@ -258,6 +258,22 @@ export function useChatTimelineNavigation({
 
   const jumpToBottomAndReadRef = useRef<() => Promise<void>>(async () => {});
 
+  const keepLatestInView = useCallback(() => {
+    const scroll = messageScrollRef.current;
+    const current = readContextRef.current;
+    if (
+      !scroll ||
+      !atBottomRef.current ||
+      !current.tabActive ||
+      !current.atLatest ||
+      !bottomLayoutRef.current ||
+      bottomLayoutRef.current.revision !== timelineViewport(scroll)?.scrollRevision?.()
+    )
+      return;
+    if (scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop > 1)
+      scrollMessagesToBottomRef.current();
+  }, []);
+
   useLayoutEffect(() => {
     if (!tabActive) return;
     const conversationId = conversation?.id ?? null;
@@ -294,20 +310,7 @@ export function useChatTimelineNavigation({
         return;
       }
       scrollMessagesToBottomRef.current();
-      const viewport = messageScrollRef.current && timelineViewport(messageScrollRef.current);
-      const revision = viewport?.scrollRevision?.();
-      const frame = window.requestAnimationFrame(() => {
-        const current = readContextRef.current;
-        if (
-          revision === viewport?.scrollRevision?.() &&
-          atBottomRef.current &&
-          current.tabActive &&
-          current.atLatest &&
-          current.conversation?.id === conversationId
-        )
-          scrollMessagesToBottomRef.current();
-      });
-      return () => window.cancelAnimationFrame(frame);
+      return;
     }
 
     if (
@@ -343,7 +346,7 @@ export function useChatTimelineNavigation({
     // 用户在看历史（atBottom=false）或脱离实时窗口时不动。
     if (newestId === lastMessageIdRef.current) {
       if (atBottomRef.current && atLatest && timelineSettings?.autoFollowLatestMessages !== false) {
-        scrollMessagesToBottomRef.current();
+        keepLatestInView();
       }
       return;
     }
@@ -371,20 +374,7 @@ export function useChatTimelineNavigation({
     ) {
       setNewMessagePill(0);
       scrollMessagesToBottomRef.current();
-      const viewport = messageScrollRef.current && timelineViewport(messageScrollRef.current);
-      const revision = viewport?.scrollRevision?.();
-      const frame = window.requestAnimationFrame(() => {
-        const current = readContextRef.current;
-        if (
-          revision === viewport?.scrollRevision?.() &&
-          atBottomRef.current &&
-          current.tabActive &&
-          current.atLatest &&
-          current.conversation?.id === conversationId
-        )
-          scrollMessagesToBottomRef.current();
-      });
-      return () => window.cancelAnimationFrame(frame);
+      return;
     }
 
     // 阅读历史或关闭自动跟随时保留当前位置，仍提示他人发送的新消息。
@@ -401,6 +391,7 @@ export function useChatTimelineNavigation({
     initialReadingPosition,
     user.id,
     timelineSettings?.autoFollowLatestMessages,
+    keepLatestInView,
   ]);
 
   useLayoutEffect(() => {
@@ -409,38 +400,26 @@ export function useChatTimelineNavigation({
     if (!tabActive || !scroll || !content) return;
     // 意图标签、图片及建议回复异步改变内容或视口高度时，延续原来的下沿位置。
     // 新消息是否跟随仍由上面的 effect 决定；阅读历史和恢复锚点时不接管。
-    let frame: number | undefined;
-    const schedule = () => {
-      if (frame !== undefined) return;
-      const viewport = timelineViewport(scroll);
-      const revision = viewport?.scrollRevision?.();
-      frame = window.requestAnimationFrame(() => {
-        frame = undefined;
-        const current = readContextRef.current;
-        if (
-          revision === viewport?.scrollRevision?.() &&
-          bottomLayoutRef.current?.revision === viewport?.scrollRevision?.() &&
-          atBottomRef.current &&
-          current.tabActive &&
-          current.atLatest &&
-          scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop > 1
-        )
-          scrollMessagesToBottomRef.current();
-      });
-    };
-    const observer = new ResizeObserver(schedule);
+    // 同一次绘制内跟随尺寸，避免先显示下沿脱开、下一帧才贴回。
+    const observer = new ResizeObserver(keepLatestInView);
     observer.observe(scroll);
     // 虚拟行在 RO 内更新父容器高度；父层改用样式通知，避免向上反馈尺寸交付。
-    const mutation = new MutationObserver(schedule);
+    const mutation = new MutationObserver(keepLatestInView);
     if (timelineEnabled)
       mutation.observe(content, { attributes: true, attributeFilter: ['style'] });
     else observer.observe(content);
     return () => {
       observer.disconnect();
       mutation.disconnect();
-      if (frame !== undefined) window.cancelAnimationFrame(frame);
     };
-  }, [tabActive, loading, conversation?.id, visibleMessages.length, timelineEnabled]);
+  }, [
+    tabActive,
+    loading,
+    conversation?.id,
+    visibleMessages.length,
+    timelineEnabled,
+    keepLatestInView,
+  ]);
 
   // 历史窗口不追加实时消息；沿用服务端已排除自己的入站未读数，不用序号差猜条数。
   useEffect(() => {
@@ -461,24 +440,21 @@ export function useChatTimelineNavigation({
     if (delta > 0) setNewMessagePill((count) => count + Math.min(delta, 100));
   }, [conversation?.id, conversation?.unreadCount, latestMessageSeq, atLatest]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!tabActive || !jumpRequest || loading || loadError) {
       setJumpMissing(false);
       if (!jumpRequest) locatedJump.current = undefined;
       return;
     }
     if (locatedJump.current === jumpRequest) return;
-    const frame = requestAnimationFrame(() => {
-      const scroll = messageScrollRef.current;
-      const found = Boolean(scroll && revealTimelineMessage(scroll, jumpRequest.messageId, true));
-      setJumpMissing(!found);
-      if (!found) return;
-      atBottomRef.current = false;
-      holdingHistoryPosition.current = true;
-      readGestureUntil.current = 0;
-      locatedJump.current = jumpRequest;
-    });
-    return () => cancelAnimationFrame(frame);
+    const scroll = messageScrollRef.current;
+    const found = Boolean(scroll && revealTimelineMessage(scroll, jumpRequest.messageId, true));
+    setJumpMissing(!found);
+    if (!found) return;
+    atBottomRef.current = false;
+    holdingHistoryPosition.current = true;
+    readGestureUntil.current = 0;
+    locatedJump.current = jumpRequest;
   }, [jumpRequest, loading, loadError, tabActive, visibleMessages]);
 
   function scrollMessagesToBottom() {
@@ -1034,6 +1010,7 @@ export function useChatTimelineNavigation({
   }
   return {
     pinnedToLatest: atBottomRef,
+    keepLatestInView,
     leaveBottom: () => {
       atBottomRef.current = false;
       holdingHistoryPosition.current = true;

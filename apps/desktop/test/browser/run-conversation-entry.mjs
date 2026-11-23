@@ -10,6 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const output = process.env.WEQ_ENTRY_ARTIFACTS;
 const unreadOnly = process.argv.includes('--unread');
+const firstFrameOnly = process.argv.includes('--first-frame');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const cacheRoot = resolve(root, 'node_modules/.cache');
 await mkdir(cacheRoot, { recursive: true });
@@ -35,7 +36,7 @@ const server = await createServer({
   server: { host: '127.0.0.1', port: 0, hmr: false, fs: { allow: [resolve(root, '../..')] } },
 });
 let browser;
-try {
+async function run() {
   await server.listen();
   browser = await chromium.launch({
     headless: true,
@@ -52,6 +53,36 @@ try {
       ? route.continue()
       : route.abort(),
   );
+  const timelineURL = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html`;
+  if (!unreadOnly) {
+    await page.addInitScript(() => {
+      if (!location.search.includes('check-first-frame')) return;
+      const positions = [];
+      window.entryTailPositions = positions;
+      function sample() {
+        const scroll = document.querySelector('.message-scroll');
+        const tail = scroll?.querySelector('.message-line[data-message-id="row-1050"]');
+        if (tail)
+          positions.push(tail.getBoundingClientRect().bottom - scroll.getBoundingClientRect().top);
+        if (positions.length < 8) requestAnimationFrame(sample);
+      }
+      requestAnimationFrame(sample);
+    });
+    await page.goto(`${timelineURL}?entry&count=50&delayed&no-intent&check-first-frame`);
+    await page.waitForFunction(() => window.entryTailPositions?.length === 8, null, {
+      timeout: 15_000,
+    });
+    const tailPositions = await page.evaluate(() => window.entryTailPositions);
+    assert.ok(
+      Math.max(...tailPositions) - Math.min(...tailPositions) <= 2,
+      `首帧后末条消息发生位移 ${JSON.stringify(tailPositions)}`,
+    );
+    if (firstFrameOnly) {
+      assert.deepEqual(errors, []);
+      console.log(JSON.stringify({ tailPositions }));
+      return;
+    }
+  }
   const results = [];
   const waitForViewport = (seq, visible) =>
     page.waitForFunction(
@@ -116,7 +147,6 @@ try {
     await assertDismissed(mentionDock);
     await assertDismissed(replyDock);
   }
-  const timelineURL = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html`;
   const send = async () => {
     const editor = page.getByRole('textbox', { name: '消息', exact: true });
     await editor.fill('测试发出');
@@ -310,6 +340,9 @@ try {
     )
   )
     throw new Error('进入会话未定位最新消息');
+}
+try {
+  await run();
 } finally {
   await browser?.close();
   await server.close();
