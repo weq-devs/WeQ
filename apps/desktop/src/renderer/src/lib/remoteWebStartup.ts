@@ -115,6 +115,7 @@ export function openRemoteWorkspace(cache: QueryClient, cached: CachedWorkspace)
   } catch {}
   const config: Config = {
     ...identity,
+    qzoneStagedImageUpload: undefined,
     dbKey: '',
     a1: null,
     guid: null,

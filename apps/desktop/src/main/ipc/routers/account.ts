@@ -4544,7 +4544,7 @@ export const accountRouter = router({
       // 可能同时有在线账号和静态账号，只看 uin 会把它们认成一个。
       configId: record.configId,
       uin: record.uin,
-      qzoneStagedImageUpload: true as const,
+      qzoneStagedImageUpload: true as true | undefined,
       dbKey: record.dbKey,
       // 会话物料（a2 / d2 / d2key / secToken）+ 设备身份，供 设置 → 账号基础 展示。
       // a1 是 login.db 解出来的 TGTGT payload；guid 与登录无关，单独一档。
