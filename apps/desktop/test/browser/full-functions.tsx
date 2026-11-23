@@ -1,20 +1,20 @@
 import { createRoot } from 'react-dom/client';
 import { AccountBasicsSection } from '../../src/renderer/src/components/settings/AccountBasicsSection';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { RestrictedModeHost } from '../../src/renderer/src/components/RestrictedMode';
 import { WelcomeDialog } from '../../src/renderer/src/components/WelcomeDialog';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { setFixture, setOnlineFixture } from './qq-debug-copy.stub';
 import { saves } from './full-functions.stub';
 import { useViewState } from '../../src/renderer/src/state/view';
-import { useRestrictedMode } from '../../src/renderer/src/state/restrictedMode';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
 ensureThemeInitialized();
 setFixture({ state: 'ready', version: '合成版本', runningPids: [] });
-useViewState.setState({ openedUin: '10001' });
+useViewState.setState({ view: 'main', openedUin: '10001' });
 Object.assign(window, {
-  fullFunctionsQa: { theme: useThemeStore, saves, setOnlineFixture, restricted: useRestrictedMode },
+  fullFunctionsQa: { theme: useThemeStore, saves, setOnlineFixture },
 });
 createRoot(document.getElementById('root')!).render(
   <>
@@ -27,9 +27,12 @@ createRoot(document.getElementById('root')!).render(
     {new URLSearchParams(location.search).has('welcome') ? (
       <WelcomeDialog />
     ) : (
-      <main className="weq-settings-dialog full-functions-fixture">
-        <AccountBasicsSection />
-      </main>
+      <>
+        <main className="weq-settings-dialog full-functions-fixture">
+          <AccountBasicsSection />
+        </main>
+        <RestrictedModeHost />
+      </>
     )}
     <DialogHost />
   </>,

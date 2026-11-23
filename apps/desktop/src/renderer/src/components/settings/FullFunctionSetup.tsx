@@ -4,6 +4,7 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { IS_WEB } from '../../lib/target.shared';
 import { QqDebugCopyDialog } from '../QqDebugCopyDialog';
+import { QQ_ONLINE_DETAILS_ID } from '../RestrictedMode.shared';
 import { Card, SettingsStatusBadge } from './controls';
 import { useViewState } from '../../state/view';
 import { useRestrictedMode } from '../../state/restrictedMode';
@@ -61,7 +62,8 @@ function OnlineCapabilityStatus() {
       details={{
         label: `QQ 在线能力：${label}，查看详情`,
         open,
-        onClick: () => useRestrictedMode.getState().setOpen(!open),
+        controls: open ? QQ_ONLINE_DETAILS_ID : undefined,
+        onClick: () => useRestrictedMode.getState().setOpen(!open, 'settings'),
       }}
     />
   );

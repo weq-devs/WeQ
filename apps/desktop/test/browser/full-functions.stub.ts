@@ -15,6 +15,7 @@ export const saves: string[] = [];
 const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {
   get(target, key) {
     if (key === 'getWelcomeAcknowledged') return { useQuery: () => ({ data: false }) };
+    if (key === 'qqDataAccess') return { useQuery: () => ({ data: { status: 'readable' } }) };
     if (key === 'getQqClientSyncStatus')
       return {
         useQuery: () => ({

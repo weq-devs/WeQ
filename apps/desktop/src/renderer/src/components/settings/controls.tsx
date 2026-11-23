@@ -219,7 +219,7 @@ export function SettingsStatusBadge({
 }: {
   label: string;
   tone?: 'neutral' | 'ready' | 'warning';
-  details?: { label: string; open: boolean; onClick: () => void };
+  details?: { label: string; open: boolean; controls?: string; onClick: () => void };
 }) {
   return details ? (
     <button
@@ -229,6 +229,7 @@ export function SettingsStatusBadge({
       aria-label={details.label}
       aria-haspopup="dialog"
       aria-expanded={details.open}
+      aria-controls={details.controls}
       onClick={details.onClick}
     >
       {label}

@@ -117,12 +117,21 @@ try {
     }),
   );
   await page.getByRole('button', { name: 'QQ 在线能力：已就绪，查看详情', exact: true }).waitFor();
+  await status.click();
+  const readyDetails = page.getByRole('dialog', { name: 'QQ 在线能力', exact: true });
+  await readyDetails.getByText('当前账号的 QQ 在线能力已就绪。').waitFor({ timeout: 3000 });
+  await status.click();
+  await readyDetails.waitFor({ state: 'detached' });
   await page.evaluate(() => window.fullFunctionsQa.setOnlineFixture({ hasUid: false }));
   await page
     .getByRole('button', { name: 'QQ 在线能力：在线能力受限，查看详情', exact: true })
     .waitFor();
   await status.click();
-  assert.equal(await page.evaluate(() => window.fullFunctionsQa.restricted.getState().open), true);
+  const restrictedDetails = page.getByRole('dialog', { name: '在线能力受限', exact: true });
+  await restrictedDetails.getByText('会话凭据不完整').waitFor();
+  await page.keyboard.press('Escape');
+  await restrictedDetails.waitFor({ state: 'detached' });
+  assert.equal(await status.evaluate((node) => node === document.activeElement), true);
   await page.getByRole('combobox', { name: '功能受限或运行异常通知方式' }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.fullFunctionsQa.saves), [
     'setAutoAttachQq',

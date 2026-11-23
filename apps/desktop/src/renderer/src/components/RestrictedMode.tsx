@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X, Zap } from 'lucide-react';
 import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
 import { RestrictedQqAction } from './RestrictedQqAction';
 import { client, trpc } from '../trpc/client';
@@ -17,7 +17,7 @@ import { notificationSource } from '../lib/notificationNavigation.shared';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { topSurface } from '../lib/surfaceEscape';
 import '../styles/restricted-mode.css';
-import { ipc } from './RestrictedMode.shared';
+import { ipc, QQ_ONLINE_DETAILS_ID } from './RestrictedMode.shared';
 
 const NOTICE_KEY = 'restricted-mode';
 
@@ -202,6 +202,7 @@ export function RestrictedModeHost() {
   const reasonSource = useRestrictedMode((s) => s.reasonSource);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
+  const openedFromSettings = useRestrictedMode((s) => s.openedFromSettings);
   const enteringSince = useRestrictedMode((s) => s.enteringSince);
   const enteringManually = useRestrictedMode((s) => s.enteringManually);
   const awaitingAuthorization = requests.length > 0;
@@ -448,7 +449,8 @@ export function RestrictedModeHost() {
     ...(requests.length ? ['authorization'] : []),
     ...(entering ? ['entering'] : []),
   ].join(',');
-  const layer = useOverlayLayer(open && Boolean(signature));
+  const showDetails = open && (openedFromSettings || Boolean(signature));
+  const layer = useOverlayLayer(showDetails);
   useEffect(() => {
     if (reasonSource !== sourceKey) return;
     const manualNotice = enteringManually || recoveryPending.current;
@@ -500,7 +502,8 @@ export function RestrictedModeHost() {
       recoveryPending.current = false;
     if (!signature) {
       if (fullModeConfirmed) fullModeSeen.current = true;
-      useRestrictedMode.getState().setOpen(false);
+      if (!useRestrictedMode.getState().openedFromSettings)
+        useRestrictedMode.getState().setOpen(false);
       notificationToast.resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
         notificationToast.push({ tone: 'success', title: '已启用 QQ 在线能力' });
@@ -552,7 +555,7 @@ export function RestrictedModeHost() {
     setDataRetried(false);
   }, [uin]);
   useEffect(() => {
-    if (!open) return;
+    if (!showDetails) return;
     const before = document.activeElement;
     panel.current?.querySelector<HTMLButtonElement>('button')?.focus();
     const close = (event: KeyboardEvent) => {
@@ -572,7 +575,9 @@ export function RestrictedModeHost() {
         topSurface(document) === panel.current &&
         event.target instanceof Element &&
         !panel.current?.contains(event.target) &&
-        !event.target.closest('[data-restricted-mode-trigger], .weq-toast')
+        !event.target.closest(
+          `[data-restricted-mode-trigger], [aria-controls="${QQ_ONLINE_DETAILS_ID}"], .weq-toast`,
+        )
       )
         useRestrictedMode.getState().setOpen(false);
     };
@@ -583,7 +588,7 @@ export function RestrictedModeHost() {
       document.removeEventListener('pointerdown', outside);
       if (before instanceof HTMLElement && before.isConnected) before.focus();
     };
-  }, [open]);
+  }, [showDetails]);
   async function startQq() {
     if (launchPending.current) return;
     launchPending.current = true;
@@ -729,29 +734,34 @@ export function RestrictedModeHost() {
     );
   return (
     <>
-      {open && signature && (
+      {showDetails && (
         <section
+          id={QQ_ONLINE_DETAILS_ID}
           ref={panel}
           role="dialog"
           aria-modal="false"
           aria-labelledby={titleId}
-          className={`weq-restricted-panel${entering ? ' is-entering' : ''}`}
+          className={`weq-restricted-panel${!signature ? ' is-status' : entering ? ' is-entering' : ''}`}
           style={{ zIndex: layer }}
         >
           <header>
             <h2 id={titleId}>
-              {awaitingAuthorization ? (
+              {!signature ? (
+                <Zap size={18} aria-hidden />
+              ) : awaitingAuthorization ? (
                 <KeyRound size={18} />
               ) : entering ? (
                 <LoaderCircle size={18} className="weq-restricted-progress-icon" />
               ) : (
                 <ShieldAlert size={18} />
               )}
-              {awaitingAuthorization
-                ? '待提权'
-                : entering
-                  ? '正在启用 QQ 在线能力'
-                  : '在线能力受限'}
+              {!signature
+                ? 'QQ 在线能力'
+                : awaitingAuthorization
+                  ? '待提权'
+                  : entering
+                    ? '正在启用 QQ 在线能力'
+                    : '在线能力受限'}
             </h2>
             <button
               type="button"
@@ -764,6 +774,15 @@ export function RestrictedModeHost() {
             </button>
           </header>
           <div className="weq-restricted-body">
+            {!signature && (
+              <p role="status">
+                {fullModeConfirmed
+                  ? '当前账号的 QQ 在线能力已就绪。'
+                  : active
+                    ? '正在检查当前账号的 QQ 在线能力。'
+                    : '打开 QQ 账号后，WeQ 会检查该账号的在线能力。'}
+              </p>
+            )}
             {entering && <p role="status">正在准备在线会话，请稍候。</p>}
             {reasons
               .filter(
@@ -789,8 +808,10 @@ export function RestrictedModeHost() {
                 actions={index === requests.length - 1 ? actions : undefined}
               />
             ))}
-            {error && <p role="alert">{error}</p>}
-            {!awaitingAuthorization && <div className="weq-restricted-actions">{actions}</div>}
+            {signature && error && <p role="alert">{error}</p>}
+            {signature && !awaitingAuthorization && (
+              <div className="weq-restricted-actions">{actions}</div>
+            )}
           </div>
         </section>
       )}

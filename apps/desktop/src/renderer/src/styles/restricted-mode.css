@@ -64,8 +64,11 @@
   font-weight: 600;
   margin: 0;
 }
-.weq-restricted-panel.is-entering h2 {
+.weq-restricted-panel:is(.is-entering, .is-status) h2 {
   color: var(--weq-fg-primary);
+}
+.weq-restricted-panel.is-status [role='status'] {
+  margin-bottom: 0;
 }
 .weq-restricted-body {
   padding: 16px;
