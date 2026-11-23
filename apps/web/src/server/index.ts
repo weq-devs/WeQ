@@ -11,11 +11,15 @@
  *   WEQ_HOST        bind address (default 127.0.0.1). Set 0.0.0.0 to expose.
  *   WEQ_PORT        preferred port (default 7690). Probes forward if taken.
  *   WEQ_EXPORT_DIR  where exports/saves land (default <cwd>/weq-exports).
- *   WEQ_DATA_DIR    log directory parent (default <cwd>/weq-data).
+ *   WEQ_DATA_DIR    business data and logs (default <cwd>/weq-data).
  *   WEQ_NATIVE_DIR  override for the native/ bundle (see @weq/native loader).
  */
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { weqAppDataRoot } from '@weq/platform';
+import { AccountInstances } from '@weq/desktop/main/account_instances';
+import { setAccountInstanceScope } from '@weq/desktop/main/account_instance_scope';
+import { standaloneDataDirectory } from './data_directory';
 import { DEFAULT_SERVICE_PORTS } from '@weq/service/service-ports';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,7 +57,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 const HOST = process.env.WEQ_HOST || '127.0.0.1';
 const PORT = Number(process.env.WEQ_PORT || DEFAULT_SERVICE_PORTS.web);
 const EXPORT_DIR = process.env.WEQ_EXPORT_DIR || join(process.cwd(), 'weq-exports');
-const DATA_DIR = process.env.WEQ_DATA_DIR || join(process.cwd(), 'weq-data');
 const PUBLIC_DIR = resolve(here, 'public');
 
 const isLoopback = HOST === '127.0.0.1' || HOST === 'localhost' || HOST === '::1';
@@ -92,6 +95,18 @@ function resolveToken(): string {
 }
 
 async function main(): Promise<void> {
+  const desktopRoot = weqAppDataRoot();
+  const DATA_DIR = standaloneDataDirectory(
+    process.env.WEQ_DATA_DIR || join(process.cwd(), 'weq-data'),
+    desktopRoot,
+  );
+  const directoryOwner = new AccountInstances(DATA_DIR);
+  try {
+    directoryOwner.claim('standalone-web');
+  } catch (error) {
+    throw new Error('无法独占独立 Web 数据目录，请检查是否已有 Web 进程在使用。', { cause: error });
+  }
+  process.once('exit', () => directoryOwner.dispose());
   configureDevelopmentLogging(process.env.NODE_ENV !== 'production', 'web-server');
   getLogger().info('WeQ Web 启动', {
     scope: 'web',
@@ -110,7 +125,8 @@ async function main(): Promise<void> {
   const generated = !process.env.WEQ_TOKEN?.trim();
 
   setHost(createWebHost({ exportDir: EXPORT_DIR, version: VERSION }));
-  initAppContext();
+  setAccountInstanceScope(new AccountInstances(desktopRoot));
+  initAppContext(DATA_DIR);
   const intentEngine = getIntentSenseLocalEngine();
   setIntentSenseLocalEngine(intentEngine);
   const stopAnnouncements = startAnnouncements({
@@ -145,7 +161,11 @@ async function main(): Promise<void> {
         console.warn('[web] assistant resource startup failed:', error);
       });
 
-  const auth = new AuthGate({ token, remote: !isLoopback });
+  const auth = new AuthGate({
+    token,
+    remote: !isLoopback,
+    cookieName: `weq_session_${createHash('sha256').update(DATA_DIR).digest('hex').slice(0, 16)}`,
+  });
   const { server, port } = await startServer({
     port: PORT,
     host: HOST,

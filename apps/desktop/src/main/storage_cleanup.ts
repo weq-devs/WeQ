@@ -5,13 +5,14 @@ import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STORAGE_RUNTIME_DATA_NAMES, type StorageUsageItem } from '@weq/service';
+import { weqAppDataRoot } from '@weq/platform';
 import { executeStorageCleanup, readStorageCleanupResult } from '@weq/service/storage-cleanup';
 import { resolveChildWorkerPath } from './worker_path';
 import { isStorageCleanupWorkerProcess } from './storage_cleanup_process';
 import { createStorageCleanupRestart } from './storage_cleanup_restart';
 
 const reportPath = () => join(app.getPath('userData'), 'storage-maintenance', 'last-result.json');
-const lockPath = () => join(app.getPath('userData'), 'storage-maintenance', 'running.json');
+const lockPath = () => join(weqAppDataRoot(), 'storage-maintenance', 'running.json');
 let pending = false;
 
 export const storageCleanupResult = () => readStorageCleanupResult(reportPath());
@@ -140,6 +141,7 @@ export async function clearStorageAfterExit(targets: StorageUsageItem[]): Promis
     if (!child.connected || child.exitCode !== null || child.signalCode !== null) {
       throw new Error('清除助手已退出，未退出应用');
     }
+    await mkdir(dirname(lockPath()), { recursive: true, mode: 0o700 });
     const temporary = `${lockPath()}.tmp`;
     await writeFile(temporary, JSON.stringify({ pid: child.pid, worker }), { mode: 0o600 });
     await rename(temporary, lockPath());

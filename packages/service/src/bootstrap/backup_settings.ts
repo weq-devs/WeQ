@@ -928,6 +928,11 @@ export function validateWeqAccountSettings(
     ['uid', 'dataDir', 'backupAccountDir', 'displayName', 'avatarUrl', 'guid', 'nativeMediaDir'],
   );
   number(row.lastLoginAt, 'accounts.lastLoginAt');
+  if (row.qqClientSync !== undefined) {
+    const sync = fields(row.qqClientSync, 'accounts.qqClientSync', ['enabled', 'liveMessages']);
+    if (typeof sync.enabled !== 'boolean' || typeof sync.liveMessages !== 'boolean')
+      fail('accounts.qqClientSync');
+  }
   for (const [name, value] of Object.entries(record(row.algos, 'accounts.algos'))) {
     if (!/^[A-Za-z0-9_.-]+\.db$/.test(name)) fail('accounts.algos');
     const algo = fields(value, 'accounts.algos', ['pageHmacAlgorithm', 'kdfHmacAlgorithm']);

@@ -6,6 +6,7 @@ import {
   groupVideoAck,
 } from '../../../shared/group_video_wire';
 import { client } from '../trpc/client';
+import { accountGatewayPath } from './accountGateway';
 
 export function createGroupVideoTransport(id: string) {
   const bridge = window.weq?.callVideo;
@@ -47,7 +48,7 @@ export function createGroupVideoTransport(id: string) {
       };
       let ws: WebSocket;
       try {
-        const url = new URL(GROUP_VIDEO_WEB_PATH, location.href);
+        const url = new URL(accountGatewayPath(GROUP_VIDEO_WEB_PATH), location.href);
         url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         url.searchParams.set('id', id);
         ws = new WebSocket(url);

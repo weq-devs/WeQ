@@ -68,9 +68,19 @@ import {
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { isIP } from 'node:net';
 import type { ControlOneBotListener, ControlOneBotConfig as OneBotConfig } from '@weqbot/control';
 import { botRuntime } from '../../bot_runtime';
-import { isMcpRunning } from '../../mcp/server';
+import { suggestOneBotPort } from '../../bot_runtime/onebot_port';
+import { maintainDesktopStorage } from '../../desktop_storage';
+import { withAccountInstance } from '../../account_instance_scope';
+import { readAccountQqSync } from '../../qq_sync/preferences';
+import { isMcpRunning, runningMcpConfig } from '../../mcp/server';
+import {
+  desktopMcpStatus,
+  desktopServiceCommand,
+  hasDesktopServices,
+} from '../../desktop_services/host';
 import { assistantResourceServer } from '../../weq_assistant/server';
 import {
   installMcpAgents as installMcpAgentConfigs,
@@ -759,8 +769,20 @@ export const bootstrapRouter = router({
   }),
 
   deleteAccountConfig: procedure.input(z.object({ configId: z.string() })).mutation(({ input }) => {
-    requireBootstrap().userConfig.deleteAccountConfig(input.configId);
-    return true;
+    const config = requireBootstrap().userConfig;
+    const record = config.listAccountConfigs().find((entry) => entry.configId === input.configId);
+    if (!record) return true;
+    const current = () => getAppContext().account?.context.uin;
+    return withAccountInstance(
+      record.uin,
+      async () => {
+        if (getAppContext().services?.accountConfig.getRecord()?.configId === record.configId)
+          throw new Error('请先退出此账号数据源。');
+        config.deleteAccountConfig(record.configId);
+        return true;
+      },
+      current,
+    );
   }),
 
   // ---- auto-enter target ----
@@ -769,12 +791,14 @@ export const bootstrapRouter = router({
     .input(z.object({ startup: z.boolean() }).optional())
     .query(({ input }) => {
       const config = requireBootstrap().userConfig;
+      if (getHost().startupReadOnly) return null;
       return input?.startup ? config.getStartupAutoEnter() : config.getAutoEnter();
     }),
 
   setAutoEnter: procedure
     .input(z.object({ uin: z.string(), dataDir: z.string().optional() }))
     .mutation(({ input }) => {
+      if (getHost().startupReadOnly) return false;
       const boot = requireBootstrap();
       const dataDir = input.dataDir ?? boot.globalConfig.accountDataDir(input.uin) ?? undefined;
       const configId = accountConfigId(input.uin, dataDir);
@@ -789,6 +813,7 @@ export const bootstrapRouter = router({
     }),
 
   clearAutoEnter: procedure.mutation(() => {
+    if (getHost().startupReadOnly) return false;
     requireBootstrap().userConfig.clearAutoEnter();
     return true;
   }),
@@ -824,7 +849,29 @@ export const bootstrapRouter = router({
 
   /** Full, defaulted global settings (realtime / 自动读取 QQ 内存 / …). */
   getSettings: procedure.query(() => {
-    return requireBootstrap().userConfig.getSettings();
+    const ctx = getAppContext();
+    const sync = readAccountQqSync(ctx);
+    const host = getHost();
+    const settings = requireBootstrap().userConfig.getSettings();
+    const remoteAccount = host.accountScoped && host.remoteClient;
+    return {
+      ...settings,
+      ...(remoteAccount
+        ? {
+            mcp: { ...settings.mcp, token: '' },
+            oneBotByUin: {},
+            typingStatus: {
+              ...settings.typingStatus,
+              hidden: settings.typingStatus.hidden.filter(
+                (record) => record.accountConfigId === ctx.services?.accountConfig.getConfigId(),
+              ),
+            },
+          }
+        : {}),
+      qqClientSyncEnabled: sync.enabled,
+      qqLiveMessagesEnabled: sync.liveMessages,
+      startupReadOnly: host.startupReadOnly,
+    };
   }),
 
   setContactCard: procedure
@@ -1040,14 +1087,14 @@ export const bootstrapRouter = router({
     const liveAccount = accountUin !== null && !ctx.accountIsStatic;
     const sync = ctx.services?.qqClientSync;
     const protection = ctx.services?.antiRecall.protection();
+    const preferences = readAccountQqSync(ctx);
     const status = await qqSyncStatus(qqSyncRoot);
     const connectionExpected =
       status.enabled &&
       liveAccount &&
       Boolean(sync) &&
-      (userConfig.getSetting('qqClientSyncEnabled') ||
-        (userConfig.getSetting('qqLiveMessagesEnabled') &&
-          userConfig.getSetting('realtimeEnabled')) ||
+      (preferences.enabled ||
+        (preferences.liveMessages && userConfig.getSetting('realtimeEnabled')) ||
         (protection?.enabled === true && protection.method !== 'database'));
     const connected = status.running && liveAccount && status.accounts.includes(accountUin);
     const connecting =
@@ -1077,10 +1124,17 @@ export const bootstrapRouter = router({
   setQqLiveMessagesEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(async ({ input }) => {
-      const { qqSyncRoot: root, userConfig } = requireBootstrap();
+      const { qqSyncRoot: root } = requireBootstrap();
+      const ctx = getAppContext();
+      const services = ctx.services;
+      if (!services || ctx.accountIsStatic) throw new Error('请先打开在线账号。');
       if (input.enabled && isQqSyncProxyEnabled(root)) await ensureQqSyncProxy(root);
-      userConfig.setSettings({ qqLiveMessagesEnabled: input.enabled });
-      getAppContext().services?.qqClientSync?.refreshLive();
+      if (ctx.services !== services) throw new Error('账号已切换，请重试。');
+      services.accountConfig.setQqSyncPreferences({
+        ...readAccountQqSync(ctx),
+        liveMessages: input.enabled,
+      });
+      services.qqClientSync?.refreshLive();
       return true;
     }),
 
@@ -1099,15 +1153,19 @@ export const bootstrapRouter = router({
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(async ({ input }) => {
       const ctx = getAppContext();
-      const { qqSyncRoot: root, userConfig } = requireBootstrap();
+      const { qqSyncRoot: root } = requireBootstrap();
+      const services = ctx.services;
+      if (!services || ctx.accountIsStatic) throw new Error('请先打开在线账号。');
       if (input.enabled && isQqSyncProxyEnabled(root)) await ensureQqSyncProxy(root);
-      userConfig.setSettings({ qqClientSyncEnabled: input.enabled });
+      if (ctx.services !== services) throw new Error('账号已切换，请重试。');
+      const preferences = readAccountQqSync(ctx);
+      services.accountConfig.setQqSyncPreferences({ ...preferences, enabled: input.enabled });
       if (
         !input.enabled &&
         isQqSyncProxyEnabled(root) &&
         ctx.account &&
         !ctx.accountIsStatic &&
-        !userConfig.getSetting('qqLiveMessagesEnabled') &&
+        !preferences.liveMessages &&
         !ctx.services?.antiRecall.protection().enabled
       )
         await qqSyncRequest(root, { op: 'forget', uin: String(ctx.account.context.uin) }).catch(
@@ -1335,9 +1393,16 @@ export const bootstrapRouter = router({
       return true;
     }),
 
-  getTypingStatusSettings: procedure.query(
-    () => requireBootstrap().userConfig.getSettings().typingStatus,
-  ),
+  getTypingStatusSettings: procedure.query(() => {
+    const settings = requireBootstrap().userConfig.getSettings().typingStatus;
+    const host = getHost();
+    if (!host.accountScoped || !host.remoteClient) return settings;
+    const configId = getAppContext().services?.accountConfig.getConfigId();
+    return {
+      ...settings,
+      hidden: settings.hidden.filter((record) => record.accountConfigId === configId),
+    };
+  }),
 
   /** 隐藏正在输入状态的启用范围：off=默认展示 / selected=按会话 / all=全部隐藏。 */
   setTypingStatusMode: procedure
@@ -1362,6 +1427,17 @@ export const bootstrapRouter = router({
     .mutation(({ input }) => {
       assertAccountBinding(input);
       const owner = requireBootstrap().userConfig;
+      if (getHost().accountScoped && getHost().remoteClient) {
+        const { account, services } = getAppContext();
+        if (!account || !services) throw new Error('账号已关闭。');
+        const configId = services.accountConfig.getConfigId();
+        const uin = String(account.context.uin);
+        const result = owner.setTypingStatusHiddenForAccount(uin, configId, input.hidden);
+        return {
+          ...result,
+          hidden: result.hidden.filter((record) => record.accountConfigId === configId),
+        };
+      }
       if (input.expectedAccountConfigId) {
         return owner.setTypingStatusHiddenForAccount(
           input.expectedAccountUin!,
@@ -1899,6 +1975,15 @@ export const bootstrapRouter = router({
     };
   }),
 
+  suggestOneBotPort: procedure
+    .input(z.object({ kind: z.enum(['ws', 'http']), host: z.string().trim().max(255).default('') }))
+    .query(({ input }) => {
+      const { userConfig } = requireBootstrap();
+      if (!getAppContext().account) throw new Error('请先打开账号。');
+      const host = input.host === 'localhost' || isIP(input.host) ? input.host : '127.0.0.1';
+      return suggestOneBotPort(userConfig.getSettings().oneBotByUin, input.kind, host);
+    }),
+
   /**
    * 保存某个账号的 OneBot 配置并立即生效。
    *
@@ -1937,19 +2022,23 @@ export const bootstrapRouter = router({
    * the db key in 账号基础); the renderer masks it for display. `running` is
    * true only while an account is open AND the server is listening.
    */
-  getMcpStatus: procedure.query(() => {
+  getMcpStatus: procedure.query(async () => {
     const mcp = requireBootstrap().userConfig.getSettings().mcp;
-    const running = isMcpRunning();
+    const status = hasDesktopServices() ? await desktopMcpStatus() : null;
+    const running = status?.running ?? isMcpRunning();
+    const port = status?.port ?? runningMcpConfig()?.port ?? mcp.port;
     const accountOpen = Boolean(getAppContext().services);
     return {
       enabled: mcp.enabled,
-      port: mcp.port,
+      port,
       token: mcp.token,
       host: '127.0.0.1',
-      url: `http://127.0.0.1:${mcp.port}`,
+      url: `http://127.0.0.1:${port}`,
       running,
       // 没有账号时服务是「已启用但没在监听」，前端据此区分文案。
       accountOpen,
+      sharedService: hasDesktopServices(),
+      configuredPort: mcp.port,
     };
   }),
 
@@ -1964,7 +2053,9 @@ export const bootstrapRouter = router({
     const token = input.enabled && !current.token ? randomBytes(32).toString('hex') : current.token;
     userConfig.setSettings({ mcp: { enabled: input.enabled, token } });
     await getAppContext().applyMcp(userConfig.getSettings().mcp);
-    return userConfig.getSettings().mcp;
+    const saved = userConfig.getSettings().mcp;
+    const hosted = hasDesktopServices() ? await desktopMcpStatus() : null;
+    return { ...saved, port: hosted?.port ?? runningMcpConfig()?.port ?? saved.port };
   }),
 
   /** Change the listen port. Persists and restarts the server if it's running. */
@@ -1974,21 +2065,59 @@ export const bootstrapRouter = router({
       const userConfig = requireBootstrap().userConfig;
       userConfig.setSettings({ mcp: { port: input.port } });
       await getAppContext().applyMcp(userConfig.getSettings().mcp);
-      return userConfig.getSettings().mcp;
+      const saved = userConfig.getSettings().mcp;
+      const hosted = hasDesktopServices() ? await desktopMcpStatus() : null;
+      return { ...saved, port: hosted?.port ?? runningMcpConfig()?.port ?? saved.port };
     }),
 
   /** Generate a fresh bearer token. Persists and restarts the server if running. */
   regenerateMcpToken: procedure.mutation(async () => {
     const userConfig = requireBootstrap().userConfig;
-    userConfig.setSettings({ mcp: { token: randomBytes(32).toString('hex') } });
-    await getAppContext().applyMcp(userConfig.getSettings().mcp);
+    const previous = userConfig.getSettings().mcp.token;
+    const next = randomBytes(32).toString('hex');
+    userConfig.setSettings({ mcp: { token: next } });
+    if (hasDesktopServices())
+      await desktopServiceCommand('mcp.rotate', { previous, next }, () => undefined);
+    else await getAppContext().applyMcp(userConfig.getSettings().mcp);
     return userConfig.getSettings().mcp;
   }),
 
+  getMcpAccountGrants: procedure.query(({ ctx }) => {
+    if (ctx.authorize) throw new Error('请在桌面管理 MCP 授权。');
+    return desktopServiceCommand<{
+      accounts: { configId: string; displayName: string; uin: string; static: boolean }[];
+      grants: { id: string; label: string; configIds: string[]; primary?: true }[];
+    }>('mcp.grants', undefined, () => ({ accounts: [], grants: [] }));
+  }),
+
+  setMcpAccountGrant: procedure
+    .input(
+      z.object({ id: z.string().regex(/^[a-f0-9]{64}$/), configIds: z.array(z.string()).max(256) }),
+    )
+    .mutation(({ input, ctx }) => {
+      if (ctx.authorize || !hasDesktopServices()) throw new Error('请在桌面管理 MCP 授权。');
+      return desktopServiceCommand('mcp.grant', input, () => undefined);
+    }),
+
+  createMcpAccountToken: procedure
+    .input(z.object({ label: z.string().trim().min(1).max(64) }))
+    .mutation(({ input, ctx }) => {
+      if (ctx.authorize || !hasDesktopServices()) throw new Error('请在桌面管理 MCP 授权。');
+      return desktopServiceCommand<string>('mcp.create', input.label, () => '');
+    }),
+
+  revokeMcpAccountToken: procedure
+    .input(z.object({ id: z.string().regex(/^[a-f0-9]{64}$/) }))
+    .mutation(({ input, ctx }) => {
+      if (ctx.authorize || !hasDesktopServices()) throw new Error('请在桌面管理 MCP 授权。');
+      return desktopServiceCommand('mcp.revoke', input.id, () => undefined);
+    }),
+
   /** A ready-to-paste client config snippet (Claude Desktop + mcp-remote fallback). */
-  getMcpClientConfig: procedure.query(() => {
+  getMcpClientConfig: procedure.query(async () => {
     const mcp = requireBootstrap().userConfig.getSettings().mcp;
-    const url = `http://127.0.0.1:${mcp.port}`;
+    const status = hasDesktopServices() ? await desktopMcpStatus() : null;
+    const url = `http://127.0.0.1:${status?.port ?? runningMcpConfig()?.port ?? mcp.port}`;
     return JSON.stringify(
       {
         mcpServers: {
@@ -2008,10 +2137,11 @@ export const bootstrapRouter = router({
   }),
 
   /** 扫描本机已有的 MCP 客户端（Claude Code / Codex / Cursor / VS Code …）。 */
-  listMcpAgentTargets: procedure.query(() => {
+  listMcpAgentTargets: procedure.query(async () => {
     const mcp = requireBootstrap().userConfig.getSettings().mcp;
+    const status = hasDesktopServices() ? await desktopMcpStatus() : null;
     return listMcpAgentTargets({
-      url: `http://127.0.0.1:${mcp.port}`,
+      url: `http://127.0.0.1:${status?.port ?? runningMcpConfig()?.port ?? mcp.port}`,
       token: mcp.token,
     });
   }),
@@ -2039,12 +2169,14 @@ export const bootstrapRouter = router({
       // 备份账号）需要它把服务真正拉起来，否则装好的客户端连不上。
       await getAppContext().applyMcp(userConfig.getSettings().mcp);
       const mcp = userConfig.getSettings().mcp;
+      const state = hasDesktopServices() ? await desktopMcpStatus() : null;
+      const port = state?.port ?? runningMcpConfig()?.port ?? mcp.port;
       const results = installMcpAgentConfigs(input.targets, {
-        url: `http://127.0.0.1:${mcp.port}`,
+        url: `http://127.0.0.1:${port}`,
         token: mcp.token,
       });
       return {
-        server: { enabled: mcp.enabled, port: mcp.port, token: mcp.token },
+        server: { enabled: mcp.enabled, port, token: mcp.token },
         results,
       };
     }),
@@ -2106,8 +2238,9 @@ export const bootstrapRouter = router({
     );
   }),
 
-  setAutostart: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+  setAutostart: procedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ input }) => {
     const host = getHost();
+    if (host.startupReadOnly) throw new Error('请在 WeQ 主窗口修改登录自启设置。');
     if (!host.canAutostart || !host.setAutostart) {
       throw new Error('当前环境不支持登录自启，请使用打包安装版；Web 服务由部署方管理。');
     }
@@ -2117,6 +2250,7 @@ export const bootstrapRouter = router({
   setShowWindowOnAutostart: procedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
+      if (getHost().startupReadOnly) throw new Error('请在 WeQ 主窗口修改登录自启设置。');
       requireBootstrap().userConfig.setSettings({ showWindowOnAutostart: input.enabled });
       return input.enabled;
     }),
@@ -2776,43 +2910,48 @@ export const bootstrapRouter = router({
       }),
     )
     .mutation(({ input }) =>
-      runtimeMaintenance.run(async () => {
-        const host = getHost();
-        const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
-        const targets = selectStorageCleanupTargets(items, input.ids);
-        if (!host.clearStorageNow || !host.clearStorageAfterExit) {
-          if (input.afterExit || targets.some((item) => item.requiresExit))
-            throw new Error('请在电脑桌面端清除所选数据');
-          const result = await requireBootstrap().userConfig.clearCache(input.ids, storageRoots());
-          return {
-            ...result,
-            scheduled: false,
-            restartIds: [],
-            failed: result.failed.map((id) => ({
-              id,
-              label: targets.find((item) => item.id === id)?.label ?? id,
-              error: '清理失败，请检查宿主日志',
-              retryAfterRestart: false,
-            })),
-          };
-        }
-        if (input.afterExit) {
-          assertRuntimeFilesIdle();
-          if (targets.some((item) => storageRestartCandidates.get(item.id) !== item.path))
-            throw new Error('请先执行直接清理，只能重试其中被占用的剩余项目');
-          await host.clearStorageAfterExit(targets);
-          return { scheduled: true, cleared: [], failed: [], freedBytes: 0, restartIds: [] };
-        }
-        const result = await host.clearStorageNow(targets, runtimeFileBusyPaths());
-        storageRestartCandidates.clear();
-        const restartIds = result.failed.flatMap((failure) => {
-          const item = targets.find((target) => target.id === failure.id);
-          if (!failure.retryAfterRestart || !item) return [];
-          storageRestartCandidates.set(item.id, item.path);
-          return [item.id];
-        });
-        return { ...result, scheduled: false, restartIds };
-      }),
+      runtimeMaintenance.run(() =>
+        maintainDesktopStorage(async () => {
+          const host = getHost();
+          const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
+          const targets = selectStorageCleanupTargets(items, input.ids);
+          if (!host.clearStorageNow || !host.clearStorageAfterExit) {
+            if (input.afterExit || targets.some((item) => item.requiresExit))
+              throw new Error('请在电脑桌面端清除所选数据');
+            const result = await requireBootstrap().userConfig.clearCache(
+              input.ids,
+              storageRoots(),
+            );
+            return {
+              ...result,
+              scheduled: false,
+              restartIds: [],
+              failed: result.failed.map((id) => ({
+                id,
+                label: targets.find((item) => item.id === id)?.label ?? id,
+                error: '清理失败，请检查宿主日志',
+                retryAfterRestart: false,
+              })),
+            };
+          }
+          if (input.afterExit) {
+            assertRuntimeFilesIdle();
+            if (targets.some((item) => storageRestartCandidates.get(item.id) !== item.path))
+              throw new Error('请先执行直接清理，只能重试其中被占用的剩余项目');
+            await host.clearStorageAfterExit(targets);
+            return { scheduled: true, cleared: [], failed: [], freedBytes: 0, restartIds: [] };
+          }
+          const result = await host.clearStorageNow(targets, runtimeFileBusyPaths());
+          storageRestartCandidates.clear();
+          const restartIds = result.failed.flatMap((failure) => {
+            const item = targets.find((target) => target.id === failure.id);
+            if (!failure.retryAfterRestart || !item) return [];
+            storageRestartCandidates.set(item.id, item.path);
+            return [item.id];
+          });
+          return { ...result, scheduled: false, restartIds };
+        }),
+      ),
     ),
 
   /** 旧接口保留为可清理项的子集。 */
@@ -3392,6 +3531,7 @@ export const bootstrapRouter = router({
 
   /** 仅桌面首屏领走启动页与失败信息，重载不重设栏目、不重复弹错。 */
   desktopStartup: procedure.query(async (): Promise<StartupResult> => {
+    if (getHost().startupReadOnly) return desktopStartupAccount.attach();
     // 正常启动已由主进程调度；文件恢复曾失败时，在恢复成功后补上未开始的任务。
     await desktopStartupAccount.start(() =>
       openStartupAccount(

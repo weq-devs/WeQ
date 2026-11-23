@@ -76,6 +76,10 @@ export class RemoteRuntime {
     if (this.store?.read().enabled) await this.start();
   }
 
+  defaultAccountConfigId(): string | null {
+    return this.store?.read().defaultAccountConfigId ?? null;
+  }
+
   async restorePreferences(selected: readonly string[]): Promise<void> {
     if (!this.store) throw new Error('远程连接配置不可用');
     if (selected.includes('remoteMode')) {
@@ -233,7 +237,7 @@ export class RemoteRuntime {
     };
   }
 
-  async start(): Promise<void> {
+  async start(defaultAccountConfigId?: string | null): Promise<void> {
     if (this.starting || this.server) return;
     if (!this.config || !existsSync(this.config.helper)) {
       throw new Error('尚未安装 WeQ Remote 网络辅助程序，请按原型文档构建。');
@@ -309,7 +313,10 @@ export class RemoteRuntime {
         this.stop();
         this.state = { state: 'error', error: '网络辅助程序已退出。' };
       });
-      this.store?.save({ enabled: true });
+      this.store?.save({
+        enabled: true,
+        ...(defaultAccountConfigId !== undefined ? { defaultAccountConfigId } : {}),
+      });
       if (this.store?.read().tailscaleEnabled) await this.startTailscale();
     } catch (error) {
       this.stop();

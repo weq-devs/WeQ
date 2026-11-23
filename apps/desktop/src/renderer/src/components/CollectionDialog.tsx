@@ -1,3 +1,4 @@
+import { accountGatewayPath } from '../lib/accountGateway';
 import { ToolbarLabel } from './CompactToolbar';
 import { observeCompactToolbar } from './CompactToolbar.shared';
 import { NumericText } from './NumericText';
@@ -791,7 +792,7 @@ export function CollectionDialog({
       const result = await client.account.saveCollectionMedia.mutate({ id });
       if (result?.downloadId) {
         const link = document.createElement('a');
-        link.href = `/_download/${encodeURIComponent(result.downloadId)}`;
+        link.href = accountGatewayPath(`/_download/${encodeURIComponent(result.downloadId)}`);
         link.download = result.name;
         document.body.appendChild(link);
         link.click();

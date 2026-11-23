@@ -56,9 +56,11 @@ export function StartupSection() {
       ? '正在读取开机启动状态…'
       : !data?.supported
         ? '仅安装版桌面端支持；Web 服务由部署方管理。'
-        : data.requiresApproval
-          ? '需要系统批准，批准后将在登录系统时启动 WeQ。'
-          : '登录系统时启动 WeQ，完全退出后不会在本次登录中重新拉起。';
+        : data.readOnly
+          ? '各账号共用此状态，可在 WeQ 主窗口修改。'
+          : data.requiresApproval
+            ? '需要系统批准，批准后将在登录系统时启动 WeQ。'
+            : '登录系统时启动 WeQ，完全退出后不会在本次登录中重新拉起。';
   async function change(enabled: boolean) {
     if (changingRef.current) return;
     changingRef.current = true;
@@ -113,6 +115,7 @@ export function StartupSection() {
               checked={Boolean(data?.enabled || data?.requiresApproval)}
               disabled={
                 !data?.supported ||
+                data.readOnly ||
                 status.isLoading ||
                 !!status.error ||
                 update.isLoading ||
@@ -134,6 +137,7 @@ export function StartupSection() {
                 checked={settings.data?.showWindowOnAutostart ?? false}
                 disabled={
                   !data?.supported ||
+                  data.readOnly ||
                   !(data.enabled || data.requiresApproval) ||
                   status.isLoading ||
                   !!status.error ||

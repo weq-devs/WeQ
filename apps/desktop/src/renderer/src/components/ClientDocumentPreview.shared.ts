@@ -1,3 +1,4 @@
+import { accountGatewayUnscopedPath } from '../lib/accountGateway';
 import { create } from 'zustand';
 import { IS_WEB } from '../lib/target.shared';
 import '../styles/client-document.css';
@@ -14,7 +15,10 @@ export function presentClientDocument(result: unknown, title: string): void {
   const value = result as { openUrl?: unknown; downloadUrl?: unknown };
   if (typeof value.openUrl === 'string') {
     const url = new URL(value.openUrl, location.href);
-    if (url.origin !== location.origin || !url.pathname.startsWith('/_download/'))
+    if (
+      url.origin !== location.origin ||
+      !accountGatewayUnscopedPath(url.pathname).startsWith('/_download/')
+    )
       throw new Error('报告地址不可用');
     useClientDocument.setState({ document: { url: url.href, title } });
   } else if (typeof value.downloadUrl === 'string') {

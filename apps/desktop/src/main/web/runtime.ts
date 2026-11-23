@@ -4,10 +4,11 @@ import { createServer, type Server, type IncomingMessage } from 'node:http';
 import { getLogger } from '@weq/service';
 import { AuthGate } from './auth';
 import { listenServer } from './http';
-import type { WebCore } from './application';
+import type { WebAuth, WebEntry } from './application';
 
 interface WebConfig {
-  core: WebCore;
+  core: { assetsInstalled: boolean; entry(auth: WebAuth): WebEntry };
+  cookieName?: string;
   getAutoStart: () => boolean;
   setAutoStart: (enabled: boolean) => void;
 }
@@ -58,7 +59,7 @@ export class DesktopWebRuntime {
     this.error = null;
     const generation = this.revision;
     const token = randomBytes(32).toString('hex');
-    const auth = new AuthGate({ token, remote: false });
+    const auth = new AuthGate({ token, remote: false, cookieName: config.cookieName });
     const sameOrigin = (req: IncomingMessage) =>
       !req.headers.origin || req.headers.origin === `http://${req.headers.host}`;
     const gate = {
@@ -66,6 +67,7 @@ export class DesktopWebRuntime {
       logout: auth.logout.bind(auth),
       isAuthed: (req: IncomingMessage) => sameOrigin(req) && auth.isAuthed(req),
       watchSession: auth.watchSession.bind(auth),
+      identityKey: auth.identityKey.bind(auth),
     };
     try {
       const application = config.core.entry(gate);

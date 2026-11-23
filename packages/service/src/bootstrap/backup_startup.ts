@@ -8,6 +8,7 @@ import {
   type WeqRestoreResult,
 } from './backup_restore';
 import { parseWeqBackupJson } from './backup_bundle';
+import { withSharedConfigLock } from './shared_config_lock';
 
 interface FileStartupBase {
   root: string;
@@ -21,7 +22,7 @@ export type WeqFileStartup = FileStartupBase &
   );
 
 /** 必须先完成恢复再构造任何持有配置／JSON Store 内存态的服务。 */
-export function bootstrapWeqBackupFiles(appRoot: string): WeqFileStartup {
+export function bootstrapWeqBackupFiles(appRoot: string, shared = false): WeqFileStartup {
   const root = resolve(appRoot);
   let cacheRoot = join(root, 'cache');
   let result: WeqRestoreResult | null = null;
@@ -37,10 +38,11 @@ export function bootstrapWeqBackupFiles(appRoot: string): WeqFileStartup {
           throw new Error('当前缓存目录配置无效');
         if (typeof override === 'string' && override.trim()) cacheRoot = resolve(override);
       }
-      result = applyPendingWeqBackupRestore(root, cacheRoot);
+      const restore = () => applyPendingWeqBackupRestore(root, cacheRoot);
+      result = shared ? withSharedConfigLock(root, restore) : restore();
       if (result?.needsRecovery) throw new Error(result.error || '备份回滚尚未完成');
     }
-    const config = new UserConfigService({ appDataRoot: () => root });
+    const config = new UserConfigService({ appDataRoot: () => root }, shared);
     cacheRoot = resolve(config.cacheBaseDir());
     return {
       ok: true,

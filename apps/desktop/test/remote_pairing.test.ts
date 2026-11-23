@@ -8,6 +8,27 @@ function claim(pairing: RemotePairing, name = '测试手机') {
 }
 
 describe('远程配对的会话授权', () => {
+  it('新手机默认获得开启 Remote 的账号，修改授权立即关闭旧网页会话', () => {
+    const pairing = new RemotePairing();
+    const request = pairing.claim({
+      invitation: pairing.invite().secret,
+      name: '合成手机',
+      tokenHash: tokenHash(token),
+      scope: 'web:access',
+    });
+    expect(pairing.accountConfigIds(token)).toEqual([]);
+    pairing.decide(request.id, true, '101');
+    expect(pairing.accountConfigIds(token)).toEqual(['101']);
+    let revoked = false;
+    pairing.watchWeb(token, () => {
+      revoked = true;
+    });
+    pairing.setAccountConfigIds(request.id, ['202']);
+    expect(revoked).toBe(true);
+    expect(pairing.accountConfigIds(token)).toEqual(['202']);
+    expect(pairing.authenticate(token)).toBe(true);
+  });
+
   it('扫码申请不授予权限，电脑确认后才允许访问，撤销立即生效', () => {
     const pairing = new RemotePairing();
     const request = claim(pairing);

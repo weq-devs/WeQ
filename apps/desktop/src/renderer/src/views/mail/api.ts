@@ -1,3 +1,4 @@
+import { accountGatewayPath } from '../../lib/accountGateway';
 import type {
   MailAction,
   MailAttachment,
@@ -152,7 +153,7 @@ export function createMailApi(selfUin: string): MailApi {
       );
       if (result?.downloadId) {
         const link = document.createElement('a');
-        link.href = `/_download/${encodeURIComponent(result.downloadId)}`;
+        link.href = accountGatewayPath(`/_download/${encodeURIComponent(result.downloadId)}`);
         link.download = '';
         link.click();
       }

@@ -1,5 +1,5 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import type { WebApplication, WebAuth } from '../web/application';
+import type { WebEntry, WebAuth } from '../web/application';
 import type { RemotePairing } from './pairing';
 import { observeRemoteRequest } from './device';
 
@@ -11,10 +11,10 @@ function webCredential(req: IncomingMessage): string {
 
 /** Remote 独立认证并挂载共享 Web 核心，不依赖本机浏览器监听端口。 */
 export class RemoteWebGateway {
-  private readonly application: WebApplication;
+  private readonly application: WebEntry;
   private readonly allowed: (req: IncomingMessage) => boolean;
 
-  constructor(pairing: RemotePairing, createApplication: (auth: WebAuth) => WebApplication) {
+  constructor(pairing: RemotePairing, createApplication: (auth: WebAuth) => WebEntry) {
     this.allowed = (req) => {
       const host = req.headers.host;
       return (
@@ -27,6 +27,8 @@ export class RemoteWebGateway {
     };
     this.application = createApplication({
       remoteClient: true,
+      accountIds: (req) => pairing.accountConfigIds(webCredential(req)),
+      identityKey: (req) => webCredential(req),
       login: async () => false,
       logout: () => {},
       isAuthed: this.allowed,

@@ -24,7 +24,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
@@ -287,15 +287,30 @@ export function OneBotSection(): ReactElement {
     );
   }
 
+  async function recommendPort(current: NetworkDraft): Promise<void> {
+    if (current.key !== 'wsServers' && current.key !== 'httpServers') return;
+    try {
+      const port = await client.bootstrap.suggestOneBotPort.query({
+        kind: current.key === 'wsServers' ? 'ws' : 'http',
+        host: current.host,
+      });
+      setDraft((latest) => (latest === current ? { ...latest, port: String(port) } : latest));
+    } catch (error) {
+      showError('无法建议 OneBot 端口', error instanceof Error ? error.message : String(error));
+    }
+  }
+
   function startCreate(meta: NetworkMeta): void {
     const rows = (config?.networks[meta.key] ?? []) as unknown as Array<Record<string, unknown>>;
-    setDraft({
+    const next = {
       ...draftOf(meta.key, null),
       name: `${meta.title} ${rows.length + 1}`,
       accessToken: generatedToken(),
       enabled: true,
-    });
+    };
+    setDraft(next);
     setRevealToken(false);
+    if (meta.mode === 'listen') void recommendPort(next);
   }
 
   function startEdit(meta: NetworkMeta, entry: Record<string, unknown>): void {
@@ -564,34 +579,46 @@ export function OneBotSection(): ReactElement {
             </label>
 
             {draftMeta.mode === 'listen' ? (
-              <div className="weq-onebot-form-pair">
-                <label>
-                  <span>端口</span>
-                  <input
-                    className="weq-set-input weq-number"
-                    aria-label="端口"
-                    type="number"
-                    min={1}
-                    max={65535}
-                    value={draft.port}
-                    onChange={(event) =>
-                      setDraft((current) => current && { ...current, port: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  <span>监听地址</span>
-                  <input
-                    className="weq-set-input"
-                    aria-label="监听地址"
-                    placeholder="127.0.0.1"
-                    value={draft.host}
-                    onChange={(event) =>
-                      setDraft((current) => current && { ...current, host: event.target.value })
-                    }
-                  />
-                </label>
-              </div>
+              <>
+                <div className="weq-onebot-form-pair">
+                  <label>
+                    <span>端口</span>
+                    <input
+                      className="weq-set-input weq-number"
+                      aria-label="端口"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={draft.port}
+                      onChange={(event) =>
+                        setDraft((current) => current && { ...current, port: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>监听地址</span>
+                    <input
+                      className="weq-set-input"
+                      aria-label="监听地址"
+                      placeholder="127.0.0.1"
+                      value={draft.host}
+                      onChange={(event) =>
+                        setDraft((current) => current && { ...current, host: event.target.value })
+                      }
+                    />
+                  </label>
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-sm"
+                    disabled={busy}
+                    onClick={() => void recommendPort(draft)}
+                  >
+                    建议空闲端口
+                  </button>
+                </div>
+              </>
             ) : (
               <label>
                 <span>目标地址</span>

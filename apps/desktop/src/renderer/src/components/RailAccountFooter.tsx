@@ -47,6 +47,7 @@ import { LoadingIndicator } from './LoadingIndicator';
 import { QqAvatar } from './QqAvatar';
 import { IS_WEB, shellBridge } from '../lib/target.shared';
 import { useRemoteClient } from '../lib/remoteClient';
+import { accountGatewayPath, isAccountGateway } from '../lib/accountGateway';
 import '../styles/rail-account.css';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMenuCapture } from '../hooks/useMenuCapture';
@@ -252,7 +253,7 @@ export function RailAccountFooter({
   // freshly added account wouldn't show up until the 5min default staleTime
   // expired.
   const configs = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
-    enabled: open,
+    enabled: open && !isAccountGateway,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -281,6 +282,13 @@ export function RailAccountFooter({
     setBusy(true);
     if (!(await confirmMailAccountLeave())) {
       setBusy(false);
+      return;
+    }
+    if (isAccountGateway) {
+      await fetch(accountGatewayPath('/_weq/leave-account'), { method: 'POST' }).catch(
+        () => undefined,
+      );
+      location.assign('/_weq/accounts');
       return;
     }
     setOpen(false);
@@ -418,7 +426,7 @@ export function RailAccountFooter({
                 </button>
               ) : null}
             </div>
-            {configs.error ? (
+            {!isAccountGateway && configs.error ? (
               <div className="weq-rail-account-error" role="alert">
                 <span>账号列表读取失败：{configs.error.message}</span>
                 <button
@@ -433,7 +441,7 @@ export function RailAccountFooter({
                 {configs.data?.length ? <small>以下为上次读取的记录。</small> : null}
               </div>
             ) : null}
-            {configs.isLoading ? (
+            {isAccountGateway ? null : configs.isLoading ? (
               <div className="weq-rail-account-empty" role="status">
                 <LoadingIndicator />
               </div>
@@ -520,7 +528,7 @@ export function RailAccountFooter({
               onClick={() => void signOut()}
               disabled={busy}
             >
-              <span>退出登录</span>
+              <span>{isAccountGateway ? '选择其他账号' : '退出登录'}</span>
               <LogOut size={18} strokeWidth={1.8} aria-hidden />
             </button>
           </section>

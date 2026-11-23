@@ -20,6 +20,12 @@ import {
   prepareInstanceAccount,
   savedInstanceAccounts,
 } from '../src/main/account_instances';
+import {
+  accountStorageMigrationPath,
+  migrateAccountStorage,
+  readLegacyAccountBackup,
+} from '../src/main/account_storage_migration';
+import { DesktopStorage } from '../src/main/desktop_storage';
 
 let root: string;
 beforeEach(() => {
@@ -27,7 +33,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { force: true, recursive: true }));
 
-it('从所选旧账号配置取数据源，实例保存后沿用自己的配置', () => {
+it('不同 Electron 实例从同一份账号配置打开数据源', () => {
   const target = { uin: '101', configId: '101_fixture' };
   const mainAccounts = join(root, 'config', 'accounts');
   const original = join(mainAccounts, '101_fixture.json');
@@ -45,16 +51,10 @@ it('从所选旧账号配置取数据源，实例保存后沿用自己的配置'
   expect(() => instanceTarget(['weq', '--weq-account-instance=101:../outside'])).toThrow();
   const account = prepareInstanceAccount(root, target);
   expect(account.algos['nt_msg.db']).toEqual(algo);
-  expect(account.session).toBeUndefined();
-  const profile = instanceDirectories(root, target.uin);
-  expect(profile).not.toEqual(instanceDirectories(root, '202'));
-  const instanceConfig = join(profile.data, 'config', 'accounts', '101_fixture.json');
-  writeFileSync(instanceConfig, JSON.stringify({ ...account, displayName: '独立实例' }));
-  expect(prepareInstanceAccount(root, target).displayName).toBe('独立实例');
-  expect(readFileSync(original, 'utf8')).toBe(source);
-  writeFileSync(instanceConfig, '{');
-  expect(() => prepareInstanceAccount(root, target)).toThrow('无法读取');
-  expect(readFileSync(instanceConfig, 'utf8')).toBe('{');
+  expect(instanceDirectories(root, target.uin)).not.toEqual(instanceDirectories(root, '202'));
+  writeFileSync(original, JSON.stringify({ ...account, displayName: '共同配置' }));
+  expect(prepareInstanceAccount(root, target).displayName).toBe('共同配置');
+  expect(() => prepareInstanceAccount(root, { ...target, uin: '202' })).toThrow('找不到');
 });
 
 it('不同账号可并行，关闭和打开失败只释放对应账号的锁', async () => {
@@ -99,48 +99,76 @@ it('不同账号可并行，关闭和打开失败只释放对应账号的锁', a
   );
 });
 
-it('每次新建账号选择窗口独立保存配置并跳过现有自动进入设置', () => {
-  const origin = join(root, 'origin');
-  const config = {
-    autoEnter: { configId: '101', uin: '101' },
-    tencentFilesRootOverride: '/fixture/QQ',
-    settings: { webServiceAutoStart: true, appLock: { enabled: true } },
-  };
-  for (const [source, uin] of [
-    [root, '101'],
-    [origin, '202'],
-  ] as const) {
-    const accounts = join(source, 'config', 'accounts');
-    mkdirSync(accounts, { recursive: true });
-    writeFileSync(
-      join(accounts, `${uin}.json`),
-      JSON.stringify({ uin, dbKey: 'fixture-key', lastLoginAt: 1, session: { pid: 123 } }),
-    );
-  }
-  writeFileSync(join(origin, 'config.json'), JSON.stringify(config));
-  const first = prepareAccountPicker(root, origin);
-  const second = prepareAccountPicker(root, origin);
+it('迁入选择窗口独有的账号与草稿，主窗口冲突原件保留', () => {
+  const first = prepareAccountPicker();
+  const second = prepareAccountPicker();
   expect(first).not.toBe(second);
   const args = ['electron', 'app', accountPickerArg(first)];
   expect(accountPickerTarget(args)).toBe(first);
   expect(accountLaunchArgs(args)).toEqual(['app']);
   const { data } = accountPickerDirectories(root, first);
-  expect(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8'))).toEqual({
-    tencentFilesRootOverride: config.tencentFilesRootOverride,
-    settings: { appLock: { enabled: true } },
+  const put = (base: string, name: string, payload: unknown) => {
+    const path = join(base, 'config', 'accounts', name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(payload));
+    return path;
+  };
+  put(root, '101.json', { uin: '101', dbKey: 'fixture-key', displayName: '主窗口' });
+  const retained = put(data, '101.json', {
+    uin: '101',
+    dbKey: 'fixture-key',
+    displayName: '旧窗口',
+    uid: 'fixture',
+    lastLoginAt: 1,
   });
-  expect(savedInstanceAccounts(data).map(({ uin, session }) => [uin, session])).toEqual([
-    ['101', undefined],
-    ['202', undefined],
+  put(data, '202.json', {
+    uin: '202',
+    dbKey: 'fixture-key',
+    session: { pid: 123 },
+    lastLoginAt: 1,
+  });
+  put(data, '202/client-state.json', { revision: 1, values: {}, records: {}, drafts: {} });
+
+  migrateAccountStorage(root);
+  expect(savedInstanceAccounts(root)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ uin: '101', displayName: '主窗口', uid: 'fixture' }),
+      expect.objectContaining({ uin: '202' }),
+    ]),
+  );
+  expect(prepareInstanceAccount(root, { uin: '202', configId: '202' }).session).toBeUndefined();
+  expect(readFileSync(join(root, 'config', 'accounts', '202/client-state.json'), 'utf8')).toContain(
+    'drafts',
+  );
+  const receipt = readFileSync(accountStorageMigrationPath(root), 'utf8');
+  expect(JSON.parse(receipt).differences).toEqual([
+    expect.objectContaining({ configId: '101', source: retained }),
   ]);
-  rmSync(join(data, 'config', 'accounts', '202.json'));
-  expect(savedInstanceAccounts(origin)).toHaveLength(1);
-  expect(savedInstanceAccounts(accountPickerDirectories(root, second).data)).toHaveLength(2);
-  expect(JSON.parse(readFileSync(join(origin, 'config.json'), 'utf8'))).toEqual(config);
+  migrateAccountStorage(root);
+  expect(readFileSync(accountStorageMigrationPath(root), 'utf8')).toBe(receipt);
+  expect(readFileSync(retained, 'utf8')).toContain('旧窗口');
+  expect(
+    readLegacyAccountBackup(root, dirname(data).split(/[/\\]/).at(-1)!).length,
+  ).toBeGreaterThan(0);
+});
+
+it('另一个实例读取同一存储时拒绝恢复，关闭后可以恢复', async () => {
+  const first = new DesktopStorage(root);
+  const second = new DesktopStorage(root);
+  try {
+    await expect(first.maintain(async () => true)).rejects.toThrow('其他 WeQ 窗口');
+  } finally {
+    second.close();
+  }
+  try {
+    await expect(first.maintain(async () => true)).resolves.toBe(true);
+  } finally {
+    first.close();
+  }
 });
 
 it('切换到在账号选择窗口中打开的账号时可找到实际持有窗口', async () => {
-  const id = prepareAccountPicker(root, root);
+  const id = prepareAccountPicker();
   const picker = new AccountInstances(root, undefined, id);
   await picker.run(
     '101',

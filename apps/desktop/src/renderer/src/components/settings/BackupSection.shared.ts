@@ -3,6 +3,10 @@ import { client } from '../../trpc/client';
 import '../../styles/backup.css';
 export const backupApi = {
   inventory: () => client.bootstrap.backupInventory.query(),
+  revealAccountStorageMigration: () =>
+    client.bootstrap.backupRevealAccountStorageMigration.mutate(),
+  pickLegacyAccountStorage: (id: string) =>
+    client.bootstrap.backupPickLegacyAccountStorage.mutate({ id }),
   export: (input: Parameters<typeof client.bootstrap.backupExport.mutate>[0]) =>
     client.bootstrap.backupExport.mutate(input),
   pick: () => client.bootstrap.backupPick.mutate(),

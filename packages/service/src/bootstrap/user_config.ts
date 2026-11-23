@@ -1,5 +1,5 @@
 /**
- * UserConfigService — global, app-wide preferences (single instance).
+ * UserConfigService — host-wide preferences.
  *
  * Not per-account. weq is a database viewer, so "switch account" should
  * not change the UI's theme / port / etc. Per-account preference would
@@ -28,6 +28,7 @@ import {
   unlinkSync,
   existsSync,
   statSync,
+  watch,
 } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { clearDressSharedFiles } from './storage_cleanup';
@@ -71,6 +72,7 @@ import {
 } from '../common/chat_message_prewarm';
 import { generateWeqAssistantUid } from '../account/weq_assistant';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import { withSharedConfigLock } from './shared_config_lock';
 import { diffSettings, emitSettingsChanged, type SettingsChange } from '../common/settings_changes';
 import {
   configureDatabaseReadConcurrency,
@@ -1429,21 +1431,71 @@ export class UserConfigService {
   private skipAutoEnterThisStartup: boolean | undefined;
   private startupPageThisStartup: AppSettings['startupPage'] | undefined;
   private readonly logger = getLogger().child({ scope: 'user-config' });
+  private inSharedWrite = false;
 
-  constructor(platform: Pick<Platform, 'appDataRoot'>) {
+  constructor(
+    platform: Pick<Platform, 'appDataRoot'>,
+    private readonly shared = false,
+  ) {
     this.root = platform.appDataRoot();
     this.configPath = join(this.root, 'config.json');
     // 群关键词迁移先跑：它从 settings 里搬走旧键，而设置类迁移不保证原样保留
     // settings（都用 `getSettings()` 重建），跑在后面有丢掉旧规则的风险。
-    this.migrateGroupKeywordToAccounts();
-    this.runConfigMigrations();
-    try {
-      this.migrateGlobalClientPreferences();
-    } catch (error) {
-      this.logger.warn('旧全局偏好迁移失败，保留原件等待重试', logErrorContext(error));
-    }
+    this.updateShared(() => {
+      this.migrateGroupKeywordToAccounts();
+      this.runConfigMigrations();
+      try {
+        this.migrateGlobalClientPreferences();
+      } catch (error) {
+        this.logger.warn('旧全局偏好迁移失败，保留原件等待重试', logErrorContext(error));
+      }
+    });
     applyQzonePagination(this.getSettings().qzonePagination);
     configureDatabaseReadConcurrency(this.getSettings().databaseReadConcurrency);
+  }
+
+  private clearReadCache(): void {
+    this.cached = undefined;
+    this.settingsCache = undefined;
+    this.readFailure = undefined;
+  }
+
+  private updateShared<T>(apply: () => T): T {
+    if (!this.shared || this.inSharedWrite) return apply();
+    return withSharedConfigLock(this.root, () => {
+      this.clearReadCache();
+      this.inSharedWrite = true;
+      try {
+        return apply();
+      } finally {
+        this.inSharedWrite = false;
+      }
+    });
+  }
+
+  watchSharedSettings(): () => void {
+    if (!this.shared) return () => {};
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const watcher = watch(this.root, { persistent: false }, (_event, file) => {
+      if (file && file !== 'config.json') return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const previous = this.cached?.settings;
+        this.clearReadCache();
+        const change = diffSettings(previous, this.read().settings);
+        if (!change.fields.length && !change.groups.length) return;
+        const settings = this.getSettings();
+        applyQzonePagination(settings.qzonePagination);
+        configureDatabaseReadConcurrency(settings.databaseReadConcurrency);
+        emitSettingsChanged(change);
+      }, 50);
+      timer.unref();
+    });
+    watcher.on('error', (error) => this.logger.warn('跨窗口配置监听失败', logErrorContext(error)));
+    return () => {
+      clearTimeout(timer);
+      watcher.close();
+    };
   }
 
   getSharedPreference<K extends keyof SharedPreferenceGroups>(key: K): SharedPreferenceGroups[K] {
@@ -1463,9 +1515,17 @@ export class UserConfigService {
     key: K,
     patch: SharedPreferenceGroups[K],
   ): void {
+    this.updateShared(() => this.applySharedPreference(key, patch, false));
+  }
+
+  private applySharedPreference<K extends keyof SharedPreferenceGroups>(
+    key: K,
+    patch: SharedPreferenceGroups[K],
+    replace: boolean,
+  ): void {
     const settings = this.read().settings ?? {};
     const groups = settings.sharedPreferences ?? {};
-    const value = { ...groups[key], ...patch };
+    const value = replace ? structuredClone(patch) : { ...groups[key], ...patch };
     if (JSON.stringify(groups[key]) === JSON.stringify(value)) return;
     this.write({ settings: { ...settings, sharedPreferences: { ...groups, [key]: value } } });
   }
@@ -1474,16 +1534,13 @@ export class UserConfigService {
     key: K,
     value: SharedPreferenceGroups[K],
   ): void {
-    const settings = this.read().settings ?? {};
-    const groups = settings.sharedPreferences ?? {};
-    if (JSON.stringify(groups[key]) === JSON.stringify(value)) return;
-    this.write({
-      settings: { ...settings, sharedPreferences: { ...groups, [key]: structuredClone(value) } },
-    });
+    this.updateShared(() => this.applySharedPreference(key, value, true));
   }
 
   migrateSharedAccountPreferences(configId: string): void {
-    migrateSharedPreferences(this, this.root, this.cacheBaseDir(), configId);
+    this.updateShared(() =>
+      migrateSharedPreferences(this, this.root, this.cacheBaseDir(), configId),
+    );
   }
 
   sharedAppearanceDir(): string {
@@ -1898,17 +1955,21 @@ export class UserConfigService {
 
   /** 旧全局配置没有账号字段。只有已保存账号唯一时才可自动归属。 */
   oneBotConfigOnAccountOpen(uin: string): OneBotConfig | undefined {
-    const { legacy, ...accounts } = this.getSettings().oneBotByUin;
-    if (accounts[uin] || !legacy) return accounts[uin];
+    return this.updateShared(() => {
+      const { legacy, ...accounts } = this.getSettings().oneBotByUin;
+      if (accounts[uin] || !legacy) return accounts[uin];
 
-    const savedUins = new Set(this.listAccountConfigs().map((account) => account.uin));
-    if (savedUins.size !== 1 || !savedUins.has(uin)) return undefined;
+      const savedUins = new Set(this.listAccountConfigs().map((account) => account.uin));
+      if (savedUins.size !== 1 || !savedUins.has(uin)) return undefined;
 
-    return this.setSettings({ oneBotByUin: { ...accounts, [uin]: legacy } }).oneBotByUin[uin];
+      return this.setSettings({ oneBotByUin: { ...accounts, [uin]: legacy } }).oneBotByUin[uin];
+    });
   }
 
   saveAccountOneBotConfig(uin: string, config: OneBotConfig): void {
-    this.setSettings({ oneBotByUin: { ...this.getSettings().oneBotByUin, [uin]: config } });
+    this.updateShared(() =>
+      this.setSettings({ oneBotByUin: { ...this.getSettings().oneBotByUin, [uin]: config } }),
+    );
   }
 
   deleteAccountConfig(configId: string): void {
@@ -1996,13 +2057,15 @@ export class UserConfigService {
   }
 
   reload(): void {
-    this.cached = undefined;
-    this.settingsCache = undefined;
-    this.readFailure = undefined;
+    this.clearReadCache();
     emitSettingsChanged();
   }
 
   write(patch: Partial<UserConfig>, settingsChange?: SettingsChange): UserConfig {
+    return this.updateShared(() => this.writeConfig(patch, settingsChange));
+  }
+
+  private writeConfig(patch: Partial<UserConfig>, settingsChange?: SettingsChange): UserConfig {
     const current = this.read();
     if (this.readFailure)
       throw new Error('配置文件读取失败，已保留原件并阻止覆盖；请修复文件后重新加载。', {
@@ -2276,6 +2339,10 @@ export class UserConfigService {
   }
 
   setSettings(patch: DeepPartial<AppSettings> & LegacyComposerFontSettings): AppSettings {
+    return this.updateShared(() => this.applySettings(patch));
+  }
+
+  private applySettings(patch: DeepPartial<AppSettings> & LegacyComposerFontSettings): AppSettings {
     const current = this.getSettings();
     const resources: LocalModelResources = {
       voice:

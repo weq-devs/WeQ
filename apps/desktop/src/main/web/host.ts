@@ -12,6 +12,7 @@ import { mkdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { HostBridge, SaveTarget } from '@weq/service';
+import { webAccountRoute } from './account_route';
 
 export interface WebHostOptions {
   /** Directory that receives exports/saves. Created if missing. */
@@ -26,7 +27,7 @@ type Download =
   | { kind: 'archive'; files: readonly { path: string; name: string }[]; name: string };
 
 /** Pending downloads, keyed by the id handed to the client. */
-const downloads = new Map<string, Download & { expiresAt: number }>();
+const downloads = new Map<string, Download & { expiresAt: number; route: string }>();
 const DOWNLOAD_TTL_MS = 30 * 60 * 1000;
 const MAX_DOWNLOAD_HANDLES = 4096;
 
@@ -38,7 +39,7 @@ function registerDownload(download: Download): string {
     if (first !== undefined) downloads.delete(first);
   }
   const id = randomUUID();
-  downloads.set(id, { ...download, expiresAt: now + DOWNLOAD_TTL_MS });
+  downloads.set(id, { ...download, expiresAt: now + DOWNLOAD_TTL_MS, route: webAccountRoute() });
   return id;
 }
 
@@ -48,7 +49,7 @@ export function lookupDownload(id: string) {
     downloads.delete(id);
     return undefined;
   }
-  return entry;
+  return entry?.route === webAccountRoute() ? entry : undefined;
 }
 
 export function createWebHost({ exportDir, version, renderer }: WebHostOptions): HostBridge {
@@ -57,10 +58,12 @@ export function createWebHost({ exportDir, version, renderer }: WebHostOptions):
   return {
     exportRoot: exportDir,
     registerDownload(path, name, kind) {
-      return { url: `/_download/${registerDownload({ path, name, kind })}` };
+      return { url: `${webAccountRoute()}/_download/${registerDownload({ path, name, kind })}` };
     },
     registerArchiveDownload(files, name) {
-      return { url: `/_download/${registerDownload({ files, name, kind: 'archive' })}` };
+      return {
+        url: `${webAccountRoute()}/_download/${registerDownload({ files, name, kind: 'archive' })}`,
+      };
     },
     canReveal: false,
     // Web 的进程生命周期由部署方管理，不注册桌面登录项。
@@ -108,7 +111,7 @@ export function createWebHost({ exportDir, version, renderer }: WebHostOptions):
 
     async openHtmlReport(path) {
       const id = registerDownload({ path, name: basename(path), kind: 'file' });
-      return { url: `/_download/${id}` };
+      return { url: `${webAccountRoute()}/_download/${id}` };
     },
 
     async renderHtmlToPdf(html) {

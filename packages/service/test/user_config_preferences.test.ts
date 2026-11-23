@@ -5,6 +5,27 @@ import { UserConfigService, DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_c
 import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/backup_settings';
 import { configFixture as fixture } from './support/user_config';
 
+it('账号窗口在共享配置中接续不同字段的写入并收到外部更新', async () => {
+  const { platform } = fixture({ settings: { home: { showGreeting: true, showTags: true } } });
+  const a = new UserConfigService(platform, true);
+  const b = new UserConfigService(platform, true);
+  const stop = a.watchSharedSettings();
+  try {
+    a.getSettings();
+    b.getSettings();
+    a.setSettings({ home: { showGreeting: false } });
+    b.setSettings({ home: { showTags: false } });
+    await expect
+      .poll(() => a.getSettings().home)
+      .toMatchObject({
+        showGreeting: false,
+        showTags: false,
+      });
+  } finally {
+    stop();
+  }
+});
+
 it('桌面与 Remote 的图片加载来源分别持久化，旧设置不自动开启手机直取', () => {
   const f = fixture({ settings: { preferCdn: true } });
   expect(f.open().getSettings()).toMatchObject({ preferCdn: true, preferRemoteCdn: false });

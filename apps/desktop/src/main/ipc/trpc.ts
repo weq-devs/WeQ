@@ -28,6 +28,18 @@ const t = initTRPC.context<RpcContext>().create({
 });
 
 export const router = t.router;
+const accountWindowOnly = new Set([
+  'bootstrap.openAccount',
+  'bootstrap.openStaticAccount',
+  'bootstrap.closeAccount',
+  'bootstrap.deleteAccountConfig',
+  'bootstrap.desktopStartup',
+  'bootstrap.setAutoEnter',
+  'bootstrap.clearAutoEnter',
+  'bootstrap.applyBackupLive',
+]);
+const hostAccountAdmin =
+  /^(?:remote\.|wonderfulTools\.|dbRepair\.|bootstrap\.(?:readConfig|listAccounts|listAccountConfigs|resolveQqPid|probeOnline|dbFileSizes|ntDataSizes|accountDirSizeProgress|testDatabaseKey|verifyAccountKey|fetchAccount|quickLogin|qrLogin|rebuildAccount|backup(?:Export|Inventory|Pick|BeginUpload|UploadChunk|FinishUpload|Prepare|Stage|Defaults|Apply|Cancel)|getMcp|setMcp|regenerateMcp|listMcpAgentTargets|installMcpToAgents))/;
 export const procedure = t.procedure.use(({ ctx, next, path, type, rawInput }) =>
   logRequest(
     'trpc',
@@ -35,6 +47,10 @@ export const procedure = t.procedure.use(({ ctx, next, path, type, rawInput }) =
     type,
     async () => {
       ctx.authorize?.();
+      if (ctx.host?.accountScoped && accountWindowOnly.has(path))
+        throw new TRPCError({ code: 'FORBIDDEN', message: '请通过账号选择页切换或关闭网页会话。' });
+      if (ctx.host?.accountScoped && ctx.host.remoteClient && hostAccountAdmin.test(path))
+        throw new TRPCError({ code: 'FORBIDDEN', message: '此功能由 WeQ 桌面管理。' });
       if (ctx.host?.remoteClient && remoteProcedureUnavailable(path, rawInput))
         throw new TRPCError({ code: 'FORBIDDEN', message: REMOTE_UNSUPPORTED_MESSAGE });
       const invoke = () =>

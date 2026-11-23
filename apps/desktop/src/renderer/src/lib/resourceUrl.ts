@@ -80,7 +80,12 @@ export function interactiveMediaUrl(src: string): string {
     if (!['weq-media:', 'weq-avatar:'].includes(url.protocol) && !localPath) return src;
     url.searchParams.set('intent', 'interactive');
     if (IS_WEB) url.searchParams.set('cid', networkClientId);
-    return src.startsWith('/') ? `${url.pathname}${url.search}` : url.href;
+    const path = `${url.pathname}${url.search}`;
+    return src.startsWith('/')
+      ? remoteCachedResource(path)
+      : localPath
+        ? new URL(remoteCachedResource(path), base).href
+        : url.href;
   } catch {
     return src;
   }

@@ -24,6 +24,7 @@ import { AccountQqSync } from '../qq_sync/account';
 import { GroupReactionWatch } from '../qq_sync/group_reaction_watch';
 import { coalesceLiveDbWatch, createLiveMessageObservers } from '../qq_sync/live_db_watch';
 import { ensureQqSyncProxy, isQqSyncProxyEnabled } from '../qq_sync/runtime';
+import { readAccountQqSync } from '../qq_sync/preferences';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { onSettingsChanged } from '@weq/service/settings-changes';
@@ -68,6 +69,7 @@ import {
   type Platform,
 } from '@weq/platform';
 import { startMcpServer, stopMcpServer } from '../mcp/server';
+import { desktopServiceCommand, hasDesktopServices } from '../desktop_services/host';
 import { botRuntime } from '../bot_runtime';
 import { resolveOneBotAppid } from '../bot_runtime/appid';
 import { watchObservedMessages } from '../bot_runtime/observed_messages';
@@ -1759,7 +1761,10 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
 
   const linkPreview = new LinkPreviewService(userConfig);
   bootstrapCacheRoot = userConfig.cacheBaseDir();
-  const apiUsage = new TokenUsageStore(join(userConfig.cacheDir('api_usage'), 'global.json'));
+  const apiUsage = new TokenUsageStore(
+    join(userConfig.cacheDir('api_usage'), 'global.json'),
+    hostRoot !== undefined,
+  );
   const localModels = createLocalModelResources(platform, userConfig);
 
   const bootstrap: BootstrapServices = {
@@ -1843,21 +1848,16 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
    * `applyMcp`。失败只记日志 —— 打不开账号不该因为 MCP 端口被占而失败。
    */
   const startConfiguredMcp = (): void => {
+    if (hasDesktopServices()) return;
     const mcp = userConfig.getSetting('mcp');
     if (!mcp.enabled || !mcp.token) return;
-    startMcpServer({ port: mcp.port, token: mcp.token })
-      .then((boundPort) => {
-        // Port fallback may have moved us off a squatted port; persist the
-        // real one so the UI / client config stay in sync.
-        if (boundPort !== mcp.port) userConfig.setSettings({ mcp: { port: boundPort } });
-      })
-      .catch((error) => {
-        logger.error('failed to start mcp server on account open', {
-          event: 'mcp-start-failed',
-          port: mcp.port,
-          ...logErrorContext(error),
-        });
+    startMcpServer({ port: mcp.port, token: mcp.token }).catch((error) => {
+      logger.error('failed to start mcp server on account open', {
+        event: 'mcp-start-failed',
+        port: mcp.port,
+        ...logErrorContext(error),
       });
+    });
   };
 
   const ctx: AppContext = {
@@ -2120,7 +2120,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             userConfig,
             'antiRecall',
             join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
-            ['targets', 'notifyTargets'],
+            ['enabled', 'method', 'mode', 'targets', 'notifyTargets'],
           ),
         },
       );
@@ -2199,11 +2199,11 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         session,
         nt: platform.native.ntHelper,
         proxyEnabled: () => isQqSyncProxyEnabled(qqSyncRoot),
-        enabled: () => this.account === session && userConfig.getSetting('qqClientSyncEnabled'),
+        enabled: () => this.account === session && readAccountQqSync(this).enabled,
         liveEnabled: () =>
           this.account === session &&
           userConfig.getSetting('realtimeEnabled') &&
-          userConfig.getSetting('qqLiveMessagesEnabled'),
+          readAccountQqSync(this).liveMessages,
         allowLiveMessage: (row) => !deletedMsgs.isHiddenCached(row),
         onLiveMessages: (messages) => {
           if (this.account !== session) return;
@@ -3239,7 +3239,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             userConfig,
             'antiRecall',
             join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
-            ['targets', 'notifyTargets'],
+            ['enabled', 'method', 'mode', 'targets', 'notifyTargets'],
           ),
         },
       );
@@ -4075,6 +4075,10 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       });
     },
     async applyMcp(config: McpServerConfig): Promise<void> {
+      if (hasDesktopServices()) {
+        await desktopServiceCommand('mcp.configure', undefined, () => undefined);
+        return;
+      }
       // Only live accounts host the MCP server. With no account open we just
       // persist (handled by the caller) and start lazily on next account open.
       if (!this.account || !this.services) {
@@ -4088,10 +4092,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         port: config.port,
       });
       if (config.enabled && config.token) {
-        const boundPort = await startMcpServer({ port: config.port, token: config.token });
-        // Port fallback may have moved us off a squatted port; persist the real
-        // one so getMcpStatus / the client config snippet report what's live.
-        if (boundPort !== config.port) userConfig.setSettings({ mcp: { port: boundPort } });
+        await startMcpServer({ port: config.port, token: config.token });
       } else {
         await stopMcpServer();
       }

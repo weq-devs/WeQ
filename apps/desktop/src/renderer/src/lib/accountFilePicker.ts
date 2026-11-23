@@ -1,3 +1,4 @@
+import { accountGatewayPath } from './accountGateway';
 import { client } from '../trpc/client';
 import { IS_WEB } from './target.shared';
 import { useViewState } from '../state/view';
@@ -142,17 +143,20 @@ async function stageBinaryChunk(
   binding: FileBinding,
   signal?: AbortSignal,
 ) {
-  const response = await fetch(PICKED_FILE_UPLOAD_PREFIX + encodeURIComponent(id), {
-    method: 'PUT',
-    body: part,
-    signal,
-    headers: {
-      'Content-Type': 'application/octet-stream',
-      'X-WeQ-Upload-Offset': String(offset),
-      'X-WeQ-Upload-Account': encodeURIComponent(binding.expectedAccountUin),
-      'X-WeQ-Upload-Source': encodeURIComponent(binding.expectedAccountConfigId),
+  const response = await fetch(
+    accountGatewayPath(PICKED_FILE_UPLOAD_PREFIX + encodeURIComponent(id)),
+    {
+      method: 'PUT',
+      body: part,
+      signal,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-WeQ-Upload-Offset': String(offset),
+        'X-WeQ-Upload-Account': encodeURIComponent(binding.expectedAccountUin),
+        'X-WeQ-Upload-Source': encodeURIComponent(binding.expectedAccountConfigId),
+      },
     },
-  });
+  );
   const data = await response.json().catch(() => undefined);
   if (!response.ok) throw new Error(data?.error ?? `附件分段上传失败（HTTP ${response.status}）`);
   return { offset: data?.offset };

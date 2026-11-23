@@ -14,7 +14,12 @@ import { preparedStartupDocument } from './startup_assets';
 
 export type WebAuth = Pick<AuthGate, 'login' | 'logout' | 'isAuthed' | 'watchSession'> & {
   remoteClient?: boolean;
+  accountIds?: (request: IncomingMessage) => readonly string[];
+  identityKey?: (request: IncomingMessage) => string | null;
+  accountScoped?: boolean;
 };
+
+export type WebEntry = Pick<WebApplication, 'handle' | 'attach' | 'close' | 'stableWebRelease'>;
 
 export interface WebCoreConfig {
   publicDir: string;
@@ -41,7 +46,10 @@ export class WebCore {
   entry(auth: WebAuth): WebApplication {
     if (!this.assetsInstalled)
       throw new Error('Web 页面尚未构建，请运行 pnpm --filter @weq/web exec vite build。');
-    const host = auth.remoteClient ? { ...this.host, remoteClient: true } : this.host;
+    const host =
+      auth.remoteClient || auth.accountScoped
+        ? { ...this.host, remoteClient: auth.remoteClient, accountScoped: auth.accountScoped }
+        : this.host;
     return new WebApplication(this.config, host, auth);
   }
 }

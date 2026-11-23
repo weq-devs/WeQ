@@ -1,3 +1,4 @@
+import { accountGatewayPath } from '../lib/accountGateway';
 import { ToolbarLabel } from './CompactToolbar';
 import { observeCompactToolbar } from './CompactToolbar.shared';
 import { FormSelect } from './FormSelect';
@@ -826,7 +827,10 @@ export function CapturePanel({
           if (result.downloadId && canPresent) {
             // Web 端：把文件从服务端拉下来（浏览器直接下载）。
             const a = document.createElement('a');
-            a.href = resourceForRenderDocument(`/_download/${result.downloadId}`, document);
+            a.href = resourceForRenderDocument(
+              accountGatewayPath(`/_download/${result.downloadId}`),
+              document,
+            );
             a.download = result.path ? result.path.split(/[\\/]/).pop() || '' : '';
             document.body.appendChild(a);
             a.click();

@@ -338,6 +338,41 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         备份不加密，可能包含 API 密钥、账号数据库密钥、克隆对话和记忆。请妥善保管；不包含 QQ
         原始数据库、漫游缓存或本机应用锁密钥。
       </p>
+      {inventory?.accountStorageMigration && (
+        <Card
+          title="账号窗口资料迁移"
+          desc={`已处理 ${inventory.accountStorageMigration.imported} 份账号资料，保留 ${inventory.accountStorageMigration.differences} 项差异及其原件位置。`}
+          action={
+            <button
+              type="button"
+              className="weq-set-btn"
+              disabled={Boolean(busy)}
+              onClick={() =>
+                void act('正在打开迁移记录', () => api.revealAccountStorageMigration())
+              }
+            >
+              <FolderOpen size={14} />
+              查看迁移记录
+            </button>
+          }
+        >
+          {inventory.accountStorageMigration.sources.map((legacy) => (
+            <button
+              type="button"
+              className="weq-set-btn"
+              key={legacy.id}
+              disabled={Boolean(busy)}
+              onClick={() =>
+                void act('正在读取旧窗口资料', () =>
+                  accept(() => api.pickLegacyAccountStorage(legacy.id)),
+                )
+              }
+            >
+              <ArchiveRestore size={14} /> 恢复 {legacy.label}
+            </button>
+          ))}
+        </Card>
+      )}
       {error ? (
         <p className="weq-backup-error" role="alert">
           {error}

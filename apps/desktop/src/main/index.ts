@@ -71,9 +71,6 @@ import { handleRecallNotification } from './recall_notify';
 import { handleMailNotification } from './mail_notify';
 import { startAutomaticUpdateChecks, installUpdateActions } from './update/updater';
 import { stopMcpServer } from './mcp/server';
-import { remoteRuntime } from './remote/runtime';
-import { RemoteWebGateway } from './remote/web_gateway';
-import { desktopWebRuntime } from './web/runtime';
 import { WebCore } from './web/application';
 import { registerWeqAssistantIpc } from './weq_assistant/ipc';
 import { assistantResourceServer } from './weq_assistant/server';
@@ -112,7 +109,7 @@ import {
   installPerformanceMonitor,
   type PerformanceMonitor,
 } from '@weq/service/performance';
-import { getBackupContext } from './context/backup_context';
+import { getBackupContext, initBackupContext } from './context/backup_context';
 import { createDesktopCollector } from './performance_monitor';
 import { performanceDatabaseDetails } from './performance_database';
 import { databaseCheckups } from './db_checkup';
@@ -136,6 +133,8 @@ import {
   getLogDir,
   getLogger,
   configureDevelopmentLogging,
+  hasPendingWeqBackupRestore,
+  UserConfigService,
   setHost,
   type ExportSavePolicy,
   type WindowCloseBehavior,
@@ -167,9 +166,18 @@ import {
   instanceTarget,
   prepareAccountPicker,
   prepareInstanceAccount,
-  savedInstanceAccounts,
   accountLaunchArgs,
 } from './account_instances';
+import { accountStorageMigrationPath, migrateAccountStorage } from './account_storage_migration';
+import { DesktopStorage, setDesktopStorage } from './desktop_storage';
+import { registerAccountWorker, savedAccountTarget } from './desktop_services/accounts';
+import { DesktopServiceRegistry } from './desktop_services/control';
+import {
+  connectDesktopServices,
+  DESKTOP_SERVICE_ARG,
+  desktopWebStatus,
+  runDesktopServices,
+} from './desktop_services/host';
 import { setAccountInstanceScope } from './account_instance_scope';
 import type { AccountInstanceInfo } from '../shared/account_instances';
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -195,6 +203,9 @@ function relaunchForOzoneBackend(): void {
 relaunchForOzoneBackend();
 
 const defaultDataRoot = weqAppDataRoot();
+const defaultElectronDataRoot = app.getPath('userData');
+const serviceProcess = process.argv.includes(DESKTOP_SERVICE_ARG);
+const serviceRegistry = new DesktopServiceRegistry(defaultDataRoot);
 const accountTarget = instanceTarget(process.argv);
 const pickerId = accountPickerTarget(process.argv);
 const focusTarget = focusAccountTarget(process.argv);
@@ -205,7 +216,12 @@ const accountDirectories = accountTarget
   ? instanceDirectories(defaultDataRoot, accountTarget.uin)
   : pickerDirectories;
 const isIndependentInstance = Boolean(accountDirectories);
-if (accountDirectories) {
+if (serviceProcess) {
+  const serviceProfile = join(serviceRegistry.root, 'electron');
+  fs.mkdirSync(serviceProfile, { recursive: true, mode: 0o700 });
+  app.setPath('userData', serviceProfile);
+  app.setPath('sessionData', serviceProfile);
+} else if (accountDirectories) {
   fs.mkdirSync(accountDirectories.userData, { recursive: true, mode: 0o700 });
   app.setPath('userData', accountDirectories.userData);
   app.setPath('sessionData', accountDirectories.userData);
@@ -218,7 +234,9 @@ const accountInstances = new AccountInstances(
 let instanceName: string | undefined;
 
 function launchAccountProcess(...instanceArgs: string[]): Promise<void> {
-  const args = accountLaunchArgs(process.argv).filter((value) => value !== AUTOSTART_ARG);
+  const args = accountLaunchArgs(process.argv).filter(
+    (value) => value !== AUTOSTART_ARG && value !== DESKTOP_SERVICE_ARG,
+  );
   const appImage = process.platform === 'linux' ? process.env.APPIMAGE : undefined;
   const env = { ...process.env };
   if (appImage) {
@@ -327,8 +345,7 @@ function openMainWindow(): void {
 }
 
 async function openAccountPicker(): Promise<void> {
-  const source = accountDirectories?.data ?? defaultDataRoot;
-  await launchAccountProcess(accountPickerArg(prepareAccountPicker(defaultDataRoot, source)));
+  await launchAccountProcess(accountPickerArg(prepareAccountPicker()));
 }
 
 function openPickerFromMenu(): void {
@@ -936,8 +953,9 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  if (!focusTarget) guardStorageCleanupStartup();
+  if (!focusTarget && !serviceProcess) guardStorageCleanupStartup();
   app.on('second-instance', (_event, argv) => {
+    if (serviceProcess) return;
     const focus = focusAccountTarget(argv);
     if (focus && !accountInstances.owns(focus)) return;
     if (
@@ -957,18 +975,65 @@ void app.whenReady().then(async () => {
     arch: process.arch,
   });
   if (!hasSingleInstanceLock) return;
+  const publicDir = app.isPackaged
+    ? join(process.resourcesPath, 'remote-web')
+    : join(app.getAppPath(), '../web/dist/public');
+  const developmentUrl = is.dev ? process.env.WEQ_DEV_WEB_URL : undefined;
+  const remoteHelper =
+    process.env.WEQ_REMOTE_HELPER ??
+    join(
+      app.isPackaged ? process.resourcesPath : app.getAppPath(),
+      app.isPackaged
+        ? `remote-network/weq-remote-network${process.platform === 'win32' ? '.exe' : ''}`
+        : '../../tools/remote-network/weq-remote-network',
+    );
+  if (serviceProcess) {
+    if (process.platform === 'darwin') app.dock?.hide();
+    try {
+      const config = new UserConfigService({ appDataRoot: () => defaultDataRoot }, true);
+      app.once('will-quit', config.watchSharedSettings());
+      const stopServices = await runDesktopServices({
+        dataRoot: defaultDataRoot,
+        config,
+        publicDir,
+        developmentUrl,
+        remoteDirectory: join(defaultElectronDataRoot, 'remote-network'),
+        remoteHelper,
+        quit: () => app.quit(),
+      });
+      app.once('will-quit', stopServices);
+    } catch (error) {
+      logger.error('桌面服务启动失败', { error: String(error) });
+      app.exit(1);
+    }
+    return;
+  }
   if (focusTarget) {
     app.exit(0);
+    return;
+  }
+  try {
+    const storage = new DesktopStorage(defaultDataRoot);
+    app.once('quit', () => storage.close());
+    const migrate = !fs.existsSync(accountStorageMigrationPath(defaultDataRoot));
+    if (migrate || hasPendingWeqBackupRestore(defaultDataRoot)) {
+      storage.initialize(() => {
+        if (migrate) migrateAccountStorage(defaultDataRoot);
+        initBackupContext(defaultDataRoot, true);
+      });
+    } else {
+      initBackupContext(defaultDataRoot, true);
+    }
+    setDesktopStorage(storage);
+  } catch (error) {
+    dialog.showErrorBox('无法打开 WeQ 数据', String(error));
+    app.quit();
     return;
   }
   if (accountTarget) {
     try {
       accountInstances.claim(accountTarget.uin);
-      const record = prepareInstanceAccount(
-        defaultDataRoot,
-        accountTarget,
-        pickerDirectories?.data,
-      );
+      const record = prepareInstanceAccount(defaultDataRoot, accountTarget);
       instanceName = `WeQ · ${record.displayName || record.uin}`;
     } catch (error) {
       if (error instanceof AccountInstanceBusy) {
@@ -1007,7 +1072,17 @@ void app.whenReady().then(async () => {
 
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
-  setHost(electronHost);
+  setHost(
+    isIndependentInstance
+      ? {
+          ...electronHost,
+          canAutostart: false,
+          startupReadOnly: true,
+          getAutostart: async () => ({ ...(await electronHost.getAutostart!()), readOnly: true }),
+          setAutostart: undefined,
+        }
+      : electronHost,
+  );
   const stopNetwork = installDesktopNetwork((level, host, error) =>
     logger[level](level === 'debug' ? 'GitHub 加速站请求失败' : 'HTTPS 请求失败', {
       scope: 'chromium',
@@ -1025,7 +1100,7 @@ void app.whenReady().then(async () => {
       });
     });
   if (isQuitting) return;
-  initAppContext(accountDirectories?.data, defaultDataRoot);
+  initAppContext(defaultDataRoot, defaultDataRoot);
   void import('./data_saver')
     .then(async ({ refreshTransferPolicy }) => {
       await refreshTransferPolicy();
@@ -1033,6 +1108,7 @@ void app.whenReady().then(async () => {
     })
     .catch(() => undefined);
   const userConfig = getAppContext().bootstrap?.userConfig;
+  if (userConfig) app.once('will-quit', userConfig.watchSharedSettings());
   const updateDataRoot = userConfig?.appDataRoot() ?? app.getPath('userData');
   configureReleaseFeeds(updateDataRoot);
   app.once(
@@ -1084,54 +1160,59 @@ void app.whenReady().then(async () => {
   }
   if (userConfig) {
     const webCore = new WebCore({
-      developmentUrl: is.dev ? process.env.WEQ_DEV_WEB_URL : undefined,
-      publicDir: app.isPackaged
-        ? join(process.resourcesPath, 'remote-web')
-        : join(app.getAppPath(), '../web/dist/public'),
+      developmentUrl,
+      publicDir,
       exportDir: join(app.getPath('userData'), 'web-exports'),
       renderer: electronHost,
       version: app.getVersion(),
       router: appRouter,
       groupVideoSession: (id) => currentGroupCall(id)?.session,
     });
-    desktopWebRuntime.configure({
-      core: webCore,
-      getAutoStart: () => userConfig.getSettings().webServiceAutoStart,
-      setAutoStart: (enabled) => {
-        userConfig.setSettings({ webServiceAutoStart: enabled });
-      },
-    });
-    remoteRuntime.configure({
-      helper:
-        process.env.WEQ_REMOTE_HELPER ||
-        (app.isPackaged
-          ? join(
-              process.resourcesPath,
-              'remote-network',
-              process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
-            )
-          : join(
-              app.getAppPath(),
-              '../../tools/remote-network',
-              process.platform === 'win32' ? 'weq-remote-network.exe' : 'weq-remote-network',
-            )),
-      stateDir: join(app.getPath('userData'), 'remote-network'),
-      web: () => new RemoteWebGateway(remoteRuntime.pairing, (auth) => webCore.entry(auth)),
-      onRequest: openMainWindow,
-    });
-    if (!isIndependentInstance) {
-      void remoteRuntime.resume().catch((error: unknown) =>
-        logger.warn('远程连接恢复失败', {
-          event: 'remote-resume-failed',
-          error: error instanceof Error ? error.message : '未知错误',
-        }),
-      );
-      if (desktopWebRuntime.status().autoStart) {
-        void desktopWebRuntime
-          .start()
-          .catch(() => logger.warn('Web 服务自动启动失败，可在设置中重试。'));
-      }
+    connectDesktopServices(serviceRegistry, () => launchAccountProcess(DESKTOP_SERVICE_ARG));
+    if (webCore.assetsInstalled) {
+      void registerAccountWorker({
+        registry: serviceRegistry,
+        core: webCore,
+        currentAccount: () => {
+          const { account, services } = getAppContext();
+          const configId = services?.accountConfig.getConfigId();
+          return account && configId
+            ? { session: account, uin: String(account.context.uin), configId }
+            : null;
+        },
+        watchClosing: (callback) => {
+          accountEventBus.on('closing', callback);
+          return () => {
+            accountEventBus.off('closing', callback);
+          };
+        },
+        launch: (configId) =>
+          launchAccountProcess(instanceArg(savedAccountTarget(defaultDataRoot, configId))),
+        assignedUin: accountTarget?.uin,
+        openHere: async (configId) => {
+          const target = savedAccountTarget(defaultDataRoot, configId);
+          if (accountTarget?.uin !== target.uin || getAppContext().account)
+            throw new Error('此窗口已打开账号或所属账号已变化。');
+          const result = await openStartupAccount(
+            userConfig,
+            appRouter.createCaller({}).bootstrap,
+            process.platform === 'darwin',
+            configId,
+          );
+          if (!result.opened) throw new Error(result.error ?? '请在账号窗口完成登录。');
+          openMainWindow();
+          getMainWindow()?.webContents.reload();
+        },
+        reveal: openMainWindow,
+      })
+        .then((stopWorker) => {
+          if (isQuitting) stopWorker();
+          else app.once('will-quit', stopWorker);
+        })
+        .catch((error: unknown) => logger.warn('桌面账号服务初始化失败', { error: String(error) }));
     }
+    if (!isIndependentInstance)
+      void desktopWebStatus().catch(() => logger.warn('桌面服务自动启动失败，可在设置中重试。'));
   }
   const logDirectory = getLogDir();
   if (logDirectory) {
@@ -1195,16 +1276,7 @@ void app.whenReady().then(async () => {
   registerEditContextMenu();
   registerCallVideoIpc(() => getMainWindow()?.webContents);
   const visibleAccountConfigs = () =>
-    new Map(
-      [
-        ...(accountTarget
-          ? savedInstanceAccounts(defaultDataRoot).filter(
-              (record) => record.uin !== accountTarget.uin,
-            )
-          : []),
-        ...(userConfig?.listAccountConfigs() ?? []),
-      ].map((record) => [record.configId, record]),
-    );
+    new Map((userConfig?.listAccountConfigs() ?? []).map((record) => [record.configId, record]));
   const assertAccountMenuSender = (event: Electron.IpcMainInvokeEvent) => {
     if (
       event.sender !== getMainWindow()?.webContents ||
@@ -1241,10 +1313,7 @@ void app.whenReady().then(async () => {
       openMainWindow();
       return;
     }
-    await launchAccountProcess(
-      instanceArg(record),
-      ...(pickerId && !accountTarget ? [accountPickerArg(pickerId)] : []),
-    );
+    await launchAccountProcess(instanceArg(record));
   });
   ipcMain.handle('account-instances:new-window', async (event) => {
     assertAccountMenuSender(event);
@@ -1283,7 +1352,7 @@ void app.whenReady().then(async () => {
   });
   buildTray();
   // 先安排后台任务，以同一启动目标确定窗口尺寸；不等待数据库打开。
-  if (userConfig && !getAppContext().nativeError && !isQuitting)
+  if (userConfig && !getAppContext().nativeError && !isQuitting && (!pickerId || accountTarget))
     void desktopStartupAccount.start(() =>
       openStartupAccount(
         userConfig,
@@ -1428,7 +1497,7 @@ app.on('will-quit', (event) => {
     try {
       const ctx = getAppContext();
       ctx.bootstrap?.enhancements.updates.stop();
-      ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
+      if (!isIndependentInstance) ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
     } catch (error) {
       logger.warn('failed to save login exit state', {
         event: 'login-exit-state-failed',
@@ -1453,8 +1522,6 @@ app.on('will-quit', (event) => {
     tray = null;
   }
   void assistantResourceServer.shutdown();
-  remoteRuntime.stop();
-  desktopWebRuntime.stop();
   void stopMcpServer();
   void disposeExternalMcp();
   // 提权抓包子进程是 root 的 —— 退出时主动送走（子进程那边也会在环回连接断开时

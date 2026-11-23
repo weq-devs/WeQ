@@ -977,7 +977,9 @@ function prepare(
           : file.data;
       if (setting === 'intent.json' || setting === 'anti-recall.json') {
         const keys =
-          setting === 'intent.json' ? ['conversationOverrides'] : ['targets', 'notifyTargets'];
+          setting === 'intent.json'
+            ? ['conversationOverrides']
+            : ['enabled', 'method', 'mode', 'targets', 'notifyTargets'];
         data = Buffer.from(
           JSON.stringify(
             Object.fromEntries(

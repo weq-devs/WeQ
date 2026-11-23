@@ -8,6 +8,11 @@ import { remoteDeviceInfoSchema, remoteConnectionInfoSchema } from '../../shared
 const savedSchema = z
   .object({
     enabled: z.boolean(),
+    defaultAccountConfigId: z
+      .string()
+      .regex(/^[a-z\d][a-z\d_-]{0,127}$/i)
+      .nullable()
+      .optional(),
     mode: remoteConnectionMode,
     tailscaleEnabled: z.boolean().optional(),
     networkIdentity: z
@@ -23,6 +28,10 @@ const savedSchema = z
           approvedAt: z.number().finite(),
           lastSeenAt: z.number().finite().nullable(),
           scope: z.enum(['status:read', 'web:access']),
+          accountConfigIds: z
+            .array(z.string().regex(/^[a-z\d][a-z\d_-]{0,127}$/i))
+            .max(256)
+            .optional(),
           deviceInfo: remoteDeviceInfoSchema.optional(),
           lastConnection: remoteConnectionInfoSchema.optional(),
         }),

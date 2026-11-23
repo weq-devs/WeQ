@@ -82,7 +82,8 @@ export function LoginPanel({
   const [autoChoice, setAutoChoice] = useState<{ key: string; value: boolean } | null>(null);
   const choiceKey = `${mode}:${selected?.key ?? ''}`;
   const autoEnter =
-    autoChoice?.key === choiceKey ? autoChoice.value : sameTarget(autoTarget, selected);
+    !settings.data?.startupReadOnly &&
+    (autoChoice?.key === choiceKey ? autoChoice.value : sameTarget(autoTarget, selected));
   const working = busy || disabled || autoAttach.isLoading;
   const [error, setError] = useState('');
   const [keyDetails, setKeyDetails] = useState(false);
@@ -525,15 +526,17 @@ export function LoginPanel({
 
           {/* 开关复用设置页的 Toggle：启动页是用户第一眼，控件形态与设置页一致。 */}
           <div className="weq-login-options">
-            <div className="weq-login-option">
-              <span className="weq-login-option-label">下次打开自动进入该账号</span>
-              <Toggle
-                checked={autoEnter}
-                disabled={working}
-                onChange={(next) => setAutoChoice({ key: choiceKey, value: next })}
-                label="下次打开自动进入该账号"
-              />
-            </div>
+            {!settings.data?.startupReadOnly && (
+              <div className="weq-login-option">
+                <span className="weq-login-option-label">下次打开自动进入该账号</span>
+                <Toggle
+                  checked={autoEnter}
+                  disabled={working}
+                  onChange={(next) => setAutoChoice({ key: choiceKey, value: next })}
+                  label="下次打开自动进入该账号"
+                />
+              </div>
+            )}
             <div className="weq-login-option">
               <span className="weq-login-option-label" title={fullModeHint}>
                 启用 QQ 在线能力

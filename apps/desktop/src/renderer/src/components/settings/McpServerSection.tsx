@@ -38,7 +38,8 @@ import {
   Save,
   Square,
 } from 'lucide-react';
-import { trpc } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
+import { IS_WEB } from '../../lib/target.shared';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
@@ -107,7 +108,7 @@ export function McpServerSection(): ReactElement {
   const [portDraft, setPortDraft] = usePageState('mcp:port', '', pageValue.string, true);
   usePageDraftConfirmation(
     'mcp:port',
-    status.data?.port == null ? undefined : String(status.data.port),
+    status.data?.configuredPort == null ? undefined : String(status.data.configuredPort),
   );
   const previousPort = useRef<string | null>(null);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
@@ -155,12 +156,12 @@ export function McpServerSection(): ReactElement {
 
   // Sync the port input whenever the server reports a (possibly changed) port.
   useEffect(() => {
-    if (data?.port == null) return;
+    if (data?.configuredPort == null) return;
     const previous = previousPort.current;
-    const next = String(data.port);
+    const next = String(data.configuredPort);
     setPortDraft((draft) => (draft === (previous ?? '') ? next : draft));
     previousPort.current = next;
-  }, [data?.port, setPortDraft]);
+  }, [data?.configuredPort, setPortDraft]);
   useEffect(() => {
     if (!active) {
       setCopiedToken(false);
@@ -195,7 +196,7 @@ export function McpServerSection(): ReactElement {
 
   async function onToggle(next: boolean): Promise<void> {
     try {
-      const requested = data?.port;
+      const requested = data?.configuredPort;
       const result = await setEnabled.mutateAsync({ enabled: next });
       if (next && requested != null && result.port !== requested) {
         pushToast({
@@ -308,15 +309,17 @@ export function McpServerSection(): ReactElement {
   const enabled = data?.enabled ?? false;
   const running = data?.running ?? false;
   /** 已启用、但当前没有账号打开 —— 服务等下一个账号起来才监听。 */
-  const waitingForAccount = enabled && !running && data?.accountOpen === false;
+  const waitingForAccount =
+    enabled && !running && data?.accountOpen === false && !data.sharedService;
 
   return (
     <div className="weq-set weq-service-settings">
       <SectionHeader
         page="mcp"
         title="MCP 服务器"
-        desc="开启后，支持 MCP 的 AI 客户端可通过本地接口读取当前账号的聊天数据；也可以一键安装到本机已有的 AI 客户端。"
+        desc="支持 MCP 的 AI 客户端通过本机接口读取已授权账号的聊天数据。"
       />
+      {data?.sharedService && !IS_WEB && <McpAccountAccess active={active} />}
 
       {/* Switch + live state */}
       <Card title="服务开关" icon={<Power size={15} strokeWidth={1.8} />}>
@@ -330,7 +333,11 @@ export function McpServerSection(): ReactElement {
         ) : null}
         <Row
           label="启用 MCP 服务器"
-          desc="仅在已登录账号时监听；切换或退出账号会自动停止。"
+          desc={
+            data?.sharedService
+              ? '整台电脑共用一个入口，各 MCP 会话独立选择账号。'
+              : '打开账号后开始监听。'
+          }
           control={
             <Toggle
               checked={enabled}
@@ -615,5 +622,112 @@ export function McpServerSection(): ReactElement {
         </div>
       </Card>
     </div>
+  );
+}
+
+function McpAccountAccess({ active }: { active: boolean }) {
+  const access = trpc.bootstrap.getMcpAccountGrants.useQuery(undefined, { enabled: active });
+  const [busy, setBusy] = useState(false);
+  const [label, setLabel] = useState('');
+  const [newToken, setNewToken] = useState('');
+  const showError = useDialog((state) => state.showError);
+  useEffect(() => {
+    if (!active) setNewToken('');
+  }, [active]);
+  async function act(action: () => Promise<unknown>) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await action();
+      await access.refetch();
+    } catch (error) {
+      showError('无法更新 MCP 授权', errMsg(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card
+      title="令牌可访问的账号"
+      desc="为每个令牌勾选可访问的账号。修改后，相关客户端需重新连接。"
+    >
+      {access.error && (
+        <p className="weq-set-note" role="alert">
+          {access.error.message}
+        </p>
+      )}
+      {access.data?.grants.map((grant) => (
+        <fieldset key={grant.id} disabled={busy}>
+          <legend>{grant.label}</legend>
+          {access.data?.accounts.map((account) => (
+            <Row
+              key={account.configId}
+              label={account.displayName}
+              desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
+              control={
+                <Toggle
+                  label={`允许${grant.label}访问${account.displayName}`}
+                  checked={grant.configIds.includes(account.configId)}
+                  onChange={(enabled) =>
+                    void act(() =>
+                      client.bootstrap.setMcpAccountGrant.mutate({
+                        id: grant.id,
+                        configIds: enabled
+                          ? [...grant.configIds, account.configId]
+                          : grant.configIds.filter((configId) => configId !== account.configId),
+                      }),
+                    )
+                  }
+                />
+              }
+            />
+          ))}
+          {!grant.primary && (
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-sm"
+              onClick={() =>
+                void act(() => client.bootstrap.revokeMcpAccountToken.mutate({ id: grant.id }))
+              }
+            >
+              撤销令牌
+            </button>
+          )}
+        </fieldset>
+      ))}
+      <form
+        className="weq-set-btn-group"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void act(async () => {
+            setNewToken(
+              await client.bootstrap.createMcpAccountToken.mutate({ label: label.trim() }),
+            );
+            setLabel('');
+          });
+        }}
+      >
+        <input
+          aria-label="令牌名称"
+          placeholder="令牌名称"
+          maxLength={64}
+          className="weq-set-input"
+          value={label}
+          onChange={(event) => setLabel(event.target.value)}
+        />
+        <button type="submit" className="weq-set-btn" disabled={busy || !label.trim()}>
+          创建令牌
+        </button>
+      </form>
+      {newToken && (
+        <input
+          aria-label="新令牌，请复制保存"
+          className="weq-set-input"
+          readOnly
+          value={newToken}
+          onFocus={(event) => event.target.select()}
+        />
+      )}
+    </Card>
   );
 }

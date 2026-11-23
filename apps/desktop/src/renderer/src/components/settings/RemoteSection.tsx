@@ -181,6 +181,8 @@ function RemoteConnectionSection() {
   const changeNetwork = trpc.remote.changeNetwork.useMutation();
   const decide = trpc.remote.decide.useMutation();
   const revoke = trpc.remote.revoke.useMutation();
+  const accounts = trpc.remote.accounts.useQuery(undefined, { enabled: active });
+  const grant = trpc.remote.setAccountConfigIds.useMutation();
   const [qr, setQr] = useState<{ qr: string; expiresAt: number; pairingURL?: string } | null>(null);
   const busy =
     toggle.isLoading ||
@@ -189,6 +191,7 @@ function RemoteConnectionSection() {
     login.isLoading ||
     decide.isLoading ||
     revoke.isLoading ||
+    grant.isLoading ||
     acting ||
     secret.copying;
   useEffect(() => {
@@ -237,6 +240,9 @@ function RemoteConnectionSection() {
       onDecide={(id, approve) => void act(() => decide.mutateAsync({ id, approve }))}
       onRevoke={(id) => void act(() => revoke.mutateAsync({ id }))}
       onCopy={() => void secret.copy(async () => qr?.pairingURL ?? '')}
+      accounts={accounts.data}
+      accountError={accounts.error?.message}
+      onAccountAccess={(id, configIds) => void act(() => grant.mutateAsync({ id, configIds }))}
     />
   );
 }

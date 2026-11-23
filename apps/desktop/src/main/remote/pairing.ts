@@ -37,6 +37,7 @@ export interface Claim {
   approvedAt: number | null;
   lastSeenAt: number | null;
   scope: 'status:read' | 'web:access';
+  accountConfigIds?: string[];
   deviceInfo?: RemoteDeviceInfo;
   lastConnection?: RemoteConnectionInfo;
 }
@@ -145,16 +146,19 @@ export class RemotePairing {
     return { id, code, expiresAt: claim.expiresAt };
   }
 
-  decide(id: string, approve: boolean): void {
+  decide(id: string, approve: boolean, defaultAccountConfigId?: string | null): void {
     this.prune();
     const claim = this.claims.get(id);
     if (!claim || claim.approvedAt !== null) throw new Error('配对请求已失效。');
     if (approve) {
       claim.approvedAt = this.now();
+      if (claim.scope === 'web:access' && defaultAccountConfigId)
+        claim.accountConfigIds = [defaultAccountConfigId];
       try {
         this.persist();
       } catch (error) {
         claim.approvedAt = null;
+        delete claim.accountConfigIds;
         throw error;
       }
     } else this.revoke(id);
@@ -169,8 +173,36 @@ export class RemotePairing {
       if (previous) this.claims.set(id, previous);
       throw error;
     }
+    this.invalidateWeb(id);
+  }
+
+  private invalidateWeb(id: string): void {
     for (const notify of this.watchers.get(id) ?? []) notify();
     this.watchers.delete(id);
+  }
+
+  setAccountConfigIds(id: string, ids: string[]): void {
+    const claim = this.claims.get(id);
+    if (!claim || claim.approvedAt === null || claim.scope !== 'web:access')
+      throw new Error('此设备没有有效的 WeQ 网页授权。');
+    const previous = claim.accountConfigIds;
+    claim.accountConfigIds = [...new Set(ids)];
+    try {
+      this.persist();
+    } catch (error) {
+      claim.accountConfigIds = previous;
+      throw error;
+    }
+    this.invalidateWeb(id);
+  }
+
+  accountConfigIds(token: string): readonly string[] {
+    const hash = tokenHash(token);
+    const claim = [...this.claims.values()].find(
+      (item) =>
+        item.approvedAt !== null && item.scope === 'web:access' && equalHash(item.tokenHash, hash),
+    );
+    return claim?.accountConfigIds ?? [];
   }
 
   poll(id: string, token: string) {
@@ -236,15 +268,27 @@ export class RemotePairing {
         .map(({ id, name, code, expiresAt, scope }) => ({ id, name, code, expiresAt, scope })),
       devices: [...this.claims.values()]
         .filter((c) => c.approvedAt !== null)
-        .map(({ id, name, approvedAt, lastSeenAt, scope, deviceInfo, lastConnection }) => ({
-          id,
-          name,
-          approvedAt,
-          lastSeenAt,
-          scope,
-          deviceInfo,
-          lastConnection,
-        })),
+        .map(
+          ({
+            id,
+            name,
+            approvedAt,
+            lastSeenAt,
+            scope,
+            accountConfigIds,
+            deviceInfo,
+            lastConnection,
+          }) => ({
+            id,
+            name,
+            approvedAt,
+            lastSeenAt,
+            scope,
+            accountConfigIds,
+            deviceInfo,
+            lastConnection,
+          }),
+        ),
     };
   }
 

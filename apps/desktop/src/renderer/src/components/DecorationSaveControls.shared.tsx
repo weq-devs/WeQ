@@ -1,3 +1,4 @@
+import { accountGatewayPath } from '../lib/accountGateway';
 import { useRef, useState } from 'react';
 import type { ExportSavePolicy } from '@weq/service';
 import { client } from '../trpc/client';
@@ -52,7 +53,7 @@ export function useDecorationSave() {
       if (result.mode === 'browser') {
         if (!result.downloadId) throw new Error('浏览器下载未返回文件标识');
         const link = document.createElement('a');
-        link.href = `/_download/${encodeURIComponent(result.downloadId)}`;
+        link.href = accountGatewayPath(`/_download/${encodeURIComponent(result.downloadId)}`);
         link.download = result.name;
         link.click();
       } else notifyTaskCreated(result.taskId, '正在保存装扮');

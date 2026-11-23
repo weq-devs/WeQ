@@ -24,13 +24,38 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { getLogger, logErrorContext, logRequest, withLogOperation } from '@weq/service';
 import { AI_TOOLS } from './tools';
 import { isReadOnlyTool } from './tool_permissions';
-import { withToolExecutionOptions } from './account_scope';
+import { bindAccountTools, withToolExecutionOptions } from './account_scope';
 import { MCP_MAIL_ATTACHMENT_ROUTE } from './mail_tools';
 import { handleMcpMailDownload } from './mail_download';
 import { handleMcpChatVideoDownload, MCP_CHAT_VIDEO_ROUTE } from './chat_video_download';
 import { runtimeMaintenance } from '../runtime_maintenance';
 
 const logger = getLogger().child({ scope: 'mcp-server' });
+
+export function externalMcpTools() {
+  return AI_TOOLS.filter((tool) => !tool.assistantOnly && isReadOnlyTool(tool.name));
+}
+
+export async function runDesktopMcpTool(
+  name: string,
+  args: unknown,
+  account: object,
+  currentAccount: () => object | null,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const tools = externalMcpTools();
+  const tool = tools.find((entry) => entry.name === name);
+  if (!tool || name === 'list_accounts' || name === 'switch_account')
+    throw new Error('此工具由 MCP 会话管理。');
+  const input = tool.input.parse(args);
+  const options = { signal, visibleToolNames: tools.map((entry) => entry.name) };
+  const run = bindAccountTools(account, currentAccount, () =>
+    logRequest('mcp-server', name, 'tool', () =>
+      runtimeMaintenance.operation(() => tool.run(input as never), `MCP ${name}`),
+    ),
+  );
+  return run(name, input, options);
+}
 
 export interface McpServerOptions {
   port: number;
@@ -56,7 +81,7 @@ export function runningMcpConfig(): McpServerOptions | null {
 /** Build a fresh MCP server with every tool registered. */
 function buildMcpServer(): McpServer {
   const server = new McpServer({ name: 'weq', version: '0.1.0' });
-  const tools = AI_TOOLS.filter((tool) => !tool.assistantOnly && isReadOnlyTool(tool.name));
+  const tools = externalMcpTools();
   const visibleToolNames = tools.map((tool) => tool.name);
   for (const t of tools) {
     server.registerTool(

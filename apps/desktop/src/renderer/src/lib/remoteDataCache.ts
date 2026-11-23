@@ -1,4 +1,5 @@
 import superjson from 'superjson';
+import { accountGatewayResource } from './accountGateway';
 import { isRemoteClient } from './remoteClient';
 import { sharedAccountScope } from './remoteCacheBridge';
 import { remoteWorkspaceCheckPending } from './remoteWorkspaceCheck';
@@ -177,6 +178,7 @@ export function putRemoteCacheRecord(key: string, value: unknown, status: Remote
 }
 
 export function remoteCachedResource(url: string) {
+  url = accountGatewayResource(url);
   if (!isRemoteClient() || !/^\/_(?:media|asset|avatar)\//.test(url)) return url;
   const path = new URL(url, location.origin);
   const scope = path.pathname.startsWith('/_asset/') ? 'assets' : account;

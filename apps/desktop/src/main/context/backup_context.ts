@@ -2,12 +2,15 @@ import { weqAppDataRoot } from '@weq/platform';
 import {
   applyPendingWeqBackupRestore,
   bootstrapWeqBackupFiles,
+  withSharedConfigLock,
   type WeqFileStartup,
 } from '@weq/service';
 
 let current: WeqFileStartup | undefined;
-export function initBackupContext(root = weqAppDataRoot()): WeqFileStartup {
-  current ??= bootstrapWeqBackupFiles(root);
+let sharedStorage = false;
+export function initBackupContext(root = weqAppDataRoot(), shared = sharedStorage): WeqFileStartup {
+  sharedStorage = shared;
+  current ??= bootstrapWeqBackupFiles(root, shared);
   return current;
 }
 export function getBackupContext(): WeqFileStartup {
@@ -27,7 +30,8 @@ export function applyLiveBackupContext() {
   if (!files.ok) throw new Error(files.error);
   try {
     files.cacheRoot = files.config.cacheBaseDir();
-    const result = applyPendingWeqBackupRestore(files.root, files.cacheRoot);
+    const restore = () => applyPendingWeqBackupRestore(files.root, files.cacheRoot);
+    const result = sharedStorage ? withSharedConfigLock(files.root, restore) : restore();
     if (!result) throw new Error('没有待应用的恢复任务');
     files.result = result;
     if (result.needsRecovery) {

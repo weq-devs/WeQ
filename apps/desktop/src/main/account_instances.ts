@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { type AccountConfig, type UserConfig, writeFileAtomicSync } from '@weq/service';
+import { type AccountConfig, writeFileAtomicSync } from '@weq/service';
 import type { AccountInstanceScope } from './account_instance_scope';
 
 const ACCOUNT_ARG = '--weq-account-instance=';
@@ -106,83 +106,25 @@ export function savedInstanceAccounts(root: string): AccountConfig[] {
     .sort((a, b) => b.lastLoginAt - a.lastLoginAt);
 }
 
-function seedInstanceSettings(data: string, sourceRoot: string): void {
-  const configPath = join(data, 'config.json');
-  if (existsSync(configPath)) return;
-  const original = join(sourceRoot, 'config.json');
-  const config: UserConfig = existsSync(original) ? JSON.parse(readFileSync(original, 'utf8')) : {};
-  mkdirSync(data, { recursive: true, mode: 0o700 });
-  writeFileAtomicSync(
-    configPath,
-    JSON.stringify({
-      tencentFilesRootOverride: config.tencentFilesRootOverride,
-      settings: { appLock: config.settings?.appLock },
-      totpSecret: config.totpSecret,
-      welcomeAcknowledged: config.welcomeAcknowledged,
-      welcomePolicyVersion: config.welcomePolicyVersion,
-    }),
-  );
+export function prepareAccountPicker(): string {
+  return randomUUID();
 }
 
-function seedInstanceAccount(data: string, source: AccountConfig): AccountConfig {
-  const { configId, uin, uid, dbKey, algos, dataDir, backupAccountDir, displayName, avatarUrl } =
-    source;
-  const directory = accountsDirectory(data);
-  const record = {
-    configId,
-    uin,
-    uid,
-    dbKey,
-    algos,
-    dataDir,
-    backupAccountDir,
-    displayName,
-    avatarUrl,
-    static: source.static,
-    mobile: source.mobile,
-    lastLoginAt: source.lastLoginAt,
-  };
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  writeFileAtomicSync(join(directory, `${configId}.json`), JSON.stringify(record));
-  return record;
-}
-
-/** 每个账号选择窗口有独立的配置和缓存，初次打开时只带入可选数据源。 */
-export function prepareAccountPicker(root: string, sourceRoot: string): string {
-  const id = randomUUID();
-  const { data } = accountPickerDirectories(root, id);
-  const records = new Map(savedInstanceAccounts(root).map((record) => [record.configId, record]));
-  if (sourceRoot !== root) {
-    for (const record of savedInstanceAccounts(sourceRoot)) records.set(record.configId, record);
-  }
-  seedInstanceSettings(data, sourceRoot);
-  for (const record of records.values()) seedInstanceAccount(data, record);
-  return id;
-}
-
-/** 首次打开只带入打开此 QQ 数据源所需的配置。后续所有写入归该实例。 */
-export function prepareInstanceAccount(
-  root: string,
-  target: AccountInstanceTarget,
-  sourceRoot = root,
-): AccountConfig {
-  const { data } = instanceDirectories(root, target.uin);
-  const directory = accountsDirectory(data);
-  const existing = readAccount(directory, target.configId);
-  if (existing?.uin === target.uin) return existing;
-  if (existsSync(join(directory, `${target.configId}.json`)))
-    throw new Error('独立窗口的账号配置无法读取，请检查原配置。');
-
-  const source = readAccount(accountsDirectory(sourceRoot), target.configId);
+/** 独立窗口也从宿主的账号清单打开数据源。 */
+export function prepareInstanceAccount(root: string, target: AccountInstanceTarget): AccountConfig {
+  const source = readAccount(accountsDirectory(root), target.configId);
   if (source?.uin !== target.uin) throw new Error('找不到此账号的已保存数据源。');
-  seedInstanceSettings(data, sourceRoot);
-  return seedInstanceAccount(data, source);
+  return source;
 }
 
 function lockAccount(root: string, uin: string, probe = false): DatabaseSync | null {
   const directory = instanceRoot(root, uin);
   if (!probe) mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const db = new nodeSqlite.DatabaseSync(join(directory, 'owner.sqlite'));
+  return lockOwnerFile(join(directory, 'owner.sqlite'), probe);
+}
+
+function lockOwnerFile(path: string, probe: boolean): DatabaseSync | null {
+  const db = new nodeSqlite.DatabaseSync(path);
   try {
     // SQLite 的跨进程文件锁会在进程崩溃后由系统释放，无需根据 PID 清理锁文件。
     db.exec(probe ? 'BEGIN IMMEDIATE' : 'PRAGMA busy_timeout = 100; BEGIN IMMEDIATE');
@@ -194,11 +136,15 @@ function lockAccount(root: string, uin: string, probe = false): DatabaseSync | n
   }
 }
 
-export function accountIsRunning(root: string, uin: string): boolean {
-  if (!existsSync(join(instanceRoot(root, uin), 'owner.sqlite'))) return false;
-  const probe = lockAccount(root, uin, true);
+export function ownerFileIsLocked(path: string): boolean {
+  if (!existsSync(path)) return false;
+  const probe = lockOwnerFile(path, true);
   probe?.close();
   return probe === null;
+}
+
+export function accountIsRunning(root: string, uin: string): boolean {
+  return ownerFileIsLocked(join(instanceRoot(root, uin), 'owner.sqlite'));
 }
 
 function pickerOwnerPath(root: string, uin: string): string {
@@ -231,6 +177,11 @@ export class AccountInstances implements AccountInstanceScope {
 
   owns(uin: string): boolean {
     return this.locks.has(uin);
+  }
+
+  dispose(): void {
+    for (const lock of this.locks.values()) lock.close();
+    this.locks.clear();
   }
 
   claim(uin: string): void {

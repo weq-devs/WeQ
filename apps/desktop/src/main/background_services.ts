@@ -21,7 +21,11 @@ import { isSsePushActive } from './context/app_context';
 import { isMcpRunning } from './mcp/server';
 import { botRuntime } from './bot_runtime';
 import { remoteRuntime } from './remote/runtime';
-import { desktopWebRuntime } from './web/runtime';
+import {
+  desktopWebLastStatus,
+  hostedMcpRunning,
+  hostedRemoteRunning,
+} from './desktop_services/host';
 import { assistantResourceServer } from './weq_assistant/server';
 
 export interface RunningService {
@@ -45,16 +49,16 @@ function isRunning(id: RunningService['id']): boolean {
   try {
     switch (id) {
       case 'mcp':
-        return isMcpRunning();
+        return hostedMcpRunning() ?? isMcpRunning();
       case 'onebot':
         // daemon 是独立进程；这里只关心「有没有在跑」，不区分 attach / login。
         return botRuntime.size > 0;
       case 'assistant':
         return assistantResourceServer.status().running;
       case 'web':
-        return desktopWebRuntime.status().enabled;
+        return desktopWebLastStatus().enabled;
       case 'remote':
-        return remoteRuntime.status().enabled;
+        return hostedRemoteRunning() ?? remoteRuntime.status().enabled;
       case 'sse':
         return isSsePushActive();
     }

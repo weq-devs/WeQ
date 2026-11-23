@@ -7,6 +7,11 @@
 
 import { AuthGate } from './auth';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { mkdtempSync, symlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import assert from 'node:assert/strict';
+import { standaloneDataDirectory } from './data_directory';
 
 let failed = 0;
 function check(ok: boolean, label: string): void {
@@ -40,6 +45,38 @@ function cookieHeader(setCookie: string | null): string {
 }
 
 async function main(): Promise<void> {
+  const directory = mkdtempSync(join(tmpdir(), 'weq-data-directory-'));
+  try {
+    const alias = join(directory, 'alias');
+    symlinkSync(directory, alias, 'junction');
+    assert.throws(() =>
+      standaloneDataDirectory(join(alias, 'desktop'), join(directory, 'desktop')),
+    );
+    assert.equal(
+      standaloneDataDirectory(join(alias, 'web'), join(directory, 'desktop')),
+      standaloneDataDirectory(join(directory, 'web'), join(directory, 'desktop')),
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+
+  {
+    const a = new AuthGate({ token: 'a', remote: false, cookieName: 'weq_session_a' });
+    const b = new AuthGate({ token: 'b', remote: false, cookieName: 'weq_session_b' });
+    const resA = fakeRes();
+    const resB = fakeRes();
+    await a.login('a', 'fixture', resA);
+    await b.login('b', 'fixture', resB);
+    const req = fakeReq(`${cookieHeader(resA.cookie)}; ${cookieHeader(resB.cookie)}`);
+    check(a.isAuthed(req) && b.isAuthed(req), 'same-host Web instances keep both sessions');
+    const logout = fakeRes();
+    a.logout(req, logout);
+    check(logout.cookie!.startsWith('weq_session_a='), 'logout clears only its own cookie');
+    check(b.isAuthed(req), 'logout does not disturb the other instance');
+    a.close();
+    b.close();
+  }
+
   // ---- happy path ----
   {
     const gate = new AuthGate({ token: 'correct-horse', remote: false });

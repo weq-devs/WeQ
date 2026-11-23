@@ -51,6 +51,7 @@ function positiveLimit(value: number | undefined, fallback: number): number {
 }
 
 export interface AuthConfig {
+  cookieName?: string;
   maxSessions?: number;
   maxFailureRecords?: number;
   maxPendingLogins?: number;
@@ -72,6 +73,7 @@ interface FailRecord {
 }
 
 export class AuthGate {
+  private readonly cookieName: string;
   private readonly maxSessions: number;
   private readonly maxFailureRecords: number;
   private readonly maxPendingLogins: number;
@@ -86,6 +88,7 @@ export class AuthGate {
   private readonly fails = new Map<string, FailRecord>();
 
   constructor(config: AuthConfig) {
+    this.cookieName = config.cookieName ?? SESSION_COOKIE;
     this.maxSessions = positiveLimit(config.maxSessions, AUTH_RESOURCE_LIMITS.maxSessions);
     this.maxFailureRecords = positiveLimit(
       config.maxFailureRecords,
@@ -201,7 +204,7 @@ export class AuthGate {
       this.sessions.set(sid, { expiresAt: Date.now() + SESSION_TTL_MS });
 
       const attrs = [
-        `${SESSION_COOKIE}=${sid}`,
+        `${this.cookieName}=${sid}`,
         'HttpOnly',
         'SameSite=Strict',
         'Path=/',
@@ -222,7 +225,7 @@ export class AuthGate {
 
   /** True when the request carries a live session cookie. Refreshes its TTL. */
   isAuthed(req: IncomingMessage): boolean {
-    const sid = readCookie(req.headers.cookie, SESSION_COOKIE);
+    const sid = readCookie(req.headers.cookie, this.cookieName);
     if (!sid) return false;
     const session = this.sessions.get(sid);
     if (!session) return false;
@@ -235,9 +238,13 @@ export class AuthGate {
     return true;
   }
 
+  identityKey(req: IncomingMessage): string | null {
+    return readCookie(req.headers.cookie, this.cookieName);
+  }
+
   /** Long-lived transports must be disconnected on logout and idle expiry. */
   watchSession(req: IncomingMessage, onRevoke: () => void): () => void {
-    const sid = readCookie(req.headers.cookie, SESSION_COOKIE);
+    const sid = readCookie(req.headers.cookie, this.cookieName);
     const session = sid ? this.sessions.get(sid) : undefined;
     if (!sid || !session || session.expiresAt <= Date.now()) {
       if (sid) this.revoke(sid);
@@ -281,7 +288,10 @@ export class AuthGate {
   logout(req: IncomingMessage, res: ServerResponse): void {
     const sid = readCookie(req.headers.cookie, SESSION_COOKIE);
     if (sid) this.revoke(sid);
-    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+    res.setHeader(
+      'Set-Cookie',
+      `${this.cookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
+    );
   }
 
   close(): void {

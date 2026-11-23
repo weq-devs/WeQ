@@ -8,8 +8,9 @@ import { calendarParts, calendarStart, formatDate } from '@weq/time';
 
 import { JsonStore } from '../common/json_store';
 import type { AgentLabUsage } from '@weq/agentlab';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { classifyApiUsage } from './api_usage_categories';
+import { withSharedConfigLock } from '../bootstrap/shared_config_lock';
 
 export interface TokenUsageRecord extends AgentLabUsage {
   ts: number;
@@ -118,27 +119,33 @@ function normalizeRecord(raw: unknown): TokenUsageRecord | null {
 }
 
 export class TokenUsageStore {
-  private readonly store: JsonStore<TokenUsageRecord[]>;
+  private store: JsonStore<TokenUsageRecord[]>;
+  private readonly key: string;
 
-  constructor(filePath: string) {
+  constructor(
+    filePath: string,
+    private readonly shared = false,
+  ) {
     const key = resolve(filePath);
+    this.key = key;
     for (const [path, ref] of stores) if (!ref.deref()) stores.delete(path);
-    const existing = stores.get(key)?.deref();
-    if (existing) {
-      this.store = existing;
-      return;
-    }
-    this.store = new JsonStore(key, () => [], {
+    this.store = (!shared && stores.get(key)?.deref()) || this.readStore();
+    if (!shared) stores.set(key, new WeakRef(this.store));
+  }
+
+  private readStore(): JsonStore<TokenUsageRecord[]> {
+    return new JsonStore(this.key, () => [], {
       normalize: (raw) => {
         if (!Array.isArray(raw)) throw new Error('API 用量记录格式无效');
         return raw
           .map(normalizeRecord)
           .filter((r): r is TokenUsageRecord => r !== null)
           .slice(-MAX_RECORDS)
-          .map((r) => (r.status === 'pending' ? { ...r, status: 'interrupted' as const } : r));
+          .map((r) =>
+            !this.shared && r.status === 'pending' ? { ...r, status: 'interrupted' as const } : r,
+          );
       },
     });
-    stores.set(key, new WeakRef(this.store));
   }
 
   private get records(): TokenUsageRecord[] {
@@ -150,6 +157,21 @@ export class TokenUsageStore {
   }
 
   record(entry: TokenUsageRecord): void {
+    if (this.shared) {
+      try {
+        withSharedConfigLock(dirname(this.key), () => {
+          this.store = this.readStore();
+          this.recordInStore(entry);
+        });
+      } catch {
+        // API 用量记录沿用尽力保存，锁或磁盘故障不影响实际请求。
+      }
+      return;
+    }
+    this.recordInStore(entry);
+  }
+
+  private recordInStore(entry: TokenUsageRecord): void {
     const value = normalizeRecord(entry);
     if (!value) return;
     const previous = value.requestId
@@ -179,6 +201,8 @@ export class TokenUsageStore {
     now = Date.now(),
   ): TokenStats {
     try {
+      if (this.shared) this.store = this.readStore();
+      if (global?.shared) global.store = global.readStore();
       this.store.assertReadable();
       global?.store.assertReadable();
     } catch {

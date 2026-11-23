@@ -73,6 +73,7 @@ export interface RemoteStatus {
     approvedAt: number | null;
     lastSeenAt: number | null;
     scope?: string;
+    accountConfigIds?: string[];
     deviceInfo?: RemoteDeviceInfo;
     lastConnection?: RemoteConnectionInfo;
   }[];
@@ -91,6 +92,9 @@ export function RemotePanel({
   onDecide,
   onRevoke,
   onCopy,
+  accounts,
+  accountError,
+  onAccountAccess,
 }: {
   data?: RemoteStatus;
   qr: { qr: string; expiresAt: number; pairingURL?: string } | null;
@@ -104,6 +108,9 @@ export function RemotePanel({
   onDecide: (id: string, approve: boolean) => void;
   onRevoke: (id: string) => void;
   onCopy?: () => void;
+  accounts?: { configId: string; displayName: string; uin: string; static: boolean }[];
+  accountError?: string;
+  onAccountAccess?: (deviceId: string, configIds: string[]) => void;
 }) {
   const active = useTabActive();
   const [now, setNow] = useState(Date.now());
@@ -421,13 +428,13 @@ export function RemotePanel({
         </section>
         <section className="weq-remote-band">
           <div className="weq-remote-heading">
-            <h4>已配对设备</h4>
+            <h4>已配对手机</h4>
             <span>
               <span className="weq-number weq-number-inherit">{data?.devices.length ?? 0}</span> 台
             </span>
           </div>
           {!data?.devices.length ? (
-            <p className="weq-remote-muted">暂无已配对设备</p>
+            <p className="weq-remote-muted">暂无已配对手机</p>
           ) : (
             data.devices.map((device) => (
               <div className="weq-remote-device" key={device.id}>
@@ -462,6 +469,48 @@ export function RemotePanel({
                       配对时间 <DeviceTime value={device.approvedAt} />
                     </span>
                   </div>
+                  {device.scope === 'web:access' && onAccountAccess && (
+                    <details className="weq-remote-device-details">
+                      <summary>
+                        <ChevronRight size={14} />
+                        访问权限
+                        <span className="weq-remote-muted">
+                          {device.accountConfigIds?.length ?? 0} 个账号
+                        </span>
+                      </summary>
+                      {accountError && (
+                        <p className="weq-remote-muted" role="alert">
+                          {accountError}
+                        </p>
+                      )}
+                      {accounts?.length === 0 && <p className="weq-remote-muted">暂无已保存账号</p>}
+                      {accounts?.map((account) => {
+                        const selected = device.accountConfigIds ?? [];
+                        return (
+                          <Row
+                            key={account.configId}
+                            label={account.displayName}
+                            desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
+                            control={
+                              <Toggle
+                                label={`允许${device.name}访问${account.displayName}`}
+                                checked={selected.includes(account.configId)}
+                                disabled={busy}
+                                onChange={(enabled) =>
+                                  onAccountAccess(
+                                    device.id,
+                                    enabled
+                                      ? [...selected, account.configId]
+                                      : selected.filter((id) => id !== account.configId),
+                                  )
+                                }
+                              />
+                            }
+                          />
+                        );
+                      })}
+                    </details>
+                  )}
                   <details className="weq-remote-device-details">
                     <summary>
                       <ChevronRight size={14} />

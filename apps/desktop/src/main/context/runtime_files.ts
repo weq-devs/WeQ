@@ -14,6 +14,7 @@ import { isDbRepairBusy } from '../ipc/routers/db_repair';
 import { isIntentModelDownloading } from '../ipc/routers/intent_sense';
 import { assistantResourceServer } from '../weq_assistant/server';
 import { runtimeMaintenance } from '../runtime_maintenance';
+import { maintainDesktopStorage } from '../desktop_storage';
 
 export function assertRuntimeFilesIdle(): void {
   if (isDbRepairBusy()) throw new Error('数据库修复或回滚仍在进行，请等待完成');
@@ -85,47 +86,49 @@ export function applyBackupLive(
   afterApply?: (result: NonNullable<ReturnType<typeof applyLiveBackupContext>>) => Promise<void>,
   refreshOnFailure = true,
 ) {
-  return runtimeMaintenance.run(async () => {
-    assertRuntimeFilesIdle();
-    stage?.();
-    const ctx = getAppContext();
-    const files = getBackupContext();
-    const resetBefore = files.config?.read().performanceRecordingResetRevision;
-    let failure: string | undefined;
-    try {
-      await ctx.clearAccount(true);
-      await assistantResourceServer.stop();
-      const result = applyLiveBackupContext();
-      if (result.needsRecovery) blockRuntimeForBackupRecovery(result.error || '恢复回滚尚未完成');
-      if (result.status !== 'applied') throw new Error(result.error || '恢复未应用');
-      if (files.ok) {
-        const reset = files.config.read().performanceRecordingResetRevision;
-        if (reset !== undefined && reset !== resetBefore) dataSaverSession.clearTemporary();
-        try {
-          await finishPerformanceRecordingReset(files.config);
-        } catch (error) {
-          result.warnings.push(`恢复性能记录档位未完成：${String(error)}`);
+  return runtimeMaintenance.run(() =>
+    maintainDesktopStorage(async () => {
+      assertRuntimeFilesIdle();
+      stage?.();
+      const ctx = getAppContext();
+      const files = getBackupContext();
+      const resetBefore = files.config?.read().performanceRecordingResetRevision;
+      let failure: string | undefined;
+      try {
+        await ctx.clearAccount(true);
+        await assistantResourceServer.stop();
+        const result = applyLiveBackupContext();
+        if (result.needsRecovery) blockRuntimeForBackupRecovery(result.error || '恢复回滚尚未完成');
+        if (result.status !== 'applied') throw new Error(result.error || '恢复未应用');
+        if (files.ok) {
+          const reset = files.config.read().performanceRecordingResetRevision;
+          if (reset !== undefined && reset !== resetBefore) dataSaverSession.clearTemporary();
           try {
-            recordWeqRestoreWarnings(files.root, result);
-          } catch (receiptError) {
-            getLogger().warn('保存性能记录恢复回执失败', { error: String(receiptError) });
+            await finishPerformanceRecordingReset(files.config);
+          } catch (error) {
+            result.warnings.push(`恢复性能记录档位未完成：${String(error)}`);
+            try {
+              recordWeqRestoreWarnings(files.root, result);
+            } catch (receiptError) {
+              getLogger().warn('保存性能记录恢复回执失败', { error: String(receiptError) });
+            }
           }
         }
-      }
-      try {
-        if (ctx.bootstrap)
-          await ctx.applyWeqAssistant(ctx.bootstrap.userConfig.getSettings().weqAssistant);
+        try {
+          if (ctx.bootstrap)
+            await ctx.applyWeqAssistant(ctx.bootstrap.userConfig.getSettings().weqAssistant);
+        } catch (error) {
+          result.warnings.push(`数据已恢复，助手服务未能启动：${String(error)}`);
+        }
+        await afterApply?.(result);
+        return result;
       } catch (error) {
-        result.warnings.push(`数据已恢复，助手服务未能启动：${String(error)}`);
+        failure = error instanceof Error ? error.message : String(error);
+        throw error;
+      } finally {
+        if (!failure || refreshOnFailure || !getBackupContext().ok)
+          runtimeMaintenance.refreshClients(failure);
       }
-      await afterApply?.(result);
-      return result;
-    } catch (error) {
-      failure = error instanceof Error ? error.message : String(error);
-      throw error;
-    } finally {
-      if (!failure || refreshOnFailure || !getBackupContext().ok)
-        runtimeMaintenance.refreshClients(failure);
-    }
-  });
+    }),
+  );
 }

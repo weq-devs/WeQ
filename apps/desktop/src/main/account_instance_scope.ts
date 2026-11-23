@@ -1,4 +1,4 @@
-/** 桌面层接管账号进程所有权。独立 Web 仍使用自己的单账号生命周期。 */
+/** 桌面与独立 Web 共用 QQ 号的进程所有权。 */
 export interface AccountInstanceScope {
   run<T>(
     uin: string | null,

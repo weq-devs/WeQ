@@ -25,15 +25,25 @@ import { prepareRpcBatchResponse } from './httpBatchStream';
 import { remoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
 import { isRemoteClient } from '../lib/remoteClient';
 import { remoteCacheLink } from './remoteCacheLink';
+import { accountGatewayPath, accountGatewayUnscopedPath } from '../lib/accountGateway';
 
 function sessionExpired() {
   if (isRemoteClient()) window.weqRemoteShell?.connectionFailed?.();
   else location.reload();
 }
 
+function checkAccountSelection(response: Response) {
+  if (response.headers.get('x-weq-account-selection') === 'required') {
+    location.replace('/_weq/accounts?resume=1');
+    throw new Error('正在打开账号选择');
+  }
+}
+
 function checkCachedWorkspace(input: RequestInfo | URL) {
   if (!remoteWorkspaceCheckPending()) return;
-  const path = new URL(input instanceof Request ? input.url : input, location.href).pathname;
+  const path = accountGatewayUnscopedPath(
+    new URL(input instanceof Request ? input.url : input, location.href).pathname,
+  );
   if (
     !/^\/trpc\/(?:startup\.snapshot|bootstrap\.backup[A-Za-z]+|clientState\.restoreLegacyPreferences)$/.test(
       path,
@@ -45,7 +55,7 @@ function checkCachedWorkspace(input: RequestInfo | URL) {
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
 const wsClient = createWSClient({
-  url: `${wsProtocol}//${location.host}/trpc-ws`,
+  url: `${wsProtocol}//${location.host}${accountGatewayPath('/trpc-ws')}`,
   onOpen: () => useWebConnection.getState().connected(),
   onClose: () => useWebConnection.getState().disconnected(),
 });
@@ -121,10 +131,11 @@ const directoryName = (operation: { path: string; input: unknown }): string => {
 export function createLinks(): TRPCLink<AppRouter>[] {
   const httpOptions = {
     headers: () => ({ 'x-weq-client-id': networkClientId }),
-    url: '/trpc',
+    url: accountGatewayPath('/trpc'),
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
       checkCachedWorkspace(input);
       const res = await fetchRpcWithDeadline(input, init);
+      checkAccountSelection(res);
       if (res.status === 401) sessionExpired();
       return res;
     },
@@ -192,6 +203,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
           async fetch(input, init) {
             checkCachedWorkspace(input);
             const res = await fetchRpcWithDeadline(input, init, true);
+            checkAccountSelection(res);
             if (res.status === 401) sessionExpired();
             return res;
           },

@@ -25,11 +25,21 @@ import { procedure } from '../trpc';
 import { observable } from '@trpc/server/observable';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import { applyBackupLive } from '../../context/runtime_files';
-import { desktopWebRuntime } from '../../web/runtime';
+import {
+  desktopServiceCommand,
+  desktopWebStatus,
+  setDesktopWebEnabled,
+} from '../../desktop_services/host';
 import { remoteRuntime } from '../../remote/runtime';
 import { disableNativeDebugLog } from './help';
 import { DEFAULT_QQ_SYNC_PORT } from '../../qq_sync/ipc';
 import { qqSyncStatus, setQqSyncPort, setQqSyncProxyEnabled } from '../../qq_sync/runtime';
+import {
+  accountStorageMigrationPath,
+  accountStorageMigrationSummary,
+  legacyAccountSources,
+  readLegacyAccountBackup,
+} from '../../account_storage_migration';
 
 const selection = z.object({
   parts: z.array(z.enum(WEQ_BACKUP_PARTS)).min(1).max(4),
@@ -78,13 +88,36 @@ export const backupProcedures = {
         toastDurations: ctx.ok ? ctx.config.getSettings().toastDurations : undefined,
       };
     }),
-  backupInventory: procedure.query(() => ({
-    ...ready().backups.inventory(),
-    canPickFile: getHost().canReveal,
-    canRestart: Boolean(getHost().restartApplication),
-    maxArchiveBytes: WEQ_BACKUP_LIMITS.maxArchiveBytes,
-    chunkBytes: 65536,
-  })),
+  backupInventory: procedure.query(({ ctx }) => {
+    const { backups, root } = ready();
+    const host = getHost();
+    const migration =
+      !ctx.authorize && host.canReveal ? accountStorageMigrationSummary(root) : null;
+    return {
+      ...backups.inventory(),
+      ...(migration
+        ? { accountStorageMigration: { ...migration, sources: legacyAccountSources(root) } }
+        : {}),
+      canPickFile: host.canReveal,
+      canRestart: Boolean(host.restartApplication),
+      maxArchiveBytes: WEQ_BACKUP_LIMITS.maxArchiveBytes,
+      chunkBytes: 65536,
+    };
+  }),
+  backupRevealAccountStorageMigration: procedure.mutation(async ({ ctx }) => {
+    const host = getHost();
+    const { root } = ready();
+    if (ctx.authorize || !host.canReveal || !accountStorageMigrationSummary(root))
+      throw new Error('账号迁移记录不可用。');
+    await host.revealInFolder(accountStorageMigrationPath(root));
+  }),
+  backupPickLegacyAccountStorage: procedure
+    .input(z.object({ id: z.string().regex(/^[a-f\d]{24}$/) }))
+    .mutation(({ input, ctx }) => {
+      const { root, backups } = ready();
+      if (ctx.authorize || !getHost().canReveal) throw new Error('请在桌面恢复旧窗口数据。');
+      return backups.inspect(readLegacyAccountBackup(root, input.id), '旧账号窗口资料');
+    }),
   backupExport: procedure
     .input(selection.extend({ client: z.record(z.string()).default({}) }))
     .mutation(async ({ input }) => {
@@ -197,9 +230,13 @@ export const backupProcedures = {
             ['tailscaleEnabled', 'Tailscale 网络连接'],
           ] as const)
             if (selected.includes(id))
-              await attempt(`恢复${label}`, () => remoteRuntime.restorePreferences([id]));
+              await attempt(`恢复${label}`, () =>
+                desktopServiceCommand('remote.restore', [id], () =>
+                  remoteRuntime.restorePreferences([id]),
+                ),
+              );
           if (selected.includes('webEnabled'))
-            await attempt('恢复 Web 服务开关', () => desktopWebRuntime.stop());
+            await attempt('恢复 Web 服务开关', () => setDesktopWebEnabled(false));
           if (selected.includes('qqProxyEnabled') || selected.includes('qqProxyPort'))
             await attempt('恢复 QQ 代理', async () => {
               const root = getAppContext().bootstrap?.qqSyncRoot;
@@ -250,9 +287,11 @@ export const backupProcedures = {
       const autostart = host.canAutostart ? await host.getAutostart?.() : null;
       if (autostart?.enabled || autostart?.registered)
         connections.push({ id: 'systemAutostart', label: '系统登录自启', value: '已启用' });
-      if (desktopWebRuntime.status().enabled)
+      if ((await desktopWebStatus()).enabled)
         connections.push({ id: 'webEnabled', label: 'Web 服务', value: '运行中' });
-      const remote = remoteRuntime.preferences();
+      const remote = await desktopServiceCommand('remote.preferences', undefined, () =>
+        remoteRuntime.preferences(),
+      );
       if (remote.enabled)
         connections.push({ id: 'remoteEnabled', label: '远程服务', value: '已启用' });
       if (remote.mode !== 'lan')

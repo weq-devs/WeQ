@@ -28,6 +28,7 @@ export interface SaveTarget {
 
 export interface AppAutostartStatus {
   supported: boolean;
+  readOnly?: boolean;
   enabled: boolean;
   registered: boolean;
   requiresApproval: boolean;
@@ -35,6 +36,10 @@ export interface AppAutostartStatus {
 }
 
 export interface HostBridge {
+  /** 独立账号窗口读取主窗口的启动偏好。 */
+  readonly startupReadOnly?: boolean;
+  /** 业务请求已绑定到桌面账号窗口。 */
+  readonly accountScoped?: boolean;
   /** 来自已授权 Remote 入口，不以 User-Agent 或视口尺寸授予电脑管理能力。 */
   readonly remoteClient?: boolean;
   /** 宿主额外拥有的目录，显式标记运行数据或受保护的安装资源。 */

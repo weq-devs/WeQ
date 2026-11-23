@@ -72,6 +72,8 @@ export function validateWeqAccountPreference(name: WeqAccountSettingFile, value:
   const input = record(value, name);
   if (name === 'anti-recall.json') {
     bools(input, ['enabled', 'notifyEnabled'], name);
+    if (input.method !== undefined && !['weq', 'proxy', 'database'].includes(String(input.method)))
+      fail(name);
     if (input.mode !== undefined && input.mode !== 'all' && input.mode !== 'selected') fail(name);
     if (input.targets !== undefined) {
       if (!Array.isArray(input.targets)) fail(name);
@@ -219,7 +221,8 @@ export function snapshotWeqAccountPreferences(
       for (const key of Object.keys(input)) if (key !== 'conversationOverrides') delete input[key];
     if (name === 'anti-recall.json')
       for (const key of Object.keys(input))
-        if (key !== 'targets' && key !== 'notifyTargets') delete input[key];
+        if (!['enabled', 'method', 'mode', 'targets', 'notifyTargets'].includes(key))
+          delete input[key];
     if (name === 'client-state.json' && input.records && typeof input.records === 'object')
       delete (input.records as Record<string, unknown>).order;
     validateWeqAccountPreference(name, input);
