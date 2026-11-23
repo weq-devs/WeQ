@@ -25,6 +25,7 @@ import { WindowedList } from '../WindowedList';
 import { cn } from '../../im-template/template/classNames';
 import type { MfTarget } from './model';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import '../../styles/merge-forward-editor.css';
 import '../../styles/composition-targets.css';
 
 const targetRowHeight = 46;

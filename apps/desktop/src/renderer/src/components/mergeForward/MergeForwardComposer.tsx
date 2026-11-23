@@ -82,6 +82,7 @@ import { SenderPicker, type MfPerson } from './SenderPicker';
 import { MsgDressEditor } from './MsgDressEditor';
 import { moveCompositionNode } from './workspaceModel';
 import { NodeTimeInput } from './NodeTimeInput';
+import '../../styles/merge-forward-editor.css';
 import '../../styles/composition-sort.css';
 import {
   blankNestedRecordSeg,

@@ -29,6 +29,7 @@ import { ArrowDownToLine, FileText, Loader2, Pause, Play } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { useToast } from '../Toast.shared';
 import { useRenderDocument } from '../../lib/renderDocument';
+import '../../styles/log-viewer-panel.css';
 import { IconPicker } from '../ui/iconPicker';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';

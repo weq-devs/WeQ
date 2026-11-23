@@ -12,6 +12,7 @@ import { SettingsPageIcon } from './pageIcons';
 import LogPerformanceSettings from './LogPerformanceSettings';
 import { FaqPanel } from './FaqPanel';
 import { BugReportPanel } from './BugReportPanel';
+import '../../styles/help-panels.css';
 import '../../styles/help-settings.css';
 
 type HelpTabId = 'logs' | 'faq' | 'feedback';

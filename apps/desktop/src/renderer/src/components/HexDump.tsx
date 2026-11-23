@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useToastApi } from './Toast.shared';
+import '../styles/capture-panel.css';
 import { HEX_PREVIEW_BYTES } from './HexDump.shared';
 
 function fmtBytes(bytes: number): string {

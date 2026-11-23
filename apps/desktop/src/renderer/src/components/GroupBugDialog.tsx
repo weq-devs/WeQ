@@ -36,6 +36,7 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import bugBanner from '@resources/brand/bug_banner.png';
 import bugBannerDark from '@resources/brand/bug_banner_2.png';
+import '../styles/help-markdown.css';
 import '../styles/group-bug.css';
 
 const REMARK_PLUGINS = [remarkGfm];

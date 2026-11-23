@@ -45,6 +45,7 @@ import { useThemeStore } from '../../state/theme';
 import bugBanner from '@resources/brand/bug_banner.png';
 import bugBannerDark from '@resources/brand/bug_banner_2.png';
 import { Card, CheckPill, SectionHeader } from './controls';
+import '../../styles/help-markdown.css';
 import { SegmentedControl } from '../SegmentedControl';
 
 const REMARK_PLUGINS = [remarkGfm];

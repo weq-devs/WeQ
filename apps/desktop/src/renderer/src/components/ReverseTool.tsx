@@ -24,6 +24,7 @@ import {
 import { Check, Copy, Eraser, Play } from 'lucide-react';
 import { useDraftProtection } from '../lib/draftClose';
 import { lookupTag } from '@weq/codec/dictionary';
+import '../styles/reverse-tool.css';
 import {
   bytesToBase64,
   bytesToHex,

@@ -38,6 +38,7 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import { QqAvatar } from './QqAvatar';
 import { useToast } from './Toast.shared';
+import '../styles/maintenance-tools.css';
 import '../styles/login-account.css';
 
 /** 与主进程 `LoginAccountEntry` 对齐（渲染层只认"主进程答应给的形状"）。 */

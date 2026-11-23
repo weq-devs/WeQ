@@ -1,0 +1,1724 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   合并转发 / 合成聊天记录（components/mergeForward/*）
+   ══════════════════════════════════════════════════════════════════════════
+   颜色全部走主题 token（--weq-accent-effective / --weq-fg-* / --weq-bg-*），
+   高低模式自动跟随。预览行复用 .weq-forward-* 的那套 class，因此逐条消息的
+   装扮（气泡 / 字体 / 挂件）与真正打开合并转发时一模一样。 */
+
+.weq-mf-modal,
+.weq-mf-lib-modal {
+  overflow: hidden;
+}
+
+.weq-mf,
+.weq-mf-lib {
+  display: flex;
+  flex-direction: column;
+  max-height: min(86vh, 760px);
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+}
+
+/* ── 顶栏 ─────────────────────────────────────────────────────────────── */
+.weq-mf-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-mf-head-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+  color: var(--weq-accent-effective);
+  font-weight: 700;
+}
+
+.weq-mf-head-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weq-mf-head-title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.weq-mf-head-title strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.weq-mf-title-input {
+  width: 100%;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--weq-fg-primary);
+  font-size: 15px;
+  font-weight: 650;
+  background: transparent;
+  outline: none;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+
+.weq-mf-title-input:hover {
+  border-color: var(--weq-border-subtle);
+}
+
+.weq-mf-title-input:focus {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-bg-elevated);
+}
+
+.weq-mf-head-sub {
+  padding-left: 6px;
+  overflow: hidden;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-icon-btn {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease;
+}
+
+.weq-mf-icon-btn:hover {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+/* ── 主体 / 页脚 ─────────────────────────────────────────────────────── */
+.weq-mf-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.weq-mf-foot,
+.weq-mf-foot-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.weq-mf-foot {
+  flex-shrink: 0;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-mf-foot-group {
+  white-space: nowrap;
+}
+
+.weq-mf-foot-actions {
+  margin-inline-start: auto;
+  justify-content: flex-end;
+}
+
+.weq-mf-soft,
+.weq-mf-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    transform 0.14s ease;
+}
+
+.weq-mf-soft {
+  border: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-elevated);
+}
+
+.weq-mf-soft:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-mf-primary {
+  border: 1px solid transparent;
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--weq-accent-solid) 30%, transparent);
+}
+
+.weq-mf-primary:hover:not(:disabled) {
+  background: var(--weq-accent-hover, var(--weq-accent-solid));
+}
+
+.weq-mf-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.weq-mf-soft:disabled,
+.weq-mf-primary:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+@media (max-width: 420px) {
+  .weq-mf-foot .weq-mf-soft,
+  .weq-mf-foot .weq-mf-primary {
+    padding-inline: 0.5rem;
+  }
+}
+
+/* ── 编辑区：预览列表 ─────────────────────────────────────────────────── */
+.weq-mf-composer {
+  display: flex;
+  flex-direction: column;
+  height: min(62vh, 520px);
+  min-height: 0;
+}
+
+.weq-mf-preview {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  padding: 1rem 1.1rem 1.4rem;
+  overflow-y: auto;
+  background:
+    radial-gradient(
+      120% 80% at 50% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 6%, transparent),
+      transparent 70%
+    ),
+    var(--weq-bg-elevated);
+}
+
+html[data-theme='dark'] .weq-mf-preview {
+  background:
+    radial-gradient(
+      120% 80% at 50% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 10%, transparent),
+      transparent 70%
+    ),
+    color-mix(in srgb, var(--weq-bg-surface) 82%, black);
+}
+
+.weq-mf-preview-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  color: var(--weq-fg-muted);
+  font-size: 13px;
+}
+
+.weq-mf-slot {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-mf-row {
+  padding: 4px 2px;
+  border-radius: 12px;
+  transition: background 0.14s ease;
+}
+
+.weq-mf-row:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-mf-avatar {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.weq-mf-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  text-transform: uppercase;
+}
+
+/* 悬停插入：一条细线 + 居中的小胶囊，平时几乎不可见。 */
+.weq-mf-insert {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 5px;
+  height: 20px;
+  margin: 1px 0;
+  padding: 0 10px;
+  border: 1px dashed transparent;
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.14s ease,
+    color 0.14s ease,
+    border-color 0.14s ease;
+}
+
+.weq-mf-slot:hover .weq-mf-insert,
+.weq-mf-insert:focus-visible {
+  opacity: 1;
+}
+
+.weq-mf-insert:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 50%, transparent);
+  color: var(--weq-accent-effective);
+}
+
+.weq-mf-add {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
+  height: 32px;
+  margin-top: 8px;
+  padding: 0 16px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 44%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 12.5px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease;
+}
+
+.weq-mf-add:hover {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+/* ── 内联消息编辑器 ───────────────────────────────────────────────────── */
+.weq-mf-inline-editor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 4px 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 10px 26px -18px color-mix(in srgb, var(--weq-accent-effective) 40%, black);
+}
+
+.weq-mf-inline-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.weq-mf-sender-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px 0 2px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  background: var(--weq-bg-elevated);
+  cursor: pointer;
+  transition: border-color 0.14s ease;
+}
+
+.weq-mf-sender-chip:hover {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-sender-chip img {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.weq-mf-inline-hint {
+  margin-left: auto;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-textarea {
+  min-height: 74px;
+  padding: 0.55rem 0.65rem;
+  resize: vertical;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  color: var(--weq-fg-primary);
+  font-size: 13.5px;
+  line-height: 1.5;
+  background: var(--weq-bg-elevated);
+  outline: none;
+  transition: border-color 0.14s ease;
+}
+
+.weq-mf-textarea:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-inline-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.weq-mf-inline-spacer {
+  flex: 1;
+}
+
+.weq-mf-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    color 0.14s ease,
+    background 0.14s ease;
+}
+
+.weq-mf-tool:hover,
+.weq-mf-tool.active {
+  border-color: var(--weq-accent-effective);
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-mf-error {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  color: var(--destructive);
+  font-size: 12.5px;
+  background: color-mix(in srgb, var(--destructive) 12%, transparent);
+}
+
+/* ── 右键菜单 ─────────────────────────────────────────────────────────── */
+.weq-mf-menu {
+  position: fixed;
+  z-index: 5000;
+  display: flex;
+  flex-direction: column;
+  min-width: 154px;
+  padding: 5px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+.weq-mf-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.weq-mf-menu button:hover {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-mf-menu button.danger:hover {
+  color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+
+/* ── 发送人 / 会话选择器 ──────────────────────────────────────────────── */
+.weq-mf-picker,
+.weq-mf-targets {
+  display: flex;
+  flex-direction: column;
+  height: min(62vh, 520px);
+  min-height: 0;
+}
+
+.weq-mf-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.9rem 0.2rem;
+}
+
+.weq-mf-picker-head strong {
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.weq-mf-picker-spacer {
+  flex: 1;
+}
+
+.weq-mf-search {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.7rem 0.9rem 0.5rem;
+  padding: 0.42rem 0.6rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  color: var(--weq-fg-muted);
+  background: var(--weq-bg-elevated);
+  transition: border-color 0.14s ease;
+}
+
+.weq-mf-search:focus-within {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  background: transparent;
+  outline: none;
+}
+
+.weq-mf-picker-scroll,
+.weq-mf-target-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 0 0.6rem 0.6rem;
+  overflow-y: auto;
+}
+
+.weq-mf-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.2rem 1rem;
+  color: var(--weq-fg-muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.weq-mf-section {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.5rem 0.5rem 0.35rem;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  background: var(--weq-bg-surface);
+}
+
+.weq-mf-person,
+.weq-mf-target {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.weq-mf-person:hover,
+.weq-mf-target:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-mf-target.checked {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-mf-person-avatar,
+.weq-mf-target-avatar {
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.weq-mf-target-avatar {
+  width: 30px;
+  height: 30px;
+}
+
+.weq-mf-person-name,
+.weq-mf-target-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-person-uin,
+.weq-mf-target-uin {
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weq-mf-target-check {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  border: 1.5px solid color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
+  border-radius: 6px;
+  color: #fff;
+  background: transparent;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.weq-mf-target-check.on {
+  border-color: var(--weq-accent-effective);
+  background: var(--weq-accent-effective);
+}
+
+/* 手动填 QQ 号 + 昵称 */
+.weq-mf-manual {
+  flex-shrink: 0;
+  padding: 0.6rem 0.9rem 0.85rem;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+.weq-mf-manual-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  border-radius: 8px;
+  color: var(--weq-accent-effective);
+  font-size: 12.5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-manual-toggle:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+
+.weq-mf-manual-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.weq-mf-manual-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.weq-mf-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 0.6rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  background: var(--weq-bg-elevated);
+  outline: none;
+  transition: border-color 0.14s ease;
+}
+
+.weq-mf-input:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-lib-item-btn.danger:hover {
+  color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 12%, transparent);
+}
+
+/* ── 分段编辑器（合并转发重构新增）─────────────────────────────────────
+   一条消息 = 一串「分段」。这里定义分段列表、每段的小编辑器、以及嵌套节点。 */
+
+.weq-mf-row-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  background: var(--weq-bg-elevated);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.14s ease,
+    color 0.14s ease,
+    border-color 0.14s ease;
+}
+
+.weq-mf-row:hover .weq-mf-row-edit {
+  opacity: 1;
+}
+
+.weq-mf-row-edit:hover {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+}
+
+.weq-mf-avatar-img {
+  width: 40px;
+  height: 40px;
+}
+
+.weq-mf-mode-tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 11px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-mf-inline-editor-nested {
+  margin: 4px 0 0;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.weq-mf-inline-spacer {
+  flex: 1;
+}
+
+.weq-mf-seg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(46vh, 420px);
+  padding: 2px;
+  overflow-y: auto;
+}
+
+.weq-mf-seg-empty {
+  padding: 14px 8px;
+  color: var(--weq-fg-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.weq-mf-seg {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-elevated);
+}
+
+.weq-mf-seg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.weq-mf-seg-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.weq-mf-seg-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.weq-mf-seg-actions button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--weq-fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-seg-actions button:hover:not(:disabled) {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
+.weq-mf-seg-actions button.danger:hover:not(:disabled) {
+  color: #ff6b6b;
+  background: color-mix(in srgb, #ff6b6b 12%, transparent);
+}
+
+.weq-mf-seg-actions button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.weq-mf-add-wrap {
+  position: relative;
+}
+
+/* portal 到 body + fixed：不受对话框 overflow:hidden 裁切（以前在顶部会被切掉）；
+   z-index 用内联的 useOverlayLayer 值（对话框自己也占一层，CSS 数字会被压住），
+   这里的 61 只是未走 hook 时的保底。关闭靠文档级监听，不再挂全屏遮罩。 */
+.weq-mf-add-menu {
+  position: fixed;
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 320px;
+  max-height: min(70vh, 460px);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 16px 38px -18px rgb(0 0 0 / 0.4);
+}
+
+.weq-mf-add-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.weq-mf-add-sep {
+  flex: 0 0 auto;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--weq-border-subtle);
+}
+
+/* 「插入聊天记录」：进入嵌套转发的**唯一**入口，做得比图标格显眼。 */
+.weq-mf-add-record {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 9px;
+  color: var(--weq-accent-effective);
+  text-align: left;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  cursor: pointer;
+}
+
+.weq-mf-add-record:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
+}
+
+.weq-mf-add-record-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.weq-mf-add-record-text b {
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.weq-mf-add-record-text em {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.weq-mf-add-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 11px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-add-item:hover {
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-mf-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 44%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+  cursor: pointer;
+}
+
+.weq-mf-tool:hover:not(:disabled) {
+  border-style: solid;
+}
+
+.weq-mf-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.weq-mf-grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.weq-mf-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  background: var(--weq-bg-surface);
+  outline: none;
+}
+
+.weq-mf-input:focus {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-input.mono,
+.weq-mf-textarea.mono {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.weq-mf-media {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+}
+
+.weq-mf-field input {
+  width: 90px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 7px;
+  color: var(--weq-fg-primary);
+  background: var(--weq-bg-surface);
+  outline: none;
+}
+
+.weq-mf-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-mf-file-thumb {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  object-fit: cover;
+  background: var(--weq-bg-muted, transparent);
+}
+
+.weq-mf-file-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-note {
+  margin: 0;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-at-editor,
+.weq-mf-face-editor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* @ 候选浮层：定位 / 层级由 PortaledPopover 的内联样式给（portal 到 body +
+   useOverlayLayer 发层，静态 z-index 会被对话框压住），这里只管外观与内容约束。 */
+.weq-mf-at-menu {
+  display: flex;
+  flex-direction: column;
+  width: 288px;
+  max-height: min(58vh, 380px);
+  padding: 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 16px 34px -18px rgb(0 0 0 / 0.4);
+}
+
+.weq-mf-at-menu .weq-mf-search {
+  margin: 0 0 6px;
+}
+
+.weq-mf-at-menu .weq-mf-manual {
+  padding: 6px 2px 2px;
+}
+
+.weq-mf-at-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.weq-mf-at-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--weq-fg-primary);
+  font-size: 12.5px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-at-item:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+/* 表情面板：同 @ 候选，定位 / 层级走 PortaledPopover。高度必须给死——
+   FacePicker 是 height:100%，没有确定高度就不出内容。 */
+.weq-mf-face-pop {
+  height: min(300px, 58vh);
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 16px 34px -18px rgb(0 0 0 / 0.4);
+}
+
+.weq-mf-nested {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 4%, transparent);
+}
+
+/* 嵌套转发的预览卡片。 */
+.weq-mf-nested-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 260px;
+  padding: 10px 12px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-mf-nested-title {
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.weq-mf-nested-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weq-mf-nested-line {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+}
+
+.weq-mf-nested-line-name {
+  flex: 0 0 auto;
+  color: var(--weq-fg-muted);
+}
+
+.weq-mf-nested-line-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-nested-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--weq-border-subtle);
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-nested-foot-action {
+  margin-left: auto;
+}
+
+.weq-mf-nested-line-empty {
+  color: var(--weq-fg-muted);
+  font-style: italic;
+}
+
+/* ── 「聊天记录」分段的编辑器：折叠=一张卡片，展开=带工具栏的编辑区 ────────── */
+.weq-mf-record {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-record-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  border-radius: 999px;
+  color: var(--weq-accent-effective);
+  font-size: 11.5px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+  cursor: pointer;
+}
+
+.weq-mf-record-edit:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 20%, transparent);
+}
+
+/* 记录里的消息列表：一条消息 = 一行「头像 + 昵称 + 内容」。 */
+.weq-mf-record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.weq-mf-record-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.weq-mf-record-msg {
+  padding: 4px 2px;
+  border-radius: 12px;
+  transition: background 0.14s ease;
+}
+
+.weq-mf-record-msg:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-mf-record-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
+  border-radius: 12px;
+  background: var(--weq-bg-surface);
+}
+
+/* 引用段的编辑器。 */
+.weq-mf-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-nested-bar-count {
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+}
+
+.weq-mf-nested-editing {
+  gap: 8px;
+  border-style: solid;
+  background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
+}
+
+.weq-mf-nested-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+}
+
+.weq-mf-nested-bar-title {
+  flex: 1;
+  font-weight: 650;
+}
+
+.weq-mf-nested-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  font-size: 12px;
+  background: var(--weq-accent-solid);
+  cursor: pointer;
+}
+
+.weq-mf-nested-done:hover {
+  background: var(--weq-accent-hover, var(--weq-accent-solid));
+}
+
+/* 嵌在聊天记录里的编辑器：靠外层的工具栏进出，内层不再重复头部。 */
+.weq-mf-inline-editor-embedded {
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+}
+
+.weq-mf-inline-editor-embedded .weq-mf-inline-tools {
+  padding-top: 0.5rem;
+}
+
+/* ── 逐条消息装扮编辑（合并转发）────────────────────────────────────── */
+/* 「装扮」按钮与「编辑」并列，平时隐起、悬停才出现。 */
+.weq-mf-row-dress {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 999px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+  background: var(--weq-bg-elevated);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.14s ease,
+    color 0.14s ease,
+    border-color 0.14s ease;
+}
+
+.weq-mf-row:hover .weq-mf-row-dress {
+  opacity: 1;
+}
+
+.weq-mf-row-dress:hover,
+.weq-mf-row-dress.is-on {
+  color: var(--weq-accent-effective);
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+}
+
+.weq-mf-row-dress.is-on {
+  opacity: 1;
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+/* 遮罩层：卡片居中，点空白关闭。 */
+.weq-mf-dress-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--weq-dialog-top-gap, 24px) max(12px, var(--weq-safe-right))
+    var(--weq-dialog-bottom-gap, 24px) max(12px, var(--weq-safe-left));
+  background: color-mix(in srgb, #000 42%, transparent);
+}
+
+.weq-mf-dress-layer-sub {
+  background: color-mix(in srgb, #000 30%, transparent);
+}
+
+.weq-mf-dress-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: min(420px, 100%);
+  min-width: 0;
+  max-height: var(--weq-dialog-max-height, calc(100dvh - 48px));
+  overflow: auto;
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 16px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 28px 60px -24px rgb(0 0 0 / 0.5);
+}
+
+.weq-mf-dress-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-mf-dress-head strong {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--weq-fg-primary);
+}
+
+.weq-mf-dress-head-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+}
+
+.weq-mf-dress-x {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 7px;
+  color: var(--weq-fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-dress-x:hover {
+  color: var(--weq-fg-primary);
+  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
+}
+
+.weq-mf-dress-preview-wrap {
+  display: flex;
+  align-items: center;
+  min-height: 66px;
+  padding: 0.7rem 0.8rem;
+  overflow: hidden;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 12px;
+  background:
+    radial-gradient(
+      120% 100% at 0% 0%,
+      color-mix(in srgb, var(--weq-accent-effective) 8%, transparent),
+      transparent 70%
+    ),
+    var(--weq-bg-elevated);
+}
+
+.weq-mf-dress-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+
+.weq-mf-dress-preview-avatar {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--weq-fg-muted) 22%, transparent);
+}
+
+.weq-mf-dress-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weq-mf-dress-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.weq-mf-dress-field-label {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  width: 62px;
+  color: var(--weq-fg-secondary);
+  font-size: 12.5px;
+}
+
+.weq-mf-dress-input {
+  width: 108px;
+  flex: none;
+}
+
+.weq-mf-dress-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--weq-fg-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-dress-mall {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
+  border-radius: 8px;
+  color: var(--weq-accent-effective);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.weq-mf-dress-mall:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 18%, transparent);
+}
+
+.weq-mf-dress-clear {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--weq-fg-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.weq-mf-dress-clear:hover:not(:disabled) {
+  color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+
+.weq-mf-dress-clear:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.weq-mf-dress-note {
+  margin: 0;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-dress-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+
+@media (max-width: 370px) {
+  .weq-mf-dress-field {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .weq-mf-dress-input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .weq-mf-dress-name {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+
+  .weq-mf-dress-name:empty {
+    display: none;
+  }
+}
+
+/* ── 商城灯箱 ────────────────────────────────────────────────────────── */
+.weq-mf-mall-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(460px, 100%);
+  min-width: 0;
+  max-height: min(76dvh, 560px, var(--weq-dialog-max-height, calc(100dvh - 48px)));
+  overflow: auto;
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 16px;
+  background: var(--weq-bg-surface);
+  box-shadow: 0 28px 60px -24px rgb(0 0 0 / 0.5);
+}
+
+.weq-mf-mall-search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 9px;
+  color: var(--weq-fg-muted);
+  background: var(--weq-bg-elevated);
+  transition: border-color 0.14s ease;
+}
+
+.weq-mf-mall-search:focus-within {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-mf-mall-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  background: transparent;
+  outline: none;
+}
+
+.weq-mf-mall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  flex: 1;
+  min-height: 72px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.weq-mf-mall-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 11px;
+  background: var(--weq-bg-elevated);
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+
+.weq-mf-mall-item:hover {
+  border-color: color-mix(in srgb, var(--weq-accent-effective) 46%, transparent);
+}
+
+.weq-mf-mall-item.is-current {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
+}
+
+.weq-mf-mall-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 68px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--weq-fg-muted) 12%, transparent);
+}
+
+.weq-mf-mall-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.weq-mf-mall-noimg {
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-mall-check {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
+  background: var(--weq-accent-solid);
+}
+
+.weq-mf-mall-name {
+  overflow: hidden;
+  color: var(--weq-fg-primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-mf-mall-id {
+  color: var(--weq-fg-muted);
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 10.5px;
+}
+
+.weq-mf-mall-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2.4rem 1rem;
+  color: var(--weq-fg-muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.weq-mf-mall-empty.is-warn {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-mf-mall-hint {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.weq-mf-spin {
+  animation: weq-mf-spin 0.9s linear infinite;
+}
+
+@keyframes weq-mf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+html[data-theme='dark'] .weq-mf-dress-card,
+html[data-theme='dark'] .weq-mf-mall-card {
+  border-color: color-mix(in srgb, #fff 12%, transparent);
+}

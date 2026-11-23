@@ -50,6 +50,7 @@ import { ToolSurface, type ToolPresentation } from './ToolSurface';
 import { ReverseTool } from './ReverseTool';
 import { CapturePanel } from './CapturePanel';
 import { LoginAccountPanel } from './LoginAccountPanel';
+import '../styles/maintenance-tools.css';
 import { MAINTENANCE_TOOL_ICONS } from '../lib/featureIcons.shared';
 
 interface AccountRow {

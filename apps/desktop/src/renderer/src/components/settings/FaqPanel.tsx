@@ -11,6 +11,7 @@ import remarkGfm from 'remark-gfm';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
 import { shikiCodeHighlighter } from '../../views/agentlab/shikiHighlighter';
+import '../../styles/help-markdown.css';
 import { Card, SectionHeader } from './controls';
 
 const REMARK_PLUGINS = [remarkGfm];
