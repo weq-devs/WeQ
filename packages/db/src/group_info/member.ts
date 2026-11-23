@@ -20,7 +20,7 @@
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { QqDb } from '../qq_db';
-import { measureMessageWork } from '../query_schedule';
+import { measureMessageWork, withDatabaseReadBudget } from '../query_schedule';
 
 export interface GroupMember {
   groupCode: bigint;
@@ -68,6 +68,23 @@ const MEMBER_COLUMNS = [
   '64023',
   '64035',
 ];
+const MEMBERSHIP_GROUP_BATCH = 16;
+type MembershipSnapshot = Map<string, { total: number; friends: Set<string> }>;
+const ACTIVE_MEMBERSHIP = `("64016" = 0 OR "64016" IS NULL)`;
+const MEMBERSHIP_SUMMARY_SQL = `SELECT "60001",
+    COUNT(DISTINCT "1000" COLLATE BINARY) FILTER (WHERE ${ACTIVE_MEMBERSHIP}),
+    json_group_array(DISTINCT "1000" COLLATE BINARY) FILTER (
+      WHERE ${ACTIVE_MEMBERSHIP} AND "1000" COLLATE BINARY IN (SELECT value FROM json_each(?))
+    ),
+    COUNT(*) FILTER (WHERE typeof("64016") NOT IN ('integer', 'real', 'null'))
+  FROM group_member3
+  WHERE "60001" IN (SELECT value FROM json_each(?))
+    AND typeof("1000") = 'text' AND "1000" GLOB 'u_?*'
+    AND "1000" NOT GLOB '*[^A-Za-z0-9_-]*' AND instr("1000", char(0)) = 0
+  GROUP BY "60001"`;
+function membershipQueryTimedOut(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('database_query_execution_timeout');
+}
 
 export class GroupMemberDb {
   get dbPath(): string {
@@ -97,19 +114,74 @@ export class GroupMemberDb {
   }
 
   /** 联系人校准只读取有效成员总数与好友交集，不加载昵称、等级等整份成员资料。 */
-  async contactMembershipSnapshot(friendUids: string[]) {
-    return measureMessageWork(this.dbPath, 'contactMembership', () =>
-      this.readContactMembershipSnapshot(friendUids),
-    );
+  async contactMembershipSnapshot(
+    friendUids: string[],
+    groupCodes?: readonly string[],
+  ): Promise<MembershipSnapshot> {
+    const groups = groupCodes ? new Set(groupCodes) : undefined;
+    return measureMessageWork(this.dbPath, 'contactMembership', async () => {
+      if (groups && !groups.size) return new Map();
+      const friends = new Set(friendUids.filter(Boolean));
+      if (groups && (await this.qq.hasLeadingIndex('group_member3', '60001'))) {
+        try {
+          const indexed = await this.readIndexedMembershipSnapshot(friends, groups);
+          if (indexed) return indexed;
+        } catch (error) {
+          if (!membershipQueryTimedOut(error)) throw error;
+          // 按群汇总在异常大群或冷库中超过短预算时，沿用有界行页继续校准。
+        }
+      }
+      return this.readContactMembershipSnapshot(friends, groups);
+    });
   }
 
-  private async readContactMembershipSnapshot(friendUids: string[]) {
-    const groups = new Map<string, { total: number; friends: Set<string> }>();
-    const ids = new Set(friendUids.filter(Boolean));
+  private async readIndexedMembershipSnapshot(
+    friends: ReadonlySet<string>,
+    groups: ReadonlySet<string>,
+  ): Promise<MembershipSnapshot | undefined> {
+    const result: MembershipSnapshot = new Map();
+    const codes = [...groups];
+    const friendList = JSON.stringify([...friends]);
+    let batchSize = MEMBERSHIP_GROUP_BATCH;
+    for (let offset = 0; offset < codes.length; ) {
+      const read = () =>
+        this.qq.query(MEMBERSHIP_SUMMARY_SQL, [
+          friendList,
+          JSON.stringify(codes.slice(offset, offset + batchSize)),
+        ]);
+      let rows: SqlRow[];
+      try {
+        rows = await (this.qq.supportsReadBudget ? withDatabaseReadBudget(35, read) : read());
+      } catch (error) {
+        if (!membershipQueryTimedOut(error) || batchSize === 1) throw error;
+        batchSize = Math.max(1, Math.floor(batchSize / 2));
+        continue;
+      }
+      for (const [code, total, json, untyped] of rows) {
+        // 旧库异常字段交给原来的 Number 转换，保留其匹配语义。
+        if (Number(untyped) > 0) return undefined;
+        const key = String(code);
+        if (Number(total) > 0 && groups.has(key))
+          result.set(key, {
+            total: Number(total),
+            friends: new Set<string>(JSON.parse(String(json))),
+          });
+      }
+      offset += batchSize;
+    }
+    return result;
+  }
+
+  private async readContactMembershipSnapshot(
+    friends: ReadonlySet<string>,
+    selectedGroups?: ReadonlySet<string>,
+  ): Promise<MembershipSnapshot> {
+    const groups: MembershipSnapshot = new Map();
     const seen = new Map<string, Set<string>>();
     for await (const rows of this.qq.rowidPages('group_member3', ['60001', '1000', '64016'])) {
       for (const row of rows) {
         const code = String(row[1]);
+        if (selectedGroups && !selectedGroups.has(code)) continue;
         const uid = row[2];
         if (
           (row[3] !== null && Number(row[3]) !== 0) ||
@@ -127,7 +199,7 @@ export class GroupMemberDb {
         members.add(uid);
         const group = groups.get(code)!;
         group.total++;
-        if (ids.has(uid)) group.friends.add(uid);
+        if (friends.has(uid)) group.friends.add(uid);
       }
     }
     return groups;

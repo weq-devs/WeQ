@@ -370,8 +370,8 @@ export class GroupInfoService {
   contactMembersObserved?: (groupId: number, members: GroupMemberListItem[]) => Promise<void>;
   onMemberRolesChanged?: (groupId: number) => void;
 
-  contactMembershipSnapshot(friendUids: string[]) {
-    return this.session.groupMembers.contactMembershipSnapshot(friendUids);
+  contactMembershipSnapshot(friendUids: string[], groupCodes?: readonly string[]) {
+    return this.session.groupMembers.contactMembershipSnapshot(friendUids, groupCodes);
   }
   private readonly groupNotifyService: GroupNotifyService;
   /** Per-session relation-graph cache (group membership is near-static). */

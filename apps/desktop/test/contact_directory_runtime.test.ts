@@ -790,7 +790,7 @@ it('群文件连续变化合并全群校准，资料刷新和名册变更仍可�
     f.buddies.push({ uid: 'u_added', uin: 12346n });
     f.callbacks[0]!();
     await waitFor(() => expect(groups).toHaveBeenCalledTimes(3));
-    expect(groups).toHaveBeenLastCalledWith(['u_friend', 'u_added']);
+    expect(groups).toHaveBeenLastCalledWith(['u_friend', 'u_added'], ['10001']);
     await f.runtime.dispose();
   } finally {
     vi.useRealTimers();

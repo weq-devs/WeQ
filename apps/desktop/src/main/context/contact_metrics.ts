@@ -1460,9 +1460,10 @@ export class ContactDirectoryRuntime {
           this.assertCurrent();
           if (ext.length < 500) break;
         }
-      const memberSnapshot = await this.services.groupInfo.contactMembershipSnapshot([
-        ...next.keys(),
-      ]);
+      const memberSnapshot = await this.services.groupInfo.contactMembershipSnapshot(
+        [...next.keys()],
+        [...codes],
+      );
       this.assertCurrent();
       for (const group of groups) {
         if (!this.current() || this.disposed) return;
