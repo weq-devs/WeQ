@@ -29,6 +29,11 @@
   position: absolute;
 }
 
+.weq-virtual-timeline.is-windowed[data-prewarm-enabled] {
+  /* 与远端正文层相同，让 Chromium 记录已预挂载完整行的画面。 */
+  filter: blur(0.01px);
+}
+
 .weq-timeline-scroll-preview {
   position: absolute;
   inset-inline: 0;

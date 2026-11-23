@@ -4,11 +4,13 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  type Key,
   type ReactNode,
   type RefObject,
 } from 'react';
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
 import { estimateTimelineRowHeight } from '../../lib/timelinePreload';
+import { estimateTimelinePrewarmBytes } from '../../lib/timelinePrewarm';
 import { IS_ELECTRON } from '../../lib/target.shared';
 import { deletionIdentity } from '../../lib/messageDeletion';
 import type { Message } from './types';
@@ -22,6 +24,8 @@ export type TimelineVisibility = {
   syncRows: () => void;
   dispose: () => void;
 };
+
+type TimelineRowCache = Map<number, { key: Key; node: ReactNode }>;
 
 type ChatTimelineProps = {
   messages: Message[];
@@ -43,10 +47,14 @@ type ChatTimelineProps = {
   ownSenderId: string;
   observeMessageVisibility: () => TimelineVisibility | undefined;
   children: (
-    timeline: Pick<ReturnType<typeof useVirtualTimeline>, 'enabled' | 'items' | 'measure'>,
+    timeline: Pick<
+      ReturnType<typeof useVirtualTimeline>,
+      'enabled' | 'items' | 'measure' | 'prewarmEnabled'
+    >,
     captureContent: (element: HTMLDivElement | null) => void,
     rowSpacing: (index: number) => number,
     preview: ReactNode,
+    rowCache: TimelineRowCache,
   ) => ReactNode;
 };
 
@@ -583,6 +591,17 @@ function ChatTimelineContent({
     (index: number) => estimatedHeights[index] ?? 96,
     [estimatedHeights],
   );
+  const pixelRatio = globalThis.devicePixelRatio || 1;
+  const warmBytesAt = useMemo(() => {
+    const sizes = new Map<number, number>();
+    return (index: number) => {
+      const cached = sizes.get(index);
+      if (cached !== undefined) return cached;
+      const bytes = estimateTimelinePrewarmBytes(messages[index]!, pixelRatio);
+      sizes.set(index, bytes);
+      return bytes;
+    };
+  }, [messages, pixelRatio]);
   const timeline = useVirtualTimeline({
     ids,
     keys,
@@ -591,7 +610,17 @@ function ChatTimelineContent({
     scope,
     active,
     estimateSize,
+    warmBytesAt,
   });
+  // 纯滚动只改变列表范围。完整行的布局和内容沿用父组件这次生成的节点。
+  const rowCache = useMemo<TimelineRowCache>(
+    () => new Map(),
+    [children, rowSpacing, timeline.measure],
+  );
+  useLayoutEffect(() => {
+    const mounted = new Set(timeline.items.map(({ index }) => index));
+    for (const index of rowCache.keys()) if (!mounted.has(index)) rowCache.delete(index);
+  }, [rowCache, timeline.items]);
   const { containerRef } = timeline;
   const captureContent = useCallback(
     (element: HTMLDivElement | null) => {
@@ -626,5 +655,5 @@ function ChatTimelineContent({
     IS_ELECTRON && active && timeline.enabled
       ? renderScrollPreview(timeline, messages, deleted, ownSenderId)
       : null;
-  return children(timeline, captureContent, rowSpacing, preview);
+  return children(timeline, captureContent, rowSpacing, preview, rowCache);
 }

@@ -1,5 +1,7 @@
 import {
+  startTransition,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -25,12 +27,15 @@ import {
   type ConversationReadingPosition,
 } from '../lib/conversationReadingPosition';
 import { IS_ELECTRON } from '../lib/target.shared';
+import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import { timelineViewportRange } from '../lib/timelinePreload';
+import { advanceTimelinePrewarm } from '../lib/timelinePrewarm';
 import '../styles/virtual-timeline.css';
 import { useMobileWebLayout } from './useMobileWebViewport';
 
 export const TIMELINE_VIRTUAL_THRESHOLD = 40;
 export const TIMELINE_OVERSCAN = 6;
+const EMPTY_WARM_ROWS: readonly string[] = [];
 const observeTimelineRect: typeof observeElementRect = (instance, callback) =>
   observeElementRect(instance, (rect) => {
     // 隐藏视口的零尺寸不回灌范围；重新显示时继续交付真实宽高。
@@ -63,6 +68,7 @@ export function useVirtualTimeline({
   active = true,
   orderedIds,
   estimateSize,
+  warmBytesAt,
 }: {
   ids: string[];
   keys?: string[];
@@ -71,6 +77,7 @@ export function useVirtualTimeline({
   active?: boolean;
   orderedIds: readonly string[];
   estimateSize: (index: number) => number;
+  warmBytesAt?: (index: number) => number;
 }) {
   const mobileWeb = useMobileWebLayout();
   const enabled = ids.length > TIMELINE_VIRTUAL_THRESHOLD;
@@ -80,12 +87,27 @@ export function useVirtualTimeline({
   const touching = useRef(false);
   const touchMomentum = useRef(false);
   const mountedIndexes = useRef<ReadonlySet<number>>(new Set());
+  const motion = useRef<{ scope: string; direction: -1 | 0 | 1; velocity: number; at: number }>({
+    scope,
+    direction: 0,
+    velocity: 0,
+    at: 0,
+  });
+  if (motion.current.scope !== scope) motion.current = { scope, direction: 0, velocity: 0, at: 0 };
   const [scrollRange] = useState(createScrollRangeStore);
   useSyncExternalStore(scrollRange.subscribe, scrollRange.getSnapshot);
   const observeTimelineOffset: typeof observeElementOffset = useCallback(
     (instance, callback) =>
       observeElementOffset(instance, (offset, scrolling) => {
         if (!activeRef.current) return;
+        const previous = instance.scrollOffset;
+        if (scrolling && previous !== null && offset !== previous) {
+          const now = performance.now();
+          motion.current.direction = offset < previous ? -1 : 1;
+          motion.current.velocity =
+            Math.abs(offset - previous) / Math.max(8, now - motion.current.at);
+          motion.current.at = now;
+        }
         if (!scrolling && !touching.current) touchMomentum.current = false;
         deliveringOffset.current = true;
         try {
@@ -123,18 +145,54 @@ export function useVirtualTimeline({
   }, [ids, orderedIds]);
   const key = useCallback((position: number) => keys[position]!, [keys]);
   const instanceRef = useRef<Virtualizer<HTMLDivElement, HTMLDivElement> | null>(null);
+  const canPrewarm = IS_ELECTRON && enabled && active && !!warmBytesAt;
+  const [warm, setWarm] = useState<{ scope: string; rows: readonly string[] }>({
+    scope,
+    rows: EMPTY_WARM_ROWS,
+  });
+  const warmRows = canPrewarm && warm.scope === scope ? warm.rows : EMPTY_WARM_ROWS;
+  const warmIndex = useMemo(() => new Map(keys.map((id, position) => [id, position])), [keys]);
+  const warmPositions = useMemo(() => {
+    const positions = new Set<number>();
+    for (const id of warmRows) {
+      const position = warmIndex.get(id);
+      if (position !== undefined) positions.add(position);
+    }
+    return positions;
+  }, [warmIndex, warmRows]);
+  const nearRows = useCallback(
+    (range: Range, instance: Virtualizer<HTMLDivElement, HTMLDivElement> | null) =>
+      timelineViewportRange(
+        range,
+        instance?.scrollRect?.height ?? 0,
+        (position) => instance?.itemSizeCache.get(key(position)),
+        instance?.scrollDirection ?? null,
+        (position) => instance?.measurementsCache[position]?.size ?? estimateSize(position),
+      ),
+    [estimateSize, key],
+  );
   const rangeExtractor = useCallback(
     (range: Range) => {
-      const instance = instanceRef.current;
-      const rendered = new Set(
-        timelineViewportRange(
-          range,
-          instance?.scrollRect?.height ?? 0,
-          (position) => instance?.itemSizeCache.get(key(position)),
-          instance?.scrollDirection ?? null,
-          (position) => instance?.measurementsCache[position]?.size ?? estimateSize(position),
-        ),
-      );
+      const near = nearRows(range, instanceRef.current);
+      const rendered = new Set(near);
+      // 只复用紧邻当前缓冲的完整行。大幅跳转后旧区块不参与新视口渲染。
+      if (warmPositions.size && near.length) {
+        const extend = (start: number, step: -1 | 1) => {
+          let gap = 0;
+          for (
+            let position = start;
+            position >= 0 && position < keys.length && gap < TIMELINE_OVERSCAN;
+            position += step
+          ) {
+            if (warmPositions.has(position)) {
+              rendered.add(position);
+              gap = 0;
+            } else gap++;
+          }
+        };
+        extend(near[0]! - 1, -1);
+        extend(near[near.length - 1]! + 1, 1);
+      }
       const anchorId = thresholdAnchor.current?.anchorId;
       const anchorIndex = anchorId ? index.get(anchorId) : undefined;
       if (anchorIndex !== undefined) rendered.add(anchorIndex);
@@ -149,7 +207,7 @@ export function useVirtualTimeline({
       }
       return [...rendered].sort((a, b) => a - b);
     },
-    [key, index, scrollRef, estimateSize],
+    [index, keys.length, nearRows, scrollRef, warmPositions],
   );
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: ids.length,
@@ -178,14 +236,21 @@ export function useVirtualTimeline({
       const observed = entry?.borderBoxSize?.[0]?.blockSize;
       // RO 已交付正高度时不重新触发布局。
       if (observed !== undefined && observed > 0) return observed;
+      const index = instance.indexFromElement(element);
+      const cached = instance.itemSizeCache.get(instance.options.getItemKey(index));
+      const range = instance.range;
+      // 空闲预挂载的离屏行先登记观察，避免 React 提交时逐行强制布局。
+      if (
+        !entry &&
+        range &&
+        warmPositions.has(index) &&
+        (index < range.startIndex || index > range.endIndex)
+      )
+        return cached ?? instance.options.estimateSize(index);
       const rects = element.getClientRects();
       if (!rects.length) {
         // display:none 的零尺寸不是消息真实高度，不回灌阅读位置模型。
-        const index = instance.indexFromElement(element);
-        return (
-          instance.itemSizeCache.get(instance.options.getItemKey(index)) ??
-          instance.options.estimateSize(index)
-        );
+        return cached ?? instance.options.estimateSize(index);
       }
       return (
         observed ?? (rects.length === 1 ? rects[0]!.height : element.getBoundingClientRect().height)
@@ -202,6 +267,66 @@ export function useVirtualTimeline({
   });
   instanceRef.current = virtualizer;
   const virtualItems = enabled ? virtualizer.getVirtualItems() : null;
+  const visibleStart = virtualizer.range?.startIndex;
+  const visibleEnd = virtualizer.range?.endIndex;
+  const isScrolling = virtualizer.isScrolling;
+  useEffect(() => {
+    if (!canPrewarm) {
+      if (warm.rows.length) setWarm({ scope, rows: EMPTY_WARM_ROWS });
+      return;
+    }
+    if (!warmBytesAt || isScrolling || visibleStart === undefined || visibleEnd === undefined)
+      return;
+    let disposed = false;
+    const cancel = scheduleBackgroundLoad(() => {
+      if (disposed || !virtualizer.range || virtualizer.isScrolling) return;
+      const range = virtualizer.range;
+      const near = nearRows(
+        { ...range, count: keys.length, overscan: TIMELINE_OVERSCAN },
+        virtualizer,
+      );
+      if (!near.length) return;
+      const { at, direction, velocity } = motion.current;
+      const rows = advanceTimelinePrewarm({
+        keys,
+        index: warmIndex,
+        bytesAt: warmBytesAt,
+        geometry: virtualizer.measurementsCache,
+        visibleStart: range.startIndex,
+        visibleEnd: range.endIndex,
+        nearStart: near[0]!,
+        nearEnd: near[near.length - 1]!,
+        direction,
+        velocity,
+        current: warmRows,
+      });
+      if (rows)
+        startTransition(() => {
+          setWarm((previous) =>
+            activeRef.current && motion.current.scope === scope && motion.current.at === at
+              ? { scope, rows }
+              : previous,
+          );
+        });
+    }, 32);
+    return () => {
+      disposed = true;
+      cancel();
+    };
+  }, [
+    canPrewarm,
+    isScrolling,
+    keys,
+    nearRows,
+    scope,
+    virtualizer,
+    visibleEnd,
+    visibleStart,
+    warm,
+    warmBytesAt,
+    warmIndex,
+    warmRows,
+  ]);
   useLayoutEffect(() => {
     mountedIndexes.current = new Set(virtualItems?.map(({ index }) => index));
   }, [virtualItems]);
@@ -563,6 +688,7 @@ export function useVirtualTimeline({
 
   return {
     enabled,
+    prewarmEnabled: canPrewarm,
     virtualizer,
     margin,
     items: virtualItems ?? keys.map((key, index) => ({ key, index, start: 0 })),

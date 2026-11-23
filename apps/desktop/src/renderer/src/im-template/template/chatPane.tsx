@@ -6416,7 +6416,7 @@ function ChatPaneContent({
           ownSenderId={user.id}
           observeMessageVisibility={observeMessageVisibility}
         >
-          {(timeline, captureTimelineContent, rowSpacing, preview) => (
+          {(timeline, captureTimelineContent, rowSpacing, preview, rowCache) => (
             <div
               className={cn(
                 'message-scroll',
@@ -6462,6 +6462,11 @@ function ChatPaneContent({
                   const out: React.ReactNode[] = [];
                   timeline.items.forEach((virtualRow) => {
                     const index = virtualRow.index;
+                    const cached = rowCache.get(index);
+                    if (cached?.key === virtualRow.key) {
+                      out.push(cached.node);
+                      return;
+                    }
                     const message = visibleMessages[index];
                     if (!message) return;
                     const deleted = deletedKeys.has(deletionIdentity(message.id));
@@ -6648,7 +6653,7 @@ function ChatPaneContent({
                     );
                     {
                       const children = out.splice(blockStart);
-                      out.push(
+                      const node = (
                         <div
                           className={cn(
                             'weq-virtual-timeline-row',
@@ -6665,8 +6670,10 @@ function ChatPaneContent({
                           ref={timeline.measure}
                         >
                           {children}
-                        </div>,
+                        </div>
                       );
+                      rowCache.set(index, { key: virtualRow.key, node });
+                      out.push(node);
                     }
                   });
                   return (
@@ -6676,6 +6683,7 @@ function ChatPaneContent({
                       role="list"
                       aria-label="聊天消息"
                       data-total-items={visibleMessages.length}
+                      data-prewarm-enabled={timeline.prewarmEnabled || undefined}
                     >
                       {preview}
                       {out}
