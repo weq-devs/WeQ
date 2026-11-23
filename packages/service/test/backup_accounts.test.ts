@@ -243,6 +243,7 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
   write(weqAccountSettingPath(f.root, f.cache, f.source, 'tolerance.json'), { level: 3 });
   const antiRecall = {
     enabled: true,
+    method: 'proxy',
     mode: 'selected',
     targets: [{ kind: 'group', id: '12345' }],
     notifyEnabled: true,
@@ -327,7 +328,13 @@ it('通用偏好和背景只备份一次，账号备份保留规则与数据源�
     JSON.parse(
       readFileSync(weqAccountSettingPath(f.root, f.cache, f.local, 'anti-recall.json'), 'utf8'),
     ),
-  ).toEqual({ targets: antiRecall.targets, notifyTargets: antiRecall.notifyTargets });
+  ).toEqual({
+    enabled: antiRecall.enabled,
+    method: antiRecall.method,
+    mode: antiRecall.mode,
+    targets: antiRecall.targets,
+    notifyTargets: antiRecall.notifyTargets,
+  });
   const restoredDress = new DressConfigService(
     f.config.sharedAppearanceDir(),
     sharedPreferencePersistence(f.config, 'dress'),

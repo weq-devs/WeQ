@@ -61,6 +61,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         refreshNetwork: mutation(),
         decide: mutation(),
         revoke: mutation(),
+        accounts: { useQuery: () => ({ data: [] }) },
+        setAccountConfigIds: mutation(),
       },
     },
   };

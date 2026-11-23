@@ -56,6 +56,7 @@ beforeEach(() => {
     'bootstrap.getMcpStatus': {
       enabled: false,
       port: 48765,
+      configuredPort: 48765,
       token: '',
       url: '',
       host: '127.0.0.1',

@@ -58,7 +58,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                     ? {
                         enabled: false,
                         running: false,
-                        port: fixture.mcpPort,
+                        port: 48766,
+                        configuredPort: fixture.mcpPort,
                         token: 'synthetic-mcp-secret',
                         host: '127.0.0.1',
                         url: 'http://127.0.0.1/fixture',

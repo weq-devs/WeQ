@@ -11,8 +11,13 @@ const mocks = vi.hoisted(() => ({
   },
   dialog: { showErrorBox: vi.fn() },
   identify: vi.fn(),
+  sharedRoot: vi.fn(),
 }));
 vi.mock('electron', () => ({ app: mocks.app, dialog: mocks.dialog }));
+vi.mock('@weq/platform', async (original) => ({
+  ...(await original<typeof import('@weq/platform')>()),
+  weqAppDataRoot: mocks.sharedRoot,
+}));
 vi.mock('../src/main/storage_cleanup_process', () => ({
   isStorageCleanupWorkerProcess: mocks.identify,
 }));
@@ -26,7 +31,8 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'weq-cleanup-identity-'));
   lockPath = join(root, 'storage-maintenance', 'running.json');
   mkdirSync(join(root, 'storage-maintenance'), { recursive: true });
-  mocks.app.getPath.mockReturnValue(root);
+  mocks.app.getPath.mockReturnValue(join(root, 'desktop-instance'));
+  mocks.sharedRoot.mockReturnValue(root);
   writeFileSync(
     lockPath,
     JSON.stringify({ pid: process.pid, worker: join(root, 'storageCleanupWorker.mjs') }),
