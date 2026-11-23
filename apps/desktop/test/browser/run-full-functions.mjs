@@ -90,7 +90,7 @@ try {
     .waitFor();
   await page.getByRole('button', { name: '关闭副本设置', exact: true }).click();
   await manager.waitFor({ state: 'detached' });
-  const auto = page.getByRole('switch', { name: '自动启用 QQ 在线能力', exact: true });
+  const auto = page.getByRole('switch', { name: '启用 QQ 在线能力', exact: true });
   await auto.click();
   assert.equal(await auto.getAttribute('aria-checked'), 'false');
   const indicator = page.getByRole('switch', {

@@ -59,6 +59,10 @@ function invalidateModelSettings(utils: SettingsUtils) {
 
 function invalidateSettingsChange(utils: SettingsUtils, change?: SettingsChange) {
   void utils.bootstrap.getSettings.invalidate();
+  if (!change || change.fields.includes('autoAttachQq')) {
+    void utils.bootstrap.getFullModeState.invalidate();
+    void utils.account.getGroupAlbumAccessState.invalidate();
+  }
   if (!change) {
     // 恢复、配置重读和旧宿主未提供字段时，保留完整校准。
     invalidateModelSettings(utils);

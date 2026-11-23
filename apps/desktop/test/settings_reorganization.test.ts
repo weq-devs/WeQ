@@ -279,7 +279,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[data-setting-id="qq-debug-copy"]')).toBeNull();
       expect(f.body().textContent).not.toContain('SIP');
       expect(f.body().querySelector('[data-setting-id="full-features"]')).not.toBeNull();
-      expect(f.body().querySelector('[aria-label="自动启用 QQ 在线能力"]')).not.toBeNull();
+      expect(f.body().querySelector('[aria-label="启用 QQ 在线能力"]')).not.toBeNull();
     } finally {
       f.close();
     }

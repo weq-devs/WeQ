@@ -216,7 +216,7 @@ export function RestrictedModeHost() {
   const [busy, setBusy] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [loginRequested, setLoginRequested] = useState<string | null>(null);
-  const refreshAfterLogin = useRef<(enable: boolean) => Promise<void>>(async () => {});
+  const refreshAfterLogin = useRef<() => Promise<void>>(async () => {});
   const [error, setError] = useState('');
   const [dataRetried, setDataRetried] = useState(false);
   const operation = useRef(0);
@@ -319,13 +319,14 @@ export function RestrictedModeHost() {
     )
       return;
     setLoginRequested(null);
-    void refreshAfterLogin.current(true);
+    if (access.data.attachEnabled) void refreshAfterLogin.current();
   }, [
     loginRequested,
     sourceKey,
     active,
     accessMatches,
     access.data?.qqOnline,
+    access.data?.attachEnabled,
     busy,
     requests.length,
   ]);
@@ -661,13 +662,8 @@ export function RestrictedModeHost() {
   }
   refreshAfterLogin.current = refresh;
   async function afterDebugQqOpened() {
-    const binding = sourceKey;
-    const source = accessMatches ? access.data?.source : undefined;
-    if (active && source && source.expectedAccountUin === uin) {
-      await client.account.requestFullMode.mutate(source);
-      if (currentSource.current !== binding) return;
-    }
-    setLoginRequested(binding);
+    if (currentSource.current !== sourceKey) return;
+    if (active) setLoginRequested(sourceKey);
     await (active ? access.refetch() : online.refetch());
   }
   const canRetryCredentials =

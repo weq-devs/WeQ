@@ -8,7 +8,7 @@
  *   - each account gets its own jar keyed by the same (uin, dataDir) id the rest
  *     of the app uses ("按账号隔离") — switching accounts switches the partition.
  *
- * Auto-login: when 设置 → 自动启用 QQ 在线能力 is on AND a logged-in QQ.exe for the
+ * Auto-login: when 设置 → 启用 QQ 在线能力 is on AND a logged-in QQ.exe for the
  * account is running, we ask nt_helper for a `pd.qq.com` p_skey and seed the jar with
  * `uin` / `p_uin` / `p_skey` — enough for pd.qq.com to treat the page as logged
  * in. If the setting is off or no online instance exists, we fall back to
@@ -69,7 +69,7 @@ function resolvePartition(): string {
 
 /**
  * Best-effort auto-login: seed `uin` / `p_uin` / `p_skey` into the channel jar
- * from the live QQ instance. No-op (returns silently) unless 自动启用 QQ 在线能力
+ * from the live QQ instance. No-op (returns silently) unless 启用 QQ 在线能力
  * is on and a logged-in QQ.exe is online — the monitor attaches on
  * account-online, so the p_skey fetch works off the recorded pid. On any failure we
  * leave the jar untouched and let the persistent cookies (if any) carry login.

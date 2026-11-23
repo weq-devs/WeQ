@@ -702,7 +702,7 @@ export function QzoneAlbumDialog({
             <span>{offlineMode ? '完全离线模式已开启' : '需要登录 QQ 客户端'}</span>
             <small>
               {offlineMode
-                ? '已关闭「自动启用 QQ 在线能力」，空间相册需要在线 QQ 实例的 pskey 凭证才能访问。请在设置中开启后重试。'
+                ? '已关闭「启用 QQ 在线能力」，空间相册需要在线 QQ 实例的 pskey 凭证才能访问。请在设置中开启后重试。'
                 : '空间相册需要当前账号的 QQ 客户端在线以获取访问凭证（pskey）。请打开并登录 QQ 后重试。'}
             </small>
           </div>

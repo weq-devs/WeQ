@@ -1023,14 +1023,13 @@ export const bootstrapRouter = router({
       return true;
     }),
 
-  /** 只保存自动进入策略；真实授权仍由 attach 链处理，不撤销本来源手动请求。 */
-  setAutoAttachQq: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(async ({ input }) => {
-      requireBootstrap().userConfig.setSettings({ autoAttachQq: input.enabled });
-      getAppContext().applyFullModePolicy();
-      return true;
-    }),
+  /** 保存宿主共享的 QQ 在线能力开关。 */
+  setAutoAttachQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+    const { userConfig } = requireBootstrap();
+    if (userConfig.getSettings().autoAttachQq !== input.enabled)
+      userConfig.setSettings({ autoAttachQq: input.enabled });
+    return true;
+  }),
 
   setReportReadEnabled: procedure
     .input(z.object({ enabled: z.boolean() }))

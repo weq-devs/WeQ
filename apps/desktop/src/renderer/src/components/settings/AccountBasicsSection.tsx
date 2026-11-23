@@ -632,19 +632,19 @@ export function AccountBasicsSection({
           <FullFunctionSetup isMac={isMac}>
             <Row
               settingId="auto-full-mode"
-              label="自动启用 QQ 在线能力"
-              desc="打开账号后自动尝试读取 QQ 会话凭据并启用 QQ 在线能力。关闭后仍可在「在线能力受限」详情中为当前来源手动启用；手动请求仅在宿主本次运行中有效，不改变下次启动偏好。"
+              label="启用 QQ 在线能力"
+              desc="开启后，WeQ 会从已登录的 QQ 获取会话凭据。关闭后立即停用 QQ 在线能力，仍可浏览和导出本地聊天记录。"
               control={
                 <Toggle
                   checked={autoAttach}
-                  disabled={settingsLoading}
+                  disabled={settingsLoading || setAutoAttachQq.isLoading}
                   onChange={(v) =>
                     void persist(
                       () => setAutoAttach(v),
                       () => setAutoAttachQq.mutateAsync({ enabled: v }),
                     )
                   }
-                  label="自动启用 QQ 在线能力"
+                  label="启用 QQ 在线能力"
                 />
               }
             />

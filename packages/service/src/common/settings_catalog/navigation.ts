@@ -664,8 +664,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'auto-full-mode',
     section: 'account',
-    label: '自动启用 QQ 在线能力',
-    aliases: ['自动读取 QQ 内存'],
+    label: '启用 QQ 在线能力',
+    aliases: ['自动启用 QQ 在线能力', '自动读取 QQ 内存'],
     from: ['account'],
   },
   {

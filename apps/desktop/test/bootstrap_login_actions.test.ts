@@ -166,7 +166,7 @@ it('未保存密钥也能打开并自动获取，没有独立密钥按钮', asyn
   await click('打开账号');
   expect(f.qr).toHaveBeenCalledWith({ uin: '10001' });
 });
-it('自动启用 QQ 在线能力与自动进入同一行，复用账号内设置', async () => {
+it('启用 QQ 在线能力与自动进入同一行，复用账号内设置', async () => {
   f.settings.autoAttachQq = true;
   await mount('existing');
   const options = host.querySelectorAll<HTMLButtonElement>('.weq-login-options [role="switch"]');

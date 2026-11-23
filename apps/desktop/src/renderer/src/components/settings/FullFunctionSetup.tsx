@@ -211,8 +211,7 @@ export function FullFunctionSetup({ isMac, children }: { isMac: boolean; childre
             </p>
           )}
           <p className="weq-set-note">
-            QQ 已启动、调试副本已就绪或权限助手已连接，都不等于 QQ
-            在线能力已启用。关闭自动启用时，可点击标题旁的状态标签，或从标题栏的「在线能力受限」详情为当前来源手动启用。
+            QQ 在线能力需要开启下方开关，并等待当前账号的 QQ 会话凭据就绪。
           </p>
         </section>
       </Card>

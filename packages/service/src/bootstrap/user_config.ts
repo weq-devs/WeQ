@@ -841,15 +841,14 @@ export interface AppSettings {
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
-   * 自动启用 QQ 在线能力策略（设置 → 常规 → 在线能力与授权）。
+   * QQ 在线能力开关（设置 → 常规 → 在线能力与授权）。
    *
    * 默认**关闭**：是否读取登录中的 QQ 进程内存，由用户在**首次运行欢迎框**里
    * 自己选择（见 {@link WELCOME_POLICY_VERSION}）。开启后后台自动读进程内存，
    * 采集 a2 / d2 / d2key 与 rKey / ClientKey / 装扮快照等凭证，驱动漫游消息、
    * 媒体补全、发送消息 / 群操作 / 群管理、一键反馈 bug、群相册、Web 凭证
    * （skey/pskey）等在线功能。
-   * 关闭只停止自动尝试，宿主仍可持有本来源的手动请求；在线消费点检查宿主的
-   * 有效运行态与真实凭据，不直接拿本偏好作总闸。手动请求不持久化或进入备份。
+   * 关闭后停止在线凭据读取，业务入口仍需检查来源和实际凭据状态。
    * 登录时的数据库密钥提取仍独立于此策略。
    */
   autoAttachQq: boolean;
@@ -2641,7 +2640,7 @@ export class UserConfigService {
   /**
    * 确认首次运行欢迎框，并记录用户在框里对「扫描 QQ 内存」的选择。
    *
-   * `allowMemoryScan` 保存为 `autoAttachQq` 自动策略；欢迎框不创建本来源的手动请求。
+   * `allowMemoryScan` 保存为 `autoAttachQq`，与设置共用同一个开关。
    * 确认时一并写入当前策略版本，之后不再重复弹出。
    */
   acknowledgeWelcome(options: { allowMemoryScan: boolean }): void {

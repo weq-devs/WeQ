@@ -103,7 +103,7 @@ export function RestrictedQqAction({
   }
   return (
     <div className="weq-restricted-qq">
-      {waiting && needsQq && <p role="status">请在 QQ 中完成登录，登录后会自动继续。</p>}
+      {waiting && needsQq && <p role="status">请在 QQ 中完成登录，登录后会自动更新状态。</p>}
       {canSwitch && <p>{QQ_DEBUG_COPY_SWITCH_GUIDE}</p>}
       {opensQq && data?.state === 'unmanaged' && (
         <p role="alert">副本位置已被其他应用占用，请在副本设置中查看。</p>

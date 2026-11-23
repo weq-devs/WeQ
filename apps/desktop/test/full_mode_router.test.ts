@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { accountRouter } from '../src/main/ipc/routers/account';
 import { bootstrapRouter } from '../src/main/ipc/routers/bootstrap';
-import { fullModeAllowed, clearFullMode } from '../src/main/context/full_mode';
+import { fullModeAllowed, retireFullModeSource } from '../src/main/context/full_mode';
 const f = vi.hoisted(() => {
   const settings = { autoAttachQq: false };
   const services = {
@@ -17,7 +17,6 @@ const f = vi.hoisted(() => {
         setSettings: (patch: Partial<typeof settings>) => Object.assign(settings, patch),
       },
     },
-    applyFullModePolicy: vi.fn(),
     refreshRkeysNow: vi.fn(),
     services,
   };
@@ -29,29 +28,30 @@ vi.mock('../src/main/context/app_context', () => ({
   requireBootstrap: () => f.host.bootstrap,
 }));
 beforeEach(() => {
-  clearFullMode(f.host);
+  retireFullModeSource(f.host);
   f.host.account = { context: { uin: '10001' } };
   f.host.services = f.services;
   f.settings.autoAttachQq = false;
-  f.host.applyFullModePolicy.mockClear();
   f.host.refreshRkeysNow.mockReset().mockResolvedValue(true);
 });
 const input = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
-it('真实路由只记录当前宿主运行请求，不写持久偏好且不宣称凭据就绪', async () => {
+it('受限详情的启用入口保存同一个设置，实际凭据由监视器准备', async () => {
   expect(fullModeAllowed(f.host)).toBe(false);
   expect(await accountRouter.createCaller({}).requestFullMode(input)).toEqual({ requested: true });
   expect(fullModeAllowed(f.host)).toBe(true);
-  expect(f.host.bootstrap.userConfig.getSettings().autoAttachQq).toBe(false);
+  expect(f.settings.autoAttachQq).toBe(true);
+  expect(f.host.refreshRkeysNow).not.toHaveBeenCalled();
 });
-it('窗口/Web 查询共同读取宿主运行态；关闭自动策略仍保留手动请求', async () => {
+it('从受限详情启用后可在设置中关闭，再次开启可恢复', async () => {
   const caller = bootstrapRouter.createCaller({});
   expect(await caller.getFullModeState()).toEqual({ allowed: false });
   await accountRouter.createCaller({}).requestFullMode(input);
   expect(await caller.getFullModeState()).toEqual({ allowed: true });
   await caller.setAutoAttachQq({ enabled: false });
-  expect(f.host.applyFullModePolicy).toHaveBeenCalledOnce();
-  expect(await caller.getFullModeState()).toEqual({ allowed: true });
+  expect(await caller.getFullModeState()).toEqual({ allowed: false });
   expect(f.settings.autoAttachQq).toBe(false);
+  await caller.setAutoAttachQq({ enabled: true });
+  expect(await caller.getFullModeState()).toEqual({ allowed: true });
 });
 it.each([
   { ...input, expectedAccountUin: '10002' },

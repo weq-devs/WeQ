@@ -123,8 +123,24 @@ it('装扮和省流量只刷新关联服务，旧事件仍触发完整校准', a
   expect(mocks.snapshot).toHaveBeenCalledOnce();
   mocks.invalidations.length = 0;
   await act(async () => event!({ revision: 2, section: 'preferences' }));
-  expect(mocks.invalidations).toHaveLength(12);
+  expect(mocks.invalidations).toHaveLength(14);
   expect(mocks.snapshot).toHaveBeenCalledTimes(2);
+});
+
+it('收到其他端的 QQ 在线能力开关变更时立即刷新能力状态', async () => {
+  const { event } = await fixture();
+  await act(async () =>
+    event!({
+      revision: 1,
+      section: 'preferences',
+      settings: { fields: ['autoAttachQq'], groups: [], clientFields: [] },
+    }),
+  );
+  expect(mocks.invalidations).toEqual([
+    'bootstrap.getSettings',
+    'bootstrap.getFullModeState',
+    'account.getGroupAlbumAccessState',
+  ]);
 });
 
 it('共享快照在途时合并后续通知，仍补读最后一次变化', async () => {

@@ -91,7 +91,7 @@ export const APP_SETTING_FIELDS = (
       '自动刷新冷却期',
     ],
     ['realtime', 'realtimeEnabled', 'realtime-enabled', '数据库监听'],
-    ['attach', 'autoAttachQq', 'auto-full-mode', '自动启用 QQ 在线能力'],
+    ['attach', 'autoAttachQq', 'auto-full-mode', '启用 QQ 在线能力'],
     [
       'attach',
       'restrictedModeIndicatorEnabled',

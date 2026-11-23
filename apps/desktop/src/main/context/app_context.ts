@@ -26,6 +26,7 @@ import { coalesceLiveDbWatch, createLiveMessageObservers } from '../qq_sync/live
 import { ensureQqSyncProxy } from '../qq_sync/runtime';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
+import { onSettingsChanged } from '@weq/service/settings-changes';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
 import { withAccountInstance } from '../account_instance_scope';
@@ -39,7 +40,7 @@ import {
 } from '../notification_content';
 import { clientStateStore } from '../client_state_store';
 import { initBackupContext, resetBackupContextForRecovery } from './backup_context';
-import { clearFullMode, fullModeAllowed } from './full_mode';
+import { fullModeAllowed, retireFullModeSource } from './full_mode';
 import { resolveSignerWrapper } from './signer_target';
 import { resolveBackupLocation, backupResourceRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
@@ -1505,8 +1506,6 @@ export interface AppContext {
    * takes effect immediately. No-op when no account is open.
    */
   applyRealtime(enabled: boolean): void;
-  /** 自动策略失效时取消旧采集，保留仍有效的本来源手动请求。 */
-  applyFullModePolicy(): void;
 
   /**
    * Apply the SSE 消息推送 config to the open account (start / stop / retarget
@@ -1552,6 +1551,7 @@ export interface AppContext {
 }
 
 let cached: AppContext | undefined;
+let stopFullModeSettings: (() => void) | undefined;
 
 function unavailableContext(nativeError: NativeInitError | null, reason: string): AppContext {
   return {
@@ -1577,7 +1577,6 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
     applyRealtime(): void {
       /* no account to watch */
     },
-    applyFullModePolicy(): void {},
     applySsePush(): Promise<void> {
       /* no account — nothing to push */
       return Promise.resolve();
@@ -1878,7 +1877,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       metadata: AccountConfigMetadata = {},
     ): Promise<void> {
       const openedAt = performance.now();
-      clearFullMode(this);
+      retireFullModeSource(this);
       const base = this.platform;
       if (!base) throw new Error('原生组件尚未就绪');
       const platform = base;
@@ -3051,7 +3050,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       const backup = await resolveBackupLocation(dirPath);
       if (!backup) throw new Error('未找到 QQ 账号数据库目录');
       const openedAt = performance.now();
-      clearFullMode(this);
+      retireFullModeSource(this);
       dirPath = backup.dbDir;
       cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
@@ -3941,7 +3940,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       const closedAt = performance.now();
       const closingUin = this.account?.context.uin;
       const previousClosures = [...pendingAccountClosures];
-      clearFullMode(this);
+      retireFullModeSource(this);
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
       this.services?.assistant.cancelPendingTitles();
@@ -4236,15 +4235,21 @@ export function initAppContext(fileRoot?: string): AppContext {
         throw new Error('账号已切换，请重新读取。');
       if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用 QQ 在线能力。');
     },
-    applyFullModePolicy(): void {
-      if (fullModeAllowed(this)) return;
-      this.services?.unreadInfo.cancelReports();
-      this.services?.mail.suspendOnline();
-      // stop 的 generation/AbortSignal 隔离尚在等待授权的旧读取；监视在线状态继续运行。
-      accountMonitor?.stop();
-      accountMonitor?.start();
-    },
   };
+
+  let onlineEnabled = userConfig.getSettings().autoAttachQq;
+  stopFullModeSettings = onSettingsChanged((change) => {
+    if (change && !change.fields.includes('autoAttachQq')) return;
+    const enabled = userConfig.getSettings().autoAttachQq;
+    if (onlineEnabled === enabled) return;
+    onlineEnabled = enabled;
+    if (enabled) return;
+    ctx.services?.unreadInfo.cancelReports();
+    ctx.services?.mail.suspendOnline();
+    // 取消旧凭据读取与授权等待，并继续监视 QQ 登录状态。
+    accountMonitor?.stop();
+    accountMonitor?.start();
+  });
 
   const setAccount = ctx.setAccount.bind(ctx);
   const setStaticAccount = ctx.setStaticAccount.bind(ctx);
@@ -4301,12 +4306,16 @@ export function requireBootstrap(): BootstrapServices {
 /** 仅失败的文件恢复上下文可以重建，此时没有账号或后台业务服务在途。 */
 export function retryBackupRecovery(): boolean {
   const root = resetBackupContextForRecovery();
+  stopFullModeSettings?.();
+  stopFullModeSettings = undefined;
   cached = undefined;
   initAppContext(root);
   return initBackupContext(root).ok;
 }
 
 export function blockRuntimeForBackupRecovery(reason: string): void {
+  stopFullModeSettings?.();
+  stopFullModeSettings = undefined;
   cached = unavailableContext(null, reason);
 }
 

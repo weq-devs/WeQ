@@ -4,8 +4,6 @@ import { resolveNtHelperPath } from '@weq/native';
 import { getMainWindow } from '../main_window';
 import { AuthorizationInstaller } from './install';
 import { authorizationHelperPath } from './helper_path';
-import { getAppContext } from '../context/app_context';
-import { AuthorizationFullModeMonitor } from './full_mode';
 
 export function registerLongTermAuthorizationIpc(): void {
   const installer = new AuthorizationInstaller({
@@ -25,9 +23,6 @@ export function registerLongTermAuthorizationIpc(): void {
     platform: process.platform,
     allowDevelopment: !app.isPackaged,
   });
-  const fullMode = new AuthorizationFullModeMonitor(getAppContext, () => installer.status());
-  fullMode.start();
-  app.once('will-quit', () => fullMode.stop());
   for (const operation of ['status', 'install', 'remove'] as const) {
     ipcMain.handle(`authorization:${operation}`, (event, expectedDevelopment?: unknown) => {
       const window = getMainWindow();
@@ -40,9 +35,9 @@ export function registerLongTermAuthorizationIpc(): void {
       if (expectedDevelopment !== undefined && typeof expectedDevelopment !== 'boolean')
         throw new Error('权限助手通道参数无效');
       return operation === 'status'
-        ? fullMode.check()
+        ? installer.status()
         : operation === 'install'
-          ? fullMode.check(() => installer.install(expectedDevelopment))
+          ? installer.install(expectedDevelopment)
           : installer.remove(expectedDevelopment);
     });
   }

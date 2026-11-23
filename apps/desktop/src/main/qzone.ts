@@ -6,7 +6,7 @@
  * session partition, so login state survives restarts and每个账号各用各的 cookie
  * jar (keyed by the same (uin, dataDir) id the rest of the app uses).
  *
- * Auto-login: when 设置 → 自动启用 QQ 在线能力 is on AND a logged-in QQ.exe for the
+ * Auto-login: when 设置 → 启用 QQ 在线能力 is on AND a logged-in QQ.exe for the
  * account is running, we swap its credential for Qzone's web tokens via the TS
  * ticket fetcher and seed the jar with `uin` / `p_uin` / `skey` / `p_skey` — Qzone
  * needs the plain `skey` (for its g_tk csrf) on top of the `p_skey` that 频道 uses,

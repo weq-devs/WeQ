@@ -93,8 +93,8 @@ export function restrictionReasons(input: {
   if (!access.attachEnabled)
     reasons.push({
       code: 'disabled',
-      title: '本次运行未启用 QQ 在线能力',
-      guidance: '可为当前来源启用 QQ 在线能力；不会改变自动启用偏好，下次启动仍按原偏好运行。',
+      title: 'QQ 在线能力已关闭',
+      guidance: '可在此开启「启用 QQ 在线能力」，也可随时在设置中关闭。',
     });
   const sessionReady =
     access.hasA2 && access.hasD2 && access.hasD2Key && access.needsMemoryRead !== true;

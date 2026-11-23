@@ -3,25 +3,18 @@ interface FullModeHost {
   bootstrap: { userConfig: { getSettings(): { autoAttachQq: boolean } } } | null;
 }
 
-/** 宿主与完整会话实例双重绑定；不进入配置、备份或 renderer 状态。 */
-const manualRequests = new WeakMap<FullModeHost, object>();
 const retiredSources = new WeakSet<object>();
 
 export function fullModeAllowed(host: FullModeHost, expected = host.account): boolean {
   if (host.account !== expected || (expected && retiredSources.has(expected))) return false;
-  return Boolean(
-    host.bootstrap?.userConfig.getSettings().autoAttachQq ||
-      (expected && manualRequests.get(host) === expected),
-  );
+  return host.bootstrap?.userConfig.getSettings().autoAttachQq === true;
 }
 
-export function requestFullMode(host: FullModeHost, expected: object): void {
+export function assertFullModeSource(host: FullModeHost, expected: object): void {
   if (host.account !== expected || retiredSources.has(expected))
     throw new Error('账号来源已切换或关闭，请重新启用 QQ 在线能力');
-  manualRequests.set(host, expected);
 }
 
-export function clearFullMode(host: FullModeHost): void {
+export function retireFullModeSource(host: FullModeHost): void {
   if (host.account) retiredSources.add(host.account);
-  manualRequests.delete(host);
 }

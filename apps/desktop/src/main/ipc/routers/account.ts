@@ -116,7 +116,7 @@ import {
   type AccountServices,
   type RoamingCacheChange,
 } from '../../context/app_context';
-import { fullModeAllowed, requestFullMode } from '../../context/full_mode';
+import { assertFullModeSource, fullModeAllowed } from '../../context/full_mode';
 import { onlineTranscriber } from '../../online_transcribe';
 import {
   databasePerformance,
@@ -9223,11 +9223,7 @@ export const accountRouter = router({
       });
     }),
 
-  /**
-   * Force a one-shot rkey harvest from the online QQ for the open account — the
-   * explicit "立即重新获取 rkey" before a media-completing export. Returns true
-   * when fresh rkeys were stored. 完全离线模式（自动读取 QQ 内存 关闭）下直接返回 false。
-   */
+  /** 受限详情的启用入口与设置开关共用持久偏好。 */
   requestFullMode: procedure
     .input(
       z
@@ -9241,7 +9237,9 @@ export const accountRouter = router({
       requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
       const host = getAppContext();
       if (!host.account) throw new Error('当前未打开账号');
-      requestFullMode(host, host.account);
+      assertFullModeSource(host, host.account);
+      const { userConfig } = requireBootstrap();
+      if (!userConfig.getSettings().autoAttachQq) userConfig.setSettings({ autoAttachQq: true });
       return { requested: true };
     }),
 

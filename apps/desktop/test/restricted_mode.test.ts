@@ -849,16 +849,16 @@ describe('在线能力受限启动 QQ', () => {
     expect(launch.disabled).toBe(false);
     await act(async () => launch.click());
     expect(mock.debugAction).toHaveBeenCalledWith({ action: 'open' });
-    expect(panel.textContent).toContain('登录后会自动继续');
+    expect(panel.textContent).toContain('登录后会自动更新状态');
     expect(useRestrictedMode.getState().enteringSince).toBeNull();
     expect(mock.refreshRkeys).not.toHaveBeenCalled();
   });
-  it('打开后仅在当前账号上线时继续启用，重复查询不重复请求', async () => {
+  it.each([true, false])('打开 QQ 后遵循在线能力开关（%s）', async (enabled) => {
     mock.sip = true;
     mock.access = {
       ...ready,
       qqOnline: false,
-      attachEnabled: false,
+      attachEnabled: enabled,
       source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
     };
     mock.debugState = 'ready';
@@ -869,13 +869,14 @@ describe('在线能力受限启动 QQ', () => {
         .find((item) => item.textContent === '打开 QQ')!
         .click(),
     );
-    expect(mock.requestFull).toHaveBeenCalledWith(mock.access.source);
+    expect(mock.requestFull).not.toHaveBeenCalled();
     expect(mock.refreshRkeys).not.toHaveBeenCalled();
     mock.access = { ...mock.access, qqOnline: true };
     await act(async () => f.render());
-    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+    expect(mock.refreshRkeys).toHaveBeenCalledTimes(enabled ? 1 : 0);
     await act(async () => f.render());
-    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+    expect(mock.refreshRkeys).toHaveBeenCalledTimes(enabled ? 1 : 0);
+    expect(mock.requestFull).not.toHaveBeenCalled();
   });
   it('打开后切换同号来源不会把继续启用请求带到新来源', async () => {
     mock.sip = true;
@@ -977,7 +978,7 @@ describe('在线能力受限启动 QQ', () => {
     mock.access = { ...ready, attachEnabled: false };
     f.render();
     expect(launchButton(f.host)).toBeUndefined();
-    expect(f.host.textContent).toContain('本次运行未启用 QQ 在线能力');
+    expect(f.host.textContent).toContain('QQ 在线能力已关闭');
   });
 });
 

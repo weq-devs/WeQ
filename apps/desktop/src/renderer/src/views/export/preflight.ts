@@ -315,7 +315,7 @@ export async function preflightMessageCompletion(dialog: AppDialogApi): Promise<
   if (!state.attachEnabled) {
     await dialog.info(
       '完全离线模式已开启',
-      '「自动启用 QQ 在线能力」已关闭，无法联网补拉服务端消息；将仅从本地漫游缓存读取。',
+      '「启用 QQ 在线能力」已关闭，无法联网补拉服务端消息；将仅从本地漫游缓存读取。',
     );
     return true;
   }

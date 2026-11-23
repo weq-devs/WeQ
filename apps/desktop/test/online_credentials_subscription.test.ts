@@ -162,7 +162,7 @@ it.each([false, true])('凭据写盘后仍核对实际原生登记状态：%j', 
   expect(state.credentialsPending).toBe(false);
   expect(fixture.hasSsoSession).toHaveBeenCalledWith(42);
 });
-it('原生状态查询途中关闭自动策略时，不返回旧的 QQ 在线能力', async () => {
+it('原生状态查询途中关闭 QQ 在线能力时，不返回旧的就绪状态', async () => {
   completeCredentials();
   fixture.hasSsoSession.mockImplementationOnce(async () => {
     fixture.automatic = false;

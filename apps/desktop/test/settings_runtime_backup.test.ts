@@ -9,32 +9,28 @@ import {
   DEFAULT_APP_SETTINGS,
   WELCOME_POLICY_VERSION,
 } from '../../../packages/service/src/bootstrap/user_config';
-import { fullModeAllowed, requestFullMode } from '../src/main/context/full_mode';
+import { fullModeAllowed } from '../src/main/context/full_mode';
 
 it.each([
-  [false, false],
-  [true, true],
-  [true, false],
-  [false, true],
-])('运行请求不进入真实配置快照，已读旧组合 %s/%s 备份重开保持', (automaticRead, manualRead) => {
+  [false, false, false],
+  [true, true, true],
+  [true, false, true],
+  [false, true, false],
+])('还原备份保留自动上报 %s、手动上报 %s、QQ 在线能力 %s', (automaticRead, manualRead, enabled) => {
   const source = configFixture({
     welcomePolicyVersion: WELCOME_POLICY_VERSION,
     settings: {
-      autoAttachQq: false,
+      autoAttachQq: enabled,
       reportReadEnabled: automaticRead,
       manualReadReportEnabled: manualRead,
       restrictedModeBannerEnabled: false,
     },
   });
   const account = { uin: '10001', configId: 'synthetic-live' };
-  const host = { account, bootstrap: { userConfig: source.service } };
-  expect(fullModeAllowed(host)).toBe(false);
-  requestFullMode(host, account);
-  expect(fullModeAllowed(host)).toBe(true);
   const snapshot = snapshotWeqSettings(source.service.getSettings());
   expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
   expect(snapshot).toMatchObject({
-    autoAttachQq: false,
+    autoAttachQq: enabled,
     reportReadEnabled: automaticRead,
     manualReadReportEnabled: manualRead,
     restrictedModeBannerEnabled: false,
@@ -44,14 +40,13 @@ it.each([
   );
   for (const key of ['manualFullMode', 'fullModeRequest', 'effective', 'temporaryPrivacy'])
     expect(() => validateWeqAppSettings({ ...snapshot, [key]: true })).toThrow('字段无效');
-  const target = configFixture();
+    const target = configFixture({ welcomePolicyVersion: WELCOME_POLICY_VERSION });
   target.service.setSettings(snapshot);
   const reopened = target.open();
   expect(reopened.getSettings()).toMatchObject(snapshot);
   expect(fullModeAllowed({ account: { ...account }, bootstrap: { userConfig: reopened } })).toBe(
-    false,
+    enabled,
   );
-  expect(fullModeAllowed({ ...host })).toBe(false);
 });
 it('缺少新增字段的旧配置/部分备份保留本机设置，默认值与配置作用域不互相覆盖', () => {
   const f = configFixture({

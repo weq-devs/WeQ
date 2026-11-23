@@ -61,7 +61,7 @@ export interface GroupAlbumAccessState {
   source?: { expectedAccountUin: string; expectedAccountConfigId: string };
   qqOnline: boolean;
   qqPid: number | null;
-  /** 宿主内有效的自动策略或本来源手动请求，不表示凭据已经就绪。 */
+  /** 宿主已允许当前来源使用 QQ 在线能力，实际就绪状态由凭据决定。 */
   attachEnabled: boolean;
   /**
    * 本地账号配置里的会话物料是否齐全（a2 / d2 / d2key）。发包要拿它做 TEA 加密，
@@ -232,7 +232,7 @@ export function requireFreshClientKeyForAlbum(services: AccountServices): void {
     );
   }
   if (!state.clientKeyValid) {
-    throw new Error('ClientKey 未获取或已过期，请确认 QQ 在线且已开启「自动启用 QQ 在线能力」。');
+    throw new Error('ClientKey 未获取或已过期，请确认 QQ 在线且已开启「启用 QQ 在线能力」。');
   }
 }
 
