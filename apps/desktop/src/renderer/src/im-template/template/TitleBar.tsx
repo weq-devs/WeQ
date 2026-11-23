@@ -24,6 +24,7 @@ export function TitleBar({
   homeActive = false,
   onGoHome,
   search,
+  trailing,
   windowOnly = false,
 }: {
   user: User;
@@ -31,6 +32,7 @@ export function TitleBar({
   homeActive?: boolean;
   onGoHome?: () => void;
   search?: ReactNode;
+  trailing?: ReactNode;
   windowOnly?: boolean;
 }) {
   const controls = useWindowControls();
@@ -103,6 +105,7 @@ export function TitleBar({
           </div>
         )}
       </DesktopOnly>
+      {!windowOnly && trailing}
     </div>
   );
 }

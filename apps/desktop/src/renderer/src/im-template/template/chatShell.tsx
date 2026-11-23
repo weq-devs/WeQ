@@ -174,17 +174,15 @@ export function ChatShell({
         homeActive={view === 'home'}
         onGoHome={onGoHome}
         search={
-          <>
-            <TitleBarSearch
-              persistent
-              query={query}
-              onQueryChange={onQueryChange}
-              onSearchFocus={onSearchFocus}
-              results={searchPanel}
-            />
-            {!singleColumn && <RemoteShellMenuButton />}
-          </>
+          <TitleBarSearch
+            persistent
+            query={query}
+            onQueryChange={onQueryChange}
+            onSearchFocus={onSearchFocus}
+            results={searchPanel}
+          />
         }
+        trailing={!singleColumn && <RemoteShellMenuButton />}
       />
       {sharedShell && <MobileNavigationRuntime root={root} />}
       {sharedShell && (

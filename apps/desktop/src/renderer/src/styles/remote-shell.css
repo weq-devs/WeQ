@@ -11,6 +11,23 @@
   color: var(--weq-fg-primary);
   touch-action: manipulation;
 }
+
+/* 与手机壳的启动入口共用标题栏右侧的 44px 菜单位。 */
+.weq-web-shell :is(.weq-mobile-header, .app-title-bar) > .weq-remote-shell-menu {
+  align-self: flex-start;
+}
+
+.weq-web-shell .weq-mobile-header > .weq-remote-shell-menu {
+  margin-top: 6px;
+}
+
+html[data-weq-mobile-client='true'][data-weq-layout='wide']
+  .weq-web-shell
+  > .app-title-bar:has(> .weq-remote-shell-menu) {
+  --weq-window-base-right: 12px;
+  padding-right: 12px;
+}
+
 .weq-web-shell .weq-remote-shell-menu:hover,
 .weq-web-shell .weq-remote-shell-menu:active {
   background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
