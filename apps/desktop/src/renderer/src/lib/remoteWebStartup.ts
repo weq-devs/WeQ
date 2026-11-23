@@ -3,9 +3,9 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
 import { trpc } from '../trpc/client';
-import { scheduleBackgroundLoad } from './backgroundLoad';
 import { useViewState } from '../state/view';
 import { isRemoteClient } from './remoteClient';
+import { useToast } from '../components/Toast.shared';
 import {
   remoteWorkspaceCheckPending,
   setRemoteWorkspaceCheckPending,
@@ -13,6 +13,7 @@ import {
 
 const startupKey = 'weq.remote-web-startup.v1';
 const updatingKey = 'weq.remote-web-updating';
+const releaseNoticeKey = 'remote-web-release';
 export const remoteReleasePath = '/_weq-remote-local/release';
 type Config = NonNullable<inferRouterOutputs<AppRouter>['account']['getAccountConfig']>;
 export type RemoteStartupSnapshot = NonNullable<
@@ -22,6 +23,31 @@ export type RemoteStartupSnapshot = NonNullable<
 type CachedWorkspace = Pick<Config, 'uin' | 'configId' | 'static' | 'mobile'> & {
   page: 'home' | 'messages' | null;
 };
+
+declare global {
+  interface Window {
+    weqRemoteReloadNeeded?: boolean;
+  }
+}
+
+let lastReloadNotice: string | undefined;
+
+export function notifyRemoteReload(id: string) {
+  if (lastReloadNotice === id) return;
+  lastReloadNotice = id;
+  useToast.getState().push({
+    key: releaseNoticeKey,
+    title: 'WeQ 界面更新已就绪',
+    summary: '可在连接菜单中重新加载。',
+    tone: 'info',
+    durationKind: 'long',
+    system: false,
+    action: {
+      label: '连接菜单',
+      run: () => window.weqRemoteShell?.openMenu(),
+    },
+  });
+}
 
 export function readRemoteWorkspace(): CachedWorkspace | undefined {
   if (!isRemoteClient() || location.hostname !== '127.0.0.1') return;
@@ -120,7 +146,6 @@ export function watchRemoteRelease() {
   let canWait = false;
   let request: AbortController | undefined;
   let timer: number | undefined;
-  let cancelReload: (() => void) | undefined;
   let stopped = false;
   const canCheck = () =>
     supported &&
@@ -129,12 +154,12 @@ export function watchRemoteRelease() {
     useViewState.getState().view === 'main' &&
     !remoteWorkspaceCheckPending();
   const check = async () => {
-    if (!canCheck() || request || cancelReload) return;
+    if (!canCheck() || request) return;
     const controller = new AbortController();
     request = controller;
     let delay = 5_000;
     try {
-      const params = new URLSearchParams({ workspace: '1' });
+      const params = new URLSearchParams({ workspace: '1', notice: '1' });
       if (canWait) params.set('since', version ?? '');
       const response = await fetch(`${remoteReleasePath}?${params}`, {
         cache: 'no-store',
@@ -152,43 +177,37 @@ export function watchRemoteRelease() {
       if (!/^[a-f0-9]{64}$/.test(available)) return;
       if (!version) version = available;
       else if (available !== version) {
-        cancelReload = scheduleBackgroundLoad(() => {
-          cancelReload = undefined;
-          if (!canCheck()) return;
-          try {
-            sessionStorage.setItem(updatingKey, '1');
-          } catch {}
-          location.reload();
-        }, 1_000);
+        version = available;
+        notifyRemoteReload(available);
       }
     } catch {
       // The current workspace stays open while the computer or update is unavailable.
     } finally {
       request = undefined;
-      if (canCheck() && !cancelReload)
+      if (canCheck())
         timer = window.setTimeout(() => void check(), controller.signal.aborted ? 0 : delay);
     }
   };
   const refresh = () => {
     window.clearTimeout(timer);
     if (canCheck()) void check();
-    else {
-      request?.abort();
-      cancelReload?.();
-      cancelReload = undefined;
-    }
+    else request?.abort();
   };
   const stopView = useViewState.subscribe((state, previous) => {
     if (state.view !== previous.view) refresh();
   });
   document.addEventListener('visibilitychange', refresh);
   window.addEventListener('weq-remote-connection', refresh);
+  const notifyHmr = () => notifyRemoteReload('hmr');
+  window.addEventListener('weq-remote-reload-needed', notifyHmr);
+  if (window.weqRemoteReloadNeeded) notifyHmr();
   refresh();
   return () => {
     stopped = true;
     stopView();
     document.removeEventListener('visibilitychange', refresh);
     window.removeEventListener('weq-remote-connection', refresh);
+    window.removeEventListener('weq-remote-reload-needed', notifyHmr);
     refresh();
   };
 }

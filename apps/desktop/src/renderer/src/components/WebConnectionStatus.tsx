@@ -6,6 +6,7 @@ import { useToastApi } from './Toast.shared';
 import { useNotificationPolicy, publishNotificationSystem } from '../lib/notificationPolicy';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import { webAvatarCache } from '../lib/webAvatarCache';
+import { isRemoteClient } from '../lib/remoteClient';
 import '../styles/web-connection.css';
 
 type RemoteConnectionState = 'connected' | 'network' | 'connection';
@@ -36,6 +37,7 @@ export function WebConnectionStatus() {
   const [nativeRecovery, setNativeRecovery] = useState(0);
   const previousNativeRecovery = useRef(0);
   const warned = useRef(false);
+  const warningToast = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const changed = () => {
@@ -59,15 +61,23 @@ export function WebConnectionStatus() {
     if (!nativeState) return;
     const toast = notificationToast;
     if (nativeState !== 'connected') {
+      const title = nativeState === 'network' ? '手机网络已断开' : '与电脑的连接已中断';
+      const summary = nativeState === 'network' ? '网络恢复后会自动重连' : '正在重新连接电脑…';
+      if (warned.current) {
+        if (warningToast.current !== undefined)
+          toast.update(warningToast.current, { title, summary });
+        return;
+      }
       warned.current = true;
-      toast.push({
+      warningToast.current = toast.push({
         key: NOTICE_KEY,
         event: 'connection',
         tone: 'warning',
         durationKind: 'long',
         ttl: 0,
-        title: nativeState === 'network' ? '手机网络已断开' : '与电脑的连接已中断',
-        summary: nativeState === 'network' ? '网络恢复后会自动重连' : '正在重新连接电脑…',
+        system: false,
+        title,
+        summary,
         source: notificationSource(
           { kind: 'local', open: () => window.weqRemoteShell?.openMenu() },
           '查看当前连接',
@@ -76,11 +86,13 @@ export function WebConnectionStatus() {
       });
     } else if (warned.current || nativeRecovery > previousNativeRecovery.current) {
       warned.current = false;
+      warningToast.current = undefined;
       webAvatarCache.retryFailedVisible();
       toast.push({
         key: NOTICE_KEY,
         event: 'connection',
         tone: 'success',
+        system: false,
         title: '已重新连接电脑',
       });
     }
@@ -102,7 +114,7 @@ export function WebConnectionStatus() {
 
   useEffect(() => {
     setVisible(false);
-    if (nativeState || status === 'connected') return;
+    if (isRemoteClient() || nativeState || status === 'connected') return;
     const timer = window.setTimeout(() => setVisible(true), 1500);
     return () => window.clearTimeout(timer);
   }, [nativeState, status]);

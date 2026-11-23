@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { watchRemoteRelease } from '../src/renderer/src/lib/remoteWebStartup';
 import { setRemoteWorkspaceCheckPending } from '../src/renderer/src/lib/remoteWorkspaceCheck';
 import { useViewState } from '../src/renderer/src/state/view';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 vi.mock('../src/renderer/src/lib/remoteClient', () => ({ isRemoteClient: () => true }));
 vi.mock('../src/renderer/src/trpc/client', () => ({ trpc: {} }));
@@ -22,6 +23,7 @@ beforeEach(() => {
   vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
   hidden = false;
   reload.mockClear();
+  useToast.setState({ toasts: [], leaving: [], seq: 0 });
   versionMeta = document.createElement('meta');
   versionMeta.name = 'weq-local-web-release';
   versionMeta.content = current;
@@ -65,10 +67,11 @@ it.each([
   expect(reload).not.toHaveBeenCalled();
 });
 
-it('隐藏页面中止版本等待，恢复可见立即检查；滚动中延后应用完整更新', async () => {
+it('隐藏页面中止版本等待，新版就绪只通知，不重载当前页面', async () => {
   const waiting: AbortSignal[] = [];
   let deliver: ((res: Response) => void) | undefined;
   const fetchVersion = vi.fn(async (url: string, { signal }: { signal: AbortSignal }) => {
+    expect(new URL(url, 'http://127.0.0.1').searchParams.get('notice')).toBe('1');
     if (!url.includes('since=')) return reply(current);
     waiting.push(signal);
     return new Promise<Response>((resolve, reject) => {
@@ -89,11 +92,17 @@ it('隐藏页面中止版本等待，恢复可见立即检查；滚动中延后�
   document.dispatchEvent(new Event('visibilitychange'));
   expect(waiting).toHaveLength(2);
   deliver?.(reply(next));
-  for (let i = 0; i < 15; i++) {
-    await vi.advanceTimersByTimeAsync(100);
-    window.dispatchEvent(new Event('wheel'));
-  }
+  await vi.advanceTimersByTimeAsync(4_000);
   expect(reload).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(250);
-  expect(reload).toHaveBeenCalledOnce();
+  const [notice] = useToast.getState().toasts;
+  expect(notice?.action?.label).toBe('连接菜单');
+  const openMenu = vi.fn();
+  window.weqRemoteShell = { openMenu };
+  try {
+    notice?.action?.run();
+    expect(openMenu).toHaveBeenCalledOnce();
+    expect(reload).not.toHaveBeenCalled();
+  } finally {
+    delete window.weqRemoteShell;
+  }
 });

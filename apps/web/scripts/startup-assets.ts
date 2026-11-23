@@ -129,6 +129,10 @@ export function remoteStartupAssets(): Plugin {
             version: 1,
             entry: `/${entry.fileName}`,
             resources,
+            offline: Object.keys(bundle)
+              .filter((name) => /^assets\/[a-zA-Z0-9_.-]+\.(?:js|css|png|svg)$/.test(name))
+              .sort()
+              .map((path) => ({ path: `/${path}` })),
           }),
         });
       },

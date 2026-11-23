@@ -1,7 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse, type ClientRequest } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { createGzip } from 'node:zlib';
+import { createGzip, gzipSync } from 'node:zlib';
 import {
   parse,
   serialize,
@@ -15,6 +15,57 @@ import { acceptsGzip } from './compression';
 import { lockRemoteViewport } from './remote_viewport';
 import { remoteReleaseDocument, startupResourceTracker } from './startup_assets';
 import { matchesIfNoneMatch } from '../protocol_response';
+
+const remoteHmrClientPaths = new Set(['/@vite/client', '/bundledDevClient.mjs']);
+
+/** Vite 的断线与运行时回退绕过服务端 full-reload 提示，只改 Remote 的两个开发客户端。 */
+function remoteHmrClient(source: string): string {
+  return source
+    .replace('let bundledDevClient;', 'let bundledDevClient, weqClientId;')
+    .replace(
+      /const clientId = nanoid\(\);\s+transport\.send\(\{\s+type: "custom",\s+event: "vite:client-connected",\s+data: \{ clientId \}\s+\}\);/,
+      'const clientId = weqClientId = nanoid();',
+    )
+    .replaceAll(
+      'await maybePromise;\n\t\t\t\tconnectingPromise = void 0;',
+      'await maybePromise.finally(() => { connectingPromise = void 0; });',
+    )
+    .replaceAll('onDisconnection();', 'clearInterval(pingIntervalId); onDisconnection();')
+    .replace(
+      /console\.log\(`\[vite\] server connection lost\. Polling for restart\.\.\.`\);\s+const socket = payload\.data\.webSocket;\s+const url = new URL\(socket\.url\);\s+url\.search = "";\s+await waitForSuccessfulPing\(url\.href\);\s+location\.reload\(\);/,
+      'weqRetryHmr();',
+    )
+    .replaceAll(
+      'location.reload();',
+      `if (globalThis.__vite_is_fallback_page__) location.reload();
+       else { window.weqRemoteReloadNeeded = true; window.dispatchEvent(new Event('weq-remote-reload-needed')); }`,
+    )
+    .replace(
+      'transport.connect(createHMRHandler(handleMessage));',
+      `let weqHmrTimer;
+      function weqRetryHmr() {
+        if (willUnload) return;
+        clearTimeout(weqHmrTimer);
+        weqHmrTimer = setTimeout(() => {
+          if (document.hidden) document.addEventListener('visibilitychange', weqRetryHmr, {once:true});
+          else void weqConnectHmr();
+        }, 1500);
+      }
+      async function weqConnectHmr() {
+        try {
+          await transport.connect(createHMRHandler(handleMessage));
+          if (weqClientId) {
+            if (bundledDevClient) {
+              await bundledDevClient.applyQueue;
+              bundledDevClient.lastSeq = 0;
+            }
+            await transport.send({type:'custom',event:'vite:client-connected',data:{clientId:weqClientId}});
+          }
+        } catch { weqRetryHmr(); }
+      }
+      void weqConnectHmr();`,
+    );
+}
 
 /** 仅开发入口显式启用；页面、模块与 HMR 都经原宿主认证，客户端无需访问环回端口。 */
 export class DevelopmentWebProxy {
@@ -45,7 +96,10 @@ export class DevelopmentWebProxy {
     delete headers.cookie;
     delete headers.authorization;
     delete headers['accept-encoding'];
-    if (release) delete headers['if-none-match'];
+    if (release) {
+      delete headers['if-none-match'];
+      delete headers['if-modified-since'];
+    }
     if (headers.origin) headers.origin = this.target.origin;
     const outgoing = http.request(this.target, {
       method: req.method,
@@ -63,9 +117,11 @@ export class DevelopmentWebProxy {
       return Promise.resolve();
     }
     const remote = /\bWeQRemote\b/.test(req.headers['user-agent'] ?? '');
-    const release = remote && req.method === 'GET' && (req.url ?? '').split('?')[0] === '/';
+    const path = (req.url ?? '').split('?')[0] ?? '';
+    const release = remote && req.method === 'GET' && path === '/';
+    const hmr = remote && req.method === 'GET' && remoteHmrClientPaths.has(path);
     return new Promise((resolve) => {
-      const outgoing = this.request(req, release);
+      const outgoing = this.request(req, release || hmr);
       const finish = () => {
         outgoing.destroy();
         resolve();
@@ -83,7 +139,8 @@ export class DevelopmentWebProxy {
         headers['cache-control'] =
           html || status >= 400 ? 'no-store' : `private, ${cache.replace(/\bpublic,?\s*/i, '')}`;
         upstream.once('error', () => res.destroy());
-        if (!html || req.method === 'HEAD') {
+        const guardHmr = hmr && status === 200 && !html && !headers['content-encoding'];
+        if ((!html && !guardHmr) || req.method === 'HEAD') {
           const compressible =
             status === 200 &&
             !headers['content-encoding'] &&
@@ -116,6 +173,20 @@ export class DevelopmentWebProxy {
         });
         upstream.once('end', () => {
           const source = Buffer.concat(chunks).toString('utf8');
+          if (guardHmr) {
+            const body = remoteHmrClient(source);
+            delete headers['content-length'];
+            delete headers.etag;
+            headers['cache-control'] = 'no-store';
+            headers.vary = [headers.vary, 'User-Agent', 'Accept-Encoding']
+              .filter(Boolean)
+              .join(', ');
+            if (acceptsGzip(req.headers['accept-encoding'] ?? '')) {
+              headers['content-encoding'] = 'gzip';
+              res.writeHead(status, headers).end(gzipSync(body));
+            } else res.writeHead(status, headers).end(body);
+            return;
+          }
           headers['content-type'] = 'text/html; charset=utf-8';
           delete headers['content-length'];
           delete headers.etag;
@@ -246,7 +317,7 @@ function developmentHtml(html: string, remote: boolean): string {
     ]);
     defaultTreeAdapter.insertText(
       progress,
-      (startupManifest ? startupResourceTracker : '') + developmentStartupProgress,
+      `window.weqRemoteReloadNeeded=false;${startupManifest ? startupResourceTracker : ''}${developmentStartupProgress}`,
     );
     const first = head.childNodes.find(
       (node) => 'tagName' in node && (node.tagName === 'script' || node.tagName === 'link'),

@@ -61,6 +61,7 @@ it('Rolldown 分组的主工作区 facade 为空时仍从真实模块图收集�
     '/assets/workspace-fixture.css',
     '/assets/home-fixture.js',
   ]);
+  expect(inventory.offline).toContainEqual({ path: '/assets/export-fixture.js' });
   expect(
     inventory.resources.find(
       (asset: { path: string }) => asset.path === '/assets/shared-fixture.js',

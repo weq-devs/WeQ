@@ -55,11 +55,13 @@ function validAsset(value: unknown): value is Asset {
   );
 }
 
-async function builtAssets(root: string, paths: Set<string>): Promise<Asset[]> {
+const offlinePath = /^\/assets\/[a-zA-Z0-9_.-]+\.(?:js|css|png|svg)$/;
+type OfflineAsset = { path: string };
+
+async function builtAssets(root: string, paths: Set<string>) {
   try {
-    const data: { version?: unknown; entry?: unknown; resources?: unknown } = JSON.parse(
-      await readFile(join(root, 'weq-startup.json'), 'utf8'),
-    );
+    const data: { version?: unknown; entry?: unknown; resources?: unknown; offline?: unknown } =
+      JSON.parse(await readFile(join(root, 'weq-startup.json'), 'utf8'));
     if (
       data.version !== 1 ||
       typeof data.entry !== 'string' ||
@@ -69,19 +71,36 @@ async function builtAssets(root: string, paths: Set<string>): Promise<Asset[]> {
       data.resources.length > 4096 ||
       !data.resources.every(validAsset)
     )
-      return [];
+      return;
     const byPath = new Map(data.resources.map((asset) => [asset.path, asset]));
     // 构建清单必须匹配当前 HTML；旧产物、缺失清单继续走原有兼容路径。
-    return [...paths].every((path) => byPath.has(path)) ? [...byPath.values()] : [];
-  } catch {
-    return [];
-  }
+    if (![...paths].every((path) => byPath.has(path))) return;
+    const list = data.offline;
+    const offline =
+      Array.isArray(list) &&
+      list.length <= 2048 &&
+      list.every(
+        (item: unknown): item is OfflineAsset =>
+          !!item &&
+          typeof item === 'object' &&
+          'path' in item &&
+          typeof item.path === 'string' &&
+          offlinePath.test(item.path),
+      ) &&
+      [...byPath.keys()].every((path) => list.some((item: OfflineAsset) => item.path === path))
+        ? list
+        : undefined;
+    return { assets: [...byPath.values()], offline };
+  } catch {}
 }
 export function remoteReleaseDocument(body: string) {
-  return { body, etag: `"weq-release-${createHash('sha256').update(body).digest('hex')}"` };
+  const version = createHash('sha256').update(body).digest('hex');
+  return { body, version, etag: `"weq-release-${version}"` };
 }
 
-type RemoteReleaseDocument = ReturnType<typeof remoteReleaseDocument>;
+type RemoteReleaseDocument = ReturnType<typeof remoteReleaseDocument> & {
+  completeOffline?: boolean;
+};
 type PreparedStartupShell = (gzip: boolean) => RemoteReleaseDocument;
 
 // 同一构建的 HTML 最多保留原始与 gzip 清单两份，构建切换后重新准备。
@@ -161,7 +180,8 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
     return () => unchanged;
   }
   lockRemoteViewport(head);
-  const assets = await builtAssets(root, paths);
+  const inventory = await builtAssets(root, paths);
+  const assets = inventory?.assets ?? [];
   if (!assets.length) {
     for (const path of paths) {
       const body = await readFile(join(root, new URL(path, 'https://weq.invalid').pathname));
@@ -194,6 +214,16 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
     ]);
     defaultTreeAdapter.insertBefore(head, offline, meta);
   }
+  if (inventory?.offline) {
+    const complete = defaultTreeAdapter.createElement('meta', htmlNames.NS.HTML, [
+      { name: 'name', value: 'weq-offline-code' },
+      {
+        name: 'content',
+        value: JSON.stringify({ version: 1, waitForWorkspace: true, resources: inventory.offline }),
+      },
+    ]);
+    defaultTreeAdapter.insertBefore(head, complete, meta);
+  }
   const boot = defaultTreeAdapter.createElement('script', htmlNames.NS.HTML, []);
   defaultTreeAdapter.insertText(boot, tracker);
   const resource = head.childNodes.find(
@@ -212,7 +242,10 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
         size: gzip ? asset.gzip : asset.raw,
       }));
     content.value = JSON.stringify({ version: 1, resources });
-    const output = remoteReleaseDocument(serialize(document));
+    const output = {
+      ...remoteReleaseDocument(serialize(document)),
+      completeOffline: !!inventory?.offline,
+    };
     variants.set(gzip, output);
     return output;
   };

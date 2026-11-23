@@ -15,6 +15,8 @@ import { IS_WEB } from './lib/target.shared';
 import './styles/touch-context-menu.css';
 import { installDataSaver } from './lib/dataSaver';
 import { installMainWorkspacePreload } from './lib/mainWorkspaceLoader';
+import { isRemoteClient } from './lib/remoteClient';
+import { notifyRemoteReload } from './lib/remoteWebStartup';
 import {
   installDevelopmentReloadNotice,
   type DevelopmentReloadNoticeState,
@@ -23,7 +25,13 @@ import {
 if (import.meta.hot) {
   import.meta.hot.data.developmentReloadNotice ??= {};
   const state: DevelopmentReloadNoticeState = import.meta.hot.data.developmentReloadNotice;
-  import.meta.hot.dispose(installDevelopmentReloadNotice(import.meta.hot, state));
+  import.meta.hot.dispose(
+    installDevelopmentReloadNotice(
+      import.meta.hot,
+      state,
+      isRemoteClient() ? notifyRemoteReload : undefined,
+    ),
+  );
 }
 
 const stopWorkspacePreload = installMainWorkspacePreload();

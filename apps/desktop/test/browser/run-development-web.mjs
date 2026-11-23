@@ -66,11 +66,14 @@ try {
   await writeFile(
     join(web, 'vite.config.ts'),
     `
-    import config from ${JSON.stringify(join(desktopRoot, '../web/vite.config.ts'))};
-    export default { ...config, root: ${JSON.stringify(web)}, cacheDir: ${JSON.stringify(join(root, 'vite-cache'))},
-      build: { ...config.build, rollupOptions: { ...config.build.rollupOptions, input: {index: ${JSON.stringify(join(web, 'index.html'))}} } },
-      optimizeDeps: { entries: [${JSON.stringify(join(web, 'index.html'))}] },
-      server: { fs: { allow: [${JSON.stringify(root)}, ${JSON.stringify(resolve(desktopRoot, '../..'))}] } } };
+    import factory from ${JSON.stringify(join(desktopRoot, '../web/vite.config.ts'))};
+    export default (env) => {
+      const config = factory(env);
+      return { ...config, root: ${JSON.stringify(web)}, cacheDir: ${JSON.stringify(join(root, 'vite-cache'))},
+        build: { ...config.build, rollupOptions: { ...config.build.rollupOptions, input: {index: ${JSON.stringify(join(web, 'index.html'))}} } },
+        optimizeDeps: { entries: [${JSON.stringify(join(web, 'index.html'))}] },
+        server: { fs: { allow: [${JSON.stringify(root)}, ${JSON.stringify(resolve(desktopRoot, '../..'))}] } } };
+    };
   `,
   );
   await writeFile(
@@ -88,8 +91,17 @@ try {
   await writeFile(join(web, 'App.tsx'), app('version one'));
   desktop.listen(0, '127.0.0.1');
   await once(desktop, 'listening');
+  let vite;
   await developmentWeb(root, {
-    plugins: [createDevelopmentReload().rendererPlugin()],
+    plugins: [
+      createDevelopmentReload().rendererPlugin(),
+      {
+        name: 'capture-hmr-server',
+        configureServer(server) {
+          vite = server;
+        },
+      },
+    ],
   }).configureServer({ httpServer: desktop });
   const core = new WebCore({
     publicDir: join(root, 'missing-static'),
@@ -107,6 +119,12 @@ try {
   });
   pairing.decide(claim.id, true);
   remote = createRemoteServer(pairing, new RemoteWebGateway(pairing, (auth) => core.entry(auth)));
+  const hmrSockets = new Set();
+  remote.on('upgrade', (req, socket) => {
+    if (!req.url?.startsWith('/_weq-dev/hmr?token=')) return;
+    hmrSockets.add(socket);
+    socket.once('close', () => hmrSockets.delete(socket));
+  });
   remote.on('request', (req, res) => {
     if (/\/deps\/[^/?]+\.js\?v=/.test(req.url))
       dependencyRequests.set(req.url, (dependencyRequests.get(req.url) ?? 0) + 1);
@@ -321,6 +339,23 @@ try {
     console.log(
       `PASS ${width}px: startup progress, Remote auth, lazy pane, React/CSS HMR, counter/draft/scroll/document retained`,
     );
+    assert(hmrSockets.size > 0);
+    const disconnected = new Set(hmrSockets);
+    for (const socket of disconnected) socket.destroy();
+    const deadline = Date.now() + 10_000;
+    while (![...hmrSockets].some((socket) => !disconnected.has(socket))) {
+      assert(Date.now() < deadline, 'HMR socket did not reconnect');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    await writeFile(join(web, 'style.css'), 'body { color: rgb(70, 50, 30); }');
+    await page.waitForFunction(() => getComputedStyle(document.body).color === 'rgb(70, 50, 30)');
+    assert.equal(await page.evaluate(() => window.hmrPageIdentity), 'retained');
+    assert.equal(await page.getByRole('textbox').inputValue(), 'keep this draft');
+    console.log(`PASS ${width}px: HMR socket restored without reloading the document`);
+    for (const client of vite.ws.clients) client.send({ type: 'full-reload', path: '*' });
+    await page.waitForFunction(() => window.weqRemoteReloadNeeded === true);
+    assert.equal(await page.evaluate(() => window.hmrPageIdentity), 'retained');
+    assert.equal(await page.getByRole('textbox').inputValue(), 'keep this draft');
     if (width === 390) {
       await writeFile(join(web, 'App.tsx'), 'export default function App(');
       await page.locator('vite-error-overlay').waitFor({ state: 'attached' });

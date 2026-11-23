@@ -1,5 +1,6 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AnyRouter } from '@trpc/server';
 import { withHost, type HostBridge } from '@weq/service';
@@ -9,6 +10,7 @@ import { createWebHost } from './host';
 import { attachWsHandler, createTrpcHandler } from './trpc_adapter';
 import { DevelopmentWebProxy } from './development';
 import type { ResolveGroupVideo } from './group_video';
+import { preparedStartupDocument } from './startup_assets';
 
 export type WebAuth = Pick<AuthGate, 'login' | 'logout' | 'isAuthed' | 'watchSession'> & {
   remoteClient?: boolean;
@@ -50,6 +52,7 @@ export class WebApplication {
   private closed = false;
   private readonly options: RequestOptions;
   private readonly development?: DevelopmentWebProxy;
+  private release?: Promise<string | undefined>;
 
   constructor(
     private readonly config: WebCoreConfig,
@@ -85,6 +88,18 @@ export class WebApplication {
       if (!res.headersSent) res.writeHead(500).end('internal error');
       else res.destroy();
     });
+  }
+
+  stableWebRelease(): Promise<string | undefined> | undefined {
+    if (this.development) return;
+    this.release ??= readFile(join(this.config.publicDir, 'index.html'), 'utf8')
+      .then((html) => preparedStartupDocument(this.config.publicDir, html, false))
+      .then(({ completeOffline, version }) => (completeOffline ? version : undefined))
+      .catch(() => {
+        this.release = undefined;
+        return undefined;
+      });
+    return this.release;
   }
 
   attach(server: Server): void {

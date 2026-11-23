@@ -25,6 +25,7 @@ import { WebStartupCache, hydrateWebStartupCache } from '../lib/webStartupCache'
 import {
   clearRemoteWorkspace,
   openRemoteWorkspace,
+  notifyRemoteReload,
   readRemoteWorkspace,
   saveRemoteWorkspace,
   watchRemoteRelease,
@@ -36,6 +37,7 @@ import { useViewState } from '../state/view';
 import { useWebConnection } from '../state/webConnection';
 import { WarmupSplash } from './WarmupSplash';
 import { advanceStartup } from '../state/startupProgress';
+import { isRemoteClient } from '../lib/remoteClient';
 
 const RUNTIME_ERROR_KEY = 'weq.runtime-file-error';
 
@@ -73,7 +75,8 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
             if (state.error) sessionStorage.setItem(RUNTIME_ERROR_KEY, state.error);
             else sessionStorage.removeItem(RUNTIME_ERROR_KEY);
           } catch {}
-          window.location.reload();
+          if (isRemoteClient()) notifyRemoteReload(`runtime:${state.revision}`);
+          else window.location.reload();
         }
         revision = state.revision;
       },

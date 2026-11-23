@@ -22,8 +22,13 @@ export interface DevelopmentReloadNoticeState {
 export function installDevelopmentReloadNotice(
   channel: DevelopmentReloadChannel,
   state: DevelopmentReloadNoticeState,
+  remoteNotice?: (id: string) => void,
 ): () => void {
   const receive = (status: DevelopmentReloadStatus | null) => {
+    if (remoteNotice) {
+      if (status?.ready) remoteNotice(status.id);
+      return;
+    }
     const previous = state.status;
     state.status = status;
     state.applying = false;

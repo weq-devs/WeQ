@@ -10,7 +10,8 @@ function bearer(req: IncomingMessage): string {
 
 export function createRemoteServer(
   pairing: RemotePairing,
-  web?: Pick<RemoteWebGateway, 'handle' | 'attach' | 'close'>,
+  web?: Pick<RemoteWebGateway, 'handle' | 'attach' | 'close'> &
+    Partial<Pick<RemoteWebGateway, 'stableWebRelease'>>,
 ) {
   let windowStart = Date.now();
   // 未授权请求与已授权设备分别计数，避免单个来源耗尽所有设备的限额。
@@ -79,11 +80,13 @@ export function createRemoteServer(
       }
       if (!authorized) return send(401, { error: '设备未授权。' });
       if (req.method === 'GET' && path === '/v1/status') {
+        const webRelease = await web?.stableWebRelease?.();
         return send(200, {
           product: 'WeQ Remote',
           protocol: 1,
           scope: 'status:read',
           online: true,
+          webRelease,
         });
       }
       return send(404, { error: '接口不存在。' });

@@ -4,8 +4,7 @@
  * Queries and mutations go over HTTP; the 14 subscriptions ride a single
  * WebSocket (tRPC v10 has no SSE link). `splitLink` routes by operation type.
  *
- * A 401 means the session expired — reload so the server serves the login page
- * rather than leaving the UI stuck on failing requests.
+ * Browsers reload to show login on expiry; Remote verifies the device in place.
  */
 
 import {
@@ -24,6 +23,12 @@ import { HTTP_BATCH_MAX_URL_LENGTH } from '../lib/unreadRequests';
 import { fetchRpcWithDeadline } from './httpDeadline';
 import { prepareRpcBatchResponse } from './httpBatchStream';
 import { remoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
+import { isRemoteClient } from '../lib/remoteClient';
+
+function sessionExpired() {
+  if (isRemoteClient()) window.weqRemoteShell?.connectionFailed?.();
+  else location.reload();
+}
 
 function checkCachedWorkspace(input: RequestInfo | URL) {
   if (!remoteWorkspaceCheckPending()) return;
@@ -118,7 +123,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
       checkCachedWorkspace(input);
       const res = await fetchRpcWithDeadline(input, init);
-      if (res.status === 401) location.reload();
+      if (res.status === 401) sessionExpired();
       return res;
     },
   };
@@ -148,7 +153,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
               !expiredBatches.has(response)
             ) {
               expiredBatches.add(response);
-              location.reload();
+              sessionExpired();
             }
             observer.error(error);
           },
@@ -184,7 +189,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
           async fetch(input, init) {
             checkCachedWorkspace(input);
             const res = await fetchRpcWithDeadline(input, init, true);
-            if (res.status === 401) location.reload();
+            if (res.status === 401) sessionExpired();
             return res;
           },
         }),

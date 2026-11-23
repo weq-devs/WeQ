@@ -48,6 +48,10 @@ export class RemoteWebGateway {
     this.application.handle(req, res);
   }
 
+  stableWebRelease(): Promise<string | undefined> | undefined {
+    return this.application.stableWebRelease();
+  }
+
   attach(server: Server): void {
     this.application.attach(server);
   }
