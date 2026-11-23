@@ -3,17 +3,16 @@
  * client-side routes resolve.
  */
 
-import { existsSync, statSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import type { ServerResponse } from 'node:http';
 import { join, normalize, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
-import { fileResponse } from '../file_response';
+import { fileResponse, mimeOf } from '../file_response';
 import { writeResponse } from './protocol_adapter';
 import { startupShell } from './startup_assets';
-import { readFile } from 'node:fs/promises';
-import { acceptsGzip } from './compression';
+import { acceptsGzip, hashedWebCodePath } from './compression';
 
 export async function serveStatic(
   res: ServerResponse,
@@ -27,37 +26,48 @@ export async function serveStatic(
 
   // Containment — a crafted path must not escape the public dir.
   const inRoot = target === root || target.startsWith(root + sep);
-  const isFile = inRoot && existsSync(target) && statSync(target).isFile();
-
+  const found = inRoot ? await stat(target).catch(() => undefined) : undefined;
+  const index = join(root, 'index.html');
+  const isFile = found?.isFile() ?? false;
   // Anything that isn't a real file falls through to the SPA shell.
-  const path = isFile ? target : join(root, 'index.html');
-  if (!existsSync(path)) {
+  const path = isFile ? target : index;
+  if (!isFile && !(await stat(index).catch(() => undefined))?.isFile()) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('build missing — run `pnpm --filter @weq/web build`');
     return;
   }
 
-  const out =
-    remoteStartup && path === join(root, 'index.html')
-      ? new Response(
-          await startupShell(root, await readFile(path, 'utf8'), acceptsGzip(acceptEncoding)),
-          {
-            headers: { 'Content-Type': 'text/html; charset=utf-8' },
-          },
-        )
-      : await fileResponse(path);
-  // Hashed asset filenames are immutable; the shell must never be cached.
+  const remoteShell = remoteStartup && path === index;
+  // 仅压缩静态文本资源，媒体继续沿用原有流式语义。
+  const compressible =
+    isFile && /\.(?:js|css|svg|json|txt)$/i.test(path) && (found?.size ?? 0) >= 1024;
+  const gzip = (compressible || remoteShell) && acceptsGzip(acceptEncoding);
+  // 哈希资源为 immutable，HTML 文档需读取当前构建。
   const cache =
     isFile && clean.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-store';
+  if (gzip && isFile && hashedWebCodePath.test(clean)) {
+    const encoded = await fileResponse(`${path}.gz`);
+    if (encoded.ok) {
+      const headers = new Headers(encoded.headers);
+      headers.set('Content-Type', mimeOf(path));
+      headers.set('Content-Encoding', 'gzip');
+      headers.set('Cache-Control', cache);
+      headers.set('Vary', 'Accept-Encoding');
+      headers.delete('Accept-Ranges');
+      await writeResponse(res, new Response(encoded.body, { status: encoded.status, headers }));
+      return;
+    }
+  }
+
+  const out = remoteShell
+    ? new Response(await startupShell(root, await readFile(path, 'utf8'), gzip), {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      })
+    : await fileResponse(path);
   const headers = new Headers(out.headers);
   headers.set('Cache-Control', cache);
-  // 仅压缩静态文本资源；媒体和下载继续保持原有 Range / 流式语义。
-  const compressible =
-    isFile &&
-    /\.(?:js|css|svg|json|txt)$/i.test(path) &&
-    Number(headers.get('Content-Length')) >= 1024;
   if (compressible) headers.set('Vary', 'Accept-Encoding');
-  if (compressible && out.body && acceptsGzip(acceptEncoding)) {
+  if (compressible && out.body && gzip) {
     headers.set('Content-Encoding', 'gzip');
     headers.delete('Content-Length');
     headers.delete('Accept-Ranges');

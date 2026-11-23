@@ -1,3 +1,5 @@
+export const hashedWebCodePath = /^\/assets\/[\w.-]+-[\w-]{8,}\.(?:js|css)$/;
+
 export function acceptsGzip(value: string): boolean {
   const weights = new Map<string, number>();
   for (const part of value.split(',')) {

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, Rolldown } from 'vite';
+import { hashedWebCodePath } from '../../desktop/src/main/web/compression';
 
 type Chunk = Rolldown.OutputChunk & { viteMetadata?: { importedCss: Set<string> } };
 
@@ -109,10 +110,14 @@ export function remoteStartupAssets(): Plugin {
           .map((name) => {
             const item = bundle[name]!;
             const body = Buffer.from(item.type === 'chunk' ? item.code : item.source);
+            const gzip = body.length >= 1024 ? gzipSync(body) : undefined;
+            if (gzip && hashedWebCodePath.test(`/${name}`)) {
+              this.emitFile({ type: 'asset', fileName: `${name}.gz`, source: gzip });
+            }
             return {
               path: `/${name}`,
               raw: body.length,
-              gzip: body.length >= 1024 ? gzipSync(body).length : body.length,
+              gzip: gzip?.length ?? body.length,
               preload: !initial.has(name),
             };
           });

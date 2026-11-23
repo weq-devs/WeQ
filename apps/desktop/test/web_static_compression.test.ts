@@ -3,7 +3,7 @@ import { createServer, request, type Server } from 'node:http';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { serveStatic } from '../src/main/web/static';
 
@@ -66,6 +66,23 @@ it('协商 gzip 压缩脚本，保留原 MIME 与 immutable 缓存，解压后�
   expect(headers['accept-ranges']).toBeUndefined();
   expect(gunzipSync(body).toString()).toBe(script);
   expect(body.length).toBeLessThan(Buffer.byteLength(script) / 4);
+});
+
+it('直接发送构建预压缩的分包，原文请求继续读取原始文件', async () => {
+  const path = '/assets/app-12345678.js';
+  const encoded = gzipSync(script, { level: 1 });
+  writeFileSync(join(root, path), script);
+  writeFileSync(join(root, `${path}.gz`), encoded);
+  const compressed = await get(path, 'gzip');
+  expect(compressed.body).toEqual(encoded);
+  expect(compressed.headers['content-length']).toBe(String(encoded.length));
+  expect(compressed.headers['content-type']).toContain('javascript');
+  expect(compressed.headers['content-encoding']).toBe('gzip');
+  expect(compressed.headers['accept-ranges']).toBeUndefined();
+  expect(compressed.headers.vary).toBe('Accept-Encoding');
+  const raw = await get(path, 'gzip;q=0');
+  expect(raw.body.toString()).toBe(script);
+  expect(raw.headers['content-encoding']).toBeUndefined();
 });
 
 it.each([undefined, 'br', 'gzip;q=0', '*;q=1, gzip;q=0', 'gzip;q=invalid'])(

@@ -77,14 +77,27 @@ async function builtAssets(root: string, paths: Set<string>): Promise<Asset[]> {
     return [];
   }
 }
-// 只保留当前构建的清单与尺寸，不缓存整套资源，也不在每次手机连接时重新压缩。
-let cached: { root: string; html: string; assets: Promise<Asset[]> } | undefined;
+type PreparedStartupShell = (gzip: boolean) => string;
+
+// 同一构建的 HTML 最多保留原始与 gzip 清单两份，构建切换后重新准备。
+let cached: { root: string; html: string; shell: Promise<PreparedStartupShell> } | undefined;
 
 export async function startupShell(
   root: string,
   html: string,
   gzipAccepted: boolean,
 ): Promise<string> {
+  if (!cached || cached.root !== root || cached.html !== html) {
+    const entry = { root, html, shell: prepareStartupShell(root, html) };
+    cached = entry;
+    void entry.shell.catch(() => {
+      if (cached === entry) cached = undefined;
+    });
+  }
+  return (await cached.shell)(gzipAccepted);
+}
+
+async function prepareStartupShell(root: string, html: string): Promise<PreparedStartupShell> {
   const document = parse(html);
   const paths = new Set<string>();
   let head: DefaultTreeAdapterMap['element'] | undefined;
@@ -130,30 +143,19 @@ export async function startupShell(
     if ('childNodes' in node) node.childNodes.forEach(visit);
   }
   visit(document);
-  if (!head || paths.size === 0) return html;
+  if (!head || paths.size === 0) return () => html;
   lockRemoteViewport(head);
-  if (!cached || cached.root !== root || cached.html !== html) {
-    const assets = (async () => {
-      const built = await builtAssets(root, paths);
-      if (built.length) return built;
-      const result: Asset[] = [];
-      for (const path of paths) {
-        const body = await readFile(join(root, new URL(path, 'https://weq.invalid').pathname));
-        result.push({
-          path,
-          raw: body.length,
-          gzip: body.length >= 1024 ? (await compress(body)).length : body.length,
-        });
-      }
-      return result;
-    })();
-    const entry = { root, html, assets };
-    cached = entry;
-    void assets.catch(() => {
-      if (cached === entry) cached = undefined;
-    });
+  const assets = await builtAssets(root, paths);
+  if (!assets.length) {
+    for (const path of paths) {
+      const body = await readFile(join(root, new URL(path, 'https://weq.invalid').pathname));
+      assets.push({
+        path,
+        raw: body.length,
+        gzip: body.length >= 1024 ? (await compress(body)).length : body.length,
+      });
+    }
   }
-  const assets = await cached.assets;
   for (const asset of assets) {
     if (!asset.preload || paths.has(asset.path)) continue;
     const css = asset.path.endsWith('.css');
@@ -165,13 +167,10 @@ export async function startupShell(
     ]);
     defaultTreeAdapter.appendChild(head, link);
   }
-  const resources = assets.map((a) => ({
-    path: a.path,
-    size: gzipAccepted ? a.gzip : a.raw,
-  }));
+  const content = { name: 'content', value: '' };
   const meta = defaultTreeAdapter.createElement('meta', htmlNames.NS.HTML, [
     { name: 'name', value: 'weq-startup-resources' },
-    { name: 'content', value: JSON.stringify({ version: 1, resources }) },
+    content,
   ]);
   const first = head.childNodes[0];
   if (first) defaultTreeAdapter.insertBefore(head, meta, first);
@@ -183,5 +182,17 @@ export async function startupShell(
   );
   if (resource) defaultTreeAdapter.insertBefore(head, boot, resource);
   else defaultTreeAdapter.appendChild(head, boot);
-  return serialize(document);
+  const variants = new Map<boolean, string>();
+  return (gzip) => {
+    const existing = variants.get(gzip);
+    if (existing !== undefined) return existing;
+    const resources = assets.map((asset) => ({
+      path: asset.path,
+      size: gzip ? asset.gzip : asset.raw,
+    }));
+    content.value = JSON.stringify({ version: 1, resources });
+    const output = serialize(document);
+    variants.set(gzip, output);
+    return output;
+  };
 }

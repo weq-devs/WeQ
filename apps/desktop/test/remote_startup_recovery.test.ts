@@ -37,6 +37,33 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+it('并行首屏请求分别返回正确的协商清单，更新入口后重新准备文档', async () => {
+  const entry = '/assets/new-12345678.js';
+  await writeFile(
+    join(root, 'weq-startup.json'),
+    JSON.stringify({
+      version: 1,
+      entry,
+      resources: [{ path: entry, raw: 4096, gzip: 777, preload: false }],
+    }),
+  );
+  const document = `<head><script type="module" src="${entry}"></script></head>`;
+  const [encoded, raw] = await Promise.all([
+    startupShell(root, document, true),
+    startupShell(root, document, false),
+  ]);
+  expect(encoded).toContain('&quot;size&quot;:777');
+  expect(raw).toContain('&quot;size&quot;:4096');
+  expect(await startupShell(root, document, true)).toBe(encoded);
+  const changed = await startupShell(
+    root,
+    document.replace(entry, '/assets/main-12345678.js'),
+    true,
+  );
+  expect(changed).toContain('&quot;path&quot;:&quot;/assets/main-12345678.js&quot;');
+  expect(changed).not.toContain('&quot;size&quot;:777');
+});
+
 type Startup = { state: string; message?: string };
 type ResourceEvent = { type?: string; target?: object };
 function page(href = 'https://fixture.invalid/?keep=1#chat', paths = ['/assets/main-12345678.js']) {
