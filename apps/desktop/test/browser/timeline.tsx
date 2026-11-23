@@ -409,11 +409,17 @@ function Fixture() {
       onSend: async (body) => {
         sentBodies.current.push(body);
         // 模拟发送期间的窗口刷新先捕获阅读位置，补偿在发送跳到底部后才提交。
-        pendingRestore = captureReadingPosition(scroll(), { transient: true });
-        setMessages((rows) => [
-          ...rows,
-          { ...message(Number(rows.at(-1)!.msgSeq) + 1), senderId: user.id },
-        ]);
+        if (!params.has('send-motion'))
+          pendingRestore = captureReadingPosition(scroll(), { transient: true });
+        setMessages((rows) => {
+          const next = message(Number(rows.at(-1)?.msgSeq ?? 1000) + 1);
+          return [
+            ...rows,
+            params.has('send-motion')
+              ? { ...next, senderId: user.id, body, optimistic: 'sending', outgoingId: next.id }
+              : { ...next, senderId: user.id },
+          ];
+        });
       },
       onJumpToLatest: async () => {
         setMessages((rows) => rows.slice(-100));

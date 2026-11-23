@@ -36,6 +36,18 @@ export class RowLayoutMotion {
     this.play(element, [{ opacity: 0.75 }, { opacity: 1 }]);
   }
 
+  enterRow(row: HTMLElement, offset: number) {
+    // 移动行内内容，裁掉暂时超出行底的部分，不让位移增加实际滚动范围。
+    this.play(row, [{ overflowY: 'clip' }, { overflowY: 'clip' }]);
+    for (const child of row.children) {
+      if (!(child instanceof HTMLElement)) continue;
+      this.play(child, [
+        { opacity: 0.75, transform: `translateY(${offset}px)` },
+        { opacity: 1, transform: 'none' },
+      ]);
+    }
+  }
+
   private play(element: HTMLElement, frames: Keyframe[]) {
     if (!element.animate) return;
     const animation = element.animate(frames, {

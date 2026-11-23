@@ -20,6 +20,7 @@ const imageGrid = process.env.WEQ_SCROLL_IMAGE_GRID === '1';
 const touchReply = process.env.WEQ_SCROLL_TOUCH_REPLY === '1';
 const gapRecovery = process.env.WEQ_SCROLL_GAP_RECOVERY === '1';
 const layoutMotion = process.env.WEQ_SCROLL_LAYOUT_MOTION === '1';
+const browserType = gapRecovery || process.env.WEQ_SCROLL_BROWSER === 'webkit' ? webkit : chromium;
 const fixtureFlags = [
   cachedBubbles && '&cached-bubbles=1',
   (grouped || touchReply) && '&grouped=1',
@@ -79,7 +80,7 @@ const server = await createServer({
 let browser;
 try {
   await server.listen();
-  browser = await (gapRecovery ? webkit : chromium).launch({
+  browser = await browserType.launch({
     headless: true,
     ...(process.env.WEQ_BROWSER_EXECUTABLE
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
@@ -173,7 +174,7 @@ async function checkLayoutMotion(page) {
   for (const reducedMotion of ['no-preference', 'reduce']) {
     const reduced = reducedMotion === 'reduce';
     await page.emulateMedia({ reducedMotion });
-    await page.goto(`${base}/timeline.html?count=180&entry`);
+    await page.goto(`${base}/timeline.html?count=180&entry&send-motion`);
     const message = (id) => page.locator(`.message-line[data-message-id="${id}"]`);
     const viewport = page.locator('.message-scroll');
     const bottom = () =>
@@ -184,13 +185,42 @@ async function checkLayoutMotion(page) {
     await message('row-1180').waitFor();
     await bottom();
     assert.deepEqual(await logs(), [], '初次加载不播入场');
-    await page.evaluate(() => window.timelineTest.append());
+    const previousTail = message('row-1180');
+    const oldTop = (await previousTail.boundingBox()).y;
+    await page.evaluate(() => {
+      window.holdRowMotion = 'row-1180';
+    });
+    const composer = page.getByRole('textbox').last();
+    await composer.fill('真实发送入口的本地回显');
+    await composer.press('Enter');
     await message('row-1181').waitFor();
+    await page.getByText('真实发送入口的本地回显', { exact: true }).waitFor();
     const arrival = await sample('row-1181', '.message-line');
-    if (reduced) assert.equal(arrival, null);
-    else {
+    if (reduced) {
+      assert.equal(arrival, null);
+      assert.equal(await sample('row-1180', '.weq-virtual-timeline-row'), null);
+    } else {
       assert.equal(arrival?.frames[0].opacity, '0.75');
-      assert.ok(arrival.values?.some((value) => Number(value) > 0.75 && Number(value) < 1));
+      assert.match(arrival?.frames[0].transform, /translateY\([1-9]/, '新气泡应有实际位移');
+      assert.ok(new Set(arrival.values).size > 1, '新气泡应有实际移动的中间帧');
+      const previous = await page.evaluate(() => {
+        const run = window.rowMotion.find(
+          ({ key, target }) =>
+            key === 'row-1180' && target.classList.contains('weq-virtual-timeline-row'),
+        );
+        if (!run) return null;
+        run.animation.currentTime = 0;
+        const start = run.target.getBoundingClientRect().top;
+        const line = run.target.querySelector('.message-line');
+        const inset = line.getBoundingClientRect().top - start;
+        run.animation.currentTime = 80;
+        const middle = line.getBoundingClientRect().top;
+        run.animation.finish();
+        return { start: start + inset, middle, end: line.getBoundingClientRect().top };
+      });
+      assert.ok(previous, '即时贴底时上一条消息也应过渡');
+      near(previous.start, oldTop);
+      assert.ok(previous.start > previous.middle && previous.middle > previous.end);
     }
     await bottom();
     await clear();
@@ -339,6 +369,15 @@ async function checkLayoutMotion(page) {
       assert.ok(distantMove.values.some((value) => Number(value) > 0.75 && Number(value) < 1));
     }
   }
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto(`${base}/timeline.html?count=0&entry&send-motion`);
+  await page.getByText('还没有消息', { exact: true }).waitFor();
+  const composer = page.getByRole('textbox').last();
+  await composer.fill('空会话的第一条消息');
+  await composer.press('Enter');
+  await page.getByText('空会话的第一条消息', { exact: true }).waitFor();
+  const first = await sample('row-1001', '.message-line');
+  assert.match(first?.frames[0].transform, /translateY\([1-9]/);
   console.log('实时入场、撤回与删除阅读锚点、会话增删移位及减少动态效果通过');
 }
 

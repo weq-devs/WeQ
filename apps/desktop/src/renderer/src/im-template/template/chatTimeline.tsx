@@ -152,7 +152,8 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
     _state: unknown,
     snapshot: ReturnType<ChatTimelineTransition['getSnapshotBeforeUpdate']>,
   ) {
-    const { active, scope, loading, live, jumpRevision, scrollRef, unreadBoundary } = this.props;
+    const { active, scope, loading, live, jumpRevision, messages, scrollRef, unreadBoundary } =
+      this.props;
     const scroll = scrollRef.current;
     if (
       !active ||
@@ -209,8 +210,18 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
       }
     }
     const reflow = snapshot.changed.size > 0 || edited;
+    const tailKeys = new Set(snapshot.tail.map(messageKey));
+    if (reflow || tailKeys.size) this.motion.stop();
+    if (tailKeys.size && scroll.classList.contains('is-virtualized')) {
+      // 本次追加前的最后一行也会增加行间距。导航贴底前交付实际行高。
+      const last = previous.messages.at(-1);
+      for (const key of last ? [messageKey(last), ...tailKeys] : tailKeys) {
+        const element = mounted.get(key);
+        const row = element && timelineRow(element);
+        if (row) affectedRows.add(row);
+      }
+    }
     if (reflow) {
-      this.motion.stop();
       const anchor = [...snapshot.rows].find(([key]) => mounted.has(key));
       const anchorElement = anchor && mounted.get(anchor[0]);
       // 同帧交付新行高，别等下一轮 ResizeObserver 才补偿阅读位置。
@@ -236,6 +247,8 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
           scrollTop: scroll.scrollTop,
         });
       }
+    } else if (affectedRows.size) {
+      viewport?.measureRows?.(affectedRows);
     }
     if (snapshot.revision !== viewport?.scrollRevision?.()) return;
     if (
@@ -246,7 +259,6 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
     )
       return;
     const oldIds = snapshot.removedVisibleGap ? new Set(previous.messages.map(messageKey)) : null;
-    const tailKeys = new Set(snapshot.tail.map(messageKey));
     if (reflow) {
       const visible = visibleLayoutRows(scroll, TIMELINE_MESSAGE_SELECTOR, timelineKey);
       const fillsGap = oldIds && [...visible.keys()].some((key) => !oldIds.has(key));
@@ -271,11 +283,42 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
         if (hint || (oldIds && !oldIds.has(key))) tailKeys.delete(key);
       }
     }
-    // 父层在本次布局末尾跟随下沿；此时新行可能还在视口下面的缓冲内。
-    for (const key of tailKeys) {
-      const element = mounted.get(key);
-      if (element && !snapshot.rows.has(key)) this.motion.reveal(element);
-    }
+    if (!tailKeys.size) return;
+    // 等父层完成实际贴底再读取最终位置，仍在同一次绘制前启动过渡。
+    queueMicrotask(() => {
+      if (
+        scrollRef.current !== scroll ||
+        scope !== this.props.scope ||
+        messages !== this.props.messages ||
+        jumpRevision !== this.props.jumpRevision ||
+        !this.props.active ||
+        this.props.loading ||
+        viewport?.isUserScrolling?.() ||
+        scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop > 2
+      )
+        return;
+      const viewportTop = scroll.getBoundingClientRect().top;
+      const limit = scroll.clientHeight;
+      let offset = 8;
+      if (!reflow) {
+        const shifts: Array<{ row: HTMLElement; distance: number }> = [];
+        for (const [key, { top }] of snapshot.rows) {
+          const element = mounted.get(key);
+          const row = element && timelineRow(element);
+          if (!element?.isConnected || !row) continue;
+          const distance = top - (element.getBoundingClientRect().top - viewportTop);
+          shifts.push({ row, distance });
+          if (distance <= limit) offset = Math.max(offset, distance);
+        }
+        for (const { row, distance } of shifts) this.motion.shift(row, distance, limit);
+      }
+      for (const key of tailKeys) {
+        const element = mounted.get(key);
+        const row = element && timelineRow(element);
+        if (element?.isConnected && row && !snapshot.rows.has(key))
+          this.motion.enterRow(row, offset);
+      }
+    });
   }
 
   override componentWillUnmount() {
