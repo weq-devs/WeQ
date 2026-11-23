@@ -45,18 +45,17 @@ function fixture(kind: 'group' | 'c2c' | 'dataline', total: number) {
   const listBySeqsInPartition = vi.fn(async (_target: unknown, seqs: bigint[]) =>
     rows.filter((row) => seqs.includes(row.msgSeq)),
   );
+  const listSeqWatermarks = vi.fn(async () => [
+    {
+      targetUid: kind === 'group' ? '123456' : 'u_peer',
+      chatType: kind === 'group' ? 2 : kind === 'dataline' ? 8 : 1,
+      msgSeq: watermark,
+      sendTime: BigInt(total),
+    },
+  ]);
   const session = {
     msgDbPath: 'nt_msg.db',
-    recentContacts: {
-      listSeqWatermarks: async () => [
-        {
-          targetUid: kind === 'group' ? '123456' : 'u_peer',
-          chatType: kind === 'group' ? 2 : kind === 'dataline' ? 8 : 1,
-          msgSeq: watermark,
-          sendTime: BigInt(total),
-        },
-      ],
-    },
+    recentContacts: { listSeqWatermarks },
     groupMsgs: { listAfter, listBySeqsInPartition },
     c2cMsgs: { listAfter, listBySeqsInPartition },
     datalineMsgs: { listAfter, listBySeqsInPartition },
@@ -70,6 +69,7 @@ function fixture(kind: 'group' | 'c2c' | 'dataline', total: number) {
   mounted.push(hook);
   return {
     hook,
+    listSeqWatermarks,
     listAfter,
     listBySeqsInPartition,
     onNewMessages,
@@ -135,6 +135,38 @@ describe('nt_msg watcher batch catch-up', () => {
     await vi.waitFor(() => expect(f.onNewMessages.mock.calls[0]?.[0].c2c).toHaveLength(2), {
       timeout: 3000,
     });
+    expect(f.listSeqWatermarks).toHaveBeenCalledTimes(3);
+  });
+
+  it('文件水位读取失败继续重试，成功后才接受本次水位', async () => {
+    const f = fixture('group', 2);
+    await f.hook.onDbFileChangeHook(DB_CHANGE);
+    f.setWatermark(2n);
+    f.listSeqWatermarks.mockRejectedValueOnce(new Error('database temporarily locked'));
+    await f.hook.onDbFileChangeHook(DB_CHANGE);
+    expect(f.onNewMessages).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(f.onNewMessages.mock.calls[0]?.[0].group).toHaveLength(2), {
+      timeout: 3000,
+    });
+    expect(f.listSeqWatermarks).toHaveBeenCalledTimes(4);
+  });
+
+  it('等待正文时超过水位有效时间，即使无新通知也重新观察', async () => {
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+    try {
+      const f = fixture('c2c', 2);
+      await f.hook.onDbFileChangeHook(DB_CHANGE);
+      f.setWatermark(2n);
+      f.listAfter.mockResolvedValueOnce([]);
+      await f.hook.onDbFileChangeHook(DB_CHANGE);
+      clock.mockReturnValue(5_001);
+      await vi.waitFor(() => expect(f.onNewMessages.mock.calls[0]?.[0].c2c).toHaveLength(2), {
+        timeout: 3000,
+      });
+      expect(f.listSeqWatermarks).toHaveBeenCalledTimes(4);
+    } finally {
+      clock.mockRestore();
+    }
   });
   it('同秒机器人连续消息按会话序号，不按随机消息 ID 反转', async () => {
     const f = fixture('c2c', 2);
@@ -169,9 +201,11 @@ describe('nt_msg watcher batch catch-up', () => {
       );
       if (kind === 'dataline') expect(event.c2c).toEqual([]);
       expect(emitted.map((m: C2cMsg | GroupMsg) => m.msgSeq)).toEqual(f.rows.map((m) => m.msgSeq));
+      expect(f.listSeqWatermarks).toHaveBeenCalledTimes(3);
 
       await f.hook.onDbFileChangeHook(DB_CHANGE);
       expect(f.onNewMessages).toHaveBeenCalledTimes(3);
+      expect(f.listSeqWatermarks).toHaveBeenCalledTimes(4);
     },
   );
 

@@ -44,7 +44,8 @@ export { NEW_CONV_FRESH_SEC } from '../common/live_message';
 const MAX_DELTA = 500;
 /** For a conversation first seen after mount: push at most this many newest rows. */
 const NEW_CONV_CAP = 5;
-/** A recent-contact row counts as "live new message" when touched within this window. */
+/** 长时间无新文件事件的重试仍会重新观察一次全量水位。 */
+const WATERMARK_RECHECK_MS = 5_000;
 
 /** Newly-inserted messages since the last baseline, per chat type. */
 export interface NewMessages {
@@ -99,6 +100,9 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
   let running: Promise<void> | undefined;
   let pending = false;
   let latestFile: DbChange | undefined;
+  let latestFileRevision = 0;
+  let scannedFileRevision = 0;
+  let scannedAt = Number.NEGATIVE_INFINITY;
   const arm = (delay: number) => {
     if (disposed || timer) return;
     timer = setTimeout(() => {
@@ -131,11 +135,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
     })
     .catch(() => {});
 
-  async function pass(file: DbChange): Promise<void> {
-    await initial;
-    if (disposed) return;
-
-    // 2. Diff the recent-contact seq watermarks.
+  async function syncWatermarks(): Promise<void> {
     const rows = await listWatermarks();
     if (disposed) return;
     const current = new Map<string, ConvWatermark>();
@@ -177,6 +177,24 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
         freshTargets.delete(key);
       }
     }
+  }
+
+  async function pass(file: DbChange, fileRevision: number): Promise<void> {
+    await initial;
+    if (disposed) return;
+    // 同一文件事件的续页和短重试已有待办水位，直接补正文。
+    if (
+      scannedFileRevision !== fileRevision ||
+      performance.now() - scannedAt >= WATERMARK_RECHECK_MS
+    ) {
+      await syncWatermarks();
+      if (disposed) return;
+      scannedFileRevision = fileRevision;
+      scannedAt = performance.now();
+    }
+    const previous = prev;
+    if (!previous) return;
+
     // 每个会话每轮一页，最多八页；积压会话排到队尾，健康目标不等失败退避。
     let budget = 8;
     for (const [key, cur] of [...queue]) {
@@ -305,7 +323,8 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
         do {
           pending = false;
           const file = latestFile;
-          if (file) await withDatabaseSignal(reads.signal, () => pass(file));
+          const revision = latestFileRevision;
+          if (file) await withDatabaseSignal(reads.signal, () => pass(file, revision));
         } while (pending && !disposed);
       } catch {
         // 水位读取失败也独立重试，不等待下一次文件签名变化。
@@ -323,6 +342,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
       if (disposed) return;
       hooks.onDbChanged(file);
       latestFile = file;
+      latestFileRevision++;
       if (timer) {
         clearTimeout(timer);
         timer = undefined;
