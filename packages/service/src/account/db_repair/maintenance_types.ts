@@ -85,8 +85,7 @@ export function summarizeDatabaseMaintenance(
   return {
     ...snapshot,
     databases: snapshot.databases.map(({ scan, repair, ...row }) => {
-      const { record, ...repairStatus } = repair ?? {};
-      const verification = record?.verification;
+      const verification = repair?.record?.verification;
       return {
         ...row,
         scan: scan && {
@@ -98,13 +97,15 @@ export function summarizeDatabaseMaintenance(
           zeroPageCount: scan.zeroPages.length,
         },
         repair: repair && {
-          ...repairStatus,
           status: repair.status,
-          verification: verification && {
-            healthy: verification.healthy,
-            complete: verification.complete,
-            badPageCount: verification.badPages.length,
-          },
+          error: repair.error,
+          verification: verification
+            ? {
+                healthy: verification.healthy,
+                complete: verification.complete,
+                badPageCount: verification.badPages.length,
+              }
+            : undefined,
         },
       };
     }),
