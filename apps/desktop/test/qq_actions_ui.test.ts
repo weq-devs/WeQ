@@ -1477,6 +1477,30 @@ describe('QQ 主动操作的实际界面', () => {
       expect.objectContaining({ content: '新的公告', popup: true, editCardGuide: true }),
     );
   });
+  it('公告历史尚未读取或读取失败时不冒充空列表，已有摘要仍可读', () => {
+    state.data.groupPermissions = { canManage: false };
+    let bulletinsStatus: 'loading' | 'error' | undefined = 'loading';
+    let currentAnnouncement: string | undefined;
+    const f = fixture(() =>
+      h(GroupNoticeActions, { groupId: 123, bulletinsStatus, currentAnnouncement }),
+    );
+    const empty = '还没有可显示的群公告';
+    expect(f.host.textContent).toContain('正在读取公告');
+    expect(f.host.textContent).not.toContain(empty);
+    bulletinsStatus = 'error';
+    f.update();
+    expect(f.host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(f.host.textContent).not.toContain(empty);
+    bulletinsStatus = 'loading';
+    currentAnnouncement = '保留已读摘要';
+    f.update();
+    expect(f.host.textContent).toContain(currentAnnouncement);
+    expect(f.host.textContent).not.toContain('正在读取公告');
+    bulletinsStatus = undefined;
+    currentAnnouncement = undefined;
+    f.update();
+    expect(f.host.textContent).toContain(empty);
+  });
   it('公告按 ID 在正文旁提供菜单，不重复渲染管理清单，删除保持原目标', async () => {
     state.data.notices = [
       {

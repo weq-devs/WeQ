@@ -13,9 +13,13 @@ export function LoadingIndicator({ children = '加载中…' }: { children?: Rea
   );
 }
 
-export function PanelLoading() {
+export function PanelLoading({ startup = true }: { startup?: boolean } = {}) {
   return (
-    <div className="weq-panel-loading" role="status" data-weq-startup-pending>
+    <div
+      className="weq-panel-loading"
+      role="status"
+      data-weq-startup-pending={startup || undefined}
+    >
       <LoadingIndicator>正在加载…</LoadingIndicator>
     </div>
   );

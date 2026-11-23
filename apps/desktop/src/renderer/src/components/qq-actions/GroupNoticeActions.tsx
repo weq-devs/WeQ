@@ -45,6 +45,7 @@ function GroupNoticeActionsBody({
   groupName = '',
   currentAnnouncement,
   bulletins = [],
+  bulletinsStatus,
   initialNoticeId,
   preserveDraft = false,
 }: {
@@ -52,6 +53,7 @@ function GroupNoticeActionsBody({
   groupName?: string;
   currentAnnouncement?: string | null;
   bulletins?: GroupBulletinWire[];
+  bulletinsStatus?: 'loading' | 'error';
   initialNoticeId?: string;
   preserveDraft?: boolean;
 }) {
@@ -141,6 +143,13 @@ function GroupNoticeActionsBody({
     [bulletins, canManage, notices.data],
   );
   const entries = useGroupNoticePublishers(String(groupId), mergedEntries);
+  const hasContent = entries.length > 0 || Boolean(currentAnnouncement?.trim());
+  const loadingHistory = bulletinsStatus === 'loading';
+  const loadingOnline =
+    (permissions.isFetching && !permissions.data) ||
+    (canManage && notices.isFetching && !notices.data);
+  const historyFailed = bulletinsStatus === 'error';
+  const onlineError = canManage ? notices.error : null;
   async function refresh() {
     const result = await notices.refetch();
     if (result.error) throw result.error;
@@ -239,18 +248,19 @@ function GroupNoticeActionsBody({
           </div>
         )}
       </div>
-      {notices.isFetching &&
-        canManage &&
-        !notices.data &&
-        !entries.length &&
-        !currentAnnouncement?.trim() && (
-          <p role="status" className="weq-content-status">
-            读取在线公告中…
-          </p>
-        )}
-      {notices.error && canManage && (
+      {!hasContent && (loadingHistory || loadingOnline) && (
+        <p role="status" className="weq-content-status">
+          正在读取公告…
+        </p>
+      )}
+      {historyFailed && (
         <p role="alert" className="weq-content-error">
-          {notices.error.message}
+          历史公告读取失败
+        </p>
+      )}
+      {onlineError && (
+        <p role="alert" className="weq-content-error">
+          {onlineError.message}
         </p>
       )}
       {permissions.error && (
@@ -372,7 +382,7 @@ function GroupNoticeActionsBody({
           setMenu({ x: event.clientX, y: event.clientY, entry });
         }}
       />
-      {!entries.length && !currentAnnouncement?.trim() && !notices.isFetching && (
+      {!hasContent && !loadingHistory && !loadingOnline && !historyFailed && !onlineError && (
         <ContactEmptyState>
           还没有可显示的群公告。有权限的成员发布后会出现在这里。
         </ContactEmptyState>

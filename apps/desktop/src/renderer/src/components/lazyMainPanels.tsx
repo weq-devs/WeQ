@@ -1,10 +1,15 @@
 import { lazy, Suspense, useEffect, useState, type ComponentProps } from 'react';
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 import { lazyPanel } from '../lib/lazyPanel';
 import { Modal } from './Dialog';
 import { LoadingIndicator, PanelLoading } from './LoadingIndicator';
+import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { OverlayLayer } from './OverlayLayer';
 import { ChatRecordsHeader } from './search/ChatRecordsHeader';
+import '../styles/conversation-settings.css';
+import '../styles/group-left-members.css';
+import '../styles/group-sign.css';
 
 const MailContent = lazy(() =>
   import('../views/MailView').then((module) => ({ default: module.MailWorkspace })),
@@ -137,15 +142,90 @@ export function GroupTodos(props: ComponentProps<typeof GroupTodosContent>) {
 export const MediaPreview = lazyPanel<ComponentProps<typeof import('./MediaPreview').MediaPreview>>(
   () => import('./MediaPreview').then((m) => ({ default: m.MediaPreview })),
 );
+
+const groupLoadingFrames = {
+  announcements: ['群公告', 'group-announcements-dialog', 'modal-scrim group-announcements-scrim'],
+  essence: ['群精华', 'group-essence-dialog', 'modal-scrim group-essence-scrim'],
+  sign: ['群打卡', 'weq-group-sign-page', 'weq-group-sign-layer'],
+  leftMembers: [
+    '已退群成员',
+    'group-info-detail-dialog weq-group-left-members',
+    'modal-scrim group-info-detail-scrim weq-group-left-members-layer',
+  ],
+} as const;
+
+function GroupFeatureLoading({
+  feature,
+  groupName,
+  onClose,
+  embedded,
+  anchor,
+  presentation,
+}: {
+  feature: keyof typeof groupLoadingFrames;
+  groupName: string;
+  onClose: () => void;
+  embedded?: boolean;
+  anchor?: HTMLElement | null;
+  presentation?: GroupFeaturePresentation;
+}) {
+  const [title, frameClass, layerClass] = groupLoadingFrames[feature];
+  const content = (
+    <section className={frameClass} role={embedded ? 'region' : 'dialog'} aria-label={title}>
+      <header>
+        <div>
+          <strong>{title}</strong>
+          <span>{groupName}</span>
+        </div>
+        <button
+          className="icon-button"
+          type="button"
+          title="关闭"
+          aria-label={`关闭${title}`}
+          onClick={onClose}
+        >
+          <X size={18} />
+        </button>
+      </header>
+      <PanelLoading startup={false} />
+    </section>
+  );
+  return feature === 'leftMembers' ? (
+    <OverlayLayer presentation="popover" title={title} className={layerClass} onClose={onClose}>
+      {content}
+    </OverlayLayer>
+  ) : (
+    <GroupFeatureSurface
+      embedded={embedded}
+      anchor={anchor}
+      presentation={presentation}
+      title={title}
+      className={layerClass}
+      onClose={onClose}
+    >
+      {content}
+    </GroupFeatureSurface>
+  );
+}
+
 export const GroupSignDialog = lazyPanel<
   ComponentProps<typeof import('./GroupSignDialog').GroupSignDialog>
->(() => import('./GroupSignDialog').then((m) => ({ default: m.GroupSignDialog })));
+>(
+  () => import('./GroupSignDialog').then((m) => ({ default: m.GroupSignDialog })),
+  (props) => <GroupFeatureLoading {...props} feature="sign" />,
+);
 export const GroupEssenceDialog = lazyPanel<
   ComponentProps<typeof import('./GroupEssenceDialog').GroupEssenceDialog>
->(() => import('./GroupEssenceDialog').then((m) => ({ default: m.GroupEssenceDialog })));
+>(
+  () => import('./GroupEssenceDialog').then((m) => ({ default: m.GroupEssenceDialog })),
+  (props) => <GroupFeatureLoading {...props} feature="essence" />,
+);
 export const GroupLeftMembersDialog = lazyPanel<
   ComponentProps<typeof import('./GroupLeftMembersDialog').GroupLeftMembersDialog>
->(() => import('./GroupLeftMembersDialog').then((m) => ({ default: m.GroupLeftMembersDialog })));
+>(
+  () => import('./GroupLeftMembersDialog').then((m) => ({ default: m.GroupLeftMembersDialog })),
+  (props) => <GroupFeatureLoading {...props} feature="leftMembers" />,
+);
 export const AddMessageModal = lazyPanel<
   ComponentProps<typeof import('./compose/AddMessageModal').AddMessageModal>
 >(() => import('./compose/AddMessageModal').then((m) => ({ default: m.AddMessageModal })));
@@ -230,13 +310,45 @@ export const GroupNoticeDialog = lazyPanel<
 >(() => import('./ContactNoticeDialogs').then((m) => ({ default: m.GroupNoticeDialog })));
 export const GroupAnnouncementsDialog = lazyPanel<
   ComponentProps<typeof import('./GroupAnnouncementsDialog').GroupAnnouncementsDialog>
->(() =>
-  import('./GroupAnnouncementsDialog').then((m) => ({ default: m.GroupAnnouncementsDialog })),
+>(
+  () => import('./GroupAnnouncementsDialog').then((m) => ({ default: m.GroupAnnouncementsDialog })),
+  (props) => <GroupFeatureLoading {...props} feature="announcements" />,
 );
 export const ConversationSettingsDialog = lazyPanel<
   ComponentProps<typeof import('./ConversationSettingsDialog').ConversationSettingsDialog>
->(() =>
-  import('./ConversationSettingsDialog').then((m) => ({ default: m.ConversationSettingsDialog })),
+>(
+  () =>
+    import('./ConversationSettingsDialog').then((m) => ({ default: m.ConversationSettingsDialog })),
+  ({ anchor, title, onClose }) => (
+    <Modal
+      presentation="anchored"
+      anchor={anchor}
+      title="会话设置"
+      className="weq-conversation-settings-pane"
+      onClose={onClose}
+    >
+      <section className="weq-cvs-dialog">
+        <button
+          className="weq-cvs-close"
+          type="button"
+          aria-label="关闭"
+          title="关闭"
+          onClick={onClose}
+        >
+          <X size={18} />
+        </button>
+        <header className="weq-cvs-nav">
+          <div className="weq-cvs-nav-head">
+            <strong>会话设置</strong>
+            <span>{title}</span>
+          </div>
+        </header>
+        <div className="weq-cvs-body">
+          <PanelLoading startup={false} />
+        </div>
+      </section>
+    </Modal>
+  ),
 );
 export const QQRemarkDialog = lazyPanel<
   ComponentProps<typeof import('./QQRemarkDialog').QQRemarkDialog>

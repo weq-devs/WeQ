@@ -10785,6 +10785,9 @@ function MainWorkspace(): ReactElement {
                   ? selectedConversation.group?.announcement
                   : null
               }
+              bulletinsStatus={
+                groupBulletins.isLoading ? 'loading' : groupBulletins.isError ? 'error' : undefined
+              }
               bulletins={((groupBulletins.data ?? []) as GroupBulletinWire[]).map(
                 (bulletin, _index) => {
                   // publisherUid 可能是 UID（数据库）或 UIN（Web API），尝试两者匹配

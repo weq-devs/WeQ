@@ -31,6 +31,10 @@
   color: var(--weq-fg-secondary);
   font-size: 13px;
 }
+.weq-composer-panel-loading > .weq-panel-loading {
+  min-height: 64px;
+  padding: 12px;
+}
 .weq-centered-panel[tabindex] > .weq-profile-loading {
   display: grid;
   place-items: center;

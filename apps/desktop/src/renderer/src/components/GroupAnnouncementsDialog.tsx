@@ -15,6 +15,7 @@ export interface GroupAnnouncementsProps {
   groupName: string;
   currentAnnouncement?: string | null;
   bulletins?: GroupBulletinWire[];
+  bulletinsStatus?: 'loading' | 'error';
   initialNoticeId?: string;
   onClose: () => void;
 }
@@ -30,6 +31,7 @@ function GroupAnnouncementsBody({
   groupName,
   currentAnnouncement,
   bulletins,
+  bulletinsStatus,
   initialNoticeId,
   onClose,
 }: GroupAnnouncementsProps): ReactElement {
@@ -72,6 +74,7 @@ function GroupAnnouncementsBody({
               groupName={groupName}
               currentAnnouncement={currentAnnouncement}
               bulletins={bulletins}
+              bulletinsStatus={bulletinsStatus}
               initialNoticeId={initialNoticeId}
               preserveDraft={presentation === 'popover'}
             />

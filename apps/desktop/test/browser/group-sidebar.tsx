@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GroupInfoPanel } from '../../src/renderer/src/im-template/template/groupInfoPanel';
-import { GroupAnnouncementsDialog } from '../../src/renderer/src/components/GroupAnnouncementsDialog';
-import { GroupSignDialog } from '../../src/renderer/src/components/GroupSignDialog';
-import { GroupEssenceDialog } from '../../src/renderer/src/components/GroupEssenceDialog';
-import { GroupTodos } from '../../src/renderer/src/components/lazyMainPanels';
+import {
+  GroupAnnouncementsDialog,
+  GroupEssenceDialog,
+  GroupSignDialog,
+  GroupTodos,
+} from '../../src/renderer/src/components/lazyMainPanels';
 import { useGroupResourceWindows } from '../../src/renderer/src/hooks/useGroupResourceWindows.shared';
 import { RelationshipDirectoryContext } from '../../src/renderer/src/lib/contactRelationship';
 import { ProfileNavigationContext } from '../../src/renderer/src/lib/profileNavigation';

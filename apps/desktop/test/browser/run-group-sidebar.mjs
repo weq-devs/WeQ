@@ -136,6 +136,35 @@ try {
   await page.waitForFunction(() =>
     document.querySelector('.weq-todo-summary')?.textContent?.includes('周五交作业'),
   );
+  await page.setViewportSize({ width: 390, height: 780 });
+  const announcementModule = /\/GroupAnnouncementsDialog\.tsx(?:\?|$)/;
+  let releaseModule;
+  const moduleReady = new Promise((resolve) => {
+    releaseModule = resolve;
+  });
+  await page.route(announcementModule, async (route) => {
+    await moduleReady;
+    await route.continue();
+  });
+  const announcementTrigger = page.getByRole('button', { name: '查看群公告', exact: true });
+  const pendingAnnouncement = page.getByRole('dialog', { name: '群公告', exact: true });
+  try {
+    await announcementTrigger.click();
+    await pendingAnnouncement.getByRole('status').waitFor();
+    await popover(page).locator(':scope.is-anchored-popover').waitFor();
+    await checkPopoverFits(page, 'announcement-code-loading');
+    await page.keyboard.press('Escape');
+    await pendingAnnouncement.waitFor({ state: 'detached' });
+    assert.equal(await announcementTrigger.getAttribute('aria-expanded'), 'false');
+    await announcementTrigger.click();
+    await pendingAnnouncement.getByRole('status').waitFor();
+  } finally {
+    releaseModule();
+  }
+  await popover(page).getByRole('heading', { name: '当前公告' }).waitFor();
+  assert.equal(await pendingAnnouncement.count(), 0, 'loading dialog did not yield to content');
+  await popover(page).getByRole('button', { name: '关闭群公告' }).click();
+  await page.setViewportSize({ width: 1180, height: 900 });
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme);
     for (const [width, height] of [
@@ -198,7 +227,9 @@ try {
   });
   await page.getByRole('button', { name: '打卡', exact: true }).click();
   await popover(page).waitFor();
-  await page.getByLabel('打卡日期', { exact: true }).waitFor();
+  await popover(page)
+    .getByRole('button', { name: /^打卡日期/ })
+    .waitFor();
   await page.waitForFunction(
     () => document.querySelectorAll('.weq-group-sign-list > li').length === 100,
   );
@@ -267,7 +298,9 @@ try {
   assert.equal(await popover(page).count(), 1, 'Escape closed parent with child menu');
   await shot(page, 'todo-popover-light');
   await page.getByRole('button', { name: '打卡', exact: true }).click();
-  await page.getByLabel('打卡日期', { exact: true }).waitFor();
+  await popover(page)
+    .getByRole('button', { name: /^打卡日期/ })
+    .waitFor();
   assert.equal(await popover(page).count(), 1, 'entry switch opened multiple popovers');
   await page.keyboard.press('Escape');
   assert.equal(await popover(page).count(), 0);
