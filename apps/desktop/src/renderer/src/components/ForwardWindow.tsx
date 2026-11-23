@@ -46,7 +46,9 @@ function PendingWindow({ win }: { win: ForwardWindowState }) {
       role="dialog"
       aria-label={win.title}
       aria-busy="true"
-      onMouseDown={() => raise(win.id)}
+      onPointerDownCapture={(event) => {
+        if (event.currentTarget.contains(event.target as Node)) raise(win.id);
+      }}
     >
       <header className="weq-forward-header" style={{ cursor: 'default' }}>
         <div className="weq-forward-title">{win.title}</div>

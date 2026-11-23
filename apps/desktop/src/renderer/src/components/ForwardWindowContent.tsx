@@ -199,7 +199,6 @@ function ForwardWindowFrame({
       const target = event.target as HTMLElement;
       if (target.closest('button')) return;
 
-      bringToFront(win.id);
       dragStateRef.current = {
         startX: event.clientX,
         startY: event.clientY,
@@ -208,7 +207,7 @@ function ForwardWindowFrame({
       };
       event.currentTarget.setPointerCapture(event.pointerId);
     },
-    [bringToFront, win.id, win.x, win.y],
+    [win.x, win.y],
   );
 
   const onHeaderPointerMove = useCallback(
@@ -271,7 +270,9 @@ function ForwardWindowFrame({
       style={style}
       role="dialog"
       aria-label={win.title}
-      onMouseDown={() => bringToFront(win.id)}
+      onPointerDownCapture={(event) => {
+        if (event.currentTarget.contains(event.target as Node)) bringToFront(win.id);
+      }}
     >
       <header
         className="weq-forward-header"

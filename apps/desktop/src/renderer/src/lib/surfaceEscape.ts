@@ -7,6 +7,8 @@ const ESCAPE_SURFACE = '[data-weq-escape-surface]';
 const SURFACES =
   '[aria-modal="true"], [role="dialog"], [role="menu"], [role="listbox"], .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window, [data-weq-surface], .weq-lightbox-layer, .weq-redbag-detail-layer, .weq-redbag-qr-layer';
 const SHELLS = '.weq-dialog-layer, .weq-overlay-layer, .weq-window-layer';
+const POPUP_FRAMES =
+  '.weq-dialog-layer, .weq-overlay-layer, .weq-window-surface, .weq-forward-window';
 const CONFIRM_BUTTON = 'button[data-weq-dialog-confirm]';
 
 export function containingSurface(element: HTMLElement): HTMLElement | null {
@@ -208,6 +210,20 @@ export function useSurfaceEscape(
     const element = ref.current;
     if (!active || !element || (!modal && !onClose)) return;
     const document = element.ownerDocument;
+    const pointerFocus = !modal && element.matches(POPUP_FRAMES);
+    const focusPopup = (event: PointerEvent) => {
+      const ElementType = document.defaultView?.Element;
+      if (
+        event.button !== 0 ||
+        element.contains(document.activeElement) ||
+        !ElementType ||
+        !(event.target instanceof ElementType) ||
+        event.target.closest(POPUP_FRAMES) !== element
+      )
+        return;
+      // 正文框选和标题拖动可能阻止浏览器默认聚焦，按下时先将焦点交给窗口。
+      element.focus({ preventScroll: true });
+    };
     function handleEscape(event: KeyboardEvent) {
       if (!['Escape', 'Tab'].includes(event.key) || event.defaultPrevented || !element) return;
       if (event.key === 'Escape' && (event.isComposing || event.keyCode === 229)) return;
@@ -256,7 +272,11 @@ export function useSurfaceEscape(
       event.stopImmediatePropagation();
       onClose?.();
     }
+    if (pointerFocus) element.addEventListener('pointerdown', focusPopup, true);
     document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
+    return () => {
+      if (pointerFocus) element.removeEventListener('pointerdown', focusPopup, true);
+      document.removeEventListener('keydown', handleEscape);
+    };
   }, [ref, onClose, active, modal]);
 }

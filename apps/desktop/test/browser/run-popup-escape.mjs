@@ -58,6 +58,8 @@ import {DatabaseDamagedDialog} from '/src/renderer/src/components/DatabaseDamage
 import {ArkPanel} from '/src/renderer/src/im-template/template/arkPanel';
 import {ConfirmDialog} from '/src/renderer/src/im-template/template/chatPane';
 import {Modal} from '/src/renderer/src/components/Dialog';
+import {ForwardWindowHost} from '/src/renderer/src/components/ForwardWindow';
+import {openForwardWindow} from '/src/renderer/src/state/forwardWindow';
 import {OverlayLayer} from '/src/renderer/src/components/OverlayLayer';
 import {GroupFeatureSurface} from '/src/renderer/src/components/GroupFeatureSurface';
 import {CommonRelationships} from '/src/renderer/src/components/qq-actions/CommonRelationships';
@@ -70,6 +72,9 @@ import '/src/renderer/src/im-template/styles.css';
 import logo from '@resources/brand/logo.png';
 useViewState.setState({openedUin: '10001'});
 function unexpected() { throw Error('Esc 不应发送、发表或删除'); }
+const forwardActions = {
+  binding: null, sendAvailable: false, forward: unexpected, merge: unexpected, addMaterial: unexpected,
+};
 function NestedFixture({kind, onClose}) {
   const [child, setChild] = useState(true);
   const content = <>
@@ -86,10 +91,20 @@ function Fixture() {
   const [kind, setKind] = useState('');
   const [ocr, setOcr] = useState(true);
   const close = () => setKind('');
-  window.escapeQa = {show: (next) => {setOcr(true); setKind(next);}};
+  window.escapeQa = {show: (next) => {
+    setOcr(true);
+    setKind(next);
+    if (next === 'forward') {
+      openForwardWindow({
+        title: '合成聊天记录', kind: 'c2c', conv: '', msgId: 'fixture',
+        records: [{msgId: '1', sendNick: '合成用户', elements: [{type: 'text', data: {textContent: '合成正文'}}]}],
+      });
+    }
+  }};
   return <main style={{padding: 24}}>
     <button id="trigger">打开合成弹窗</button>
     <button id="background">背景控件</button>
+    {kind === 'forward' && <ForwardWindowHost actions={forwardActions} />}
     {kind.startsWith('nested-') && <NestedFixture kind={kind.slice(7)} onClose={close} />}
     {kind === 'common' && <OverlayLayer presentation="popover" onClose={close}>
       <section role="dialog" aria-label="联系人资料"><CommonRelationships uin="10002" /></section>
@@ -223,6 +238,17 @@ try {
   await page.locator('#trigger').waitFor({ timeout: 10000 });
   if (output) await mkdir(output, { recursive: true });
   let cases = 0;
+  await page.evaluate(() => window.escapeQa.show('forward'));
+  const forward = page.getByRole('dialog', { name: '合成聊天记录' });
+  await forward.getByText('合成正文', { exact: true }).waitFor();
+  await page.locator('#background').click();
+  await page.keyboard.press('Escape');
+  assert.equal(await forward.count(), 1);
+  // 点击可开始框选的正文空白区，覆盖会阻止浏览器默认聚焦的指针路径。
+  await forward.locator('.weq-forward-body').click({ position: { x: 25, y: 200 } });
+  await page.keyboard.press('Escape');
+  await forward.waitFor({ state: 'detached' });
+  cases++;
   for (const width of [1180, 390])
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width, height: 850 });

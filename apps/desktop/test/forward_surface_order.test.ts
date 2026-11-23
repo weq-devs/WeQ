@@ -76,7 +76,7 @@ it('复用转发宿主仍提升到新父窗上方，聚焦父记录不遮住子�
     expect(Number(forwardLayer().style.zIndex)).toBeGreaterThan(Number(toolLayer.style.zIndex));
     const parent = document.querySelector<HTMLElement>('[aria-label="父记录"]')!;
     const child = document.querySelector<HTMLElement>('[aria-label="子记录"]')!;
-    act(() => parent.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+    act(() => parent.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
     expect(Number(child.style.zIndex)).toBeGreaterThan(Number(parent.style.zIndex));
     expect(child.style.left).toBe('8px');
     expect(child.style.top).toBe('172px');
