@@ -1,6 +1,7 @@
 import { createContext, type ReactNode } from 'react';
 import type { User, GroupConversation } from '../im-template/template/types';
 import type { ProfilePerson } from '../hooks/useContactCard';
+import type { ProfileShortcut } from './profileClick';
 
 export type ProfileChatTarget =
   | { kind: 'direct'; user: User }
@@ -9,8 +10,9 @@ export const ChatNavigationContext = createContext<((target: ProfileChatTarget) 
   null,
 );
 
+export type ProfileShortcutTarget = ProfileChatTarget & { pokeGroupCode?: string };
 export const ProfileChatShortcutContext = createContext<
-  ((target: ProfileChatTarget) => (() => void) | undefined) | null
+  ((target: ProfileShortcutTarget) => ProfileShortcut | undefined) | null
 >(null);
 
 export const ProfilePreviewSourceContext = createContext<'member' | 'contact'>('member');

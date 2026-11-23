@@ -19,6 +19,7 @@
 import type { ReactElement, ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import { memo, useMemo } from 'react';
 import { recordMessageCounter } from '../../lib/messagePerformance';
+import type { ProfileShortcut } from '../../lib/profileClick';
 import { MessageSelectionMark } from '../../components/MessageSelectionMark';
 import type { Conversation, Message, MessageAction, User } from './types';
 import { MessageBubble } from './messageBubble';
@@ -183,7 +184,7 @@ export const MessageRow = memo(function MessageRow({
   onDismissUnsent?: (message: Message) => void;
   onStartOutgoing?: (message: Message) => void;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
-  getAvatarChatShortcut?: (sender: User) => (() => void) | undefined;
+  getAvatarChatShortcut?: (sender: User) => ProfileShortcut | undefined;
   onAvatarContextMenu?: (event: ReactMouseEvent, sender: User) => void;
   selectionMode?: boolean;
   selected?: boolean;

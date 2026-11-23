@@ -368,7 +368,7 @@ function MentionNode({ data = {} }: { data?: Record<string, unknown> }) {
         anchor,
         kind === 'group' && /^[1-9]\d*$/.test(conv) ? { code: conv, name: '' } : undefined,
       );
-    activateProfile(event, show, chatShortcut?.({ kind: 'direct', user }), user.identityValue);
+    activateProfile(event, show, chatShortcut?.({ kind: 'direct', user }));
   }
 
   return (

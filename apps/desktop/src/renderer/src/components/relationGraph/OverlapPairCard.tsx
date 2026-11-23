@@ -131,7 +131,8 @@ export function OverlapPairCard({
                   uin: node.uin,
                   name: displayName(node),
                 });
-                const openChat = user && chatShortcut?.({ kind: 'direct', user });
+                const shortcut =
+                  user && chatShortcut?.({ kind: 'direct', user, pokeGroupCode: selection.a });
                 activateProfile(
                   event,
                   () =>
@@ -140,13 +141,15 @@ export function OverlapPairCard({
                       { x: rect.left + rect.width / 2, y: rect.bottom },
                       { code: selection.a, name: nameA },
                     ),
-                  openChat
-                    ? () => {
+                  {
+                    landscape:
+                      shortcut?.landscape &&
+                      (() => {
                         onClose();
-                        openChat();
-                      }
-                    : undefined,
-                  node.uid,
+                        shortcut.landscape?.();
+                      }),
+                    portrait: shortcut?.portrait,
+                  },
                 );
               }}
             >

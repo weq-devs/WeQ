@@ -44,7 +44,6 @@ export function GroupProfileIdentity({
             event,
             () => setAnchor(anchor),
             chatShortcut?.({ kind: 'group', conversation }),
-            code,
           );
         }}
       >

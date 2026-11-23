@@ -374,7 +374,15 @@ export function RelationGraphView({
                         }),
                       })
                     : undefined;
-              activateProfile(event, show, openChat, node?.id);
+              activateProfile(event, show, {
+                landscape:
+                  openChat?.landscape &&
+                  (() => {
+                    setGroupCardId(null);
+                    openChat.landscape?.();
+                  }),
+                portrait: openChat?.portrait,
+              });
             }}
           />
         ) : null}

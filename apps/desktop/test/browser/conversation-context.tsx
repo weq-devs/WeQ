@@ -78,6 +78,7 @@ function Fixture() {
           onVirtual: () => {},
           onCreate: () => {},
           onOpenProfile: (target) => setProfile(target.id),
+          onCloseProfile: () => setProfile(''),
           onPin: (_, value) => setPinned(value),
           onRoaming: () => {},
           onReadState: (targets) => setMarked(targets.map((target) => target.id)),

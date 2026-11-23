@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
-import { activateProfile } from '../../lib/profileClick';
+import { activateProfile, type ProfileShortcut } from '../../lib/profileClick';
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import {
@@ -55,7 +55,7 @@ export type GroupSidebarFeature = 'announcements' | 'todos' | 'sign' | 'essence'
 type GroupMember = GroupConversationView['members'][number];
 type GroupMemberEvents = {
   open?: (member: GroupMember, anchor: { x: number; y: number }) => void;
-  openChat?: (member: GroupMember) => (() => void) | undefined;
+  openChat?: (member: GroupMember) => ProfileShortcut | undefined;
   menu?: (event: ReactMouseEvent, member: GroupMember) => void;
 };
 
@@ -89,7 +89,6 @@ const GroupMemberRow = memo(function GroupMemberRow({
                 events.openChat
                   ? events.openChat(member)
                   : chatShortcut?.({ kind: 'direct', user: member }),
-                member.id,
               );
             }
           : undefined

@@ -5929,15 +5929,16 @@ export const accountRouter = router({
    */
   sendPoke: procedure
     .input(
-      z.object({
+      resourceSourceInput.extend({
         peerType: z.enum(['c2c', 'group']),
         targetId: z.string().min(1),
         targetUin: z.string().min(1).optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      requireQqOnlineForAlbum();
-      await requireServices().interaction.sendPoke({
+      const services = requireResourceSource(input);
+      requireQqOnlineForAlbum(services);
+      await services.interaction.sendPoke({
         peerType: input.peerType,
         targetId: input.targetId,
         ...(input.targetUin ? { targetUin: input.targetUin } : {}),

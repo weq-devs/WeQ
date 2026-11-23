@@ -538,8 +538,7 @@ function memberOpener(
           },
           { x: rect.right - 24, y: rect.bottom },
         ),
-      user ? chatShortcut?.({ kind: 'direct', user }) : undefined,
-      source.uid,
+      user ? chatShortcut?.({ kind: 'direct', user, pokeGroupCode: group?.code }) : undefined,
     );
   };
 }

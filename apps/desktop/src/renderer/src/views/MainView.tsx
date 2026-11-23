@@ -504,6 +504,7 @@ import {
   GroupSpeechPreviewContext,
   ProfileChatShortcutContext,
   type ProfileChatTarget,
+  type ProfileShortcutTarget,
 } from '../lib/chatNavigation';
 import { readProfilePreviewPage, type ProfilePreviewCursor } from '../lib/profileMessagePreview';
 import { RetainedTabs } from '../components/RetainedTabs';
@@ -1879,9 +1880,7 @@ function MainWorkspace(): ReactElement {
   function openConversationProfile(conversation: ConcreteConversation, anchor: HTMLElement) {
     // 菜单点击后卸载；保留点击当时的位置，让名片仍在该处打开。
     const rect = anchor.getBoundingClientRect();
-    setMemberCard(null);
-    setNumberGroupCard(null);
-    setConversationIdentity(null);
+    closeConversationProfile();
     if (conversation.type === 'group') {
       setNumberGroupCard({
         accountUin: openedUin,
@@ -1901,6 +1900,12 @@ function MainWorkspace(): ReactElement {
         groupContext: null,
       });
     }
+  }
+
+  function closeConversationProfile() {
+    setMemberCard(null);
+    setNumberGroupCard(null);
+    setConversationIdentity(null);
   }
 
   const [editorState, setEditorState] = useState<{
@@ -11489,7 +11494,31 @@ function MainWorkspace(): ReactElement {
       }),
     );
   });
-  const profileChatShortcut = useStableCallback((target: ProfileChatTarget) => {
+  const pokeProfile = useStableCallback(
+    (binding: QQWriteBinding, targetId: string, groupCode?: string) => {
+      if (
+        !sendAvailable ||
+        useViewState.getState().openedUin !== binding.expectedAccountUin ||
+        pinSession.binding?.expectedAccountConfigId !== binding.expectedAccountConfigId
+      )
+        return;
+      void client.account.sendPoke
+        .mutate(
+          groupCode
+            ? { ...binding, peerType: 'group', targetId: groupCode, targetUin: targetId }
+            : { ...binding, peerType: 'c2c', targetId },
+        )
+        .catch((error: unknown) =>
+          pushToast({
+            tone: 'error',
+            title: '戳一戳失败',
+            detail: error instanceof Error ? error.message : String(error),
+            source: notificationOrigin,
+          }),
+        );
+    },
+  );
+  const profileChatShortcut = useStableCallback((target: ProfileShortcutTarget) => {
     if (target.kind === 'direct') {
       const peer = target.user;
       if (
@@ -11514,7 +11543,7 @@ function MainWorkspace(): ReactElement {
       )
         return;
     }
-    return () =>
+    const landscape = () =>
       settingsNavigation.navigate(() => {
         if (useViewState.getState().openedUin !== openedUin) return;
         if (searchPanelOpen) {
@@ -11523,10 +11552,17 @@ function MainWorkspace(): ReactElement {
           setSearchFocused(false);
         }
         if (privatePreview) closePrivatePreview();
-        setMemberCard(null);
-        setNumberGroupCard(null);
+        closeConversationProfile();
         navigateProfileChat(target);
       });
+    const binding = pinSession.binding;
+    if (target.kind !== 'direct' || !sendAvailable || !binding) return { landscape };
+    const { user: peer, pokeGroupCode } = target;
+    const peerId =
+      peer.identityLabel === 'QQ' && /^[1-9]\d{4,19}$/.test(peer.identityValue)
+        ? peer.identityValue
+        : peer.id;
+    return { landscape, portrait: () => pokeProfile(binding, peerId, pokeGroupCode) };
   });
   const workspace = notificationContent(
     notificationOrigin,
@@ -11692,6 +11728,7 @@ function MainWorkspace(): ReactElement {
                             onListInteraction: unreadConversationCycle.reset,
                             onAnalyze: handleAnalyzeConversation,
                             onOpenProfile: openConversationProfile,
+                            onCloseProfile: closeConversationProfile,
                             onPreview: previewMenuConversation,
                             onMuteGenerated: (conversation, muted) => {
                               if (

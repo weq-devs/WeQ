@@ -449,7 +449,6 @@ function NoticeGroupName({
             kind: 'group',
             conversation: sharedGroupConversation({ code, name, avatar: '' }),
           }),
-          code,
         );
       }}
     >
@@ -497,7 +496,6 @@ function NoticeAvatar({
           event,
           () => onOpenProfile(user, anchor, group),
           chatShortcut?.({ kind: 'direct', user }),
-          user.identityValue,
         );
       }}
     >

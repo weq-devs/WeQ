@@ -74,7 +74,6 @@ export function SourceGroup({
               event,
               () => setAnchor(anchor),
               chatShortcut?.({ kind: 'group', conversation }),
-              code,
             );
           }}
         >

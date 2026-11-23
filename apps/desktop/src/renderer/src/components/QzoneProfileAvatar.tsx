@@ -77,7 +77,6 @@ export function QzonePersonButton({
             event,
             () => openProfile?.(uin, nick || uin, anchor),
             user && chatShortcut ? chatShortcut({ kind: 'direct', user }) : undefined,
-            uin,
           );
         } else openSpace?.(uin, nick || nickname);
       }}

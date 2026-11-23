@@ -70,6 +70,7 @@ export const ConversationDirectoryContext = createContext<{
   onCreateGroup?: () => void;
   onAnalyze?: (conversation: Conversation) => void;
   onOpenProfile?: (conversation: ConcreteConversation, anchor: HTMLElement) => void;
+  onCloseProfile?: () => void;
   onPreview?: (conversation: ConcreteConversation) => void;
   onPin?: (conversation: Conversation, pinned: boolean) => void;
   onMuteGenerated?: (conversation: Conversation, muted: boolean) => void;

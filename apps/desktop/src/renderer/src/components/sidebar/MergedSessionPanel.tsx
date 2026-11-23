@@ -876,6 +876,7 @@ export function MergedSessionPanel({
                 menuGroup && directory?.onOpenProfile
                   ? () => {
                       setActionMenu(null);
+                      directory.onCloseProfile?.();
                       onSelectConversation(menuGroup);
                     }
                   : undefined

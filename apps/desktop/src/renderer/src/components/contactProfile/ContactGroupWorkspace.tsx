@@ -184,11 +184,18 @@ function GroupWorkspace({
                             avatar: avatarFromGroupCode(code) ?? '',
                           });
                     const anchor = event.currentTarget;
+                    const openChat = chatShortcut?.({ kind: 'group', conversation })?.landscape;
                     activateProfile(
                       event,
                       () => setGroupCard({ conversation, anchor, known: known?.type === 'group' }),
-                      chatShortcut?.({ kind: 'group', conversation }),
-                      code,
+                      {
+                        landscape:
+                          openChat &&
+                          (() => {
+                            setGroupCard(null);
+                            openChat();
+                          }),
+                      },
                     );
                   }}
                 >

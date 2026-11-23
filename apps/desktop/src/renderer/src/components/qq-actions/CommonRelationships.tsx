@@ -150,18 +150,17 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
                         name: group.name || code,
                         avatar: avatarFromGroupCode(code) ?? '',
                       }),
-                    });
-                    activateProfile(
-                      event,
-                      () => setSelectedCode(code),
-                      open &&
+                    })?.landscape;
+                    activateProfile(event, () => setSelectedCode(code), {
+                      landscape:
+                        open &&
                         (() => {
+                          setSelectedCode(null);
                           setOpen(false);
                           onNavigate?.();
                           open();
                         }),
-                      code,
-                    );
+                    });
                   }}
                 >
                   <GroupAvatar code={group.groupCode} size={40} />

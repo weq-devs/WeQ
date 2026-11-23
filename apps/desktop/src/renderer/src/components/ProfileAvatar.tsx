@@ -46,8 +46,7 @@ export function ProfileAvatar({
         activateProfile(
           event,
           () => open(user, anchor, target?.group),
-          chatShortcut?.({ kind: 'direct', user }),
-          user.identityValue,
+          chatShortcut?.({ kind: 'direct', user, pokeGroupCode: target?.group?.code }),
         );
       }}
     >

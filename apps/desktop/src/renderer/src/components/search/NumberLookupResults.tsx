@@ -74,12 +74,7 @@ export function NumberLookupResults({
                         : user
                           ? chatShortcut?.({ kind: 'direct', user })
                           : undefined;
-                    activateProfile(
-                      event,
-                      () => onOpenProfile(profile, anchor),
-                      openChat,
-                      profile.id,
-                    );
+                    activateProfile(event, () => onOpenProfile(profile, anchor), openChat);
                   }}
                 >
                   <SearchAvatar

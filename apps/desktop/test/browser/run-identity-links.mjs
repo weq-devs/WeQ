@@ -59,7 +59,7 @@ try {
           document.documentElement.dataset.theme = theme;
         }, theme);
         const author = page.locator('.weq-qzn-post-head .weq-qzn-identity-link');
-        for (const selector of ['.weq-avatar-img, .weq-avatar-fallback', 'span:last-child']) {
+        for (const selector of ['.weq-avatar-img, .weq-avatar-fallback', '.weq-qzn-name']) {
           await author.locator(selector).click();
           assert.equal(
             await page.evaluate(() => document.documentElement.dataset.identityTarget),
@@ -157,28 +157,57 @@ try {
     }
   }
   const shortcutUrl = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/identity-links.html?action=profile&shortcut`;
+  for (const [width, height, action] of [
+    [1180, 850, 'chat'],
+    [390, 850, 'poke'],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.goto(shortcutUrl);
+    const author = page.getByRole('button', { name: '查看 合成作者 的资料' });
+    await author.waitFor();
+    const box = await author.boundingBox();
+    const point = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+    await page.mouse.click(point.x, point.y);
+    assert.deepEqual(
+      await page.evaluate(
+        ({ x, y }) => ({
+          activations: document.documentElement.dataset.identityActivations,
+          hit: document.elementFromPoint(x, y)?.textContent?.trim(),
+        }),
+        point,
+      ),
+      { activations: '|profile:10002', hit: '名片按钮' },
+    );
+    await page.mouse.click(point.x, point.y);
+    assert.equal(
+      await page.locator('html').getAttribute('data-identity-activations'),
+      `|profile:10002|${action}:10002`,
+    );
+    assert.equal(
+      await page.getByRole('button', { name: '名片按钮' }).count(),
+      action === 'poke' ? 1 : 0,
+    );
+    cases++;
+  }
+
   await page.goto(shortcutUrl);
   const author = page.getByRole('button', { name: '查看 合成作者 的资料' });
-  await author.dblclick();
-  await page.waitForTimeout(350);
-  assert.equal(await page.locator('html').getAttribute('data-identity-activations'), '|chat:10002');
   await author.click();
-  await page.waitForFunction(
-    () => document.documentElement.dataset.identityTarget === 'profile:10002',
-  );
-  await author.click();
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(350);
+  const cover = page.getByRole('button', { name: '名片按钮' });
+  await cover.click();
   assert.equal(
     await page.locator('html').getAttribute('data-identity-activations'),
-    '|chat:10002|profile:10002',
+    '|profile:10002|card:10002',
   );
+  await page.keyboard.press('Escape');
   await author.focus();
   await page.keyboard.press('Enter');
   assert.equal(
     await page.locator('html').getAttribute('data-identity-activations'),
-    '|chat:10002|profile:10002|profile:10002',
+    '|profile:10002|card:10002|profile:10002',
   );
+  cases += 2;
+
   const touch = await browser.newPage({ hasTouch: true, isMobile: true });
   await touch.route('**/*', (route) =>
     new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
@@ -190,7 +219,7 @@ try {
     '|profile:10002',
   );
   await touch.close();
-  cases += 5;
+  cases++;
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ cases, errors }));
 } finally {

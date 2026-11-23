@@ -269,6 +269,7 @@ export function ConversationList({
   loadingMore?: boolean;
 }) {
   const directory = useContext(ConversationDirectoryContext);
+  const profileShortcut = useContext(ProfileChatShortcutContext);
   const markers = useUnreadMarkers();
   const directoryRef = useRef<HTMLDivElement>(null);
   const mobile = useMobileWebLayout();
@@ -1139,8 +1140,17 @@ export function ConversationList({
                 singleMenuConversation && directory?.onOpenProfile
                   ? (event) => {
                       setActionMenu(null);
+                      directory.onCloseProfile?.();
                       selectConversation(singleMenuConversation.id, event);
                     }
+                  : undefined
+              }
+              onPoke={
+                singleMenuConversation?.type === 'direct' &&
+                conversationSupportsAction(singleMenuConversation, 'roaming') &&
+                !preferences[singleMenuConversation.id]?.blocked
+                  ? profileShortcut?.({ kind: 'direct', user: singleMenuConversation.otherUser })
+                      ?.portrait
                   : undefined
               }
               containedCount={
@@ -1775,7 +1785,6 @@ function GroupNotificationSection({
                     event,
                     () => onSelect(conversation.id),
                     chatShortcut?.({ kind: 'group', conversation }),
-                    conversation.id,
                   );
                 }}
               >
@@ -2331,7 +2340,6 @@ const ContactListContent = memo(function ContactListContent({
         event,
         () => onSelect(contact),
         chatShortcut?.({ kind: 'direct', user: contact }),
-        contact.id,
       );
     },
     dragStart: (contact, event) => {

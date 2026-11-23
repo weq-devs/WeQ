@@ -16,6 +16,7 @@ export function ConversationMenuTarget({
   containedCount,
   onOpenProfile,
   onOpenChat,
+  onPoke,
 }: {
   name: string;
   avatarUrl?: string | null;
@@ -26,15 +27,14 @@ export function ConversationMenuTarget({
   containedCount?: number;
   onOpenProfile?: (anchor: HTMLElement) => void;
   onOpenChat?: (event: MouseEvent) => void;
+  onPoke?: () => void;
 }) {
   function activate(event: MouseEvent<HTMLButtonElement>) {
     const anchor = event.currentTarget;
-    activateProfile(
-      event,
-      () => onOpenProfile?.(anchor),
-      onOpenChat ? () => onOpenChat(event) : undefined,
-      identity,
-    );
+    activateProfile(event, () => onOpenProfile?.(anchor), {
+      landscape: onOpenChat ? () => onOpenChat(event) : undefined,
+      portrait: onPoke,
+    });
   }
   const numberLabel = kind === 'group' ? '群号' : /^\d+$/.test(identity) ? 'QQ 号' : 'ID';
   const avatar = avatarUrl ? (

@@ -262,7 +262,6 @@ export function GroupMemberPreview({
                 event,
                 () => onOpen(member, { x: rect.right, y: rect.bottom }),
                 chatShortcut?.({ kind: 'direct', user: member }),
-                member.id,
               );
             }}
           >

@@ -14,34 +14,37 @@ function Fixture() {
     null,
   );
   return (
-    <div style={{ height: '100dvh', display: 'flex' }}>
-      <RelationGraphView onOpenMember={(node, anchor) => setMember({ node, anchor })} />
-      {member && (
-        <MemberProfileCard
-          member={{
-            id: member.node.uid,
-            identityLabel: 'QQ',
-            identityValue: member.node.uin,
-            username: member.node.nick,
-            displayName: member.node.nick,
-            avatarUrl: null,
-          }}
-          anchor={member.anchor}
-          onClose={() => setMember(null)}
-        />
-      )}
-    </div>
+    <ProfileChatShortcutContext.Provider
+      value={(target) => ({
+        landscape: () => {
+          setMember(null);
+          document.documentElement.dataset.openedProfileChat =
+            target.kind === 'direct' ? target.user.id : target.conversation.id;
+        },
+      })}
+    >
+      <div style={{ height: '100dvh', display: 'flex' }}>
+        <RelationGraphView onOpenMember={(node, anchor) => setMember({ node, anchor })} />
+        {member && (
+          <MemberProfileCard
+            member={{
+              id: member.node.uid,
+              identityLabel: 'QQ',
+              identityValue: member.node.uin,
+              username: member.node.nick,
+              displayName: member.node.nick,
+              avatarUrl: null,
+            }}
+            anchor={member.anchor}
+            onClose={() => setMember(null)}
+          />
+        )}
+      </div>
+    </ProfileChatShortcutContext.Provider>
   );
 }
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={new QueryClient()}>
-    <ProfileChatShortcutContext.Provider
-      value={(target) => () => {
-        document.documentElement.dataset.openedProfileChat =
-          target.kind === 'direct' ? target.user.id : target.conversation.id;
-      }}
-    >
-      <Fixture />
-    </ProfileChatShortcutContext.Provider>
+    <Fixture />
   </QueryClientProvider>,
 );

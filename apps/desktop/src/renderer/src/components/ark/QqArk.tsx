@@ -1,5 +1,5 @@
 import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
-import { activateProfile } from '../../lib/profileClick';
+import { activateProfile, type ProfileShortcut } from '../../lib/profileClick';
 /**
  * ARK 卡片渲染器（QQ 结构化卡片）。
  *
@@ -103,7 +103,7 @@ function ArkShell({
   activation?: {
     label: string;
     open: () => void;
-    getChatShortcut?: () => (() => void) | undefined;
+    getChatShortcut?: () => ProfileShortcut | undefined;
   };
 }): ReactElement {
   const navigate = useContext(QzoneCardNavigationContext);

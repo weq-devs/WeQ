@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { OverlayLayer } from '../../src/renderer/src/components/OverlayLayer';
 import { createRoot } from 'react-dom/client';
 import { ProfileChatShortcutContext } from '../../src/renderer/src/lib/chatNavigation';
 import { TitleBar } from '../../src/renderer/src/im-template/template/TitleBar';
@@ -34,9 +36,9 @@ const open = (kind: string, uin: string) => {
   dataset.identityTarget = `${kind}:${uin}`;
   dataset.identityActivations = `${dataset.identityActivations ?? ''}|${dataset.identityTarget}`;
 };
-const workspace = (
+const workspace = (showProfile: React.ContextType<typeof QzoneProfileContext>) => (
   <ProfileNavigationContext.Provider value={(user) => open('profile', user.identityValue)}>
-    <QzoneProfileContext.Provider value={(uin) => open('profile', uin)}>
+    <QzoneProfileContext.Provider value={showProfile}>
       <QzonePersonContext.Provider
         value={{
           action: params.get('action') === 'profile' ? 'profile' : 'space',
@@ -101,15 +103,55 @@ const workspace = (
     </QzoneProfileContext.Provider>
   </ProfileNavigationContext.Provider>
 );
-createRoot(document.getElementById('root')!).render(
-  <ProfileChatShortcutContext.Provider
-    value={
-      params.has('shortcut')
-        ? (target) =>
-            target.kind === 'direct' ? () => open('chat', target.user.identityValue) : undefined
-        : null
-    }
-  >
-    {workspace}
-  </ProfileChatShortcutContext.Provider>,
-);
+
+function Fixture() {
+  const [cover, setCover] = useState<{ x: number; y: number } | null>(null);
+  const closeCover = () => setCover(null);
+  const showProfile = (uin: string, _name?: string, anchor?: { x: number; y: number }) => {
+    open('profile', uin);
+    if (params.has('shortcut') && anchor) setCover(anchor);
+  };
+  return (
+    <ProfileChatShortcutContext.Provider
+      value={
+        params.has('shortcut')
+          ? (target) => {
+              if (target.kind !== 'direct') return;
+              return {
+                landscape: () => {
+                  closeCover();
+                  open('chat', target.user.identityValue);
+                },
+                portrait: () => open('poke', target.user.identityValue),
+              };
+            }
+          : null
+      }
+    >
+      {workspace(showProfile)}
+      {cover && (
+        <OverlayLayer presentation="popover" onClose={closeCover}>
+          <div
+            style={{
+              position: 'fixed',
+              left: cover.x - 12,
+              top: cover.y - 12,
+              width: 140,
+              height: 75,
+            }}
+          >
+            <button
+              type="button"
+              style={{ position: 'absolute', inset: 0 }}
+              onClick={() => open('card', '10002')}
+            >
+              名片按钮
+            </button>
+          </div>
+        </OverlayLayer>
+      )}
+    </ProfileChatShortcutContext.Provider>
+  );
+}
+
+createRoot(document.getElementById('root')!).render(<Fixture />);

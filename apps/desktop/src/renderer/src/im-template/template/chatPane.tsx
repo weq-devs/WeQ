@@ -40,6 +40,7 @@ import { MessageSelectionBar } from '../../components/MessageSelectionBar';
 import { useMediaSave } from '../../components/MediaSaveControls.shared';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
+import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
 import { useMobileWebLayout } from '../../hooks/useMobileWebViewport';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
 import {
@@ -1356,10 +1357,41 @@ function ChatPaneContent({
         : (member: User, anchor: { x: number; y: number }) =>
             setCloneMemberProfile({ member, anchor })
       : onOpenGroupMember;
-  const cloneChatShortcut = useStableCallback((member: User) => {
-    if (!restrictedSource || conversation?.type !== 'group' || member.id === user.id) return;
-    const target = clonePrivateTargetFor(member);
-    if (target) return () => directory?.onVirtual(target);
+  const profileShortcut = useContext(ProfileChatShortcutContext);
+  const canPokeAvatar =
+    sendAvailable &&
+    !restrictedSource &&
+    !readOnly &&
+    !preference?.blocked &&
+    !sending &&
+    tabActive;
+  const runAvatarPoke = useStableCallback((scope: object | null, poke: () => void) => {
+    if (canPokeAvatar && scope && actionScopeRef.current === scope) poke();
+  });
+  const getAvatarShortcut = useStableCallback((member: User) => {
+    if (restrictedSource) {
+      if (conversation?.type !== 'group' || member.id === user.id) return;
+      const target = clonePrivateTargetFor(member);
+      if (!target) return;
+      return {
+        landscape: () => {
+          setCloneMemberProfile(null);
+          directory?.onVirtual(target);
+        },
+      };
+    }
+    const shortcut = profileShortcut?.({
+      kind: 'direct',
+      user: member,
+      pokeGroupCode: conversation?.type === 'group' ? conversation.group.identityValue : undefined,
+    });
+    const portrait = shortcut?.portrait;
+    if (!canPokeAvatar || !portrait) return { landscape: shortcut?.landscape };
+    const scope = actionScopeRef.current;
+    return {
+      landscape: shortcut?.landscape,
+      portrait: () => runAvatarPoke(scope, portrait),
+    };
   });
   const [mobileComposerEditorHeight, setMobileComposerEditorHeight] = useState(42);
   const [mobileComposerLong, setMobileComposerLong] = useState(false);
@@ -6579,7 +6611,7 @@ function ChatPaneContent({
                               ? rowAvatar
                               : undefined
                           }
-                          getAvatarChatShortcut={restrictedSource ? cloneChatShortcut : undefined}
+                          getAvatarChatShortcut={getAvatarShortcut}
                           onAvatarContextMenu={!selectionMode ? rowAvatarMenu : undefined}
                         />
                       </Fragment>,
@@ -6834,7 +6866,7 @@ function ChatPaneContent({
               onOpenFiles={onOpenGroupFiles ? () => onOpenGroupFiles(conversation) : undefined}
               onClose={mobileGroupInfoOpen ? closeMobileGroupInfo : undefined}
               onOpenMember={effectiveOpenGroupMember}
-              getMemberChatShortcut={restrictedSource ? cloneChatShortcut : undefined}
+              getMemberChatShortcut={getAvatarShortcut}
               onMemberContextMenu={!selectionMode ? openAvatarMenu : undefined}
               onLoadMoreMembers={onLoadMoreGroupMembers}
               onAddMember={onAddGroupMember}

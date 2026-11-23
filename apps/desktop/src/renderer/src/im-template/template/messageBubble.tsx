@@ -1,5 +1,5 @@
 import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
-import { activateProfile } from '../../lib/profileClick';
+import { activateProfile, type ProfileShortcut } from '../../lib/profileClick';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { IS_WEB } from '../../lib/target.shared';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
@@ -292,7 +292,7 @@ function MessageBubbleBody({
   onDismissUnsent?: (message: Message) => void;
   onStartOutgoing?: (message: Message) => void;
   onAvatarClick?: (sender: User, anchor: { x: number; y: number }) => void;
-  getAvatarChatShortcut?: (sender: User) => (() => void) | undefined;
+  getAvatarChatShortcut?: (sender: User) => ProfileShortcut | undefined;
   /** 右键头像：弹出「@他 / 戳一戳」轻互动菜单。 */
   onAvatarContextMenu?: (event: ReactMouseEvent, sender: User) => void;
   /** 多选：这一行被选中（整行高亮 + 勾选标）。 */
@@ -655,7 +655,6 @@ function MessageBubbleBody({
         : !mine && !conversation.generated
           ? chatShortcut?.({ kind: 'direct', user: sender })
           : undefined,
-      sender.id || sender.identityValue,
     );
   }
 

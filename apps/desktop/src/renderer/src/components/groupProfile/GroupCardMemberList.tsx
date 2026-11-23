@@ -214,18 +214,25 @@ export function GroupCardMemberList({
               disabled={!onOpenMember}
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
-                const openChat = !generated
-                  ? chatShortcut?.({ kind: 'direct', user: member })
+                const shortcut = !generated
+                  ? chatShortcut?.({
+                      kind: 'direct',
+                      user: member,
+                      pokeGroupCode: conversation.group.identityValue,
+                    })
                   : undefined;
                 activateProfile(
                   event,
                   () => onOpenMember?.(member, { x: rect.right, y: rect.bottom }),
-                  openChat &&
-                    (() => {
-                      onClose();
-                      openChat();
-                    }),
-                  member.id,
+                  {
+                    landscape:
+                      shortcut?.landscape &&
+                      (() => {
+                        onClose();
+                        shortcut.landscape?.();
+                      }),
+                    portrait: shortcut?.portrait,
+                  },
                 );
               }}
             >

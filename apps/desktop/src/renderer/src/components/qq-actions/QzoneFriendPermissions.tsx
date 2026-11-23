@@ -44,7 +44,6 @@ function PermissionProfile({ uin, name }: { uin: string; name: string }) {
           event,
           () => navigate(user, anchor),
           chatShortcut?.({ kind: 'direct', user }),
-          uin,
         );
       }}
     >
