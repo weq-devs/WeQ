@@ -60,6 +60,7 @@ describe('新消息按钮已读行为', () => {
             groupConsecutiveMessages: true,
             readThroughViewport: true,
             confirmedReadSeq,
+            unreadDividerRange: { firstSeq: '101', lastSeq: '106' },
           }),
         ),
       );
@@ -224,11 +225,11 @@ describe('新消息按钮已读行为', () => {
         act(() => {
           height = 1400;
           if (mode === 'bottom') move(850);
-          observer.fire();
           if (mode === 'interrupted') {
-            // 手势先到、滚动事件尚未到时也必须取消已排队的补偿。
+            // 手势先于尺寸通知到达时，无需等待 scroll 事件即可停止跟随。
             scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -100 }));
           }
+          observer.fire();
           for (const callback of frames.splice(0)) callback(0);
         });
         expect(scroll.scrollTop).toBe(mode === 'bottom' ? 1400 : beforeGrowth);
@@ -255,19 +256,17 @@ describe('新消息按钮已读行为', () => {
     document.body.append(host);
     const root = createRoot(host);
     const props = { user: demo.user, conversation, draft: '' };
-    const render = (messages: (typeof first)[], atLatest: boolean, loadingNewer: boolean) =>
-      act(() =>
-        root.render(createElement(ChatPane, { ...props, messages, atLatest, loadingNewer })),
-      );
+    const render = (messages: (typeof first)[], atLatest: boolean, loading: boolean) =>
+      act(() => root.render(createElement(ChatPane, { ...props, messages, atLatest, loading })));
     try {
-      render([first], initialAtLatest, false);
+      render([], initialAtLatest, true);
       const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
       Object.defineProperties(scroll, {
         scrollHeight: { configurable: true, value: 1200 },
         clientHeight: { configurable: true, value: 400 },
       });
+      render([first], initialAtLatest, true);
       if (!initialAtLatest) scroll.scrollTop = 800;
-      render([first], false, true);
       render([{ ...first, id: 'latest' }], true, false);
       expect(scroll.scrollTop).toBe(initialAtLatest ? 1200 : 800);
       expect(host.querySelector('.new-message-pill')).toBeNull();
@@ -359,7 +358,7 @@ describe('新消息按钮已读行为', () => {
         });
         // 尾部不变的补全也必须遵守开关。
         render([{ ...first }]);
-        expect(scroll.scrollTop).toBe(enabled === false ? 800 : 1200);
+        expect(scroll.scrollTop).toBe(800);
         const second = { ...first, id: 'second' };
         render([first, second]);
         expect(scroll.scrollTop).toBe(enabled === false ? 800 : 1200);
@@ -560,7 +559,7 @@ describe('新消息按钮已读行为', () => {
       );
       const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
       expect(scroll.scrollTop).toBe(120);
-      expect(scroll.querySelector('[aria-label="正在加载后续消息"]')).not.toBeNull();
+      expect(host.querySelector('[role="status"][aria-label="正在加载后续消息"]')).not.toBeNull();
       Object.defineProperties(scroll, {
         scrollHeight: { configurable: true, value: 1600 },
         clientHeight: { configurable: true, value: 400 },

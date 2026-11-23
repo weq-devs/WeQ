@@ -173,6 +173,17 @@ const f = vi.hoisted(() => ({
     nick: targetUid,
   })),
 }));
+vi.mock('../src/renderer/src/hooks/useConditionalDirectory', () => {
+  const empty = { data: [], isSuccess: true, isLoading: false, isFetching: false };
+  const refetch = async () => ({ isError: false });
+  return {
+    useConditionalDirectory: (_key: unknown, name: string) => ({
+      ...empty,
+      data: name === 'listAllGroups' ? f.groups : name === 'listProfiles' ? f.profiles : empty.data,
+      refetch,
+    }),
+  };
+});
 vi.mock('../src/renderer/src/trpc/client', () => {
   const refetch = vi.fn(async () => ({ data: undefined }));
   const empty = { data: undefined, isSuccess: false, isLoading: false, isFetching: false, refetch };
@@ -185,6 +196,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path: string[] = []): unknown =>
     new Proxy(() => proxy(path), {
       get: (_target, key) => {
+        if (key === '_def') return () => ({ path });
         if (key === 'useQuery')
           return (_input: unknown, options?: { enabled?: boolean }) => {
             const [head, setHead] = useState(recent);
@@ -340,6 +352,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             return [
               'getUnreadInfos',
               'getGroupMembersByUids',
+              'getGroupMembersByUins',
               'getProfilesByUids',
               'listGroupMembers',
             ].includes(path.at(-1) ?? '')
@@ -1632,8 +1645,10 @@ it.each([false, true])('保留非底部阅读位置并在读到底后清除：�
     });
   const position = (top: number) =>
     act(async () => {
-      scroll().scrollTop = top;
-      scroll().dispatchEvent(new Event('scroll'));
+      const element = scroll();
+      element.getBoundingClientRect();
+      element.scrollTop = top;
+      element.dispatchEvent(new Event('scroll'));
     });
   const bounds = HTMLElement.prototype.getBoundingClientRect;
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (

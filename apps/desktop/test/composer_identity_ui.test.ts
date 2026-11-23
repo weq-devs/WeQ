@@ -128,6 +128,10 @@ function quoteMessage(host: HTMLElement) {
   act(() => document.querySelector<HTMLButtonElement>('[aria-label="引用"]')!.click());
 }
 
+function activeQuote(host: HTMLElement) {
+  return host.querySelector('.composer-quote-slot:not([inert]) .composer-quote');
+}
+
 describe('真实输入区与 +1 操作', () => {
   it.each([
     ['group', true, false, true],
@@ -177,7 +181,7 @@ describe('真实输入区与 +1 操作', () => {
             new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }),
           );
         });
-        expect(f.host.querySelector('.composer-quote')).toBeNull();
+        expect(activeQuote(f.host)).toBeNull();
         quoteMessage(f.host);
         setPreferences({ backspaceRemovesQuote: false });
         act(() => {
@@ -186,7 +190,7 @@ describe('真实输入区与 +1 操作', () => {
             new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }),
           );
         });
-        expect(f.host.querySelector('.composer-quote')).not.toBeNull();
+        expect(activeQuote(f.host)).not.toBeNull();
       } finally {
         f.dispose();
       }
@@ -216,7 +220,7 @@ describe('真实输入区与 +1 操作', () => {
           }),
         );
       });
-      expect(f.host.querySelector('.composer-quote')).not.toBeNull();
+      expect(activeQuote(f.host)).not.toBeNull();
     } finally {
       f.dispose();
     }
@@ -242,14 +246,14 @@ describe('真实输入区与 +1 操作', () => {
         range.deleteContents();
         editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
       });
-      expect(f.host.querySelector('.composer-quote')).not.toBeNull();
+      expect(activeQuote(f.host)).not.toBeNull();
       act(() => {
         focusComposerEnd(editor);
         editor.dispatchEvent(
           new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }),
         );
       });
-      expect(f.host.querySelector('.composer-quote')).toBeNull();
+      expect(activeQuote(f.host)).toBeNull();
     } finally {
       f.dispose();
     }
