@@ -32,6 +32,7 @@ import type { ManualReadChange } from './local_unread';
 import type { UnreadCountSource } from './unread_count_source';
 import { ImportantMessageStore } from './important_messages';
 import type { RecallArchive } from './recall_archive';
+import { sameUnreadSequences, sameUnreadSnapshot } from './unread_snapshot_equal';
 
 export interface UnreadSequenceRange {
   peer: string;
@@ -548,8 +549,8 @@ export class UnreadInfoService {
       if (
         previous?.unreadCount === result.unreadCount &&
         previous?.readSeq === result.readSeq &&
-        JSON.stringify(previous?.recalledSeqs) === JSON.stringify(result.recalledSeqs) &&
-        JSON.stringify(this.snapshots.get(row.peer)) === JSON.stringify(row)
+        sameUnreadSequences(previous?.recalledSeqs, result.recalledSeqs) &&
+        sameUnreadSnapshot(this.snapshots.get(row.peer), row)
       )
         continue;
       this.important.observe(row);
@@ -599,7 +600,7 @@ export class UnreadInfoService {
                 !row.readError &&
                 (this.sequenceRefreshes.has(row.peer) ||
                   this.isDeviceSnapshot(row) ||
-                  JSON.stringify(this.snapshots.get(row.peer)) !== JSON.stringify(row)),
+                  !sameUnreadSnapshot(this.snapshots.get(row.peer), row)),
             ),
             () => revision === this.manualRevision,
             priority,

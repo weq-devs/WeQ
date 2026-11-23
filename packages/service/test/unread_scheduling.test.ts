@@ -120,6 +120,55 @@ it('不同批次和兼容轻量请求共用初始化快照，后续读取不发 
   for (let i = 0; i < 20; i++) expect((await f.query())[0]).toBe(a[0]);
   expect(f.all).toHaveBeenCalledOnce();
 });
+
+it('未读字段等值时保留原结果，同水位仍发布提醒内容变更', async () => {
+  const f = fixture();
+  await f.query();
+  const highlight = {
+    kind: 'atMe' as const,
+    rawKind: 1000,
+    msgSeq: 91,
+    senderUid: 'u_peer',
+    sendTime: 1,
+    text: '旧提醒',
+  };
+  const initial = row({ decreasedSeqs: ['93'], highlights: [highlight] });
+  f.update([initial], false);
+  await f.service.compareQqCounts();
+  const [before] = await f.query();
+  const changed = vi.fn();
+  const stop = f.service.onCountsChanged(changed);
+  try {
+    f.update(
+      [
+        {
+          highlights: [{ ...highlight }],
+          decreasedSeqs: ['93'],
+          latestSeq: '100',
+          msgSeq: 90,
+          peer: initial.peer,
+          ...target,
+          localReadSeq: undefined,
+        },
+      ],
+      false,
+    );
+    await f.service.compareQqCounts();
+    expect(changed).not.toHaveBeenCalled();
+    expect((await f.query())[0]).toBe(before);
+    f.update(
+      [row({ decreasedSeqs: ['93'], highlights: [{ ...highlight, text: '新提醒' }] })],
+      false,
+    );
+    await f.service.compareQqCounts();
+    expect(changed).toHaveBeenCalledOnce();
+    expect(changed).toHaveBeenCalledWith([target]);
+    expect((await f.query())[0]?.highlights?.[0]?.text).toBe('新提醒');
+  } finally {
+    stop();
+  }
+});
+
 it('小表全部命中在自动已读及手动已读清理前归档，列表不增加历史查询', async () => {
   const f = fixture();
   const highlights: NonNullable<UnreadInfoSnapshot['highlights']> = [101, 102].map((msgSeq) => ({
