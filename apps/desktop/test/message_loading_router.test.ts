@@ -7,6 +7,8 @@ import { accountRouter } from '../src/main/ipc/routers/account';
 const fixture = vi.hoisted(() => ({
   profile: vi.fn(),
   latest: vi.fn(),
+  before: vi.fn(),
+  liveRows: vi.fn(),
   media: vi.fn(),
   cached: vi.fn(),
   search: vi.fn(),
@@ -18,9 +20,11 @@ vi.mock('../src/main/context/app_context', () => {
     profile: { listProfiles: (...args: unknown[]) => fixture.profile(...args) },
     msgs: {
       getGroupLatest: (...args: unknown[]) => fixture.latest(...args),
+      getGroupBefore: (...args: unknown[]) => fixture.before(...args),
       getReplyMedia: (...args: unknown[]) => fixture.media(...args),
     },
     gapHistory: { cachedTimeline: (...args: unknown[]) => fixture.cached(...args) },
+    qqClientSync: { liveRows: (...args: unknown[]) => fixture.liveRows(...args) },
     unifiedSearch: { slowSearch: (...args: unknown[]) => fixture.search(...args) },
   };
   const other = { ...services };
@@ -36,6 +40,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   fixture.switched = false;
   fixture.latest.mockResolvedValue([]);
+  fixture.before.mockResolvedValue([]);
+  fixture.liveRows.mockReturnValue([]);
   fixture.cached.mockResolvedValue([]);
 });
 
@@ -57,6 +63,34 @@ const local = () => ({
   deletedKind: 'qq',
 });
 const readWindow = { owner: '22222222-2222-4222-8222-222222222222', generation: 1 };
+
+it('提前通知按序号定位时，即使漫游缓存失败也能读到未落库的代理消息', async () => {
+  fixture.before.mockResolvedValue([local()]);
+  fixture.cached.mockRejectedValueOnce(new Error('synthetic cache failure'));
+  fixture.liveRows.mockReturnValue([
+    {
+      kind: 'group',
+      conv: '777',
+      msgId: '23',
+      msgSeq: '2',
+      msgRandom: '23',
+      senderUid: 'u_peer',
+      senderUin: '20002',
+      sendTime: '2',
+      sourceFormat: 'protocol',
+      elements: [{ type: 'text', data: { textContent: '代理消息' } }],
+    },
+  ]);
+  const rows = await accountRouter.createCaller({}).listBefore({
+    kind: 'group',
+    conv: '777',
+    beforeSeq: '3',
+    limit: 20,
+  });
+  expect(rows.map((row) => row.msgSeq)).toEqual(['2', '1']);
+  expect(rows[0]?.source).toBe('roaming');
+  expect(fixture.liveRows).toHaveBeenCalledWith('group', '777');
+});
 
 it('侧栏搜索换代取消正在运行的读取，迟到的取消不影响新关键词', async () => {
   const api = accountRouter.createCaller({});

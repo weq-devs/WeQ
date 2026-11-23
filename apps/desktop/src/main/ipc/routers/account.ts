@@ -842,14 +842,16 @@ async function withRoamingHistory(
   try {
     const [local, cached] = await Promise.all([
       rows,
-      services.gapHistory.cachedTimeline(
-        kind,
-        conv,
-        Number(min < 1n ? 1n : min),
-        Number(max > 0xffffffffn ? 0xffffffffn : max),
-        limit,
-        descending,
-      ),
+      services.gapHistory
+        .cachedTimeline(
+          kind,
+          conv,
+          Number(min < 1n ? 1n : min),
+          Number(max > 0xffffffffn ? 0xffffffffn : max),
+          limit,
+          descending,
+        )
+        .catch(() => []),
     ]);
     return withMessageBubbles(
       mergeRoamingTimeline<ChatMsgWire>(
@@ -866,7 +868,7 @@ async function withRoamingHistory(
       services.dressInstall,
     );
   } catch {
-    // Cache failure must never prevent reading the original QQ history.
+    // A projection error must never prevent reading the original QQ history.
     return withMessageBubbles(await rows, services.dressInstall);
   }
 }

@@ -57,3 +57,34 @@ it('普通消息复用浏览器通知生命周期与跳转，数量有界且关�
     channel.close();
   }
 });
+
+it('私聊代理提醒和另一通知通道补来的本地 ID 共用一次浏览器通知', () => {
+  const constructed = vi.fn();
+  class TestNotification {
+    static permission = 'granted';
+    constructor() {
+      constructed();
+    }
+    close() {}
+  }
+  vi.stubGlobal('Notification', TestNotification);
+  const first = browserNoticeChannel();
+  const second = browserNoticeChannel();
+  const live: WebNotice = {
+    uin: '10001',
+    configId: 'proxy-fixture',
+    kind: 'message',
+    title: '联系人',
+    body: '正文',
+    noticeIdentity: 'proxy:42:7:u_peer',
+    target: { kind: 'c2c', conv: 'u_peer', seq: '42' },
+  };
+  try {
+    expect(first.show(live)).toBe(true);
+    expect(second.show({ ...live, target: { ...live.target!, msgId: '123456' } })).toBe(true);
+    expect(constructed).toHaveBeenCalledOnce();
+  } finally {
+    first.close();
+    second.close();
+  }
+});

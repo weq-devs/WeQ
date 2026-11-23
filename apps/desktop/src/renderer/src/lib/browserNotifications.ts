@@ -11,11 +11,18 @@ export function browserNoticeChannel() {
     show(notice: WebNotice) {
       if (typeof Notification === 'undefined' || Notification.permission !== 'granted')
         return false;
+      const target = notice.target;
+      const identity =
+        target?.kind === 'group' && (notice.kind === 'message' || notice.kind === 'keyword')
+          ? target.seq
+          : notice.kind === 'message' && target?.kind === 'c2c'
+            ? notice.noticeIdentity
+            : undefined;
       try {
         if (
-          (notice.kind === 'message' || notice.kind === 'keyword') &&
-          notice.target?.kind === 'group' &&
-          !claimMessage(notice.configId, notice.target.kind, notice.target.conv, notice.target.seq)
+          target &&
+          identity &&
+          !claimMessage(notice.configId, target.kind, target.conv, identity)
         )
           return true;
         const item = new Notification(notice.title, {
@@ -41,16 +48,8 @@ export function browserNoticeChannel() {
         }
         return true;
       } catch {
-        if (
-          (notice.kind === 'message' || notice.kind === 'keyword') &&
-          notice.target?.kind === 'group'
-        )
-          claimMessage.release(
-            notice.configId,
-            notice.target.kind,
-            notice.target.conv,
-            notice.target.seq,
-          );
+        if (target && identity)
+          claimMessage.release(notice.configId, target.kind, target.conv, identity);
         return false;
       }
     },

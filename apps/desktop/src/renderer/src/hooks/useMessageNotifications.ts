@@ -314,6 +314,7 @@ export function useMessageNotifications(options: {
             kind: 'message',
             title,
             body,
+            ...(message.noticeIdentity ? { noticeIdentity: message.noticeIdentity } : {}),
             target,
           };
           if (destination === 'banner') {

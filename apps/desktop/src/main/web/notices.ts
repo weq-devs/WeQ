@@ -10,6 +10,7 @@ interface WebNoticeContent {
   title: string;
   body: string;
   banner?: { title: string; body: string };
+  noticeIdentity?: string;
   target?: { kind: 'c2c' | 'group'; conv: string; seq: string; msgId?: string };
   mail?: { folderId: number; id: string };
 }
