@@ -1387,11 +1387,18 @@ export interface NtHelperBinding {
    * `name`: part name - config.json / static.zip / other.zip / aio_50.png /
    *   xydata.js / main / fzfont
    */
-  queryDressResourceUrl(dtype: string, itemId: string, name: string): DressResourceUrl | null;
-  validateDressResourceIndexes?(directory: string): boolean | Promise<boolean>;
-  reloadDressResourceIndexes?(directory: string): boolean | Promise<boolean>;
+  queryDressResourceUrl(
+    dtype: string,
+    itemId: string,
+    name: string,
+    identity?: string,
+  ): DressResourceUrl | null;
+  validateDressResourceIndexes?(directory: string, identity?: string): boolean | Promise<boolean>;
+  reloadDressResourceIndexes?(directory: string, identity?: string): boolean | Promise<boolean>;
   clearDressResourceIndexes?(): void;
   getDressResourceKeyId?(): string;
+  /** NTDR v2 密钥标识，同时表明可按清单源 commit 读取旧 NTDR v1。 */
+  getDressResourceKeyIds?(): string[];
 
   // --- 网卡抓包（capture） ---
   /**

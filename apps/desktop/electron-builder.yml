@@ -90,6 +90,7 @@ extraResources:
       - "!dress/*_resources"
       - "!dress/fetch-state.json"
       - "!emoji/market.csv"
+      - "!emoji/market.csv.gz"
 
   - from: out/main/transcribeWorker.mjs
     to: out/main/transcribeWorker.mjs

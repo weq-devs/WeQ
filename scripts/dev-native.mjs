@@ -89,6 +89,7 @@ export async function nativeSourceFingerprint(
     'CXXFLAGS',
     'CARGO_INCREMENTAL',
     'CARGO_BUILD_INCREMENTAL',
+    'WEQ_DRESS_KEYS',
     ...Object.keys(env).filter((name) => name.startsWith('CARGO_PROFILE_')),
   ].sort())
     hash.update(`${name}=${env[name] ?? ''}\0`);

@@ -271,9 +271,7 @@ export function createEnhancementResources(
           const states = await stagedDress?.inspect();
           if (!states || states.some((state) => state.status !== 'ready'))
             throw new Error('装扮索引未完整准备');
-          if (
-            !(await platform.native.ntHelper.validateDressResourceIndexes?.(stagedDress!.directory))
-          )
+          if (!(await stagedDress?.validate(platform.native.ntHelper)))
             throw new Error('装扮索引无法被当前原生模块读取，请先更新 WeQ');
         },
       },
@@ -719,8 +717,12 @@ export function createEnhancementResources(
     legacyModels,
     currentVersion: () => getHost().appVersion(),
     nativeCommit: () =>
-      platform.native.ntHelper.getDressResourceKeyId?.() ?? bundledDress?.nativeCommit,
-    localDress: () => platform.native.ntHelper.getBuildInfo?.().isDev === true,
+      platform.native.ntHelper.getDressResourceKeyId?.() ??
+      (bundledDress?.format === 'ntdr-v1' ? bundledDress.nativeCommit : undefined),
+    nativeKeys: () => platform.native.ntHelper.getDressResourceKeyIds?.(),
+    localDress: () =>
+      platform.native.ntHelper.getBuildInfo?.().isDev === true &&
+      !platform.native.ntHelper.getDressResourceKeyIds?.().length,
   });
   return { packs, engines, inspected, updates };
 }

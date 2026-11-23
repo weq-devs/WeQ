@@ -9,6 +9,7 @@ import {
   FEED_TAG,
   FEED_ASSET,
   MARKET_EMOJI_FEED_TAG,
+  RESOURCE_FEED_TAG,
   RELEASE_SUMMARY_MAX_CHARS,
   signReleaseIndex,
   verifyReleaseIndex,
@@ -18,12 +19,17 @@ import { extractSection } from './extract-changelog.mjs';
 const require = createRequire(new URL('../packages/network/package.json', import.meta.url));
 const semver = require('semver');
 const metadataAsset = (name) =>
-  /^(?:enhancement-(?:packs-|engines-).+\.json|enhancement-(?:pack|market-emoji)\.json|index-manifest\.json|(?:latest|beta|alpha|rc).*\.yml)$/.test(
+  /^(?:enhancement-(?:packs-|engines-).+\.json|enhancement-(?:pack|dress-v2|market-emoji)\.json|index-manifest\.json|(?:latest|beta|alpha|rc).*\.yml)$/.test(
     name,
   );
 const hash = (text) => createHash('sha256').update(text).digest('hex');
-const isFeedTag = (tag) => tag === FEED_TAG || tag === MARKET_EMOJI_FEED_TAG;
+const isFeedTag = (tag) => [FEED_TAG, MARKET_EMOJI_FEED_TAG, RESOURCE_FEED_TAG].includes(tag);
 const isMarketEmojiTag = (tag) => tag.startsWith('market-emoji-');
+function resourceTrack(tag) {
+  if (/^dress-index-[a-f0-9]{12,64}$/.test(tag)) return 'dress';
+  if (/^market-emoji-[a-f0-9]{12,64}$/.test(tag)) return 'market-emoji';
+  return null;
+}
 
 function releaseSummary(changelog, tag) {
   const firstBullet = /^[-*][ \t]+(.+)$/m.exec(extractSection(changelog, tag))?.[1];
@@ -71,20 +77,23 @@ export async function describeRelease(repository, release, readAsset) {
   };
 }
 export function mergeReleaseIndex(repository, previous, incoming, now = new Date()) {
+  const resourceFeed =
+    previous?.kind === 'resource-release-index' || incoming.some((entry) => entry.track);
   const channels = new Map();
   for (const release of [...(previous?.releases ?? []), ...incoming]) {
-    const old = channels.get(release.prerelease);
+    const channel = resourceFeed ? `${release.track}:${release.prerelease}` : release.prerelease;
+    const old = channels.get(channel);
     if (
       !old ||
       (release.version && old.version
         ? semver.gt(release.version, old.version)
         : Date.parse(release.publishedAt) > Date.parse(old.publishedAt))
     )
-      channels.set(release.prerelease, release);
+      channels.set(channel, release);
   }
   return {
     schemaVersion: 1,
-    kind: 'release-index',
+    kind: resourceFeed ? 'resource-release-index' : 'release-index',
     repository,
     generatedAt: now.toISOString(),
     releases: [...channels.values()],
@@ -94,6 +103,7 @@ export function mergeReleaseIndex(repository, previous, incoming, now = new Date
 export async function publishReleaseFeed({
   repository,
   tag,
+  resourceTags,
   privateKey,
   publicKeys,
   api,
@@ -108,38 +118,62 @@ export async function publishReleaseFeed({
     publicKeys,
   );
   const releases = await api('GET', '/releases?per_page=100');
-  const marketEmoji = repository.endsWith('/dress-resources') && isMarketEmojiTag(tag);
-  const feedTag = marketEmoji ? MARKET_EMOJI_FEED_TAG : FEED_TAG;
+  const publishingResources = resourceTags !== undefined;
+  if (
+    publishingResources &&
+    (repository !== 'weq-devs/dress-resources' ||
+      !resourceTags.length ||
+      resourceTags.some((tag) => !resourceTrack(tag)) ||
+      new Set(resourceTags.map(resourceTrack)).size !== resourceTags.length)
+  )
+    throw new Error('统一发布需要每种资源至多一个有效版本');
+  const marketEmoji =
+    !publishingResources && repository.endsWith('/dress-resources') && isMarketEmojiTag(tag);
+  const feedTag = publishingResources
+    ? RESOURCE_FEED_TAG
+    : marketEmoji
+      ? MARKET_EMOJI_FEED_TAG
+      : FEED_TAG;
   const feed = releases.find((item) => item.tag_name === feedTag);
   let previous;
   const oldAsset = feed?.assets.find((item) => item.name === FEED_ASSET);
   if (oldAsset)
     previous = verifyReleaseIndex(JSON.parse(await readAsset(oldAsset)), repository, publicKeys);
-  const current = releases.find((item) => item.tag_name === tag);
-  if (!current) throw new Error('没有找到本次已发布版本');
-  const candidates = previous
-    ? [current]
-    : releases
-        .filter(
-          (item) =>
-            !item.draft &&
-            item.published_at &&
-            !isFeedTag(item.tag_name) &&
-            (!repository.endsWith('/dress-resources') ||
-              isMarketEmojiTag(item.tag_name) === marketEmoji) &&
-            (!repository.endsWith('/WeQ') || semver.valid(item.tag_name)),
-        )
-        .sort((a, b) =>
-          repository.endsWith('/WeQ')
-            ? semver.rcompare(a.tag_name, b.tag_name)
-            : Date.parse(b.published_at) - Date.parse(a.published_at),
-        );
+  if (previous && (previous.kind === 'resource-release-index') !== publishingResources)
+    throw new Error('现有签名索引类型与发布入口不匹配');
+  const requested = (resourceTags ?? [tag]).map((tag) =>
+    releases.find((release) => release.tag_name === tag),
+  );
+  if (requested.some((release) => !release)) throw new Error('没有找到本次已发布版本');
+  const current = requested[0];
+  const candidates =
+    previous || publishingResources
+      ? requested
+      : releases
+          .filter(
+            (item) =>
+              !item.draft &&
+              item.published_at &&
+              !isFeedTag(item.tag_name) &&
+              (!repository.endsWith('/dress-resources') ||
+                (!item.tag_name.startsWith('dress-index-') &&
+                  isMarketEmojiTag(item.tag_name) === marketEmoji)) &&
+              (!repository.endsWith('/WeQ') || semver.valid(item.tag_name)),
+          )
+          .sort((a, b) =>
+            repository.endsWith('/WeQ')
+              ? semver.rcompare(a.tag_name, b.tag_name)
+              : Date.parse(b.published_at) - Date.parse(a.published_at),
+          );
   const selected = new Map();
-  for (const release of candidates)
-    if (!selected.has(release.prerelease)) selected.set(release.prerelease, release);
+  for (const release of candidates) {
+    const channel = publishingResources ? resourceTrack(release.tag_name) : release.prerelease;
+    if (!selected.has(channel)) selected.set(channel, release);
+  }
   const descriptions = [];
   for (const release of selected.values()) {
     const descriptor = await describeRelease(repository, release, readAsset);
+    if (publishingResources) descriptor.track = resourceTrack(release.tag_name);
     if (repository.endsWith('/WeQ') && release.tag_name === tag && readChangelog) {
       const summary = releaseSummary(await readChangelog(tag), tag);
       if (summary) descriptor.summary = summary;
@@ -154,7 +188,11 @@ export async function publishReleaseFeed({
     (await api('POST', '/releases', {
       tag_name: feedTag,
       target_commitish: current.target_commitish,
-      name: marketEmoji ? 'WeQ market emoji update feed' : 'WeQ update feed',
+      name: publishingResources
+        ? 'WeQ resource update feed'
+        : marketEmoji
+          ? 'WeQ market emoji update feed'
+          : 'WeQ update feed',
       draft: true,
       prerelease: true,
       make_latest: 'false',
@@ -239,6 +277,7 @@ async function main() {
   const result = await publishReleaseFeed({
     repository,
     tag: process.env.TAG,
+    resourceTags: process.env.WEQ_RESOURCE_TAGS?.split(','),
     privateKey,
     publicKeys,
     api,

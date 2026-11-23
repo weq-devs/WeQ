@@ -62,6 +62,7 @@ import {
   fetchClientKey,
   fetchDownloadRkeys,
   fetchWebTokens,
+  getDressIndexStore,
   getHost,
   requireDevelopmentDressTools,
   collectionSearchDocument,
@@ -5285,7 +5286,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_dress_resource_url',
     description:
-      '从【本地离线资源 bundle】（resources/dress/*.dat，QQ 自带的那批装扮资源）查某款装扮某个部件的 CDN 下载 URL。' +
+      '从本地装扮离线索引查某款装扮某个部件的 CDN 下载 URL。' +
       '纯本地查询，不需要在线 QQ。kind: bubble/font/widget；name 部件名如 config.json / static.zip / other.zip / main / fzfont / aio_50.png / xydata.js。' +
       '查不到（bundle 没收录该款）返回 found=false，需要时改走在线换链。',
     input: z.object({
@@ -5295,7 +5296,12 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ kind, itemId, name }) => {
       requireDevelopmentDressTools();
-      const r = ntHelper().queryDressResourceUrl(kind, itemId.trim(), name.trim());
+      const native = ntHelper();
+      const boot = toolContext().bootstrap;
+      const store = boot && getDressIndexStore(boot.userConfig.cacheDir('dress_shared'), native);
+      const r = store
+        ? await store.resolve(native, kind, itemId.trim(), name.trim())
+        : native.queryDressResourceUrl(kind, itemId.trim(), name.trim());
       if (!r) {
         return {
           found: false,

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { ManagedDownload } from '@weq/service/managed-download';
 import type { MarketEmojiAsset } from '../../shared/enhancement_release';
 import { parseMarketCatalog, setMarketCatalogReader } from '../market_catalog';
@@ -17,7 +18,8 @@ export function createMarketEmojiComponent(
   let verified: ReturnType<typeof load> = null;
   let candidate: ReturnType<typeof load> = null;
   let transfer: ManagedDownload | undefined;
-  const file = (version: string) => join(directory, `${version}.csv`);
+  const file = (version: string, compressed = false) =>
+    join(directory, `${version}.csv${compressed ? '.gz' : ''}`);
   const files = () => {
     try {
       return readdirSync(directory, { withFileTypes: true })
@@ -28,16 +30,17 @@ export function createMarketEmojiComponent(
       throw error;
     }
   };
-  function load(version: string | null, path = version ? file(version) : '') {
-    if (!version) return null;
+  function load(version: string, path: string, compressed: boolean) {
     try {
       const info = lstatSync(path);
       if (!info.isFile() || info.size > 16 * 1024 ** 2) return null;
       const data = readFileSync(path);
       if (createHash('sha256').update(data).digest('hex') !== version) return null;
+      const csv = compressed ? gunzipSync(data, { maxOutputLength: 16 * 1024 ** 2 }) : data;
       return {
         version,
-        entries: parseMarketCatalog(new TextDecoder('utf-8', { fatal: true }).decode(data)),
+        compressed,
+        entries: parseMarketCatalog(new TextDecoder('utf-8', { fatal: true }).decode(csv)),
       };
     } catch {
       return null;
@@ -47,7 +50,9 @@ export function createMarketEmojiComponent(
   const installed = () => {
     if (!enabled) return null;
     if (!inspected) {
-      verified = load(active);
+      verified = active
+        ? (load(active, file(active, true), true) ?? load(active, file(active), false))
+        : null;
       inspected = true;
     }
     return verified;
@@ -85,7 +90,10 @@ export function createMarketEmojiComponent(
     ensure: async (report) => {
       if (!target) throw new Error('尚未取得商城表情目录的发布清单');
       const { sha256, sizeBytes, url } = target;
-      candidate = installed()?.version === sha256 ? installed() : load(sha256);
+      const compressed = target.name === 'market.csv.gz';
+      const destination = file(sha256, compressed);
+      candidate =
+        installed()?.version === sha256 ? installed() : load(sha256, destination, compressed);
       if (candidate) return;
       transfer = new ManagedDownload({
         batch: true,
@@ -105,13 +113,13 @@ export function createMarketEmojiComponent(
             note: '下载商城表情目录',
           }),
         validate: async (path, _response, bytes) => {
-          candidate = bytes === sizeBytes ? load(sha256, path) : null;
+          candidate = bytes === sizeBytes ? load(sha256, path, compressed) : null;
           if (!candidate) throw new Error('商城表情目录校验失败');
         },
       });
       try {
         await mkdir(directory, { recursive: true });
-        await transfer.file(url, file(sha256));
+        await transfer.file(url, destination);
       } finally {
         transfer = undefined;
       }
@@ -137,12 +145,13 @@ export function createMarketEmojiComponent(
     installation: () => ({ type: 'market-emoji', version: active }),
     cleanup: async () => {
       if (!active) return;
+      const installedFile = file(active, verified?.compressed);
       await Promise.all(
         files()
           .filter(
             (name) =>
-              /^[a-f0-9]{64}\.csv(?:\.part|\.resume\.json)?$/.test(name) &&
-              name !== `${active}.csv`,
+              /^[a-f0-9]{64}\.csv(?:\.gz)?(?:\.part|\.resume\.json)?$/.test(name) &&
+              join(directory, name) !== installedFile,
           )
           .map((name) => rm(join(directory, name), { force: true })),
       );

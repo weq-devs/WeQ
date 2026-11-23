@@ -19,6 +19,10 @@ if (process.argv.includes('--native-only')) {
     option('--addon') ?? join(root, 'native', process.platform, process.arch, 'nt_helper.node'),
   );
   const index = resolve(option('--manifest') ?? join(root, 'resources/dress/index-manifest.json'));
+  const { version } = JSON.parse(await readFile(join(root, 'apps/desktop/package.json'), 'utf8'));
+  const [major, minor] = version.split('.').map(Number);
+  const requireV2 =
+    process.argv.includes('--require-dress-v2') || major > 2 || (major === 2 && minor >= 8);
   execFileSync(
     process.execPath,
     [
@@ -29,7 +33,10 @@ if (process.argv.includes('--native-only')) {
     assert.equal(nt.getInitStatus(),0); assert.equal(nt.getBuildInfo().isDev,false,'发布不能使用开发 native');
     for (const name of ['getDressResourceKeyId','validateDressResourceIndexes','reloadDressResourceIndexes','clearDressResourceIndexes'])
       assert.equal(typeof nt[name],'function','缺少 '+name+'，请先发布配套 native 并更新版本锚');
-    assert.equal(nt.getDressResourceKeyId(),manifest.nativeCommit,'native 与索引密钥身份不匹配');
+    const keys=nt.getDressResourceKeyIds?.();
+    if(process.argv[3]==='true') assert.ok(keys?.length && keys.every(id=>/^[a-f0-9]{32}$/.test(id)),'发布 native 缺少 NTDR v2 密钥');
+    if(manifest.format==='ntdr-v2') assert.ok(keys?.includes(manifest.keyId),'native 缺少指定的 NTDR v2 密钥');
+    else if(!keys) assert.equal(nt.getDressResourceKeyId(),manifest.nativeCommit,'native 与旧索引密钥身份不匹配');
     (async()=>{
       for (const name of ['validateDressResourceIndexes','reloadDressResourceIndexes']) {
         const result=nt[name]('weq-native-probe-missing-'+process.pid); assert.equal(typeof result.then,'function',name+' 必须是异步接口');
@@ -40,6 +47,7 @@ if (process.argv.includes('--native-only')) {
   `,
       addon,
       index,
+      String(requireV2),
     ],
     { cwd: root, stdio: 'pipe', timeout: 30_000 },
   );

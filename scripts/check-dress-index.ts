@@ -30,6 +30,12 @@ const manifestPath = resolve(
 );
 const manifest = parseDressIndexManifest(JSON.parse(await readFile(manifestPath, 'utf8')));
 const native = createRequire(import.meta.url)(resolve(addonPath)) as NtHelperBinding;
+const identity =
+  manifest.format === 'ntdr-v2'
+    ? manifest.keyId
+    : native.getDressResourceKeyIds
+      ? manifest.nativeCommit
+      : undefined;
 assert.equal(native.getBuildInfo().isDev, false, '必须使用与清单兼容的正式 native');
 assert.equal(native.getInitStatus(), 0, 'native 初始化失败或已过期');
 
@@ -50,7 +56,7 @@ async function querySamples(directory: string) {
     for (const { item } of ranking.response.items.slice(0, 20)) {
       const itemId = String(item.itemId);
       for (const part of parts[kind]) {
-        const found = native.queryDressResourceUrl(kind, itemId, part);
+        const found = native.queryDressResourceUrl(kind, itemId, part, identity);
         if (found && /^https:\/\//.test(found.url) && found.size >= 0) {
           hits[kind] = { itemId, part };
           break;

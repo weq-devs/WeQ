@@ -4,6 +4,7 @@ import { generateKeyPairSync, createHash } from 'node:crypto';
 import { describeRelease, mergeReleaseIndex, publishReleaseFeed } from './publish-release-feed.mjs';
 import {
   MARKET_EMOJI_FEED_TAG,
+  RESOURCE_FEED_TAG,
   verifyReleaseIndex,
 } from '../packages/network/src/release_metadata.mjs';
 
@@ -31,6 +32,67 @@ const release = (version = '2.7.2') => ({
       digest: `sha256:${hash('data')}`,
     },
   ],
+});
+test('统一签名索引发布两包，单包更新保留另一包并拒绝版本倒退', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const repository = 'weq-devs/dress-resources';
+  const source = (tag_name, name, day) => ({
+    ...release(),
+    tag_name,
+    published_at: `2026-11-${day}T00:00:00Z`,
+    assets: [{ ...release().assets[0], name }],
+  });
+  const dress = source('dress-index-0123456789ab', 'enhancement-dress-v2.json', '20');
+  const emoji = source('market-emoji-0123456789ab', 'enhancement-market-emoji.json', '21');
+  const newDress = source('dress-index-0123456789ac', 'enhancement-dress-v2.json', '22');
+  const newEmoji = source('market-emoji-0123456789ac', 'enhancement-market-emoji.json', '23');
+  const releases = [dress, emoji, newDress, newEmoji];
+  const publicKeys = [publicKey.export({ type: 'spki', format: 'pem' }).toString()];
+  let published;
+  const publish = (...resourceTags) =>
+    publishReleaseFeed({
+      repository,
+      resourceTags,
+      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+      publicKeys,
+      api: async (method, _path, body) => {
+        if (method === 'GET') return releases;
+        if (method === 'POST') {
+          assert.equal(body.tag_name, RESOURCE_FEED_TAG);
+          const feed = {
+            id: 2,
+            tag_name: RESOURCE_FEED_TAG,
+            draft: true,
+            assets: [{ name: 'update-index.json' }],
+          };
+          releases.push(feed);
+          return feed;
+        }
+        return {};
+      },
+      readAsset: async (asset) =>
+        asset.name === 'update-index.json' ? JSON.stringify(published) : catalog,
+      upload: async (feed, envelope) => {
+        feed.draft = false;
+        published = envelope;
+      },
+    });
+  await publish(dress.tag_name, emoji.tag_name);
+  assert.equal(verifyReleaseIndex(published, repository, publicKeys).releases.length, 2);
+  await publish(newDress.tag_name);
+  await publish(dress.tag_name);
+  const index = verifyReleaseIndex(published, repository, publicKeys);
+  assert.equal(index.kind, 'resource-release-index');
+  assert.deepEqual(Object.fromEntries(index.releases.map((entry) => [entry.track, entry.tag])), {
+    dress: newDress.tag_name,
+    'market-emoji': emoji.tag_name,
+  });
+  await publish(newEmoji.tag_name);
+  const singleEmojiUpdated = verifyReleaseIndex(published, repository, publicKeys);
+  assert.deepEqual(Object.fromEntries(singleEmojiUpdated.releases.map((entry) => [entry.track, entry.tag])), {
+    dress: newDress.tag_name,
+    'market-emoji': newEmoji.tag_name,
+  });
 });
 test('从官方资产生成签名身份，不下载应用大文件', async () => {
   let reads = 0;

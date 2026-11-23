@@ -1,5 +1,11 @@
 import { networkFetch } from '@weq/network';
-import { MARKET_EMOJI_FEED_TAG } from '@weq/network/release-metadata';
+import {
+  MARKET_EMOJI_FEED_TAG,
+  RESOURCE_FEED_TAG,
+  RESOURCE_DESCRIPTORS,
+  type ReleaseIndex,
+  type ResourceTrack,
+} from '@weq/network/release-metadata';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import semver from 'semver';
@@ -19,6 +25,7 @@ import { getReleaseFeed } from '../update/release_feed';
 import { fetchSourceJson } from '@weq/network';
 import {
   ENHANCEMENT_PACK_IDS,
+  MARKET_EMOJI_ASSET,
   MARKET_EMOJI_MANIFEST,
   parseEnhancementEngineManifest,
   type EnhancementPackId,
@@ -57,6 +64,53 @@ const releaseList = z.array(
   }),
 );
 const CHECK_PAUSED = new Error('enhancement check paused');
+const RESOURCE_REPOSITORY = 'weq-devs/dress-resources';
+
+export function resourceCatalogFor(
+  index: ReleaseIndex | null,
+  track: ResourceTrack,
+  current: string,
+  target: string,
+  includePrerelease: boolean,
+): EnhancementCatalog | null {
+  const release = index?.releases
+    .filter((entry) => entry.track === track && (includePrerelease || !entry.prerelease))
+    .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))[0];
+  if (!release) return null;
+  const descriptor = JSON.parse(release.catalogs[RESOURCE_DESCRIPTORS[track]]!);
+  const catalog = parseEnhancementCatalogForHost({ ...descriptor, target }, current, target);
+  const entry = catalog.packs[0];
+  if (catalog.packs.length !== 1 || entry?.id !== track)
+    throw new Error('统一发布索引的资源描述与对应增强包不匹配');
+  if (entry.unavailable) return catalog;
+  const baseUrl = `https://github.com/${RESOURCE_REPOSITORY}/releases/download/${encodeURIComponent(release.tag)}`;
+  const checkAsset = (name: string, size: number, sha256: string) => {
+    if (
+      !release.assets.some(
+        (asset) => asset.name === name && asset.size === size && asset.sha256 === sha256,
+      )
+    )
+      throw new Error('增强包资源与签名资产身份不匹配');
+  };
+  const component = entry.components[0];
+  if (component?.type === 'dress') {
+    const manifest = parseDressIndexManifest(component.manifest);
+    if (
+      manifest.format !== 'ntdr-v2' ||
+      manifest.tag !== release.tag ||
+      manifest.baseUrl !== baseUrl
+    )
+      throw new Error('统一发布索引中的装扮来源不匹配');
+    for (const part of Object.values(manifest.parts))
+      checkAsset(part.asset, part.size, part.sha256);
+  } else if (component?.type === 'market-emoji') {
+    const asset = component.asset;
+    if (asset.name !== 'market.csv.gz' || asset.url !== `${baseUrl}/${asset.name}`)
+      throw new Error('统一发布索引中的商城表情目录来源不匹配');
+    checkAsset(asset.name, asset.sizeBytes, asset.sha256);
+  }
+  return catalog;
+}
 
 export class EnhancementUpdateController {
   private readonly states = new Map<EnhancementPackId, EnhancementCheckState>();
@@ -87,6 +141,7 @@ export class EnhancementUpdateController {
     private readonly options: {
       currentVersion: () => string;
       nativeCommit: () => string | undefined;
+      nativeKeys?: () => readonly string[] | undefined;
       fetcher?: typeof fetch;
       localDress?: () => boolean;
       legacyModels?: ModelEntry[];
@@ -165,7 +220,12 @@ export class EnhancementUpdateController {
     }
     this.packs.selectRelease(
       entry,
-      enhancementReleaseBlocker(entry, this.options.currentVersion(), this.options.nativeCommit()),
+      enhancementReleaseBlocker(
+        entry,
+        this.options.currentVersion(),
+        this.options.nativeCommit(),
+        this.options.nativeKeys?.(),
+      ),
     );
   }
   async ready() {
@@ -312,16 +372,38 @@ export class EnhancementUpdateController {
       await gate.wait(this.abort.signal);
       for (const packId of ids)
         this.states.set(packId, { ...this.state(packId), phase: 'checking', error: undefined });
+      const tracks = ids.filter(
+        (id): id is ResourceTrack => id === 'dress' || id === 'market-emoji',
+      );
+      const resourceIndex = tracks.length
+        ? this.readSignedFeed(RESOURCE_REPOSITORY, RESOURCE_FEED_TAG)
+        : Promise.resolve(null);
+      const resourceCatalog = (track: ResourceTrack) =>
+        tracks.includes(track)
+          ? resourceIndex.then((index) => {
+              const catalog = resourceCatalogFor(
+                index,
+                track,
+                this.options.currentVersion(),
+                this.target,
+                this.config.getSettings().updateCheckPrerelease,
+              );
+              if (catalog) return catalog;
+              const runtime = this.latest.get(track)?.runtime;
+              if (runtime === 'ntdr-v2' || runtime === 'market-csv-gzip-v1')
+                throw new Error('暂时无法取得已使用的统一资源索引');
+              return this.fetchCatalog(
+                RESOURCE_REPOSITORY,
+                track === 'dress' ? 'enhancement-pack.json' : MARKET_EMOJI_MANIFEST,
+              );
+            })
+          : Promise.resolve(null);
       const results = await Promise.allSettled([
         ids.some((id) => id !== 'dress' && id !== 'market-emoji')
           ? this.fetchCatalog('weq-devs/WeQ', `enhancement-packs-${this.target}.json`)
           : Promise.resolve(null),
-        ids.includes('dress')
-          ? this.fetchCatalog('weq-devs/dress-resources', 'enhancement-pack.json')
-          : Promise.resolve(null),
-        ids.includes('market-emoji')
-          ? this.fetchCatalog('weq-devs/dress-resources', MARKET_EMOJI_MANIFEST)
-          : Promise.resolve(null),
+        resourceCatalog('dress'),
+        resourceCatalog('market-emoji'),
       ]);
       // 清单已取回，网络策略不再参与结果保存和通知。
       stopWatching();
@@ -341,11 +423,21 @@ export class EnhancementUpdateController {
           errors.push(error);
           continue;
         }
-        if (!entry.unavailable && entry.contentVersion !== releaseContentVersion(entry.components))
-          throw new Error('增强包内容版本与文件清单不一致');
+        try {
+          if (
+            !entry.unavailable &&
+            entry.contentVersion !== releaseContentVersion(entry.components)
+          )
+            throw new Error('增强包内容版本与文件清单不一致');
+          this.apply(entry);
+        } catch (failure) {
+          const error = failure instanceof Error ? failure.message : String(failure);
+          this.states.set(packId, { ...this.state(packId), phase: 'failed', error });
+          errors.push(error);
+          continue;
+        }
         this.latest.set(packId, entry);
         this.fresh.add(packId);
-        this.apply(entry);
         this.states.set(packId, { phase: 'checked', checkedAt: Date.now() });
       }
       await this.save();
@@ -437,27 +529,31 @@ export class EnhancementUpdateController {
         startEnhancementDownloads(this.packs, install),
       );
   }
-  private async fetchCatalog(repository: string, asset: string): Promise<EnhancementCatalog> {
-    const isMarketEmoji = asset === MARKET_EMOJI_MANIFEST;
-    const feed = getReleaseFeed(repository, isMarketEmoji ? MARKET_EMOJI_FEED_TAG : undefined);
-    let signedIndex: Awaited<ReturnType<typeof feed.read>>;
+  private async readSignedFeed(repository: string, feedTag?: string): Promise<ReleaseIndex | null> {
+    const feed = getReleaseFeed(repository, feedTag);
     for (;;) {
       await this.gate?.wait(this.abort.signal);
       const request = new AbortController();
       this.requests.add(request);
       try {
-        signedIndex = await feed.read(
+        return await feed.read(
           true,
           AbortSignal.any([this.abort.signal, request.signal]),
           this.options.fetcher ?? networkFetch,
         );
-        break;
       } catch (error) {
         if (request.signal.reason !== CHECK_PAUSED || this.abort.signal.aborted) throw error;
       } finally {
         this.requests.delete(request);
       }
     }
+  }
+  private async fetchCatalog(repository: string, asset: string): Promise<EnhancementCatalog> {
+    const isMarketEmoji = asset === MARKET_EMOJI_MANIFEST;
+    const signedIndex = await this.readSignedFeed(
+      repository,
+      isMarketEmoji ? MARKET_EMOJI_FEED_TAG : undefined,
+    );
     const data = releaseList.parse(
       signedIndex
         ? signedIndex.releases.map((release) => ({
@@ -481,6 +577,7 @@ export class EnhancementUpdateController {
         !release.draft &&
         release.published_at &&
         (includePrerelease || (!release.prerelease && !semver.prerelease(release.tag_name))) &&
+        (!isMarketEmoji || release.assets.some((item) => item.name === MARKET_EMOJI_ASSET)) &&
         release.assets.some((item) => item.name === asset || item.name === legacyAsset),
     );
     releases.sort((a, b) =>

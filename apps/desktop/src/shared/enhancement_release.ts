@@ -43,18 +43,24 @@ const model = z.object({
   minWeqVersion: version.optional(),
   files: z.array(file).min(1).max(16),
 });
+const dressManifestBase = z.object({
+  schemaVersion: z.literal(1),
+  tag: z.string().regex(/^dress-[a-zA-Z0-9._-]+$/),
+  baseUrl: url,
+  parts: z.record(z.object({ asset: z.string(), sha256: hash, size: z.number().int().positive() })),
+});
 const dress = z.object({
   type: z.literal('dress'),
-  manifest: z.object({
-    schemaVersion: z.literal(1),
-    tag: z.string().regex(/^dress-[a-zA-Z0-9._-]+$/),
-    nativeCommit: z.string().regex(/^[a-f0-9]{40}$/),
-    format: z.literal('ntdr-v1'),
-    baseUrl: url,
-    parts: z.record(
-      z.object({ asset: z.string(), sha256: hash, size: z.number().int().positive() }),
-    ),
-  }),
+  manifest: z.discriminatedUnion('format', [
+    dressManifestBase.extend({
+      format: z.literal('ntdr-v1'),
+      nativeCommit: z.string().regex(/^[a-f0-9]{40}$/),
+    }),
+    dressManifestBase.extend({
+      format: z.literal('ntdr-v2'),
+      keyId: z.string().regex(/^[a-f0-9]{32}$/),
+    }),
+  ]),
 });
 const engine = z.object({
   type: z.literal('engine'),
@@ -63,7 +69,7 @@ const engine = z.object({
 const marketEmoji = z.object({
   type: z.literal('market-emoji'),
   asset: z.object({
-    name: z.literal(MARKET_EMOJI_ASSET),
+    name: z.enum([MARKET_EMOJI_ASSET, 'market.csv.gz']),
     url,
     sizeBytes: z
       .number()
@@ -106,6 +112,14 @@ export const PACK_RUNTIMES = {
   'market-emoji': 'market-csv-v1',
 } as const;
 
+function supportsRuntime(id: EnhancementPackId, runtime: string): boolean {
+  return (
+    runtime === PACK_RUNTIMES[id] ||
+    (id === 'dress' && runtime === 'ntdr-v2') ||
+    (id === 'market-emoji' && runtime === 'market-csv-gzip-v1')
+  );
+}
+
 export function enhancementComponentId(component: EnhancementReleaseComponent): string {
   switch (component.type) {
     case 'model':
@@ -147,7 +161,7 @@ export function parseEnhancementCatalogForHost(
           ? '当前 WeQ 不支持此增强包清单格式，请先更新 WeQ'
           : !semver.valid(current) || semver.gt(entry.minWeqVersion, current)
             ? `需先更新 WeQ 至 v${entry.minWeqVersion}`
-            : entry.runtime !== PACK_RUNTIMES[entry.id]
+            : !supportsRuntime(entry.id, entry.runtime)
               ? '当前 WeQ 不支持此增强包运行接口，请先更新 WeQ'
               : undefined);
       if (unavailable)
@@ -191,17 +205,24 @@ export function parseEnhancementCatalog(input: unknown): EnhancementCatalog {
       )
         throw new Error('增强包最低版本低于组件要求');
       if (component.type === 'dress') {
+        if (entry.runtime !== component.manifest.format)
+          throw new Error('装扮索引格式与运行接口不匹配');
         for (const kind of ['bubble', 'font', 'widget']) {
           const part = component.manifest.parts[kind];
           if (
             !part ||
             part.asset !== `dress-${kind}.dat` ||
-            part.size < 22 ||
+            part.size < (component.manifest.format === 'ntdr-v2' ? 50 : 22) ||
             part.size > 64 * 1024 ** 2
           )
             throw new Error('装扮类别清单无效');
         }
       }
+      if (
+        component.type === 'market-emoji' &&
+        (component.asset.name === 'market.csv.gz') !== (entry.runtime === 'market-csv-gzip-v1')
+      )
+        throw new Error('商城表情目录文件与运行接口不匹配');
       if (component.type === 'model') {
         if (component.minWeqVersion && semver.gt(component.minWeqVersion, entry.minWeqVersion))
           throw new Error('增强包最低版本低于模型要求');
@@ -241,11 +262,12 @@ export function enhancementReleaseBlocker(
   entry: EnhancementRelease,
   current: string,
   nativeCommit?: string,
+  nativeKeys?: readonly string[],
 ): string | null {
   if (!semver.valid(current) || semver.gt(entry.minWeqVersion, current))
     return `需先更新 WeQ 至 v${entry.minWeqVersion}`;
   if (entry.unavailable) return entry.unavailable;
-  if (entry.runtime !== PACK_RUNTIMES[entry.id])
+  if (!supportsRuntime(entry.id, entry.runtime))
     return '当前 WeQ 不支持此增强包运行接口，请先更新 WeQ';
   if (
     entry.components.some(
@@ -257,7 +279,13 @@ export function enhancementReleaseBlocker(
   )
     return '当前 WeQ 不支持此增强引擎运行接口，请先更新 WeQ';
   const index = entry.components.find((component) => component.type === 'dress');
-  if (index?.type === 'dress' && index.manifest.nativeCommit !== nativeCommit)
-    return '此装扮索引需要配套的新版 WeQ 原生模块，请先更新 WeQ';
+  if (index?.type === 'dress') {
+    if (entry.runtime !== index.manifest.format) return '装扮索引格式与运行接口不匹配';
+    const supported =
+      index.manifest.format === 'ntdr-v2'
+        ? nativeKeys?.includes(index.manifest.keyId)
+        : nativeKeys !== undefined || index.manifest.nativeCommit === nativeCommit;
+    if (!supported) return '此装扮索引需要配套的新版 WeQ 原生模块，请先更新 WeQ';
+  }
   return null;
 }

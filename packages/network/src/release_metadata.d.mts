@@ -1,5 +1,8 @@
 export const FEED_TAG: string;
 export const MARKET_EMOJI_FEED_TAG: string;
+export const RESOURCE_FEED_TAG: string;
+export type ResourceTrack = 'dress' | 'market-emoji';
+export const RESOURCE_DESCRIPTORS: Record<ResourceTrack, string>;
 export const FEED_ASSET: string;
 export const RELEASE_SUMMARY_MAX_CHARS: number;
 export interface ReleaseAsset {
@@ -15,10 +18,11 @@ export interface ReleaseDescriptor {
   summary?: string;
   assets: ReleaseAsset[];
   catalogs: Record<string, string>;
+  track?: ResourceTrack;
 }
 export interface ReleaseIndex {
   schemaVersion: 1;
-  kind: 'release-index';
+  kind: 'release-index' | 'resource-release-index';
   repository: string;
   generatedAt: string;
   releases: ReleaseDescriptor[];

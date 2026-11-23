@@ -11,14 +11,14 @@ import { writeFileAtomicSync } from '../common/atomic_write';
 export const DRESS_INDEX_KINDS = ['bubble', 'font', 'widget'] as const;
 export type DressIndexKind = (typeof DRESS_INDEX_KINDS)[number];
 
-export interface DressIndexManifest {
+interface DressIndexManifestBase {
   schemaVersion: 1;
   tag: string;
-  nativeCommit: string;
-  format: 'ntdr-v1';
   baseUrl: string;
   parts: Record<DressIndexKind, { asset: string; sha256: string; size: number }>;
 }
+export type DressIndexManifest = DressIndexManifestBase &
+  ({ format: 'ntdr-v1'; nativeCommit: string } | { format: 'ntdr-v2'; keyId: string });
 
 export interface DressIndexState {
   kind: DressIndexKind;
@@ -47,18 +47,27 @@ export function parseDressIndexManifest(value: unknown): DressIndexManifest {
   const data = value as Record<string, unknown>;
   if (
     data.schemaVersion !== 1 ||
-    data.format !== 'ntdr-v1' ||
     typeof data.tag !== 'string' ||
     !/^dress-[a-zA-Z0-9._-]+$/.test(data.tag) ||
-    typeof data.nativeCommit !== 'string' ||
-    !/^[a-f0-9]{40}$/.test(data.nativeCommit) ||
+    (data.format === 'ntdr-v1'
+      ? typeof data.nativeCommit !== 'string' || !/^[a-f0-9]{40}$/.test(data.nativeCommit)
+      : data.format !== 'ntdr-v2' ||
+        typeof data.keyId !== 'string' ||
+        !/^[a-f0-9]{32}$/.test(data.keyId)) ||
     typeof data.baseUrl !== 'string' ||
     !data.parts ||
     typeof data.parts !== 'object'
   )
     throw new Error('装扮索引版本或源 native 身份无效');
   const url = new URL(data.baseUrl);
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    (data.format === 'ntdr-v2' && !url.pathname.endsWith(`/releases/download/${data.tag}`))
+  )
     throw new Error('装扮索引下载地址无效');
   const parts = data.parts as Record<string, unknown>;
   for (const kind of DRESS_INDEX_KINDS) {
@@ -69,7 +78,7 @@ export function parseDressIndexManifest(value: unknown): DressIndexManifest {
       typeof part.sha256 !== 'string' ||
       !/^[a-f0-9]{64}$/.test(part.sha256) ||
       !Number.isSafeInteger(part.size) ||
-      Number(part.size) < 22 ||
+      Number(part.size) < (data.format === 'ntdr-v2' ? 50 : 22) ||
       Number(part.size) > 64 * 1024 * 1024
     )
       throw new Error(`装扮索引类别清单无效：${kind}`);
@@ -91,7 +100,11 @@ export function subscribeDressIndexResources(listener: (event: DressIndexEvent) 
 }
 
 export function getDressIndexStore(sharedDirectory: string, native?: NtHelperBinding) {
-  if (!configured || native?.getBuildInfo?.().isDev === true) return null;
+  if (
+    !configured ||
+    (native?.getBuildInfo?.().isDev === true && !native.getDressResourceKeyIds?.().length)
+  )
+    return null;
   const key = resolve(sharedDirectory);
   let store = stores.get(key);
   if (!store) {
@@ -115,6 +128,11 @@ interface DressIndexOptions {
   legacyDirectory?: string;
   download?: typeof downloadUrlToFile;
   now?: () => number;
+}
+
+function nativeIdentity(native: NtHelperBinding, manifest: DressIndexManifest): [] | [string] {
+  if (manifest.format === 'ntdr-v2') return [manifest.keyId];
+  return native.getDressResourceKeyIds ? [manifest.nativeCommit] : [];
 }
 
 /** 一个宿主共用索引文件；已装素材路径不经过此服务。 */
@@ -165,8 +183,19 @@ export class DressIndexStore {
     this.verified.clear();
     this.revision++;
   }
+  async validate(native: NtHelperBinding): Promise<boolean> {
+    return !!(await native.validateDressResourceIndexes?.(
+      this.directory,
+      ...nativeIdentity(native, this.manifest),
+    ));
+  }
   async adopt(candidate: DressIndexStore, native: NtHelperBinding): Promise<() => Promise<void>> {
-    if (!(await native.reloadDressResourceIndexes?.(candidate.directory)))
+    if (
+      !(await native.reloadDressResourceIndexes?.(
+        candidate.directory,
+        ...nativeIdentity(native, candidate.manifest),
+      ))
+    )
       throw new Error('装扮索引加载失败，请先更新 WeQ 原生模块');
     const previous = {
       directory: this.directory,
@@ -175,10 +204,20 @@ export class DressIndexStore {
       verified: new Set(this.verified),
       disabled: this.disabled,
     };
+    const reloadPrevious = async () => {
+      if (
+        previous.disabled ||
+        !(await native.reloadDressResourceIndexes?.(
+          previous.directory,
+          ...nativeIdentity(native, previous.manifest),
+        ))
+      )
+        native.clearDressResourceIndexes?.();
+    };
     try {
       writeFileAtomicSync(join(this.root, 'active.json'), JSON.stringify(candidate.manifest));
     } catch (error) {
-      await native.reloadDressResourceIndexes?.(previous.directory);
+      await reloadPrevious();
       throw error;
     }
     this.directory = candidate.directory;
@@ -192,8 +231,7 @@ export class DressIndexStore {
     }
     this.revision++;
     return async () => {
-      if (!(await native.reloadDressResourceIndexes?.(previous.directory)))
-        native.clearDressResourceIndexes?.();
+      await reloadPrevious();
       this.directory = previous.directory;
       this.manifest = previous.manifest;
       this.disabled = previous.disabled;
@@ -267,10 +305,12 @@ export class DressIndexStore {
     options: { background?: boolean } = {},
   ): Promise<ReturnType<NtHelperBinding['queryDressResourceUrl']>> {
     if (this.disabled) return null;
-    const legacy = native.queryDressResourceUrl(kind, itemId, part);
-    if (legacy) {
-      this.preserveLegacy(kind);
-      return legacy;
+    if (this.manifest.format === 'ntdr-v1') {
+      const legacy = native.queryDressResourceUrl(kind, itemId, part);
+      if (legacy) {
+        this.preserveLegacy(kind);
+        return legacy;
+      }
     }
     if (!this.verified.has(kind) || !existsSync(join(this.directory, `${kind}.dat`))) {
       const prepared = this.ensure(kind, false, false);
@@ -285,7 +325,12 @@ export class DressIndexStore {
     try {
       // native 查询是同步调用，目录覆盖不跨越任何异步边界。
       process.env.NT_HELPER_DRESS_DIR = this.directory;
-      return native.queryDressResourceUrl(kind, itemId, part);
+      return native.queryDressResourceUrl(
+        kind,
+        itemId,
+        part,
+        ...nativeIdentity(native, this.manifest),
+      );
     } finally {
       if (previous === undefined) delete process.env.NT_HELPER_DRESS_DIR;
       else process.env.NT_HELPER_DRESS_DIR = previous;

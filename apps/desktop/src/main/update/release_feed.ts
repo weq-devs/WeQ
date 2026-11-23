@@ -11,6 +11,7 @@ import {
 import {
   FEED_TAG,
   FEED_ASSET,
+  RESOURCE_FEED_TAG,
   verifyReleaseIndex,
   type ReleaseIndex,
   type ReleaseDescriptor,
@@ -56,8 +57,23 @@ export class ReleaseFeed {
     );
   }
   private adopt(index: ReleaseIndex) {
+    const expectedKind =
+      this.feedTag === RESOURCE_FEED_TAG ? 'resource-release-index' : 'release-index';
+    if (index.kind !== expectedKind) throw new Error('发布索引类型不匹配');
+    if (
+      index.kind === 'resource-release-index' &&
+      this.index?.releases.some(
+        (previous) =>
+          !index.releases.some(
+            (entry) => entry.track === previous.track && entry.prerelease === previous.prerelease,
+          ),
+      )
+    )
+      throw new Error('资源更新索引缺失已验证的包版本');
     for (const entry of index.releases) {
-      const previous = this.index?.releases.find((item) => item.prerelease === entry.prerelease);
+      const previous = this.index?.releases.find(
+        (item) => item.prerelease === entry.prerelease && item.track === entry.track,
+      );
       if (
         previous &&
         (entry.version && previous.version

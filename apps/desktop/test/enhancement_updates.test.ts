@@ -6,7 +6,9 @@ import { createHash } from 'node:crypto';
 import type { Platform } from '@weq/platform';
 import { UserConfigService, VOICE_MODELS } from '@weq/service';
 import { afterEach, expect, it, vi } from 'vitest';
-import { EnhancementUpdateController } from '../src/main/enhancements/updates';
+import { EnhancementUpdateController, resourceCatalogFor } from '../src/main/enhancements/updates';
+import type { ReleaseDescriptor, ReleaseIndex } from '@weq/network/release-metadata';
+import { gzipSync } from 'node:zlib';
 import { createMarketEmojiComponent } from '../src/main/enhancements/market_emoji_component';
 import { searchCatalog, setMarketCatalogReader } from '../src/main/market_catalog';
 import { EnhancementPacks, type EnhancementComponentState } from '../src/main/enhancements/packs';
@@ -36,14 +38,108 @@ import { enhancementEngineCompatibility } from '../src/shared/enhancement_manife
 const roots: string[] = [];
 const controllers: EnhancementUpdateController[] = [];
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+it('统一索引的两包分别校验资产和兼容身份', () => {
+  const keyId = 'c'.repeat(32);
+  const dressTag = 'dress-index-0123456789ab';
+  const marketTag = 'market-emoji-0123456789ab';
+  const url = (tag: string) =>
+    `https://github.com/weq-devs/dress-resources/releases/download/${tag}`;
+  const parts = Object.fromEntries(
+    ['bubble', 'font', 'widget'].map((kind) => [
+      kind,
+      { asset: `dress-${kind}.dat`, size: 64, sha256: sha(kind) },
+    ]),
+  );
+  const dress = createRelease(
+    'dress',
+    [
+      {
+        type: 'dress',
+        manifest: {
+          schemaVersion: 1,
+          baseUrl: url(dressTag),
+          tag: dressTag,
+          format: 'ntdr-v2',
+          keyId,
+          parts,
+        },
+      },
+    ],
+    '2.8.0',
+  );
+  const market = createRelease(
+    'market-emoji',
+    [
+      {
+        type: 'market-emoji',
+        asset: {
+          name: 'market.csv.gz',
+          url: url(marketTag) + '/market.csv.gz',
+          sizeBytes: 32,
+          sha256: sha('market'),
+        },
+      },
+    ],
+    '2.8.0',
+  );
+  const descriptor = (
+    track: 'dress' | 'market-emoji',
+    tag: string,
+    name: string,
+    pack: typeof dress,
+    assets: ReleaseDescriptor['assets'],
+  ): ReleaseDescriptor => ({
+    track,
+    tag,
+    version: null,
+    prerelease: false,
+    publishedAt: '2026-11-23T00:00:00Z',
+    catalogs: { [name]: JSON.stringify({ schemaVersion: 1, packs: [pack] }) },
+    assets,
+  });
+  const index: ReleaseIndex = {
+    schemaVersion: 1,
+    kind: 'resource-release-index',
+    repository: 'weq-devs/dress-resources',
+    generatedAt: '2026-11-23T00:00:00Z',
+    releases: [
+      descriptor(
+        'dress',
+        dressTag,
+        'enhancement-dress-v2.json',
+        dress,
+        Object.values(parts).map((part) => ({
+          name: part.asset,
+          size: part.size,
+          sha256: part.sha256,
+        })),
+      ),
+      descriptor('market-emoji', marketTag, 'enhancement-market-emoji.json', market, [
+        { name: 'market.csv.gz', size: 32, sha256: sha('market') },
+      ]),
+    ],
+  };
+  const read = (track: 'dress' | 'market-emoji', version = '2.8.0') =>
+    resourceCatalogFor(index, track, version, 'darwin-arm64', false)?.packs[0];
+  expect(read('dress')).toEqual(dress);
+  expect(read('market-emoji')).toEqual(market);
+  expect(read('dress', '2.7.5')?.unavailable).toContain('2.8.0');
+  expect(enhancementReleaseBlocker(dress, '2.8.0', 'b'.repeat(40), [keyId])).toBeNull();
+  expect(enhancementReleaseBlocker(dress, '2.8.0', undefined, [])).toContain('原生模块');
+  index.releases[0]!.assets[0]!.sha256 = sha('wrong');
+  expect(() => read('dress')).toThrow('签名资产身份');
+  expect(read('market-emoji')).toEqual(market);
+});
+
 it('独立安装和更新商城目录，失败保留旧版，关闭装扮时隐藏', async () => {
   const root = await mkdtemp(join(tmpdir(), 'weq-market-emoji-'));
   roots.push(root);
   const installedPath = join(root, 'market-emoji');
   const receiptPath = join(root, 'ready.json');
   const csv = (name: string) => `id,name,mark,feetype\n248001,${name},"包含,逗号",1\n`;
-  let response = csv('第一版');
-  const fetcher: typeof fetch = async () => new Response(response);
+  let response: string | Buffer = csv('第一版');
+  const fetcher: typeof fetch = async () =>
+    new Response(typeof response === 'string' ? response : new Uint8Array(response));
   const create = (enabled: boolean) => {
     const catalog = createMarketEmojiComponent(installedPath, enabled, fetcher);
     const packs = new EnhancementPacks(
@@ -62,16 +158,17 @@ it('独立安装和更新商城目录，失败保留旧版，关闭装扮时隐�
     );
     return { catalog, packs };
   };
-  const install = async (packs: EnhancementPacks, content: string) => {
+  const install = async (packs: EnhancementPacks, content: string | Buffer) => {
+    const name = typeof content === 'string' ? 'market.csv' : 'market.csv.gz';
     packs.selectRelease(
       createRelease('market-emoji', [
         {
           type: 'market-emoji',
           asset: {
-            name: 'market.csv',
-            url: 'https://example.invalid/market.csv',
+            name,
+            url: `https://example.invalid/${name}`,
             sizeBytes: Buffer.byteLength(content),
-            sha256: sha(content),
+            sha256: createHash('sha256').update(content).digest('hex'),
           },
         },
       ]),
@@ -91,7 +188,7 @@ it('独立安装和更新商城目录，失败保留旧版，关闭装扮时隐�
     expect((await packs.list())[0]?.operation?.phase).toBe('failed');
     expect(searchCatalog({}).entries[0]?.name).toBe('第一版');
 
-    response = csv('第二版');
+    response = gzipSync(csv('第二版'));
     await install(packs, response);
     expect(searchCatalog({}).entries[0]?.name).toBe('第二版');
     const receipt = JSON.parse(await readFile(receiptPath, 'utf8'))['market-emoji'];
@@ -115,7 +212,7 @@ const nativeCommit = 'a'.repeat(40);
 const legacyFetch =
   (fetcher: typeof fetch): typeof fetch =>
   (url, init) =>
-    String(url).includes('/weq-update-feed/update-index.json')
+    /\/weq-(?:resource|update)-feed\/update-index\.json/.test(String(url))
       ? Promise.resolve(new Response('', { status: 404 }))
       : fetcher(url, init);
 function release(revision: string, minWeqVersion = '2.6.1') {

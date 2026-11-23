@@ -2,6 +2,11 @@ import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'nod
 
 export const FEED_TAG = 'weq-update-feed';
 export const MARKET_EMOJI_FEED_TAG = 'weq-market-emoji-feed';
+export const RESOURCE_FEED_TAG = 'weq-resource-feed';
+export const RESOURCE_DESCRIPTORS = {
+  dress: 'enhancement-dress-v2.json',
+  'market-emoji': 'enhancement-market-emoji.json',
+};
 export const FEED_ASSET = 'update-index.json';
 export const RELEASE_SUMMARY_MAX_CHARS = 300;
 const DOMAIN = Buffer.from('WeQ release metadata v1\0');
@@ -14,24 +19,31 @@ function assetName(value) {
   return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
 }
 export function validateReleaseIndex(value, repository) {
+  const resourceFeed = value?.kind === 'resource-release-index';
   if (
     value?.schemaVersion !== 1 ||
-    value.kind !== 'release-index' ||
+    (value.kind !== 'release-index' && !resourceFeed) ||
+    (resourceFeed && repository !== 'weq-devs/dress-resources') ||
     value.repository !== repository ||
     !/^[\w.-]+\/[\w.-]+$/.test(repository) ||
     !Number.isFinite(Date.parse(value.generatedAt)) ||
     !Array.isArray(value.releases) ||
-    value.releases.length > 2
+    value.releases.length > (resourceFeed ? 4 : 2)
   )
     throw new Error('发布索引格式或来源无效');
   const channels = new Set();
   for (const release of value.releases) {
+    const track = resourceFeed ? release?.track : undefined;
+    const channel = `${track ?? ''}:${release?.prerelease}`;
     if (
       !release ||
       !assetName(release.tag) ||
-      [FEED_TAG, MARKET_EMOJI_FEED_TAG].includes(release.tag) ||
+      [FEED_TAG, MARKET_EMOJI_FEED_TAG, RESOURCE_FEED_TAG].includes(release.tag) ||
+      (resourceFeed &&
+        (!Object.hasOwn(RESOURCE_DESCRIPTORS, track) ||
+          !release.tag.startsWith(track === 'dress' ? 'dress-index-' : 'market-emoji-'))) ||
       typeof release.prerelease !== 'boolean' ||
-      channels.has(release.prerelease) ||
+      channels.has(channel) ||
       !Number.isFinite(Date.parse(release.publishedAt)) ||
       (release.summary !== undefined &&
         (typeof release.summary !== 'string' ||
@@ -46,7 +58,7 @@ export function validateReleaseIndex(value, repository) {
           !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/.test(release.version)))
     )
       throw new Error('发布记录格式无效');
-    channels.add(release.prerelease);
+    channels.add(channel);
     const names = new Set();
     for (const asset of release.assets) {
       if (
@@ -65,6 +77,8 @@ export function validateReleaseIndex(value, repository) {
       Array.isArray(release.catalogs)
     )
       throw new Error('发布资源描述无效');
+    if (resourceFeed && typeof release.catalogs[RESOURCE_DESCRIPTORS[track]] !== 'string')
+      throw new Error('资源版本缺少签名描述');
     for (const [name, text] of Object.entries(release.catalogs)) {
       const asset = release.assets.find((item) => item.name === name);
       if (

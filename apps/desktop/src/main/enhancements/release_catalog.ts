@@ -38,7 +38,9 @@ export function releaseContentVersion(components: EnhancementReleaseComponent[])
     }
     return [
       'dress',
-      component.manifest.nativeCommit,
+      component.manifest.format === 'ntdr-v2'
+        ? component.manifest.keyId
+        : component.manifest.nativeCommit,
       component.manifest.format,
       ['bubble', 'font', 'widget'].map((kind) => {
         const part = component.manifest.parts[kind]!;
@@ -76,6 +78,15 @@ export function createRelease(
   components: EnhancementReleaseComponent[],
   minWeqVersion = ENHANCEMENT_RUNTIME_BASELINE,
 ): EnhancementRelease {
+  const component = components.find(
+    (component) => component.type === 'dress' || component.type === 'market-emoji',
+  );
+  const runtime =
+    component?.type === 'dress'
+      ? component.manifest.format
+      : component?.type === 'market-emoji' && component.asset.name === 'market.csv.gz'
+        ? 'market-csv-gzip-v1'
+        : PACK_RUNTIMES[id];
   const minimums = [
     minWeqVersion,
     ...components.flatMap((component) =>
@@ -90,7 +101,7 @@ export function createRelease(
     id,
     contentVersion: releaseContentVersion(components),
     minWeqVersion: minimums.sort(semver.rcompare)[0]!,
-    runtime: PACK_RUNTIMES[id],
+    runtime,
     components,
   };
 }

@@ -43,6 +43,7 @@ test('资源复制保留索引清单、排名及界面素材，不携带大索�
     'dress/ranking-font.json',
     'dress/screen/1/config.json',
     'emoji/market.csv',
+    'emoji/market.csv.gz',
     'emoji/emoji_config.json',
     'brand/logo.png',
     'daemon/old-binary',
