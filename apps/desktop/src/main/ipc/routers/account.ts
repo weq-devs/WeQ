@@ -4926,6 +4926,19 @@ export const accountRouter = router({
     };
   }),
 
+  /** 聊天角标只要在线序号与完整标记，精华面板打开后再读取正文。 */
+  getGroupEssencePageSequences: procedure
+    .input(essenceContentInput)
+    .query(({ input }) =>
+      scopedGroupRead(input, (services) =>
+        services.groupInfo.getEssencePageSequences(
+          input.groupCode,
+          input.pageStart ?? 0,
+          input.pageLimit ?? 50,
+        ),
+      ),
+    ),
+
   /** Get group member level definitions. */
   getGroupMemberLevelInfo: directoryProcedure
     .input(z.object({ groupCode: z.string().min(1) }))

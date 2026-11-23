@@ -167,6 +167,42 @@ describe('群资料面板', () => {
     mountPanel();
     expect(document.querySelector('.group-info-member-row')?.textContent).toContain('测试成员');
   });
+  it('成员面板尺寸可见时请求名单，隐藏后释放，尺寸变化不重复请求', () => {
+    let panelSize: ((width: number, height: number) => void) | undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private readonly callback: ResizeObserverCallback) {}
+        observe(target: Element) {
+          if (target.tagName === 'ASIDE')
+            panelSize = (width, height) =>
+              this.callback(
+                [{ target, contentRect: { width, height } } as ResizeObserverEntry],
+                this,
+              );
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const request = vi.fn();
+    try {
+      mountPanel(undefined, undefined, { onMemberVisibilityChange: request });
+      expect(panelSize).toBeDefined();
+      act(() => panelSize!(0, 0));
+      expect(request).not.toHaveBeenCalled();
+      act(() => panelSize!(260, 680));
+      act(() => panelSize!(260, 650));
+      expect(request.mock.calls).toEqual([['g1', true]]);
+      act(() => panelSize!(0, 0));
+      expect(request.mock.calls).toEqual([
+        ['g1', true],
+        ['g1', false],
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('侧栏移除资料区与指标读取，只保留紧凑摘要和成员', () => {
     mountPanel(vi.fn(), vi.fn());
     expect(document.querySelector('.group-info-overview')).toBeNull();

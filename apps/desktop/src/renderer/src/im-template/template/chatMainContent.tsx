@@ -64,6 +64,7 @@ export function ChatMainContent({
   onBackContact,
   onBackGroup,
   onLoadMoreGroupMembers,
+  onGroupMemberDemand,
   groupMembersLoading,
   groupMembersError,
   groupMemberSearch,
@@ -156,6 +157,7 @@ export function ChatMainContent({
   | 'pendingInteractions'
   | 'onSeeInteractions'
   | 'onLoadMoreGroupMembers'
+  | 'onGroupMemberDemand'
   | 'groupMembersLoading'
   | 'groupMembersError'
   | 'groupMemberSearch'
@@ -362,6 +364,7 @@ export function ChatMainContent({
       draft={activeConversation ? (drafts[activeConversation.id] ?? '') : ''}
       draftScope={draftScope}
       onLoadMoreGroupMembers={onLoadMoreGroupMembers}
+      onGroupMemberDemand={onGroupMemberDemand}
       groupMembersLoading={groupMembersLoading}
       groupMembersError={groupMembersError}
       groupMemberSearch={groupMemberSearch}

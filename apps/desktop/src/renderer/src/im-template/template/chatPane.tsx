@@ -554,6 +554,7 @@ export type ChatPaneProps = {
   onSeeInteractions?: (ids: string[], bannerOnly?: boolean) => void;
   preference: ConversationPreference | undefined;
   onLoadMoreGroupMembers?: () => void;
+  onGroupMemberDemand?: (group: string, active: boolean) => void;
   onAddGroupMember?: () => void;
   groupMembersLoading?: boolean;
   groupMembersError?: string | null;
@@ -777,6 +778,7 @@ function ChatPaneContent({
   onSeeInteractions,
   preference,
   onLoadMoreGroupMembers,
+  onGroupMemberDemand,
   onAddGroupMember,
   groupMembersLoading,
   groupMembersError,
@@ -1312,6 +1314,17 @@ function ChatPaneContent({
   // only backs the clear-conversation action.
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
   const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
+  const [rosterPanelGroup, setRosterPanelGroup] = useState<string | null>(null);
+  const onRosterPanelVisibility = useCallback((group: string, visible: boolean) => {
+    setRosterPanelGroup((previous) => (visible ? group : previous === group ? null : previous));
+  }, []);
+  const rosterGroup = conversation?.type === 'group' && !restrictedSource ? conversation.id : '';
+  const rosterNeeded = tabActive && Boolean(mentionMenu || rosterPanelGroup === rosterGroup);
+  useEffect(() => {
+    if (!rosterGroup || !rosterNeeded || !onGroupMemberDemand) return;
+    onGroupMemberDemand(rosterGroup, true);
+    return () => onGroupMemberDemand(rosterGroup, false);
+  }, [onGroupMemberDemand, rosterGroup, rosterNeeded]);
   const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
   const [slashMenu, setSlashMenu] = useState<
     (SlashEmojiTrigger & { editor: HTMLDivElement; activeIndex: number }) | null
@@ -6917,6 +6930,7 @@ function ChatPaneContent({
               getMemberChatShortcut={getAvatarShortcut}
               onMemberContextMenu={!selectionMode ? openAvatarMenu : undefined}
               onLoadMoreMembers={onLoadMoreGroupMembers}
+              onMemberVisibilityChange={onGroupMemberDemand ? onRosterPanelVisibility : undefined}
               onAddMember={onAddGroupMember}
               loadingMoreMembers={groupMembersLoading}
               loadingError={groupMembersError}

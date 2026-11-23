@@ -4051,10 +4051,6 @@ function MainWorkspace(): ReactElement {
     { groupCode: selectedUid, limit: 10, offset: 0 },
     { enabled: groupExtrasReady },
   );
-  const groupEssence = trpc.account.listGroupEssenceMessages.useQuery(
-    { groupCode: selectedUid, limit: 10, offset: 0 },
-    { enabled: groupExtrasReady },
-  );
   // 打开群聊时把该群全部精华 msgSeq 拉下来（只查本地 group_essence 表，不联网），
   // 供聊天窗口给对应消息打「精华」角标。
   const groupEssenceSeqs = trpc.account.listGroupEssenceSeqs.useQuery(
@@ -4069,25 +4065,76 @@ function MainWorkspace(): ReactElement {
       refetchIntervalInBackground: false,
     },
   );
-  // 尝试从 Web API 获取带消息内容的精华消息（需要在线账号/有效 cookie）
-  const groupEssencePage = trpc.account.getGroupEssencePageWithContent.useQuery(
-    { groupCode: selectedUid, pageStart: 0, pageLimit: GROUP_ESSENCE_ONLINE_LIMIT },
-    {
-      enabled: groupExtrasReady,
-      retry: false,
-      staleTime: 5 * 60 * 1000,
-      refetchInterval: () =>
-        messagesTabActive && sendAvailable
-          ? essenceRefreshInterval(essenceReceipts, essenceSourceKey, Number(selectedUid))
-          : false,
-      refetchIntervalInBackground: false,
-    },
+  const essenceInput = useMemo(
+    () => ({
+      ...pinSession.binding,
+      groupCode: selectedUid,
+      pageStart: 0,
+      pageLimit: GROUP_ESSENCE_ONLINE_LIMIT,
+    }),
+    [pinSession.binding, selectedUid],
   );
-  const groupEssenceWeb = { ...groupEssencePage, data: groupEssencePage.data?.messages };
+  const essenceOptions = {
+    retry: false,
+    staleTime: 5 * 60_000,
+    refetchInterval: () =>
+      messagesTabActive && sendAvailable
+        ? essenceRefreshInterval(essenceReceipts, essenceSourceKey, Number(selectedUid))
+        : (false as const),
+    refetchIntervalInBackground: false,
+  };
+  const groupEssenceStatus = trpc.account.getGroupEssencePageSequences.useQuery(essenceInput, {
+    ...essenceOptions,
+    enabled: groupExtrasReady && !essenceDialog,
+  });
+  const groupEssence = trpc.account.listGroupEssenceMessages.useQuery(
+    { ...pinSession.binding, groupCode: selectedUid, limit: 10, offset: 0 },
+    { enabled: Boolean(essenceDialog) || (groupExtrasReady && groupEssenceSeqs.isError) },
+  );
+  const groupEssencePage = trpc.account.getGroupEssencePageWithContent.useQuery(
+    essenceDialog ? essenceInput : { ...essenceInput, groupCode: '' },
+    { ...essenceOptions, enabled: Boolean(essenceDialog), cacheTime: 60_000 },
+  );
+  const fullEssenceSequences = useMemo(
+    () => groupEssencePage.data?.messages.map((item) => String(item.msgSeq)),
+    [groupEssencePage.data],
+  );
+  const essenceStatusKey = useMemo(
+    () => getQueryKey(trpc.account.getGroupEssencePageSequences, essenceInput, 'query'),
+    [essenceInput],
+  );
+  const fullEssenceComplete = groupEssencePage.data?.complete;
+  const fullEssenceUpdatedAt = groupEssencePage.dataUpdatedAt;
+  useEffect(() => {
+    if (!groupEssencePage.isSuccess || !fullEssenceSequences) return;
+    const savedAt = queryClient.getQueryState(essenceStatusKey)?.dataUpdatedAt ?? 0;
+    if (savedAt >= fullEssenceUpdatedAt) return;
+    queryClient.setQueryData(
+      essenceStatusKey,
+      { complete: fullEssenceComplete === true, sequences: fullEssenceSequences },
+      { updatedAt: fullEssenceUpdatedAt },
+    );
+  }, [
+    essenceStatusKey,
+    fullEssenceComplete,
+    fullEssenceSequences,
+    fullEssenceUpdatedAt,
+    groupEssencePage.isSuccess,
+    queryClient,
+  ]);
+  const preferFullEssence =
+    groupEssencePage.isSuccess && fullEssenceUpdatedAt >= groupEssenceStatus.dataUpdatedAt;
+  const onlineEssenceSequences = preferFullEssence
+    ? fullEssenceSequences
+    : groupEssenceStatus.data?.sequences;
+  const onlineEssenceUpdatedAt = preferFullEssence
+    ? fullEssenceUpdatedAt
+    : groupEssenceStatus.dataUpdatedAt;
   const completeOnlineEssence = hasCompleteEssenceSnapshot({
-    success: groupEssenceWeb.isSuccess,
-    complete: groupEssencePage.data?.complete === true,
-    updatedAt: groupEssenceWeb.dataUpdatedAt,
+    success: preferFullEssence || groupEssenceStatus.isSuccess,
+    complete:
+      (preferFullEssence ? fullEssenceComplete : groupEssenceStatus.data?.complete) === true,
+    updatedAt: onlineEssenceUpdatedAt,
     localUpdatedAt: Math.max(groupEssence.dataUpdatedAt, groupEssenceSeqs.dataUpdatedAt),
   });
   const effectiveEssenceSeqs = useMemo(
@@ -4099,7 +4146,7 @@ function MainWorkspace(): ReactElement {
             (groupEssence.data ?? [])
               .filter((item) => item.setStatus === 1)
               .map((item) => String(item.msgSeq)))),
-        ...(groupEssenceWeb.data ?? []).map((item) => String(item.msgSeq)),
+        ...(onlineEssenceSequences ?? []),
       ]),
     [
       essenceReceipts,
@@ -4107,7 +4154,7 @@ function MainWorkspace(): ReactElement {
       selectedUid,
       groupEssenceSeqs.data,
       groupEssence.data,
-      groupEssenceWeb.data,
+      onlineEssenceSequences,
       completeOnlineEssence,
     ],
   );
@@ -4132,14 +4179,16 @@ function MainWorkspace(): ReactElement {
             conv: selectedUid,
           }),
         });
-      useQQEssence.getState().reconcile(
-        essenceSourceKey,
-        Number(selectedUid),
-        groupEssenceSeqs.data ?? [],
-        groupEssenceSeqs.dataUpdatedAt,
-        (groupEssenceWeb.data ?? []).map((item) => String(item.msgSeq)),
-        groupEssenceWeb.dataUpdatedAt,
-      );
+      useQQEssence
+        .getState()
+        .reconcile(
+          essenceSourceKey,
+          Number(selectedUid),
+          groupEssenceSeqs.data ?? [],
+          groupEssenceSeqs.dataUpdatedAt,
+          onlineEssenceSequences ?? [],
+          onlineEssenceUpdatedAt,
+        );
     };
     reconcile();
     const deadlines = Object.values(essenceReceipts)
@@ -4161,8 +4210,8 @@ function MainWorkspace(): ReactElement {
     essenceReceipts,
     groupEssenceSeqs.data,
     groupEssenceSeqs.dataUpdatedAt,
-    groupEssenceWeb.data,
-    groupEssenceWeb.dataUpdatedAt,
+    onlineEssenceSequences,
+    onlineEssenceUpdatedAt,
     pushToast,
     messagesTabActive,
     setTimeout,
@@ -4203,7 +4252,13 @@ function MainWorkspace(): ReactElement {
       })),
     [groupLeftMembers.data, profileByUid],
   );
-  const groupMembersEnabled = Boolean(pinSession.binding && groupExtrasReady && messagesTabActive);
+  const [rosterGroup, setRosterGroup] = useState<string | null>(null);
+  const onGroupMemberDemand = useCallback((group: string, active: boolean) => {
+    setRosterGroup((previous) => (active ? group : previous === group ? null : previous));
+  }, []);
+  const groupMembersEnabled = Boolean(
+    pinSession.binding && groupExtrasReady && messagesTabActive && rosterGroup === selectedUid,
+  );
   const groupMembers = useInfiniteQuery({
     ...groupMemberPagesOptions(messageScope, isGroup ? selectedUid : '', (offset, limit) =>
       client.account.listGroupMembers.query({
@@ -4557,7 +4612,7 @@ function MainWorkspace(): ReactElement {
     ];
     resolveMembers(
       groupCode,
-      [...referencedUids, ...senderUinsWithoutUid(loaded)],
+      [...referencedUids, ...senderUinsWithoutUid(loaded), user.uid ? '' : user.identityValue],
       selectedMemberIdentities,
       () => selectionRef.current?.id === groupCode,
     );
@@ -4570,6 +4625,7 @@ function MainWorkspace(): ReactElement {
     resolveMembers,
     resolveProfiles,
     user.uid,
+    user.identityValue,
     groupInfoRevision,
     selectionRef,
   ]);
@@ -5270,11 +5326,6 @@ function MainWorkspace(): ReactElement {
             publisherAvatar: publisher?.avatarUrl,
           };
         }),
-        essenceMessages: projectGroupEssence(
-          groupEssence.data ?? [],
-          groupEssenceWeb.data ?? [],
-          completeOnlineEssence,
-        ),
         // 该群全部当前为精华的 msgSeq（本地数据库，用于消息右下角「精华」角标）。
         essenceSeqs: effectiveEssenceSeqs,
         levelConfigs: (groupLevelInfo.data?.levelConfigs ?? []).map((item) => ({
@@ -5304,11 +5355,7 @@ function MainWorkspace(): ReactElement {
     currentGroupMembers,
     groupBulletins.data,
     groupDetail.data,
-    groupEssence.data,
-    groupEssenceWeb.data,
-    groupEssenceSeqs.data,
     effectiveEssenceSeqs,
-    completeOnlineEssence,
     groupLevelInfo.data,
     groupExt.data,
     user,
@@ -10712,6 +10759,7 @@ function MainWorkspace(): ReactElement {
                             onBackContact={shell.backContact}
                             onBackGroup={shell.backGroup}
                             onLoadMoreGroupMembers={requestMoreGroupMembers}
+                            onGroupMemberDemand={onGroupMemberDemand}
                             groupMembersLoading={selectedGroupMembersLoading}
                             groupMembersError={selectedGroupMembersError}
                             groupMemberSearch={memberSearch}
@@ -11127,11 +11175,22 @@ function MainWorkspace(): ReactElement {
                   selectedUid === essenceDialog.groupCode ? (groupEssence.data ?? []) : []
                 ) as GroupEssenceWire[];
                 const essenceWeb =
-                  selectedUid === essenceDialog.groupCode ? (groupEssenceWeb.data ?? []) : [];
-                return projectGroupEssence(essence, essenceWeb, completeOnlineEssence);
+                  selectedUid === essenceDialog.groupCode
+                    ? (groupEssencePage.data?.messages ?? [])
+                    : [];
+                const complete = hasCompleteEssenceSnapshot({
+                  success: groupEssencePage.isSuccess,
+                  complete: fullEssenceComplete === true,
+                  updatedAt: fullEssenceUpdatedAt,
+                  localUpdatedAt: Math.max(
+                    groupEssence.dataUpdatedAt,
+                    groupEssenceSeqs.dataUpdatedAt,
+                  ),
+                });
+                return projectGroupEssence(essence, essenceWeb, complete);
               })()}
-              loading={groupEssence.isLoading || groupEssenceWeb.isLoading}
-              onlineError={groupEssenceWeb.isError}
+              loading={groupEssence.isLoading || groupEssencePage.isLoading}
+              onlineError={groupEssencePage.isError}
               onClose={() => setGroupSidebarPopover(null)}
               onJumpToMessage={(seq) => {
                 setGroupSidebarPopover(null);

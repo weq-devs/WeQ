@@ -935,13 +935,7 @@ export class GroupInfoService {
     pageStart = 0,
     pageLimit = 50,
   ): Promise<{ messages: GroupEssenceContentView[]; complete: boolean }> {
-    if (!this.webQueryService) throw new Error('在线群精华查询不可用');
-    const page = this.webQueryService.getGroupEssencePage
-      ? await this.webQueryService.getGroupEssencePage(groupCode, pageStart, pageLimit)
-      : {
-          messages: await this.webQueryService.getGroupEssence(groupCode, pageStart, pageLimit),
-          complete: false,
-        };
+    const page = await this.readOnlineEssencePage(groupCode, pageStart, pageLimit);
     return {
       complete: page.complete,
       messages: page.messages.map((msg: unknown) => {
@@ -970,6 +964,24 @@ export class GroupInfoService {
         };
       }),
     };
+  }
+
+  async getEssencePageSequences(groupCode: string, pageStart = 0, pageLimit = 50) {
+    const page = await this.readOnlineEssencePage(groupCode, pageStart, pageLimit);
+    return {
+      complete: page.complete,
+      sequences: page.messages.map((msg) => String((msg as { msg_seq: number }).msg_seq)),
+    };
+  }
+
+  private async readOnlineEssencePage(groupCode: string, pageStart: number, pageLimit: number) {
+    if (!this.webQueryService) throw new Error('在线群精华查询不可用');
+    return this.webQueryService.getGroupEssencePage
+      ? this.webQueryService.getGroupEssencePage(groupCode, pageStart, pageLimit)
+      : {
+          messages: await this.webQueryService.getGroupEssence(groupCode, pageStart, pageLimit),
+          complete: false,
+        };
   }
 
   /**

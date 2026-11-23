@@ -165,6 +165,7 @@ export function GroupInfoPanel({
   closing = false,
   conversation,
   onLoadMoreMembers,
+  onMemberVisibilityChange,
   loadingMoreMembers,
   loadingError,
   onRetryMembers,
@@ -193,6 +194,7 @@ export function GroupInfoPanel({
   closing?: boolean;
   conversation: GroupConversationView;
   onLoadMoreMembers?: () => void;
+  onMemberVisibilityChange?: (group: string, visible: boolean) => void;
   loadingMoreMembers?: boolean;
   loadingError?: string | null;
   onRetryMembers?: () => void;
@@ -234,6 +236,30 @@ export function GroupInfoPanel({
 }) {
   const active = useTabActive();
   const suspended = hidden || closing;
+  const memberPanelRef = useRef<HTMLElement | null>(null);
+  const groupId = conversation.id;
+  useEffect(() => {
+    const panel = memberPanelRef.current;
+    if (!active || suspended || !panel || !onMemberVisibilityChange) return;
+    let visible = false;
+    const setVisible = (value: boolean) => {
+      if (value === visible) return;
+      visible = value;
+      onMemberVisibilityChange(groupId, value);
+    };
+    if (typeof ResizeObserver === 'undefined') {
+      setVisible(true);
+      return () => setVisible(false);
+    }
+    const observer = new ResizeObserver(([entry]) =>
+      setVisible(Boolean(entry?.contentRect.width && entry.contentRect.height)),
+    );
+    observer.observe(panel);
+    return () => {
+      observer.disconnect();
+      setVisible(false);
+    };
+  }, [active, groupId, onMemberVisibilityChange, suspended]);
   const [rankingGroup, setRankingGroup] = useState<string | null>(null);
   const [memberMenu, setMemberMenu] = useState<{
     x: number;
@@ -628,6 +654,7 @@ export function GroupInfoPanel({
 
   return (
     <aside
+      ref={memberPanelRef}
       hidden={hidden}
       inert={closing}
       className={cn(
