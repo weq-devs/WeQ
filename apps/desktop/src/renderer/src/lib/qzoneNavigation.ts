@@ -41,7 +41,7 @@ export const QzoneShareForwardContext = createContext<{
     ark: string,
     target: MfTarget,
     binding: QQWriteBinding,
-  ) => Promise<undefined | 'unconfirmed'>;
+  ) => Promise<{ messageId: string } | undefined | 'unconfirmed'>;
 } | null>(null);
 
 /** 只接收可验证的空间永久链接，不从标题、摘要或图片链接推测身份。 */

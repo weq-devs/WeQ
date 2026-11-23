@@ -351,6 +351,8 @@ export interface MfTarget {
   groupAssistant?: boolean;
 }
 
+export type ForwardedConversationTarget = MfTarget & { messageId?: string };
+
 let idSeq = 0;
 
 /** 本地唯一 id。`crypto.randomUUID` 可用就用它，否则退化为递增序号。 */

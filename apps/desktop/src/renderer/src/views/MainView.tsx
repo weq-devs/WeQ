@@ -768,6 +768,10 @@ function MainWorkspace(): ReactElement {
     verifiedWindowRowsRef,
     cachedScrollRef,
     initialReadingPosition,
+    setInitialReadingPosition,
+    setLoadingNewerMessages,
+    entryLoadingRef,
+    entryScrollIntentRef,
     loadingNewerMessages,
     loaded,
     nativeMessageScrollRef,
@@ -6206,13 +6210,15 @@ function MainWorkspace(): ReactElement {
   const { run: runMessageLocate, cancel: cancelMessageLocate } = useMessageLocateFeedback(
     `${messageScope}:${shell.view}:${selectedUid ?? ''}`,
   );
-  const scrollToMsgId = useCallback(
-    (msgId: string, flash = true): boolean => {
-      const scroll = nativeMessageScrollRef.current;
-      return scroll ? revealTimelineMessage(scroll, msgId, flash) : false;
-    },
-    [nativeMessageScrollRef],
-  );
+  const scrollToMsgId = useStableCallback((msgId: string, flash: boolean = true): boolean => {
+    const scroll = nativeMessageScrollRef.current;
+    if (!scroll) return false;
+    // 本地发送占位被正式记录替换后，仍可使用发送时的 ID 定位。
+    const id = msgId.startsWith('optimistic-')
+      ? (templateMessages.find((message) => message.outgoingId === msgId)?.id ?? msgId)
+      : msgId;
+    return revealTimelineMessage(scroll, id, flash);
+  });
 
   // Rebuild the loaded window centred on `targetSeq` straight from the DB,
   // discarding whatever is loaded now. Keeps long jumps (reply to an ancient
@@ -6225,13 +6231,12 @@ function MainWorkspace(): ReactElement {
   // clickable 「此处有 N 条消息缺失 · 点击拉取」 divider, and Toast explains the
   // miss — i.e. the user can pull the missing messages instead of being dumped
   // back at the latest page. 普通未读跳转只要求找到区间内第一条真实消息。
-  // `conv`/`kind` are passed explicitly so it works right after a conversation
-  // switch (before selectionRef settles).
-  const centerWindowOnSeq = useCallback(
+  // 等会话选中后，按实际读取窗口的身份拒收迟到结果。
+  const centerWindowOnSeq = useStableCallback(
     (
       conv: string,
       kind: 'group' | 'c2c',
-      targetSeq: string,
+      targetSeq?: string,
       exactRecord?: ChatMsgWire,
       messageId?: string,
       mode?: ReplyJumpTarget['mode'],
@@ -6246,34 +6251,42 @@ function MainWorkspace(): ReactElement {
           const scope = messageScopeRef.current,
             binding = messageBindingRef.current,
             revision = conversationWindows.revision;
-          const previousSelection = selectionRef.current?.id === conv ? selectionRef.current : null;
-          if (!scope || !binding) return false;
+          const selection = selectionRef.current;
+          if (
+            !scope ||
+            !binding ||
+            selection?.id !== conv ||
+            selection.kind !== (kind === 'group' ? 'group' : 'direct')
+          )
+            return false;
+          const current = () =>
+            isCurrent() && scope === messageScopeRef.current && selectionRef.current === selection;
+          const query = {
+            ...binding,
+            readWindow: selection.readWindow,
+            deferReplyMedia: true,
+            kind,
+            conv,
+          };
           let before: ChatMsgWire[];
-          let after: ChatMsgWire[];
+          let after: ChatMsgWire[] = [];
           try {
-            [before, after] = await Promise.all([
-              // `< target+1` is `<= target`, so the centre message is included.
-              client.account.listBefore.query({
-                ...binding,
-                readWindow: previousSelection?.readWindow,
-                deferReplyMedia: true,
-                kind,
-                conv,
-                beforeSeq: String(BigInt(targetSeq) + 1n),
-                limit: PAGE_SIZE,
-              }),
-              client.account.listAfter.query({
-                ...binding,
-                readWindow: previousSelection?.readWindow,
-                deferReplyMedia: true,
-                kind,
-                conv,
-                afterSeq: targetSeq,
-                limit: PAGE_SIZE,
-              }),
-            ]);
+            if (targetSeq) {
+              [before, after] = await Promise.all([
+                // listBefore 不含边界，加 1 才能把目标算进这一页。
+                client.account.listBefore.query({
+                  ...query,
+                  beforeSeq: String(BigInt(targetSeq) + 1n),
+                  limit: PAGE_SIZE,
+                }),
+                client.account.listAfter.query({ ...query, afterSeq: targetSeq, limit: PAGE_SIZE }),
+              ]);
+            } else {
+              // 刚发出的卡片可能还未落库，先读最新页，再从时间线中定位回显。
+              before = await client.account.listLatest.query({ ...query, limit: PAGE_SIZE });
+            }
           } catch (err) {
-            if (!isCurrent() || scope !== messageScopeRef.current) return false;
+            if (!current()) return false;
             console.error('[centerWindowOnSeq] fetch failed', err);
             pushToast({
               tone: 'info',
@@ -6288,14 +6301,7 @@ function MainWorkspace(): ReactElement {
             });
             return false;
           }
-          if (
-            !isCurrent() ||
-            scope !== messageScopeRef.current ||
-            selectionRef.current?.id !== conv ||
-            (previousSelection !== null && selectionRef.current !== previousSelection)
-          ) {
-            return false; // switched away mid-flight
-          }
+          if (!current()) return false;
 
           const seen = new Set<string>();
           let merged: MessageWire[] = [];
@@ -6309,23 +6315,18 @@ function MainWorkspace(): ReactElement {
           if (exactRecord && !merged.some((message) => message.msgId === exactRecord.msgId))
             merged.unshift(toMessageWire(exactRecord));
           const exactId = messageId ?? exactRecord?.msgId;
-          const findTarget = () =>
-            mode === 'firstUnread'
-              ? firstUnreadMessage(merged, targetSeq)
-              : exactId
-                ? findTimelineMessageById(merged, exactId, targetSeq)
-                : merged.find((m) => matchesUnreadMessage(m, targetSeq, importantMessage));
+          const findTarget = () => {
+            if (mode === 'firstUnread' && targetSeq) return firstUnreadMessage(merged, targetSeq);
+            if (exactId) return findTimelineMessageById(merged, exactId, targetSeq);
+            if (targetSeq)
+              return merged.find((m) => matchesUnreadMessage(m, targetSeq, importantMessage));
+          };
           let target = findTarget();
 
           const autoContext = () =>
             preferenceValue('autoFetchMissingMessages') ||
             preferenceValue('autoFetchMissingContext');
-          const current = () =>
-            isCurrent() &&
-            scope === messageScopeRef.current &&
-            selectionRef.current?.id === conv &&
-            (previousSelection === null || selectionRef.current === previousSelection);
-          if (!target && autoContext()) {
+          if (!target && targetSeq && autoContext()) {
             try {
               const rows = await fetchMissingContext(
                 targetSeq,
@@ -6366,12 +6367,19 @@ function MainWorkspace(): ReactElement {
           }
           if (target) setMissingJumpSeq(null);
 
-          const atLatest = after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq) > 0n);
+          const atLatest =
+            after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq ?? '0') > 0n);
           // Update the live-subscription's window descriptor synchronously: a
           // db-changed tick between this setLoaded and the passive windowRef effect
           // must not see the stale (anchored, old-minSeq) descriptor and replace our
           // freshly-jumped window via refreshWindow's listFrom.
+          selection.explicitWindow = true;
+          entryLoadingRef.current = false;
+          entryScrollIntentRef.current = null;
+          cachedScrollRef.current = null;
+          pendingScrollRestoreRef.current = null;
           windowRef.current = { minSeq: merged[0]?.msgSeq ?? null, anchored: atLatest };
+          loadedRef.current = merged;
           verifiedWindowRowsRef.current = merged;
           loadedRevisionRef.current = revision;
           windowVerifiedAtRef.current = Date.now();
@@ -6379,14 +6387,22 @@ function MainWorkspace(): ReactElement {
           flushSync(() => {
             setLoaded(merged);
             setMessagesLoading(false);
+            setLoadingNewerMessages(false);
+            setInitialReadingPosition(undefined);
             setHasOlder(before.length >= PAGE_SIZE);
             setHasNewer(!atLatest);
             setAnchoredToLatest(atLatest);
           });
           // Exact row present → flash it. Otherwise fall back to the nearest real
           // message: the clickable gap divider sits right beside it.
-          const anchor = target ?? nearestBySeq(merged, targetSeq);
-          if (!target) {
+          if (!current()) return false;
+          if (!targetSeq && exactId) {
+            const positioned = scrollToMsgId(target ? timelineRowKey(target) : exactId);
+            if (!positioned) pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
+            return positioned;
+          }
+          const anchor = target ?? (targetSeq ? nearestBySeq(merged, targetSeq) : undefined);
+          if (!target && targetSeq) {
             setMissingJumpSeq(targetSeq);
             pushToast({
               tone: 'info',
@@ -6396,7 +6412,6 @@ function MainWorkspace(): ReactElement {
             });
           }
           if (anchor) {
-            if (!current()) return false;
             const scroll = nativeMessageScrollRef.current;
             if (readingPosition && scroll) {
               restoreReadingPosition(scroll, {
@@ -6415,26 +6430,6 @@ function MainWorkspace(): ReactElement {
         },
         notificationSource({ kind: 'conversation', conversationKind: kind, conv }),
       ),
-    [
-      scrollToMsgId,
-      nativeMessageScrollRef,
-      pushToast,
-      runMessageLocate,
-      setLoaded,
-      messageScopeRef,
-      messageBindingRef,
-      conversationWindows,
-      selectionRef,
-      windowRef,
-      verifiedWindowRowsRef,
-      loadedRevisionRef,
-      windowVerifiedAtRef,
-      setMessagesLoading,
-      setHasOlder,
-      setHasNewer,
-      setAnchoredToLatest,
-      setTimeout,
-    ],
   );
 
   // Scroll the loaded message list to a reply target, then briefly flash it. The
@@ -6646,6 +6641,8 @@ function MainWorkspace(): ReactElement {
     ): void => {
       setSearchDismissed(true);
       if (!conv) return;
+      pendingSearchJumpRef.current = null;
+      cancelMessageLocate();
       closeForwardWindows();
       if (!searchTarget?.retainChatRecords) setChatRecordsTarget(null);
       setGroupSidebarPopover(null);
@@ -6672,16 +6669,27 @@ function MainWorkspace(): ReactElement {
       }
       locateConversationInView(conv, searchTarget?.preferredView, Boolean(searchTarget));
       setArkFeedState(null);
-      if (messageId && messagesTabActive && selectionRef.current?.id === conv) {
+      const selection = selectionRef.current;
+      const alreadyOpen =
+        messagesTabActive &&
+        selection?.id === conv &&
+        selection.kind === (kind === 'group' ? 'group' : 'direct');
+      if (
+        messageId &&
+        alreadyOpen &&
+        !entryLoadingRef.current &&
+        !messagesLoading &&
+        (windowRef.current.anchored || !messageId.startsWith('optimistic-'))
+      ) {
         const exact = findTimelineMessageById(loadedRef.current, messageId, seq);
         if (scrollToMsgId(exact ? timelineRowKey(exact) : messageId)) {
-          cancelMessageLocate();
+          selection.explicitWindow = true;
           setMissingJumpSeq(null);
           shell.selectConversation(conv);
           return;
         }
       }
-      if (!seq) {
+      if (!seq && !messageId) {
         if (toastOnMissingSeq) {
           pushToast({
             tone: 'info',
@@ -6694,14 +6702,13 @@ function MainWorkspace(): ReactElement {
         shell.selectConversation(conv);
         return;
       }
-      if (messagesTabActive && selectionRef.current?.id === conv) {
+      if (alreadyOpen) {
         // Already open — jump straight away.
         shell.selectConversation(conv);
         void centerWindowOnSeq(conv, kind, seq, record, messageId);
         return;
       }
-      // Switch conversations; the listLatest effect performs the centred jump
-      // once the placeholder newest page lands.
+      // 等目标会话的窗口挂载后再执行定位。
       pendingSearchJumpRef.current = { conv, kind, seq, record, messageId };
       shell.selectConversation(conv);
     },
@@ -7173,10 +7180,16 @@ function MainWorkspace(): ReactElement {
   // 目标已是选中的会话，但从联系人等页面返回时不会重新触发会话首屏读取。
   useEffect(() => {
     const jump = pendingSearchJumpRef.current;
-    if (!messagesTabActive || !jump || jump.conv !== selectedUid) return;
+    if (
+      !messagesTabActive ||
+      !jump ||
+      jump.conv !== selectedUid ||
+      jump.kind !== (isGroup ? 'group' : 'c2c')
+    )
+      return;
     pendingSearchJumpRef.current = null;
     void centerWindowOnSeq(jump.conv, jump.kind, jump.seq, jump.record, jump.messageId);
-  }, [messagesTabActive, selectedUid, pendingSearchJumpRef, centerWindowOnSeq]);
+  }, [messagesTabActive, selectedUid, isGroup, pendingSearchJumpRef, centerWindowOnSeq]);
 
   useSearchDismissal(searchQuery, searchFocused, setSearchDismissed, setSearchFocused);
 
@@ -8478,7 +8491,7 @@ function MainWorkspace(): ReactElement {
     conversation: Conversation,
     payload: ArkPayload,
     binding?: QQWriteBinding,
-  ): Promise<undefined | 'unconfirmed'> {
+  ): Promise<{ messageId: string } | undefined | 'unconfirmed'> {
     const pushToast = sourceToastPush(conversationNotificationSource(conversation));
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
       pushToast({
@@ -8680,6 +8693,7 @@ function MainWorkspace(): ReactElement {
         });
         return 'unconfirmed';
       }
+      return { messageId: optimisticId };
     } catch (error) {
       // 失败不删卡：留着那张卡片 + 「发送失败」标识，比一个只闪现几秒的 toast 有用。
       patchOptimistic({
@@ -9965,7 +9979,14 @@ function MainWorkspace(): ReactElement {
       }
       setSettingsOpen(false);
       setForwardedConversations(null);
-      jumpToConvSeq(destination.kind, destination.id);
+      jumpToConvSeq(
+        destination.kind,
+        destination.id,
+        undefined,
+        false,
+        undefined,
+        destination.messageId,
+      );
     });
   };
 

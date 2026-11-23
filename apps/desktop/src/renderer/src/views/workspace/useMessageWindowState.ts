@@ -114,6 +114,7 @@ export function useMessageWindowState({
     id: string;
     kind: 'direct' | 'group';
     readWindow: MessageReadWindow;
+    explicitWindow?: true;
   } | null>(null);
   const setLoaded = useCallback((update: React.SetStateAction<MessageWire[]>) => {
     const scope = messageScopeRef.current;
@@ -375,7 +376,7 @@ export function useMessageWindowState({
   const pendingSearchJumpRef = useRef<{
     conv: string;
     kind: 'group' | 'c2c';
-    seq: string;
+    seq?: string;
     record?: ChatMsgWire;
     messageId?: string;
   } | null>(null);

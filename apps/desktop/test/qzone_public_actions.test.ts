@@ -150,8 +150,10 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
   };
   const send = vi
     .fn<NonNullable<ContextType<typeof QzoneShareForwardContext>>['send']>()
-    .mockResolvedValue(undefined);
-  send.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('测试发送失败'));
+    .mockResolvedValue({ messageId: 'optimistic-group-card' });
+  send
+    .mockResolvedValueOnce({ messageId: 'optimistic-friend-card' })
+    .mockRejectedValueOnce(new Error('测试发送失败'));
   await act(async () =>
     root.render(
       h(
@@ -209,7 +211,16 @@ it('公共空间统一操作顺序，保留初始已赞状态，回复和转发�
   expect(receipt).toBeTruthy();
   await act(async () => receipt!.click());
   expect(navigate.mock.calls).toEqual([
-    [{ kind: 'forwarded-conversations', targets: [friend, group], binding }],
+    [
+      {
+        kind: 'forwarded-conversations',
+        targets: [
+          { ...friend, messageId: 'optimistic-friend-card' },
+          { ...group, messageId: 'optimistic-group-card' },
+        ],
+        binding,
+      },
+    ],
   ]);
   space.mockClear();
   act(() => host.querySelector<HTMLButtonElement>('.weq-qzn-person-info > button')!.click());

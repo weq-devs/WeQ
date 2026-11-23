@@ -11,7 +11,7 @@ import { useTabActive } from './RetainedTabs.shared';
 import { useToastApi } from './Toast.shared';
 import { QqArk } from './ark/QqArk';
 import { MergeForwardTargets } from './mergeForward/MergeForwardTargets';
-import type { MfTarget } from './mergeForward/model';
+import type { ForwardedConversationTarget } from './mergeForward/model';
 import '../styles/qzone-actions.css';
 
 type ShareResult = Awaited<ReturnType<typeof client.account.qqActions.qzoneOrdinaryShare.mutate>>;
@@ -44,7 +44,11 @@ export function QzoneShareDialog({
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState(() => new Set<string>());
   const [outcomes, setOutcomes] = useState<
-    { target: MfTarget; status: 'sent' | 'unconfirmed' | 'failed'; error?: string }[]
+    {
+      target: ForwardedConversationTarget;
+      status: 'sent' | 'unconfirmed' | 'failed';
+      error?: string;
+    }[]
   >([]);
   const sourceTargets = forward?.targets;
   const targets = useMemo(() => {
@@ -72,8 +76,12 @@ export function QzoneShareDialog({
     const failed = new Set<string>();
     for (const target of picked) {
       try {
-        const status = (await forward.send(current.result.ark, target, binding)) ?? 'sent';
-        next.push({ target, status });
+        const result = await forward.send(current.result.ark, target, binding);
+        next.push(
+          result === 'unconfirmed'
+            ? { target, status: 'unconfirmed' }
+            : { target: { ...target, ...result }, status: 'sent' },
+        );
       } catch (error) {
         failed.add(target.id);
         next.push({
@@ -93,7 +101,11 @@ export function QzoneShareDialog({
         title: `已转发到 ${next.length} 个会话`,
         source: notificationSource(
           { kind: 'forwarded-conversations', targets: next.map(({ target }) => target), binding },
-          next.length === 1 ? '打开转发会话' : '选择转发会话',
+          next.length > 1
+            ? '选择转发会话'
+            : next[0]?.target.messageId
+              ? '定位已转发的消息'
+              : '打开转发会话',
           binding,
         ),
       });

@@ -24,7 +24,9 @@ const f = vi.hoisted(() => ({
   cancel: vi.fn(async () => {}),
   readRecovery: () => undefined,
   appliedRecovery: () => {},
-  center: async () => false,
+  center: vi.fn(async (..._args: unknown[]) => false),
+  listBefore: vi.fn(async () => []),
+  listAfter: vi.fn(async () => []),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
@@ -39,6 +41,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         },
       },
       cancelMessageRead: { mutate: f.cancel },
+      listBefore: { query: f.listBefore },
+      listAfter: { query: f.listAfter },
     },
   },
 }));
@@ -62,6 +66,7 @@ async function fixture() {
   const direct = createTemplateDemoData().conversations.find((row) => row.type === 'direct')!;
   let configId = 'window-source';
   let conversation = { ...direct, id: 'u_first' };
+  let resume = false;
   let current!: ReturnType<typeof useMessageWindowState>;
   function Probe() {
     const binding = { expectedAccountUin: '90001', expectedAccountConfigId: configId };
@@ -80,7 +85,7 @@ async function fixture() {
       isGroup: false,
       selectedMessageWindowKey: conversationWindowKey(state.messageScope, 'c2c', conversation.id),
       messagesTabActive: true,
-      resumeReadingPosition: false,
+      resumeReadingPosition: resume,
       onScopeChange: useCallback(() => {}, []),
     });
     useMessageReadSelection(state, {
@@ -95,16 +100,17 @@ async function fixture() {
       isDirect: true,
       isGroup: false,
       messagesTabActive: true,
-      resumeReadingPosition: false,
+      resumeReadingPosition: resume,
       centerWindowOnSeq: f.center,
     });
     return null;
   }
   const root = createRoot(document.createElement('div'));
   const queryClient = new QueryClient();
-  const render = async (next?: { config?: string; conv?: string }) => {
+  const render = async (next?: { config?: string; conv?: string; resume?: boolean }) => {
     if (next?.config) configId = next.config;
     if (next?.conv) conversation = { ...direct, id: next.conv };
+    if (next?.resume !== undefined) resume = next.resume;
     await act(async () =>
       root.render(
         createElement(QueryClientProvider, { client: queryClient }, createElement(Probe)),
@@ -168,6 +174,31 @@ it('换会话即时清掉旧正文，迟到首屏不能覆盖当前窗口', asyn
   expect(c.current.loaded).toEqual([]);
   await act(async () => second.onData(stage('新会话')));
   expect(c.current.loaded.map((row) => row.msgId)).toEqual(['新会话']);
+});
+
+it.each([
+  { source: '带序号的历史消息', seq: '80' },
+  { source: '刚发出的卡片', seq: undefined },
+])('$source 的定位优先于迟到的续读设置，普通打开仍会续读', async ({ seq }) => {
+  const c = await fixture();
+  await act(async () => f.subscriptions[0].onData(stage('首屏')));
+  const conv = 'u_second';
+  const positionKey = conversationWindowKey(c.current.messageScope, 'c2c', conv);
+  c.current.conversationWindows.setPosition(positionKey, { anchorSeq: '12', scrollTop: 100 });
+  const target = { conv, kind: 'c2c' as const, seq, messageId: 'target' };
+  const result = Promise.withResolvers<boolean>();
+  f.center.mockReturnValueOnce(result.promise);
+  c.current.pendingSearchJumpRef.current = target;
+  await c.render({ conv });
+  expect(f.center).toHaveBeenCalledWith(conv, 'c2c', seq, undefined, 'target');
+  await c.render({ resume: true });
+  expect(f.listBefore).not.toHaveBeenCalled();
+  expect(c.current.messagesLoading).toBe(true);
+  await act(async () => result.resolve(true));
+  expect(c.current.messagesLoading).toBe(false);
+  await c.render({ conv: 'u_first' });
+  await c.render({ conv });
+  expect(f.listBefore).toHaveBeenCalledWith(expect.objectContaining({ conv, beforeSeq: '13' }));
 });
 
 it('切换数据源废弃旧缓存、旧首屏和预取实例', async () => {

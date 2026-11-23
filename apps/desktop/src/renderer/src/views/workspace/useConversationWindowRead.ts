@@ -52,7 +52,7 @@ type EntryInput = SelectionInput & {
   centerWindowOnSeq: (
     conv: string,
     kind: 'group' | 'c2c',
-    seq: string,
+    seq?: string,
     record?: ChatMsgWire,
     messageId?: string,
   ) => Promise<boolean>;
@@ -182,11 +182,13 @@ export function useConversationWindowSelection(
         onScopeChange();
       }
     }
+    if (pendingSearchJumpRef.current?.conv !== activeConversationId)
+      pendingSearchJumpRef.current = null;
+    const openingMessage =
+      pendingSearchJumpRef.current?.conv === selectedUid &&
+      pendingSearchJumpRef.current.kind === (isGroup ? 'group' : 'c2c');
     let cached =
-      messageScope &&
-      selectedUid &&
-      (isDirect || isGroup) &&
-      pendingSearchJumpRef.current?.conv !== selectedUid
+      messageScope && selectedUid && (isDirect || isGroup) && !openingMessage
         ? conversationWindows.get(
             conversationWindowKey(messageScope, isGroup ? 'group' : 'c2c', selectedUid),
           )
@@ -203,7 +205,7 @@ export function useConversationWindowSelection(
       selectedUid &&
       messageScope &&
       (isDirect || isGroup) &&
-      pendingSearchJumpRef.current?.conv !== selectedUid
+      !openingMessage
     ) {
       cached = readRecentMessageCache(cache, messageScope, selectedMessageWindowKey);
       if (cached) conversationWindows.put(selectedMessageWindowKey, cached);
@@ -393,7 +395,8 @@ export function useConversationWindowEntry(
     const limit = isGroup ? GROUP_INITIAL_PAGE_SIZE : PAGE_SIZE;
     const active = () =>
       !cancelled && messageScopeRef.current === scope && selectionRef.current === selection;
-    const valid = () => active() && windowRef.current === expectedWindow;
+    const valid = () =>
+      active() && !selection?.explicitWindow && windowRef.current === expectedWindow;
     const finishEntry = () => {
       if (entryScrollIntentRef.current?.selection === selection)
         entryScrollIntentRef.current = null;
@@ -403,17 +406,20 @@ export function useConversationWindowEntry(
       commitPaging();
     };
     const jump = pendingSearchJumpRef.current;
-    if (jump && jump.conv === conv) {
+    if (jump && jump.conv === conv && jump.kind === kind && selection) {
       pendingSearchJumpRef.current = null;
+      selection.explicitWindow = true;
+      entryLoadingRef.current = true;
       void centerWindowOnSeq(jump.conv, jump.kind, jump.seq, jump.record, jump.messageId).finally(
         () => {
-          if (!cancelled && messageScopeRef.current === scope) setMessagesLoading(false);
+          if (messageScopeRef.current === scope && selectionRef.current === selection)
+            finishEntry();
         },
       );
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
+    // 设置迟到时，当前会话的显式定位仍接管首屏。
+    if (selection?.explicitWindow) return;
     const candidate = conversationWindows.get(readKey);
     const recoveryPosition = readRecoveryPosition(conv, kind);
     if (recoveryPosition) {
@@ -489,6 +495,7 @@ export function useConversationWindowEntry(
           current: valid,
           active,
           settled: () => {
+            if (selection?.explicitWindow) return;
             finishEntry();
             if (!valid() || conversationWindows.changedSince(readKey, revision))
               void refreshWindow();

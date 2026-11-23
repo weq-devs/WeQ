@@ -23,7 +23,7 @@ import { Modal } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { WindowedList } from '../WindowedList';
 import { cn } from '../../im-template/template/classNames';
-import type { MfTarget } from './model';
+import type { ForwardedConversationTarget, MfTarget } from './model';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import '../../styles/merge-forward-editor.css';
 import '../../styles/composition-targets.css';
@@ -205,8 +205,8 @@ export function ForwardedConversationsDialog({
   onOpenTarget,
   onClose,
 }: {
-  targets: readonly MfTarget[];
-  onOpenTarget: (target: MfTarget) => void;
+  targets: readonly ForwardedConversationTarget[];
+  onOpenTarget: (target: ForwardedConversationTarget) => void;
   onClose: () => void;
 }): ReactElement {
   const titleId = useId();
