@@ -446,7 +446,7 @@ export function tempSourceGroupCode(c: RecentContactWire): string | null {
  */
 export function tempSourceGroupName(
   c: RecentContactWire,
-  groupNameByCode: Map<string, string>,
+  groupNameByCode: Pick<ReadonlyMap<string, string>, 'get'>,
 ): string | null {
   const code = tempSourceGroupCode(c);
   return code ? groupNameByCode.get(code) || code : null;
@@ -459,14 +459,17 @@ export function previewElementKind(preview: unknown): string | null {
   return typeof kind === 'string' ? kind : null;
 }
 
+type NameIndex = Pick<ReadonlyMap<string, string>, 'get'>;
+type ContactProfiles = ReadonlyMap<string, Pick<UserProfileWire, 'nick' | 'remark'>>;
+
 export function contactToConversation(
   c: RecentContactWire,
   user: User,
-  groupNameByCode: Map<string, string>,
-  botUids: Set<string>,
-  displayNames: ReadonlyMap<string, string> = new Map(),
-  groupNames: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map(),
-  profiles: ReadonlyMap<string, Pick<UserProfileWire, 'nick' | 'remark'>> = new Map(),
+  groupNameByCode: NameIndex,
+  botUids: ReadonlySet<string>,
+  displayNames: NameIndex = new Map(),
+  groupNames: Pick<ReadonlyMap<string, NameIndex>, 'get'> = new Map(),
+  profiles: ContactProfiles = new Map(),
 ): Conversation | null {
   const kind = chatTypeKind(c.chatType);
   const title = contactTitle(c, profiles.get(c.targetUid));
@@ -563,4 +566,91 @@ export function contactToConversation(
   }
 
   return null;
+}
+
+interface ContactProjectionSources {
+  groupTitles: ReadonlyMap<string, string>;
+  displayNames: ReadonlyMap<string, string>;
+  groupNames: ReadonlyMap<string, ReadonlyMap<string, string>>;
+  profiles: ContactProfiles;
+  botUids: ReadonlySet<string>;
+}
+
+type ProjectionNameSource = 'groupTitles' | 'displayNames' | 'groupNames';
+type ProjectionNameRead = {
+  source: ProjectionNameSource;
+  group: string;
+  id: string;
+  value: string | undefined;
+};
+
+function readProjectionName(
+  sources: ContactProjectionSources,
+  source: ProjectionNameSource,
+  id: string,
+  group: string,
+) {
+  return source === 'groupNames' ? sources.groupNames.get(group)?.get(id) : sources[source].get(id);
+}
+
+function projectionNamesUnchanged(sources: ContactProjectionSources, names: ProjectionNameRead[]) {
+  for (const { source, group, id, value } of names)
+    if (readProjectionName(sources, source, id, group) !== value) return false;
+  return true;
+}
+
+/** 灰条会按实际内容读取 UID 或 QQ 号。记录用过的名称，单个资料变化不重解整批预览。 */
+export function createRecentContactProjection(user: User) {
+  const rows = new WeakMap<
+    RecentContactWire,
+    {
+      names: ProjectionNameRead[];
+      hasProfile: boolean;
+      nick: UserProfileWire['nick'] | undefined;
+      remark: UserProfileWire['remark'] | undefined;
+      bot: boolean;
+      row: Conversation | null;
+    }
+  >();
+  return (contact: RecentContactWire, sources: ContactProjectionSources) => {
+    const profile = sources.profiles.get(contact.targetUid);
+    const bot = sources.botUids.has(contact.targetUid);
+    const previous = rows.get(contact);
+    if (
+      previous &&
+      previous.hasProfile === Boolean(profile) &&
+      previous.nick === profile?.nick &&
+      previous.remark === profile?.remark &&
+      previous.bot === bot &&
+      projectionNamesUnchanged(sources, previous.names)
+    )
+      return previous.row;
+
+    const names: ProjectionNameRead[] = [];
+    const track = (source: ProjectionNameSource, group = ''): NameIndex => ({
+      get(id) {
+        const value = readProjectionName(sources, source, id, group);
+        names.push({ source, group, id, value });
+        return value;
+      },
+    });
+    const row = contactToConversation(
+      contact,
+      user,
+      track('groupTitles'),
+      sources.botUids,
+      track('displayNames'),
+      { get: (group) => track('groupNames', group) },
+      sources.profiles,
+    );
+    rows.set(contact, {
+      names,
+      hasProfile: Boolean(profile),
+      nick: profile?.nick,
+      remark: profile?.remark,
+      bot,
+      row,
+    });
+    return row;
+  };
 }

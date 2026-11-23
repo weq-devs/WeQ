@@ -2,11 +2,103 @@ import { expect, it, vi } from 'vitest';
 import { createConversationProjection } from '../src/renderer/src/lib/conversationProjection';
 import { createTemplateDemoData } from './support/templateDemoData';
 import type { Conversation } from '../src/renderer/src/im-template/template/types';
+import { createRecentContactProjection } from '../src/renderer/src/views/workspace/identity';
+import type { RecentContactWire } from '../src/renderer/src/views/workspace/types';
 
 const demo = createTemplateDemoData();
 const group = demo.conversations.find((row) => row.type === 'group')!;
 const defaults = { pinned: false, muted: false, blocked: false };
 const emptyDirectory = { pinStateKnown: false, activityTime: 0, highlights: null };
+
+function contactRow(
+  targetUid: string,
+  overrides: Partial<RecentContactWire> = {},
+): RecentContactWire {
+  return {
+    chatType: 2,
+    msgSeq: '1',
+    senderUid: 'u_peer',
+    targetUid,
+    targetUin: targetUid,
+    sendTime: '1700000000',
+    topTime: '0',
+    pinned: false,
+    preview: { kind: 'text', textContent: '消息' },
+    senderDisplayName: '',
+    senderNick: '',
+    targetDisplayName: '',
+    senderRemark: '',
+    targetAvatar: '',
+    targetRemark: '',
+    targetGroupNick: '',
+    notifyLevel: 1,
+    tempSourceGroupCode: '0',
+    ...overrides,
+  };
+}
+
+it('四千行目录的等值资料回填保留引用，单个群名片变化只重建对应会话', () => {
+  const project = createRecentContactProjection(demo.user);
+  const rows = Array.from({ length: 4000 }, (_, index) => contactRow(String(10_000 + index)));
+  const sources = {
+    groupTitles: new Map(rows.map((row) => [row.targetUid, row.targetUid])),
+    displayNames: new Map([['u_peer', '全局名称']]),
+    groupNames: new Map(rows.map((row) => [row.targetUid, new Map([['u_peer', '群名片']])])),
+    profiles: new Map<string, { nick: string; remark: string }>(),
+    botUids: new Set<string>(),
+  };
+  const first = rows.map((row) => project(row, sources));
+  const next = {
+    ...sources,
+    groupNames: new Map(
+      rows.map((row) => [
+        row.targetUid,
+        new Map([['u_peer', row.targetUid === '12000' ? '新群名片' : '群名片']]),
+      ]),
+    ),
+  };
+  const after = rows.map((row) => project(row, next));
+  expect(after.filter((row, index) => row !== first[index])).toEqual([after[2000]]);
+  expect(after[2000]?.lastMessage?.senderDisplayName).toBe('新群名片');
+});
+
+it('灰条中从元素取出的 QQ 号及临时会话来源名变化后刷新，缺失资料到达不沿用旧投影', () => {
+  const project = createRecentContactProjection(demo.user);
+  const tip = contactRow('123', {
+    preview: {
+      kind: 'grayTipPoke',
+      grayTipXmlContent: '<gtip><qq uin="u_peer"/><nor txt="戳了戳"/><qq uin="u_other"/></gtip>',
+      actionAttributes: [{ key: 'uin_str1', value: '10001' }],
+    },
+  });
+  const direct = contactRow('u_other', {
+    chatType: 100,
+    targetUin: '20001',
+    tempSourceGroupCode: '123',
+    targetGroupNick: '临时群昵称',
+  });
+  const sources = {
+    groupTitles: new Map([['123', '原群名']]),
+    displayNames: new Map<string, string>(),
+    groupNames: new Map<string, Map<string, string>>(),
+    profiles: new Map<string, { nick: string; remark: string }>(),
+    botUids: new Set<string>(),
+  };
+  const before = project(tip, sources);
+  expect(before?.lastMessage?.body).toContain('10001');
+  const renamed = {
+    ...sources,
+    displayNames: new Map([['10001', '本地备注']]),
+    groupTitles: new Map([['123', '新群名']]),
+    profiles: new Map([['u_other', { nick: '好友名称', remark: '好友备注' }]]),
+  };
+  expect(project(tip, renamed)?.lastMessage?.body).toContain('本地备注');
+  expect(project(direct, sources)?.otherUser?.displayName).toBe('临时群昵称');
+  expect(project(direct, renamed)).toMatchObject({
+    otherUser: { displayName: '好友备注' },
+    tempSourceGroupName: '新群名',
+  });
+});
 
 it('未变目录输入复用投影，等值元数据保留行与嵌套引用，基础资料变化仍替换', () => {
   const cache = createConversationProjection(

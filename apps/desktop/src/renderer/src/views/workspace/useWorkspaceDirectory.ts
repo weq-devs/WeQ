@@ -41,6 +41,7 @@ import {
   GROUP_NOTIFY_ACTION,
   groupNotifyToGroupRequest,
   contactToConversation,
+  createRecentContactProjection,
 } from './identity';
 
 type QueryData<T> = { data?: T };
@@ -346,12 +347,12 @@ export function useWorkspaceDirectory({
   const conversationRowsRef = useRef<Conversation[]>([]);
   const recentConversationCache = useMemo(
     () => ({
-      rows: new WeakMap<RecentContactWire, Conversation | null>(),
+      recent: createRecentContactProjection(user),
       projection: createConversationProjection<GroupDetailWire>((detail, previous) =>
         groupDetailToConversation(detail, previous, user),
       ),
     }),
-    [user, groupNameByCode, botUids, previewDisplayNames, previewGroupNames, profileByUid],
+    [user],
   );
   const baseConversations = useMemo(() => {
     const groups = (allGroups.data ?? []) as GroupDetailWire[];
@@ -364,6 +365,13 @@ export function useWorkspaceDirectory({
     const listedCodes = new Set(
       groups.filter((detail) => detail.directory).map((detail) => detail.groupCode),
     );
+    const sources = {
+      groupTitles: groupNameByCode,
+      displayNames: previewDisplayNames,
+      groupNames: previewGroupNames,
+      profiles: profileByUid,
+      botUids,
+    };
     const recentConversations = recentContactsData
       .filter((c) => {
         const kind = classifyChatType(c.chatType);
@@ -371,21 +379,7 @@ export function useWorkspaceDirectory({
         // 隐藏会话：在 hidden_session_storage_table_v1 里有记录的，不出现在主列表
         return !hiddenUidSet.has(c.targetUid);
       })
-      .map((contact) => {
-        if (recentConversationCache.rows.has(contact))
-          return recentConversationCache.rows.get(contact)!;
-        const mapped = contactToConversation(
-          contact,
-          user,
-          groupNameByCode,
-          botUids,
-          previewDisplayNames,
-          previewGroupNames,
-          profileByUid,
-        );
-        recentConversationCache.rows.set(contact, mapped);
-        return mapped;
-      })
+      .map((contact) => recentConversationCache.recent(contact, sources))
       .filter((conversation): conversation is Conversation => conversation !== null)
       .map((conversation) =>
         conversation.type === 'group' && directoryKnown

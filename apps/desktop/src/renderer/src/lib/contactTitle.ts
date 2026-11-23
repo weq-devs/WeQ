@@ -42,8 +42,8 @@ export function contactTitle(
 
 export function contactSenderName(
   contact: ContactTitleFields,
-  profiles: ReadonlyMap<string, string>,
-  members?: ReadonlyMap<string, string>,
+  profiles: Pick<ReadonlyMap<string, string>, 'get'>,
+  members?: Pick<ReadonlyMap<string, string>, 'get'>,
 ): string {
   const uid = contact.senderUid ?? '';
   const resolved =
