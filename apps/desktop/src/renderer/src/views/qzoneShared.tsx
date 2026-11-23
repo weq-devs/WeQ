@@ -390,6 +390,7 @@ export function QzoneMediaGrid({
       {preview !== null ? (
         <MediaPreview
           items={items}
+          livePhotoToggle
           initialIndex={preview}
           active={navigation?.previewVisible ?? true}
           onClose={() => {

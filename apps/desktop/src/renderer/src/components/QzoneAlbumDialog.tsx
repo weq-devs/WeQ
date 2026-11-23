@@ -187,6 +187,7 @@ export function QzoneAlbumDestination({
   ) : (
     <MediaPreview
       items={items}
+      livePhotoToggle
       label={media?.kind === 'video' ? '相册视频' : '相册照片'}
       onClose={onClose}
       renderActions={() => (

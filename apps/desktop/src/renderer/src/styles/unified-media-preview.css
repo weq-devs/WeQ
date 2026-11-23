@@ -33,6 +33,10 @@ html[data-theme='dark'] .weq-lightbox-layer.weq-unified-preview {
   background: color-mix(in srgb, var(--weq-fg-primary) 10%, transparent);
   color: var(--weq-fg-primary);
 }
+.weq-unified-preview .weq-lightbox-action[aria-pressed='true']:not(:disabled) {
+  background: var(--weq-accent-solid);
+  color: var(--weq-accent-solid-foreground);
+}
 .weq-unified-preview .weq-lightbox-close {
   background: transparent;
   color: var(--weq-fg-primary);

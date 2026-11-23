@@ -8,7 +8,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { ChevronLeft, ChevronRight, Copy, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CircleDot, Copy, RefreshCw } from 'lucide-react';
 import { interactiveMediaUrl } from '../lib/resourceUrl';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import { MediaPreviewShell } from './MediaPreviewShell';
@@ -192,6 +192,7 @@ export function MediaPreview(options: MediaPreviewOptions) {
     <RenderDocumentContext.Provider value={ownerDocument}>
       <MediaPreviewItem
         item={item}
+        livePhotoToggle={options.livePhotoToggle}
         ownerDocument={ownerDocument}
         active={active}
         onClose={close}
@@ -234,7 +235,7 @@ export function MediaPreview(options: MediaPreviewOptions) {
 }
 
 function MediaPreviewItem(props: Parameters<typeof MediaPreviewItemBody>[0]) {
-  const { item } = props;
+  const { item, livePhotoToggle } = props;
   const source = useMemo(
     () =>
       notificationSource(
@@ -242,12 +243,12 @@ function MediaPreviewItem(props: Parameters<typeof MediaPreviewItemBody>[0]) {
           kind: 'local',
           open: () => {
             window.focus();
-            return openMediaPreview({ items: [item] });
+            return openMediaPreview({ items: [item], livePhotoToggle });
           },
         },
         '返回这项媒体',
       ),
-    [item],
+    [item, livePhotoToggle],
   );
   return (
     <NotificationSourceProvider source={source}>
@@ -257,7 +258,8 @@ function MediaPreviewItem(props: Parameters<typeof MediaPreviewItemBody>[0]) {
 }
 
 function MediaPreviewItemBody({
-  item,
+  item: media,
+  livePhotoToggle,
   ownerDocument,
   active,
   onClose,
@@ -270,6 +272,7 @@ function MediaPreviewItemBody({
   business,
 }: {
   item: PreviewMedia;
+  livePhotoToggle?: boolean;
   ownerDocument: Document;
   active: boolean;
   onClose: () => void;
@@ -282,6 +285,16 @@ function MediaPreviewItemBody({
   business: ReactNode;
 }) {
   const notificationToast = useToastApi();
+  const [staticPhotoKey, setStaticPhotoKey] = useState<string>();
+  const livePhotoPoster =
+    livePhotoToggle && media.kind === 'video' && media.isLivePhoto === true
+      ? media.poster
+      : undefined;
+  const staticPhoto = staticPhotoKey === media.key ? livePhotoPoster : undefined;
+  const showingStaticPhoto = Boolean(staticPhoto);
+  const item: PreviewMedia = staticPhoto
+    ? { key: media.key, kind: 'image', src: staticPhoto, title: media.title }
+    : media;
   const [resolved, setResolved] = useState<{
     key: string;
     src: string;
@@ -297,7 +310,8 @@ function MediaPreviewItemBody({
   const originalProgress = useTransferProgress(originalRequest?.id);
   const autoOriginal = useClientPreferences(() => preferenceValue('autoDownloadPreviewOriginal'));
   const dataSaver = useDataSaver((state) => state.enabled);
-  const current = resolved?.key === item.key ? resolved : item;
+  const resolvedItem = !showingStaticPhoto && resolved?.key === item.key ? resolved : undefined;
+  const current = resolvedItem ?? item;
   const original = item.originalImage;
   const sources = [
     ...new Set(
@@ -313,7 +327,7 @@ function MediaPreviewItemBody({
   const previewSrc = resourceForRenderDocument(sources[sourceIndex] ?? '', ownerDocument);
   const source = originalSource ?? sources[sourceIndex] ?? '';
   const src = resourceForRenderDocument(source, ownerDocument);
-  const zoom = useZoomPan(`${item.key}:${attempt}`, {
+  const zoom = useZoomPan(`${item.key}:${attempt}:${showingStaticPhoto}`, {
     clickZoom: current.kind === 'image',
     layoutScale: current.kind === 'image',
     onSwipe: onMove
@@ -385,11 +399,14 @@ function MediaPreviewItemBody({
     setStatus('loading');
   }, [eventKey]);
   useLayoutEffect(() => {
+    setStaticPhotoKey(undefined);
+  }, [media.key]);
+  useLayoutEffect(() => {
     setSourceIndex(0);
     setDetailError(false);
     setAttempt(0);
     setRequest(undefined);
-  }, [item.key]);
+  }, [item.key, showingStaticPhoto]);
   const measure = useCallback(() => {
     if (!image.current) return;
     const { offsetWidth: width, offsetHeight: height } = image.current;
@@ -468,7 +485,7 @@ function MediaPreviewItemBody({
     );
   }
   // 等待视频原片时不把封面或占位来源误挂到播放器。
-  const waiting = Boolean(item.load && item.kind === 'video' && resolved?.key !== item.key);
+  const waiting = Boolean(item.load && item.kind === 'video' && !resolvedItem);
   return (
     <MediaPreviewShell
       title={title}
@@ -503,6 +520,17 @@ function MediaPreviewItemBody({
         <>
           <div className="weq-lightbox-actions">
             <MediaZoomControls zoom={zoom} disabled={!ready} />
+            {livePhotoPoster ? (
+              <button
+                type="button"
+                className="weq-lightbox-action"
+                aria-pressed={!showingStaticPhoto}
+                onClick={() => setStaticPhotoKey(showingStaticPhoto ? undefined : media.key)}
+              >
+                <CircleDot size={16} aria-hidden />
+                实况
+              </button>
+            ) : null}
             <span ref={setOcrActions} style={{ display: 'contents' }} />
             {original && usingThumbnail ? (
               originalPending ? (
@@ -533,7 +561,7 @@ function MediaPreviewItemBody({
             {item.saveSource !== null &&
             (!original || ready) &&
             ((!waiting &&
-              (!item.load || resolved?.key === item.key || detailError) &&
+              (!item.load || resolvedItem || detailError) &&
               source &&
               !source.startsWith('blob:')) ||
               item.saveSource) ? (
@@ -543,9 +571,7 @@ function MediaPreviewItemBody({
                   originalSource || !item.saveSource
                     ? {
                         kind: 'url',
-                        url:
-                          originalSource ??
-                          (resolved?.key === item.key ? resolved.saveSrc : source),
+                        url: originalSource ?? resolvedItem?.saveSrc ?? source,
                         name: item.title,
                         progressTarget: item.progressTarget,
                       }
@@ -556,7 +582,7 @@ function MediaPreviewItemBody({
                 className="weq-lightbox-action"
                 label={
                   item.saveLabel ??
-                  (usingThumbnail || (detailError && resolved?.key !== item.key)
+                  (usingThumbnail || (detailError && !resolvedItem)
                     ? '保存预览图'
                     : current.kind === 'image'
                       ? '保存图片'
@@ -655,12 +681,12 @@ function MediaPreviewItemBody({
                   if (sourceIndex + 1 < sources.length) {
                     setSourceIndex((value) => value + 1);
                     setStatus('loading');
-                  } else if (resolved?.key === item.key && resolved.src !== item.src && item.src) {
+                  } else if (resolvedItem && resolvedItem.src !== item.src && item.src) {
                     setResolved({
                       key: item.key,
                       src: item.src,
                       kind: 'image',
-                      saveSrc: resolved.saveSrc,
+                      saveSrc: resolvedItem.saveSrc,
                     });
                     setSourceIndex(0);
                     setDetailError(true);

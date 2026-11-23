@@ -190,6 +190,43 @@ describe('空间实况展示', () => {
     expect(host.querySelector('video')).not.toBe(first);
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
   });
+  it('大图预览默认开启实况，可以切到静态照片并切回视频', async () => {
+    mocks.query.mockResolvedValue([
+      { videoId: 'live', isLivePhoto: true },
+      { videoId: 'normal', isLivePhoto: false },
+    ]);
+    await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos, target })));
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!.click(),
+    );
+    const preview = document.querySelector('[role="dialog"]')!;
+    const stage = preview.querySelector('.weq-lightbox-stage')!;
+    const toggle = () =>
+      preview.querySelector<HTMLButtonElement>('.weq-preview-footer button[aria-pressed]');
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('true');
+    expect(stage.querySelector('video')?.src).toBe(videos[0]!.videoUrl);
+
+    await act(async () => toggle()!.click());
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('false');
+    expect(stage.querySelector('video')).toBeNull();
+    expect(stage.querySelector('img')?.src).toBe(videos[0]!.coverUrl);
+
+    await act(async () => toggle()!.click());
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('true');
+    expect(stage.querySelector('video')?.src).toBe(videos[0]!.videoUrl);
+
+    await act(async () => toggle()!.click());
+    await act(async () =>
+      preview.querySelector<HTMLButtonElement>('[aria-label="下一项媒体"]')!.click(),
+    );
+    expect(toggle()).toBeNull();
+    expect(stage.querySelector('video')?.src).toBe(videos[1]!.videoUrl);
+    await act(async () =>
+      preview.querySelector<HTMLButtonElement>('[aria-label="上一项媒体"]')!.click(),
+    );
+    expect(toggle()?.getAttribute('aria-pressed')).toBe('true');
+    expect(stage.querySelector('video')?.src).toBe(videos[0]!.videoUrl);
+  });
   it('类型补全前显示封面而非普通视频播放标记', async () => {
     let resolve!: (value: { videoId: string; isLivePhoto: boolean }[]) => void;
     mocks.query.mockReturnValue(

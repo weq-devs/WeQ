@@ -42,6 +42,7 @@ export interface MediaPreviewOptions {
   active?: boolean;
   onClose: () => void;
   renderActions?: (item: PreviewMedia) => ReactNode;
+  livePhotoToggle?: boolean;
   loadPage?: (direction: 'older' | 'newer') => Promise<PreviewPage>;
   prefetchAdjacent?: boolean;
   hasOlder?: boolean;
