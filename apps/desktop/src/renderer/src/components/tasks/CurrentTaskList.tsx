@@ -1,4 +1,5 @@
-import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
+import { ToolbarLabel } from '../CompactToolbar';
+import { observeCompactToolbar } from '../CompactToolbar.shared';
 import { NumericText } from '../NumericText';
 import {
   Fragment,

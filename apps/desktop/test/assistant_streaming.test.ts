@@ -201,21 +201,20 @@ it('流式重渲不重建订阅，尚未刷新的增量在父组件重渲后仍�
     sessionId: 'synthetic-session',
     draftAccount: 'synthetic-streaming',
     chatModels: [],
-    compact: true,
     onBack: vi.fn(),
     onSessionCreated: vi.fn(),
-    onActivityChange: vi.fn(),
+    onRunningChange: vi.fn(),
   };
   try {
     act(() => root.render(h(AssistantPanel, props)));
-    expect(props.onActivityChange).toHaveBeenLastCalledWith('idle', undefined);
+    expect(props.onRunningChange).toHaveBeenLastCalledWith(false);
     expect(host.querySelector('.composer-editor')?.textContent).toBe('合成问题');
     expect(host.querySelector<HTMLButtonElement>('.composer-send')!.disabled).toBe(false);
     await act(async () => {
       host.querySelector<HTMLButtonElement>('.composer-send')!.click();
     });
     flushFrame();
-    expect(props.onActivityChange).toHaveBeenLastCalledWith('running', undefined);
+    expect(props.onRunningChange).toHaveBeenLastCalledWith(true);
     emit({ kind: 'text_delta', text: '第一段' });
     flushFrame();
     expect(host.querySelector('.stream-body')?.textContent).toBe('第一段');
@@ -227,14 +226,14 @@ it('流式重渲不重建订阅，尚未刷新的增量在父组件重渲后仍�
     emit({ kind: 'text_delta', text: '最后一段' });
     flushFrame();
     expect(host.querySelector('.stream-body')?.textContent).toBe('第一段不能丢最后一段');
-    expect(props.onActivityChange).toHaveBeenLastCalledWith('running', undefined);
+    expect(props.onRunningChange).toHaveBeenLastCalledWith(true);
     expect(fixture.subscribe).toHaveBeenCalledOnce();
     expect(fixture.unsubscribe).not.toHaveBeenCalled();
     emit({ kind: 'final', text: '第一段不能丢最后一段' });
     act(() => root.render(h(AssistantPanel, props)));
     flushFrame();
     expect(host.querySelector('.stream-body')?.textContent).toBe('第一段不能丢最后一段');
-    expect(props.onActivityChange).toHaveBeenLastCalledWith('finished', expect.any(String));
+    expect(props.onRunningChange).toHaveBeenLastCalledWith(false);
     expect(fixture.utils.account.getAssistantConversation.invalidate).toHaveBeenCalledWith({
       sessionId: props.sessionId,
     });
@@ -247,14 +246,14 @@ it('流式重渲不重建订阅，尚未刷新的增量在父组件重渲后仍�
 });
 
 it.each(['stream-error', 'send-error', 'aborted'] as const)(
-  '助手 %s 从在途转为结束提醒',
+  '助手 %s 结束后清除运行状态',
   async (kind) => {
     fixture.sendError = kind === 'send-error';
     rememberAssistantDraft('activity-errors', 'session', '合成问题');
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
-    const activity = vi.fn();
+    const running = vi.fn();
     try {
       act(() =>
         root.render(
@@ -262,23 +261,22 @@ it.each(['stream-error', 'send-error', 'aborted'] as const)(
             sessionId: 'session',
             draftAccount: 'activity-errors',
             chatModels: [],
-            compact: true,
             onBack: vi.fn(),
             onSessionCreated: vi.fn(),
-            onActivityChange: activity,
+            onRunningChange: running,
           }),
         ),
       );
       await act(async () => host.querySelector<HTMLButtonElement>('.composer-send')!.click());
       if (kind !== 'send-error') {
         flushFrame();
-        expect(activity).toHaveBeenCalledWith('running', undefined);
+        expect(running).toHaveBeenCalledWith(true);
         emit(
           kind === 'stream-error' ? { kind: 'error', message: '合成流错误' } : { kind: 'aborted' },
         );
         flushFrame();
       }
-      expect(activity).toHaveBeenLastCalledWith('finished', expect.any(String));
+      expect(running).toHaveBeenLastCalledWith(false);
     } finally {
       act(() => root.unmount());
       host.remove();

@@ -1,4 +1,5 @@
-import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
+import { ToolbarLabel } from '../CompactToolbar';
+import { observeCompactToolbar } from '../CompactToolbar.shared';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { useDialog } from '../Dialog.shared';

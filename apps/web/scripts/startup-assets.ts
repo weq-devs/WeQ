@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, Rolldown } from 'vite';
-import { hashedWebCodePath } from '../../desktop/src/main/web/compression';
+import { hashedWebCodePath } from '../../desktop/src/main/web/compression.ts';
 
 type Chunk = Rolldown.OutputChunk & { viteMetadata?: { importedCss: Set<string> } };
 

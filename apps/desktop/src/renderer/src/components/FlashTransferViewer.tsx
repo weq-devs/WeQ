@@ -7,7 +7,8 @@
  *
  * 下载按批次在本页展示，可交给后台继续。
  */
-import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
+import { ToolbarLabel } from './CompactToolbar';
+import { observeCompactToolbar } from './CompactToolbar.shared';
 import { NumericText } from './NumericText';
 import { formatBytes as formatSize } from '../lib/format';
 import {

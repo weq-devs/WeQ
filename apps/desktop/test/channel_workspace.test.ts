@@ -80,7 +80,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
   };
 });
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
-vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true, IS_ELECTRON: false }));
 vi.mock('../src/renderer/src/views/ExternalSiteView', () => ({
   ExternalSiteView: () =>
     createElement('input', { 'aria-label': '合成频道浏览现场', defaultValue: '初始' }),

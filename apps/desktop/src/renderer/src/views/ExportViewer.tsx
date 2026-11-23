@@ -1,4 +1,5 @@
-import { observeCompactToolbar, ToolbarLabel } from '../components/CompactToolbar';
+import { ToolbarLabel } from '../components/CompactToolbar';
+import { observeCompactToolbar } from '../components/CompactToolbar.shared';
 import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
 import { eventTimeFormatter } from '@weq/time';

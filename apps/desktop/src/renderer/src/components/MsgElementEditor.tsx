@@ -3,7 +3,8 @@
  * Supports nesting, hex editing for bytes, and numeric inputs.
  */
 
-import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
+import { ToolbarLabel } from './CompactToolbar';
+import { observeCompactToolbar } from './CompactToolbar.shared';
 import { useId, useState } from 'react';
 import { X, Save, ChevronLeft, ChevronRight, Hash, Type, Binary, Box, Copy } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';

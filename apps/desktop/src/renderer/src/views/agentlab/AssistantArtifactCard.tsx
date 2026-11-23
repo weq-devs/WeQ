@@ -3,7 +3,8 @@
  * 查看保留既有隔离 HTML 查看器；保存复用全局偏好与任务回执，不重新调用模型。
  */
 
-import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
+import { ToolbarLabel } from '../../components/CompactToolbar';
+import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { formatBytes } from '../../lib/format';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {

@@ -27,7 +27,8 @@
  * 面板自己不碰 trpc / 协议；样式见 styles/flash-composer.css，颜色全走主题 token。
  */
 
-import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
+import { ToolbarLabel } from '../../components/CompactToolbar';
+import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { NumericText } from '../../components/NumericText';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';

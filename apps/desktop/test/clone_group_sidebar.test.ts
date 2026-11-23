@@ -94,9 +94,9 @@ it('克隆群复用普通群资料栏，支持折叠与本地成员搜索，不�
     act(() => picker.querySelector<HTMLButtonElement>('[aria-label="关闭添加成员"]')!.click());
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="收起群聊侧栏"]')!.click());
     expect(host.querySelector('.chat-pane.group-info-collapsed')).not.toBeNull();
-    expect(host.querySelector('.group-info-panel')).toBeNull();
+    expect(host.querySelector('.group-info-panel')?.hasAttribute('inert')).toBe(true);
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="展开群聊侧栏"]')!.click());
-    expect(host.querySelector('.group-info-panel')).not.toBeNull();
+    expect(host.querySelector('.group-info-panel')?.hasAttribute('inert')).toBe(false);
   } finally {
     act(() => root.unmount());
     host.remove();

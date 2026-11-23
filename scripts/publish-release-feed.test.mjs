@@ -89,10 +89,13 @@ test('统一签名索引发布两包，单包更新保留另一包并拒绝版�
   });
   await publish(newEmoji.tag_name);
   const singleEmojiUpdated = verifyReleaseIndex(published, repository, publicKeys);
-  assert.deepEqual(Object.fromEntries(singleEmojiUpdated.releases.map((entry) => [entry.track, entry.tag])), {
-    dress: newDress.tag_name,
-    'market-emoji': newEmoji.tag_name,
-  });
+  assert.deepEqual(
+    Object.fromEntries(singleEmojiUpdated.releases.map((entry) => [entry.track, entry.tag])),
+    {
+      dress: newDress.tag_name,
+      'market-emoji': newEmoji.tag_name,
+    },
+  );
 });
 test('从官方资产生成签名身份，不下载应用大文件', async () => {
   let reads = 0;

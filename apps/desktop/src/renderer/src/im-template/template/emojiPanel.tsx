@@ -17,7 +17,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
-import { observeCompactToolbar } from '../../components/CompactToolbar';
+import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { FavoritePickerTab } from '../../components/qq-actions/FavoritePickerTab';
 import { ActionIcon } from '../../components/qq-actions/shared';
 import {

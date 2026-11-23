@@ -607,7 +607,7 @@ it('Web 群相册预览只提供一个服务器保存动作', async () => {
   await mount();
   await openFirst();
   await act(async () => button('预览 photo-a.jpg').click());
-  expect(button('保存图片')?.textContent).toContain('保存到服务器');
+  expect(button('保存图片')?.textContent).toContain('另存为');
   expect(button('保存图片到浏览器')).toBeNull();
   expect(document.querySelector('.weq-save-options')).toBeNull();
   capture('preview-web');

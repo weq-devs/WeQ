@@ -9,8 +9,8 @@ import { setNetworkTransport } from '@weq/network';
 import { startServer } from '../src/main/web/http';
 
 const state = vi.hoisted(() => ({ root: '' }));
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({
+vi.mock('../src/main/context/app_context', () => {
+  const context = {
     bootstrap: {
       userConfig: { cacheDir: () => join(state.root, 'cache'), getSharedPreference: () => ({}) },
     },
@@ -27,8 +27,9 @@ vi.mock('../src/main/context/app_context', () => ({
           `https://fixture.invalid/${element.fileToken}`,
       },
     },
-  }),
-}));
+  };
+  return { getAppContext: () => context };
+});
 
 let server: Awaited<ReturnType<typeof startServer>>['server'];
 let base = '';
@@ -61,13 +62,12 @@ it('Web 在收到上游响应头之前断连，也取消宿主媒体请求', asy
     return new Promise(() => {});
   });
   const controller = new AbortController();
-  const work = fetch(`${base}/_media/video?token=progressive.webm&msgId=1&conv=123`, {
+  const outcome = fetch(`${base}/_media/video?token=progressive.webm&msgId=1&conv=123`, {
     signal: controller.signal,
-  });
-  const rejected = expect(work).rejects.toMatchObject({ name: 'AbortError' });
+  }).catch((error: unknown) => error);
   await vi.waitFor(() => expect(upstream).toBeDefined());
   controller.abort();
-  await rejected;
+  await expect(outcome).resolves.toMatchObject({ name: 'AbortError' });
   await vi.waitFor(() => expect(upstream?.aborted).toBe(true));
 });
 

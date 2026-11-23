@@ -1,4 +1,5 @@
-import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
+import { ToolbarLabel } from './CompactToolbar';
+import { observeCompactToolbar } from './CompactToolbar.shared';
 import { usePageDataCache } from './PageSnapshots.shared';
 import { PageDataCache } from '../lib/pageDataCache';
 import { NumericText } from './NumericText';

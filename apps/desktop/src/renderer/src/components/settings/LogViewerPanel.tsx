@@ -1,4 +1,5 @@
-import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
+import { ToolbarLabel } from '../CompactToolbar';
+import { observeCompactToolbar } from '../CompactToolbar.shared';
 import * as timeFormat from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
 /**

@@ -83,7 +83,7 @@ it('显式危险色只标记实际破坏或覆盖操作，不误标同位置的�
       !/删除|清|重置|恢复|移除|撤|踢|拒|解除|回滚|修复|放弃|默认|退出群/.test(button.label),
   );
   expect(misplaced).toEqual([]);
-  expect(menus.filter((menu) => !/删除|移除/.test(menu.label))).toEqual([]);
+  expect(menus.filter((menu) => !/删除|移除|清理已结束任务/.test(menu.label))).toEqual([]);
   for (const [file, label] of [
     ['views/mail/MailPage.tsx', '标为未读'],
     ['components/settings/AgentLabSection.tsx', '测试连通性'],

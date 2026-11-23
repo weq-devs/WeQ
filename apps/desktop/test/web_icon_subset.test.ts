@@ -15,7 +15,7 @@ it('开发 Web 只交付选用的图标，保持原库的图形和属性', async
   const root = await mkdtemp(join(tmpdir(), 'weq-icon-subset-'));
   const selected = resolve(__dirname, '../src/renderer/src/lib/reactIcons.ts');
   const server = await createServer({
-    ...webConfig,
+    ...webConfig({ command: 'serve', mode: 'development' }),
     configFile: false,
     root,
     cacheDir: join(root, 'cache'),

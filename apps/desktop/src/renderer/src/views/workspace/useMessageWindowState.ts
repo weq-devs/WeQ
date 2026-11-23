@@ -17,6 +17,7 @@ import { client } from '../../trpc/client';
 import { ConversationWindowCache, conversationWindowKey } from '../../lib/conversationWindowCache';
 import { ConversationFirstPage } from '../../lib/conversationFirstPage';
 import type { MessageReadWindow } from '../../../../shared/message_read';
+import { timelineRowKey } from '../../../../shared/roaming_timeline';
 import { mergeRefreshedWindow } from '../../lib/conversationRefresh';
 import { readCachedMessageWindow } from '../../lib/cachedMessageRead';
 import { rememberRecentMessageCache } from '../../lib/recentMessageCache';

@@ -250,6 +250,7 @@ it('备注使用在线备注且允许清空，提交读回后关闭编辑框', a
 });
 it('离线保持选取和保存，禁止三个在线写操作', async () => {
   state.available = false;
+  vi.stubGlobal('IntersectionObserver', undefined);
   render();
   openMenu();
   expect(['删除', '备注', '移到最前'].every((name) => button(name).disabled)).toBe(true);

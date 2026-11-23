@@ -1,7 +1,8 @@
 // @ts-nocheck
 /** 输入区语音模式，包含录音、TTS 和群聊 AI 声聊。 */
 
-import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
+import { ToolbarLabel } from '../../components/CompactToolbar';
+import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { AiVoiceControls, type AiVoiceDraft } from './aiVoicePanel';
 import { FormSelect } from '../../components/FormSelect';
 import {

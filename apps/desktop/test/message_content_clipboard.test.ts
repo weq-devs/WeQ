@@ -165,7 +165,7 @@ describe('消息内容复制', () => {
     );
   });
   it('单独表情、仅引用和文件都不是空内容，正文回退不覆盖真实元素', () => {
-    expect(messageContentText([{ type: 'face', data: { faceId: 99 } }])).toBe('[表情99]');
+    expect(messageContentText([{ type: 'face', data: { faceId: 99 } }])).toBe('[鼓掌]');
     expect(messageContentText([{ type: 'reply', data: { origText: '旧引用' } }])).toBe('> 旧引用');
     expect(messageContentText([{ type: 'file', data: { fileName: '文件.txt' } }])).toBe(
       '[文件: 文件.txt]',

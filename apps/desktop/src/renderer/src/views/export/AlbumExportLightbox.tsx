@@ -1,4 +1,5 @@
-import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
+import { ToolbarLabel } from '../../components/CompactToolbar';
+import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Check, CheckCheck, FlipHorizontal2, Image, Loader2, X, Images } from 'lucide-react';

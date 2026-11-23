@@ -351,7 +351,7 @@ it.each(['source', 'artifact'])('准备期间变化 %s 后，旧回包不能触�
   );
   act(() =>
     [...f.host.querySelectorAll<HTMLButtonElement>('button')]
-      .find((node) => node.textContent === ' 保存')!
+      .find((node) => node.textContent?.trim() === '保存')!
       .click(),
   );
   if (change === 'source') state.configId = 'source-b';

@@ -1,4 +1,5 @@
-import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
+import { ToolbarLabel } from '../../components/CompactToolbar';
+import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { NumericText } from '../../components/NumericText';
 import { formatDateTime } from '@weq/time';
 import { TimeLabel } from '../../components/TimeLabel';

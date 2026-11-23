@@ -7,7 +7,8 @@
  *   - 勾选的文件导出时按 path 在输出目录里重建文件夹树。
  */
 
-import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
+import { ToolbarLabel } from '../../components/CompactToolbar';
+import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';

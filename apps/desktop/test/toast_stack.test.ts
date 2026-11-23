@@ -19,9 +19,23 @@ vi.mock('../src/renderer/src/lib/target.shared', () => ({
 let root: Root;
 let host: HTMLDivElement;
 let contentHeight: number;
+let notifyResize: (() => void) | undefined;
 beforeEach(() => {
   target.web = false;
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  notifyResize = undefined;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        notifyResize = callback;
+      }
+      observe() {}
+      disconnect() {
+        notifyResize = undefined;
+      }
+    },
+  );
   contentHeight = 600;
   vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function () {
     return this.classList.contains('weq-toast-host') ? contentHeight : 0;
@@ -44,6 +58,7 @@ function push(title: string) {
   act(() => {
     useToast.getState().push({ title, detail: '合成详情', durationKind: 'long', ttl: 0 });
   });
+  act(() => notifyResize?.());
 }
 function stack() {
   return host.querySelector<HTMLElement>('.weq-toast-host')!;

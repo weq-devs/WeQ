@@ -1,4 +1,4 @@
-import { observeCompactToolbar } from '../CompactToolbar';
+import { observeCompactToolbar } from '../CompactToolbar.shared';
 import { EmptyState } from '../EmptyState';
 import { useEffect, useState } from 'react';
 import {

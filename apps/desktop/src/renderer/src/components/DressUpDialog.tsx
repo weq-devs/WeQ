@@ -15,7 +15,8 @@
  * 聊天背景与浮屏挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,浮屏挂件是 bundle 的)。
  */
 
-import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
+import { ToolbarLabel } from './CompactToolbar';
+import { observeCompactToolbar } from './CompactToolbar.shared';
 import {
   useCallback,
   useEffect,

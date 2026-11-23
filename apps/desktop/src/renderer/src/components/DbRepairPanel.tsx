@@ -1,4 +1,5 @@
-import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
+import { ToolbarLabel } from './CompactToolbar';
+import { observeCompactToolbar } from './CompactToolbar.shared';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,

@@ -12,7 +12,8 @@ import { ChevronLeft, ChevronRight, CircleDot, Copy, RefreshCw } from 'lucide-re
 import { interactiveMediaUrl } from '../lib/resourceUrl';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import { MediaPreviewShell } from './MediaPreviewShell';
-import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
+import { ToolbarLabel } from './CompactToolbar';
+import { observeCompactToolbar } from './CompactToolbar.shared';
 import { MediaLoadStatus, MediaZoomControls, type MediaLoadState } from './MediaPreviewControls';
 import { mediaZoomKeyDown } from './MediaPreviewControls.shared';
 import { useZoomPan } from './useZoomPan';
@@ -331,9 +332,13 @@ function MediaPreviewItemBody({
   const previewSrc = resourceForRenderDocument(sources[sourceIndex] ?? '', ownerDocument);
   const source = originalSource ?? sources[sourceIndex] ?? '';
   const src = resourceForRenderDocument(source, ownerDocument);
+  const [intrinsic, setIntrinsic] = useState<{ key: string; width: number; height: number }>();
+  const eventKey = `${item.key}:${current.kind}:${previewSrc}:${attempt}`;
+  const imageKey = originalReady ? originalRequest.id : eventKey;
+  const imagePixels = intrinsic?.key === imageKey ? intrinsic : undefined;
   const zoom = useZoomPan(`${item.key}:${attempt}:${showingStaticPhoto}`, {
     clickZoom: current.kind === 'image',
-    layoutScale: current.kind === 'image',
+    layoutScale: current.kind === 'image' && Boolean(imagePixels),
     onSwipe: onMove
       ? (direction) => {
           if (direction === 'left' ? canNewer : canOlder)
@@ -359,10 +364,6 @@ function MediaPreviewItemBody({
   );
   const video = useRef<HTMLVideoElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [intrinsic, setIntrinsic] = useState<{ key: string; width: number; height: number }>();
-  const eventKey = `${item.key}:${current.kind}:${previewSrc}:${attempt}`;
-  const imageKey = originalReady ? originalRequest.id : eventKey;
-  const imagePixels = intrinsic?.key === imageKey ? intrinsic : undefined;
   const buffering = useVideoBuffering(eventKey, active && current.kind === 'video');
   const latestEvent = useRef(eventKey);
   latestEvent.current = eventKey;

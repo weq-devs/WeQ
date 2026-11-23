@@ -1,4 +1,5 @@
-import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
+import { ToolbarLabel } from '../CompactToolbar';
+import { observeCompactToolbar } from '../CompactToolbar.shared';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Eye } from 'lucide-react';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';

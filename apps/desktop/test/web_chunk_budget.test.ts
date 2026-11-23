@@ -82,15 +82,16 @@ async function fixture({
     },
   };
   try {
+    const config = webConfig({ command: 'build', mode: 'production' });
     await build({
-      ...webConfig,
+      ...config,
       configFile: false,
       root,
       customLogger: logger,
       logLevel: 'warn',
       plugins: [
         // 此夹具只有虚拟 JS 入口；真实网页入口清单由 startup-assets 专项测试覆盖。
-        ...webConfig.plugins.filter((plugin) => plugin?.name !== 'weq-remote-startup-assets'),
+        ...config.plugins.filter((plugin) => plugin?.name !== 'weq-remote-startup-assets'),
         plugin,
         ...(earlyNativeWarning
           ? [

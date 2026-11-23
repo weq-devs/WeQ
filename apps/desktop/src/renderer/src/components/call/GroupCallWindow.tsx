@@ -1,4 +1,5 @@
-import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
+import { ToolbarLabel } from '../CompactToolbar';
+import { observeCompactToolbar } from '../CompactToolbar.shared';
 import {
   Loader2,
   MessageCircle,

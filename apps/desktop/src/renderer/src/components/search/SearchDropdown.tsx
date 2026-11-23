@@ -1,6 +1,7 @@
 /** The unified search dropdown under the sidebar search box. */
 
-import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
+import { ToolbarLabel } from '../CompactToolbar';
+import { observeCompactToolbar } from '../CompactToolbar.shared';
 import { EmptyState } from '../EmptyState';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Layers, RefreshCw, Settings2, SearchX } from 'lucide-react';

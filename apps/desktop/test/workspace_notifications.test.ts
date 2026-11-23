@@ -23,7 +23,7 @@ function resetMemory() {
     readTaskResultsByScope: {},
     running: 0,
     finished: 0,
-    failed: 0,
+    unreadFailed: 0,
   });
 }
 beforeEach(() => {
@@ -82,7 +82,7 @@ describe('任务结果已读状态', () => {
       expect(useWorkspaceMenu.getState()).toMatchObject({
         running: 0,
         finished: 0,
-        failed: 0,
+        unreadFailed: 0,
         taskItems: [{ id: update.id, activity: 'finished', failed: status === 'failed' }],
       });
     }
@@ -110,7 +110,7 @@ describe('任务结果已读状态', () => {
         taskOpenRequest: initial,
         running: summary.running,
         finished: summary.finished,
-        failed: summary.failed,
+        unreadFailed: summary.failed,
         taskItems: [expect.objectContaining({ id, autoOpenTaskList: false })],
       });
       store.focusTask(id);
@@ -147,7 +147,7 @@ describe('任务结果已读状态', () => {
       taskOpenRequest: initial,
       running: 1,
       finished: 2,
-      failed: 1,
+      unreadFailed: 1,
     });
     registry.releaseOwner('checkup-page', { uin: 'synthetic' });
     registry.finish(retry, 'cancelled');
@@ -156,7 +156,7 @@ describe('任务结果已读状态', () => {
       taskOpenRequest: initial,
       running: 0,
       finished: 0,
-      failed: 0,
+      unreadFailed: 0,
     });
   });
 
@@ -181,7 +181,7 @@ describe('任务结果已读状态', () => {
       taskOpenRequest: initial,
       running: 0,
       finished: 1,
-      failed: 1,
+      unreadFailed: 1,
     });
     store.openTasks();
     expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 1);

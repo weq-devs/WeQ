@@ -1,5 +1,6 @@
 /** Qzone's known web capabilities, rendered in the local WeQ UI. */
-import { observeCompactToolbar, ToolbarLabel } from '../components/CompactToolbar';
+import { ToolbarLabel } from '../components/CompactToolbar';
+import { observeCompactToolbar } from '../components/CompactToolbar.shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   defaultRangeExtractor,

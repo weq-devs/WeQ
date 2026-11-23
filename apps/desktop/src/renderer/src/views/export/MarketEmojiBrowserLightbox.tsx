@@ -8,7 +8,8 @@
  * weq-media://mface?...&enc=tea（密钥后端自动恢复），不过 tRPC。
  */
 
-import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
+import { ToolbarLabel } from '../../components/CompactToolbar';
+import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';

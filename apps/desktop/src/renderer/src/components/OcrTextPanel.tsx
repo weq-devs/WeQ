@@ -9,7 +9,8 @@
  * 会把灯箱一起关掉。视觉（深色玻璃 + 主题色）见 styles/lightbox-actions.css。
  */
 
-import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
+import { ToolbarLabel } from './CompactToolbar';
+import { observeCompactToolbar } from './CompactToolbar.shared';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Check, Copy, LogOut, X } from 'lucide-react';
 import type { OcrBlock } from '@weqbot/protocol';

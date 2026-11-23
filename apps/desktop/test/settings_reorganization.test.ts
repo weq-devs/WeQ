@@ -544,6 +544,7 @@ describe('设置归位后的实际页面', () => {
         '链接预览卡片',
         '自动联网补全链接预览',
         '图片预览内存预算',
+        '完整消息预热内存预算',
       ]);
       expect(
         [...display.querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),

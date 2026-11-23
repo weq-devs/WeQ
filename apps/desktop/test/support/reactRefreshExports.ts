@@ -47,7 +47,7 @@ export function incompatibleReactExports(
             (ts.isArrowFunction(initializer) ||
               ts.isFunctionExpression(initializer) ||
               (ts.isCallExpression(initializer) &&
-                /(?:^|\.)(?:memo|forwardRef|lazy|lazyPanel|with[A-Z]\w*)$/.test(
+                /(?:^|\.)(?:memo|forwardRef|lazy|lazy(?:Retained)?Panel|with[A-Z]\w*)$/.test(
                   initializer.expression.getText(file),
                 )))
           )

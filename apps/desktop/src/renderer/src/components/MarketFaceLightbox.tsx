@@ -4,7 +4,8 @@
  * 保留整包网格、单张详情及分级 Esc；详情也供商城整页浏览器复用。
  */
 
-import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
+import { ToolbarLabel } from './CompactToolbar';
+import { observeCompactToolbar } from './CompactToolbar.shared';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { ChevronLeft, ChevronRight, Copy, Store, RefreshCw, X } from 'lucide-react';

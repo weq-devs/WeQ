@@ -14,7 +14,11 @@ import {
 import type { Contact, GroupConversation } from '../src/renderer/src/im-template/template/types';
 
 vi.mock('../src/renderer/src/hooks/useContactCard', () => ({
-  useContactProfile: (contact: Contact) => ({ profile: contact, scope: ['synthetic'] }),
+  useContactProfile: (contact: Contact) => ({
+    profile: contact,
+    scope: ['synthetic'],
+    session: { binding: null },
+  }),
   useContactCardSettings: () => ({}),
 }));
 vi.mock('../src/renderer/src/hooks/useGroupProfile', () => ({

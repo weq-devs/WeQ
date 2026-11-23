@@ -13,7 +13,8 @@
  * 展柜里只出现一张。
  */
 
-import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
+import { ToolbarLabel } from './CompactToolbar';
+import { observeCompactToolbar } from './CompactToolbar.shared';
 import { NumericText } from './NumericText';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ImageOff, Loader2, Maximize2, RefreshCw, Sparkles, Square, X } from 'lucide-react';

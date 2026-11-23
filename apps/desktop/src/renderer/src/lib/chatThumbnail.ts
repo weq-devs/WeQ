@@ -1,6 +1,9 @@
+import { IS_ELECTRON } from './target.shared';
+
 export async function fetchChatThumbnail(src: string, signal: AbortSignal): Promise<Blob | null> {
   signal.throwIfAborted();
-  const ipc = src.startsWith('weq-media://pic?') ? window.electron?.ipcRenderer : undefined;
+  const ipc =
+    IS_ELECTRON && src.startsWith('weq-media://pic?') ? window.electron?.ipcRenderer : undefined;
   if (ipc) {
     const id = crypto.randomUUID();
     const cancel = () => ipc.send('media:cancel-thumbnail', id);

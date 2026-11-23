@@ -28,10 +28,6 @@ it('桌面三个构建目标均禁用清屏，启动和重载保留已有终端�
     expect(property(value, 'clearScreen').kind, target).toBe(ts.SyntaxKind.FalseKeyword);
   }
 });
-it('内置 Web 的独立 Vite 构建同样禁用清屏', () => {
-  const config = configObject(resolve(__dirname, '../../web/vite.config.ts'));
-  expect(property(config, 'clearScreen').kind).toBe(ts.SyntaxKind.FalseKeyword);
-});
 it('开发主进程和预加载启用监听，正式构建不监听；Web 开发服务只挂在开发渲染服务', () => {
   const result = spawnSync(
     process.execPath,
@@ -96,7 +92,7 @@ it.each([
   ],
   [
     'web',
-    "const config = await (await import('vite')).resolveConfig({}, 'build'); assert.equal(realpathSync(config.root), realpathSync('../desktop/src/renderer'));",
+    "const config = await (await import('vite')).resolveConfig({}, 'build'); assert.equal(realpathSync(config.root), realpathSync('../desktop/src/renderer')); assert.equal(config.clearScreen, false);",
   ],
 ])(
   '%s 真实配置加载无弃用或原生加载器兼容提醒，路径仍指向源码',

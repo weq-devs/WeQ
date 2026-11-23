@@ -312,14 +312,15 @@ function mount(props: Parameters<typeof ExportTool>[0] = {}) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const render = (active: boolean) =>
+  const render = (active: boolean, nextProps = props) =>
     act(() =>
-      root.render(createElement(TabActivity, { active }, createElement(ExportTool, props))),
+      root.render(createElement(TabActivity, { active }, createElement(ExportTool, nextProps))),
     );
   render(true);
   return {
     host,
     setActive: render,
+    setProps: (nextProps: Parameters<typeof ExportTool>[0]) => render(true, nextProps),
     close() {
       act(() => root.unmount());
       host.remove();
@@ -338,6 +339,7 @@ it('任务面板使用一次性的定时任务标签请求，随后仍可手动�
   try {
     expect(f.host.querySelector('.weq-schedule-workspace')).not.toBeNull();
     expect(applied).toHaveBeenCalledOnce();
+    f.setProps({ surface: 'tasks', taskLayout: 'split', onTaskTabRequestApplied: applied });
     act(() => click(f.host, '当前任务'));
     expect(f.host.querySelector('.weq-schedule-workspace')).toBeNull();
     expect(applied).toHaveBeenCalledOnce();

@@ -193,17 +193,21 @@ function failQuotedImage(host: HTMLElement): void {
   expect(host.querySelector('.qq-reply-preview-media img')).toBeNull();
 }
 
-it('省流量引用图片可点击加载，携带原消息时间与主动加载意图，不触发跳转', () => {
+it('省流量引用图片可点击加载，携带原消息时间与主动加载意图，不触发跳转', async () => {
   useDataSaver.setState({ enabled: true });
+  vi.stubGlobal('IntersectionObserver', undefined);
+  const fetchThumbnail = vi.fn(async (_url: string) => new Response(new Blob(['fixture'])));
+  vi.stubGlobal('fetch', fetchThumbnail);
   const f = mount();
   failQuotedImage(f.host);
   const load = f.host.querySelector<HTMLButtonElement>('button[aria-label="加载图片"]')!;
   expect(load).not.toBeNull();
   expect(load.disabled).toBe(false);
-  act(() => load.click());
+  fetchThumbnail.mockClear();
+  await act(async () => load.click());
   const image = f.host.querySelector<HTMLImageElement>('.qq-reply-preview-media img')!;
   expect(image).not.toBeNull();
-  const url = new URL(image.src);
+  const url = new URL(fetchThumbnail.mock.calls.at(-1)![0], 'https://fixture.invalid');
   expect(url.searchParams.get('intent')).toBe('interactive');
   expect(url.searchParams.get('t')).toBe('1700000000000');
   expect(url.searchParams.get('name')).toBe('synthetic.png');
