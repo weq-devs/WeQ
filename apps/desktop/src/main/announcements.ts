@@ -1,11 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import semver from 'semver';
-import { z } from 'zod';
 import { downloadSources, fetchSourceJson, networkFetch, orderSources } from '@weq/network';
 import {
-  ANNOUNCEMENT_ID,
   ANNOUNCEMENT_URL,
   MAX_ANNOUNCEMENT_BYTES,
   announcementReleaseUrl,
@@ -18,21 +15,19 @@ import releaseKeys from '@weq/network/release-keys';
 import { getLogger } from '@weq/service';
 import { writeFileAtomic } from '@weq/service/atomic-write';
 import { notificationInlineText } from '../shared/notification_copy';
+import { type AnnouncementReceipts, openAnnouncementReceipts } from './announcement_receipts';
 
 const REFRESH_INTERVAL = 15 * 60_000;
 const OPEN_REFRESH_MAX_AGE = 60_000;
 const RESERVATION_TIME = 15_000;
-const receiptsSchema = z.object({
-  read: z.array(z.string().regex(ANNOUNCEMENT_ID)),
-  reminded: z.array(z.string().regex(ANNOUNCEMENT_ID)),
-});
-type Receipts = z.infer<typeof receiptsSchema>;
+const RECEIPT_POLL_INTERVAL = 1_000;
 type FeedStatus = 'loading' | 'ready' | 'cached' | 'unavailable';
 const logger = getLogger().child({ scope: 'announcements' });
 type VerifiedFeed = { feed: AnnouncementFeed; envelope: unknown; signature: string };
 
 interface AnnouncementHostOptions {
   dataRoot: string;
+  sharedDataRoot?: string;
   platform: AnnouncementPlatform | null;
   version: string;
   bannerEnabled: () => boolean;
@@ -57,12 +52,12 @@ export class Announcements {
   private current?: VerifiedFeed;
   private status: FeedStatus = 'loading';
   private lastRefreshWarning?: 'cached' | 'unavailable';
-  private receipts: Receipts = { read: [], reminded: [] };
+  private receipts?: AnnouncementReceipts;
   private updates: Promise<unknown> = Promise.resolve();
   private pending?: Promise<void>;
   private lastCheckedAt?: number;
   private timer?: ReturnType<typeof setInterval>;
-  private reservation?: { id: string; token: string; expiresAt: number };
+  private receiptTimer?: ReturnType<typeof setInterval>;
   private change = 0;
 
   constructor(private readonly host: AnnouncementHostOptions) {
@@ -79,14 +74,31 @@ export class Announcements {
 
   stop() {
     clearInterval(this.timer);
+    clearInterval(this.receiptTimer);
+    this.receipts?.close?.();
+    this.receipts = undefined;
     this.controller.abort();
   }
 
   subscribe(listener: (change: number) => void) {
     const notify = () => listener(this.change);
     this.listeners.add(notify);
+    if (this.host.sharedDataRoot) {
+      this.receiptTimer ??= setInterval(() => {
+        try {
+          if (this.receipts?.pollChanged?.()) this.emit();
+        } catch (error) {
+          logger.debug('跨窗口公告回执检查失败', { error: String(error) });
+        }
+      }, RECEIPT_POLL_INTERVAL).unref();
+    }
     notify();
-    return () => this.listeners.delete(notify);
+    return () => {
+      this.listeners.delete(notify);
+      if (this.listeners.size) return;
+      clearInterval(this.receiptTimer);
+      this.receiptTimer = undefined;
+    };
   }
 
   private emit() {
@@ -100,17 +112,22 @@ export class Announcements {
   }
 
   private async load() {
-    const readJson = async (name: string): Promise<unknown> =>
-      JSON.parse(await readFile(join(this.directory, name), 'utf8'));
     const [feed, receipts] = await Promise.allSettled([
-      readJson('feed.json').then((value) => this.verify(value)),
-      readJson('receipts.json').then((value) => receiptsSchema.parse(value)),
+      readFile(join(this.directory, 'feed.json'), 'utf8').then((value) =>
+        this.verify(JSON.parse(value)),
+      ),
+      openAnnouncementReceipts(this.host.dataRoot, this.host.sharedDataRoot),
     ]);
+    if (this.controller.signal.aborted) {
+      if (receipts.status === 'fulfilled') receipts.value.close?.();
+      return;
+    }
     if (feed.status === 'fulfilled') {
       this.current = feed.value;
       this.status = 'cached';
     }
     if (receipts.status === 'fulfilled') this.receipts = receipts.value;
+    else logger.warn('无法加载公告已读状态', { error: String(receipts.reason) });
   }
 
   private matches(entry: OfficialAnnouncement, now: number) {
@@ -123,13 +140,9 @@ export class Announcements {
     );
   }
 
-  private canRemind(entry: OfficialAnnouncement, now: number) {
+  private withinReminderPeriod(entry: OfficialAnnouncement, now: number) {
     return (
-      entry.level === 'important' &&
-      !!entry.remindUntil &&
-      now < Date.parse(entry.remindUntil) &&
-      !this.receipts.read.includes(entry.id) &&
-      !this.receipts.reminded.includes(entry.id)
+      entry.level === 'important' && !!entry.remindUntil && now < Date.parse(entry.remindUntil)
     );
   }
 
@@ -141,18 +154,25 @@ export class Announcements {
       .sort(
         (a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt) || a.id.localeCompare(b.id),
       );
-    const entries = matching.map(({ id, title, level, publishedAt }) => ({
-      id,
-      title,
-      level,
-      publishedAt,
-      unread: !this.receipts.read.includes(id),
-    }));
+    let reminder: string | null = null;
+    const entries = matching.map((entry) => {
+      const { id, title, level, publishedAt } = entry;
+      const receipt = this.receipts?.get(id);
+      if (
+        !reminder &&
+        receipt &&
+        !receipt.read &&
+        !receipt.reminded &&
+        this.withinReminderPeriod(entry, now)
+      )
+        reminder = id;
+      return { id, title, level, publishedAt, unread: !receipt?.read };
+    });
     return {
       status: this.status,
       entries,
       unread: entries.filter((entry) => entry.unread).length,
-      reminder: matching.find((entry) => this.canRemind(entry, now))?.id ?? null,
+      reminder,
     };
   }
 
@@ -187,6 +207,7 @@ export class Announcements {
   private async check() {
     await this.loaded;
     const signal = this.controller.signal;
+    if (signal.aborted) return;
     const current = this.current;
     let officialMissing = false;
     const transport = this.host.fetcher ?? networkFetch;
@@ -263,34 +284,20 @@ export class Announcements {
     return next;
   }
 
-  private async save(receipts: Receipts) {
-    const ids = new Set(this.current?.feed.entries.map(({ id }) => id));
-    const next = {
-      read: receipts.read.filter((id) => ids.has(id)),
-      reminded: receipts.reminded.filter((id) => ids.has(id)),
-    };
-    await mkdir(this.directory, { recursive: true });
-    await writeFileAtomic(join(this.directory, 'receipts.json'), JSON.stringify(next));
-    this.receipts = next;
-    this.emit();
-  }
-
   markRead(ids: readonly string[]) {
     return this.serialize(async () => {
       await this.loaded;
       const requested = new Set(ids);
       const now = this.now();
-      const newReads = this.current?.feed.entries.filter(
-        (entry) =>
-          requested.has(entry.id) &&
-          !this.receipts.read.includes(entry.id) &&
-          this.matches(entry, now),
-      );
-      if (newReads?.length)
-        await this.save({
-          ...this.receipts,
-          read: [...this.receipts.read, ...newReads.map(({ id }) => id)],
-        });
+      const entries = this.current?.feed.entries ?? [];
+      const seen = entries
+        .filter((entry) => requested.has(entry.id) && this.matches(entry, now))
+        .map(({ id }) => id);
+      if (seen.length) {
+        if (!this.receipts) throw new Error('公告已读状态暂不可用');
+        const feedIds = entries.map(({ id }) => id);
+        if (await this.receipts.markRead(seen, feedIds)) this.emit();
+      }
       return this.list();
     });
   }
@@ -299,15 +306,10 @@ export class Announcements {
     return this.serialize(async () => {
       const entry = await this.detail(id);
       const now = this.now();
-      if (
-        (this.reservation && this.reservation.expiresAt > now) ||
-        !entry ||
-        !this.host.bannerEnabled() ||
-        !this.canRemind(entry, now)
-      )
+      if (!entry || !this.host.bannerEnabled() || !this.withinReminderPeriod(entry, now))
         return null;
-      const token = randomUUID();
-      this.reservation = { id, token, expiresAt: now + RESERVATION_TIME };
+      const token = this.receipts?.claimBanner(id, now, now + RESERVATION_TIME);
+      if (!token) return null;
       return {
         token,
         title: entry.title,
@@ -320,14 +322,9 @@ export class Announcements {
 
   finishBanner(token: string, shown: boolean) {
     return this.serialize(async () => {
-      const pending = this.reservation;
-      if (pending?.token !== token) return;
-      try {
-        if (shown)
-          await this.save({ ...this.receipts, reminded: [...this.receipts.reminded, pending.id] });
-      } finally {
-        this.reservation = undefined;
-      }
+      await this.loaded;
+      const feedIds = this.current?.feed.entries.map(({ id }) => id) ?? [];
+      if (await this.receipts?.finishBanner(token, shown, feedIds)) this.emit();
     });
   }
 }

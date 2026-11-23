@@ -1039,6 +1039,7 @@ void app.whenReady().then(async () => {
     'will-quit',
     startAnnouncements({
       dataRoot: updateDataRoot,
+      sharedDataRoot: defaultDataRoot,
       platform: desktopAnnouncementPlatform(process.platform),
       version: app.getVersion(),
       fetcher: electronAnnouncementFetch,

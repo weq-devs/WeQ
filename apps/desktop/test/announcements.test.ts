@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +16,7 @@ import {
   normalizeNotificationEvents,
   notificationGroupState,
 } from '@weq/service/notification-settings';
+import { instanceDirectories } from '../src/main/account_instances';
 import { Announcements } from '../src/main/announcements';
 
 const keys = generateKeyPairSync('ed25519', {
@@ -71,14 +72,18 @@ describe('宿主官方公告', () => {
     for (const host of instances) host.stop();
     await rm(dataRoot, { recursive: true, force: true });
   });
-  function host(platform: AnnouncementPlatform = 'macos', version = '2.7.4') {
+  function host(
+    platform: AnnouncementPlatform = 'macos',
+    version = '2.7.4',
+    roots: { dataRoot: string; sharedDataRoot?: string } = { dataRoot },
+  ) {
     const fetcher = vi.fn<typeof fetch>(async (url) => {
       const feed = url === ANNOUNCEMENT_URL ? origin : mirror;
       if (feed === 'offline') throw new Error('offline');
       return feed ? Response.json(feed) : new Response(null, { status: 404 });
     });
     const instance = new Announcements({
-      dataRoot,
+      ...roots,
       platform,
       version,
       now: () => now,
@@ -246,6 +251,69 @@ describe('宿主官方公告', () => {
     expect(clients[0].mock.calls).toEqual(clients[1].mock.calls);
     for (const listener of clients) expect(listener).toHaveBeenCalledTimes(3);
     for (const unsubscribe of unsubscribers) unsubscribe();
+  });
+
+  it('账号选择页和独立账号窗口共享旧回执及新的阅读进度，其他宿主独立保存', async () => {
+    const sharedDataRoot = dataRoot;
+    const previous = instanceDirectories(dataRoot, '10001').data;
+    const legacy = join(previous, 'announcements');
+    await mkdir(legacy, { recursive: true });
+    const another = { ...regular, id: 'another-notice' };
+    await writeFile(
+      join(legacy, 'receipts.json'),
+      JSON.stringify({ read: [regular.id], reminded: [important.id] }),
+    );
+    origin = signed(1, [regular, important, another]);
+
+    const picker = host('macos', '2.7.4', { dataRoot, sharedDataRoot }).instance;
+    await picker.refresh();
+    const account = host('macos', '2.7.4', {
+      dataRoot: instanceDirectories(dataRoot, '10002').data,
+      sharedDataRoot,
+    }).instance;
+    const standalone = host('web', '2.7.4', { dataRoot: join(dataRoot, 'standalone') }).instance;
+    await Promise.all([account.refresh(), standalone.refresh()]);
+    expect(await picker.list()).toMatchObject({ unread: 2, reminder: null });
+    expect(await account.list()).toMatchObject({ unread: 2, reminder: null });
+    expect(await standalone.list()).toMatchObject({ unread: 3, reminder: important.id });
+
+    const changed = vi.fn();
+    const unsubscribe = account.subscribe(() => void account.list().then(changed));
+    await Promise.all([picker.markRead([another.id]), account.markRead([important.id])]);
+    expect(await picker.list()).toMatchObject({ unread: 0 });
+    expect(await account.list()).toMatchObject({ unread: 0 });
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(3), { timeout: 2_500 });
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ unread: 0 }));
+    unsubscribe();
+
+    const reopened = host('macos', '2.7.4', { dataRoot: previous, sharedDataRoot }).instance;
+    await reopened.refresh();
+    expect(await reopened.list()).toMatchObject({ unread: 0 });
+    expect(await standalone.list()).toMatchObject({ unread: 3 });
+  });
+
+  it('同时打开的账号窗口只能领取一次重要公告横幅', async () => {
+    origin = signed(1, [important]);
+    const first = host('macos', '2.7.4', { dataRoot, sharedDataRoot: dataRoot }).instance;
+    const second = host('macos', '2.7.4', {
+      dataRoot: instanceDirectories(dataRoot, '10002').data,
+      sharedDataRoot: dataRoot,
+    }).instance;
+    await Promise.all([first.refresh(), second.refresh()]);
+    const claimed = await Promise.all([
+      first.claimBanner(important.id),
+      second.claimBanner(important.id),
+    ]);
+    expect(claimed.filter(Boolean)).toHaveLength(1);
+    const expired = claimed.find((lease) => lease !== null)!;
+    now += expired.leaseMs;
+    const replacement = await second.claimBanner(important.id);
+    expect(replacement).not.toBeNull();
+    await first.finishBanner(expired.token, true);
+    expect(await first.claimBanner(important.id)).toBeNull();
+    await second.finishBanner(replacement!.token, true);
+    expect(await second.list()).toMatchObject({ unread: 1, reminder: null });
+    expect(await second.claimBanner(important.id)).toBeNull();
   });
 
   it('只允许一个前台领取，放弃不消费，展示不读，截止后只剩历史', async () => {
