@@ -112,6 +112,33 @@ function fixture(
   };
 }
 
+it('代理未读叠加已确认快照，合并重放和随后到来的 QQ 落库', async () => {
+  const { service, update, markRead } = fixture();
+  await service.getUnreadInfos([target]);
+  service.observeLiveUnread(target, ['101', '101']);
+  expect((await service.getUnreadInfos([target], false, true))[0]?.unreadCount).toBe(11);
+  const seen = await service.visibleReadSequence(2, target.uid, [
+    '91',
+    '92',
+    '93',
+    '94',
+    '95',
+    '96',
+    '97',
+    '98',
+    '99',
+    '100',
+    '101',
+  ]);
+  expect(seen).toBe('101');
+  expect((await service.markReadAndReport(2, target.uid, seen)).changed).toBe(true);
+  expect(markRead).not.toHaveBeenCalled();
+  update([row({ latestSeq: '101' })]);
+  await service.getUnreadInfos([target]);
+  await vi.waitFor(() => expect(markRead).toHaveBeenCalledWith(2, target.uid, '101'));
+  expect((await service.getUnreadInfos([target], false, true))[0]?.unreadCount).toBe(0);
+});
+
 it('不同批次和兼容轻量请求共用初始化快照，后续读取不发 SQL', async () => {
   const f = fixture();
   const [a, b] = await Promise.all([f.query(), f.query(true)]);

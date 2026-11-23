@@ -692,6 +692,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account'],
   },
   {
+    id: 'qq-live-messages',
+    section: 'account',
+    label: '通过 QQ 代理实时接收消息',
+    aliases: ['消息直推', '实时收信'],
+    from: ['account'],
+  },
+  {
     id: 'qq-proxy-indicator',
     section: 'account',
     label: 'QQ 代理未连接时在窗口右上角显示',

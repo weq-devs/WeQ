@@ -185,9 +185,15 @@ it('补投等待完整帧，按业务身份去重，并拒绝旧会话', async (
   await once(client, 'connect');
   client.write(`CONNECT 127.0.0.1:${remotePort} HTTP/1.1\r\n\r\n`);
   await take(Buffer.byteLength('HTTP/1.1 200 Connection Established\r\n\r\n'));
+  const write = vi.fn();
+  const destroy = vi.fn();
+  const subscription = { write, destroy, once: vi.fn(), writableLength: 0 } as unknown as Socket;
+  expect(() => proxy.subscribeLive('10001', 'old', subscription)).toThrow('QQ 会话已变化');
+  proxy.subscribeLive('10001', 'first', subscription);
   const original = frame();
   upstream!.write(original);
   expect(await take(original.length)).toEqual(original);
+  expect(write).toHaveBeenCalledWith(JSON.stringify({ body: 'CAE=' }) + '\n');
   upstream!.write(original.subarray(0, 17));
   await take(17);
   const body = Buffer.from([8, 2]);
@@ -215,6 +221,7 @@ it('补投等待完整帧，按业务身份去重，并拒绝旧会话', async (
     key: Buffer.alloc(16, 8).toString('hex'),
     generation: 'second',
   });
+  expect(destroy).toHaveBeenCalledOnce();
   await expect(proxy.deliver('10001', 'first', 'message:two', body)).rejects.toThrow();
 });
 

@@ -185,6 +185,10 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     b.setQqClientSyncEnabled({ enabled: defaults.qqClientSyncEnabled }),
   );
 
+  bind('qq-client-sync:live', current.qqLiveMessagesEnabled, defaults.qqLiveMessagesEnabled, () =>
+    b.setQqLiveMessagesEnabled({ enabled: defaults.qqLiveMessagesEnabled }),
+  );
+
   const readSync = (automatic: boolean, manual: boolean) =>
     automatic === manual ? automatic : automatic ? '仅自动阅读上报' : '仅手动标记上报';
   bind(

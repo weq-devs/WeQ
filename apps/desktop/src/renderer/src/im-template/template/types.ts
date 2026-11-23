@@ -361,6 +361,8 @@ export type Message = {
   id: string;
   /** 正式记录接管本地回显时沿用的渲染标识，消息操作仍使用 id。 */
   outgoingId?: string;
+  /** 代理实时行与已落库记录共用同一个时间线渲染标识。 */
+  timelineKey?: string;
   deletedKind?: 'weq' | 'qq';
   recall?: RecallInfo;
   recallRevokerName?: string;

@@ -21,6 +21,7 @@
 import { EventEmitter } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AccountQqSync } from '../qq_sync/account';
+import { coalesceLiveDbWatch } from '../qq_sync/live_db_watch';
 import { ensureQqSyncProxy } from '../qq_sync/runtime';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
@@ -269,6 +270,7 @@ export interface RoamingCacheChange {
   kind: 'group' | 'c2c';
   conv: string;
   messages: GapFetchedMessage[];
+  live?: true;
 }
 
 export interface AccountForcedClosedEvent {
@@ -639,42 +641,71 @@ function mountDbWatch(session: AccountSession): void {
     dbEventBus.emit('changed', { at: file.at } satisfies MessageDbNotice);
   });
   dbChangeNotification = notification;
-  dbWatchHandle = dbWatch.mount(
-    createNtMsgDbHook(session, {
-      onDbChanged: (file) => {
-        if (getAppContext().account !== session) return;
-        getAppContext().services?.unreadInfo.invalidateMessageFile(file);
-        getAppContext().services?.interactionBadges.requestScan();
-        notification.request(file);
-      },
-      onNewMessages: async (change: NewMessages) => {
-        const ctx = getAppContext();
-        if (ctx.account !== session) return;
-        ctx.services?.contactDirectory?.prioritizeGroupTimes(
-          change.group.map((message) => message.targetGroupCode),
-        );
-        if (ctx.account === session) {
-          try {
-            await ctx.services?.unreadInfo.observeNewMessages(change);
-          } catch (error) {
-            console.error('[unread] 保存本地未读状态失败', error);
-            throw error;
-          }
+  const messageWatch = createNtMsgDbHook(session, {
+    onDbChanged: (file) => {
+      if (getAppContext().account !== session) return;
+      getAppContext().services?.unreadInfo.invalidateMessageFile(file);
+      getAppContext().services?.interactionBadges.requestScan();
+      notification.request(file);
+    },
+    onNewMessages: async (change: NewMessages) => {
+      const ctx = getAppContext();
+      if (ctx.account !== session) return;
+      ctx.services?.contactDirectory?.prioritizeGroupTimes(
+        change.group.map((message) => message.targetGroupCode),
+      );
+      if (ctx.account === session) {
+        try {
+          await ctx.services?.unreadInfo.observeNewMessages(change);
+        } catch (error) {
+          console.error('[unread] 保存本地未读状态失败', error);
+          throw error;
         }
-        if (ctx.account !== session) return;
-        dbEventBus.emit('new', change);
-        const c2c = new Set(change.c2c.map((message) => message.targetUid));
-        for (const message of change.dataline ?? []) c2c.add(message.targetUid);
-        const groups = new Set(change.group.map((message) => message.targetGroupCode));
-        dbEventBus.emit('changed', {
-          at: change.file.at,
-          targets: [
-            ...[...c2c].map((conv) => ({ kind: 'c2c' as const, conv })),
-            ...[...groups].map((conv) => ({ kind: 'group' as const, conv })),
-          ],
-        } satisfies MessageDbNotice);
-      },
-    }),
+      }
+      if (ctx.account !== session) return;
+      const sync = ctx.services?.qqClientSync;
+      if (sync?.isLiveEnabled()) {
+        const now = Date.now();
+        for (const row of change.c2c)
+          sync.liveMessages.confirm(
+            {
+              kind: 'c2c',
+              conv: row.targetUid,
+              msgSeq: String(row.msgSeq),
+              senderUid: row.senderUid,
+              msgRandom: row.msgRandom?.toString(),
+            },
+            now,
+          );
+        for (const row of change.group)
+          sync.liveMessages.confirm(
+            {
+              kind: 'group',
+              conv: row.targetGroupCode,
+              msgSeq: String(row.msgSeq),
+              senderUid: row.senderUid,
+              msgRandom: row.msgRandom?.toString(),
+            },
+            now,
+          );
+      }
+      dbEventBus.emit('new', change);
+      const c2c = new Set(change.c2c.map((message) => message.targetUid));
+      for (const message of change.dataline ?? []) c2c.add(message.targetUid);
+      const groups = new Set(change.group.map((message) => message.targetGroupCode));
+      dbEventBus.emit('changed', {
+        at: change.file.at,
+        targets: [
+          ...[...c2c].map((conv) => ({ kind: 'c2c' as const, conv })),
+          ...[...groups].map((conv) => ({ kind: 'group' as const, conv })),
+        ],
+      } satisfies MessageDbNotice);
+    },
+  });
+  dbWatchHandle = dbWatch.mount(
+    coalesceLiveDbWatch(messageWatch, () =>
+      Boolean(getAppContext().services?.qqClientSync?.hasRecentLiveMessages()),
+    ),
   );
   releaseUnreadWatch = getAppContext().services?.unreadInfo.attachMessageFileWatch();
 }
@@ -1602,7 +1633,10 @@ export function initAppContext(fileRoot?: string): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = files.config;
-  if (userConfig.getSetting('qqClientSyncEnabled'))
+  if (
+    userConfig.getSetting('qqClientSyncEnabled') ||
+    (userConfig.getSetting('qqLiveMessagesEnabled') && userConfig.getSetting('realtimeEnabled'))
+  )
     void ensureQqSyncProxy(platform.appDataRoot()).catch((error) =>
       getLogger().warn('QQ 同步代理启动失败', { error: String(error) }),
     );
@@ -2104,6 +2138,35 @@ export function initAppContext(fileRoot?: string): AppContext {
         session,
         nt: platform.native.ntHelper,
         enabled: () => this.account === session && userConfig.getSetting('qqClientSyncEnabled'),
+        liveEnabled: () =>
+          this.account === session &&
+          userConfig.getSetting('realtimeEnabled') &&
+          userConfig.getSetting('qqLiveMessagesEnabled'),
+        allowLiveMessage: (row) => !deletedMsgs.isHiddenCached(row),
+        onLiveMessages: (messages) => {
+          if (this.account !== session) return;
+          const byConversation = new Map<string, GapFetchedMessage[]>();
+          for (const row of messages) {
+            const key = `${row.kind}:${row.conv}`;
+            const rows = byConversation.get(key);
+            if (rows) rows.push(row);
+            else byConversation.set(key, [row]);
+          }
+          for (const rows of byConversation.values()) {
+            const { kind, conv } = rows[0]!;
+            this.services?.unreadInfo.observeLiveUnread(
+              { chatType: kind === 'group' ? 2 : 1, uid: conv },
+              rows.map((row) => row.msgSeq),
+            );
+            dbEventBus.emit('roaming', {
+              session,
+              kind,
+              conv,
+              messages: rows,
+              live: true,
+            } satisfies RoamingCacheChange);
+          }
+        },
         readEnabled: () =>
           userConfig.getSetting('reportReadEnabled') ||
           userConfig.getSetting('manualReadReportEnabled'),

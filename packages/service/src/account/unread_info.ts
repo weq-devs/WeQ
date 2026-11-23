@@ -91,6 +91,16 @@ export class UnreadInfoService {
   private disposed = false;
   private readonly reads = new AbortController();
   private readonly snapshots = new Map<string, UnreadInfoSnapshot>();
+  private readonly pushedUnread = new Map<
+    string,
+    {
+      target: UnreadInfoTarget;
+      sequences: Set<string>;
+      expires: number;
+      readThrough?: string;
+      replaying?: boolean;
+    }
+  >();
   private readonly results = new Map<string, ResolvedUnreadInfo>();
   private readonly targets = new Map<string, UnreadInfoTarget>();
   private readonly confirmedSent = new Map<string, string[]>();
@@ -220,6 +230,84 @@ export class UnreadInfoService {
     this.changeTimer.unref?.();
   }
 
+  observeLiveUnread(target: UnreadInfoTarget, sequences: string[], now = Date.now()): void {
+    if (this.disposed) return;
+    const peer = this.key(target);
+    const base = this.results.get(peer);
+    if (!base?.latestSeq || base.readError || base.unreadCount === undefined) return;
+    const current = this.pushedUnread.get(peer);
+    const pending =
+      current && current.expires > now
+        ? current
+        : { target, sequences: new Set<string>(), expires: now + 30_000 };
+    let changed = false;
+    for (const sequence of sequences) {
+      if (BigInt(sequence) <= BigInt(base.latestSeq) || pending.sequences.has(sequence)) continue;
+      if (pending.sequences.size >= 256) break;
+      pending.sequences.add(sequence);
+      changed = true;
+    }
+    if (!changed) return;
+    if (!this.pushedUnread.has(peer) && this.pushedUnread.size >= 512) return;
+    this.pushedUnread.set(peer, pending);
+    this.publish([target]);
+  }
+
+  private liveUnread(row: ResolvedUnreadInfo): ResolvedUnreadInfo {
+    const pending = this.pushedUnread.get(row.peer);
+    if (!pending || pending.expires <= Date.now() || !row.latestSeq || row.readError) return row;
+    const latest = BigInt(row.latestSeq);
+    const confirmedRead = BigInt(row.readSeq ?? '0');
+    const read = BigInt(pending.readThrough ?? '0');
+    // 只增加明确已收到的普通入站，保持数据库确认过的已读水位供写操作校验。
+    let count = row.unreadCount ?? 0;
+    for (const sequence of pending.sequences) {
+      const current = BigInt(sequence);
+      if (current > latest && current > read && current > confirmedRead) count++;
+      if (current <= latest && current <= read && current > confirmedRead) count--;
+    }
+    count = Math.max(0, count);
+    return count === row.unreadCount ? row : { ...row, unreadCount: count };
+  }
+
+  private reconcileLiveUnread(rows: readonly UnreadInfoSnapshot[]) {
+    const now = Date.now();
+    const changed: UnreadInfoTarget[] = [];
+    for (const row of rows) {
+      const pending = this.pushedUnread.get(row.peer);
+      if (!pending || row.readError) continue;
+      if (row.latestSeq) {
+        const latest = BigInt(row.latestSeq);
+        const through = pending.readThrough;
+        if (!pending.replaying && through && BigInt(through) <= latest && pending.expires > now) {
+          pending.replaying = true;
+          queueMicrotask(() => {
+            if (this.pushedUnread.get(row.peer) !== pending || pending.readThrough !== through)
+              return;
+            void this.markReadAndReport(row.chatType, row.uid, through)
+              .catch(() => undefined)
+              .finally(() => {
+                if (this.pushedUnread.get(row.peer) !== pending) return;
+                pending.replaying = false;
+                if (pending.readThrough === through) pending.readThrough = undefined;
+                this.publish([pending.target]);
+              });
+          });
+        }
+        for (const sequence of pending.sequences) {
+          if (BigInt(sequence) <= latest && (!through || BigInt(sequence) > BigInt(through)))
+            pending.sequences.delete(sequence);
+        }
+      }
+    }
+    for (const [peer, pending] of this.pushedUnread) {
+      if (pending.sequences.size && pending.expires > now) continue;
+      this.pushedUnread.delete(peer);
+      changed.push(pending.target);
+    }
+    this.publish(changed);
+  }
+
   async observeNewMessages(change: NewMessages): Promise<void> {
     this.invalidateMessageFile(change.file);
   }
@@ -267,6 +355,7 @@ export class UnreadInfoService {
     this.writes.clear();
     this.countSource?.clear();
     this.countListeners.clear();
+    this.pushedUnread.clear();
     this.reads.abort();
     this.cancelReports();
     this.readHistory.clear();
@@ -293,6 +382,7 @@ export class UnreadInfoService {
     this.retryTimer = undefined;
     for (const [key, version] of this.targetVersions) this.targetVersions.set(key, version + 1);
     this.local.clear();
+    this.pushedUnread.clear();
     const targets = [...this.snapshots.values()];
     await this.project(targets);
     this.publish(targets);
@@ -310,7 +400,11 @@ export class UnreadInfoService {
     const [snapshot] = await this.getUnreadInfos([{ chatType, uid }]);
     if (!snapshot?.readSeq || !snapshot.latestSeq || snapshot.readError) return undefined;
     const floor = BigInt(snapshot.readSeq);
-    const latest = BigInt(snapshot.latestSeq);
+    const pending = this.pushedUnread.get(snapshot.peer);
+    let latest = BigInt(snapshot.latestSeq);
+    if (pending && pending.expires > Date.now()) {
+      while (pending.sequences.has(String(latest + 1n))) latest++;
+    }
     if (floor <= 0n) return undefined;
     const visible = new Set(visibleSeqs);
     if (floor >= latest) {
@@ -400,6 +494,7 @@ export class UnreadInfoService {
   async getUnreadInfos(
     targets: UnreadInfoTarget[],
     _watermarksOnly = false,
+    includeLive = false,
   ): Promise<ResolvedUnreadInfo[]> {
     if (this.disposed) return targets.map((target) => this.missing(target));
     for (const target of targets) this.targets.set(this.key(target), target);
@@ -416,7 +511,11 @@ export class UnreadInfoService {
     }
     return targets.map((target) => {
       const row = this.results.get(this.key(target));
-      return this.disposed || !row ? this.missing(target) : row;
+      return this.disposed || !row
+        ? this.missing(target)
+        : includeLive
+          ? this.liveUnread(row)
+          : row;
     });
   }
 
@@ -610,6 +709,7 @@ export class UnreadInfoService {
           this.invalidate();
           return;
         }
+        this.reconcileLiveUnread(rows);
         this.updatedAt = Date.now();
         void this.local.flush().catch((error) => console.error('[unread] 操作保存失败', error));
         void this.important
@@ -764,6 +864,13 @@ export class UnreadInfoService {
     if (resetRevision !== this.localResetRevision) throw new Error('已读记录已清除，请重新操作');
     this.manualRevision++;
     this.cancelReports();
+    for (const target of unique) {
+      const pending = this.pushedUnread.get(this.key(target));
+      if (pending) {
+        pending.readThrough = undefined;
+        pending.replaying = false;
+      }
+    }
     const changes: ManualReadEntry[] = snapshots.map((raw) => {
       const snapshot = this.resolve(raw);
       const throughSeq = snapshot.latestSeq ?? snapshot.readSeq ?? '0';
@@ -976,6 +1083,26 @@ export class UnreadInfoService {
     const snapshot = (await this.getUnreadInfos([{ chatType, uid }]))[0];
     if (this.disposed || snapshot?.readError)
       return { changed: false, report: { state: 'unavailable' } };
+    const targetKey = this.key({ chatType, uid });
+    const pushed = this.pushedUnread.get(targetKey);
+    if (
+      options?.write !== false &&
+      !manual &&
+      latestSeq &&
+      snapshot?.latestSeq &&
+      pushed &&
+      pushed.expires > Date.now() &&
+      pushed.sequences.has(latestSeq) &&
+      BigInt(latestSeq) > BigInt(snapshot.latestSeq)
+    ) {
+      let through = BigInt(snapshot.latestSeq);
+      while (pushed.sequences.has(String(through + 1n)) && through < BigInt(latestSeq)) through++;
+      if (through === BigInt(latestSeq)) {
+        if (through > BigInt(pushed.readThrough ?? '0')) pushed.readThrough = latestSeq;
+        this.publish([pushed.target]);
+        return { changed: true, report: { state: 'skipped' } };
+      }
+    }
     const sequence = await this.readSequence(chatType, uid, latestSeq);
     if (sequence === undefined || this.generation !== generation)
       return { changed: false, report: { state: 'skipped' } };

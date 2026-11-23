@@ -61,7 +61,7 @@ type ChatTimelineProps = {
   ) => ReactNode;
 };
 
-const messageKey = (message: Message) => message.outgoingId ?? message.id;
+const messageKey = (message: Message) => message.outgoingId ?? message.timelineKey ?? message.id;
 const timelineRow = (element: HTMLElement) =>
   element.closest<HTMLDivElement>('.weq-virtual-timeline-row');
 const timelineKey = (element: HTMLElement) => timelineRow(element)?.dataset.weqMotionKey;

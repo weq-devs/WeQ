@@ -150,6 +150,7 @@ import {
 import {
   mergeRoamingTimeline,
   mergeRoamingWindow,
+  timelineMessageIdentity,
   timelineRowKey,
   voiceFileHash,
 } from '../../../shared/roaming_timeline';
@@ -1240,6 +1241,11 @@ function MainWorkspace(): ReactElement {
     anchorId?: string;
   } | null>(null);
 
+  const liveTimelineKeys = useRef(new Map<string, string>());
+  const latestMessageWindowRef = useRef(anchoredToLatest);
+  latestMessageWindowRef.current = anchoredToLatest;
+  const recentContactsForPush = useRef(recentContactsByUid);
+  recentContactsForPush.current = recentContactsByUid;
   const [calendarDataRevision, setCalendarDataRevision] = useState(0);
   const calendarOpenRef = useRef(false);
 
@@ -1253,9 +1259,30 @@ function MainWorkspace(): ReactElement {
         conversationWindows.markDirty(
           conversationWindowKey(messageScope, change.kind, change.conv),
         );
-        // WeQ 发送缓存不会改 QQ 库，也就不会触发 onDbChanged。
-        refreshRecentHead();
-        refreshRecentTargets([change.conv]);
+        const incoming = change.messages.map(toMessageWire);
+        if (change.live) {
+          for (const row of incoming) {
+            const identity = timelineMessageIdentity(row);
+            if (!identity) continue;
+            const keys = liveTimelineKeys.current;
+            keys.set(
+              JSON.stringify([messageScope, change.kind, change.conv, identity]),
+              timelineRowKey(row),
+            );
+            if (keys.size > 512) keys.delete(keys.keys().next().value!);
+          }
+          const contact = recentContactsForPush.current.get(change.conv);
+          if (contact && unreadChatType(contact.chatType) === (change.kind === 'group' ? 2 : 1)) {
+            const latest = latestContactPreviewMessage(contact, incoming, canPreviewContactMessage);
+            setObservedContactPreviews((previous) =>
+              observeContactPreview(previous, contact, latest),
+            );
+          }
+        } else {
+          // WeQ 发送缓存不会改 QQ 库，也就不会触发 onDbChanged。
+          refreshRecentHead();
+          refreshRecentTargets([change.conv]);
+        }
         const selection = selectionRef.current;
         if (
           !selection ||
@@ -1265,7 +1292,9 @@ function MainWorkspace(): ReactElement {
           return;
         setLoaded((current) => {
           if (selectionRef.current !== selection) return current;
-          return mergeRoamingWindow(change.kind, current, change.messages.map(toMessageWire));
+          if (change.live && latestMessageWindowRef.current)
+            return mergeRoamingTimeline(change.kind, current, incoming);
+          return mergeRoamingWindow(change.kind, current, incoming);
         });
       },
       onError(error) {
@@ -5019,8 +5048,19 @@ function MainWorkspace(): ReactElement {
       const elements = previews
         ? withOutgoingPicturePreviews(mapped.qqElements, previews)
         : mapped.qqElements;
-      return outgoingId || elements !== mapped.qqElements
-        ? { ...mapped, outgoingId, qqElements: elements }
+      const identity = liveTimelineKeys.current.size ? timelineMessageIdentity(wire) : null;
+      const timelineKey =
+        identity &&
+        liveTimelineKeys.current.get(
+          JSON.stringify([
+            messageScope,
+            selectedConversation.type === 'group' ? 'group' : 'c2c',
+            selectedConversation.id,
+            identity,
+          ]),
+        );
+      return outgoingId || timelineKey || elements !== mapped.qqElements
+        ? { ...mapped, outgoingId, timelineKey: timelineKey || undefined, qqElements: elements }
         : mapped;
     };
     const real = loadedMessageWires
@@ -5108,6 +5148,7 @@ function MainWorkspace(): ReactElement {
     recordMessagePhase('mapping', performance.now() - mappingStarted);
     return mapped;
   }, [
+    messageScope,
     loadedMessageWires,
     selectedConversation,
     user,

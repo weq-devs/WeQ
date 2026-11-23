@@ -171,6 +171,13 @@ export function AccountBasicsSection({
     },
     onError: (error) => showError('保存失败', error.message),
   });
+  const setQqLiveMessages = trpc.bootstrap.setQqLiveMessagesEnabled.useMutation({
+    onSuccess: () => {
+      void settings.refetch();
+      void qqSyncStatus.refetch();
+    },
+    onError: (error) => showError('更改代理实时消息设置失败', error.message),
+  });
   const setQqClientSync = trpc.bootstrap.setQqClientSyncEnabled.useMutation({
     onSuccess: () => {
       void settings.refetch();
@@ -703,6 +710,18 @@ export function AccountBasicsSection({
                   }
                   onChange={(enabled) => setQqClientSync.mutate({ enabled })}
                   label="自动同步本人消息与已读"
+                />
+              }
+            />
+            <Row
+              settingId="qq-live-messages"
+              desc="连接 QQ 代理并启用实时消息后，普通文本可在落库前显示。断开后自动从数据库补齐。"
+              control={
+                <Toggle
+                  checked={settings.data?.qqLiveMessagesEnabled ?? false}
+                  disabled={settingsLoading || setQqLiveMessages.isPending}
+                  onChange={(enabled) => setQqLiveMessages.mutate({ enabled })}
+                  label="通过 QQ 代理实时接收消息"
                 />
               }
             />

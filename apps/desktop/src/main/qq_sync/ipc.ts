@@ -2,7 +2,7 @@ import { connect } from 'node:net';
 import type { SyncCredential, RecallPolicy } from './proxy';
 
 export const DEFAULT_QQ_SYNC_PORT = 19081;
-export const QQ_SYNC_CONTROL_VERSION = 3;
+export const QQ_SYNC_CONTROL_VERSION = 4;
 
 export interface SyncProxyConfig {
   socket: string;

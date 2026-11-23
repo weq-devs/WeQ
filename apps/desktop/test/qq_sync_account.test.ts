@@ -10,7 +10,8 @@ import { clientReadTargets } from '@weqbot/protocol/qq-sync';
 
 const f = vi.hoisted(() => ({ request: vi.fn(), history: vi.fn() }));
 vi.mock('../src/main/qq_sync/runtime', () => ({ qqSyncRequest: f.request }));
-vi.mock('@weqbot/protocol', () => ({
+vi.mock('@weqbot/protocol', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weqbot/protocol')>()),
   fetchC2cHistoryRaw: f.history,
   fetchGroupHistoryRaw: f.history,
   extractPath: () => Buffer.from([8, 1]),

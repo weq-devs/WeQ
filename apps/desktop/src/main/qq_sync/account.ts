@@ -23,7 +23,8 @@ import {
 } from '@weqbot/protocol/qq-sync';
 import type { RecallJournalEntry } from './recall_journal';
 import type { SyncProxyStatus } from './ipc';
-import { qqSyncRequest } from './runtime';
+import { qqSyncRequest, subscribeQqLive } from './runtime';
+import { decodeLiveMessages, LiveMessages } from './live_messages';
 
 type SentIdentity = Pick<
   GapFetchedMessage,
@@ -45,6 +46,9 @@ export interface AccountQqSyncOptions {
   enabled(): boolean;
   readEnabled(): boolean;
   antiRecall?: AntiRecallService;
+  liveEnabled?(): boolean;
+  onLiveMessages?(messages: GapFetchedMessage[]): void;
+  allowLiveMessage?(message: GapFetchedMessage): boolean;
   current(): QqSyncSession | null;
 }
 
@@ -60,6 +64,64 @@ export class AccountQqSync {
   private recallAck: string[] = [];
   private flight?: Promise<void>;
   private recallActive = false;
+  readonly liveMessages = new LiveMessages();
+  private liveSubscription?: { generation: string; abort: AbortController };
+  private liveReceivedAt = 0;
+
+  isLiveEnabled() {
+    return this.options.liveEnabled?.() === true;
+  }
+
+  liveRows(kind: GapFetchedMessage['kind'], conv: string) {
+    return this.liveMessages
+      .forConversation(kind, conv, Date.now())
+      .filter((row) => this.options.allowLiveMessage?.(row) !== false);
+  }
+
+  hasRecentLiveMessages(): boolean {
+    return Boolean(
+      this.liveSubscription &&
+        this.options.liveEnabled?.() &&
+        Date.now() - this.liveReceivedAt < 2000,
+    );
+  }
+
+  refreshLive() {
+    if (!this.options.liveEnabled?.()) this.stopLive();
+    void this.run();
+  }
+
+  private stopLive() {
+    this.liveSubscription?.abort.abort();
+    this.liveSubscription = undefined;
+    this.liveReceivedAt = 0;
+  }
+
+  private startLive(uin: string, generation: string, valid: () => boolean) {
+    if (!this.options.liveEnabled?.() || !this.options.onLiveMessages) return;
+    if (this.liveSubscription?.generation === generation) return;
+    this.stopLive();
+    const subscription = { generation, abort: new AbortController() };
+    this.liveSubscription = subscription;
+    const selfUid = this.options.session.selfUid ?? '';
+    void subscribeQqLive(this.options.root, uin, generation, subscription.abort.signal, (body) => {
+      if (!valid() || !this.options.liveEnabled?.() || this.liveSubscription !== subscription)
+        return;
+      const now = Date.now();
+      const decoded = decodeLiveMessages(body, selfUid, uin, now).filter(
+        (row) => this.options.allowLiveMessage?.(row) !== false,
+      );
+      const rows = this.liveMessages.accept(decoded, now);
+      if (rows.length) {
+        this.liveReceivedAt = now;
+        this.options.onLiveMessages?.(rows);
+      }
+    })
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.liveSubscription === subscription) this.stopLive();
+      });
+  }
   constructor(private readonly options: AccountQqSyncOptions) {
     try {
       const saved = JSON.parse(readFileSync(options.path, 'utf8'));
@@ -171,6 +233,7 @@ export class AccountQqSync {
   async dispose() {
     this.disposed = true;
     clearInterval(this.timer);
+    this.stopLive();
     await this.flight;
     await this.persistence.catch(() => undefined);
     const current = this.options.current();
@@ -239,29 +302,46 @@ export class AccountQqSync {
     });
     return this.flight;
   }
+  private generationFor(current: QqSyncSession) {
+    return createHash('sha256').update(`${current.pid}:${current.key}`).digest('hex');
+  }
   private async runOnce() {
     const protection = this.options.antiRecall?.protection();
+    if (!this.options.liveEnabled?.()) this.stopLive();
     if (
       this.disposed ||
       this.running ||
-      (!this.options.enabled() && !protection?.enabled && !this.recallActive)
+      (!this.options.enabled() &&
+        !protection?.enabled &&
+        !this.recallActive &&
+        !this.options.liveEnabled?.())
     )
       return;
     const current = this.options.current();
     if (!current) {
+      this.stopLive();
       this.options.antiRecall?.setProxyState(false);
       return;
     }
+    if (
+      this.liveSubscription &&
+      !this.options.enabled() &&
+      !protection?.enabled &&
+      !this.recallActive &&
+      this.liveSubscription.generation === this.generationFor(current)
+    )
+      return;
     this.running = true;
     const uin = String(this.options.session.context.uin);
-    const generation = createHash('sha256').update(`${current.pid}:${current.key}`).digest('hex');
+    const generation = this.generationFor(current);
     const valid = () => {
       const now = this.options.current();
       return (
         !this.disposed &&
         (this.options.enabled() ||
           this.options.antiRecall?.protection().enabled ||
-          this.recallActive) &&
+          this.recallActive ||
+          this.options.liveEnabled?.() === true) &&
         now?.pid === current.pid &&
         now.key === current.key
       );
@@ -271,7 +351,12 @@ export class AccountQqSync {
         op: 'credential',
         value: { uin, key: current.key, generation, selfUid: this.options.session.selfUid },
       });
-      if (this.options.antiRecall && valid()) {
+      if (valid()) this.startLive(uin, generation, valid);
+      if (
+        this.options.antiRecall &&
+        valid() &&
+        (protection?.enabled || this.recallActive || this.options.enabled())
+      ) {
         const status = await qqSyncRequest<SyncProxyStatus>(this.options.root, { op: 'status' });
         if ((status.protocolVersion ?? 1) < 2)
           throw new Error('请应用开发更新以启用新版防撤回代理');

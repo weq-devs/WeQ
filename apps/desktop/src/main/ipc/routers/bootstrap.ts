@@ -999,6 +999,7 @@ export const bootstrapRouter = router({
   setRealtimeEnabled: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     requireBootstrap().userConfig.setSettings({ realtimeEnabled: input.enabled });
     getAppContext().applyRealtime(input.enabled);
+    getAppContext().services?.qqClientSync?.refreshLive();
     return true;
   }),
 
@@ -1048,7 +1049,9 @@ export const bootstrapRouter = router({
     const connectionExpected =
       liveAccount &&
       Boolean(sync) &&
-      (requireBootstrap().userConfig.getSettings().qqClientSyncEnabled ||
+      (requireBootstrap().userConfig.getSetting('qqClientSyncEnabled') ||
+        (requireBootstrap().userConfig.getSetting('qqLiveMessagesEnabled') &&
+          requireBootstrap().userConfig.getSetting('realtimeEnabled')) ||
         (protection?.enabled === true && protection.method === 'proxy'));
     const status = await qqSyncStatus(requirePlatform().appDataRoot());
     const connected =
@@ -1064,6 +1067,15 @@ export const bootstrapRouter = router({
       tasks: sync?.status() ?? null,
     };
   }),
+
+  setQqLiveMessagesEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(async ({ input }) => {
+      if (input.enabled) await ensureQqSyncProxy(requirePlatform().appDataRoot());
+      requireBootstrap().userConfig.setSettings({ qqLiveMessagesEnabled: input.enabled });
+      getAppContext().services?.qqClientSync?.refreshLive();
+      return true;
+    }),
 
   setQqProxyIndicatorEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
@@ -1083,7 +1095,12 @@ export const bootstrapRouter = router({
       const root = requirePlatform().appDataRoot();
       if (input.enabled) await ensureQqSyncProxy(root);
       requireBootstrap().userConfig.setSettings({ qqClientSyncEnabled: input.enabled });
-      if (!input.enabled && ctx.account)
+      if (
+        !input.enabled &&
+        ctx.account &&
+        !requireBootstrap().userConfig.getSetting('qqLiveMessagesEnabled') &&
+        !ctx.services?.antiRecall.protection().enabled
+      )
         await qqSyncRequest(root, { op: 'forget', uin: String(ctx.account.context.uin) }).catch(
           () => undefined,
         );

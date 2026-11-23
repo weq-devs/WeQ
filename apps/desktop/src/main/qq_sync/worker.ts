@@ -131,6 +131,7 @@ const schema = z.discriminatedUnion('op', [
     generation: z.string(),
     ack: z.array(z.string()).max(64),
   }),
+  z.object({ op: z.literal('live'), token: z.string(), uin: z.string(), generation: z.string() }),
   z.object({ op: z.literal('forget'), token: z.string(), uin: z.string() }),
   z.object({
     op: z.literal('push'),
@@ -229,7 +230,10 @@ async function serve() {
           throw Error('代理认证失败');
         let result: unknown;
         if (request.op === 'status') result = status();
-        else if (request.op === 'listen') result = { port: await listen(request.port) };
+        else if (request.op === 'live') {
+          proxy.subscribeLive(request.uin, request.generation, socket);
+          return;
+        } else if (request.op === 'listen') result = { port: await listen(request.port) };
         else if (request.op === 'credential') {
           proxy.setCredential(request.value);
           result = true;

@@ -1,3 +1,4 @@
+import { connect } from 'node:net';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
@@ -141,6 +142,45 @@ export async function setQqSyncPort(root: string, port: number): Promise<{ port:
 export async function qqSyncRequest<T>(root: string, request: SyncProxyRequest): Promise<T> {
   return requestProxy<T>(await ensureQqSyncProxy(root), request);
 }
+/** Event-driven control socket. Returning closes it and lets the account loop reconnect. */
+export async function subscribeQqLive(
+  root: string,
+  uin: string,
+  generation: string,
+  signal: AbortSignal,
+  onPush: (body: Buffer) => void,
+): Promise<void> {
+  const config = await ensureQqSyncProxy(root);
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    const socket = connect({ path: config.socket, signal });
+    let pending = '';
+    socket.on('error', () => socket.destroy());
+    socket.once('close', resolve);
+    socket.once('connect', () => {
+      socket.write(`${JSON.stringify({ op: 'live', token: config.token, uin, generation })}\n`);
+    });
+    socket.setEncoding('utf8');
+    socket.on('data', (data: string) => {
+      pending += data;
+      if (pending.length > 1024 * 1024) return socket.destroy();
+      let end = pending.indexOf('\n');
+      while (end !== -1) {
+        const line = pending.slice(0, end);
+        pending = pending.slice(end + 1);
+        try {
+          const message = JSON.parse(line) as { body?: string };
+          if (typeof message.body !== 'string') return socket.destroy();
+          onPush(Buffer.from(message.body, 'base64'));
+        } catch {
+          return socket.destroy();
+        }
+        end = pending.indexOf('\n');
+      }
+    });
+  });
+}
+
 export async function qqSyncStatus(root: string) {
   let port = DEFAULT_QQ_SYNC_PORT;
   let error = '';

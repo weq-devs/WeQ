@@ -847,6 +847,7 @@ export interface AppSettings {
   reportReadEnabled: boolean;
   /** 通过本机代理同步本人消息及已读到 QQ。 */
   qqClientSyncEnabled: boolean;
+  qqLiveMessagesEnabled: boolean;
   /** 需要 QQ 代理而当前账号未连接时，在窗口右上角显示状态入口。 */
   qqProxyIndicatorEnabled: boolean;
   /** 手动标记及撤销推进已读水位时上报，独立于自动阅读，默认开启。 */
@@ -1260,6 +1261,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   startupPage: 'home',
   reportReadEnabled: true,
   qqClientSyncEnabled: false,
+  qqLiveMessagesEnabled: false,
   qqProxyIndicatorEnabled: true,
   manualReadReportEnabled: true,
   autoLockMinutes: 0,
@@ -2103,6 +2105,7 @@ export class UserConfigService {
           : d.startupPage,
       reportReadEnabled: s?.reportReadEnabled ?? d.reportReadEnabled,
       qqClientSyncEnabled: s?.qqClientSyncEnabled ?? d.qqClientSyncEnabled,
+      qqLiveMessagesEnabled: s?.qqLiveMessagesEnabled ?? d.qqLiveMessagesEnabled,
       qqProxyIndicatorEnabled: s?.qqProxyIndicatorEnabled !== false,
       manualReadReportEnabled: s?.manualReadReportEnabled ?? d.manualReadReportEnabled,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
@@ -2304,6 +2307,7 @@ export class UserConfigService {
       startupPage: patch.startupPage ?? current.startupPage,
       reportReadEnabled: patch.reportReadEnabled ?? current.reportReadEnabled,
       qqClientSyncEnabled: patch.qqClientSyncEnabled ?? current.qqClientSyncEnabled,
+      qqLiveMessagesEnabled: patch.qqLiveMessagesEnabled ?? current.qqLiveMessagesEnabled,
       qqProxyIndicatorEnabled: patch.qqProxyIndicatorEnabled ?? current.qqProxyIndicatorEnabled,
       manualReadReportEnabled: patch.manualReadReportEnabled ?? current.manualReadReportEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,

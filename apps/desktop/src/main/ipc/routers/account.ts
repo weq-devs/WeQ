@@ -841,12 +841,17 @@ async function withRoamingHistory(
       ),
     ]);
     return withMessageBubbles(
-      mergeRoamingTimeline<ChatMsgWire>(kind, local, cached.map(roamingMsgToWire), {
-        min,
-        max,
-        limit,
-        descending,
-      }),
+      mergeRoamingTimeline<ChatMsgWire>(
+        kind,
+        local,
+        [...cached, ...(services.qqClientSync?.liveRows(kind, conv) ?? [])].map(roamingMsgToWire),
+        {
+          min,
+          max,
+          limit,
+          descending,
+        },
+      ),
       services.dressInstall,
     );
   } catch {
@@ -3492,7 +3497,11 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
-      const rows = await services.unreadInfo.getUnreadInfos(input.targets, input.watermarksOnly);
+      const rows = await services.unreadInfo.getUnreadInfos(
+        input.targets,
+        input.watermarksOnly,
+        true,
+      );
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
       )
@@ -6268,30 +6277,34 @@ export const accountRouter = router({
         input?.expectedAccountConfigId,
       );
       const session = getAppContext().account;
-      return observable<{ kind: 'group' | 'c2c'; conv: string; messages: ChatMsgWire[] }>(
-        (emit) => {
-          const handler = (change: RoamingCacheChange) => {
-            if (
-              change.session !== session ||
-              getAppContext().account !== session ||
-              getAppContext().services !== services
-            )
-              return;
-            emit.next({
-              kind: change.kind,
-              conv: change.conv,
-              messages: withMessageBubbles(
-                change.messages.map(roamingMsgToWire),
-                services.dressInstall,
-              ),
-            });
-          };
-          dbEventBus.on('roaming', handler);
-          return () => {
-            dbEventBus.off('roaming', handler);
-          };
-        },
-      );
+      return observable<{
+        kind: 'group' | 'c2c';
+        conv: string;
+        messages: ChatMsgWire[];
+        live?: true;
+      }>((emit) => {
+        const handler = (change: RoamingCacheChange) => {
+          if (
+            change.session !== session ||
+            getAppContext().account !== session ||
+            getAppContext().services !== services
+          )
+            return;
+          emit.next({
+            kind: change.kind,
+            conv: change.conv,
+            live: change.live,
+            messages: withMessageBubbles(
+              change.messages.map(roamingMsgToWire),
+              services.dressInstall,
+            ),
+          });
+        };
+        dbEventBus.on('roaming', handler);
+        return () => {
+          dbEventBus.off('roaming', handler);
+        };
+      });
     }),
 
   /** Live DB-change ping; the renderer re-reads its original message window. */

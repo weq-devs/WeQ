@@ -97,6 +97,7 @@ export class QqSyncProxy {
   private server?: Server;
   private readonly tunnels = new Map<number, Tunnel>();
   private readonly credentials = new Map<string, SyncCredential>();
+  private readonly live = new Map<string, { generation: string; socket: Socket }>();
   private readonly delivered = new Set<string>();
   private nextId = 0;
   private deliveredCount = 0;
@@ -127,12 +128,25 @@ export class QqSyncProxy {
       : undefined;
   }
 
+  subscribeLive(uin: string, generation: string, socket: Socket) {
+    if (this.credentials.get(uin)?.generation !== generation) throw new Error('QQ 会话已变化');
+    this.live.get(uin)?.socket.destroy();
+    const subscription = { generation, socket };
+    this.live.set(uin, subscription);
+    socket.once('close', () => {
+      if (this.live.get(uin) === subscription) this.live.delete(uin);
+    });
+  }
+
   setCredential(value: SyncCredential) {
     if (!/^\d{4,16}$/.test(value.uin) || !/^[a-f\d]{32}$/i.test(value.key))
       throw new Error('账号会话无效');
+    const subscription = this.live.get(value.uin);
+    if (subscription && subscription.generation !== value.generation) subscription.socket.destroy();
     this.credentials.set(value.uin, value);
   }
   forget(uin: string) {
+    this.live.get(uin)?.socket.destroy();
     this.credentials.delete(uin);
     this.policies.delete(uin);
     for (const tunnel of this.tunnels.values())
@@ -192,6 +206,8 @@ export class QqSyncProxy {
     return address.port;
   }
   async close() {
+    for (const subscription of this.live.values()) subscription.socket.destroy();
+    this.live.clear();
     for (const tunnel of this.tunnels.values()) {
       clearTimeout(tunnel.fragmentTimer);
       tunnel.client.destroy();
@@ -362,12 +378,21 @@ export class QqSyncProxy {
       if (inner.command !== 'trpc.msg.olpush.OlPushService.MsgPush') return frame;
       tunnel.template = { outer, inner, generation: credential.generation };
       const policy = this.recallPolicy(uin);
+      const live = this.live.get(uin);
+      if (!live && (!policy || !credential.selfUid || !this.journal)) return frame;
+      const body = decodedBody(inner);
+      if (live?.generation === credential.generation && body.byteLength <= 256 * 1024) {
+        // WeQ 消费落后时退出订阅，由宿主重新连接并通过数据库补齐。
+        if (live.socket.writableLength > 512 * 1024) live.socket.destroy();
+        else
+          live.socket.write(`${JSON.stringify({ body: Buffer.from(body).toString('base64') })}\n`);
+      }
       if (!policy || !credential.selfUid || !this.journal) return frame;
       const protects = (target: { kind: 'c2c' | 'group'; conv: string }) =>
         policy.all ||
         policy.targets.some((item) => item.kind === target.kind && item.id === target.conv);
       const inspected = inspectRecallPush(
-        decodedBody(inner),
+        body,
         credential.selfUid,
         protects,
         filtering && policy.block,
