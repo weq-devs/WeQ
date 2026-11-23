@@ -113,7 +113,9 @@ import {
   type QzoneMediaDestination,
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
-import { QZONE_VISIBILITY } from '../../../shared/qzone';
+import { QZONE_IMAGE_MAX_BYTES, QZONE_VISIBILITY } from '../../../shared/qzone';
+import { stageAccountFile } from '../lib/accountFilePicker';
+import { IS_WEB } from '../lib/target.shared';
 import { QzoneSpaceHome, type QzoneHomePostProps } from './QzoneSpaceHome';
 import { QzoneBlogs } from './QzoneBlogs';
 import { useQzoneBlogIndex } from './QzoneBlogs.shared';
@@ -4238,6 +4240,20 @@ const FeedCard = memo(function FeedCard({
   );
 });
 
+function readLegacyImage(file: File, signal: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    signal.throwIfAborted();
+    const reader = new FileReader();
+    const abort = () => reader.abort();
+    signal.addEventListener('abort', abort, { once: true });
+    reader.onloadend = () => signal.removeEventListener('abort', abort);
+    reader.onload = () => resolve(String(reader.result).split(',')[1]!);
+    reader.onerror = () => reject(new Error('图片读取失败'));
+    reader.onabort = () => reject(signal.reason);
+    reader.readAsDataURL(file);
+  });
+}
+
 function Composer({
   selfUin,
   onClose,
@@ -4248,12 +4264,11 @@ function Composer({
   onPublished: (publication: QzonePublication) => void;
 }) {
   const [content, setContent] = useState('');
-  const [images, setImages] = useState<
-    { id: string; base64: string; name: string; type: string }[]
-  >([]);
+  const [images, setImages] = useState<{ file: File; url: string }[]>([]);
+  const previewUrls = useRef(new Set<string>());
+  const pendingUpload = useRef<AbortController | null>(null);
   const [visibility, setVisibility] = useState<1 | 4 | 64>(1);
   const [busy, setBusy] = useState(false);
-  const [reading, setReading] = useState(false);
   const [stage, setStage] = useState('');
   const [uploadingImage, setUploadingImage] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -4264,62 +4279,89 @@ function Composer({
     active.current = true;
     return () => {
       active.current = false;
+      pendingUpload.current?.abort();
+      for (const url of previewUrls.current) URL.revokeObjectURL(url);
+      previewUrls.current.clear();
     };
   }, []);
-  async function choose(files: FileList | null): Promise<void> {
-    if (!files || locked.current || reading) return;
+  function choose(files: FileList | null): void {
+    if (!files || locked.current) return;
     const picked = Array.from(files);
     if (
       picked.length + images.length > 9 ||
       picked.some(
         (file) =>
-          file.size > 10 * 1024 * 1024 ||
+          !file.size ||
+          file.size > QZONE_IMAGE_MAX_BYTES ||
           !['image/jpeg', 'image/png', 'image/webp'].includes(file.type),
       ) ||
       picked.reduce((n, file) => n + file.size, 0) +
-        images.reduce((n, image) => n + image.base64.length * 0.75, 0) >
+        images.reduce((n, image) => n + image.file.size, 0) >
         30 * 1024 * 1024
     ) {
       setError('最多选择 9 张 JPG、PNG 或 WebP 图片，每张不超过 10 MB，合计不超过 30 MB。');
       return;
     }
-    setReading(true);
     setError('');
-    try {
-      const entries: { id: string; base64: string; name: string; type: string }[] = [];
-      for (const file of picked) {
-        const data = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result).split(',')[1]!);
-          reader.onerror = () => reject(new Error('图片读取失败'));
-          reader.readAsDataURL(file);
-        });
-        entries.push({ id: crypto.randomUUID(), base64: data, name: file.name, type: file.type });
-      }
-      if (active.current) setImages((old) => [...old, ...entries]);
-    } catch (error) {
-      if (active.current) setError(errorText(error));
-    } finally {
-      if (active.current) setReading(false);
-    }
+    const entries = picked.map((file) => {
+      const url = URL.createObjectURL(file);
+      previewUrls.current.add(url);
+      return { file, url };
+    });
+    setImages((old) => [...old, ...entries]);
+  }
+  function removeImage(url: string) {
+    URL.revokeObjectURL(url);
+    previewUrls.current.delete(url);
+    setImages((old) => old.filter((image) => image.url !== url));
   }
   async function publish(): Promise<void> {
-    if (locked.current || reading || uncertain || !content.trim()) return;
+    if (locked.current || uncertain || !content.trim()) return;
     locked.current = true;
+    const controller = new AbortController();
+    pendingUpload.current = controller;
+    const { signal } = controller;
     setBusy(true);
     setError('');
     let submitted = false;
     try {
       const richvals: string[] = [];
+      const config =
+        IS_WEB && images.length ? await client.account.getAccountConfig.query() : undefined;
+      const binding =
+        config?.configId && String(config.uin) === selfUin
+          ? { expectedAccountUin: selfUin, expectedAccountConfigId: config.configId }
+          : undefined;
+      if (IS_WEB && images.length && !binding) throw new Error('账号已切换，请重新打开空间。');
       for (const [index, image] of images.entries()) {
+        signal.throwIfAborted();
         setUploadingImage(index);
         setStage(`已上传 ${index}/${images.length} 张`);
-        const result = await client.account.qzone.uploadImage.mutate({
-          selfUin,
-          base64: image.base64,
-        });
-        richvals.push(result.richval);
+        if (binding) {
+          const { uploadId } = await stageAccountFile(image.file, binding, signal);
+          try {
+            signal.throwIfAborted();
+            const result = await client.account.qzone.uploadImage.mutate({
+              selfUin,
+              uploadId,
+              expectedAccountConfigId: binding.expectedAccountConfigId,
+            });
+            richvals.push(result.richval);
+          } catch (error) {
+            await client.account.pickedFileDiscard
+              .mutate({ ...binding, uploadId })
+              .catch(() => undefined);
+            throw error;
+          }
+        } else {
+          const base64 = await readLegacyImage(image.file, signal);
+          signal.throwIfAborted();
+          richvals.push(
+            (await client.account.qzone.uploadImage.mutate({ selfUin, base64 })).richval,
+          );
+        }
       }
+      signal.throwIfAborted();
       setUploadingImage(null);
       setStage('正在发表');
       submitted = true;
@@ -4340,6 +4382,7 @@ function Composer({
         );
       }
     } finally {
+      pendingUpload.current = null;
       locked.current = false;
       if (active.current) {
         setBusy(false);
@@ -4374,13 +4417,13 @@ function Composer({
         />
         <div className="weq-qzn-draft-images">
           {images.map((image, index) => (
-            <span key={image.id}>
-              <img src={`data:${image.type};base64,${image.base64}`} alt={image.name} />
+            <span key={image.url}>
+              <img src={image.url} alt={image.file.name} />
               {uploadingImage === index && (
                 <span className="weq-transfer-media-action">
                   <TransferRing
                     progress={{ phase: 'upload' }}
-                    label={`正在上传${image.name}`}
+                    label={`正在上传${image.file.name}`}
                     size={19}
                   />
                 </span>
@@ -4389,7 +4432,7 @@ function Composer({
                 type="button"
                 aria-label={`移除图片 ${index + 1}`}
                 disabled={busy}
-                onClick={() => setImages((old) => old.filter((_, i) => i !== index))}
+                onClick={() => removeImage(image.url)}
               >
                 <X size={14} />
               </button>
@@ -4397,16 +4440,16 @@ function Composer({
           ))}
         </div>
         <footer>
-          <label className={`weq-qzn-file${busy || reading ? ' is-disabled' : ''}`}>
+          <label className={`weq-qzn-file${busy ? ' is-disabled' : ''}`}>
             <ImagePlus size={17} />
             图片
             <input
               type="file"
               accept="image/png,image/jpeg,image/webp"
               multiple
-              disabled={busy || reading}
+              disabled={busy}
               onChange={(event) => {
-                void choose(event.target.files);
+                choose(event.target.files);
                 event.target.value = '';
               }}
             />
@@ -4426,19 +4469,19 @@ function Composer({
           <button
             type="button"
             className="weq-qzn-primary"
-            disabled={busy || reading || uncertain || !content.trim()}
+            disabled={busy || uncertain || !content.trim()}
             onClick={() => void publish()}
           >
-            {busy || reading ? (
+            {busy ? (
               <TransferRing
                 progress={{ phase: 'preparing' }}
-                label={stage || '正在读取图片'}
+                label={stage || '正在准备发表'}
                 size={15}
               />
             ) : (
               <Send size={15} />
             )}
-            {stage || (reading ? '读取图片' : '发表')}
+            {stage || '发表'}
           </button>
         </footer>
         {error ? (

@@ -8,6 +8,7 @@ import {
 } from '@weq/service';
 import { QZONE_SHARE_CATEGORIES, type QzoneShareCategory } from '@weqbot/protocol/web';
 import { z } from 'zod';
+import { open } from 'node:fs/promises';
 import { rememberQzoneAlbums, rememberQzonePosts } from '../../search_content';
 import { withQzonePaginationTimeout } from '@weq/service/qzone-pagination';
 import { withDatabasePriority } from '@weq/db';
@@ -22,6 +23,8 @@ import {
   prepareExportDestination,
 } from './export_save';
 import { planUrlMediaExport } from './media_save';
+import { pickedBrowserFiles } from '../../browser_files';
+import { QZONE_IMAGE_MAX_BYTES } from '../../../shared/qzone';
 
 const uin = z.string().regex(/^[1-9]\d{4,19}$/);
 const account = z.object({ selfUin: uin });
@@ -608,25 +611,63 @@ export const qzoneRouter = router({
   }),
   uploadImage: procedure
     .input(
-      account.extend({
-        base64: z
-          .string()
-          .min(1)
-          .max(14 * 1024 * 1024),
-      }),
+      z.union([
+        account.extend({
+          base64: z
+            .string()
+            .min(1)
+            .max(14 * 1024 * 1024),
+        }),
+        account.extend({ uploadId: z.string().uuid(), expectedAccountConfigId: z.string().min(1) }),
+      ]),
     )
     .mutation(async ({ input }) => {
       const services = online(input.selfUin);
-      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(input.base64)) throw new Error('图片格式无效。');
-      const bytes = Buffer.from(input.base64, 'base64');
-      if (bytes.length > 10 * 1024 * 1024) throw new Error('请选择不超过 10 MB 的图片。');
-      const host = getHost();
-      if (!host.validateImageBuffer)
-        throw new Error('当前运行环境不支持图片校验，请使用桌面版上传图片。');
-      if (!(await host.validateImageBuffer(bytes))) throw new Error('图片格式无效。');
-      const result = await services.webQuery.uploadQzoneImage(input.base64);
-      if (getAppContext().services !== services) throw new Error('账号已切换，请重新打开空间。');
-      return { richval: result.richval };
+      const check = () => {
+        if (
+          getAppContext().services !== services ||
+          ('expectedAccountConfigId' in input &&
+            services.accountConfig.getRecord()?.configId !== input.expectedAccountConfigId)
+        )
+          throw new Error('账号已切换，请重新打开空间。');
+      };
+      const send = async (bytes: Buffer, base64?: string) => {
+        if (!bytes.length || bytes.length > QZONE_IMAGE_MAX_BYTES)
+          throw new Error('请选择不超过 10 MB 的非空图片。');
+        const host = getHost();
+        if (!host.validateImageBuffer)
+          throw new Error('当前运行环境不支持图片校验，请使用桌面版上传图片。');
+        if (!(await host.validateImageBuffer(bytes))) throw new Error('图片格式无效。');
+        check();
+        const result = await services.webQuery.uploadQzoneImage(
+          base64 ?? bytes.toString('base64'),
+          check,
+        );
+        check();
+        return { richval: result.richval };
+      };
+      if ('base64' in input) {
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(input.base64)) throw new Error('图片格式无效。');
+        return send(Buffer.from(input.base64, 'base64'), input.base64);
+      }
+
+      check();
+      const path = pickedBrowserFiles.acquire(services, input.uploadId);
+      try {
+        const handle = await open(path, 'r');
+        let bytes: Buffer;
+        try {
+          const info = await handle.stat();
+          if (!info.isFile() || !info.size || info.size > QZONE_IMAGE_MAX_BYTES)
+            throw new Error('请选择不超过 10 MB 的非空图片。');
+          bytes = await handle.readFile();
+        } finally {
+          await handle.close();
+        }
+        return await send(bytes);
+      } finally {
+        await pickedBrowserFiles.discard(services, input.uploadId, true).catch(() => undefined);
+      }
     }),
   publish: procedure
     .input(

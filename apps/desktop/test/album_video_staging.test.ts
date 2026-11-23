@@ -70,6 +70,25 @@ describe('Web 视频流式暂存', () => {
       await store.discard(owner, upload.id);
     }
   });
+  it('取消使用中的暂存后不允许新读取，现有读取结束就能回收', async () => {
+    const store = new AlbumVideoStaging();
+    const owner = {};
+    const upload = await store.start(owner, 16, 'fixture.txt');
+    try {
+      await store.append(owner, upload.id, 0, Buffer.alloc(16));
+      const path = store.complete(owner, upload.id);
+      await store.withPaths({ path }, async () => {
+        await store.discardWhenIdle(owner, upload.id);
+        expect(() => store.complete(owner, upload.id)).toThrow('失效');
+        await store.cleanup();
+        await access(path);
+      });
+      await store.cleanup();
+      await expect(access(path)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await store.discard(owner, upload.id);
+    }
+  });
   it('大于旧上限的文件按段接收，拒绝错账号、错偏移、不完整取得，完成后删除本轮暂存', async () => {
     const store = new AlbumVideoStaging(),
       owner = {};

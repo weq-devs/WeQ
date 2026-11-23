@@ -1522,13 +1522,14 @@ export const accountRouter = router({
         name: z.string().min(1).max(255),
       }),
     )
-    .mutation(({ input }) =>
-      pickedBrowserFiles.start(
+    .mutation(async ({ input }) => ({
+      ...(await pickedBrowserFiles.start(
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
         input.size,
         input.name,
-      ),
-    ),
+      )),
+      binaryChunks: true as const,
+    })),
   pickedFileChunk: procedure
     .input(
       browserFileBinding.extend({
@@ -1572,7 +1573,7 @@ export const accountRouter = router({
   pickedFileDiscard: procedure
     .input(browserFileBinding.extend({ uploadId: z.string().uuid() }))
     .mutation(({ input }) =>
-      pickedBrowserFiles.discard(
+      pickedBrowserFiles.discardWhenIdle(
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
         input.uploadId,
       ),
@@ -5017,12 +5018,17 @@ export const accountRouter = router({
       exportAccountBindingInput.extend({
         groupCode: z.string().min(1),
         uids: z.array(z.string().min(1)).min(1).max(200),
+        historyFallback: z.boolean().optional(),
       }),
     )
     .query(async ({ input }) => {
-      const members = await scopedGroupRead(input, (services) =>
-        services.groupInfo.getMembersByUids(BigInt(input.groupCode), input.uids),
-      );
+      const members = await scopedGroupRead(input, async ({ groupInfo }) => {
+        const groupCode = BigInt(input.groupCode);
+        const local = await groupInfo.getMembersByUids(groupCode, input.uids);
+        return input.historyFallback
+          ? groupInfo.fillMessageMemberHistory(groupCode, local, input.uids, false)
+          : local;
+      });
       return members.map(groupMemberToWire);
     }),
 
@@ -5032,15 +5038,18 @@ export const accountRouter = router({
       exportAccountBindingInput.extend({
         groupCode: z.string().min(1),
         uins: z.array(z.string().min(1)).min(1).max(200),
+        historyFallback: z.boolean().optional(),
       }),
     )
     .query(async ({ input }) => {
-      const members = await scopedGroupRead(input, (services) =>
-        services.groupInfo.getMembersByUins(
-          BigInt(input.groupCode),
-          input.uins.map((u) => BigInt(u)),
-        ),
-      );
+      const members = await scopedGroupRead(input, async ({ groupInfo }) => {
+        const groupCode = BigInt(input.groupCode);
+        const numbers = input.uins.map((u) => BigInt(u));
+        const local = await groupInfo.getMembersByUins(groupCode, numbers);
+        return input.historyFallback
+          ? groupInfo.fillMessageMemberHistory(groupCode, local, numbers.map(String), true)
+          : local;
+      });
       return members.map(groupMemberToWire);
     }),
 

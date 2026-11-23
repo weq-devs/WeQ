@@ -12,6 +12,7 @@ interface Upload {
   expires: number;
   busy: boolean;
   readers: number;
+  discardRequested?: boolean;
   onDiscard?: () => void;
 }
 interface StagingOptions {
@@ -116,12 +117,25 @@ export class FileUploadStaging {
   }
   private entry(owner: object, id: string) {
     const entry = this.uploads.get(id);
-    if (!entry || entry.owner !== owner || entry.expires < Date.now())
+    if (!entry || entry.owner !== owner || entry.expires < Date.now() || entry.discardRequested)
       throw new Error(`${this.options.label}暂存会话已失效，请重新选择`);
     if (entry.busy) throw new Error(`${this.options.label}暂存正在处理，请勿重复提交`);
     return entry;
   }
-  async append(owner: object, id: string, offset: number, bytes: Uint8Array) {
+  checkAppend(owner: object, id: string, offset: number) {
+    const entry = this.entry(owner, id);
+    if (offset !== entry.offset || offset >= entry.size)
+      throw new Error(`${this.options.label}分段偏移或长度不匹配`);
+  }
+  async append(
+    owner: object,
+    id: string,
+    offset: number,
+    bytes: Uint8Array,
+    signal?: AbortSignal,
+    beforeCommit?: () => void,
+  ) {
+    signal?.throwIfAborted();
     const entry = this.entry(owner, id);
     if (
       offset !== entry.offset ||
@@ -139,6 +153,7 @@ export class FileUploadStaging {
       try {
         let written = 0;
         while (written < bytes.length) {
+          signal?.throwIfAborted();
           const result = await handle.write(
             bytes,
             written,
@@ -151,8 +166,10 @@ export class FileUploadStaging {
       } finally {
         await handle.close();
       }
+      signal?.throwIfAborted();
+      beforeCommit?.();
       entry.offset += bytes.length;
-      entry.expires = Date.now() + this.ttlMs;
+      if (!entry.discardRequested) entry.expires = Date.now() + this.ttlMs;
       return { offset: entry.offset };
     } finally {
       entry.busy = false;
@@ -204,7 +221,7 @@ export class FileUploadStaging {
     walk(input, 0);
     const entries = [...this.uploads.values()].filter((entry) => paths.has(entry.path));
     for (const entry of entries) {
-      if (entry.expires < Date.now() || entry.offset !== entry.size)
+      if (entry.expires < Date.now() || entry.discardRequested || entry.offset !== entry.size)
         throw new Error('附件已过期或未上传完整，请重新选择');
     }
     for (const entry of entries) entry.readers++;
@@ -213,10 +230,18 @@ export class FileUploadStaging {
     } finally {
       for (const entry of entries) {
         entry.readers--;
-        entry.expires = Date.now() + this.ttlMs;
+        if (!entry.discardRequested) entry.expires = Date.now() + this.ttlMs;
       }
       this.schedule();
     }
+  }
+  async discardWhenIdle(owner: object, id: string) {
+    const entry = this.uploads.get(id);
+    if (!entry || entry.owner !== owner) return;
+    if (!entry.busy && !entry.readers) return this.discard(owner, id);
+    entry.discardRequested = true;
+    entry.expires = 0;
+    this.schedule();
   }
   async discard(owner: object, id: string, acquired = false) {
     const entry = this.uploads.get(id);

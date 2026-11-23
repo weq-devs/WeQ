@@ -410,20 +410,25 @@ it.each([false, true])('选图完成后恢复发表并可提交，严格模式=%
     content.dispatchEvent(new Event('input', { bubbles: true }));
   });
   let base64 = '';
-  const completed = trackImageRead();
-  await act(async () => {
+  const reads = vi.spyOn(FileReader.prototype, 'readAsDataURL');
+  act(() => {
     base64 = chooseImage(input);
-    await completed;
   });
-  expect(dialog.querySelector<HTMLImageElement>('.weq-qzn-draft-images img')?.src).toBe(
-    `data:image/png;base64,${base64}`,
+  expect(dialog.querySelector<HTMLImageElement>('.weq-qzn-draft-images img')?.src).toMatch(
+    /^blob:/,
   );
+  expect(reads).not.toHaveBeenCalled();
+  reads.mockRestore();
   expect(submit.textContent).toBe('发表');
   expect(submit.disabled).toBe(false);
   expect(input.disabled).toBe(false);
   expect(state.uploadImage).not.toHaveBeenCalled();
   expect(state.publish).not.toHaveBeenCalled();
-  await act(async () => submit.click());
+  const completed = trackImageRead();
+  await act(async () => {
+    submit.click();
+    await completed;
+  });
   expect(state.uploadImage).toHaveBeenCalledOnce();
   expect(state.uploadImage).toHaveBeenCalledWith({ selfUin: '10001', base64 });
   expect(state.publish).toHaveBeenCalledOnce();
@@ -443,29 +448,37 @@ it.each([false, true])('选图完成后恢复发表并可提交，严格模式=%
   expect(visible?.textContent).toContain('服务端读回的新说说');
   expect(visible?.textContent).toContain('合成说说');
 });
-it('严格模式选图失败后显示错误并允许重新选图', async () => {
+it('发表时读取图片失败保留预览并允许重试', async () => {
   const read = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementationOnce(function (
     this: FileReader,
   ) {
     this.dispatchEvent(new ProgressEvent('error'));
+    this.dispatchEvent(new ProgressEvent('loadend'));
   });
   const { dialog, input, submit } = await openComposer(true);
-  await act(async () => {
+  const content = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+      content,
+      '合成',
+    );
+    content.dispatchEvent(new Event('input', { bubbles: true }));
     chooseImage(input);
   });
+  await act(async () => submit.click());
   expect(dialog.querySelector('[role="alert"]')?.textContent).toBe('图片读取失败');
-  expect(submit.textContent).toBe('发表');
-  expect(input.disabled).toBe(false);
+  expect(dialog.querySelector('.weq-qzn-draft-images img')).not.toBeNull();
+  expect(submit.disabled).toBe(false);
+  expect(state.publish).not.toHaveBeenCalled();
   read.mockRestore();
   const completed = trackImageRead();
   await act(async () => {
-    chooseImage(input);
+    submit.click();
     await completed;
   });
-  expect(dialog.querySelector('.weq-qzn-draft-images img')).not.toBeNull();
-  expect(dialog.querySelector('[role="alert"]')).toBeNull();
-  expect(input.disabled).toBe(false);
+  expect(state.publish).toHaveBeenCalledOnce();
 });
+
 function capture(
   host: HTMLElement,
   name = 'feedback',

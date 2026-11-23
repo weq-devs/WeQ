@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { BROWSER_FILE_CHUNK_BYTES } from '../src/shared/browser_file_upload';
 
 const f = vi.hoisted(() => ({
@@ -38,6 +38,32 @@ beforeEach(() => {
   }));
   f.finish.mockResolvedValue({ path: '/fixture/file.zip', fileName: 'file.zip', size: 3 });
   f.discard.mockResolvedValue(undefined);
+});
+afterEach(() => vi.unstubAllGlobals());
+
+it('支持二进制时直接提交 Blob 分段，保留偏移、账号来源与取消信号', async () => {
+  f.start.mockResolvedValueOnce({ id: 'upload', binaryChunks: true });
+  const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+    const headers = new Headers(init?.headers);
+    const offset = Number(headers.get('X-WeQ-Upload-Offset'));
+    const part = init?.body as Blob;
+    expect(part).toBeInstanceOf(Blob);
+    expect(headers.get('X-WeQ-Upload-Account')).toBe('10001');
+    expect(headers.get('X-WeQ-Upload-Source')).toBe('fixture');
+    return Response.json({ offset: offset + part.size });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const controller = new AbortController();
+  const file = new File([new Uint8Array(BROWSER_FILE_CHUNK_BYTES + 3)], 'file.zip');
+  await expect(stageAccountFile(file, undefined, controller.signal)).resolves.toMatchObject({
+    uploadId: 'upload',
+  });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(fetcher).toHaveBeenLastCalledWith(
+    '/_picked-file/upload',
+    expect.objectContaining({ method: 'PUT', signal: controller.signal }),
+  );
+  expect(f.chunk).not.toHaveBeenCalled();
 });
 it('按片读取设备文件，完成后保留草稿附件，不误删供后续使用的路径', async () => {
   const file = new File([new Uint8Array(BROWSER_FILE_CHUNK_BYTES + 3)], 'file.zip');

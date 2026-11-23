@@ -29,6 +29,8 @@ import { handleMediaRequest } from '../media_protocol';
 import { handleAvatarRequest } from '../avatar_protocol';
 import { handleResourceRequest } from '../resource_protocol';
 import { fileResponse } from '../file_response';
+import { uploadPickedFileChunk } from './picked_file_upload';
+import { PICKED_FILE_UPLOAD_PREFIX } from '../../shared/browser_file_upload';
 
 const PORT_FALLBACK_ATTEMPTS = 10;
 /** Refuse absurd login bodies outright. */
@@ -131,6 +133,9 @@ export async function handleRequest(
   }
 
   // ---- authenticated routes ----
+  if (path.startsWith(PICKED_FILE_UPLOAD_PREFIX))
+    return uploadPickedFileChunk(req, res, path, (request) => opts.auth.isAuthed(request));
+
   if (path.startsWith('/trpc')) {
     res.setHeader('Cache-Control', 'no-store');
     opts.trpc(req, res);

@@ -4,3 +4,4 @@ export const QZONE_VISIBILITY = [
   { value: 4, label: '好友可见' },
   { value: 64, label: '仅自己可见' },
 ] as const;
+export const QZONE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;

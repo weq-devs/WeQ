@@ -17,6 +17,7 @@ vi.mock('@weq/service', async (importOriginal) => ({
   }),
 }));
 import { qzoneRouter } from '../src/main/ipc/routers/qzone';
+import { pickedBrowserFiles } from '../src/main/browser_files';
 import { qzoneMediaSource, mergeQzonePosts } from '../src/renderer/src/lib/qzone';
 import { QZONE_VISIBILITY } from '../src/shared/qzone';
 const selfUin = '10001',
@@ -361,6 +362,24 @@ describe('native Qzone boundary', () => {
     mocks.imageValid = true;
     mocks.pickSaveTarget.mockReset();
     expect(await api.uploadImage({ selfUin, base64: 'YWJj' })).toEqual({ richval: ',synthetic' });
+  });
+  it('已暂存的图像交给同一上传接口，传输成功或校验失败都清理暂存', async () => {
+    const bytes = Buffer.from('synthetic image');
+    for (const valid of [true, false]) {
+      const { id } = await pickedBrowserFiles.start(services, bytes.length, 'fixture.jpg');
+      await pickedBrowserFiles.append(services, id, 0, bytes);
+      const path = pickedBrowserFiles.complete(services, id);
+      mocks.imageValid = valid;
+      const request = api.uploadImage({ selfUin, expectedAccountConfigId: 'live', uploadId: id });
+      if (valid) await expect(request).resolves.toEqual({ richval: ',synthetic' });
+      else await expect(request).rejects.toThrow('图片格式无效');
+      await expect(readFile(path)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+    expect(services.webQuery.uploadQzoneImage).toHaveBeenCalledOnce();
+    expect(services.webQuery.uploadQzoneImage).toHaveBeenCalledWith(
+      bytes.toString('base64'),
+      expect.any(Function),
+    );
   });
 });
 describe('Qzone media and paging', () => {

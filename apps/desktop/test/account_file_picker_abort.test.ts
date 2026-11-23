@@ -27,14 +27,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 afterEach(() => vi.clearAllMocks());
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source' };
-const file = (size: number) =>
-  ({
-    name: 'file.bin',
-    size,
-    slice: (start: number, end: number) => ({
-      arrayBuffer: async () => new Uint8Array(Math.min(end, size) - start).buffer,
-    }),
-  }) as File;
+const file = (size: number) => new File([new Uint8Array(size)], 'file.bin');
 
 it('中途取消后不上传下一块，不完成暂存，并清理句柄', async () => {
   const controller = new AbortController();

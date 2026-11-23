@@ -4,6 +4,7 @@ import { useViewState } from '../state/view';
 import {
   BROWSER_FILE_CHUNK_BYTES,
   PICKED_BROWSER_FILE_MAX_BYTES,
+  PICKED_FILE_UPLOAD_PREFIX,
 } from '../../../shared/browser_file_upload';
 
 export type AccountFileKind = 'image' | 'record' | 'video' | 'file';
@@ -102,7 +103,7 @@ export async function stageAccountFile(
       throw new Error('账号已切换，请重新选择附件');
   };
   check();
-  const { id } = await client.account.pickedFileStart.mutate({
+  const { id, binaryChunks } = await client.account.pickedFileStart.mutate({
     ...binding,
     size: file.size,
     name: file.name,
@@ -112,20 +113,12 @@ export async function stageAccountFile(
     check();
     for (let offset = 0; offset < file.size; offset += BROWSER_FILE_CHUNK_BYTES) {
       check();
-      const bytes = new Uint8Array(
-        await file.slice(offset, offset + BROWSER_FILE_CHUNK_BYTES).arrayBuffer(),
-      );
-      check();
-      let binary = '';
-      for (let i = 0; i < bytes.length; i += 8192)
-        binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-      const next = await client.account.pickedFileChunk.mutate({
-        ...binding,
-        uploadId: id,
-        offset,
-        base64: btoa(binary),
-      });
-      if (next.offset !== offset + bytes.length) throw new Error('附件接收进度不匹配');
+      const part = file.slice(offset, offset + BROWSER_FILE_CHUNK_BYTES);
+      const next =
+        IS_WEB && binaryChunks
+          ? await stageBinaryChunk(id, offset, part, binding, signal)
+          : await stageLegacyChunk(id, offset, part, binding, check);
+      if (next.offset !== offset + part.size) throw new Error('附件接收进度不匹配');
       check();
       onProgress?.(next.offset, file.size);
     }
@@ -140,4 +133,47 @@ export async function stageAccountFile(
     await client.account.pickedFileDiscard.mutate({ ...binding, uploadId: id }).catch(() => {});
     throw error;
   }
+}
+
+async function stageBinaryChunk(
+  id: string,
+  offset: number,
+  part: Blob,
+  binding: FileBinding,
+  signal?: AbortSignal,
+) {
+  const response = await fetch(PICKED_FILE_UPLOAD_PREFIX + encodeURIComponent(id), {
+    method: 'PUT',
+    body: part,
+    signal,
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-WeQ-Upload-Offset': String(offset),
+      'X-WeQ-Upload-Account': encodeURIComponent(binding.expectedAccountUin),
+      'X-WeQ-Upload-Source': encodeURIComponent(binding.expectedAccountConfigId),
+    },
+  });
+  const data = await response.json().catch(() => undefined);
+  if (!response.ok) throw new Error(data?.error ?? `附件分段上传失败（HTTP ${response.status}）`);
+  return { offset: data?.offset };
+}
+
+async function stageLegacyChunk(
+  id: string,
+  offset: number,
+  part: Blob,
+  binding: FileBinding,
+  check: () => void,
+) {
+  const bytes = new Uint8Array(await part.arrayBuffer());
+  check();
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 8192)
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return client.account.pickedFileChunk.mutate({
+    ...binding,
+    uploadId: id,
+    offset,
+    base64: btoa(binary),
+  });
 }
