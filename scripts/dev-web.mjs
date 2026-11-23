@@ -20,6 +20,7 @@ export function developmentWeb(root, { plugins = [] } = {}) {
         plugins,
         configFile: join(root, 'apps/web/vite.config.ts'),
         mode: 'development',
+        experimental: { bundledDev: process.env.WEQ_DEV_WEB_UNBUNDLED !== '1' },
         server: {
           host: '127.0.0.1',
           port: 0,

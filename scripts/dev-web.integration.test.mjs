@@ -21,6 +21,8 @@ test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关�
   const root = await realpath(await mkdtemp(join(tmpdir(), 'weq-live-web-')));
   const desktop = createServer();
   const old = process.env.WEQ_DEV_WEB_URL;
+  const oldMode = process.env.WEQ_DEV_WEB_UNBUNDLED;
+  process.env.WEQ_DEV_WEB_UNBUNDLED = '1';
   let ws;
   t.after(async () => {
     ws?.terminate();
@@ -29,6 +31,8 @@ test('真实 Vite 开发服务持续推送源码更新，并随桌面服务关�
     } finally {
       if (old === undefined) delete process.env.WEQ_DEV_WEB_URL;
       else process.env.WEQ_DEV_WEB_URL = old;
+      if (oldMode === undefined) delete process.env.WEQ_DEV_WEB_UNBUNDLED;
+      else process.env.WEQ_DEV_WEB_UNBUNDLED = oldMode;
       await rm(root, { recursive: true, force: true });
     }
   });

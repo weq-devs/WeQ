@@ -67,7 +67,14 @@ export function createDevelopmentReload() {
           listeners.add(publish);
           // 在 Vite 客户端收到 full-reload 之前拦截；beforeFullReload 不是可取消事件。
           server.ws.send = ((payload: HotPayload | string, data?: unknown) => {
-            if (typeof payload !== 'string' && payload.type === 'full-reload' && !applying) {
+            if (
+              typeof payload !== 'string' &&
+              payload.type === 'full-reload' &&
+              !payload.ifFallback &&
+              !applying
+            ) {
+              // 新连接的临时分包页没有更新横幅，只让这类页面立即转入实际页面。
+              if (server.config.experimental.bundledDev) send({ ...payload, ifFallback: true });
               id ??= randomUUID();
               page = () => send(payload);
               notify();

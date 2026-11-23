@@ -14,7 +14,8 @@ export const developmentStartupProgress = String.raw`
       var url = new URL(value, location.href);
       return url.origin === location.origin &&
         (/\.(?:[cm]?js|jsx|tsx?|css)$/.test(url.pathname) ||
-          url.pathname === '/@vite/client' || url.pathname === '/@react-refresh');
+          url.pathname === '/@vite/client' || url.pathname === '/@vite/lazy' ||
+          url.pathname === '/@react-refresh');
     } catch (_) { return false; }
   }
   function collect(entries) {
