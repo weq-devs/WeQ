@@ -2,10 +2,23 @@
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { electronNetworkFetch } from '../src/main/network';
+import { electronNetworkFetch, installDesktopNetwork } from '../src/main/network';
 
-const net = vi.hoisted(() => ({ request: vi.fn(), fetch: vi.fn() }));
-vi.mock('electron', () => ({ net }));
+const { net, onErrorOccurred } = vi.hoisted(() => ({
+  net: { request: vi.fn(), fetch: vi.fn() },
+  onErrorOccurred:
+    vi.fn<
+      (
+        filter: { urls: string[] } | null,
+        listener?: (details: { url: string; error: string }) => void,
+      ) => void
+    >(),
+}));
+vi.mock('electron', () => ({
+  net,
+  app: { on: vi.fn(), off: vi.fn() },
+  session: { defaultSession: { webRequest: { onErrorOccurred } }, fromPartition: () => ({}) },
+}));
 
 function clientRequest() {
   return Object.assign(new EventEmitter(), { end: vi.fn(), abort: vi.fn() });
@@ -15,6 +28,31 @@ function incoming(headers: Record<string, string | string[] | undefined>, status
 }
 
 beforeEach(() => vi.resetAllMocks());
+
+it('开发日志只将已配置的 GitHub 发布镜像连接失败降到 DEBUG', () => {
+  vi.stubEnv('WEQ_DEV_CONSOLE', '1');
+  const report = vi.fn();
+  const stop = installDesktopNetwork(report);
+  try {
+    const listener = onErrorOccurred.mock.calls[0]?.[1];
+    expect(listener).toBeTypeOf('function');
+    const error = 'net::ERR_CONNECTION_CLOSED';
+    listener?.({
+      url: 'https://github.chenc.dev/https://github.com/x/y/releases/download/v1/file',
+      error,
+    });
+    listener?.({ url: 'https://github.chenc.dev/health', error });
+    listener?.({ url: 'https://github.com/x/y/releases/download/v1/file', error });
+    expect(report.mock.calls).toEqual([
+      ['debug', 'github.chenc.dev', error],
+      ['error', 'github.chenc.dev', error],
+      ['error', 'github.com', error],
+    ]);
+  } finally {
+    stop();
+    vi.unstubAllEnvs();
+  }
+});
 
 describe('Electron 下载传输', () => {
   it('中文文件名响应头不抛出事件异常，正文按需读取且内容不变', async () => {

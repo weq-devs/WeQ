@@ -959,8 +959,12 @@ void app.whenReady().then(async () => {
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
   setHost(electronHost);
-  const stopNetwork = installDesktopNetwork((host, error) =>
-    logger.error('HTTPS 请求失败', { scope: 'chromium', address: host, code: error }),
+  const stopNetwork = installDesktopNetwork((level, host, error) =>
+    logger[level](level === 'debug' ? 'GitHub 加速站请求失败' : 'HTTPS 请求失败', {
+      scope: 'chromium',
+      address: host,
+      code: error,
+    }),
   );
   app.once('will-quit', stopNetwork);
   accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));

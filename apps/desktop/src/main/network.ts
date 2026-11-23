@@ -2,6 +2,7 @@ import { app, net, session, type Session } from 'electron';
 import { networkInterfaces } from 'node:os';
 import type { Readable } from 'node:stream';
 import { setNetworkTransport, clearSourceHealth, type NetworkFetch } from '@weq/network';
+import { FILE_MIRRORS } from '@weq/network/mirrors';
 
 const ANNOUNCEMENT_PARTITION = 'weq-announcements';
 
@@ -174,7 +175,7 @@ export const electronAnnouncementFetch: NetworkFetch = (input, init) =>
     process.env.WEQ_DEV_CONSOLE === '1' ? session.fromPartition(ANNOUNCEMENT_PARTITION) : undefined,
   );
 
-type ReportTlsFailure = (host: string, error: string) => void;
+type ReportTlsFailure = (level: 'debug' | 'error', host: string, error: string) => void;
 
 function observeDevelopmentNetworkFailures(report: ReportTlsFailure) {
   // 公告使用独立会话，官方源、镜像及重定向都由公告刷新统一判定结果。
@@ -187,7 +188,15 @@ function observeDevelopmentNetworkFailures(report: ReportTlsFailure) {
         active &&
         (error === 'net::ERR_CONNECTION_CLOSED' || error === 'net::ERR_CERT_COMMON_NAME_INVALID')
       ) {
-        report(new URL(url).hostname, error);
+        const mirror = FILE_MIRRORS.some(
+          (prefix) =>
+            prefix &&
+            url.startsWith(prefix) &&
+            /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\//.test(
+              url.slice(prefix.length),
+            ),
+        );
+        report(mirror ? 'debug' : 'error', new URL(url).hostname, error);
       }
     });
   };
