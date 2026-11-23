@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { formatDateTime } from '@weq/time';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import type { DatabaseMaintenanceReport } from './maintenance_types';
 import type { DbRepairRecord } from './types';
@@ -101,11 +102,7 @@ export function renderDatabaseMaintenanceReport(
   if (format === 'json') return JSON.stringify(report, null, 2);
   const op = report.operation;
   const title = `${databaseMaintenanceKindLabel[op.kind]}报告`;
-  const date = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-  }).format(op.startedAt);
+  const date = formatDateTime(op.startedAt);
   const lines = [
     `# ${title}`,
     '',

@@ -91,31 +91,28 @@ it('群名使用原始详情，缺失和恰好等于群号的真实名称分别�
   expect(groupDirectoryTitle(group, 'name', new Map([[group.id, '']]))).toBe('群名未读取');
   expect(groupDirectoryTitle(group, 'name', new Map([[group.id, group.id]]))).toBe(group.id);
 });
-it.each(['age', 'birthday'] as const)(
-  '按 %s 排序统一显示出生日期与年龄，缺年龄且无有效完整生日时显示问号',
-  (sort) => {
-    expect(friendSortDetail(friend, sort, rows)?.text).toBe('2000-02-29 （23 岁）');
-    expect(friendSortDetail({ ...friend, birthYear: undefined }, sort, rows)?.text).toBe(
-      '????-02-29 （23 岁）',
-    );
-    expect(friendSortDetail({ ...friend, birthYear: 2001, age: 0 }, sort, rows)?.text).toBe(
-      '2001-02-?? （?? 岁）',
-    );
-    expect(friendSortDetail({ ...friend, birthMonth: 13 }, sort, rows)?.text).toBe(
-      '2000-??-?? （23 岁）',
-    );
-  },
-);
+it.each(['age', 'birthday'] as const)('按 %s 排序只显示已知生日字段和年龄', (sort) => {
+  expect(friendSortDetail(friend, sort, rows)?.text).toBe('2000-02-29（23 岁）');
+  expect(friendSortDetail({ ...friend, birthYear: undefined }, sort, rows)?.text).toBe(
+    '2 月 29 日（23 岁）',
+  );
+  expect(friendSortDetail({ ...friend, birthYear: 2001, age: 0 }, sort, rows)?.text).toBe(
+    '2001 年 2 月',
+  );
+  expect(friendSortDetail({ ...friend, birthMonth: 13 }, sort, rows)?.text).toBe(
+    '2000 年（23 岁）',
+  );
+});
 it('缺失年龄按北京时间的完整生日推算周岁，与原始年龄使用相同文案', () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-11-09T16:00:00Z'));
   const contact = { ...friend, age: undefined, birthYear: 2000, birthMonth: 11, birthDay: 10 };
-  expect(friendSortDetail(contact, 'age', {})?.text).toBe('2000-11-10 （26 岁）');
+  expect(friendSortDetail(contact, 'age', {})?.text).toBe('2000-11-10（26 岁）');
   expect(friendSortDetail({ ...contact, birthDay: 11 }, 'age', {})?.text).toBe(
-    '2000-11-11 （25 岁）',
+    '2000-11-11（25 岁）',
   );
   expect(friendSortDetail({ ...contact, birthYear: undefined }, 'age', {})?.text).toBe(
-    '????-11-10 （?? 岁）',
+    '11 月 10 日',
   );
 });
 it('星座补全摘要不显示排序边界或缺失提示，唯一推断年标注来源并提供推断详情', () => {
@@ -131,7 +128,7 @@ it('星座补全摘要不显示排序边界或缺失提示，唯一推断年标�
   };
   for (const sort of ['age', 'birthday'] as const) {
     const detail = friendSortDetail(contact, sort, {});
-    expect(detail?.text).toBe('2010 年（推断） · 水瓶座 （16 岁）');
+    expect(detail?.text).toBe('2010 年（推断） · 水瓶座（16 岁）');
     expect(detail?.text).not.toContain('01-20');
     expect(detail?.title).toBe('推断生日：2010 年 1 月 20 日至 2 月 18 日');
   }

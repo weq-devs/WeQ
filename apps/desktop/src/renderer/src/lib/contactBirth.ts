@@ -1,4 +1,4 @@
-import { calendarParts, formatPartialDate } from '@weq/time';
+import { calendarParts, calendarStart, formatDate, formatPartialDate } from '@weq/time';
 import {
   birthdayMonthDay,
   cachedConstellation,
@@ -186,8 +186,11 @@ export function birthRangeText(birth: ContactBirth) {
 }
 
 export function contactBirthdayText(birth: ContactBirth) {
-  if (birth.inference === 'none' && birth.month !== null && birth.day !== null)
+  if (birth.inference === 'none') {
+    if (birth.year !== null && birth.month !== null && birth.day !== null)
+      return formatDate(calendarStart(birth.year, birth.month, birth.day));
     return formatPartialDate(birth);
+  }
   if (!birth.constellation) return null;
   const year = birth.year ?? birth.inferredYear;
   return [

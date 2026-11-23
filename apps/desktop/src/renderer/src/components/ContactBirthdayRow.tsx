@@ -1,6 +1,7 @@
 import { ChevronDown } from 'lucide-react';
 import { birthRangeText, contactBirthdayText, type ContactBirth } from '../lib/contactBirth';
 import { ContactRow } from './contactProfile/ContactRow';
+import { NumericText } from './NumericText';
 import '../styles/contact-birth.css';
 
 export function ContactBirthdayRow({ birth }: { birth: ContactBirth }) {
@@ -12,13 +13,17 @@ export function ContactBirthdayRow({ birth }: { birth: ContactBirth }) {
       {detail ? (
         <details className="weq-birth-details" data-privacy-sensitive>
           <summary aria-label={`生日详情：${text}`}>
-            <span>{text}</span>
+            <span>
+              <NumericText>{text}</NumericText>
+            </span>
             <ChevronDown size={13} />
           </summary>
-          <p>{detail}</p>
+          <p>
+            <NumericText>{detail}</NumericText>
+          </p>
         </details>
       ) : (
-        text
+        <NumericText>{text}</NumericText>
       )}
     </ContactRow>
   );

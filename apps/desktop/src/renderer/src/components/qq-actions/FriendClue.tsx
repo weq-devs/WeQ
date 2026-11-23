@@ -1,6 +1,6 @@
 import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
 import { activateProfile } from '../../lib/profileClick';
-import { eventTimeFormatter } from '@weq/time';
+import { unixDate } from '@weq/time';
 import { useContext, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
@@ -10,10 +10,9 @@ import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { avatarFromGroupCode } from '../../lib/avatarResolver';
 import { GroupAvatar } from '../exportAvatars';
 import { sharedGroupConversation } from '../ark/groupShareCard';
+import { TimeLabel } from '../TimeLabel';
 import { withQQAccountScope } from './shared.shared';
 import '../../styles/friend-clue.css';
-
-const dateFormat = eventTimeFormatter;
 
 export function SourceGroup({
   code,
@@ -104,6 +103,7 @@ function FriendClueBody({ uid }: { uid: string }) {
     { enabled, retry: 2, retryDelay: 1000, staleTime: 60000, refetchOnWindowFocus: false },
   );
   const data = query.data?.uid === uid ? query.data : null;
+  const addedAt = unixDate(data?.addedAt);
   const pending = query.isFetching;
   const empty = !session.available
     ? '暂不可读取'
@@ -116,9 +116,7 @@ function FriendClueBody({ uid }: { uid: string }) {
     <>
       <ContactRow
         label="添加时间"
-        value={
-          data ? (data.addedAt === null ? null : dateFormat.format(data.addedAt * 1000)) : empty
-        }
+        value={data ? addedAt ? <TimeLabel value={addedAt} /> : null : empty}
       />
       {data && (
         <>

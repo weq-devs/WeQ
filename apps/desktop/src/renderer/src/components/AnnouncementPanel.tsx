@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
+import { formatDate } from '@weq/time';
 import { ArrowLeft, ArrowRight, ChevronRight, ExternalLink, X } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -11,10 +12,10 @@ import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';
 import { useDialog } from './Dialog.shared';
 import { ReminderDot } from './ReminderBadge';
+import { TimeLabel } from './TimeLabel';
 
 type AnnouncementList = inferRouterOutputs<AppRouter>['announcements']['list'];
 const title = APP_NAVIGATION.announcements.label;
-const dateFormatter = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' });
 const noRehypePlugins: [] = [];
 
 function httpsLink(value: string) {
@@ -206,9 +207,7 @@ export default function AnnouncementPanel({
                 {visibleDetail.title}
               </h3>
               <div className="weq-announcement-meta">
-                <time dateTime={visibleDetail.publishedAt}>
-                  {dateFormatter.format(new Date(visibleDetail.publishedAt))}
-                </time>
+                <TimeLabel value={visibleDetail.publishedAt} />
                 {visibleDetail.level === 'important' && <span>重要</span>}
               </div>
               {releasePageUrl && (
@@ -293,9 +292,9 @@ export default function AnnouncementPanel({
                       <span className="weq-announcement-row-copy">
                         <strong>{entry.title}</strong>
                         <span className="weq-announcement-meta">
-                          <time dateTime={entry.publishedAt}>
-                            {dateFormatter.format(new Date(entry.publishedAt))}
-                          </time>
+                          <TimeLabel value={entry.publishedAt} tabbable={false}>
+                            {formatDate(entry.publishedAt)}
+                          </TimeLabel>
                           {entry.level === 'important' && <span>重要</span>}
                         </span>
                       </span>

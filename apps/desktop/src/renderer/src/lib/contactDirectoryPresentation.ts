@@ -1,5 +1,4 @@
-import { formatDate } from '@weq/time';
-import { preciseTimeFormatter as eventTimeFormatter, clockFormatter } from '@weq/time';
+import { formatDate, formatUnixTime, preciseTimeFormatter } from '@weq/time';
 import type { ContactMetric, ContactMetricRows } from '@weq/service';
 import { profileTimeText } from '@weqbot/protocol/profile-values';
 import type { Contact, GroupConversation } from '../im-template/template/types';
@@ -17,8 +16,6 @@ type SortDetail = { text: string; title?: string };
 type MetricCell = NonNullable<ContactMetricRows[string][ContactMetric]> & { partial?: boolean };
 const numbers = new Intl.NumberFormat('zh-CN');
 
-const updatedTimes = eventTimeFormatter;
-const addedTimes = clockFormatter;
 function dateLabel(milliseconds: number) {
   if (!Number.isFinite(milliseconds) || milliseconds <= 0) return null;
   const date = new Date(milliseconds);
@@ -48,7 +45,9 @@ function metricDetail(
         : cell?.state === 'failed'
           ? '上次更新失败'
           : '',
-    updatedAt && dateLabel(updatedAt) ? `更新于 ${updatedTimes.format(updatedAt)}（北京时间）` : '',
+    updatedAt && dateLabel(updatedAt)
+      ? `更新于 ${preciseTimeFormatter.format(updatedAt)}（北京时间）`
+      : '',
   ]
     .filter(Boolean)
     .join('；');
@@ -82,14 +81,12 @@ export function groupDirectoryTitle(
 
 function birthDetail(contact: Contact): SortDetail {
   const birth = contactBirth(contact);
-  const { year, month, day, age } = birth;
-  if (birth.inference !== 'none')
-    return {
-      text: `${contactBirthdayText(birth)} （${age ?? '??'} 岁）`,
-      title: birthRangeText(birth) ?? undefined,
-    };
-  const date = `${year ?? '????'}-${month === null ? '??' : String(month).padStart(2, '0')}-${day === null ? '??' : String(day).padStart(2, '0')}`;
-  return { text: `${date} （${age ?? '??'} 岁）` };
+  const date = contactBirthdayText(birth);
+  const age = birth.age === null ? '' : `${birth.age} 岁`;
+  return {
+    text: date ? (age ? `${date}（${age}）` : date) : age || '生日与年龄未读取',
+    title: birthRangeText(birth) ?? undefined,
+  };
 }
 
 export function friendSortDetail(
@@ -139,10 +136,9 @@ export function friendSortDetail(
       : (rows[`friend:${contact.id}`]?.[sort] ?? rows[`friend:${contact.identityValue}`]?.[sort]);
   if (sort === 'affinity' && cell?.value === undefined) return { text: 'AI 好感度未分析' };
   if (sort === 'addedAt')
-    return metricDetail('添加时间', cell, (value) => {
-      const date = typeof value === 'number' ? dateLabel(value * 1000) : null;
-      return date ? `${date} ${addedTimes.format(Number(value) * 1000)}` : null;
-    });
+    return metricDetail('添加时间', cell, (value) =>
+      typeof value === 'number' && value > 0 ? formatUnixTime(value) || null : null,
+    );
   const label = {
     level: 'QQ 等级',
     likeCount: '获赞',

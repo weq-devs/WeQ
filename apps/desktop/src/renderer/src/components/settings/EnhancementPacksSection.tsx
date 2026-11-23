@@ -1,6 +1,6 @@
 import { useContext, useState } from 'react';
 import { TaskProgressBar } from '../tasks/TaskProgressBar';
-import { formatDateTime, timeDate } from '@weq/time';
+import { timeDate } from '@weq/time';
 import {
   AudioLines,
   BrainCircuit,
@@ -22,6 +22,7 @@ import type { EnhancementPackId } from '../../../../shared/enhancement_manifest'
 import { Card, QueryError, SectionHeader, Row, Toggle } from './controls';
 import { SettingsNavigateContext } from './controls.shared';
 import { LoadingIndicator } from '../LoadingIndicator';
+import { TimeLabel } from '../TimeLabel';
 import '../../styles/enhancement-packs.css';
 import { enhancementBytes } from './EnhancementPacksSection.shared';
 
@@ -318,7 +319,7 @@ export function EnhancementPacksSection() {
                       <>
                         {!pack.busy && !waiting && status ? ' · ' : null}
                         上次成功检查：
-                        <time dateTime={checkedAt.toISOString()}>{formatDateTime(checkedAt)}</time>
+                        <TimeLabel value={checkedAt} />
                       </>
                     ) : null}
                   </div>

@@ -1,10 +1,10 @@
 import { FormSelect } from '../../components/FormSelect';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ContactRound, RefreshCw, Search, Trash2, UserRound, Users } from 'lucide-react';
-import { eventTimeFormatter } from '@weq/time';
 import { analysisPeriod } from '@weq/service/analysis-report';
 import type { AnalysisReportSummary } from '@weq/service';
 import { TimeLabel } from '../../components/TimeLabel';
+import { NumericText } from '../../components/NumericText';
 import { client, trpc } from '../../trpc/client';
 import { useDialog } from '../../components/Dialog.shared';
 import { WindowedList } from '../../components/WindowedList';
@@ -218,23 +218,25 @@ export function AnalysisReportsTool({
                       {reportIdentity(request)}
                     </span>
                     <span className="weq-analysis-report-detail" title={resultPeriod}>
-                      {hasResult ? '结果范围' : '分析范围'}：{hasResult ? resultPeriod : period}
+                      {hasResult ? '结果范围' : '分析范围'}：
+                      <NumericText>{hasResult ? resultPeriod : period}</NumericText>
                     </span>
                     {hasResult && resultPeriod !== period ? (
                       <span className="weq-analysis-report-detail" title={period}>
-                        本次范围：{period}
+                        本次范围：<NumericText>{period}</NumericText>
                       </span>
                     ) : null}
                     <span className="weq-analysis-report-meta">
                       <span>
-                        {hasResult ? `已保存 · 版本 ${report.resultRevision}` : '暂无已保存结果'}
+                        {hasResult ? (
+                          <NumericText>{`已保存 · 版本 ${report.resultRevision}`}</NumericText>
+                        ) : (
+                          '暂无已保存结果'
+                        )}
                         {report.status !== 'completed' ? ` · ${reportStatus[report.status]}` : ''}
                       </span>
                       <span>
-                        更新于{' '}
-                        <TimeLabel value={report.updatedAt}>
-                          {eventTimeFormatter.format(new Date(report.updatedAt))}
-                        </TimeLabel>
+                        更新于 <TimeLabel value={report.updatedAt} tabbable={false} />
                       </span>
                     </span>
                   </button>
@@ -277,7 +279,7 @@ export function AnalysisReportsTool({
       </div>
       <footer className="weq-analysis-reports-footer">
         <span role="status">
-          {reports.length} / {query.data?.length ?? 0} 份
+          <NumericText>{`${reports.length} / ${query.data?.length ?? 0} 份`}</NumericText>
         </span>
         <span>按更新时间倒序</span>
       </footer>

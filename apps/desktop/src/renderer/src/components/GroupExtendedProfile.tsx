@@ -6,6 +6,7 @@ import { trpc } from '../trpc/client';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useGroupReadScope } from '../hooks/useGroupProfile';
 import { useTabActive } from './RetainedTabs.shared';
+import { NumericText } from './NumericText';
 import { groupProfileRows } from '../lib/groupProfileRows';
 import {
   ContactEmptyState,
@@ -145,7 +146,7 @@ export function GroupExtendedProfileFields({
       </div>
       <div className="weq-group-extras-rows" data-privacy-sensitive>
         {rows.map(([label, value]) => (
-          <ContactRow key={label} label={label} value={value} />
+          <ContactRow key={label} label={label} value={<NumericText>{value}</NumericText>} />
         ))}
         {!rows.length ? <ContactEmptyState>暂无可读取的扩展资料</ContactEmptyState> : null}
       </div>

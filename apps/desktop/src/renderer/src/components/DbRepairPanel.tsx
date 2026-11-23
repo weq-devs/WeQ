@@ -37,6 +37,8 @@ import {
   type DatabaseMaintenanceRow,
 } from '@weq/service/db-checkup';
 import type { DatabaseTaskProgress } from '@weq/service/db-progress';
+import { NumericText } from './NumericText';
+import { TimeLabel } from './TimeLabel';
 import { client, trpc } from '../trpc/client';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useDbRepairReturn } from '../state/dbRepairReturn';
@@ -63,13 +65,6 @@ const recordStates = {
   'apply-failed': '修复失败',
   'rolled-back': '已恢复备份',
 };
-const dateText = (at: number | string) =>
-  new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(at));
-
 type Tone = 'ok' | 'warn' | 'run' | 'muted';
 
 function rowLabel(row: DatabaseMaintenanceRow) {
@@ -1003,14 +998,12 @@ export function DbRepairPanel({
             <div className="weq-dbm-dbs-head">
               <h2>数据库</h2>
               <span className="weq-dbm-dbs-meta">
-                {scannedCount} / {databases.length} 已扫描
-                {abnormalCount ? ` · ${abnormalCount} 个异常` : ''}
-                {readyNames.length ? ` · ${readyNames.length} 个可修复` : ''}
+                <NumericText>{`${scannedCount} / ${databases.length} 已扫描${abnormalCount ? ` · ${abnormalCount} 个异常` : ''}${readyNames.length ? ` · ${readyNames.length} 个可修复` : ''}`}</NumericText>
               </span>
               {waiting && readyNames.length ? (
                 <span className="weq-dbm-dbs-tools">
                   <span className="weq-dbm-selected">
-                    已选 {selectedReady.length} / {readyNames.length}
+                    <NumericText>{`已选 ${selectedReady.length} / ${readyNames.length}`}</NumericText>
                   </span>
                   <button
                     type="button"
@@ -1325,10 +1318,9 @@ export function DbRepairPanel({
                       <div className="weq-dbm-history-main">
                         <strong>{operationLabels[item.operation.kind]}</strong>
                         <span>
-                          {dateText(item.operation.startedAt)} ·{' '}
+                          <TimeLabel value={item.operation.startedAt} /> ·{' '}
                           {operationStates[item.operation.status]} ·{' '}
-                          {item.operation.completedDatabases} / {item.operation.totalDatabases}{' '}
-                          个数据库
+                          <NumericText>{`${item.operation.completedDatabases} / ${item.operation.totalDatabases} 个数据库`}</NumericText>
                         </span>
                       </div>
                       <div className="weq-dbm-history-actions">
@@ -1369,7 +1361,9 @@ export function DbRepairPanel({
                         <strong>
                           {record.dbName} · {recordStates[record.state]}
                         </strong>
-                        <span>{dateText(record.at)}</span>
+                        <span>
+                          <TimeLabel value={record.at} />
+                        </span>
                       </div>
                       <div className="weq-dbm-history-actions">
                         <button
@@ -1463,10 +1457,18 @@ function DatabaseCard({
       <span className="weq-dbm-db-name">{row.dbName}</span>
       <span className="weq-dbm-db-note">{rowSummary(row)}</span>
       <span className="weq-dbm-db-foot">
-        <span>{formatBytesOrUnknown(bytes)}</span>
-        {row.scan ? <span>{row.scan.pageCount.toLocaleString('zh-CN')} 页</span> : null}
+        <span>
+          <NumericText>{formatBytesOrUnknown(bytes)}</NumericText>
+        </span>
+        {row.scan ? (
+          <span>
+            <NumericText>{`${row.scan.pageCount.toLocaleString('zh-CN')} 页`}</NumericText>
+          </span>
+        ) : null}
         {row.scan?.badPages.length ? (
-          <span className="is-warn">{row.scan.badPages.length.toLocaleString('zh-CN')} 坏页</span>
+          <span className="is-warn">
+            <NumericText>{`${row.scan.badPages.length.toLocaleString('zh-CN')} 坏页`}</NumericText>
+          </span>
         ) : null}
         {row.deepStatus === 'partial' ||
         (row.integrity?.ran && row.integrity.complete === false) ? (
@@ -1558,21 +1560,31 @@ function DatabaseDetail({
       <dl className="weq-dbm-metrics">
         <div>
           <dt>文件大小</dt>
-          <dd>{formatBytesOrUnknown(bytes)}</dd>
+          <dd>
+            <NumericText>{formatBytesOrUnknown(bytes)}</NumericText>
+          </dd>
         </div>
         <div>
           <dt>页数</dt>
-          <dd>{row.scan ? row.scan.pageCount.toLocaleString('zh-CN') : '—'}</dd>
+          <dd>
+            <NumericText>{row.scan ? row.scan.pageCount.toLocaleString('zh-CN') : '—'}</NumericText>
+          </dd>
         </div>
         <div>
           <dt>坏页</dt>
           <dd className={row.scan?.badPages.length ? 'is-warn' : undefined}>
-            {row.scan ? row.scan.badPages.length.toLocaleString('zh-CN') : '—'}
+            <NumericText>
+              {row.scan ? row.scan.badPages.length.toLocaleString('zh-CN') : '—'}
+            </NumericText>
           </dd>
         </div>
         <div>
           <dt>全零页</dt>
-          <dd>{row.scan ? row.scan.zeroPages.length.toLocaleString('zh-CN') : '—'}</dd>
+          <dd>
+            <NumericText>
+              {row.scan ? row.scan.zeroPages.length.toLocaleString('zh-CN') : '—'}
+            </NumericText>
+          </dd>
         </div>
         <div>
           <dt>深度体检</dt>
@@ -1620,7 +1632,7 @@ function DatabaseDetail({
                 ? '已检查部分正常，仍有未核验项'
                 : '结构正常'
               : '结构异常'}{' '}
-            · 坏页 {row.repair.record.verification.badPages.length}
+            · 坏页 <NumericText>{row.repair.record.verification.badPages.length}</NumericText>
           </span>
         </div>
       ) : null}
@@ -1659,9 +1671,7 @@ function RepairBudget({
       <strong>{dbName}</strong>
       {budget.data.space?.map((volume) => (
         <span key={volume.paths.join(':')}>
-          可用 {formatBytesOrUnknown(volume.freeBytes)} · 预计新增峰值{' '}
-          {formatBytesOrUnknown(volume.requiredBytes)} · 建议预留{' '}
-          {formatBytesOrUnknown(volume.recommendedBytes)}
+          <NumericText>{`可用 ${formatBytesOrUnknown(volume.freeBytes)} · 预计新增峰值 ${formatBytesOrUnknown(volume.requiredBytes)} · 建议预留 ${formatBytesOrUnknown(volume.recommendedBytes)}`}</NumericText>
         </span>
       ))}
     </div>
@@ -1732,8 +1742,7 @@ function RepairStorageWarning({
             <dd>
               <span className="weq-dbm-path">{volume.paths.join('、')}</span>
               <span>
-                可用 {formatBytesOrUnknown(volume.freeBytes)} · {!enabled ? '后续' : '预计'}新增峰值{' '}
-                {formatBytesOrUnknown(volume.requiredBytes)}
+                <NumericText>{`可用 ${formatBytesOrUnknown(volume.freeBytes)} · ${!enabled ? '后续' : '预计'}新增峰值 ${formatBytesOrUnknown(volume.requiredBytes)}`}</NumericText>
               </span>
             </dd>
           </div>
@@ -1826,7 +1835,7 @@ function ReportView({
           <h2>{operationLabels[operation.kind]}报告</h2>
           <p>
             {view.uin}
-            {view.configId ? ` · ${view.configId}` : ''} · {dateText(operation.startedAt)}
+            {view.configId ? ` · ${view.configId}` : ''} · <TimeLabel value={operation.startedAt} />
           </p>
         </div>
         <Chip
@@ -1846,21 +1855,25 @@ function ReportView({
         <div>
           <dt>数据库</dt>
           <dd>
-            {operation.completedDatabases} / {operation.totalDatabases} 完成
+            <NumericText>{`${operation.completedDatabases} / ${operation.totalDatabases} 完成`}</NumericText>
           </dd>
         </div>
         <div>
           <dt>异常</dt>
-          <dd className={abnormal ? 'is-warn' : undefined}>{abnormal} 个</dd>
+          <dd className={abnormal ? 'is-warn' : undefined}>
+            <NumericText>{`${abnormal} 个`}</NumericText>
+          </dd>
         </div>
         <div>
           <dt>{operation.kind === 'repair' ? '修复成功' : '可修复'}</dt>
-          <dd>{operation.kind === 'repair' ? repaired : ready} 个</dd>
+          <dd>
+            <NumericText>{`${operation.kind === 'repair' ? repaired : ready} 个`}</NumericText>
+          </dd>
         </div>
         <div>
           <dt>未完成</dt>
           <dd className={operation.failedDatabases ? 'is-warn' : undefined}>
-            {operation.failedDatabases ?? 0} 个
+            <NumericText>{`${operation.failedDatabases ?? 0} 个`}</NumericText>
           </dd>
         </div>
       </dl>
@@ -1948,7 +1961,7 @@ function LegacyReport({
         <div>
           <h2>{data.dbName}</h2>
           <p>
-            {dateText(data.at)} · {recordStates[data.state]}
+            <TimeLabel value={data.at} /> · {recordStates[data.state]}
           </p>
         </div>
         <ExportButtons onExport={onExport} />
@@ -1956,15 +1969,21 @@ function LegacyReport({
       <dl className="weq-dbm-report-metrics">
         <div>
           <dt>坏页</dt>
-          <dd className={data.badPages.length ? 'is-warn' : undefined}>{data.badPages.length}</dd>
+          <dd className={data.badPages.length ? 'is-warn' : undefined}>
+            <NumericText>{data.badPages.length}</NumericText>
+          </dd>
         </div>
         <div>
           <dt>源库大小</dt>
-          <dd>{formatBytesOrUnknown(data.beforeBytes)}</dd>
+          <dd>
+            <NumericText>{formatBytesOrUnknown(data.beforeBytes)}</NumericText>
+          </dd>
         </div>
         <div>
           <dt>产物大小</dt>
-          <dd>{formatBytesOrUnknown(data.afterBytes)}</dd>
+          <dd>
+            <NumericText>{formatBytesOrUnknown(data.afterBytes)}</NumericText>
+          </dd>
         </div>
         <div>
           <dt>修复能力</dt>

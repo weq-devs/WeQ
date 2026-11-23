@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from '@weq/time';
 import type { ExportTask } from '../account/export/task_manager';
 
 /** 仅用于展示，不参与文件命名、任务身份或断点。 */
@@ -217,21 +218,5 @@ export function exportTaskDisplay(task: DisplaySource): TaskDisplay {
   };
 }
 
-const DATE = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-export const taskDate = (time: number) => (Number.isFinite(time) ? DATE.format(time) : '');
-const CREATED = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
-export const taskCreatedLabel = (time: number) =>
-  Number.isFinite(time) ? CREATED.format(time) : '';
+export const taskDate = (time: number) => formatDate(time);
+export const taskCreatedLabel = (time: number) => formatDateTime(time);

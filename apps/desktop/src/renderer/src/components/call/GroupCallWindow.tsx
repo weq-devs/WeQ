@@ -23,6 +23,7 @@ import { RenderDocumentContext } from '../../lib/renderDocument';
 import { useAppLock } from '../../state/lock';
 import { client, trpc } from '../../trpc/client';
 import { Modal } from '../Dialog';
+import { NumericText } from '../NumericText';
 import { QqAvatar } from '../QqAvatar';
 import { CallControls } from './CallControls';
 import { GroupCallChatPanel } from './GroupCallChatPanel';
@@ -435,7 +436,9 @@ export function GroupCallWindow({
           <p className="weq-group-call-meta" aria-live="polite">
             <span className={`weq-group-call-state is-${info.state}`}>{status}</span>
             <span className="weq-group-call-dot" aria-hidden />
-            <span>{info.members.length} 人</span>
+            <span>
+              <NumericText>{`${info.members.length} 人`}</NumericText>
+            </span>
           </p>
         </div>
         <p className="weq-group-call-notice" role="status">
@@ -616,7 +619,9 @@ export function GroupCallWindow({
           ) : null}
           <div className="weq-group-call-rail-inner" hidden={rail === 'chat'}>
             <div className="weq-group-call-rail-heading">
-              <strong>成员 · {info.members.length}</strong>
+              <strong>
+                成员 · <NumericText>{info.members.length}</NumericText>
+              </strong>
               <button
                 type="button"
                 className="weq-group-call-icon-btn"
@@ -715,7 +720,9 @@ export function GroupCallWindow({
             </ul>
             {pending.length ? (
               <div className="weq-group-call-waiting">
-                <strong>等待进入 · {pending.length}</strong>
+                <strong>
+                  等待进入 · <NumericText>{pending.length}</NumericText>
+                </strong>
                 <ul>
                   {pending.map((person) => (
                     <li key={person.uid}>

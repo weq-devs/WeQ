@@ -1,4 +1,4 @@
-import { eventTimeFormatter } from '@weq/time';
+import { formatDateTime, timeDate } from '@weq/time';
 import { Fragment, useContext, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bot, Building2, ChevronDown, History } from 'lucide-react';
@@ -36,6 +36,7 @@ import { client, trpc } from '../../trpc/client';
 import { PersonRelationshipStatus } from '../RelationshipStatus';
 import { OnlineStatus } from '../OnlineStatus';
 import { ContactBirthdayRow } from '../ContactBirthdayRow';
+import { NumericText } from '../NumericText';
 import { CommonRelationships } from '../qq-actions/CommonRelationships';
 import { FriendClue } from '../qq-actions/FriendClue';
 import { ProfileLikeAction } from '../qq-actions/ProfileLikeAction';
@@ -688,12 +689,11 @@ function SignatureRow({
   return unframed ? body : <ContactRow label="个性签名">{body}</ContactRow>;
 }
 
-function memberDate(value?: string | null) {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) && date.getUTCFullYear() > 2000
-    ? eventTimeFormatter.format(date)
-    : null;
+function memberTimeReadout(value?: string | null) {
+  const date = timeDate(value);
+  return date && date.getUTCFullYear() > 2000 ? (
+    <NumericText>{formatDateTime(value)}</NumericText>
+  ) : null;
 }
 
 /** 群内资料：名片里是独立分区，资料页里沿用章节自己的标题。 */
@@ -758,8 +758,8 @@ export function ContactGroupContent({
   );
   const optional: Partial<Record<(typeof settings.groupOrder)[number], ReactNode>> = {
     groupLevel,
-    joinedAt: memberDate(member.joinedAt),
-    lastSpeakAt: memberDate(member.lastSpeakAt),
+    joinedAt: memberTimeReadout(member.joinedAt),
+    lastSpeakAt: memberTimeReadout(member.lastSpeakAt),
   };
   const visibleOrder = settings.groupOrder.filter((key) => full || settings.visible[key]);
   const rows = visibleOrder.map((key) => (
@@ -811,7 +811,7 @@ function MemberMuteUntil({ action }: { action: ReturnType<typeof useGroupMemberU
   return (
     <ContactRow
       label="禁言截止"
-      value={memberDate(new Date(action.until).toISOString())}
+      value={memberTimeReadout(new Date(action.until).toISOString())}
       onActivate={
         action.available ? (anchor) => void action.unmute(anchor.ownerDocument) : undefined
       }
@@ -904,7 +904,10 @@ export function ContactContent({
     ),
     age: (
       <SelfProfileSlot field="age">
-        <ContactRow label="年龄" value={birth.age ? `${birth.age} 岁` : null} />
+        <ContactRow
+          label="年龄"
+          value={birth.age === null ? null : <NumericText>{`${birth.age} 岁`}</NumericText>}
+        />
       </SelfProfileSlot>
     ),
     birthday: (
@@ -1018,7 +1021,12 @@ export function ContactContent({
         <CommonRelationships uin={person.identityValue} onNavigate={onNavigate} />
       ) : null,
     category: null,
-    intimacy: <ContactRow label="QQ 亲密度" value={person.intimacy || null} />,
+    intimacy: (
+      <ContactRow
+        label="QQ 亲密度"
+        value={person.intimacy ? <NumericText>{person.intimacy}</NumericText> : null}
+      />
+    ),
     relations: relationIds.length ? (
       <ContactRow label="关系标签">
         <div className="weq-profile-tags">

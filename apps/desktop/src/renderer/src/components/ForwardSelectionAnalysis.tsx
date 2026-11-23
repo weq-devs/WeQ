@@ -1,5 +1,6 @@
 import { useId, useMemo } from 'react';
-import { calendarParts, formatDateTime } from '@weq/time';
+import { calendarParts, formatDateTime, formatTimeRange } from '@weq/time';
+import { NumericText } from './NumericText';
 import { BarChart3, X } from 'lucide-react';
 import {
   forwardSenderKey,
@@ -82,16 +83,30 @@ export function ForwardSelectionAnalysis({
       </header>
       <div className="weq-forward-analysis-body">
         <p>
-          <strong>{entries.length}</strong> 条消息 · <strong>{report.people.length}</strong>{' '}
+          <strong>
+            <NumericText>{entries.length}</NumericText>
+          </strong>{' '}
+          条消息 ·{' '}
+          <strong>
+            <NumericText>{report.people.length}</NumericText>
+          </strong>{' '}
           位发送者
         </p>
         {report.last > 0 ? (
           <p>
-            {formatDateTime(report.first)}
-            {report.last !== report.first ? ` 至 ${formatDateTime(report.last)}` : ''}（北京时间）
+            <NumericText>
+              {report.first === report.last
+                ? formatDateTime(report.first)
+                : formatTimeRange(report.first, report.last)}
+            </NumericText>
+            （北京时间）
           </p>
         ) : null}
-        {report.undated > 0 ? <p>{report.undated} 条消息没有有效时间</p> : null}
+        {report.undated > 0 ? (
+          <p>
+            <NumericText>{`${report.undated} 条消息没有有效时间`}</NumericText>
+          </p>
+        ) : null}
         <section>
           <h3>发言排行</h3>
           <ul className="weq-forward-analysis-rank">

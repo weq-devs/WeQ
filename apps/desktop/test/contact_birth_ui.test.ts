@@ -66,7 +66,7 @@ it('完整生日仍直接展示，不出现推断详情', () => {
         }),
       ),
     );
-    expect(host.textContent).toBe('生日2010 年 1 月 20 日');
+    expect(host.textContent).toBe('生日2010-01-20');
     expect(host.querySelector('details')).toBeNull();
   } finally {
     act(() => root.unmount());

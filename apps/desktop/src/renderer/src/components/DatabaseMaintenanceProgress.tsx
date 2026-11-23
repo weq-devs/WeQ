@@ -18,6 +18,7 @@ import {
   type DatabaseMaintenanceOperation,
 } from '@weq/service/db-checkup';
 import { formatBytesOrUnknown } from '../lib/format';
+import { NumericText } from './NumericText';
 import { TaskProgressBar } from './tasks/TaskProgressBar';
 import '../styles/database-maintenance-progress.css';
 
@@ -211,14 +212,26 @@ export function DatabaseMaintenanceProgress({
           ) : null}
           {count || step.badPages !== undefined || step.zeroPages || rate ? (
             <div className="weq-db-progress-readouts">
-              {count ? <span>{count}</span> : null}
+              {count ? (
+                <span>
+                  <NumericText>{count}</NumericText>
+                </span>
+              ) : null}
               {step.badPages !== undefined ? (
-                <span>已发现 {step.badPages.toLocaleString('zh-CN')} 个坏页</span>
+                <span>
+                  <NumericText>{`已发现 ${step.badPages.toLocaleString('zh-CN')} 个坏页`}</NumericText>
+                </span>
               ) : null}
               {step.zeroPages ? (
-                <span>{step.zeroPages.toLocaleString('zh-CN')} 个全零页</span>
+                <span>
+                  <NumericText>{`${step.zeroPages.toLocaleString('zh-CN')} 个全零页`}</NumericText>
+                </span>
               ) : null}
-              {rate ? <span>当前速度 {rate}</span> : null}
+              {rate ? (
+                <span>
+                  <NumericText>{`当前速度 ${rate}`}</NumericText>
+                </span>
+              ) : null}
             </div>
           ) : null}
           {step.status === 'skipped' && !step.detail ? <Minus size={12} aria-hidden /> : null}
@@ -239,13 +252,14 @@ export function DatabaseMaintenanceProgress({
     >
       <header className="weq-db-progress-heading">
         <strong>{progress.dbName}</strong>
-        <span>总耗时 {duration(elapsed)}</span>
+        <span>
+          <NumericText>{`总耗时 ${duration(elapsed)}`}</NumericText>
+        </span>
       </header>
       {batch && showBatch ? (
         <div className="weq-db-progress-batch">
           <span>
-            已完成 {batch.completedDatabases} / {batch.totalDatabases} 个数据库
-            {batch.failedDatabases ? ` · ${batch.failedDatabases} 个未完成` : ''}
+            <NumericText>{`已完成 ${batch.completedDatabases} / ${batch.totalDatabases} 个数据库${batch.failedDatabases ? ` · ${batch.failedDatabases} 个未完成` : ''}`}</NumericText>
           </span>
           <span>
             {batch.stopping ? '停止收尾中' : databaseMaintenanceStatusLabel[batch.status]}

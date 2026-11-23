@@ -177,13 +177,18 @@ export function GroupFacts({
       ? friend.value
       : null;
   const created = groupCreationDate(group.createTime);
+  const joined = conversation.generated ? null : groupJoinedDate(joinedAt);
   return (
     <div className="weq-group-facts">
-      <ContactRow label="创建时间" icon={<CalendarDays size={13} />} value={created || null} />
+      <ContactRow
+        label="创建时间"
+        icon={<CalendarDays size={13} />}
+        value={created ? <NumericText>{created}</NumericText> : null}
+      />
       <ContactRow
         label="我的入群时间"
         icon={<CalendarDays size={13} />}
-        value={conversation.generated ? null : groupJoinedDate(joinedAt)}
+        value={joined ? <NumericText>{joined}</NumericText> : null}
       />
       <ContactRow
         label="群内好友"

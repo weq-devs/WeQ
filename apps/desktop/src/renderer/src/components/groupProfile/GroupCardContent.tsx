@@ -190,8 +190,14 @@ export function GroupCardContent({
               <GroupTags group={group} members={conversation.members} />
             </ContactRow>
           ) : null}
-          <ContactRow label="创建时间" value={created || null} />
-          <ContactRow label="我的入群时间" value={joined} />
+          <ContactRow
+            label="创建时间"
+            value={created ? <NumericText>{created}</NumericText> : null}
+          />
+          <ContactRow
+            label="我的入群时间"
+            value={joined ? <NumericText>{joined}</NumericText> : null}
+          />
           {full ? (
             <>
               <ContactRow label="群地点" value={group.addressName} />
