@@ -12,7 +12,7 @@ import { classifyChatType } from '@weq/codec';
 import { isInlineSearchHit } from './searchNavigation';
 import { SEARCH_CATEGORY_ICONS } from './searchIcons';
 import {
-  highlightText,
+  createSearchHighlighter,
   groupAvatarSrc,
   c2cAvatarSrc,
   fileExtIcon,
@@ -63,6 +63,10 @@ export function SearchResultCard({
   onSelect?: (hit: SearchHit, focusKey?: string) => void;
   keepOpen?: boolean;
 }): ReactElement {
+  const literal = createSearchHighlighter(keyword);
+  const names = createSearchHighlighter(keyword, true);
+  const findMatchedAlias = (aliases: string[]) =>
+    aliases.find(literal.matches) ?? aliases.find(names.matches);
   let media: ReactElement;
   let title: string;
   let subtitle: ReactElement;
@@ -78,15 +82,15 @@ export function SearchResultCard({
             : conversationKind === 'dataline'
               ? '数据线'
               : null;
-      const matchedAlias =
-        keyword.trim() &&
-        hit.aliases.find(
+      const matchedAlias = findMatchedAlias(
+        hit.aliases.filter(
           (alias) =>
-            alias.toLocaleLowerCase().includes(keyword.trim().toLocaleLowerCase()) &&
             alias !== hit.nick &&
             alias !== hit.remark &&
+            alias !== (hit.uin || hit.uid) &&
             !hit.groups.some((group) => group.display === alias),
-        );
+        ),
+      );
       media = (
         <SearchAvatar
           url={resolveAvatar({ uin: hit.uin, profileAvatarUrl: hit.avatarUrl })}
@@ -112,17 +116,17 @@ export function SearchResultCard({
             ? ` · ${hit.temporary ? '临时会话' : hit.hasConversation ? '本地会话' : '本地资料'}`
             : null}
           {' · '}
-          <span data-privacy-sensitive>{highlightText(hit.uin || hit.uid, keyword)}</span>
+          <span data-privacy-sensitive>{literal.render(hit.uin || hit.uid)}</span>
           {hit.nick && hit.nick !== title ? (
             <>
               {' '}
-              · <span data-privacy-sensitive>{highlightText(hit.nick, keyword)}</span>
+              · <span data-privacy-sensitive>{names.render(hit.nick)}</span>
             </>
           ) : null}
           {matchedAlias ? (
             <>
               {' '}
-              · <span data-privacy-sensitive>{highlightText(matchedAlias, keyword)}</span>
+              · <span data-privacy-sensitive>{names.render(matchedAlias)}</span>
             </>
           ) : null}
         </span>
@@ -130,14 +134,11 @@ export function SearchResultCard({
       break;
     }
     case 'group': {
-      const matchedAlias =
-        keyword.trim() &&
-        hit.aliases.find(
-          (alias) =>
-            alias.toLocaleLowerCase().includes(keyword.trim().toLocaleLowerCase()) &&
-            alias !== hit.name &&
-            alias !== hit.remark,
-        );
+      const matchedAlias = findMatchedAlias(
+        hit.aliases.filter(
+          (alias) => alias !== hit.name && alias !== hit.remark && alias !== hit.groupCode,
+        ),
+      );
       media = (
         <SearchAvatar
           url={hit.target ? null : groupAvatarSrc(hit.groupCode)}
@@ -159,17 +160,17 @@ export function SearchResultCard({
             ? ` · ${hit.hasConversation ? '本地群会话' : '本地群资料'}`
             : null}
           {' · '}
-          <span data-privacy-sensitive>{highlightText(hit.groupCode, keyword)}</span>
+          <span data-privacy-sensitive>{literal.render(hit.groupCode)}</span>
           {hit.name && hit.name !== title ? (
             <>
               {' '}
-              · <span data-privacy-sensitive>{highlightText(hit.name, keyword)}</span>
+              · <span data-privacy-sensitive>{names.render(hit.name)}</span>
             </>
           ) : null}
           {matchedAlias ? (
             <>
               {' '}
-              · <span data-privacy-sensitive>{highlightText(matchedAlias, keyword)}</span>
+              · <span data-privacy-sensitive>{names.render(matchedAlias)}</span>
             </>
           ) : null}
         </span>
@@ -205,7 +206,7 @@ export function SearchResultCard({
           </span>
           {' · '}
           <span data-privacy-sensitive={hit.category !== 'marketEmoji' || undefined}>
-            {highlightText(hit.content, keyword)}
+            {literal.render(hit.content)}
           </span>
         </span>
       );
@@ -228,7 +229,7 @@ export function SearchResultCard({
           ) : (
             '本地收藏 · '
           )}
-          <span data-privacy-sensitive>{highlightText(hit.content, keyword)}</span>
+          <span data-privacy-sensitive>{literal.render(hit.content)}</span>
         </span>
       );
       break;
@@ -246,7 +247,7 @@ export function SearchResultCard({
         <span className="weq-search-muted">
           {hit.category === 'cloneMessage' ? '克隆' : 'WeQ 助手'} ·{' '}
           {hit.matchType === 'title' ? '标题命中' : '正文命中'} ·{' '}
-          <span data-privacy-sensitive>{highlightText(hit.content, keyword)}</span>
+          <span data-privacy-sensitive>{literal.render(hit.content)}</span>
         </span>
       );
       break;
@@ -273,7 +274,7 @@ export function SearchResultCard({
       title = hit.nick || hit.remark || hit.uin;
       subtitle = (
         <span className="weq-search-mono" data-privacy-sensitive>
-          {hit.uin || hit.uid}
+          {literal.render(hit.uin || hit.uid)}
         </span>
       );
       break;
@@ -288,7 +289,7 @@ export function SearchResultCard({
       title = hit.groupName;
       subtitle = (
         <span className="weq-search-muted">
-          包含<span data-privacy-sensitive>{highlightText(hit.memberDisplay, keyword)}</span>
+          包含<span data-privacy-sensitive>{names.render(hit.memberDisplay)}</span>
         </span>
       );
       break;
@@ -311,7 +312,7 @@ export function SearchResultCard({
                 <span className="weq-number weq-number-inherit">{hit.count}</span>
               </strong>
               条包含
-              <span data-privacy-sensitive>{highlightText(keyword, keyword)}</span>的消息
+              <span data-privacy-sensitive>{literal.render(keyword)}</span>的消息
             </>
           ) : null}
           {hit.matchedBulletins ? (
@@ -354,7 +355,11 @@ export function SearchResultCard({
       {media}
       <span className="weq-search-text">
         <span className="weq-search-row-top">
-          <span className="weq-search-name">{title}</span>
+          <span className="weq-search-name">
+            {hit.category === 'contact' || hit.category === 'group'
+              ? names.render(title)
+              : literal.render(title)}
+          </span>
         </span>
         <span className="weq-search-snippet">{subtitle}</span>
       </span>
@@ -388,7 +393,7 @@ export function SearchResultCard({
             }
           >
             <UsersRound size={14} aria-hidden />
-            <span data-privacy-sensitive>{highlightText(group.display, keyword)}</span>
+            <span data-privacy-sensitive>{names.render(group.display)}</span>
             <span>
               来自<span data-privacy-sensitive>{group.groupName}</span>
             </span>

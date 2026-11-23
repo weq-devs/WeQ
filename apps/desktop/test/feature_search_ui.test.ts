@@ -3,6 +3,7 @@ import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
+import { AppSearchResults } from '../src/renderer/src/components/search/AppSearchResults';
 import { contactSearchHit } from './support/search-fixtures';
 import {
   findSettingElement,
@@ -20,6 +21,21 @@ beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
 afterEach(() => vi.unstubAllGlobals());
 
 describe('功能与设置搜索界面', () => {
+  it('功能入口的拼音高亮落在名称原文上', () => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(h(AppSearchResults, { keyword: 'hhrl', onSelect: vi.fn(), onExpand: vi.fn() })),
+      );
+      expect([...host.querySelectorAll('mark')].map((node) => node.textContent)).toContain(
+        '会话日历',
+      );
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('展开更多后跳到内容，返回时保留功能列表的展开状态', () => {
     const host = document.createElement('div');
     document.body.append(host);

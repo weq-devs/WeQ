@@ -168,3 +168,54 @@ it('当前昵称不同于命中别名时仍展示并高亮原匹配文字', () =
     f.close();
   }
 });
+
+it.each([
+  ['xmdx', '厦门大学'],
+  ['smdx', '厦门大学'],
+  ['xia men da x', '厦门大学'],
+  ['sh', '上海'],
+])('搜索 %s 时只高亮群名中对应的原字', (keyword, match) => {
+  const f = mount(
+    h(SearchResultCard, {
+      hit: {
+        category: 'group',
+        groupCode: '20001',
+        name: `🌊 ${match}交流小组`,
+        remark: '',
+        inDirectory: true,
+        hasConversation: true,
+        aliases: [],
+      },
+      keyword,
+    }),
+  );
+  try {
+    expect([...f.host.querySelectorAll('mark')].map((node) => node.textContent)).toEqual([match]);
+    expect(f.host.textContent).toContain(`🌊 ${match}交流小组`);
+  } finally {
+    f.close();
+  }
+});
+
+it('联系人高亮重复的原文命中，也展示拼音命中的别名和群名片', () => {
+  const f = mount(
+    h(SearchResultCard, {
+      hit: contactSearchHit({
+        nick: 'xMdX / XMDX',
+        aliases: ['厦门大学旧昵称'],
+        groups: [{ groupCode: '20001', groupName: '同学群', display: '厦门大学同学' }],
+      }),
+      keyword: 'xmdx',
+    }),
+  );
+  try {
+    expect([...f.host.querySelectorAll('mark')].map((node) => node.textContent)).toEqual([
+      'xMdX',
+      'XMDX',
+      '厦门大学',
+      '厦门大学',
+    ]);
+  } finally {
+    f.close();
+  }
+});

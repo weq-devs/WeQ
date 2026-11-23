@@ -1,6 +1,6 @@
 import { EmptyState } from '../EmptyState';
 import { SearchX } from 'lucide-react';
-import { highlightText } from './SearchResultCard.shared';
+import { createSearchHighlighter } from './SearchResultCard.shared';
 import { appSearchIcon, searchAppEntries, type AppSearchEntry } from './appSearchCatalog';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import '../../styles/app-search.css';
@@ -22,6 +22,8 @@ export function AppSearchResults({
   const entries = (providedEntries ?? searchAppEntries(keyword, developmentDressTools)).filter(
     (entry) => entry.target.kind !== 'dressup' || developmentDressTools,
   );
+  const names = createSearchHighlighter(keyword, true);
+  const paths = createSearchHighlighter(keyword);
   return (
     <div className="weq-search-section weq-app-search">
       <div className="weq-search-section-header">
@@ -49,8 +51,8 @@ export function AppSearchResults({
               <Icon size={20} strokeWidth={1.8} />
             </span>
             <span className="weq-search-text">
-              <span className="weq-search-name">{highlightText(entry.title, keyword)}</span>
-              <span className="weq-search-snippet">{entry.path}</span>
+              <span className="weq-search-name">{names.render(entry.title)}</span>
+              <span className="weq-search-snippet">{paths.render(entry.path)}</span>
             </span>
           </button>
         );

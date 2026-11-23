@@ -1,6 +1,7 @@
 /** Renders one unified-search hit as a card (dropdown row + "more" modal row). */
 
-import type { ReactElement } from 'react';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
+import { Fragment, type ReactElement } from 'react';
 
 /** Group avatar CDN: https://p.qlogo.cn/gh/<code>/<code>/0 */
 export function groupAvatarSrc(groupCode: string): string | null {
@@ -86,18 +87,37 @@ export function fileExtIcon(fileName: string): string {
   return map[ext] ?? 'unknown.png';
 }
 
-/** Case-insensitive <mark> highlighting for a substring in a short string. */
+export function createSearchHighlighter(keyword: string, matchPinyin = false) {
+  const needle = keyword.trim();
+  const literal = needle && new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu');
+  const pinyin = matchPinyin ? createPinyinMatcher(needle) : undefined;
+  const findRanges = (text: string): readonly (readonly [number, number])[] => {
+    if (!literal) return [];
+    const matches = Array.from(
+      text.matchAll(literal),
+      ({ index, 0: match }) => [index, index + match.length] as const,
+    );
+    return matches.length ? matches : (pinyin?.findRanges(text) ?? []);
+  };
+  return {
+    matches: (text: string) => findRanges(text).length > 0,
+    render(text: string): ReactElement {
+      const ranges = findRanges(text);
+      return (
+        <>
+          {ranges.map(([start, end], index) => (
+            <Fragment key={start}>
+              {text.slice(ranges[index - 1]?.[1] ?? 0, start)}
+              <mark className="weq-search-hl">{text.slice(start, end)}</mark>
+            </Fragment>
+          ))}
+          {text.slice(ranges.at(-1)?.[1] ?? 0)}
+        </>
+      );
+    },
+  };
+}
+
 export function highlightText(text: string, keyword: string): ReactElement {
-  const lower = text.toLowerCase();
-  const needle = keyword.trim().toLowerCase();
-  if (!needle) return <>{text}</>;
-  const at = lower.indexOf(needle);
-  if (at === -1) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, at)}
-      <mark className="weq-search-hl">{text.slice(at, at + needle.length)}</mark>
-      {text.slice(at + needle.length)}
-    </>
-  );
+  return createSearchHighlighter(keyword).render(text);
 }
