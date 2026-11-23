@@ -228,6 +228,39 @@ describe('阅读与群助手', () => {
 });
 
 describe('输入框个性字体', () => {
+  it('删除已选字体后回到普通字体，重开时保留两个开关与其他字体', () => {
+    const f = fixture();
+    f.service.setSettings({
+      composerFont: { choice: 8915, send: true, preview: true },
+      sharedPreferences: {
+        dress: {
+          localAppearanceVersion: 1,
+          activeFont: 8915,
+          installedFonts: [8915, 8920],
+          fontMeta: { 8915: { name: '选用字体' }, 8920: { name: '另一款字体' } },
+        },
+      },
+    });
+    expect(f.service.removeComposerFont(8915)).toEqual({
+      choice: 'plain',
+      send: true,
+      preview: true,
+    });
+    const reopened = f.open();
+    expect(reopened.getSetting('composerFont')).toEqual({
+      choice: 'plain',
+      send: true,
+      preview: true,
+    });
+    expect(reopened.getSharedPreference('dress')).toMatchObject({
+      activeFont: 0,
+      installedFonts: [8920],
+    });
+    expect(reopened.getSharedPreference('dress').fontMeta).toEqual({
+      8920: { name: '另一款字体' },
+    });
+  });
+
   it('迁移旧开关，修改预览时保留发送选择，重开与还原备份后仍生效', () => {
     const f = fixture({ settings: { sendWithQqFont: false, sendWithDressFont: true } });
     expect(f.open().getSetting('composerFont')).toEqual({

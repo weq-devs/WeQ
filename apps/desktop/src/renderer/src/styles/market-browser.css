@@ -220,16 +220,33 @@
   flex: none;
   padding: 8px 10px 6px;
 }
+.weq-market-pack-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
 .weq-market-pack-foot {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 6px;
   padding: 0 10px 10px;
   font-size: 11px;
   color: var(--weq-fg-muted);
 }
-.weq-market-pack-foot > :last-child {
+.weq-market-pack-foot > span:last-child {
   color: var(--market-accent-ink);
+}
+.weq-market-pack-foot .weq-emb-download {
+  white-space: nowrap;
 }
 .weq-market-browser .weq-emb-pack-name {
   color: var(--weq-fg-primary);

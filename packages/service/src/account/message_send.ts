@@ -27,7 +27,7 @@ import { assertDatabaseWritable } from '@weq/db';
  */
 import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
-import { datalineDevice, isDatalineUid } from '@weq/codec';
+import { datalineDevice, encodeSelectedDressFont, isDatalineUid } from '@weq/codec';
 import {
   READ_REPORT_BATCH_SIZE,
   ReadedReport,
@@ -51,7 +51,6 @@ import {
   FetchAiVoiceList,
   SendAiVoice,
   SendLocationArk,
-  swapFontId16,
   type ContactArkKind,
   type MediaSource,
   type PttWaveformSource,
@@ -70,18 +69,6 @@ import { toGapMessage, type GapFetchedMessage } from './gap_history';
 import type { MediaDownloadService } from './media_download';
 
 const logger = getLogger().child({ scope: 'message-send' });
-
-/**
- * 装扮字体 itemId → tag 15 原值：`feeType=1`（置 bit 16）+ 低 16 位字节序交换。
- *
- * 与 OneBot `send_msg` 的 `font_id` 编码一致（`vendor/weqbot/packages/bot/src/
- * onebot-backend.ts` 的 `sendParams`）。bit 16 的 feeType 决定收端能否正常显示，
- * 实测 1 即可；其余高位（字体类型／魔法字体）不影响正常显示，因此不查历史原值，
- * 同一款每次发送都用同一形态。
- */
-function dressFontWire(itemId: number): number {
-  return 0x10000 | swapFontId16(itemId);
-}
 
 /**
  * 转发 @weqbot/protocol 的元素相关类型：调用方（MCP 工具 / IPC）只依赖 @weq/service，
@@ -652,7 +639,7 @@ export class MessageSendService {
   /**
    * 本次发送使用的 tag 15 原值。
    *
-   * 装扮字体不走历史回查：统一发 feeType=1 形态（见 {@link dressFontWire}），同一款
+   * 装扮字体不走历史回查：统一发 feeType=1 形态（见 {@link encodeSelectedDressFont}），同一款
    * 每次发送的字节都一样，不随历史里那条消息带的高位变化。QQ 账号当前字体维持原行为
    * —— 从历史里找原值，找不到就不带，不猜高位。
    */
@@ -660,7 +647,7 @@ export class MessageSendService {
     fontId: number,
     target: ResolvedSendTarget,
   ): Promise<number | undefined> {
-    if (this.sendWithDressFontEnabled()) return dressFontWire(fontId);
+    if (this.sendWithDressFontEnabled()) return encodeSelectedDressFont(fontId);
     return this.currentFontWire(fontId, target);
   }
 

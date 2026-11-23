@@ -36,3 +36,4 @@ export const trpc = {
     },
   },
 };
+export const client = trpc;

@@ -1,10 +1,11 @@
-import { act, createElement } from 'react';
+import { act, createElement, Profiler } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MessageBubble } from '../src/renderer/src/im-template/template/messageBubble';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { MsgDecorationEnabledContext } from '../src/renderer/src/state/messageAppearance';
 import { composerSendError } from '../src/renderer/src/im-template/template/composerSend';
+import { injectFontCss } from '../src/renderer/src/lib/msgDecorationStyle';
 import { stubReadyDecorationResources } from './support/readyDecorationResources';
 
 const fixture = vi.hoisted(() => ({
@@ -14,6 +15,7 @@ const fixture = vi.hoisted(() => ({
   widgetActive: false,
   scope: 'all',
   unresolved: false,
+  pendingBubble: false,
   remote: false,
 }));
 vi.mock('../src/renderer/src/lib/target', () => ({
@@ -34,7 +36,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         key === 'useQuery'
           ? (input?: { fontId?: number; bubbleId?: number; widgetId?: number }) => {
               if (path.at(-1) === 'resolveMsgDecoration') {
-                if (fixture.unresolved) return { data: undefined };
+                if (fixture.unresolved || (input?.bubbleId && fixture.pendingBubble))
+                  return { data: undefined };
                 const id = input?.fontId ?? 0;
                 fixture.ids.push(id);
                 const key = JSON.stringify(input);
@@ -214,6 +217,7 @@ it('发送气泡按请求字体显示，读回可换款或清除，本地使用�
   document.body.append(host);
   const root = createRoot(host);
   let enabled = { bubble: true, font: true, widget: true };
+  const committedFonts: Array<string | null | undefined> = [];
   const render = (
     fontId: number,
     sending: boolean,
@@ -226,33 +230,60 @@ it('发送气泡按请求字体显示，读回可换款或清除，本地使用�
         createElement(
           MsgDecorationEnabledContext.Provider,
           { value: enabled },
-          createElement(MessageBubble, {
-            message: {
-              id: 'font-row',
-              conversationId: demo.conversations[0]!.id,
-              senderId: demo.user.id,
-              body: '实际字体',
-              createdAt: new Date(0).toISOString(),
-              qqElements: [{ type: 'text', data: { textContent: '实际字体' } }],
-              ...(bubbleId === null ? {} : { decoration: { bubbleId, widgetId, fontId } }),
-              ...(sending ? { optimistic: 'sending' as const } : {}),
+          createElement(
+            Profiler,
+            {
+              id: 'outgoing-font',
+              onRender: () => {
+                committedFonts.push(host.querySelector('.message-line')?.getAttribute('data-font'));
+              },
             },
-            conversation: demo.conversations[0]!,
-            sender: demo.user,
-            mine,
-            senderName: '我',
-            senderAvatarUrl: null,
-            senderSeed: 'me',
-            showSenderName: false,
-            active: true,
-            onContextMenu: vi.fn(),
-            onLongPress: vi.fn(),
-            renderers: [{ id: 'test', match: () => true, render: () => '实际字体' }],
-          }),
+            createElement(MessageBubble, {
+              message: {
+                id: 'font-row',
+                conversationId: demo.conversations[0]!.id,
+                senderId: demo.user.id,
+                body: '实际字体',
+                createdAt: new Date(0).toISOString(),
+                qqElements: [{ type: 'text', data: { textContent: '实际字体' } }],
+                ...(bubbleId === null ? {} : { decoration: { bubbleId, widgetId, fontId } }),
+                ...(sending ? { optimistic: 'sending' as const } : {}),
+              },
+              conversation: demo.conversations[0]!,
+              sender: demo.user,
+              mine,
+              senderName: '我',
+              senderAvatarUrl: null,
+              senderSeed: 'me',
+              showSenderName: false,
+              active: true,
+              onContextMenu: vi.fn(),
+              onLongPress: vi.fn(),
+              renderers: [{ id: 'test', match: () => true, render: () => '实际字体' }],
+            }),
+          ),
         ),
       ),
     );
   try {
+    const font = {
+      itemId: 33003,
+      deriveVersion: 1,
+      fx: null,
+      family: 'fixture',
+      file: 'fixture.otf',
+    };
+    const lease = injectFontCss(font.itemId, font, true);
+    try {
+      expect(await lease.ready).toBe(true);
+      fixture.pendingBubble = true;
+      await render(font.itemId, true);
+      expect(committedFonts[0]).toBe(String(font.itemId));
+      expect(host.querySelector('.message-line')?.hasAttribute('data-bubble')).toBe(false);
+    } finally {
+      fixture.pendingBubble = false;
+      lease();
+    }
     await render(0, true, true, null);
     expect(host.querySelector('.message-line')?.getAttribute('data-bubble')).toBe('2116371');
     await render(0, false, true, null);

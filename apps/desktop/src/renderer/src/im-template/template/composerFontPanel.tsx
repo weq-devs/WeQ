@@ -1,7 +1,8 @@
-import { Check, Plus, Type } from 'lucide-react';
+import { Check, Plus, Trash2, Type } from 'lucide-react';
 import { useEffect, useId, useState, type RefObject } from 'react';
 import { EmptyState } from '../../components/EmptyState';
 import { EditorDialog } from '../../components/EditorDialog';
+import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { DressSearchForm } from '../../components/DressSearchForm';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
@@ -9,6 +10,7 @@ import { Toggle } from '../../components/settings/controls';
 import { ActionIcon } from '../../components/qq-actions/shared';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { fontFaces } from '../../lib/fontFaces';
+import { messageFontFamily } from '../../lib/msgDecorationStyle';
 import { dressFontUrl, dressUrl } from '../../lib/resourceUrl';
 import { trpc } from '../../trpc/client';
 import type { ComposerFontSettings } from '@weq/service';
@@ -32,11 +34,15 @@ export function useComposerFont(available: boolean, open: boolean) {
     enabled: available,
     refetchOnWindowFocus: false,
     staleTime: 60_000,
-    select: (data) => data.composerFont,
+    select: (data) => ({
+      preferences: data.composerFont,
+      showMessageFont: data.showMessageFont,
+    }),
   });
-  const preferences = settings.data;
+  const preferences = settings.data?.preferences;
+  const warmSendFont = preferences?.send && settings.data?.showMessageFont !== false;
   const dress = trpc.account.dressup.getState.useQuery(undefined, {
-    enabled: available && (open || preferences?.preview === true),
+    enabled: available && (open || !!preferences?.preview || !!warmSendFont),
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
@@ -49,28 +55,26 @@ export function useComposerFont(available: boolean, open: boolean) {
   const selected: FontOption['value'] =
     customId || legacyId || (choice === 'qq' && qqFont ? 'qq' : 'plain');
   const currentId = selected === 'qq' ? qqFont : typeof selected === 'number' ? selected : 0;
-  const previewId = available && preferences?.preview ? currentId : 0;
-  const installed = previewId
-    ? manifest?.fonts.find((font) => font.itemId === previewId)
-    : undefined;
+  const fontId = available && (preferences?.preview || warmSendFont) ? currentId : 0;
+  const installed = fontId ? manifest?.fonts.find((font) => font.itemId === fontId) : undefined;
   const resolved = trpc.account.dressup.resolveMsgDecoration.useQuery(
-    { fontId: previewId, bubbleId: 0, widgetId: 0 },
-    { enabled: !!previewId && !installed, staleTime: 60_000, retry: false },
+    { fontId, bubbleId: 0, widgetId: 0 },
+    { enabled: !!fontId && !installed, staleTime: Infinity, retry: false },
   );
-  const derived = installed ?? resolved.data?.font;
-  const family = useFontFamily(derived ? previewId : 0, derived?.deriveVersion);
+  const derived = resolved.data?.font ?? installed;
+  const family = useFontFamily(derived ? fontId : 0, derived?.deriveVersion);
 
   return {
     development,
     state,
     preferences,
     selected,
-    family,
+    family: preferences?.preview ? family : '',
   };
 }
 
 function useFontFamily(itemId: number, version = 0): string {
-  const family = itemId ? `weq-composer-${itemId}-${version}` : '';
+  const family = itemId ? messageFontFamily(itemId, version) : '';
   const [loaded, setLoaded] = useState('');
   useEffect(() => {
     if (!family) return;
@@ -115,12 +119,21 @@ export function ComposerFontPanel({
   const { development, preferences, selected, state } = font;
   const id = useId();
   const [adding, setAdding] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; itemId: number } | null>(null);
   const utils = trpc.useUtils();
   const save = trpc.bootstrap.setComposerFont.useMutation({
     onSuccess: (composerFont) => {
       utils.bootstrap.getSettings.setData(undefined, (data) =>
         data ? { ...data, composerFont } : data,
       );
+    },
+  });
+  const remove = trpc.account.dressup.removeComposerFont.useMutation({
+    onSuccess: async (composerFont) => {
+      utils.bootstrap.getSettings.setData(undefined, (data) =>
+        data ? { ...data, composerFont } : data,
+      );
+      await utils.account.dressup.getState.invalidate();
     },
   });
   const own = state?.own;
@@ -149,7 +162,8 @@ export function ComposerFontPanel({
       });
     }
   }
-  const disabled = !preferences || save.isLoading;
+  const disabled = !preferences || save.isLoading || remove.isLoading;
+  const usesPersonalFont = selected !== 'plain';
   function setToggle(key: 'send' | 'preview', enabled: boolean) {
     save.mutate({ [key]: enabled } satisfies Partial<ComposerFontSettings>);
   }
@@ -177,27 +191,72 @@ export function ComposerFontPanel({
         role="radiogroup"
         aria-label="选择字体"
       >
-        {options.map((item) => (
-          <label key={item.value} className="composer-font-option" data-unavailable={item.disabled}>
-            <input
-              type="radio"
-              name={id}
-              checked={item.value === selected}
-              disabled={item.disabled || disabled}
-              onChange={() => save.mutate({ choice: item.value })}
-            />
-            <FontSample item={item} />
-            <span className="composer-font-option-label">
-              <strong>{item.name}</strong>
-              {!item.disabled && item.description ? <small>{item.description}</small> : null}
-            </span>
-            <Check size={16} aria-hidden />
-          </label>
-        ))}
+        {options.map((item) => {
+          const itemId = typeof item.value === 'number' ? item.value : undefined;
+          return (
+            <label
+              key={item.value}
+              className="composer-font-option"
+              data-unavailable={item.disabled}
+              onContextMenu={
+                itemId
+                  ? (event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setMenu({ x: event.clientX, y: event.clientY, itemId });
+                    }
+                  : undefined
+              }
+              onKeyDown={
+                itemId
+                  ? (event) => {
+                      if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                        return;
+                      event.preventDefault();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setMenu({ x: rect.left, y: rect.bottom, itemId });
+                    }
+                  : undefined
+              }
+            >
+              <input
+                type="radio"
+                name={id}
+                checked={item.value === selected}
+                disabled={item.disabled || disabled}
+                aria-haspopup={itemId ? 'menu' : undefined}
+                onChange={() => save.mutate({ choice: item.value })}
+              />
+              <FontSample item={item} />
+              <span className="composer-font-option-label">
+                <strong>{item.name}</strong>
+                {!item.disabled && item.description ? <small>{item.description}</small> : null}
+              </span>
+              <Check size={16} aria-hidden />
+            </label>
+          );
+        })}
       </div>
-      {save.error ? (
+      {menu ? (
+        <ConversationActionsMenu
+          x={menu.x}
+          y={menu.y}
+          label="个性字体操作"
+          onClose={() => setMenu(null)}
+          actions={[
+            {
+              label: '删除',
+              icon: <Trash2 size={15} />,
+              danger: 'outline',
+              disabled,
+              action: () => remove.mutate({ itemId: menu.itemId }),
+            },
+          ]}
+        />
+      ) : null}
+      {remove.error || save.error ? (
         <div className="composer-font-error" role="alert">
-          {save.error.message}
+          {(remove.error ?? save.error)?.message}
         </div>
       ) : null}
       <footer className="composer-font-controls">
@@ -205,8 +264,8 @@ export function ComposerFontPanel({
           <span>发送个性字体</span>
           <Toggle
             label="发送个性字体"
-            checked={preferences?.send ?? true}
-            disabled={disabled}
+            checked={usesPersonalFont && (preferences?.send ?? true)}
+            disabled={disabled || !usesPersonalFont}
             onChange={(enabled) => setToggle('send', enabled)}
           />
         </div>
@@ -214,8 +273,8 @@ export function ComposerFontPanel({
           <span>预览个性字体</span>
           <Toggle
             label="预览个性字体"
-            checked={preferences?.preview ?? false}
-            disabled={disabled}
+            checked={usesPersonalFont && (preferences?.preview ?? false)}
+            disabled={disabled || !usesPersonalFont}
             onChange={(enabled) => setToggle('preview', enabled)}
           />
         </div>

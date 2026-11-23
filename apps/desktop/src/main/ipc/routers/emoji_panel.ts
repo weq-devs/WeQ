@@ -9,7 +9,7 @@
  *   - GIF      → `weq-media://relemoji?hash=<md5(关键词)>&file=<hash>.gif`
  *   - 商城表情 → `weq-media://mface?pack=&hash=&enc=tea`
  *
- * `recordRecent` 会写回 QQ 的 emoji.db（最近使用），是唯一有副作用的接口。
+ * `recordRecent` 会写回 QQ 的 emoji.db（最近使用）。
  */
 import { OperationError } from '@weq/service';
 
@@ -105,7 +105,9 @@ export const emojiPanelRouter = router({
     const services = requireServices();
     const local = await services.emoji.listMarketPackages();
     if (requireServices() !== services) throw new Error('账号已切换，请重新读取表情包');
-    const added = getAppContext().bootstrap?.userConfig.read().composerMarketPacks ?? [];
+    const config = getAppContext().bootstrap?.userConfig.read();
+    const added = config?.composerMarketPacks ?? [];
+    const hidden = new Set(config?.hiddenComposerMarketPackIds);
     const packs = new Map(
       added.map(({ packId, name, summary }) => [
         packId,
@@ -113,7 +115,7 @@ export const emojiPanelRouter = router({
       ]),
     );
     for (const pack of local) {
-      if (!packs.has(pack.packId)) packs.set(pack.packId, pack);
+      if (!hidden.has(pack.packId) && !packs.has(pack.packId)) packs.set(pack.packId, pack);
     }
     return [...packs.values()];
   }),

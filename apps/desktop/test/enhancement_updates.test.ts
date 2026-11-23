@@ -131,7 +131,7 @@ it('统一索引的两包分别校验资产和兼容身份', () => {
   expect(read('market-emoji')).toEqual(market);
 });
 
-it('独立安装和更新商城目录，失败保留旧版，关闭装扮时隐藏', async () => {
+it('独立安装、更新、重开与删除商城目录，更新失败保留旧版', async () => {
   const root = await mkdtemp(join(tmpdir(), 'weq-market-emoji-'));
   roots.push(root);
   const installedPath = join(root, 'market-emoji');
@@ -140,15 +140,15 @@ it('独立安装和更新商城目录，失败保留旧版，关闭装扮时隐�
   let response: string | Buffer = csv('第一版');
   const fetcher: typeof fetch = async () =>
     new Response(typeof response === 'string' ? response : new Uint8Array(response));
-  const create = (enabled: boolean) => {
-    const catalog = createMarketEmojiComponent(installedPath, enabled, fetcher);
+  const create = () => {
+    const catalog = createMarketEmojiComponent(installedPath, fetcher);
     const packs = new EnhancementPacks(
       [
         {
           id: 'market-emoji',
           name: '商城表情目录',
           description: '',
-          enabled,
+          enabled: true,
           components: [catalog.component.id],
           validate: catalog.validate,
         },
@@ -178,7 +178,7 @@ it('独立安装和更新商城目录，失败保留旧版，关闭装扮时隐�
     await packs.wait();
   };
   try {
-    const { packs } = create(true);
+    const { packs } = create();
     expect(searchCatalog({}).catalogVersion).toBeNull();
     await install(packs, response);
     expect(searchCatalog({ keyword: '包含,逗号' }).entries[0]?.name).toBe('第一版');
@@ -192,13 +192,7 @@ it('独立安装和更新商城目录，失败保留旧版，关闭装扮时隐�
     await install(packs, response);
     expect(searchCatalog({}).entries[0]?.name).toBe('第二版');
     const receipt = JSON.parse(await readFile(receiptPath, 'utf8'))['market-emoji'];
-    const hidden = create(false);
-    hidden.catalog.restore(receipt.components[0].version);
-    expect(await hidden.packs.list()).toEqual([]);
-    expect(searchCatalog({}).catalogVersion).toBeNull();
-    expect(() => hidden.packs.start(['market-emoji'])).toThrow('增强包不可用');
-
-    const reopened = create(true);
+    const reopened = create();
     reopened.catalog.restore(receipt.components[0].version);
     expect(searchCatalog({}).entries[0]?.name).toBe('第二版');
     await reopened.packs.remove('market-emoji');

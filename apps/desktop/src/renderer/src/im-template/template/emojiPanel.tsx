@@ -32,10 +32,12 @@ import {
   Type,
   X,
   Sticker,
+  Trash2,
 } from 'lucide-react';
 import type { RefObject } from 'react';
 import { trpc } from '../../trpc/client';
 import { EditorDialog } from '../../components/EditorDialog';
+import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { DressSearchForm } from '../../components/DressSearchForm';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import '../../styles/composer-emoji-catalog.css';
@@ -532,14 +534,13 @@ function KaomojiGrid({ onSelect }: { onSelect: (item: EmojiItem) => void }) {
 // ── 商城表情 ──────────────────────────────────────────────────────────────────
 
 function MarketAddButton({ onClick }: { onClick: () => void }) {
-  const enabled = useDevelopmentDressTools();
-  return enabled ? (
+  return (
     <div className="emoji-header-actions">
       <ActionIcon label="搜索更多表情" text="添加" onClick={onClick}>
         <Plus size={16} />
       </ActionIcon>
     </div>
-  ) : null;
+  );
 }
 
 function MarketTab({
@@ -552,7 +553,19 @@ function MarketTab({
   onSelect: (item: EmojiItem) => void;
 }) {
   const packages = trpc.account.emojiPanel.marketPackages.useQuery();
-  const developmentDressTools = useDevelopmentDressTools();
+  const [menu, setMenu] = useState<{ x: number; y: number; packId: string } | null>(null);
+  const utils = trpc.useUtils();
+  const remove = trpc.account.marketEmoji.removeComposerPack.useMutation({
+    onSuccess: async (_result, { packId }) => {
+      utils.account.emojiPanel.marketPackages.setData(undefined, (data) =>
+        data?.filter((pack) => pack.packId !== packId),
+      );
+      await Promise.all([
+        utils.account.emojiPanel.marketPackages.invalidate(),
+        utils.account.emojiPanel.marketPackDetail.invalidate({ packId }),
+      ]);
+    },
+  });
 
   if (packId) {
     return <MarketPackDetail packId={packId} onBack={() => onOpenPack(null)} onSelect={onSelect} />;
@@ -561,6 +574,11 @@ function MarketTab({
   const list = packages.data ?? [];
   return (
     <div className={cn('emoji-section')}>
+      {remove.error ? (
+        <div className="emoji-state" role="alert">
+          {remove.error.message}
+        </div>
+      ) : null}
       {packages.isLoading ? (
         <div className={cn('emoji-state')}>加载中…</div>
       ) : list.length === 0 ? (
@@ -568,7 +586,7 @@ function MarketTab({
           compact
           icon={<Sticker />}
           title="还没有添加商城表情包"
-          body={developmentDressTools ? '点右上「添加」去搜索' : undefined}
+          body="点右上「添加」去搜索"
         />
       ) : (
         <div className={cn('emoji-pack-list')}>
@@ -578,8 +596,20 @@ function MarketTab({
               type="button"
               className={cn('emoji-pack-card')}
               title={pkg.name}
+              aria-haspopup="menu"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => onOpenPack(pkg.packId)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setMenu({ x: event.clientX, y: event.clientY, packId: pkg.packId });
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                setMenu({ x: rect.left, y: rect.bottom, packId: pkg.packId });
+              }}
             >
               <span className={cn('emoji-pack-name')}>{pkg.name || `表情包 ${pkg.packId}`}</span>
               <span className={cn('emoji-pack-summary')}>{pkg.summary || '点击查看全部表情'}</span>
@@ -587,6 +617,23 @@ function MarketTab({
           ))}
         </div>
       )}
+      {menu ? (
+        <ConversationActionsMenu
+          x={menu.x}
+          y={menu.y}
+          label="商城表情包操作"
+          onClose={() => setMenu(null)}
+          actions={[
+            {
+              label: '删除',
+              icon: <Trash2 size={15} />,
+              danger: 'outline',
+              disabled: remove.isLoading,
+              action: () => remove.mutate({ packId: menu.packId }),
+            },
+          ]}
+        />
+      ) : null}
     </div>
   );
 }
@@ -660,13 +707,29 @@ function EmojiCatalogLightbox({
   const [draft, setDraft] = useState('');
   const [keyword, setKeyword] = useState('');
   const [partial, setPartial] = useState('');
+  const development = useDevelopmentDressTools();
   const packages = trpc.account.emojiPanel.marketPackages.useQuery();
-  const addPack = trpc.account.marketEmoji.addComposerPack.useMutation();
   const utils = trpc.useUtils();
+  const addPack = trpc.account.marketEmoji.addComposerPack.useMutation({
+    onMutate: () => setPartial(''),
+    onSuccess: async (result, { packId }) => {
+      if (result.cached < result.total)
+        setPartial(`已添加 ${result.cached} 张可用表情，共 ${result.total} 张`);
+      await Promise.all([
+        utils.account.emojiPanel.marketPackages.invalidate(),
+        utils.account.emojiPanel.marketPackDetail.invalidate({ packId }),
+      ]);
+    },
+  });
 
   return (
     <EditorDialog title="添加商城表情" width={960} onClose={onClose}>
       <div className="composer-emoji-catalog">
+        {addPack.error ? (
+          <div className="weq-mface-lb-state is-error" role="alert">
+            {addPack.error.message}
+          </div>
+        ) : null}
         {partial ? (
           <div className="weq-market-job-status" role="status">
             {partial}
@@ -694,16 +757,11 @@ function EmojiCatalogLightbox({
             }}
             composerAdd={{
               addedIds: new Set(packages.data?.map((pack) => pack.packId)),
-              add: async (packId) => {
-                setPartial('');
-                const result = await addPack.mutateAsync({ packId });
-                if (result.cached < result.total)
-                  setPartial(`已添加 ${result.cached} 张可用表情，共 ${result.total} 张`);
-                await utils.account.emojiPanel.marketPackages.invalidate();
-              },
+              addingId: addPack.isLoading ? addPack.variables?.packId : undefined,
+              add: (packId) => addPack.mutate({ packId }),
               insert: (packId, item) => {
                 flushSync(onClose);
-                onSelect(marketFaceItem(packId, item.hash, item.name, true));
+                onSelect(marketFaceItem(packId, item.hash, item.name, development));
               },
             }}
           />

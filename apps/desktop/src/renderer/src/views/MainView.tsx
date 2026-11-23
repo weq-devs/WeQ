@@ -309,6 +309,7 @@ import {
 } from '../lib/groupMemberRefresh';
 import { GrayTipNamesContext } from '../lib/grayTipProfile';
 import { useDressSkin } from '../hooks/useDressSkin';
+import { injectFontCss } from '../lib/msgDecorationStyle';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
@@ -479,7 +480,7 @@ import {
 } from '../lib/conversationDirectoryRows';
 import { conversationBatchSelection } from '../../../shared/content_selection';
 import { displayUserName } from '../im-template/template/user';
-import { isDatalineUid } from '@weq/codec';
+import { encodeSelectedDressFont, isDatalineUid } from '@weq/codec';
 import type { CalendarTarget as OverviewCalendarTarget } from '@weq/service/conversation-calendar';
 import {
   CalendarNavigationContext,
@@ -623,6 +624,17 @@ const RelationGraphView = lazy(() =>
   })),
 );
 const workspaceLoading = <PanelLoading />;
+
+type PreparedChatFont = Awaited<ReturnType<typeof client.account.prepareChatFont.query>>;
+type FontAwareSubmission = ComposerSubmission & { preparedChatFont?: PreparedChatFont };
+
+function hasOutgoingText(elements: readonly unknown[]): boolean {
+  const types = elements.map((element) => (element as { type?: string } | null)?.type);
+  return (
+    types.some((type) => type === 'text' || type === 'at') ||
+    (types.length > 0 && types.every((type) => type === 'reply'))
+  );
+}
 
 type SentPicturePreviews = NonNullable<ComposerSubmission['pictures']> & {
   id: string;
@@ -5237,7 +5249,7 @@ function MainWorkspace(): ReactElement {
         .filter(isPending)
         .map((item) => optimisticArkToTemplate(item, selectedConversation, optimisticSender)),
       ...optimisticMessages
-        .filter(isPending)
+        .filter((item) => !item.preparingFont && isPending(item))
         .map((item) => optimisticMessageToTemplate(item, selectedConversation, optimisticSender)),
     ]);
     recordMessagePhase('mapping', performance.now() - mappingStarted);
@@ -7514,6 +7526,94 @@ function MainWorkspace(): ReactElement {
     );
   }
 
+  function outgoingFontRequest(
+    target: ReturnType<typeof sendTargetOf>,
+    elements: readonly unknown[],
+  ): PreparedChatFont | 'account' | undefined {
+    if (!target || isDatalineUid(target.targetId) || !hasOutgoingText(elements)) return;
+    const settings = utils.bootstrap.getSettings.getData();
+    const font = settings?.composerFont;
+    if (font && (!font.send || font.choice === 'plain')) return null;
+    const dress = utils.account.dressup.getState.getData();
+    if (font?.choice === 'qq' && dress?.own.fontId === 0) return null;
+    if (font && font.choice !== 'qq' && !developmentDressTools) return null;
+    if (settings?.showMessageFont === false) return;
+    const itemId =
+      typeof font?.choice === 'number'
+        ? font.choice
+        : font?.choice === 'legacy-dress'
+          ? dress?.manifest.activeFont
+          : undefined;
+    if (itemId === undefined) return 'account';
+    return itemId > 0 && itemId <= 0xffff
+      ? { fontId: itemId, fontId2Raw: encodeSelectedDressFont(itemId) }
+      : null;
+  }
+
+  function outgoingFontDecoration(font: PreparedChatFont): Message['decoration'] {
+    if (!font) return undefined;
+    return {
+      ...font,
+      bubbleId: utils.account.dressup.getState.getData()?.own.bubbleId ?? 0,
+      widgetId: 0,
+    };
+  }
+
+  async function prepareOutgoingFont(
+    target: NonNullable<ReturnType<typeof sendTargetOf>>,
+    request: NonNullable<ReturnType<typeof outgoingFontRequest>>,
+    optimisticId: string,
+    isCurrent: () => boolean,
+    expectedAccountConfigId?: string,
+  ): Promise<PreparedChatFont> {
+    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
+    const font =
+      request === 'account'
+        ? await client.account.prepareChatFont.query({
+            ...target,
+            expectedAccountUin: user.identityValue,
+            expectedAccountConfigId,
+          })
+        : request;
+    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
+    if (!font) return null;
+
+    const ids = { fontId: font.fontId, bubbleId: 0, widgetId: 0 };
+    const installed = utils.account.dressup.getState
+      .getData()
+      ?.manifest.fonts.find((entry) => entry.itemId === font.fontId);
+    const cached = utils.account.dressup.resolveMsgDecoration.getData(ids)?.font;
+    if (installed && !cached)
+      utils.account.dressup.resolveMsgDecoration.setData(ids, {
+        font: installed,
+        bubble: null,
+        widget: null,
+      });
+    const resolved =
+      cached ??
+      installed ??
+      (await utils.account.dressup.resolveMsgDecoration
+        .fetch(ids, { staleTime: Infinity, retry: false })
+        .then(
+          (data) => data.font,
+          () => null,
+        ));
+    if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
+    if (!resolved) return font;
+
+    const lease = injectFontCss(font.fontId, resolved, true);
+    // 发送中的行与 QQ 回读共用同一字形，首帧之后由消息行接手续持。
+    await lease.ready;
+    if (!isCurrent()) {
+      lease();
+      throw new Error('账号或会话已切换，未发送');
+    }
+    const releases = composerPreviewReleases.current.get(optimisticId) ?? [];
+    releases.push(lease);
+    composerPreviewReleases.current.set(optimisticId, releases);
+    return font;
+  }
+
   async function sendComposerMessage(
     body: string,
     locals?: LocalMediaRef[],
@@ -7523,7 +7623,7 @@ function MainWorkspace(): ReactElement {
     if (!conversation) return;
     const account = openedUin;
     const scope = messageScopeRef.current;
-    const submission: ComposerSubmission = {
+    const submission: FontAwareSubmission = {
       id: `optimistic-${mfId('msg')}`,
       draft: { body, locals },
       started: false,
@@ -7539,6 +7639,13 @@ function MainWorkspace(): ReactElement {
     }
     const isCurrent = () =>
       useViewState.getState().openedUin === account && messageScopeRef.current === scope;
+    const target = sendTargetOf(conversation);
+    const fontRequest = outgoingFontRequest(target, render.elements);
+    const expectedAccountConfigId = pinSession.binding?.expectedAccountConfigId;
+    if (fontRequest === null) submission.preparedChatFont = null;
+    const preparingFont = Boolean(
+      fontRequest && sendAccess.data?.qqOnline && sendAccess.data.attachEnabled,
+    );
     submission.pictures = outgoingPicturePreviews(render.elements);
     // 会话切换时输入框会释放自己的持有，已发气泡仍需要这些 Blob。
     const urls = new Set(
@@ -7554,20 +7661,75 @@ function MainWorkspace(): ReactElement {
         afterSeq: submission.afterSeq,
         ...render,
         composerDraft: submission.draft,
+        preparingFont,
         state: 'queued',
         at: submission.at ?? Date.now(),
       },
     ]);
+    function prepareQueuedFont() {
+      if (!preparingFont || !target || !fontRequest) return;
+      return prepareOutgoingFont(
+        target,
+        fontRequest,
+        submission.id,
+        isCurrent,
+        expectedAccountConfigId,
+      ).then(
+        (font) => {
+          setOptimisticMessages((current) =>
+            current.map((item) =>
+              item.id === submission.id
+                ? { ...item, preparingFont: false, decoration: outgoingFontDecoration(font) }
+                : item,
+            ),
+          );
+          return { font };
+        },
+        (error: unknown) => ({ error }),
+      );
+    }
+    let fontPreparation = prepareQueuedFont();
     outgoingQueue.current.add(submission.id, conversation.id, async () => {
       setOptimisticMessages((current) =>
         current.map((item) =>
           item.id === submission.id
-            ? { ...item, state: 'sending', hostReceived: false, error: undefined }
+            ? {
+                ...item,
+                state: 'sending',
+                preparingFont: item.preparingFont || (preparingFont && !fontPreparation),
+                hostReceived: false,
+                error: undefined,
+              }
             : item,
         ),
       );
       try {
-        await sendMessage(body, locals, undefined, conversation, isCurrent, undefined, submission);
+        fontPreparation ??= prepareQueuedFont();
+        if (fontPreparation) {
+          const result = await fontPreparation;
+          if ('error' in result) {
+            fontPreparation = undefined;
+            if (isCurrent()) {
+              const pushToast = sourceToastPush(conversationNotificationSource(conversation));
+              pushToast({
+                tone: 'error',
+                message: '发送失败',
+                detail: composerSendError(result.error),
+              });
+            }
+            throw result.error;
+          }
+          submission.preparedChatFont = result.font;
+        }
+        await sendMessage(
+          body,
+          locals,
+          undefined,
+          conversation,
+          isCurrent,
+          expectedAccountConfigId,
+          submission,
+        );
       } catch (error) {
         setOptimisticMessages((current) =>
           current.map((item) =>
@@ -7575,7 +7737,8 @@ function MainWorkspace(): ReactElement {
               ? {
                   ...item,
                   state: 'failed',
-                  error: error instanceof Error ? error.message : String(error),
+                  preparingFont: false,
+                  error: composerSendError(error),
                 }
               : item,
           ),
@@ -7596,7 +7759,7 @@ function MainWorkspace(): ReactElement {
     destination?: Conversation,
     isCurrent = () => repeatContext.current === selectedConversation?.id,
     expectedAccountConfigId = pinSession.binding?.expectedAccountConfigId,
-    submission?: ComposerSubmission,
+    submission?: FontAwareSubmission,
   ): Promise<void> {
     if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
     const conversation = destination ?? selectedConversation;
@@ -7624,20 +7787,32 @@ function MainWorkspace(): ReactElement {
       throw new Error('unsupported conversation');
     }
 
-    // 所有发送入口均先回显，再准备目录、媒体、提及和网络请求。
+    // 正文回显与请求共用字体快照，目录、媒体和提及仍在回显后准备。
     const fileExistingMsgIds = loadedRef.current.map((message) => message.msgId);
     const optimisticId = submission?.id ?? `optimistic-${mfId('msg')}`;
+    let preparedChatFont = submission?.preparedChatFont;
     if (submission) submission.started = true;
     if (!submission) {
       const render = repeated
         ? { body, elements: repeated.elements }
         : buildOptimisticRender({ body, locals: locals ?? [], superStickers: new Map() });
+      const fontRequest = outgoingFontRequest(target, render.elements);
+      if (fontRequest === null) preparedChatFont = null;
+      if (fontRequest)
+        preparedChatFont = await prepareOutgoingFont(
+          target,
+          fontRequest,
+          optimisticId,
+          isCurrent,
+          expectedAccountConfigId,
+        );
       const pending: OptimisticMessage = {
         id: optimisticId,
         convId: conversation.id,
         afterSeq: outgoingAfterSeq(conversation.id),
         body: render.body,
         elements: render.elements,
+        decoration: preparedChatFont ? outgoingFontDecoration(preparedChatFont) : undefined,
         state: 'sending',
         at: Date.now(),
       };
@@ -7710,7 +7885,6 @@ function MainWorkspace(): ReactElement {
       if (plan.kind === 'file')
         patchOptimistic({ fileSync: { fileId: '', existingMsgIds: fileExistingMsgIds } });
       if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
-      // 装扮由消息行异步补齐；发送字体沿用服务端当前账号配置，不为预览增加往返。
       if (plan.kind === 'flashTransfer') {
         outcome = await client.account.forwardFlashTransfer.mutate({
           ...outgoingReceipt(optimisticId),
@@ -7819,6 +7993,7 @@ function MainWorkspace(): ReactElement {
           targetId: target.targetId,
           ...(target.tempGroupCode ? { tempGroupCode: target.tempGroupCode } : {}),
           elements: toIpcElements(plan.elements),
+          preparedChatFont,
           transferId,
         });
       }

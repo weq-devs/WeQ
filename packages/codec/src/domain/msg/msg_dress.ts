@@ -56,10 +56,13 @@ export interface MsgDecoration {
   fontId2Raw: number;
 }
 
-/** Decode the fallback font itemId stored in tag 41531 (byte-swapped uint16). */
-function decodeFallbackFontId(stored: number | undefined): number {
-  if (stored == null || stored === 0) return 0;
-  return ((stored & 0xff) << 8) | ((stored >>> 8) & 0xff);
+function swapFontBytes(value: number): number {
+  return ((value & 0xff) << 8) | ((value >>> 8) & 0xff);
+}
+
+/** 主动选择的装扮字体统一使用类型 1。QQ 同款与已有消息沿用各自的原值。 */
+export function encodeSelectedDressFont(itemId: number): number {
+  return 0x10000 | swapFontBytes(itemId);
 }
 
 /** Lift one decoded MsgDressWire into the public shape, or null when all-zero. */
@@ -68,7 +71,7 @@ function dressToDecoration(d: MsgDressRecord): MsgDecoration | null {
   // 两个槽位都留原值；`fontId` 只做「给人看 / 查资源」的解码。
   const fontId1Raw = d.fontId ?? 0;
   const fontId2Raw = d.flag41531 ?? 0;
-  const fontId = fontId1Raw !== 0 ? fontId1Raw : decodeFallbackFontId(fontId2Raw);
+  const fontId = fontId1Raw !== 0 ? fontId1Raw : swapFontBytes(fontId2Raw);
   const widgetId = d.widgetId ?? 0;
   if (bubbleId === 0 && fontId === 0 && widgetId === 0) return null;
   return { bubbleId, fontId, widgetId, fontId1Raw, fontId2Raw };

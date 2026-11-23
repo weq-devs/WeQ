@@ -87,8 +87,37 @@ const FEE_FILTERS: Array<{ id: MarketPackFeeType; label: string }> = [
   { id: 'svip', label: 'SVIP' },
 ];
 
-function packImageUrl(packId: string, hash: string): string {
-  return mediaUrl('mface', { pack: packId, hash, enc: 'tea' });
+type ComposerPackActions = NonNullable<MarketEmojiBrowserProps['composerAdd']>;
+
+function ComposerPackAddButton({
+  actions,
+  packId,
+  name,
+  unavailable,
+}: {
+  actions: ComposerPackActions;
+  packId: string;
+  name: string;
+  unavailable?: boolean;
+}) {
+  const added = actions.addedIds.has(packId);
+  const adding = actions.addingId === packId;
+  return (
+    <button
+      type="button"
+      className="weq-emb-download"
+      disabled={added || unavailable || Boolean(actions.addingId)}
+      aria-label={`${added ? '已添加' : adding ? '正在添加' : '添加'} ${name}`}
+      onClick={() => actions.add(packId)}
+    >
+      {adding ? <Loader2 size={14} className="weq-emb-spin" /> : <Plus size={14} />}
+      <ToolbarLabel>{added ? '已添加' : adding ? '添加中…' : '添加'}</ToolbarLabel>
+    </button>
+  );
+}
+
+function packImageUrl(packId: string, hash: string, preferPackImage: boolean): string {
+  return mediaUrl('mface', { pack: packId, hash, ...(preferPackImage ? { enc: 'tea' } : {}) });
 }
 
 /** 整包详情：选中包的全部表情网格。 */
@@ -98,17 +127,15 @@ function PackDetailPane({
   description,
   busy,
   onDownload,
-  onAdd,
-  onInsert,
-  added,
+  composerAdd,
+  preferPackImage,
 }: {
   packId: string;
   name: string;
   description: string;
   busy: boolean;
-  onAdd?: (id: string) => Promise<void>;
-  onInsert?: (packId: string, item: { hash: string; name: string }) => void;
-  added?: boolean;
+  composerAdd?: ComposerPackActions;
+  preferPackImage: boolean;
   onDownload: (packs: { id: string; name: string }[], intent?: ExportSavePolicy) => Promise<void>;
 }): ReactElement {
   const detail = trpc.account.marketEmoji.getPackDetail.useQuery({ packId });
@@ -130,8 +157,7 @@ function PackDetailPane({
     setSaving(true);
     setAddError('');
     try {
-      if (onAdd) await onAdd(packId);
-      else await onDownload([{ id: packId, name: name || detail.data?.name || packId }]);
+      await onDownload([{ id: packId, name: name || detail.data?.name || packId }]);
     } catch (error) {
       setAddError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -139,11 +165,10 @@ function PackDetailPane({
     }
   }
 
-  if (current) {
+  if (current && !composerAdd) {
     return (
       <MarketFaceDetail
         embedded
-        onInsert={onInsert ? () => onInsert(packId, current) : undefined}
         packId={packId}
         packName={detail.data?.name || name || `表情包 ${packId}`}
         item={current}
@@ -169,22 +194,25 @@ function PackDetailPane({
             <span className="weq-number weq-number-inherit">{detail.data.count}</span> 张
           </span>
         ) : null}
-        <button
-          type="button"
-          className="weq-emb-download"
-          disabled={saving || busy || (onAdd ? added || !items.length : !detail.data)}
-          onClick={() => void runAction()}
-          title={onAdd ? undefined : '解密下载这一整套到本地文件夹'}
-        >
-          {saving ? (
-            <Loader2 size={14} className="weq-emb-spin" />
-          ) : onAdd ? (
-            <Plus size={14} />
-          ) : (
-            <Download size={14} />
-          )}
-          <ToolbarLabel>{onAdd ? (added ? '已添加' : '添加') : '一键下载'}</ToolbarLabel>
-        </button>
+        {composerAdd ? (
+          <ComposerPackAddButton
+            actions={composerAdd}
+            packId={packId}
+            name={detail.data?.name || name || `表情包 ${packId}`}
+            unavailable={!items.length}
+          />
+        ) : (
+          <button
+            type="button"
+            className="weq-emb-download"
+            disabled={saving || busy || !detail.data}
+            onClick={() => void runAction()}
+            title="解密下载这一整套到本地文件夹"
+          >
+            {saving ? <Loader2 size={14} className="weq-emb-spin" /> : <Download size={14} />}
+            <ToolbarLabel>一键下载</ToolbarLabel>
+          </button>
+        )}
       </div>
       {description ? <p className="weq-market-description">{description}</p> : null}
       {addError ? (
@@ -207,7 +235,11 @@ function PackDetailPane({
                 packId={packId}
                 hash={it.hash}
                 name={it.name}
-                onOpen={() => setDetailHash(it.hash)}
+                preferPackImage={preferPackImage}
+                insert={Boolean(composerAdd)}
+                onOpen={
+                  composerAdd ? () => composerAdd.insert(packId, it) : () => setDetailHash(it.hash)
+                }
               />
             ))}
           </div>
@@ -217,16 +249,20 @@ function PackDetailPane({
   );
 }
 
-/** 一张表情图：TEA 解密后的 GIF；失败显示占位。点击看大图与解密参数。 */
+/** 一张表情图，读取失败时显示占位。 */
 function EmojiCell({
   packId,
   hash,
   name,
+  insert,
+  preferPackImage,
   onOpen,
 }: {
   packId: string;
   hash: string;
   name: string;
+  insert: boolean;
+  preferPackImage: boolean;
   onOpen: () => void;
 }): ReactElement {
   const [broken, setBroken] = useState(false);
@@ -234,7 +270,7 @@ function EmojiCell({
     <button
       type="button"
       className="weq-mface-lb-cell is-button"
-      title={name ? `${name} · 点击查看大图` : `${hash} · 点击查看大图`}
+      title={`${name || hash} · ${insert ? '点击插入输入框' : '点击查看大图'}`}
       onClick={onOpen}
     >
       <span className="weq-mface-lb-stage">
@@ -242,7 +278,7 @@ function EmojiCell({
           <RefreshCw size={18} strokeWidth={1.4} className="weq-mface-lb-fallback" />
         ) : (
           <ShimmerImage
-            src={packImageUrl(packId, hash)}
+            src={packImageUrl(packId, hash, preferPackImage)}
             alt={name || hash}
             loading="lazy"
             draggable={false}
@@ -261,11 +297,15 @@ function PackCard({
   selected,
   onSelect,
   selectionProps,
+  composerAdd,
+  preferPackImage,
 }: {
   entry: CatalogEntry;
   selected: boolean;
   onSelect: () => void;
   selectionProps?: MultiSelectionItemProps;
+  composerAdd?: ComposerPackActions;
+  preferPackImage: boolean;
 }): ReactElement {
   const cardRef = useRef<HTMLButtonElement>(null);
   const [visible, setVisible] = useState(false);
@@ -290,21 +330,27 @@ function PackCard({
   );
   const cover = detail.data?.items[0];
   const fee = FEE_META[entry.feeType];
-  return (
+  const name = entry.name || `表情包 ${entry.id}`;
+  const count = detail.data ? <NumericText>{`${detail.data.count} 张`}</NumericText> : '表情包';
+  const preview = (
     <button
       ref={cardRef}
       type="button"
-      className={`weq-market-pack-card${selected ? ' is-selected' : ''}`}
+      className={
+        composerAdd
+          ? 'weq-market-pack-open'
+          : `weq-market-pack-card${selected ? ' is-selected' : ''}`
+      }
       aria-pressed={selected}
-      title={entry.name || `表情包 ${entry.id}`}
+      title={name}
       {...selectionProps}
       onClick={onSelect}
     >
       <span className="weq-market-pack-preview">
         {visible && cover && !broken ? (
           <ShimmerImage
-            src={packImageUrl(entry.id, cover.hash)}
-            alt={entry.name || `表情包 ${entry.id}`}
+            src={packImageUrl(entry.id, cover.hash, preferPackImage)}
+            alt=""
             loading="lazy"
             draggable={false}
             onError={() => setBroken(true)}
@@ -317,16 +363,27 @@ function PackCard({
         <em className={`weq-emb-fee is-${fee.tone}`}>{fee.label}</em>
       </span>
       <span className="weq-emb-pack-meta">
-        <span className="weq-emb-pack-name">{entry.name || `表情包 ${entry.id}`}</span>
+        <span className="weq-emb-pack-name">{name}</span>
         <span className="weq-emb-pack-mark">{entry.mark || ' '}</span>
       </span>
-      <span className="weq-market-pack-foot">
-        <span>
-          {detail.data ? <NumericText>{`${detail.data.count} 张`}</NumericText> : '表情包'}
+      {!composerAdd ? (
+        <span className="weq-market-pack-foot">
+          <span>{count}</span>
+          <span>{selected ? '已选中' : '查看表情'}</span>
         </span>
-        <span>{selected ? '已选中' : '查看表情'}</span>
-      </span>
+      ) : null}
     </button>
+  );
+  return composerAdd ? (
+    <div className={`weq-market-pack-card${selected ? ' is-selected' : ''}`}>
+      {preview}
+      <div className="weq-market-pack-foot">
+        <span>{count}</span>
+        <ComposerPackAddButton actions={composerAdd} packId={entry.id} name={name} />
+      </div>
+    </div>
+  ) : (
+    preview
   );
 }
 
@@ -337,7 +394,8 @@ interface MarketEmojiBrowserProps {
   embedded?: boolean;
   embeddedSearch?: { keyword: string; form: ReactNode };
   composerAdd?: {
-    add: (id: string) => Promise<void>;
+    add: (id: string) => void;
+    addingId?: string;
     insert: (packId: string, item: { hash: string; name: string }) => void;
     addedIds: ReadonlySet<string>;
   };
@@ -345,7 +403,8 @@ interface MarketEmojiBrowserProps {
 
 export function MarketEmojiBrowserLightbox(props: MarketEmojiBrowserProps): ReactElement {
   const enabled = useDevelopmentDressTools();
-  if (enabled) return <DevelopmentMarketEmojiBrowser {...props} />;
+  if (enabled || props.composerAdd)
+    return <MarketEmojiBrowser {...props} preferPackImage={enabled} />;
   const empty = <EmptyState icon={<Store />} title="商城表情浏览不可用" />;
   return props.embedded ? (
     empty
@@ -356,14 +415,15 @@ export function MarketEmojiBrowserLightbox(props: MarketEmojiBrowserProps): Reac
   );
 }
 
-function DevelopmentMarketEmojiBrowser({
+function MarketEmojiBrowser({
   onClose,
   initialPackId,
   initialPackName,
   embedded = false,
   embeddedSearch,
   composerAdd,
-}: MarketEmojiBrowserProps): ReactElement {
+  preferPackImage,
+}: MarketEmojiBrowserProps & { preferPackImage: boolean }): ReactElement {
   const utils = trpc.useUtils();
   const dialog = useAppDialog();
   const report = useExportReportDialog();
@@ -375,6 +435,7 @@ function DevelopmentMarketEmojiBrowser({
   const [input, setInput] = useState('');
   const [localQuery, setQuery] = useState('');
   const query = embeddedSearch?.keyword ?? localQuery;
+  const composer = Boolean(composerAdd);
   const [feeSel, setFeeSel] = usePageState<Set<MarketPackFeeType>>(
     'market-emoji:fees',
     new Set(),
@@ -498,6 +559,7 @@ function DevelopmentMarketEmojiBrowser({
     (async () => {
       try {
         const page = await client.account.marketEmoji.searchCatalog.query({
+          composer,
           keyword: query || undefined,
           feeTypes: latest ? undefined : feeSel.size ? [...feeSel] : undefined,
           latest: latest || undefined,
@@ -520,7 +582,7 @@ function DevelopmentMarketEmojiBrowser({
       }
     })();
     return cancel;
-  }, [query, feeSel, latest, embedded, catalogCache, catalogKey, refresh]);
+  }, [query, feeSel, latest, embedded, composer, catalogCache, catalogKey, refresh]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     const current = catalogRef.current;
@@ -530,6 +592,7 @@ function DevelopmentMarketEmojiBrowser({
     setLoading(true);
     try {
       const page = await client.account.marketEmoji.searchCatalog.query({
+        composer,
         keyword: query || undefined,
         feeTypes: latest ? undefined : feeSel.size ? [...feeSel] : undefined,
         latest: latest || undefined,
@@ -556,7 +619,7 @@ function DevelopmentMarketEmojiBrowser({
         setLoading(false);
       }
     }
-  }, [query, feeSel, latest, embedded, catalogCache, catalogKey]);
+  }, [query, feeSel, latest, embedded, composer, catalogCache, catalogKey]);
 
   // 返回目录时重新观察哨兵，详情页隐藏的目录不触发加载。
   useEffect(() => {
@@ -794,6 +857,8 @@ function DevelopmentMarketEmojiBrowser({
                           : selectedId === entry.id
                       }
                       selectionProps={composerAdd ? undefined : packMulti.itemProps(entry.id)}
+                      composerAdd={composerAdd}
+                      preferPackImage={preferPackImage}
                       onSelect={() => setSelectedId(entry.id)}
                     />
                   ))}
@@ -825,9 +890,8 @@ function DevelopmentMarketEmojiBrowser({
               description={entries.find((entry) => entry.id === selectedId)?.mark ?? ''}
               busy={!composerAdd && (downloading || save.picking || save.settings.isLoading)}
               onDownload={download}
-              onAdd={composerAdd?.add}
-              onInsert={composerAdd?.insert}
-              added={composerAdd?.addedIds.has(selectedId)}
+              composerAdd={composerAdd}
+              preferPackImage={preferPackImage}
             />
           ) : null}
         </div>

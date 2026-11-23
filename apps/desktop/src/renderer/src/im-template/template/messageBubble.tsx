@@ -342,6 +342,7 @@ function MessageBubbleBody({
   // 自己账号的静态挂件，仅在消息与本地装扮都没有挂件时回退。
   const pendantUrl = useSelfPendant();
   const selfBubbleId = useSelfBubble();
+  const outgoingMetadata = Boolean(message.optimistic || message.outgoingId);
   const decoration =
     message.decoration ??
     (mine && message.optimistic ? { bubbleId: selfBubbleId, fontId: 0, widgetId: 0 } : undefined);
@@ -372,6 +373,7 @@ function MessageBubbleBody({
         }
       : decoration,
     bubbleRef,
+    outgoingMetadata,
   );
   const msgWidget = msgDec.widget;
   const msgBubbleId = msgDec.bubbleId;
@@ -703,7 +705,6 @@ function MessageBubbleBody({
   ) : (
     avatar
   );
-  const outgoingMetadata = Boolean(message.optimistic || message.outgoingId);
   const senderHeading =
     !groupContinuation &&
     (senderNameVisible || (conversation.type === 'group' && Boolean(groupDisplay & 6))) ? (

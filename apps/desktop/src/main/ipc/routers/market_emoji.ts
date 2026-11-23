@@ -23,6 +23,8 @@ import { procedure, router } from '../trpc';
 import { searchCatalog } from '../../market_catalog';
 import { MARKET_DOWNLOAD_MAX_PACKS } from '../../../shared/market_emoji';
 
+const composerPackInput = z.object({ packId: z.string().regex(/^\d{1,15}$/) });
+
 function requireServices(
   expectedAccountUin?: string,
   expectedAccountConfigId?: string,
@@ -135,47 +137,67 @@ export const marketEmojiRouter = router({
   }),
 
   /** 添加到 WeQ 输入框的商城表情列表。 */
-  addComposerPack: procedure
-    .input(z.object({ packId: z.string().regex(/^\d{1,15}$/) }))
-    .mutation(async ({ input }) => {
-      requireDevelopmentDressTools();
-      const services = requireServices();
-      const config = getAppContext().bootstrap?.userConfig;
-      if (!config) throw new Error('配置尚未就绪');
-      const accountConfigId = services.accountConfig.getRecord()?.configId;
-      const assertCurrent = () => {
-        if (requireServices(undefined, accountConfigId) !== services)
-          throw new Error('账号已切换，请重新添加表情包');
-      };
-      const previous = config
-        .read()
-        .composerMarketPacks?.find((pack) => pack.packId === input.packId);
-      if (previous) return { cached: previous.items.length, total: previous.count };
-      const detail = await services.emoji.getMarketPackItems(input.packId);
-      if (!detail?.items.length) throw new Error('无法获取这个表情包，请稍后重试');
-      const items: typeof detail.items = [];
-      const batchSize = 6;
-      for (let offset = 0; offset < detail.items.length; offset += batchSize) {
-        assertCurrent();
-        const batch = detail.items.slice(offset, offset + batchSize);
-        const paths = await Promise.all(
-          batch.map(async ({ hash }) => {
-            return (
-              (await services.emoji.getMarketFace(input.packId, hash, true)) ??
-              (await services.emoji.getMarketPackImage(input.packId, hash)) ??
-              (await services.emoji.getMarketFace(input.packId, hash))
-            );
-          }),
-        );
-        items.push(...batch.filter((_, index) => paths[index]));
-      }
+  addComposerPack: procedure.input(composerPackInput).mutation(async ({ input }) => {
+    const services = requireServices();
+    const config = getAppContext().bootstrap?.userConfig;
+    if (!config) throw new Error('配置尚未就绪');
+    const accountConfigId = services.accountConfig.getRecord()?.configId;
+    const assertCurrent = () => {
+      if (requireServices(undefined, accountConfigId) !== services)
+        throw new Error('账号已切换，请重新添加表情包');
+    };
+    const previous = config
+      .read()
+      .composerMarketPacks?.find((pack) => pack.packId === input.packId);
+    if (previous) return { cached: previous.items.length, total: previous.count };
+    const detail = await services.emoji.getMarketPackItems(input.packId);
+    if (!detail?.items.length) throw new Error('无法获取这个表情包，请稍后重试');
+    const items: typeof detail.items = [];
+    const batchSize = 6;
+    for (let offset = 0; offset < detail.items.length; offset += batchSize) {
       assertCurrent();
-      if (!items.length) throw new Error('这套表情暂时无法缓存，请稍后重试');
-      const saved = config.read().composerMarketPacks ?? [];
-      if (!saved.some((pack) => pack.packId === input.packId))
-        config.write({ composerMarketPacks: [{ ...detail, items }, ...saved] });
-      return { cached: items.length, total: detail.count };
-    }),
+      const batch = detail.items.slice(offset, offset + batchSize);
+      const paths = await Promise.all(
+        batch.map(async ({ hash }) => {
+          return (
+            (await services.emoji.getMarketFace(input.packId, hash, true)) ??
+            (await services.emoji.getMarketPackImage(input.packId, hash)) ??
+            (await services.emoji.getMarketFace(input.packId, hash))
+          );
+        }),
+      );
+      items.push(...batch.filter((_, index) => paths[index]));
+    }
+    assertCurrent();
+    if (!items.length) throw new Error('这套表情暂时无法缓存，请稍后重试');
+    const current = config.read();
+    const saved = current.composerMarketPacks ?? [];
+    if (!saved.some((pack) => pack.packId === input.packId)) {
+      config.write({
+        composerMarketPacks: [{ ...detail, items }, ...saved],
+        hiddenComposerMarketPackIds: current.hiddenComposerMarketPackIds?.filter(
+          (id) => id !== input.packId,
+        ),
+      });
+    }
+    return { cached: items.length, total: detail.count };
+  }),
+
+  /** 从 WeQ 输入框删除整套。来自 QQ 的包也可在该列表隐藏，素材仍供聊天记录使用。 */
+  removeComposerPack: procedure.input(composerPackInput).mutation(({ input }) => {
+    requireServices();
+    const config = getAppContext().bootstrap?.userConfig;
+    if (!config) throw new Error('配置尚未就绪');
+    const current = config.read();
+    const hidden = new Set(current.hiddenComposerMarketPackIds);
+    hidden.add(input.packId);
+    config.write({
+      composerMarketPacks: current.composerMarketPacks?.filter(
+        (pack) => pack.packId !== input.packId,
+      ),
+      hiddenComposerMarketPackIds: [...hidden],
+    });
+  }),
 
   /**
    * 一个表情包的在线详情：拉 android.json 解析出来源(feetype) / 介绍 / 上架时间
@@ -214,12 +236,13 @@ export const marketEmojiRouter = router({
         feeTypes: z.array(z.enum(['free', 'paid', 'vip', 'svip', 'unknown'])).optional(),
         /** 只看「最新上架」：取目录尾部若干条并倒序（忽略 feeTypes）。 */
         latest: z.boolean().optional(),
+        composer: z.boolean().optional(),
         limit: z.number().int().positive().optional(),
         cursor: z.string().nullish(),
       }),
     )
     .query(({ input }) => {
-      requireDevelopmentDressTools();
+      if (!input.composer) requireDevelopmentDressTools();
       return searchCatalog({
         keyword: input.keyword,
         feeTypes: input.feeTypes,

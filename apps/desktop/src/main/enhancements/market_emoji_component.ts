@@ -8,11 +8,7 @@ import type { MarketEmojiAsset } from '../../shared/enhancement_release';
 import { parseMarketCatalog, setMarketCatalogReader } from '../market_catalog';
 import type { EnhancementComponent } from './packs';
 
-export function createMarketEmojiComponent(
-  directory: string,
-  enabled: boolean,
-  fetcher?: typeof fetch,
-) {
+export function createMarketEmojiComponent(directory: string, fetcher?: typeof fetch) {
   let active: string | null = null;
   let target: MarketEmojiAsset | undefined;
   let verified: ReturnType<typeof load> = null;
@@ -48,7 +44,6 @@ export function createMarketEmojiComponent(
   }
   let inspected = false;
   const installed = () => {
-    if (!enabled) return null;
     if (!inspected) {
       verified = active
         ? (load(active, file(active, true), true) ?? load(active, file(active), false))
@@ -77,7 +72,7 @@ export function createMarketEmojiComponent(
       );
       let sizeOnDisk = 0;
       let activeBytes = 0;
-      for (const name of enabled ? files() : []) {
+      for (const name of files()) {
         const bytes = lstatSync(join(directory, name), { throwIfNoEntry: false })?.size ?? 0;
         sizeOnDisk += bytes;
         if (installedNames.has(name)) activeBytes += bytes;

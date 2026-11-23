@@ -14,7 +14,6 @@ import {
   getHost,
   type DressIndexManifest,
   parseDressIndexManifest,
-  developmentDressToolsEnabled,
 } from '@weq/service';
 import type { IntentSenseLocalEngineControl } from '../context/app_context';
 import { resolveResourceRoot } from '../resource';
@@ -86,11 +85,7 @@ export function createEnhancementResources(
   const engines = new EnhancementEngineStore(root, null, { developmentDirectory });
   setEnhancementEngineStore(engines);
   const components = new Map<string, EnhancementComponent>();
-  const marketEmojiEnabled = developmentDressToolsEnabled();
-  const marketEmoji = createMarketEmojiComponent(
-    join(root, 'enhancements/market-emoji'),
-    marketEmojiEnabled,
-  );
+  const marketEmoji = createMarketEmojiComponent(join(root, 'enhancements/market-emoji'));
   components.set(marketEmoji.component.id, marketEmoji.component);
   for (const kind of ['onnx', 'sherpa'] as const) {
     components.set(`engine:${kind}`, {
@@ -281,7 +276,7 @@ export function createEnhancementResources(
         id: 'market-emoji',
         name: '商城表情目录',
         description: '下载后可离线搜索商城表情包。',
-        enabled: marketEmojiEnabled,
+        enabled: true,
         components: [marketEmoji.component.id],
         validate: marketEmoji.validate,
       },

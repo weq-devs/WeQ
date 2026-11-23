@@ -54,6 +54,7 @@ import {
 } from '@weq/agentlab/model-metadata';
 import type { AccountConfig } from '../account/user_config';
 import { normalizeAccountConfig } from '../account/user_config';
+import { normalizeDressConfig } from '../account/dress_config';
 import {
   DEFAULT_HOME_SETTINGS,
   normalizeHomeSettings,
@@ -1358,6 +1359,7 @@ export interface UserConfig {
   tencentFilesRootOverride?: string | null;
   settings?: DeepPartial<AppSettings> & LegacyComposerFontSettings;
   composerMarketPacks?: import('../account/emoji').MarketPackDetail[];
+  hiddenComposerMarketPackIds?: string[];
   cacheDirOverride?: string | null;
   dbRepairCacheDir?: string | null;
   welcomeAcknowledged?: boolean;
@@ -2054,6 +2056,23 @@ export class UserConfigService {
   getSetting<K extends keyof AppSettings>(key: K): AppSettings[K] {
     const value = this.settingsSnapshot()[key];
     return value !== null && typeof value === 'object' ? structuredClone(value) : value;
+  }
+
+  /** 同时移除已装条目与当前选择，字体素材仍可用于历史消息。 */
+  removeComposerFont(itemId: number): ComposerFontSettings {
+    const dress = normalizeDressConfig(this.getSharedPreference('dress'));
+    const current = this.getSetting('composerFont');
+    if (!dress.installedFonts.includes(itemId)) return current;
+    const selected =
+      current.choice === itemId ||
+      (current.choice === 'legacy-dress' && dress.activeFont === itemId);
+    dress.installedFonts = dress.installedFonts.filter((id) => id !== itemId);
+    delete dress.fontMeta[itemId];
+    if (dress.activeFont === itemId) dress.activeFont = 0;
+    return this.setSettings({
+      composerFont: selected ? { choice: 'plain' } : undefined,
+      sharedPreferences: { dress },
+    }).composerFont;
   }
 
   private settingsSnapshot(): AppSettings {

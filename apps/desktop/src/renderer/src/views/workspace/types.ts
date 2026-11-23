@@ -425,6 +425,8 @@ export type OptimisticMessage = {
   elements: unknown[];
   composerDraft?: Message['composerDraft'];
   decoration?: Message['decoration'];
+  /** 发送字体首次绘制前已进入队列，保留草稿和媒体持有。 */
+  preparingFont?: boolean;
   /**
    * 内容签名（cid / seq 都拿不到时的对账兜底，如 AI 声聊 0x929b_0 回执、闪传
    * 0x93d7 回执）。**任意一个**命中就收掉；每个签名各自按出现次数消耗。

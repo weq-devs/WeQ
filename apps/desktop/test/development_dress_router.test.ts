@@ -1,9 +1,11 @@
 // @vitest-environment node
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { AccountConfig, HostBridge } from '@weq/service';
+import type { AccountConfig, HostBridge, UserConfig } from '@weq/service';
 import { DEVELOPMENT_DRESS_FLAG } from '../../../packages/service/src/common/development_dress';
 import { dressupRouter } from '../src/main/ipc/routers/dressup';
+import { emojiPanelRouter } from '../src/main/ipc/routers/emoji_panel';
 import { marketEmojiRouter } from '../src/main/ipc/routers/market_emoji';
+import { setMarketCatalogReader } from '../src/main/market_catalog';
 
 const state = vi.hoisted(() => ({
   manifest: {
@@ -25,38 +27,68 @@ const state = vi.hoisted(() => ({
   resolve: vi.fn(),
   key: vi.fn(async () => ({ key: 'synthetic-key' })),
   start: vi.fn(),
+  userConfig: {} as UserConfig,
 }));
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({
-    services: {
-      accountConfig: {
-        getRecord: () => ({ configId: 'synthetic', homeDress: state.homeDress }),
-        setHomeDress: (dress: AccountConfig['homeDress']) => {
-          state.homeDress = dress;
+vi.mock('../src/main/context/app_context', () => {
+  const services = {
+    accountConfig: {
+      getRecord: () => ({ configId: 'synthetic', homeDress: state.homeDress }),
+      setHomeDress: (dress: AccountConfig['homeDress']) => {
+        state.homeDress = dress;
+      },
+    },
+    dressInstall: {
+      read: () => state.manifest,
+      messageBubble: () => undefined,
+      indexResources: () => [],
+      localBubble: state.bubble,
+      setActive: state.active,
+    },
+    msgDecoration: { resolve: state.resolve },
+    emoji: {
+      getMarketPackKey: state.key,
+      listMarketPackages: async () => [
+        { packId: '123', name: 'QQ 表情包', summary: '', addTime: 1, sizeInfoJson: '' },
+      ],
+      getMarketPackItems: async (packId: string) => ({
+        packId,
+        name: '商城表情包',
+        summary: '',
+        count: 1,
+        source: 'online',
+        items: [{ hash: '0123456789abcdef0123456789abcdef', name: '合成表情' }],
+      }),
+      getMarketFace: async (_packId: string, _hash: string, localOnly?: boolean) =>
+        localOnly ? null : '/synthetic/emoji.gif',
+      getMarketPackImage: async () => null,
+    },
+    exportManager: { startMarketPackDownload: state.start },
+  };
+  return {
+    getAppContext: () => ({
+      services,
+      bootstrap: {
+        userConfig: {
+          read: () => state.userConfig,
+          write: (patch: Partial<UserConfig>) => {
+            state.userConfig = { ...state.userConfig, ...patch };
+          },
         },
       },
-      dressInstall: {
-        read: () => state.manifest,
-        messageBubble: () => undefined,
-        indexResources: () => [],
-        localBubble: state.bubble,
-        setActive: state.active,
-      },
-      msgDecoration: { resolve: state.resolve },
-      emoji: { getMarketPackKey: state.key },
-      exportManager: { startMarketPackDownload: state.start },
-    },
-  }),
-}));
+    }),
+  };
+});
 const argv = process.argv;
 beforeEach(() => {
   vi.clearAllMocks();
   state.homeDress = undefined;
+  state.userConfig = {};
   vi.stubEnv('NODE_ENV', 'development');
   process.argv = [...argv, DEVELOPMENT_DRESS_FLAG];
 });
 afterEach(() => {
   process.argv = argv;
+  setMarketCatalogReader(() => null);
   vi.unstubAllEnvs();
 });
 function callers(packaged: boolean) {
@@ -64,6 +96,7 @@ function callers(packaged: boolean) {
   return {
     dress: dressupRouter.createCaller({ host }),
     market: marketEmojiRouter.createCaller({ host }),
+    emojiPanel: emojiPanelRouter.createCaller({ host }),
   };
 }
 
@@ -89,6 +122,28 @@ it('正式宿主即使带开发参数也拒绝装扮商城、安装、覆盖和�
   expect(state.key).not.toHaveBeenCalled();
   expect(state.start).not.toHaveBeenCalled();
   expect(state.active).not.toHaveBeenCalled();
+});
+
+it('普通模式可查目录、删除 QQ 来源的表情包并重新添加到输入框', async () => {
+  const { market, emojiPanel } = callers(true);
+  setMarketCatalogReader(() => ({
+    version: 'fixture',
+    entries: [{ id: '123', name: '商城表情包', mark: '', feeType: 'free' }],
+  }));
+  expect((await market.searchCatalog({ composer: true })).entries.map(({ id }) => id)).toEqual([
+    '123',
+  ]);
+  expect((await emojiPanel.marketPackages()).map(({ name }) => name)).toEqual(['QQ 表情包']);
+  await market.removeComposerPack({ packId: '123' });
+  expect(await emojiPanel.marketPackages()).toEqual([]);
+  expect(await market.listPackages()).toMatchObject([{ packId: '123', name: 'QQ 表情包' }]);
+
+  await expect(market.addComposerPack({ packId: '123' })).resolves.toEqual({ cached: 1, total: 1 });
+  expect((await emojiPanel.marketPackages()).map(({ name }) => name)).toEqual(['商城表情包']);
+  expect(state.userConfig.hiddenComposerMarketPackIds).toEqual([]);
+  await market.removeComposerPack({ packId: '123' });
+  expect(await emojiPanel.marketPackages()).toEqual([]);
+  expect(state.userConfig.composerMarketPacks).toEqual([]);
 });
 
 it('普通模式保留消息装扮与背景读取，只屏蔽任意覆盖且不改写原配置', async () => {

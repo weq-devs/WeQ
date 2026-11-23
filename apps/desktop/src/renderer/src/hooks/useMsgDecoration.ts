@@ -51,6 +51,7 @@ type DecorationIds =
 export function useMsgDecoration(
   decoration: DecorationIds,
   element?: RefObject<HTMLElement | null>,
+  outgoing = false,
 ): {
   widget: ResolvedWidget | null;
   bubbleId: number;
@@ -172,7 +173,7 @@ export function useMsgDecoration(
     tabActive &&
       font &&
       (reusableFont || (finishedFont && preparedFont.ok)) &&
-      (!bubbleId || bubbleReady),
+      (!bubbleId || bubbleReady || (outgoing && reusableFont)),
   );
   // 仅确认是 packed 字体槽生效时读 Android 的高位类型，不按 TTF 文件后缀猜测。
   const packedFontType = ((decoration?.fontId2Raw ?? 0) >>> 16) & 0xf;

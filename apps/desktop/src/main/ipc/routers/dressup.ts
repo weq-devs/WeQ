@@ -375,6 +375,18 @@ export const dressupRouter = router({
       return requireServices().dressInstall.installFont(input.itemId, input.name, input.previewUrl);
     }),
 
+  removeComposerFont: procedure
+    .input(z.object({ itemId: z.number().int().positive().max(0xffff) }))
+    .mutation(({ input }) => {
+      requireDevelopmentDressTools();
+      requireServices();
+      const config = getAppContext().bootstrap?.userConfig;
+      if (!config) throw new Error('配置尚未就绪');
+      const composerFont = config.removeComposerFont(input.itemId);
+      emitAppearanceChanged();
+      return composerFont;
+    }),
+
   /**
    * 装一款头像挂件。与字体同款策略:资源先走本地离线 bundle(不需要在线实例),
    * 本地没有才回退 protocol 换链,失败由服务层如实报错(见 installWidget)。

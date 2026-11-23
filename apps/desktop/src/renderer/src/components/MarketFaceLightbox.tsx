@@ -247,7 +247,6 @@ export function MarketFaceDetail({
   onPrev,
   onNext,
   embedded = false,
-  onInsert,
 }: {
   packId: string;
   packName: string;
@@ -258,7 +257,6 @@ export function MarketFaceDetail({
   onPrev?: () => void;
   onNext?: () => void;
   embedded?: boolean;
-  onInsert?: () => void;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const developmentDressTools = useDevelopmentDressTools();
@@ -306,18 +304,12 @@ export function MarketFaceDetail({
           <span className="weq-number weq-number-inherit">{index + 1}</span> /{' '}
           <span className="weq-number weq-number-inherit">{total}</span>
         </span>
-        {onInsert ? (
-          <button type="button" className="weq-emb-download" onClick={onInsert}>
-            插入
-          </button>
-        ) : (
-          <MarketImageSave
-            key={`${packId}:${item.hash}`}
-            packId={packId}
-            hash={item.hash}
-            name={item.name || item.hash}
-          />
-        )}
+        <MarketImageSave
+          key={`${packId}:${item.hash}`}
+          packId={packId}
+          hash={item.hash}
+          name={item.name || item.hash}
+        />
       </div>
 
       <div className="weq-mface-detail-body">
