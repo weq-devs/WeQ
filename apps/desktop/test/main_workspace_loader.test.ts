@@ -22,24 +22,20 @@ vi.mock('../src/renderer/src/views/MainView', () => {
   return { MainView: fixture.render };
 });
 
-it('Remote 恢复检查时并行预载，桌面仍等待身份阶段，打开与切号复用请求且不提前挂载', async () => {
+it('恢复检查和账号选择页等待，进入身份准备时开始读取工作区且不提前挂载', async () => {
+  fixture.web = true;
   useStartupProgress.setState({ stage: 'resources' });
   useAccountSwitch.setState({ active: false });
   const stop = installMainWorkspacePreload();
   try {
-    expect(fixture.loads).not.toHaveBeenCalled();
     useStartupProgress.setState({ stage: 'restore' });
-    expect(fixture.loads).not.toHaveBeenCalled();
-    fixture.web = true;
-    useStartupProgress.setState({ stage: 'restore' });
-    await vi.waitFor(() => expect(fixture.loads).toHaveBeenCalledOnce());
     useStartupProgress.setState({ stage: 'account' });
-    expect(fixture.loads).toHaveBeenCalledOnce();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fixture.loads).not.toHaveBeenCalled();
     useStartupProgress.setState({ stage: 'identity' });
     const first = loadMainWorkspace();
     useAccountSwitch.setState({ active: true });
-    const second = loadMainWorkspace();
-    expect(second).toBe(first);
+    expect(loadMainWorkspace()).toBe(first);
     expect((await first).default).toBe(fixture.render);
     expect(fixture.loads).toHaveBeenCalledOnce();
     expect(fixture.render).not.toHaveBeenCalled();

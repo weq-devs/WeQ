@@ -66,7 +66,11 @@ it('并行首屏请求分别返回正确的协商清单，更新入口后重新�
 
 type Startup = { state: string; message?: string };
 type ResourceEvent = { type?: string; target?: object };
-function page(href = 'https://fixture.invalid/?keep=1#chat', paths = ['/assets/main-12345678.js']) {
+function page(
+  href = 'https://fixture.invalid/?keep=1#chat',
+  paths = ['/assets/main-12345678.js'],
+  workspace: string[] = [],
+) {
   const events = new Map<string, Set<(event: ResourceEvent) => void>>();
   const fetch = vi.fn(async (_path: string, _options: { cache: string; signal: AbortSignal }) => ({
     ok: true,
@@ -81,8 +85,13 @@ function page(href = 'https://fixture.invalid/?keep=1#chat', paths = ['/assets/m
     removeEventListener(name: string, handler: (event: ResourceEvent) => void) {
       events.get(name)?.delete(handler);
     },
-    querySelector: () => ({
-      content: JSON.stringify({ version: 1, resources: paths.map((path) => ({ path })) }),
+    querySelector: (selector: string) => ({
+      content: JSON.stringify({
+        version: 1,
+        resources: (selector.includes('weq-offline-bundle') ? workspace : paths).map((path) => ({
+          path,
+        })),
+      }),
     }),
   };
   const location = { href, origin: new URL(href).origin, reload: vi.fn() };
@@ -95,6 +104,7 @@ function page(href = 'https://fixture.invalid/?keep=1#chat', paths = ['/assets/m
   const window = Object.assign(new EventTarget(), {
     weqRemoteStartup: undefined as Startup | undefined,
     weqRemoteStartupRetrying: false,
+    weqRemoteResourceLoads: undefined as Record<string, boolean> | undefined,
     location,
     history,
   });
@@ -146,6 +156,26 @@ it.each(['SCRIPT', 'LINK'])('首屏 %s 失败自动重载一次，保留原查�
   second.resource('error');
   expect(second.location.reload).not.toHaveBeenCalled();
   expect(second.window.weqRemoteStartup).toMatchObject({ state: 'error' });
+});
+
+it('只在开始进入工作区后把离线清单里的分包纳入重试', async () => {
+  const entry = '/assets/main-12345678.js';
+  const workspace = '/assets/workspace-12345678.js';
+  const before = page(undefined, [entry], [entry, workspace]);
+  before.resource('error', workspace);
+  expect(before.fetch).not.toHaveBeenCalled();
+  before.startup({ state: 'ready' });
+
+  const entering = page(undefined, [entry], [entry, workspace]);
+  entering.window.weqRemoteResourceLoads = { [entry]: true, [workspace]: false };
+  entering.window.dispatchEvent(new Event('weq-remote-workspace-loading'));
+  entering.resource('error', workspace);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(entering.fetch).toHaveBeenCalledOnce();
+  expect(entering.fetch).toHaveBeenCalledWith(
+    workspace,
+    expect.objectContaining({ cache: 'reload' }),
+  );
 });
 
 it('同一轮多个资源同时失败、模块预载异常只触发一次重载', async () => {

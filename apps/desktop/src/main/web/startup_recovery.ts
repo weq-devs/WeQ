@@ -10,10 +10,14 @@ export const remoteStartupRecovery = `
   var timer;
   var resources = Object.create(null);
   var completed = Object.create(null);
-  try {
-    var meta = document.querySelector('meta[name="weq-startup-resources"]');
-    JSON.parse(meta.content).resources.forEach(function (asset) { resources[asset.path] = true; });
-  } catch (_) {}
+  function addResources(name) {
+    try {
+      var meta = document.querySelector('meta[name="' + name + '"]');
+      JSON.parse(meta.content).resources.forEach(function (asset) { resources[asset.path] = true; });
+    } catch (_) {}
+  }
+  addResources('weq-startup-resources');
+  function workspaceLoading() { addResources('weq-offline-bundle'); }
   function publish(state, message) {
     window.weqRemoteStartup = { state: state, message: message };
     window.dispatchEvent(new Event('weq-remote-startup'));
@@ -24,6 +28,7 @@ export const remoteStartupRecovery = `
     document.removeEventListener('load', resource, true);
     document.removeEventListener('error', resource, true);
     window.removeEventListener('vite:preloadError', failed);
+    window.removeEventListener('weq-remote-workspace-loading', workspaceLoading);
     window.removeEventListener('weq-remote-startup', startup);
     window.removeEventListener('pagehide', stop);
   }
@@ -111,6 +116,7 @@ export const remoteStartupRecovery = `
   document.addEventListener('load', resource, true);
   document.addEventListener('error', resource, true);
   window.addEventListener('vite:preloadError', failed);
+  window.addEventListener('weq-remote-workspace-loading', workspaceLoading);
   window.addEventListener('weq-remote-startup', startup);
   window.addEventListener('pagehide', stop);
   arm(false);

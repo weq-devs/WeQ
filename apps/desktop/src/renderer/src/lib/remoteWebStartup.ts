@@ -119,11 +119,18 @@ export function watchRemoteRelease() {
   let polling = false;
   let stopped = false;
   const check = async () => {
-    if (!supported || polling || stopped || document.hidden || remoteWorkspaceCheckPending())
+    if (
+      !supported ||
+      polling ||
+      stopped ||
+      document.hidden ||
+      useViewState.getState().view !== 'main' ||
+      remoteWorkspaceCheckPending()
+    )
       return;
     polling = true;
     try {
-      const response = await fetch(remoteReleasePath, { cache: 'no-store' });
+      const response = await fetch(`${remoteReleasePath}?workspace=1`, { cache: 'no-store' });
       if (!response.ok) return;
       if (response.headers.get('X-WeQ-Local-Release') !== '1') {
         supported = false;
@@ -145,10 +152,14 @@ export function watchRemoteRelease() {
     }
   };
   const timer = window.setInterval(() => void check(), 5_000);
+  const stopView = useViewState.subscribe((state, previous) => {
+    if (state.view === 'main' && previous.view !== 'main') void check();
+  });
   window.addEventListener('weq-remote-connection', check);
   void check();
   return () => {
     stopped = true;
+    stopView();
     clearInterval(timer);
     window.removeEventListener('weq-remote-connection', check);
   };

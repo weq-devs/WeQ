@@ -24,14 +24,15 @@ export function remoteStartupChunks() {
         for (const dependency of this.getModuleInfo(id)?.importedIds ?? [])
           collect(dependency, target);
       };
-      const initial = new Set<string>();
+      const beforeWorkspace = new Set<string>();
       for (const id of this.getModuleIds()) {
-        if (this.getModuleInfo(id)?.isEntry) collect(id, initial);
-        if (/\/views\/(MainView|ChatHome)\.tsx$/.test(id.replaceAll('\\', '/')))
-          collect(id, required);
+        const path = id.replaceAll('\\', '/');
+        if (this.getModuleInfo(id)?.isEntry || path.endsWith('/views/bootstrap/SelectScreen.tsx'))
+          collect(id, beforeWorkspace);
+        if (/\/views\/(MainView|ChatHome)\.tsx$/.test(path)) collect(id, required);
       }
-      // 共享入口依赖必须留在入口组，否则静态引用可能反向拉入整个工作区。
-      for (const id of initial) required.delete(id);
+      // 入口及账号选择器的共享依赖不能反向拉入工作区专用分包。
+      for (const id of beforeWorkspace) required.delete(id);
     },
   };
   const groups: Rolldown.CodeSplittingGroup[] = [

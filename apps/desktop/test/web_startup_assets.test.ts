@@ -63,13 +63,17 @@ function get(path: string, encoding: string, remote = true) {
   });
 }
 
-function manifest(html: string): { version: number; resources: { path: string; size: number }[] } {
+function manifest(
+  html: string,
+  key = 'weq-startup-resources',
+): {
+  version: number;
+  waitForWorkspace?: boolean;
+  resources: { path: string; size?: number }[];
+} {
   let content = '';
   function visit(node: DefaultTreeAdapterMap['node']) {
-    if (
-      'attrs' in node &&
-      node.attrs.some((a) => a.name === 'name' && a.value === 'weq-startup-resources')
-    )
+    if ('attrs' in node && node.attrs.some((a) => a.name === 'name' && a.value === key))
       content = node.attrs.find((a) => a.name === 'content')?.value ?? '';
     if ('childNodes' in node) node.childNodes.forEach(visit);
   }
@@ -101,7 +105,7 @@ it('普通浏览器不改变 HTML，更新入口后不沿用旧清单', async ()
 });
 
 it.each(['gzip', 'identity'])(
-  '构建清单包含主工作区及 CSS，提前下载但不提前执行或应用样式：%s',
+  '首屏只计入直接资源，完整离线清单保留工作区资源：%s',
   async (encoding) => {
     const files = {
       '/assets/shared-12345678.js': 'export const shared=1;',
@@ -126,11 +130,14 @@ it.each(['gzip', 'identity'])(
     );
     const html = (await get('/', encoding)).toString();
     const data = manifest(html);
-    expect(data.resources).toHaveLength(5);
+    expect(data.resources).toHaveLength(3);
+    const offline = manifest(html, 'weq-offline-bundle');
+    expect(offline.waitForWorkspace).toBe(true);
+    expect(offline.resources.map(({ path }) => path)).toEqual(Object.keys(files));
     for (const asset of data.resources)
       expect(asset.size).toBe((await get(asset.path, encoding)).length);
-    expect(html).toContain('rel="modulepreload" href="/assets/MainView-12345678.js"');
-    expect(html).toContain('rel="preload" href="/assets/MainView-12345678.css" as="style"');
+    expect(html).not.toContain('rel="modulepreload" href="/assets/MainView-12345678.js"');
+    expect(html).not.toContain('rel="preload" href="/assets/MainView-12345678.css" as="style"');
     expect(html).not.toContain('src="/assets/MainView-12345678.js"');
     expect((await get('/', encoding, false)).toString()).toBe(shell);
   },

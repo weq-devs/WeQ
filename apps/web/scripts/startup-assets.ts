@@ -69,6 +69,7 @@ export function developmentStartupAssets(): Plugin {
           });
         const offlineMeta = `<meta name="weq-offline-bundle" content='${JSON.stringify({
           version: 1,
+          waitForWorkspace: true,
           revision: revision.digest('hex'),
           resources: [
             ...offline,
@@ -82,7 +83,7 @@ export function developmentStartupAssets(): Plugin {
   };
 }
 
-/** 首屏代码和尺寸在构建时确定；手机连接不再现场压缩，也不等待账号请求后才发现依赖。 */
+/** 首屏和离线工作区共用构建清单，设备进入账号后才加载工作区依赖。 */
 export function remoteStartupAssets(): Plugin {
   return {
     name: 'weq-remote-startup-assets',

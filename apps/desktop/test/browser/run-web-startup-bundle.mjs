@@ -11,6 +11,12 @@ if (!root) throw new Error('需要 WEQ_WEB_DIST 指向隔离构建目录，不�
 const publicRoot = resolve(root, 'public');
 const reload = !process.argv.includes('--cold-only');
 const inventory = JSON.parse(await readFile(join(publicRoot, 'weq-startup.json'), 'utf8'));
+const entryResources = inventory.resources.filter((asset) => !asset.preload);
+// 目录与工作区仍共用时间格式等轻量资源；这里检查工作区分组产生的分包。
+const workspaceResources = inventory.resources.filter((asset) =>
+  asset.path.startsWith('/assets/workspace-'),
+);
+assert(workspaceResources.length > 0, '缺少工作区分包');
 const manifest = JSON.parse(await readFile(join(publicRoot, '.vite/manifest.json'), 'utf8'));
 const { chromium, webkit } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const install = {
@@ -158,10 +164,15 @@ try {
           await page.waitForFunction(
             (paths) =>
               paths.every((path) => performance.getEntriesByName(location.origin + path).length),
-            inventory.resources.map((asset) => asset.path),
+            entryResources.map((asset) => asset.path),
           );
-          for (const asset of inventory.resources)
-            assert.equal(requests.get(asset.path), 1, asset.path);
+          for (const asset of entryResources) assert.equal(requests.get(asset.path), 1, asset.path);
+          for (const asset of workspaceResources)
+            assert.equal(
+              requests.has(asset.path),
+              false,
+              `账号选择加载了工作区专用资源 ${asset.path}`,
+            );
           const coldRequests = [...requests.values()].reduce((sum, count) => sum + count, 0);
           if (registered) {
             const status = new URL((await registered).url());
@@ -180,7 +191,7 @@ try {
             await page.waitForFunction(() => window.weqRemoteStartup?.state === 'ready');
             await page.locator('.weq-account-workspace').waitFor();
             assert.equal(closeCounts.get(windowId), 1);
-            for (const asset of inventory.resources)
+            for (const asset of entryResources)
               assert.equal(requests.get(asset.path), 1, asset.path);
           }
           // 主工作区与按需模块均执行真实产物，检查分包循环及初始化顺序。

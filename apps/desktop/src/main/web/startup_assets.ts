@@ -156,17 +156,6 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
       });
     }
   }
-  for (const asset of assets) {
-    if (!asset.preload || paths.has(asset.path)) continue;
-    const css = asset.path.endsWith('.css');
-    const link = defaultTreeAdapter.createElement('link', htmlNames.NS.HTML, [
-      { name: 'rel', value: css ? 'preload' : 'modulepreload' },
-      { name: 'href', value: asset.path },
-      ...(css ? [{ name: 'as', value: 'style' }] : []),
-      { name: 'crossorigin', value: '' },
-    ]);
-    defaultTreeAdapter.appendChild(head, link);
-  }
   const content = { name: 'content', value: '' };
   const meta = defaultTreeAdapter.createElement('meta', htmlNames.NS.HTML, [
     { name: 'name', value: 'weq-startup-resources' },
@@ -175,6 +164,20 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
   const first = head.childNodes[0];
   if (first) defaultTreeAdapter.insertBefore(head, meta, first);
   else defaultTreeAdapter.appendChild(head, meta);
+  if (assets.some((asset) => asset.preload)) {
+    const offline = defaultTreeAdapter.createElement('meta', htmlNames.NS.HTML, [
+      { name: 'name', value: 'weq-offline-bundle' },
+      {
+        name: 'content',
+        value: JSON.stringify({
+          version: 1,
+          waitForWorkspace: true,
+          resources: assets.map(({ path }) => ({ path })),
+        }),
+      },
+    ]);
+    defaultTreeAdapter.insertBefore(head, offline, meta);
+  }
   const boot = defaultTreeAdapter.createElement('script', htmlNames.NS.HTML, []);
   defaultTreeAdapter.insertText(boot, tracker);
   const resource = head.childNodes.find(
@@ -186,10 +189,12 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
   return (gzip) => {
     const existing = variants.get(gzip);
     if (existing !== undefined) return existing;
-    const resources = assets.map((asset) => ({
-      path: asset.path,
-      size: gzip ? asset.gzip : asset.raw,
-    }));
+    const resources = assets
+      .filter((asset) => !asset.preload)
+      .map((asset) => ({
+        path: asset.path,
+        size: gzip ? asset.gzip : asset.raw,
+      }));
     content.value = JSON.stringify({ version: 1, resources });
     const output = serialize(document);
     variants.set(gzip, output);
