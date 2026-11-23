@@ -70,6 +70,8 @@ const state = vi.hoisted(() => ({
   uploadImage: vi.fn(async (_input: unknown) => ({ richval: 'synthetic-richval' })),
   publish: vi.fn<(input: unknown) => Promise<QzonePublication>>(),
   removePost: vi.fn<(input: unknown) => Promise<QQWriteOutcome>>(),
+  postVisibility: vi.fn(),
+  updatePostVisibility: vi.fn(),
 }));
 vi.mock('../src/renderer/src/components/QqAvatar', () => ({
   QqAvatar: ({ size }: { size: number }) =>
@@ -127,6 +129,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       qqActions: {
         qzoneHome: { useInfiniteQuery: () => ({ data: { pages: state.homePages } }) },
         qzoneSpaceProfile: { useQuery: state.spaceProfile },
+        qzoneTextPostVisibility: { useQuery: state.postVisibility },
       },
     },
   },
@@ -141,6 +144,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         qzone: { mutate: state.write },
         qzoneForward: { mutate: state.forward },
         removeQzonePost: { mutate: state.removePost },
+        updateQzoneTextPostVisibility: { mutate: state.updatePostVisibility },
         qzoneOrdinaryShare: { mutate: state.share },
       },
       qzone: {
@@ -240,6 +244,8 @@ beforeEach(() => {
     },
   });
   state.removePost.mockReset().mockResolvedValue({ state: 'confirmed' });
+  state.postVisibility.mockReset().mockReturnValue({ data: { visibility: 64 } });
+  state.updatePostVisibility.mockReset().mockResolvedValue({ state: 'confirmed', visibility: 4 });
   state.nativeDetail.mockClear();
   state.detail.mockReset();
   state.mediaTypes.mockReset().mockResolvedValue([]);
@@ -435,6 +441,11 @@ function trackImageRead() {
 }
 it.each([false, true])('选图完成后恢复发表并可提交，严格模式=%s', async (strict) => {
   const { dialog, input, submit, host } = await openComposer(strict, true);
+  const visibility = dialog.querySelector('[role="radiogroup"][aria-label="说说可见范围"]')!;
+  const friends = [...visibility.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+    (item) => item.textContent === '好友可见',
+  )!;
+  await act(async () => friends.click());
   const content = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
@@ -470,7 +481,7 @@ it.each([false, true])('选图完成后恢复发表并可提交，严格模式=%
     selfUin: '10001',
     content: '合成图文说说',
     richvals: ['synthetic-richval'],
-    visibility: 1,
+    visibility: 4,
   });
   expect(document.querySelector('.weq-qzn-composer')).toBeNull();
   expect(host.querySelector('[aria-label="空间内容"] [aria-current="page"]')?.textContent).toBe(
@@ -1851,6 +1862,62 @@ it('视频预览只链接同一作者的说说，关闭原文后返回正在浏�
   expect(activeMediaPreview()).toBe(source);
   expect(source.getAttribute('aria-label')).toBe('有关联的视频');
   expect(state.videos).toHaveBeenCalledOnce();
+});
+
+it('自己的纯文本说说从菜单修改可见范围，使用实际读回值更新卡片', async () => {
+  const tid = '112700000100000001000000';
+  const post = {
+    tid,
+    content: '合成说说',
+    time: 1,
+    images: [],
+    videos: [],
+    commentNum: 0,
+    isPrivate: true,
+  };
+  state.posts.mockResolvedValue({ total: 1, list: [post] });
+  state.detail.mockResolvedValue({ post, contentHasMore: false });
+  state.homePages = [
+    {
+      feeds: [
+        {
+          cell_common: { app_id: 311, time: 1, union_id: { feed_id: tid } },
+          cell_user_info: { user: { uin: '10001' } },
+          cell_summary: { summary: [{ type: 0, content: post.content }] },
+        },
+      ],
+    },
+  ];
+  const view = await mount();
+  await act(async () => view.button('更多操作').click());
+  const edit = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] button')].find(
+    (item) => item.textContent === '修改可见范围',
+  )!;
+  await act(async () => edit.click());
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  expect(dialog.hasAttribute('aria-modal')).toBe(false);
+  const scope = dialog.querySelector<HTMLElement>(
+    '[role="radiogroup"][aria-label="说说可见范围"]',
+  )!;
+  expect(scope.querySelector('[aria-checked="true"]')?.textContent).toBe('仅自己可见');
+  const friends = [...scope.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+    (item) => item.textContent === '好友可见',
+  )!;
+  await act(async () => friends.click());
+  await act(async () => dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+  expect(state.updatePostVisibility).toHaveBeenCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    tid,
+    expected: 64,
+    visibility: 4,
+  });
+  expect(view.host.textContent).toContain('好友可见');
+  expect(view.host.textContent).not.toContain('仅自己可见');
+  await view.openPane('主页');
+  const home = view.host.querySelector('.weq-qzn-home')!;
+  expect(home.textContent).toContain('好友可见');
+  expect(home.textContent).not.toContain('仅自己可见');
 });
 
 it.each([true, false])('删除仅在单条读回确认后从两个栏目移除，确认=%s', async (confirmed) => {

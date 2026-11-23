@@ -349,3 +349,22 @@ html[data-theme='dark'] .weq-qzn-like-popover {
   background: var(--popover);
   border-color: var(--weq-border-strong);
 }
+.weq-overlay-layer.weq-qzn-visibility-layer[tabindex] > .weq-qzn-visibility-popover {
+  display: grid;
+  gap: 12px;
+  width: min(320px, calc(100vw - 16px));
+  padding: 14px;
+  border-radius: 8px;
+}
+
+.weq-qzn-visibility-popover h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.weq-qzn-visibility-popover footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

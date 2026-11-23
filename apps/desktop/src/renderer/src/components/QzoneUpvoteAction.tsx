@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArchiveX, Heart, Loader2, RefreshCw, Send, Trash2, Undo2 } from 'lucide-react';
+import { ArchiveX, Heart, Loader2, Lock, RefreshCw, Send, Trash2, Undo2 } from 'lucide-react';
 import type { QzoneUpvotePreview } from '@weqbot/protocol';
+import type { QzoneTextVisibility } from '@weqbot/protocol/web';
 import { client } from '../trpc/client';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { QzoneLikesPopover } from './QzoneLikesPopover';
@@ -15,6 +16,7 @@ import { QzoneInlineText } from './QzoneEmoji';
 import { ShimmerImage } from './ShimmerImage';
 import type { ConversationMenuAction } from './ConversationActionsMenu';
 import { QzoneCardMore } from './QzoneCardMore';
+import { QzoneVisibilityDialog } from './QzoneVisibilityDialog';
 import { useQzoneShareCard } from './useQzoneShareCard';
 import { isOrdinaryQzonePost } from '../lib/qzonePublic';
 import '../styles/qzone-archive.css';
@@ -131,7 +133,11 @@ export function QzoneUpvoteAction({
   );
 }
 
-export type QzonePostArchiveControls = { tag: ReactNode; menu: ReactNode; upvote: ReactNode };
+export type QzonePostArchiveControls = {
+  tag: ReactNode;
+  menu: ReactNode;
+  upvote: ReactNode;
+};
 
 /** 作者区与互动栏共用原生详情缓存；只读取可见动态，不阻塞赞和正文。 */
 export function QzonePostArchive({
@@ -143,6 +149,7 @@ export function QzonePostArchive({
   refresh,
   onSpace,
   onDeleted,
+  onVisibilityChanged,
   render,
 }: {
   selfUin: string;
@@ -153,6 +160,7 @@ export function QzonePostArchive({
   refresh: number;
   onSpace?: (uin: string, nickname?: string) => void;
   onDeleted?: () => void;
+  onVisibilityChanged?: (visibility: QzoneTextVisibility) => void;
   render: (controls: QzonePostArchiveControls) => ReactNode;
 }) {
   const requests = useQzoneRequests();
@@ -161,6 +169,8 @@ export function QzonePostArchive({
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [archive, setArchive] = useState<ArchiveView | null>(null);
+  const [visibilityEditor, setVisibilityEditor] = useState<string>();
+  const menuAnchor = useRef<HTMLButtonElement>(null);
   const write = useQQAction(`qzone-archive:${hostUin}:${tid}`, 'failure-only');
   const ordinaryPost = isOrdinaryQzonePost(hostUin, tid);
   const binding =
@@ -318,6 +328,14 @@ export function QzonePostArchive({
     action: () => void perform(action),
   }));
   if (share.action) actions.unshift(share.action);
+  if (ordinaryPost && selfUin === hostUin && onVisibilityChanged) {
+    actions.push({
+      label: '修改可见范围',
+      icon: <Lock size={16} aria-hidden />,
+      disabled: write.disabled || !binding,
+      action: () => setVisibilityEditor(writeScope),
+    });
+  }
   if (ordinaryPost && selfUin === hostUin && onDeleted) {
     actions.push({
       label: '删除说说',
@@ -365,8 +383,45 @@ export function QzonePostArchive({
     menu:
       actions.length || showRetry || share.dialog ? (
         <>
-          <QzoneCardMore actions={actions} busy={write.pending} />
+          <QzoneCardMore actions={actions} busy={write.pending} triggerRef={menuAnchor} />
           {share.dialog}
+          {visibilityEditor === writeScope && write.binding && (
+            <QzoneVisibilityDialog
+              anchor={menuAnchor.current}
+              binding={write.binding}
+              tid={tid}
+              busy={write.pending}
+              disabled={write.disabled}
+              onClose={() => setVisibilityEditor(undefined)}
+              onSave={async (expected, visibility) => {
+                let observed: QzoneTextVisibility | undefined;
+                const done = await write.perform(
+                  async (binding) => {
+                    const result =
+                      await client.account.qqActions.updateQzoneTextPostVisibility.mutate({
+                        ...binding,
+                        tid,
+                        expected,
+                        visibility,
+                      });
+                    observed = result.visibility;
+                    return result;
+                  },
+                  undefined,
+                  undefined,
+                  { refreshCaches: false },
+                );
+                if (!done) return;
+                if (observed === undefined) {
+                  toast({ title: '暂未确认可见范围，请重新读取后核对', tone: 'warning' });
+                  return;
+                }
+                onVisibilityChanged?.(observed);
+                setVisibilityEditor(undefined);
+                menuAnchor.current?.focus({ preventScroll: true });
+              }}
+            />
+          )}
           {showRetry ? (
             <button
               type="button"

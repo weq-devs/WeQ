@@ -105,6 +105,45 @@ it('在线凭据异步返回后重新核对运行态，不缓存失活来源的�
   expect(native.ptFetchCredentials).toHaveBeenCalledTimes(2);
 });
 
+it('需要完整 Cookie 的写操作用在线会话替换登录时的 p_skey 种子', async () => {
+  const cookie = 'uin=o10001; skey=live-s; p_skey=live-p; session=fixture';
+  const native = {
+    ptFetchCredentials: vi.fn(async () => ({
+      success: true,
+      skey: 'live-s',
+      pskey: 'live-p',
+      cookie,
+    })),
+  };
+  const provider = new WebCredentialProvider(native, '10001', () => 42);
+  provider.seedPskey({ 'qzone.qq.com': 'seed' });
+  expect((await provider.forDomain('qzone.qq.com')).pskey).toBe('seed');
+  expect(native.ptFetchCredentials).not.toHaveBeenCalled();
+  expect(await provider.forDomain('qzone.qq.com', { requireFullCookie: true })).toEqual({
+    uin: '10001',
+    skey: 'live-s',
+    pskey: 'live-p',
+    cookie,
+  });
+  await provider.forDomain('qzone.qq.com', { requireFullCookie: true });
+  expect(native.ptFetchCredentials).toHaveBeenCalledTimes(1);
+});
+
+it('需要完整 Cookie 时拒绝仅能拼装基础 Cookie 的凭据', async () => {
+  const native = {
+    ptFetchCredentials: async () => ({
+      success: true,
+      skey: 'live-s',
+      pskey: 'live-p',
+      cookie: '',
+    }),
+  };
+  const provider = new WebCredentialProvider(native, '10001', () => 42);
+  await expect(provider.forDomain('qzone.qq.com', { requireFullCookie: true })).rejects.toThrow(
+    '完整',
+  );
+});
+
 describe('cookieHeader', () => {
   it('有完整 jar 时优先透传', () => {
     const cred: WebCredential = {

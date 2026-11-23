@@ -14,7 +14,7 @@
 import { setTimeout as wait } from 'node:timers/promises';
 import type { AccountSession } from '@weq/account';
 import { buildGiftMallBuyItemRequest } from '@weqbot/protocol';
-import { WebCredentialProvider, withRetry, type WebNative } from './credential';
+import { WebAuthError, WebCredentialProvider, withRetry, type WebNative } from './credential';
 import { getFriendDress, type FriendDress } from './friend_dress';
 import {
   getGroupAlbumList,
@@ -105,10 +105,13 @@ import {
   getQzoneShareComments,
   getQzoneVideos,
   getQzoneVisitors,
+  getQzoneTextPostVisibility,
+  setQzoneTextPostVisibility,
   setQzoneProfile,
   deleteQzoneMsg,
   type QzoneProfilePatch,
   type QzoneShareCategory,
+  type QzoneTextVisibility,
 } from '@weqbot/protocol';
 import { setQzoneLike, commentQzoneMsg, type QzoneCommentResult } from './qzone';
 import { replyQzoneMsg, forwardQzoneMsg, type QzoneReplyTarget } from './qzone_write_actions';
@@ -759,6 +762,31 @@ export class WebQueryService {
     return (
       (await this.confirmQzonePostWrite(hostUin, tid, 'missing', current))?.state === 'missing'
     );
+  }
+
+  async qzoneTextPostVisibility(selfUin: string, tid: string) {
+    return withRetry(this.creds, QZONE_DOMAIN, (cred) => {
+      if (cred.uin !== selfUin) throw new Error('账号已切换，请重新打开说说。');
+      return getQzoneTextPostVisibility(cred, tid);
+    });
+  }
+
+  async updateQzoneTextPostVisibility(
+    selfUin: string,
+    tid: string,
+    expected: QzoneTextVisibility,
+    visibility: QzoneTextVisibility,
+    current: () => void,
+  ) {
+    const cred = await this.creds.forDomain(QZONE_DOMAIN, { requireFullCookie: true });
+    current();
+    if (cred.uin !== selfUin) throw new Error('账号已切换，请重新打开说说。');
+    try {
+      return await setQzoneTextPostVisibility(cred, tid, expected, visibility, current);
+    } catch (error) {
+      if (error instanceof WebAuthError) this.creds.invalidate(QZONE_DOMAIN);
+      throw error;
+    }
   }
 
   async readPublishedQzonePost(hostUin: string, tid: string, current: () => void) {

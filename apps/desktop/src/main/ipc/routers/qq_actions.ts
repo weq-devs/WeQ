@@ -45,6 +45,8 @@ const text = z.string().trim().min(1).max(4096);
 const id = z.string().min(1).max(1024);
 const groupId = z.number().int().positive().max(0xffffffff);
 const group = binding.extend({ groupId });
+const qzoneTextPost = binding.extend({ tid: z.string().regex(/^[\da-f]{24}$/i) });
+const qzoneVisibility = z.union([z.literal(1), z.literal(4), z.literal(64)]);
 const groupTags = z
   .array(
     z
@@ -1610,6 +1612,30 @@ export function createQQActionsRouter(
     qzoneFeedShare: procedure
       .input(binding.extend({ feed: z.record(z.string(), z.unknown()) }))
       .mutation(({ input: i }) => read(i, (s) => s.webQuery.qzoneFeedShare(i.feed))),
+    qzoneTextPostVisibility: procedure
+      .input(qzoneTextPost)
+      .query(({ input: i }) =>
+        read(i, (s) => s.webQuery.qzoneTextPostVisibility(i.expectedAccountUin, i.tid)),
+      ),
+    updateQzoneTextPostVisibility: procedure
+      .input(qzoneTextPost.extend({ expected: qzoneVisibility, visibility: qzoneVisibility }))
+      .mutation(async ({ input: i }) => {
+        let result: Awaited<
+          ReturnType<QQActionServices['webQuery']['updateQzoneTextPostVisibility']>
+        > = {
+          state: 'unconfirmed',
+        };
+        await write(i, async (s, current) => {
+          result = await s.webQuery.updateQzoneTextPostVisibility(
+            i.expectedAccountUin,
+            i.tid,
+            i.expected,
+            i.visibility,
+            current,
+          );
+        });
+        return result;
+      }),
     removeQzonePost: procedure
       .input(
         binding.extend({

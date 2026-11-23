@@ -10,6 +10,7 @@ import {
   useVirtualizer,
 } from '@tanstack/react-virtual';
 import { FormSelect } from '../components/FormSelect';
+import { SegmentedControl } from '../components/SegmentedControl';
 import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
 import { QZONE_SECTION_FEATURES, type QzoneFeatureSection } from '@weq/service/feature-catalog';
@@ -117,6 +118,7 @@ import {
   type QzoneSpaceRequest,
 } from '../lib/qzoneNavigation';
 import { QZONE_IMAGE_MAX_BYTES, QZONE_VISIBILITY } from '../../../shared/qzone';
+import type { QzoneTextVisibility } from '@weqbot/protocol/web';
 import { stageAccountFile } from '../lib/accountFilePicker';
 import { IS_WEB } from '../lib/target.shared';
 import { QzoneSpaceHome, type QzoneHomePostProps } from './QzoneSpaceHome';
@@ -194,6 +196,10 @@ const errorText = (error: unknown): string =>
 const QzoneReadsEnabled = createContext(true);
 const PinFeedCard = createContext<((pinned: boolean) => void) | null>(null);
 const FeedCardData = createContext<PageDataCache | null>(null);
+const OwnPostVisibility = createContext<{
+  changes: ReadonlyMap<string, QzoneTextVisibility> | undefined;
+  confirm: (tid: string, visibility: QzoneTextVisibility) => void;
+} | null>(null);
 const TIMELINE_REENTRY_REFRESH_MS = 5 * 60_000;
 
 /** 长列表切换栏目时保留已读卡片和图片；其它子页仍按需挂载。 */
@@ -1056,6 +1062,25 @@ function SpaceContent({
   onSpace: (uin: string, nickname?: string) => void;
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
+  const [visibilityEdits, setVisibilityEdits] = useState<{
+    refresh: number;
+    changes: ReadonlyMap<string, QzoneTextVisibility>;
+  }>();
+  const visibilityContext = useMemo(
+    () => ({
+      changes: visibilityEdits?.refresh === refreshKey ? visibilityEdits.changes : undefined,
+      confirm: (tid: string, visibility: QzoneTextVisibility) => {
+        setVisibilityEdits((old) => {
+          const changes = new Map(old?.refresh === refreshKey ? old.changes : undefined);
+          changes.delete(tid);
+          changes.set(tid, visibility);
+          if (changes.size > 128) changes.delete(changes.keys().next().value!);
+          return { refresh: refreshKey, changes };
+        });
+      },
+    }),
+    [refreshKey, visibilityEdits],
+  );
   const openProfile = useContext(QzoneProfileContext);
   const openAlbum = useContext(QzoneAlbumNavigationContext);
   const handledAlbum = useRef<string | null>(null);
@@ -1352,7 +1377,9 @@ function SpaceContent({
   );
   return (
     <QzoneMediaNavigationContext.Provider value={mediaNavigation}>
-      {content}
+      <OwnPostVisibility.Provider value={selfUin === hostUin ? visibilityContext : null}>
+        {content}
+      </OwnPostVisibility.Provider>
     </QzoneMediaNavigationContext.Provider>
   );
 }
@@ -2002,6 +2029,7 @@ function Post({
           ),
       )
     : post.videos;
+  const visibility = useContext(OwnPostVisibility)?.changes?.get(post.tid);
   const render = ({ tag, menu, actions }: PostActionSlots) => (
     <>
       <div className="weq-qzn-post-head">
@@ -2014,10 +2042,11 @@ function Post({
           time={
             <div className="weq-qzn-post-meta">
               <QzoneTime value={post.time} />
-              {post.isPrivate ? (
+              {visibility === 4 ||
+              (visibility === undefined ? post.isPrivate : visibility === 64) ? (
                 <span className="weq-qzn-post-status">
                   <Lock size={16} className="weq-qzn-post-status-icon" aria-hidden />
-                  <span>仅自己可见</span>
+                  <span>{visibility === 4 ? '好友可见' : '仅自己可见'}</span>
                 </span>
               ) : null}
               {tag}
@@ -2186,7 +2215,11 @@ type InteractionPost = Pick<QzoneEmotion, 'tid' | 'time'> & {
   forwardNum?: number;
   repost?: QzoneEmotion['repost'];
 };
-type PostActionSlots = { tag: ReactNode; menu: ReactNode; actions: ReactNode };
+type PostActionSlots = {
+  tag: ReactNode;
+  menu: ReactNode;
+  actions: ReactNode;
+};
 const PostActions = withQQAccountScope(PostActionsBody, (props) => ({
   kind: 'qzone',
   target: { kind: 'post', uin: props.hostUin, tid: props.post.tid },
@@ -2218,6 +2251,7 @@ function PostActionsBody({
     focusComment ? 'comments' : null,
   );
   const [forwardOpen, setForwardOpen] = useState(false);
+  const ownVisibility = useContext(OwnPostVisibility);
   const [replyTarget, setReplyTarget] = useState<QzoneReplyTarget | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentPicture, setCommentPicture] = useState<{ path: string; fileName: string } | null>(
@@ -2548,6 +2582,16 @@ function PostActionsBody({
       refresh={refresh}
       onSpace={onSpace}
       onDeleted={onDeleted}
+      onVisibilityChanged={
+        ownVisibility &&
+        onDeleted &&
+        post.content?.trim() &&
+        !post.repost &&
+        !post.images?.length &&
+        !post.videos?.length
+          ? (value) => ownVisibility.confirm(post.tid, value)
+          : undefined
+      }
       render={({ tag, menu, upvote }) => render({ tag, menu, actions: renderActions(upvote) })}
     />
   );
@@ -4497,18 +4541,13 @@ function Composer({
               }}
             />
           </label>
-          <FormSelect
-            aria-label="说说可见范围"
+          <SegmentedControl<QzoneTextVisibility>
+            label="说说可见范围"
+            options={QZONE_VISIBILITY}
             disabled={busy}
             value={visibility}
-            onChange={(event) => setVisibility(Number(event.target.value) as 1 | 4 | 64)}
-          >
-            {QZONE_VISIBILITY.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </FormSelect>
+            onChange={setVisibility}
+          />
           <button
             type="button"
             className="weq-qzn-primary"

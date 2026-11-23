@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type RefObject } from 'react';
 import { Loader2, MoreHorizontal } from 'lucide-react';
 import { visibleViewport } from '../lib/visibleViewport';
 import { ConversationActionsMenu, type ConversationMenuAction } from './ConversationActionsMenu';
@@ -7,12 +7,15 @@ import '../styles/qzone-archive.css';
 export function QzoneCardMore({
   actions,
   busy = false,
+  triggerRef,
 }: {
   actions: ConversationMenuAction[];
   busy?: boolean;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number; above: boolean } | null>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
+  const localTrigger = useRef<HTMLButtonElement>(null);
+  const trigger = triggerRef ?? localTrigger;
   const close = () => {
     setMenu(null);
     trigger.current?.focus({ preventScroll: true });

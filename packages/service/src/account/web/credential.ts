@@ -183,7 +183,7 @@ export class WebCredentialProvider {
   }
 
   /** Credential bundle for `domain` (e.g. 'qun.qq.com', 'qzone.qq.com'). */
-  async forDomain(domain: string): Promise<WebCredential> {
+  async forDomain(domain: string, { requireFullCookie = false } = {}): Promise<WebCredential> {
     const pid = this.resolvePid();
     if (this.lastPid !== undefined && this.lastPid !== pid) {
       for (const key of this.generations.keys()) this.invalidateRead(key);
@@ -212,7 +212,7 @@ export class WebCredentialProvider {
 
       // 已有 p_skey（live 或登录时 seed）时不再要求 skey：离线只剩 seed 票据
       // 的场景仍能用 p_skey 算 g_tk，四字段 Cookie 也足够多数 cgi 使用。
-      if (!pskey) {
+      if (!pskey || (requireFullCookie && (!skey || !cookie))) {
         const res = await fetchCredentials(this.nt, pid, this.uin, domain);
         if (this.resolvePid() !== pid)
           throw new OperationError('在线来源已变化，已丢弃旧 Web 凭据', 'expected');
@@ -220,9 +220,15 @@ export class WebCredentialProvider {
           throw new OperationError('Web 凭据已失效，请重新获取。', 'expected');
         if (!res.success || !res.pskey)
           throw new OperationError(res.msg || '获取 Web 凭据失败', 'unavailable');
+        if (requireFullCookie && (!res.skey || !res.cookie))
+          throw new OperationError(
+            '未取得完整的 QQ 空间网页登录态，请重新连接 QQ。',
+            'unavailable',
+          );
         skey = res.skey;
         pskey = res.pskey;
         cookie = res.cookie || undefined;
+        this.seededDomains.delete(domain);
         this.skey = skey;
         this.pskeyByDomain.set(domain, pskey);
         if (cookie) this.cookieByDomain.set(domain, cookie);
